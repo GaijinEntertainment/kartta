@@ -1,0 +1,16 @@
+[package]
+name = "kartta"
+description = "Multi-language code graph engine: filesystem index, tree-sitter extraction, graph queries"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["code-graph", "tree-sitter", "index", "search", "static-analysis"]
+categories = ["development-tools", "parser-implementations"]
+
+[lints]
+workspace = true
+
+[dependencies]
