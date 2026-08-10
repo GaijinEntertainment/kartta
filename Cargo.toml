@@ -1,0 +1,78 @@
+[workspace]
+resolver = "3"
+members = ["crates/kartta-fs"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+repository = "https://github.com/GaijinEntertainment/kartta"
+authors = ["Gaijin Entertainment"]
+
+[workspace.lints.rust]
+ambiguous_negative_literals = "warn"
+elided_lifetimes_in_paths = "warn"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unreachable_pub = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+# Groups carry priority = -1 so the individual entries below win on conflict. Everything except `restriction` is on:
+# `nursery` included, since its false positives cost less than the defects it catches in agent-written code.
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+# Shape: thresholds live in clippy.toml, these are the lints that read them.
+cognitive_complexity = "warn"
+excessive_nesting = "warn"
+
+# No panics in library code. clippy.toml exempts tests, where a proven panic is the assertion.
+expect_used = "warn"
+panic = "warn"
+unwrap_used = "warn"
+
+# Left-behind scaffolding and debug output, which is what an interrupted agent run leaves.
+dbg_macro = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+# Suppressions must be self-expiring and justified: `expect` warns once the lint stops firing.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+
+# unsafe stays documented one operation at a time.
+multiple_unsafe_ops_per_block = "warn"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+
+# Remaining `restriction` picks. The group as a whole is never enabled: its lints forbid reasonable code and
+# contradict each other.
+clone_on_ref_ptr = "warn"
+exit = "warn"
+mem_forget = "warn"
+rc_buffer = "warn"
+verbose_file_reads = "warn"
+
+[profile.release]
+# Matches the deployment build; lto stays off for iteration speed.
+opt-level = 3
+
+[profile.profiling]
+# Release codegen with full debug info so sampling profilers resolve inlined frames.
+inherits = "release"
+debug = true
