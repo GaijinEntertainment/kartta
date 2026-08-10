@@ -1,0 +1,29 @@
+version: 2
+
+# The Go and Node planes get their own `gomod` / `npm` entries once their directories exist — dependabot errors on a
+# configured directory that is not in the repo, so the entries land with the planes, not before.
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      cargo-deps:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # tree-sitter is declared by the extractor crate and by every vendored grammar, and the crate sets Cargo's
+      # `links = "tree-sitter"` key — exactly one version may exist in the dependency graph. A per-crate bump does
+      # not resolve at all, so bumps are manual and move every declaring crate in one commit.
+      - dependency-name: tree-sitter
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types:
+          - minor
+          - patch

@@ -1,0 +1,64 @@
+name: CI
+
+# fmt, clippy and test are the three gates. Upstream they were local-only — a green build said nothing about the Rust
+# code — so here they are the reason CI exists: every one of them blocks a merge.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every platform a plane is consumed on: the vendored grammars compile C, and the FFI boundary is where
+        # platform assumptions break.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace --all-targets
+      - run: cargo test --workspace
+
+  # ci-ok is the single branch-protection gate: it fails when any job of the run failed or was cancelled, and passes
+  # when every triggered job passed or was skipped — so conditional jobs never need enumerating in rulesets.
+  ci-ok:
+    if: always()
+    needs: [fmt, clippy, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: verify all jobs succeeded
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          [[ "$RESULTS" != *'"failure"'* && "$RESULTS" != *'"cancelled"'* ]]
