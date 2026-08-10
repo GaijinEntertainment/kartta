@@ -1,0 +1,13 @@
+# LF in the index for everything text-like. The test matrix builds on Windows and the planes are consumed there, so
+# nothing may depend on the checkout's line endings.
+* text=auto eol=lf
+
+# Snapshot and golden files are compared byte for byte; keep them exactly as committed on every platform.
+*.golden -text
+*.snap -text
+
+# Vendored tree-sitter output is generated, not authored: keep it out of GitHub's language stats and collapsed in
+# diffs, so the repo reads as Rust and a grammar regeneration does not drown a review.
+crates/tree-sitter-*/src/parser.c linguist-generated=true
+crates/tree-sitter-*/src/grammar.json linguist-generated=true
+crates/tree-sitter-*/src/node-types.json linguist-generated=true

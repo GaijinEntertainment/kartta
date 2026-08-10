@@ -1,0 +1,46 @@
+# fkn MacOS..
+.DS_Store
+
+# IDEA and its shareable configs
+# globs are matched against the repo root, hence two more patterns for nested entities
+.idea/*
+!.idea/scopes/
+**/.idea/*
+!**/.idea/scopes/
+
+.vscode/
+
+# Rust build artifacts
+/target/
+**/target/
+
+# Go plane artifacts
+/dist/
+/bin/
+*.exe
+*.exe~
+*.test
+coverage.txt
+coverage.html
+
+# Node plane artifacts
+node_modules/
+*.tsbuildinfo
+
+# Linkable FFI output — the planes build it locally, it is never committed
+*.a
+*.o
+*.lib
+*.pdb
+*.so
+*.dylib
+*.dll
+*.node
+
+# Env & local config
+*.env
+.config.yaml
+
+# Claude Code local overrides
+.claude/settings.local.json
+.claude/*.local.json
