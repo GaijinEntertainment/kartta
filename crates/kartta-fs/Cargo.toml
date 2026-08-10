@@ -1,0 +1,16 @@
+[package]
+name = "kartta-fs"
+description = "Repository file index with glob, fuzzy and regex queries over a single filesystem walk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["filesystem", "index", "glob", "grep", "gitignore"]
+categories = ["filesystem", "development-tools"]
+
+[lints]
+workspace = true
+
+[dependencies]
