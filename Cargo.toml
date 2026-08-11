@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/kartta", "crates/kartta-fs"]
+members = ["crates/kartta", "crates/kartta-fs", "crates/kartta-walk"]
 
 [workspace.package]
 version = "0.0.0"
@@ -59,6 +59,11 @@ allow_attributes_without_reason = "warn"
 multiple_unsafe_ops_per_block = "warn"
 undocumented_unsafe_blocks = "warn"
 unnecessary_safety_comment = "warn"
+
+# Contradicts rustc's `unreachable_pub`, which this workspace enables: `redundant_pub_crate` demands `pub` for an item
+# inside a private module, `unreachable_pub` demands `pub(crate)` for the same item. The rustc lint wins, because it is
+# the one keeping the published surface honest.
+redundant_pub_crate = "allow"
 
 # Remaining `restriction` picks. The group as a whole is never enabled: its lints forbid reasonable code and
 # contradict each other.
