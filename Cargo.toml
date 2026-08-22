@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/kartta", "crates/kartta-fs", "crates/kartta-walk"]
+members = ["crates/kartta", "crates/kartta-fs", "crates/kartta-fuzz", "crates/kartta-walk"]
 
 [workspace.package]
 version = "0.0.0"
