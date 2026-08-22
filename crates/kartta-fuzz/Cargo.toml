@@ -1,0 +1,25 @@
+[package]
+name = "kartta-fuzz"
+description = "Path-aware fuzzy scorer that ranks repository paths against a query by optimal alignment"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["fuzzy", "search", "ranking", "path", "matcher"]
+categories = ["algorithms", "text-processing"]
+
+[lints]
+workspace = true
+
+[dependencies]
+memchr = "2.8.3"
+
+[dev-dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "rank"
+harness = false

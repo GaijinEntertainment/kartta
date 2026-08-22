@@ -299,6 +299,14 @@ name = "kartta-fs"
 version = "0.0.0"
 
 [[package]]
+name = "kartta-fuzz"
+version = "0.0.0"
+dependencies = [
+ "criterion",
+ "memchr",
+]
+
+[[package]]
 name = "kartta-walk"
 version = "0.0.0"
 dependencies = [
