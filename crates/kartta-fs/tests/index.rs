@@ -11,7 +11,7 @@ use std::fs;
 use std::num::NonZeroUsize;
 use std::path::Path;
 
-use kartta_fs::{BuildError, Config, Entry, EntryKind, IgnoreSources, Index};
+use kartta_fs::{BuildError, Config, Entry, EntryKind, Filter, IgnoreSources, Index};
 use tempfile::TempDir;
 
 /// Builds a temporary tree from `path -> content` pairs, creating parent directories as needed. A path ending in `/`
@@ -286,7 +286,7 @@ fn fuzzy_paths_ranks_a_filename_hit_above_a_directory_hit() {
     let index = default_index(dir.path());
 
     let ranked: Vec<&str> = index
-        .fuzzy_paths("main", None)
+        .fuzzy_paths("main", None, None)
         .iter()
         .map(|found| found.path)
         .collect();
@@ -299,7 +299,7 @@ fn fuzzy_paths_never_returns_a_directory() {
     let dir = tree(&[("src/main.rs", ""), ("src/nested/deep.rs", "")]);
     let index = default_index(dir.path());
 
-    let ranked = index.fuzzy_paths("src", None);
+    let ranked = index.fuzzy_paths("src", None, None);
     assert!(!ranked.is_empty(), "the query matches the files under src");
 
     for found in &ranked {
@@ -321,14 +321,14 @@ fn fuzzy_paths_honours_a_limit_and_scores_descend() {
     ]);
     let index = default_index(dir.path());
 
-    let all = index.fuzzy_paths("main", None);
+    let all = index.fuzzy_paths("main", None, None);
     assert_eq!(all.len(), 3);
     assert!(
         all.windows(2).all(|pair| pair[0].score >= pair[1].score),
         "best first"
     );
 
-    let capped = index.fuzzy_paths("main", NonZeroUsize::new(2));
+    let capped = index.fuzzy_paths("main", None, NonZeroUsize::new(2));
     assert_eq!(capped.len(), 2);
     assert_eq!(capped[0].path, all[0].path);
 }
@@ -339,7 +339,7 @@ fn an_empty_query_matches_every_indexed_file_in_index_order() {
     let index = default_index(dir.path());
 
     let ranked: Vec<&str> = index
-        .fuzzy_paths("", None)
+        .fuzzy_paths("", None, None)
         .iter()
         .map(|found| found.path)
         .collect();
@@ -352,7 +352,106 @@ fn fuzzy_paths_answers_nothing_for_a_query_no_path_contains() {
     let dir = tree(&[("src/main.rs", "")]);
     let index = default_index(dir.path());
 
-    assert!(index.fuzzy_paths("qqzz", None).is_empty());
+    assert!(index.fuzzy_paths("qqzz", None, None).is_empty());
+}
+
+#[test]
+fn glob_paths_lists_the_selected_paths_in_index_order() {
+    let dir = tree(&[
+        ("src/main.rs", ""),
+        ("src/deep/mod.rs", ""),
+        ("Cargo.toml", ""),
+        ("README.md", ""),
+    ]);
+    let index = default_index(dir.path());
+
+    let filter = Filter::new(["*.{rs,toml}"]).expect("compile the patterns");
+
+    assert_eq!(
+        index.glob_paths(&filter, None),
+        ["Cargo.toml", "src/deep/mod.rs", "src/main.rs"]
+    );
+}
+
+#[test]
+fn glob_paths_never_returns_a_directory() {
+    let dir = tree(&[("src/main.rs", ""), ("src/deep/", "")]);
+    let index = default_index(dir.path());
+
+    let filter = Filter::new(["src/*"]).expect("compile the pattern");
+
+    assert_eq!(index.glob_paths(&filter, None), ["src/main.rs"]);
+    assert_eq!(
+        kind_of(&index, "src/deep"),
+        EntryKind::Dir,
+        "the directory is indexed"
+    );
+}
+
+#[test]
+fn glob_paths_honours_a_limit_by_taking_the_first_paths_in_index_order() {
+    let dir = tree(&[("a.rs", ""), ("b.rs", ""), ("c.rs", "")]);
+    let index = default_index(dir.path());
+
+    let filter = Filter::new(["*.rs"]).expect("compile the pattern");
+
+    assert_eq!(
+        index.glob_paths(&filter, NonZeroUsize::new(2)),
+        ["a.rs", "b.rs"]
+    );
+}
+
+#[test]
+fn glob_paths_answers_nothing_when_no_pattern_selects_anything() {
+    let dir = tree(&[("src/main.rs", "")]);
+    let index = default_index(dir.path());
+
+    let filter = Filter::new(["*.go"]).expect("compile the pattern");
+
+    assert!(index.glob_paths(&filter, None).is_empty());
+}
+
+#[test]
+fn a_filter_narrows_what_fuzzy_paths_ranks() {
+    let dir = tree(&[
+        ("src/main.rs", ""),
+        ("main/lib.rs", ""),
+        ("doc/main.md", ""),
+    ]);
+    let index = default_index(dir.path());
+
+    let filter = Filter::new(["*.rs"]).expect("compile the pattern");
+    let ranked: Vec<&str> = index
+        .fuzzy_paths("main", Some(&filter), None)
+        .iter()
+        .map(|found| found.path)
+        .collect();
+
+    assert_eq!(ranked, ["src/main.rs", "main/lib.rs"]);
+}
+
+#[test]
+fn a_glob_query_and_a_fuzzy_query_select_from_the_same_set() {
+    let dir = tree(&[
+        ("src/main.rs", ""),
+        ("build.log", ""),
+        (".gitignore", "*.log\n"),
+    ]);
+    let index = default_index(dir.path());
+
+    let filter = Filter::new(["**/*"]).expect("compile the pattern");
+    let listed = index.glob_paths(&filter, None);
+    let ranked: Vec<&str> = index
+        .fuzzy_paths("", None, None)
+        .iter()
+        .map(|found| found.path)
+        .collect();
+
+    assert_eq!(listed, ranked);
+    assert!(
+        !listed.contains(&"build.log"),
+        "the .gitignore applied to both"
+    );
 }
 
 #[cfg(unix)]
@@ -528,7 +627,7 @@ fn a_backslash_in_a_filename_is_not_a_path_separator_when_ranking() {
     let index = default_index(dir.path());
 
     let ranked: Vec<&str> = index
-        .fuzzy_paths("main", None)
+        .fuzzy_paths("main", None, None)
         .iter()
         .map(|found| found.path)
         .collect();
