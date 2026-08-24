@@ -113,12 +113,21 @@ impl Index {
     /// created after the walk all answer the same way.
     #[must_use]
     pub fn entry(&self, path: &str) -> Option<&Entry> {
+        self.entries.get(self.position(path)?)
+    }
+
+    /// Where the entry at this root-relative forward-slash path sits in [`Index::entries`], or `None` if nothing was
+    /// indexed there.
+    ///
+    /// The position is what a query needs to reach an entry's neighbours: [`Index::entries`] is depth-first, so a
+    /// directory's subtree is the run that starts immediately after it.
+    pub(crate) fn position(&self, path: &str) -> Option<usize> {
         let found = self
             .by_path
             .binary_search_by(|&at| self.entries[at].path.as_ref().cmp(path))
             .ok()?;
 
-        self.entries.get(self.by_path[found])
+        self.by_path.get(found).copied()
     }
 
     /// How many entries the index holds.
