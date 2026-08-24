@@ -420,7 +420,7 @@ fn glob_paths_lists_the_selected_paths_in_index_order() {
     let filter = Filter::new(["*.{rs,toml}"]).expect("compile the patterns");
 
     assert_eq!(
-        index.glob_paths(&filter, None),
+        index.glob_paths(&filter, None).items(),
         ["Cargo.toml", "src/deep/mod.rs", "src/main.rs"]
     );
 }
@@ -432,7 +432,7 @@ fn glob_paths_never_returns_a_directory() {
 
     let filter = Filter::new(["src/*"]).expect("compile the pattern");
 
-    assert_eq!(index.glob_paths(&filter, None), ["src/main.rs"]);
+    assert_eq!(index.glob_paths(&filter, None).items(), ["src/main.rs"]);
     assert_eq!(
         kind_of(&index, "src/deep"),
         EntryKind::Dir,
@@ -447,10 +447,10 @@ fn glob_paths_honours_a_limit_by_taking_the_first_paths_in_index_order() {
 
     let filter = Filter::new(["*.rs"]).expect("compile the pattern");
 
-    assert_eq!(
-        index.glob_paths(&filter, NonZeroUsize::new(2)),
-        ["a.rs", "b.rs"]
-    );
+    let capped = index.glob_paths(&filter, NonZeroUsize::new(2));
+
+    assert_eq!(capped.items(), ["a.rs", "b.rs"]);
+    assert!(capped.truncated(), "c.rs matched and was turned away");
 }
 
 #[test]
@@ -460,7 +460,7 @@ fn glob_paths_answers_nothing_when_no_pattern_selects_anything() {
 
     let filter = Filter::new(["*.go"]).expect("compile the pattern");
 
-    assert_eq!(index.glob_paths(&filter, None), Vec::<&str>::new());
+    assert_eq!(index.glob_paths(&filter, None).items(), Vec::<&str>::new());
 }
 
 #[test]
@@ -492,7 +492,8 @@ fn a_glob_query_and_a_fuzzy_query_select_from_the_same_set() {
     let index = default_index(dir.path());
 
     let filter = Filter::new(["**/*"]).expect("compile the pattern");
-    let listed = index.glob_paths(&filter, None);
+    let selected = index.glob_paths(&filter, None);
+    let listed = selected.items();
     let ranked: Vec<&str> = index
         .fuzzy_paths("", None, None)
         .iter()
@@ -1213,4 +1214,40 @@ fn a_file_replaced_by_a_directory_is_not_read_as_content() {
     fs::create_dir(dir.path().join("notes.txt")).expect("put a directory in its place");
 
     assert_eq!(index.is_binary("notes.txt"), None);
+}
+
+#[test]
+fn glob_paths_matching_exactly_the_limit_is_not_truncated() {
+    let dir = tree(&[("a.rs", ""), ("b.rs", ""), ("c.md", "")]);
+    let index = default_index(dir.path());
+    let filter = Filter::new(["*.rs"]).expect("compile the pattern");
+
+    let capped = index.glob_paths(&filter, NonZeroUsize::new(2));
+
+    assert_eq!(capped.items(), ["a.rs", "b.rs"]);
+    assert!(
+        !capped.truncated(),
+        "the limit was reached, and no matching path was turned away"
+    );
+}
+
+#[test]
+fn glob_paths_without_a_limit_is_never_truncated() {
+    let dir = tree(&[("a.rs", ""), ("b.rs", "")]);
+    let index = default_index(dir.path());
+    let filter = Filter::new(["*.rs"]).expect("compile the pattern");
+
+    assert!(!index.glob_paths(&filter, None).truncated());
+}
+
+#[test]
+fn glob_paths_selecting_nothing_is_an_empty_answer_rather_than_a_cut_one() {
+    let dir = tree(&[("a.rs", "")]);
+    let index = default_index(dir.path());
+    let filter = Filter::new(["*.toml"]).expect("compile the pattern");
+
+    let found = index.glob_paths(&filter, NonZeroUsize::new(5));
+
+    assert!(found.is_empty());
+    assert!(!found.truncated());
 }
