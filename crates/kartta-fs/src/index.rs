@@ -2,18 +2,25 @@
 
 use std::path::{Path, PathBuf};
 
-use kartta_walk::{NodeId, Tree, WalkOptions, walk};
+use kartta_walk::{EntryKind, NodeId, Tree, WalkOptions, walk};
 
 use crate::config::Config;
 use crate::entry::Entry;
 use crate::error::BuildError;
+use crate::inspection::Inspection;
 use crate::policy::{Indexing, Payload};
 use crate::rules::Rules;
 
 /// A snapshot of a directory tree: every entry the ignore rules kept, in the order a depth-first descent finds them.
 ///
-/// Build one with [`Index::build`] and query it as often as you like — nothing here re-reads the filesystem, so an
-/// index is a fixed answer about the moment it was built rather than a live view. Rebuild it to see later changes.
+/// Build one with [`Index::build`] and query it as often as you like. The structure is fixed at the moment of the
+/// walk — which entries exist, what each one is, where a symlink points — and rebuilding is the only way to see a
+/// later change to it.
+///
+/// A file's own contents are not part of that snapshot. [`Index::size`] reads the filesystem on the first ask for an
+/// entry and keeps the answer, because stat'ing a whole tree during the walk costs about half a build and most of
+/// those sizes are never looked at. So structure and contents belong to different moments, and only the structure is
+/// coherent across entries.
 ///
 /// # Order
 ///
@@ -36,7 +43,7 @@ use crate::rules::Rules;
 /// assert!(outcome.errors().is_empty(), "a complete answer");
 ///
 /// let index = outcome.into_index();
-/// assert_eq!(index.entry("main.rs").and_then(|e| e.size()), Some(12));
+/// assert_eq!(index.size("main.rs"), Some(12));
 /// assert!(index.entry("ignored.txt").is_none(), "the .gitignore applied");
 /// # Ok(())
 /// # }
@@ -47,6 +54,8 @@ pub struct Index {
     entries: Vec<Entry>,
     /// Positions into `entries`, ordered by path, so a lookup is a binary search and no path is stored twice.
     by_path: Vec<usize>,
+    /// What the walk did not read, filled by the queries that need it.
+    inspection: Inspection,
 }
 
 impl Index {
@@ -87,6 +96,7 @@ impl Index {
 
         Self {
             root,
+            inspection: Inspection::new(entries.len()),
             entries,
             by_path,
         }
@@ -128,6 +138,31 @@ impl Index {
             .ok()?;
 
         self.by_path.get(found).copied()
+    }
+
+    /// The size in bytes of the regular file at this root-relative forward-slash path.
+    ///
+    /// `None` for a path nothing is indexed at, for every kind but a regular file, where a size would not mean
+    /// anything, and for a file that would not stat. `Some(0)` is a genuinely empty file and is
+    /// never a stand-in for an unknown size.
+    ///
+    /// **This reads the filesystem**, on the first ask for a given entry, and keeps the answer — so a second ask
+    /// costs nothing and a listing that is drawn twice is stat'd once. The walk does not collect sizes, because
+    /// stat'ing every file of a large tree is roughly half of what a build costs and most of those sizes are never
+    /// looked at.
+    ///
+    /// What that buys is paid for in coherence. A size belongs to the moment it was first asked for rather than to
+    /// the walk, so two sizes from one index may describe two different moments, and neither is refreshed once taken.
+    /// A symlink that replaced the file since the walk is measured as the link, never followed.
+    #[must_use]
+    pub fn size(&self, path: &str) -> Option<u64> {
+        let at = self.position(path)?;
+
+        if self.entries.get(at)?.kind() != EntryKind::File {
+            return None;
+        }
+
+        self.inspection.size(at, &self.root.join(path))
     }
 
     /// How many entries the index holds.
@@ -195,7 +230,6 @@ fn flatten(tree: &Tree<Payload>) -> Vec<Entry> {
         entries.push(Entry {
             path: path.as_str().into(),
             kind: node.value().kind,
-            size: node.value().size,
             target: node.value().target.clone(),
         });
 
@@ -244,7 +278,6 @@ impl BuildOutcome {
     /// - [`BuildError::Walk`] — the entry or the whole subtree it names is missing.
     /// - [`BuildError::Ignore`] — the rules went unread, so the index *holds* whatever that file would have hidden.
     ///   The only kind that makes an index wrong by addition, and the only one no later check can catch.
-    /// - [`BuildError::Metadata`] — the entry is indexed, without a size.
     /// - [`BuildError::Name`] — the entry is missing, and a directory takes its subtree with it.
     #[must_use]
     pub fn errors(&self) -> &[BuildError] {
