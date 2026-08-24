@@ -39,10 +39,10 @@
 //!   faithful path — the walk decodes lossily, and two such names collapse onto one — so indexing it would hand two
 //!   entries a single lookup key and a path that opens neither.
 //! - Structure is one snapshot; a file's own bytes are not. The walk records what exists and what each entry is, so
-//!   those answers are coherent across the whole tree. [`Index::size`] instead reads the filesystem when first asked
-//!   and keeps what it read, because stat'ing every file of a large tree costs about half a build and most of those
-//!   sizes are never looked at. Two sizes from one index may therefore describe two different moments, and no answer
-//!   is refreshed once taken.
+//!   those answers are coherent across the whole tree. [`Index::size`] and [`Index::is_binary`] instead read the
+//!   filesystem when first asked and keep what they read, because doing either for a whole tree during the walk costs
+//!   far more than the answers are worth to a caller who looks at a handful of files. Two such answers from one index
+//!   may therefore describe two different moments, and none is refreshed once taken.
 //! - `Some(0)` is a genuinely empty file and `None` is a size that could not be read; the two are never conflated.
 //! - A build that could not read everything says so. [`BuildOutcome::errors`] is not a log — an index missing a
 //!   subtree, or holding files an unread `.gitignore` would have hidden, is indistinguishable from a correct one
@@ -98,12 +98,25 @@
 //! file swapped for a symlink between the walk and a later read. Both cost a writer mutating the tree mid-build what
 //! putting the same content at the same path costs them anyway.
 //!
+//! # Binary content
+//!
+//! [`Index::is_binary`] settles a file two ways, in order. An extension naming a format that is binary by
+//! construction answers with nothing opened — which carries most of the weight on a real tree, because those are the
+//! archives, media, disk images and model weights. Everything else is answered by whether a NUL appears in the file's
+//! first 64 KiB, which is git's and ripgrep's rule and the size ripgrep reads at a time.
+//!
+//! Both halves are deliberately one-sided about what a *name* may claim. The extension list says "binary, do not
+//! open" and never says text, so a file it does not name is read rather than assumed. And because the probe is
+//! bounded, the verdict describes a prefix: a file that is text for 64 KiB and binary after reports text.
+//!
 //! # What is here so far
 //!
-//! The walk, the ignore rules, the snapshot, path lookup, the directory listing, and the two path queries — glob and
-//! fuzzy — both narrowed by a [`Filter`]. Not yet: content search, regex queries, incremental re-walk, and the ignore
-//! sources outside the tree — [`IgnoreSources`] names only the levels that are implemented.
+//! The walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification, and
+//! the two path queries — glob and fuzzy — both narrowed by a [`Filter`]. Not yet: content search, regex queries,
+//! incremental re-walk, and the ignore sources outside the tree — [`IgnoreSources`] names only the levels that are
+//! implemented.
 
+mod binary;
 mod config;
 mod entry;
 mod error;

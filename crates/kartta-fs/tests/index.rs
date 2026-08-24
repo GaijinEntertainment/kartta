@@ -1070,3 +1070,117 @@ fn a_skipped_subtree_that_runs_to_the_end_of_the_index_ends_the_listing() {
     assert_eq!(listed(&top), ["a"]);
     assert!(!top.truncated());
 }
+
+#[test]
+fn an_extension_settles_a_binary_file_without_the_file_being_read() {
+    let dir = tree(&[("logo.png", "not really a png, and it does not matter")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        index.is_binary("logo.png"),
+        Some(true),
+        "the name decides, so the contents are never consulted"
+    );
+}
+
+#[test]
+fn a_nul_settles_a_file_whose_extension_does_not() {
+    let dir = tree(&[("notes.txt", "plain lines\n")]);
+    fs::write(dir.path().join("blob.txt"), b"lines\0with a nul").expect("write a file with a nul");
+    let index = default_index(dir.path());
+
+    assert_eq!(index.is_binary("notes.txt"), Some(false));
+    assert_eq!(index.is_binary("blob.txt"), Some(true));
+}
+
+#[test]
+fn a_nul_past_the_probe_leaves_the_file_reported_as_text() {
+    let dir = tree(&[]);
+    let mut content = vec![b'a'; 64 * 1024];
+    content.push(0);
+    fs::write(dir.path().join("late.txt"), &content).expect("write a file with a late nul");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        index.is_binary("late.txt"),
+        Some(false),
+        "the verdict is about the probed prefix, and the nul sits one byte past it"
+    );
+}
+
+#[test]
+fn a_nul_at_the_last_probed_byte_still_settles_the_file() {
+    let dir = tree(&[]);
+    let mut content = vec![b'a'; 64 * 1024 - 1];
+    content.push(0);
+    fs::write(dir.path().join("edge.txt"), &content).expect("write a file with a nul at the edge");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(index.is_binary("edge.txt"), Some(true));
+}
+
+#[test]
+fn only_a_regular_file_is_classified() {
+    let dir = tree(&[("sub/inner.txt", "x")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        index.is_binary("sub"),
+        None,
+        "a directory has no contents to probe"
+    );
+    assert_eq!(
+        index.is_binary("nowhere.txt"),
+        None,
+        "nothing is indexed there"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_is_not_classified_through_its_target() {
+    let dir = tree(&[("target.txt", "plain lines\n")]);
+    std::os::unix::fs::symlink("target.txt", dir.path().join("link"))
+        .expect("create a file symlink");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        index.is_binary("link"),
+        None,
+        "classifying a link would mean reading through it, which no surface here does"
+    );
+}
+
+#[test]
+fn a_file_that_will_not_open_is_unclassified_and_stays_indexed() {
+    let dir = tree(&[("gone.bin.txt", "here for now")]);
+    let index = default_index(dir.path());
+
+    fs::remove_file(dir.path().join("gone.bin.txt")).expect("remove the file");
+
+    assert_eq!(index.is_binary("gone.bin.txt"), None);
+    assert_eq!(
+        index.is_binary("gone.bin.txt"),
+        None,
+        "the failure is remembered, so a second ask costs no second open"
+    );
+    assert!(index.entry("gone.bin.txt").is_some());
+}
+
+#[test]
+fn a_classification_is_settled_once_and_answered_from_the_index_after_that() {
+    let dir = tree(&[("mutates.txt", "plain lines\n")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(index.is_binary("mutates.txt"), Some(false));
+    fs::write(dir.path().join("mutates.txt"), b"now\0binary").expect("rewrite the file");
+
+    assert_eq!(
+        index.is_binary("mutates.txt"),
+        Some(false),
+        "the first read settled it, and nothing refreshes an answer already taken"
+    );
+}
