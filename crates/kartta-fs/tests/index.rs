@@ -1184,3 +1184,33 @@ fn a_classification_is_settled_once_and_answered_from_the_index_after_that() {
         "the first read settled it, and nothing refreshes an answer already taken"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_file_replaced_by_a_fifo_does_not_block_a_classification() {
+    let dir = tree(&[("notes.txt", "plain lines\n")]);
+    let index = default_index(dir.path());
+    assert_eq!(kind_of(&index, "notes.txt"), EntryKind::File);
+
+    fs::remove_file(dir.path().join("notes.txt")).expect("remove the file");
+    mkfifo(&dir.path().join("notes.txt"));
+
+    let verdict = within_deadline(move || index.is_binary("notes.txt"));
+
+    assert_eq!(
+        verdict, None,
+        "the walk recorded a regular file, and what the probe opened is not one"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_replaced_by_a_directory_is_not_read_as_content() {
+    let dir = tree(&[("notes.txt", "plain lines\n")]);
+    let index = default_index(dir.path());
+
+    fs::remove_file(dir.path().join("notes.txt")).expect("remove the file");
+    fs::create_dir(dir.path().join("notes.txt")).expect("put a directory in its place");
+
+    assert_eq!(index.is_binary("notes.txt"), None);
+}
