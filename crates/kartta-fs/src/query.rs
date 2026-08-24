@@ -5,6 +5,7 @@ use std::num::NonZeroUsize;
 use kartta_fuzz::{Config as Scoring, Matcher};
 use kartta_walk::EntryKind;
 
+use crate::capped::Capped;
 use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::index::Index;
@@ -46,6 +47,11 @@ impl Index {
     /// is [`Index::entries`]' own depth-first one and a `limit` takes the first paths in it rather than the best.
     /// `None` returns every path the filter selects. [`Filter`] carries the dialect the patterns are written in.
     ///
+    /// Because nothing ranks, [`Capped::truncated`] is what tells a caller whether the limit turned a path away. A
+    /// ranked query needs no such flag — its order already says the rest scored lower — but ten paths in index order
+    /// look identical to the first ten of two hundred. It costs one extra match: the query pulls one path past the
+    /// limit and reports whether it was there.
+    ///
     /// Directories are not listed. A path query answers "which file did you mean", and a directory that matches would
     /// otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are* listed: they
     /// are files as far as the tree is concerned, and are reported without being followed.
@@ -54,6 +60,7 @@ impl Index {
     ///
     /// ```
     /// use kartta_fs::{Config, Filter, Index};
+    /// # use std::num::NonZeroUsize;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let dir = tempfile::tempdir()?;
@@ -65,15 +72,31 @@ impl Index {
     /// let index = Index::build(dir.path(), &Config::default())?.into_index();
     ///
     /// let filter = Filter::new(["*.{rs,toml}"])?;
-    /// assert_eq!(index.glob_paths(&filter, None), ["Cargo.toml", "src/main.rs"]);
+    /// let found = index.glob_paths(&filter, None);
+    /// assert_eq!(found.items(), ["Cargo.toml", "src/main.rs"]);
+    /// assert!(!found.truncated());
+    ///
+    /// let capped = index.glob_paths(&filter, NonZeroUsize::new(1));
+    /// assert_eq!(capped.items(), ["Cargo.toml"]);
+    /// assert!(capped.truncated(), "a second path matched and was turned away");
     /// # Ok(())
     /// # }
     /// ```
     #[must_use]
-    pub fn glob_paths(&self, filter: &Filter, limit: Option<NonZeroUsize>) -> Vec<&str> {
-        self.files(Some(filter))
-            .take(limit.map_or(usize::MAX, NonZeroUsize::get))
-            .collect()
+    pub fn glob_paths(&self, filter: &Filter, limit: Option<NonZeroUsize>) -> Capped<&str> {
+        let Some(limit) = limit else {
+            return Capped::whole(self.files(Some(filter)).collect());
+        };
+
+        let mut found: Vec<&str> = self.files(Some(filter)).take(limit.get() + 1).collect();
+
+        if found.len() > limit.get() {
+            found.truncate(limit.get());
+
+            return Capped::cut(found);
+        }
+
+        Capped::whole(found)
     }
 
     /// Ranks indexed paths against a fuzzy `query`, best first.
