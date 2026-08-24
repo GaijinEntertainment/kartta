@@ -8,9 +8,8 @@
   `01-kartta-fs-port`, 2026-08-24
 - [1.4 Take the query glob dialect from globset](./adr/1.4-take-the-query-glob-dialect-from-globset.md) — initiative
   `01-kartta-fs-port`, 2026-08-24
-- [1.5 Report truncation from a listing, not from a ranked
-  query](./adr/1.5-report-truncation-from-a-listing-not-from-a-ranked-query.md) — initiative `01-kartta-fs-port`,
-  2026-08-24
+- [1.5 Announce a cap unless the order already explains
+  it](./adr/1.5-announce-a-cap-unless-the-order-explains-it.md) — initiative `01-kartta-fs-port`, 2026-08-24
 - [1.6 Read a file's own facts on demand](./adr/1.6-read-a-file-s-own-facts-on-demand.md) — initiative
   `01-kartta-fs-port`, 2026-08-24
 
