@@ -8,6 +8,47 @@ use crate::capped::Capped;
 use crate::entry::Entry;
 use crate::index::Index;
 
+/// How far a listing descends and how many entries it returns.
+///
+/// Both bounds are absent by default, which lists the whole subtree. Set them by name — they are the same type, so a
+/// call that passed them positionally would swap silently and change both how deep the listing went and how much of it
+/// came back.
+///
+/// # Examples
+///
+/// ```
+/// use kartta_fs::ListOptions;
+///
+/// let immediate_children = ListOptions::default().depth(1);
+/// let first_twenty = ListOptions::default().limit(20);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub struct ListOptions {
+    /// How many levels below the listed directory to descend: `1` is its immediate children, `2` adds theirs.
+    ///
+    /// `None` takes the whole subtree.
+    pub depth: Option<NonZeroUsize>,
+    /// How many entries to return at most. `None` returns all of them.
+    pub limit: Option<NonZeroUsize>,
+}
+
+impl ListOptions {
+    /// Descends `depth` levels below the listed directory. `0` lifts the bound, as `None` does.
+    #[must_use]
+    pub const fn depth(mut self, depth: usize) -> Self {
+        self.depth = NonZeroUsize::new(depth);
+        self
+    }
+
+    /// Returns at most `limit` entries. `0` lifts the bound, as `None` does.
+    #[must_use]
+    pub const fn limit(mut self, limit: usize) -> Self {
+        self.limit = NonZeroUsize::new(limit);
+        self
+    }
+}
+
 /// A path [`Index::list_dir`] cannot list.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -43,9 +84,8 @@ impl Index {
     /// answer "which file did you mean" and drop them: a listing answers what is in a place, and the directories are
     /// half of that answer.
     ///
-    /// `depth` counts levels below `dir`: `1` is its immediate children, `2` adds theirs, and `None` takes the whole
-    /// subtree. `limit` caps the entries returned and `None` returns all of them;
-    /// [`Capped::truncated`] reports whether the cap turned anything away.
+    /// [`ListOptions`] carries the bounds: how far below `dir` to descend and how many entries to return.
+    /// [`Capped::truncated`] reports whether the limit turned anything away.
     ///
     /// A directory with nothing indexed under it lists nothing and is not an error. Nothing here reads the
     /// filesystem: kinds and symlink targets are the ones the walk recorded. A size or a binary verdict beside a
@@ -60,8 +100,7 @@ impl Index {
     /// # Examples
     ///
     /// ```
-    /// use kartta_fs::{Config, Entry, Index};
-    /// # use std::num::NonZeroUsize;
+    /// use kartta_fs::{Config, Index, ListOptions};
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let dir = tempfile::tempdir()?;
@@ -71,16 +110,16 @@ impl Index {
     ///
     /// let index = Index::build(dir.path(), &Config::default())?.into_index();
     ///
-    /// let listed = index.list_dir("src", None, None)?;
+    /// let listed = index.list_dir("src", &ListOptions::default())?;
     /// let paths: Vec<&str> = listed.items().iter().map(|entry| entry.path()).collect();
     /// assert_eq!(paths, ["src/main.rs", "src/net", "src/net/tcp.rs"]);
     /// assert!(!listed.truncated());
     ///
-    /// let shallow = index.list_dir("src", NonZeroUsize::new(1), None)?;
+    /// let shallow = index.list_dir("src", &ListOptions::default().depth(1))?;
     /// let paths: Vec<&str> = shallow.items().iter().map(|entry| entry.path()).collect();
     /// assert_eq!(paths, ["src/main.rs", "src/net"], "src/net/tcp.rs is a level too deep");
     ///
-    /// let capped = index.list_dir("src", None, NonZeroUsize::new(1))?;
+    /// let capped = index.list_dir("src", &ListOptions::default().limit(1))?;
     /// assert_eq!(capped.len(), 1);
     /// assert!(capped.truncated(), "the directory holds more than the cap allowed");
     /// # Ok(())
@@ -89,11 +128,10 @@ impl Index {
     pub fn list_dir(
         &self,
         dir: &str,
-        depth: Option<NonZeroUsize>,
-        limit: Option<NonZeroUsize>,
+        options: &ListOptions,
     ) -> Result<Capped<&Entry>, ListDirError> {
         let (start, prefix) = self.subtree_of(dir)?;
-        let cap = limit.map_or(usize::MAX, NonZeroUsize::get);
+        let cap = options.limit.map_or(usize::MAX, NonZeroUsize::get);
         let all = self.entries();
 
         let mut entries = Vec::new();
@@ -113,7 +151,7 @@ impl Index {
             entries.push(entry);
             at += 1;
 
-            if entry.kind() == EntryKind::Dir && bottoms_out(below, depth) {
+            if entry.kind() == EntryKind::Dir && bottoms_out(below, options.depth) {
                 at = past_subtree(all, at, entry.path());
             }
         }

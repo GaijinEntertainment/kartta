@@ -136,5 +136,5 @@ pub use crate::entry::{Entry, EntryKind};
 pub use crate::error::BuildError;
 pub use crate::filter::{Filter, FilterError};
 pub use crate::index::{BuildOutcome, Index};
-pub use crate::list_dir::ListDirError;
+pub use crate::list_dir::{ListDirError, ListOptions};
 pub use crate::query::PathMatch;

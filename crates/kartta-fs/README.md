@@ -16,7 +16,7 @@ let index = outcome.into_index();
 let ranked = index.fuzzy_paths("main", None, None);
 assert_eq!(ranked[0].path, "src/main.rs");
 
-let listed = index.list_dir("src", None, None)?; // what is in a place, depth-first
+let listed = index.list_dir("src", &ListOptions::default())?; // what is in a place, depth-first
 assert_eq!(index.size("src/main.rs"), Some(12)); // read now, kept
 ```
 
