@@ -1,0 +1,59 @@
+//! [`Entry`] — one indexed filesystem entry.
+
+pub use kartta_walk::EntryKind;
+
+/// One entry of the index: where it is, what it is, and how big it was when the walk read it.
+///
+/// The path is repository-relative and forward-slash separated on every platform, and it is the entry's identity —
+/// [`Index::entry`](crate::Index::entry) looks one up by exactly this string. To *open* the entry, join it onto
+/// [`Index::root`](crate::Index::root); the join is where the platform's own separator comes back.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Entry {
+    pub(crate) path: Box<str>,
+    pub(crate) kind: EntryKind,
+    pub(crate) size: Option<u64>,
+}
+
+impl Entry {
+    /// The entry's forward-slash path relative to the index root.
+    ///
+    /// It addresses this directory entry and no other: joining it onto [`Index::root`](crate::Index::root) names the
+    /// entry the walk recorded, and a name that could not survive that round trip is never indexed at all — it is
+    /// reported through [`BuildError::Name`](crate::BuildError::Name) instead.
+    ///
+    /// *Addressing* an entry is not *opening* it. An ordinary open follows symlinks, so for
+    /// [`EntryKind::Symlink`] the joined path opens the link's target — possibly outside the tree, possibly a second
+    /// copy of a file already indexed under its own path. Only a [`EntryKind::File`] is safe to open by joining;
+    /// [`kind`](Entry::kind) is what tells the two apart, and a caller that must open a symlink as itself needs a
+    /// non-following open of its own.
+    #[must_use]
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// The entry's own name — everything after the last `/`, or the whole path for a root-level entry.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or(&self.path)
+    }
+
+    /// What the entry is, read without following symlinks.
+    ///
+    /// A symlink reports [`EntryKind::Symlink`] whatever it points at, so a link to a directory is not a directory
+    /// here and has no indexed children.
+    #[must_use]
+    pub const fn kind(&self) -> EntryKind {
+        self.kind
+    }
+
+    /// The entry's size in bytes as of the walk, for a regular file.
+    ///
+    /// `None` for every other kind, where a size would not mean anything, and for a regular file whose metadata could
+    /// not be read — [`kind`](Entry::kind) tells the two apart. `Some(0)` is a genuinely empty file and is never a
+    /// stand-in for an unknown size; a file that could not be stat'd is reported through
+    /// [`BuildOutcome::errors`](crate::BuildOutcome::errors) rather than being silently sized zero.
+    #[must_use]
+    pub const fn size(&self) -> Option<u64> {
+        self.size
+    }
+}
