@@ -167,13 +167,16 @@ impl Index {
 
     /// Whether the regular file at this root-relative forward-slash path holds binary content.
     ///
-    /// `None` for a path nothing is indexed at, for every kind but a regular file, and for a file that would not open
-    /// or would not read.
+    /// `None` for a path nothing is indexed at, for every kind but a regular file, and for a file whose name settles
+    /// nothing and which then would not open or would not read.
     ///
-    /// Two rules settle it, in order. An extension that names a format binary by construction answers with no file
-    /// opened at all — which is most of the weight on a real tree, because those are the archives, media and build
-    /// artifacts. Anything else is answered by whether a NUL appears in the file's first 64 KiB, the rule git and
-    /// ripgrep both apply. So the verdict is about a prefix rather than about a whole file: a file that is text for
+    /// Two rules settle it, in order. An extension naming a format that is binary by construction answers `Some(true)`
+    /// with no file opened at all — which is most of the weight on a real tree, because those are the archives, media,
+    /// disk images and model weights. That answer is about the *name*, so it stands even for a file since deleted or
+    /// replaced: opening one to confirm would spend on every such entry the very syscall the rule exists to save.
+    ///
+    /// A name that settles nothing is answered by whether a NUL appears in the file's first 64 KiB, the rule git and
+    /// ripgrep both apply. That verdict is about a prefix rather than about a whole file: a file that is text for
     /// 64 KiB and binary after reports text here.
     ///
     /// **This reads the filesystem**, on the first ask for a given entry, and keeps the answer — see [`Index::size`]

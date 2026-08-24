@@ -15,9 +15,10 @@ the tree, ignore-file semantics, and every query.
 The report is checked and dropped; `into_tree` hands over the structure, which is the only part worth keeping. A `Tree`
 carries no diagnostics precisely so it cannot be mistaken for a record of how it was obtained.
 
-It exists to feed a filesystem index. An index answers a directory listing from a tree, so a tree is what this returns.
-An index that also needs a flat path list — for fuzzy path search — derives one from the tree in a single pass, on its own
-side of the boundary; building it here would put the consumer's data structure in the walker.
+It exists to feed a filesystem index. A tree is what this returns because a tree is what a traversal discovers, and
+reconstructing one costs a second owned copy of every path. What the consumer keeps is its own affair: the index this
+crate feeds flattens the tree into a depth-first list in one pass and answers even its directory listings from that.
+Building that list here would put the consumer's data structure in the walker.
 
 `examples/survey.rs` reports what a real tree holds and how long walking it takes at each thread count;
 `benches/walk.rs` tracks regressions against a small deterministic fixture.

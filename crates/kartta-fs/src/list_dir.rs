@@ -81,7 +81,9 @@ impl Index {
     /// [`ListOutcome::truncated`] reports whether the cap turned anything away.
     ///
     /// A directory with nothing indexed under it lists nothing and is not an error. Nothing here reads the
-    /// filesystem — kinds, sizes and symlink targets are the ones the walk recorded.
+    /// filesystem: kinds and symlink targets are the ones the walk recorded. A size or a binary verdict beside a
+    /// listing is not — [`Index::size`] and [`Index::is_binary`] read those when first asked, so they may describe a
+    /// later moment than the listing that names them.
     ///
     /// # Errors
     ///
