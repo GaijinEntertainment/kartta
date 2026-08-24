@@ -165,6 +165,30 @@ impl Index {
         self.inspection.size(at, &self.root.join(path))
     }
 
+    /// Whether the regular file at this root-relative forward-slash path holds binary content.
+    ///
+    /// `None` for a path nothing is indexed at, for every kind but a regular file, and for a file that would not open
+    /// or would not read.
+    ///
+    /// Two rules settle it, in order. An extension that names a format binary by construction answers with no file
+    /// opened at all — which is most of the weight on a real tree, because those are the archives, media and build
+    /// artifacts. Anything else is answered by whether a NUL appears in the file's first 64 KiB, the rule git and
+    /// ripgrep both apply. So the verdict is about a prefix rather than about a whole file: a file that is text for
+    /// 64 KiB and binary after reports text here.
+    ///
+    /// **This reads the filesystem**, on the first ask for a given entry, and keeps the answer — see [`Index::size`]
+    /// for what taking an answer at ask time rather than at walk time costs in coherence.
+    #[must_use]
+    pub fn is_binary(&self, path: &str) -> Option<bool> {
+        let at = self.position(path)?;
+
+        if self.entries.get(at)?.kind() != EntryKind::File {
+            return None;
+        }
+
+        self.inspection.is_binary(at, path, &self.root.join(path))
+    }
+
     /// How many entries the index holds.
     #[must_use]
     pub const fn len(&self) -> usize {
