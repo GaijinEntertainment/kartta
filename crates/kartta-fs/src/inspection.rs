@@ -1,11 +1,12 @@
 //! [`Inspection`] — the per-entry facts the walk does not collect, read on first ask and kept.
 
 use std::fmt;
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::Path;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use crate::binary::named_binary;
+use crate::open::open_regular;
 
 /// A slot nothing has read yet.
 const UNREAD: u64 = u64::MAX;
@@ -39,9 +40,10 @@ const UNOPENABLE: u8 = 3;
 /// lookup, and the whole table is allocated once with the index.
 ///
 /// Every slot is read through `&self`. A query holds no exclusive borrow — two of them may run on one index at the
-/// same time — so filling a slot cannot take one either. Two threads that race on the same entry both read the
-/// filesystem and both store what they read, which costs a syscall and settles on the same answer, where a lock would
-/// cost every reader an atomic round trip to save it.
+/// same time — so filling a slot cannot take one either, and two threads racing on one entry both read the filesystem.
+/// Only the first of them publishes: the loser answers with the value already in the slot rather than its own read.
+/// The two reads can disagree, because a file rewritten between them has two truthful sizes, and keeping both would
+/// give one entry two answers and leave the slot holding whichever call finished last.
 pub(crate) struct Inspection {
     sizes: Vec<AtomicU64>,
     classes: Vec<AtomicU8>,
@@ -68,12 +70,14 @@ impl Inspection {
 
         match slot.load(Ordering::Relaxed) {
             UNREAD => {
-                let size = read_size(path);
-                slot.store(size.unwrap_or(UNREADABLE), Ordering::Relaxed);
-                size
+                let read = read_size(path).unwrap_or(UNREADABLE);
+
+                decode_size(
+                    slot.compare_exchange(UNREAD, read, Ordering::Relaxed, Ordering::Relaxed)
+                        .map_or_else(|published| published, |_| read),
+                )
             }
-            UNREADABLE => None,
-            size => Some(size),
+            stored => decode_size(stored),
         }
     }
 
@@ -89,17 +93,28 @@ impl Inspection {
 
         match slot.load(Ordering::Relaxed) {
             UNCLASSIFIED => {
-                let class = classify(indexed, path);
-                slot.store(class, Ordering::Relaxed);
-                decode(class)
+                let read = classify(indexed, path);
+
+                decode_class(
+                    slot.compare_exchange(UNCLASSIFIED, read, Ordering::Relaxed, Ordering::Relaxed)
+                        .map_or_else(|published| published, |_| read),
+                )
             }
-            class => decode(class),
+            stored => decode_class(stored),
         }
     }
 }
 
+/// What a stored size means to a caller.
+const fn decode_size(stored: u64) -> Option<u64> {
+    match stored {
+        UNREAD | UNREADABLE => None,
+        size => Some(size),
+    }
+}
+
 /// What a stored classification means to a caller.
-const fn decode(class: u8) -> Option<bool> {
+const fn decode_class(class: u8) -> Option<bool> {
     match class {
         TEXT => Some(false),
         BINARY => Some(true),
@@ -122,14 +137,27 @@ fn classify(indexed: &str, path: &Path) -> u8 {
 
 /// Whether the first [`PROBE`] bytes of `path` hold a NUL, or `None` when the file would not be read.
 ///
-/// One read, not a loop. A short read leaves the rest of the file unexamined, which is the same bound the constant
-/// already imposes and is why this answers about a prefix rather than about a file.
+/// Reads until the probe is full or the file ends, because one `read` may return early for reasons that say nothing
+/// about the file — a short read that stopped at 4 KiB would report a file as text on the strength of a sixteenth of
+/// the promised prefix, and the answer is then cached.
+///
+/// The handle is opened through [`open_regular`], so this cannot wait on a fifo left under a name the walk recorded
+/// as a regular file, and never reads a directory or a device node as content.
 fn holds_nul(path: &Path) -> Option<bool> {
-    let mut file = std::fs::File::open(path).ok()?;
+    let mut file = open_regular(path).ok()?;
     let mut head = vec![0u8; PROBE];
-    let read = file.read(&mut head).ok()?;
+    let mut filled = 0;
 
-    Some(head[..read].contains(&0))
+    while filled < PROBE {
+        match file.read(&mut head[filled..]) {
+            Ok(0) => break,
+            Ok(read) => filled += read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
+
+    Some(head[..filled].contains(&0))
 }
 
 /// The size a regular file reports, without following a symlink that took its place since the walk.
