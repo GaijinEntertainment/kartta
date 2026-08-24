@@ -70,7 +70,7 @@ fn main() {
     };
 
     let started = Instant::now();
-    let ranked = index.fuzzy_paths(&query, NonZeroUsize::new(SHOWN));
+    let ranked = index.fuzzy_paths(&query, None, NonZeroUsize::new(SHOWN));
     let elapsed = started.elapsed();
 
     println!("\n  {query:?} ranked in {elapsed:.2?}");

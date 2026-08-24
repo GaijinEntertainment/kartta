@@ -19,7 +19,7 @@
 //! assert!(outcome.errors().is_empty(), "a complete answer");
 //! let index = outcome.into_index();
 //!
-//! let ranked = index.fuzzy_paths("main", None);
+//! let ranked = index.fuzzy_paths("main", None, None);
 //! assert_eq!(ranked[0].path, "src/main.rs");
 //! assert!(index.entry("build.log").is_none(), "the .gitignore applied");
 //! # Ok(())
@@ -89,9 +89,9 @@
 //!
 //! # What is here so far
 //!
-//! The walk, the ignore rules, the snapshot, path lookup and the fuzzy path query. Not yet: glob and regex queries,
-//! directory listing, per-query filters, incremental re-walk, and the ignore sources outside the tree —
-//! [`IgnoreSources`] names only the levels that are implemented.
+//! The walk, the ignore rules, the snapshot, path lookup, and the two path queries — glob and fuzzy — both
+//! narrowed by a [`Filter`]. Not yet: content search, regex queries, directory listing, incremental re-walk, and
+//! the ignore sources outside the tree — [`IgnoreSources`] names only the levels that are implemented.
 
 mod config;
 mod entry;

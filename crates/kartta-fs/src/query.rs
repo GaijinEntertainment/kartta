@@ -6,6 +6,7 @@ use kartta_fuzz::{Config as Scoring, Matcher};
 use kartta_walk::EntryKind;
 
 use crate::entry::Entry;
+use crate::filter::Filter;
 use crate::index::Index;
 
 /// The ranking weights, with the scorer's separator set narrowed to this crate's path grammar.
@@ -39,12 +40,49 @@ pub struct PathMatch<'a> {
 }
 
 impl Index {
+    /// Lists the paths `filter` selects, in index order.
+    ///
+    /// Nothing here ranks: a glob answers whether a path matches and has no notion of matching it better, so the order
+    /// is [`Index::entries`]' own depth-first one and a `limit` takes the first paths in it rather than the best.
+    /// `None` returns every path the filter selects. [`Filter`] carries the dialect the patterns are written in.
+    ///
+    /// Directories are not listed. A path query answers "which file did you mean", and a directory that matches would
+    /// otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are* listed: they
+    /// are files as far as the tree is concerned, and are reported without being followed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kartta_fs::{Config, Filter, Index};
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let dir = tempfile::tempdir()?;
+    /// std::fs::create_dir_all(dir.path().join("src"))?;
+    /// std::fs::write(dir.path().join("src/main.rs"), "")?;
+    /// std::fs::write(dir.path().join("Cargo.toml"), "")?;
+    /// std::fs::write(dir.path().join("README.md"), "")?;
+    ///
+    /// let index = Index::build(dir.path(), &Config::default())?.into_index();
+    ///
+    /// let filter = Filter::new(["*.{rs,toml}"])?;
+    /// assert_eq!(index.glob_paths(&filter, None), ["Cargo.toml", "src/main.rs"]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn glob_paths(&self, filter: &Filter, limit: Option<NonZeroUsize>) -> Vec<&str> {
+        self.files(Some(filter))
+            .take(limit.map_or(usize::MAX, NonZeroUsize::get))
+            .collect()
+    }
+
     /// Ranks indexed paths against a fuzzy `query`, best first.
     ///
     /// A path matches when it contains every whitespace-separated term of the query as a subsequence, and ranks by how
     /// well those terms align against path structure — a hit inside a filename beats a hit inside a directory name, so
-    /// `main` finds `src/main.rs` before `main/lib.rs`. An empty query matches everything in index order. `limit` caps
-    /// the returned list; `None` returns every match.
+    /// `main` finds `src/main.rs` before `main/lib.rs`. An empty query matches everything in index order. `filter`
+    /// narrows what is ranked before a path is scored, and `None` ranks every indexed file. `limit` caps the returned
+    /// list; `None` returns every match.
     ///
     /// Directories are not ranked. A path query answers "which file did you mean", and a directory that matches would
     /// otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are* ranked: they
@@ -67,7 +105,7 @@ impl Index {
     /// # Examples
     ///
     /// ```
-    /// use kartta_fs::{Config, Index};
+    /// use kartta_fs::{Config, Filter, Index};
     /// # use std::num::NonZeroUsize;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -79,30 +117,44 @@ impl Index {
     ///
     /// let index = Index::build(dir.path(), &Config::default())?.into_index();
     ///
-    /// let ranked = index.fuzzy_paths("main", None);
+    /// let ranked = index.fuzzy_paths("main", None, None);
     /// let paths: Vec<&str> = ranked.iter().map(|found| found.path).collect();
     /// assert_eq!(paths, ["src/main.rs", "main/lib.rs"]);
     ///
-    /// assert_eq!(index.fuzzy_paths("main", NonZeroUsize::new(1)).len(), 1);
+    /// assert_eq!(index.fuzzy_paths("main", None, NonZeroUsize::new(1)).len(), 1);
+    ///
+    /// let in_src = Filter::new(["src/**"])?;
+    /// let narrowed = index.fuzzy_paths("main", Some(&in_src), None);
+    /// assert_eq!(narrowed.len(), 1);
+    /// assert_eq!(narrowed[0].path, "src/main.rs");
     /// # Ok(())
     /// # }
     /// ```
     #[must_use]
-    pub fn fuzzy_paths(&self, query: &str, limit: Option<NonZeroUsize>) -> Vec<PathMatch<'_>> {
+    pub fn fuzzy_paths(
+        &self,
+        query: &str,
+        filter: Option<&Filter>,
+        limit: Option<NonZeroUsize>,
+    ) -> Vec<PathMatch<'_>> {
         let mut matcher = Matcher::new(SCORING);
-        let candidates = self
-            .entries()
-            .iter()
-            .filter(|entry| entry.kind() != EntryKind::Dir)
-            .map(Entry::path);
 
         matcher
-            .match_list(candidates, query, limit)
+            .match_list(self.files(filter), query, limit)
             .into_iter()
             .map(|found| PathMatch {
                 path: found.candidate,
                 score: found.score,
             })
             .collect()
+    }
+
+    /// The paths a query answers from: every indexed entry that is not a directory, narrowed by `filter`.
+    fn files<'a>(&'a self, filter: Option<&Filter>) -> impl Iterator<Item = &'a str> {
+        self.entries()
+            .iter()
+            .filter(|entry| entry.kind() != EntryKind::Dir)
+            .map(Entry::path)
+            .filter(move |path| filter.is_none_or(|filter| filter.matches(path)))
     }
 }
