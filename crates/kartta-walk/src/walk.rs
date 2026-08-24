@@ -167,6 +167,18 @@ impl<N> WalkOutcome<N> {
     pub const fn cancelled(&self) -> bool {
         self.cancelled
     }
+
+    /// Takes the tree *and* the report: the discovered tree, the collected failures, and whether the walk was
+    /// cancelled.
+    ///
+    /// [`WalkOutcome::into_tree`] is the common case, for a consumer that surfaces the report and drops it. This is for
+    /// one that has to keep it — an index that stores its build failures beside itself outlives the outcome, and a
+    /// [`WalkError`] wraps [`std::io::Error`], so it can be moved but not copied out through
+    /// [`errors`](WalkOutcome::errors).
+    #[must_use]
+    pub fn into_parts(self) -> (Tree<N>, Vec<WalkError>, bool) {
+        (self.tree, self.errors, self.cancelled)
+    }
 }
 
 /// One directory the walk is about to classify: where it sits and what state its entries inherit.
