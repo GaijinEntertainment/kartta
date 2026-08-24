@@ -694,3 +694,93 @@ fn a_symlink_is_ignored_by_name_without_being_followed() {
 
     assert_eq!(paths(&index), [".gitignore", "target", "target/inner.txt"]);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_reports_the_target_it_stores_without_resolving_it() {
+    let dir = tree(&[("nested/target.txt", "x")]);
+    std::os::unix::fs::symlink("../nested/target.txt", dir.path().join("nested/link"))
+        .expect("create a relative symlink");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        index.entry("nested/link").and_then(Entry::target),
+        Some("../nested/target.txt"),
+        "the target is the link's own string, not a path resolved against the index root"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dangling_symlink_reports_the_target_that_resolves_to_nothing() {
+    let dir = tree(&[]);
+    std::os::unix::fs::symlink("nowhere", dir.path().join("dangling"))
+        .expect("create a dangling symlink");
+
+    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+
+    assert!(
+        outcome.errors().is_empty(),
+        "a view onto nothing is what the tree holds, not a build failure: {:?}",
+        outcome.errors()
+    );
+    assert_eq!(
+        outcome.index().entry("dangling").and_then(Entry::target),
+        Some("nowhere")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_out_of_the_tree_reports_its_target_like_any_other() {
+    let outside = tree(&[("elsewhere.txt", "x")]);
+    let dir = tree(&[]);
+    let target = outside.path().join("elsewhere.txt");
+    std::os::unix::fs::symlink(&target, dir.path().join("link"))
+        .expect("create an escaping symlink");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        index.entry("link").and_then(Entry::target),
+        target.to_str(),
+        "where the target leads is never consulted, so leaving the tree changes nothing"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_whose_target_is_not_utf8_reports_no_target_and_no_error() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tree(&[]);
+    std::os::unix::fs::symlink(OsStr::from_bytes(b"\xff"), dir.path().join("link"))
+        .expect("create a symlink to an unrepresentable target");
+
+    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+
+    assert!(
+        outcome.errors().is_empty(),
+        "an unresolvable view is a property of the link, never a gap in the index: {:?}",
+        outcome.errors()
+    );
+
+    let index = outcome.into_index();
+    assert_eq!(kind_of(&index, "link"), EntryKind::Symlink, "still indexed");
+    assert_eq!(
+        index.entry("link").and_then(Entry::target),
+        None,
+        "a lossy decode would read as a target rather than as the absence of one"
+    );
+}
+
+#[test]
+fn only_a_symlink_carries_a_target() {
+    let dir = tree(&[("dir/file.txt", "x")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(index.entry("dir").and_then(Entry::target), None);
+    assert_eq!(index.entry("dir/file.txt").and_then(Entry::target), None);
+}
