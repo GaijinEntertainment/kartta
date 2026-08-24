@@ -41,7 +41,9 @@ minutes. Two such answers may therefore describe two different moments, and none
 
 `Index::is_binary` settles a file by extension where the name names a format that is binary by construction, and by
 whether a NUL appears in the first 64 KiB otherwise. The extension list only ever says "binary": listing a text format
-wrongly would make it unfindable, where omitting a binary one costs a single read that answers correctly anyway.
+wrongly would make it unfindable, where omitting a binary one costs a single read that answers correctly anyway. `svg`
+is the one name on it that is not binary by construction — it is XML, listed because in practice it holds
+machine-emitted path data — so an SVG reports binary without being read.
 
 ## Ignore rules
 
@@ -80,7 +82,7 @@ unstartable thread pool are fatal. Each surviving kind costs something different
 - An unreadable `.gitignore` costs its rules, so the index *holds* what that file would have hidden.
 - A name that is not valid UTF-8 costs that entry, and a directory takes its subtree with it.
 
-A build reads no file metadata, so nothing here reports a failure to. A size or a binary verdict that cannot be read
+A build never reads a file's size, so nothing here reports a failure to. A size or a binary verdict that cannot be read
 answers `None` at the point of the ask instead, where the caller can act on it.
 
 The report is ordered by path, so two builds of one tree report identically, and `into_index` hands over the snapshot.
