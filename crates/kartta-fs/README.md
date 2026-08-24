@@ -2,9 +2,10 @@
 
 Repository file index: one filesystem walk builds a snapshot, and every query answers from it.
 
-`Index::build` reads a directory tree once, applying git's ignore rules on the way down, and keeps what survives.
-Nothing after that touches the filesystem — a lookup, a path query and, in time, a content search all read the same
-snapshot rather than re-stating the tree. It takes an OS path and reads the real filesystem; there is no
+`Index::build` reads a directory tree once, applying git's ignore rules on the way down, and keeps what survives. Every
+question about *structure* is answered from that snapshot: a lookup, a directory listing and both path queries never
+re-state the tree. Questions about a file's own bytes — its size, whether it is binary — are answered by reading it on
+the first ask and keeping the answer. It takes an OS path and reads the real filesystem; there is no
 virtual-filesystem abstraction to mock.
 
 ```rust
@@ -12,8 +13,11 @@ let outcome = Index::build(root, &Config::default())?;
 report(outcome.errors()); // a partial index looks exactly like a complete one
 let index = outcome.into_index();
 
-let ranked = index.fuzzy_paths("main", None);
+let ranked = index.fuzzy_paths("main", None, None);
 assert_eq!(ranked[0].path, "src/main.rs");
+
+let listed = index.list_dir("src", None, None)?; // what is in a place, depth-first
+assert_eq!(index.size("src/main.rs"), Some(12)); // read now, kept
 ```
 
 ## Two rules on every surface
@@ -26,6 +30,18 @@ assert_eq!(ranked[0].path, "src/main.rs");
   tree. It is never descended and never stat'd through — a dangling link and a live one are indistinguishable to every
   query here, so the syscall that tells them apart would buy nothing. Listed is therefore not the same as readable, by
   rule rather than by accident.
+
+## Structure is a snapshot; a file's bytes are not
+
+The walk records what exists and what each entry is, so those answers are coherent across the whole tree and change
+only on a rebuild. `Index::size` and `Index::is_binary` read the filesystem when first asked and keep what they read,
+because doing either during the walk costs far more than the answers are worth to a caller who looks at a handful of
+files — on a 1.4M-entry tree the walk-time stat alone was about half the build, and classifying every file runs to
+minutes. Two such answers may therefore describe two different moments, and none is refreshed once taken.
+
+`Index::is_binary` settles a file by extension where the name names a format that is binary by construction, and by
+whether a NUL appears in the first 64 KiB otherwise. The extension list only ever says "binary": listing a text format
+wrongly would make it unfindable, where omitting a binary one costs a single read that answers correctly anyway.
 
 ## Ignore rules
 
@@ -63,7 +79,9 @@ unstartable thread pool are fatal. Each surviving kind costs something different
 - An unreadable directory costs its whole subtree, and an entry whose type will not resolve costs that entry.
 - An unreadable `.gitignore` costs its rules, so the index *holds* what that file would have hidden.
 - A name that is not valid UTF-8 costs that entry, and a directory takes its subtree with it.
-- A failed stat costs only a size — the entry is still indexed, with `size()` answering `None`.
+
+A build reads no file metadata, so nothing here reports a failure to. A size or a binary verdict that cannot be read
+answers `None` at the point of the ask instead, where the caller can act on it.
 
 The report is ordered by path, so two builds of one tree report identically, and `into_index` hands over the snapshot.
 
@@ -89,5 +107,6 @@ the mechanical primitives a resolver queries.
 synthetic fixture cannot tell you magnitude, because a repository's `.gitignore` files are what decide how much of it is
 indexed at all.
 
-Status: the walk, the ignore rules, the snapshot, path lookup and the fuzzy path query. Not yet: glob and regex queries,
-directory listing, per-query filters, incremental re-walk, and the ignore sources outside the tree.
+Status: the walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification, and
+both path queries — glob and fuzzy — each narrowed by a `Filter`. Not yet: content search, regex queries, incremental
+re-walk, and the ignore sources outside the tree.
