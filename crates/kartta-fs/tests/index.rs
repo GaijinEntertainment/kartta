@@ -14,6 +14,7 @@ use std::path::Path;
 
 use kartta_fs::{
     BuildError, Capped, Config, Entry, EntryKind, Filter, IgnoreSources, Index, ListDirError,
+    ListOptions,
 };
 use tempfile::TempDir;
 
@@ -844,7 +845,7 @@ fn listed<'a>(outcome: &Capped<&'a Entry>) -> Vec<&'a str> {
 
 fn list<'a>(index: &'a Index, dir: &str) -> Capped<&'a Entry> {
     index
-        .list_dir(dir, None, None)
+        .list_dir(dir, &ListOptions::default())
         .unwrap_or_else(|error| panic!("list {dir}: {error}"))
 }
 
@@ -879,12 +880,12 @@ fn a_depth_takes_only_that_many_levels_below_the_listed_directory() {
     let index = default_index(dir.path());
 
     let one = index
-        .list_dir("a", NonZeroUsize::new(1), None)
+        .list_dir("a", &ListOptions::default().depth(1))
         .expect("list a");
     assert_eq!(listed(&one), ["a/b", "a/top.txt"]);
 
     let two = index
-        .list_dir("a", NonZeroUsize::new(2), None)
+        .list_dir("a", &ListOptions::default().depth(2))
         .expect("list a");
     assert_eq!(listed(&two), ["a/b", "a/b/c", "a/top.txt"]);
 
@@ -901,7 +902,7 @@ fn a_limit_cuts_the_listing_and_says_so() {
     let index = default_index(dir.path());
 
     let capped = index
-        .list_dir("a", None, NonZeroUsize::new(2))
+        .list_dir("a", &ListOptions::default().limit(2))
         .expect("list a");
 
     assert_eq!(listed(&capped), ["a/one.txt", "a/three.txt"]);
@@ -914,7 +915,7 @@ fn a_directory_holding_exactly_the_limit_is_not_truncated() {
     let index = default_index(dir.path());
 
     let capped = index
-        .list_dir("a", None, NonZeroUsize::new(2))
+        .list_dir("a", &ListOptions::default().limit(2))
         .expect("list a");
 
     assert_eq!(listed(&capped).len(), 2);
@@ -930,7 +931,7 @@ fn an_entry_a_depth_dropped_never_counts_as_truncation() {
     let index = default_index(dir.path());
 
     let capped = index
-        .list_dir("a", NonZeroUsize::new(1), NonZeroUsize::new(2))
+        .list_dir("a", &ListOptions::default().depth(1).limit(2))
         .expect("list a");
 
     assert_eq!(listed(&capped), ["a/deep", "a/top.txt"]);
@@ -975,13 +976,13 @@ fn listing_a_path_that_is_not_indexed_is_not_found() {
     let index = default_index(dir.path());
 
     assert_eq!(
-        index.list_dir("nowhere", None, None),
+        index.list_dir("nowhere", &ListOptions::default()),
         Err(ListDirError::NotFound {
             path: "nowhere".to_owned()
         })
     );
     assert_eq!(
-        index.list_dir("secret", None, None),
+        index.list_dir("secret", &ListOptions::default()),
         Err(ListDirError::NotFound {
             path: "secret".to_owned()
         }),
@@ -995,7 +996,7 @@ fn listing_a_file_reports_what_is_indexed_there_instead() {
     let index = default_index(dir.path());
 
     assert_eq!(
-        index.list_dir("main.rs", None, None),
+        index.list_dir("main.rs", &ListOptions::default()),
         Err(ListDirError::NotADirectory {
             path: "main.rs".to_owned(),
             kind: EntryKind::File,
@@ -1013,7 +1014,7 @@ fn listing_a_symlink_to_a_directory_is_not_a_listing_of_its_target() {
     let index = default_index(dir.path());
 
     assert_eq!(
-        index.list_dir("link", None, None),
+        index.list_dir("link", &ListOptions::default()),
         Err(ListDirError::NotADirectory {
             path: "link".to_owned(),
             kind: EntryKind::Symlink,
@@ -1049,7 +1050,7 @@ fn listing_the_root_one_level_deep_takes_only_the_top_level_entries() {
     let index = default_index(dir.path());
 
     let top = index
-        .list_dir("", NonZeroUsize::new(1), None)
+        .list_dir("", &ListOptions::default().depth(1))
         .expect("list the root");
 
     assert_eq!(
@@ -1065,7 +1066,7 @@ fn a_skipped_subtree_that_runs_to_the_end_of_the_index_ends_the_listing() {
     let index = default_index(dir.path());
 
     let top = index
-        .list_dir("", NonZeroUsize::new(1), None)
+        .list_dir("", &ListOptions::default().depth(1))
         .expect("list the root");
 
     assert_eq!(listed(&top), ["a"]);
@@ -1250,4 +1251,28 @@ fn glob_paths_selecting_nothing_is_an_empty_answer_rather_than_a_cut_one() {
 
     assert!(found.is_empty());
     assert!(!found.truncated());
+}
+
+#[test]
+fn list_options_default_to_no_bounds_and_zero_lifts_one() {
+    let dir = tree(&[("a/b/c.txt", "c"), ("a/top.txt", "t")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        listed(&list(&index, "a")),
+        listed(
+            &index
+                .list_dir("a", &ListOptions::default().depth(0))
+                .expect("list a")
+        ),
+        "a zero depth reads as no depth, which is what NonZeroUsize makes unrepresentable"
+    );
+    assert_eq!(
+        listed(&list(&index, "a")),
+        listed(
+            &index
+                .list_dir("a", &ListOptions::default().limit(0))
+                .expect("list a")
+        ),
+    );
 }
