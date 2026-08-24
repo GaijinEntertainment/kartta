@@ -153,7 +153,8 @@ impl Index {
     ///
     /// What that buys is paid for in coherence. A size belongs to the moment it was first asked for rather than to
     /// the walk, so two sizes from one index may describe two different moments, and neither is refreshed once taken.
-    /// A symlink that replaced the file since the walk is measured as the link, never followed.
+    /// A file that a symlink or a directory replaced since the walk answers `None`: neither is measured, and a link is
+    /// never followed.
     #[must_use]
     pub fn size(&self, path: &str) -> Option<u64> {
         let at = self.position(path)?;

@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use crate::binary::named_binary;
-use crate::open::open_regular;
+use crate::open::{Symlinks, open_regular};
 
 /// A slot nothing has read yet.
 const UNREAD: u64 = u64::MAX;
@@ -141,10 +141,12 @@ fn classify(indexed: &str, path: &Path) -> u8 {
 /// about the file — a short read that stopped at 4 KiB would report a file as text on the strength of a sixteenth of
 /// the promised prefix, and the answer is then cached.
 ///
-/// The handle is opened through [`open_regular`], so this cannot wait on a fifo left under a name the walk recorded
-/// as a regular file, and never reads a directory or a device node as content.
+/// The handle is opened through [`open_regular`] refusing symlinks, so this cannot wait on a fifo left under a name the
+/// walk recorded as a regular file and never reads a directory or a device node as content. On unix it also never
+/// follows a link that took the file's place, which is the crate's rule that a symlink is reported and not read
+/// through; on Windows the open resolves such a link, as [`open_regular`] states.
 fn holds_nul(path: &Path) -> Option<bool> {
-    let mut file = open_regular(path).ok()?;
+    let mut file = open_regular(path, Symlinks::Refuse).ok()?;
     let mut head = vec![0u8; PROBE];
     let mut filled = 0;
 
@@ -160,9 +162,15 @@ fn holds_nul(path: &Path) -> Option<bool> {
     Some(head[..filled].contains(&0))
 }
 
-/// The size a regular file reports, without following a symlink that took its place since the walk.
+/// The size the regular file at `path` reports, or `None` when the path no longer names one.
+///
+/// The kind is settled here rather than trusted from the walk. `len()` answers for whatever the path names, so a file
+/// replaced by a directory would otherwise publish that directory's own length as a file size and keep it. The stat
+/// does not follow a link, so a symlink that took the file's place is refused rather than measured through.
 fn read_size(path: &Path) -> Option<u64> {
-    Some(std::fs::symlink_metadata(path).ok()?.len())
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+
+    metadata.is_file().then_some(metadata.len())
 }
 
 impl Clone for Inspection {
