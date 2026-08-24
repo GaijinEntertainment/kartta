@@ -17,6 +17,7 @@ use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 pub(crate) struct Payload {
     pub(crate) kind: EntryKind,
     pub(crate) size: Option<u64>,
+    pub(crate) target: Option<Box<str>>,
 }
 
 /// Classifies entries for one build, and collects the failures that cost it information without stopping it.
@@ -134,6 +135,25 @@ impl Indexing {
             }
         }
     }
+}
+
+/// Where a symlink points, as the link itself stores it, or `None` for any other kind and for a target that will not
+/// read or is not valid UTF-8.
+///
+/// A failure here is not recorded. An unreadable size leaves a gap in what the index knows about an entry, whereas an
+/// unresolvable target *is* what the tree holds — [`Entry::target`](crate::Entry::target) carries that rule.
+fn target(entry: &Entry<'_>, kind: EntryKind) -> Option<Box<str>> {
+    if kind != EntryKind::Symlink {
+        return None;
+    }
+
+    let target = fs::read_link(entry.path()).ok()?;
+
+    target
+        .into_os_string()
+        .into_string()
+        .ok()
+        .map(String::into_boxed_str)
 }
 
 /// Opens `path` for reading without waiting for anything.
@@ -254,6 +274,7 @@ impl Policy for Indexing {
         Visit::Keep(Payload {
             kind,
             size: self.size(entry, kind),
+            target: target(entry, kind),
         })
     }
 }

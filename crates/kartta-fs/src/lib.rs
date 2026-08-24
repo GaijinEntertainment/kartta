@@ -32,7 +32,8 @@
 //!   *identifies* an entry carries an OS-native separator. Two surfaces are native instead, because both point at a
 //!   place on disk rather than naming an index entry: [`Index::root`], which an entry's path is joined onto to open
 //!   it, and [`BuildError::path`], which tells an operator where to go and look. The rule is one form for identity,
-//!   the other for access.
+//!   the other for access. [`Entry::target`] is in neither form, because it names nothing this crate addresses: it is
+//!   the string a symlink holds, reproduced rather than interpreted.
 //! - An entry whose name is not valid UTF-8 is not indexed, and is reported through [`BuildError::Name`]. It has no
 //!   faithful path — the walk decodes lossily, and two such names collapse onto one — so indexing it would hand two
 //!   entries a single lookup key and a path that opens neither.
@@ -72,6 +73,11 @@
 //! One rule on every surface: a symlink is **reported, never read through**. Its content is either already indexed
 //! under the target's own path (an in-tree target) or is not the repository's at all (an out-of-tree target), so
 //! following one either duplicates a file under a second path or reads outside the tree.
+//!
+//! What the link itself holds is reported. [`Entry::target`] gives the target string the filesystem stores, which is a
+//! read *of* the link rather than *through* it, and nothing resolves where it leads. A link into the tree, a link out
+//! of it and a link to nothing therefore all answer alike — a symlink is a view onto somewhere else, and a view onto
+//! nothing is still the entry the tree holds rather than a failure to index one.
 //!
 //! A symlink is therefore a leaf. It is never descended even when it points at a directory, so no cycle detection is
 //! needed and the walk cannot leave the tree it was given. It is also never stat'd through: a dangling link and a live

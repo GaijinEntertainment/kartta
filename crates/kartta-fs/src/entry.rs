@@ -12,6 +12,7 @@ pub struct Entry {
     pub(crate) path: Box<str>,
     pub(crate) kind: EntryKind,
     pub(crate) size: Option<u64>,
+    pub(crate) target: Option<Box<str>>,
 }
 
 impl Entry {
@@ -55,5 +56,22 @@ impl Entry {
     #[must_use]
     pub const fn size(&self) -> Option<u64> {
         self.size
+    }
+
+    /// Where a symlink points, exactly as the link stores it.
+    ///
+    /// This is a read *of* the link, not *through* it: the string is the target the filesystem holds, and nothing here
+    /// resolves it. It is not an index path and does not follow this crate's path conventions — a relative target is
+    /// relative to the link's own directory, it keeps whatever separators the link was created with, and it may name a
+    /// place outside the tree or nothing at all. Resolving one is the caller's to do, against
+    /// [`Index::root`](crate::Index::root) and the link's own directory.
+    ///
+    /// `None` for every kind but [`EntryKind::Symlink`], and for a symlink whose target could not be read or is not
+    /// valid UTF-8; [`kind`](Entry::kind) tells the two apart. A symlink is a view onto somewhere else, so a view that
+    /// resolves to nothing is still the entry the tree holds rather than a gap in the index — unlike an unreadable
+    /// size, it is never reported through [`BuildOutcome::errors`](crate::BuildOutcome::errors).
+    #[must_use]
+    pub fn target(&self) -> Option<&str> {
+        self.target.as_deref()
     }
 }

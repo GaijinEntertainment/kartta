@@ -187,6 +187,7 @@ fn flatten(tree: &Tree<Payload>) -> Vec<Entry> {
             path: path.as_str().into(),
             kind: node.value().kind,
             size: node.value().size,
+            target: node.value().target.clone(),
         });
 
         if !node.children().is_empty() {
