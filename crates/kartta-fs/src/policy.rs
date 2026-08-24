@@ -16,7 +16,6 @@ use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 #[derive(Debug)]
 pub(crate) struct Payload {
     pub(crate) kind: EntryKind,
-    pub(crate) size: Option<u64>,
     pub(crate) target: Option<Box<str>>,
 }
 
@@ -117,31 +116,13 @@ impl Indexing {
         self.record(BuildError::Name { path });
         false
     }
-
-    /// The size of a regular file, or `None` for any other kind and for a file that would not stat.
-    fn size(&self, entry: &Entry<'_>, kind: EntryKind) -> Option<u64> {
-        if kind != EntryKind::File {
-            return None;
-        }
-
-        match entry.metadata() {
-            Ok(metadata) => Some(metadata.len()),
-            Err(source) => {
-                self.record(BuildError::Metadata {
-                    path: entry.path(),
-                    source,
-                });
-                None
-            }
-        }
-    }
 }
 
 /// Where a symlink points, as the link itself stores it, or `None` for any other kind and for a target that will not
 /// read or is not valid UTF-8.
 ///
-/// A failure here is not recorded. An unreadable size leaves a gap in what the index knows about an entry, whereas an
-/// unresolvable target *is* what the tree holds — [`Entry::target`](crate::Entry::target) carries that rule.
+/// A failure here is not recorded. An unresolvable target *is* what the tree holds rather than something the build
+/// failed to read — [`Entry::target`](crate::Entry::target) carries that rule.
 fn target(entry: &Entry<'_>, kind: EntryKind) -> Option<Box<str>> {
     if kind != EntryKind::Symlink {
         return None;
@@ -273,7 +254,6 @@ impl Policy for Indexing {
 
         Visit::Keep(Payload {
             kind,
-            size: self.size(entry, kind),
             target: target(entry, kind),
         })
     }

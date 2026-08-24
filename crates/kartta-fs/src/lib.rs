@@ -1,8 +1,9 @@
 //! Repository file index: one filesystem walk builds a snapshot, and every query answers from it.
 //!
 //! [`Index::build`] reads a directory tree once, applying git's ignore rules on the way down, and keeps what survives.
-//! Nothing after that touches the filesystem — a lookup, a path query and (in time) a content search all read the same
-//! snapshot rather than re-stating the tree. Construction takes an OS path and reads the real filesystem; there is no
+//! Every question about *structure* is answered from that snapshot — a lookup, a listing and both path queries never
+//! re-state the tree. Questions about a file's own bytes are answered by reading it, on the first ask for that entry,
+//! and the answer is kept. Construction takes an OS path and reads the real filesystem; there is no
 //! virtual-filesystem abstraction to mock.
 //!
 //! ```
@@ -37,8 +38,12 @@
 //! - An entry whose name is not valid UTF-8 is not indexed, and is reported through [`BuildError::Name`]. It has no
 //!   faithful path — the walk decodes lossily, and two such names collapse onto one — so indexing it would hand two
 //!   entries a single lookup key and a path that opens neither.
-//! - Sizes are read at walk time. `Some(0)` is a genuinely empty file and `None` is a size that could not be read;
-//!   the two are different index states and are never conflated.
+//! - Structure is one snapshot; a file's own bytes are not. The walk records what exists and what each entry is, so
+//!   those answers are coherent across the whole tree. [`Index::size`] instead reads the filesystem when first asked
+//!   and keeps what it read, because stat'ing every file of a large tree costs about half a build and most of those
+//!   sizes are never looked at. Two sizes from one index may therefore describe two different moments, and no answer
+//!   is refreshed once taken.
+//! - `Some(0)` is a genuinely empty file and `None` is a size that could not be read; the two are never conflated.
 //! - A build that could not read everything says so. [`BuildOutcome::errors`] is not a log — an index missing a
 //!   subtree, or holding files an unread `.gitignore` would have hidden, is indistinguishable from a correct one
 //!   without it.
@@ -104,6 +109,7 @@ mod entry;
 mod error;
 mod filter;
 mod index;
+mod inspection;
 mod list_dir;
 mod policy;
 mod query;

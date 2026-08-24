@@ -112,19 +112,68 @@ fn a_root_level_entry_is_its_own_name() {
 }
 
 #[test]
-fn sizes_are_recorded_for_regular_files_only() {
+fn sizes_are_answered_for_regular_files_only() {
     let dir = tree(&[("empty.txt", ""), ("hello.txt", "hello"), ("sub/", "")]);
     let index = default_index(dir.path());
 
     assert_eq!(
-        index.entry("empty.txt").and_then(Entry::size),
+        index.size("empty.txt"),
         Some(0),
         "an empty file has a known size of zero"
     );
-    assert_eq!(index.entry("hello.txt").and_then(Entry::size), Some(5));
-    assert_eq!(index.entry("sub").and_then(Entry::size), None);
+    assert_eq!(index.size("hello.txt"), Some(5));
+    assert_eq!(index.size("sub"), None);
+    assert_eq!(index.size("nowhere.txt"), None, "nothing is indexed there");
     assert_eq!(kind_of(&index, "sub"), EntryKind::Dir);
     assert_eq!(kind_of(&index, "hello.txt"), EntryKind::File);
+}
+
+#[test]
+fn a_size_is_read_once_and_answered_from_the_index_after_that() {
+    let dir = tree(&[("grows.txt", "five!")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(index.size("grows.txt"), Some(5));
+    fs::write(dir.path().join("grows.txt"), "much longer now").expect("rewrite the file");
+
+    assert_eq!(
+        index.size("grows.txt"),
+        Some(5),
+        "the first read settled it, and nothing refreshes an answer already taken"
+    );
+}
+
+#[test]
+fn a_size_asked_for_the_first_time_reads_the_file_as_it_is_now() {
+    let dir = tree(&[("grows.txt", "five!")]);
+    let index = default_index(dir.path());
+
+    fs::write(dir.path().join("grows.txt"), "much longer now").expect("rewrite the file");
+
+    assert_eq!(
+        index.size("grows.txt"),
+        Some(15),
+        "the walk recorded no size, so the first ask sees the file as it stands"
+    );
+}
+
+#[test]
+fn a_file_deleted_after_the_walk_has_no_size_and_is_still_indexed() {
+    let dir = tree(&[("gone.txt", "here for now")]);
+    let index = default_index(dir.path());
+
+    fs::remove_file(dir.path().join("gone.txt")).expect("remove the file");
+
+    assert_eq!(index.size("gone.txt"), None);
+    assert_eq!(
+        index.size("gone.txt"),
+        None,
+        "the failure is remembered too, so a loop pays for one failed stat rather than one per pass"
+    );
+    assert!(
+        index.entry("gone.txt").is_some(),
+        "the entry is what the walk saw, and no later read removes it"
+    );
 }
 
 #[test]
@@ -667,7 +716,7 @@ fn a_symlink_is_indexed_as_itself_and_never_descended() {
     );
     assert_eq!(kind_of(&index, "link"), EntryKind::Symlink);
     assert_eq!(
-        index.entry("link").and_then(Entry::size),
+        index.size("link"),
         None,
         "a symlink is never followed, so it carries no size"
     );
@@ -974,7 +1023,7 @@ fn listing_a_symlink_to_a_directory_is_not_a_listing_of_its_target() {
 
 #[cfg(unix)]
 #[test]
-fn a_listing_carries_the_walk_time_size_and_symlink_target() {
+fn a_listing_carries_the_symlink_target_and_answers_sizes_beside_it() {
     let dir = tree(&[("a/file.txt", "twelve chars")]);
     std::os::unix::fs::symlink("file.txt", dir.path().join("a/link"))
         .expect("create a file symlink");
@@ -982,7 +1031,10 @@ fn a_listing_carries_the_walk_time_size_and_symlink_target() {
     let index = default_index(dir.path());
     let entries = list(&index, "a").into_entries();
 
-    let sizes: Vec<Option<u64>> = entries.iter().map(|entry| entry.size()).collect();
+    let sizes: Vec<Option<u64>> = entries
+        .iter()
+        .map(|entry| index.size(entry.path()))
+        .collect();
     let targets: Vec<Option<&str>> = entries.iter().map(|entry| entry.target()).collect();
 
     assert_eq!(listed(&list(&index, "a")), ["a/file.txt", "a/link"]);

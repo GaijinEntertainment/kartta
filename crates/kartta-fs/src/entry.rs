@@ -11,7 +11,6 @@ pub use kartta_walk::EntryKind;
 pub struct Entry {
     pub(crate) path: Box<str>,
     pub(crate) kind: EntryKind,
-    pub(crate) size: Option<u64>,
     pub(crate) target: Option<Box<str>>,
 }
 
@@ -47,17 +46,6 @@ impl Entry {
         self.kind
     }
 
-    /// The entry's size in bytes as of the walk, for a regular file.
-    ///
-    /// `None` for every other kind, where a size would not mean anything, and for a regular file whose metadata could
-    /// not be read — [`kind`](Entry::kind) tells the two apart. `Some(0)` is a genuinely empty file and is never a
-    /// stand-in for an unknown size; a file that could not be stat'd is reported through
-    /// [`BuildOutcome::errors`](crate::BuildOutcome::errors) rather than being silently sized zero.
-    #[must_use]
-    pub const fn size(&self) -> Option<u64> {
-        self.size
-    }
-
     /// Where a symlink points, exactly as the link stores it.
     ///
     /// This is a read *of* the link, not *through* it: the string is the target the filesystem holds, and nothing here
@@ -68,8 +56,11 @@ impl Entry {
     ///
     /// `None` for every kind but [`EntryKind::Symlink`], and for a symlink whose target could not be read or is not
     /// valid UTF-8; [`kind`](Entry::kind) tells the two apart. A symlink is a view onto somewhere else, so a view that
-    /// resolves to nothing is still the entry the tree holds rather than a gap in the index — unlike an unreadable
-    /// size, it is never reported through [`BuildOutcome::errors`](crate::BuildOutcome::errors).
+    /// resolves to nothing is still the entry the tree holds rather than a failure to index one, and no build reports
+    /// it.
+    ///
+    /// Unlike [`Index::size`](crate::Index::size), this is walk-time data: it is read once, with the structure, and
+    /// belongs to the same moment as the rest of the tree.
     #[must_use]
     pub fn target(&self) -> Option<&str> {
         self.target.as_deref()

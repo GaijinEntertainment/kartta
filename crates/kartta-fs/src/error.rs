@@ -29,14 +29,6 @@ pub enum BuildError {
         /// The underlying failure.
         source: io::Error,
     },
-    /// An entry's metadata could not be read, so it is indexed without a size.
-    #[error("cannot read the metadata of {}: {source}", path.display())]
-    Metadata {
-        /// The entry whose metadata could not be read.
-        path: PathBuf,
-        /// The underlying failure.
-        source: io::Error,
-    },
     /// An entry's name is not valid UTF-8, so it was not indexed. A directory takes its subtree with it.
     ///
     /// Such a name has no faithful path: it decodes to replacement characters, which two different names can share, so
@@ -63,9 +55,7 @@ impl BuildError {
     pub fn path(&self) -> Option<&Path> {
         match self {
             Self::Walk(source) => source.path(),
-            Self::Ignore { path, .. } | Self::Metadata { path, .. } | Self::Name { path } => {
-                Some(path)
-            }
+            Self::Ignore { path, .. } | Self::Name { path } => Some(path),
         }
     }
 
@@ -74,8 +64,7 @@ impl BuildError {
         match self {
             Self::Walk(_) => 0,
             Self::Ignore { .. } => 1,
-            Self::Metadata { .. } => 2,
-            Self::Name { .. } => 3,
+            Self::Name { .. } => 2,
         }
     }
 }
