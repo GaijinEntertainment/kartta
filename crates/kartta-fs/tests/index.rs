@@ -13,7 +13,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 
 use kartta_fs::{
-    BuildError, Config, Entry, EntryKind, Filter, IgnoreSources, Index, ListDirError, ListOutcome,
+    BuildError, Capped, Config, Entry, EntryKind, Filter, IgnoreSources, Index, ListDirError,
 };
 use tempfile::TempDir;
 
@@ -837,11 +837,11 @@ fn only_a_symlink_carries_a_target() {
     assert_eq!(index.entry("dir/file.txt").and_then(Entry::target), None);
 }
 
-fn listed<'a>(outcome: &ListOutcome<'a>) -> Vec<&'a str> {
-    outcome.entries().iter().map(|entry| entry.path()).collect()
+fn listed<'a>(outcome: &Capped<&'a Entry>) -> Vec<&'a str> {
+    outcome.items().iter().map(|entry| entry.path()).collect()
 }
 
-fn list<'a>(index: &'a Index, dir: &str) -> ListOutcome<'a> {
+fn list<'a>(index: &'a Index, dir: &str) -> Capped<&'a Entry> {
     index
         .list_dir(dir, None, None)
         .unwrap_or_else(|error| panic!("list {dir}: {error}"))
@@ -1029,7 +1029,7 @@ fn a_listing_carries_the_symlink_target_and_answers_sizes_beside_it() {
         .expect("create a file symlink");
 
     let index = default_index(dir.path());
-    let entries = list(&index, "a").into_entries();
+    let entries = list(&index, "a").into_items();
 
     let sizes: Vec<Option<u64>> = entries
         .iter()

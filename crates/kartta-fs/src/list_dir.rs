@@ -4,6 +4,7 @@ use std::num::NonZeroUsize;
 
 use kartta_walk::EntryKind;
 
+use crate::capped::Capped;
 use crate::entry::Entry;
 use crate::index::Index;
 
@@ -31,40 +32,6 @@ pub enum ListDirError {
     },
 }
 
-/// What one listing produced: the entries, and whether a limit cut them short.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ListOutcome<'a> {
-    entries: Vec<&'a Entry>,
-    truncated: bool,
-}
-
-impl<'a> ListOutcome<'a> {
-    /// The listed entries, in [`Index::entries`] order.
-    #[must_use]
-    pub fn entries(&self) -> &[&'a Entry] {
-        &self.entries
-    }
-
-    /// Takes the entries, dropping the truncation flag.
-    ///
-    /// Check [`ListOutcome::truncated`] first: a listing that was cut short looks exactly like a complete one.
-    #[must_use]
-    pub fn into_entries(self) -> Vec<&'a Entry> {
-        self.entries
-    }
-
-    /// Whether the limit turned an entry away, so the directory holds more than the listing shows.
-    ///
-    /// Set by an actual rejection rather than inferred from a count, so a directory holding exactly the limit reports
-    /// `false`. A listing is an answer about a place, and a caller that cannot tell a full directory from a truncated
-    /// view of a larger one is reading a wrong answer; a ranked query is the other case, where a limit asks for the
-    /// best few and the rest are not being claimed to exist.
-    #[must_use]
-    pub const fn truncated(&self) -> bool {
-        self.truncated
-    }
-}
-
 impl Index {
     /// Lists what is indexed under `dir`, depth-first.
     ///
@@ -78,7 +45,7 @@ impl Index {
     ///
     /// `depth` counts levels below `dir`: `1` is its immediate children, `2` adds theirs, and `None` takes the whole
     /// subtree. `limit` caps the entries returned and `None` returns all of them;
-    /// [`ListOutcome::truncated`] reports whether the cap turned anything away.
+    /// [`Capped::truncated`] reports whether the cap turned anything away.
     ///
     /// A directory with nothing indexed under it lists nothing and is not an error. Nothing here reads the
     /// filesystem: kinds and symlink targets are the ones the walk recorded. A size or a binary verdict beside a
@@ -105,16 +72,16 @@ impl Index {
     /// let index = Index::build(dir.path(), &Config::default())?.into_index();
     ///
     /// let listed = index.list_dir("src", None, None)?;
-    /// let paths: Vec<&str> = listed.entries().iter().map(|entry| entry.path()).collect();
+    /// let paths: Vec<&str> = listed.items().iter().map(|entry| entry.path()).collect();
     /// assert_eq!(paths, ["src/main.rs", "src/net", "src/net/tcp.rs"]);
     /// assert!(!listed.truncated());
     ///
     /// let shallow = index.list_dir("src", NonZeroUsize::new(1), None)?;
-    /// let paths: Vec<&str> = shallow.entries().iter().map(|entry| entry.path()).collect();
+    /// let paths: Vec<&str> = shallow.items().iter().map(|entry| entry.path()).collect();
     /// assert_eq!(paths, ["src/main.rs", "src/net"], "src/net/tcp.rs is a level too deep");
     ///
     /// let capped = index.list_dir("src", None, NonZeroUsize::new(1))?;
-    /// assert_eq!(capped.entries().len(), 1);
+    /// assert_eq!(capped.len(), 1);
     /// assert!(capped.truncated(), "the directory holds more than the cap allowed");
     /// # Ok(())
     /// # }
@@ -124,7 +91,7 @@ impl Index {
         dir: &str,
         depth: Option<NonZeroUsize>,
         limit: Option<NonZeroUsize>,
-    ) -> Result<ListOutcome<'_>, ListDirError> {
+    ) -> Result<Capped<&Entry>, ListDirError> {
         let (start, prefix) = self.subtree_of(dir)?;
         let cap = limit.map_or(usize::MAX, NonZeroUsize::get);
         let all = self.entries();
@@ -151,7 +118,11 @@ impl Index {
             }
         }
 
-        Ok(ListOutcome { entries, truncated })
+        Ok(if truncated {
+            Capped::cut(entries)
+        } else {
+            Capped::whole(entries)
+        })
     }
 
     /// Where `dir`'s subtree starts in [`Index::entries`], and the prefix every path in it carries.

@@ -117,6 +117,7 @@
 //! implemented.
 
 mod binary;
+mod capped;
 mod config;
 mod entry;
 mod error;
@@ -129,10 +130,11 @@ mod policy;
 mod query;
 mod rules;
 
+pub use crate::capped::Capped;
 pub use crate::config::{Config, IgnoreSources};
 pub use crate::entry::{Entry, EntryKind};
 pub use crate::error::BuildError;
 pub use crate::filter::{Filter, FilterError};
 pub use crate::index::{BuildOutcome, Index};
-pub use crate::list_dir::{ListDirError, ListOutcome};
+pub use crate::list_dir::ListDirError;
 pub use crate::query::PathMatch;
