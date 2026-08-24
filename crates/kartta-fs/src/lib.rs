@@ -95,15 +95,16 @@
 //!
 //! # What is here so far
 //!
-//! The walk, the ignore rules, the snapshot, path lookup, and the two path queries — glob and fuzzy — both
-//! narrowed by a [`Filter`]. Not yet: content search, regex queries, directory listing, incremental re-walk, and
-//! the ignore sources outside the tree — [`IgnoreSources`] names only the levels that are implemented.
+//! The walk, the ignore rules, the snapshot, path lookup, the directory listing, and the two path queries — glob and
+//! fuzzy — both narrowed by a [`Filter`]. Not yet: content search, regex queries, incremental re-walk, and the ignore
+//! sources outside the tree — [`IgnoreSources`] names only the levels that are implemented.
 
 mod config;
 mod entry;
 mod error;
 mod filter;
 mod index;
+mod list_dir;
 mod policy;
 mod query;
 mod rules;
@@ -113,4 +114,5 @@ pub use crate::entry::{Entry, EntryKind};
 pub use crate::error::BuildError;
 pub use crate::filter::{Filter, FilterError};
 pub use crate::index::{BuildOutcome, Index};
+pub use crate::list_dir::{ListDirError, ListOutcome};
 pub use crate::query::PathMatch;

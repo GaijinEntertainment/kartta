@@ -1,4 +1,5 @@
-//! The public index contract: what a build records, which entries git's rules remove, and what the path query answers.
+//! The public index contract: what a build records, which entries git's rules remove, and what the listing and the
+//! path queries answer.
 #![expect(
     clippy::expect_used,
     clippy::panic,
@@ -11,7 +12,9 @@ use std::fs;
 use std::num::NonZeroUsize;
 use std::path::Path;
 
-use kartta_fs::{BuildError, Config, Entry, EntryKind, Filter, IgnoreSources, Index};
+use kartta_fs::{
+    BuildError, Config, Entry, EntryKind, Filter, IgnoreSources, Index, ListDirError, ListOutcome,
+};
 use tempfile::TempDir;
 
 /// Builds a temporary tree from `path -> content` pairs, creating parent directories as needed. A path ending in `/`
@@ -783,4 +786,235 @@ fn only_a_symlink_carries_a_target() {
 
     assert_eq!(index.entry("dir").and_then(Entry::target), None);
     assert_eq!(index.entry("dir/file.txt").and_then(Entry::target), None);
+}
+
+fn listed<'a>(outcome: &ListOutcome<'a>) -> Vec<&'a str> {
+    outcome.entries().iter().map(|entry| entry.path()).collect()
+}
+
+fn list<'a>(index: &'a Index, dir: &str) -> ListOutcome<'a> {
+    index
+        .list_dir(dir, None, None)
+        .unwrap_or_else(|error| panic!("list {dir}: {error}"))
+}
+
+#[test]
+fn a_listing_holds_the_whole_subtree_depth_first_with_directories_included() {
+    let dir = tree(&[
+        ("src/net/tcp.rs", "t"),
+        ("src/main.rs", "m"),
+        ("src/lib.rs", "l"),
+        ("outside.txt", "o"),
+    ]);
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        listed(&list(&index, "src")),
+        ["src/lib.rs", "src/main.rs", "src/net", "src/net/tcp.rs"],
+        "the directory itself is not listed, its descendants are, and src/net comes before its own child"
+    );
+}
+
+#[test]
+fn the_empty_path_lists_the_index_root() {
+    let dir = tree(&[("src/main.rs", "m"), ("README.md", "r")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(listed(&list(&index, "")), paths(&index));
+}
+
+#[test]
+fn a_depth_takes_only_that_many_levels_below_the_listed_directory() {
+    let dir = tree(&[("a/b/c/d.txt", "d"), ("a/top.txt", "t")]);
+    let index = default_index(dir.path());
+
+    let one = index
+        .list_dir("a", NonZeroUsize::new(1), None)
+        .expect("list a");
+    assert_eq!(listed(&one), ["a/b", "a/top.txt"]);
+
+    let two = index
+        .list_dir("a", NonZeroUsize::new(2), None)
+        .expect("list a");
+    assert_eq!(listed(&two), ["a/b", "a/b/c", "a/top.txt"]);
+
+    assert_eq!(
+        listed(&list(&index, "a")),
+        ["a/b", "a/b/c", "a/b/c/d.txt", "a/top.txt"],
+        "no depth takes the whole subtree"
+    );
+}
+
+#[test]
+fn a_limit_cuts_the_listing_and_says_so() {
+    let dir = tree(&[("a/one.txt", "1"), ("a/two.txt", "2"), ("a/three.txt", "3")]);
+    let index = default_index(dir.path());
+
+    let capped = index
+        .list_dir("a", None, NonZeroUsize::new(2))
+        .expect("list a");
+
+    assert_eq!(listed(&capped), ["a/one.txt", "a/three.txt"]);
+    assert!(capped.truncated());
+}
+
+#[test]
+fn a_directory_holding_exactly_the_limit_is_not_truncated() {
+    let dir = tree(&[("a/one.txt", "1"), ("a/two.txt", "2")]);
+    let index = default_index(dir.path());
+
+    let capped = index
+        .list_dir("a", None, NonZeroUsize::new(2))
+        .expect("list a");
+
+    assert_eq!(listed(&capped).len(), 2);
+    assert!(
+        !capped.truncated(),
+        "the cap was reached, and nothing was turned away"
+    );
+}
+
+#[test]
+fn an_entry_a_depth_dropped_never_counts_as_truncation() {
+    let dir = tree(&[("a/deep/buried.txt", "b"), ("a/top.txt", "t")]);
+    let index = default_index(dir.path());
+
+    let capped = index
+        .list_dir("a", NonZeroUsize::new(1), NonZeroUsize::new(2))
+        .expect("list a");
+
+    assert_eq!(listed(&capped), ["a/deep", "a/top.txt"]);
+    assert!(
+        !capped.truncated(),
+        "a/deep/buried.txt was out of depth, which the limit never saw"
+    );
+}
+
+#[test]
+fn a_directory_with_nothing_indexed_under_it_lists_nothing() {
+    let dir = tree(&[("empty/", ""), ("hidden/.gitignore", "*\n"), ("z.txt", "z")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(listed(&list(&index, "empty")), [] as [&str; 0]);
+    assert_eq!(
+        listed(&list(&index, "hidden")),
+        [] as [&str; 0],
+        "`*` hides the .gitignore that carries it, as it does for git, and an emptied directory still lists"
+    );
+}
+
+#[test]
+fn a_listing_stops_at_a_sibling_whose_name_extends_the_directory_name() {
+    let dir = tree(&[
+        ("src/main.rs", "m"),
+        ("src-gen/built.rs", "b"),
+        ("src.bak/old.rs", "o"),
+    ]);
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        listed(&list(&index, "src")),
+        ["src/main.rs"],
+        "src-gen and src.bak are siblings of src, not entries beneath it"
+    );
+}
+
+#[test]
+fn listing_a_path_that_is_not_indexed_is_not_found() {
+    let dir = tree(&[(".gitignore", "secret/\n"), ("secret/key.txt", "k")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        index.list_dir("nowhere", None, None),
+        Err(ListDirError::NotFound {
+            path: "nowhere".to_owned()
+        })
+    );
+    assert_eq!(
+        index.list_dir("secret", None, None),
+        Err(ListDirError::NotFound {
+            path: "secret".to_owned()
+        }),
+        "an ignored directory reads the same as one that was never there"
+    );
+}
+
+#[test]
+fn listing_a_file_reports_what_is_indexed_there_instead() {
+    let dir = tree(&[("main.rs", "m")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        index.list_dir("main.rs", None, None),
+        Err(ListDirError::NotADirectory {
+            path: "main.rs".to_owned(),
+            kind: EntryKind::File,
+        })
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn listing_a_symlink_to_a_directory_is_not_a_listing_of_its_target() {
+    let dir = tree(&[("target/inner.txt", "x")]);
+    std::os::unix::fs::symlink("target", dir.path().join("link"))
+        .expect("create a directory symlink");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        index.list_dir("link", None, None),
+        Err(ListDirError::NotADirectory {
+            path: "link".to_owned(),
+            kind: EntryKind::Symlink,
+        }),
+        "the walk never descended the link, so the index holds nothing under it"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_listing_carries_the_walk_time_size_and_symlink_target() {
+    let dir = tree(&[("a/file.txt", "twelve chars")]);
+    std::os::unix::fs::symlink("file.txt", dir.path().join("a/link"))
+        .expect("create a file symlink");
+
+    let index = default_index(dir.path());
+    let entries = list(&index, "a").into_entries();
+
+    let sizes: Vec<Option<u64>> = entries.iter().map(|entry| entry.size()).collect();
+    let targets: Vec<Option<&str>> = entries.iter().map(|entry| entry.target()).collect();
+
+    assert_eq!(listed(&list(&index, "a")), ["a/file.txt", "a/link"]);
+    assert_eq!(sizes, [Some(12), None]);
+    assert_eq!(targets, [None, Some("file.txt")]);
+}
+
+#[test]
+fn listing_the_root_one_level_deep_takes_only_the_top_level_entries() {
+    let dir = tree(&[("a/b/c/deep.txt", "d"), ("z.txt", "z"), ("m/one.txt", "1")]);
+    let index = default_index(dir.path());
+
+    let top = index
+        .list_dir("", NonZeroUsize::new(1), None)
+        .expect("list the root");
+
+    assert_eq!(
+        listed(&top),
+        ["a", "m", "z.txt"],
+        "each top-level directory is listed and none of them is descended"
+    );
+}
+
+#[test]
+fn a_skipped_subtree_that_runs_to_the_end_of_the_index_ends_the_listing() {
+    let dir = tree(&[("a/b/c/deep.txt", "d")]);
+    let index = default_index(dir.path());
+
+    let top = index
+        .list_dir("", NonZeroUsize::new(1), None)
+        .expect("list the root");
+
+    assert_eq!(listed(&top), ["a"]);
+    assert!(!top.truncated());
 }
