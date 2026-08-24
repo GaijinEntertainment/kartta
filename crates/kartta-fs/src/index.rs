@@ -176,12 +176,17 @@ impl Index {
     /// disk images and model weights. That answer is about the *name*, so it stands even for a file since deleted or
     /// replaced: opening one to confirm would spend on every such entry the very syscall the rule exists to save.
     ///
+    /// `svg` is the one listed name that is not binary by construction. It is XML, and it is listed because in
+    /// practice it holds machine-emitted path data whose lines are of no use to a reader — so an SVG reports binary
+    /// here without ever being read.
+    ///
     /// A name that settles nothing is answered by whether a NUL appears in the file's first 64 KiB, the rule git and
     /// ripgrep both apply. That verdict is about a prefix rather than about a whole file: a file that is text for
     /// 64 KiB and binary after reports text here.
     ///
-    /// **This reads the filesystem**, on the first ask for a given entry, and keeps the answer — see [`Index::size`]
-    /// for what taking an answer at ask time rather than at walk time costs in coherence.
+    /// **A name that settles nothing reads the filesystem**, on the first ask for a given entry, and the answer is
+    /// kept — see [`Index::size`] for what taking an answer at ask time rather than at walk time costs in coherence.
+    /// A name the list settles is never read at all, on the first ask or any later one.
     #[must_use]
     pub fn is_binary(&self, path: &str) -> Option<bool> {
         let at = self.position(path)?;
