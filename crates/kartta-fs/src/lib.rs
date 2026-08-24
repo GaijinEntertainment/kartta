@@ -124,6 +124,7 @@ mod filter;
 mod index;
 mod inspection;
 mod list_dir;
+mod open;
 mod policy;
 mod query;
 mod rules;

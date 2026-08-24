@@ -9,6 +9,7 @@ use kartta_walk::{Dir, Entry, EntryKind, Policy, Visit};
 
 use crate::config::IgnoreSources;
 use crate::error::BuildError;
+use crate::open::open_regular;
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 
 /// What the walk records per entry. The path is not here: the tree already carries each name, and the index builds
@@ -78,16 +79,7 @@ impl Indexing {
             ));
         }
 
-        let file = open_without_blocking(path)?;
-
-        if !file.metadata()?.is_file() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "not a regular file",
-            ));
-        }
-
-        read_all(&file)
+        read_all(&open_regular(path)?)
     }
 
     /// Whether `path` resolves to a location inside the indexed tree.
@@ -135,30 +127,6 @@ fn target(entry: &Entry<'_>, kind: EntryKind) -> Option<Box<str>> {
         .into_string()
         .ok()
         .map(String::into_boxed_str)
-}
-
-/// Opens `path` for reading without waiting for anything.
-///
-/// A fifo opened for reading blocks until a writer appears, so a repository could hang any build that read whatever
-/// carried an ignore file's name. `O_NONBLOCK` makes the open return a handle immediately, and the caller settles what
-/// that handle is before reading a byte. The flag is a no-op for a regular file, which is the only kind that goes on
-/// to be read.
-///
-/// Windows needs nothing: a named pipe lives in its own namespace rather than the filesystem, so opening a path there
-/// cannot reach one.
-#[cfg(unix)]
-fn open_without_blocking(path: &Path) -> io::Result<fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-
-    fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open(path)
-}
-
-#[cfg(not(unix))]
-fn open_without_blocking(path: &Path) -> io::Result<fs::File> {
-    fs::File::open(path)
 }
 
 /// Reads an already-opened and already-classified handle to the end.
