@@ -1,6 +1,7 @@
 [package]
 name = "kartta-fs"
 description = "Repository file index with glob, fuzzy and regex queries over a single filesystem walk"
+readme = "README.md"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,3 +15,15 @@ categories = ["filesystem", "development-tools"]
 workspace = true
 
 [dependencies]
+bstr = "1.13.1"
+gix-glob = "0.27.1"
+gix-ignore = "0.22.1"
+kartta-fuzz = { version = "0.0.0", path = "../kartta-fuzz" }
+kartta-walk = { version = "0.0.0", path = "../kartta-walk" }
+thiserror = "2.0.20"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[target."cfg(unix)".dependencies]
+libc = "0.2.189"

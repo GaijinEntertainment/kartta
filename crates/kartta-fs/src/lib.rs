@@ -1,19 +1,71 @@
-//! Repository file index with glob, fuzzy and regex queries over a single filesystem walk.
+//! Repository file index: one filesystem walk builds a snapshot, and every query answers from it.
 //!
-//! One walk builds one snapshot, and every surface answers from it — the path queries, the content query, and the
-//! directory listing never re-stat the tree. Construction takes an OS path and reads the real filesystem; there is no
+//! [`Index::build`] reads a directory tree once, applying git's ignore rules on the way down, and keeps what survives.
+//! Nothing after that touches the filesystem — a lookup, a path query and (in time) a content search all read the same
+//! snapshot rather than re-stating the tree. Construction takes an OS path and reads the real filesystem; there is no
 //! virtual-filesystem abstraction to mock.
+//!
+//! ```
+//! use kartta_fs::{Config, Index};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let dir = tempfile::tempdir()?;
+//! std::fs::create_dir_all(dir.path().join("src"))?;
+//! std::fs::write(dir.path().join("src/main.rs"), "fn main() {}")?;
+//! std::fs::write(dir.path().join(".gitignore"), "*.log\n")?;
+//! std::fs::write(dir.path().join("build.log"), "noise")?;
+//!
+//! let outcome = Index::build(dir.path(), &Config::default())?;
+//! assert!(outcome.errors().is_empty(), "a complete answer");
+//! let index = outcome.into_index();
+//!
+//! let ranked = index.fuzzy_paths("main", None);
+//! assert_eq!(ranked[0].path, "src/main.rs");
+//! assert!(index.entry("build.log").is_none(), "the .gitignore applied");
+//! # Ok(())
+//! # }
+//! ```
 //!
 //! # Conventions
 //!
-//! - Paths are forward-slash and repository-relative on every platform. Windows support is a hard requirement, so no
-//!   surface returns an OS-native separator.
+//! - Paths are forward-slash and root-relative on every platform. Windows is a first-class target, so no path that
+//!   *identifies* an entry carries an OS-native separator. Two surfaces are native instead, because both point at a
+//!   place on disk rather than naming an index entry: [`Index::root`], which an entry's path is joined onto to open
+//!   it, and [`BuildError::path`], which tells an operator where to go and look. The rule is one form for identity,
+//!   the other for access.
+//! - An entry whose name is not valid UTF-8 is not indexed, and is reported through [`BuildError::Name`]. It has no
+//!   faithful path — the walk decodes lossily, and two such names collapse onto one — so indexing it would hand two
+//!   entries a single lookup key and a path that opens neither.
 //! - Sizes are read at walk time. `Some(0)` is a genuinely empty file and `None` is a size that could not be read;
 //!   the two are different index states and are never conflated.
-//! - Gitignore handling belongs to the `ignore` crate, fuzzy ranking to `kartta-fuzz`, and regex content matching to
-//!   ripgrep's engine crates. Same dialects and diagnostics as those tools, by delegation rather than reimplementation.
-//! - Import resolution is not this crate's concern: a specifier-to-file mapping is language semantics and lives with
-//!   the language extractors. What lives here are the mechanical primitives a resolver queries.
+//! - A build that could not read everything says so. [`BuildOutcome::errors`] is not a log — an index missing a
+//!   subtree, or holding files an unread `.gitignore` would have hidden, is indistinguishable from a correct one
+//!   without it.
+//! - Gitignore matching belongs to [`gix-ignore`](https://crates.io/crates/gix-ignore) and path ranking to
+//!   `kartta-fuzz`. Git's dialect is a compatibility surface, so it is delegated rather than reimplemented.
+//! - Import resolution is not this crate's concern: a specifier-to-file mapping is language semantics. What lives here
+//!   are the mechanical primitives a resolver queries.
+//!
+//! # Ignore rules
+//!
+//! `.git` is never indexed and never descended, whatever the configuration — it holds the repository's bookkeeping
+//! rather than the tree the repository describes. A `.git` found deeper in the tree marks another repository's root,
+//! and the inherited rule stack resets there, exactly as git's own rules stop at a repository boundary. Its contents
+//! are still indexed: this crate indexes a directory tree, not a git index.
+//!
+//! That reset applies to a nested repository the walk reaches. An outer rule that hides the directory itself hides
+//! everything under it, nested repository or not, because an ignored directory is never descended — which is git's own
+//! answer, as `git status` on a tree whose `.gitignore` names the directory will confirm.
+//!
+//! Which ignore files apply is [`Config::ignore`], and the default is the reproducible one — in-tree `.gitignore`
+//! files only, which is the level at which the same tree indexes identically wherever it sits. Sources outside the
+//! tree are machine-local, so honouring one gives that up; [`IgnoreSources`] carries the full reasoning.
+//!
+//! What is modelled is git's **ignore rules**, not git's index. A file git already tracks stays tracked even once a
+//! rule would hide it, and such a file is not indexed here — `git check-ignore --no-index` is the command that agrees
+//! with this crate, where `git ls-files` is the one that does not. Reading the git index to re-include those files
+//! would mean a real git repository and a large dependency tree for a case that only arises when a rule is added after
+//! a file, so a build reports what the rules say and nothing else.
 //!
 //! # Symlinks
 //!
@@ -21,10 +73,36 @@
 //! under the target's own path (an in-tree target) or is not the repository's at all (an out-of-tree target), so
 //! following one either duplicates a file under a second path or reads outside the tree.
 //!
-//! In the tree a symlink is a leaf: the raw target is captured by readlink, one following stat captures the target's
-//! type and size, a directory link is never descended, and a dangling link is dropped outright. Listed is therefore not
-//! the same as readable — a symlink found by a path query produces no content match, by rule rather than by accident.
+//! A symlink is therefore a leaf. It is never descended even when it points at a directory, so no cycle detection is
+//! needed and the walk cannot leave the tree it was given. It is also never stat'd through: a dangling link and a live
+//! one are indistinguishable to every query here, since neither is read, so following one to tell them apart would buy
+//! nothing for a syscall per link.
 //!
-//! Because the index is a snapshot, a regular file replaced by a symlink after the walk is still followed when the
-//! content query opens it. That race is accepted, not mitigated: no portable open-without-follow exists, and it takes a
-//! writer mutating the tree mid-query, who could put the same content in a regular file instead.
+//! Listed is thus not the same as readable, by rule rather than by accident.
+//!
+//! The rule binds what the index *reports*, not what a concurrent writer can do to the tree underneath it. An entry
+//! classified as a directory and then replaced by a symlink before the walk lists it is descended through, and the
+//! target's names enter the index under the original prefix. Closing that needs descent through a directory handle
+//! rather than a path, which is per-platform work; until then the race is accepted and stated, as it is for a regular
+//! file swapped for a symlink between the walk and a later read. Both cost a writer mutating the tree mid-build what
+//! putting the same content at the same path costs them anyway.
+//!
+//! # What is here so far
+//!
+//! The walk, the ignore rules, the snapshot, path lookup and the fuzzy path query. Not yet: glob and regex queries,
+//! directory listing, per-query filters, incremental re-walk, and the ignore sources outside the tree —
+//! [`IgnoreSources`] names only the levels that are implemented.
+
+mod config;
+mod entry;
+mod error;
+mod index;
+mod policy;
+mod query;
+mod rules;
+
+pub use crate::config::{Config, IgnoreSources};
+pub use crate::entry::{Entry, EntryKind};
+pub use crate::error::BuildError;
+pub use crate::index::{BuildOutcome, Index};
+pub use crate::query::PathMatch;

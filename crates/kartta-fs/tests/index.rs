@@ -1,0 +1,597 @@
+//! The public index contract: what a build records, which entries git's rules remove, and what the path query answers.
+#![expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "clippy's allow-expect-in-tests and allow-panic-in-tests only cover #[cfg(test)] modules, and an \
+              integration test crate is built without cfg(test) — so the workspace no-panic posture has to be waived \
+              here, where a failed expectation is the assertion"
+)]
+
+use std::fs;
+use std::num::NonZeroUsize;
+use std::path::Path;
+
+use kartta_fs::{BuildError, Config, Entry, EntryKind, IgnoreSources, Index};
+use tempfile::TempDir;
+
+/// Builds a temporary tree from `path -> content` pairs, creating parent directories as needed. A path ending in `/`
+/// makes an empty directory and ignores the content.
+fn tree(spec: &[(&str, &str)]) -> TempDir {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let root = dir.path();
+
+    for (path, content) in spec {
+        if let Some(name) = path.strip_suffix('/') {
+            fs::create_dir_all(root.join(name)).expect("create directory");
+            continue;
+        }
+
+        let full = root.join(path);
+        if let Some(parent) = full.parent() {
+            fs::create_dir_all(parent).expect("create parent directory");
+        }
+        fs::write(&full, content).expect("write file");
+    }
+
+    dir
+}
+
+/// The index of a complete build, which is what every test but the failure ones expects.
+fn index(root: &Path, config: &Config) -> Index {
+    let outcome = Index::build(root, config).expect("build the index");
+    assert!(
+        outcome.errors().is_empty(),
+        "unexpected build errors: {:?}",
+        outcome.errors()
+    );
+
+    outcome.into_index()
+}
+
+/// The index of a complete build under the default configuration.
+fn default_index(root: &Path) -> Index {
+    index(root, &Config::default())
+}
+
+fn paths(index: &Index) -> Vec<&str> {
+    index.entries().iter().map(Entry::path).collect()
+}
+
+fn kind_of(index: &Index, path: &str) -> EntryKind {
+    index
+        .entry(path)
+        .unwrap_or_else(|| panic!("{path} is indexed"))
+        .kind()
+}
+
+#[test]
+fn entries_are_depth_first_with_each_directory_followed_by_its_subtree() {
+    let dir = tree(&[
+        ("z.txt", "z"),
+        ("a.txt", "a"),
+        ("dir/nested/c.txt", "c"),
+        ("dir/b.txt", "b"),
+        ("empty/", ""),
+    ]);
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        paths(&index),
+        [
+            "a.txt",
+            "dir",
+            "dir/b.txt",
+            "dir/nested",
+            "dir/nested/c.txt",
+            "empty",
+            "z.txt",
+        ]
+    );
+}
+
+#[test]
+fn paths_are_forward_slash_separated_and_root_relative() {
+    let dir = tree(&[("deep/down/here.txt", "x")]);
+    let index = default_index(dir.path());
+
+    let entry = index.entry("deep/down/here.txt").expect("the nested file");
+    assert_eq!(entry.path(), "deep/down/here.txt");
+    assert_eq!(entry.name(), "here.txt");
+    assert_eq!(index.root(), dir.path());
+}
+
+#[test]
+fn a_root_level_entry_is_its_own_name() {
+    let dir = tree(&[("top.txt", "x")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(index.entry("top.txt").map(Entry::name), Some("top.txt"));
+}
+
+#[test]
+fn sizes_are_recorded_for_regular_files_only() {
+    let dir = tree(&[("empty.txt", ""), ("hello.txt", "hello"), ("sub/", "")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        index.entry("empty.txt").and_then(Entry::size),
+        Some(0),
+        "an empty file has a known size of zero"
+    );
+    assert_eq!(index.entry("hello.txt").and_then(Entry::size), Some(5));
+    assert_eq!(index.entry("sub").and_then(Entry::size), None);
+    assert_eq!(kind_of(&index, "sub"), EntryKind::Dir);
+    assert_eq!(kind_of(&index, "hello.txt"), EntryKind::File);
+}
+
+#[test]
+fn entry_lookup_answers_none_for_a_path_that_was_not_indexed() {
+    let dir = tree(&[("a.txt", "a")]);
+    let index = default_index(dir.path());
+
+    assert!(index.entry("a.txt").is_some());
+    assert!(index.entry("missing.txt").is_none());
+    assert!(index.entry("").is_none(), "the root itself is not an entry");
+    assert_eq!(index.len(), 1);
+    assert!(!index.is_empty());
+}
+
+#[test]
+fn an_empty_tree_indexes_to_nothing() {
+    let dir = tree(&[]);
+    let index = default_index(dir.path());
+
+    assert!(index.is_empty());
+    assert_eq!(index.len(), 0);
+}
+
+#[test]
+fn a_root_gitignore_hides_matching_entries() {
+    let dir = tree(&[
+        (".gitignore", "*.log\n"),
+        ("build.log", "noise"),
+        ("main.rs", "code"),
+    ]);
+    let index = default_index(dir.path());
+
+    assert_eq!(paths(&index), [".gitignore", "main.rs"]);
+}
+
+#[test]
+fn a_nested_gitignore_applies_only_below_its_own_directory() {
+    let dir = tree(&[
+        ("src/.gitignore", "gen.rs\n"),
+        ("gen.rs", "x"),
+        ("src/gen.rs", "y"),
+    ]);
+    let index = default_index(dir.path());
+
+    assert_eq!(paths(&index), ["gen.rs", "src", "src/.gitignore"]);
+}
+
+#[test]
+fn a_deeper_negation_reincludes_a_file_a_shallower_rule_hid() {
+    let dir = tree(&[
+        (".gitignore", "*.log\n"),
+        ("logs/.gitignore", "!keep.log\n"),
+        ("logs/keep.log", "keep"),
+        ("logs/drop.log", "drop"),
+    ]);
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        paths(&index),
+        [".gitignore", "logs", "logs/.gitignore", "logs/keep.log"]
+    );
+}
+
+#[test]
+fn an_ignored_directory_drops_its_whole_subtree_and_no_negation_reaches_inside() {
+    let dir = tree(&[
+        (".gitignore", "build/\n!build/keep.txt\n"),
+        ("build/keep.txt", "keep"),
+        ("build/out.o", "binary"),
+        ("src/main.rs", "code"),
+    ]);
+    let index = default_index(dir.path());
+
+    assert_eq!(paths(&index), [".gitignore", "src", "src/main.rs"]);
+}
+
+#[test]
+fn the_git_directory_is_never_indexed() {
+    let dir = tree(&[(".git/config", "[core]\n"), ("a.txt", "a")]);
+    let index = default_index(dir.path());
+
+    assert_eq!(paths(&index), ["a.txt"]);
+}
+
+#[test]
+fn a_nested_git_directory_resets_the_inherited_ignore_stack() {
+    let dir = tree(&[
+        (".gitignore", "*.txt\n"),
+        ("a.txt", "hidden by the outer rule"),
+        ("inner/.git/HEAD", "ref: refs/heads/main\n"),
+        (
+            "inner/b.txt",
+            "kept: the outer rule stops at the inner repository",
+        ),
+    ]);
+    let index = default_index(dir.path());
+
+    assert_eq!(paths(&index), [".gitignore", "inner", "inner/b.txt"]);
+}
+
+#[test]
+fn ignore_sources_none_indexes_everything_except_the_git_directory() {
+    let dir = tree(&[
+        (".gitignore", "*.log\n"),
+        (".git/config", "[core]\n"),
+        ("build.log", "noise"),
+    ]);
+
+    let mut config = Config::default();
+    config.ignore = IgnoreSources::None;
+    let index = index(dir.path(), &config);
+
+    assert_eq!(paths(&index), [".gitignore", "build.log"]);
+}
+
+#[test]
+fn ignore_sources_order_from_none_upwards() {
+    assert!(IgnoreSources::None < IgnoreSources::InTree);
+    assert_eq!(IgnoreSources::default(), IgnoreSources::InTree);
+}
+
+#[test]
+fn an_unreadable_gitignore_is_reported_and_its_rules_do_not_apply() {
+    let gitignore_that_is_a_directory = (".gitignore/", "");
+    let dir = tree(&[gitignore_that_is_a_directory, ("build.log", "noise")]);
+
+    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+    let reported: Vec<&Path> = outcome
+        .errors()
+        .iter()
+        .filter(|error| matches!(error, BuildError::Ignore { .. }))
+        .filter_map(BuildError::path)
+        .collect();
+
+    assert_eq!(reported, [dir.path().join(".gitignore").as_path()]);
+    assert_eq!(paths(&outcome.into_index()), [".gitignore", "build.log"]);
+}
+
+#[test]
+fn two_builds_of_one_tree_produce_identical_indexes() {
+    let dir = tree(&[
+        ("src/main.rs", "code"),
+        ("src/lib.rs", "code"),
+        ("docs/readme.md", "docs"),
+    ]);
+
+    let first = default_index(dir.path());
+    let mut config = Config::default();
+    config.threads = NonZeroUsize::new(1);
+    let second = index(dir.path(), &config);
+
+    assert_eq!(first.entries(), second.entries());
+}
+
+#[test]
+fn fuzzy_paths_ranks_a_filename_hit_above_a_directory_hit() {
+    let dir = tree(&[
+        ("src/main.rs", ""),
+        ("main/lib.rs", ""),
+        ("src/other.rs", ""),
+    ]);
+    let index = default_index(dir.path());
+
+    let ranked: Vec<&str> = index
+        .fuzzy_paths("main", None)
+        .iter()
+        .map(|found| found.path)
+        .collect();
+
+    assert_eq!(ranked, ["src/main.rs", "main/lib.rs"]);
+}
+
+#[test]
+fn fuzzy_paths_never_returns_a_directory() {
+    let dir = tree(&[("src/main.rs", ""), ("src/nested/deep.rs", "")]);
+    let index = default_index(dir.path());
+
+    let ranked = index.fuzzy_paths("src", None);
+    assert!(!ranked.is_empty(), "the query matches the files under src");
+
+    for found in &ranked {
+        assert_ne!(
+            kind_of(&index, found.path),
+            EntryKind::Dir,
+            "{} is a directory",
+            found.path
+        );
+    }
+}
+
+#[test]
+fn fuzzy_paths_honours_a_limit_and_scores_descend() {
+    let dir = tree(&[
+        ("src/main.rs", ""),
+        ("main/lib.rs", ""),
+        ("main/mod.rs", ""),
+    ]);
+    let index = default_index(dir.path());
+
+    let all = index.fuzzy_paths("main", None);
+    assert_eq!(all.len(), 3);
+    assert!(
+        all.windows(2).all(|pair| pair[0].score >= pair[1].score),
+        "best first"
+    );
+
+    let capped = index.fuzzy_paths("main", NonZeroUsize::new(2));
+    assert_eq!(capped.len(), 2);
+    assert_eq!(capped[0].path, all[0].path);
+}
+
+#[test]
+fn an_empty_query_matches_every_indexed_file_in_index_order() {
+    let dir = tree(&[("b.txt", ""), ("a.txt", ""), ("sub/", "")]);
+    let index = default_index(dir.path());
+
+    let ranked: Vec<&str> = index
+        .fuzzy_paths("", None)
+        .iter()
+        .map(|found| found.path)
+        .collect();
+
+    assert_eq!(ranked, ["a.txt", "b.txt"]);
+}
+
+#[test]
+fn fuzzy_paths_answers_nothing_for_a_query_no_path_contains() {
+    let dir = tree(&[("src/main.rs", "")]);
+    let index = default_index(dir.path());
+
+    assert!(index.fuzzy_paths("qqzz", None).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_gitignore_that_is_a_fifo_does_not_block_the_build() {
+    let dir = tree(&[("build.log", "noise")]);
+    mkfifo(&dir.path().join(".gitignore"));
+
+    let root = dir.path().to_path_buf();
+    let (report, errors) = within_deadline(move || {
+        let outcome = Index::build(&root, &Config::default()).expect("build the index");
+        let errors = format!("{:?}", outcome.errors());
+        let carries_ignore = outcome
+            .errors()
+            .iter()
+            .any(|error| matches!(error, BuildError::Ignore { .. }));
+
+        let index = outcome.into_index();
+        let listed: Vec<String> = paths(&index).iter().map(|&p| p.to_owned()).collect();
+
+        (
+            (carries_ignore, listed, kind_of(&index, ".gitignore")),
+            errors,
+        )
+    });
+
+    let (carries_ignore, listed, gitignore_kind) = report;
+    assert!(
+        carries_ignore,
+        "a name that carries no rules is reported: {errors}"
+    );
+    assert_eq!(listed, [".gitignore", "build.log"]);
+    assert_eq!(gitignore_kind, EntryKind::Other);
+}
+
+/// Runs `work` on its own thread and fails the test if it does not finish in time.
+///
+/// The failure this guards is a build that never returns: opening a fifo for reading waits for a writer that never
+/// comes. Calling straight through would hang the whole test binary rather than fail one test, and the workspace test
+/// job has no per-test deadline to catch it. A thread left blocked on a leaked fifo dies with the process.
+#[cfg(unix)]
+fn within_deadline<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || sender.send(work()));
+
+    receiver
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the build finished rather than blocking on the fifo")
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_gitignore_applies_its_rules_like_git_does() {
+    let dir = tree(&[("rules.txt", "*.log\n"), ("build.log", "noise")]);
+    std::os::unix::fs::symlink("rules.txt", dir.path().join(".gitignore"))
+        .expect("create a symlinked .gitignore");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        paths(&index),
+        [".gitignore", "rules.txt"],
+        "git opens .gitignore through a symlink, and so does this"
+    );
+    assert_eq!(kind_of(&index, ".gitignore"), EntryKind::Symlink);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_gitignore_symlinked_out_of_the_tree_is_refused_and_reported() {
+    // Following it would let rules that do not travel with the tree decide the index, which is exactly what the
+    // in-tree level promises to keep out.
+    let outside = tree(&[("rules.txt", "*.log\n")]);
+    let dir = tree(&[("build.log", "noise")]);
+    std::os::unix::fs::symlink(
+        outside.path().join("rules.txt"),
+        dir.path().join(".gitignore"),
+    )
+    .expect("create an out-of-tree .gitignore symlink");
+
+    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+
+    assert!(
+        outcome
+            .errors()
+            .iter()
+            .any(|error| matches!(error, BuildError::Ignore { .. })),
+        "the refusal is reported: {:?}",
+        outcome.errors()
+    );
+    assert_eq!(
+        paths(&outcome.into_index()),
+        [".gitignore", "build.log"],
+        "the outside rules never applied"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_gitignore_symlinked_within_the_tree_is_followed() {
+    let dir = tree(&[("ci/rules.txt", "*.log\n"), ("build.log", "noise")]);
+    std::os::unix::fs::symlink("ci/rules.txt", dir.path().join(".gitignore"))
+        .expect("create an in-tree .gitignore symlink");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        paths(&index),
+        [".gitignore", "ci", "ci/rules.txt"],
+        "an in-tree target travels with the tree, so git's follow is kept"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dangling_gitignore_symlink_is_reported_and_its_rules_do_not_apply() {
+    let dir = tree(&[("build.log", "noise")]);
+    std::os::unix::fs::symlink("nowhere", dir.path().join(".gitignore"))
+        .expect("create a dangling .gitignore");
+
+    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+
+    assert!(
+        outcome
+            .errors()
+            .iter()
+            .any(|error| matches!(error, BuildError::Ignore { .. })),
+        "the rules could not be read, so the build says so: {:?}",
+        outcome.errors()
+    );
+    assert_eq!(paths(&outcome.into_index()), [".gitignore", "build.log"]);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn an_entry_whose_name_is_not_utf8_is_reported_rather_than_indexed() {
+    // Two names that differ only in an invalid byte both decode to one replacement character, so indexing either would
+    // give the two a single lookup key and a path that opens neither.
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tree(&[("plain.txt", "x")]);
+    for raw in [&b"\x80.txt"[..], &b"\x81.txt"[..]] {
+        fs::write(dir.path().join(OsStr::from_bytes(raw)), "y").expect("write a non-UTF-8 name");
+    }
+
+    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+    let reported = outcome
+        .errors()
+        .iter()
+        .filter(|error| matches!(error, BuildError::Name { .. }))
+        .count();
+
+    assert_eq!(
+        reported,
+        2,
+        "both names are reported: {:?}",
+        outcome.errors()
+    );
+    assert_eq!(paths(&outcome.into_index()), ["plain.txt"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_backslash_in_a_filename_is_not_a_path_separator_when_ranking() {
+    // Both candidates match, and both hold `main`. Under the scorer's default separators `\` splits `main\x.rs` so its
+    // basename is `x.rs` alone, which drops `main` out of the basename and lets the directory hit win. Only the
+    // narrowed separator set puts the whole filename in the basename and ranks it first.
+    let dir = tree(&[("main/x.rs", ""), ("main\\x.rs", "")]);
+    let index = default_index(dir.path());
+
+    let ranked: Vec<&str> = index
+        .fuzzy_paths("main", None)
+        .iter()
+        .map(|found| found.path)
+        .collect();
+
+    assert_eq!(
+        ranked,
+        ["main\\x.rs", "main/x.rs"],
+        "one unix filename outranks a directory hit of the same spelling"
+    );
+}
+
+#[cfg(unix)]
+fn mkfifo(path: &Path) {
+    let status = std::process::Command::new("mkfifo")
+        .arg(path)
+        .status()
+        .expect("run mkfifo");
+    assert!(status.success(), "mkfifo failed for {}", path.display());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_is_indexed_as_itself_and_never_descended() {
+    let dir = tree(&[("target/inner.txt", "x"), ("plain.txt", "y")]);
+    std::os::unix::fs::symlink("target", dir.path().join("link"))
+        .expect("create a directory symlink");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(
+        paths(&index),
+        ["link", "plain.txt", "target", "target/inner.txt"],
+        "the link is listed once and its target is not indexed a second time under it"
+    );
+    assert_eq!(kind_of(&index, "link"), EntryKind::Symlink);
+    assert_eq!(
+        index.entry("link").and_then(Entry::size),
+        None,
+        "a symlink is never followed, so it carries no size"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dangling_symlink_is_indexed_like_any_other() {
+    let dir = tree(&[]);
+    std::os::unix::fs::symlink("nowhere", dir.path().join("dangling"))
+        .expect("create a dangling symlink");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(paths(&index), ["dangling"]);
+    assert_eq!(kind_of(&index, "dangling"), EntryKind::Symlink);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_is_ignored_by_name_without_being_followed() {
+    let dir = tree(&[(".gitignore", "link\n"), ("target/inner.txt", "x")]);
+    std::os::unix::fs::symlink("target", dir.path().join("link"))
+        .expect("create a directory symlink");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(paths(&index), [".gitignore", "target", "target/inner.txt"]);
+}
