@@ -5,9 +5,18 @@
 /// The groups are what a reader extends, so each one is named rather than labelled — adding a format means finding the
 /// list it belongs to, and the names are what makes that a search rather than a scan.
 ///
-/// The whole list is one-sided on purpose. It says "binary, do not open" and never says text: an extension it does not
-/// name settles nothing, and the file is read instead. A list that claimed text would have to be right about every
-/// tree in the world, and being wrong would mean calling a file unsearchable that is not.
+/// The whole list is one-sided on purpose. It says "binary, do not open" and never says text: an extension it does
+/// not name settles nothing, and the file is read instead. Both mistakes it can make have a cost, and they are not
+/// equal.
+///
+/// **Being on this list wrongly is the expensive one.** A listed extension is answered without a probe, so a text
+/// format listed here is reported binary and a content search passes over it — a file nobody can find. Leaving a
+/// binary format off costs one read, which finds a NUL and answers correctly anyway. So a format earns its place by
+/// being binary *by construction*, where no instance of it can be text, and never by being merely generated or large.
+///
+/// That asymmetry is also the argument against a companion list of text extensions: it would have to make the same
+/// unconditional claim about formats that cannot support it, and `json`, `txt` and `xml` all routinely carry an
+/// embedded blob.
 const GROUPS: &[&[&str]] = &[
     IMAGES,
     AUDIO,
@@ -26,8 +35,9 @@ const GROUPS: &[&[&str]] = &[
     DAGOR,
 ];
 
-/// `svg` is the one deliberate exception to "binary by construction": it is XML, and in practice it is machine-emitted
-/// path data whose lines are of no use to a reader.
+/// `svg` is the one deliberate exception to "binary by construction": it is XML, so listing it does make a text format
+/// unsearchable here. It earns that because in practice it is machine-emitted path data whose lines are of no use to a
+/// reader — the expensive mistake made knowingly, rather than a case the rule missed.
 const IMAGES: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "webp", "tiff", "tif", "psd", "dds", "tga",
     "hdr", "exr", "ktx", "ktx2", "astc", "pvr", "basis",

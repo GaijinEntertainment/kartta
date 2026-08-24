@@ -74,9 +74,10 @@
 //! [`Policy`] chose, so the entry model — kinds, sizes, symlink targets — belongs to the consumer, as do a path lookup,
 //! any flat projection of the tree, ignore-file semantics, and every query.
 //!
-//! It exists to feed a filesystem index. An index answers a directory listing from a tree, so a tree is what this
-//! returns; an index that also wants a flat path list — for fuzzy path search, say — derives one from the tree in a
-//! single pass, on its own side of the boundary.
+//! It exists to feed a filesystem index. A tree is what this returns because a tree is what a traversal discovers,
+//! and reconstructing one costs a second owned copy of every path. What the consumer keeps is its own affair: the
+//! index this crate feeds flattens the tree into a depth-first list in a single pass and answers even its directory
+//! listings from that, on its own side of the boundary.
 //!
 //! # Examples
 //!
