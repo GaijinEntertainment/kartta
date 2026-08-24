@@ -1,7 +1,6 @@
 name: CI
 
-# fmt, clippy and test are the three gates. Upstream they were local-only — a green build said nothing about the Rust
-# code — so here they are the reason CI exists: every one of them blocks a merge.
+# fmt, clippy, docs, test and deny are the gates, and every one of them blocks a merge.
 on:
   push:
     branches: [main]
@@ -29,6 +28,18 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+
+  # Rustdoc with warnings denied, over this workspace's own crates. A broken intra-doc link, a malformed doc attribute
+  # or an undocumented public item fails no other job, so without this one it reaches the published documentation.
+  docs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo doc --locked --workspace --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   test:
     strategy:
@@ -59,7 +70,7 @@ jobs:
   # when every triggered job passed or was skipped — so conditional jobs never need enumerating in rulesets.
   ci-ok:
     if: always()
-    needs: [fmt, clippy, test, deny]
+    needs: [fmt, clippy, docs, test, deny]
     runs-on: ubuntu-24.04
     steps:
       - name: verify all jobs succeeded
