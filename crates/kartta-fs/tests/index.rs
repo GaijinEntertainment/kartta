@@ -1276,3 +1276,55 @@ fn list_options_default_to_no_bounds_and_zero_lifts_one() {
         ),
     );
 }
+
+#[test]
+fn a_sweep_answers_the_same_facts_as_the_keyed_lookups() {
+    /// One entry's path beside every fact the index reads on demand for it.
+    type Facts<'a> = (&'a str, Option<u64>, Option<bool>);
+
+    let dir = tree(&[("a.txt", "hello"), ("sub/b.bin", "x"), ("empty/", "")]);
+    fs::write(dir.path().join("sub/blob.txt"), b"has\0a nul").expect("write a binary file");
+    let index = default_index(dir.path());
+
+    let swept: Vec<Facts<'_>> = index
+        .inspected()
+        .map(|found| (found.entry().path(), found.size(), found.is_binary()))
+        .collect();
+    let keyed: Vec<Facts<'_>> = index
+        .entries()
+        .iter()
+        .map(|entry| {
+            (
+                entry.path(),
+                index.size(entry.path()),
+                index.is_binary(entry.path()),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        swept, keyed,
+        "one index, one set of answers, two routes to them"
+    );
+    assert_eq!(swept.len(), index.len());
+}
+
+#[test]
+fn a_sweep_reads_nothing_for_an_entry_it_never_asks_about() {
+    let dir = tree(&[("gone.txt", "here for now")]);
+    let index = default_index(dir.path());
+
+    let names: Vec<&str> = index
+        .inspected()
+        .map(|found| found.entry().name())
+        .collect();
+    assert_eq!(names, ["gone.txt"]);
+
+    fs::remove_file(dir.path().join("gone.txt")).expect("remove the file");
+
+    assert_eq!(
+        index.size("gone.txt"),
+        None,
+        "walking past an entry leaves its slot unread, so the first ask is still the first read"
+    );
+}

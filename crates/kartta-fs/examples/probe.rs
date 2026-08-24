@@ -45,11 +45,12 @@ fn main() {
     let mut counts = [0usize; 4];
     let mut known_bytes = 0u64;
     let mut unknown_sizes = 0usize;
-    for entry in index.entries() {
-        counts[slot(entry.kind())] += 1;
-        match index.size(entry.path()) {
+    for inspected in index.inspected() {
+        let kind = inspected.entry().kind();
+        counts[slot(kind)] += 1;
+        match inspected.size() {
             Some(size) => known_bytes = known_bytes.saturating_add(size),
-            None if entry.kind() == EntryKind::File => unknown_sizes += 1,
+            None if kind == EntryKind::File => unknown_sizes += 1,
             None => {}
         }
     }
