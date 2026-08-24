@@ -13,8 +13,8 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 
 use kartta_fs::{
-    BuildError, Capped, Config, Entry, EntryKind, Filter, IgnoreSources, Index, ListDirError,
-    ListOptions,
+    BuildError, Capped, Config, Entry, EntryKind, Filter, IgnoreSources, Index, Inspected,
+    ListDirError, ListOptions,
 };
 use tempfile::TempDir;
 
@@ -839,11 +839,15 @@ fn only_a_symlink_carries_a_target() {
     assert_eq!(index.entry("dir/file.txt").and_then(Entry::target), None);
 }
 
-fn listed<'a>(outcome: &Capped<&'a Entry>) -> Vec<&'a str> {
-    outcome.items().iter().map(|entry| entry.path()).collect()
+fn listed<'a>(outcome: &Capped<Inspected<'a>>) -> Vec<&'a str> {
+    outcome
+        .items()
+        .iter()
+        .map(|found| found.entry().path())
+        .collect()
 }
 
-fn list<'a>(index: &'a Index, dir: &str) -> Capped<&'a Entry> {
+fn list<'a>(index: &'a Index, dir: &str) -> Capped<Inspected<'a>> {
     index
         .list_dir(dir, &ListOptions::default())
         .unwrap_or_else(|error| panic!("list {dir}: {error}"))
@@ -976,16 +980,20 @@ fn listing_a_path_that_is_not_indexed_is_not_found() {
     let index = default_index(dir.path());
 
     assert_eq!(
-        index.list_dir("nowhere", &ListOptions::default()),
-        Err(ListDirError::NotFound {
+        index
+            .list_dir("nowhere", &ListOptions::default())
+            .unwrap_err(),
+        ListDirError::NotFound {
             path: "nowhere".to_owned()
-        })
+        }
     );
     assert_eq!(
-        index.list_dir("secret", &ListOptions::default()),
-        Err(ListDirError::NotFound {
+        index
+            .list_dir("secret", &ListOptions::default())
+            .unwrap_err(),
+        ListDirError::NotFound {
             path: "secret".to_owned()
-        }),
+        },
         "an ignored directory reads the same as one that was never there"
     );
 }
@@ -996,11 +1004,13 @@ fn listing_a_file_reports_what_is_indexed_there_instead() {
     let index = default_index(dir.path());
 
     assert_eq!(
-        index.list_dir("main.rs", &ListOptions::default()),
-        Err(ListDirError::NotADirectory {
+        index
+            .list_dir("main.rs", &ListOptions::default())
+            .unwrap_err(),
+        ListDirError::NotADirectory {
             path: "main.rs".to_owned(),
             kind: EntryKind::File,
-        })
+        }
     );
 }
 
@@ -1014,11 +1024,11 @@ fn listing_a_symlink_to_a_directory_is_not_a_listing_of_its_target() {
     let index = default_index(dir.path());
 
     assert_eq!(
-        index.list_dir("link", &ListOptions::default()),
-        Err(ListDirError::NotADirectory {
+        index.list_dir("link", &ListOptions::default()).unwrap_err(),
+        ListDirError::NotADirectory {
             path: "link".to_owned(),
             kind: EntryKind::Symlink,
-        }),
+        },
         "the walk never descended the link, so the index holds nothing under it"
     );
 }
@@ -1033,11 +1043,8 @@ fn a_listing_carries_the_symlink_target_and_answers_sizes_beside_it() {
     let index = default_index(dir.path());
     let entries = list(&index, "a").into_items();
 
-    let sizes: Vec<Option<u64>> = entries
-        .iter()
-        .map(|entry| index.size(entry.path()))
-        .collect();
-    let targets: Vec<Option<&str>> = entries.iter().map(|entry| entry.target()).collect();
+    let sizes: Vec<Option<u64>> = entries.iter().map(Inspected::size).collect();
+    let targets: Vec<Option<&str>> = entries.iter().map(|found| found.entry().target()).collect();
 
     assert_eq!(listed(&list(&index, "a")), ["a/file.txt", "a/link"]);
     assert_eq!(sizes, [Some(12), None]);

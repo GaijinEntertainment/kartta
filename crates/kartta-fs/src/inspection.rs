@@ -2,7 +2,7 @@
 
 use std::fmt;
 use std::io::{self, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use crate::binary::named_binary;
@@ -65,12 +65,15 @@ impl Inspection {
     ///
     /// The caller settles that the entry is a regular file. A directory or a symlink has no size worth reading, and
     /// deciding that here would spend a syscall to learn what the walk already recorded.
-    pub(crate) fn size(&self, at: usize, path: &Path) -> Option<u64> {
+    ///
+    /// `path` builds the native path and is called only on the read, so answering from a filled slot allocates
+    /// nothing.
+    pub(crate) fn size(&self, at: usize, path: impl FnOnce() -> PathBuf) -> Option<u64> {
         let slot = self.sizes.get(at)?;
 
         match slot.load(Ordering::Relaxed) {
             UNREAD => {
-                let read = read_size(path).unwrap_or(UNREADABLE);
+                let read = read_size(&path()).unwrap_or(UNREADABLE);
 
                 decode_size(
                     slot.compare_exchange(UNREAD, read, Ordering::Relaxed, Ordering::Relaxed)
@@ -88,7 +91,12 @@ impl Inspection {
     ///
     /// The caller settles that the entry is a regular file, and passes the indexed path so the extension can decide
     /// without any file being opened.
-    pub(crate) fn is_binary(&self, at: usize, indexed: &str, path: &Path) -> Option<bool> {
+    pub(crate) fn is_binary(
+        &self,
+        at: usize,
+        indexed: &str,
+        path: impl FnOnce() -> PathBuf,
+    ) -> Option<bool> {
         let slot = self.classes.get(at)?;
 
         match slot.load(Ordering::Relaxed) {
@@ -123,12 +131,15 @@ const fn decode_class(class: u8) -> Option<bool> {
 }
 
 /// Settles a file's class, by its name where the name is enough and by its first bytes otherwise.
-fn classify(indexed: &str, path: &Path) -> u8 {
+///
+/// `path` is a thunk because the name settles most files on a real tree, and building the native path for those would
+/// allocate for a read that never happens.
+fn classify(indexed: &str, path: impl FnOnce() -> PathBuf) -> u8 {
     if named_binary(indexed) {
         return BINARY;
     }
 
-    let Some(holds_nul) = holds_nul(path) else {
+    let Some(holds_nul) = holds_nul(&path()) else {
         return UNOPENABLE;
     };
 

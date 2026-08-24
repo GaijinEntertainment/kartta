@@ -6,7 +6,7 @@ use kartta_walk::EntryKind;
 
 use crate::capped::Capped;
 use crate::entry::Entry;
-use crate::index::Index;
+use crate::index::{Index, Inspected};
 
 /// How far a listing descends and how many entries it returns.
 ///
@@ -87,10 +87,12 @@ impl Index {
     /// [`ListOptions`] carries the bounds: how far below `dir` to descend and how many entries to return.
     /// [`Capped::truncated`] reports whether the limit turned anything away.
     ///
-    /// A directory with nothing indexed under it lists nothing and is not an error. Nothing here reads the
-    /// filesystem: kinds and symlink targets are the ones the walk recorded. A size or a binary verdict beside a
-    /// listing is not — [`Index::size`] and [`Index::is_binary`] read those when first asked, so they may describe a
-    /// later moment than the listing that names them.
+    /// A directory with nothing indexed under it lists nothing and is not an error.
+    ///
+    /// Listing itself reads nothing: kinds and symlink targets are the ones the walk recorded. Each item carries the
+    /// position it was found at, so [`Inspected::size`] and [`Inspected::is_binary`] reach an entry's late-read facts
+    /// without looking the path up again — those *do* read the filesystem on first ask, and may describe a later
+    /// moment than the listing that names them.
     ///
     /// # Errors
     ///
@@ -111,12 +113,15 @@ impl Index {
     /// let index = Index::build(dir.path(), &Config::default())?.into_index();
     ///
     /// let listed = index.list_dir("src", &ListOptions::default())?;
-    /// let paths: Vec<&str> = listed.items().iter().map(|entry| entry.path()).collect();
+    /// let paths: Vec<&str> = listed.items().iter().map(|found| found.entry().path()).collect();
     /// assert_eq!(paths, ["src/main.rs", "src/net", "src/net/tcp.rs"]);
     /// assert!(!listed.truncated());
     ///
+    /// // Each item carries its position, so a size beside a row costs no second lookup.
+    /// assert_eq!(listed.items()[0].size(), Some(0));
+    ///
     /// let shallow = index.list_dir("src", &ListOptions::default().depth(1))?;
-    /// let paths: Vec<&str> = shallow.items().iter().map(|entry| entry.path()).collect();
+    /// let paths: Vec<&str> = shallow.items().iter().map(|found| found.entry().path()).collect();
     /// assert_eq!(paths, ["src/main.rs", "src/net"], "src/net/tcp.rs is a level too deep");
     ///
     /// let capped = index.list_dir("src", &ListOptions::default().limit(1))?;
@@ -129,7 +134,7 @@ impl Index {
         &self,
         dir: &str,
         options: &ListOptions,
-    ) -> Result<Capped<&Entry>, ListDirError> {
+    ) -> Result<Capped<Inspected<'_>>, ListDirError> {
         let (start, prefix) = self.subtree_of(dir)?;
         let cap = options.limit.map_or(usize::MAX, NonZeroUsize::get);
         let all = self.entries();
@@ -148,7 +153,7 @@ impl Index {
                 break;
             }
 
-            entries.push(entry);
+            entries.push(self.inspected_at(at, entry));
             at += 1;
 
             if entry.kind() == EntryKind::Dir && bottoms_out(below, options.depth) {
@@ -196,14 +201,25 @@ fn bottoms_out(below: &str, depth: Option<NonZeroUsize>) -> bool {
 
 /// The first position at or after `from` that has left `dir`'s subtree.
 ///
-/// A binary search rather than a walk. [`Index::entries`] is depth-first, so `dir`'s descendants are the run at the
-/// front of what remains and the predicate holds over a prefix of it — which is what makes a depth-limited listing
-/// cost its own size rather than the size of everything it declined to descend into.
+/// [`Index::entries`] is depth-first, so `dir`'s descendants are the run at the front of what remains and the
+/// predicate holds over a prefix of it. A binary search over that prefix is what makes a depth-limited listing cost
+/// its own size rather than the size of everything it declined to descend into.
+///
+/// The entry immediately after `dir` is checked first, because it settles the two commonest cases outright: an empty
+/// directory and a leaf directory both have the next sibling sitting there. Searching for that would spend a
+/// logarithmic probe per directory, which on a listing full of empty ones is the cost the search was meant to avoid.
 fn past_subtree(entries: &[Entry], from: usize, dir: &str) -> usize {
-    from + entries[from..].partition_point(|entry| {
+    let inside = |entry: &Entry| {
         entry
             .path()
             .strip_prefix(dir)
             .is_some_and(|below| below.starts_with('/'))
-    })
+    };
+
+    let rest = &entries[from..];
+    match rest.first() {
+        None => from,
+        Some(next) if !inside(next) => from,
+        Some(_) => from + rest.partition_point(inside),
+    }
 }

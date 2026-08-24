@@ -163,7 +163,7 @@ impl Index {
             return None;
         }
 
-        self.inspection.size(at, &self.root.join(path))
+        self.inspection.size(at, || self.root.join(path))
     }
 
     /// Whether the regular file at this root-relative forward-slash path holds binary content.
@@ -190,7 +190,7 @@ impl Index {
             return None;
         }
 
-        self.inspection.is_binary(at, path, &self.root.join(path))
+        self.inspection.is_binary(at, path, || self.root.join(path))
     }
 
     /// Every indexed entry paired with the facts read on demand, in depth-first order.
@@ -241,6 +241,17 @@ pub struct Inspected<'a> {
     entry: &'a Entry,
 }
 
+impl Index {
+    /// One entry of this index by position, for a query that already knows where the entry sits.
+    pub(crate) const fn inspected_at<'a>(&'a self, at: usize, entry: &'a Entry) -> Inspected<'a> {
+        Inspected {
+            index: self,
+            at,
+            entry,
+        }
+    }
+}
+
 impl<'a> Inspected<'a> {
     /// The entry itself.
     #[must_use]
@@ -257,7 +268,7 @@ impl<'a> Inspected<'a> {
 
         self.index
             .inspection
-            .size(self.at, &self.index.root.join(self.entry.path()))
+            .size(self.at, || self.index.root.join(self.entry.path()))
     }
 
     /// Whether the entry holds binary content, on the terms [`Index::is_binary`] states.
@@ -267,11 +278,11 @@ impl<'a> Inspected<'a> {
             return None;
         }
 
-        self.index.inspection.is_binary(
-            self.at,
-            self.entry.path(),
-            &self.index.root.join(self.entry.path()),
-        )
+        self.index
+            .inspection
+            .is_binary(self.at, self.entry.path(), || {
+                self.index.root.join(self.entry.path())
+            })
     }
 }
 
