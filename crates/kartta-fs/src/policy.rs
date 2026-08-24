@@ -9,7 +9,7 @@ use kartta_walk::{Dir, Entry, EntryKind, Policy, Visit};
 
 use crate::config::IgnoreSources;
 use crate::error::BuildError;
-use crate::open::open_regular;
+use crate::open::{Symlinks, open_regular};
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 
 /// What the walk records per entry. The path is not here: the tree already carries each name, and the index builds
@@ -79,7 +79,7 @@ impl Indexing {
             ));
         }
 
-        read_all(&open_regular(path)?)
+        read_all(&open_regular(path, Symlinks::Follow)?)
     }
 
     /// Whether `path` resolves to a location inside the indexed tree.

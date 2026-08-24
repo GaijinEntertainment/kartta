@@ -1328,3 +1328,44 @@ fn a_sweep_reads_nothing_for_an_entry_it_never_asks_about() {
         "walking past an entry leaves its slot unread, so the first ask is still the first read"
     );
 }
+
+#[test]
+fn a_file_replaced_by_a_directory_has_no_size() {
+    let dir = tree(&[("notes.txt", "hello")]);
+    let index = default_index(dir.path());
+
+    fs::remove_file(dir.path().join("notes.txt")).expect("remove the file");
+    fs::create_dir(dir.path().join("notes.txt")).expect("put a directory in its place");
+
+    assert_eq!(
+        index.size("notes.txt"),
+        None,
+        "a directory reports a length of its own, which is not a file size and must never be published as one"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_replaced_by_a_symlink_is_measured_through_neither_surface() {
+    let dir = tree(&[
+        ("notes.txt", "plain lines\n"),
+        ("elsewhere.txt", "much longer content here"),
+    ]);
+    let index = default_index(dir.path());
+    assert_eq!(kind_of(&index, "notes.txt"), EntryKind::File);
+
+    fs::remove_file(dir.path().join("notes.txt")).expect("remove the file");
+    std::os::unix::fs::symlink("elsewhere.txt", dir.path().join("notes.txt"))
+        .expect("put a symlink in its place");
+
+    assert_eq!(
+        index.size("notes.txt"),
+        None,
+        "the stat does not follow, so the target's size is never reported as this entry's"
+    );
+    assert_eq!(
+        index.is_binary("notes.txt"),
+        None,
+        "and the probe refuses the link rather than reading through it"
+    );
+}
