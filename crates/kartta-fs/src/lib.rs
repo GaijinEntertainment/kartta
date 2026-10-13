@@ -130,6 +130,7 @@ mod policy;
 mod query;
 mod rules;
 
+pub use crate::binary::{BinaryExtensions, BinaryExtensionsError, BinaryGroup};
 pub use crate::capped::Capped;
 pub use crate::config::{Config, IgnoreSources};
 pub use crate::entry::{Entry, EntryKind};

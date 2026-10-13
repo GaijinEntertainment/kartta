@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use kartta_walk::{EntryKind, NodeId, Tree, WalkOptions, walk};
 
+use crate::binary::BinaryExtensions;
 use crate::config::Config;
 use crate::entry::Entry;
 use crate::error::BuildError;
@@ -56,6 +57,7 @@ pub struct Index {
     by_path: Vec<usize>,
     /// What the walk did not read, filled by the queries that need it.
     inspection: Inspection,
+    binary_extensions: BinaryExtensions,
 }
 
 impl Index {
@@ -97,6 +99,7 @@ impl Index {
         Self {
             root,
             inspection: Inspection::new(entries.len()),
+            binary_extensions: BinaryExtensions::builtin(),
             entries,
             by_path,
         }
@@ -195,7 +198,15 @@ impl Index {
             return None;
         }
 
-        self.inspection.is_binary(at, path, || self.root.join(path))
+        self.is_binary_at(at, path)
+    }
+
+    fn is_binary_at(&self, at: usize, path: &str) -> Option<bool> {
+        self.inspection.is_binary(
+            at,
+            || self.binary_extensions.matches(path),
+            || self.root.join(path),
+        )
     }
 
     /// Every indexed entry paired with the facts read on demand, in depth-first order.
@@ -283,11 +294,7 @@ impl<'a> Inspected<'a> {
             return None;
         }
 
-        self.index
-            .inspection
-            .is_binary(self.at, self.entry.path(), || {
-                self.index.root.join(self.entry.path())
-            })
+        self.index.is_binary_at(self.at, self.entry.path())
     }
 }
 
