@@ -10,6 +10,7 @@ use crate::binary::BinaryExtensions;
 use crate::config::BuildOptions;
 use crate::entry::Entry;
 use crate::error::BuildError;
+use crate::filter::Filter;
 use crate::inspection::Inspection;
 use crate::policy::{Indexing, Payload};
 use crate::rules::Rules;
@@ -144,6 +145,18 @@ impl Index {
             .iter()
             .zip(bounds)
             .map(|(&kind, (&start, &end))| (kind, path_between(&self.paths, start, end)))
+    }
+
+    /// The paths a query answers from: every entry in `positions` that is not a directory, narrowed by `filter`.
+    pub(crate) fn files(
+        &self,
+        positions: Range<usize>,
+        filter: Option<&Filter>,
+    ) -> impl Iterator<Item = &str> {
+        self.kinded_paths(positions)
+            .filter(|&(kind, _)| kind != EntryKind::Dir)
+            .map(|(_, path)| path)
+            .filter(move |path| filter.is_none_or(|filter| filter.matches(path)))
     }
 
     /// The kind of the entry at position `at`.
