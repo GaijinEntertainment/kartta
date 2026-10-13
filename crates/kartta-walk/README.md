@@ -2,14 +2,14 @@
 
 Parallel filesystem tree walk with caller-controlled descent and cancellation.
 
-A walk returns the tree it discovered. A directory's entries arrive together, name-sorted, and its subtrees are walked in
-parallel — so parent links never need reconstructing and there is no global sort to pay for afterwards.
+A walk returns the tree it discovered. A directory's entries arrive together, name-sorted, and its subtrees are walked
+in parallel — so parent links never need reconstructing and there is no global sort to pay for afterwards.
 
 ## Scope
 
-The crate walks and reports structure; it does not model what it finds. Each node carries whatever the `Policy` returned,
-so the entry model — kinds, sizes, symlink targets — belongs to the consumer, as do a path lookup, any flat projection of
-the tree, ignore-file semantics, and every query.
+The crate walks and reports structure; it does not model what it finds. Each node carries whatever the `Policy`
+returned, so the entry model — kinds, sizes, symlink targets — belongs to the consumer, as do a path lookup, any flat
+projection of the tree, ignore-file semantics, and every query.
 
 `walk` returns a `WalkOutcome`: a `Tree` plus a report about the run (what could not be read, whether it was cancelled).
 The report is checked and dropped; `into_tree` hands over the structure, which is the only part worth keeping. A `Tree`
@@ -37,8 +37,9 @@ Two properties it commits to:
 - **Symlinks are never followed.** A link is reported as one and never descended, so the walk stays inside the tree it
   was given and cycle detection is unnecessary.
 
-A `CancelToken` ends a walk early, returning the partial tree with `cancelled` set; stopping is a truncated answer, not
-an error. Likewise an unreadable subdirectory is collected into the result's error list rather than failing the walk.
+A `CancelToken` ends a walk early, returning the partial tree and saying so through `is_cancelled`; stopping is a
+truncated answer, not an error. Likewise an unreadable subdirectory is collected into the result's error list rather
+than failing the walk.
 
 There is deliberately no cap on entries recorded. Truncating a walk returns an arbitrary subset of the tree — which
 entries survive depends on scheduling — and a consumer cannot tell that from a complete tree without asking, so a

@@ -7,8 +7,8 @@
 //! # Using it
 //!
 //! Implement [`Policy`] to say what to record and where to descend, then call [`walk`]. It returns a [`WalkOutcome`]:
-//! read [`errors`](WalkOutcome::errors) and [`cancelled`](WalkOutcome::cancelled) to learn whether the answer is
-//! complete, then take [`into_tree`](WalkOutcome::into_tree) and descend from [`Tree::roots`], following
+//! read [`errors`](WalkOutcome::errors) and [`is_cancelled`](WalkOutcome::is_cancelled) to learn whether the answer is
+//! complete, then take [`into_tree`](WalkOutcome::into_tree) and descend from [`Tree::children`], following
 //! [`Node::children`] down. See the example at the end.
 //!
 //! # The policy
@@ -57,9 +57,9 @@
 //!
 //! # Controls
 //!
-//! [`WalkOptions::cancel`] is the only way to end a walk before it runs out of entries; the result is the partial tree
-//! with [`WalkOutcome::cancelled`] set, which is a truncated answer rather than an error. There is deliberately no cap
-//! on entries recorded — [`WalkOptions`] explains why.
+//! [`WalkOptions::cancel_token`] is the only way to end a walk before it runs out of entries; the result is the partial
+//! tree, which [`WalkOutcome::is_cancelled`] marks as a truncated answer rather than an error. There is deliberately no
+//! cap on entries recorded — [`WalkOptions`] explains why.
 //!
 //! [`WalkOptions::threads`] fixes how many threads walk the tree, for a caller that does not own the machine. Left
 //! `None`, the walk uses the ambient rayon pool.
@@ -92,9 +92,9 @@
 //!
 //! impl Policy for All {
 //!     type State = ();
-//!     type Node = EntryKind;
+//!     type Value = EntryKind;
 //!
-//!     fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+//!     fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 //!
 //!     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<EntryKind> {
 //!         Visit::Keep(entry.kind())
@@ -107,7 +107,7 @@
 //!
 //! // The report is checked, then the tree is what gets kept.
 //! let tree = walk(dir.path(), &All, &(), &WalkOptions::default())?.into_tree();
-//! let names: Vec<&str> = tree.roots().map(Node::name).collect();
+//! let names: Vec<&str> = tree.children().map(Node::name).collect();
 //! assert_eq!(names, ["a.txt"]);
 //! # Ok(())
 //! # }

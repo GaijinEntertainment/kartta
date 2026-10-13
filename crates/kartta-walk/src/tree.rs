@@ -23,30 +23,30 @@ impl NodeId {
 /// [`WalkOutcome`](crate::WalkOutcome), which hands this out via
 /// [`into_tree`](crate::WalkOutcome::into_tree).
 #[derive(Clone, Debug)]
-pub struct Tree<N> {
+pub struct Tree<V> {
     /// Every node's name, end to end in node order.
     pub(crate) names: String,
     /// Every node in depth-first order, which is id order.
-    pub(crate) slots: Vec<Slot<N>>,
+    pub(crate) slots: Vec<Slot<V>>,
 }
 
 /// One node as the arena stores it.
 #[derive(Clone, Debug)]
-pub(crate) struct Slot<N> {
+pub(crate) struct Slot<V> {
     /// Where the node's name begins in [`Tree::names`]. It ends where the next node's begins.
     pub(crate) name_start: u32,
     /// One past the last node of this node's subtree, which is the id of its next sibling when it has one.
     pub(crate) subtree_end: u32,
-    pub(crate) value: N,
+    pub(crate) value: V,
 }
 
-impl<N> Tree<N> {
+impl<V> Tree<V> {
     /// The entries directly inside the walk root, name-sorted.
     ///
     /// The root itself is not a node: a walk records what is *inside* the path it was given, so a caller that needs a
     /// root node synthesizes its own.
     #[must_use]
-    pub const fn roots(&self) -> Children<'_, N> {
+    pub const fn children(&self) -> Children<'_, V> {
         Children {
             tree: self,
             next: 0,
@@ -60,7 +60,7 @@ impl<N> Tree<N> {
     ///
     /// Panics if the id did not come from this tree. Use [`Tree::get`] to handle a foreign id instead.
     #[must_use]
-    pub fn node(&self, id: NodeId) -> Node<'_, N> {
+    pub fn node(&self, id: NodeId) -> Node<'_, V> {
         assert!(
             id.index() < self.slots.len(),
             "{id:?} is not a node of this tree of {} nodes",
@@ -72,14 +72,14 @@ impl<N> Tree<N> {
 
     /// The node this id identifies, or `None` if the id is not this tree's.
     #[must_use]
-    pub fn get(&self, id: NodeId) -> Option<Node<'_, N>> {
+    pub fn get(&self, id: NodeId) -> Option<Node<'_, V>> {
         (id.index() < self.slots.len()).then_some(Node { tree: self, id })
     }
 
     /// Every node in depth-first order: a directory is immediately followed by its subtree.
     ///
-    /// The order matches a recursive descent from [`Tree::roots`], and it is id order.
-    pub fn nodes(&self) -> impl ExactSizeIterator<Item = Node<'_, N>> {
+    /// The order matches a recursive descent from [`Tree::children`], and it is id order.
+    pub fn nodes(&self) -> impl ExactSizeIterator<Item = Node<'_, V>> {
         (0..self.end()).map(|id| Node {
             tree: self,
             id: NodeId(id),
@@ -111,12 +111,12 @@ impl<N> Tree<N> {
 /// One recorded entry: its name, the value the [`Policy`](crate::Policy) produced for it, and its recorded children.
 ///
 /// A borrowed view into its [`Tree`], cheap to copy.
-pub struct Node<'t, N> {
-    tree: &'t Tree<N>,
+pub struct Node<'t, V> {
+    tree: &'t Tree<V>,
     id: NodeId,
 }
 
-impl<'t, N> Node<'t, N> {
+impl<'t, V> Node<'t, V> {
     /// The node's id in its tree.
     #[must_use]
     pub const fn id(self) -> NodeId {
@@ -137,16 +137,16 @@ impl<'t, N> Node<'t, N> {
 
     /// The value the policy recorded for this entry.
     #[must_use]
-    pub fn value(self) -> &'t N {
+    pub fn value(self) -> &'t V {
         &self.slot().value
     }
 
     /// The recorded children, name-sorted.
     ///
-    /// Yields nothing for a file, for a directory the policy pruned, and for a directory whose every entry was skipped —
-    /// the three are indistinguishable here by design, since only the policy knows which it meant.
+    /// Yields nothing for a file, for a directory the policy pruned, and for a directory whose every entry was skipped
+    /// — the three are indistinguishable here by design, since only the policy knows which it meant.
     #[must_use]
-    pub fn children(self) -> Children<'t, N> {
+    pub fn children(self) -> Children<'t, V> {
         Children {
             tree: self.tree,
             next: self.id.0 + 1,
@@ -154,20 +154,20 @@ impl<'t, N> Node<'t, N> {
         }
     }
 
-    fn slot(self) -> &'t Slot<N> {
+    fn slot(self) -> &'t Slot<V> {
         &self.tree.slots[self.id.index()]
     }
 }
 
-impl<N> Clone for Node<'_, N> {
+impl<V> Clone for Node<'_, V> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<N> Copy for Node<'_, N> {}
+impl<V> Copy for Node<'_, V> {}
 
-impl<N: fmt::Debug> fmt::Debug for Node<'_, N> {
+impl<V: fmt::Debug> fmt::Debug for Node<'_, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Node")
             .field("id", &self.id)
@@ -177,17 +177,17 @@ impl<N: fmt::Debug> fmt::Debug for Node<'_, N> {
     }
 }
 
-/// The children of one node, or the roots of a tree, in name order. See [`Node::children`] and [`Tree::roots`].
-pub struct Children<'t, N> {
-    tree: &'t Tree<N>,
+/// The children of one node, or of a tree's walk root, in name order. See [`Node::children`] and [`Tree::children`].
+pub struct Children<'t, V> {
+    tree: &'t Tree<V>,
     next: u32,
     end: u32,
 }
 
-impl<'t, N> Iterator for Children<'t, N> {
-    type Item = Node<'t, N>;
+impl<'t, V> Iterator for Children<'t, V> {
+    type Item = Node<'t, V>;
 
-    fn next(&mut self) -> Option<Node<'t, N>> {
+    fn next(&mut self) -> Option<Node<'t, V>> {
         if self.next == self.end {
             return None;
         }
@@ -202,7 +202,7 @@ impl<'t, N> Iterator for Children<'t, N> {
     }
 }
 
-impl<N> Clone for Children<'_, N> {
+impl<V> Clone for Children<'_, V> {
     fn clone(&self) -> Self {
         Self {
             tree: self.tree,
@@ -212,7 +212,7 @@ impl<N> Clone for Children<'_, N> {
     }
 }
 
-impl<N: fmt::Debug> fmt::Debug for Children<'_, N> {
+impl<V: fmt::Debug> fmt::Debug for Children<'_, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.clone()).finish()
     }

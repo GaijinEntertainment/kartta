@@ -26,7 +26,7 @@ use crate::tree::{Slot, Tree};
 #[derive(Clone, Debug, Default)]
 pub struct WalkOptions {
     /// An outside stop signal, checked before each directory and before each entry. `None` never cancels.
-    pub cancel: Option<CancelToken>,
+    pub cancel_token: Option<CancelToken>,
     /// How many threads may walk the tree, for a caller that does not own the machine — a container with a CPU quota, a
     /// process under a thread limit. `None` uses the ambient rayon pool.
     ///
@@ -61,9 +61,9 @@ pub struct WalkOptions {
 ///
 /// impl Policy for Sizes {
 ///     type State = ();
-///     type Node = Option<u64>;
+///     type Value = Option<u64>;
 ///
-///     fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+///     fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 ///
 ///     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<Option<u64>> {
 ///         if entry.name().starts_with('.') {
@@ -80,11 +80,11 @@ pub struct WalkOptions {
 /// std::fs::write(dir.path().join(".hidden"), "x")?;
 ///
 /// let outcome = walk(dir.path(), &Sizes, &(), &WalkOptions::default())?;
-/// assert!(outcome.errors().is_empty() && !outcome.cancelled(), "a complete answer");
+/// assert!(outcome.errors().is_empty() && !outcome.is_cancelled(), "a complete answer");
 ///
 /// let tree = outcome.into_tree();
 /// assert_eq!(tree.len(), 1, "the dotfile was skipped");
-/// let only = tree.roots().next().ok_or("the tree has one root")?;
+/// let only = tree.children().next().ok_or("the walk root holds one entry")?;
 /// assert_eq!(only.name(), "visible.txt");
 /// assert_eq!(*only.value(), Some(5));
 /// # Ok(())
@@ -95,7 +95,7 @@ pub fn walk<P: Policy>(
     policy: &P,
     initial: &P::State,
     opts: &WalkOptions,
-) -> Result<WalkOutcome<P::Node>, WalkError> {
+) -> Result<WalkOutcome<P::Value>, WalkError> {
     let listed = list_dir(root).map_err(|source| WalkError::ReadDir {
         native_path: root.to_path_buf(),
         source,
@@ -131,7 +131,7 @@ pub fn walk<P: Policy>(
     Ok(WalkOutcome {
         tree,
         errors,
-        cancelled: ctx.cancelled(),
+        cancelled: ctx.is_cancelled(),
     })
 }
 
@@ -140,25 +140,25 @@ pub fn walk<P: Policy>(
 /// The tree is the part worth keeping; the rest is a report about this particular run, which a consumer surfaces or
 /// logs and then drops. [`WalkOutcome::into_tree`] takes the structure and leaves the report behind.
 #[derive(Debug)]
-pub struct WalkOutcome<N> {
-    tree: Tree<N>,
+pub struct WalkOutcome<V> {
+    tree: Tree<V>,
     errors: Vec<WalkError>,
     cancelled: bool,
 }
 
-impl<N> WalkOutcome<N> {
+impl<V> WalkOutcome<V> {
     /// The tree the walk discovered.
     #[must_use]
-    pub const fn tree(&self) -> &Tree<N> {
+    pub const fn tree(&self) -> &Tree<V> {
         &self.tree
     }
 
     /// Takes the tree, dropping the report.
     ///
-    /// Check [`WalkOutcome::errors`] and [`WalkOutcome::cancelled`] first: a tree taken out of an incomplete walk looks
-    /// exactly like a tree taken out of a complete one.
+    /// Check [`WalkOutcome::errors`] and [`WalkOutcome::is_cancelled`] first: a tree taken out of an incomplete walk
+    /// looks exactly like a tree taken out of a complete one.
     #[must_use]
-    pub fn into_tree(self) -> Tree<N> {
+    pub fn into_tree(self) -> Tree<V> {
         self.tree
     }
 
@@ -173,7 +173,7 @@ impl<N> WalkOutcome<N> {
     /// A cancelled tree holds whichever entries the threads had reached, which depends on scheduling — so it is
     /// something to report or discard, never to build on. No errors and no cancellation is the only complete answer.
     #[must_use]
-    pub const fn cancelled(&self) -> bool {
+    pub const fn is_cancelled(&self) -> bool {
         self.cancelled
     }
 
@@ -185,7 +185,7 @@ impl<N> WalkOutcome<N> {
     /// [`WalkError`] wraps [`std::io::Error`], so it can be moved but not copied out through
     /// [`errors`](WalkOutcome::errors).
     #[must_use]
-    pub fn into_parts(self) -> (Tree<N>, Vec<WalkError>, bool) {
+    pub fn into_parts(self) -> (Tree<V>, Vec<WalkError>, bool) {
         (self.tree, self.errors, self.cancelled)
     }
 }
@@ -206,15 +206,15 @@ struct Ctx<'a, P: Policy> {
 
 impl<P: Policy> Ctx<'_, P> {
     /// Whether the walk has been asked to stop.
-    fn cancelled(&self) -> bool {
+    fn is_cancelled(&self) -> bool {
         self.opts
-            .cancel
+            .cancel_token
             .as_ref()
             .is_some_and(CancelToken::is_cancelled)
     }
 
     /// Derives one directory's state, classifies its entries, and walks the surviving subdirectories in parallel.
-    fn visit(&self, level: &Level<'_, P>, listed: Listed) -> Built<P::Node> {
+    fn visit(&self, level: &Level<'_, P>, listed: Listed) -> Built<P::Value> {
         let Listed {
             entries: listing,
             errors,
@@ -231,7 +231,7 @@ impl<P: Policy> Ctx<'_, P> {
 
         // `map` over an indexed parallel iterator collects in input order, so the tree is identical whatever the
         // thread count — determinism costs nothing here.
-        let subtrees: Vec<(usize, Built<P::Node>)> = descend
+        let subtrees: Vec<(usize, Built<P::Value>)> = descend
             .into_par_iter()
             .map(|child| {
                 let index = child.index;
@@ -256,7 +256,7 @@ impl<P: Policy> Ctx<'_, P> {
         dir: &Dir<'_>,
         state: &P::State,
         errors: Vec<WalkError>,
-    ) -> (Built<P::Node>, Vec<Descent>) {
+    ) -> (Built<P::Value>, Vec<Descent>) {
         let mut built = Built {
             entries: Vec::with_capacity(dir.listing().len()),
             subtrees: Vec::new(),
@@ -276,7 +276,7 @@ impl<P: Policy> Ctx<'_, P> {
         let prefix = path.len();
 
         for item in dir.listing() {
-            if self.cancelled() {
+            if self.is_cancelled() {
                 break;
             }
 
@@ -325,7 +325,7 @@ impl<P: Policy> Ctx<'_, P> {
 
     /// Walks one child directory. A directory that cannot be listed becomes a recorded error and an empty subtree, so
     /// its parent still reports it.
-    fn subtree(&self, child: Descent, depth: usize, parent: &P::State) -> Built<P::Node> {
+    fn subtree(&self, child: Descent, depth: usize, parent: &P::State) -> Built<P::Value> {
         match list_dir(&child.native_path) {
             Ok(listed) => self.visit(
                 &Level {
@@ -359,8 +359,8 @@ struct Descent {
 
 /// One directory's recorded entries before arena ids exist. A descended directory owns its subtree, so nothing is
 /// copied or renumbered until the single flattening pass.
-struct Built<N> {
-    entries: Vec<Recorded<N>>,
+struct Built<V> {
+    entries: Vec<Recorded<V>>,
     /// The subtree of each entry the walk descended into, beside that entry's index, in entry order.
     subtrees: Vec<(usize, Self)>,
     errors: Vec<WalkError>,
@@ -372,9 +372,9 @@ struct Built<N> {
 }
 
 /// One kept entry.
-struct Recorded<N> {
+struct Recorded<V> {
     name: Box<str>,
-    value: N,
+    value: V,
 }
 
 /// One directory's listing, plus whatever could not be read while listing it.
@@ -429,7 +429,7 @@ fn list_dir(dir: &Path) -> io::Result<Listed> {
 ///
 /// shortcut: serial, so it bounds how much the parallel traversal can win. Parallelize it — precompute each subtree's
 /// node count to reserve id ranges, then fill them independently — if it shows up as the bottleneck on a large tree.
-fn flatten<N>(built: Built<N>, tree: &mut Tree<N>, errors: &mut Vec<WalkError>) {
+fn flatten<V>(built: Built<V>, tree: &mut Tree<V>, errors: &mut Vec<WalkError>) {
     let Built {
         entries,
         subtrees,

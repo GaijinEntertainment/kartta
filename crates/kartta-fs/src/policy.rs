@@ -184,14 +184,14 @@ fn inherited_across_repository_boundary(dir: &Dir<'_>, parent: &Rules) -> Rules 
 
 impl Policy for Indexing {
     type State = Rules;
-    type Node = Payload;
+    type Value = Payload;
 
-    fn enter(&self, dir: &Dir<'_>, parent: &Rules) -> Rules {
+    fn enter(&self, dir: &Dir<'_>, parent_state: &Rules) -> Rules {
         if self.sources == IgnoreSources::None {
             return Rules::default();
         }
 
-        let mut rules = inherited_across_repository_boundary(dir, parent);
+        let mut rules = inherited_across_repository_boundary(dir, parent_state);
 
         if let Some(name) = control_name(dir, GITIGNORE) {
             let path = dir.native_path().join(name);

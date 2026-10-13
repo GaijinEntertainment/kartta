@@ -29,9 +29,9 @@ pub(crate) struct Listing {
 ///
 /// impl Policy for SkipVendor {
 ///     type State = ();
-///     type Node = EntryKind;
+///     type Value = EntryKind;
 ///
-///     fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+///     fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 ///
 ///     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<EntryKind> {
 ///         let kind = entry.kind();
@@ -52,18 +52,18 @@ pub trait Policy: Sync {
     /// state is shared by the threads walking each of its subtrees, hence [`Sync`].
     type State: Send + Sync;
 
-    /// What the walk records for a kept entry, stored as [`Node::value`](crate::Node::value).
-    type Node: Send;
+    /// What the walk records for an entry, stored as [`Node::value`](crate::Node::value).
+    type Value: Send;
 
-    /// Derives the state that applies to `dir`'s entries, from the state its parent directory produced.
+    /// Derives the state that applies to `dir`'s entries from `parent_state`, the state its parent directory produced.
     ///
     /// Called once per directory, before any of its entries is classified, and given the directory's whole listing —
     /// so a policy can spot a control file such as `.gitignore` or `.git` without a syscall of its own. The walk root
     /// receives the initial state passed to [`walk`](crate::walk).
-    fn enter(&self, dir: &Dir<'_>, parent: &Self::State) -> Self::State;
+    fn enter(&self, dir: &Dir<'_>, parent_state: &Self::State) -> Self::State;
 
     /// Classifies one entry of a directory.
-    fn visit(&self, entry: &Entry<'_>, state: &Self::State) -> Visit<Self::Node>;
+    fn visit(&self, entry: &Entry<'_>, state: &Self::State) -> Visit<Self::Value>;
 }
 
 /// What an entry is, read without following symlinks.
@@ -100,11 +100,11 @@ impl EntryKind {
 
 /// What a [`Policy`] decides for one entry.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Visit<N> {
+pub enum Visit<V> {
     /// Record the entry, and descend into it when it is a directory.
-    Keep(N),
+    Keep(V),
     /// Record the entry but never descend into it: the entry appears in the tree, its contents do not.
-    Prune(N),
+    Prune(V),
     /// Drop the entry. Nothing is recorded and nothing is descended.
     Skip,
 }
