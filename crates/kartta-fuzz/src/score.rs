@@ -7,16 +7,17 @@
 use crate::class::{Class, Classes};
 use crate::config::{CaseMatching, Scoring};
 
-/// Candidates longer than this skip the `O(n*m)` alignment and take [`MATCH_FLOOR`]. Real paths are far shorter; the
-/// bound exists so a pathological input cannot make one query quadratic in a value the caller controls.
-pub(crate) const MAX_CANDIDATE_LEN: usize = 1024;
+/// A candidate with more positions than this is over-long: it skips the `O(n*m)` alignment and takes [`MATCH_FLOOR`].
+/// Real paths are far shorter; the bound exists so a pathological input cannot make one query quadratic in a value the
+/// caller controls.
+pub(crate) const MAX_ALIGNED_POSITIONS: usize = 1024;
 
 /// "No alignment ends here" sentinel. Nothing the recurrence adds can lift it: a gap reaches the recurrence clamped to
 /// a penalty by [`Scoring::as_penalties`], and a bonus goes through [`advance`].
 pub(crate) const SCORE_MIN: i32 = i32::MIN;
 
-/// The lowest score an alignment may take, one clear of [`MATCH_FLOOR`] and two clear of the sentinel. A state
-/// [`advance`] moves floors here, so no bonus can saturate a real alignment onto a value that reads as no alignment.
+/// The lowest score an alignment may take, one clear of [`MATCH_FLOOR`] and two clear of the sentinel. [`advance`]
+/// never moves a state below it, so no bonus can saturate a real alignment onto a value that reads as no alignment.
 pub(crate) const ALIGNED_MIN: i32 = SCORE_MIN + 2;
 
 /// Score for a match on a candidate too long to align.
@@ -452,10 +453,10 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
 /// that does not exist. A gap needs no such guard, and pays for none: [`Scoring::as_penalties`] clamps every gap
 /// weight to at most zero before the recurrence sees it, so a gap added to the sentinel saturates back onto it.
 ///
-/// The floor holds the other end. A bonus can also be negative, and one large enough to saturate a real state would
-/// otherwise land it *on* the sentinel, where it reads as nothing; [`ALIGNED_MIN`] is as low as a state may go. A gap
-/// gets no floor, so a penalty steep enough to saturate a state carried along a row does erase it — a state lost, not
-/// a state invented, and only under weights that have already flattened every score onto the floor.
+/// [`ALIGNED_MIN`] holds the other end. A bonus can also be negative, and one large enough to saturate a real state
+/// would otherwise land it *on* the sentinel, where it reads as nothing. A gap gets no such clamp, so a penalty steep
+/// enough to saturate a state carried along a row does erase it — a state lost, not a state invented, and only under
+/// weights that have already driven every score down to [`ALIGNED_MIN`].
 fn advance(state: i32, bonus: i32) -> i32 {
     if state == SCORE_MIN {
         SCORE_MIN
@@ -466,7 +467,7 @@ fn advance(state: i32, bonus: i32) -> i32 {
 
 /// A position count as a score, for multiplying by a gap weight.
 ///
-/// A count above [`MAX_CANDIDATE_LEN`] cannot occur, since the alignment never runs on a longer candidate, but a
+/// A count above [`MAX_ALIGNED_POSITIONS`] cannot occur, since the alignment never runs on a longer candidate, but a
 /// saturating conversion keeps that an assumption the arithmetic does not depend on.
 fn as_score(positions: usize) -> i32 {
     i32::try_from(positions).unwrap_or(i32::MAX)
@@ -486,11 +487,11 @@ pub(crate) struct Scorer {
     bonus: Vec<i32>,
     /// First position of the candidate's basename — just past the last segment separator.
     basename_start: usize,
-    /// How many positions the prepared candidate occupies. Past the alignment limit this is a lower bound: the scan
-    /// stops at [`Scorer::scan_limit`], which is far enough to decide every question still open.
+    /// How many positions the prepared candidate occupies. For an over-long candidate this is a lower bound: the scan
+    /// stops at [`Scorer::scan_bound`], which is far enough to decide every question still open.
     positions: usize,
     /// How far a candidate is ever counted, set once per query by [`Scorer::begin`].
-    scan_limit: usize,
+    scan_bound: usize,
     /// Whether the prepared candidate is in `bytes` rather than `chars`.
     ascii: bool,
     /// The case policy for the current query.
@@ -503,15 +504,15 @@ pub(crate) struct Scorer {
 impl Scorer {
     /// Fixes the case policy, representation, and scan bound for the query about to run.
     ///
-    /// `longest_term` bounds how far a candidate is ever counted: past the alignment limit the only thing a length
-    /// still decides is whether some term equals it, and a term longer than every term cannot.
+    /// `longest_term` bounds how far a candidate is ever counted: for an over-long candidate the only thing its length
+    /// still decides is whether some term equals it, and a candidate longer than every term cannot.
     pub(crate) const fn begin(&mut self, fold: Fold, symbols: Symbols, longest_term: usize) {
         self.fold = fold;
         self.symbols = symbols;
-        self.scan_limit = if longest_term > MAX_CANDIDATE_LEN {
+        self.scan_bound = if longest_term > MAX_ALIGNED_POSITIONS {
             longest_term
         } else {
-            MAX_CANDIDATE_LEN
+            MAX_ALIGNED_POSITIONS
         }
         .saturating_add(1);
     }
@@ -522,13 +523,13 @@ impl Scorer {
     /// Position 0 always earns [`Scoring::after_segment`]: the start of a candidate is the start of a segment, which
     /// is why the virtual predecessor of position 0 is [`Class::Segment`].
     pub(crate) fn prepare(&mut self, candidate: &str, classes: &Classes) {
-        // A candidate past the alignment limit is scored from its length alone, so nothing here is sized to it and
+        // An over-long candidate is scored from its length alone, so nothing here is sized to it and
         // nothing reads more of it than that answer needs. Byte length bounds character length for free, so only a
         // candidate long in bytes is scanned at all, and that scan stops once the answer is fixed — otherwise one
-        // over-limit candidate would cost a full pass to establish a length that is already known to be too large.
-        if candidate.len() > MAX_CANDIDATE_LEN {
-            let counted = candidate.chars().take(self.scan_limit).count();
-            if counted > MAX_CANDIDATE_LEN {
+        // over-long candidate would cost a full pass to establish a length that is already known to be too large.
+        if candidate.len() > MAX_ALIGNED_POSITIONS {
+            let counted = candidate.chars().take(self.scan_bound).count();
+            if counted > MAX_ALIGNED_POSITIONS {
                 self.positions = counted;
                 self.ascii = false;
                 self.basename_start = 0;
@@ -603,8 +604,8 @@ impl Scorer {
 
     /// How many positions the prepared candidate has.
     ///
-    /// Recorded by [`Scorer::prepare`] rather than read off a buffer, because a candidate past the alignment limit
-    /// never fills one.
+    /// Recorded by [`Scorer::prepare`] rather than read off a buffer, because an over-long candidate never fills
+    /// one.
     const fn len(&self) -> usize {
         self.positions
     }
@@ -623,16 +624,16 @@ impl Scorer {
         if term.chars.len() == m {
             return full_match_score;
         }
-        if m > MAX_CANDIDATE_LEN {
+        if m > MAX_ALIGNED_POSITIONS {
             return MATCH_FLOOR;
         }
 
         // An alignment occupies the range strictly between the two reserved scores, and both ends need holding.
         // Above: the full-match score is derived from the weights, which puts it over any alignment only while the
-        // arithmetic has room -- weights large enough to saturate drive both to `i32::MAX`. Below: the over-limit
-        // floor sits one above the sentinel, and a weight like `basename = i32::MIN` saturates an alignment down onto
+        // arithmetic has room -- weights large enough to saturate drive both to `i32::MAX`. Below: `MATCH_FLOOR`
+        // sits one above the sentinel, and a weight like `basename = i32::MIN` saturates an alignment down onto
         // the sentinel itself, ranking a candidate that was never aligned above one that was. No constant can sit
-        // under every alignment for every configuration, so the alignment is lifted off the floor instead.
+        // under every alignment for every configuration, so the alignment is held at `ALIGNED_MIN` instead.
         self.align(term, scoring)
             .clamp(ALIGNED_MIN, full_match_score.saturating_sub(1))
     }
@@ -968,7 +969,7 @@ mod tests {
     fn no_cell_ever_holds_a_state_no_alignment_reaches() {
         // Every bonus is added to whatever the row above left behind, so a sentinel that moves becomes a state no
         // alignment produced, competing on the same scale as the ones that did. It wins only once real scores have
-        // fallen to the floor, which is why the invariant is checked cell by cell rather than through a score.
+        // fallen to `ALIGNED_MIN`, which is why the invariant is checked cell by cell rather than through a score.
         //
         // The weights below are large enough that a moved sentinel is unmistakable and small enough that nothing
         // saturates: a saturating penalty drops a carried alignment onto the sentinel, which is a state lost rather

@@ -45,7 +45,8 @@ What counts as a full match follows `Config::case`: under `Ignore` it is equalit
 character-for-character equality, and under `Smart` it is whichever of those the query selects — case-insensitive while
 the query is all lowercase, case-sensitive once it carries a capital. That guarantee survives reconfiguration because
 the score it takes is derived from the active weights rather than declared as a constant, and each component of that
-derivation is floored at zero, so no set of weights — including one that is entirely negative — inverts the two.
+derivation is clamped to zero or above, so no set of weights — including one that is entirely negative — inverts the
+two.
 
 Three guarantees hold for every configuration, and only these three: a candidate every term matches in full ranks first,
 a candidate missing a term never matches, and no weight makes a score overflow. Everything else the model produces — a
