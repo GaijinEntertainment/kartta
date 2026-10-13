@@ -15,12 +15,12 @@ categories = ["filesystem", "concurrency"]
 workspace = true
 
 [dependencies]
-rayon = "1"
-thiserror = "2"
+rayon = "1.12.0"
+thiserror = "2.0.21"
 
 [dev-dependencies]
-criterion = "0.8"
-tempfile = "3"
+criterion = "0.8.2"
+tempfile = "3.27.0"
 
 [[bench]]
 name = "walk"
