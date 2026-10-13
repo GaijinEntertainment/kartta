@@ -84,7 +84,7 @@
 //! Record every entry, descending everywhere:
 //!
 //! ```
-//! use kartta_walk::{Dir, Entry, EntryKind, Policy, Visit, WalkOptions, walk};
+//! use kartta_walk::{Dir, Entry, EntryKind, Node, Policy, Visit, WalkOptions, walk};
 //!
 //! struct All;
 //!
@@ -105,7 +105,7 @@
 //!
 //! // The report is checked, then the tree is what gets kept.
 //! let tree = walk(dir.path(), &All, &(), &WalkOptions::default())?.into_tree();
-//! let names: Vec<&str> = tree.roots().iter().map(|&id| tree.node(id).name()).collect();
+//! let names: Vec<&str> = tree.roots().map(Node::name).collect();
 //! assert_eq!(names, ["a.txt"]);
 //! # Ok(())
 //! # }
@@ -120,5 +120,5 @@ mod walk;
 pub use crate::cancel::CancelToken;
 pub use crate::error::WalkError;
 pub use crate::policy::{Dir, Entry, EntryKind, Policy, Visit};
-pub use crate::tree::{Node, NodeId, Tree};
+pub use crate::tree::{Children, Node, NodeId, Tree};
 pub use crate::walk::{WalkOptions, WalkOutcome, walk};
