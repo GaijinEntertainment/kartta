@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 /// One listed directory entry. The name is kept beside the entry so a directory's listing sorts and searches by name
 /// without touching the filesystem again.
 #[derive(Debug)]
-pub(crate) struct Listing {
+pub(crate) struct ListedEntry {
     pub(crate) name: Box<str>,
-    pub(crate) entry: fs::DirEntry,
+    pub(crate) dir_entry: fs::DirEntry,
 }
 
 /// Decides what a walk records and where it descends.
@@ -84,8 +84,8 @@ pub enum EntryKind {
 }
 
 impl EntryKind {
-    /// Classifies a non-following file type. `Other` absorbs everything the three named kinds do not cover.
-    fn of(file_type: fs::FileType) -> Self {
+    /// Maps a non-following file type to its kind. `Other` absorbs everything the three named kinds do not cover.
+    fn from_file_type(file_type: fs::FileType) -> Self {
         if file_type.is_dir() {
             Self::Dir
         } else if file_type.is_file() {
@@ -115,7 +115,7 @@ pub struct Dir<'a> {
     native_path: &'a Path,
     path: &'a str,
     depth: usize,
-    listing: &'a [Listing],
+    listing: &'a [ListedEntry],
 }
 
 impl<'a> Dir<'a> {
@@ -123,7 +123,7 @@ impl<'a> Dir<'a> {
         native_path: &'a Path,
         path: &'a str,
         depth: usize,
-        listing: &'a [Listing],
+        listing: &'a [ListedEntry],
     ) -> Self {
         Dir {
             native_path,
@@ -134,7 +134,7 @@ impl<'a> Dir<'a> {
     }
 
     /// The directory's own listing, for the walk's classification pass.
-    pub(crate) const fn listing(&self) -> &'a [Listing] {
+    pub(crate) const fn listing(&self) -> &'a [ListedEntry] {
         self.listing
     }
 
@@ -173,7 +173,7 @@ impl<'a> Dir<'a> {
 /// One entry a [`Policy::visit`] call is classifying.
 #[derive(Debug)]
 pub struct Entry<'a> {
-    listing: &'a Listing,
+    listed: &'a ListedEntry,
     path: &'a str,
     depth: usize,
     file_type: fs::FileType,
@@ -181,13 +181,13 @@ pub struct Entry<'a> {
 
 impl<'a> Entry<'a> {
     pub(crate) const fn new(
-        listing: &'a Listing,
+        listed: &'a ListedEntry,
         path: &'a str,
         depth: usize,
         file_type: fs::FileType,
     ) -> Self {
         Entry {
-            listing,
+            listed,
             path,
             depth,
             file_type,
@@ -199,7 +199,7 @@ impl<'a> Entry<'a> {
     /// Lossily decoded, like [`Entry::path`]. Use [`Entry::native_path`] to open the entry.
     #[must_use]
     pub fn name(&self) -> &'a str {
-        self.listing.name.as_ref()
+        self.listed.name.as_ref()
     }
 
     /// The entry's forward-slash path relative to the walk root.
@@ -216,7 +216,7 @@ impl<'a> Entry<'a> {
     /// Allocates. The walk does not need it, so it is built only when a policy asks.
     #[must_use]
     pub fn native_path(&self) -> PathBuf {
-        self.listing.entry.path()
+        self.listed.dir_entry.path()
     }
 
     /// How far below the walk root this entry sits. `1` for an entry of the root directory.
@@ -231,7 +231,7 @@ impl<'a> Entry<'a> {
     /// and is never descended.
     #[must_use]
     pub fn kind(&self) -> EntryKind {
-        EntryKind::of(self.file_type)
+        EntryKind::from_file_type(self.file_type)
     }
 
     /// The raw non-following file type, for a platform question [`EntryKind`] does not answer — telling a socket from a
@@ -250,6 +250,6 @@ impl<'a> Entry<'a> {
     ///
     /// Propagates the underlying failure to stat the entry.
     pub fn metadata(&self) -> io::Result<fs::Metadata> {
-        self.listing.entry.metadata()
+        self.listed.dir_entry.metadata()
     }
 }

@@ -13,7 +13,7 @@ use rayon::prelude::*;
 
 use crate::cancel::CancelToken;
 use crate::error::WalkError;
-use crate::policy::{Dir, Entry, EntryKind, Listing, Policy, Visit};
+use crate::policy::{Dir, Entry, EntryKind, ListedEntry, Policy, Visit};
 use crate::tree::{Slot, Tree};
 
 /// Settings for one walk. Both default to `None`; construct with functional-update syntax
@@ -94,34 +94,34 @@ pub fn walk<P: Policy>(
     root: &Path,
     policy: &P,
     initial: &P::State,
-    opts: &WalkOptions,
+    options: &WalkOptions,
 ) -> Result<WalkOutcome<P::Value>, WalkError> {
-    let listed = list_dir(root).map_err(|source| WalkError::ReadDir {
+    let listing = list_dir(root).map_err(|source| WalkError::ReadDir {
         native_path: root.to_path_buf(),
         source,
     })?;
 
-    let ctx = Ctx { policy, opts };
+    let walker = Walker { policy, options };
 
-    let level = Level {
+    let frame = Frame {
         native_path: root,
         path: "",
         depth: 0,
-        parent: initial,
+        parent_state: initial,
     };
 
-    let built = match opts.threads {
-        Some(threads) => pool(threads)?.install(|| ctx.visit(&level, listed)),
-        None => ctx.visit(&level, listed),
+    let subtree = match options.threads {
+        Some(threads) => pool(threads)?.install(|| walker.walk_dir(&frame, listing)),
+        None => walker.walk_dir(&frame, listing),
     };
 
-    let counted = (built.nodes, built.name_bytes);
+    let counted = (subtree.node_count, subtree.name_bytes);
     let mut tree = Tree {
-        names: String::with_capacity(built.name_bytes),
-        slots: Vec::with_capacity(built.nodes),
+        names: String::with_capacity(subtree.name_bytes),
+        slots: Vec::with_capacity(subtree.node_count),
     };
     let mut errors = Vec::new();
-    flatten(built, &mut tree, &mut errors);
+    flatten(subtree, &mut tree, &mut errors);
     debug_assert_eq!(
         (tree.slots.len(), tree.names.len()),
         counted,
@@ -131,7 +131,7 @@ pub fn walk<P: Policy>(
     Ok(WalkOutcome {
         tree,
         errors,
-        cancelled: ctx.is_cancelled(),
+        cancelled: walker.is_cancelled(),
     })
 }
 
@@ -191,62 +191,59 @@ impl<V> WalkOutcome<V> {
 }
 
 /// One directory the walk is about to classify: where it sits and what state its entries inherit.
-struct Level<'a, P: Policy> {
+struct Frame<'a, P: Policy> {
     native_path: &'a Path,
     path: &'a str,
     depth: usize,
-    parent: &'a P::State,
+    parent_state: &'a P::State,
 }
 
 /// What is invariant across a whole walk.
-struct Ctx<'a, P: Policy> {
+struct Walker<'a, P: Policy> {
     policy: &'a P,
-    opts: &'a WalkOptions,
+    options: &'a WalkOptions,
 }
 
-impl<P: Policy> Ctx<'_, P> {
+impl<P: Policy> Walker<'_, P> {
     /// Whether the walk has been asked to stop.
     fn is_cancelled(&self) -> bool {
-        self.opts
+        self.options
             .cancel_token
             .as_ref()
             .is_some_and(CancelToken::is_cancelled)
     }
 
     /// Derives one directory's state, classifies its entries, and walks the surviving subdirectories in parallel.
-    fn visit(&self, level: &Level<'_, P>, listed: Listed) -> Built<P::Value> {
-        let Listed {
-            entries: listing,
-            errors,
-        } = listed;
+    fn walk_dir(&self, frame: &Frame<'_, P>, listing: Listing) -> Subtree<P::Value> {
+        let Listing { entries, errors } = listing;
 
-        let dir = Dir::new(level.native_path, level.path, level.depth, &listing);
-        let state = self.policy.enter(&dir, level.parent);
+        let dir = Dir::new(frame.native_path, frame.path, frame.depth, &entries);
+        let state = self.policy.enter(&dir, frame.parent_state);
 
-        let (mut built, descend) = self.classify(&dir, &state, errors);
+        let (mut subtree, descents) = self.classify(&dir, &state, errors);
 
-        if descend.is_empty() {
-            return built;
+        if descents.is_empty() {
+            return subtree;
         }
 
         // `map` over an indexed parallel iterator collects in input order, so the tree is identical whatever the
         // thread count — determinism costs nothing here.
-        let subtrees: Vec<(usize, Built<P::Value>)> = descend
+        let subtrees: Vec<(usize, Subtree<P::Value>)> = descents
             .into_par_iter()
-            .map(|child| {
-                let index = child.index;
+            .map(|descent| {
+                let index = descent.index;
 
-                (index, self.subtree(child, level.depth + 1, &state))
+                (index, self.walk_child(descent, frame.depth + 1, &state))
             })
             .collect();
 
-        for (_, sub) in &subtrees {
-            built.nodes += sub.nodes;
-            built.name_bytes += sub.name_bytes;
+        for (_, child) in &subtrees {
+            subtree.node_count += child.node_count;
+            subtree.name_bytes += child.name_bytes;
         }
-        built.subtrees = subtrees;
+        subtree.subtrees = subtrees;
 
-        built
+        subtree
     }
 
     /// Asks the policy about each of `dir`'s entries, recording what it keeps and collecting the subdirectories it
@@ -256,15 +253,15 @@ impl<P: Policy> Ctx<'_, P> {
         dir: &Dir<'_>,
         state: &P::State,
         errors: Vec<WalkError>,
-    ) -> (Built<P::Value>, Vec<Descent>) {
-        let mut built = Built {
+    ) -> (Subtree<P::Value>, Vec<Descent>) {
+        let mut subtree = Subtree {
             entries: Vec::with_capacity(dir.listing().len()),
             subtrees: Vec::new(),
             errors,
-            nodes: 0,
+            node_count: 0,
             name_bytes: 0,
         };
-        let mut descend: Vec<Descent> = Vec::new();
+        let mut descents: Vec<Descent> = Vec::new();
 
         // One buffer for the whole directory: every entry's path is this prefix plus its name, so the walk allocates
         // per directory rather than per entry.
@@ -273,25 +270,25 @@ impl<P: Policy> Ctx<'_, P> {
         if !path.is_empty() {
             path.push('/');
         }
-        let prefix = path.len();
+        let prefix_len = path.len();
 
         for item in dir.listing() {
             if self.is_cancelled() {
                 break;
             }
 
-            let file_type = match item.entry.file_type() {
+            let file_type = match item.dir_entry.file_type() {
                 Ok(file_type) => file_type,
                 Err(source) => {
-                    built.errors.push(WalkError::FileType {
-                        native_path: item.entry.path(),
+                    subtree.errors.push(WalkError::FileType {
+                        native_path: item.dir_entry.path(),
                         source,
                     });
                     continue;
                 }
             };
 
-            path.truncate(prefix);
+            path.truncate(prefix_len);
             path.push_str(&item.name);
 
             let entry = Entry::new(item, &path, dir.depth() + 1, file_type);
@@ -303,47 +300,52 @@ impl<P: Policy> Ctx<'_, P> {
             };
 
             if descendable {
-                descend.push(Descent {
-                    index: built.entries.len(),
-                    native_path: item.entry.path(),
+                descents.push(Descent {
+                    index: subtree.entries.len(),
+                    native_path: item.dir_entry.path(),
                     path: path.clone(),
                 });
             }
 
-            built.name_bytes += item.name.len();
-            built.entries.push(Recorded {
+            subtree.name_bytes += item.name.len();
+            subtree.entries.push(Recorded {
                 name: item.name.clone(),
                 value,
             });
         }
 
-        built.entries.shrink_to_fit();
-        built.nodes = built.entries.len();
+        subtree.entries.shrink_to_fit();
+        subtree.node_count = subtree.entries.len();
 
-        (built, descend)
+        (subtree, descents)
     }
 
     /// Walks one child directory. A directory that cannot be listed becomes a recorded error and an empty subtree, so
     /// its parent still reports it.
-    fn subtree(&self, child: Descent, depth: usize, parent: &P::State) -> Built<P::Value> {
-        match list_dir(&child.native_path) {
-            Ok(listed) => self.visit(
-                &Level {
-                    native_path: &child.native_path,
-                    path: &child.path,
+    fn walk_child(
+        &self,
+        descent: Descent,
+        depth: usize,
+        parent_state: &P::State,
+    ) -> Subtree<P::Value> {
+        match list_dir(&descent.native_path) {
+            Ok(listing) => self.walk_dir(
+                &Frame {
+                    native_path: &descent.native_path,
+                    path: &descent.path,
                     depth,
-                    parent,
+                    parent_state,
                 },
-                listed,
+                listing,
             ),
-            Err(source) => Built {
+            Err(source) => Subtree {
                 entries: Vec::new(),
                 subtrees: Vec::new(),
                 errors: vec![WalkError::ReadDir {
-                    native_path: child.native_path,
+                    native_path: descent.native_path,
                     source,
                 }],
-                nodes: 0,
+                node_count: 0,
                 name_bytes: 0,
             },
         }
@@ -359,14 +361,14 @@ struct Descent {
 
 /// One directory's recorded entries before arena ids exist. A descended directory owns its subtree, so nothing is
 /// copied or renumbered until the single flattening pass.
-struct Built<V> {
+struct Subtree<V> {
     entries: Vec<Recorded<V>>,
     /// The subtree of each entry the walk descended into, beside that entry's index, in entry order.
     subtrees: Vec<(usize, Self)>,
     errors: Vec<WalkError>,
     /// How many entries this directory's whole subtree records, its own included, so the arena is allocated once at
     /// its final size.
-    nodes: usize,
+    node_count: usize,
     /// How many bytes the names of those entries take, so the name buffer is allocated exactly too.
     name_bytes: usize,
 }
@@ -378,8 +380,8 @@ struct Recorded<V> {
 }
 
 /// One directory's listing, plus whatever could not be read while listing it.
-struct Listed {
-    entries: Vec<Listing>,
+struct Listing {
+    entries: Vec<ListedEntry>,
     errors: Vec<WalkError>,
 }
 
@@ -395,25 +397,25 @@ fn pool(threads: NonZeroUsize) -> Result<rayon::ThreadPool, WalkError> {
         })
 }
 
-/// Lists `dir` sorted by name. The sort is the walk's whole determinism story: everything downstream preserves this
-/// order.
-fn list_dir(dir: &Path) -> io::Result<Listed> {
+/// Lists the directory at `native_path` sorted by name. The sort is the walk's whole determinism story: everything
+/// downstream preserves this order.
+fn list_dir(native_path: &Path) -> io::Result<Listing> {
     let mut entries = Vec::new();
     let mut errors = Vec::new();
 
-    for entry in fs::read_dir(dir)? {
+    for entry in fs::read_dir(native_path)? {
         match entry {
-            Ok(entry) => entries.push(Listing {
-                name: entry
+            Ok(dir_entry) => entries.push(ListedEntry {
+                name: dir_entry
                     .file_name()
                     .to_string_lossy()
                     .into_owned()
                     .into_boxed_str(),
-                entry,
+                dir_entry,
             }),
             // The directory opened but an entry could not be read; the rest of the listing still stands.
             Err(source) => errors.push(WalkError::ReadDir {
-                native_path: dir.to_path_buf(),
+                native_path: native_path.to_path_buf(),
                 source,
             }),
         }
@@ -421,7 +423,7 @@ fn list_dir(dir: &Path) -> io::Result<Listed> {
 
     entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
-    Ok(Listed { entries, errors })
+    Ok(Listing { entries, errors })
 }
 
 /// Lays the arena out depth-first — a directory immediately precedes its subtree — and merges the collected errors in
@@ -429,30 +431,32 @@ fn list_dir(dir: &Path) -> io::Result<Listed> {
 ///
 /// shortcut: serial, so it bounds how much the parallel traversal can win. Parallelize it — precompute each subtree's
 /// node count to reserve id ranges, then fill them independently — if it shows up as the bottleneck on a large tree.
-fn flatten<V>(built: Built<V>, tree: &mut Tree<V>, errors: &mut Vec<WalkError>) {
-    let Built {
+fn flatten<V>(subtree: Subtree<V>, tree: &mut Tree<V>, errors: &mut Vec<WalkError>) {
+    let Subtree {
         entries,
         subtrees,
-        errors: mut here,
-        nodes: _,
+        errors: mut own_errors,
+        node_count: _,
         name_bytes: _,
-    } = built;
-    errors.append(&mut here);
+    } = subtree;
+    errors.append(&mut own_errors);
 
     let mut subtrees = subtrees.into_iter().peekable();
 
     for (index, Recorded { name, value }) in entries.into_iter().enumerate() {
-        let sub = subtrees.next_if(|&(at, _)| at == index).map(|(_, sub)| sub);
-        let descendants = sub.as_ref().map_or(0, |sub| sub.nodes);
+        let child = subtrees
+            .next_if(|&(at, _)| at == index)
+            .map(|(_, child)| child);
+        let descendant_count = child.as_ref().map_or(0, |child| child.node_count);
         tree.slots.push(Slot {
             name_start: arena_offset(tree.names.len()),
-            subtree_end: arena_offset(tree.slots.len() + 1 + descendants),
+            subtree_end: arena_offset(tree.slots.len() + 1 + descendant_count),
             value,
         });
         tree.names.push_str(&name);
 
-        if let Some(sub) = sub {
-            flatten(sub, tree, errors);
+        if let Some(child) = child {
+            flatten(child, tree, errors);
         }
     }
 }
