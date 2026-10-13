@@ -92,7 +92,7 @@ impl Index {
     /// `main` finds `src/main.rs` before `main/lib.rs`. An empty query matches everything in index order.
     /// [`FuzzyOptions`] narrows what is ranked and caps what is returned.
     ///
-    /// Directories are not ranked. A path query answers "which file did you mean", and a directory that matches would
+    /// Directories are not ranked. A path search answers "which file did you mean", and a directory that matches would
     /// otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are* ranked: they
     /// are files as far as the tree is concerned, and are reported without being followed.
     ///

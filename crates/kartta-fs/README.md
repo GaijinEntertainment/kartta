@@ -3,8 +3,8 @@
 Repository file index: one filesystem walk builds a snapshot, and every query answers from it.
 
 `Index::build` reads a directory tree once, applying git's ignore rules on the way down, and keeps what survives. Every
-question about *structure* is answered from that snapshot: a lookup, a directory listing and both path queries never
-re-state the tree. Questions about a file's own bytes — its size, whether it is binary — are answered by reading it on
+question about *structure* is answered from that snapshot: a lookup, a directory listing and both path searches never
+re-read the tree. Questions about a file's own bytes — its size, whether it is binary — are answered by reading it on
 the first ask and keeping the answer. It takes an OS path and reads the real filesystem; there is no
 virtual-filesystem abstraction to mock.
 
@@ -29,7 +29,7 @@ assert_eq!(index.size("src/main.rs"), Some(12)); // read now, kept
 - **A symlink is reported, never read through.** Its content is either already indexed under the target's own path or is
   not the repository's at all, so following one would either duplicate a file under a second path or read outside the
   tree. It is never descended and never stat'd through — a dangling link and a live one are indistinguishable to every
-  query here, so the syscall that tells them apart would buy nothing. Listed is therefore not the same as readable, by
+  query here, so the syscall that tells them apart would buy nothing. Indexed is therefore not the same as readable, by
   rule rather than by accident.
   The rule covers the tree as walked, not a writer changing it underneath: a directory replaced by a symlink before
   the walk lists it is descended through, and on Windows a file replaced by a symlink before a later read is read
@@ -101,10 +101,10 @@ Checking it is not optional. An index missing a subtree, or holding the files an
 is indistinguishable from a correct one — and the second case is the dangerous one, because a missing subtree is a
 visible gap where files git would hide look exactly like files git would keep.
 
-## Queries
+## Path search
 
 `fuzzy` ranks paths against a query, delegating to `kartta-fuzz`: a hit inside a filename beats a hit inside a
-directory name, so `main` finds `src/main.rs` before `main/lib.rs`. Directories are not ranked — a path query answers
+directory name, so `main` finds `src/main.rs` before `main/lib.rs`. Directories are not ranked — a path search answers
 "which file did you mean", and a matching directory would otherwise arrive alongside every file beneath it that matches
 for the same reason. Matching ignores case, which is this crate's choice and not git's: `core.ignoreCase` describes what
 the filesystem does with case, a different question from what a search should do with it.
@@ -115,10 +115,10 @@ the ranking engine stays a non-breaking change.
 Import resolution is deliberately out of scope: mapping a specifier to a file is language semantics. What lives here are
 the mechanical primitives a resolver queries.
 
-`examples/probe.rs` indexes a real tree and reports what survived, how long the build took, and what a query costs — a
-synthetic fixture cannot tell you magnitude, because a repository's `.gitignore` files are what decide how much of it is
-indexed at all.
+`examples/probe.rs` indexes a real tree and reports what survived, how long the build took, and what a path search costs
+— a synthetic fixture cannot tell you magnitude, because a repository's `.gitignore` files are what decide how much of
+it is indexed at all.
 
 Status: the walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification, and
-both path queries — glob and fuzzy — each narrowed by a `Filter`. Not yet: content search, regex queries, incremental
+both path searches — glob and fuzzy — each narrowed by a `Filter`. Not yet: content search, regex search, incremental
 re-walk, and the ignore sources outside the tree.

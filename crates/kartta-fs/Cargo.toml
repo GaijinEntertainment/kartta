@@ -1,6 +1,6 @@
 [package]
 name = "kartta-fs"
-description = "Repository file index with glob, fuzzy and regex queries over a single filesystem walk"
+description = "Repository file index with glob and fuzzy path search over a single filesystem walk"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true

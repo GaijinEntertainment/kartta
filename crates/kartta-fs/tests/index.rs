@@ -876,8 +876,8 @@ fn only_a_symlink_carries_a_target() {
     assert_eq!(index.entry("dir/file.txt").and_then(Entry::target), None);
 }
 
-fn listed<'a>(outcome: &Listing<'a>) -> Vec<&'a str> {
-    outcome
+fn listed<'a>(listing: &Listing<'a>) -> Vec<&'a str> {
+    listing
         .items()
         .iter()
         .map(|found| found.entry().path())
@@ -885,8 +885,8 @@ fn listed<'a>(outcome: &Listing<'a>) -> Vec<&'a str> {
 }
 
 /// Each listed path beside what the listing says lies beneath it unlisted.
-fn unlisted<'a>(outcome: &Listing<'a>) -> Vec<(&'a str, Option<usize>)> {
-    outcome
+fn unlisted<'a>(listing: &Listing<'a>) -> Vec<(&'a str, Option<usize>)> {
+    listing
         .items()
         .iter()
         .map(|found| (found.entry().path(), found.unlisted()))
@@ -997,7 +997,7 @@ fn a_listing_reports_how_many_entries_the_index_holds_under_the_directory() {
     assert_eq!(list(&index, "a/b/c").total(), 1);
 }
 
-fn collapsing(patterns: &[&str]) -> Filter {
+fn filter(patterns: &[&str]) -> Filter {
     Filter::new(patterns).expect("compile the collapse filter")
 }
 
@@ -1010,7 +1010,7 @@ fn a_collapsed_directory_is_listed_with_its_contents_counted_at_any_level() {
         ("vendor/b.rs", "b"),
     ]);
     let index = default_index(dir.path());
-    let vendor = collapsing(&["**/vendor"]);
+    let vendor = filter(&["**/vendor"]);
 
     let listing = index
         .list("", &ListOptions::default().collapse(&vendor))
@@ -1033,7 +1033,7 @@ fn a_collapsed_directory_is_listed_with_its_contents_counted_at_any_level() {
 fn the_listed_directory_is_never_collapsed() {
     let dir = tree(&[("vendor/a/x.rs", "x"), ("vendor/b.rs", "b")]);
     let index = default_index(dir.path());
-    let vendor = collapsing(&["**/vendor"]);
+    let vendor = filter(&["**/vendor"]);
 
     let listing = index
         .list("vendor", &ListOptions::default().collapse(&vendor))
@@ -1050,7 +1050,7 @@ fn the_listed_directory_is_never_collapsed() {
 fn a_collapsed_directory_counts_once_toward_the_limit() {
     let dir = tree(&[("big/one.rs", "1"), ("big/two.rs", "2"), ("small.rs", "s")]);
     let index = default_index(dir.path());
-    let big = collapsing(&["big"]);
+    let big = filter(&["big"]);
 
     let listing = index
         .list("", &ListOptions::default().collapse(&big).limit(2))
@@ -1072,7 +1072,7 @@ fn an_excluded_entry_leaves_the_listing_with_its_subtree_and_is_counted() {
         ("src/main.rs", "m"),
     ]);
     let index = default_index(dir.path());
-    let dotfiles = collapsing(&["**/.*"]);
+    let dotfiles = filter(&["**/.*"]);
 
     let listing = index
         .list("", &ListOptions::default().exclude(&dotfiles))
@@ -1090,8 +1090,8 @@ fn an_excluded_entry_leaves_the_listing_with_its_subtree_and_is_counted() {
 fn exclusion_wins_over_collapse_and_spares_the_listed_directory() {
     let dir = tree(&[(".github/workflows/ci.yml", "c"), ("vendor/dep.rs", "d")]);
     let index = default_index(dir.path());
-    let dotfiles = collapsing(&["**/.*"]);
-    let vendor = collapsing(&["vendor"]);
+    let dotfiles = filter(&["**/.*"]);
+    let vendor = filter(&["vendor"]);
 
     let listing = index
         .list(
@@ -1118,7 +1118,7 @@ fn exclusion_wins_over_collapse_and_spares_the_listed_directory() {
 fn an_excluded_entry_never_counts_toward_the_limit() {
     let dir = tree(&[("a.txt", "a"), ("b.txt", "b"), ("z.tmp", "z")]);
     let index = default_index(dir.path());
-    let scratch = collapsing(&["*.tmp"]);
+    let scratch = filter(&["*.tmp"]);
 
     let listing = index
         .list("", &ListOptions::default().exclude(&scratch).limit(2))

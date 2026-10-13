@@ -1,5 +1,5 @@
 //! Indexes a real tree and queries it: how much survives the ignore rules, how long the build takes, and what a path
-//! query costs once the snapshot exists.
+//! search costs once the snapshot exists.
 //!
 //! A synthetic fixture cannot tell you magnitude — a repository's `.gitignore` files are what decide how much of it is
 //! indexed at all, and no generated tree has realistic ones. Run this before trusting any small tree to stand in for

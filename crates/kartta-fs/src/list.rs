@@ -41,13 +41,13 @@ pub struct ListOptions<'a> {
     pub depth: Option<NonZeroUsize>,
     /// How many entries to return at most. `None` returns all of them.
     pub limit: Option<NonZeroUsize>,
-    /// The directories to list without entering, matched by their index-relative path. A matched directory is listed,
+    /// The directories to list without entering, matched by their root-relative path. A matched directory is listed,
     /// and what lies beneath it is counted in [`Listed::unlisted`] rather than listed.
     ///
     /// `None` collapses nothing. The listed directory itself is never collapsed, so naming one by path shows what is
     /// inside it.
     pub collapse: Option<&'a Filter>,
-    /// The entries to leave out, matched by their index-relative path: a matched file is not listed, and a matched
+    /// The entries to leave out, matched by their root-relative path: a matched file is not listed, and a matched
     /// directory is not listed together with everything beneath it. [`Listing::excluded`] counts what this removed,
     /// and [`Listing::total`] still includes it, being the index's count rather than the listing's.
     ///
