@@ -4,7 +4,7 @@ use std::num::NonZeroUsize;
 
 use kartta_walk::EntryKind;
 
-use crate::capped::Capped;
+use crate::entry::Entry;
 use crate::index::{Index, Inspected};
 
 /// How far a listing descends and how many entries it returns.
@@ -48,6 +48,96 @@ impl ListOptions {
     }
 }
 
+/// What [`Index::list_dir`] found under a directory, and how much of it the answer left out.
+#[derive(Debug, Clone)]
+pub struct Listing<'a> {
+    items: Vec<Listed<'a>>,
+    truncated: bool,
+    total: usize,
+}
+
+impl<'a> Listing<'a> {
+    /// The listed entries, in [`Index::entries`] order.
+    #[must_use]
+    pub fn items(&self) -> &[Listed<'a>] {
+        &self.items
+    }
+
+    /// Takes the entries, dropping what the listing says about the rest.
+    ///
+    /// Check [`Listing::truncated`] first: a listing the limit cut short looks exactly like a whole one.
+    #[must_use]
+    pub fn into_items(self) -> Vec<Listed<'a>> {
+        self.items
+    }
+
+    /// How many entries the listing holds.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Whether the listing holds no entries.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// Whether the limit turned an entry away, so more exist than the listing shows.
+    ///
+    /// Settled by an actual rejection rather than inferred from a count, so a listing holding exactly the limit reports
+    /// `false`.
+    #[must_use]
+    pub const fn truncated(&self) -> bool {
+        self.truncated
+    }
+
+    /// How many entries the index holds under the listed directory, at every depth.
+    ///
+    /// The listing with no bound at all would hold this many, so it bounds what the depth and the limit left out.
+    #[must_use]
+    pub const fn total(&self) -> usize {
+        self.total
+    }
+}
+
+/// One entry of a [`Listing`], with the late reads reachable without looking the entry up again.
+#[derive(Debug, Clone, Copy)]
+pub struct Listed<'a> {
+    inspected: Inspected<'a>,
+    unlisted: Option<usize>,
+}
+
+impl<'a> Listed<'a> {
+    /// The entry itself.
+    #[must_use]
+    pub fn entry(&self) -> Entry<'a> {
+        self.inspected.entry()
+    }
+
+    /// The entry's size, on the terms [`Index::size`] states.
+    #[must_use]
+    pub fn size(&self) -> Option<u64> {
+        self.inspected.size()
+    }
+
+    /// Whether the entry holds binary content, on the terms [`Index::is_binary`] states.
+    #[must_use]
+    pub fn is_binary(&self) -> Option<bool> {
+        self.inspected.is_binary()
+    }
+
+    /// How many indexed entries lie beneath this directory that the listing did not descend into.
+    ///
+    /// `Some` for a directory at the depth bound, `Some(0)` included, so a directory the listing stopped at never reads
+    /// as an empty one. `None` for a directory whose contents the listing holds, and for anything that is not a
+    /// directory.
+    #[must_use]
+    pub const fn unlisted(&self) -> Option<usize> {
+        self.unlisted
+    }
+}
+
 /// A path [`Index::list_dir`] cannot list.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -83,13 +173,15 @@ impl Index {
     /// answer "which file did you mean" and drop them: a listing answers what is in a place, and the directories are
     /// half of that answer.
     ///
-    /// [`ListOptions`] carries the bounds: how far below `dir` to descend and how many entries to return.
-    /// [`Capped::truncated`] reports whether the limit turned anything away.
+    /// [`ListOptions`] carries the bounds: how far below `dir` to descend and how many entries to return. The answer
+    /// says how much each bound left out: [`Listing::truncated`] whether the limit turned anything away,
+    /// [`Listed::unlisted`] how many entries lie beneath a directory at the depth bound, and [`Listing::total`] how
+    /// many the index holds under `dir` altogether.
     ///
     /// A directory with nothing indexed under it lists nothing and is not an error.
     ///
     /// Listing itself reads nothing: kinds and symlink targets are the ones the walk recorded. Each item carries the
-    /// position it was found at, so [`Inspected::size`] and [`Inspected::is_binary`] reach an entry's late-read facts
+    /// position it was found at, so [`Listed::size`] and [`Listed::is_binary`] reach an entry's late-read facts
     /// without looking the path up again — those *do* read the filesystem on first ask, and may describe a later
     /// moment than the listing that names them.
     ///
@@ -122,6 +214,8 @@ impl Index {
     /// let shallow = index.list_dir("src", &ListOptions::default().depth(1))?;
     /// let paths: Vec<&str> = shallow.items().iter().map(|found| found.entry().path()).collect();
     /// assert_eq!(paths, ["src/main.rs", "src/net"], "src/net/tcp.rs is a level too deep");
+    /// assert_eq!(shallow.items()[1].unlisted(), Some(1), "and the listing says one entry sits beneath src/net");
+    /// assert_eq!(shallow.total(), 3);
     ///
     /// let capped = index.list_dir("src", &ListOptions::default().limit(1))?;
     /// assert_eq!(capped.len(), 1);
@@ -129,52 +223,56 @@ impl Index {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn list_dir(
-        &self,
-        dir: &str,
-        options: &ListOptions,
-    ) -> Result<Capped<Inspected<'_>>, ListDirError> {
-        let (start, prefix) = self.subtree_of(dir)?;
+    pub fn list_dir(&self, dir: &str, options: &ListOptions) -> Result<Listing<'_>, ListDirError> {
+        let (start, end) = self.subtree_of(dir)?;
+        let below_from = if dir.is_empty() { 0 } else { dir.len() + 1 };
         let cap = options.limit.map_or(usize::MAX, NonZeroUsize::get);
 
-        let mut entries = Vec::new();
+        let mut items = Vec::new();
         let mut truncated = false;
         let mut at = start;
 
-        while at < self.len() {
-            let path = self.path_at(at);
-            let Some(below) = path.strip_prefix(prefix.as_str()) else {
-                break;
-            };
-
-            if entries.len() == cap {
+        while at < end {
+            if items.len() == cap {
                 truncated = true;
                 break;
             }
 
-            entries.push(self.inspected_at(at));
-            let kind = self.kind_at(at);
+            let here = at;
+            let path = self.path_at(here);
             at += 1;
 
-            if kind == EntryKind::Dir && bottoms_out(below, options.depth) {
-                at = self.past_subtree(at, path);
-            }
+            let unlisted = if self.kind_at(here) == EntryKind::Dir
+                && bottoms_out(&path[below_from..], options.depth)
+            {
+                let past = self.past_subtree(at, path);
+                let skipped = past - at;
+                at = past;
+                Some(skipped)
+            } else {
+                None
+            };
+
+            items.push(Listed {
+                inspected: self.inspected_at(here),
+                unlisted,
+            });
         }
 
-        Ok(if truncated {
-            Capped::cut(entries)
-        } else {
-            Capped::whole(entries)
+        Ok(Listing {
+            items,
+            truncated,
+            total: end - start,
         })
     }
 
-    /// Where `dir`'s subtree starts in [`Index::entries`], and the prefix every path in it carries.
+    /// The run of [`Index::entries`] that `dir`'s subtree occupies: from one past the directory to the first position
+    /// that has left it.
     ///
-    /// The subtree needs no search of its own. [`Index::entries`] is depth-first, so it is the run beginning one past
-    /// the directory and ending at the first path that has left the prefix behind.
-    fn subtree_of(&self, dir: &str) -> Result<(usize, String), ListDirError> {
+    /// [`Index::entries`] is depth-first, so the subtree is contiguous and the end is one search away.
+    fn subtree_of(&self, dir: &str) -> Result<(usize, usize), ListDirError> {
         if dir.is_empty() {
-            return Ok((0, String::new()));
+            return Ok((0, self.len()));
         }
 
         let at = self.position(dir).ok_or_else(|| ListDirError::NotFound {
@@ -189,7 +287,7 @@ impl Index {
             });
         }
 
-        Ok((at + 1, format!("{dir}/")))
+        Ok((at + 1, self.past_subtree(at + 1, dir)))
     }
 
     /// The first position at or after `from` that has left `dir`'s subtree.
