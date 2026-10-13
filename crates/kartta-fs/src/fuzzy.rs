@@ -2,28 +2,29 @@
 
 use std::num::NonZeroUsize;
 
-use kartta_fuzz::{Config as Scoring, Match, Matcher};
+use kartta_fuzz::{Config, Match, Matcher};
 use rayon::prelude::*;
 
 use crate::filter::Filter;
 use crate::index::Index;
 
-/// The ranking weights, with the scorer's separator set narrowed to this crate's path grammar.
+/// The scorer's configuration for indexed paths: its defaults, with the separator set narrowed to this crate's path
+/// grammar.
 ///
 /// The scorer treats `\` as a segment separator too, which is right for a general matcher that may be handed a native
 /// Windows path. An indexed path is never one: every path here is forward-slash form, on every platform, so `/` is the
 /// only separator a candidate can carry and a `\` inside one is an ordinary character of a name. Left in, it would
 /// split `main\x.rs` into two segments and hand the basename bonus to the wrong half of a single filename, which is
 /// the ordering this crate exists to get right.
-const SCORING: Scoring = scoring();
+const RANKING: Config = ranking();
 
 /// How many entries one parallel ranking task scores.
-const RANKED_CHUNK: usize = 16 * 1024;
+const RANK_CHUNK_LEN: usize = 16 * 1024;
 
-const fn scoring() -> Scoring {
-    let mut scoring = Scoring::DEFAULT;
-    scoring.segment_separators = &['/'];
-    scoring
+const fn ranking() -> Config {
+    let mut ranking = Config::DEFAULT;
+    ranking.segment_separators = &['/'];
+    ranking
 }
 
 /// One ranked path and the score it earned.
@@ -142,16 +143,16 @@ impl Index {
     #[must_use]
     pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> Vec<FuzzyMatch<'_>> {
         let FuzzyOptions { filter, limit } = *options;
-        let rankings: Vec<Vec<Match<'_>>> = (0..self.len().div_ceil(RANKED_CHUNK))
+        let rankings: Vec<Vec<Match<'_>>> = (0..self.len().div_ceil(RANK_CHUNK_LEN))
             .into_par_iter()
             .map(|chunk| {
-                let start = chunk * RANKED_CHUNK;
-                let slice = start..self.len().min(start + RANKED_CHUNK);
-                Matcher::new(SCORING).rank(self.files(slice, filter), query, limit)
+                let start = chunk * RANK_CHUNK_LEN;
+                let positions = start..self.len().min(start + RANK_CHUNK_LEN);
+                Matcher::new(RANKING).rank(self.candidates(positions, filter), query, limit)
             })
             .collect();
 
-        Matcher::new(SCORING)
+        Matcher::new(RANKING)
             .merge(rankings, query, limit)
             .into_iter()
             .map(|found| FuzzyMatch {

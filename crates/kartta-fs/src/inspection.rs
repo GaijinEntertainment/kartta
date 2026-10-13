@@ -62,7 +62,8 @@ impl Inspection {
         }
     }
 
-    /// The size of the regular file at `path`, stat'ing it on the first ask and answering from the slot after that.
+    /// The size of the regular file at `native_path`, stat'ing it on the first ask and answering from the slot after
+    /// that.
     ///
     /// `None` when the file would not stat, which is remembered too: a caller looping over a listing pays for one
     /// failed stat per entry rather than one per pass.
@@ -70,14 +71,14 @@ impl Inspection {
     /// The caller settles that the entry is a regular file. A directory or a symlink has no size worth reading, and
     /// deciding that here would spend a syscall to learn what the walk already recorded.
     ///
-    /// `path` builds the native path and is called only on the read, so answering from a filled slot allocates
+    /// `native_path` builds the path and is called only on the read, so answering from a filled slot allocates
     /// nothing.
-    pub(crate) fn size(&self, at: usize, path: impl FnOnce() -> PathBuf) -> Option<u64> {
+    pub(crate) fn size(&self, at: usize, native_path: impl FnOnce() -> PathBuf) -> Option<u64> {
         let slot = self.sizes.get(at)?;
 
         match slot.load(Ordering::Relaxed) {
             UNREAD => {
-                let read = read_size(&path()).map_or(UNREADABLE, |size| size + 1);
+                let read = read_size(&native_path()).map_or(UNREADABLE, |size| size + 1);
 
                 decode_size(
                     slot.compare_exchange(UNREAD, read, Ordering::Relaxed, Ordering::Relaxed)
@@ -88,8 +89,8 @@ impl Inspection {
         }
     }
 
-    /// Whether the regular file at `path` is binary, settling it on the first ask and answering from the slot after
-    /// that: by its name when `named` says the name settles it, by whether its first [`PROBE`] bytes hold a NUL
+    /// Whether the regular file at `native_path` is binary, settling it on the first ask and answering from the slot
+    /// after that: by its name when `named` says the name settles it, by whether its first [`PROBE`] bytes hold a NUL
     /// otherwise.
     ///
     /// `None` when the file would not open or would not read, which is remembered too.
@@ -99,13 +100,17 @@ impl Inspection {
         &self,
         at: usize,
         named: impl FnOnce() -> bool,
-        path: impl FnOnce() -> PathBuf,
+        native_path: impl FnOnce() -> PathBuf,
     ) -> Option<bool> {
         let slot = self.classes.get(at)?;
 
         match slot.load(Ordering::Relaxed) {
             UNCLASSIFIED => {
-                let read = if named() { BINARY } else { classify(&path()) };
+                let read = if named() {
+                    BINARY
+                } else {
+                    classify(&native_path())
+                };
 
                 decode_class(
                     slot.compare_exchange(UNCLASSIFIED, read, Ordering::Relaxed, Ordering::Relaxed)
@@ -135,15 +140,15 @@ const fn decode_class(class: u8) -> Option<bool> {
 }
 
 /// Settles a file's class by its first bytes.
-fn classify(path: &Path) -> u8 {
-    match holds_nul(path) {
+fn classify(native_path: &Path) -> u8 {
+    match holds_nul(native_path) {
         Some(true) => BINARY,
         Some(false) => TEXT,
         None => UNOPENABLE,
     }
 }
 
-/// Whether the first [`PROBE`] bytes of `path` hold a NUL, or `None` when the file would not be read.
+/// Whether the first [`PROBE`] bytes of `native_path` hold a NUL, or `None` when the file would not be read.
 ///
 /// Reads until the probe is full or the file ends, because one `read` may return early for reasons that say nothing
 /// about the file — a short read that stopped at 4 KiB would report a file as text on the strength of a sixteenth of
@@ -153,8 +158,8 @@ fn classify(path: &Path) -> u8 {
 /// walk recorded as a regular file and never reads a directory or a device node as content. On unix it also never
 /// follows a link that took the file's place, which is the crate's rule that a symlink is reported and not read
 /// through; on Windows the open resolves such a link, as [`open_regular`] states.
-fn holds_nul(path: &Path) -> Option<bool> {
-    let mut file = open_regular(path, Symlinks::Refuse).ok()?;
+fn holds_nul(native_path: &Path) -> Option<bool> {
+    let mut file = open_regular(native_path, Symlinks::Refuse).ok()?;
     let mut head = vec![0u8; PROBE];
     let mut filled = 0;
 
@@ -170,13 +175,13 @@ fn holds_nul(path: &Path) -> Option<bool> {
     Some(head[..filled].contains(&0))
 }
 
-/// The size the regular file at `path` reports, or `None` when the path no longer names one.
+/// The size the regular file at `native_path` reports, or `None` when the path no longer names one.
 ///
 /// The kind is settled here rather than trusted from the walk. `len()` answers for whatever the path names, so a file
 /// replaced by a directory would otherwise publish that directory's own length as a file size and keep it. The stat
 /// does not follow a link, so a symlink that took the file's place is refused rather than measured through.
-fn read_size(path: &Path) -> Option<u64> {
-    let metadata = std::fs::symlink_metadata(path).ok()?;
+fn read_size(native_path: &Path) -> Option<u64> {
+    let metadata = std::fs::symlink_metadata(native_path).ok()?;
 
     metadata.is_file().then_some(metadata.len())
 }

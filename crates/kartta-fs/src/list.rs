@@ -153,8 +153,8 @@ impl<'a> Listing<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct Listed<'a> {
     inspected: Inspected<'a>,
-    /// How many entries the directory's subtree holds, the directory included, when the listing stopped at it.
-    stopped_subtree: Option<NonZeroUsize>,
+    /// How many entries the directory's subtree holds, the directory included, when the listing did not enter it.
+    unentered_subtree: Option<NonZeroUsize>,
 }
 
 impl<'a> Listed<'a> {
@@ -176,15 +176,15 @@ impl<'a> Listed<'a> {
         self.inspected.is_binary()
     }
 
-    /// How many indexed entries lie beneath this directory that the listing did not descend into.
+    /// How many indexed entries lie beneath this directory that the listing did not enter.
     ///
     /// `Some` for a directory at the depth bound or one the listing collapsed, `Some(0)` included, so a directory the
-    /// listing stopped at never reads as an empty one. `None` for a directory the listing entered, and for anything
+    /// listing did not enter never reads as an empty one. `None` for a directory the listing entered, and for anything
     /// that is not a directory. An entered directory's contents can still be cut short by the limit, which
     /// [`Listing::truncated`] reports.
     #[must_use]
     pub const fn unlisted(&self) -> Option<usize> {
-        match self.stopped_subtree {
+        match self.unentered_subtree {
             Some(subtree) => Some(subtree.get() - 1),
             None => None,
         }
@@ -281,7 +281,7 @@ impl Index {
     pub fn list(&self, dir: &str, options: &ListOptions<'_>) -> Result<Listing<'_>, ListError> {
         let (start, end) = self.subtree_of(dir)?;
         let below_from = if dir.is_empty() { 0 } else { dir.len() + 1 };
-        let cap = options.limit.map_or(usize::MAX, NonZeroUsize::get);
+        let limit = options.limit.map_or(usize::MAX, NonZeroUsize::get);
         let ListOptions {
             depth,
             collapse,
@@ -303,17 +303,17 @@ impl Index {
                 continue;
             }
 
-            if items.len() == cap {
+            if items.len() == limit {
                 truncated = true;
                 break;
             }
 
-            let stops_here = self.kind_at(here) == EntryKind::Dir && {
+            let unentered = self.kind_at(here) == EntryKind::Dir && {
                 let path = self.path_at(here);
                 depth.is_some_and(|depth| bottoms_out(&path[below_from..], depth))
                     || collapse.is_some_and(|collapse| collapse.matches(path))
             };
-            at = if stops_here {
+            at = if unentered {
                 self.past_subtree(here + 1, self.path_at(here))
             } else {
                 here + 1
@@ -321,7 +321,7 @@ impl Index {
 
             items.push(Listed {
                 inspected: self.inspected_at(here),
-                stopped_subtree: if stops_here {
+                unentered_subtree: if unentered {
                     NonZeroUsize::new(at - here)
                 } else {
                     None
