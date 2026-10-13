@@ -121,7 +121,7 @@ impl Default for Scoring {
     }
 }
 
-/// How a pattern character compares against a candidate character.
+/// How a query character compares against a candidate character.
 ///
 /// Case folding is deliberately ASCII-first and not full Unicode folding: a non-ASCII character whose fold maps onto
 /// ASCII (U+212A KELVIN SIGN against `k`, U+017F LATIN SMALL LETTER LONG S against `s`) compares unequal to its ASCII
@@ -134,7 +134,7 @@ pub enum CaseMatching {
     /// unequal to `k` here.
     #[default]
     Ignore,
-    /// Case matters only when the pattern contains an uppercase character — a lowercase query matches anything, and
+    /// Case matters only when the query contains an uppercase character — a lowercase query matches anything, and
     /// typing a capital narrows it.
     Smart,
     /// Case always matters. The fastest of the three, since it skips folding entirely.
@@ -160,7 +160,7 @@ pub enum CaseMatching {
 pub struct Config {
     /// The alignment weights.
     pub scoring: Scoring,
-    /// How pattern and candidate characters compare.
+    /// How query and candidate characters compare.
     pub case: CaseMatching,
     /// Characters that end a path segment. They decide two things at once: which positions earn
     /// [`Scoring::after_segment`], and where the basename starts — it is everything after the last one. Replace them

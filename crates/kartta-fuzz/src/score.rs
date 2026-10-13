@@ -1,6 +1,6 @@
 //! The alignment dynamic program and the scratch it reuses.
 //!
-//! Repository paths are ASCII-dominant, so a candidate is prepared as folded bytes whenever it and the pattern are
+//! Repository paths are ASCII-dominant, so a candidate is prepared as folded bytes whenever it and the query are
 //! both ASCII, and as characters otherwise. The alignment itself is written once, generic over the symbol type and
 //! the comparison, so the two representations cannot drift apart.
 
@@ -27,8 +27,8 @@ pub(crate) const ALIGNED_MIN: i32 = SCORE_MIN + 2;
 /// above any match whose leading gaps outweighed its bonuses.
 pub(crate) const MATCH_FLOOR: i32 = SCORE_MIN + 1;
 
-/// Whether character comparison folds case. Resolved from [`CaseMatching`] and the pattern once per query, so
-/// [`CaseMatching::Smart`] costs one scan of the pattern rather than a branch per character.
+/// Whether character comparison folds case. Resolved from [`CaseMatching`] and the query once, so
+/// [`CaseMatching::Smart`] costs one scan of the query rather than a branch per character.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Fold {
     /// Fold case: the default, matching [`CaseMatching::Ignore`].
@@ -39,11 +39,11 @@ pub(crate) enum Fold {
 }
 
 impl Fold {
-    /// Resolves the policy against the pattern that will be matched with it.
-    pub(crate) fn resolve(case: CaseMatching, pattern: &str) -> Self {
+    /// Resolves the policy against the query that will be matched with it.
+    pub(crate) fn resolve(case: CaseMatching, query: &str) -> Self {
         match case {
             CaseMatching::Respect => Self::Sensitive,
-            CaseMatching::Smart if pattern.chars().any(char::is_uppercase) => Self::Sensitive,
+            CaseMatching::Smart if query.chars().any(char::is_uppercase) => Self::Sensitive,
             CaseMatching::Ignore | CaseMatching::Smart => Self::Insensitive,
         }
     }
@@ -73,13 +73,13 @@ impl Fold {
     }
 }
 
-/// One whitespace-separated word of a pattern, in the forms the scorer needs.
+/// One whitespace-separated term of a query, in the forms the scorer needs.
 #[derive(Debug)]
 pub(crate) struct Term {
-    /// The word as characters.
+    /// The term as characters.
     pub(crate) chars: Vec<char>,
-    /// The word as normalized bytes when it is all-ASCII, so both the prefilter and the alignment can work on bytes.
-    /// `None` for a word holding a non-ASCII character.
+    /// The term as normalized bytes when it is all-ASCII, so both the prefilter and the alignment can work on bytes.
+    /// `None` for a term holding a non-ASCII character.
     pub(crate) bytes: Option<Vec<u8>>,
     /// The policy `bytes` was normalized under. Carried here so a comparison cannot be run under a different one than
     /// the normalization assumed, which would silently miss matches rather than fail.
@@ -87,13 +87,13 @@ pub(crate) struct Term {
 }
 
 impl Term {
-    /// Prepares `word` under `fold`, normalizing its bytes once here rather than once per candidate.
-    pub(crate) fn new(word: &str, fold: Fold) -> Self {
+    /// Prepares `text` under `fold`, normalizing its bytes once here rather than once per candidate.
+    pub(crate) fn new(text: &str, fold: Fold) -> Self {
         Self {
-            chars: word.chars().collect(),
-            bytes: word
+            chars: text.chars().collect(),
+            bytes: text
                 .is_ascii()
-                .then(|| word.bytes().map(|b| fold.byte(b)).collect()),
+                .then(|| text.bytes().map(|b| fold.byte(b)).collect()),
             fold,
         }
     }
@@ -102,7 +102,7 @@ impl Term {
     ///
     /// The only entry point to the prefilter, so the normalized bytes are always compared under the policy that
     /// normalized them. Scanning bytes is exactly equivalent to scanning characters for an ASCII term: every byte of a
-    /// multi-byte character is `>= 0x80`, so it can never equal an ASCII pattern byte, which is the answer the
+    /// multi-byte character is `>= 0x80`, so it can never equal an ASCII term byte, which is the answer the
     /// character comparison reaches through its own ASCII fast path.
     pub(crate) fn present_in(&self, candidate: &str) -> bool {
         self.bytes.as_ref().map_or_else(
@@ -112,7 +112,7 @@ impl Term {
     }
 }
 
-/// Which representation a whole query can use, decided from the pattern once.
+/// Which representation a whole query can use, decided from its terms once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Symbols {
     /// Every term is ASCII, so an ASCII candidate is scored as bytes.
@@ -133,34 +133,34 @@ impl Symbols {
     }
 }
 
-/// Whether `pattern` occurs in `candidate` as an ordered subsequence under `fold`.
+/// Whether `term` occurs in `candidate` as an ordered subsequence under `fold`.
 ///
 /// Allocates nothing. Used when either side holds a non-ASCII character.
 pub(crate) fn is_subsequence(
-    pattern: &[char],
+    term: &[char],
     candidate: impl Iterator<Item = char>,
     fold: Fold,
 ) -> bool {
     let mut next = 0;
     for c in candidate {
-        if next < pattern.len() && fold.eq(c, pattern[next]) {
+        if next < term.len() && fold.eq(c, term[next]) {
             next += 1;
-            if next == pattern.len() {
+            if next == term.len() {
                 return true;
             }
         }
     }
-    next == pattern.len()
+    next == term.len()
 }
 
-/// Whether an already-normalized ASCII `pattern` occurs in raw `candidate` bytes as an ordered subsequence.
+/// Whether an already-normalized ASCII `term` occurs in raw `candidate` bytes as an ordered subsequence.
 ///
-/// Private to this module: reaching it requires a [`Term`], which is the only thing that normalizes a pattern, so the
+/// Private to this module: reaching it requires a [`Term`], which is the only thing that normalizes a term, so the
 /// normalization and the comparison cannot disagree.
-fn subsequence_bytes(pattern: &[u8], candidate: &[u8], fold: Fold) -> bool {
+fn subsequence_bytes(term: &[u8], candidate: &[u8], fold: Fold) -> bool {
     let mut at = 0;
-    for &wanted in pattern {
-        // Searching for each pattern byte in turn is the same greedy leftmost match the scalar scan performs, but the
+    for &wanted in term {
+        // Searching for each term byte in turn is the same greedy leftmost match the scalar scan performs, but the
         // search itself is vectorized — which is what the overwhelmingly common non-matching candidate pays for.
         let found = match fold {
             Fold::Sensitive => memchr::memchr(wanted, &candidate[at..]),
@@ -474,7 +474,7 @@ fn as_score(positions: usize) -> i32 {
 
 /// Scores one term against one candidate, reusing its buffers across every candidate in a query.
 ///
-/// The candidate is prepared once by [`Scorer::prepare`]; every term of a multi-word pattern then scores against that
+/// The candidate is prepared once by [`Scorer::prepare`]; every term of a multi-term query then scores against that
 /// same preparation.
 #[derive(Debug, Default)]
 pub(crate) struct Scorer {
@@ -580,7 +580,7 @@ impl Scorer {
     /// Prepares a candidate as characters, returning where its basename starts.
     ///
     /// The character count is not known without a pass of its own, so this path pushes. It is the rare one — a
-    /// candidate or pattern holding a non-ASCII character.
+    /// candidate or query holding a non-ASCII character.
     fn prepare_chars(&mut self, candidate: &str, classes: &Classes) -> usize {
         self.bonus.clear();
         self.chars.clear();
@@ -672,14 +672,14 @@ mod tests {
     use super::*;
     use crate::config::Config;
 
-    /// Scores `pattern` against `candidate` twice — once as bytes, once as characters — under the default weights.
+    /// Scores `term` against `candidate` twice — once as bytes, once as characters — under the default weights.
     ///
     /// The ASCII fast path exists only to be faster, so the two representations must return the same score for input
     /// both can handle. Nothing else in the suite would notice them drifting apart.
-    fn both_representations(candidate: &str, pattern: &str) -> (i32, i32) {
+    fn both_representations(candidate: &str, term: &str) -> (i32, i32) {
         let config = Config::DEFAULT;
         let classes = Classes::new(&config);
-        let term = Term::new(pattern, Fold::Insensitive);
+        let term = Term::new(term, Fold::Insensitive);
 
         let mut as_bytes = Scorer::default();
         as_bytes.begin(Fold::Insensitive, Symbols::Bytes, term.chars.len());
@@ -718,16 +718,16 @@ mod tests {
             ("no-match-here.rs", "zzz"),
         ];
 
-        for (candidate, pattern) in cases {
-            let (bytes, chars) = both_representations(candidate, pattern);
-            assert_eq!(bytes, chars, "{pattern:?} against {candidate:?}");
+        for (candidate, term) in cases {
+            let (bytes, chars) = both_representations(candidate, term);
+            assert_eq!(bytes, chars, "{term:?} against {candidate:?}");
         }
     }
 
     /// Scores `term` against a prepared candidate with and without the window, under `scoring`.
-    fn narrowed_and_full(candidate: &str, pattern: &str, config: &Config) -> (i32, i32, bool) {
+    fn narrowed_and_full(candidate: &str, term: &str, config: &Config) -> (i32, i32, bool) {
         let classes = Classes::new(config);
-        let term = Term::new(pattern, Fold::Insensitive);
+        let term = Term::new(term, Fold::Insensitive);
         let bytes = term.bytes.as_deref().unwrap_or_default();
 
         let mut scorer = Scorer::default();
@@ -779,11 +779,11 @@ mod tests {
         candidate
     }
 
-    /// A pattern drawn as a subsequence of `candidate`, so the alignment actually runs rather than rejecting.
-    fn draw_pattern(candidate: &str, next: &mut impl FnMut(usize) -> usize) -> String {
+    /// A term drawn as a subsequence of `candidate`, so the alignment actually runs rather than rejecting.
+    fn draw_term(candidate: &str, next: &mut impl FnMut(usize) -> usize) -> String {
         let chars: Vec<char> = candidate.chars().collect();
         let take = 1 + next(4);
-        let mut pattern = String::new();
+        let mut term = String::new();
         let mut at = 0;
 
         for _ in 0..take {
@@ -793,14 +793,14 @@ mod tests {
             }
             at += next(remaining);
             let picked = chars.get(at).copied().filter(|c| !c.is_whitespace());
-            pattern.extend(picked);
+            term.extend(picked);
             at += 1;
         }
 
-        pattern
+        term
     }
 
-    /// Deterministic pseudo-random candidate and pattern pairs, covering far more shapes than a hand-written table.
+    /// Deterministic pseudo-random candidate and term pairs, covering far more shapes than a hand-written table.
     fn generated_cases() -> Vec<(String, String)> {
         let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
         let mut next = move |bound: usize| {
@@ -813,9 +813,8 @@ mod tests {
         (0..4000)
             .filter_map(|_| {
                 let candidate = build_candidate(&mut next);
-                let pattern = draw_pattern(&candidate, &mut next);
-                (!pattern.is_empty() && pattern.len() < candidate.len())
-                    .then_some((candidate, pattern))
+                let term = draw_term(&candidate, &mut next);
+                (!term.is_empty() && term.len() < candidate.len()).then_some((candidate, term))
             })
             .collect()
     }
@@ -846,10 +845,10 @@ mod tests {
 
         let mut engaged = 0;
         for config in &configs {
-            for (candidate, pattern) in &cases {
+            for (candidate, term) in &cases {
                 let (narrowed, full, narrowing_applied) =
-                    narrowed_and_full(candidate, pattern, config);
-                assert_eq!(narrowed, full, "{pattern:?} against {candidate:?}");
+                    narrowed_and_full(candidate, term, config);
+                assert_eq!(narrowed, full, "{term:?} against {candidate:?}");
                 engaged += usize::from(narrowing_applied);
             }
         }
@@ -891,17 +890,17 @@ mod tests {
         rows
     }
 
-    /// Fills every row for `pattern` against `candidate`, asserting that a cell carries a score exactly where an
+    /// Fills every row for `term` against `candidate`, asserting that a cell carries a score exactly where an
     /// alignment can end and the sentinel everywhere else. Returns how many cells it checked.
     fn assert_only_reachable_cells_carry_a_score(
         candidate: &str,
-        pattern: &str,
+        term: &str,
         config: &Config,
         rows: &mut Rows,
     ) -> usize {
         let classes = Classes::new(config);
         let scoring = config.scoring.as_penalties();
-        let term = Term::new(pattern, Fold::Insensitive);
+        let term = Term::new(term, Fold::Insensitive);
         let Some(symbols) = term.bytes.as_deref().filter(|b| b.len() >= 2) else {
             return 0;
         };
@@ -944,7 +943,7 @@ mod tests {
                 assert_eq!(
                     d != SCORE_MIN,
                     reached,
-                    "row {i} cell {j} of {pattern:?} against {candidate:?} holds {d}"
+                    "row {i} cell {j} of {term:?} against {candidate:?} holds {d}"
                 );
             }
         }
@@ -972,10 +971,9 @@ mod tests {
         let mut checked = 0;
 
         for config in [Config::DEFAULT, aggressive] {
-            for (candidate, pattern) in &cases {
-                checked += assert_only_reachable_cells_carry_a_score(
-                    candidate, pattern, &config, &mut rows,
-                );
+            for (candidate, term) in &cases {
+                checked +=
+                    assert_only_reachable_cells_carry_a_score(candidate, term, &config, &mut rows);
             }
         }
 
@@ -993,8 +991,8 @@ mod tests {
         let classes = Classes::new(&config);
         let mut rows = Rows::default();
 
-        for (candidate, pattern) in generated_cases() {
-            let Some(symbol) = pattern.bytes().next() else {
+        for (candidate, term) in generated_cases() {
+            let Some(symbol) = term.bytes().next() else {
                 continue;
             };
             let term = [symbol.to_ascii_lowercase()];

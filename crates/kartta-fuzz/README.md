@@ -2,10 +2,11 @@
 
 Path-aware fuzzy scorer that ranks repository paths against a query by optimal alignment.
 
-For every candidate containing the pattern as a subsequence, a dynamic program finds the highest-scoring alignment. It
-rewards matches at path boundaries — segment starts, word separators, camelCase humps, the basename — and charges for
-the gaps between matched characters. Scores are integers, so ranking is deterministic across platforms and free of
-NaN-ordering hazards, and every arithmetic operation on a score saturates, so no configuration makes one overflow.
+For every candidate containing each term of the query as a subsequence, a dynamic program finds the highest-scoring
+alignment. It rewards matches at path boundaries — segment starts, word separators, camelCase humps, the basename — and
+charges for the gaps between matched characters. Scores are integers, so ranking is deterministic across platforms and
+free of NaN-ordering hazards, and every arithmetic operation on a score saturates, so no configuration makes one
+overflow.
 
 A candidate longer than 1024 positions is the one exception, and no repository path reaches it: aligning it would mean
 running an `O(n*m)` recurrence over a length the caller chose. It still counts as a match, so the file stays findable,
@@ -28,21 +29,21 @@ why the alternatives were rejected.
 
 ## The model
 
-A pattern splits on whitespace into terms; a candidate must match **every** term, and its rank is the sum of the
+A query splits on whitespace into terms; a candidate must match **every** term, and its rank is the sum of the
 per-term scores. Ranking is stable — equal scores break by shorter candidate, then by input order — so an unchanged
 input ranks identically every time. "Shorter" is UTF-8 byte length, which differs from a character count only for a
-non-ASCII candidate. An empty or whitespace-only pattern is the exception: everything matches at score zero and the
+non-ASCII candidate. An empty or whitespace-only query is the exception: everything matches at score zero and the
 input order stands, since nothing was scored for a tiebreak to break.
 
-A candidate a term matches in full takes the highest score that term can award, so for a single-term pattern — the
-ordinary case — the candidate equal to the pattern ranks first. With several terms the rank is their sum, and "in full"
-stays a property of each term against the candidate rather than of the candidate against the whole pattern: a pattern's
-whitespace separates its terms and is not content a candidate has to contain. Pattern `a a` therefore ranks `a`, which
+A candidate a term matches in full takes the highest score that term can award, so for a single-term query — the
+ordinary case — the candidate equal to the query ranks first. With several terms the rank is their sum, and "in full"
+stays a property of each term against the candidate rather than of the candidate against the whole query: a query's
+whitespace separates its terms and is not content a candidate has to contain. Query `a a` therefore ranks `a`, which
 both terms match in full, above `a a`.
 
 What counts as a full match follows `Config::case`: under `Ignore` it is an exact match up to case, under `Respect` only
-a character-for-character one, and under `Smart` it is whichever of those the pattern selects — case-insensitive while
-the pattern is all lowercase, case-sensitive once it carries a capital. That guarantee survives reconfiguration because
+a character-for-character one, and under `Smart` it is whichever of those the query selects — case-insensitive while
+the query is all lowercase, case-sensitive once it carries a capital. That guarantee survives reconfiguration because
 the score it takes is derived from the active weights rather than declared as a constant, and each component of that
 derivation is floored at zero, so no set of weights — including one that is entirely negative — inverts the two.
 
@@ -63,7 +64,7 @@ config.case = CaseMatching::Smart;        // a capital in the query narrows it
 config.scoring.candidate_start = 500;     // reward matches at the very start
 
 let mut matcher = Matcher::new(config);
-let ranked = matcher.match_list(["src/main.rs", "main/lib.rs"], "main", None);
+let ranked = matcher.rank(["src/main.rs", "main/lib.rs"], "main", None);
 ```
 
 `Config::DEFAULT` is the tuned point in that space and the one the behaviour tests pin. Every other point is guaranteed
@@ -83,16 +84,16 @@ over the candidate's raw bytes, and the crate's one dependency, `memchr`, is the
 non-ASCII character has no byte form and takes a scalar scan over decoded characters instead.
 
 Repository paths are ASCII-dominant, so a candidate is likewise prepared as normalized bytes whenever it and the
-pattern both are, and as characters otherwise; the alignment is written once, generic over the two.
+query both are, and as characters otherwise; the alignment is written once, generic over the two.
 
 A `Matcher` owns the buffers the alignment reuses. Build one per query and rank a whole list with it; building one per
-candidate defeats the reuse it exists for. Results borrow from the input, so a ranked list allocates one `Vec` and
+candidate defeats the reuse it exists for. Results borrow from the input, so a ranking allocates one `Vec` and
 copies no path. Passing a `limit` also bounds memory: the best matches are kept in a heap of that size rather than
 collected and sorted, which matters when a permissive query over millions of paths would otherwise materialize a
 result per survivor.
 
-`benches/rank.rs` tracks regressions against a generated corpus, ranking both uncapped and capped the way a caller
-does. It is also the profiling target: `cargo bench --bench rank -- --profile-time 10` under a sampling profiler
+`benches/rank.rs` tracks regressions against a generated corpus, ranking both without and with a `limit`, the way a
+caller does. It is also the profiling target: `cargo bench --bench rank -- --profile-time 10` under a sampling profiler
 reports where the time goes.
 
 Status: the API is not published yet.
