@@ -13,8 +13,8 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 
 use kartta_fs::{
-    BuildError, Capped, Config, Entry, EntryKind, Filter, IgnoreSources, Index, Inspected,
-    ListDirError, ListOptions,
+    BinaryExtensions, BuildError, Capped, Config, Entry, EntryKind, Filter, IgnoreSources, Index,
+    Inspected, ListDirError, ListOptions,
 };
 use tempfile::TempDir;
 
@@ -1089,6 +1089,47 @@ fn an_extension_settles_a_binary_file_without_the_file_being_read() {
         index.is_binary("logo.png"),
         Some(true),
         "the name decides, so the contents are never consulted"
+    );
+}
+
+/// The index of a complete build that classifies names by `binary` instead of the built-in set.
+fn index_with_binary_extensions(root: &Path, binary: BinaryExtensions) -> Index {
+    let mut config = Config::default();
+    config.binary_extensions = binary;
+
+    index(root, &config)
+}
+
+#[test]
+fn an_extension_the_caller_adds_settles_its_files_without_them_being_read() {
+    let dir = tree(&[("pack.vromfs", "plain lines, and the name still decides")]);
+    let added = BinaryExtensions::new(["vromfs"]).expect("an extension");
+    let index = index_with_binary_extensions(dir.path(), BinaryExtensions::builtin().union(&added));
+    fs::remove_file(dir.path().join("pack.vromfs")).expect("remove the file");
+
+    assert_eq!(
+        index.is_binary("pack.vromfs"),
+        Some(true),
+        "the name decides, so a file that is gone still answers"
+    );
+}
+
+#[test]
+fn a_built_in_extension_the_caller_takes_out_is_read_instead() {
+    let dir = tree(&[("logo.png", "not really a png, and now the contents decide")]);
+    let taken_out = BinaryExtensions::new(["png"]).expect("an extension");
+    let index = index_with_binary_extensions(
+        dir.path(),
+        BinaryExtensions::builtin().difference(&taken_out),
+    );
+
+    assert_eq!(index.is_binary("logo.png"), Some(false));
+
+    let swept: Vec<Option<bool>> = index.inspected().map(|found| found.is_binary()).collect();
+    assert_eq!(
+        swept,
+        [Some(false)],
+        "the sweep classifies with the same set"
     );
 }
 

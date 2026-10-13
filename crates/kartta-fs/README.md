@@ -40,10 +40,14 @@ files — on a 1.4M-entry tree the walk-time stat alone was about half the build
 minutes. Two such answers may therefore describe two different moments, and none is refreshed once taken.
 
 `Index::is_binary` settles a file by extension where the name names a format that is binary by construction, and by
-whether a NUL appears in the first 64 KiB otherwise. The extension list only ever says "binary": listing a text format
+whether a NUL appears in the first 64 KiB otherwise. The extension set only ever says "binary": listing a text format
 wrongly would make it unfindable, where omitting a binary one costs a single read that answers correctly anyway. `svg`
-is the one name on it that is not binary by construction — it is XML, listed because in practice it holds
+is the one built-in name that is not binary by construction — it is XML, listed because in practice it holds
 machine-emitted path data — so an SVG reports binary without being read.
+
+`Config::binary_extensions` sets which extensions decide. The default is every built-in group; a caller composes its
+own set from those groups and its own extensions by union and difference, so a project can add its asset formats, drop
+one built-in it disputes, or drop a whole group.
 
 ## Ignore rules
 

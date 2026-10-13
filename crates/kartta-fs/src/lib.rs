@@ -100,12 +100,12 @@
 //!
 //! # Binary content
 //!
-//! [`Index::is_binary`] settles a file two ways, in order. An extension naming a format that is binary by
-//! construction answers with nothing opened — which carries most of the weight on a real tree, because those are the
-//! archives, media, disk images and model weights. Everything else is answered by whether a NUL appears in the file's
-//! first 64 KiB, which is git's and ripgrep's rule and the size ripgrep reads at a time.
+//! [`Index::is_binary`] settles a file two ways, in order. An extension in [`Config::binary_extensions`] answers with
+//! nothing opened — which carries most of the weight on a real tree, because the default set, every [`BinaryGroup`],
+//! covers the archives, media, disk images and model weights. Everything else is answered by whether a NUL appears
+//! in the file's first 64 KiB, which is git's and ripgrep's rule and the size ripgrep reads at a time.
 //!
-//! Both halves are deliberately one-sided about what a *name* may claim. The extension list says "binary, do not
+//! Both halves are deliberately one-sided about what a *name* may claim. The extension set says "binary, do not
 //! open" and never says text, so a file it does not name is read rather than assumed. And because the probe is
 //! bounded, the verdict describes a prefix: a file that is text for 64 KiB and binary after reports text.
 //!
