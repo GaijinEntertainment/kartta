@@ -252,7 +252,7 @@ impl<P: Policy> Ctx<'_, P> {
         errors: Vec<WalkError>,
     ) -> (Built<P::Node>, Vec<Descent>) {
         let mut built = Built {
-            entries: Vec::new(),
+            entries: Vec::with_capacity(dir.listing().len()),
             subtrees: Vec::new(),
             errors,
             nodes: 0,
@@ -309,6 +309,7 @@ impl<P: Policy> Ctx<'_, P> {
             });
         }
 
+        built.entries.shrink_to_fit();
         built.nodes = built.entries.len();
 
         (built, descend)
