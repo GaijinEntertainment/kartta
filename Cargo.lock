@@ -426,6 +426,7 @@ dependencies = [
  "kartta-fuzz",
  "kartta-walk",
  "libc",
+ "rayon",
  "tempfile",
  "thiserror",
 ]
