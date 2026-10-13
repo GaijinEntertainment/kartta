@@ -413,8 +413,7 @@ fn list_dir(native_path: &Path) -> io::Result<Listing> {
                     .into_boxed_str(),
                 dir_entry,
             }),
-            // The directory opened but an entry could not be read; the rest of the listing still stands.
-            Err(source) => errors.push(WalkError::ReadDir {
+            Err(source) => errors.push(WalkError::ReadEntry {
                 native_path: native_path.to_path_buf(),
                 source,
             }),
