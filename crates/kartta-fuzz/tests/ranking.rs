@@ -42,24 +42,24 @@ fn basename_hit_outranks_directory_hit() {
 }
 
 #[test]
-fn exact_basename_ranks_first() {
+fn a_basename_hit_outranks_a_directory_hit_across_case() {
     let ranked = ranked(&["src/cargo/mod.rs", "Cargo.toml"], "cargo");
     assert_eq!(
         ranked[0], "Cargo.toml",
-        "an exact, case-insensitive basename wins"
+        "a case-insensitive basename hit wins"
     );
 }
 
 #[test]
-fn exact_match_outranks_every_partial_match() {
-    let exact = score("ab", "ab").expect("an exact match");
-    let cased = score("AB", "ab").expect("an exact match up to case");
+fn a_full_match_outranks_every_partial_match() {
+    let full = score("ab", "ab").expect("a full match");
+    let cased = score("AB", "ab").expect("a full match up to case");
     let partial = score("abc", "ab").expect("a subsequence match");
 
-    assert_eq!(exact, cased, "case never changes an exact match");
+    assert_eq!(full, cased, "case never changes a full match");
     assert!(
-        partial < exact,
-        "a partial match ranks below an exact one, got {partial} against {exact}"
+        partial < full,
+        "a partial match ranks below a full one, got {partial} against {full}"
     );
 }
 
@@ -305,7 +305,7 @@ fn a_limit_returns_exactly_the_prefix_of_the_unlimited_ranking() {
 
     for query in ["r", "render", "pkg mod", "pass rs"] {
         let mut matcher = Matcher::new(Config::DEFAULT);
-        let full = matcher.rank(borrowed.iter().copied(), query, None);
+        let unlimited = matcher.rank(borrowed.iter().copied(), query, None);
 
         for limit in [1usize, 2, 7, 50, 499, 500, 501] {
             let limited = Matcher::new(Config::DEFAULT).rank(
@@ -313,7 +313,7 @@ fn a_limit_returns_exactly_the_prefix_of_the_unlimited_ranking() {
                 query,
                 NonZeroUsize::new(limit),
             );
-            let expected = &full[..limit.min(full.len())];
+            let expected = &unlimited[..limit.min(unlimited.len())];
             assert_eq!(limited, expected, "query {query:?} at limit {limit}");
         }
     }
@@ -325,7 +325,7 @@ fn a_limit_agrees_without_the_length_tiebreak_too() {
     config.length_tiebreak = false;
 
     let candidates = ["aa/x", "bb/x", "c/xxxxxx", "dd/x", "e/x"];
-    let full = ranked_with(config, &candidates, "x");
+    let unlimited = ranked_with(config, &candidates, "x");
 
     for limit in [1usize, 3, 5] {
         let limited: Vec<String> = Matcher::new(config)
@@ -333,7 +333,11 @@ fn a_limit_agrees_without_the_length_tiebreak_too() {
             .iter()
             .map(|m| m.candidate.to_owned())
             .collect();
-        assert_eq!(limited, full[..limit.min(full.len())], "limit {limit}");
+        assert_eq!(
+            limited,
+            unlimited[..limit.min(unlimited.len())],
+            "limit {limit}"
+        );
     }
 }
 
@@ -376,7 +380,7 @@ fn hostile_configs() -> Vec<(&'static str, Config)> {
 }
 
 #[test]
-fn an_exact_match_ranks_first_under_any_configuration() {
+fn a_full_match_ranks_first_under_any_configuration() {
     // The one ordering the crate promises for every point in the weight space. A derivation that sums a negative
     // per-character maximum, or a sentinel a positive gap lifted off the floor, breaks it here and nowhere else.
     let candidates = ["ab", "xaxbx", "a/b", "abc", "zzab", "ab/ab"];
@@ -385,7 +389,7 @@ fn an_exact_match_ranks_first_under_any_configuration() {
         let ranked = ranked_with(config, &candidates, "ab");
         assert_eq!(
             ranked[0], "ab",
-            "exact match must lead under {name}, got {ranked:?}"
+            "the full match must lead under {name}, got {ranked:?}"
         );
     }
 }

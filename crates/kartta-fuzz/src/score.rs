@@ -610,13 +610,18 @@ impl Scorer {
     }
 
     /// The score of a `term` already known to be a non-empty subsequence of the prepared candidate.
-    pub(crate) fn score_matched(&mut self, term: &Term, scoring: &Scoring, exact: i32) -> i32 {
+    pub(crate) fn score_matched(
+        &mut self,
+        term: &Term,
+        scoring: &Scoring,
+        full_match_score: i32,
+    ) -> i32 {
         let m = self.len();
 
         // Equal length plus subsequence means every symbol matched in order: a full match, under whatever
         // comparison the case policy selected.
         if term.chars.len() == m {
-            return exact;
+            return full_match_score;
         }
         if m > MAX_CANDIDATE_LEN {
             return MATCH_FLOOR;
@@ -629,7 +634,7 @@ impl Scorer {
         // the sentinel itself, ranking a candidate that was never aligned above one that was. No constant can sit
         // under every alignment for every configuration, so the alignment is lifted off the floor instead.
         self.align(term, scoring)
-            .clamp(ALIGNED_MIN, exact.saturating_sub(1))
+            .clamp(ALIGNED_MIN, full_match_score.saturating_sub(1))
     }
 
     /// Dispatches to the alignment in whichever representation the candidate was prepared in.
@@ -690,8 +695,16 @@ mod tests {
         as_chars.prepare(candidate, &classes);
 
         (
-            as_bytes.score_matched(&term, &config.scoring.as_penalties(), config.exact_score()),
-            as_chars.score_matched(&term, &config.scoring.as_penalties(), config.exact_score()),
+            as_bytes.score_matched(
+                &term,
+                &config.scoring.as_penalties(),
+                config.full_match_score(),
+            ),
+            as_chars.score_matched(
+                &term,
+                &config.scoring.as_penalties(),
+                config.full_match_score(),
+            ),
         )
     }
 
@@ -725,7 +738,7 @@ mod tests {
     }
 
     /// Scores `term` against a prepared candidate with and without the window, under `scoring`.
-    fn narrowed_and_full(candidate: &str, term: &str, config: &Config) -> (i32, i32, bool) {
+    fn narrowed_and_unnarrowed(candidate: &str, term: &str, config: &Config) -> (i32, i32, bool) {
         let classes = Classes::new(config);
         let term = Term::new(term, Fold::Insensitive);
         let bytes = term.bytes.as_deref().unwrap_or_default();
@@ -745,11 +758,11 @@ mod tests {
         };
 
         let mut rows = Rows::default();
-        let full = build().run(bytes, &mut rows);
+        let unnarrowed = build().run(bytes, &mut rows);
         let window = build().narrow(bytes);
         let engaged = window.cand.len() < scorer.bytes.len();
         let narrowed = window.run(bytes, &mut rows);
-        (narrowed, full, engaged)
+        (narrowed, unnarrowed, engaged)
     }
 
     /// A path built from `PARTS`, two to five segments deep.
@@ -846,9 +859,9 @@ mod tests {
         let mut engaged = 0;
         for config in &configs {
             for (candidate, term) in &cases {
-                let (narrowed, full, narrowing_applied) =
-                    narrowed_and_full(candidate, term, config);
-                assert_eq!(narrowed, full, "{term:?} against {candidate:?}");
+                let (narrowed, unnarrowed, narrowing_applied) =
+                    narrowed_and_unnarrowed(candidate, term, config);
+                assert_eq!(narrowed, unnarrowed, "{term:?} against {candidate:?}");
                 engaged += usize::from(narrowing_applied);
             }
         }

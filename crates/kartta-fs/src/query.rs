@@ -133,7 +133,7 @@ impl Index {
     /// - A path longer than 1024 characters is not aligned. It still matches, so the file stays findable, but it takes
     ///   a floor score and orders below every path that was aligned, so the filename-over-directory preference does not
     ///   hold for it. A path a term matches *in full* is the exception: that is settled by comparing lengths rather
-    ///   than by aligning, so an over-long exact match still ranks first.
+    ///   than by aligning, so an over-long full match still ranks first.
     ///
     /// # Examples
     ///

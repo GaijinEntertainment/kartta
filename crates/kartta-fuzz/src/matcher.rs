@@ -40,17 +40,17 @@ enum Band {
 impl Band {
     /// Which band one term's score falls in. Each is reachable only by its own kind of match: an alignment is clamped
     /// clear of the floor below and of the full-match score above.
-    const fn of(score: i32, exact: i32) -> Self {
+    const fn of(score: i32, full_match_score: i32) -> Self {
         if score == MATCH_FLOOR {
             Self::Floored
-        } else if score == exact {
+        } else if score == full_match_score {
             Self::Full
         } else {
             Self::Aligned
         }
     }
 
-    /// Maps an exact aggregate into this band's range.
+    /// Maps a summed aggregate into this band's range.
     ///
     /// Clamping here rather than at each addition is what makes the ranges hold for weights that would otherwise
     /// saturate the sum: a saturated total carries no trace of what it was built from, so a floored aggregate and an
@@ -122,7 +122,7 @@ pub struct Matcher {
     /// The weights the recurrence runs on: the configured ones with the gaps clamped to penalties.
     scoring: Scoring,
     /// The score a full match takes, derived from the configured weights once.
-    exact: i32,
+    full_match_score: i32,
     classes: Classes,
     scorer: Scorer,
     terms: Vec<Term>,
@@ -144,7 +144,7 @@ impl Matcher {
         Self {
             classes: Classes::new(&config),
             scoring: config.scoring.as_penalties(),
-            exact: config.exact_score(),
+            full_match_score: config.full_match_score(),
             config,
             scorer: Scorer::default(),
             terms: Vec::new(),
@@ -376,8 +376,10 @@ impl Matcher {
         let mut total: i64 = 0;
         let mut band = Band::Full;
         for term in &self.terms {
-            let score = self.scorer.score_matched(term, &self.scoring, self.exact);
-            band = band.min(Band::of(score, self.exact));
+            let score = self
+                .scorer
+                .score_matched(term, &self.scoring, self.full_match_score);
+            band = band.min(Band::of(score, self.full_match_score));
             // Saturating, because the term count is the caller's: enough full terms at ceiling weights overflow even
             // an i64, which panics in debug and wraps in release. Saturating costs the ordering nothing that matters,
             // since the band is the primary key and a total that large is already past any meaningful comparison.
