@@ -115,9 +115,15 @@ pub fn walk<P: Policy>(
         None => ctx.visit(&level, listed),
     };
 
-    let mut nodes = Vec::new();
+    let counted = built.nodes;
+    let mut nodes = Vec::with_capacity(counted);
     let mut errors = Vec::new();
     let roots = flatten(built, &mut nodes, &mut errors);
+    debug_assert_eq!(
+        nodes.len(),
+        counted,
+        "the walk counted every recorded entry"
+    );
 
     Ok(WalkOutcome {
         tree: Tree { nodes, roots },
@@ -232,6 +238,7 @@ impl<P: Policy> Ctx<'_, P> {
             .collect();
 
         for (index, sub) in subtrees {
+            built.nodes += sub.nodes;
             built.entries[index].sub = Some(sub);
         }
 
@@ -249,6 +256,7 @@ impl<P: Policy> Ctx<'_, P> {
         let mut built = Built {
             entries: Vec::new(),
             errors,
+            nodes: 0,
         };
         let mut descend: Vec<Descent> = Vec::new();
 
@@ -303,6 +311,8 @@ impl<P: Policy> Ctx<'_, P> {
             });
         }
 
+        built.nodes = built.entries.len();
+
         (built, descend)
     }
 
@@ -325,6 +335,7 @@ impl<P: Policy> Ctx<'_, P> {
                     path: child.path,
                     source,
                 }],
+                nodes: 0,
             },
         }
     }
@@ -342,6 +353,9 @@ struct Descent {
 struct Built<N> {
     entries: Vec<Recorded<N>>,
     errors: Vec<WalkError>,
+    /// How many entries this directory's whole subtree records, its own included, so the arena is allocated once at
+    /// its final size.
+    nodes: usize,
 }
 
 /// One kept entry, with its subtree when the walk descended into it.
@@ -411,6 +425,7 @@ fn flatten<N>(
     let Built {
         entries,
         errors: mut here,
+        nodes: _,
     } = built;
     errors.append(&mut here);
 
