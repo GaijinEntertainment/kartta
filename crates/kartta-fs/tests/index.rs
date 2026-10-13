@@ -14,7 +14,7 @@ use std::path::Path;
 
 use kartta_fs::{
     BinaryExtensions, BuildError, BuildOptions, Entry, EntryKind, Filter, IgnoreSources, Index,
-    ListDirError, ListOptions, Listed, Listing,
+    ListError, ListOptions, Listed, Listing,
 };
 use tempfile::TempDir;
 
@@ -889,7 +889,7 @@ fn unlisted<'a>(outcome: &Listing<'a>) -> Vec<(&'a str, Option<usize>)> {
 
 fn list<'a>(index: &'a Index, dir: &str) -> Listing<'a> {
     index
-        .list_dir(dir, &ListOptions::default())
+        .list(dir, &ListOptions::default())
         .unwrap_or_else(|error| panic!("list {dir}: {error}"))
 }
 
@@ -924,12 +924,12 @@ fn a_depth_takes_only_that_many_levels_below_the_listed_directory() {
     let index = default_index(dir.path());
 
     let one = index
-        .list_dir("a", &ListOptions::default().depth(1))
+        .list("a", &ListOptions::default().depth(1))
         .expect("list a");
     assert_eq!(listed(&one), ["a/b", "a/top.txt"]);
 
     let two = index
-        .list_dir("a", &ListOptions::default().depth(2))
+        .list("a", &ListOptions::default().depth(2))
         .expect("list a");
     assert_eq!(listed(&two), ["a/b", "a/b/c", "a/top.txt"]);
 
@@ -946,7 +946,7 @@ fn a_directory_at_the_depth_bound_says_how_many_entries_lie_beneath_it() {
     let index = default_index(dir.path());
 
     let one = index
-        .list_dir("a", &ListOptions::default().depth(1))
+        .list("a", &ListOptions::default().depth(1))
         .expect("list a");
     assert_eq!(
         unlisted(&one),
@@ -955,7 +955,7 @@ fn a_directory_at_the_depth_bound_says_how_many_entries_lie_beneath_it() {
     );
 
     let two = index
-        .list_dir("a", &ListOptions::default().depth(2))
+        .list("a", &ListOptions::default().depth(2))
         .expect("list a");
     assert_eq!(
         unlisted(&two),
@@ -979,7 +979,7 @@ fn a_listing_reports_how_many_entries_the_index_holds_under_the_directory() {
         ListOptions::default().depth(1),
         ListOptions::default().limit(1),
     ] {
-        let listing = index.list_dir("a", &options).expect("list a");
+        let listing = index.list("a", &options).expect("list a");
         assert_eq!(
             listing.total(),
             4,
@@ -1007,7 +1007,7 @@ fn a_collapsed_directory_is_listed_with_its_contents_counted_at_any_level() {
     let vendor = collapsing(&["**/vendor"]);
 
     let listing = index
-        .list_dir("", &ListOptions::default().collapse(&vendor))
+        .list("", &ListOptions::default().collapse(&vendor))
         .expect("list the root");
 
     assert_eq!(
@@ -1030,7 +1030,7 @@ fn the_listed_directory_is_never_collapsed() {
     let vendor = collapsing(&["**/vendor"]);
 
     let listing = index
-        .list_dir("vendor", &ListOptions::default().collapse(&vendor))
+        .list("vendor", &ListOptions::default().collapse(&vendor))
         .expect("list vendor");
 
     assert_eq!(
@@ -1047,7 +1047,7 @@ fn a_collapsed_directory_counts_once_toward_the_limit() {
     let big = collapsing(&["big"]);
 
     let listing = index
-        .list_dir("", &ListOptions::default().collapse(&big).limit(2))
+        .list("", &ListOptions::default().collapse(&big).limit(2))
         .expect("list the root");
 
     assert_eq!(unlisted(&listing), [("big", Some(2)), ("small.rs", None)]);
@@ -1069,7 +1069,7 @@ fn an_excluded_entry_leaves_the_listing_with_its_subtree_and_is_counted() {
     let dotfiles = collapsing(&["**/.*"]);
 
     let listing = index
-        .list_dir("", &ListOptions::default().exclude(&dotfiles))
+        .list("", &ListOptions::default().exclude(&dotfiles))
         .expect("list the root");
 
     assert_eq!(listed(&listing), ["src", "src/main.rs"]);
@@ -1088,7 +1088,7 @@ fn exclusion_wins_over_collapse_and_spares_the_listed_directory() {
     let vendor = collapsing(&["vendor"]);
 
     let listing = index
-        .list_dir(
+        .list(
             "",
             &ListOptions::default().exclude(&vendor).collapse(&vendor),
         )
@@ -1099,7 +1099,7 @@ fn exclusion_wins_over_collapse_and_spares_the_listed_directory() {
     );
 
     let inside = index
-        .list_dir(".github", &ListOptions::default().exclude(&dotfiles))
+        .list(".github", &ListOptions::default().exclude(&dotfiles))
         .expect("list .github");
     assert_eq!(
         listed(&inside),
@@ -1115,7 +1115,7 @@ fn an_excluded_entry_never_counts_toward_the_limit() {
     let scratch = collapsing(&["*.tmp"]);
 
     let listing = index
-        .list_dir("", &ListOptions::default().exclude(&scratch).limit(2))
+        .list("", &ListOptions::default().exclude(&scratch).limit(2))
         .expect("list the root");
 
     assert_eq!(listed(&listing), ["a.txt", "b.txt"]);
@@ -1132,7 +1132,7 @@ fn a_limit_cuts_the_listing_and_says_so() {
     let index = default_index(dir.path());
 
     let capped = index
-        .list_dir("a", &ListOptions::default().limit(2))
+        .list("a", &ListOptions::default().limit(2))
         .expect("list a");
 
     assert_eq!(listed(&capped), ["a/one.txt", "a/three.txt"]);
@@ -1145,7 +1145,7 @@ fn a_directory_holding_exactly_the_limit_is_not_truncated() {
     let index = default_index(dir.path());
 
     let capped = index
-        .list_dir("a", &ListOptions::default().limit(2))
+        .list("a", &ListOptions::default().limit(2))
         .expect("list a");
 
     assert_eq!(listed(&capped).len(), 2);
@@ -1161,7 +1161,7 @@ fn an_entry_a_depth_dropped_never_counts_as_truncation() {
     let index = default_index(dir.path());
 
     let capped = index
-        .list_dir("a", &ListOptions::default().depth(1).limit(2))
+        .list("a", &ListOptions::default().depth(1).limit(2))
         .expect("list a");
 
     assert_eq!(listed(&capped), ["a/deep", "a/top.txt"]);
@@ -1206,18 +1206,14 @@ fn listing_a_path_that_is_not_indexed_is_not_found() {
     let index = default_index(dir.path());
 
     assert_eq!(
-        index
-            .list_dir("nowhere", &ListOptions::default())
-            .unwrap_err(),
-        ListDirError::NotFound {
+        index.list("nowhere", &ListOptions::default()).unwrap_err(),
+        ListError::NotFound {
             path: "nowhere".to_owned()
         }
     );
     assert_eq!(
-        index
-            .list_dir("secret", &ListOptions::default())
-            .unwrap_err(),
-        ListDirError::NotFound {
+        index.list("secret", &ListOptions::default()).unwrap_err(),
+        ListError::NotFound {
             path: "secret".to_owned()
         },
         "an ignored directory reads the same as one that was never there"
@@ -1230,10 +1226,8 @@ fn listing_a_file_reports_what_is_indexed_there_instead() {
     let index = default_index(dir.path());
 
     assert_eq!(
-        index
-            .list_dir("main.rs", &ListOptions::default())
-            .unwrap_err(),
-        ListDirError::NotADirectory {
+        index.list("main.rs", &ListOptions::default()).unwrap_err(),
+        ListError::NotADirectory {
             path: "main.rs".to_owned(),
             kind: EntryKind::File,
         }
@@ -1250,8 +1244,8 @@ fn listing_a_symlink_to_a_directory_is_not_a_listing_of_its_target() {
     let index = default_index(dir.path());
 
     assert_eq!(
-        index.list_dir("link", &ListOptions::default()).unwrap_err(),
-        ListDirError::NotADirectory {
+        index.list("link", &ListOptions::default()).unwrap_err(),
+        ListError::NotADirectory {
             path: "link".to_owned(),
             kind: EntryKind::Symlink,
         },
@@ -1289,7 +1283,7 @@ fn listing_the_root_one_level_deep_takes_only_the_top_level_entries() {
     let index = default_index(dir.path());
 
     let top = index
-        .list_dir("", &ListOptions::default().depth(1))
+        .list("", &ListOptions::default().depth(1))
         .expect("list the root");
 
     assert_eq!(
@@ -1310,7 +1304,7 @@ fn a_skipped_subtree_that_runs_to_the_end_of_the_index_ends_the_listing() {
     let index = default_index(dir.path());
 
     let top = index
-        .list_dir("", &ListOptions::default().depth(1))
+        .list("", &ListOptions::default().depth(1))
         .expect("list the root");
 
     assert_eq!(listed(&top), ["a"]);
@@ -1569,7 +1563,7 @@ fn list_options_default_to_no_bounds_and_zero_lifts_one() {
         listed(&list(&index, "a")),
         listed(
             &index
-                .list_dir("a", &ListOptions::default().depth(0))
+                .list("a", &ListOptions::default().depth(0))
                 .expect("list a")
         ),
         "a zero depth reads as no depth, which is what NonZeroUsize makes unrepresentable"
@@ -1578,7 +1572,7 @@ fn list_options_default_to_no_bounds_and_zero_lifts_one() {
         listed(&list(&index, "a")),
         listed(
             &index
-                .list_dir("a", &ListOptions::default().limit(0))
+                .list("a", &ListOptions::default().limit(0))
                 .expect("list a")
         ),
     );

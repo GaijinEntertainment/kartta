@@ -1,4 +1,4 @@
-//! The directory listing over a built [`Index`] — [`Index::list_dir`].
+//! The directory listing over a built [`Index`] — [`Index::list`].
 
 use std::num::NonZeroUsize;
 
@@ -86,7 +86,7 @@ impl<'a> ListOptions<'a> {
     }
 }
 
-/// What [`Index::list_dir`] found under a directory, and how much of it the answer left out.
+/// What [`Index::list`] found under a directory, and how much of it the answer left out.
 #[derive(Debug, Clone)]
 pub struct Listing<'a> {
     items: Vec<Listed<'a>>,
@@ -191,10 +191,10 @@ impl<'a> Listed<'a> {
     }
 }
 
-/// A path [`Index::list_dir`] cannot list.
+/// A path [`Index::list`] cannot list.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
-pub enum ListDirError {
+pub enum ListError {
     /// Nothing is indexed at the path.
     ///
     /// Which is not the same as nothing being there: an ignored directory, a directory below one that would not read,
@@ -242,7 +242,7 @@ impl Index {
     ///
     /// # Errors
     ///
-    /// Returns [`ListDirError::NotFound`] when `dir` names no indexed entry, and [`ListDirError::NotADirectory`] when
+    /// Returns [`ListError::NotFound`] when `dir` names no indexed entry, and [`ListError::NotADirectory`] when
     /// it names one that is not a directory.
     ///
     /// # Examples
@@ -258,7 +258,7 @@ impl Index {
     ///
     /// let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
     ///
-    /// let listed = index.list_dir("src", &ListOptions::default())?;
+    /// let listed = index.list("src", &ListOptions::default())?;
     /// let paths: Vec<&str> = listed.items().iter().map(|found| found.entry().path()).collect();
     /// assert_eq!(paths, ["src/main.rs", "src/net", "src/net/tcp.rs"]);
     /// assert!(!listed.truncated());
@@ -266,23 +266,19 @@ impl Index {
     /// // Each item carries its position, so a size beside a row costs no second lookup.
     /// assert_eq!(listed.items()[0].size(), Some(0));
     ///
-    /// let shallow = index.list_dir("src", &ListOptions::default().depth(1))?;
+    /// let shallow = index.list("src", &ListOptions::default().depth(1))?;
     /// let paths: Vec<&str> = shallow.items().iter().map(|found| found.entry().path()).collect();
     /// assert_eq!(paths, ["src/main.rs", "src/net"], "src/net/tcp.rs is a level too deep");
     /// assert_eq!(shallow.items()[1].unlisted(), Some(1), "and the listing says one entry sits beneath src/net");
     /// assert_eq!(shallow.total(), 3);
     ///
-    /// let capped = index.list_dir("src", &ListOptions::default().limit(1))?;
+    /// let capped = index.list("src", &ListOptions::default().limit(1))?;
     /// assert_eq!(capped.len(), 1);
     /// assert!(capped.truncated(), "the directory holds more than the cap allowed");
     /// # Ok(())
     /// # }
     /// ```
-    pub fn list_dir(
-        &self,
-        dir: &str,
-        options: &ListOptions<'_>,
-    ) -> Result<Listing<'_>, ListDirError> {
+    pub fn list(&self, dir: &str, options: &ListOptions<'_>) -> Result<Listing<'_>, ListError> {
         let (start, end) = self.subtree_of(dir)?;
         let below_from = if dir.is_empty() { 0 } else { dir.len() + 1 };
         let cap = options.limit.map_or(usize::MAX, NonZeroUsize::get);
@@ -345,18 +341,18 @@ impl Index {
     /// that has left it.
     ///
     /// [`Index::entries`] is depth-first, so the subtree is contiguous and the end is one search away.
-    fn subtree_of(&self, dir: &str) -> Result<(usize, usize), ListDirError> {
+    fn subtree_of(&self, dir: &str) -> Result<(usize, usize), ListError> {
         if dir.is_empty() {
             return Ok((0, self.len()));
         }
 
-        let at = self.position(dir).ok_or_else(|| ListDirError::NotFound {
+        let at = self.position(dir).ok_or_else(|| ListError::NotFound {
             path: dir.to_owned(),
         })?;
         let kind = self.kind_at(at);
 
         if kind != EntryKind::Dir {
-            return Err(ListDirError::NotADirectory {
+            return Err(ListError::NotADirectory {
                 path: dir.to_owned(),
                 kind,
             });
