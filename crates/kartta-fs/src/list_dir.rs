@@ -153,7 +153,8 @@ impl<'a> Listing<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct Listed<'a> {
     inspected: Inspected<'a>,
-    unlisted: Option<usize>,
+    /// How many entries the directory's subtree holds, the directory included, when the listing stopped at it.
+    stopped_subtree: Option<NonZeroUsize>,
 }
 
 impl<'a> Listed<'a> {
@@ -183,7 +184,10 @@ impl<'a> Listed<'a> {
     /// [`Listing::truncated`] reports.
     #[must_use]
     pub const fn unlisted(&self) -> Option<usize> {
-        self.unlisted
+        match self.stopped_subtree {
+            Some(subtree) => Some(subtree.get() - 1),
+            None => None,
+        }
     }
 }
 
@@ -321,7 +325,11 @@ impl Index {
 
             items.push(Listed {
                 inspected: self.inspected_at(here),
-                unlisted: stops_here.then_some(at - here - 1),
+                stopped_subtree: if stops_here {
+                    NonZeroUsize::new(at - here)
+                } else {
+                    None
+                },
             });
         }
 
@@ -395,4 +403,18 @@ impl Index {
 /// level too deep to list.
 fn bottoms_out(below: &str, depth: NonZeroUsize) -> bool {
     below.matches('/').count() + 1 >= depth.get()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_listed_entry_stays_three_words() {
+        assert_eq!(
+            size_of::<Listed<'_>>(),
+            3 * size_of::<usize>(),
+            "a listing holds one of these per entry, so every word is paid per listed entry"
+        );
+    }
 }
