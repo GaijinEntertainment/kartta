@@ -16,8 +16,8 @@ workspace = true
 
 [dependencies]
 bstr = "1.13.1"
-gix-glob = "0.27.1"
-gix-ignore = "0.22.1"
+gix-glob = "0.29.0"
+gix-ignore = "0.24.0"
 # default-features = false drops `log`, which globset uses only to trace glob compilation.
 globset = { version = "0.4.20", default-features = false }
 kartta-fuzz = { version = "0.0.0", path = "../kartta-fuzz" }

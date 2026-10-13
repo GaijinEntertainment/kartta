@@ -1,5 +1,6 @@
 //! The `.gitignore` layers in force at one point in the tree.
 
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -45,19 +46,18 @@ impl Rules {
     ///
     /// No filesystem path is involved: the layer is anchored by a synthetic root-relative source path, which is what
     /// makes the patterns match the same root-relative paths the index stores.
-    pub(crate) fn push(&mut self, bytes: &[u8], dir: &str) {
+    ///
+    /// Fails when `gix-glob` cannot represent `dir` as git path bytes.
+    pub(crate) fn push(&mut self, bytes: &[u8], dir: &str) -> io::Result<()> {
         let source = if dir.is_empty() {
             PathBuf::from(GITIGNORE)
         } else {
             PathBuf::from(format!("{dir}/{GITIGNORE}"))
         };
 
-        self.layers.push(Arc::new(List::from_bytes(
-            bytes,
-            source,
-            Some(Path::new("")),
-            DIALECT,
-        )));
+        let layer = List::from_bytes(bytes, source, Some(Path::new("")), DIALECT)?;
+        self.layers.push(Arc::new(layer));
+        Ok(())
     }
 
     /// Whether `rel` is ignored, where `rel` is a forward-slash path relative to the index root.

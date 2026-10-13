@@ -225,9 +225,11 @@ impl Policy for Indexing {
 
         if let Some(name) = control_name(dir, GITIGNORE) {
             let path = dir.path().join(name);
-            match self.read_ignore_file(&path) {
-                Ok(bytes) => rules.push(&bytes, dir.rel()),
-                Err(source) => self.record(BuildError::Ignore { path, source }),
+            let pushed = self
+                .read_ignore_file(&path)
+                .and_then(|bytes| rules.push(&bytes, dir.rel()));
+            if let Err(source) = pushed {
+                self.record(BuildError::Ignore { path, source });
             }
         }
 
