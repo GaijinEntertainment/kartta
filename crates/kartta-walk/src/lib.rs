@@ -21,22 +21,24 @@
 //! The walk itself knows nothing about ignore files, hidden entries or name conventions. It reads directories, keeps
 //! the answers ordered, and stops when told to.
 //!
-//! # Paths are unix-form on every platform
+//! # Paths are forward-slash on every platform
 //!
-//! The tree this crate returns is an abstraction over the filesystem, not a view of one platform's spelling of it. Every
-//! path it reports — [`Entry::rel`], [`Dir::rel`], [`Node::name`] — is forward-slash separated on Windows exactly as on
-//! unix, so a consumer stores, compares, matches and serializes one path form and never branches on the host.
+//! The tree this crate returns is an abstraction over the filesystem, not a view of one platform's spelling of it.
+//! Every path it reports — [`Entry::path`], [`Dir::path`], [`Node::name`] — is forward-slash separated on Windows
+//! exactly as on unix, so a consumer stores, compares, matches and serializes one path form and never branches on the
+//! host.
 //!
 //! That holds by construction rather than by convention. The only string the walk takes from the OS is
 //! [`std::fs::DirEntry::file_name`], a single path component, which contains no separator on any platform; the only
 //! separator it ever writes is a literal `/`. No full path is ever stringified, so a native separator has no route into
 //! a reported path.
 //!
-//! Native paths stay on the I/O side of that line: [`Entry::path`] and [`Dir::path`] return an OS [`std::path::Path`],
-//! because opening a file needs the platform's own spelling. The rule is one form for identity, the other for access.
+//! Native paths stay on the I/O side of that line: [`Entry::native_path`] and [`Dir::native_path`] return an OS
+//! [`std::path::Path`], because opening a file needs the platform's own spelling. The rule is one form for identity,
+//! the other for access.
 //!
-//! Names are decoded lossily, so a filename that is not valid UTF-8 reports replacement characters in `rel` and `name`
-//! while [`Entry::path`] still opens it faithfully.
+//! Names are decoded lossily, so a filename that is not valid UTF-8 reports replacement characters in `path` and `name`
+//! while [`Entry::native_path`] still opens it faithfully.
 //!
 //! # Determinism
 //!
@@ -49,14 +51,15 @@
 //!
 //! # Symlinks are never followed
 //!
-//! A symlink reports [`EntryKind::Symlink`] and is never descended, even when it points at a directory. The walk stays inside the tree it was given, so symlink loops cannot occur and no cycle detection is
-//! needed. A policy that wants the target's type or size reads it itself.
+//! A symlink reports [`EntryKind::Symlink`] and is never descended, even when it points at a directory. The walk stays
+//! inside the tree it was given, so symlink loops cannot occur and no cycle detection is needed. A policy that wants
+//! the target's type or size reads it itself.
 //!
 //! # Controls
 //!
 //! [`WalkOptions::cancel`] is the only way to end a walk before it runs out of entries; the result is the partial tree
-//! with [`WalkOutcome::cancelled`] set, which is a truncated answer rather than an error. There is deliberately no cap on
-//! entries recorded — [`WalkOptions`] explains why.
+//! with [`WalkOutcome::cancelled`] set, which is a truncated answer rather than an error. There is deliberately no cap
+//! on entries recorded — [`WalkOptions`] explains why.
 //!
 //! [`WalkOptions::threads`] fixes how many threads walk the tree, for a caller that does not own the machine. Left
 //! `None`, the walk uses the ambient rayon pool.
@@ -64,9 +67,8 @@
 //! # Errors
 //!
 //! Two failures are fatal: a root that cannot be listed, and a thread pool that cannot be started. Everything deeper —
-//! a directory that cannot be read, an entry whose type cannot be resolved — is collected into
-//! [`WalkOutcome::errors`] and the walk continues, so one unreadable subdirectory costs its subtree rather than the whole
-//! answer.
+//! a directory that cannot be read, an entry whose type cannot be resolved — is collected into [`WalkOutcome::errors`]
+//! and the walk continues, so one unreadable subdirectory costs its subtree rather than the whole answer.
 //!
 //! # Scope
 //!

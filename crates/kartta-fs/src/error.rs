@@ -54,7 +54,7 @@ impl BuildError {
     #[must_use]
     pub fn path(&self) -> Option<&Path> {
         match self {
-            Self::Walk(source) => source.path(),
+            Self::Walk(source) => source.native_path(),
             Self::Ignore { path, .. } | Self::Name { path } => Some(path),
         }
     }
