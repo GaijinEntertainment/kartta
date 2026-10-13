@@ -1,5 +1,6 @@
 //! [`Index`] — the snapshot one walk produces, and everything queries answer from.
 
+use std::cmp::Ordering;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
@@ -57,8 +58,6 @@ pub struct Index {
     path_starts: Vec<usize>,
     kinds: Vec<EntryKind>,
     symlink_targets: Vec<(usize, Box<str>)>,
-    /// Positions ordered by path, so a lookup is a binary search and no path is stored twice.
-    by_path: Vec<usize>,
     /// What the walk did not read, filled by the queries that need it.
     inspection: Inspection,
     binary_extensions: BinaryExtensions,
@@ -113,20 +112,13 @@ impl Index {
             kinds.push(payload.kind);
         });
 
-        let paths = paths.into_boxed_str();
-        let mut by_path: Vec<usize> = (0..kinds.len()).collect();
-        by_path.sort_unstable_by(|&left, &right| {
-            path_in(&paths, &path_starts, left).cmp(path_in(&paths, &path_starts, right))
-        });
-
         Self {
             root,
             inspection: Inspection::new(kinds.len()),
-            paths,
+            paths: paths.into_boxed_str(),
             path_starts,
             kinds,
             symlink_targets,
-            by_path,
             binary_extensions,
         }
     }
@@ -202,13 +194,21 @@ impl Index {
     ///
     /// The position is what a query needs to reach an entry's neighbours: [`Index::entries`] is depth-first, so a
     /// directory's subtree is the run that starts immediately after it.
+    ///
+    /// Depth-first order with name-sorted siblings is itself sorted, by [`tree_order`], so the lookup is a binary
+    /// search over the entries as they lie.
     pub(crate) fn position(&self, path: &str) -> Option<usize> {
-        let found = self
-            .by_path
-            .binary_search_by(|&at| self.path_at(at).cmp(path))
-            .ok()?;
+        let (mut low, mut high) = (0, self.len());
 
-        self.by_path.get(found).copied()
+        while low < high {
+            let middle = low + (high - low) / 2;
+            match tree_order(self.path_at(middle), path) {
+                Ordering::Less => low = middle + 1,
+                Ordering::Greater => high = middle,
+                Ordering::Equal => return Some(middle),
+            }
+        }
+        None
     }
 
     /// The size in bytes of the regular file at this root-relative forward-slash path.
@@ -389,6 +389,85 @@ fn path_between(paths: &str, start: usize, end: usize) -> &str {
     // is a character boundary of `paths` and they rise in order; `start` and `end` are two consecutive ones, read
     // through a bounds-checked index or a zip of the starts with themselves, so `start..end` lies inside `paths`.
     unsafe { paths.get_unchecked(start..end) }
+}
+
+/// The order [`Index::entries`] lies in: paths compared component by component, so a directory's subtree follows it
+/// immediately — which is bytewise order with `/` ranked below every other byte.
+///
+/// The first differing byte decides, and it is found eight bytes at a time, because the paths being compared share long
+/// prefixes and comparing those a byte at a time made a lookup four times slower.
+fn tree_order(left: &str, right: &str) -> Ordering {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    let mut at = 0;
+
+    while let (Some(left_word), Some(right_word)) = (
+        left[at..].first_chunk::<8>(),
+        right[at..].first_chunk::<8>(),
+    ) {
+        let differ = u64::from_le_bytes(*left_word) ^ u64::from_le_bytes(*right_word);
+        if differ != 0 {
+            at += (differ.trailing_zeros() / 8) as usize;
+            break;
+        }
+        at += 8;
+    }
+
+    left[at..]
+        .iter()
+        .zip(&right[at..])
+        .find(|(l, r)| l != r)
+        .map_or_else(
+            || left.len().cmp(&right.len()),
+            |(&l, &r)| match (l, r) {
+                (b'/', _) => Ordering::Less,
+                (_, b'/') => Ordering::Greater,
+                _ => l.cmp(&r),
+            },
+        )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The order spelled out a byte at a time, which the word-wise comparison has to agree with.
+    fn tree_order_by_byte(left: &str, right: &str) -> Ordering {
+        let rank = |byte: u8| if byte == b'/' { 0 } else { u16::from(byte) + 1 };
+        left.bytes().map(rank).cmp(right.bytes().map(rank))
+    }
+
+    #[test]
+    fn tree_order_agrees_with_the_byte_by_byte_order_on_either_side_of_a_word() {
+        let paths = [
+            "",
+            "a",
+            "a/b",
+            "a b",
+            "a.txt",
+            "abcdefg",
+            "abcdefgh",
+            "abcdefgh/",
+            "abcdefgh.",
+            "abcdefgh/i",
+            "abcdefg/hi",
+            "abcdefg.hi",
+            "abcdefghijklmnop/q",
+            "abcdefghijklmnop.q",
+            "abcdefghijklmnopq",
+            "a\0b",
+            "abcdefghijklmnop\0q",
+        ];
+
+        for left in paths {
+            for right in paths {
+                assert_eq!(
+                    tree_order(left, right),
+                    tree_order_by_byte(left, right),
+                    "{left:?} against {right:?}"
+                );
+            }
+        }
+    }
 }
 
 /// Puts the report in an order two builds of one tree agree on.
