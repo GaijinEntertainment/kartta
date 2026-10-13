@@ -85,12 +85,12 @@ impl Index {
         order_report(&mut errors);
 
         Ok(BuildOutcome {
-            index: Self::from_tree(root.to_path_buf(), &tree),
+            index: Self::from_tree(root.to_path_buf(), &tree, config.binary_extensions.clone()),
             errors,
         })
     }
 
-    fn from_tree(root: PathBuf, tree: &Tree<Payload>) -> Self {
+    fn from_tree(root: PathBuf, tree: &Tree<Payload>, binary_extensions: BinaryExtensions) -> Self {
         let entries = flatten(tree);
 
         let mut by_path: Vec<usize> = (0..entries.len()).collect();
@@ -99,7 +99,7 @@ impl Index {
         Self {
             root,
             inspection: Inspection::new(entries.len()),
-            binary_extensions: BinaryExtensions::builtin(),
+            binary_extensions,
             entries,
             by_path,
         }
@@ -174,12 +174,12 @@ impl Index {
     /// `None` for a path nothing is indexed at, for every kind but a regular file, and for a file whose name settles
     /// nothing and which then would not open or would not read.
     ///
-    /// Two rules settle it, in order. An extension naming a format that is binary by construction answers `Some(true)`
-    /// with no file opened at all — which is most of the weight on a real tree, because those are the archives, media,
+    /// Two rules settle it, in order. An extension in [`Config::binary_extensions`] answers `Some(true)` with no file
+    /// opened at all — which is most of the weight on a real tree, because those are the archives, media,
     /// disk images and model weights. That answer is about the *name*, so it stands even for a file since deleted or
     /// replaced: opening one to confirm would spend on every such entry the very syscall the rule exists to save.
     ///
-    /// `svg` is the one listed name that is not binary by construction. It is XML, and it is listed because in
+    /// `svg` is the one built-in name that is not binary by construction. It is XML, and it is built in because in
     /// practice it holds machine-emitted path data whose lines are of no use to a reader — so an SVG reports binary
     /// here without ever being read.
     ///
@@ -189,7 +189,7 @@ impl Index {
     ///
     /// **A name that settles nothing reads the filesystem**, on the first ask for a given entry, and the answer is
     /// kept — see [`Index::size`] for what taking an answer at ask time rather than at walk time costs in coherence.
-    /// A name the list settles is never read at all, on the first ask or any later one.
+    /// A name the set settles is never read at all, on the first ask or any later one.
     #[must_use]
     pub fn is_binary(&self, path: &str) -> Option<bool> {
         let at = self.position(path)?;

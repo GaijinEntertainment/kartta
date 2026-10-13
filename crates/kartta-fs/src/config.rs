@@ -2,6 +2,8 @@
 
 use std::num::NonZeroUsize;
 
+use crate::binary::BinaryExtensions;
+
 /// Which of git's ignore sources a build honours.
 ///
 /// The variants form a ladder: each one adds a source to the one before it, so they compare in order and
@@ -42,7 +44,7 @@ pub enum IgnoreSources {
 /// What a build indexes and how it runs.
 ///
 /// Construct from [`Config::default`] and adjust the fields you need; the type is `#[non_exhaustive]`, so it gains
-/// fields without breaking callers, and it is [`Copy`], so passing one costs nothing.
+/// fields without breaking callers.
 ///
 /// # Examples
 ///
@@ -52,7 +54,7 @@ pub enum IgnoreSources {
 /// let mut config = Config::default();
 /// config.ignore = IgnoreSources::None;
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
 pub struct Config {
     /// Which ignore sources apply. Defaults to the reproducible [`IgnoreSources::InTree`].
@@ -62,4 +64,6 @@ pub struct Config {
     /// The result does not depend on this: entries are name-sorted within each directory whatever the thread count, so
     /// two builds of an unchanged tree produce identical indexes.
     pub threads: Option<NonZeroUsize>,
+    /// Which extensions settle a file as binary without it being read. Defaults to [`BinaryExtensions::builtin`].
+    pub binary_extensions: BinaryExtensions,
 }
