@@ -1058,6 +1058,75 @@ fn a_collapsed_directory_counts_once_toward_the_limit() {
 }
 
 #[test]
+fn an_excluded_entry_leaves_the_listing_with_its_subtree_and_is_counted() {
+    let dir = tree(&[
+        (".github/workflows/ci.yml", "c"),
+        (".hidden.txt", "h"),
+        ("src/.cache/blob", "b"),
+        ("src/main.rs", "m"),
+    ]);
+    let index = default_index(dir.path());
+    let dotfiles = collapsing(&["**/.*"]);
+
+    let listing = index
+        .list_dir("", &ListOptions::default().exclude(&dotfiles))
+        .expect("list the root");
+
+    assert_eq!(listed(&listing), ["src", "src/main.rs"]);
+    assert_eq!(
+        listing.excluded(),
+        6,
+        ".github with its two descendants, .hidden.txt, and src/.cache with its blob"
+    );
+}
+
+#[test]
+fn exclusion_wins_over_collapse_and_spares_the_listed_directory() {
+    let dir = tree(&[(".github/workflows/ci.yml", "c"), ("vendor/dep.rs", "d")]);
+    let index = default_index(dir.path());
+    let dotfiles = collapsing(&["**/.*"]);
+    let vendor = collapsing(&["vendor"]);
+
+    let listing = index
+        .list_dir(
+            "",
+            &ListOptions::default().exclude(&vendor).collapse(&vendor),
+        )
+        .expect("list the root");
+    assert_eq!(
+        listed(&listing),
+        [".github", ".github/workflows", ".github/workflows/ci.yml"]
+    );
+
+    let inside = index
+        .list_dir(".github", &ListOptions::default().exclude(&dotfiles))
+        .expect("list .github");
+    assert_eq!(
+        listed(&inside),
+        [".github/workflows", ".github/workflows/ci.yml"],
+        "naming an excluded directory by path still shows what is inside it"
+    );
+}
+
+#[test]
+fn an_excluded_entry_never_counts_toward_the_limit() {
+    let dir = tree(&[("a.txt", "a"), ("b.txt", "b"), ("z.tmp", "z")]);
+    let index = default_index(dir.path());
+    let scratch = collapsing(&["*.tmp"]);
+
+    let listing = index
+        .list_dir("", &ListOptions::default().exclude(&scratch).limit(2))
+        .expect("list the root");
+
+    assert_eq!(listed(&listing), ["a.txt", "b.txt"]);
+    assert!(
+        !listing.truncated(),
+        "z.tmp was excluded, so the limit turned nothing away"
+    );
+    assert_eq!(listing.excluded(), 1);
+}
+
+#[test]
 fn a_limit_cuts_the_listing_and_says_so() {
     let dir = tree(&[("a/one.txt", "1"), ("a/two.txt", "2"), ("a/three.txt", "3")]);
     let index = default_index(dir.path());

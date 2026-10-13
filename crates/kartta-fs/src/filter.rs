@@ -13,8 +13,9 @@ use globset::{Candidate, Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 /// accepts.
 ///
 /// A filter only ever selects, and what happens to the selection belongs to the query that takes it: a path query
-/// keeps what a filter selects, and a listing's [`collapse`](crate::ListOptions::collapse) stops at the directories one
-/// selects. What git's rules hide is [`IgnoreSources`](crate::IgnoreSources)'s business.
+/// keeps what a filter selects, a listing's [`collapse`](crate::ListOptions::collapse) stops at the directories one
+/// selects, and its [`exclude`](crate::ListOptions::exclude) leaves out what one selects. What git's rules hide is
+/// [`IgnoreSources`](crate::IgnoreSources)'s business.
 ///
 /// # The dialect
 ///
