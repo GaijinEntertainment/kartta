@@ -6,7 +6,7 @@ use std::num::NonZeroUsize;
 
 use crate::class::Classes;
 use crate::config::{Config, Scoring};
-use crate::score::{ALIGNED_MIN, Fold, MATCH_FLOOR, Scorer, Symbols, Term};
+use crate::score::{ALIGNED_MIN, CaseSensitivity, MATCH_FLOOR, Representation, Scorer, Term};
 
 /// One ranked candidate and the score it earned.
 ///
@@ -335,15 +335,21 @@ impl Matcher {
     ///
     /// Both the byte form of each term and the case decision are settled here, once, rather than per candidate.
     fn begin(&mut self, query: &str) {
-        let fold = Fold::resolve(self.config.case, query);
+        let sensitivity = CaseSensitivity::resolve(self.config.case, query);
 
         self.terms.clear();
-        self.terms
-            .extend(query.split_whitespace().map(|text| Term::new(text, fold)));
+        self.terms.extend(
+            query
+                .split_whitespace()
+                .map(|text| Term::new(text, sensitivity)),
+        );
 
         let longest = self.terms.iter().map(|term| term.chars.len()).max();
-        self.scorer
-            .begin(fold, Symbols::of(&self.terms), longest.unwrap_or(0));
+        self.scorer.begin(
+            sensitivity,
+            Representation::of(&self.terms),
+            longest.unwrap_or(0),
+        );
     }
 
     /// The summed score of every term against `candidate`, or `None` as soon as one term does not match.
