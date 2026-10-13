@@ -215,7 +215,10 @@ pub enum BinaryGroup {
     Unreal,
     /// FMOD and Wwise sound banks.
     AudioMiddleware,
-    /// Dagor Engine assets.
+    /// Dagor Engine geometry, compressed textures, game resource packs and animation data.
+    ///
+    /// `dag` also names the workflow files of the Condor job scheduler, which are text, so a tree that holds those and
+    /// no Dagor assets takes this group out.
     Dagor,
 }
 
@@ -333,7 +336,7 @@ const UNREAL: &[&str] = &["uasset", "umap", "ubulk", "upk"];
 
 const AUDIO_MIDDLEWARE: &[&str] = &["fsb", "fev", "bnk"];
 
-const DAGOR: &[&str] = &["dag", "dynmodel", "rendinst", "composit", "gameobj", "lod"];
+const DAGOR: &[&str] = &["dag", "ddsx", "grp", "a2d"];
 
 /// The extension of the last segment of `path`, or `None` when it has none.
 ///
