@@ -153,6 +153,36 @@ fn every_entry_is_found_by_its_path_when_names_sort_below_the_separator() {
 }
 
 #[test]
+fn paths_read_in_any_order_match_the_entries() {
+    // `é` and `ê` share their first byte, so a name of one following a name of the other shares a prefix that ends
+    // inside a character; enough of them span several restarts.
+    let names: Vec<String> = (0..150)
+        .map(|n| format!("d{}/{}{n}.txt", n % 3, ['é', 'ê'][n % 2]))
+        .collect();
+    let spec: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "")).collect();
+    let dir = tree(&spec);
+    let index = default_index(dir.path());
+    let entries = paths(&index);
+
+    // No name here holds a byte below `/`, so plain byte order is the index order.
+    let mut expected: Vec<String> = ["d0", "d1", "d2"].map(String::from).into();
+    expected.extend(names.iter().cloned());
+    expected.sort();
+    assert_eq!(entries, expected);
+
+    let mut reader = index.paths();
+    for at in (0..index.len()).rev().chain((0..index.len()).step_by(7)) {
+        assert_eq!(reader.get(at), entries[at], "position {at}");
+    }
+    for path in &entries {
+        assert_eq!(
+            index.entry(path).map(|entry| entry.path().to_owned()),
+            Some(path.clone())
+        );
+    }
+}
+
+#[test]
 fn a_root_level_entry_is_its_own_name() {
     let dir = tree(&[("top.txt", "x")]);
     let index = default_index(dir.path());
