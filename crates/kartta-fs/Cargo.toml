@@ -22,10 +22,10 @@ gix-ignore = "0.22.1"
 globset = { version = "0.4.20", default-features = false }
 kartta-fuzz = { version = "0.0.0", path = "../kartta-fuzz" }
 kartta-walk = { version = "0.0.0", path = "../kartta-walk" }
-thiserror = "2.0.20"
+thiserror = "2.0.21"
 
 [dev-dependencies]
 tempfile = "3.27.0"
 
 [target."cfg(unix)".dependencies]
-libc = "0.2.189"
+libc = "0.2.190"
