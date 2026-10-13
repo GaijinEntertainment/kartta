@@ -110,9 +110,13 @@ impl BinaryExtensions {
     /// `false` means the name settled nothing, never that the file is text.
     #[must_use]
     pub fn matches(&self, path: &str) -> bool {
-        let Some(extension) = extension(path) else {
-            return false;
-        };
+        self.position(path).is_some()
+    }
+
+    /// Where the extension the name at the end of `path` carries sits in [`BinaryExtensions::extensions`], or `None`
+    /// when the set does not hold it.
+    pub(crate) fn position(&self, path: &str) -> Option<usize> {
+        let extension = extension(path)?;
 
         self.extensions
             .binary_search_by(|known| {
@@ -120,7 +124,7 @@ impl BinaryExtensions {
                     .bytes()
                     .cmp(extension.bytes().map(|byte| byte.to_ascii_lowercase()))
             })
-            .is_ok()
+            .ok()
     }
 
     fn of_groups(groups: &[BinaryGroup]) -> Self {

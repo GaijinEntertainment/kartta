@@ -47,7 +47,9 @@ machine-emitted path data — so an SVG reports binary without being read.
 
 `Config::binary_extensions` sets which extensions decide. The default is every built-in group; a caller composes its
 own set from those groups and its own extensions by union and difference, so a project can add its asset formats, drop
-one built-in it disputes, or drop a whole group.
+one built-in it disputes, or drop a whole group. An extension no file carries is not an error, because most of the
+built-in set is absent from any one tree; `Index::binary_extension_counts` reports how many files each extension
+settled, so one that matched nothing — a misspelling in a caller's own set — is visible.
 
 ## Ignore rules
 
