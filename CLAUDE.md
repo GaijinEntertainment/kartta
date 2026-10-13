@@ -1,8 +1,8 @@
 # kartta
 
 A code graph engine built from public Rust crates: a filesystem walk, a repository file index, and a path scorer. Each
-crate is published to crates.io and must stay useful on its own. The workload is a whole home directory — about two
-million entries — so cost per entry is the design pressure on every surface.
+crate is published to crates.io and must stay useful on its own. The target is a tree of three million entries or more,
+so cost per entry is the design pressure on every surface.
 
 <performance>
 
@@ -12,8 +12,9 @@ million entries — so cost per entry is the design pressure on every surface.
 - The fastest code is code that is not executed.
 - Memory that is never allocated occupies the least.
 - The best change deletes code, because it shrinks what has to be supported later.
-- Measure magnitude on a large real tree such as `$HOME`. A small fixture hides costs that only appear at scale: a cost
-  that is 2% of a build on 66k entries can be half of it on 1.4M.
+- Measure magnitude on a real tree of three million entries or more — on macOS the data volume, `/System/Volumes/Data`;
+  a home directory is closer to two million. A small fixture hides costs that only appear at scale: a cost that is 2% of
+  a build on 66k entries can be half of it on 1.4M.
 - Profile before optimizing. CPU: `samply`, or macOS `sample` for a text call tree. Memory: `dhat` as the global
   allocator of a scratch harness outside the repository, and `/usr/bin/time -l` for peak footprint.
 - `cargo run --release --example probe -- <path> [query]` indexes a real tree and times the build and a path query.
