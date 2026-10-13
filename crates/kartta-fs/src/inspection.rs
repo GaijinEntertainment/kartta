@@ -5,7 +5,6 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
-use crate::binary::named_binary;
 use crate::open::{Symlinks, open_regular};
 
 /// A slot nothing has read yet.
@@ -28,7 +27,7 @@ const UNCLASSIFIED: u8 = 0;
 /// The file holds no NUL in its first [`PROBE`] bytes.
 const TEXT: u8 = 1;
 
-/// The file holds a NUL, or its name is on the binary extension list.
+/// The file's name is in the index's binary extension set, or the file holds a NUL in its first [`PROBE`] bytes.
 const BINARY: u8 = 2;
 
 /// The file would not open or would not read.
@@ -85,23 +84,23 @@ impl Inspection {
     }
 
     /// Whether the regular file at `path` is binary, settling it on the first ask and answering from the slot after
-    /// that.
+    /// that: by its name when `named` says the name settles it, by whether its first [`PROBE`] bytes hold a NUL
+    /// otherwise.
     ///
     /// `None` when the file would not open or would not read, which is remembered too.
     ///
-    /// The caller settles that the entry is a regular file, and passes the indexed path so the extension can decide
-    /// without any file being opened.
+    /// The caller settles that the entry is a regular file.
     pub(crate) fn is_binary(
         &self,
         at: usize,
-        indexed: &str,
+        named: impl FnOnce() -> bool,
         path: impl FnOnce() -> PathBuf,
     ) -> Option<bool> {
         let slot = self.classes.get(at)?;
 
         match slot.load(Ordering::Relaxed) {
             UNCLASSIFIED => {
-                let read = classify(indexed, path);
+                let read = if named() { BINARY } else { classify(&path()) };
 
                 decode_class(
                     slot.compare_exchange(UNCLASSIFIED, read, Ordering::Relaxed, Ordering::Relaxed)
@@ -130,20 +129,13 @@ const fn decode_class(class: u8) -> Option<bool> {
     }
 }
 
-/// Settles a file's class, by its name where the name is enough and by its first bytes otherwise.
-///
-/// `path` is a thunk because the name settles most files on a real tree, and building the native path for those would
-/// allocate for a read that never happens.
-fn classify(indexed: &str, path: impl FnOnce() -> PathBuf) -> u8 {
-    if named_binary(indexed) {
-        return BINARY;
+/// Settles a file's class by its first bytes.
+fn classify(path: &Path) -> u8 {
+    match holds_nul(path) {
+        Some(true) => BINARY,
+        Some(false) => TEXT,
+        None => UNOPENABLE,
     }
-
-    let Some(holds_nul) = holds_nul(&path()) else {
-        return UNOPENABLE;
-    };
-
-    if holds_nul { BINARY } else { TEXT }
 }
 
 /// Whether the first [`PROBE`] bytes of `path` hold a NUL, or `None` when the file would not be read.
