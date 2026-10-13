@@ -477,8 +477,8 @@ mod tests {
 /// is identical across builds is worth little beside a report that is not.
 fn order_report(errors: &mut [BuildError]) {
     errors.sort_by(|left, right| {
-        left.path()
-            .cmp(&right.path())
+        left.native_path()
+            .cmp(&right.native_path())
             .then_with(|| left.kind_order().cmp(&right.kind_order()))
     });
 }

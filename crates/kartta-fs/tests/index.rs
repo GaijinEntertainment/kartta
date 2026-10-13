@@ -337,7 +337,7 @@ fn an_unreadable_gitignore_is_reported_and_its_rules_do_not_apply() {
         .errors()
         .iter()
         .filter(|error| matches!(error, BuildError::Ignore { .. }))
-        .filter_map(BuildError::path)
+        .filter_map(BuildError::native_path)
         .collect();
 
     assert_eq!(reported, [dir.path().join(".gitignore").as_path()]);

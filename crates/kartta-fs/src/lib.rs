@@ -31,8 +31,8 @@
 //!
 //! - Paths are forward-slash and root-relative on every platform. Windows is a first-class target, so no path that
 //!   *identifies* an entry carries an OS-native separator. Two surfaces are native instead, because both point at a
-//!   place on disk rather than naming an index entry: [`Index::root`], which an entry's path is joined onto to open
-//!   it, and [`BuildError::path`], which tells an operator where to go and look. The rule is one form for identity,
+//!   place on disk rather than naming an index entry: [`Index::root`], which an entry's path is joined onto to open it,
+//!   and [`BuildError::native_path`], which tells an operator where to go and look. The rule is one form for identity,
 //!   the other for access. [`Entry::target`] is in neither form, because it names nothing this crate addresses: it is
 //!   the string a symlink holds, reproduced rather than interpreted.
 //! - An entry whose name is not valid UTF-8 is not indexed, and is reported through [`BuildError::Name`]. It has no
