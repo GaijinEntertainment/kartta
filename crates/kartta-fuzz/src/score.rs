@@ -710,7 +710,7 @@ mod tests {
             ("internal/telemetry/renderer/commandBuffer_12.hpp", "render"),
             (
                 "crates/engine/shader_cache/descriptor_set_7.cpp",
-                "shader set",
+                "shaderset",
             ),
             ("v2/state_machine.go", "v2"),
             ("x", "x"),
