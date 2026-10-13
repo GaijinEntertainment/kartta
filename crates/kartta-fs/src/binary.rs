@@ -195,7 +195,7 @@ pub enum BinaryGroup {
     Video,
     /// 3D scene and mesh formats.
     Geometry,
-    /// What a compiler or linker emits.
+    /// What a compiler, a linker or a packager emits.
     Artifacts,
     /// Compressed archives.
     Archives,
@@ -213,7 +213,7 @@ pub enum BinaryGroup {
     Shaders,
     /// Unreal Engine packages.
     Unreal,
-    /// FMOD and Wwise sound banks.
+    /// FMOD, Wwise, CRI and XACT sound banks and encoded audio.
     AudioMiddleware,
     /// Dagor Engine geometry, compressed textures, game resource packs and animation data.
     ///
@@ -294,27 +294,49 @@ fn parse(given: &str) -> Result<String, BinaryExtensionsError> {
 /// reader — the expensive mistake made knowingly, rather than a case the rule missed.
 const IMAGES: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "webp", "tiff", "tif", "psd", "dds", "tga",
-    "exr", "ktx", "ktx2", "astc", "pvr", "basis",
+    "exr", "ktx", "ktx2", "astc", "pvr", "basis", "avif", "heic", "heif", "jxl", "jp2", "icns",
+    "cur", "xcf", "kra", "dng", "cr2", "cr3", "nef", "arw",
 ];
 
-const AUDIO: &[&str] = &["wav", "mp3", "ogg", "flac", "aac", "wma", "m4a", "opus"];
+const AUDIO: &[&str] = &[
+    "wav", "mp3", "ogg", "flac", "aac", "wma", "m4a", "opus", "aif", "aiff", "caf", "mid", "midi",
+    "ape", "wv", "amr", "oga", "weba",
+];
 
-const VIDEO: &[&str] = &["mp4", "avi", "mkv", "mov", "wmv", "webm", "flv"];
+const VIDEO: &[&str] = &[
+    "mp4", "avi", "mkv", "mov", "wmv", "webm", "flv", "m4v", "mpg", "mpeg", "ogv", "3gp", "3g2",
+    "f4v", "vob", "rmvb", "asf", "m2ts", "bik", "bk2",
+];
 
-const GEOMETRY: &[&str] = &["glb", "blend", "3ds", "usdc", "usdz"];
+const GEOMETRY: &[&str] = &[
+    "glb", "blend", "3ds", "usdc", "usdz", "3dm", "max", "mb", "c4d", "skp", "vdb", "dwg",
+];
 
-/// What a compiler or linker emits.
+/// What a compiler, a linker or a packager emits.
 const ARTIFACTS: &[&str] = &[
-    "exe", "dll", "so", "dylib", "o", "a", "wasm", "class", "jar", "pyc", "pyo", "node",
+    "exe", "dll", "so", "dylib", "o", "a", "wasm", "class", "jar", "pyc", "pyo", "node", "rlib",
+    "rmeta", "pyd", "beam", "dex", "gch", "ilk", "idb", "apk", "aab", "ipa", "whl", "nupkg", "war",
+    "ear", "aar", "msi", "msix", "appx", "deb", "rpm", "appimage", "crx", "xpi",
 ];
 
-const ARCHIVES: &[&str] = &["zip", "tar", "gz", "bz2", "xz", "7z", "rar", "zst", "lz4"];
+const ARCHIVES: &[&str] = &[
+    "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "zst", "lz4", "bz", "tgz", "tbz", "tbz2", "txz",
+    "tlz", "lz", "lzma", "lzo", "z", "zipx", "cab", "arj", "lzh", "lha",
+];
 
-const FONTS: &[&str] = &["ttf", "otf", "woff", "woff2", "eot"];
+const FONTS: &[&str] = &[
+    "ttf", "otf", "woff", "woff2", "eot", "ttc", "otc", "pfb", "fon",
+];
 
-const DOCUMENTS: &[&str] = &["pdf", "docx", "xls", "xlsx", "ppt", "pptx", "mdb"];
+const DOCUMENTS: &[&str] = &[
+    "pdf", "docx", "xls", "xlsx", "ppt", "pptx", "mdb", "odt", "ods", "odp", "odg", "epub", "docm",
+    "dotx", "dotm", "xlsm", "xlsb", "xltx", "xltm", "pptm", "potx", "ppsx", "ppsm", "xps", "oxps",
+    "vsdx", "mobi", "djvu", "accdb", "kdbx", "dbf",
+];
 
-const DISK_IMAGES: &[&str] = &["img", "iso", "dmg", "vdi", "qcow2", "raw"];
+const DISK_IMAGES: &[&str] = &[
+    "img", "iso", "dmg", "vdi", "qcow2", "raw", "vhdx", "ova", "wim",
+];
 
 const MODEL_WEIGHTS: &[&str] = &[
     "safetensors",
@@ -326,15 +348,25 @@ const MODEL_WEIGHTS: &[&str] = &[
     "h5",
     "parquet",
     "arrow",
+    "tflite",
+    "keras",
+    "mlmodel",
+    "caffemodel",
+    "feather",
+    "avro",
+    "hdf5",
+    "ckpt",
 ];
 
-const GAME_ASSETS: &[&str] = &["bin", "pak", "bundle", "bank", "bsp", "nav", "vtf", "vpk"];
+const GAME_ASSETS: &[&str] = &[
+    "bin", "pak", "bundle", "bsp", "nav", "vtf", "vpk", "unity3d", "ress", "xnb", "wad", "pk3",
+];
 
-const SHADERS: &[&str] = &["spv", "cso", "dxbc", "metallib"];
+const SHADERS: &[&str] = &["spv", "cso", "dxbc", "metallib", "dxil"];
 
-const UNREAL: &[&str] = &["uasset", "umap", "ubulk", "upk"];
+const UNREAL: &[&str] = &["uasset", "umap", "ubulk", "upk", "uexp", "ucas", "utoc"];
 
-const AUDIO_MIDDLEWARE: &[&str] = &["fsb", "fev", "bnk"];
+const AUDIO_MIDDLEWARE: &[&str] = &["fsb", "fev", "bnk", "bank", "wem", "acb", "awb", "xwb"];
 
 const DAGOR: &[&str] = &["dag", "ddsx", "grp", "a2d"];
 
