@@ -55,7 +55,7 @@ use crate::rules::Rules;
 pub struct Index {
     root: PathBuf,
     paths: Box<str>,
-    path_starts: Vec<usize>,
+    path_offsets: Vec<usize>,
     kinds: Vec<EntryKind>,
     symlink_targets: Vec<(usize, Box<str>)>,
     /// What the walk did not read, filled by the queries that need it.
@@ -88,7 +88,7 @@ impl Index {
 
         let mut errors = policy.into_errors();
         errors.extend(walk_errors.into_iter().map(BuildError::Walk));
-        order_report(&mut errors);
+        order_errors(&mut errors);
 
         Ok(BuildOutcome {
             index: Self::from_tree(root.to_path_buf(), tree, options.binary_extensions.clone()),
@@ -97,12 +97,12 @@ impl Index {
     }
 
     fn from_tree(root: PathBuf, tree: Tree<Payload>, binary_extensions: BinaryExtensions) -> Self {
-        let mut bytes = 0;
-        depth_first(&tree, |_, path| bytes += path.len());
+        let mut paths_len = 0;
+        depth_first(&tree, |_, path| paths_len += path.len());
 
-        let mut paths = String::with_capacity(bytes);
-        let mut path_starts = Vec::with_capacity(tree.len() + 1);
-        path_starts.push(0);
+        let mut paths = String::with_capacity(paths_len);
+        let mut path_offsets = Vec::with_capacity(tree.len() + 1);
+        path_offsets.push(0);
         let mut kinds = Vec::with_capacity(tree.len());
         let mut symlink_targets = Vec::new();
 
@@ -111,7 +111,7 @@ impl Index {
                 symlink_targets.push((kinds.len(), target.clone()));
             }
             paths.push_str(path);
-            path_starts.push(paths.len());
+            path_offsets.push(paths.len());
             kinds.push(payload.kind);
         });
         drop(tree);
@@ -120,7 +120,7 @@ impl Index {
             root,
             inspection: Inspection::new(kinds.len()),
             paths: paths.into_boxed_str(),
-            path_starts,
+            path_offsets,
             kinds,
             symlink_targets,
             binary_extensions,
@@ -129,16 +129,16 @@ impl Index {
 
     /// The path of the entry at position `at`.
     pub(crate) fn path_at(&self, at: usize) -> &str {
-        path_in(&self.paths, &self.path_starts, at)
+        path_in(&self.paths, &self.path_offsets, at)
     }
 
     /// The kind and path of every entry in `positions`, in order, for a sweep that reads each one once.
-    pub(crate) fn kinded_paths(
+    pub(crate) fn kinds_and_paths(
         &self,
         positions: Range<usize>,
     ) -> impl DoubleEndedIterator<Item = (EntryKind, &str)> + ExactSizeIterator {
-        let starts = &self.path_starts[positions.start..=positions.end];
-        let bounds = starts.iter().zip(&starts[1..]);
+        let offsets = &self.path_offsets[positions.start..=positions.end];
+        let bounds = offsets.iter().zip(&offsets[1..]);
 
         self.kinds[positions]
             .iter()
@@ -147,12 +147,12 @@ impl Index {
     }
 
     /// The paths a query answers from: every entry in `positions` that is not a directory, narrowed by `filter`.
-    pub(crate) fn files(
+    pub(crate) fn candidates(
         &self,
         positions: Range<usize>,
         filter: Option<&Filter>,
     ) -> impl Iterator<Item = &str> {
-        self.kinded_paths(positions)
+        self.kinds_and_paths(positions)
             .filter(|&(kind, _)| kind != EntryKind::Dir)
             .map(|(_, path)| path)
             .filter(move |path| filter.is_none_or(|filter| filter.matches(path)))
@@ -389,21 +389,21 @@ impl<'a> Inspected<'a> {
     }
 }
 
-/// The path at position `at` of `paths`, the index's paths laid end to end, which begins at `starts[at]` and stops at
-/// `starts[at + 1]`.
-fn path_in<'a>(paths: &'a str, starts: &[usize], at: usize) -> &'a str {
-    path_between(paths, starts[at], starts[at + 1])
+/// The path at position `at` of `paths`, the index's paths laid end to end, which begins at `offsets[at]` and stops at
+/// `offsets[at + 1]`.
+fn path_in<'a>(paths: &'a str, offsets: &[usize], at: usize) -> &'a str {
+    path_between(paths, offsets[at], offsets[at + 1])
 }
 
-/// The path of `paths` between `start` and `end`, which must be two consecutive offsets of the index's path starts.
+/// The path of `paths` between `start` and `end`, which must be two consecutive offsets of the index's path offsets.
 ///
 /// Slicing a `str` by bytes checks that both ends sit on a character boundary, which reads the path's bytes. A sweep
 /// that only needs where each path lies would read every byte of the buffer for nothing, and a listing pays a third
 /// more for it.
 fn path_between(paths: &str, start: usize, end: usize) -> &str {
-    // SAFETY: every path start is `paths.len()` read right after a whole `&str` was appended to `paths`, so each one
+    // SAFETY: every path offset is `paths.len()` read right after a whole `&str` was appended to `paths`, so each one
     // is a character boundary of `paths` and they rise in order; `start` and `end` are two consecutive ones, read
-    // through a bounds-checked index or a zip of the starts with themselves, so `start..end` lies inside `paths`.
+    // through a bounds-checked index or a zip of the offsets with themselves, so `start..end` lies inside `paths`.
     unsafe { paths.get_unchecked(start..end) }
 }
 
@@ -490,11 +490,11 @@ mod tests {
 ///
 /// The walk collects failures as its threads reach them, so the order they arrive in is the scheduler's. An index that
 /// is identical across builds is worth little beside a report that is not.
-fn order_report(errors: &mut [BuildError]) {
+fn order_errors(errors: &mut [BuildError]) {
     errors.sort_by(|left, right| {
         left.native_path()
             .cmp(&right.native_path())
-            .then_with(|| left.kind_order().cmp(&right.kind_order()))
+            .then_with(|| left.variant_rank().cmp(&right.variant_rank()))
     });
 }
 
@@ -502,7 +502,7 @@ fn order_report(errors: &mut [BuildError]) {
 /// path buffer this directory's own path occupies.
 struct Frame<'a> {
     children: Children<'a, Payload>,
-    prefix: usize,
+    prefix_len: usize,
 }
 
 /// Visits the walk's tree in depth-first order, handing `visit` each node's payload and full path.
@@ -514,7 +514,7 @@ fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str)) {
     let mut path = String::new();
     let mut stack = vec![Frame {
         children: tree.children(),
-        prefix: 0,
+        prefix_len: 0,
     }];
 
     while let Some(frame) = stack.last_mut() {
@@ -522,10 +522,10 @@ fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str)) {
             stack.pop();
             continue;
         };
-        let prefix = frame.prefix;
+        let prefix_len = frame.prefix_len;
 
-        path.truncate(prefix);
-        if prefix != 0 {
+        path.truncate(prefix_len);
+        if prefix_len != 0 {
             path.push('/');
         }
         path.push_str(node.name());
@@ -534,7 +534,7 @@ fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str)) {
 
         stack.push(Frame {
             children: node.children(),
-            prefix: path.len(),
+            prefix_len: path.len(),
         });
     }
 }

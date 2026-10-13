@@ -82,11 +82,11 @@ impl Index {
     )]
     pub fn glob(&self, filter: &Filter, options: &GlobOptions) -> Capped<&str> {
         let Some(limit) = options.limit else {
-            return Capped::whole(self.files(0..self.len(), Some(filter)).collect());
+            return Capped::whole(self.candidates(0..self.len(), Some(filter)).collect());
         };
 
         let mut found: Vec<&str> = self
-            .files(0..self.len(), Some(filter))
+            .candidates(0..self.len(), Some(filter))
             .take(limit.get() + 1)
             .collect();
 

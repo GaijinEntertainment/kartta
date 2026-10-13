@@ -127,7 +127,7 @@ impl BuildError {
     }
 
     /// Orders one kind of failure against another, so a report built by racing threads still reads the same twice.
-    pub(crate) const fn kind_order(&self) -> u8 {
+    pub(crate) const fn variant_rank(&self) -> u8 {
         match self {
             Self::Walk(_) => 0,
             Self::Ignore { .. } => 1,

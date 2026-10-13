@@ -26,18 +26,18 @@ pub(crate) struct Payload {
 /// walk's own error list.
 #[derive(Debug)]
 pub(crate) struct Indexing {
-    sources: IgnoreSources,
+    ignore_sources: IgnoreSources,
     /// The tree's own location, resolved through symlinks, so a symlinked ignore file can be tested for leading back
     /// inside it.
-    root: PathBuf,
+    canonical_root: PathBuf,
     errors: Mutex<Vec<BuildError>>,
 }
 
 impl Indexing {
-    pub(crate) fn new(sources: IgnoreSources, root: &Path) -> Self {
+    pub(crate) fn new(ignore_sources: IgnoreSources, root: &Path) -> Self {
         Self {
-            sources,
-            root: fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()),
+            ignore_sources,
+            canonical_root: fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()),
             errors: Mutex::new(Vec::new()),
         }
     }
@@ -83,7 +83,7 @@ impl Indexing {
 
     /// Whether `native_path` resolves to a location inside the indexed tree.
     fn leads_into_tree(&self, native_path: &Path) -> io::Result<bool> {
-        Ok(fs::canonicalize(native_path)?.starts_with(&self.root))
+        Ok(fs::canonicalize(native_path)?.starts_with(&self.canonical_root))
     }
 
     /// Whether the entry's name survives the walk's lossy decoding intact.
@@ -95,7 +95,7 @@ impl Indexing {
     /// The scan is the cheap half. Only a name that already carries a replacement character pays for the syscall-free
     /// but allocating [`Entry::native_path`], which settles whether the character was in the name or put there by the
     /// decode.
-    fn is_representable(&self, entry: &Entry<'_>) -> bool {
+    fn admits_name(&self, entry: &Entry<'_>) -> bool {
         if !entry.name().contains(char::REPLACEMENT_CHARACTER) {
             return true;
         }
@@ -118,7 +118,7 @@ impl Indexing {
 ///
 /// A failure here is not recorded. An unresolvable target *is* what the tree holds rather than something the build
 /// failed to read — [`Entry::target`](crate::Entry::target) carries that rule.
-fn target(entry: &Entry<'_>, kind: EntryKind) -> Option<Box<str>> {
+fn read_target(entry: &Entry<'_>, kind: EntryKind) -> Option<Box<str>> {
     if kind != EntryKind::Symlink {
         return None;
     }
@@ -176,11 +176,11 @@ fn control_name<'a>(dir: &Dir<'a>, control: &'a str) -> Option<&'a str> {
 /// A `.git` marks another repository's root, where git's rules stop: the stack restarts there rather than extending its
 /// parent's, so the nested repository's own `.gitignore` files govern its contents and the outer ones do not. At the
 /// index root this is a no-op, since the stack starts empty there anyway.
-fn inherited_across_repository_boundary(dir: &Dir<'_>, parent: &Rules) -> Rules {
+fn inherited_across_repository_boundary(dir: &Dir<'_>, parent_state: &Rules) -> Rules {
     if control_name(dir, DOT_GIT).is_some() {
         Rules::default()
     } else {
-        parent.clone()
+        parent_state.clone()
     }
 }
 
@@ -189,7 +189,7 @@ impl Policy for Indexing {
     type Value = Payload;
 
     fn enter(&self, dir: &Dir<'_>, parent_state: &Rules) -> Rules {
-        if self.sources == IgnoreSources::None {
+        if self.ignore_sources == IgnoreSources::None {
             return Rules::default();
         }
 
@@ -218,7 +218,7 @@ impl Policy for Indexing {
 
         let kind = entry.kind();
 
-        if !self.is_representable(entry) {
+        if !self.admits_name(entry) {
             return Visit::Skip;
         }
 
@@ -228,7 +228,7 @@ impl Policy for Indexing {
 
         Visit::Keep(Payload {
             kind,
-            target: target(entry, kind),
+            target: read_target(entry, kind),
         })
     }
 }

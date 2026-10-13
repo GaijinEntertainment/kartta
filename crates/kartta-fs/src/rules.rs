@@ -60,25 +60,25 @@ impl Rules {
         Ok(())
     }
 
-    /// Whether `rel` is ignored, where `rel` is a forward-slash path relative to the index root.
+    /// Whether `path` is ignored, where `path` is a forward-slash path relative to the index root.
     ///
     /// The deepest layer with an opinion decides, and inside one layer the last matching pattern wins — git's two
     /// precedence rules, in that order. A negated pattern therefore re-includes a path a shallower layer excluded, but
     /// only for a path the walk still reaches: a directory that is ignored is never descended, so nothing inside it can
     /// be negated back in, which is git's rule rather than an approximation of it.
-    pub(crate) fn ignores(&self, rel: &str, is_dir: bool) -> bool {
+    pub(crate) fn ignores(&self, path: &str, is_dir: bool) -> bool {
         if self.layers.is_empty() {
             return false;
         }
 
-        let path = BStr::new(rel.as_bytes());
-        let basename_pos = rel.rfind('/').map(|at| at + 1);
+        let git_path = BStr::new(path.as_bytes());
+        let basename_start = path.rfind('/').map(|at| at + 1);
 
         self.layers
             .iter()
             .rev()
             .find_map(|layer| {
-                pattern_matching_relative_path(layer, path, basename_pos, Some(is_dir), CASE)
+                pattern_matching_relative_path(layer, git_path, basename_start, Some(is_dir), CASE)
             })
             .is_some_and(|matched| !matched.pattern.is_negative())
     }

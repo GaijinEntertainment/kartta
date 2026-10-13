@@ -77,22 +77,22 @@ impl Filter {
         I: IntoIterator<Item = P>,
         P: AsRef<str>,
     {
-        let mut sources: Vec<Box<str>> = Vec::new();
+        let mut given: Vec<Box<str>> = Vec::new();
         let mut globs = GlobSetBuilder::new();
 
         for pattern in patterns {
             let pattern = pattern.as_ref();
             globs.add(compile(pattern)?);
-            sources.push(pattern.into());
+            given.push(pattern.into());
         }
 
         let globs = globs.build().map_err(|source| FilterError::Oversized {
-            count: sources.len(),
+            count: given.len(),
             reason: source.kind().to_string(),
         })?;
 
         Ok(Self {
-            patterns: sources.into_boxed_slice(),
+            patterns: given.into_boxed_slice(),
             globs,
         })
     }
