@@ -1,6 +1,6 @@
 [package]
 name = "kartta"
-description = "Multi-language code graph engine: filesystem index, tree-sitter extraction, graph queries"
+description = "Multi-language code graph engine: repository file index, tree-sitter extraction, graph queries"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
