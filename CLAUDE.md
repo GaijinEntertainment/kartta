@@ -34,6 +34,9 @@ million entries — so cost per entry is the design pressure on every surface.
 
 <constraints>
 
+- Pin every version the build uses: the Rust toolchain, each GitHub Action by its full commit SHA with the tag in a
+  comment, and dependencies through the committed `Cargo.lock` under `--locked`. Never depend on `latest`, `stable` or
+  another moving tag.
 - Do not name or cite a predecessor implementation this code was ported from, in any file, commit message or ADR. State
   the behavior and its reason directly.
 - Before reporting work that touches a hot path as done, compare its time and peak memory against `main` on the same
