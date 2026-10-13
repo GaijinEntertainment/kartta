@@ -18,6 +18,11 @@ updates:
       # not resolve at all, so bumps are manual and move every declaring crate in one commit.
       - dependency-name: tree-sitter
 
+  - package-ecosystem: rust-toolchain
+    directory: /
+    schedule:
+      interval: weekly
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
