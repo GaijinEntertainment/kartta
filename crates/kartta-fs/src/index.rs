@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use kartta_walk::{Children, EntryKind, Tree, WalkOptions, walk};
 
 use crate::binary::BinaryExtensions;
-use crate::config::Config;
+use crate::config::BuildOptions;
 use crate::entry::Entry;
 use crate::error::BuildError;
 use crate::inspection::Inspection;
@@ -34,7 +34,7 @@ use crate::rules::Rules;
 /// # Examples
 ///
 /// ```
-/// use kartta_fs::{Config, Index};
+/// use kartta_fs::{BuildOptions, Index};
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let dir = tempfile::tempdir()?;
@@ -42,7 +42,7 @@ use crate::rules::Rules;
 /// std::fs::write(dir.path().join(".gitignore"), "ignored.txt\n")?;
 /// std::fs::write(dir.path().join("ignored.txt"), "x")?;
 ///
-/// let outcome = Index::build(dir.path(), &Config::default())?;
+/// let outcome = Index::build(dir.path(), &BuildOptions::default())?;
 /// assert!(outcome.errors().is_empty(), "a complete answer");
 ///
 /// let index = outcome.into_index();
@@ -69,26 +69,29 @@ impl Index {
     /// # Errors
     ///
     /// Returns [`BuildError::Walk`] if `root` itself cannot be listed, or if the thread count
-    /// [`Config::threads`] asks for cannot be started. Every deeper failure is collected into
+    /// [`BuildOptions::threads`] asks for cannot be started. Every deeper failure is collected into
     /// [`BuildOutcome::errors`] instead, leaving a partial index — check it before trusting the answer, because a
     /// partial index looks exactly like a complete one.
-    pub fn build(root: impl AsRef<Path>, config: &Config) -> Result<BuildOutcome, BuildError> {
+    pub fn build(
+        root: impl AsRef<Path>,
+        options: &BuildOptions,
+    ) -> Result<BuildOutcome, BuildError> {
         let root = root.as_ref();
-        let policy = Indexing::new(config.ignore, root);
-        let options = WalkOptions {
-            threads: config.threads,
+        let policy = Indexing::new(options.ignore_sources, root);
+        let walk_options = WalkOptions {
+            threads: options.threads,
             ..WalkOptions::default()
         };
 
         let (tree, walk_errors, _cancelled) =
-            walk(root, &policy, &Rules::default(), &options)?.into_parts();
+            walk(root, &policy, &Rules::default(), &walk_options)?.into_parts();
 
         let mut errors = policy.into_errors();
         errors.extend(walk_errors.into_iter().map(BuildError::Walk));
         order_report(&mut errors);
 
         Ok(BuildOutcome {
-            index: Self::from_tree(root.to_path_buf(), tree, config.binary_extensions.clone()),
+            index: Self::from_tree(root.to_path_buf(), tree, options.binary_extensions.clone()),
             errors,
         })
     }
@@ -243,9 +246,9 @@ impl Index {
     /// `None` for a path nothing is indexed at, for every kind but a regular file, and for a file whose name settles
     /// nothing and which then would not open or would not read.
     ///
-    /// Two rules settle it, in order. An extension in [`Config::binary_extensions`] answers `Some(true)` with no file
-    /// opened at all — which is most of the weight on a real tree, because those are the archives, media,
-    /// disk images and model weights. That answer is about the *name*, so it stands even for a file since deleted or
+    /// Two rules settle it, in order. An extension in [`BuildOptions::binary_extensions`] answers `Some(true)` with no
+    /// file opened at all — which is most of the weight on a real tree, because those are the archives, media, disk
+    /// images and model weights. That answer is about the *name*, so it stands even for a file since deleted or
     /// replaced: opening one to confirm would spend on every such entry the very syscall the rule exists to save.
     ///
     /// `svg` is the one built-in name that is not binary by construction. It is XML, and it is built in because in
@@ -278,7 +281,7 @@ impl Index {
         )
     }
 
-    /// How many indexed regular files carry each extension of [`Config::binary_extensions`], in the order
+    /// How many indexed regular files carry each extension of [`BuildOptions::binary_extensions`], in the order
     /// [`BinaryExtensions::extensions`] yields them.
     ///
     /// Only names are read, never a file. A count of zero is an extension no file in this tree carries — true of most

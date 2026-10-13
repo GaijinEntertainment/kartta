@@ -63,7 +63,7 @@ impl Index {
     /// # Examples
     ///
     /// ```
-    /// use kartta_fs::{Config, Filter, Index};
+    /// use kartta_fs::{BuildOptions, Filter, Index};
     /// # use std::num::NonZeroUsize;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -73,7 +73,7 @@ impl Index {
     /// std::fs::write(dir.path().join("Cargo.toml"), "")?;
     /// std::fs::write(dir.path().join("README.md"), "")?;
     ///
-    /// let index = Index::build(dir.path(), &Config::default())?.into_index();
+    /// let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
     ///
     /// let filter = Filter::new(["*.{rs,toml}"])?;
     /// let found = index.glob_paths(&filter, None);
@@ -138,7 +138,7 @@ impl Index {
     /// # Examples
     ///
     /// ```
-    /// use kartta_fs::{Config, Filter, Index};
+    /// use kartta_fs::{BuildOptions, Filter, Index};
     /// # use std::num::NonZeroUsize;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -148,7 +148,7 @@ impl Index {
     /// std::fs::write(dir.path().join("src/main.rs"), "")?;
     /// std::fs::write(dir.path().join("main/lib.rs"), "")?;
     ///
-    /// let index = Index::build(dir.path(), &Config::default())?.into_index();
+    /// let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
     ///
     /// let ranked = index.fuzzy_paths("main", None, None);
     /// let paths: Vec<&str> = ranked.iter().map(|found| found.path).collect();

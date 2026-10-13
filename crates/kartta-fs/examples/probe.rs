@@ -22,7 +22,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use kartta_fs::{Config, EntryKind, Index};
+use kartta_fs::{BuildOptions, EntryKind, Index};
 
 /// How many ranked paths to print.
 const SHOWN: usize = 10;
@@ -36,7 +36,7 @@ fn main() {
     let query = args.next().map(|arg| arg.to_string_lossy().into_owned());
 
     let started = Instant::now();
-    let outcome = Index::build(&root, &Config::default()).expect("build the index");
+    let outcome = Index::build(&root, &BuildOptions::default()).expect("build the index");
     let elapsed = started.elapsed();
 
     report_errors(&outcome);

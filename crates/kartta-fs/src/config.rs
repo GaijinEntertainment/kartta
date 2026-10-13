@@ -1,4 +1,4 @@
-//! [`Config`] — what a build indexes, and which rules decide it.
+//! [`BuildOptions`] — what a build indexes, and which rules decide it.
 
 use std::num::NonZeroUsize;
 
@@ -43,22 +43,22 @@ pub enum IgnoreSources {
 
 /// What a build indexes and how it runs.
 ///
-/// Construct from [`Config::default`] and adjust the fields you need; the type is `#[non_exhaustive]`, so it gains
-/// fields without breaking callers.
+/// Construct from [`BuildOptions::default`] and adjust the fields you need; the type is `#[non_exhaustive]`, so it
+/// gains fields without breaking callers.
 ///
 /// # Examples
 ///
 /// ```
-/// use kartta_fs::{Config, IgnoreSources};
+/// use kartta_fs::{BuildOptions, IgnoreSources};
 ///
-/// let mut config = Config::default();
-/// config.ignore = IgnoreSources::None;
+/// let mut options = BuildOptions::default();
+/// options.ignore_sources = IgnoreSources::None;
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
-pub struct Config {
+pub struct BuildOptions {
     /// Which ignore sources apply. Defaults to the reproducible [`IgnoreSources::InTree`].
-    pub ignore: IgnoreSources,
+    pub ignore_sources: IgnoreSources,
     /// How many threads walk the tree. `None` uses the ambient rayon pool.
     ///
     /// The result does not depend on this: entries are name-sorted within each directory whatever the thread count, so
