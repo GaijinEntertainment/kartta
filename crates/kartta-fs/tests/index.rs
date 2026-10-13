@@ -105,6 +105,37 @@ fn paths_are_forward_slash_separated_and_root_relative() {
 }
 
 #[test]
+fn every_entry_is_found_by_its_path_when_names_sort_below_the_separator() {
+    let dir = tree(&[
+        ("a/b/c.txt", ""),
+        ("a b", ""),
+        ("a!", ""),
+        ("a-c/d.txt", ""),
+        ("a.txt", ""),
+        ("ab", ""),
+        ("a-long-shared-prefix/x", ""),
+        ("a-long-shared-prefix.x", ""),
+        ("a-long-shared-prefix x", ""),
+    ]);
+    let index = default_index(dir.path());
+
+    for entry in index.entries() {
+        assert_eq!(index.entry(entry.path()), Some(entry), "{}", entry.path());
+    }
+    for absent in [
+        "a/x",
+        "a.t",
+        "a/b/c",
+        "a-long-shared-prefix/",
+        "b",
+        "a\0b",
+        "a-c\0d.txt",
+    ] {
+        assert_eq!(index.entry(absent), None, "{absent}");
+    }
+}
+
+#[test]
 fn a_root_level_entry_is_its_own_name() {
     let dir = tree(&[("top.txt", "x")]);
     let index = default_index(dir.path());
