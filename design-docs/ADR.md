@@ -12,6 +12,8 @@
   it](./adr/1.5-announce-a-cap-unless-the-order-explains-it.md) — initiative `01-kartta-fs-port`, 2026-08-24
 - [1.6 Read a file's own facts on demand](./adr/1.6-read-a-file-s-own-facts-on-demand.md) — initiative
   `01-kartta-fs-port`, 2026-08-24
+- [1.7 Let a caller compose the binary extension set](./adr/1.7-let-a-caller-compose-the-binary-extension-set.md) —
+  initiative `01-kartta-fs-port`, 2026-10-13
 
 ## Deprecated
 
