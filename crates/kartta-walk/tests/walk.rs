@@ -13,7 +13,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use kartta_walk::{
-    CancelToken, Dir, Entry, EntryKind, Node, NodeId, Policy, Tree, Visit, WalkOptions, walk,
+    CancelToken, Children, Dir, Entry, EntryKind, Node, Policy, Tree, Visit, WalkOptions, walk,
 };
 use tempfile::TempDir;
 
@@ -59,14 +59,8 @@ impl Policy for Everything {
 /// Rebuilding the paths from names is also the access pattern a consumer uses, so this doubles as a check that the
 /// public API carries enough to reconstruct them.
 fn render<N: std::fmt::Debug>(tree: &Tree<N>) -> Vec<String> {
-    fn descend<N: std::fmt::Debug>(
-        tree: &Tree<N>,
-        ids: &[NodeId],
-        prefix: &str,
-        out: &mut Vec<String>,
-    ) {
-        for &id in ids {
-            let node = tree.node(id);
+    fn descend<N: std::fmt::Debug>(nodes: Children<'_, N>, prefix: &str, out: &mut Vec<String>) {
+        for node in nodes {
             let path = if prefix.is_empty() {
                 node.name().to_owned()
             } else {
@@ -74,12 +68,12 @@ fn render<N: std::fmt::Debug>(tree: &Tree<N>) -> Vec<String> {
             };
 
             out.push(format!("{path} {:?}", node.value()));
-            descend(tree, node.children(), &path, out);
+            descend(node.children(), &path, out);
         }
     }
 
     let mut out = Vec::new();
-    descend(tree, tree.roots(), "", &mut out);
+    descend(tree.roots(), "", &mut out);
 
     out
 }
@@ -123,10 +117,34 @@ fn nodes_are_stored_in_the_order_a_descent_reports_them() {
 
     // `nodes()` promises depth-first order — a directory immediately followed by its subtree — so the flat slice and a
     // recursive descent must agree name for name.
-    let flat: Vec<&str> = tree.tree().nodes().iter().map(Node::name).collect();
+    let flat: Vec<&str> = tree.tree().nodes().map(Node::name).collect();
     assert_eq!(
         flat,
         ["a.txt", "dir", "b.txt", "nested", "c.txt", "empty", "z.txt"]
+    );
+}
+
+#[test]
+fn an_id_resolves_to_its_node_in_its_own_tree_only() {
+    let dir = fixture();
+    let whole = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
+    let pruned = walk(dir.path(), &Prune("dir"), &(), &WalkOptions::default()).expect("walk");
+
+    for (index, node) in whole.tree().nodes().enumerate() {
+        assert_eq!(node.id().index(), index, "ids are dense in node order");
+        assert_eq!(whole.tree().node(node.id()).name(), node.name());
+    }
+
+    let last = whole
+        .tree()
+        .nodes()
+        .last()
+        .expect("the fixture is not empty");
+    assert!(
+        pruned.tree().get(last.id()).is_none(),
+        "{:?} lies past the end of a tree of {} nodes",
+        last.id(),
+        pruned.tree().len()
     );
 }
 
@@ -153,13 +171,11 @@ fn an_empty_directory_is_a_node_without_children() {
     let empty = tree
         .tree()
         .roots()
-        .iter()
-        .map(|&id| tree.tree().node(id))
         .find(|node| node.name() == "empty")
         .expect("empty is listed");
 
     assert_eq!(*empty.value(), EntryKind::Dir);
-    assert_eq!(empty.children(), []);
+    assert_eq!(empty.children().count(), 0);
     assert!(
         tree.errors().is_empty(),
         "an empty directory is not a failure"
@@ -172,12 +188,7 @@ fn the_walk_root_is_not_itself_a_node() {
 
     let tree = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
 
-    let roots: Vec<&str> = tree
-        .tree()
-        .roots()
-        .iter()
-        .map(|&id| tree.tree().node(id).name())
-        .collect();
+    let roots: Vec<&str> = tree.tree().roots().map(Node::name).collect();
     assert_eq!(roots, ["a.txt", "dir", "empty", "z.txt"]);
 }
 
@@ -322,7 +333,6 @@ fn enter_sees_the_whole_listing_before_any_entry_is_classified() {
     let root_state = tree
         .tree()
         .nodes()
-        .iter()
         .find(|n| n.name() == "plain")
         .expect("plain");
     assert_eq!(root_state.value(), "marker=false count=2");
@@ -330,7 +340,6 @@ fn enter_sees_the_whole_listing_before_any_entry_is_classified() {
     let sub_state = tree
         .tree()
         .nodes()
-        .iter()
         .find(|n| n.name() == ".marker")
         .expect(".marker");
     assert_eq!(
@@ -363,7 +372,6 @@ fn relative_paths_are_unix_form_on_every_platform() {
     let deepest = tree
         .tree()
         .nodes()
-        .iter()
         .find(|node| node.name() == "c.txt")
         .expect("c.txt is recorded");
     assert_eq!(deepest.value(), "dir/nested/c.txt");
@@ -396,7 +404,6 @@ fn relative_paths_are_unix_form_on_every_platform() {
     let reported: Vec<String> = tree
         .tree()
         .nodes()
-        .iter()
         .map(|node| node.value().clone())
         .collect();
     let mut sorted_reported = reported;
@@ -428,7 +435,7 @@ fn native_paths_stay_on_the_io_side() {
     let tree = walk(dir.path(), &Native, &(), &WalkOptions::default()).expect("walk");
 
     assert!(
-        tree.tree().nodes().iter().all(|node| *node.value()),
+        tree.tree().nodes().all(|node| *node.value()),
         "every reported entry is reachable through its native path"
     );
 }
@@ -569,8 +576,7 @@ fn threads_bounds_how_many_workers_traverse() {
 
         let tree = walk(dir.path(), &Threads, &(), &opts).expect("walk");
 
-        let distinct: std::collections::HashSet<_> =
-            tree.tree().nodes().iter().map(Node::value).collect();
+        let distinct: std::collections::HashSet<_> = tree.tree().nodes().map(Node::value).collect();
         assert!(
             distinct.len() <= limit,
             "threads = {limit} admitted {} workers",
@@ -636,14 +642,13 @@ mod unix {
         let node = tree
             .tree()
             .nodes()
-            .iter()
             .find(|node| node.name() == "pipe")
             .expect("the fifo is recorded");
 
         // The reason `EntryKind` exists: a fifo answers false to is_dir, is_file *and* is_symlink, so "neither a
         // directory nor a file" would have mislabelled it a link.
         assert_eq!(*node.value(), EntryKind::Other);
-        assert_eq!(node.children(), []);
+        assert_eq!(node.children().count(), 0);
     }
 
     #[test]
@@ -662,7 +667,6 @@ mod unix {
             let node = tree
                 .tree()
                 .nodes()
-                .iter()
                 .find(|node| node.name() == name)
                 .unwrap_or_else(|| panic!("{name} is recorded"));
 
@@ -671,7 +675,7 @@ mod unix {
                 EntryKind::Symlink,
                 "{name} reports as a link, not as its target"
             );
-            assert!(node.children().is_empty(), "{name} was not descended");
+            assert_eq!(node.children().count(), 0, "{name} was not descended");
         }
     }
 
@@ -696,7 +700,7 @@ mod unix {
         assert_eq!(tree.errors().len(), 1);
         assert_eq!(tree.errors()[0].path(), Some(locked.as_path()));
 
-        let names: Vec<&str> = tree.tree().nodes().iter().map(Node::name).collect();
+        let names: Vec<&str> = tree.tree().nodes().map(Node::name).collect();
         assert!(
             names.contains(&"locked"),
             "the directory itself is still listed"

@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use kartta_walk::{EntryKind, NodeId, Tree, WalkOptions, walk};
+use kartta_walk::{Children, EntryKind, Tree, WalkOptions, walk};
 
 use crate::binary::BinaryExtensions;
 use crate::config::Config;
@@ -485,8 +485,7 @@ fn order_report(errors: &mut [BuildError]) {
 /// One directory being expanded during the depth-first pass: the children left to visit, and how much of the shared
 /// path buffer this directory's own path occupies.
 struct Frame<'a> {
-    children: &'a [NodeId],
-    next: usize,
+    children: Children<'a, Payload>,
     prefix: usize,
 }
 
@@ -499,19 +498,16 @@ fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str)) {
     let mut path = String::new();
     let mut stack = vec![Frame {
         children: tree.roots(),
-        next: 0,
         prefix: 0,
     }];
 
     while let Some(frame) = stack.last_mut() {
-        let Some(&id) = frame.children.get(frame.next) else {
+        let Some(node) = frame.children.next() else {
             stack.pop();
             continue;
         };
-        frame.next += 1;
         let prefix = frame.prefix;
 
-        let node = tree.node(id);
         path.truncate(prefix);
         if prefix != 0 {
             path.push('/');
@@ -520,13 +516,10 @@ fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str)) {
 
         visit(node.value(), &path);
 
-        if !node.children().is_empty() {
-            stack.push(Frame {
-                children: node.children(),
-                next: 0,
-                prefix: path.len(),
-            });
-        }
+        stack.push(Frame {
+            children: node.children(),
+            prefix: path.len(),
+        });
     }
 }
 

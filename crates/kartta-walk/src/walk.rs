@@ -14,7 +14,7 @@ use rayon::prelude::*;
 use crate::cancel::CancelToken;
 use crate::error::WalkError;
 use crate::policy::{Dir, Entry, EntryKind, Listing, Policy, Visit};
-use crate::tree::{Node, NodeId, Tree};
+use crate::tree::{Slot, Tree};
 
 /// Settings for one walk. Both default to `None`; construct with functional-update syntax
 /// (`WalkOptions { threads, ..Default::default() }`) — further fields may be added over time.
@@ -84,7 +84,7 @@ pub struct WalkOptions {
 ///
 /// let tree = outcome.into_tree();
 /// assert_eq!(tree.len(), 1, "the dotfile was skipped");
-/// let only = tree.node(tree.roots()[0]);
+/// let only = tree.roots().next().ok_or("the tree has one root")?;
 /// assert_eq!(only.name(), "visible.txt");
 /// assert_eq!(*only.value(), Some(5));
 /// # Ok(())
@@ -115,18 +115,21 @@ pub fn walk<P: Policy>(
         None => ctx.visit(&level, listed),
     };
 
-    let counted = built.nodes;
-    let mut nodes = Vec::with_capacity(counted);
+    let counted = (built.nodes, built.name_bytes);
+    let mut tree = Tree {
+        names: String::with_capacity(built.name_bytes),
+        slots: Vec::with_capacity(built.nodes),
+    };
     let mut errors = Vec::new();
-    let roots = flatten(built, &mut nodes, &mut errors);
+    flatten(built, &mut tree, &mut errors);
     debug_assert_eq!(
-        nodes.len(),
+        (tree.slots.len(), tree.names.len()),
         counted,
-        "the walk counted every recorded entry"
+        "the walk counted every recorded entry and name byte"
     );
 
     Ok(WalkOutcome {
-        tree: Tree { nodes, roots },
+        tree,
         errors,
         cancelled: ctx.cancelled(),
     })
@@ -237,7 +240,10 @@ impl<P: Policy> Ctx<'_, P> {
             })
             .collect();
 
-        built.nodes += subtrees.iter().map(|(_, sub)| sub.nodes).sum::<usize>();
+        for (_, sub) in &subtrees {
+            built.nodes += sub.nodes;
+            built.name_bytes += sub.name_bytes;
+        }
         built.subtrees = subtrees;
 
         built
@@ -256,6 +262,7 @@ impl<P: Policy> Ctx<'_, P> {
             subtrees: Vec::new(),
             errors,
             nodes: 0,
+            name_bytes: 0,
         };
         let mut descend: Vec<Descent> = Vec::new();
 
@@ -303,6 +310,7 @@ impl<P: Policy> Ctx<'_, P> {
                 });
             }
 
+            built.name_bytes += item.name.len();
             built.entries.push(Recorded {
                 name: item.name.clone(),
                 value,
@@ -336,6 +344,7 @@ impl<P: Policy> Ctx<'_, P> {
                     source,
                 }],
                 nodes: 0,
+                name_bytes: 0,
             },
         }
     }
@@ -358,6 +367,8 @@ struct Built<N> {
     /// How many entries this directory's whole subtree records, its own included, so the arena is allocated once at
     /// its final size.
     nodes: usize,
+    /// How many bytes the names of those entries take, so the name buffer is allocated exactly too.
+    name_bytes: usize,
 }
 
 /// One kept entry.
@@ -413,51 +424,45 @@ fn list_dir(dir: &Path) -> io::Result<Listed> {
     Ok(Listed { entries, errors })
 }
 
-/// Assigns arena ids depth-first — a directory immediately precedes its subtree — and merges the collected errors in
+/// Lays the arena out depth-first — a directory immediately precedes its subtree — and merges the collected errors in
 /// that same order.
 ///
 /// shortcut: serial, so it bounds how much the parallel traversal can win. Parallelize it — precompute each subtree's
 /// node count to reserve id ranges, then fill them independently — if it shows up as the bottleneck on a large tree.
-fn flatten<N>(
-    built: Built<N>,
-    nodes: &mut Vec<Node<N>>,
-    errors: &mut Vec<WalkError>,
-) -> Vec<NodeId> {
+fn flatten<N>(built: Built<N>, tree: &mut Tree<N>, errors: &mut Vec<WalkError>) {
     let Built {
         entries,
         subtrees,
         errors: mut here,
         nodes: _,
+        name_bytes: _,
     } = built;
     errors.append(&mut here);
 
     let mut subtrees = subtrees.into_iter().peekable();
-    let mut ids = Vec::with_capacity(entries.len());
 
     for (index, Recorded { name, value }) in entries.into_iter().enumerate() {
-        let id = NodeId(node_id(nodes.len()));
-        nodes.push(Node {
-            name,
+        let sub = subtrees.next_if(|&(at, _)| at == index).map(|(_, sub)| sub);
+        let descendants = sub.as_ref().map_or(0, |sub| sub.nodes);
+        tree.slots.push(Slot {
+            name_start: arena_offset(tree.names.len()),
+            subtree_end: arena_offset(tree.slots.len() + 1 + descendants),
             value,
-            children: Vec::new(),
         });
-        ids.push(id);
+        tree.names.push_str(&name);
 
-        if let Some((_, sub)) = subtrees.next_if(|&(at, _)| at == index) {
-            let children = flatten(sub, nodes, errors);
-            nodes[id.index()].children = children;
+        if let Some(sub) = sub {
+            flatten(sub, tree, errors);
         }
     }
-
-    ids
 }
 
-/// Narrows an arena length to a node id.
+/// Narrows a node id or a name offset to the width the arena stores.
 #[expect(
     clippy::expect_used,
-    reason = "one node per recorded entry, so this needs a tree of over u32::MAX entries — a load this crate is not \
-              designed to hold in one arena regardless of id width"
+    reason = "this needs a tree of over u32::MAX entries or name bytes — a load this crate is not designed to hold in \
+              one arena regardless of offset width"
 )]
-fn node_id(len: usize) -> u32 {
-    u32::try_from(len).expect("a walk records fewer than u32::MAX entries")
+fn arena_offset(len: usize) -> u32 {
+    u32::try_from(len).expect("a walk records fewer than u32::MAX entries and name bytes")
 }
