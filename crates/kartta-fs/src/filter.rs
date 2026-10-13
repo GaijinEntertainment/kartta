@@ -98,7 +98,6 @@ impl Filter {
     }
 
     /// The patterns the filter was compiled from, in the order they were given.
-    #[must_use]
     pub fn patterns(&self) -> impl ExactSizeIterator<Item = &str> {
         self.patterns.iter().map(AsRef::as_ref)
     }
