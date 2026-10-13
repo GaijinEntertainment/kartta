@@ -664,3 +664,40 @@ fn ignore_case_does_not_fold_across_the_ascii_boundary() {
         "a pair of non-ASCII characters folds"
     );
 }
+
+#[test]
+fn merging_the_rankings_of_slices_reproduces_the_ranking_of_the_whole_list() {
+    // The four `?/main.rs` paths tie on score and on length, so the merge has to keep input order among them to agree
+    // with the whole ranking.
+    let paths = [
+        "a/main.rs",
+        "b/main.rs",
+        "src/main.rs",
+        "main/lib.rs",
+        "c/main.rs",
+        "docs/main.md",
+        "lib.rs",
+        "d/main.rs",
+    ];
+    let mut matcher = Matcher::new(Config::DEFAULT);
+
+    for pattern in ["main", "", "rs"] {
+        for limit in [None, NonZeroUsize::new(1), NonZeroUsize::new(3)] {
+            let whole = matcher.match_list(paths, pattern, limit);
+
+            for split in 0..=paths.len() {
+                let (left, right) = paths.split_at(split);
+                let halves = [
+                    matcher.match_list(left.iter().copied(), pattern, limit),
+                    matcher.match_list(right.iter().copied(), pattern, limit),
+                ];
+
+                assert_eq!(
+                    matcher.merge(halves, pattern, limit),
+                    whole,
+                    "pattern {pattern:?}, limit {limit:?}, split at {split}"
+                );
+            }
+        }
+    }
+}

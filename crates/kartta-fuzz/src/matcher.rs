@@ -213,6 +213,51 @@ impl Matcher {
         scored
     }
 
+    /// Merges the rankings of consecutive slices of one candidate list into the ranking [`Matcher::match_list`] gives
+    /// the whole list.
+    ///
+    /// `rankings` holds one [`Matcher::match_list`] result per slice, in the order the slices occur in the list, each
+    /// ranked with this configuration, this `pattern` and this `limit`. That is what lets a long list be ranked slice
+    /// by slice on several threads: ties break by input order, and the slices arrive in it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kartta_fuzz::{Config, Matcher};
+    /// # use std::num::NonZeroUsize;
+    ///
+    /// let paths = ["main/lib.rs", "src/main.rs", "docs/main.md", "src/lib.rs"];
+    /// let limit = NonZeroUsize::new(2);
+    /// let mut matcher = Matcher::new(Config::DEFAULT);
+    ///
+    /// let whole = matcher.match_list(paths, "main", limit);
+    /// let halves = [
+    ///     matcher.match_list(paths[..2].iter().copied(), "main", limit),
+    ///     matcher.match_list(paths[2..].iter().copied(), "main", limit),
+    /// ];
+    ///
+    /// assert_eq!(matcher.merge(halves, "main", limit), whole);
+    /// ```
+    #[must_use]
+    pub fn merge<'a>(
+        &self,
+        rankings: impl IntoIterator<Item = Vec<Match<'a>>>,
+        pattern: &str,
+        limit: Option<NonZeroUsize>,
+    ) -> Vec<Match<'a>> {
+        let mut merged: Vec<Match<'a>> = rankings.into_iter().flatten().collect();
+
+        let ranked_by_score = pattern.split_whitespace().next().is_some();
+        if ranked_by_score {
+            self.sort(&mut merged);
+        }
+
+        if let Some(limit) = limit {
+            merged.truncate(limit.get());
+        }
+        merged
+    }
+
     /// The `limit` best matches, kept in a bounded heap rather than collected and sorted.
     ///
     /// Ranking a repository of millions of paths against a permissive pattern otherwise materializes a `Match` per
