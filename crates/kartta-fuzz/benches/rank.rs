@@ -15,7 +15,7 @@ use kartta_fuzz::{Config, Matcher};
 
 /// Corpus size. Large enough that per-candidate costs dominate setup and that the profile resembles a real repository,
 /// small enough that the whole suite runs in well under a minute.
-const CORPUS: usize = 250_000;
+const CORPUS_LEN: usize = 250_000;
 
 /// Queries spanning the selectivity range, each with the share of the corpus it is expected to keep.
 const QUERIES: &[&str] = &[
@@ -108,15 +108,15 @@ fn corpus(len: usize) -> Vec<String> {
 }
 
 fn rank(c: &mut Criterion) {
-    let paths = corpus(CORPUS);
+    let paths = corpus(CORPUS_LEN);
     let candidates: Vec<&str> = paths.iter().map(String::as_str).collect();
 
     let mut group = c.benchmark_group("rank");
-    group.throughput(Throughput::Elements(CORPUS as u64));
+    group.throughput(Throughput::Elements(CORPUS_LEN as u64));
 
     for &query in QUERIES {
         let survivors = Matcher::new(Config::DEFAULT)
-            .match_list(candidates.iter().copied(), query, None)
+            .rank(candidates.iter().copied(), query, None)
             .len();
 
         group.bench_with_input(
@@ -125,7 +125,7 @@ fn rank(c: &mut Criterion) {
             |b, &query| {
                 b.iter(|| {
                     let mut matcher = Matcher::new(Config::DEFAULT);
-                    black_box(matcher.match_list(
+                    black_box(matcher.rank(
                         black_box(candidates.iter().copied()),
                         black_box(query),
                         None,
@@ -138,23 +138,23 @@ fn rank(c: &mut Criterion) {
     group.finish();
 }
 
-/// The same corpus and queries, but capped the way a caller actually calls it.
+/// The same corpus and queries, but with a `limit`, the way a caller actually calls it.
 ///
 /// A tool answering a language model asks for a page of results, never the whole ranking, so this is the path that
 /// matters in production — and the one where the bounded heap replaces collecting every survivor.
-fn rank_capped(c: &mut Criterion) {
-    let paths = corpus(CORPUS);
+fn rank_limited(c: &mut Criterion) {
+    let paths = corpus(CORPUS_LEN);
     let candidates: Vec<&str> = paths.iter().map(String::as_str).collect();
     let limit = NonZeroUsize::new(100);
 
-    let mut group = c.benchmark_group("rank_capped");
-    group.throughput(Throughput::Elements(CORPUS as u64));
+    let mut group = c.benchmark_group("rank_limited");
+    group.throughput(Throughput::Elements(CORPUS_LEN as u64));
 
     for &query in QUERIES {
         group.bench_with_input(BenchmarkId::from_parameter(query), &query, |b, &query| {
             b.iter(|| {
                 let mut matcher = Matcher::new(Config::DEFAULT);
-                black_box(matcher.match_list(
+                black_box(matcher.rank(
                     black_box(candidates.iter().copied()),
                     black_box(query),
                     limit,
@@ -166,5 +166,5 @@ fn rank_capped(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, rank, rank_capped);
+criterion_group!(benches, rank, rank_limited);
 criterion_main!(benches);

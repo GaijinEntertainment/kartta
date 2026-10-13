@@ -1,9 +1,10 @@
 //! Path-aware fuzzy scorer that ranks repository paths against a query by optimal alignment.
 //!
-//! For every candidate containing the pattern as a subsequence, a dynamic program finds the highest-scoring alignment,
-//! rewarding matches at path boundaries — segment starts, word separators, camelCase humps, the basename — and
-//! charging for the gaps between matched characters. Scores are integers, so ranking is deterministic across platforms
-//! and free of NaN-ordering hazards, and all score arithmetic saturates, so no configuration can make one overflow.
+//! For every candidate containing each term of the query as a subsequence, a dynamic program finds the highest-scoring
+//! alignment, rewarding matches at path boundaries — segment starts, word separators, camelCase humps, the basename —
+//! and charging for the gaps between matched characters. Scores are integers, so ranking is deterministic across
+//! platforms and free of NaN-ordering hazards, and all score arithmetic saturates, so no configuration can make one
+//! overflow.
 //!
 //! One candidate is not aligned: a candidate longer than 1024 positions, which no repository path reaches. Running an
 //! `O(n*m)` alignment over a length the caller chose is what that bound exists to prevent, so such a candidate is
@@ -27,7 +28,7 @@
 //! Every weight and every policy is a field of [`Config`]. The shipped [`Config::DEFAULT`] is the tuned point in that
 //! space and the one the behaviour tests pin; other points are guaranteed only by the invariants that hold across all
 //! of them, and only those — a candidate every term matches in full always ranks first (what counts as full follows
-//! [`Config::case`], and "in full" is per term, not against the whole pattern), a candidate missing a term never
+//! [`Config::case`], and "in full" is per term, not against the whole query), a candidate missing a term never
 //! matches, and no weight overflows a score. Replacing
 //! [`Config::segment_separators`] is what turns the scorer into something other than a path matcher.
 //!
@@ -39,14 +40,14 @@
 //! let paths = ["src/lib.rs", "src/main.rs", "main/mod.rs"];
 //! let mut matcher = Matcher::new(Config::DEFAULT);
 //!
-//! let ranked = matcher.match_list(paths, "main", None);
+//! let ranked = matcher.rank(paths, "main", None);
 //! let names: Vec<&str> = ranked.iter().map(|m| m.candidate).collect();
 //!
 //! // `src/lib.rs` has no `main`; the filename hit outranks the directory hit.
 //! assert_eq!(names, ["src/main.rs", "main/mod.rs"]);
 //! ```
 //!
-//! Multi-word patterns split on whitespace and every word must match, so a query narrows as it grows:
+//! A query splits on whitespace into terms and every term must match, so a query narrows as it grows:
 //!
 //! ```
 //! use kartta_fuzz::{Config, Matcher};
@@ -55,9 +56,9 @@
 //! let paths = ["src/auth/handler.go", "src/api/handler.go"];
 //! let mut matcher = Matcher::new(Config::DEFAULT);
 //!
-//! assert_eq!(matcher.match_list(paths, "handler", None).len(), 2);
-//! assert_eq!(matcher.match_list(paths, "handler auth", None).len(), 1);
-//! assert_eq!(matcher.match_list(paths, "handler", NonZeroUsize::new(1)).len(), 1);
+//! assert_eq!(matcher.rank(paths, "handler", None).len(), 2);
+//! assert_eq!(matcher.rank(paths, "handler auth", None).len(), 1);
+//! assert_eq!(matcher.rank(paths, "handler", NonZeroUsize::new(1)).len(), 1);
 //! ```
 
 mod class;

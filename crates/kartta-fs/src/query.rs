@@ -175,7 +175,7 @@ impl Index {
             .map(|chunk| {
                 let start = chunk * RANKED_CHUNK;
                 let slice = start..self.len().min(start + RANKED_CHUNK);
-                Matcher::new(SCORING).match_list(self.files(slice, filter), query, limit)
+                Matcher::new(SCORING).rank(self.files(slice, filter), query, limit)
             })
             .collect();
 

@@ -10,7 +10,7 @@ use crate::score::{ALIGNED_MIN, Fold, MATCH_FLOOR, Scorer, Symbols, Term};
 
 /// One ranked candidate and the score it earned.
 ///
-/// The candidate is borrowed from the input, so a ranked list allocates one `Vec` and copies no path. The score is
+/// The candidate is borrowed from the input, so a ranking allocates one `Vec` and copies no path. The score is
 /// meaningful only against other scores from the same [`Config`] — it is a ranking key, not a similarity measure, and
 /// nothing about its magnitude is stable across configurations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,14 +96,14 @@ impl PartialOrd for Worst<'_> {
     }
 }
 
-/// A configured scorer that ranks candidates against a pattern.
+/// A configured scorer that ranks candidates against a query.
 ///
 /// The matcher owns the scratch buffers the alignment reuses, so ranking a list allocates once rather than once per
 /// candidate. Build one per query and rank a whole list with it; building one per candidate defeats the reuse it
 /// exists for.
 ///
-/// A pattern splits on whitespace into terms, and a candidate must match **every** term — the rank is the sum of the
-/// per-term scores. An empty or whitespace-only pattern matches everything, in input order, at score zero.
+/// A query splits on whitespace into terms, and a candidate must match **every** term — the rank is the sum of the
+/// per-term scores. An empty or whitespace-only query matches everything, in input order, at score zero.
 ///
 /// # Examples
 ///
@@ -111,7 +111,7 @@ impl PartialOrd for Worst<'_> {
 /// use kartta_fuzz::{Config, Matcher};
 ///
 /// let mut matcher = Matcher::new(Config::DEFAULT);
-/// let ranked = matcher.match_list(["main/lib.rs", "src/main.rs"], "main", None);
+/// let ranked = matcher.rank(["main/lib.rs", "src/main.rs"], "main", None);
 ///
 /// // The filename hit outranks the directory hit.
 /// assert_eq!(ranked[0].candidate, "src/main.rs");
@@ -157,7 +157,7 @@ impl Matcher {
         &self.config
     }
 
-    /// Ranks `candidates` against `pattern`, best first, keeping only those that match every term.
+    /// Ranks `candidates` against `query`, best first, keeping only those that match every term.
     ///
     /// Equal scores break by shorter candidate when [`Config::length_tiebreak`] is set, and then always by input
     /// order — the sort is stable, so an unchanged input ranks identically every time. `limit` caps the returned
@@ -172,20 +172,20 @@ impl Matcher {
     /// let paths = ["src/auth/handler.go", "src/api/handler.go"];
     ///
     /// // Both terms must match, so only the auth path survives.
-    /// let ranked = matcher.match_list(paths, "handler auth", None);
+    /// let ranked = matcher.rank(paths, "handler auth", None);
     /// assert_eq!(ranked.len(), 1);
     /// assert_eq!(ranked[0].candidate, "src/auth/handler.go");
     /// ```
     #[must_use]
-    pub fn match_list<'a>(
+    pub fn rank<'a>(
         &mut self,
         candidates: impl IntoIterator<Item = &'a str>,
-        pattern: &str,
+        query: &str,
         limit: Option<NonZeroUsize>,
     ) -> Vec<Match<'a>> {
-        self.begin(pattern);
+        self.begin(query);
 
-        // A whitespace-only pattern matches everything in input order, so a limit is a prefix and nothing is scored.
+        // A whitespace-only query matches everything in input order, so a limit is a prefix and nothing is scored.
         if self.terms.is_empty() {
             let keep = limit.map_or(usize::MAX, NonZeroUsize::get);
             return candidates
@@ -199,13 +199,13 @@ impl Matcher {
         }
 
         if let Some(limit) = limit {
-            return self.best(candidates, limit);
+            return self.rank_limited(candidates, limit);
         }
 
         let mut scored: Vec<Match<'a>> = candidates
             .into_iter()
             .filter_map(|candidate| {
-                self.score_prepared(candidate)
+                self.score_terms(candidate)
                     .map(|score| Match { candidate, score })
             })
             .collect();
@@ -213,12 +213,12 @@ impl Matcher {
         scored
     }
 
-    /// Merges the rankings of consecutive slices of one candidate list into the ranking [`Matcher::match_list`] gives
-    /// the whole list.
+    /// Merges the rankings of consecutive slices of one candidate list into the ranking [`Matcher::rank`] gives the
+    /// whole list.
     ///
-    /// `rankings` holds one [`Matcher::match_list`] result per slice, in the order the slices occur in the list, each
-    /// ranked with this configuration, this `pattern` and this `limit`. That is what lets a long list be ranked slice
-    /// by slice on several threads: ties break by input order, and the slices arrive in it.
+    /// `rankings` holds one [`Matcher::rank`] result per slice, in the order the slices occur in the list, each ranked
+    /// with this configuration, this `query` and this `limit`. That is what lets a long list be ranked slice by slice
+    /// on several threads: ties break by input order, and the slices arrive in it.
     ///
     /// # Examples
     ///
@@ -230,10 +230,10 @@ impl Matcher {
     /// let limit = NonZeroUsize::new(2);
     /// let mut matcher = Matcher::new(Config::DEFAULT);
     ///
-    /// let whole = matcher.match_list(paths, "main", limit);
+    /// let whole = matcher.rank(paths, "main", limit);
     /// let halves = [
-    ///     matcher.match_list(paths[..2].iter().copied(), "main", limit),
-    ///     matcher.match_list(paths[2..].iter().copied(), "main", limit),
+    ///     matcher.rank(paths[..2].iter().copied(), "main", limit),
+    ///     matcher.rank(paths[2..].iter().copied(), "main", limit),
     /// ];
     ///
     /// assert_eq!(matcher.merge(halves, "main", limit), whole);
@@ -242,12 +242,12 @@ impl Matcher {
     pub fn merge<'a>(
         &self,
         rankings: impl IntoIterator<Item = Vec<Match<'a>>>,
-        pattern: &str,
+        query: &str,
         limit: Option<NonZeroUsize>,
     ) -> Vec<Match<'a>> {
         let mut merged: Vec<Match<'a>> = rankings.into_iter().flatten().collect();
 
-        let ranked_by_score = pattern.split_whitespace().next().is_some();
+        let ranked_by_score = query.split_whitespace().next().is_some();
         if ranked_by_score {
             self.sort(&mut merged);
         }
@@ -260,10 +260,10 @@ impl Matcher {
 
     /// The `limit` best matches, kept in a bounded heap rather than collected and sorted.
     ///
-    /// Ranking a repository of millions of paths against a permissive pattern otherwise materializes a `Match` per
+    /// Ranking a repository of millions of paths against a permissive query otherwise materializes a `Match` per
     /// survivor purely to throw almost all of them away. The heap holds `limit` entries, so memory is bounded by what
     /// the caller asked for, and once it is full an entry that cannot displace the worst costs a single comparison.
-    fn best<'a>(
+    fn rank_limited<'a>(
         &mut self,
         candidates: impl IntoIterator<Item = &'a str>,
         limit: NonZeroUsize,
@@ -279,7 +279,7 @@ impl Matcher {
             BinaryHeap::with_capacity(limit.min(candidates.size_hint().0));
 
         for (index, candidate) in candidates.enumerate() {
-            let Some(score) = self.score_prepared(candidate) else {
+            let Some(score) = self.score_terms(candidate) else {
                 continue;
             };
             let entry = Worst {
@@ -307,10 +307,10 @@ impl Matcher {
             .collect()
     }
 
-    /// The score of one candidate against `pattern`, or `None` when it does not match every term.
+    /// The score of one candidate against `query`, or `None` when it does not match every term.
     ///
-    /// An empty or whitespace-only pattern matches everything at score zero. Prefer [`Matcher::match_list`] for a
-    /// list: this re-splits the pattern on every call.
+    /// An empty or whitespace-only query matches everything at score zero. Prefer [`Matcher::rank`] for a list: this
+    /// re-splits the query on every call.
     ///
     /// # Examples
     ///
@@ -322,24 +322,24 @@ impl Matcher {
     /// assert_eq!(matcher.score("src/lib.rs", "main"), None);
     /// ```
     #[must_use]
-    pub fn score(&mut self, candidate: &str, pattern: &str) -> Option<i32> {
-        self.begin(pattern);
+    pub fn score(&mut self, candidate: &str, query: &str) -> Option<i32> {
+        self.begin(query);
 
         if self.terms.is_empty() {
             return Some(0);
         }
-        self.score_prepared(candidate)
+        self.score_terms(candidate)
     }
 
-    /// Splits `pattern` into terms and fixes the case policy for the query about to run.
+    /// Splits `query` into terms and fixes the case policy for the query about to run.
     ///
     /// Both the byte form of each term and the case decision are settled here, once, rather than per candidate.
-    fn begin(&mut self, pattern: &str) {
-        let fold = Fold::resolve(self.config.case, pattern);
+    fn begin(&mut self, query: &str) {
+        let fold = Fold::resolve(self.config.case, query);
 
         self.terms.clear();
         self.terms
-            .extend(pattern.split_whitespace().map(|word| Term::new(word, fold)));
+            .extend(query.split_whitespace().map(|text| Term::new(text, fold)));
 
         let longest = self.terms.iter().map(|term| term.chars.len()).max();
         self.scorer
@@ -349,7 +349,7 @@ impl Matcher {
     /// The summed score of every term against `candidate`, or `None` as soon as one term does not match.
     ///
     /// Requires a non-empty term list, which [`Matcher::begin`] has already established.
-    fn score_prepared(&mut self, candidate: &str) -> Option<i32> {
+    fn score_terms(&mut self, candidate: &str) -> Option<i32> {
         if self.terms.is_empty() {
             return None;
         }

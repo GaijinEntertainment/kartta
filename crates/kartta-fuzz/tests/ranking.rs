@@ -8,42 +8,42 @@ use std::num::NonZeroUsize;
 
 use kartta_fuzz::{CaseMatching, Config, Matcher};
 
-/// The ranked candidates for `pattern`, best first.
-fn ranked(pattern: &str, candidates: &[&str]) -> Vec<String> {
-    ranked_with(Config::DEFAULT, pattern, candidates)
+/// The ranked candidates for `query`, best first.
+fn ranked(candidates: &[&str], query: &str) -> Vec<String> {
+    ranked_with(Config::DEFAULT, candidates, query)
 }
 
-/// The ranked candidates for `pattern` under a specific configuration.
-fn ranked_with(config: Config, pattern: &str, candidates: &[&str]) -> Vec<String> {
+/// The ranked candidates for `query` under a specific configuration.
+fn ranked_with(config: Config, candidates: &[&str], query: &str) -> Vec<String> {
     Matcher::new(config)
-        .match_list(candidates.iter().copied(), pattern, None)
+        .rank(candidates.iter().copied(), query, None)
         .iter()
         .map(|m| m.candidate.to_owned())
         .collect()
 }
 
 /// The score of one candidate under the default configuration.
-fn score(pattern: &str, candidate: &str) -> Option<i32> {
-    score_with(Config::DEFAULT, pattern, candidate)
+fn score(candidate: &str, query: &str) -> Option<i32> {
+    score_with(Config::DEFAULT, candidate, query)
 }
 
 /// The score of one candidate under a specific configuration.
-fn score_with(config: Config, pattern: &str, candidate: &str) -> Option<i32> {
-    Matcher::new(config).score(candidate, pattern)
+fn score_with(config: Config, candidate: &str, query: &str) -> Option<i32> {
+    Matcher::new(config).score(candidate, query)
 }
 
 #[test]
 fn basename_hit_outranks_directory_hit() {
     // The reason this crate exists. Input order is reversed to prove a reorder rather than a passthrough.
     assert_eq!(
-        ranked("main", &["main/lib.rs", "src/main.rs"]),
+        ranked(&["main/lib.rs", "src/main.rs"], "main"),
         ["src/main.rs", "main/lib.rs"]
     );
 }
 
 #[test]
 fn exact_basename_ranks_first() {
-    let ranked = ranked("cargo", &["src/cargo/mod.rs", "Cargo.toml"]);
+    let ranked = ranked(&["src/cargo/mod.rs", "Cargo.toml"], "cargo");
     assert_eq!(
         ranked[0], "Cargo.toml",
         "an exact, case-insensitive basename wins"
@@ -53,8 +53,8 @@ fn exact_basename_ranks_first() {
 #[test]
 fn exact_match_outranks_every_partial_match() {
     let exact = score("ab", "ab").expect("an exact match");
-    let cased = score("ab", "AB").expect("an exact match up to case");
-    let partial = score("ab", "abc").expect("a subsequence match");
+    let cased = score("AB", "ab").expect("an exact match up to case");
+    let partial = score("abc", "ab").expect("a subsequence match");
 
     assert_eq!(exact, cased, "case never changes an exact match");
     assert!(
@@ -65,7 +65,7 @@ fn exact_match_outranks_every_partial_match() {
 
 #[test]
 fn contiguous_run_outranks_gapped_match() {
-    let ranked = ranked("abc", &["a/b/c.rs", "axbxc.rs", "abc.rs"]);
+    let ranked = ranked(&["a/b/c.rs", "axbxc.rs", "abc.rs"], "abc");
     assert_eq!(
         ranked[0], "abc.rs",
         "a contiguous substring is the strongest match"
@@ -74,7 +74,7 @@ fn contiguous_run_outranks_gapped_match() {
 
 #[test]
 fn camel_hump_outranks_flat_match() {
-    let ranked = ranked("fb", &["foobar.rs", "fooBar.rs"]);
+    let ranked = ranked(&["foobar.rs", "fooBar.rs"], "fb");
     assert_eq!(
         ranked[0], "fooBar.rs",
         "a camelCase hump is a word boundary"
@@ -83,22 +83,22 @@ fn camel_hump_outranks_flat_match() {
 
 #[test]
 fn matching_requires_order() {
-    assert_eq!(score("ba", "ab"), None, "a subsequence is ordered");
-    assert_eq!(score("xyz", "abc"), None);
+    assert_eq!(score("ab", "ba"), None, "a subsequence is ordered");
+    assert_eq!(score("abc", "xyz"), None);
 }
 
 #[test]
 fn every_term_must_match() {
     let paths = ["src/auth/handler.go", "src/api/handler.go"];
-    assert_eq!(ranked("handler auth", &paths), ["src/auth/handler.go"]);
-    assert_eq!(ranked("handler zz", &paths), [] as [&str; 0]);
+    assert_eq!(ranked(&paths, "handler auth"), ["src/auth/handler.go"]);
+    assert_eq!(ranked(&paths, "handler zz"), [] as [&str; 0]);
 }
 
 #[test]
 fn multi_term_score_sums_the_terms() {
-    let both = score("ab cd", "ab/cd").expect("both terms match");
-    let ab = score("ab", "ab/cd").expect("the first term matches");
-    let cd = score("cd", "ab/cd").expect("the second term matches");
+    let both = score("ab/cd", "ab cd").expect("both terms match");
+    let ab = score("ab/cd", "ab").expect("the first term matches");
+    let cd = score("ab/cd", "cd").expect("the second term matches");
 
     assert_eq!(both, ab + cd, "the rank is the sum of the per-term scores");
 }
@@ -106,8 +106,8 @@ fn multi_term_score_sums_the_terms() {
 #[test]
 fn equal_scores_keep_input_order() {
     // "x" matches the basename of both identically, and both are the same length, so nothing breaks the tie.
-    assert_eq!(ranked("x", &["aa/x", "bb/x"]), ["aa/x", "bb/x"]);
-    assert_eq!(ranked("x", &["bb/x", "aa/x"]), ["bb/x", "aa/x"]);
+    assert_eq!(ranked(&["aa/x", "bb/x"], "x"), ["aa/x", "bb/x"]);
+    assert_eq!(ranked(&["bb/x", "aa/x"], "x"), ["bb/x", "aa/x"]);
 }
 
 #[test]
@@ -120,36 +120,35 @@ fn shorter_candidate_wins_a_tie_when_configured() {
     let candidates = ["a/xyz", "a/x"];
 
     assert_eq!(
-        ranked_with(config, "x", &candidates)[0],
+        ranked_with(config, &candidates, "x")[0],
         "a/x",
         "the length tiebreak reorders"
     );
 
     config.length_tiebreak = false;
     assert_eq!(
-        ranked_with(config, "x", &candidates)[0],
+        ranked_with(config, &candidates, "x")[0],
         "a/xyz",
         "without it, input order stands"
     );
 }
 
 #[test]
-fn empty_pattern_returns_every_candidate_in_input_order() {
+fn empty_query_returns_every_candidate_in_input_order() {
     let candidates = ["b.rs", "a.rs"];
-    assert_eq!(ranked("", &candidates), ["b.rs", "a.rs"]);
+    assert_eq!(ranked(&candidates, ""), ["b.rs", "a.rs"]);
     assert_eq!(
-        ranked("   ", &candidates),
+        ranked(&candidates, "   "),
         ["b.rs", "a.rs"],
-        "whitespace only is an empty pattern"
+        "whitespace only is an empty query"
     );
-    assert_eq!(score("   ", "anything"), Some(0));
+    assert_eq!(score("anything", "   "), Some(0));
 }
 
 #[test]
 fn limit_truncates_after_ranking() {
     let candidates = ["main/lib.rs", "src/main.rs"];
-    let limited =
-        Matcher::new(Config::DEFAULT).match_list(candidates, "main", NonZeroUsize::new(1));
+    let limited = Matcher::new(Config::DEFAULT).rank(candidates, "main", NonZeroUsize::new(1));
 
     assert_eq!(limited.len(), 1);
     assert_eq!(
@@ -164,19 +163,19 @@ fn a_multi_byte_character_never_shifts_the_alignment() {
     // representation they are scored in. Arithmetic that counted bytes where it meant characters would move the
     // basename and the boundary bonuses on the first of them alone, so equal scores are what pins the character path.
     assert_eq!(
-        score("cx", "café/x.rs").expect("a subsequence match"),
-        score("cx", "cafe/x.rs").expect("a subsequence match"),
+        score("café/x.rs", "cx").expect("a subsequence match"),
+        score("cafe/x.rs", "cx").expect("a subsequence match"),
         "a two-symbol term scores the same either side of a multi-byte character"
     );
     assert_eq!(
-        score("é", "café/x.rs").expect("a subsequence match"),
-        score("e", "cafe/x.rs").expect("a subsequence match"),
+        score("café/x.rs", "é").expect("a subsequence match"),
+        score("cafe/x.rs", "e").expect("a subsequence match"),
         "and so does a non-ASCII term"
     );
 
     // The ordering the crate exists for survives the character path too.
     assert_eq!(
-        ranked("cx", &["cx/é.rs", "é/cx.rs"]),
+        ranked(&["cx/é.rs", "é/cx.rs"], "cx"),
         ["é/cx.rs", "cx/é.rs"],
         "the basename hit still wins"
     );
@@ -185,10 +184,10 @@ fn a_multi_byte_character_never_shifts_the_alignment() {
 #[test]
 fn long_contiguous_match_saturates_positive() {
     // Overflow-checked debug builds must not panic and release builds must not wrap negative.
-    let pattern: String = std::iter::repeat_n('a', 50).collect();
+    let query: String = std::iter::repeat_n('a', 50).collect();
     let candidate: String = std::iter::repeat_n('a', 60).collect();
 
-    let score = score(&pattern, &candidate).expect("every pattern character matches");
+    let score = score(&candidate, &query).expect("every query character matches");
     assert!(score > 0, "a saturated score stays positive, got {score}");
 }
 
@@ -200,47 +199,47 @@ fn candidate_beyond_the_alignment_limit_matches_but_ranks_last() {
     let long = "z".repeat(2000);
     let deep = format!("{}z", "x".repeat(1000));
 
-    assert!(score("z", &long).is_some(), "it is still a match");
-    let deep_score = score("z", &deep).expect("a scored match, however poorly");
-    let long_score = score("z", &long).expect("a match beyond the alignment limit");
+    assert!(score(&long, "z").is_some(), "it is still a match");
+    let deep_score = score(&deep, "z").expect("a scored match, however poorly");
+    let long_score = score(&long, "z").expect("a match beyond the alignment limit");
     assert!(
         long_score < deep_score,
         "the unscoreable candidate must not outrank a scored one, got {long_score} against {deep_score}"
     );
 
     assert_eq!(
-        ranked("z", &[long.as_str(), deep.as_str()]),
+        ranked(&[long.as_str(), deep.as_str()], "z"),
         [deep, long],
         "and the ranking follows"
     );
 }
 
 #[test]
-fn smart_case_narrows_only_when_the_pattern_has_uppercase() {
+fn smart_case_narrows_only_when_the_query_has_uppercase() {
     let mut config = Config::DEFAULT;
     config.case = CaseMatching::Smart;
     let candidates = ["readme.md", "README.md"];
 
     assert_eq!(
-        ranked_with(config, "readme", &candidates).len(),
+        ranked_with(config, &candidates, "readme").len(),
         2,
-        "a lowercase pattern matches both"
+        "a lowercase query matches both"
     );
     assert_eq!(
-        ranked_with(config, "README", &candidates),
+        ranked_with(config, &candidates, "README"),
         ["README.md"],
         "an uppercase one narrows"
     );
 
     // The uppercase test is char::is_uppercase, not an ASCII range, so a non-ASCII capital narrows the same way.
     assert_eq!(
-        score_with(config, "\u{c9}", "\u{e9}"),
+        score_with(config, "\u{e9}", "\u{c9}"),
         None,
         "capital E-acute is uppercase"
     );
     assert!(
-        score_with(config, "\u{e9}", "\u{c9}").is_some(),
-        "and a lowercase pattern still folds onto it"
+        score_with(config, "\u{c9}", "\u{e9}").is_some(),
+        "and a lowercase query still folds onto it"
     );
 }
 
@@ -249,7 +248,7 @@ fn respect_case_never_folds() {
     let mut config = Config::DEFAULT;
     config.case = CaseMatching::Respect;
     assert_eq!(
-        ranked_with(config, "readme", &["README.md"]),
+        ranked_with(config, &["README.md"], "readme"),
         [] as [&str; 0]
     );
 }
@@ -261,14 +260,14 @@ fn candidate_start_bonus_lifts_a_whole_path_prefix() {
 
     let mut config = Config::DEFAULT;
     assert_eq!(
-        ranked_with(config, "api", &candidates)[0],
+        ranked_with(config, &candidates, "api")[0],
         "z/api.rs",
         "the basename hit leads by default"
     );
 
     config.scoring.candidate_start = 10_000;
     assert_eq!(
-        ranked_with(config, "api", &candidates)[0],
+        ranked_with(config, &candidates, "api")[0],
         "api/zzzzzzzzzz.rs",
         "the prefix bonus lifts a match starting at position zero above it"
     );
@@ -280,7 +279,7 @@ fn segment_separators_decide_the_basename() {
     let mut config = Config::DEFAULT;
     config.segment_separators = &['.'];
 
-    let ranked = ranked_with(config, "sym", &["sym.other.Thing", "pkg.mod.Symbol"]);
+    let ranked = ranked_with(config, &["sym.other.Thing", "pkg.mod.Symbol"], "sym");
     assert_eq!(
         ranked[0], "pkg.mod.Symbol",
         "the last dot-segment is the basename"
@@ -290,7 +289,7 @@ fn segment_separators_decide_the_basename() {
 #[test]
 fn backslash_separates_segments_like_a_slash() {
     assert_eq!(
-        ranked("main", &[r"main\lib.rs", r"src\main.rs"]),
+        ranked(&[r"main\lib.rs", r"src\main.rs"], "main"),
         [r"src\main.rs", r"main\lib.rs"]
     );
 }
@@ -304,18 +303,18 @@ fn a_limit_returns_exactly_the_prefix_of_the_unlimited_ranking() {
         .collect();
     let borrowed: Vec<&str> = candidates.iter().map(String::as_str).collect();
 
-    for pattern in ["r", "render", "pkg mod", "pass rs"] {
+    for query in ["r", "render", "pkg mod", "pass rs"] {
         let mut matcher = Matcher::new(Config::DEFAULT);
-        let full = matcher.match_list(borrowed.iter().copied(), pattern, None);
+        let full = matcher.rank(borrowed.iter().copied(), query, None);
 
         for limit in [1usize, 2, 7, 50, 499, 500, 501] {
-            let capped = Matcher::new(Config::DEFAULT).match_list(
+            let limited = Matcher::new(Config::DEFAULT).rank(
                 borrowed.iter().copied(),
-                pattern,
+                query,
                 NonZeroUsize::new(limit),
             );
             let expected = &full[..limit.min(full.len())];
-            assert_eq!(capped, expected, "pattern {pattern:?} at limit {limit}");
+            assert_eq!(limited, expected, "query {query:?} at limit {limit}");
         }
     }
 }
@@ -326,15 +325,15 @@ fn a_limit_agrees_without_the_length_tiebreak_too() {
     config.length_tiebreak = false;
 
     let candidates = ["aa/x", "bb/x", "c/xxxxxx", "dd/x", "e/x"];
-    let full = ranked_with(config, "x", &candidates);
+    let full = ranked_with(config, &candidates, "x");
 
     for limit in [1usize, 3, 5] {
-        let capped: Vec<String> = Matcher::new(config)
-            .match_list(candidates, "x", NonZeroUsize::new(limit))
+        let limited: Vec<String> = Matcher::new(config)
+            .rank(candidates, "x", NonZeroUsize::new(limit))
             .iter()
             .map(|m| m.candidate.to_owned())
             .collect();
-        assert_eq!(capped, full[..limit.min(full.len())], "limit {limit}");
+        assert_eq!(limited, full[..limit.min(full.len())], "limit {limit}");
     }
 }
 
@@ -383,7 +382,7 @@ fn an_exact_match_ranks_first_under_any_configuration() {
     let candidates = ["ab", "xaxbx", "a/b", "abc", "zzab", "ab/ab"];
 
     for (name, config) in hostile_configs() {
-        let ranked = ranked_with(config, "ab", &candidates);
+        let ranked = ranked_with(config, &candidates, "ab");
         assert_eq!(
             ranked[0], "ab",
             "exact match must lead under {name}, got {ranked:?}"
@@ -393,11 +392,11 @@ fn an_exact_match_ranks_first_under_any_configuration() {
 
 #[test]
 fn no_configuration_lets_an_unmatched_candidate_score() {
-    // A candidate missing the pattern never matches, whatever the weights. A gap weight that promotes the "no
+    // A candidate missing a term never matches, whatever the weights. A gap weight that promotes the "no
     // alignment here" sentinel would otherwise let cells that matched nothing carry a score.
     for (name, config) in hostile_configs() {
         assert_eq!(
-            ranked_with(config, "ab", &["ba", "b", "xxxx", ""]),
+            ranked_with(config, &["ba", "b", "xxxx", ""], "ab"),
             [] as [&str; 0],
             "nothing matches ab under {name}"
         );
@@ -422,8 +421,8 @@ fn a_gap_weight_above_zero_ranks_exactly_as_zero_does() {
     rewarding.scoring.gap_trailing = 7;
 
     assert_eq!(
-        ranked_with(rewarding, "ab", &candidates),
-        ranked_with(clamped, "ab", &candidates),
+        ranked_with(rewarding, &candidates, "ab"),
+        ranked_with(clamped, &candidates, "ab"),
         "a gap above zero must rank as zero does"
     );
 }
@@ -443,7 +442,7 @@ fn an_over_limit_candidate_is_scored_without_being_prepared() {
     );
 
     let after: Vec<&str> = matcher
-        .match_list(normal, "main", None)
+        .rank(normal, "main", None)
         .iter()
         .map(|m| m.candidate)
         .collect();
@@ -458,7 +457,7 @@ fn an_over_limit_candidate_is_scored_without_being_prepared() {
 fn a_limit_far_larger_than_the_input_costs_nothing_up_front() {
     // A limit caps the result; it is not a claim that many candidates exist. Reserving against it alone would let
     // `NonZeroUsize::MAX` demand an allocation before a candidate is read.
-    let ranked = Matcher::new(Config::DEFAULT).match_list(
+    let ranked = Matcher::new(Config::DEFAULT).rank(
         ["src/main.rs", "main/lib.rs"],
         "main",
         NonZeroUsize::new(usize::MAX),
@@ -476,7 +475,7 @@ fn a_candidate_with_no_segments_is_all_basename() {
     let mut config = Config::DEFAULT;
     config.segment_separators = &[];
 
-    let ranked = ranked_with(config, "main", &["zzz/main.rs", "main.rs"]);
+    let ranked = ranked_with(config, &["zzz/main.rs", "main.rs"], "main");
     assert_eq!(
         ranked[0], "main.rs",
         "the earlier match leads once nothing ends a segment"
@@ -485,7 +484,7 @@ fn a_candidate_with_no_segments_is_all_basename() {
     // With `/` no longer a separator it is an ordinary character, so it neither starts a segment nor moves the
     // basename, and a query may match straight through it.
     assert!(
-        score_with(config, "zm", "z/main.rs").is_some(),
+        score_with(config, "z/main.rs", "zm").is_some(),
         "a separator that is not configured is just a character"
     );
 }
@@ -495,10 +494,10 @@ fn an_empty_word_separator_set_only_drops_the_word_bonus() {
     // Asserting that the candidate still matches would prove nothing: it matches whether or not `_` separates words.
     // The observable difference is the boundary bonus at `p`, so the two settings are scored and compared.
     let mut config = Config::DEFAULT;
-    let with_separators = score_with(config, "rp", "render_pass.rs").expect("matches");
+    let with_separators = score_with(config, "render_pass.rs", "rp").expect("matches");
 
     config.word_separators = &[];
-    let without = score_with(config, "rp", "render_pass.rs").expect("still matches");
+    let without = score_with(config, "render_pass.rs", "rp").expect("still matches");
 
     assert_eq!(
         with_separators - without,
@@ -508,16 +507,16 @@ fn an_empty_word_separator_set_only_drops_the_word_bonus() {
 }
 
 #[test]
-fn a_full_match_is_per_term_not_per_pattern() {
+fn a_full_match_is_per_term_not_per_query() {
     // With several terms the rank is the sum of per-term scores, so "matched in full" is a property each term has
-    // against the candidate -- not a property of the candidate against the pattern string. Pattern `a a` therefore
+    // against the candidate -- not a property of the candidate against the query string. Query `a a` therefore
     // ranks `a`, which both terms match in full, above `a a`, which neither does.
     //
-    // The whitespace in a pattern separates terms; it is not content the candidate has to contain. Privileging a
-    // candidate that happens to reproduce the pattern's own spacing would rank `a ab` above `ab` for pattern `a ab`,
+    // The whitespace in a query separates terms; it is not content the candidate has to contain. Privileging a
+    // candidate that happens to reproduce the query's own spacing would rank `a ab` above `ab` for query `a ab`,
     // which is the wrong answer for a query asking only that both terms be present.
-    assert_eq!(ranked("a a", &["a a", "a"]), ["a", "a a"]);
-    assert_eq!(ranked("a ab", &["a ab", "ab"]), ["ab", "a ab"]);
+    assert_eq!(ranked(&["a a", "a"], "a a"), ["a", "a a"]);
+    assert_eq!(ranked(&["a ab", "ab"], "a ab"), ["ab", "a ab"]);
 }
 
 #[test]
@@ -535,7 +534,7 @@ fn an_over_limit_non_ascii_candidate_matches_and_ranks_last() {
     );
 
     assert_eq!(
-        ranked("é", &[huge.as_str(), scored]),
+        ranked(&[huge.as_str(), scored], "é"),
         [scored.to_owned(), huge.clone()],
         "and ranks below the one that was scored"
     );
@@ -553,7 +552,7 @@ fn full_term_precedence_survives_aggregation() {
     config.length_tiebreak = false;
 
     assert_eq!(
-        ranked_with(config, "a a", &["aa", "a"]),
+        ranked_with(config, &["aa", "a"], "a a"),
         ["a", "aa"],
         "the candidate both terms match in full must lead"
     );
@@ -572,14 +571,14 @@ fn the_length_tiebreak_orders_by_utf8_byte_length() {
     config.scoring.gap_trailing = 0;
     config.scoring.after_segment = 0;
 
-    let fewer_bytes = score_with(config, "a", "aaaa").expect("matches");
-    let fewer_chars = score_with(config, "a", "\u{e9}\u{e9}a").expect("matches");
+    let fewer_bytes = score_with(config, "aaaa", "a").expect("matches");
+    let fewer_chars = score_with(config, "\u{e9}\u{e9}a", "a").expect("matches");
     assert_eq!(
         fewer_bytes, fewer_chars,
         "the candidates must tie on score for the tiebreak to decide anything"
     );
 
-    let ranked = ranked_with(config, "a", &["\u{e9}\u{e9}a", "aaaa"]);
+    let ranked = ranked_with(config, &["\u{e9}\u{e9}a", "aaaa"], "a");
     assert_eq!(
         ranked[0], "aaaa",
         "fewer bytes wins, though it has more characters"
@@ -594,8 +593,8 @@ fn an_alignment_always_outranks_the_over_limit_floor() {
     let mut config = Config::DEFAULT;
     config.scoring.basename = i32::MIN;
 
-    let aligned = score_with(config, "a", "xa").expect("an aligned match, however saturated");
-    let floored = score_with(config, "a", &"a".repeat(2000)).expect("an over-limit match");
+    let aligned = score_with(config, "xa", "a").expect("an aligned match, however saturated");
+    let floored = score_with(config, &"a".repeat(2000), "a").expect("an over-limit match");
     assert!(
         floored < aligned,
         "the unaligned candidate must stay below the aligned one, got {floored} against {aligned}"
@@ -610,7 +609,7 @@ fn an_over_limit_candidate_matched_in_full_still_ranks_first() {
     let long: String = "q".repeat(1025);
     let other = format!("{long}x");
 
-    let ranked = ranked(&long, &[other.as_str(), long.as_str()]);
+    let ranked = ranked(&[other.as_str(), long.as_str()], &long);
     assert_eq!(
         ranked[0], long,
         "the full match leads even beyond the alignment limit"
@@ -628,8 +627,8 @@ fn the_score_bands_survive_aggregation() {
     config.length_tiebreak = false;
 
     let over_limit = "a".repeat(2000);
-    let aligned = score_with(config, "a a", "xaxa").expect("an aligned aggregate");
-    let floored = score_with(config, "a a", &over_limit).expect("a floored aggregate");
+    let aligned = score_with(config, "xaxa", "a a").expect("an aligned aggregate");
+    let floored = score_with(config, &over_limit, "a a").expect("a floored aggregate");
     assert!(
         floored < aligned,
         "a floored aggregate must stay below an aligned one, got {floored} against {aligned}"
@@ -637,11 +636,11 @@ fn the_score_bands_survive_aggregation() {
 
     // Both orders of the same pair, since a tie would otherwise be settled by input order and hide the defect.
     assert_eq!(
-        ranked_with(config, "a a", &[over_limit.as_str(), "xaxa"])[0],
+        ranked_with(config, &[over_limit.as_str(), "xaxa"], "a a")[0],
         "xaxa"
     );
     assert_eq!(
-        ranked_with(config, "a a", &["xaxa", over_limit.as_str()])[0],
+        ranked_with(config, &["xaxa", over_limit.as_str()], "a a")[0],
         "xaxa"
     );
 }
@@ -651,16 +650,16 @@ fn ignore_case_does_not_fold_across_the_ascii_boundary() {
     // The variant is documented as ASCII-first rather than as full Unicode folding, and this is the case that parts
     // the two: U+212A KELVIN SIGN folds to `k` under Unicode rules and does not here.
     assert_eq!(
-        score("k", "\u{212a}"),
+        score("\u{212a}", "k"),
         None,
         "the Kelvin sign is not an ASCII k"
     );
-    assert!(score("k", "Kk").is_some(), "an ASCII K still folds");
+    assert!(score("Kk", "k").is_some(), "an ASCII K still folds");
 
     // The other side of the same rule: neither character is ASCII, so the Unicode lowercase comparison decides, and
     // it folds. Without this the variant would read as "ASCII only" rather than "not across the boundary".
     assert!(
-        score("\u{e9}", "\u{c9}").is_some(),
+        score("\u{c9}", "\u{e9}").is_some(),
         "a pair of non-ASCII characters folds"
     );
 }
@@ -681,21 +680,21 @@ fn merging_the_rankings_of_slices_reproduces_the_ranking_of_the_whole_list() {
     ];
     let mut matcher = Matcher::new(Config::DEFAULT);
 
-    for pattern in ["main", "", "rs"] {
+    for query in ["main", "", "rs"] {
         for limit in [None, NonZeroUsize::new(1), NonZeroUsize::new(3)] {
-            let whole = matcher.match_list(paths, pattern, limit);
+            let whole = matcher.rank(paths, query, limit);
 
             for split in 0..=paths.len() {
                 let (left, right) = paths.split_at(split);
                 let halves = [
-                    matcher.match_list(left.iter().copied(), pattern, limit),
-                    matcher.match_list(right.iter().copied(), pattern, limit),
+                    matcher.rank(left.iter().copied(), query, limit),
+                    matcher.rank(right.iter().copied(), query, limit),
                 ];
 
                 assert_eq!(
-                    matcher.merge(halves, pattern, limit),
+                    matcher.merge(halves, query, limit),
                     whole,
-                    "pattern {pattern:?}, limit {limit:?}, split at {split}"
+                    "query {query:?}, limit {limit:?}, split at {split}"
                 );
             }
         }
