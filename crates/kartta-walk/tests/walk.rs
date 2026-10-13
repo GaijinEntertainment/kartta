@@ -159,7 +159,7 @@ fn an_empty_directory_is_a_node_without_children() {
         .expect("empty is listed");
 
     assert_eq!(*empty.value(), EntryKind::Dir);
-    assert!(empty.children().is_empty());
+    assert_eq!(empty.children(), []);
     assert!(
         tree.errors().is_empty(),
         "an empty directory is not a failure"
@@ -643,7 +643,7 @@ mod unix {
         // The reason `EntryKind` exists: a fifo answers false to is_dir, is_file *and* is_symlink, so "neither a
         // directory nor a file" would have mislabelled it a link.
         assert_eq!(*node.value(), EntryKind::Other);
-        assert!(node.children().is_empty());
+        assert_eq!(node.children(), []);
     }
 
     #[test]
