@@ -2,6 +2,7 @@
 paths:
   - "**/*.rs"
   - "**/Cargo.toml"
+  - "rust-toolchain.toml"
 ---
 
 <rust>
@@ -23,6 +24,16 @@ paths:
   `assert!(matches!(value, Pattern))`. Do not write a `match` that ends in `panic!`.
 
 </testing>
+
+<versions>
+
+- `rust-toolchain.toml` pins the toolchain for local builds and for CI. Change it in a commit of its own, and never name
+  a moving channel such as `stable` in place of a version.
+- Write each dependency requirement as the full version that `Cargo.lock` resolves, such as `rayon = "1.12.0"`. Never
+  write an `=` requirement: these crates are published libraries, and an exact pin stops Cargo from unifying the
+  requirement with a consumer's own.
+
+</versions>
 
 <verification>
 
