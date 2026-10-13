@@ -2,8 +2,9 @@
 
 use std::num::NonZeroUsize;
 
-use kartta_fuzz::{Config as Scoring, Matcher};
+use kartta_fuzz::{Config as Scoring, Match, Matcher};
 use kartta_walk::EntryKind;
+use rayon::prelude::*;
 
 use crate::capped::Capped;
 use crate::entry::Entry;
@@ -18,6 +19,9 @@ use crate::index::Index;
 /// split `main\x.rs` into two segments and hand the basename bonus to the wrong half of a single filename, which is
 /// the ordering this crate exists to get right.
 const SCORING: Scoring = scoring();
+
+/// How many entries one parallel ranking task scores.
+const RANKED_CHUNK: usize = 16 * 1024;
 
 const fn scoring() -> Scoring {
     let mut scoring = Scoring::DEFAULT;
@@ -85,10 +89,12 @@ impl Index {
     #[must_use]
     pub fn glob_paths(&self, filter: &Filter, limit: Option<NonZeroUsize>) -> Capped<&str> {
         let Some(limit) = limit else {
-            return Capped::whole(self.files(Some(filter)).collect());
+            return Capped::whole(files(self.entries(), Some(filter)).collect());
         };
 
-        let mut found: Vec<&str> = self.files(Some(filter)).take(limit.get() + 1).collect();
+        let mut found: Vec<&str> = files(self.entries(), Some(filter))
+            .take(limit.get() + 1)
+            .collect();
 
         if found.len() > limit.get() {
             found.truncate(limit.get());
@@ -110,6 +116,9 @@ impl Index {
     /// Directories are not ranked. A path query answers "which file did you mean", and a directory that matches would
     /// otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are* ranked: they
     /// are files as far as the tree is concerned, and are reported without being followed.
+    ///
+    /// Ranking runs on the ambient rayon thread pool; call this inside `ThreadPool::install` to bound the threads it
+    /// takes.
     ///
     /// Matching ignores case. That is this crate's choice and not git's — `core.ignoreCase` describes what the
     /// filesystem does with case, which is a different question from what a search should do with it.
@@ -160,10 +169,14 @@ impl Index {
         filter: Option<&Filter>,
         limit: Option<NonZeroUsize>,
     ) -> Vec<PathMatch<'_>> {
-        let mut matcher = Matcher::new(SCORING);
+        let rankings: Vec<Vec<Match<'_>>> = self
+            .entries()
+            .par_chunks(RANKED_CHUNK)
+            .map(|chunk| Matcher::new(SCORING).match_list(files(chunk, filter), query, limit))
+            .collect();
 
-        matcher
-            .match_list(self.files(filter), query, limit)
+        Matcher::new(SCORING)
+            .merge(rankings, query, limit)
             .into_iter()
             .map(|found| PathMatch {
                 path: found.candidate,
@@ -171,13 +184,13 @@ impl Index {
             })
             .collect()
     }
+}
 
-    /// The paths a query answers from: every indexed entry that is not a directory, narrowed by `filter`.
-    fn files<'a>(&'a self, filter: Option<&Filter>) -> impl Iterator<Item = &'a str> {
-        self.entries()
-            .iter()
-            .filter(|entry| entry.kind() != EntryKind::Dir)
-            .map(Entry::path)
-            .filter(move |path| filter.is_none_or(|filter| filter.matches(path)))
-    }
+/// The paths a query answers from: every entry of `entries` that is not a directory, narrowed by `filter`.
+fn files<'a>(entries: &'a [Entry], filter: Option<&Filter>) -> impl Iterator<Item = &'a str> {
+    entries
+        .iter()
+        .filter(|entry| entry.kind() != EntryKind::Dir)
+        .map(Entry::path)
+        .filter(move |path| filter.is_none_or(|filter| filter.matches(path)))
 }
