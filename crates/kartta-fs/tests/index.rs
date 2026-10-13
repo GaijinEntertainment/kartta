@@ -991,6 +991,72 @@ fn a_listing_reports_how_many_entries_the_index_holds_under_the_directory() {
     assert_eq!(list(&index, "a/b/c").total(), 1);
 }
 
+fn collapsing(patterns: &[&str]) -> Filter {
+    Filter::new(patterns).expect("compile the collapse filter")
+}
+
+#[test]
+fn a_collapsed_directory_is_listed_with_its_contents_counted_at_any_level() {
+    let dir = tree(&[
+        ("lib/vendor/c.rs", "c"),
+        ("src/main.rs", "m"),
+        ("vendor/a/x.rs", "x"),
+        ("vendor/b.rs", "b"),
+    ]);
+    let index = default_index(dir.path());
+    let vendor = collapsing(&["**/vendor"]);
+
+    let listing = index
+        .list_dir("", &ListOptions::default().collapse(&vendor))
+        .expect("list the root");
+
+    assert_eq!(
+        unlisted(&listing),
+        [
+            ("lib", None),
+            ("lib/vendor", Some(1)),
+            ("src", None),
+            ("src/main.rs", None),
+            ("vendor", Some(3)),
+        ],
+        "both vendor directories are listed, neither is entered, and each says what it holds"
+    );
+}
+
+#[test]
+fn the_listed_directory_is_never_collapsed() {
+    let dir = tree(&[("vendor/a/x.rs", "x"), ("vendor/b.rs", "b")]);
+    let index = default_index(dir.path());
+    let vendor = collapsing(&["**/vendor"]);
+
+    let listing = index
+        .list_dir("vendor", &ListOptions::default().collapse(&vendor))
+        .expect("list vendor");
+
+    assert_eq!(
+        listed(&listing),
+        ["vendor/a", "vendor/a/x.rs", "vendor/b.rs"],
+        "naming a collapsed directory by path is how a caller sees inside it"
+    );
+}
+
+#[test]
+fn a_collapsed_directory_counts_once_toward_the_limit() {
+    let dir = tree(&[("big/one.rs", "1"), ("big/two.rs", "2"), ("small.rs", "s")]);
+    let index = default_index(dir.path());
+    let big = collapsing(&["big"]);
+
+    let listing = index
+        .list_dir("", &ListOptions::default().collapse(&big).limit(2))
+        .expect("list the root");
+
+    assert_eq!(unlisted(&listing), [("big", Some(2)), ("small.rs", None)]);
+    assert!(
+        !listing.truncated(),
+        "big's two files were counted rather than listed, so the limit never saw them"
+    );
+}
+
 #[test]
 fn a_limit_cuts_the_listing_and_says_so() {
     let dir = tree(&[("a/one.txt", "1"), ("a/two.txt", "2"), ("a/three.txt", "3")]);

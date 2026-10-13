@@ -5,34 +5,47 @@ use std::num::NonZeroUsize;
 use kartta_walk::EntryKind;
 
 use crate::entry::Entry;
+use crate::filter::Filter;
 use crate::index::{Index, Inspected};
 
-/// How far a listing descends and how many entries it returns.
+/// How far a listing descends, which directories it does not enter, and how many entries it returns.
 ///
-/// Both bounds are absent by default, which lists the whole subtree. Set them by name — they are the same type, so a
-/// call that passed them positionally would swap silently and change both how deep the listing went and how much of it
-/// came back.
+/// Every bound is absent by default, which lists the whole subtree. Set them by name — `depth` and `limit` are the same
+/// type, so a call that passed them positionally would swap silently and change both how deep the listing went and how
+/// much of it came back.
 ///
 /// # Examples
 ///
 /// ```
-/// use kartta_fs::ListOptions;
+/// use kartta_fs::{Filter, ListOptions};
 ///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let immediate_children = ListOptions::default().depth(1);
 /// let first_twenty = ListOptions::default().limit(20);
+///
+/// let dependencies = Filter::new(["**/node_modules", "**/vendor"])?;
+/// let without_dependencies = ListOptions::default().collapse(&dependencies);
+/// # Ok(())
+/// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
-pub struct ListOptions {
+pub struct ListOptions<'a> {
     /// How many levels below the listed directory to descend: `1` is its immediate children, `2` adds theirs.
     ///
     /// `None` takes the whole subtree.
     pub depth: Option<NonZeroUsize>,
     /// How many entries to return at most. `None` returns all of them.
     pub limit: Option<NonZeroUsize>,
+    /// The directories to list without entering, matched by their index-relative path. A matched directory is listed,
+    /// and what lies beneath it is counted in [`Listed::unlisted`] rather than listed.
+    ///
+    /// `None` collapses nothing. The listed directory itself is never collapsed, so naming one by path shows what is
+    /// inside it.
+    pub collapse: Option<&'a Filter>,
 }
 
-impl ListOptions {
+impl<'a> ListOptions<'a> {
     /// Descends `depth` levels below the listed directory. `0` lifts the bound, as `None` does.
     #[must_use]
     pub const fn depth(mut self, depth: usize) -> Self {
@@ -44,6 +57,13 @@ impl ListOptions {
     #[must_use]
     pub const fn limit(mut self, limit: usize) -> Self {
         self.limit = NonZeroUsize::new(limit);
+        self
+    }
+
+    /// Lists every directory `collapse` matches without entering it.
+    #[must_use]
+    pub const fn collapse(mut self, collapse: &'a Filter) -> Self {
+        self.collapse = Some(collapse);
         self
     }
 }
@@ -129,9 +149,9 @@ impl<'a> Listed<'a> {
 
     /// How many indexed entries lie beneath this directory that the listing did not descend into.
     ///
-    /// `Some` for a directory at the depth bound, `Some(0)` included, so a directory the listing stopped at never reads
-    /// as an empty one. `None` for a directory whose contents the listing holds, and for anything that is not a
-    /// directory.
+    /// `Some` for a directory at the depth bound or one the listing collapsed, `Some(0)` included, so a directory the
+    /// listing stopped at never reads as an empty one. `None` for a directory whose contents the listing holds, and for
+    /// anything that is not a directory.
     #[must_use]
     pub const fn unlisted(&self) -> Option<usize> {
         self.unlisted
@@ -173,10 +193,11 @@ impl Index {
     /// answer "which file did you mean" and drop them: a listing answers what is in a place, and the directories are
     /// half of that answer.
     ///
-    /// [`ListOptions`] carries the bounds: how far below `dir` to descend and how many entries to return. The answer
-    /// says how much each bound left out: [`Listing::truncated`] whether the limit turned anything away,
-    /// [`Listed::unlisted`] how many entries lie beneath a directory at the depth bound, and [`Listing::total`] how
-    /// many the index holds under `dir` altogether.
+    /// [`ListOptions`] carries the bounds: how far below `dir` to descend, which directories not to enter, and how many
+    /// entries to return. The answer says how much each bound left out: [`Listing::truncated`] whether the limit turned
+    /// anything away, [`Listed::unlisted`] how many entries lie beneath a directory the listing did not enter, and
+    /// [`Listing::total`] how many the index holds under `dir` altogether. A collapsed directory's contents never count
+    /// toward the limit.
     ///
     /// A directory with nothing indexed under it lists nothing and is not an error.
     ///
@@ -223,7 +244,11 @@ impl Index {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn list_dir(&self, dir: &str, options: &ListOptions) -> Result<Listing<'_>, ListDirError> {
+    pub fn list_dir(
+        &self,
+        dir: &str,
+        options: &ListOptions<'_>,
+    ) -> Result<Listing<'_>, ListDirError> {
         let (start, end) = self.subtree_of(dir)?;
         let below_from = if dir.is_empty() { 0 } else { dir.len() + 1 };
         let cap = options.limit.map_or(usize::MAX, NonZeroUsize::get);
@@ -243,7 +268,10 @@ impl Index {
             at += 1;
 
             let unlisted = if self.kind_at(here) == EntryKind::Dir
-                && bottoms_out(&path[below_from..], options.depth)
+                && (bottoms_out(&path[below_from..], options.depth)
+                    || options
+                        .collapse
+                        .is_some_and(|collapse| collapse.matches(path)))
             {
                 let past = self.past_subtree(at, path);
                 let skipped = past - at;

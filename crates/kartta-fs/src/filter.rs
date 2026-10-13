@@ -12,9 +12,9 @@ use globset::{Candidate, Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 /// different question spelled differently, as the `None` that [`Index::fuzzy_paths`](crate::Index::fuzzy_paths)
 /// accepts.
 ///
-/// A filter only ever selects. What a build permanently leaves out is [`Config`](crate::Config)'s business and what
-/// git's rules hide is [`IgnoreSources`](crate::IgnoreSources)'s, so neither word appears here: a query narrows the
-/// index it was given and can no more add to it than take from it.
+/// A filter only ever selects, and what happens to the selection belongs to the query that takes it: a path query
+/// keeps what a filter selects, and a listing's [`collapse`](crate::ListOptions::collapse) stops at the directories one
+/// selects. What git's rules hide is [`IgnoreSources`](crate::IgnoreSources)'s business.
 ///
 /// # The dialect
 ///
