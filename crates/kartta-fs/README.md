@@ -9,7 +9,7 @@ the first ask and keeping the answer. It takes an OS path and reads the real fil
 virtual-filesystem abstraction to mock.
 
 ```rust
-let outcome = Index::build(root, &Config::default())?;
+let outcome = Index::build(root, &BuildOptions::default())?;
 report(outcome.errors()); // a partial index looks exactly like a complete one
 let index = outcome.into_index();
 
@@ -49,9 +49,9 @@ wrongly would make it unfindable, where omitting a binary one costs a single rea
 is the one built-in name that is not binary by construction — it is XML, listed because in practice it holds
 machine-emitted path data — so an SVG reports binary without being read.
 
-`Config::binary_extensions` sets which extensions decide. The default is every built-in group; a caller composes its
-own set from those groups and its own extensions by union and difference, so a project can add its asset formats, drop
-one built-in it disputes, or drop a whole group. An extension no file carries is not an error, because most of the
+`BuildOptions::binary_extensions` sets which extensions decide. The default is every built-in group; a caller composes
+its own set from those groups and its own extensions by union and difference, so a project can add its asset formats,
+drop one built-in it disputes, or drop a whole group. An extension no file carries is not an error, because most of the
 built-in set is absent from any one tree; `Index::binary_extension_counts` reports how many files each extension
 settled, so one that matched nothing — a misspelling in a caller's own set — is visible.
 
@@ -62,11 +62,11 @@ describes. A `.git` found deeper marks another repository's root, and the inheri
 git's own rules stop at a repository boundary — its contents are still indexed, because this crate indexes a directory
 tree rather than a git index.
 
-`Config::ignore` selects which ignore files apply, and the default is the reproducible level: in-tree `.gitignore` files
-only, which is the level at which the same tree indexes identically wherever it sits. Sources outside the tree —
-`$GIT_DIR/info/exclude`, `core.excludesFile`, the XDG fallback — are machine-local, so honouring one gives that up: the
-same tree then indexes differently on a laptop and in CI. That is git's behaviour and sometimes what a caller wants, but
-never something to switch on by accident, which is why it is an enumerated field rather than a flag.
+`BuildOptions::ignore_sources` selects which ignore files apply, and the default is the reproducible level: in-tree
+`.gitignore` files only, which is the level at which the same tree indexes identically wherever it sits. Sources outside
+the tree — `$GIT_DIR/info/exclude`, `core.excludesFile`, the XDG fallback — are machine-local, so honouring one gives
+that up: the same tree then indexes differently on a laptop and in CI. That is git's behaviour and sometimes what a
+caller wants, but never something to switch on by accident, which is why it is an enumerated field rather than a flag.
 
 The guarantee is over the tree on disk, never over a commit. A build reads the working tree and not git's index, so two
 checkouts of one commit index differently whenever their untracked, unignored content differs.

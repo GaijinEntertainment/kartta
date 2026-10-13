@@ -7,7 +7,7 @@
 //! virtual-filesystem abstraction to mock.
 //!
 //! ```
-//! use kartta_fs::{Config, Index};
+//! use kartta_fs::{BuildOptions, Index};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let dir = tempfile::tempdir()?;
@@ -16,7 +16,7 @@
 //! std::fs::write(dir.path().join(".gitignore"), "*.log\n")?;
 //! std::fs::write(dir.path().join("build.log"), "noise")?;
 //!
-//! let outcome = Index::build(dir.path(), &Config::default())?;
+//! let outcome = Index::build(dir.path(), &BuildOptions::default())?;
 //! assert!(outcome.errors().is_empty(), "a complete answer");
 //! let index = outcome.into_index();
 //!
@@ -63,9 +63,9 @@
 //! everything under it, nested repository or not, because an ignored directory is never descended — which is git's own
 //! answer, as `git status` on a tree whose `.gitignore` names the directory will confirm.
 //!
-//! Which ignore files apply is [`Config::ignore`], and the default is the reproducible one — in-tree `.gitignore`
-//! files only, which is the level at which the same tree indexes identically wherever it sits. Sources outside the
-//! tree are machine-local, so honouring one gives that up; [`IgnoreSources`] carries the full reasoning.
+//! Which ignore files apply is [`BuildOptions::ignore_sources`], and the default is the reproducible one — in-tree
+//! `.gitignore` files only, which is the level at which the same tree indexes identically wherever it sits. Sources
+//! outside the tree are machine-local, so honouring one gives that up; [`IgnoreSources`] carries the full reasoning.
 //!
 //! What is modelled is git's **ignore rules**, not git's index. A file git already tracks stays tracked even once a
 //! rule would hide it, and such a file is not indexed here — `git check-ignore --no-index` is the command that agrees
@@ -100,10 +100,10 @@
 //!
 //! # Binary content
 //!
-//! [`Index::is_binary`] settles a file two ways, in order. An extension in [`Config::binary_extensions`] answers with
-//! nothing opened — which carries most of the weight on a real tree, because the default set, every [`BinaryGroup`],
-//! covers the archives, media, disk images and model weights. Everything else is answered by whether a NUL appears
-//! in the file's first 64 KiB, which is git's and ripgrep's rule and the size ripgrep reads at a time.
+//! [`Index::is_binary`] settles a file two ways, in order. An extension in [`BuildOptions::binary_extensions`] answers
+//! with nothing opened — which carries most of the weight on a real tree, because the default set, every
+//! [`BinaryGroup`], covers the archives, media, disk images and model weights. Everything else is answered by whether a
+//! NUL appears in the file's first 64 KiB, which is git's and ripgrep's rule and the size ripgrep reads at a time.
 //!
 //! Both halves are deliberately one-sided about what a *name* may claim. The extension set says "binary, do not
 //! open" and never says text, so a file it does not name is read rather than assumed. And because the probe is
@@ -132,7 +132,7 @@ mod rules;
 
 pub use crate::binary::{BinaryExtensions, BinaryExtensionsError, BinaryGroup};
 pub use crate::capped::Capped;
-pub use crate::config::{Config, IgnoreSources};
+pub use crate::config::{BuildOptions, IgnoreSources};
 pub use crate::entry::{Entry, EntryKind};
 pub use crate::error::BuildError;
 pub use crate::filter::{Filter, FilterError};

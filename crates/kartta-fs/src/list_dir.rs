@@ -248,7 +248,7 @@ impl Index {
     /// # Examples
     ///
     /// ```
-    /// use kartta_fs::{Config, Index, ListOptions};
+    /// use kartta_fs::{BuildOptions, Index, ListOptions};
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let dir = tempfile::tempdir()?;
@@ -256,7 +256,7 @@ impl Index {
     /// std::fs::write(dir.path().join("src/main.rs"), "")?;
     /// std::fs::write(dir.path().join("src/net/tcp.rs"), "")?;
     ///
-    /// let index = Index::build(dir.path(), &Config::default())?.into_index();
+    /// let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
     ///
     /// let listed = index.list_dir("src", &ListOptions::default())?;
     /// let paths: Vec<&str> = listed.items().iter().map(|found| found.entry().path()).collect();

@@ -13,7 +13,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 
 use kartta_fs::{
-    BinaryExtensions, BuildError, Config, Entry, EntryKind, Filter, IgnoreSources, Index,
+    BinaryExtensions, BuildError, BuildOptions, Entry, EntryKind, Filter, IgnoreSources, Index,
     ListDirError, ListOptions, Listed, Listing,
 };
 use tempfile::TempDir;
@@ -41,8 +41,8 @@ fn tree(spec: &[(&str, &str)]) -> TempDir {
 }
 
 /// The index of a complete build, which is what every test but the failure ones expects.
-fn index(root: &Path, config: &Config) -> Index {
-    let outcome = Index::build(root, config).expect("build the index");
+fn index(root: &Path, options: &BuildOptions) -> Index {
+    let outcome = Index::build(root, options).expect("build the index");
     assert!(
         outcome.errors().is_empty(),
         "unexpected build errors: {:?}",
@@ -54,7 +54,7 @@ fn index(root: &Path, config: &Config) -> Index {
 
 /// The index of a complete build under the default configuration.
 fn default_index(root: &Path) -> Index {
-    index(root, &Config::default())
+    index(root, &BuildOptions::default())
 }
 
 fn paths(index: &Index) -> Vec<&str> {
@@ -314,9 +314,9 @@ fn ignore_sources_none_indexes_everything_except_the_git_directory() {
         ("build.log", "noise"),
     ]);
 
-    let mut config = Config::default();
-    config.ignore = IgnoreSources::None;
-    let index = index(dir.path(), &config);
+    let mut options = BuildOptions::default();
+    options.ignore_sources = IgnoreSources::None;
+    let index = index(dir.path(), &options);
 
     assert_eq!(paths(&index), [".gitignore", "build.log"]);
 }
@@ -332,7 +332,7 @@ fn an_unreadable_gitignore_is_reported_and_its_rules_do_not_apply() {
     let gitignore_that_is_a_directory = (".gitignore/", "");
     let dir = tree(&[gitignore_that_is_a_directory, ("build.log", "noise")]);
 
-    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+    let outcome = Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
     let reported: Vec<&Path> = outcome
         .errors()
         .iter()
@@ -353,9 +353,9 @@ fn two_builds_of_one_tree_produce_identical_indexes() {
     ]);
 
     let first = default_index(dir.path());
-    let mut config = Config::default();
-    config.threads = NonZeroUsize::new(1);
-    let second = index(dir.path(), &config);
+    let mut options = BuildOptions::default();
+    options.threads = NonZeroUsize::new(1);
+    let second = index(dir.path(), &options);
 
     assert!(first.entries().eq(second.entries()));
 }
@@ -547,7 +547,7 @@ fn a_gitignore_that_is_a_fifo_does_not_block_the_build() {
 
     let root = dir.path().to_path_buf();
     let (report, errors) = within_deadline(move || {
-        let outcome = Index::build(&root, &Config::default()).expect("build the index");
+        let outcome = Index::build(&root, &BuildOptions::default()).expect("build the index");
         let errors = format!("{:?}", outcome.errors());
         let carries_ignore = outcome
             .errors()
@@ -620,7 +620,7 @@ fn a_gitignore_symlinked_out_of_the_tree_is_refused_and_reported() {
     )
     .expect("create an out-of-tree .gitignore symlink");
 
-    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+    let outcome = Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
 
     assert!(
         outcome
@@ -660,7 +660,7 @@ fn a_dangling_gitignore_symlink_is_reported_and_its_rules_do_not_apply() {
     std::os::unix::fs::symlink("nowhere", dir.path().join(".gitignore"))
         .expect("create a dangling .gitignore");
 
-    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+    let outcome = Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
 
     assert!(
         outcome
@@ -686,7 +686,7 @@ fn an_entry_whose_name_is_not_utf8_is_reported_rather_than_indexed() {
         fs::write(dir.path().join(OsStr::from_bytes(raw)), "y").expect("write a non-UTF-8 name");
     }
 
-    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+    let outcome = Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
     let reported = outcome
         .errors()
         .iter()
@@ -803,7 +803,7 @@ fn a_dangling_symlink_reports_the_target_that_resolves_to_nothing() {
     std::os::unix::fs::symlink("nowhere", dir.path().join("dangling"))
         .expect("create a dangling symlink");
 
-    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+    let outcome = Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
 
     assert!(
         outcome.errors().is_empty(),
@@ -844,7 +844,7 @@ fn a_symlink_whose_target_is_not_utf8_reports_no_target_and_no_error() {
     std::os::unix::fs::symlink(OsStr::from_bytes(b"\xff"), dir.path().join("link"))
         .expect("create a symlink to an unrepresentable target");
 
-    let outcome = Index::build(dir.path(), &Config::default()).expect("build the index");
+    let outcome = Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
 
     assert!(
         outcome.errors().is_empty(),
@@ -1331,10 +1331,10 @@ fn an_extension_settles_a_binary_file_without_the_file_being_read() {
 
 /// The index of a complete build that classifies names by `binary` instead of the built-in set.
 fn index_with_binary_extensions(root: &Path, binary: BinaryExtensions) -> Index {
-    let mut config = Config::default();
-    config.binary_extensions = binary;
+    let mut options = BuildOptions::default();
+    options.binary_extensions = binary;
 
-    index(root, &config)
+    index(root, &options)
 }
 
 #[test]
