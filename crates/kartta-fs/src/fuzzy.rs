@@ -1,4 +1,4 @@
-//! The fuzzy path search over a built [`Index`] — [`Index::fuzzy_paths`].
+//! The fuzzy path search over a built [`Index`] — [`Index::fuzzy`].
 
 use std::num::NonZeroUsize;
 
@@ -34,11 +34,53 @@ const fn scoring() -> Scoring {
 /// This is deliberately this crate's own type rather than the scorer's. The ranking engine is an implementation
 /// detail, and re-exporting its result type would make swapping it a breaking change for every caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PathMatch<'a> {
+pub struct FuzzyMatch<'a> {
     /// The matched path, root-relative and forward-slash separated, borrowed from the index.
     pub path: &'a str,
     /// Its rank key: higher is better.
     pub score: i32,
+}
+
+/// Which paths a fuzzy search ranks, and how many it returns.
+///
+/// Every bound is absent by default, which ranks every indexed file and returns every match.
+///
+/// # Examples
+///
+/// ```
+/// use kartta_fs::{Filter, FuzzyOptions};
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let best_ten = FuzzyOptions::default().limit(10);
+///
+/// let sources = Filter::new(["src/**"])?;
+/// let in_sources = FuzzyOptions::default().filter(&sources);
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, Default)]
+#[non_exhaustive]
+pub struct FuzzyOptions<'a> {
+    /// The paths to rank. A path the filter does not select is never scored. `None` ranks every indexed file.
+    pub filter: Option<&'a Filter>,
+    /// How many paths to return at most. `None` returns every match.
+    pub limit: Option<NonZeroUsize>,
+}
+
+impl<'a> FuzzyOptions<'a> {
+    /// Ranks only the paths `filter` selects.
+    #[must_use]
+    pub const fn filter(mut self, filter: &'a Filter) -> Self {
+        self.filter = Some(filter);
+        self
+    }
+
+    /// Returns at most `limit` paths. `0` lifts the bound, as `None` does.
+    #[must_use]
+    pub const fn limit(mut self, limit: usize) -> Self {
+        self.limit = NonZeroUsize::new(limit);
+        self
+    }
 }
 
 impl Index {
@@ -46,9 +88,8 @@ impl Index {
     ///
     /// A path matches when it contains every whitespace-separated term of the query as a subsequence, and ranks by how
     /// well those terms align against path structure — a hit inside a filename beats a hit inside a directory name, so
-    /// `main` finds `src/main.rs` before `main/lib.rs`. An empty query matches everything in index order. `filter`
-    /// narrows what is ranked before a path is scored, and `None` ranks every indexed file. `limit` caps the returned
-    /// list; `None` returns every match.
+    /// `main` finds `src/main.rs` before `main/lib.rs`. An empty query matches everything in index order.
+    /// [`FuzzyOptions`] narrows what is ranked and caps what is returned.
     ///
     /// Directories are not ranked. A path query answers "which file did you mean", and a directory that matches would
     /// otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are* ranked: they
@@ -74,8 +115,7 @@ impl Index {
     /// # Examples
     ///
     /// ```
-    /// use kartta_fs::{BuildOptions, Filter, Index};
-    /// # use std::num::NonZeroUsize;
+    /// use kartta_fs::{BuildOptions, Filter, FuzzyOptions, Index};
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let dir = tempfile::tempdir()?;
@@ -86,26 +126,22 @@ impl Index {
     ///
     /// let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
     ///
-    /// let ranked = index.fuzzy_paths("main", None, None);
+    /// let ranked = index.fuzzy("main", &FuzzyOptions::default());
     /// let paths: Vec<&str> = ranked.iter().map(|found| found.path).collect();
     /// assert_eq!(paths, ["src/main.rs", "main/lib.rs"]);
     ///
-    /// assert_eq!(index.fuzzy_paths("main", None, NonZeroUsize::new(1)).len(), 1);
+    /// assert_eq!(index.fuzzy("main", &FuzzyOptions::default().limit(1)).len(), 1);
     ///
     /// let in_src = Filter::new(["src/**"])?;
-    /// let narrowed = index.fuzzy_paths("main", Some(&in_src), None);
+    /// let narrowed = index.fuzzy("main", &FuzzyOptions::default().filter(&in_src));
     /// assert_eq!(narrowed.len(), 1);
     /// assert_eq!(narrowed[0].path, "src/main.rs");
     /// # Ok(())
     /// # }
     /// ```
     #[must_use]
-    pub fn fuzzy_paths(
-        &self,
-        query: &str,
-        filter: Option<&Filter>,
-        limit: Option<NonZeroUsize>,
-    ) -> Vec<PathMatch<'_>> {
+    pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> Vec<FuzzyMatch<'_>> {
+        let FuzzyOptions { filter, limit } = *options;
         let rankings: Vec<Vec<Match<'_>>> = (0..self.len().div_ceil(RANKED_CHUNK))
             .into_par_iter()
             .map(|chunk| {
@@ -118,7 +154,7 @@ impl Index {
         Matcher::new(SCORING)
             .merge(rankings, query, limit)
             .into_iter()
-            .map(|found| PathMatch {
+            .map(|found| FuzzyMatch {
                 path: found.candidate,
                 score: found.score,
             })

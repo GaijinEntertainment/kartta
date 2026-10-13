@@ -222,7 +222,7 @@ impl Index {
     /// descendants and not the directory itself, in [`Index::entries`] order — so each directory is immediately
     /// followed by its own subtree, and one directory's children are name-sorted.
     ///
-    /// Directories are listed. That is what parts this from [`Index::glob_paths`] and [`Index::fuzzy_paths`], which
+    /// Directories are listed. That is what parts this from [`Index::glob`] and [`Index::fuzzy`], which
     /// answer "which file did you mean" and drop them: a listing answers what is in a place, and the directories are
     /// half of that answer.
     ///

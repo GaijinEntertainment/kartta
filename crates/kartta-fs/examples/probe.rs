@@ -18,11 +18,10 @@
               report"
 )]
 
-use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use kartta_fs::{BuildOptions, EntryKind, Index};
+use kartta_fs::{BuildOptions, EntryKind, FuzzyOptions, Index};
 
 /// How many ranked paths to print.
 const SHOWN: usize = 10;
@@ -64,7 +63,7 @@ fn main() {
     };
 
     let started = Instant::now();
-    let ranked = index.fuzzy_paths(&query, None, NonZeroUsize::new(SHOWN));
+    let ranked = index.fuzzy(&query, &FuzzyOptions::default().limit(SHOWN));
     let elapsed = started.elapsed();
 
     println!("\n  {query:?} ranked in {elapsed:.2?}");

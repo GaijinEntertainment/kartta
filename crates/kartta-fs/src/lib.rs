@@ -7,7 +7,7 @@
 //! virtual-filesystem abstraction to mock.
 //!
 //! ```
-//! use kartta_fs::{BuildOptions, Index};
+//! use kartta_fs::{BuildOptions, FuzzyOptions, Index};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let dir = tempfile::tempdir()?;
@@ -20,7 +20,7 @@
 //! assert!(outcome.errors().is_empty(), "a complete answer");
 //! let index = outcome.into_index();
 //!
-//! let ranked = index.fuzzy_paths("main", None, None);
+//! let ranked = index.fuzzy("main", &FuzzyOptions::default());
 //! assert_eq!(ranked[0].path, "src/main.rs");
 //! assert!(index.entry("build.log").is_none(), "the .gitignore applied");
 //! # Ok(())
@@ -137,6 +137,7 @@ pub use crate::config::{BuildOptions, IgnoreSources};
 pub use crate::entry::{Entry, EntryKind};
 pub use crate::error::BuildError;
 pub use crate::filter::{Filter, FilterError};
-pub use crate::fuzzy::PathMatch;
+pub use crate::fuzzy::{FuzzyMatch, FuzzyOptions};
+pub use crate::glob::GlobOptions;
 pub use crate::index::{BuildOutcome, Index, Inspected};
 pub use crate::list::{ListError, ListOptions, Listed, Listing};
