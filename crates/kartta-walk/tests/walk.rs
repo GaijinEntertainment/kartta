@@ -45,9 +45,9 @@ struct Everything;
 
 impl Policy for Everything {
     type State = ();
-    type Node = EntryKind;
+    type Value = EntryKind;
 
-    fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<EntryKind> {
         Visit::Keep(entry.kind())
@@ -73,7 +73,7 @@ fn render<N: std::fmt::Debug>(tree: &Tree<N>) -> Vec<String> {
     }
 
     let mut out = Vec::new();
-    descend(tree.roots(), "", &mut out);
+    descend(tree.children(), "", &mut out);
 
     out
 }
@@ -106,7 +106,7 @@ fn records_the_tree_depth_first_with_children_name_sorted() {
         ]
     );
     assert!(tree.errors().is_empty());
-    assert!(!tree.cancelled());
+    assert!(!tree.is_cancelled());
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn an_empty_directory_is_a_node_without_children() {
 
     let empty = tree
         .tree()
-        .roots()
+        .children()
         .find(|node| node.name() == "empty")
         .expect("empty is listed");
 
@@ -188,8 +188,8 @@ fn the_walk_root_is_not_itself_a_node() {
 
     let tree = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
 
-    let roots: Vec<&str> = tree.tree().roots().map(Node::name).collect();
-    assert_eq!(roots, ["a.txt", "dir", "empty", "z.txt"]);
+    let children: Vec<&str> = tree.tree().children().map(Node::name).collect();
+    assert_eq!(children, ["a.txt", "dir", "empty", "z.txt"]);
 }
 
 /// Lists a named directory but never descends into it.
@@ -197,9 +197,9 @@ struct Prune(&'static str);
 
 impl Policy for Prune {
     type State = ();
-    type Node = EntryKind;
+    type Value = EntryKind;
 
-    fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<EntryKind> {
         if entry.kind() == EntryKind::Dir && entry.name() == self.0 {
@@ -227,9 +227,9 @@ struct SkipPrefix(&'static str);
 
 impl Policy for SkipPrefix {
     type State = ();
-    type Node = EntryKind;
+    type Value = EntryKind;
 
-    fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<EntryKind> {
         if entry.name().starts_with(self.0) {
@@ -258,10 +258,10 @@ struct Trail;
 impl Policy for Trail {
     /// The chain of directory names from the walk root to the current directory.
     type State = Vec<String>;
-    type Node = String;
+    type Value = String;
 
-    fn enter(&self, dir: &Dir<'_>, parent: &Vec<String>) -> Vec<String> {
-        let mut trail = parent.clone();
+    fn enter(&self, dir: &Dir<'_>, parent_state: &Vec<String>) -> Vec<String> {
+        let mut trail = parent_state.clone();
         if !dir.path().is_empty() {
             trail.push(dir.path().to_owned());
         }
@@ -300,9 +300,9 @@ struct Control;
 
 impl Policy for Control {
     type State = String;
-    type Node = String;
+    type Value = String;
 
-    fn enter(&self, dir: &Dir<'_>, _parent: &String) -> String {
+    fn enter(&self, dir: &Dir<'_>, _parent_state: &String) -> String {
         format!(
             "marker={} count={}",
             dir.contains(".marker"),
@@ -354,9 +354,9 @@ struct Paths;
 
 impl Policy for Paths {
     type State = ();
-    type Node = String;
+    type Value = String;
 
-    fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<String> {
         Visit::Keep(entry.path().to_owned())
@@ -418,9 +418,9 @@ struct Native;
 
 impl Policy for Native {
     type State = ();
-    type Node = bool;
+    type Value = bool;
 
-    fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<bool> {
         // `native_path()` is the platform's own spelling, so it must open what `path()` merely names.
@@ -449,9 +449,9 @@ struct CancelAfter {
 
 impl Policy for CancelAfter {
     type State = ();
-    type Node = EntryKind;
+    type Value = EntryKind;
 
-    fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<EntryKind> {
         if self.seen.fetch_add(1, Ordering::Relaxed) >= self.after {
@@ -472,13 +472,13 @@ fn cancellation_truncates_the_walk_and_reports_it() {
         seen: AtomicUsize::new(0),
     };
     let opts = WalkOptions {
-        cancel: Some(token),
+        cancel_token: Some(token),
         ..Default::default()
     };
 
     let tree = on_threads(1, || walk(dir.path(), &policy, &(), &opts).expect("walk"));
 
-    assert!(tree.cancelled());
+    assert!(tree.is_cancelled());
     assert!(
         tree.tree().len() < 7,
         "the walk stopped short: {} of 7",
@@ -496,14 +496,14 @@ fn a_token_cancelled_up_front_records_nothing() {
     let token = CancelToken::new();
     token.cancel();
     let opts = WalkOptions {
-        cancel: Some(token),
+        cancel_token: Some(token),
         ..Default::default()
     };
 
     let tree = walk(dir.path(), &Everything, &(), &opts).expect("walk");
 
     assert!(tree.tree().is_empty());
-    assert!(tree.cancelled());
+    assert!(tree.is_cancelled());
 }
 
 #[test]
@@ -512,14 +512,14 @@ fn cancellation_composes_with_a_thread_limit() {
     let token = CancelToken::new();
     token.cancel();
     let opts = WalkOptions {
-        cancel: Some(token),
+        cancel_token: Some(token),
         threads: NonZeroUsize::new(2),
     };
 
     let tree = walk(dir.path(), &Everything, &(), &opts).expect("walk");
 
     assert!(tree.tree().is_empty());
-    assert!(tree.cancelled());
+    assert!(tree.is_cancelled());
 }
 
 #[test]
@@ -555,9 +555,9 @@ struct Threads;
 
 impl Policy for Threads {
     type State = ();
-    type Node = std::thread::ThreadId;
+    type Value = std::thread::ThreadId;
 
-    fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 
     fn visit(&self, _entry: &Entry<'_>, _state: &()) -> Visit<std::thread::ThreadId> {
         Visit::Keep(std::thread::current().id())
@@ -609,7 +609,7 @@ fn one_thread_walks_the_same_tree_as_many() {
 fn a_thread_limit_records_the_whole_tree() {
     let dir = wide_fixture(8);
     let opts = WalkOptions {
-        cancel: None,
+        cancel_token: None,
         threads: NonZeroUsize::new(2),
     };
 
@@ -617,7 +617,7 @@ fn a_thread_limit_records_the_whole_tree() {
 
     // Bounding the parallelism bounds the workers, never the answer.
     assert_eq!(tree.tree().len(), 16);
-    assert!(!tree.cancelled());
+    assert!(!tree.is_cancelled());
     assert!(tree.errors().is_empty());
 }
 
@@ -707,6 +707,6 @@ mod unix {
         );
         assert!(!names.contains(&"hidden.txt"), "its contents are missing");
         assert!(names.contains(&"z.txt"), "the rest of the tree survived");
-        assert!(!tree.cancelled(), "a read failure is not a cancellation");
+        assert!(!tree.is_cancelled(), "a read failure is not a cancellation");
     }
 }

@@ -498,7 +498,7 @@ struct Frame<'a> {
 fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str)) {
     let mut path = String::new();
     let mut stack = vec![Frame {
-        children: tree.roots(),
+        children: tree.children(),
         prefix: 0,
     }];
 

@@ -17,8 +17,8 @@ use kartta_walk::{Dir, Entry, EntryKind, Policy, Visit, WalkOptions, WalkOutcome
 use tempfile::TempDir;
 
 /// Directories per level and files per directory in the generated tree. Three levels of eight give 584 directories and
-/// 7020 files — 7604 entries in total, enough that parallelism has something to divide and small enough to generate in a
-/// second. Criterion's element throughput is reported against that count.
+/// 7020 files — 7604 entries in total, enough that parallelism has something to divide and small enough to generate in
+/// a second. Criterion's element throughput is reported against that count.
 const FANOUT: usize = 8;
 const DEPTH: usize = 3;
 const FILES: usize = 12;
@@ -62,15 +62,15 @@ fn summarize(outcome: &WalkOutcome<Record>) -> Summary {
     }
 }
 
-/// Records [`Record`] for every entry, descending everywhere — the shape of work a real consumer asks for, including one
-/// stat per regular file.
+/// Records [`Record`] for every entry, descending everywhere — the shape of work a real consumer asks for, including
+/// one stat per regular file.
 struct Sizes;
 
 impl Policy for Sizes {
     type State = ();
-    type Node = Record;
+    type Value = Record;
 
-    fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<Record> {
         let kind = entry.kind();
@@ -122,8 +122,8 @@ fn bench_walk(c: &mut Criterion) {
     let probe = walk(&root, &Sizes, &(), &WalkOptions::default()).expect("probe walk");
     assert!(probe.errors().is_empty(), "the bench tree walks cleanly");
 
-    // Pins the counts the constants above claim, so a change to the generator cannot quietly move the goalposts. Skipped
-    // for a caller-supplied tree, whose shape is unknown.
+    // Pins the counts the constants above claim, so a change to the generator cannot quietly move the goalposts.
+    // Skipped for a caller-supplied tree, whose shape is unknown.
     let summary = summarize(&probe);
     if std::env::var_os("KARTTA_WALK_BENCH_DIR").is_none() {
         let dirs = FANOUT + FANOUT.pow(2) + FANOUT.pow(3);

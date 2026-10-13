@@ -33,9 +33,9 @@ struct Sizes;
 
 impl Policy for Sizes {
     type State = ();
-    type Node = Record;
+    type Value = Record;
 
-    fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<Record> {
         let kind = entry.kind();
