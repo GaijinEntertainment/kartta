@@ -117,10 +117,9 @@
 //! implemented.
 
 mod binary;
+mod build;
 mod capped;
-mod config;
 mod entry;
-mod error;
 mod filter;
 mod fuzzy;
 mod glob;
@@ -132,10 +131,9 @@ mod policy;
 mod rules;
 
 pub use crate::binary::{BinaryExtensions, BinaryExtensionsError, BinaryGroup};
+pub use crate::build::{BuildError, BuildOptions, IgnoreSources};
 pub use crate::capped::Capped;
-pub use crate::config::{BuildOptions, IgnoreSources};
 pub use crate::entry::{Entry, EntryKind};
-pub use crate::error::BuildError;
 pub use crate::filter::{Filter, FilterError};
 pub use crate::fuzzy::{FuzzyMatch, FuzzyOptions};
 pub use crate::glob::GlobOptions;
