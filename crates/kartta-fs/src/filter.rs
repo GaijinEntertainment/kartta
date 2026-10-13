@@ -1,17 +1,17 @@
-//! [`Filter`] — the compiled globs a path query selects with.
+//! [`Filter`] — the compiled globs a path search selects with.
 
 use std::fmt;
 
 use globset::{Candidate, Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 
-/// The globs a path query selects with, compiled once.
+/// The globs a path search selects with, compiled once.
 ///
 /// Every pattern compiles when the filter is built, so holding a `Filter` is proof that its patterns parsed and a query
-/// that takes one cannot fail. A path is kept when **any** pattern matches it, which makes a filter with no patterns
-/// match nothing rather than everything — it is the empty disjunction, and "select everything" is a different question
-/// spelled differently, as [`FuzzyOptions::filter`](crate::FuzzyOptions::filter) left `None`.
+/// that takes one cannot fail. A path is selected when **any** pattern matches it, which makes a filter with no
+/// patterns match nothing rather than everything — it is the empty disjunction, and "select everything" is a different
+/// question spelled differently, as [`FuzzyOptions::filter`](crate::FuzzyOptions::filter) left `None`.
 ///
-/// A filter only ever selects, and what happens to the selection belongs to the query that takes it: a path query
+/// A filter only ever selects, and what happens to the selection belongs to the query that takes it: a path search
 /// keeps what a filter selects, a listing's [`collapse`](crate::ListOptions::collapse) stops at the directories one
 /// selects, and its [`exclude`](crate::ListOptions::exclude) leaves out what one selects. What git's rules hide is
 /// [`IgnoreSources`](crate::IgnoreSources)'s business.
@@ -26,7 +26,7 @@ use globset::{Candidate, Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 ///   `src/main.rs` and never `vendor/src/main.rs`; `**/src/*.rs` finds both.
 /// - **A pattern containing `/` stops `*` at a segment boundary; one without `/` does not.** So `*.rs` finds
 ///   `src/main.rs` — a pattern that names a file rather than a place matches it wherever it sits — while `src/*.rs`
-///   does not reach `src/deep/main.rs`. A leading `**/` matches zero segments as readily as many, so `src/**/*.rs`
+///   does not reach `src/deep/main.rs`. A `**/` segment matches zero segments as readily as many, so `src/**/*.rs`
 ///   finds `src/main.rs` as well.
 /// - **`\` escapes the character after it, on every platform.** An indexed path is forward-slash form everywhere, so
 ///   `\` is never a separator here and is free to be the escape. Pinning it is what keeps one pattern meaning one
@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn a_leading_double_star_matches_zero_segments_as_well_as_many() {
+    fn a_double_star_segment_matches_zero_segments_as_well_as_many() {
         let filter = filter(&["src/**/*.rs"]);
 
         assert!(filter.matches("src/main.rs"));
@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn a_path_is_kept_when_any_one_pattern_matches_it() {
+    fn a_path_is_selected_when_any_one_pattern_matches_it() {
         let filter = filter(&["*.rs", "*.toml"]);
 
         assert!(filter.matches("main.rs"));

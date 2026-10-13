@@ -1,8 +1,8 @@
 //! Repository file index: one filesystem walk builds a snapshot, and every query answers from it.
 //!
 //! [`Index::build`] reads a directory tree once, applying git's ignore rules on the way down, and keeps what survives.
-//! Every question about *structure* is answered from that snapshot — a lookup, a listing and both path queries never
-//! re-state the tree. Questions about a file's own bytes are answered by reading it, on the first ask for that entry,
+//! Every question about *structure* is answered from that snapshot — a lookup, a listing and both path searches never
+//! re-read the tree. Questions about a file's own bytes are answered by reading it, on the first ask for that entry,
 //! and the answer is kept. Construction takes an OS path and reads the real filesystem; there is no
 //! virtual-filesystem abstraction to mock.
 //!
@@ -89,7 +89,7 @@
 //! one are indistinguishable to every query here, since neither is read, so following one to tell them apart would buy
 //! nothing for a syscall per link.
 //!
-//! Listed is thus not the same as readable, by rule rather than by accident.
+//! Indexed is thus not the same as readable, by rule rather than by accident.
 //!
 //! The rule binds what the index *reports*, not what a concurrent writer can do to the tree underneath it. An entry
 //! classified as a directory and then replaced by a symlink before the walk lists it is descended through, and the
@@ -112,7 +112,7 @@
 //! # What is here so far
 //!
 //! The walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification, and
-//! the two path queries — glob and fuzzy — both narrowed by a [`Filter`]. Not yet: content search, regex queries,
+//! the two path searches — glob and fuzzy — both narrowed by a [`Filter`]. Not yet: content search, regex search,
 //! incremental re-walk, and the ignore sources outside the tree — [`IgnoreSources`] names only the levels that are
 //! implemented.
 

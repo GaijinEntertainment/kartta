@@ -7,7 +7,7 @@ pub use kartta_walk::EntryKind;
 /// An entry is a view borrowed from its [`Index`](crate::Index), which keeps every path in one buffer, so holding or
 /// copying an entry allocates nothing.
 ///
-/// The path is repository-relative and forward-slash separated on every platform, and it is the entry's identity —
+/// The path is root-relative and forward-slash separated on every platform, and it is the entry's identity —
 /// [`Index::entry`](crate::Index::entry) looks one up by exactly this string. To *open* the entry, join it onto
 /// [`Index::root`](crate::Index::root); the join is where the platform's own separator comes back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

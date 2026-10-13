@@ -34,20 +34,20 @@ impl GlobOptions {
 }
 
 impl Index {
-    /// Lists the paths `filter` selects, in index order.
+    /// Returns the paths `filter` selects, in index order.
     ///
     /// Nothing here ranks: a glob answers whether a path matches and has no notion of matching it better, so the order
     /// is [`Index::entries`]' own depth-first one and [`GlobOptions::limit`] takes the first paths in it rather than
     /// the best. [`Filter`] carries the dialect the patterns are written in.
     ///
     /// Because nothing ranks, [`Capped::truncated`] is what tells a caller whether the limit turned a path away. A
-    /// ranked query needs no such flag — its order already says the rest scored lower — but ten paths in index order
-    /// look identical to the first ten of two hundred. It costs one extra match: the query pulls one path past the
+    /// ranked search needs no such flag — its order already says the rest scored lower — but ten paths in index order
+    /// look identical to the first ten of two hundred. It costs one extra match: the search pulls one path past the
     /// limit and reports whether it was there.
     ///
-    /// Directories are not listed. A path query answers "which file did you mean", and a directory that matches would
-    /// otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are* listed: they
-    /// are files as far as the tree is concerned, and are reported without being followed.
+    /// Directories are not returned. A path search answers "which file did you mean", and a directory that matches
+    /// would otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are*
+    /// returned: they are files as far as the tree is concerned, and are reported without being followed.
     ///
     /// # Examples
     ///

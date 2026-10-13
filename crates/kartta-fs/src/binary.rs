@@ -64,12 +64,13 @@ impl BinaryExtensions {
 
     /// A set of the caller's own extensions.
     ///
-    /// An entry may carry one leading dot and any ASCII case, so `vromfs`, `.vromfs` and `.VROMFS` are one extension.
+    /// A given extension may carry one leading dot and any ASCII case, so `vromfs`, `.vromfs` and `.VROMFS` are one
+    /// extension.
     ///
     /// # Errors
     ///
-    /// Returns [`BinaryExtensionsError`] for the first entry that no extension of a file name can equal, naming that
-    /// entry as it was given.
+    /// Returns [`BinaryExtensionsError`] for the first given extension that no extension of a file name can equal,
+    /// naming it as it was given.
     pub fn new<I, E>(extensions: I) -> Result<Self, BinaryExtensionsError>
     where
         I: IntoIterator<Item = E>,
@@ -151,34 +152,34 @@ impl Default for BinaryExtensions {
     }
 }
 
-/// Why an entry cannot join a [`BinaryExtensions`] set: no extension of any file name can equal it.
+/// Why a given extension cannot join a [`BinaryExtensions`] set: no extension of any file name can equal it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum BinaryExtensionsError {
-    /// The entry is empty once its leading dot is dropped.
+    /// The extension is empty once its leading dot is dropped.
     #[error("extension {extension:?} is empty")]
     Empty {
-        /// The entry as it was given.
+        /// The extension as it was given.
         extension: String,
     },
-    /// The entry holds a dot past its first character, and only the last extension of a name is compared.
+    /// The extension holds a dot past its first character, and only the last extension of a name is compared.
     #[error(
         "extension {extension:?} holds a dot, and only the last extension of a name is compared"
     )]
     Dotted {
-        /// The entry as it was given.
+        /// The extension as it was given.
         extension: String,
     },
-    /// The entry holds a `/`, which no single path segment can.
+    /// The extension holds a `/`, which no single path segment can.
     #[error("extension {extension:?} holds a `/`, which no file name can")]
     Separator {
-        /// The entry as it was given.
+        /// The extension as it was given.
         extension: String,
     },
-    /// The entry holds a NUL, which no file name can.
+    /// The extension holds a NUL, which no file name can.
     #[error("extension {extension:?} holds a NUL, which no file name can")]
     Nul {
-        /// The entry as it was given.
+        /// The extension as it was given.
         extension: String,
     },
 }
@@ -481,7 +482,7 @@ mod tests {
     #[test]
     fn a_given_extension_drops_one_leading_dot_and_its_case() {
         let given = BinaryExtensions::new(["vromfs", ".VROMFS", ".Vromfs", "nosuchformat"])
-            .expect("every entry is an extension");
+            .expect("every given string is an extension");
 
         assert_eq!(
             given.extensions().collect::<Vec<_>>(),
@@ -491,9 +492,9 @@ mod tests {
     }
 
     #[test]
-    fn an_entry_no_file_name_can_carry_is_refused_by_name() {
+    fn an_extension_no_file_name_can_carry_is_refused_by_name() {
         let refused =
-            |entry: &str| BinaryExtensions::new([entry]).expect_err("the entry is refused");
+            |given: &str| BinaryExtensions::new([given]).expect_err("the extension is refused");
 
         assert_eq!(
             refused(""),
@@ -535,7 +536,7 @@ mod tests {
     }
 
     #[test]
-    fn the_first_refused_entry_is_the_one_named() {
+    fn the_first_refused_extension_is_the_one_named() {
         assert_eq!(
             BinaryExtensions::new(["vromfs", "a/b", ""]),
             Err(BinaryExtensionsError::Separator {
@@ -572,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn no_built_in_extension_names_a_text_format() {
+    fn no_builtin_extension_names_a_text_format() {
         let builtin = BinaryExtensions::builtin();
         let text = [
             "gltf", "dae", "usda", "usd", "obj", "stl", "fbx", "asset", "lib", "pdb", "hdr",
