@@ -19,7 +19,7 @@ paths:
 
 <testing>
 
-- `std::assert_matches` is unstable through Rust 1.97, and its import does not resolve. Write
+- `std::assert_matches` is unstable through Rust 1.99, and its import does not resolve. Write
   `assert!(matches!(value, Pattern))`. Do not write a `match` that ends in `panic!`.
 
 </testing>
