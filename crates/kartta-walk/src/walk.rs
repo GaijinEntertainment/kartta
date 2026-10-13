@@ -237,10 +237,8 @@ impl<P: Policy> Ctx<'_, P> {
             })
             .collect();
 
-        for (index, sub) in subtrees {
-            built.nodes += sub.nodes;
-            built.entries[index].sub = Some(sub);
-        }
+        built.nodes += subtrees.iter().map(|(_, sub)| sub.nodes).sum::<usize>();
+        built.subtrees = subtrees;
 
         built
     }
@@ -255,6 +253,7 @@ impl<P: Policy> Ctx<'_, P> {
     ) -> (Built<P::Node>, Vec<Descent>) {
         let mut built = Built {
             entries: Vec::new(),
+            subtrees: Vec::new(),
             errors,
             nodes: 0,
         };
@@ -307,7 +306,6 @@ impl<P: Policy> Ctx<'_, P> {
             built.entries.push(Recorded {
                 name: item.name.clone(),
                 value,
-                sub: None,
             });
         }
 
@@ -331,6 +329,7 @@ impl<P: Policy> Ctx<'_, P> {
             ),
             Err(source) => Built {
                 entries: Vec::new(),
+                subtrees: Vec::new(),
                 errors: vec![WalkError::ReadDir {
                     path: child.path,
                     source,
@@ -352,17 +351,18 @@ struct Descent {
 /// copied or renumbered until the single flattening pass.
 struct Built<N> {
     entries: Vec<Recorded<N>>,
+    /// The subtree of each entry the walk descended into, beside that entry's index, in entry order.
+    subtrees: Vec<(usize, Self)>,
     errors: Vec<WalkError>,
     /// How many entries this directory's whole subtree records, its own included, so the arena is allocated once at
     /// its final size.
     nodes: usize,
 }
 
-/// One kept entry, with its subtree when the walk descended into it.
+/// One kept entry.
 struct Recorded<N> {
     name: Box<str>,
     value: N,
-    sub: Option<Built<N>>,
 }
 
 /// One directory's listing, plus whatever could not be read while listing it.
@@ -424,14 +424,16 @@ fn flatten<N>(
 ) -> Vec<NodeId> {
     let Built {
         entries,
+        subtrees,
         errors: mut here,
         nodes: _,
     } = built;
     errors.append(&mut here);
 
+    let mut subtrees = subtrees.into_iter().peekable();
     let mut ids = Vec::with_capacity(entries.len());
 
-    for Recorded { name, value, sub } in entries {
+    for (index, Recorded { name, value }) in entries.into_iter().enumerate() {
         let id = NodeId(node_id(nodes.len()));
         nodes.push(Node {
             name,
@@ -440,7 +442,7 @@ fn flatten<N>(
         });
         ids.push(id);
 
-        if let Some(sub) = sub {
+        if let Some((_, sub)) = subtrees.next_if(|&(at, _)| at == index) {
             let children = flatten(sub, nodes, errors);
             nodes[id.index()].children = children;
         }
