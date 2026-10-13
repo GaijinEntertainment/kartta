@@ -21,7 +21,7 @@ use tempfile::TempDir;
 /// a second. Criterion's element throughput is reported against that count.
 const FANOUT: usize = 8;
 const DEPTH: usize = 3;
-const FILES: usize = 12;
+const FILES_PER_DIR: usize = 12;
 
 /// What a consumer records per entry: the kind, and a size for a regular file whose metadata could be read.
 ///
@@ -98,9 +98,9 @@ fn bench_root() -> (PathBuf, Option<TempDir>) {
     (root, Some(temp))
 }
 
-/// Writes `FILES` files into `dir`, then `FANOUT` subdirectories built the same way until `depth` runs out.
+/// Writes `FILES_PER_DIR` files into `dir`, then `FANOUT` subdirectories built the same way until `depth` runs out.
 fn generate(dir: &Path, depth: usize) {
-    for file in 0..FILES {
+    for file in 0..FILES_PER_DIR {
         let path = dir.join(format!("file{file:02}.txt"));
         std::fs::write(path, "x".repeat(file * 8)).expect("write bench file");
     }
@@ -128,7 +128,7 @@ fn bench_walk(c: &mut Criterion) {
     if std::env::var_os("KARTTA_WALK_BENCH_DIR").is_none() {
         let dirs = FANOUT + FANOUT.pow(2) + FANOUT.pow(3);
         assert_eq!(summary.dirs, dirs);
-        assert_eq!(summary.entries, dirs + FILES * (dirs + 1));
+        assert_eq!(summary.entries, dirs + FILES_PER_DIR * (dirs + 1));
         assert!(summary.bytes > 0, "the fixture files have content");
     }
 
@@ -146,17 +146,17 @@ fn bench_walk(c: &mut Criterion) {
 
     // With `threads` set, each walk builds its own pool — the cost a caller in a restricted environment actually pays.
     for threads in [1_usize, 2, 4, 8] {
-        let opts = WalkOptions {
+        let options = WalkOptions {
             threads: NonZeroUsize::new(threads),
             ..Default::default()
         };
 
         group.bench_with_input(
             BenchmarkId::new("threads", threads),
-            &opts,
-            |bencher, opts| {
+            &options,
+            |bencher, options| {
                 bencher.iter(|| {
-                    let outcome = walk(black_box(&root), &Sizes, &(), opts).expect("walk");
+                    let outcome = walk(black_box(&root), &Sizes, &(), options).expect("walk");
 
                     black_box(summarize(&outcome))
                 });

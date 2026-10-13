@@ -15,7 +15,7 @@ projection of the tree, ignore-file semantics, and every query.
 The report is checked and dropped; `into_tree` hands over the structure, which is the only part worth keeping. A `Tree`
 carries no diagnostics precisely so it cannot be mistaken for a record of how it was obtained.
 
-It exists to feed a filesystem index. A tree is what this returns because a tree is what a traversal discovers, and
+It exists to feed a repository file index. A tree is what this returns because a tree is what a traversal discovers, and
 reconstructing one costs a second owned copy of every path. What the consumer keeps is its own affair: the index this
 crate feeds flattens the tree into a depth-first list in one pass and answers even its directory listings from that.
 Building that list here would put the consumer's data structure in the walker.
@@ -26,16 +26,16 @@ Building that list here would put the consumer's data structure in the walker.
 ## The policy
 
 A `Policy` decides everything the walk records. `enter` derives the state one directory's entries inherit from their
-parent — where an accumulating rule set such as a `.gitignore` stack lives — and `visit` classifies each entry: keep it
-and descend, keep it but treat it as opaque, or drop it. The walk itself knows nothing about ignore files, hidden
+parent — where an accumulating rule set such as a `.gitignore` stack lives — and `visit` classifies each entry: record
+it and descend, record it but treat it as opaque, or drop it. The walk itself knows nothing about ignore files, hidden
 entries, or name conventions.
 
 Two properties it commits to:
 
 - **Deterministic.** Entries are sorted per directory before the policy sees them and subtree results collect in that
   same order, so an unchanged tree walks to identical output at any thread count.
-- **Symlinks are never followed.** A link is reported as one and never descended, so the walk stays inside the tree it
-  was given and cycle detection is unnecessary.
+- **Symlinks are never followed.** A symlink is reported as one and never descended, so the walk stays inside the tree
+  it was given and cycle detection is unnecessary.
 
 A `CancelToken` ends a walk early, returning the partial tree and saying so through `is_cancelled`; stopping is a
 truncated answer, not an error. Likewise an unreadable subdirectory is collected into the result's error list rather

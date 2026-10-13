@@ -40,7 +40,7 @@ pub struct WalkOptions {
     pub threads: Option<NonZeroUsize>,
 }
 
-/// Walks the tree rooted at `root`, recording whatever `policy` keeps.
+/// Walks the tree rooted at `root`, recording every entry `policy` does not skip.
 ///
 /// `initial` is the state the root directory inherits — the seed [`Policy::enter`] extends for the root's entries.
 /// Parallelism comes from [`WalkOptions::threads`], or from the ambient rayon pool when that is `None`.
@@ -246,8 +246,8 @@ impl<P: Policy> Walker<'_, P> {
         subtree
     }
 
-    /// Asks the policy about each of `dir`'s entries, recording what it keeps and collecting the subdirectories it
-    /// allows the walk to descend into.
+    /// Asks the policy about each of `dir`'s entries, recording what it does not skip and collecting the subdirectories
+    /// it allows the walk to descend into.
     fn classify(
         &self,
         dir: &Dir<'_>,
@@ -373,7 +373,7 @@ struct Subtree<V> {
     name_bytes: usize,
 }
 
-/// One kept entry.
+/// One recorded entry.
 struct Recorded<V> {
     name: Box<str>,
     value: V,

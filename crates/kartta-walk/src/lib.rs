@@ -1,8 +1,8 @@
 //! Parallel filesystem tree walk with caller-controlled descent and cancellation.
 //!
-//! The walk reads a directory, hands its listing to a [`Policy`], and records whatever the policy keeps. A directory's
-//! entries arrive together, its subtrees are walked in parallel, and the result is the tree itself — so parent links
-//! never need reconstructing and children are already in order.
+//! The walk reads a directory, hands its listing to a [`Policy`], and records every entry the policy does not skip. A
+//! directory's entries arrive together, its subtrees are walked in parallel, and the result is the tree itself — so
+//! parent links never need reconstructing and children are already in order.
 //!
 //! # Using it
 //!
@@ -73,11 +73,11 @@
 //!
 //! # Scope
 //!
-//! The crate walks and reports structure; it does not model what it finds. The payload on each node is whatever the
+//! The crate walks and reports structure; it does not model what it finds. The value on each node is whatever the
 //! [`Policy`] chose, so the entry model — kinds, sizes, symlink targets — belongs to the consumer, as do a path lookup,
 //! any flat projection of the tree, ignore-file semantics, and every query.
 //!
-//! It exists to feed a filesystem index. A tree is what this returns because a tree is what a traversal discovers,
+//! It exists to feed a repository file index. A tree is what this returns because a tree is what a traversal discovers,
 //! and reconstructing one costs a second owned copy of every path. What the consumer keeps is its own affair: the
 //! index this crate feeds flattens the tree into a depth-first list in a single pass and answers even its directory
 //! listings from that, on its own side of the boundary.
