@@ -192,7 +192,7 @@ fn long_contiguous_match_saturates_positive() {
 }
 
 #[test]
-fn candidate_beyond_the_alignment_limit_matches_but_ranks_last() {
+fn an_over_long_candidate_matches_but_ranks_last() {
     // Too long to align, so it cannot be ordered against candidates that were scored. It still matches — dropping it
     // would make the file unfindable — but it ranks below every scored candidate rather than above the ones whose
     // leading gaps outweighed their bonuses.
@@ -201,7 +201,7 @@ fn candidate_beyond_the_alignment_limit_matches_but_ranks_last() {
 
     assert!(score(&long, "z").is_some(), "it is still a match");
     let deep_score = score(&deep, "z").expect("a scored match, however poorly");
-    let long_score = score(&long, "z").expect("a match beyond the alignment limit");
+    let long_score = score(&long, "z").expect("an over-long match");
     assert!(
         long_score < deep_score,
         "the unscoreable candidate must not outrank a scored one, got {long_score} against {deep_score}"
@@ -382,7 +382,7 @@ fn hostile_configs() -> Vec<(&'static str, Config)> {
 #[test]
 fn a_full_match_ranks_first_under_any_configuration() {
     // The one ordering the crate promises for every point in the weight space. A derivation that sums a negative
-    // per-character maximum, or a sentinel a positive gap lifted off the floor, breaks it here and nowhere else.
+    // per-character maximum, or a sentinel a positive gap lifted off `i32::MIN`, breaks it here and nowhere else.
     let candidates = ["ab", "xaxbx", "a/b", "abc", "zzab", "ab/ab"];
 
     for (name, config) in hostile_configs() {
@@ -410,7 +410,7 @@ fn no_configuration_lets_an_unmatched_candidate_score() {
 #[test]
 fn a_gap_weight_above_zero_ranks_exactly_as_zero_does() {
     // Gaps are penalties by contract, so a positive one is clamped rather than honoured. Without the clamp it does not
-    // merely rank oddly: added to the "no alignment here" sentinel it lifts it off the floor, and cells that matched
+    // merely rank oddly: added to the "no alignment here" sentinel it lifts it off `i32::MIN`, and cells that matched
     // nothing outrank every real alignment.
     let candidates = ["axxxxxxxxb", "ab.rs", "a/b", "zzz", "ab"];
 
@@ -432,7 +432,7 @@ fn a_gap_weight_above_zero_ranks_exactly_as_zero_does() {
 }
 
 #[test]
-fn an_over_limit_candidate_is_scored_without_being_prepared() {
+fn an_over_long_candidate_is_scored_without_being_prepared() {
     // Sizing the per-candidate buffers to a candidate that is never aligned would let one caller-supplied length hold
     // an allocation for the rest of the query, for work immediately thrown away. Reusing one matcher across a huge
     // candidate and then a normal one proves the huge one left nothing behind that changes the normal one's answer.
@@ -442,7 +442,7 @@ fn an_over_limit_candidate_is_scored_without_being_prepared() {
     let mut matcher = Matcher::new(Config::DEFAULT);
     assert!(
         matcher.score(&huge, "z").is_some(),
-        "an over-limit candidate still matches"
+        "an over-long candidate still matches"
     );
 
     let after: Vec<&str> = matcher
@@ -524,8 +524,8 @@ fn a_full_match_is_per_term_not_per_query() {
 }
 
 #[test]
-fn an_over_limit_non_ascii_candidate_matches_and_ranks_last() {
-    // The non-ASCII path establishes a candidate's length by decoding it, so an over-limit candidate must settle that
+fn an_over_long_non_ascii_candidate_matches_and_ranks_last() {
+    // The non-ASCII path establishes a candidate's length by decoding it, so an over-long candidate must settle that
     // from a bounded prefix rather than a full pass -- a one-character term matching the first character otherwise
     // leaves the whole remaining suffix to scan for a length already known to be too large.
     let huge: String = std::iter::repeat_n('é', 2 * 1024 * 1024).collect();
@@ -534,7 +534,7 @@ fn an_over_limit_non_ascii_candidate_matches_and_ranks_last() {
     let mut matcher = Matcher::new(Config::DEFAULT);
     assert!(
         matcher.score(&huge, "é").is_some(),
-        "an over-limit non-ASCII candidate still matches"
+        "an over-long non-ASCII candidate still matches"
     );
 
     assert_eq!(
@@ -590,7 +590,7 @@ fn the_length_tiebreak_orders_by_utf8_byte_length() {
 }
 
 #[test]
-fn an_alignment_always_outranks_the_over_limit_floor() {
+fn an_alignment_always_outranks_the_over_long_floor() {
     // The floor is a constant and an alignment is not, so no constant can sit under every alignment for every set of
     // weights: `basename = i32::MIN` saturates an aligned score onto the sentinel, beneath a floor one above it, and
     // a candidate that was never aligned would outrank one that was. The alignment is lifted off the floor instead.
@@ -598,7 +598,7 @@ fn an_alignment_always_outranks_the_over_limit_floor() {
     config.scoring.basename = i32::MIN;
 
     let aligned = score_with(config, "xa", "a").expect("an aligned match, however saturated");
-    let floored = score_with(config, &"a".repeat(2000), "a").expect("an over-limit match");
+    let floored = score_with(config, &"a".repeat(2000), "a").expect("an over-long match");
     assert!(
         floored < aligned,
         "the unaligned candidate must stay below the aligned one, got {floored} against {aligned}"
@@ -606,18 +606,15 @@ fn an_alignment_always_outranks_the_over_limit_floor() {
 }
 
 #[test]
-fn an_over_limit_candidate_matched_in_full_still_ranks_first() {
-    // The alignment limit bounds the recurrence, and a full match never runs it: term and candidate lengths settle it
-    // outright. So the bound does not reach a full match, and "a candidate every term matches in full ranks first"
+fn an_over_long_candidate_matched_in_full_still_ranks_first() {
+    // The over-long bound applies to the recurrence, and a full match never runs it: term and candidate lengths settle
+    // it outright. So the bound does not reach a full match, and "a candidate every term matches in full ranks first"
     // holds past 1024 positions as well.
     let long: String = "q".repeat(1025);
     let other = format!("{long}x");
 
     let ranked = ranked(&[other.as_str(), long.as_str()], &long);
-    assert_eq!(
-        ranked[0], long,
-        "the full match leads even beyond the alignment limit"
-    );
+    assert_eq!(ranked[0], long, "the full match leads even when over-long");
 }
 
 #[test]
@@ -630,9 +627,9 @@ fn the_score_bands_survive_aggregation() {
     config.scoring.basename = i32::MIN;
     config.length_tiebreak = false;
 
-    let over_limit = "a".repeat(2000);
+    let over_long = "a".repeat(2000);
     let aligned = score_with(config, "xaxa", "a a").expect("an aligned aggregate");
-    let floored = score_with(config, &over_limit, "a a").expect("a floored aggregate");
+    let floored = score_with(config, &over_long, "a a").expect("a floored aggregate");
     assert!(
         floored < aligned,
         "a floored aggregate must stay below an aligned one, got {floored} against {aligned}"
@@ -640,11 +637,11 @@ fn the_score_bands_survive_aggregation() {
 
     // Both orders of the same pair, since a tie would otherwise be settled by input order and hide the defect.
     assert_eq!(
-        ranked_with(config, &[over_limit.as_str(), "xaxa"], "a a")[0],
+        ranked_with(config, &[over_long.as_str(), "xaxa"], "a a")[0],
         "xaxa"
     );
     assert_eq!(
-        ranked_with(config, &["xaxa", over_limit.as_str()], "a a")[0],
+        ranked_with(config, &["xaxa", over_long.as_str()], "a a")[0],
         "xaxa"
     );
 }

@@ -91,7 +91,7 @@ impl Scoring {
     ///
     /// A gap weight is a penalty, so a positive one is a contradiction — and not merely a strange ranking. The
     /// recurrence carries an `i32::MIN` sentinel for "no alignment ends here", and adding a positive gap to it lifts
-    /// it off the floor: a few unmatched positions then promote the sentinel above every real alignment, and a
+    /// it off that value: a few unmatched positions then promote the sentinel above every real alignment, and a
     /// candidate scores on cells that matched nothing. Clamping once, here, keeps the arithmetic sound for every
     /// value the public field can hold.
     ///
@@ -197,7 +197,7 @@ impl Config {
     /// true for every [`Scoring`]: no alignment can reach the sum of the per-character maxima over the longest
     /// candidate the alignment ever runs on, so no configuration can invert the two.
     ///
-    /// Each component is floored at zero, which is what makes that hold for a configuration whose weights are
+    /// Each component is clamped to zero or above, which is what makes that hold for a configuration whose weights are
     /// negative. Summing a negative per-character maximum would drive the full-match score *below* a short partial
     /// match and invert the guarantee it exists to protect; an alignment under such weights cannot exceed zero, so zero
     /// is the bound to sum from.
@@ -205,11 +205,11 @@ impl Config {
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_possible_wrap,
-            reason = "MAX_CANDIDATE_LEN is a 1024 literal, far inside i32"
+            reason = "MAX_ALIGNED_POSITIONS is a 1024 literal, far inside i32"
         )]
-        const LIMIT: i32 = crate::score::MAX_CANDIDATE_LEN as i32;
+        const MAX_POSITIONS: i32 = crate::score::MAX_ALIGNED_POSITIONS as i32;
 
-        LIMIT
+        MAX_POSITIONS
             .saturating_mul(max(0, self.scoring.max_per_char()))
             .saturating_add(max(0, self.scoring.candidate_start))
             .saturating_add(1)
