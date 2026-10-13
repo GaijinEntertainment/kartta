@@ -5,8 +5,8 @@
 /// Every field is a bonus added to, or a penalty subtracted from, the score of one alignment step. The shipped
 /// [`Scoring::DEFAULT`] is the tuned point in this space; the tests pin its behaviour, and any other point is
 /// guaranteed only by the invariants that hold for all of them, and only those: a candidate every term matches in full
-/// still ranks first, a candidate missing a term still scores nothing, and no weight can overflow the score. A contiguous run beating a
-/// gapped one is a property of the shipped weights, not of the model.
+/// still ranks first, a candidate missing a term still scores nothing, and no weight can overflow the score. A
+/// contiguous run beating a gapped one is a property of the shipped weights, not of the model.
 ///
 /// The relative magnitudes carry the model, not the absolute values. Match bonuses are three orders of magnitude
 /// larger than the gap penalties, so alignment quality decides the rank and gaps only break near-ties.
@@ -78,7 +78,7 @@ impl Scoring {
         gap_trailing: -5,
     };
 
-    /// The largest bonus one matched character can earn, used to derive the exact-match score.
+    /// The largest bonus one matched character can earn, used to derive the full-match score.
     pub(crate) const fn max_per_char(&self) -> i32 {
         let boundary = max(
             max(self.after_segment, self.after_word),
@@ -191,17 +191,17 @@ impl Config {
         length_tiebreak: true,
     };
 
-    /// The score of an exact whole-candidate match, derived from the active weights.
+    /// The score a term takes against a candidate it matches in full, derived from the active weights.
     ///
-    /// Deriving it rather than declaring a constant is what keeps the "an exact match always ranks first" guarantee
+    /// Deriving it rather than declaring a constant is what keeps the "a full match always ranks first" guarantee
     /// true for every [`Scoring`]: no alignment can reach the sum of the per-character maxima over the longest
     /// candidate the alignment ever runs on, so no configuration can invert the two.
     ///
     /// Each component is floored at zero, which is what makes that hold for a configuration whose weights are
-    /// negative. Summing a negative per-character maximum would drive the exact score *below* a short partial match
-    /// and invert the guarantee it exists to protect; an alignment under such weights cannot exceed zero, so zero is
-    /// the bound to sum from.
-    pub(crate) const fn exact_score(&self) -> i32 {
+    /// negative. Summing a negative per-character maximum would drive the full-match score *below* a short partial
+    /// match and invert the guarantee it exists to protect; an alignment under such weights cannot exceed zero, so zero
+    /// is the bound to sum from.
+    pub(crate) const fn full_match_score(&self) -> i32 {
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_possible_wrap,

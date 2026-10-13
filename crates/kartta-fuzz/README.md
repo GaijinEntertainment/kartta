@@ -41,8 +41,8 @@ stays a property of each term against the candidate rather than of the candidate
 whitespace separates its terms and is not content a candidate has to contain. Query `a a` therefore ranks `a`, which
 both terms match in full, above `a a`.
 
-What counts as a full match follows `Config::case`: under `Ignore` it is an exact match up to case, under `Respect` only
-a character-for-character one, and under `Smart` it is whichever of those the query selects — case-insensitive while
+What counts as a full match follows `Config::case`: under `Ignore` it is equality up to case, under `Respect` only
+character-for-character equality, and under `Smart` it is whichever of those the query selects — case-insensitive while
 the query is all lowercase, case-sensitive once it carries a capital. That guarantee survives reconfiguration because
 the score it takes is derived from the active weights rather than declared as a constant, and each component of that
 derivation is floored at zero, so no set of weights — including one that is entirely negative — inverts the two.
@@ -68,7 +68,7 @@ let ranked = matcher.rank(["src/main.rs", "main/lib.rs"], "main", None);
 ```
 
 `Config::DEFAULT` is the tuned point in that space and the one the behaviour tests pin. Every other point is guaranteed
-only by the invariants that hold across all of them — the exact-match rule above, the requirement that a candidate
+only by the invariants that hold across all of them — the full-match rule above, the requirement that a candidate
 missing a term never matches, and freedom from overflow.
 
 `segment_separators` is the field that decides what the scorer scores. It fixes both which positions earn the segment
