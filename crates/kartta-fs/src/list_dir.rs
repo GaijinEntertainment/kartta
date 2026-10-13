@@ -178,8 +178,9 @@ impl<'a> Listed<'a> {
     /// How many indexed entries lie beneath this directory that the listing did not descend into.
     ///
     /// `Some` for a directory at the depth bound or one the listing collapsed, `Some(0)` included, so a directory the
-    /// listing stopped at never reads as an empty one. `None` for a directory whose contents the listing holds, and for
-    /// anything that is not a directory.
+    /// listing stopped at never reads as an empty one. `None` for a directory the listing entered, and for anything
+    /// that is not a directory. An entered directory's contents can still be cut short by the limit, which
+    /// [`Listing::truncated`] reports.
     #[must_use]
     pub const fn unlisted(&self) -> Option<usize> {
         self.unlisted
