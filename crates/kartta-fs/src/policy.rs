@@ -7,8 +7,7 @@ use std::{fs, io};
 
 use kartta_walk::{Dir, Entry, EntryKind, Policy, Visit};
 
-use crate::config::IgnoreSources;
-use crate::error::BuildError;
+use crate::build::{BuildError, IgnoreSources};
 use crate::open::{Symlinks, open_regular};
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 

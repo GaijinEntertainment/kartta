@@ -7,9 +7,8 @@ use std::path::{Path, PathBuf};
 use kartta_walk::{Children, EntryKind, Tree, WalkOptions, walk};
 
 use crate::binary::BinaryExtensions;
-use crate::config::BuildOptions;
+use crate::build::{BuildError, BuildOptions};
 use crate::entry::Entry;
-use crate::error::BuildError;
 use crate::filter::Filter;
 use crate::inspection::Inspection;
 use crate::policy::{Indexing, Payload};
