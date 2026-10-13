@@ -541,7 +541,7 @@ impl Paths<'_> {
 
 /// How many entries every restart covers: every `RESTART`-th entry stores its whole path, so rebuilding any path reads
 /// the stored bytes of at most this many entries.
-pub(crate) const RESTART: usize = 64;
+pub(crate) const RESTART: usize = 128;
 
 /// How far ahead [`Paths::get`] steps entry by entry rather than rebuilding the requested path outright: stepping
 /// copies each entry's stored bytes, rebuilding copies the requested path once.
