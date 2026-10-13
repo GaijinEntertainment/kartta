@@ -86,13 +86,13 @@ impl<V> Tree<V> {
         })
     }
 
-    /// How many entries the tree holds.
+    /// How many nodes the tree holds.
     #[must_use]
     pub const fn len(&self) -> usize {
         self.slots.len()
     }
 
-    /// Whether the tree holds no entries.
+    /// Whether the tree holds no nodes.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.slots.is_empty()

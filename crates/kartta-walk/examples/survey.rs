@@ -61,13 +61,13 @@ fn main() {
     println!("  --- time to a name-sorted arena tree, best of 3 ---");
 
     for threads in [None, Some(1), Some(2), Some(4), Some(8), Some(16)] {
-        let opts = WalkOptions {
+        let options = WalkOptions {
             threads: threads.and_then(NonZeroUsize::new),
             ..Default::default()
         };
         let label = threads.map_or_else(|| "ambient".to_owned(), |n| format!("{n:>2}"));
 
-        let elapsed = best_of(3, || walk_once(&root, &opts));
+        let elapsed = best_of(3, || walk_once(&root, &options));
         println!("  {label} threads: {elapsed:.2?}");
     }
 }
@@ -115,8 +115,8 @@ fn report_shape(root: &Path) {
 }
 
 /// One walk, reduced to the entry count so the tree is built and then observed.
-fn walk_once(root: &Path, opts: &WalkOptions) -> usize {
-    let outcome: WalkOutcome<Record> = walk(root, &Sizes, &(), opts).expect("walk the tree");
+fn walk_once(root: &Path, options: &WalkOptions) -> usize {
+    let outcome: WalkOutcome<Record> = walk(root, &Sizes, &(), options).expect("walk the tree");
 
     outcome.tree().len()
 }

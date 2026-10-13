@@ -20,7 +20,7 @@ pub(crate) struct ListedEntry {
 ///
 /// # Examples
 ///
-/// A policy that keeps everything but refuses to descend into a directory named `vendor`:
+/// A policy that records everything but refuses to descend into a directory named `vendor`:
 ///
 /// ```
 /// use kartta_walk::{Dir, Entry, EntryKind, Policy, Visit};
@@ -227,8 +227,8 @@ impl<'a> Entry<'a> {
 
     /// What the entry is, read without following symlinks.
     ///
-    /// A symlink reports [`EntryKind::Symlink`] whatever it points at, so a link to a directory is not a directory here
-    /// and is never descended.
+    /// A symlink reports [`EntryKind::Symlink`] whatever it points at, so a symlink to a directory is not a directory
+    /// here and is never descended.
     #[must_use]
     pub fn kind(&self) -> EntryKind {
         EntryKind::from_file_type(self.file_type)
