@@ -5,7 +5,6 @@ use std::num::NonZeroUsize;
 use kartta_walk::EntryKind;
 
 use crate::capped::Capped;
-use crate::entry::Entry;
 use crate::index::{Index, Inspected};
 
 /// How far a listing descends and how many entries it returns.
@@ -137,14 +136,14 @@ impl Index {
     ) -> Result<Capped<Inspected<'_>>, ListDirError> {
         let (start, prefix) = self.subtree_of(dir)?;
         let cap = options.limit.map_or(usize::MAX, NonZeroUsize::get);
-        let all = self.entries();
 
         let mut entries = Vec::new();
         let mut truncated = false;
         let mut at = start;
 
-        while let Some(entry) = all.get(at) {
-            let Some(below) = entry.path().strip_prefix(prefix.as_str()) else {
+        while at < self.len() {
+            let path = self.path_at(at);
+            let Some(below) = path.strip_prefix(prefix.as_str()) else {
                 break;
             };
 
@@ -153,11 +152,12 @@ impl Index {
                 break;
             }
 
-            entries.push(self.inspected_at(at, entry));
+            entries.push(self.inspected_at(at));
+            let kind = self.kind_at(at);
             at += 1;
 
-            if entry.kind() == EntryKind::Dir && bottoms_out(below, options.depth) {
-                at = past_subtree(all, at, entry.path());
+            if kind == EntryKind::Dir && bottoms_out(below, options.depth) {
+                at = self.past_subtree(at, path);
             }
         }
 
@@ -180,7 +180,7 @@ impl Index {
         let at = self.position(dir).ok_or_else(|| ListDirError::NotFound {
             path: dir.to_owned(),
         })?;
-        let kind = self.entries()[at].kind();
+        let kind = self.kind_at(at);
 
         if kind != EntryKind::Dir {
             return Err(ListDirError::NotADirectory {
@@ -191,35 +191,43 @@ impl Index {
 
         Ok((at + 1, format!("{dir}/")))
     }
+
+    /// The first position at or after `from` that has left `dir`'s subtree.
+    ///
+    /// [`Index::entries`] is depth-first, so `dir`'s descendants are the run at the front of what remains and the
+    /// predicate holds over a prefix of it. A binary search over that prefix is what makes a depth-limited listing cost
+    /// its own size rather than the size of everything it declined to descend into.
+    ///
+    /// The entry immediately after `dir` is checked first, because it settles the two commonest cases outright: an
+    /// empty directory and a leaf directory both have the next sibling sitting there. Searching for that would spend a
+    /// logarithmic probe per directory, which on a listing full of empty ones is the cost the search was meant to
+    /// avoid.
+    fn past_subtree(&self, from: usize, dir: &str) -> usize {
+        let inside = |at: usize| {
+            self.path_at(at)
+                .strip_prefix(dir)
+                .is_some_and(|below| below.starts_with('/'))
+        };
+
+        if from == self.len() || !inside(from) {
+            return from;
+        }
+
+        let (mut low, mut high) = (from + 1, self.len());
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if inside(middle) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        low
+    }
 }
 
 /// Whether a directory `below` the listed one sits at the deepest level `depth` allows, so its own children are one
 /// level too deep to list.
 fn bottoms_out(below: &str, depth: Option<NonZeroUsize>) -> bool {
     depth.is_some_and(|depth| below.matches('/').count() + 1 >= depth.get())
-}
-
-/// The first position at or after `from` that has left `dir`'s subtree.
-///
-/// [`Index::entries`] is depth-first, so `dir`'s descendants are the run at the front of what remains and the
-/// predicate holds over a prefix of it. A binary search over that prefix is what makes a depth-limited listing cost
-/// its own size rather than the size of everything it declined to descend into.
-///
-/// The entry immediately after `dir` is checked first, because it settles the two commonest cases outright: an empty
-/// directory and a leaf directory both have the next sibling sitting there. Searching for that would spend a
-/// logarithmic probe per directory, which on a listing full of empty ones is the cost the search was meant to avoid.
-fn past_subtree(entries: &[Entry], from: usize, dir: &str) -> usize {
-    let inside = |entry: &Entry| {
-        entry
-            .path()
-            .strip_prefix(dir)
-            .is_some_and(|below| below.starts_with('/'))
-    };
-
-    let rest = &entries[from..];
-    match rest.first() {
-        None => from,
-        Some(next) if !inside(next) => from,
-        Some(_) => from + rest.partition_point(inside),
-    }
 }

@@ -58,7 +58,7 @@ fn default_index(root: &Path) -> Index {
 }
 
 fn paths(index: &Index) -> Vec<&str> {
-    index.entries().iter().map(Entry::path).collect()
+    index.entries().map(Entry::path).collect()
 }
 
 fn kind_of(index: &Index, path: &str) -> EntryKind {
@@ -326,7 +326,7 @@ fn two_builds_of_one_tree_produce_identical_indexes() {
     config.threads = NonZeroUsize::new(1);
     let second = index(dir.path(), &config);
 
-    assert_eq!(first.entries(), second.entries());
+    assert!(first.entries().eq(second.entries()));
 }
 
 #[test]
@@ -1362,7 +1362,6 @@ fn a_sweep_answers_the_same_facts_as_the_keyed_lookups() {
         .collect();
     let keyed: Vec<Facts<'_>> = index
         .entries()
-        .iter()
         .map(|entry| {
             (
                 entry.path(),
