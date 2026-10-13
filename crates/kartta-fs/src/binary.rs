@@ -291,40 +291,33 @@ fn parse(given: &str) -> Result<String, BinaryExtensionsError> {
 /// reader — the expensive mistake made knowingly, rather than a case the rule missed.
 const IMAGES: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "webp", "tiff", "tif", "psd", "dds", "tga",
-    "hdr", "exr", "ktx", "ktx2", "astc", "pvr", "basis",
+    "exr", "ktx", "ktx2", "astc", "pvr", "basis",
 ];
 
 const AUDIO: &[&str] = &["wav", "mp3", "ogg", "flac", "aac", "wma", "m4a", "opus"];
 
 const VIDEO: &[&str] = &["mp4", "avi", "mkv", "mov", "wmv", "webm", "flv"];
 
-const GEOMETRY: &[&str] = &[
-    "fbx", "obj", "gltf", "glb", "blend", "dae", "3ds", "stl", "usd", "usda", "usdc", "usdz",
-];
+const GEOMETRY: &[&str] = &["glb", "blend", "3ds", "usdc", "usdz"];
 
 /// What a compiler or linker emits.
 const ARTIFACTS: &[&str] = &[
-    "exe", "dll", "so", "dylib", "o", "a", "lib", "pdb", "wasm", "class", "jar", "pyc", "pyo",
-    "node",
+    "exe", "dll", "so", "dylib", "o", "a", "wasm", "class", "jar", "pyc", "pyo", "node",
 ];
 
 const ARCHIVES: &[&str] = &["zip", "tar", "gz", "bz2", "xz", "7z", "rar", "zst", "lz4"];
 
 const FONTS: &[&str] = &["ttf", "otf", "woff", "woff2", "eot"];
 
-const DOCUMENTS: &[&str] = &[
-    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "sqlite", "db", "mdb",
-];
+const DOCUMENTS: &[&str] = &["pdf", "docx", "xls", "xlsx", "ppt", "pptx", "mdb"];
 
-const DISK_IMAGES: &[&str] = &["img", "iso", "dmg", "vmdk", "vdi", "qcow2", "raw"];
+const DISK_IMAGES: &[&str] = &["img", "iso", "dmg", "vdi", "qcow2", "raw"];
 
 const MODEL_WEIGHTS: &[&str] = &[
     "safetensors",
     "gguf",
     "ggml",
     "onnx",
-    "pt",
-    "pth",
     "npy",
     "npz",
     "h5",
@@ -332,10 +325,7 @@ const MODEL_WEIGHTS: &[&str] = &[
     "arrow",
 ];
 
-const GAME_ASSETS: &[&str] = &[
-    "bin", "pak", "dat", "res", "asset", "bundle", "bank", "bsp", "nav", "lightmap", "cubemap",
-    "mdl", "vtf", "vpk", "pck",
-];
+const GAME_ASSETS: &[&str] = &["bin", "pak", "bundle", "bank", "bsp", "nav", "vtf", "vpk"];
 
 const SHADERS: &[&str] = &["spv", "cso", "dxbc", "metallib"];
 
@@ -544,6 +534,22 @@ mod tests {
         let mut ordered = extensions.clone();
         ordered.sort_unstable();
         assert_eq!(extensions, ordered);
+    }
+
+    #[test]
+    fn no_built_in_extension_names_a_text_format() {
+        let builtin = BinaryExtensions::builtin();
+        let text = [
+            "gltf", "dae", "usda", "usd", "obj", "stl", "fbx", "asset", "lib", "pdb", "hdr",
+            "vmdk", "db", "dat", "res", "mdl", "pck", "pt", "pth", "doc", "sqlite",
+        ];
+
+        for extension in text {
+            assert!(
+                !builtin.matches(&format!("file.{extension}")),
+                "{extension} names a text format, or shares its name with one"
+            );
+        }
     }
 
     #[test]
