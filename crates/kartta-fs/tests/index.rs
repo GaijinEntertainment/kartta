@@ -352,7 +352,7 @@ fn fuzzy_paths_answers_nothing_for_a_query_no_path_contains() {
     let dir = tree(&[("src/main.rs", "")]);
     let index = default_index(dir.path());
 
-    assert!(index.fuzzy_paths("qqzz", None, None).is_empty());
+    assert_eq!(index.fuzzy_paths("qqzz", None, None), []);
 }
 
 #[test]
@@ -408,7 +408,7 @@ fn glob_paths_answers_nothing_when_no_pattern_selects_anything() {
 
     let filter = Filter::new(["*.go"]).expect("compile the pattern");
 
-    assert!(index.glob_paths(&filter, None).is_empty());
+    assert_eq!(index.glob_paths(&filter, None), Vec::<&str>::new());
 }
 
 #[test]
