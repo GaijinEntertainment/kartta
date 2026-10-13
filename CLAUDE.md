@@ -21,6 +21,17 @@ so cost per entry is the design pressure on every surface.
 
 </performance>
 
+<answers>
+
+- kartta answers LLM agents first. Design every answer, a failure included, to carry the most useful facts the engine
+  already holds, so the agent can choose its next call without guessing.
+- An answer that leaves something out says so, and says how much wherever the engine can count it without extra work: a
+  cap, a depth bound, a collapse or an exclusion reports what it turned away. A partial answer without that reads as a
+  complete one.
+- A fact that costs extra work per call is a performance trade under `<performance>`; state it as one.
+
+</answers>
+
 <capability-map>
 
 - `crates/kartta-walk` — parallel traversal and the tree it discovers. The entry model, ignore semantics, path lookup
