@@ -13,7 +13,7 @@ let outcome = Index::build(root, &BuildOptions::default())?;
 report(outcome.errors()); // a partial index looks exactly like a complete one
 let index = outcome.into_index();
 
-let ranked = index.fuzzy_paths("main", None, None);
+let ranked = index.fuzzy("main", &FuzzyOptions::default());
 assert_eq!(ranked[0].path, "src/main.rs");
 
 let listed = index.list("src", &ListOptions::default())?; // what is in a place, depth-first
@@ -103,13 +103,13 @@ visible gap where files git would hide look exactly like files git would keep.
 
 ## Queries
 
-`fuzzy_paths` ranks paths against a query, delegating to `kartta-fuzz`: a hit inside a filename beats a hit inside a
+`fuzzy` ranks paths against a query, delegating to `kartta-fuzz`: a hit inside a filename beats a hit inside a
 directory name, so `main` finds `src/main.rs` before `main/lib.rs`. Directories are not ranked — a path query answers
 "which file did you mean", and a matching directory would otherwise arrive alongside every file beneath it that matches
 for the same reason. Matching ignores case, which is this crate's choice and not git's: `core.ignoreCase` describes what
 the filesystem does with case, a different question from what a search should do with it.
 
-Results borrow from the index and carry this crate's own `PathMatch` rather than the scorer's result type, so replacing
+Results borrow from the index and carry this crate's own `FuzzyMatch` rather than the scorer's result type, so replacing
 the ranking engine stays a non-breaking change.
 
 Import resolution is deliberately out of scope: mapping a specifier to a file is language semantics. What lives here are

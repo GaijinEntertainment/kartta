@@ -6,11 +6,10 @@ use globset::{Candidate, Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 
 /// The globs a path query selects with, compiled once.
 ///
-/// Every pattern compiles when the filter is built, so holding a `Filter` is proof that its patterns parsed and a
-/// query that takes one cannot fail. A path is kept when **any** pattern matches it, which makes a filter with no
-/// patterns match nothing rather than everything — it is the empty disjunction, and "select everything" is a
-/// different question spelled differently, as the `None` that [`Index::fuzzy_paths`](crate::Index::fuzzy_paths)
-/// accepts.
+/// Every pattern compiles when the filter is built, so holding a `Filter` is proof that its patterns parsed and a query
+/// that takes one cannot fail. A path is kept when **any** pattern matches it, which makes a filter with no patterns
+/// match nothing rather than everything — it is the empty disjunction, and "select everything" is a different question
+/// spelled differently, as [`FuzzyOptions::filter`](crate::FuzzyOptions::filter) left `None`.
 ///
 /// A filter only ever selects, and what happens to the selection belongs to the query that takes it: a path query
 /// keeps what a filter selects, a listing's [`collapse`](crate::ListOptions::collapse) stops at the directories one
@@ -33,7 +32,7 @@ use globset::{Candidate, Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 ///   `\` is never a separator here and is free to be the escape. Pinning it is what keeps one pattern meaning one
 ///   thing on unix and on Windows, where the dialect's own default splits.
 ///
-/// Matching is case-sensitive, where [`Index::fuzzy_paths`](crate::Index::fuzzy_paths) folds case. A glob is a
+/// Matching is case-sensitive, where [`Index::fuzzy`](crate::Index::fuzzy) folds case. A glob is a
 /// specification the caller wrote out and a fuzzy query is a guess at one, so the two want opposite answers about a
 /// spelling that does not quite match.
 ///
