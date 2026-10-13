@@ -94,9 +94,9 @@
 //! The rule binds what the index *reports*, not what a concurrent writer can do to the tree underneath it. An entry
 //! classified as a directory and then replaced by a symlink before the walk lists it is descended through, and the
 //! target's names enter the index under the original prefix. Closing that needs descent through a directory handle
-//! rather than a path, which is per-platform work; until then the race is accepted and stated, as it is for a regular
-//! file swapped for a symlink between the walk and a later read. Both cost a writer mutating the tree mid-build what
-//! putting the same content at the same path costs them anyway.
+//! rather than a path, which is per-platform work; until then the race is accepted and stated, as it is on Windows
+//! for a regular file swapped for a symlink between the walk and a later read. Both cost a writer mutating the tree
+//! mid-build what putting the same content at the same path costs them anyway.
 //!
 //! # Binary content
 //!

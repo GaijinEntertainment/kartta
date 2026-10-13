@@ -30,6 +30,9 @@ assert_eq!(index.size("src/main.rs"), Some(12)); // read now, kept
   tree. It is never descended and never stat'd through — a dangling link and a live one are indistinguishable to every
   query here, so the syscall that tells them apart would buy nothing. Listed is therefore not the same as readable, by
   rule rather than by accident.
+  The rule covers the tree as walked, not a writer changing it underneath: a directory replaced by a symlink before
+  the walk lists it is descended through, and on Windows a file replaced by a symlink before a later read is read
+  through.
 
 ## Structure is a snapshot; a file's bytes are not
 
