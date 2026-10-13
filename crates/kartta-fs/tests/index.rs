@@ -13,8 +13,8 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 
 use kartta_fs::{
-    BinaryExtensions, BuildError, Capped, Config, Entry, EntryKind, Filter, IgnoreSources, Index,
-    Inspected, ListDirError, ListOptions,
+    BinaryExtensions, BuildError, Config, Entry, EntryKind, Filter, IgnoreSources, Index,
+    ListDirError, ListOptions, Listed, Listing,
 };
 use tempfile::TempDir;
 
@@ -870,7 +870,7 @@ fn only_a_symlink_carries_a_target() {
     assert_eq!(index.entry("dir/file.txt").and_then(Entry::target), None);
 }
 
-fn listed<'a>(outcome: &Capped<Inspected<'a>>) -> Vec<&'a str> {
+fn listed<'a>(outcome: &Listing<'a>) -> Vec<&'a str> {
     outcome
         .items()
         .iter()
@@ -878,7 +878,16 @@ fn listed<'a>(outcome: &Capped<Inspected<'a>>) -> Vec<&'a str> {
         .collect()
 }
 
-fn list<'a>(index: &'a Index, dir: &str) -> Capped<Inspected<'a>> {
+/// Each listed path beside what the listing says lies beneath it unlisted.
+fn unlisted<'a>(outcome: &Listing<'a>) -> Vec<(&'a str, Option<usize>)> {
+    outcome
+        .items()
+        .iter()
+        .map(|found| (found.entry().path(), found.unlisted()))
+        .collect()
+}
+
+fn list<'a>(index: &'a Index, dir: &str) -> Listing<'a> {
     index
         .list_dir(dir, &ListOptions::default())
         .unwrap_or_else(|error| panic!("list {dir}: {error}"))
@@ -929,6 +938,57 @@ fn a_depth_takes_only_that_many_levels_below_the_listed_directory() {
         ["a/b", "a/b/c", "a/b/c/d.txt", "a/top.txt"],
         "no depth takes the whole subtree"
     );
+}
+
+#[test]
+fn a_directory_at_the_depth_bound_says_how_many_entries_lie_beneath_it() {
+    let dir = tree(&[("a/b/c/d.txt", "d"), ("a/empty/", ""), ("a/top.txt", "t")]);
+    let index = default_index(dir.path());
+
+    let one = index
+        .list_dir("a", &ListOptions::default().depth(1))
+        .expect("list a");
+    assert_eq!(
+        unlisted(&one),
+        [("a/b", Some(2)), ("a/empty", Some(0)), ("a/top.txt", None)],
+        "a/b holds c and c/d.txt; a/empty holds nothing, which reads differently from not being looked at"
+    );
+
+    let two = index
+        .list_dir("a", &ListOptions::default().depth(2))
+        .expect("list a");
+    assert_eq!(
+        unlisted(&two),
+        [
+            ("a/b", None),
+            ("a/b/c", Some(1)),
+            ("a/empty", None),
+            ("a/top.txt", None)
+        ],
+        "a directory whose contents the listing holds has nothing unlisted to report"
+    );
+}
+
+#[test]
+fn a_listing_reports_how_many_entries_the_index_holds_under_the_directory() {
+    let dir = tree(&[("a/b/c/d.txt", "d"), ("a/top.txt", "t"), ("z.txt", "z")]);
+    let index = default_index(dir.path());
+
+    for options in [
+        ListOptions::default(),
+        ListOptions::default().depth(1),
+        ListOptions::default().limit(1),
+    ] {
+        let listing = index.list_dir("a", &options).expect("list a");
+        assert_eq!(
+            listing.total(),
+            4,
+            "a/b, a/b/c, a/b/c/d.txt and a/top.txt, whatever {options:?} cut"
+        );
+    }
+
+    assert_eq!(list(&index, "").total(), index.len());
+    assert_eq!(list(&index, "a/b/c").total(), 1);
 }
 
 #[test]
@@ -1074,11 +1134,17 @@ fn a_listing_carries_the_symlink_target_and_answers_sizes_beside_it() {
     let index = default_index(dir.path());
     let entries = list(&index, "a").into_items();
 
-    let sizes: Vec<Option<u64>> = entries.iter().map(Inspected::size).collect();
+    let sizes: Vec<Option<u64>> = entries.iter().map(Listed::size).collect();
+    let binary: Vec<Option<bool>> = entries.iter().map(Listed::is_binary).collect();
     let targets: Vec<Option<&str>> = entries.iter().map(|found| found.entry().target()).collect();
 
     assert_eq!(listed(&list(&index, "a")), ["a/file.txt", "a/link"]);
     assert_eq!(sizes, [Some(12), None]);
+    assert_eq!(
+        binary,
+        [Some(false), None],
+        "a link is reported, never read through"
+    );
     assert_eq!(targets, [None, Some("file.txt")]);
 }
 
@@ -1095,6 +1161,11 @@ fn listing_the_root_one_level_deep_takes_only_the_top_level_entries() {
         listed(&top),
         ["a", "m", "z.txt"],
         "each top-level directory is listed and none of them is descended"
+    );
+    assert_eq!(
+        unlisted(&top),
+        [("a", Some(3)), ("m", Some(1)), ("z.txt", None)],
+        "the root's entries carry no prefix, and their counts come out the same as anywhere else"
     );
 }
 

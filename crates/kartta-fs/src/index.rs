@@ -304,8 +304,8 @@ impl Index {
     /// about 300ms of the sweep with every answer already cached.
     ///
     /// It takes no limit, and deliberately. A bounded answer has to say whether the bound turned anything away — see
-    /// [`Capped`](crate::Capped) — and an iterator has nowhere to put that, because the caller ends it rather than the query. Bound
-    /// a query that returns a [`Capped`](crate::Capped); sweep with this.
+    /// [`Capped`](crate::Capped) and [`Listing`](crate::Listing) — and an iterator has nowhere to put that, because the
+    /// caller ends it rather than the query. Bound a query that returns one of those; sweep with this.
     ///
     /// Reading is lazy per entry, so an entry the caller skips costs nothing, and one it stops before is never
     /// touched. Each fact is read on its first ask and kept, exactly as the keyed methods do.
