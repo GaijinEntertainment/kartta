@@ -79,7 +79,7 @@ impl Scoring {
     };
 
     /// The largest bonus one matched character can earn, used to derive the full-match score.
-    pub(crate) const fn max_per_char(&self) -> i32 {
+    pub(crate) const fn max_char_bonus(&self) -> i32 {
         let boundary = max(
             max(self.after_segment, self.after_word),
             max(self.digit_boundary, max(self.camel_hump, self.after_dot)),
@@ -98,7 +98,7 @@ impl Scoring {
     /// It is also what lets the recurrence add a gap to a state without first asking whether the state is the
     /// sentinel: a non-positive addend cannot lift `i32::MIN`. A bonus has no such guarantee and is guarded per
     /// addition instead, which is the cost this clamp exists to avoid paying on every skipped position.
-    pub(crate) const fn as_penalties(&self) -> Self {
+    pub(crate) const fn clamp_gaps(&self) -> Self {
         Self {
             gap_leading: min(self.gap_leading, 0),
             gap_inner: min(self.gap_inner, 0),
@@ -210,7 +210,7 @@ impl Config {
         const MAX_POSITIONS: i32 = crate::score::MAX_ALIGNED_POSITIONS as i32;
 
         MAX_POSITIONS
-            .saturating_mul(max(0, self.scoring.max_per_char()))
+            .saturating_mul(max(0, self.scoring.max_char_bonus()))
             .saturating_add(max(0, self.scoring.candidate_start))
             .saturating_add(1)
     }

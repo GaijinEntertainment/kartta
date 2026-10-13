@@ -56,7 +56,7 @@ impl Band {
     /// saturate the sum: a saturated total carries no trace of what it was built from, so a floored aggregate and an
     /// aligned one, or a partial and a full one, land on the same value and the order falls to whichever tiebreak is
     /// configured.
-    fn apply(self, total: i64) -> i32 {
+    fn confine(self, total: i64) -> i32 {
         let ceiling = match self {
             Self::Floored => return MATCH_FLOOR,
             Self::Full => i64::from(i32::MAX),
@@ -69,28 +69,28 @@ impl Band {
 
 /// A scored candidate inside the bounded heap, ordered so the **worst** compares greatest and pops first.
 ///
-/// `len` is the tiebreak: the candidate's length when [`Config::length_tiebreak`] is on, and zero for every entry when
-/// it is off, so one ordering serves both without a branch per comparison. `index` is the input position, which makes
+/// `tiebreak` is the candidate's length when [`Config::length_tiebreak`] is on, and zero for every entry when it is
+/// off, so one ordering serves both without a branch per comparison. `index` is the input position, which makes
 /// the order total and reproduces the stable sort's "equal candidates keep their input order".
 #[derive(Debug, PartialEq, Eq)]
-struct Worst<'a> {
+struct HeapEntry<'a> {
     candidate: &'a str,
     score: i32,
-    len: usize,
+    tiebreak: usize,
     index: usize,
 }
 
-impl Ord for Worst<'_> {
+impl Ord for HeapEntry<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         other
             .score
             .cmp(&self.score)
-            .then_with(|| self.len.cmp(&other.len))
+            .then_with(|| self.tiebreak.cmp(&other.tiebreak))
             .then_with(|| self.index.cmp(&other.index))
     }
 }
 
-impl PartialOrd for Worst<'_> {
+impl PartialOrd for HeapEntry<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -120,7 +120,7 @@ impl PartialOrd for Worst<'_> {
 pub struct Matcher {
     config: Config,
     /// The weights the recurrence runs on: the configured ones with the gaps clamped to penalties.
-    scoring: Scoring,
+    clamped_scoring: Scoring,
     /// The score a full match takes, derived from the configured weights once.
     full_match_score: i32,
     classes: Classes,
@@ -143,7 +143,7 @@ impl Matcher {
     pub fn new(config: Config) -> Self {
         Self {
             classes: Classes::new(&config),
-            scoring: config.scoring.as_penalties(),
+            clamped_scoring: config.scoring.clamp_gaps(),
             full_match_score: config.full_match_score(),
             config,
             scorer: Scorer::default(),
@@ -269,23 +269,23 @@ impl Matcher {
         limit: NonZeroUsize,
     ) -> Vec<Match<'a>> {
         let limit = limit.get();
-        let tiebreak = self.config.length_tiebreak;
+        let length_tiebreak = self.config.length_tiebreak;
         let candidates = candidates.into_iter();
 
         // A limit is a cap on what comes back, not a promise that much exists. Reserving against it alone lets a
         // caller's `usize::MAX` demand an allocation before a single candidate is read, so the reservation is bounded
         // by what the input claims to hold and the heap grows from there.
-        let mut heap: BinaryHeap<Worst<'a>> =
+        let mut heap: BinaryHeap<HeapEntry<'a>> =
             BinaryHeap::with_capacity(limit.min(candidates.size_hint().0));
 
         for (index, candidate) in candidates.enumerate() {
             let Some(score) = self.score_terms(candidate) else {
                 continue;
             };
-            let entry = Worst {
+            let entry = HeapEntry {
                 candidate,
                 score,
-                len: if tiebreak { candidate.len() } else { 0 },
+                tiebreak: if length_tiebreak { candidate.len() } else { 0 },
                 index,
             };
 
@@ -297,7 +297,7 @@ impl Matcher {
             }
         }
 
-        // `Worst` orders the worst greatest, so ascending order is best first.
+        // `HeapEntry` orders the worst greatest, so ascending order is best first.
         heap.into_sorted_vec()
             .into_iter()
             .map(|entry| Match {
@@ -382,9 +382,9 @@ impl Matcher {
         let mut total: i64 = 0;
         let mut band = Band::Full;
         for term in &self.terms {
-            let score = self
-                .scorer
-                .score_matched(term, &self.scoring, self.full_match_score);
+            let score =
+                self.scorer
+                    .score_matched(term, &self.clamped_scoring, self.full_match_score);
             band = band.min(Band::of(score, self.full_match_score));
             // Saturating, because the term count is the caller's: enough full terms at ceiling weights overflow even
             // an i64, which panics in debug and wraps in release. Saturating costs the ordering nothing that matters,
@@ -392,7 +392,7 @@ impl Matcher {
             total = total.saturating_add(i64::from(score));
         }
 
-        Some(band.apply(total))
+        Some(band.confine(total))
     }
 
     /// Orders by descending score, then by the configured tiebreak. `sort_by` is stable, so candidates equal on every
