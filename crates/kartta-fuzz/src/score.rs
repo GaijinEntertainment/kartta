@@ -13,7 +13,7 @@ use crate::config::{CaseMatching, Scoring};
 pub(crate) const MAX_ALIGNED_POSITIONS: usize = 1024;
 
 /// "No alignment ends here" sentinel. Nothing the recurrence adds can lift it: a gap reaches the recurrence clamped to
-/// a penalty by [`Scoring::as_penalties`], and a bonus goes through [`add_bonus`].
+/// a penalty by [`Scoring::clamp_gaps`], and a bonus goes through [`add_bonus`].
 pub(crate) const NO_ALIGNMENT: i32 = i32::MIN;
 
 /// The lowest score an alignment may take, one clear of [`MATCH_FLOOR`] and two clear of the sentinel. [`add_bonus`]
@@ -452,7 +452,7 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
 ///
 /// A bonus is the only weight that can be positive, and adding a positive one to [`NO_ALIGNMENT`] would turn "nothing
 /// ends here" into a state that competes with real alignments — leaving the recurrence free to select an alignment
-/// that does not exist. A gap needs no such guard, and pays for none: [`Scoring::as_penalties`] clamps every gap
+/// that does not exist. A gap needs no such guard, and pays for none: [`Scoring::clamp_gaps`] clamps every gap
 /// weight to at most zero before the recurrence sees it, so a gap added to the sentinel saturates back onto it.
 ///
 /// [`ALIGNED_MIN`] holds the other end. A bonus can also be negative, and one large enough to saturate a real state
@@ -529,7 +529,7 @@ impl Scorer {
     /// candidates.
     ///
     /// Position 0 always earns [`Scoring::after_segment`]: the start of a candidate is the start of a segment, which
-    /// is why the virtual predecessor of position 0 is [`Class::Segment`].
+    /// is why the virtual predecessor of position 0 is [`Class::SegmentSeparator`].
     pub(crate) fn prepare(&mut self, candidate: &str, classes: &Classes) {
         // An over-long candidate is scored from its length alone, so nothing here is sized to it and
         // nothing reads more of it than that answer needs. Byte length bounds character length for free, so only a
@@ -570,15 +570,15 @@ impl Scorer {
         self.bonus.resize(source.len(), 0);
         self.bytes.resize(source.len(), 0);
 
-        let mut prev = Class::Segment;
+        let mut prev = Class::SegmentSeparator;
         let mut basename_start = 0;
 
         let cells = self.bonus.iter_mut().zip(self.bytes.iter_mut());
         for (j, ((bonus, out), &byte)) in cells.zip(source.iter()).enumerate() {
-            let class = classes.of(char::from(byte));
+            let class = classes.class_of(char::from(byte));
             *bonus = classes.bonus(prev, class);
             *out = sensitivity.normalize_byte(byte);
-            if class == Class::Segment {
+            if class == Class::SegmentSeparator {
                 basename_start = j + 1;
             }
             prev = class;
@@ -595,14 +595,14 @@ impl Scorer {
         self.bonus.clear();
         self.chars.clear();
 
-        let mut prev = Class::Segment;
+        let mut prev = Class::SegmentSeparator;
         let mut basename_start = 0;
 
         for (j, c) in candidate.chars().enumerate() {
-            let class = classes.of(c);
+            let class = classes.class_of(c);
             self.bonus.push(classes.bonus(prev, class));
             self.chars.push(c);
-            if class == Class::Segment {
+            if class == Class::SegmentSeparator {
                 basename_start = j + 1;
             }
             prev = class;
@@ -705,12 +705,12 @@ mod tests {
         (
             as_bytes.score_matched(
                 &term,
-                &config.scoring.as_penalties(),
+                &config.scoring.clamp_gaps(),
                 config.full_match_score(),
             ),
             as_chars.score_matched(
                 &term,
-                &config.scoring.as_penalties(),
+                &config.scoring.clamp_gaps(),
                 config.full_match_score(),
             ),
         )
@@ -765,7 +765,7 @@ mod tests {
             offset: 0,
             trailing: 0,
             basename_start: scorer.basename_start,
-            scoring: config.scoring.as_penalties(),
+            scoring: config.scoring.clamp_gaps(),
             eq: |a: u8, b: u8| a == b,
         };
 
@@ -924,7 +924,7 @@ mod tests {
         rows: &mut Rows,
     ) -> usize {
         let classes = Classes::new(config);
-        let scoring = config.scoring.as_penalties();
+        let scoring = config.scoring.clamp_gaps();
         let term = Term::new(term, CaseSensitivity::Insensitive);
         let Some(symbols) = term.bytes.as_deref().filter(|b| b.len() >= 2) else {
             return 0;
@@ -1040,7 +1040,7 @@ mod tests {
                 offset: 0,
                 trailing: 0,
                 basename_start: scorer.basename_start,
-                scoring: config.scoring.as_penalties(),
+                scoring: config.scoring.clamp_gaps(),
                 eq: |a: u8, b: u8| a == b,
             };
 

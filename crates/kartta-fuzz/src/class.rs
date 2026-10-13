@@ -14,9 +14,9 @@ use crate::config::{Config, Scoring};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Class {
     /// Ends a path segment, and therefore also decides where the basename starts.
-    Segment,
+    SegmentSeparator,
     /// Separates words inside a segment.
-    Word,
+    WordSeparator,
     /// A literal `.`, which starts an extension or a qualifier.
     Dot,
     /// An ASCII digit.
@@ -33,13 +33,13 @@ pub(crate) enum Class {
 const CLASS_COUNT: usize = 7;
 
 /// Characters covered by the lookup table. Everything above falls back to [`classify`].
-const ASCII: usize = 128;
+const ASCII_COUNT: usize = 128;
 
 /// The lookup tables a [`Config`] resolves to.
 #[derive(Debug)]
 pub(crate) struct Classes {
     /// Class of every ASCII character.
-    ascii: [Class; ASCII],
+    ascii: [Class; ASCII_COUNT],
     /// Bonus for a character of class `curr` preceded by one of class `prev`, indexed `[prev][curr]`.
     bonus: [[i32; CLASS_COUNT]; CLASS_COUNT],
     /// Kept for classifying the non-ASCII characters the table does not cover.
@@ -50,7 +50,7 @@ pub(crate) struct Classes {
 impl Classes {
     /// Resolves `config` into lookup tables.
     pub(crate) fn new(config: &Config) -> Self {
-        let mut ascii = [Class::Other; ASCII];
+        let mut ascii = [Class::Other; ASCII_COUNT];
         for (code, slot) in (0u8..).zip(ascii.iter_mut()) {
             *slot = classify(
                 char::from(code),
@@ -75,7 +75,7 @@ impl Classes {
     }
 
     /// The class of `c`: one indexed load for ASCII, the full test for anything above it.
-    pub(crate) fn of(&self, c: char) -> Class {
+    pub(crate) fn class_of(&self, c: char) -> Class {
         let code = u32::from(c) as usize;
         match self.ascii.get(code) {
             Some(&class) => class,
@@ -91,8 +91,8 @@ impl Classes {
 
 /// Every [`Class`] in variant order, so the bonus table can be built by index.
 const CLASSES: [Class; CLASS_COUNT] = [
-    Class::Segment,
-    Class::Word,
+    Class::SegmentSeparator,
+    Class::WordSeparator,
     Class::Dot,
     Class::Digit,
     Class::Upper,
@@ -104,9 +104,9 @@ const CLASSES: [Class; CLASS_COUNT] = [
 /// the two cannot disagree.
 fn classify(c: char, segment_separators: &[char], word_separators: &[char]) -> Class {
     if segment_separators.contains(&c) {
-        Class::Segment
+        Class::SegmentSeparator
     } else if word_separators.contains(&c) {
-        Class::Word
+        Class::WordSeparator
     } else if c == '.' {
         Class::Dot
     } else if c.is_ascii_digit() {
@@ -124,8 +124,8 @@ fn classify(c: char, segment_separators: &[char], word_separators: &[char]) -> C
 /// digit boundary, and a match mid-token earns nothing.
 fn boundary_bonus(prev: Class, curr: Class, scoring: &Scoring) -> i32 {
     match prev {
-        Class::Segment => scoring.after_segment,
-        Class::Word => scoring.after_word,
+        Class::SegmentSeparator => scoring.after_segment,
+        Class::WordSeparator => scoring.after_word,
         Class::Dot => scoring.after_dot,
         Class::Lower if curr == Class::Upper => scoring.camel_hump,
         Class::Digit => 0,
@@ -144,7 +144,8 @@ mod tests {
     fn boundary_bonuses_match_the_documented_precedence() {
         let config = Config::DEFAULT;
         let classes = Classes::new(&config);
-        let bonus = |prev: char, curr: char| classes.bonus(classes.of(prev), classes.of(curr));
+        let bonus =
+            |prev: char, curr: char| classes.bonus(classes.class_of(prev), classes.class_of(curr));
         let scoring = config.scoring;
 
         assert_eq!(bonus('/', 'a'), scoring.after_segment);
@@ -170,9 +171,9 @@ mod tests {
         config.segment_separators = &['.'];
         let classes = Classes::new(&config);
 
-        assert_eq!(classes.of('.'), Class::Segment);
+        assert_eq!(classes.class_of('.'), Class::SegmentSeparator);
         assert_eq!(
-            classes.bonus(Class::Segment, Class::Lower),
+            classes.bonus(Class::SegmentSeparator, Class::Lower),
             config.scoring.after_segment
         );
     }
@@ -181,11 +182,11 @@ mod tests {
     fn non_ascii_classifies_like_the_table() {
         let classes = Classes::new(&Config::DEFAULT);
 
-        assert_eq!(classes.of('é'), Class::Lower);
-        assert_eq!(classes.of('É'), Class::Upper);
-        assert_eq!(classes.of('中'), Class::Other);
+        assert_eq!(classes.class_of('é'), Class::Lower);
+        assert_eq!(classes.class_of('É'), Class::Upper);
+        assert_eq!(classes.class_of('中'), Class::Other);
         assert_eq!(
-            classes.bonus(classes.of('é'), classes.of('É')),
+            classes.bonus(classes.class_of('é'), classes.class_of('É')),
             Config::DEFAULT.scoring.camel_hump,
             "a hump is a hump outside ASCII too"
         );
@@ -197,9 +198,9 @@ mod tests {
         config.segment_separators = &['·'];
         let classes = Classes::new(&config);
 
-        assert_eq!(classes.of('·'), Class::Segment);
+        assert_eq!(classes.class_of('·'), Class::SegmentSeparator);
         assert_eq!(
-            classes.of('/'),
+            classes.class_of('/'),
             Class::Other,
             "the default separators are replaced, not extended"
         );
