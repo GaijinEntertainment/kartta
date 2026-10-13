@@ -1134,6 +1134,28 @@ fn a_built_in_extension_the_caller_takes_out_is_read_instead() {
 }
 
 #[test]
+fn binary_extension_counts_show_an_extension_no_file_carries() {
+    let dir = tree(&[
+        ("a.png", ""),
+        ("b.PNG", ""),
+        ("pack.vromfs", ""),
+        ("notes.txt", ""),
+        ("shots.png/", ""),
+    ]);
+    let own = BinaryExtensions::new(["vromfs", "vromsf"]).expect("two extensions");
+    let index = index_with_binary_extensions(
+        dir.path(),
+        own.union(&BinaryExtensions::new(["png"]).expect("an extension")),
+    );
+
+    assert_eq!(
+        index.binary_extension_counts(),
+        [("png", 2), ("vromfs", 1), ("vromsf", 0)],
+        "a directory named like a file is not a file, and a misspelled extension matches nothing"
+    );
+}
+
+#[test]
 fn a_nul_settles_a_file_whose_extension_does_not() {
     let dir = tree(&[("notes.txt", "plain lines\n")]);
     fs::write(dir.path().join("blob.txt"), b"lines\0with a nul").expect("write a file with a nul");
