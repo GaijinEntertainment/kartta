@@ -67,8 +67,9 @@
 //! # Errors
 //!
 //! Two failures are fatal: a root that cannot be listed, and a thread pool that cannot be started. Everything deeper —
-//! a directory that cannot be read, an entry whose type cannot be resolved — is collected into [`WalkOutcome::errors`]
-//! and the walk continues, so one unreadable subdirectory costs its subtree rather than the whole answer.
+//! a directory that cannot be read, an entry that cannot be read, an entry whose file type cannot be read — is
+//! collected into [`WalkOutcome::errors`] and the walk continues, so one unreadable subdirectory costs its subtree
+//! rather than the whole answer.
 //!
 //! # Scope
 //!

@@ -21,8 +21,17 @@ pub enum WalkError {
         /// The underlying failure.
         source: io::Error,
     },
-    /// An entry's type could not be resolved, so the entry was not recorded.
-    #[error("cannot read the entry type of {}: {source}", native_path.display())]
+    /// An entry of a listed directory could not be read, so it is missing from the result. The rest of the listing
+    /// stands.
+    #[error("cannot read an entry of directory {}: {source}", native_path.display())]
+    ReadEntry {
+        /// The directory whose entry could not be read. The entry itself has no name to report.
+        native_path: PathBuf,
+        /// The underlying failure.
+        source: io::Error,
+    },
+    /// An entry's file type could not be read, so the entry was not recorded.
+    #[error("cannot read the file type of {}: {source}", native_path.display())]
     FileType {
         /// The entry whose type could not be read.
         native_path: PathBuf,
@@ -51,9 +60,9 @@ impl WalkError {
     #[must_use]
     pub fn native_path(&self) -> Option<&Path> {
         match self {
-            Self::ReadDir { native_path, .. } | Self::FileType { native_path, .. } => {
-                Some(native_path)
-            }
+            Self::ReadDir { native_path, .. }
+            | Self::ReadEntry { native_path, .. }
+            | Self::FileType { native_path, .. } => Some(native_path),
             Self::ThreadPool { .. } => None,
         }
     }
