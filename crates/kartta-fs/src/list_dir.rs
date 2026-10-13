@@ -8,7 +8,8 @@ use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::index::{Index, Inspected};
 
-/// How far a listing descends, which directories it does not enter, and how many entries it returns.
+/// How far a listing descends, which directories it does not enter, what it leaves out, and how many entries it
+/// returns.
 ///
 /// Every bound is absent by default, which lists the whole subtree. Set them by name — `depth` and `limit` are the same
 /// type, so a call that passed them positionally would swap silently and change both how deep the listing went and how
@@ -25,6 +26,9 @@ use crate::index::{Index, Inspected};
 ///
 /// let dependencies = Filter::new(["**/node_modules", "**/vendor"])?;
 /// let without_dependencies = ListOptions::default().collapse(&dependencies);
+///
+/// let dotfiles = Filter::new(["**/.*"])?;
+/// let without_dotfiles = ListOptions::default().exclude(&dotfiles);
 /// # Ok(())
 /// # }
 /// ```
@@ -43,6 +47,13 @@ pub struct ListOptions<'a> {
     /// `None` collapses nothing. The listed directory itself is never collapsed, so naming one by path shows what is
     /// inside it.
     pub collapse: Option<&'a Filter>,
+    /// The entries to leave out, matched by their index-relative path: a matched file is not listed, and a matched
+    /// directory is not listed together with everything beneath it. [`Listing::excluded`] counts what this removed,
+    /// and [`Listing::total`] still includes it, being the index's count rather than the listing's.
+    ///
+    /// `None` excludes nothing. Exclusion wins over [`ListOptions::collapse`] where both match, and the listed
+    /// directory itself is never excluded.
+    pub exclude: Option<&'a Filter>,
 }
 
 impl<'a> ListOptions<'a> {
@@ -66,6 +77,13 @@ impl<'a> ListOptions<'a> {
         self.collapse = Some(collapse);
         self
     }
+
+    /// Leaves out every entry `exclude` matches, and everything beneath a matched directory.
+    #[must_use]
+    pub const fn exclude(mut self, exclude: &'a Filter) -> Self {
+        self.exclude = Some(exclude);
+        self
+    }
 }
 
 /// What [`Index::list_dir`] found under a directory, and how much of it the answer left out.
@@ -73,6 +91,7 @@ impl<'a> ListOptions<'a> {
 pub struct Listing<'a> {
     items: Vec<Listed<'a>>,
     truncated: bool,
+    excluded: usize,
     total: usize,
 }
 
@@ -110,6 +129,15 @@ impl<'a> Listing<'a> {
     #[must_use]
     pub const fn truncated(&self) -> bool {
         self.truncated
+    }
+
+    /// How many indexed entries [`ListOptions::exclude`] removed, counting everything beneath a removed directory.
+    ///
+    /// Counted up to where the listing ended, so a listing the limit cut short says nothing about exclusions past the
+    /// cut.
+    #[must_use]
+    pub const fn excluded(&self) -> usize {
+        self.excluded
     }
 
     /// How many entries the index holds under the listed directory, at every depth.
@@ -193,11 +221,12 @@ impl Index {
     /// answer "which file did you mean" and drop them: a listing answers what is in a place, and the directories are
     /// half of that answer.
     ///
-    /// [`ListOptions`] carries the bounds: how far below `dir` to descend, which directories not to enter, and how many
-    /// entries to return. The answer says how much each bound left out: [`Listing::truncated`] whether the limit turned
-    /// anything away, [`Listed::unlisted`] how many entries lie beneath a directory the listing did not enter, and
-    /// [`Listing::total`] how many the index holds under `dir` altogether. A collapsed directory's contents never count
-    /// toward the limit.
+    /// [`ListOptions`] carries the bounds: how far below `dir` to descend, which directories not to enter, what to
+    /// leave out, and how many entries to return. The answer says how much each bound left out: [`Listing::truncated`]
+    /// whether the limit turned anything away, [`Listed::unlisted`] how many entries lie beneath a directory the
+    /// listing did not enter, [`Listing::excluded`] how many entries the exclusion removed, and [`Listing::total`] how
+    /// many the index holds under `dir` altogether. Neither a collapsed directory's contents nor an excluded entry
+    /// counts toward the limit.
     ///
     /// A directory with nothing indexed under it lists nothing and is not an error.
     ///
@@ -252,44 +281,53 @@ impl Index {
         let (start, end) = self.subtree_of(dir)?;
         let below_from = if dir.is_empty() { 0 } else { dir.len() + 1 };
         let cap = options.limit.map_or(usize::MAX, NonZeroUsize::get);
+        let ListOptions {
+            depth,
+            collapse,
+            exclude,
+            ..
+        } = *options;
 
         let mut items = Vec::new();
         let mut truncated = false;
+        let mut excluded = 0;
         let mut at = start;
 
         while at < end {
+            let here = at;
+
+            if exclude.is_some_and(|exclude| exclude.matches(self.path_at(here))) {
+                at = self.past_subtree(here + 1, self.path_at(here));
+                excluded += at - here;
+                continue;
+            }
+
             if items.len() == cap {
                 truncated = true;
                 break;
             }
 
-            let here = at;
-            let path = self.path_at(here);
-            at += 1;
-
-            let unlisted = if self.kind_at(here) == EntryKind::Dir
-                && (bottoms_out(&path[below_from..], options.depth)
-                    || options
-                        .collapse
-                        .is_some_and(|collapse| collapse.matches(path)))
-            {
-                let past = self.past_subtree(at, path);
-                let skipped = past - at;
-                at = past;
-                Some(skipped)
+            let stops_here = self.kind_at(here) == EntryKind::Dir && {
+                let path = self.path_at(here);
+                depth.is_some_and(|depth| bottoms_out(&path[below_from..], depth))
+                    || collapse.is_some_and(|collapse| collapse.matches(path))
+            };
+            at = if stops_here {
+                self.past_subtree(here + 1, self.path_at(here))
             } else {
-                None
+                here + 1
             };
 
             items.push(Listed {
                 inspected: self.inspected_at(here),
-                unlisted,
+                unlisted: stops_here.then_some(at - here - 1),
             });
         }
 
         Ok(Listing {
             items,
             truncated,
+            excluded,
             total: end - start,
         })
     }
@@ -354,6 +392,6 @@ impl Index {
 
 /// Whether a directory `below` the listed one sits at the deepest level `depth` allows, so its own children are one
 /// level too deep to list.
-fn bottoms_out(below: &str, depth: Option<NonZeroUsize>) -> bool {
-    depth.is_some_and(|depth| below.matches('/').count() + 1 >= depth.get())
+fn bottoms_out(below: &str, depth: NonZeroUsize) -> bool {
+    below.matches('/').count() + 1 >= depth.get()
 }
