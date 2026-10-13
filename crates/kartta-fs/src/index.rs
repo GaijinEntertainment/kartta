@@ -88,14 +88,14 @@ impl Index {
         order_report(&mut errors);
 
         Ok(BuildOutcome {
-            index: Self::from_tree(root.to_path_buf(), &tree, config.binary_extensions.clone()),
+            index: Self::from_tree(root.to_path_buf(), tree, config.binary_extensions.clone()),
             errors,
         })
     }
 
-    fn from_tree(root: PathBuf, tree: &Tree<Payload>, binary_extensions: BinaryExtensions) -> Self {
+    fn from_tree(root: PathBuf, tree: Tree<Payload>, binary_extensions: BinaryExtensions) -> Self {
         let mut bytes = 0;
-        depth_first(tree, |_, path| bytes += path.len());
+        depth_first(&tree, |_, path| bytes += path.len());
 
         let mut paths = String::with_capacity(bytes);
         let mut path_starts = Vec::with_capacity(tree.len() + 1);
@@ -103,7 +103,7 @@ impl Index {
         let mut kinds = Vec::with_capacity(tree.len());
         let mut symlink_targets = Vec::new();
 
-        depth_first(tree, |payload, path| {
+        depth_first(&tree, |payload, path| {
             if let Some(target) = &payload.target {
                 symlink_targets.push((kinds.len(), target.clone()));
             }
@@ -111,6 +111,7 @@ impl Index {
             path_starts.push(paths.len());
             kinds.push(payload.kind);
         });
+        drop(tree);
 
         Self {
             root,
