@@ -1,13 +1,13 @@
 //! Queries over a built [`Index`].
 
 use std::num::NonZeroUsize;
+use std::ops::Range;
 
 use kartta_fuzz::{Config as Scoring, Match, Matcher};
 use kartta_walk::EntryKind;
 use rayon::prelude::*;
 
 use crate::capped::Capped;
-use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::index::Index;
 
@@ -89,10 +89,11 @@ impl Index {
     #[must_use]
     pub fn glob_paths(&self, filter: &Filter, limit: Option<NonZeroUsize>) -> Capped<&str> {
         let Some(limit) = limit else {
-            return Capped::whole(files(self.entries(), Some(filter)).collect());
+            return Capped::whole(self.files(0..self.len(), Some(filter)).collect());
         };
 
-        let mut found: Vec<&str> = files(self.entries(), Some(filter))
+        let mut found: Vec<&str> = self
+            .files(0..self.len(), Some(filter))
             .take(limit.get() + 1)
             .collect();
 
@@ -169,10 +170,13 @@ impl Index {
         filter: Option<&Filter>,
         limit: Option<NonZeroUsize>,
     ) -> Vec<PathMatch<'_>> {
-        let rankings: Vec<Vec<Match<'_>>> = self
-            .entries()
-            .par_chunks(RANKED_CHUNK)
-            .map(|chunk| Matcher::new(SCORING).match_list(files(chunk, filter), query, limit))
+        let rankings: Vec<Vec<Match<'_>>> = (0..self.len().div_ceil(RANKED_CHUNK))
+            .into_par_iter()
+            .map(|chunk| {
+                let start = chunk * RANKED_CHUNK;
+                let slice = start..self.len().min(start + RANKED_CHUNK);
+                Matcher::new(SCORING).match_list(self.files(slice, filter), query, limit)
+            })
             .collect();
 
         Matcher::new(SCORING)
@@ -184,13 +188,16 @@ impl Index {
             })
             .collect()
     }
-}
 
-/// The paths a query answers from: every entry of `entries` that is not a directory, narrowed by `filter`.
-fn files<'a>(entries: &'a [Entry], filter: Option<&Filter>) -> impl Iterator<Item = &'a str> {
-    entries
-        .iter()
-        .filter(|entry| entry.kind() != EntryKind::Dir)
-        .map(Entry::path)
-        .filter(move |path| filter.is_none_or(|filter| filter.matches(path)))
+    /// The paths a query answers from: every entry in `positions` that is not a directory, narrowed by `filter`.
+    fn files(
+        &self,
+        positions: Range<usize>,
+        filter: Option<&Filter>,
+    ) -> impl Iterator<Item = &str> {
+        self.kinded_paths(positions)
+            .filter(|&(kind, _)| kind != EntryKind::Dir)
+            .map(|(_, path)| path)
+            .filter(move |path| filter.is_none_or(|filter| filter.matches(path)))
+    }
 }

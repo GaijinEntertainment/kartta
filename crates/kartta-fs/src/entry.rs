@@ -2,19 +2,22 @@
 
 pub use kartta_walk::EntryKind;
 
-/// One entry of the index: where it is, what it is, and how big it was when the walk read it.
+/// One entry of the index: where it is, what it is, and where a symlink points.
+///
+/// An entry is a view borrowed from its [`Index`](crate::Index), which keeps every path in one buffer, so holding or
+/// copying an entry allocates nothing.
 ///
 /// The path is repository-relative and forward-slash separated on every platform, and it is the entry's identity —
 /// [`Index::entry`](crate::Index::entry) looks one up by exactly this string. To *open* the entry, join it onto
 /// [`Index::root`](crate::Index::root); the join is where the platform's own separator comes back.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Entry {
-    pub(crate) path: Box<str>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Entry<'a> {
+    pub(crate) path: &'a str,
     pub(crate) kind: EntryKind,
-    pub(crate) target: Option<Box<str>>,
+    pub(crate) target: Option<&'a str>,
 }
 
-impl Entry {
+impl<'a> Entry<'a> {
     /// The entry's forward-slash path relative to the index root.
     ///
     /// It addresses this directory entry and no other: joining it onto [`Index::root`](crate::Index::root) names the
@@ -27,14 +30,14 @@ impl Entry {
     /// [`kind`](Entry::kind) is what tells the two apart, and a caller that must open a symlink as itself needs a
     /// non-following open of its own.
     #[must_use]
-    pub fn path(&self) -> &str {
-        &self.path
+    pub const fn path(self) -> &'a str {
+        self.path
     }
 
     /// The entry's own name — everything after the last `/`, or the whole path for a root-level entry.
     #[must_use]
-    pub fn name(&self) -> &str {
-        self.path.rsplit('/').next().unwrap_or(&self.path)
+    pub fn name(self) -> &'a str {
+        self.path.rsplit('/').next().unwrap_or(self.path)
     }
 
     /// What the entry is, read without following symlinks.
@@ -42,7 +45,7 @@ impl Entry {
     /// A symlink reports [`EntryKind::Symlink`] whatever it points at, so a link to a directory is not a directory
     /// here and has no indexed children.
     #[must_use]
-    pub const fn kind(&self) -> EntryKind {
+    pub const fn kind(self) -> EntryKind {
         self.kind
     }
 
@@ -62,7 +65,7 @@ impl Entry {
     /// Unlike [`Index::size`](crate::Index::size), this is walk-time data: it is read once, with the structure, and
     /// belongs to the same moment as the rest of the tree.
     #[must_use]
-    pub fn target(&self) -> Option<&str> {
-        self.target.as_deref()
+    pub const fn target(self) -> Option<&'a str> {
+        self.target
     }
 }

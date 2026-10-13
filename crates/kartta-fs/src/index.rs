@@ -1,5 +1,6 @@
 //! [`Index`] — the snapshot one walk produces, and everything queries answer from.
 
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use kartta_walk::{EntryKind, NodeId, Tree, WalkOptions, walk};
@@ -52,8 +53,11 @@ use crate::rules::Rules;
 #[derive(Debug, Clone)]
 pub struct Index {
     root: PathBuf,
-    entries: Vec<Entry>,
-    /// Positions into `entries`, ordered by path, so a lookup is a binary search and no path is stored twice.
+    paths: Box<str>,
+    path_starts: Vec<usize>,
+    kinds: Vec<EntryKind>,
+    symlink_targets: Vec<(usize, Box<str>)>,
+    /// Positions ordered by path, so a lookup is a binary search and no path is stored twice.
     by_path: Vec<usize>,
     /// What the walk did not read, filled by the queries that need it.
     inspection: Inspection,
@@ -91,17 +95,82 @@ impl Index {
     }
 
     fn from_tree(root: PathBuf, tree: &Tree<Payload>, binary_extensions: BinaryExtensions) -> Self {
-        let entries = flatten(tree);
+        let mut bytes = 0;
+        depth_first(tree, |_, path| bytes += path.len());
 
-        let mut by_path: Vec<usize> = (0..entries.len()).collect();
-        by_path.sort_unstable_by(|&left, &right| entries[left].path.cmp(&entries[right].path));
+        let mut paths = String::with_capacity(bytes);
+        let mut path_starts = Vec::with_capacity(tree.len() + 1);
+        path_starts.push(0);
+        let mut kinds = Vec::with_capacity(tree.len());
+        let mut symlink_targets = Vec::new();
+
+        depth_first(tree, |payload, path| {
+            if let Some(target) = &payload.target {
+                symlink_targets.push((kinds.len(), target.clone()));
+            }
+            paths.push_str(path);
+            path_starts.push(paths.len());
+            kinds.push(payload.kind);
+        });
+
+        let paths = paths.into_boxed_str();
+        let mut by_path: Vec<usize> = (0..kinds.len()).collect();
+        by_path.sort_unstable_by(|&left, &right| {
+            path_in(&paths, &path_starts, left).cmp(path_in(&paths, &path_starts, right))
+        });
 
         Self {
             root,
-            inspection: Inspection::new(entries.len()),
-            binary_extensions,
-            entries,
+            inspection: Inspection::new(kinds.len()),
+            paths,
+            path_starts,
+            kinds,
+            symlink_targets,
             by_path,
+            binary_extensions,
+        }
+    }
+
+    /// The path of the entry at position `at`.
+    pub(crate) fn path_at(&self, at: usize) -> &str {
+        path_in(&self.paths, &self.path_starts, at)
+    }
+
+    /// The kind and path of every entry in `positions`, in order, for a sweep that reads each one once.
+    pub(crate) fn kinded_paths(
+        &self,
+        positions: Range<usize>,
+    ) -> impl DoubleEndedIterator<Item = (EntryKind, &str)> + ExactSizeIterator {
+        let starts = &self.path_starts[positions.start..=positions.end];
+        let bounds = starts.iter().zip(&starts[1..]);
+
+        self.kinds[positions]
+            .iter()
+            .zip(bounds)
+            .map(|(&kind, (&start, &end))| (kind, path_between(&self.paths, start, end)))
+    }
+
+    /// The kind of the entry at position `at`.
+    pub(crate) fn kind_at(&self, at: usize) -> EntryKind {
+        self.kinds[at]
+    }
+
+    /// The entry at position `at`.
+    pub(crate) fn entry_at(&self, at: usize) -> Entry<'_> {
+        let kind = self.kind_at(at);
+        let target = (kind == EntryKind::Symlink)
+            .then(|| {
+                self.symlink_targets
+                    .binary_search_by_key(&at, |&(position, _)| position)
+                    .ok()
+            })
+            .flatten()
+            .map(|found| &*self.symlink_targets[found].1);
+
+        Entry {
+            path: self.path_at(at),
+            kind,
+            target,
         }
     }
 
@@ -115,9 +184,8 @@ impl Index {
     }
 
     /// Every indexed entry, in depth-first order.
-    #[must_use]
-    pub fn entries(&self) -> &[Entry] {
-        &self.entries
+    pub fn entries(&self) -> impl ExactSizeIterator<Item = Entry<'_>> + DoubleEndedIterator {
+        (0..self.len()).map(|at| self.entry_at(at))
     }
 
     /// The entry at this root-relative forward-slash path, or `None` if nothing was indexed there.
@@ -125,8 +193,8 @@ impl Index {
     /// `None` does not mean the path does not exist: an ignored file, a file below an unreadable directory and a file
     /// created after the walk all answer the same way.
     #[must_use]
-    pub fn entry(&self, path: &str) -> Option<&Entry> {
-        self.entries.get(self.position(path)?)
+    pub fn entry(&self, path: &str) -> Option<Entry<'_>> {
+        Some(self.entry_at(self.position(path)?))
     }
 
     /// Where the entry at this root-relative forward-slash path sits in [`Index::entries`], or `None` if nothing was
@@ -137,7 +205,7 @@ impl Index {
     pub(crate) fn position(&self, path: &str) -> Option<usize> {
         let found = self
             .by_path
-            .binary_search_by(|&at| self.entries[at].path.as_ref().cmp(path))
+            .binary_search_by(|&at| self.path_at(at).cmp(path))
             .ok()?;
 
         self.by_path.get(found).copied()
@@ -162,7 +230,7 @@ impl Index {
     pub fn size(&self, path: &str) -> Option<u64> {
         let at = self.position(path)?;
 
-        if self.entries.get(at)?.kind() != EntryKind::File {
+        if self.kind_at(at) != EntryKind::File {
             return None;
         }
 
@@ -194,7 +262,7 @@ impl Index {
     pub fn is_binary(&self, path: &str) -> Option<bool> {
         let at = self.position(path)?;
 
-        if self.entries.get(at)?.kind() != EntryKind::File {
+        if self.kind_at(at) != EntryKind::File {
             return None;
         }
 
@@ -219,12 +287,9 @@ impl Index {
     pub fn binary_extension_counts(&self) -> Vec<(&str, usize)> {
         let mut counts = vec![0; self.binary_extensions.extensions().len()];
 
-        let files = self
-            .entries
-            .iter()
-            .filter(|entry| entry.kind() == EntryKind::File);
-        for at in files.filter_map(|entry| self.binary_extensions.position(entry.path())) {
-            counts[at] += 1;
+        let files = (0..self.len()).filter(|&at| self.kind_at(at) == EntryKind::File);
+        for found in files.filter_map(|at| self.binary_extensions.position(self.path_at(at))) {
+            counts[found] += 1;
         }
 
         self.binary_extensions.extensions().zip(counts).collect()
@@ -244,26 +309,19 @@ impl Index {
     /// Reading is lazy per entry, so an entry the caller skips costs nothing, and one it stops before is never
     /// touched. Each fact is read on its first ask and kept, exactly as the keyed methods do.
     pub fn inspected(&self) -> impl Iterator<Item = Inspected<'_>> {
-        self.entries
-            .iter()
-            .enumerate()
-            .map(|(at, entry)| Inspected {
-                index: self,
-                at,
-                entry,
-            })
+        (0..self.len()).map(|at| self.inspected_at(at))
     }
 
     /// How many entries the index holds.
     #[must_use]
     pub const fn len(&self) -> usize {
-        self.entries.len()
+        self.kinds.len()
     }
 
     /// Whether the index holds no entries.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.kinds.is_empty()
     }
 }
 
@@ -275,48 +333,62 @@ impl Index {
 pub struct Inspected<'a> {
     index: &'a Index,
     at: usize,
-    entry: &'a Entry,
 }
 
 impl Index {
     /// One entry of this index by position, for a query that already knows where the entry sits.
-    pub(crate) const fn inspected_at<'a>(&'a self, at: usize, entry: &'a Entry) -> Inspected<'a> {
-        Inspected {
-            index: self,
-            at,
-            entry,
-        }
+    pub(crate) const fn inspected_at(&self, at: usize) -> Inspected<'_> {
+        Inspected { index: self, at }
     }
 }
 
 impl<'a> Inspected<'a> {
     /// The entry itself.
     #[must_use]
-    pub const fn entry(&self) -> &'a Entry {
-        self.entry
+    pub fn entry(&self) -> Entry<'a> {
+        self.index.entry_at(self.at)
     }
 
     /// The entry's size, on the terms [`Index::size`] states.
     #[must_use]
     pub fn size(&self) -> Option<u64> {
-        if self.entry.kind() != EntryKind::File {
+        if self.index.kind_at(self.at) != EntryKind::File {
             return None;
         }
 
-        self.index
-            .inspection
-            .size(self.at, || self.index.root.join(self.entry.path()))
+        self.index.inspection.size(self.at, || {
+            self.index.root.join(self.index.path_at(self.at))
+        })
     }
 
     /// Whether the entry holds binary content, on the terms [`Index::is_binary`] states.
     #[must_use]
     pub fn is_binary(&self) -> Option<bool> {
-        if self.entry.kind() != EntryKind::File {
+        if self.index.kind_at(self.at) != EntryKind::File {
             return None;
         }
 
-        self.index.is_binary_at(self.at, self.entry.path())
+        self.index
+            .is_binary_at(self.at, self.index.path_at(self.at))
     }
+}
+
+/// The path at position `at` of `paths`, the index's paths laid end to end, which begins at `starts[at]` and stops at
+/// `starts[at + 1]`.
+fn path_in<'a>(paths: &'a str, starts: &[usize], at: usize) -> &'a str {
+    path_between(paths, starts[at], starts[at + 1])
+}
+
+/// The path of `paths` between `start` and `end`, which must be two consecutive offsets of the index's path starts.
+///
+/// Slicing a `str` by bytes checks that both ends sit on a character boundary, which reads the path's bytes. A sweep
+/// that only needs where each path lies would read every byte of the buffer for nothing, and a listing pays a third
+/// more for it.
+fn path_between(paths: &str, start: usize, end: usize) -> &str {
+    // SAFETY: every path start is `paths.len()` read right after a whole `&str` was appended to `paths`, so each one
+    // is a character boundary of `paths` and they rise in order; `start` and `end` are two consecutive ones, read
+    // through a bounds-checked index or a zip of the starts with themselves, so `start..end` lies inside `paths`.
+    unsafe { paths.get_unchecked(start..end) }
 }
 
 /// Puts the report in an order two builds of one tree agree on.
@@ -339,13 +411,12 @@ struct Frame<'a> {
     prefix: usize,
 }
 
-/// Turns the walk's tree into the flat depth-first entry list, building each full path once.
+/// Visits the walk's tree in depth-first order, handing `visit` each node's payload and full path.
 ///
 /// One buffer carries the path of the entry being visited, truncated back to the parent's length on the way down a
 /// sibling: every node under one directory shares that directory's prefix, so the bytes below the truncation point are
 /// always already correct. The stack holds one frame per level, not one per pending node.
-fn flatten(tree: &Tree<Payload>) -> Vec<Entry> {
-    let mut entries = Vec::with_capacity(tree.len());
+fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str)) {
     let mut path = String::new();
     let mut stack = vec![Frame {
         children: tree.roots(),
@@ -368,11 +439,7 @@ fn flatten(tree: &Tree<Payload>) -> Vec<Entry> {
         }
         path.push_str(node.name());
 
-        entries.push(Entry {
-            path: path.as_str().into(),
-            kind: node.value().kind,
-            target: node.value().target.clone(),
-        });
+        visit(node.value(), &path);
 
         if !node.children().is_empty() {
             stack.push(Frame {
@@ -382,8 +449,6 @@ fn flatten(tree: &Tree<Payload>) -> Vec<Entry> {
             });
         }
     }
-
-    entries
 }
 
 /// What one build produced: the index, and what the build could not read.
