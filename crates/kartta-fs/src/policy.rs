@@ -71,20 +71,20 @@ impl Indexing {
     /// What that kind is gets settled on the opened handle rather than on the name. Checking the name and then reading
     /// it are two resolutions of one string, and a fifo renamed onto the name in between would block the second one
     /// forever — which is the hazard the check exists to prevent, so it cannot be left open by the check itself.
-    fn read_ignore_file(&self, path: &Path) -> io::Result<Vec<u8>> {
-        if fs::symlink_metadata(path)?.is_symlink() && !self.leads_into_tree(path)? {
+    fn read_ignore_file(&self, native_path: &Path) -> io::Result<Vec<u8>> {
+        if fs::symlink_metadata(native_path)?.is_symlink() && !self.leads_into_tree(native_path)? {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "symlink to an ignore file outside the tree",
             ));
         }
 
-        read_all(&open_regular(path, Symlinks::Follow)?)
+        read_all(&open_regular(native_path, Symlinks::Follow)?)
     }
 
-    /// Whether `path` resolves to a location inside the indexed tree.
-    fn leads_into_tree(&self, path: &Path) -> io::Result<bool> {
-        Ok(fs::canonicalize(path)?.starts_with(&self.root))
+    /// Whether `native_path` resolves to a location inside the indexed tree.
+    fn leads_into_tree(&self, native_path: &Path) -> io::Result<bool> {
+        Ok(fs::canonicalize(native_path)?.starts_with(&self.root))
     }
 
     /// Whether the entry's name survives the walk's lossy decoding intact.
@@ -101,12 +101,15 @@ impl Indexing {
             return true;
         }
 
-        let path = entry.native_path();
-        if path.file_name().is_some_and(|name| name.to_str().is_some()) {
+        let native_path = entry.native_path();
+        if native_path
+            .file_name()
+            .is_some_and(|name| name.to_str().is_some())
+        {
             return true;
         }
 
-        self.record(BuildError::Name { path });
+        self.record(BuildError::Name { native_path });
         false
     }
 }
@@ -194,12 +197,15 @@ impl Policy for Indexing {
         let mut rules = inherited_across_repository_boundary(dir, parent_state);
 
         if let Some(name) = control_name(dir, GITIGNORE) {
-            let path = dir.native_path().join(name);
+            let native_path = dir.native_path().join(name);
             let pushed = self
-                .read_ignore_file(&path)
+                .read_ignore_file(&native_path)
                 .and_then(|bytes| rules.push(&bytes, dir.path()));
             if let Err(source) = pushed {
-                self.record(BuildError::Ignore { path, source });
+                self.record(BuildError::Ignore {
+                    native_path,
+                    source,
+                });
             }
         }
 

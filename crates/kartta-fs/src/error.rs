@@ -22,10 +22,10 @@ pub enum BuildError {
     /// This is the one collected failure that leaves the index holding *more* than it should rather than less: every
     /// entry the unread file would have hidden is indexed instead. Reporting it matters more than the rest — a missing
     /// subtree is a visible gap, whereas files git would hide look exactly like files git would keep.
-    #[error("cannot read the ignore file {}: {source}", path.display())]
+    #[error("cannot read the ignore file {}: {source}", native_path.display())]
     Ignore {
         /// The ignore file that could not be read.
-        path: PathBuf,
+        native_path: PathBuf,
         /// The underlying failure.
         source: io::Error,
     },
@@ -34,15 +34,15 @@ pub enum BuildError {
     /// Such a name has no faithful path: it decodes to replacement characters, which two different names can share, so
     /// indexing it would give two entries one lookup key and a path that opens neither. Dropping it trades a file the
     /// index cannot address for a gap the caller can see.
-    #[error("cannot index {}: the name is not valid UTF-8", path.display())]
+    #[error("cannot index {}: the name is not valid UTF-8", native_path.display())]
     Name {
         /// The entry that could not be named.
-        path: PathBuf,
+        native_path: PathBuf,
     },
 }
 
 impl BuildError {
-    /// The path the failed operation was applied to, or `None` for a failure that names no path.
+    /// The native path the failed operation was applied to, or `None` for a failure that names no path.
     ///
     /// Native, and spelled relative to the root exactly as the root itself was given — not the root-relative
     /// forward-slash form the index reports elsewhere. A failure names a place on disk for an operator to go and look
@@ -52,10 +52,10 @@ impl BuildError {
     /// Every collected error names a path. Only a returned [`BuildError::Walk`] wrapping
     /// [`WalkError::ThreadPool`](kartta_walk::WalkError::ThreadPool) does not.
     #[must_use]
-    pub fn path(&self) -> Option<&Path> {
+    pub fn native_path(&self) -> Option<&Path> {
         match self {
             Self::Walk(source) => source.native_path(),
-            Self::Ignore { path, .. } | Self::Name { path } => Some(path),
+            Self::Ignore { native_path, .. } | Self::Name { native_path } => Some(native_path),
         }
     }
 

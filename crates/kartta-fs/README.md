@@ -23,8 +23,9 @@ assert_eq!(index.size("src/main.rs"), Some(12)); // read now, kept
 ## Two rules on every surface
 
 - **Paths are forward-slash and root-relative on every platform.** Windows is a first-class target, so no surface
-  returns an OS-native separator. `Index::root` is the single exception, because opening a file needs the platform's own
-  spelling: one form for identity, the other for access.
+  returns an OS-native separator where a path names an entry. Two surfaces are native instead, because both point at a
+  place on disk rather than at an entry: `Index::root`, which an entry's path is joined onto to open it, and
+  `BuildError::native_path`, which tells an operator where to go and look. One form for identity, the other for access.
 - **A symlink is reported, never read through.** Its content is either already indexed under the target's own path or is
   not the repository's at all, so following one would either duplicate a file under a second path or read outside the
   tree. It is never descended and never stat'd through — a dangling link and a live one are indistinguishable to every
