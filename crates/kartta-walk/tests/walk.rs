@@ -262,8 +262,8 @@ impl Policy for Trail {
 
     fn enter(&self, dir: &Dir<'_>, parent: &Vec<String>) -> Vec<String> {
         let mut trail = parent.clone();
-        if !dir.rel().is_empty() {
-            trail.push(dir.rel().to_owned());
+        if !dir.path().is_empty() {
+            trail.push(dir.path().to_owned());
         }
 
         trail
@@ -349,25 +349,25 @@ fn enter_sees_the_whole_listing_before_any_entry_is_classified() {
     );
 }
 
-/// Records each entry's relative path exactly as the walk reports it.
-struct Rel;
+/// Records each entry's path exactly as the walk reports it.
+struct Paths;
 
-impl Policy for Rel {
+impl Policy for Paths {
     type State = ();
     type Node = String;
 
     fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<String> {
-        Visit::Keep(entry.rel().to_owned())
+        Visit::Keep(entry.path().to_owned())
     }
 }
 
 #[test]
-fn relative_paths_are_unix_form_on_every_platform() {
+fn paths_are_forward_slash_on_every_platform() {
     let dir = fixture();
 
-    let tree = walk(dir.path(), &Rel, &(), &WalkOptions::default()).expect("walk");
+    let tree = walk(dir.path(), &Paths, &(), &WalkOptions::default()).expect("walk");
 
     let deepest = tree
         .tree()
@@ -381,7 +381,7 @@ fn relative_paths_are_unix_form_on_every_platform() {
         // platform's own separator.
         assert!(
             !node.value().contains('\\'),
-            "relative path {:?} carries an OS separator",
+            "path {:?} carries a native separator",
             node.value()
         );
         assert!(
@@ -423,8 +423,8 @@ impl Policy for Native {
     fn enter(&self, _dir: &Dir<'_>, _parent: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<bool> {
-        // `path()` is the platform's own spelling, so it must open what `rel()` merely names.
-        Visit::Keep(entry.path().exists())
+        // `native_path()` is the platform's own spelling, so it must open what `path()` merely names.
+        Visit::Keep(entry.native_path().exists())
     }
 }
 
@@ -529,7 +529,7 @@ fn an_unreadable_root_fails_the_whole_walk() {
     let err =
         walk(missing, &Everything, &(), &WalkOptions::default()).expect_err("missing root fails");
 
-    assert_eq!(err.path(), Some(missing));
+    assert_eq!(err.native_path(), Some(missing));
     assert!(
         err.to_string().contains("cannot read directory"),
         "the message names the operation: {err}"
@@ -698,7 +698,7 @@ mod unix {
         }
 
         assert_eq!(tree.errors().len(), 1);
-        assert_eq!(tree.errors()[0].path(), Some(locked.as_path()));
+        assert_eq!(tree.errors()[0].native_path(), Some(locked.as_path()));
 
         let names: Vec<&str> = tree.tree().nodes().map(Node::name).collect();
         assert!(

@@ -94,13 +94,14 @@ impl Indexing {
     /// an entry and reports it, because a reported gap is answerable where a silently aliased entry is not.
     ///
     /// The scan is the cheap half. Only a name that already carries a replacement character pays for the syscall-free
-    /// but allocating [`Entry::path`], which settles whether the character was in the name or put there by the decode.
+    /// but allocating [`Entry::native_path`], which settles whether the character was in the name or put there by the
+    /// decode.
     fn is_representable(&self, entry: &Entry<'_>) -> bool {
         if !entry.name().contains(char::REPLACEMENT_CHARACTER) {
             return true;
         }
 
-        let path = entry.path();
+        let path = entry.native_path();
         if path.file_name().is_some_and(|name| name.to_str().is_some()) {
             return true;
         }
@@ -120,7 +121,7 @@ fn target(entry: &Entry<'_>, kind: EntryKind) -> Option<Box<str>> {
         return None;
     }
 
-    let target = fs::read_link(entry.path()).ok()?;
+    let target = fs::read_link(entry.native_path()).ok()?;
 
     target
         .into_os_string()
@@ -193,10 +194,10 @@ impl Policy for Indexing {
         let mut rules = inherited_across_repository_boundary(dir, parent);
 
         if let Some(name) = control_name(dir, GITIGNORE) {
-            let path = dir.path().join(name);
+            let path = dir.native_path().join(name);
             let pushed = self
                 .read_ignore_file(&path)
-                .and_then(|bytes| rules.push(&bytes, dir.rel()));
+                .and_then(|bytes| rules.push(&bytes, dir.path()));
             if let Err(source) = pushed {
                 self.record(BuildError::Ignore { path, source });
             }
@@ -216,7 +217,7 @@ impl Policy for Indexing {
             return Visit::Skip;
         }
 
-        if rules.ignores(entry.rel(), kind == EntryKind::Dir) {
+        if rules.ignores(entry.path(), kind == EntryKind::Dir) {
             return Visit::Skip;
         }
 

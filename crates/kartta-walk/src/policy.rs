@@ -112,22 +112,22 @@ pub enum Visit<N> {
 /// The directory a [`Policy::enter`] call is deriving state for.
 #[derive(Debug)]
 pub struct Dir<'a> {
-    path: &'a Path,
-    rel: &'a str,
+    native_path: &'a Path,
+    path: &'a str,
     depth: usize,
     listing: &'a [Listing],
 }
 
 impl<'a> Dir<'a> {
     pub(crate) const fn new(
-        path: &'a Path,
-        rel: &'a str,
+        native_path: &'a Path,
+        path: &'a str,
         depth: usize,
         listing: &'a [Listing],
     ) -> Self {
         Dir {
+            native_path,
             path,
-            rel,
             depth,
             listing,
         }
@@ -138,16 +138,16 @@ impl<'a> Dir<'a> {
         self.listing
     }
 
-    /// The directory's path as the walk reached it — the walk root joined with [`Dir::rel`].
+    /// The directory's native path — the walk root joined with [`Dir::path`].
     #[must_use]
-    pub const fn path(&self) -> &'a Path {
-        self.path
+    pub const fn native_path(&self) -> &'a Path {
+        self.native_path
     }
 
     /// The directory's forward-slash path relative to the walk root. Empty for the root itself.
     #[must_use]
-    pub const fn rel(&self) -> &'a str {
-        self.rel
+    pub const fn path(&self) -> &'a str {
+        self.path
     }
 
     /// How far below the walk root this directory sits. `0` for the root itself.
@@ -174,7 +174,7 @@ impl<'a> Dir<'a> {
 #[derive(Debug)]
 pub struct Entry<'a> {
     listing: &'a Listing,
-    rel: &'a str,
+    path: &'a str,
     depth: usize,
     file_type: fs::FileType,
 }
@@ -182,13 +182,13 @@ pub struct Entry<'a> {
 impl<'a> Entry<'a> {
     pub(crate) const fn new(
         listing: &'a Listing,
-        rel: &'a str,
+        path: &'a str,
         depth: usize,
         file_type: fs::FileType,
     ) -> Self {
         Entry {
             listing,
-            rel,
+            path,
             depth,
             file_type,
         }
@@ -196,7 +196,7 @@ impl<'a> Entry<'a> {
 
     /// The entry's own name, without any directory prefix.
     ///
-    /// Lossily decoded, like [`Entry::rel`]. Use [`Entry::path`] to open the entry.
+    /// Lossily decoded, like [`Entry::path`]. Use [`Entry::native_path`] to open the entry.
     #[must_use]
     pub fn name(&self) -> &'a str {
         self.listing.name.as_ref()
@@ -207,15 +207,15 @@ impl<'a> Entry<'a> {
     /// Lossily decoded: a name that is not valid UTF-8 renders replacement characters here. The path is a borrow of
     /// the walk's per-directory buffer, so a policy that keeps it must copy it.
     #[must_use]
-    pub const fn rel(&self) -> &'a str {
-        self.rel
+    pub const fn path(&self) -> &'a str {
+        self.path
     }
 
-    /// The entry's path on disk, faithful even when [`Entry::name`] is lossy.
+    /// The entry's native path, faithful even when [`Entry::name`] is lossy.
     ///
     /// Allocates. The walk does not need it, so it is built only when a policy asks.
     #[must_use]
-    pub fn path(&self) -> PathBuf {
+    pub fn native_path(&self) -> PathBuf {
         self.listing.entry.path()
     }
 

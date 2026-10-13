@@ -48,8 +48,8 @@ pub struct WalkOptions {
 /// # Errors
 ///
 /// Returns [`WalkError::ReadDir`] if `root` itself cannot be listed, or [`WalkError::ThreadPool`] if the requested
-/// thread count cannot be started. Every deeper failure is collected into [`WalkOutcome::errors`] instead, leaving a partial
-/// tree.
+/// thread count cannot be started. Every deeper failure is collected into [`WalkOutcome::errors`] instead, leaving a
+/// partial tree.
 ///
 /// # Examples
 ///
@@ -97,15 +97,15 @@ pub fn walk<P: Policy>(
     opts: &WalkOptions,
 ) -> Result<WalkOutcome<P::Node>, WalkError> {
     let listed = list_dir(root).map_err(|source| WalkError::ReadDir {
-        path: root.to_path_buf(),
+        native_path: root.to_path_buf(),
         source,
     })?;
 
     let ctx = Ctx { policy, opts };
 
     let level = Level {
-        path: root,
-        rel: "",
+        native_path: root,
+        path: "",
         depth: 0,
         parent: initial,
     };
@@ -137,8 +137,8 @@ pub fn walk<P: Policy>(
 
 /// What one walk produced: the tree, what it could not read, and whether it was cancelled.
 ///
-/// The tree is the part worth keeping; the rest is a report about this particular run, which a consumer surfaces or logs
-/// and then drops. [`WalkOutcome::into_tree`] takes the structure and leaves the report behind.
+/// The tree is the part worth keeping; the rest is a report about this particular run, which a consumer surfaces or
+/// logs and then drops. [`WalkOutcome::into_tree`] takes the structure and leaves the report behind.
 #[derive(Debug)]
 pub struct WalkOutcome<N> {
     tree: Tree<N>,
@@ -192,8 +192,8 @@ impl<N> WalkOutcome<N> {
 
 /// One directory the walk is about to classify: where it sits and what state its entries inherit.
 struct Level<'a, P: Policy> {
-    path: &'a Path,
-    rel: &'a str,
+    native_path: &'a Path,
+    path: &'a str,
     depth: usize,
     parent: &'a P::State,
 }
@@ -220,7 +220,7 @@ impl<P: Policy> Ctx<'_, P> {
             errors,
         } = listed;
 
-        let dir = Dir::new(level.path, level.rel, level.depth, &listing);
+        let dir = Dir::new(level.native_path, level.path, level.depth, &listing);
         let state = self.policy.enter(&dir, level.parent);
 
         let (mut built, descend) = self.classify(&dir, &state, errors);
@@ -266,14 +266,14 @@ impl<P: Policy> Ctx<'_, P> {
         };
         let mut descend: Vec<Descent> = Vec::new();
 
-        // One buffer for the whole directory: every entry's relative path is this prefix plus its name, so the walk
-        // allocates per directory rather than per entry.
-        let mut rel = String::with_capacity(dir.rel().len() + 1);
-        rel.push_str(dir.rel());
-        if !rel.is_empty() {
-            rel.push('/');
+        // One buffer for the whole directory: every entry's path is this prefix plus its name, so the walk allocates
+        // per directory rather than per entry.
+        let mut path = String::with_capacity(dir.path().len() + 1);
+        path.push_str(dir.path());
+        if !path.is_empty() {
+            path.push('/');
         }
-        let prefix = rel.len();
+        let prefix = path.len();
 
         for item in dir.listing() {
             if self.cancelled() {
@@ -284,17 +284,17 @@ impl<P: Policy> Ctx<'_, P> {
                 Ok(file_type) => file_type,
                 Err(source) => {
                     built.errors.push(WalkError::FileType {
-                        path: item.entry.path(),
+                        native_path: item.entry.path(),
                         source,
                     });
                     continue;
                 }
             };
 
-            rel.truncate(prefix);
-            rel.push_str(&item.name);
+            path.truncate(prefix);
+            path.push_str(&item.name);
 
-            let entry = Entry::new(item, &rel, dir.depth() + 1, file_type);
+            let entry = Entry::new(item, &path, dir.depth() + 1, file_type);
             let is_dir = entry.kind() == EntryKind::Dir;
             let (value, descendable) = match self.policy.visit(&entry, state) {
                 Visit::Skip => continue,
@@ -305,8 +305,8 @@ impl<P: Policy> Ctx<'_, P> {
             if descendable {
                 descend.push(Descent {
                     index: built.entries.len(),
-                    path: item.entry.path(),
-                    rel: rel.clone(),
+                    native_path: item.entry.path(),
+                    path: path.clone(),
                 });
             }
 
@@ -326,11 +326,11 @@ impl<P: Policy> Ctx<'_, P> {
     /// Walks one child directory. A directory that cannot be listed becomes a recorded error and an empty subtree, so
     /// its parent still reports it.
     fn subtree(&self, child: Descent, depth: usize, parent: &P::State) -> Built<P::Node> {
-        match list_dir(&child.path) {
+        match list_dir(&child.native_path) {
             Ok(listed) => self.visit(
                 &Level {
+                    native_path: &child.native_path,
                     path: &child.path,
-                    rel: &child.rel,
                     depth,
                     parent,
                 },
@@ -340,7 +340,7 @@ impl<P: Policy> Ctx<'_, P> {
                 entries: Vec::new(),
                 subtrees: Vec::new(),
                 errors: vec![WalkError::ReadDir {
-                    path: child.path,
+                    native_path: child.native_path,
                     source,
                 }],
                 nodes: 0,
@@ -353,8 +353,8 @@ impl<P: Policy> Ctx<'_, P> {
 /// A directory the walk decided to descend into, and the recorded entry it belongs to.
 struct Descent {
     index: usize,
-    path: PathBuf,
-    rel: String,
+    native_path: PathBuf,
+    path: String,
 }
 
 /// One directory's recorded entries before arena ids exist. A descended directory owns its subtree, so nothing is
@@ -413,7 +413,7 @@ fn list_dir(dir: &Path) -> io::Result<Listed> {
             }),
             // The directory opened but an entry could not be read; the rest of the listing still stands.
             Err(source) => errors.push(WalkError::ReadDir {
-                path: dir.to_path_buf(),
+                native_path: dir.to_path_buf(),
                 source,
             }),
         }
