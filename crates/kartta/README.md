@@ -1,6 +1,6 @@
 # kartta
 
-Multi-language code graph engine: filesystem index, tree-sitter extraction, graph queries.
+Multi-language code graph engine: repository file index, tree-sitter extraction, graph queries.
 
 kartta walks a repository once, extracts symbols and references per language on tree-sitter grammars, and answers
 queries over the resulting code graph — symbol lookup, call and reference edges, path and content search.
