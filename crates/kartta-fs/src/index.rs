@@ -442,50 +442,6 @@ fn tree_order(left: &str, right: &str) -> Ordering {
         )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The order spelled out a byte at a time, which the word-wise comparison has to agree with.
-    fn tree_order_by_byte(left: &str, right: &str) -> Ordering {
-        let rank = |byte: u8| if byte == b'/' { 0 } else { u16::from(byte) + 1 };
-        left.bytes().map(rank).cmp(right.bytes().map(rank))
-    }
-
-    #[test]
-    fn tree_order_agrees_with_the_byte_by_byte_order_on_either_side_of_a_word() {
-        let paths = [
-            "",
-            "a",
-            "a/b",
-            "a b",
-            "a.txt",
-            "abcdefg",
-            "abcdefgh",
-            "abcdefgh/",
-            "abcdefgh.",
-            "abcdefgh/i",
-            "abcdefg/hi",
-            "abcdefg.hi",
-            "abcdefghijklmnop/q",
-            "abcdefghijklmnop.q",
-            "abcdefghijklmnopq",
-            "a\0b",
-            "abcdefghijklmnop\0q",
-        ];
-
-        for left in paths {
-            for right in paths {
-                assert_eq!(
-                    tree_order(left, right),
-                    tree_order_by_byte(left, right),
-                    "{left:?} against {right:?}"
-                );
-            }
-        }
-    }
-}
-
 /// Puts the report in an order two builds of one tree agree on.
 ///
 /// The walk collects failures as its threads reach them, so the order they arrive in is the scheduler's. An index that
@@ -576,5 +532,49 @@ impl BuildOutcome {
     #[must_use]
     pub fn errors(&self) -> &[BuildError] {
         &self.errors
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The order spelled out a byte at a time, which the word-wise comparison has to agree with.
+    fn tree_order_by_byte(left: &str, right: &str) -> Ordering {
+        let rank = |byte: u8| if byte == b'/' { 0 } else { u16::from(byte) + 1 };
+        left.bytes().map(rank).cmp(right.bytes().map(rank))
+    }
+
+    #[test]
+    fn tree_order_agrees_with_the_byte_by_byte_order_on_either_side_of_a_word() {
+        let paths = [
+            "",
+            "a",
+            "a/b",
+            "a b",
+            "a.txt",
+            "abcdefg",
+            "abcdefgh",
+            "abcdefgh/",
+            "abcdefgh.",
+            "abcdefgh/i",
+            "abcdefg/hi",
+            "abcdefg.hi",
+            "abcdefghijklmnop/q",
+            "abcdefghijklmnop.q",
+            "abcdefghijklmnopq",
+            "a\0b",
+            "abcdefghijklmnop\0q",
+        ];
+
+        for left in paths {
+            for right in paths {
+                assert_eq!(
+                    tree_order(left, right),
+                    tree_order_by_byte(left, right),
+                    "{left:?} against {right:?}"
+                );
+            }
+        }
     }
 }
