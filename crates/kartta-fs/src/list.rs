@@ -297,7 +297,12 @@ impl Index {
             ..
         } = *options;
 
-        let mut items = Vec::new();
+        let whole_subtree = depth.is_none() && collapse.is_none() && exclude.is_none();
+        let mut items = Vec::with_capacity(if whole_subtree {
+            (end - start).min(limit)
+        } else {
+            0
+        });
         let mut truncated = false;
         let mut excluded = 0;
         let mut at = start;

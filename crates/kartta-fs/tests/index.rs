@@ -1024,6 +1024,24 @@ fn a_listing_holds_the_whole_subtree_depth_first_with_directories_included() {
 }
 
 #[test]
+fn a_listing_bounded_by_nothing_but_its_limit_allocates_exactly_what_it_returns() {
+    let names: Vec<String> = (0..40).map(|n| format!("d{}/f{n:02}.txt", n % 4)).collect();
+    let spec: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "")).collect();
+    let dir = tree(&spec);
+    let index = default_index(dir.path());
+
+    for dir in ["", "d1"] {
+        for options in [ListOptions::default(), ListOptions::default().limit(7)] {
+            let items = index
+                .list(dir, &options)
+                .unwrap_or_else(|error| panic!("list {dir:?}: {error}"))
+                .into_items();
+            assert_eq!(items.capacity(), items.len(), "{dir:?} {options:?}");
+        }
+    }
+}
+
+#[test]
 fn the_empty_path_lists_the_index_root() {
     let dir = tree(&[("src/main.rs", "m"), ("README.md", "r")]);
     let index = default_index(dir.path());
