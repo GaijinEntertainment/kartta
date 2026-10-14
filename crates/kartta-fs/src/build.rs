@@ -77,12 +77,14 @@ pub struct BuildOptions {
     pub binary_extensions: BinaryExtensions,
 }
 
-/// A failure that stopped a build, or cost it one entry, one subtree or one directory's rules.
+/// A failure that stopped a build, or cost it one entry, one subtree, one directory's rules or one file's content.
 ///
-/// Only [`BuildError::Walk`] is ever returned from [`Index::build`](crate::Index::build), and only for the two
-/// failures the walk itself treats as fatal: a root that cannot be listed, and a thread pool that cannot be started.
-/// Everything else is collected into [`BuildOutcome::errors`](crate::BuildOutcome::errors) and costs only what it
-/// names, so one unreadable directory yields a partial index rather than none.
+/// [`BuildError::Walk`] is returned for the two failures the walk itself treats as fatal — a root that cannot be listed,
+/// and a thread pool that cannot be started — and [`BuildError::Cancelled`] by
+/// [`Index::build_with`](crate::Index::build_with) when its cancel token stopped the walk;
+/// [`Index::build`](crate::Index::build) takes no token and returns only the first. Everything else is collected into
+/// [`BuildOutcome::errors`](crate::BuildOutcome::errors) and costs only what it names, so one unreadable directory
+/// yields a partial index rather than none.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum BuildError {
@@ -111,6 +113,23 @@ pub enum BuildError {
         /// The entry that could not be named.
         native_path: PathBuf,
     },
+    /// A file a [`ContentVisitor`](crate::ContentVisitor) wanted could not be read, so the visitor never saw it.
+    ///
+    /// The entry is still indexed; only its content is missing from what the visitor was handed.
+    #[error("cannot read {}: {source}", native_path.display())]
+    Read {
+        /// The file that could not be read.
+        native_path: PathBuf,
+        /// The underlying failure.
+        source: io::Error,
+    },
+    /// The cancel token stopped the build before the walk saw every entry.
+    ///
+    /// Returned rather than collected: a cancelled walk holds whichever entries its threads had reached, which depends
+    /// on scheduling, so there is no partial index worth handing back. A visitor may have been handed some files'
+    /// content by then.
+    #[error("the build was cancelled")]
+    Cancelled,
 }
 
 impl BuildError {
@@ -122,12 +141,15 @@ impl BuildError {
     /// could not be formed.
     ///
     /// Every collected error names a path. Only a returned [`BuildError::Walk`] wrapping
-    /// [`WalkError::ThreadPool`](kartta_walk::WalkError::ThreadPool) does not.
+    /// [`WalkError::ThreadPool`](kartta_walk::WalkError::ThreadPool), and [`BuildError::Cancelled`], do not.
     #[must_use]
     pub fn native_path(&self) -> Option<&Path> {
         match self {
             Self::Walk(source) => source.native_path(),
-            Self::Ignore { native_path, .. } | Self::Name { native_path } => Some(native_path),
+            Self::Ignore { native_path, .. }
+            | Self::Name { native_path }
+            | Self::Read { native_path, .. } => Some(native_path),
+            Self::Cancelled => None,
         }
     }
 
@@ -136,6 +158,8 @@ impl BuildError {
             Self::Walk(_) => 0,
             Self::Ignore { .. } => 1,
             Self::Name { .. } => 2,
+            Self::Read { .. } => 3,
+            Self::Cancelled => 4,
         }
     }
 }

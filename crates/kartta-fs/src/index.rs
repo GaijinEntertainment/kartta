@@ -4,16 +4,16 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use kartta_walk::{Children, EntryKind, Tree, WalkError, WalkOptions, walk};
+use kartta_walk::{CancelToken, Children, EntryKind, Tree, WalkError, WalkOptions, walk};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, BuildOptions};
+use crate::content::{ContentId, ContentVisitor};
 use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::inspection::Inspection;
-use crate::policy::{Indexing, Payload};
-use crate::rules::Rules;
+use crate::policy::{DirState, Indexing, Learned, Payload};
 
 /// A snapshot of a directory tree: every entry the ignore rules kept, in the order a depth-first descent finds them.
 ///
@@ -64,6 +64,7 @@ pub struct Index {
     symlink_targets: Vec<(usize, Box<str>)>,
     inspection: Inspection,
     binary_extensions: BinaryExtensions,
+    content_positions: Box<[u32]>,
     pool: Option<Arc<ThreadPool>>,
 }
 
@@ -80,37 +81,78 @@ impl Index {
         root: impl AsRef<Path>,
         options: &BuildOptions,
     ) -> Result<BuildOutcome, BuildError> {
-        let root = root.as_ref();
-        let pool = options.threads.map(thread_pool).transpose()?;
-        let policy = Indexing::new(options.ignore_sources, root);
-        let walk_options = WalkOptions::default();
+        Self::build_walking(root.as_ref(), options, None, None)
+    }
 
-        let (tree, walk_errors, _cancelled) = on_pool(pool.as_deref(), || {
-            walk(root, &policy, &Rules::default(), &walk_options)
+    /// Walks `root` and builds the index, handing `visitor` the content of each text file it wants, read during the
+    /// walk, and stopping when `cancel` is cancelled. With neither, this is [`Index::build`].
+    ///
+    /// A visitor is for a consumer that also needs file content — a parser, a content index — so the build reads each
+    /// file it wants once, while the walk is in its directory, rather than the consumer opening every file again after
+    /// the walk. [`ContentVisitor`] carries the contract. Each read also settles the file's size and binary verdict,
+    /// which [`Index::size`] and [`Index::is_binary`] then answer without a read of their own. Without a visitor the
+    /// build reads no file.
+    ///
+    /// # Errors
+    ///
+    /// As [`Index::build`], and [`BuildError::Cancelled`] when `cancel` stopped the walk before it saw every entry. A
+    /// wanted file that cannot be read is collected into [`BuildOutcome::errors`] as [`BuildError::Read`].
+    pub fn build_with(
+        root: impl AsRef<Path>,
+        options: &BuildOptions,
+        visitor: Option<&dyn ContentVisitor>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<BuildOutcome, BuildError> {
+        Self::build_walking(root.as_ref(), options, visitor, cancel)
+    }
+
+    fn build_walking(
+        root: &Path,
+        options: &BuildOptions,
+        visitor: Option<&dyn ContentVisitor>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<BuildOutcome, BuildError> {
+        let pool = options.threads.map(thread_pool).transpose()?;
+        let policy = Indexing::new(
+            options.ignore_sources,
+            root,
+            visitor.map(|visitor| (visitor, &options.binary_extensions)),
+        );
+        let walk_options = WalkOptions {
+            threads: None,
+            cancel_token: cancel.cloned(),
+        };
+
+        let (tree, walk_errors, cancelled) = on_pool(pool.as_deref(), || {
+            walk(root, &policy, &DirState::default(), &walk_options)
         })?
         .into_parts();
+        if cancelled {
+            return Err(BuildError::Cancelled);
+        }
 
-        let mut errors = policy.into_errors();
+        let (mut errors, learned) = policy.into_report();
         errors.extend(walk_errors.into_iter().map(BuildError::Walk));
         order_errors(&mut errors);
 
+        let base = Base {
+            root: root.to_path_buf(),
+            binary_extensions: options.binary_extensions.clone(),
+            pool,
+        };
+
         Ok(BuildOutcome {
-            index: Self::from_tree(
-                root.to_path_buf(),
-                tree,
-                options.binary_extensions.clone(),
-                pool,
-            ),
+            index: Self::from_tree(base, tree, &learned),
             errors,
         })
     }
 
-    fn from_tree(
-        root: PathBuf,
-        tree: Tree<Payload>,
-        binary_extensions: BinaryExtensions,
-        pool: Option<Arc<ThreadPool>>,
-    ) -> Self {
+    fn from_tree(base: Base, tree: Tree<Payload>, learned: &[Learned]) -> Self {
+        let Base {
+            root,
+            binary_extensions,
+            pool,
+        } = base;
         let mut suffixes_len = 0;
         let mut at = 0;
         depth_first(&tree, |_, path, common| {
@@ -125,11 +167,19 @@ impl Index {
         let mut overflow = Overflow::default();
         let mut kinds = Vec::with_capacity(tree.len());
         let mut symlink_targets = Vec::new();
+        let inspection = Inspection::new(tree.len());
+        let mut reads = Reads {
+            learned,
+            positions: vec![0; learned.len()].into_boxed_slice(),
+        };
 
         depth_first(&tree, |payload, path, common| {
             let at = kinds.len();
             if let Some(target) = &payload.target {
                 symlink_targets.push((at, target.clone()));
+            }
+            if let Some(id) = payload.content {
+                reads.place(&inspection, id, at);
             }
             if at.is_multiple_of(RESTART) {
                 block_starts.push(narrow(suffixes.len()));
@@ -145,7 +195,7 @@ impl Index {
 
         Self {
             root,
-            inspection: Inspection::new(kinds.len()),
+            inspection,
             suffixes: suffixes.into_boxed_str(),
             block_starts,
             offsets,
@@ -154,6 +204,7 @@ impl Index {
             kinds,
             symlink_targets,
             binary_extensions,
+            content_positions: reads.positions,
             pool,
         }
     }
@@ -173,6 +224,18 @@ impl Index {
 
     pub(crate) fn on_threads<R: Send>(&self, operation: impl FnOnce() -> R + Send) -> R {
         on_pool(self.pool.as_deref(), operation)
+    }
+
+    /// Where the file the build read under `id` sits in [`Index::entries`].
+    ///
+    /// `None` for an id this index never handed out. An id is only meaningful to the index whose build handed it to a
+    /// [`ContentVisitor`]: another build of the same tree may have read the same file under a different id, and this
+    /// answers for whatever this build read under it.
+    #[must_use]
+    pub fn content_position(&self, id: ContentId) -> Option<usize> {
+        self.content_positions
+            .get(id.slot())
+            .map(|&position| position as usize)
     }
 
     fn start_of(&self, at: usize) -> usize {
@@ -363,7 +426,7 @@ impl Index {
     /// **This reads the filesystem**, on the first ask for a given entry, and keeps the answer — so a second ask
     /// costs nothing and a listing that is drawn twice is stat'd once. The walk does not collect sizes, because
     /// stat'ing every file of a large tree is roughly half of what a build costs and most of those sizes are never
-    /// looked at.
+    /// looked at. A file the build read for a [`ContentVisitor`] answers from that read, with no ask of its own.
     ///
     /// What that buys is paid for in coherence. A size belongs to the moment it was first asked for rather than to
     /// the walk, so two sizes from one index may describe two different moments, and neither is refreshed once taken.
@@ -400,7 +463,8 @@ impl Index {
     ///
     /// **A name that settles nothing reads the filesystem**, on the first ask for a given entry, and the answer is
     /// kept — see [`Index::size`] for what taking an answer at ask time rather than at walk time costs in coherence.
-    /// A name the set settles is never read at all, on the first ask or any later one.
+    /// A name the set settles is never read at all, on the first ask or any later one, and a file the build read for
+    /// a [`ContentVisitor`] answers from that read.
     #[must_use]
     pub fn is_binary(&self, path: &str) -> Option<bool> {
         let at = self.position(path)?;
@@ -572,6 +636,12 @@ const fn stored_from(at: usize, shared: usize) -> usize {
     }
 }
 
+struct Base {
+    root: PathBuf,
+    binary_extensions: BinaryExtensions,
+    pool: Option<Arc<ThreadPool>>,
+}
+
 fn on_pool<R: Send>(pool: Option<&ThreadPool>, operation: impl FnOnce() -> R + Send) -> R {
     match pool {
         Some(pool) => pool.install(operation),
@@ -591,6 +661,27 @@ fn thread_pool(threads: NonZeroUsize) -> Result<Arc<ThreadPool>, BuildError> {
                 source: Box::new(source),
             })
         })
+}
+
+struct Reads<'a> {
+    learned: &'a [Learned],
+    positions: Box<[u32]>,
+}
+
+impl Reads<'_> {
+    #[expect(
+        clippy::expect_used,
+        reason = "positions are the walk's node ids, which it keeps in a u32 and cannot run past"
+    )]
+    fn place(&mut self, inspection: &Inspection, id: ContentId, at: usize) {
+        let read = self.learned[id.slot()];
+        self.positions[id.slot()] =
+            u32::try_from(at).expect("a position fits the walk's u32 node ids");
+        inspection.record_size(at, read.size);
+        if let Some(binary) = read.binary {
+            inspection.record_binary(at, binary);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -770,6 +861,7 @@ impl BuildOutcome {
     /// - [`BuildError::Ignore`] — the rules went unread, so the index *holds* whatever that file would have hidden.
     ///   The only kind that makes an index wrong by addition, and the only one no later check can catch.
     /// - [`BuildError::Name`] — the entry is missing, and a directory takes its subtree with it.
+    /// - [`BuildError::Read`] — the entry is indexed, and the [`ContentVisitor`] was never handed its content.
     #[must_use]
     pub fn errors(&self) -> &[BuildError] {
         &self.errors
@@ -842,6 +934,7 @@ mod tests {
             symlink_targets: Vec::new(),
             inspection: Inspection::new(paths.len()),
             binary_extensions: BinaryExtensions::default(),
+            content_positions: Box::default(),
             pool: None,
         };
 
