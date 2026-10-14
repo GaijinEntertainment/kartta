@@ -183,6 +183,42 @@ fn paths_read_in_any_order_match_the_entries() {
 }
 
 #[test]
+fn paths_sharing_a_prefix_too_long_for_a_byte_read_and_list_whole() {
+    // Every file under `long` shares more than 255 bytes with the entry before it, past what one byte of shared
+    // length holds.
+    let long = "l".repeat(250);
+    let names: Vec<String> = (0..140)
+        .map(|n| format!("{long}/{}{n:03}", "f".repeat(10)))
+        .chain(["after".to_owned()])
+        .collect();
+    let spec: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "")).collect();
+    let dir = tree(&spec);
+    let index = default_index(dir.path());
+    let entries = paths(&index);
+
+    let mut expected = vec!["after".to_owned(), long.clone()];
+    expected.extend(names[..140].iter().cloned());
+    assert_eq!(entries, expected);
+
+    let mut reader = index.paths();
+    for at in (0..index.len()).rev() {
+        assert_eq!(reader.get(at), entries[at], "position {at}");
+    }
+    for path in &entries {
+        assert!(index.entry(path).is_some(), "{path}");
+    }
+
+    let listed = index
+        .list(&long, &ListOptions::default())
+        .expect("list the long directory");
+    assert_eq!(listed.total(), 140);
+    assert_eq!(
+        paths_at(&index, listed.items().iter().map(Listed::position)),
+        names[..140]
+    );
+}
+
+#[test]
 fn a_root_level_entry_is_its_own_name() {
     let dir = tree(&[("top.txt", "x")]);
     let index = default_index(dir.path());

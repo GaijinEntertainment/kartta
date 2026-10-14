@@ -381,14 +381,6 @@ impl Index {
     /// least `dir/` with it — which the recorded shared lengths answer alone.
     fn past_subtree(&self, from: usize, dir: &str) -> usize {
         let below = dir.len() + 1;
-        if below > usize::from(u16::MAX) {
-            // A shared length this long is capped, so membership is read from the paths themselves.
-            let mut paths = self.paths();
-            return (from..self.len())
-                .find(|&at| !is_below(paths.get(at), dir))
-                .unwrap_or(self.len());
-        }
-
         if from == self.len() || !self.starts_inside(from, dir) {
             return from;
         }
