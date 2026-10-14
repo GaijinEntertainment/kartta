@@ -17,6 +17,8 @@
   initiative `01-kartta-fs-port`, 2026-10-13
 - [1.8 Count what a listing leaves out](./adr/1.8-count-what-a-listing-leaves-out.md) — initiative `01-kartta-fs-port`,
   2026-10-13
+- [1.9 Front-code the stored paths](./adr/1.9-front-code-the-stored-paths.md) — initiative `01-kartta-fs-port`,
+  2026-10-14
 
 ## Deprecated
 
