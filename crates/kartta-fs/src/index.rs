@@ -167,37 +167,39 @@ impl Index {
     }
 
     /// Rebuilds the path at `at` into `path` from the bytes stored at and before it.
-    ///
-    /// The walk goes backward from `at` toward its restart, and an earlier entry contributes only the bytes the path
-    /// still lacks — those past its own shared prefix. Every byte of the result is copied once, and an entry with
-    /// nothing to give costs one load, so a decode costs the path's length plus the entries back to the restart rather
-    /// than a copy per entry.
     fn decode_into(&self, at: usize, path: &mut String) {
-        let restart = at - at % RESTART;
-        let mut pieces = [(0usize, 0usize); RESTART];
-        let mut count = 0;
-        let mut need = if at == restart { 0 } else { self.shared_at(at) };
-        let mut earlier = at;
-
-        while need > 0 {
-            earlier -= 1;
-            let shared = if earlier == restart {
-                0
-            } else {
-                self.shared_at(earlier)
-            };
-            if shared < need {
-                pieces[count] = (earlier, need - shared);
-                count += 1;
-                need = shared;
-            }
-        }
-
+        let shared = if at.is_multiple_of(RESTART) {
+            0
+        } else {
+            self.shared_at(at)
+        };
         path.clear();
-        for &(earlier, take) in pieces[..count].iter().rev() {
-            path.push_str(&self.suffix(earlier)[..take]);
+        self.push_prefix(at, shared + self.suffix(at).len(), path);
+    }
+
+    /// Appends the first `len` bytes of the path at `at` to `path`.
+    ///
+    /// While an entry shares at least `len` bytes with the path before it, those bytes are the earlier path's, so the
+    /// walk goes back to the last entry that stores some of them: its shared prefix comes from before it, and its own
+    /// bytes follow. Every byte is copied once, and an entry with nothing to give costs one load, so a decode costs the
+    /// path's length plus the entries back to the restart rather than a copy per entry.
+    fn push_prefix(&self, mut at: usize, len: usize, path: &mut String) {
+        if len == 0 {
+            return;
         }
-        path.push_str(self.suffix(at));
+        loop {
+            if at.is_multiple_of(RESTART) {
+                path.push_str(&self.suffix(at)[..len]);
+                return;
+            }
+            let shared = self.shared_at(at);
+            if shared < len {
+                self.push_prefix(at - 1, shared, path);
+                path.push_str(&self.suffix(at)[..len - shared]);
+                return;
+            }
+            at -= 1;
+        }
     }
 
     /// A reader for the paths of this index's entries. See [`Paths`].
