@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use kartta_walk::WalkError;
 
 use crate::binary::BinaryExtensions;
+use crate::content_index::ContentIndexStorage;
 
 /// Which of git's ignore sources a build honours.
 ///
@@ -75,6 +76,16 @@ pub struct BuildOptions {
     pub threads: Option<NonZeroUsize>,
     /// Which extensions settle a file as binary without it being read. Defaults to [`BinaryExtensions::builtin`].
     pub binary_extensions: BinaryExtensions,
+    /// Whether the build also indexes file content by trigram, and where it keeps that index. `None`, the default,
+    /// builds none.
+    ///
+    /// With one, the build reads every regular file the ignore rules keep whose extension is not in
+    /// [`BuildOptions::binary_extensions`], once, while the walk is in its directory, and records the trigrams of
+    /// each one that is text. That is the read a [`ContentVisitor`](crate::ContentVisitor) is handed when it wants the
+    /// file, so a consumer that reads content anyway pays for one read either way. A build without a visitor pays for
+    /// all of them: on a tree of sources, reading every text file costs many times what the walk alone does.
+    /// [`Index::content_index_stats`](crate::Index::content_index_stats) reports what the index holds.
+    pub content_index: Option<ContentIndexStorage>,
 }
 
 /// A failure that stopped a build, or cost it one entry, one subtree, one directory's rules or one file's content.
@@ -113,9 +124,11 @@ pub enum BuildError {
         /// The entry that could not be named.
         native_path: PathBuf,
     },
-    /// A file a [`ContentVisitor`](crate::ContentVisitor) wanted could not be read, so the visitor never saw it.
+    /// A file the build read for a [`ContentVisitor`](crate::ContentVisitor) or for the content index could not be
+    /// read, so neither holds its content.
     ///
-    /// The entry is still indexed; only its content is missing from what the visitor was handed.
+    /// The entry is still indexed; only its content is missing from what the visitor was handed and from the content
+    /// index.
     #[error("cannot read {}: {source}", native_path.display())]
     Read {
         /// The file that could not be read.

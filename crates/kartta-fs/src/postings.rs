@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "nothing writes a posting list until the content index build lands on this codec"
-    )
-)]
-
 const SCAN_BITS: usize = 56;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
