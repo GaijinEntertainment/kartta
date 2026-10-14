@@ -10,10 +10,11 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, BuildOptions};
 use crate::content::{ContentId, ContentVisitor};
+use crate::content_index::{Collector, ContentIndex, ContentIndexStats};
 use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::inspection::Inspection;
-use crate::policy::{DirState, Indexing, Learned, Payload};
+use crate::policy::{Collected, DirState, Indexing, Learned, Payload, Reading, Report};
 
 /// A snapshot of a directory tree: every entry the ignore rules kept, in the order a depth-first descent finds them.
 ///
@@ -65,6 +66,7 @@ pub struct Index {
     inspection: Inspection,
     binary_extensions: BinaryExtensions,
     content_positions: Box<[u32]>,
+    content: Option<Arc<ContentIndex>>,
     pool: Option<Arc<ThreadPool>>,
 }
 
@@ -90,8 +92,8 @@ impl Index {
     /// A visitor is for a consumer that also needs file content — a parser, a content index — so the build reads each
     /// file it wants once, while the walk is in its directory, rather than the consumer opening every file again after
     /// the walk. [`ContentVisitor`] carries the contract. Each read also settles the file's size and binary verdict,
-    /// which [`Index::size`] and [`Index::is_binary`] then answer without a read of their own. Without a visitor the
-    /// build reads no file.
+    /// which [`Index::size`] and [`Index::is_binary`] then answer without a read of their own. Without a visitor, the
+    /// build reads only what [`BuildOptions::content_index`] asks it to, and with neither it reads no file.
     ///
     /// # Errors
     ///
@@ -113,11 +115,10 @@ impl Index {
         cancel: Option<&CancelToken>,
     ) -> Result<BuildOutcome, BuildError> {
         let pool = options.threads.map(thread_pool).transpose()?;
-        let policy = Indexing::new(
-            options.ignore_sources,
-            root,
-            visitor.map(|visitor| (visitor, &options.binary_extensions)),
-        );
+        let collector = options.content_index.as_ref().map(|_| Collector::new());
+        let reading = (visitor.is_some() || collector.is_some())
+            .then(|| Reading::new(visitor, collector, &options.binary_extensions));
+        let policy = Indexing::new(options.ignore_sources, root, reading);
         let walk_options = WalkOptions {
             threads: None,
             cancel_token: cancel.cloned(),
@@ -131,7 +132,11 @@ impl Index {
             return Err(BuildError::Cancelled);
         }
 
-        let (mut errors, learned) = policy.into_report();
+        let Report {
+            mut errors,
+            learned,
+            content,
+        } = policy.into_report();
         errors.extend(walk_errors.into_iter().map(BuildError::Walk));
         order_errors(&mut errors);
 
@@ -140,11 +145,39 @@ impl Index {
             binary_extensions: options.binary_extensions.clone(),
             pool,
         };
+        let mut index = Self::from_tree(base, tree, &learned);
+        if let Some(content) = content {
+            let universe = node_sized(learned.len());
+            drop(learned);
+            index.content = Some(Arc::new(
+                index.finish_content_index(content, universe, cancel)?,
+            ));
+        }
 
-        Ok(BuildOutcome {
-            index: Self::from_tree(base, tree, &learned),
-            errors,
-        })
+        Ok(BuildOutcome { index, errors })
+    }
+
+    fn finish_content_index(
+        &self,
+        content: Collected,
+        universe: u32,
+        cancel: Option<&CancelToken>,
+    ) -> Result<ContentIndex, BuildError> {
+        let Collected {
+            collector,
+            pairs,
+            unindexed,
+        } = content;
+        let finished = self
+            .on_threads(|| collector.finish(pairs, universe, cancel))
+            .ok_or(BuildError::Cancelled)?;
+        let unindexed = unindexed
+            .iter()
+            .filter_map(|path| self.position(path))
+            .map(node_sized)
+            .collect();
+
+        Ok(finished.with_unindexed(unindexed))
     }
 
     fn from_tree(base: Base, tree: Tree<Payload>, learned: &[Learned]) -> Self {
@@ -205,8 +238,17 @@ impl Index {
             symlink_targets,
             binary_extensions,
             content_positions: reads.positions,
+            content: None,
             pool,
         }
+    }
+
+    /// What the content index holds, or `None` when the build was not asked for one.
+    ///
+    /// See [`BuildOptions::content_index`] for what a build with one reads.
+    #[must_use]
+    pub fn content_index_stats(&self) -> Option<ContentIndexStats> {
+        self.content.as_deref().map(ContentIndex::stats)
     }
 
     /// How many threads this index runs its parallel work on: the walk that built it, and the searches after.
@@ -426,7 +468,8 @@ impl Index {
     /// **This reads the filesystem**, on the first ask for a given entry, and keeps the answer — so a second ask
     /// costs nothing and a listing that is drawn twice is stat'd once. The walk does not collect sizes, because
     /// stat'ing every file of a large tree is roughly half of what a build costs and most of those sizes are never
-    /// looked at. A file the build read for a [`ContentVisitor`] answers from that read, with no ask of its own.
+    /// looked at. A file the build read, for a [`ContentVisitor`] or for [`BuildOptions::content_index`], answers from
+    /// that read, with no ask of its own.
     ///
     /// What that buys is paid for in coherence. A size belongs to the moment it was first asked for rather than to
     /// the walk, so two sizes from one index may describe two different moments, and neither is refreshed once taken.
@@ -463,8 +506,8 @@ impl Index {
     ///
     /// **A name that settles nothing reads the filesystem**, on the first ask for a given entry, and the answer is
     /// kept — see [`Index::size`] for what taking an answer at ask time rather than at walk time costs in coherence.
-    /// A name the set settles is never read at all, on the first ask or any later one, and a file the build read for
-    /// a [`ContentVisitor`] answers from that read.
+    /// A name the set settles is never read at all, on the first ask or any later one, and a file the build read, for
+    /// a [`ContentVisitor`] or for [`BuildOptions::content_index`], answers from that read.
     #[must_use]
     pub fn is_binary(&self, path: &str) -> Option<bool> {
         let at = self.position(path)?;
@@ -736,6 +779,14 @@ fn narrow(len: usize) -> u32 {
     u32::try_from(len).expect("an index stores fewer than 4 GiB of path bytes")
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "positions and read ids are node-sized, and the walk keeps its node ids in a u32"
+)]
+fn node_sized(count: usize) -> u32 {
+    u32::try_from(count).expect("a walk records fewer nodes than a u32 counts")
+}
+
 fn path_between(suffixes: &str, start: usize, end: usize) -> &str {
     // SAFETY: every start `Index::start_of` rebuilds is `suffixes.len()` as the build read it before the first append or
     // right after appending a whole `&str`, or past the last entry `suffixes.len()` itself, so each one is a character
@@ -861,7 +912,8 @@ impl BuildOutcome {
     /// - [`BuildError::Ignore`] — the rules went unread, so the index *holds* whatever that file would have hidden.
     ///   The only kind that makes an index wrong by addition, and the only one no later check can catch.
     /// - [`BuildError::Name`] — the entry is missing, and a directory takes its subtree with it.
-    /// - [`BuildError::Read`] — the entry is indexed, and the [`ContentVisitor`] was never handed its content.
+    /// - [`BuildError::Read`] — the entry is indexed, and neither the [`ContentVisitor`] nor the content index holds
+    ///   its content.
     #[must_use]
     pub fn errors(&self) -> &[BuildError] {
         &self.errors
@@ -935,6 +987,7 @@ mod tests {
             inspection: Inspection::new(paths.len()),
             binary_extensions: BinaryExtensions::default(),
             content_positions: Box::default(),
+            content: None,
             pool: None,
         };
 

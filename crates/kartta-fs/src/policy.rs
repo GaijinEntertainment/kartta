@@ -10,9 +10,11 @@ use kartta_walk::{Dir, Entry, EntryKind, Policy, Visit};
 use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, IgnoreSources};
 use crate::content::{Content, ContentId, ContentVisitor};
+use crate::content_index::{Collector, Full, Pairs};
 use crate::inspection::PROBE;
 use crate::open::{Symlinks, open_regular};
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
+use crate::trigram::Trigram;
 
 #[derive(Debug)]
 pub(crate) struct Payload {
@@ -36,43 +38,122 @@ pub(crate) struct Indexing<'a> {
     reading: Option<Reading<'a>>,
 }
 
-struct Reading<'a> {
-    visitor: &'a dyn ContentVisitor,
+pub(crate) struct Reading<'a> {
+    visitor: Option<&'a dyn ContentVisitor>,
+    collector: Option<Collector>,
     binary_extensions: &'a BinaryExtensions,
-    learned: Mutex<Vec<Learned>>,
+    // constraint: an id is handed out and its trigrams join the run under one lock, so a run's pairs arrive in the
+    // ascending id order its posting lists are written in
+    kept: Mutex<Kept>,
+    unindexed: Mutex<Vec<Box<str>>>,
+}
+
+struct Kept {
+    learned: Vec<Learned>,
+    pairs: Option<Pairs>,
+}
+
+impl Kept {
+    #[expect(
+        clippy::expect_used,
+        reason = "ids are node-sized, and a walk records fewer than u32::MAX nodes, of which reads are a part"
+    )]
+    fn keep(
+        &mut self,
+        learned: Learned,
+        indexed: Option<(&[Trigram], &Collector)>,
+    ) -> (u32, Option<Full>) {
+        self.learned.push(learned);
+        let slot = u32::try_from(self.learned.len() - 1).expect("fewer reads than a u32 counts");
+        let full = indexed
+            .zip(self.pairs.as_mut())
+            .and_then(|((trigrams, collector), pairs)| pairs.push(slot, trigrams, collector));
+
+        (slot, full)
+    }
+}
+
+pub(crate) struct Report {
+    pub(crate) errors: Vec<BuildError>,
+    pub(crate) learned: Vec<Learned>,
+    pub(crate) content: Option<Collected>,
+}
+
+pub(crate) struct Collected {
+    pub(crate) collector: Collector,
+    pub(crate) pairs: Pairs,
+    pub(crate) unindexed: Vec<Box<str>>,
+}
+
+impl<'a> Reading<'a> {
+    pub(crate) fn new(
+        visitor: Option<&'a dyn ContentVisitor>,
+        collector: Option<Collector>,
+        binary_extensions: &'a BinaryExtensions,
+    ) -> Self {
+        let pairs = collector.as_ref().map(Collector::pairs);
+
+        Self {
+            visitor,
+            collector,
+            binary_extensions,
+            kept: Mutex::new(Kept {
+                learned: Vec::new(),
+                pairs,
+            }),
+            unindexed: Mutex::new(Vec::new()),
+        }
+    }
 }
 
 impl<'a> Indexing<'a> {
     pub(crate) fn new(
         ignore_sources: IgnoreSources,
         root: &Path,
-        reading: Option<(&'a dyn ContentVisitor, &'a BinaryExtensions)>,
+        reading: Option<Reading<'a>>,
     ) -> Self {
         Self {
             ignore_sources,
             canonical_root: fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()),
             errors: Mutex::new(Vec::new()),
-            reading: reading.map(|(visitor, binary_extensions)| Reading {
-                visitor,
-                binary_extensions,
-                learned: Mutex::new(Vec::new()),
-            }),
+            reading,
         }
     }
 
-    pub(crate) fn into_report(self) -> (Vec<BuildError>, Vec<Learned>) {
-        let learned = self.reading.map_or_else(Vec::new, |reading| {
-            reading
-                .learned
-                .into_inner()
-                .unwrap_or_else(PoisonError::into_inner)
-        });
+    pub(crate) fn into_report(self) -> Report {
         let errors = self
             .errors
             .into_inner()
             .unwrap_or_else(PoisonError::into_inner);
+        let Some(reading) = self.reading else {
+            return Report {
+                errors,
+                learned: Vec::new(),
+                content: None,
+            };
+        };
 
-        (errors, learned)
+        let Kept { learned, pairs } = reading
+            .kept
+            .into_inner()
+            .unwrap_or_else(PoisonError::into_inner);
+        let content = reading
+            .collector
+            .zip(pairs)
+            .map(|(collector, pairs)| Collected {
+                collector,
+                pairs,
+                unindexed: reading
+                    .unindexed
+                    .into_inner()
+                    .unwrap_or_else(PoisonError::into_inner),
+            });
+
+        Report {
+            errors,
+            learned,
+            content,
+        }
     }
 
     fn record(&self, error: BuildError) {
@@ -139,24 +220,28 @@ impl<'a> Indexing<'a> {
     }
 
     fn hand_over_ignore_file(&self, path: &str, read: &IgnoreFile) -> Option<ContentId> {
-        let reading = self.wanted(path)?;
+        let (reading, visit) = self.wanted(path)?;
         let bytes = &read.bytes;
         let binary = bytes[..bytes.len().min(PROBE)].contains(&0);
-        let id = reading.keep(Learned {
+        let learned = Learned {
             size: read.size,
             binary: Some(binary),
-        });
-        if !binary {
-            reading.visitor.visit(Content { id, path, bytes });
+        };
+        if binary {
+            return Some(reading.keep(learned, None));
         }
 
+        let id = reading.keep_text(learned, bytes);
+        reading.hand_over(visit, Content { id, path, bytes });
         Some(id)
     }
 
-    fn wanted(&self, path: &str) -> Option<&Reading<'a>> {
-        self.reading.as_ref().filter(|reading| {
-            reading.visitor.wants(path) && !reading.binary_extensions.matches(path)
-        })
+    fn wanted(&self, path: &str) -> Option<(&Reading<'a>, bool)> {
+        let reading = self.reading.as_ref()?;
+        let visit = reading.visitor.is_some_and(|visitor| visitor.wants(path));
+        let indexed = reading.collector.is_some();
+
+        ((visit || indexed) && !reading.binary_extensions.matches(path)).then_some((reading, visit))
     }
 
     fn leads_into_tree(&self, native_path: &Path) -> io::Result<bool> {
@@ -182,7 +267,7 @@ impl<'a> Indexing<'a> {
 
     fn read_content(&self, entry: &Entry<'_>) -> Option<ContentId> {
         let path = entry.path();
-        let reading = self.wanted(path)?;
+        let (reading, visit) = self.wanted(path)?;
 
         let native_path = entry.native_path();
         let (learned, readout) = match read_text(&native_path) {
@@ -192,23 +277,34 @@ impl<'a> Indexing<'a> {
                     native_path,
                     source,
                 });
+                reading.leave_unindexed(path);
                 return None;
             }
         };
 
-        let id = reading.keep(learned);
-        match readout {
-            Readout::Text(bytes) => reading.visitor.visit(Content {
-                id,
-                path,
-                bytes: &bytes,
-            }),
-            Readout::Binary => {}
-            Readout::Failed(source) => self.record(BuildError::Read {
-                native_path,
-                source,
-            }),
-        }
+        let id = match readout {
+            Readout::Text(bytes) => {
+                let id = reading.keep_text(learned, &bytes);
+                reading.hand_over(
+                    visit,
+                    Content {
+                        id,
+                        path,
+                        bytes: &bytes,
+                    },
+                );
+                id
+            }
+            Readout::Binary => reading.keep(learned, None),
+            Readout::Failed(source) => {
+                self.record(BuildError::Read {
+                    native_path,
+                    source,
+                });
+                reading.leave_unindexed(path);
+                reading.keep(learned, None)
+            }
+        };
 
         Some(id)
     }
@@ -227,19 +323,45 @@ enum Readout {
 }
 
 impl Reading<'_> {
-    #[expect(
-        clippy::expect_used,
-        reason = "ids are node-sized, and a walk records fewer than u32::MAX nodes, of which reads are a part"
-    )]
-    fn keep(&self, learned: Learned) -> ContentId {
-        let count = {
-            let mut kept = self.learned.lock().unwrap_or_else(PoisonError::into_inner);
-            kept.push(learned);
-            kept.len()
-        };
-        let count = u32::try_from(count).expect("fewer reads than a u32 counts");
+    fn keep(&self, learned: Learned, trigrams: Option<&[Trigram]>) -> ContentId {
+        let collector = self.collector.as_ref();
+        let (slot, full) = self
+            .kept
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .keep(learned, trigrams.zip(collector));
+        if let (Some(full), Some(collector)) = (full, collector) {
+            collector.spill(full);
+        }
 
-        ContentId(NonZeroU32::MIN.saturating_add(count - 1))
+        ContentId(NonZeroU32::MIN.saturating_add(slot))
+    }
+
+    fn keep_text(&self, learned: Learned, bytes: &[u8]) -> ContentId {
+        let Some(collector) = &self.collector else {
+            return self.keep(learned, None);
+        };
+
+        let mut extractor = collector.extractor();
+        extractor.feed(bytes);
+        let id = self.keep(learned, Some(extractor.found()));
+        collector.recycle(extractor);
+        id
+    }
+
+    fn hand_over(&self, visit: bool, content: Content<'_>) {
+        if visit && let Some(visitor) = self.visitor {
+            visitor.visit(content);
+        }
+    }
+
+    fn leave_unindexed(&self, path: &str) {
+        if self.collector.is_some() {
+            self.unindexed
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(path.into());
+        }
     }
 }
 
