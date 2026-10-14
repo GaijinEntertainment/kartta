@@ -145,7 +145,7 @@ impl Index {
     #[must_use]
     pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> Vec<FuzzyMatch> {
         let FuzzyOptions { filter, limit } = *options;
-        let rankings: Vec<Vec<Ranked>> = (0..self.len().div_ceil(RANK_CHUNK_LEN))
+        let ranked: Vec<Ranked> = (0..self.len().div_ceil(RANK_CHUNK_LEN))
             .into_par_iter()
             .map(|chunk| {
                 let start = chunk * RANK_CHUNK_LEN;
@@ -155,9 +155,11 @@ impl Index {
                 self.candidates(positions, filter, |at, path| ranking.offer(at, path));
                 ranking.finish()
             })
-            .collect();
+            .reduce(Vec::new, |left, right| {
+                Matcher::merge_ranked([left, right], query, limit)
+            });
 
-        Matcher::merge_ranked(rankings, query, limit)
+        ranked
             .into_iter()
             .map(|found| FuzzyMatch {
                 position: found.position,
