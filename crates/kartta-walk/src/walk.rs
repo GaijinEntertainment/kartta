@@ -1,9 +1,3 @@
-//! The traversal: read a directory, ask the policy, walk the surviving subdirectories in parallel.
-//!
-//! Each directory is read once and its entries sorted by name, so the policy sees a stable listing and subtree results
-//! collect in that same order — the parallelism never reaches the result. Subtrees stay nested while the walk runs and
-//! are flattened into the arena once at the end, so no node is ever copied or renumbered twice.
-
 use std::fs;
 use std::io;
 use std::num::NonZeroUsize;
@@ -162,7 +156,8 @@ impl<V> WalkOutcome<V> {
         self.tree
     }
 
-    /// What the walk could not read. A non-empty list means the tree is missing those entries or subtrees.
+    /// What the walk could not read, in the depth-first order of where it failed. A non-empty list means the tree is
+    /// missing those entries or subtrees.
     #[must_use]
     pub fn errors(&self) -> &[WalkError] {
         &self.errors
@@ -190,7 +185,6 @@ impl<V> WalkOutcome<V> {
     }
 }
 
-/// One directory the walk is about to classify: where it sits and what state its entries inherit.
 struct Frame<'a, P: Policy> {
     native_path: &'a Path,
     path: &'a str,
@@ -198,14 +192,12 @@ struct Frame<'a, P: Policy> {
     parent_state: &'a P::State,
 }
 
-/// What is invariant across a whole walk.
 struct Walker<'a, P: Policy> {
     policy: &'a P,
     options: &'a WalkOptions,
 }
 
 impl<P: Policy> Walker<'_, P> {
-    /// Whether the walk has been asked to stop.
     fn is_cancelled(&self) -> bool {
         self.options
             .cancel_token
@@ -213,7 +205,6 @@ impl<P: Policy> Walker<'_, P> {
             .is_some_and(CancelToken::is_cancelled)
     }
 
-    /// Derives one directory's state, classifies its entries, and walks the surviving subdirectories in parallel.
     fn walk_dir(&self, frame: &Frame<'_, P>, listing: Listing) -> Subtree<P::Value> {
         let Listing { entries, errors } = listing;
 
@@ -226,8 +217,8 @@ impl<P: Policy> Walker<'_, P> {
             return subtree;
         }
 
-        // `map` over an indexed parallel iterator collects in input order, so the tree is identical whatever the
-        // thread count — determinism costs nothing here.
+        // constraint: rayon collects an indexed parallel iterator in input order, which keeps the tree identical
+        // whatever the thread count and `subtrees` in the entry order `flatten` reads them in
         let subtrees: Vec<(usize, Subtree<P::Value>)> = descents
             .into_par_iter()
             .map(|descent| {
@@ -246,8 +237,6 @@ impl<P: Policy> Walker<'_, P> {
         subtree
     }
 
-    /// Asks the policy about each of `dir`'s entries, recording what it does not skip and collecting the subdirectories
-    /// it allows the walk to descend into.
     fn classify(
         &self,
         dir: &Dir<'_>,
@@ -263,8 +252,6 @@ impl<P: Policy> Walker<'_, P> {
         };
         let mut descents: Vec<Descent> = Vec::new();
 
-        // One buffer for the whole directory: every entry's path is this prefix plus its name, so the walk allocates
-        // per directory rather than per entry.
         let mut path = String::with_capacity(dir.path().len() + 1);
         path.push_str(dir.path());
         if !path.is_empty() {
@@ -320,8 +307,6 @@ impl<P: Policy> Walker<'_, P> {
         (subtree, descents)
     }
 
-    /// Walks one child directory. A directory that cannot be listed becomes a recorded error and an empty subtree, so
-    /// its parent still reports it.
     fn walk_child(
         &self,
         descent: Descent,
@@ -352,40 +337,30 @@ impl<P: Policy> Walker<'_, P> {
     }
 }
 
-/// A directory the walk decided to descend into, and the recorded entry it belongs to.
 struct Descent {
     index: usize,
     native_path: PathBuf,
     path: String,
 }
 
-/// One directory's recorded entries before arena ids exist. A descended directory owns its subtree, so nothing is
-/// copied or renumbered until the single flattening pass.
 struct Subtree<V> {
     entries: Vec<Recorded<V>>,
-    /// The subtree of each entry the walk descended into, beside that entry's index, in entry order.
     subtrees: Vec<(usize, Self)>,
     errors: Vec<WalkError>,
-    /// How many entries this directory's whole subtree records, its own included, so the arena is allocated once at
-    /// its final size.
     node_count: usize,
-    /// How many bytes the names of those entries take, so the name buffer is allocated exactly too.
     name_bytes: usize,
 }
 
-/// One recorded entry.
 struct Recorded<V> {
     name: Box<str>,
     value: V,
 }
 
-/// One directory's listing, plus whatever could not be read while listing it.
 struct Listing {
     entries: Vec<ListedEntry>,
     errors: Vec<WalkError>,
 }
 
-/// Builds the walk's own thread pool, so the traversal cannot outgrow what the caller allowed.
 fn pool(threads: NonZeroUsize) -> Result<rayon::ThreadPool, WalkError> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads.get())
@@ -397,8 +372,6 @@ fn pool(threads: NonZeroUsize) -> Result<rayon::ThreadPool, WalkError> {
         })
 }
 
-/// Lists the directory at `native_path` sorted by name. The sort is the walk's whole determinism story: everything
-/// downstream preserves this order.
 fn list_dir(native_path: &Path) -> io::Result<Listing> {
     let mut entries = Vec::new();
     let mut errors = Vec::new();
@@ -420,16 +393,14 @@ fn list_dir(native_path: &Path) -> io::Result<Listing> {
         }
     }
 
+    // constraint: the sort is bytewise by name, and `kartta-fs` binary-searches the depth-first order it gives
     entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
     Ok(Listing { entries, errors })
 }
 
-/// Lays the arena out depth-first — a directory immediately precedes its subtree — and merges the collected errors in
-/// that same order.
-///
-/// shortcut: serial, so it bounds how much the parallel traversal can win. Parallelize it — precompute each subtree's
-/// node count to reserve id ranges, then fill them independently — if it shows up as the bottleneck on a large tree.
+// shortcut: serial, so it bounds how much the parallel traversal can win — reserve each subtree's id range from its
+// node count and fill the ranges in parallel once this shows up as the bottleneck on a large tree
 fn flatten<V>(subtree: Subtree<V>, tree: &mut Tree<V>, errors: &mut Vec<WalkError>) {
     let Subtree {
         entries,
@@ -460,7 +431,6 @@ fn flatten<V>(subtree: Subtree<V>, tree: &mut Tree<V>, errors: &mut Vec<WalkErro
     }
 }
 
-/// Narrows a node id or a name offset to the width the arena stores.
 #[expect(
     clippy::expect_used,
     reason = "this needs a tree of over u32::MAX entries or name bytes — a load this crate is not designed to hold in \

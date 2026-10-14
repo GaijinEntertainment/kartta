@@ -17,15 +17,6 @@ use kartta_walk::{
 };
 use tempfile::TempDir;
 
-/// The fixture tree every shape test walks:
-///
-/// ```text
-/// a.txt
-/// dir/b.txt
-/// dir/nested/c.txt
-/// empty/
-/// z.txt
-/// ```
 fn fixture() -> TempDir {
     let dir = tempfile::tempdir().expect("create temp dir");
     let root = dir.path();
@@ -40,7 +31,6 @@ fn fixture() -> TempDir {
     dir
 }
 
-/// Records what each entry is, descending everywhere.
 struct Everything;
 
 impl Policy for Everything {
@@ -54,10 +44,6 @@ impl Policy for Everything {
     }
 }
 
-/// Renders the tree as one `path value` line per node, in the order [`Tree::nodes`] reports.
-///
-/// Rebuilding the paths from names is also the access pattern a consumer uses, so this doubles as a check that the
-/// public API carries enough to reconstruct them.
 fn render<N: std::fmt::Debug>(tree: &Tree<N>) -> Vec<String> {
     fn descend<N: std::fmt::Debug>(nodes: Children<'_, N>, prefix: &str, out: &mut Vec<String>) {
         for node in nodes {
@@ -78,7 +64,6 @@ fn render<N: std::fmt::Debug>(tree: &Tree<N>) -> Vec<String> {
     out
 }
 
-/// Runs `f` on a rayon pool of exactly `threads` threads, so a test can pin scheduling.
 fn on_threads<T: Send>(threads: usize, f: impl FnOnce() -> T + Send) -> T {
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
@@ -115,8 +100,6 @@ fn nodes_are_stored_in_the_order_a_descent_reports_them() {
 
     let outcome = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
 
-    // `nodes()` promises depth-first order — a directory immediately followed by its subtree — so the flat slice and a
-    // recursive descent must agree name for name.
     let flat: Vec<&str> = outcome.tree().nodes().map(Node::name).collect();
     assert_eq!(
         flat,
@@ -192,7 +175,6 @@ fn the_walk_root_is_not_itself_a_node() {
     assert_eq!(children, ["a.txt", "dir", "empty", "z.txt"]);
 }
 
-/// Lists a named directory but never descends into it.
 struct PruneDir(&'static str);
 
 impl Policy for PruneDir {
@@ -222,7 +204,6 @@ fn a_pruned_directory_is_listed_with_no_children() {
     );
 }
 
-/// Drops every entry whose name starts with the given prefix.
 struct SkipPrefix(&'static str);
 
 impl Policy for SkipPrefix {
@@ -252,11 +233,9 @@ fn a_skipped_directory_leaves_no_trace() {
     );
 }
 
-/// Accumulates the directory names walked so far, proving state descends and does not leak sideways.
 struct Trail;
 
 impl Policy for Trail {
-    /// The chain of directory names from the walk root to the current directory.
     type State = Vec<String>;
     type Value = String;
 
@@ -280,7 +259,6 @@ fn state_is_inherited_down_the_tree_and_not_across_it() {
 
     let outcome = walk(dir.path(), &Trail, &Vec::new(), &WalkOptions::default()).expect("walk");
 
-    // `empty` sits beside `dir`, so it must not see `dir` in its trail; `dir/nested/c.txt` sees both ancestors.
     assert_eq!(
         render(outcome.tree()),
         [
@@ -291,11 +269,11 @@ fn state_is_inherited_down_the_tree_and_not_across_it() {
             r#"dir/nested/c.txt "[dir>dir/nested]""#,
             r#"empty "[]""#,
             r#"z.txt "[]""#,
-        ]
+        ],
+        "`empty` sits beside `dir` and sees none of it, and `dir/nested/c.txt` sees both its ancestors"
     );
 }
 
-/// Records the listing facts `enter` can read without a syscall.
 struct Control;
 
 impl Policy for Control {
@@ -349,7 +327,6 @@ fn enter_sees_the_whole_listing_before_any_entry_is_classified() {
     );
 }
 
-/// Records each entry's path exactly as the walk reports it.
 struct Paths;
 
 impl Policy for Paths {
@@ -377,11 +354,9 @@ fn paths_are_forward_slash_on_every_platform() {
     assert_eq!(deepest.value(), "dir/nested/c.txt");
 
     for node in outcome.tree().nodes() {
-        // The reported form is the abstraction: forward slashes whatever the host spells them as, and never the
-        // platform's own separator.
         assert!(
             !node.value().contains('\\'),
-            "path {:?} carries a native separator",
+            "path {:?} carries a native separator rather than the forward slash every host reports",
             node.value()
         );
         assert!(
@@ -391,7 +366,6 @@ fn paths_are_forward_slash_on_every_platform() {
         );
     }
 
-    // Joining names down the tree must reproduce the reported paths exactly, or the two disagree about the same tree.
     let joined: Vec<String> = render(outcome.tree())
         .iter()
         .map(|line| {
@@ -410,10 +384,12 @@ fn paths_are_forward_slash_on_every_platform() {
     sorted_reported.sort();
     let mut sorted_joined = joined;
     sorted_joined.sort();
-    assert_eq!(sorted_joined, sorted_reported);
+    assert_eq!(
+        sorted_joined, sorted_reported,
+        "names joined down the tree reproduce the reported paths"
+    );
 }
 
-/// Records whether the entry's own path resolves to something reachable on this platform.
 struct Native;
 
 impl Policy for Native {
@@ -423,7 +399,6 @@ impl Policy for Native {
     fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<bool> {
-        // `native_path()` is the platform's own spelling, so it must open what `path()` merely names.
         Visit::Keep(entry.native_path().exists())
     }
 }
@@ -440,7 +415,6 @@ fn native_paths_stay_on_the_io_side() {
     );
 }
 
-/// Cancels the walk once it has classified `after` entries.
 struct CancelAfter {
     token: CancelToken,
     after: usize,
@@ -538,8 +512,6 @@ fn an_unreadable_root_fails_the_whole_walk() {
     );
 }
 
-/// A fixture wide enough that an unbounded walk would spread across several threads: eight sibling directories, each
-/// holding a file.
 fn wide_fixture(width: usize) -> TempDir {
     let dir = tempfile::tempdir().expect("create temp dir");
 
@@ -552,7 +524,6 @@ fn wide_fixture(width: usize) -> TempDir {
     dir
 }
 
-/// Records the thread that classified each entry, so a test can count how many took part.
 struct Threads;
 
 impl Policy for Threads {
@@ -618,8 +589,11 @@ fn a_thread_limit_records_the_whole_tree() {
 
     let outcome = walk(dir.path(), &Everything, &(), &options).expect("walk");
 
-    // Bounding the parallelism bounds the workers, never the answer.
-    assert_eq!(outcome.tree().len(), 16);
+    assert_eq!(
+        outcome.tree().len(),
+        16,
+        "bounding the threads bounds the workers, never the answer"
+    );
     assert!(!outcome.is_cancelled());
     assert!(outcome.errors().is_empty());
 }
@@ -648,9 +622,11 @@ mod unix {
             .find(|node| node.name() == "pipe")
             .expect("the fifo is recorded");
 
-        // The reason `EntryKind` exists: a fifo answers false to is_dir, is_file *and* is_symlink, so "neither a
-        // directory nor a file" would have mislabelled it a symlink.
-        assert_eq!(*node.value(), EntryKind::Other);
+        assert_eq!(
+            *node.value(),
+            EntryKind::Other,
+            "a fifo is none of a directory, a file and a symlink"
+        );
         assert_eq!(node.children().count(), 0);
     }
 
@@ -692,7 +668,7 @@ mod unix {
 
         let outcome = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
 
-        // Restore before the assertions so the temp dir can always be cleaned up.
+        // constraint: a directory left unreadable cannot be removed, so the mode is restored before any assertion fails
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).expect("restore mode");
 
         if outcome.errors().is_empty() {
