@@ -701,3 +701,68 @@ fn merging_the_rankings_of_slices_reproduces_the_ranking_of_the_whole_list() {
         }
     }
 }
+
+#[test]
+fn a_ranking_fed_by_position_agrees_with_rank_whole_and_merged() {
+    // Ties on score and on length among the `?/main.rs` paths are what a position-keyed order most easily breaks.
+    let paths = [
+        "a/main.rs",
+        "b/main.rs",
+        "src/main.rs",
+        "main/lib.rs",
+        "c/main.rs",
+        "docs/main.md",
+        "lib.rs",
+        "d/main.rs",
+    ];
+    let mut without_length_tiebreak = Config::DEFAULT;
+    without_length_tiebreak.length_tiebreak = false;
+    let queries = ["main", "", "rs", "zz"];
+    let limits = [None, NonZeroUsize::new(1), NonZeroUsize::new(3)];
+
+    for config in [Config::DEFAULT, without_length_tiebreak] {
+        let mut matcher = Matcher::new(config);
+        for (query, limit) in queries
+            .iter()
+            .flat_map(|&query| limits.map(|limit| (query, limit)))
+        {
+            let expected: Vec<(&str, i32)> = matcher
+                .rank(paths, query, limit)
+                .iter()
+                .map(|found| (found.candidate, found.score))
+                .collect();
+            let as_pairs = |ranked: Vec<kartta_fuzz::Ranked>| -> Vec<(&str, i32)> {
+                ranked
+                    .iter()
+                    .map(|found| (paths[found.position], found.score))
+                    .collect()
+            };
+
+            // The ranking of `paths[range]`, built one offer at a time.
+            let mut offered = |range: std::ops::Range<usize>| {
+                let mut ranking = matcher.ranking(query, limit);
+                // `all` stops at the first offer the ranking turns away, as a caller feeding it would.
+                let _ = range
+                    .into_iter()
+                    .all(|position| ranking.offer(position, paths[position]));
+                ranking.finish()
+            };
+
+            let tiebreak = config.length_tiebreak;
+            assert_eq!(
+                as_pairs(offered(0..paths.len())),
+                expected,
+                "query {query:?}, limit {limit:?}, length tiebreak {tiebreak}"
+            );
+
+            for split in 0..=paths.len() {
+                let halves = [offered(0..split), offered(split..paths.len())];
+                assert_eq!(
+                    as_pairs(Matcher::merge_ranked(halves, query, limit)),
+                    expected,
+                    "query {query:?}, limit {limit:?}, length tiebreak {tiebreak}, split at {split}"
+                );
+            }
+        }
+    }
+}

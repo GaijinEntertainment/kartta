@@ -73,14 +73,14 @@ impl Band {
 /// off, so one ordering serves both without a branch per comparison. `index` is the input position, which makes
 /// the order total and reproduces the stable sort's "equal candidates keep their input order".
 #[derive(Debug, PartialEq, Eq)]
-struct HeapEntry<'a> {
-    candidate: &'a str,
+struct HeapEntry<T> {
+    item: T,
     score: i32,
     tiebreak: usize,
     index: usize,
 }
 
-impl Ord for HeapEntry<'_> {
+impl<T: Eq> Ord for HeapEntry<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         other
             .score
@@ -90,10 +90,119 @@ impl Ord for HeapEntry<'_> {
     }
 }
 
-impl PartialOrd for HeapEntry<'_> {
+impl<T: Eq> PartialOrd for HeapEntry<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
+}
+
+/// One ranked candidate, known by the position it was offered at rather than by a borrow of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ranked {
+    /// The position the candidate was offered at.
+    pub position: usize,
+    /// Its rank key: higher is better.
+    pub score: i32,
+    /// The candidate's length when [`Config::length_tiebreak`] is on, zero when it is off.
+    tiebreak: usize,
+}
+
+/// A ranking fed one candidate at a time, for candidates that are never alive together — a path rebuilt into one
+/// reused buffer, say. [`Matcher::ranking`] starts one.
+///
+/// Positions must rise in the order candidates are offered, because they break ties the way input order does in
+/// [`Matcher::rank`].
+#[derive(Debug)]
+pub struct Ranking<'m> {
+    matcher: &'m mut Matcher,
+    limit: Option<NonZeroUsize>,
+    heap: BinaryHeap<HeapEntry<()>>,
+    all: Vec<Ranked>,
+}
+
+impl Ranking<'_> {
+    /// Offers one candidate, and answers whether a later candidate can still enter the ranking.
+    ///
+    /// Only an empty query ever answers `false`: everything matches it in input order, so once the limit is reached
+    /// the rest is turned away unscored.
+    pub fn offer(&mut self, position: usize, candidate: &str) -> bool {
+        if self.matcher.terms.is_empty() {
+            self.all.push(Ranked {
+                position,
+                score: 0,
+                tiebreak: 0,
+            });
+            return self.limit.is_none_or(|limit| self.all.len() < limit.get());
+        }
+
+        let Some(score) = self.matcher.score_terms(candidate) else {
+            return true;
+        };
+        let tiebreak = if self.matcher.config.length_tiebreak {
+            candidate.len()
+        } else {
+            0
+        };
+
+        let Some(limit) = self.limit else {
+            self.all.push(Ranked {
+                position,
+                score,
+                tiebreak,
+            });
+            return true;
+        };
+
+        let entry = HeapEntry {
+            item: (),
+            score,
+            tiebreak,
+            index: position,
+        };
+        if self.heap.len() < limit.get() {
+            self.heap.push(entry);
+        } else if self.heap.peek().is_some_and(|worst| entry < *worst) {
+            self.heap.pop();
+            self.heap.push(entry);
+        }
+        true
+    }
+
+    /// The ranking, best first, in the order [`Matcher::rank`] gives the same candidates.
+    #[must_use]
+    pub fn finish(self) -> Vec<Ranked> {
+        if self.matcher.terms.is_empty() {
+            return self.all;
+        }
+
+        if self.limit.is_some() {
+            // `HeapEntry` orders the worst greatest, so ascending order is best first.
+            return self
+                .heap
+                .into_sorted_vec()
+                .into_iter()
+                .map(|entry| Ranked {
+                    position: entry.index,
+                    score: entry.score,
+                    tiebreak: entry.tiebreak,
+                })
+                .collect();
+        }
+
+        let mut all = self.all;
+        sort_ranked(&mut all);
+        all
+    }
+}
+
+/// Orders by descending score, then by the tiebreak, which is zero for every entry when the length tiebreak is off.
+/// Stable, so entries equal on both keep their position order.
+fn sort_ranked(ranked: &mut [Ranked]) {
+    ranked.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.tiebreak.cmp(&b.tiebreak))
+    });
 }
 
 /// A configured scorer that ranks candidates against a query.
@@ -275,7 +384,7 @@ impl Matcher {
         // A limit is a cap on what comes back, not a promise that much exists. Reserving against it alone lets a
         // caller's `usize::MAX` demand an allocation before a single candidate is read, so the reservation is bounded
         // by what the input claims to hold and the heap grows from there.
-        let mut heap: BinaryHeap<HeapEntry<'a>> =
+        let mut heap: BinaryHeap<HeapEntry<&'a str>> =
             BinaryHeap::with_capacity(limit.min(candidates.size_hint().0));
 
         for (index, candidate) in candidates.enumerate() {
@@ -283,7 +392,7 @@ impl Matcher {
                 continue;
             };
             let entry = HeapEntry {
-                candidate,
+                item: candidate,
                 score,
                 tiebreak: if length_tiebreak { candidate.len() } else { 0 },
                 index,
@@ -301,10 +410,48 @@ impl Matcher {
         heap.into_sorted_vec()
             .into_iter()
             .map(|entry| Match {
-                candidate: entry.candidate,
+                candidate: entry.item,
                 score: entry.score,
             })
             .collect()
+    }
+
+    /// Starts a ranking against `query` that is fed one candidate at a time through [`Ranking::offer`].
+    ///
+    /// For candidates that cannot all be borrowed at once. Fed the same candidates in the same order, it ranks exactly
+    /// as [`Matcher::rank`] does, by position rather than by borrow.
+    pub fn ranking(&mut self, query: &str, limit: Option<NonZeroUsize>) -> Ranking<'_> {
+        self.begin(query);
+
+        Ranking {
+            matcher: self,
+            limit,
+            heap: BinaryHeap::new(),
+            all: Vec::new(),
+        }
+    }
+
+    /// [`Matcher::merge`] for rankings built with [`Matcher::ranking`], over consecutive slices of one candidate list.
+    ///
+    /// `rankings` holds one ranking per slice, in the order the slices occur in the list, each built by a matcher of one
+    /// configuration with this `query` and this `limit`. Nothing here can check that: a ranking built otherwise merges
+    /// into an order no single ranking of the list would give.
+    #[must_use]
+    pub fn merge_ranked(
+        rankings: impl IntoIterator<Item = Vec<Ranked>>,
+        query: &str,
+        limit: Option<NonZeroUsize>,
+    ) -> Vec<Ranked> {
+        let mut merged: Vec<Ranked> = rankings.into_iter().flatten().collect();
+
+        if query.split_whitespace().next().is_some() {
+            sort_ranked(&mut merged);
+        }
+
+        if let Some(limit) = limit {
+            merged.truncate(limit.get());
+        }
+        merged
     }
 
     /// The score of one candidate against `query`, or `None` when it does not match every term.
