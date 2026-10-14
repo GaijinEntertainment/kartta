@@ -11,6 +11,7 @@ use std::fs;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Condvar, Mutex};
 
 use kartta_walk::{
     CancelToken, Children, Dir, Entry, EntryKind, Node, Policy, Tree, Visit, WalkOptions, walk,
@@ -608,18 +609,60 @@ fn one_thread_walks_the_same_tree_as_many() {
     assert_eq!(render(single.tree()), render(ambient.tree()));
 }
 
+// constraint: a pool gives no thread a reason to steal from a classifier that finishes trivial entries before the
+// others wake, so the first classification waits, for a bounded time, until a second thread classifies too
+struct WaitsForCompany {
+    seen: Mutex<std::collections::HashSet<std::thread::ThreadId>>,
+    joined: Condvar,
+}
+
+impl Policy for WaitsForCompany {
+    type State = ();
+    type Value = std::thread::ThreadId;
+
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
+
+    fn visit(&self, _entry: &Entry<'_>, _state: &()) -> Visit<std::thread::ThreadId> {
+        let id = std::thread::current().id();
+        self.join(id);
+
+        Visit::Keep(id)
+    }
+}
+
+impl WaitsForCompany {
+    fn join(&self, id: std::thread::ThreadId) {
+        let mut seen = self.seen.lock().expect("lock");
+        let first_visit = seen.insert(id);
+        self.joined.notify_all();
+        let first_thread = first_visit && seen.len() == 1;
+        if !first_thread {
+            return;
+        }
+
+        let alone = |seen: &mut std::collections::HashSet<_>| seen.len() < 2;
+        let _company =
+            self.joined
+                .wait_timeout_while(seen, std::time::Duration::from_secs(5), alone);
+    }
+}
+
 #[test]
 fn a_directory_large_enough_to_classify_in_parallel_walks_to_the_same_tree_and_spreads() {
     let dir = tempfile::tempdir().expect("create temp dir");
     for i in 0..500 {
         fs::write(dir.path().join(format!("f{i:03}.txt")), "x").expect("write file");
     }
+    let company = WaitsForCompany {
+        seen: Mutex::new(std::collections::HashSet::new()),
+        joined: Condvar::new(),
+    };
 
     let single = on_threads(1, || {
         walk(dir.path(), &Threads, &(), &WalkOptions::default()).expect("walk")
     });
     let many = on_threads(4, || {
-        walk(dir.path(), &Threads, &(), &WalkOptions::default()).expect("walk")
+        walk(dir.path(), &company, &(), &WalkOptions::default()).expect("walk")
     });
 
     let names = |tree: &Tree<std::thread::ThreadId>| {
