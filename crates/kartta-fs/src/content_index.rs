@@ -32,7 +32,7 @@ pub struct ContentIndexStats {
 }
 
 impl ContentIndexStats {
-    /// How many files the index holds the content of: every text file the build read whole.
+    /// How many files the index holds the content of: every text file the build read to its end.
     ///
     /// A file the build could not read is not among them, and is reported in
     /// [`BuildOutcome::errors`](crate::BuildOutcome::errors) instead.
