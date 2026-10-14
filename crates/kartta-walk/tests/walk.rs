@@ -467,6 +467,35 @@ fn cancellation_truncates_the_walk_and_reports_it() {
 }
 
 #[test]
+fn a_token_cancelled_after_the_last_entry_leaves_a_complete_walk_reported_complete() {
+    let dir = fixture();
+    let token = CancelToken::new();
+    let policy = CancelAfter {
+        token: token.clone(),
+        after: 6,
+        seen: AtomicUsize::new(0),
+    };
+    let options = WalkOptions {
+        cancel_token: Some(token.clone()),
+        ..Default::default()
+    };
+
+    let outcome = on_threads(1, || {
+        walk(dir.path(), &policy, &(), &options).expect("walk")
+    });
+
+    assert!(
+        token.is_cancelled(),
+        "the seventh and last entry cancelled it"
+    );
+    assert_eq!(outcome.tree().len(), 7, "every entry was recorded");
+    assert!(
+        !outcome.is_cancelled(),
+        "no check turned anything away, so the tree is complete and says so"
+    );
+}
+
+#[test]
 fn a_token_cancelled_up_front_records_nothing() {
     let dir = fixture();
     let token = CancelToken::new();
