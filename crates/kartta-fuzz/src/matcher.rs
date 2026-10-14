@@ -445,6 +445,10 @@ impl Matcher {
     /// `rankings` holds one ranking per slice, in the order the slices occur in the list, each built by a matcher of one
     /// configuration with this `query` and this `limit`. Nothing here can check that: a ranking built otherwise merges
     /// into an order no single ranking of the list would give.
+    ///
+    /// Merging is associative: a merge of consecutive rankings is itself a ranking of their slices put together, so
+    /// rankings can be merged in any grouping that keeps their order — pairwise as parallel tasks finish, say — and
+    /// answer as one merge of them all.
     #[must_use]
     pub fn merge_ranked(
         rankings: impl IntoIterator<Item = Vec<Ranked>>,
