@@ -59,6 +59,11 @@ pub trait Policy: Sync {
     fn enter(&self, dir: &Dir<'_>, parent_state: &Self::State) -> Self::State;
 
     /// Classifies one entry of a directory.
+    ///
+    /// Calls for one directory's entries may run at once, on different threads and in any order: a large directory is
+    /// classified in parallel, so a policy that does real work here, such as reading the file, does not hold the walk
+    /// on one thread. The decisions are collected in listing order, so which entries the tree holds does not depend on
+    /// which call finished first — but a value the policy derives from call order, such as a running count, does.
     fn visit(&self, entry: &Entry<'_>, state: &Self::State) -> Visit<Self::Value>;
 }
 

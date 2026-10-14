@@ -255,68 +255,107 @@ impl<P: Policy> Walker<'_, P> {
         state: &P::State,
         errors: Vec<WalkError>,
     ) -> (Subtree<P::Value>, Vec<Descent>) {
-        let mut subtree = Subtree {
-            entries: Vec::with_capacity(dir.listing().len()),
-            subtrees: Vec::new(),
-            errors,
-            node_count: 0,
-            name_bytes: 0,
+        let mut classified = Classified {
+            subtree: Subtree {
+                entries: Vec::with_capacity(dir.listing().len()),
+                subtrees: Vec::new(),
+                errors,
+                node_count: 0,
+                name_bytes: 0,
+            },
+            descents: Vec::new(),
         };
-        let mut descents: Vec<Descent> = Vec::new();
 
-        let mut path = String::with_capacity(dir.path().len() + 1);
-        path.push_str(dir.path());
-        if !path.is_empty() {
-            path.push('/');
-        }
-        let prefix_len = path.len();
+        let mut path = path_prefix(dir.path());
+        let at = Classifying {
+            dir,
+            state,
+            prefix_len: path.len(),
+        };
 
-        for item in dir.listing() {
-            if self.stops_here() {
-                break;
+        if dir.listing().len() >= PARALLEL_CLASSIFY {
+            self.classify_in_parallel(&at, &path, &mut classified);
+        } else {
+            let decided = dir
+                .listing()
+                .iter()
+                .map(|item| (item, self.decide(&at, &mut path, item)))
+                .take_while(|(_, decided)| !matches!(decided, Decided::Stopped));
+            for (item, decided) in decided {
+                classified.record(item, decided);
             }
-
-            let file_type = match item.dir_entry.file_type() {
-                Ok(file_type) => file_type,
-                Err(source) => {
-                    subtree.errors.push(WalkError::FileType {
-                        native_path: item.dir_entry.path(),
-                        source,
-                    });
-                    continue;
-                }
-            };
-
-            path.truncate(prefix_len);
-            path.push_str(&item.name);
-
-            let entry = Entry::new(item, &path, dir.depth() + 1, file_type);
-            let is_dir = entry.kind() == EntryKind::Dir;
-            let (value, descendable) = match self.policy.visit(&entry, state) {
-                Visit::Skip => continue,
-                Visit::Prune(value) => (value, false),
-                Visit::Keep(value) => (value, is_dir),
-            };
-
-            if descendable {
-                descents.push(Descent {
-                    index: subtree.entries.len(),
-                    native_path: item.dir_entry.path(),
-                    path: path.clone(),
-                });
-            }
-
-            subtree.name_bytes += item.name.len();
-            subtree.entries.push(Recorded {
-                name: item.name.clone(),
-                value,
-            });
         }
 
+        let Classified {
+            mut subtree,
+            descents,
+        } = classified;
         subtree.entries.shrink_to_fit();
         subtree.node_count = subtree.entries.len();
 
         (subtree, descents)
+    }
+
+    fn classify_in_parallel(
+        &self,
+        at: &Classifying<'_, '_, P>,
+        prefix: &str,
+        classified: &mut Classified<P::Value>,
+    ) {
+        for run in at.dir.listing().chunks(CLASSIFY_RUN) {
+            let decided: Vec<Decided<P::Value>> = run
+                .par_iter()
+                .map_init(
+                    || prefix.to_owned(),
+                    |path, item| self.decide(at, path, item),
+                )
+                .collect();
+            let mut stopped = false;
+            for (item, decided) in run.iter().zip(decided) {
+                stopped |= matches!(decided, Decided::Stopped);
+                classified.record(item, decided);
+            }
+            if stopped {
+                return;
+            }
+        }
+    }
+
+    fn decide(
+        &self,
+        at: &Classifying<'_, '_, P>,
+        prefixed_path: &mut String,
+        item: &ListedEntry,
+    ) -> Decided<P::Value> {
+        if self.stops_here() {
+            return Decided::Stopped;
+        }
+
+        let file_type = match item.dir_entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(source) => {
+                return Decided::Failed(WalkError::FileType {
+                    native_path: item.dir_entry.path(),
+                    source,
+                });
+            }
+        };
+
+        prefixed_path.truncate(at.prefix_len);
+        prefixed_path.push_str(&item.name);
+
+        let entry = Entry::new(item, prefixed_path, at.dir.depth() + 1, file_type);
+        let is_dir = entry.kind() == EntryKind::Dir;
+        let (value, descendable) = match self.policy.visit(&entry, at.state) {
+            Visit::Skip => return Decided::Skipped,
+            Visit::Prune(value) => (value, false),
+            Visit::Keep(value) => (value, is_dir),
+        };
+
+        Decided::Recorded {
+            value,
+            descent: descendable.then(|| (item.dir_entry.path(), prefixed_path.clone())),
+        }
     }
 
     fn walk_child(
@@ -347,6 +386,63 @@ impl<P: Policy> Walker<'_, P> {
             },
         }
     }
+}
+
+const PARALLEL_CLASSIFY: usize = 64;
+const CLASSIFY_RUN: usize = 4096;
+
+struct Classifying<'d, 's, P: Policy> {
+    dir: &'d Dir<'d>,
+    state: &'s P::State,
+    prefix_len: usize,
+}
+
+struct Classified<V> {
+    subtree: Subtree<V>,
+    descents: Vec<Descent>,
+}
+
+enum Decided<V> {
+    Stopped,
+    Failed(WalkError),
+    Skipped,
+    Recorded {
+        value: V,
+        descent: Option<(PathBuf, String)>,
+    },
+}
+
+impl<V> Classified<V> {
+    fn record(&mut self, item: &ListedEntry, decided: Decided<V>) {
+        match decided {
+            Decided::Stopped | Decided::Skipped => {}
+            Decided::Failed(error) => self.subtree.errors.push(error),
+            Decided::Recorded { value, descent } => {
+                if let Some((native_path, path)) = descent {
+                    self.descents.push(Descent {
+                        index: self.subtree.entries.len(),
+                        native_path,
+                        path,
+                    });
+                }
+                self.subtree.name_bytes += item.name.len();
+                self.subtree.entries.push(Recorded {
+                    name: item.name.clone(),
+                    value,
+                });
+            }
+        }
+    }
+}
+
+fn path_prefix(path: &str) -> String {
+    let mut prefix = String::with_capacity(path.len() + 1);
+    prefix.push_str(path);
+    if !prefix.is_empty() {
+        prefix.push('/');
+    }
+
+    prefix
 }
 
 struct Descent {

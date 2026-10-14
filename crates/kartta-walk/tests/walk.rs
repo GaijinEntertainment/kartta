@@ -609,6 +609,38 @@ fn one_thread_walks_the_same_tree_as_many() {
 }
 
 #[test]
+fn a_directory_large_enough_to_classify_in_parallel_walks_to_the_same_tree_and_spreads() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    for i in 0..500 {
+        fs::write(dir.path().join(format!("f{i:03}.txt")), "x").expect("write file");
+    }
+
+    let single = on_threads(1, || {
+        walk(dir.path(), &Threads, &(), &WalkOptions::default()).expect("walk")
+    });
+    let many = on_threads(4, || {
+        walk(dir.path(), &Threads, &(), &WalkOptions::default()).expect("walk")
+    });
+
+    let names = |tree: &Tree<std::thread::ThreadId>| {
+        tree.nodes()
+            .map(|node| node.name().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(single.tree()),
+        names(many.tree()),
+        "listing order, whatever ran where"
+    );
+    assert_eq!(many.tree().len(), 500);
+    let classifiers: std::collections::HashSet<_> = many.tree().nodes().map(Node::value).collect();
+    assert!(
+        classifiers.len() > 1,
+        "one flat directory's entries were classified on more than one thread"
+    );
+}
+
+#[test]
 fn a_thread_limit_records_the_whole_tree() {
     let dir = wide_fixture(8);
     let options = WalkOptions {
