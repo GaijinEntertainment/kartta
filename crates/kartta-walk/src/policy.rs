@@ -1,11 +1,7 @@
-//! [`Policy`] — what a walk records and where it descends.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// One listed directory entry. The name is kept beside the entry so a directory's listing sorts and searches by name
-/// without touching the filesystem again.
 #[derive(Debug)]
 pub(crate) struct ListedEntry {
     pub(crate) name: Box<str>,
@@ -84,8 +80,7 @@ pub enum EntryKind {
 }
 
 impl EntryKind {
-    /// Maps a non-following file type to its kind. `Other` absorbs everything the three named kinds do not cover.
-    fn from_file_type(file_type: fs::FileType) -> Self {
+    fn from_unfollowed(file_type: fs::FileType) -> Self {
         if file_type.is_dir() {
             Self::Dir
         } else if file_type.is_file() {
@@ -133,7 +128,6 @@ impl<'a> Dir<'a> {
         }
     }
 
-    /// The directory's own listing, for the walk's classification pass.
     pub(crate) const fn listing(&self) -> &'a [ListedEntry] {
         self.listing
     }
@@ -231,7 +225,7 @@ impl<'a> Entry<'a> {
     /// here and is never descended.
     #[must_use]
     pub fn kind(&self) -> EntryKind {
-        EntryKind::from_file_type(self.file_type)
+        EntryKind::from_unfollowed(self.file_type)
     }
 
     /// The raw non-following file type, for a platform question [`EntryKind`] does not answer — telling a socket from a
