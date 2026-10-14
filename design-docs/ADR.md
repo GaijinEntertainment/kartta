@@ -24,6 +24,8 @@
   `01-kartta-fs-port`, 2026-10-14
 - [1.11 Say what a limited content search did not
   cover](./adr/1.11-say-what-a-limited-content-search-did-not-cover.md) — initiative `01-kartta-fs-port`, 2026-10-14
+- [1.12 Read each wanted file once, during the walk](./adr/1.12-read-each-wanted-file-once-during-the-walk.md) —
+  initiative `01-kartta-fs-port`, 2026-10-14
 
 ## Deprecated
 
