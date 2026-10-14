@@ -2,6 +2,7 @@ use std::fs;
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rayon::prelude::*;
 
@@ -95,7 +96,11 @@ pub fn walk<P: Policy>(
         source,
     })?;
 
-    let walker = Walker { policy, options };
+    let walker = Walker {
+        policy,
+        options,
+        stopped: AtomicBool::new(false),
+    };
 
     let frame = Frame {
         native_path: root,
@@ -125,7 +130,7 @@ pub fn walk<P: Policy>(
     Ok(WalkOutcome {
         tree,
         errors,
-        cancelled: walker.is_cancelled(),
+        cancelled: walker.stopped.load(Ordering::Relaxed),
     })
 }
 
@@ -195,14 +200,21 @@ struct Frame<'a, P: Policy> {
 struct Walker<'a, P: Policy> {
     policy: &'a P,
     options: &'a WalkOptions,
+    stopped: AtomicBool,
 }
 
 impl<P: Policy> Walker<'_, P> {
-    fn is_cancelled(&self) -> bool {
-        self.options
+    fn stops_here(&self) -> bool {
+        let cancelled = self
+            .options
             .cancel_token
             .as_ref()
-            .is_some_and(CancelToken::is_cancelled)
+            .is_some_and(CancelToken::is_cancelled);
+        if cancelled {
+            self.stopped.store(true, Ordering::Relaxed);
+        }
+
+        cancelled
     }
 
     fn walk_dir(&self, frame: &Frame<'_, P>, listing: Listing) -> Subtree<P::Value> {
@@ -260,7 +272,7 @@ impl<P: Policy> Walker<'_, P> {
         let prefix_len = path.len();
 
         for item in dir.listing() {
-            if self.is_cancelled() {
+            if self.stops_here() {
                 break;
             }
 
