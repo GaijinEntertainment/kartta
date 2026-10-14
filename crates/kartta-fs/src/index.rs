@@ -10,11 +10,12 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, BuildOptions};
 use crate::content::{ContentId, ContentVisitor};
-use crate::content_index::{Collector, ContentIndex, ContentIndexStats};
+use crate::content_index::{Collector, ContentIndex, ContentIndexStats, Narrowed};
 use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::inspection::Inspection;
 use crate::policy::{Collected, DirState, Indexing, Learned, Payload, Reading, Report};
+use crate::requirement::Requirement;
 
 /// A snapshot of a directory tree: every entry the ignore rules kept, in the order a depth-first descent finds them.
 ///
@@ -249,6 +250,12 @@ impl Index {
     #[must_use]
     pub fn content_index_stats(&self) -> Option<ContentIndexStats> {
         self.content.as_deref().map(ContentIndex::stats)
+    }
+
+    pub(crate) fn narrowed(&self, requirement: &Requirement) -> Option<Narrowed> {
+        self.content
+            .as_deref()?
+            .narrow(requirement, &self.content_positions, self.len())
     }
 
     /// How many threads this index runs its parallel work on: the walk that built it, and the searches after.

@@ -496,6 +496,7 @@ dependencies = [
  "kartta-walk",
  "libc",
  "rayon",
+ "regex-syntax",
  "tempfile",
  "thiserror",
 ]

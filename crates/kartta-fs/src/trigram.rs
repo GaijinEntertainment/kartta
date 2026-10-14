@@ -2,12 +2,16 @@ pub(crate) type Trigram = u32;
 
 const BITS: u32 = 24;
 const SPACE: usize = 1 << BITS;
-const KELVIN_SIGN: [u8; 3] = [0xE2, 0x84, 0xAA];
-const LONG_S: [u8; 2] = [0xC5, 0xBF];
+pub(crate) const KELVIN_SIGN: [u8; 3] = [0xE2, 0x84, 0xAA];
+pub(crate) const LONG_S: [u8; 2] = [0xC5, 0xBF];
+
+pub(crate) const fn pack(first: u8, second: u8, third: u8) -> Trigram {
+    ((first as Trigram) << 16) | ((second as Trigram) << 8) | third as Trigram
+}
 
 // constraint: Unicode's simple case folding joins exactly these two non-ASCII code points to an ASCII letter, so folding
 // them here lets a case-insensitive `k` or `s` narrow by the same trigrams whichever spelling a file holds
-const fn fold(rest: &[u8]) -> (u8, usize) {
+pub(crate) const fn fold(rest: &[u8]) -> (u8, usize) {
     match rest {
         [0xE2, 0x84, 0xAA, ..] => (b'k', KELVIN_SIGN.len()),
         [0xC5, 0xBF, ..] => (b's', LONG_S.len()),
@@ -71,7 +75,7 @@ mod tests {
     use super::*;
 
     fn trigram([a, b, c]: [u8; 3]) -> Trigram {
-        (Trigram::from(a) << 16) | (Trigram::from(b) << 8) | Trigram::from(c)
+        pack(a, b, c)
     }
 
     fn found(text: &str) -> Vec<Trigram> {

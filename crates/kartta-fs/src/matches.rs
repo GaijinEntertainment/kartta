@@ -8,13 +8,14 @@ use crate::index::Inspected;
 ///
 /// An agent cannot see what it was not given, so the answer accounts for each file the search could have read. A
 /// **candidate** is a regular file the filter selected and the exclusion kept, and every candidate lands in exactly one
-/// of five places:
+/// of six places:
 ///
 /// | Count | The file was |
 /// | --- | --- |
 /// | [`searched`](Matches::searched) | read; its matches are in this answer up to the limit, and counted past it when asked |
 /// | [`binary`](Matches::binary) | skipped as binary, by its extension or by a NUL in its first 64 KiB |
 /// | [`oversized`](Matches::oversized) | skipped for being larger than [`GrepOptions::max_file_bytes`](crate::GrepOptions::max_file_bytes) |
+/// | [`ruled_out`](Matches::ruled_out) | skipped unread, because the content index shows it holds no match |
 /// | [`failures`](Matches::failures) | not readable, and listed with the reason |
 /// | [`unsearched`](Matches::unsearched) | not covered, because the limit or a cancellation ended the search first |
 ///
@@ -133,6 +134,18 @@ impl<'a> Matches<'a> {
     #[must_use]
     pub const fn oversized(&self) -> usize {
         self.tally.oversized
+    }
+
+    /// How many candidates the content index ruled out, so the search never read them: the trigrams a match needs are
+    /// missing from the content the build read. Zero for an index built without
+    /// [`BuildOptions::content_index`](crate::BuildOptions::content_index), and for patterns that need no trigram, such
+    /// as `\w+`, which read every candidate.
+    ///
+    /// The index holds each file's content as the build read it, so a file changed since then is ruled in or out by
+    /// that content rather than by what it holds now.
+    #[must_use]
+    pub const fn ruled_out(&self) -> usize {
+        self.tally.ruled_out
     }
 
     /// How many candidates this answer does not cover, because the limit filled or a cancellation landed first.
@@ -274,6 +287,7 @@ pub(crate) struct Tally {
     pub(crate) searched: usize,
     pub(crate) binary: usize,
     pub(crate) oversized: usize,
+    pub(crate) ruled_out: usize,
     pub(crate) unsearched: usize,
 }
 
@@ -285,6 +299,7 @@ impl Tally {
         self.searched += other.searched;
         self.binary += other.binary;
         self.oversized += other.oversized;
+        self.ruled_out += other.ruled_out;
         self.unsearched += other.unsearched;
     }
 }

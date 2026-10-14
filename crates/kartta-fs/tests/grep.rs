@@ -77,6 +77,7 @@ fn assert_accounted(matches: &Matches<'_>) {
         matches.searched()
             + matches.binary()
             + matches.oversized()
+            + matches.ruled_out()
             + matches.failures().len()
             + matches.unsearched(),
         "every candidate lands in exactly one count"

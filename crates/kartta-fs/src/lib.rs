@@ -118,12 +118,17 @@
 //! searched, applies the binary rule above before it searches a byte, and answers in index order — and its [`Matches`]
 //! account for every candidate the answer does not cover, because an agent cannot see what it was not given.
 //!
+//! A build asked for a content index, through [`BuildOptions::content_index`], reads every text file once during the
+//! walk and records which files hold which trigrams. A search on that index opens only the candidates holding every
+//! trigram a match needs, and counts the rest in [`Matches::ruled_out`]. The index is a snapshot of content as the
+//! build read it, as the structure is a snapshot of the tree.
+//!
 //! # What is here so far
 //!
 //! The walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification, the two
-//! path searches — glob and fuzzy — both narrowed by a [`Filter`], and content search. Not yet: an index that narrows
-//! content search before it opens a file, incremental re-walk, and the ignore sources outside the tree —
-//! [`IgnoreSources`] names only the levels that are implemented.
+//! path searches — glob and fuzzy — both narrowed by a [`Filter`], content search, and the content index that narrows
+//! it. Not yet: incremental re-walk and reindexing, and the ignore sources outside the tree — [`IgnoreSources`] names
+//! only the levels that are implemented.
 
 mod binary;
 mod build;
@@ -143,6 +148,7 @@ mod open;
 mod patterns;
 mod policy;
 mod postings;
+mod requirement;
 mod rules;
 mod scan;
 mod trigram;
