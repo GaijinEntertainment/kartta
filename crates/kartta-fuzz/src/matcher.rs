@@ -76,8 +76,13 @@ impl Band {
 struct HeapEntry<T> {
     item: T,
     score: i32,
-    tiebreak: usize,
+    tiebreak: u32,
     index: usize,
+}
+
+/// A candidate's length as the length tiebreak orders it, saturated at what a `u32` holds.
+fn length_key(candidate: &str) -> u32 {
+    u32::try_from(candidate.len()).unwrap_or(u32::MAX)
 }
 
 impl<T: Eq> Ord for HeapEntry<T> {
@@ -104,7 +109,7 @@ pub struct Ranked {
     /// Its rank key: higher is better.
     pub score: i32,
     /// The candidate's length when [`Config::length_tiebreak`] is on, zero when it is off.
-    tiebreak: usize,
+    tiebreak: u32,
 }
 
 /// A ranking fed one candidate at a time, for candidates that are never alive together — a path rebuilt into one
@@ -139,7 +144,7 @@ impl Ranking<'_> {
             return true;
         };
         let tiebreak = if self.matcher.config.length_tiebreak {
-            candidate.len()
+            length_key(candidate)
         } else {
             0
         };
@@ -394,7 +399,11 @@ impl Matcher {
             let entry = HeapEntry {
                 item: candidate,
                 score,
-                tiebreak: if length_tiebreak { candidate.len() } else { 0 },
+                tiebreak: if length_tiebreak {
+                    length_key(candidate)
+                } else {
+                    0
+                },
                 index,
             };
 
@@ -554,5 +563,19 @@ impl Matcher {
         } else {
             matches.sort_by_key(|m| Reverse(m.score));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_ranked_entry_stays_a_position_and_two_32_bit_keys() {
+        assert_eq!(
+            size_of::<Ranked>(),
+            size_of::<usize>() + 2 * size_of::<u32>(),
+            "an unbounded ranking holds one of these per match, so every byte is paid per match"
+        );
     }
 }

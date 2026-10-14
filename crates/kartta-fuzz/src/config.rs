@@ -174,6 +174,9 @@ pub struct Config {
     /// Length is UTF-8 byte length, not a character count: the tiebreak is a proxy for "less path to read", the byte
     /// length is already at hand, and a character count would cost a decode per candidate to settle a tie. The two
     /// differ only for a non-ASCII candidate, where `ééa` counts as longer than `aaaa`.
+    ///
+    /// Lengths compare up to 4 GiB, which keeps every ranked entry two words. Candidates longer than that tie on
+    /// length and keep their input order.
     pub length_tiebreak: bool,
 }
 
