@@ -141,6 +141,7 @@ mod matches;
 mod open;
 mod patterns;
 mod policy;
+mod postings;
 mod rules;
 mod scan;
 
