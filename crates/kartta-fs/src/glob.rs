@@ -34,7 +34,8 @@ impl GlobOptions {
 }
 
 impl Index {
-    /// Returns the paths `filter` selects, in index order.
+    /// Returns the positions of the paths `filter` selects, in index order; [`Index::paths`] reads each path, cheaply
+    /// in this order.
     ///
     /// Nothing here ranks: a glob answers whether a path matches and has no notion of matching it better, so the order
     /// is [`Index::entries`]' own depth-first one and [`GlobOptions::limit`] takes the first paths in it rather than
@@ -65,11 +66,13 @@ impl Index {
     ///
     /// let filter = Filter::new(["*.{rs,toml}"])?;
     /// let found = index.glob(&filter, &GlobOptions::default());
-    /// assert_eq!(found.items(), ["Cargo.toml", "src/main.rs"]);
+    /// let mut paths = index.paths();
+    /// let found_paths: Vec<String> = found.items().iter().map(|&at| paths.get(at).to_owned()).collect();
+    /// assert_eq!(found_paths, ["Cargo.toml", "src/main.rs"]);
     /// assert!(!found.truncated());
     ///
     /// let capped = index.glob(&filter, &GlobOptions::default().limit(1));
-    /// assert_eq!(capped.items(), ["Cargo.toml"]);
+    /// assert_eq!(paths.get(capped.items()[0]), "Cargo.toml");
     /// assert!(capped.truncated(), "a second path matched and was turned away");
     /// # Ok(())
     /// # }
@@ -80,22 +83,24 @@ impl Index {
         reason = "every query takes its options by reference, as list and fuzzy do; GlobOptions is one word only until \
                   it grows a second bound"
     )]
-    pub fn glob(&self, filter: &Filter, options: &GlobOptions) -> Capped<&str> {
-        let Some(limit) = options.limit else {
-            return Capped::whole(self.candidates(0..self.len(), Some(filter)).collect());
-        };
+    pub fn glob(&self, filter: &Filter, options: &GlobOptions) -> Capped<usize> {
+        let limit = options.limit.map_or(usize::MAX, NonZeroUsize::get);
+        let mut found = Vec::new();
+        let mut truncated = false;
 
-        let mut found: Vec<&str> = self
-            .candidates(0..self.len(), Some(filter))
-            .take(limit.get() + 1)
-            .collect();
+        self.candidates(0..self.len(), Some(filter), |at, _| {
+            if found.len() == limit {
+                truncated = true;
+                return false;
+            }
+            found.push(at);
+            true
+        });
 
-        if found.len() > limit.get() {
-            found.truncate(limit.get());
-
-            return Capped::cut(found);
+        if truncated {
+            Capped::cut(found)
+        } else {
+            Capped::whole(found)
         }
-
-        Capped::whole(found)
     }
 }

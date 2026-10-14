@@ -57,8 +57,20 @@ fn default_index(root: &Path) -> Index {
     index(root, &BuildOptions::default())
 }
 
-fn paths(index: &Index) -> Vec<&str> {
-    index.entries().map(Entry::path).collect()
+fn paths(index: &Index) -> Vec<String> {
+    index
+        .entries()
+        .map(|entry| entry.path().to_owned())
+        .collect()
+}
+
+/// The paths of `positions`, read back through [`Index::paths`].
+fn paths_at(index: &Index, positions: impl IntoIterator<Item = usize>) -> Vec<String> {
+    let mut paths = index.paths();
+    positions
+        .into_iter()
+        .map(|at| paths.get(at).to_owned())
+        .collect()
 }
 
 fn kind_of(index: &Index, path: &str) -> EntryKind {
@@ -120,7 +132,12 @@ fn every_entry_is_found_by_its_path_when_names_sort_below_the_separator() {
     let index = default_index(dir.path());
 
     for entry in index.entries() {
-        assert_eq!(index.entry(entry.path()), Some(entry), "{}", entry.path());
+        assert_eq!(
+            index.entry(entry.path()).as_ref(),
+            Some(&entry),
+            "{}",
+            entry.path()
+        );
     }
     for absent in [
         "a/x",
@@ -140,7 +157,19 @@ fn a_root_level_entry_is_its_own_name() {
     let dir = tree(&[("top.txt", "x")]);
     let index = default_index(dir.path());
 
-    assert_eq!(index.entry("top.txt").map(Entry::name), Some("top.txt"));
+    assert_eq!(
+        index.entry("top.txt").as_ref().map(Entry::name),
+        Some("top.txt")
+    );
+}
+
+#[test]
+#[should_panic(expected = "out of bounds")]
+fn a_fresh_reader_panics_on_a_position_past_the_last_entry() {
+    let dir = tree(&[("only.txt", "")]);
+    let index = default_index(dir.path());
+
+    index.paths().get(usize::MAX);
 }
 
 #[test]
@@ -369,13 +398,12 @@ fn fuzzy_ranks_a_filename_hit_above_a_directory_hit() {
     ]);
     let index = default_index(dir.path());
 
-    let ranked: Vec<&str> = index
-        .fuzzy("main", &FuzzyOptions::default())
-        .iter()
-        .map(|found| found.path)
-        .collect();
+    let ranked = index.fuzzy("main", &FuzzyOptions::default());
 
-    assert_eq!(ranked, ["src/main.rs", "main/lib.rs"]);
+    assert_eq!(
+        paths_at(&index, ranked.iter().map(|found| found.position)),
+        ["src/main.rs", "main/lib.rs"]
+    );
 }
 
 #[test]
@@ -386,12 +414,11 @@ fn fuzzy_never_returns_a_directory() {
     let ranked = index.fuzzy("src", &FuzzyOptions::default());
     assert!(!ranked.is_empty(), "the query matches the files under src");
 
-    for found in &ranked {
+    for path in paths_at(&index, ranked.iter().map(|found| found.position)) {
         assert_ne!(
-            kind_of(&index, found.path),
+            kind_of(&index, &path),
             EntryKind::Dir,
-            "{} is a directory",
-            found.path
+            "{path} is a directory"
         );
     }
 }
@@ -414,7 +441,7 @@ fn fuzzy_honours_a_limit_and_scores_descend() {
 
     let capped = index.fuzzy("main", &FuzzyOptions::default().limit(2));
     assert_eq!(capped.len(), 2);
-    assert_eq!(capped[0].path, all[0].path);
+    assert_eq!(capped[0].position, all[0].position);
 }
 
 #[test]
@@ -422,13 +449,12 @@ fn an_empty_query_matches_every_indexed_file_in_index_order() {
     let dir = tree(&[("b.txt", ""), ("a.txt", ""), ("sub/", "")]);
     let index = default_index(dir.path());
 
-    let ranked: Vec<&str> = index
-        .fuzzy("", &FuzzyOptions::default())
-        .iter()
-        .map(|found| found.path)
-        .collect();
+    let ranked = index.fuzzy("", &FuzzyOptions::default());
 
-    assert_eq!(ranked, ["a.txt", "b.txt"]);
+    assert_eq!(
+        paths_at(&index, ranked.iter().map(|found| found.position)),
+        ["a.txt", "b.txt"]
+    );
 }
 
 #[test]
@@ -450,9 +476,10 @@ fn glob_returns_the_selected_paths_in_index_order() {
     let index = default_index(dir.path());
 
     let filter = Filter::new(["*.{rs,toml}"]).expect("compile the patterns");
+    let selected = index.glob(&filter, &GlobOptions::default());
 
     assert_eq!(
-        index.glob(&filter, &GlobOptions::default()).items(),
+        paths_at(&index, selected.items().iter().copied()),
         ["Cargo.toml", "src/deep/mod.rs", "src/main.rs"]
     );
 }
@@ -463,9 +490,10 @@ fn glob_never_returns_a_directory() {
     let index = default_index(dir.path());
 
     let filter = Filter::new(["src/*"]).expect("compile the pattern");
+    let selected = index.glob(&filter, &GlobOptions::default());
 
     assert_eq!(
-        index.glob(&filter, &GlobOptions::default()).items(),
+        paths_at(&index, selected.items().iter().copied()),
         ["src/main.rs"]
     );
     assert_eq!(
@@ -484,7 +512,10 @@ fn glob_honours_a_limit_by_taking_the_first_paths_in_index_order() {
 
     let capped = index.glob(&filter, &GlobOptions::default().limit(2));
 
-    assert_eq!(capped.items(), ["a.rs", "b.rs"]);
+    assert_eq!(
+        paths_at(&index, capped.items().iter().copied()),
+        ["a.rs", "b.rs"]
+    );
     assert!(capped.truncated(), "c.rs matched and was turned away");
 }
 
@@ -497,7 +528,7 @@ fn glob_answers_nothing_when_no_pattern_selects_anything() {
 
     assert_eq!(
         index.glob(&filter, &GlobOptions::default()).items(),
-        Vec::<&str>::new()
+        Vec::<usize>::new()
     );
 }
 
@@ -511,13 +542,12 @@ fn a_filter_narrows_what_fuzzy_ranks() {
     let index = default_index(dir.path());
 
     let filter = Filter::new(["*.rs"]).expect("compile the pattern");
-    let ranked: Vec<&str> = index
-        .fuzzy("main", &FuzzyOptions::default().filter(&filter))
-        .iter()
-        .map(|found| found.path)
-        .collect();
+    let ranked = index.fuzzy("main", &FuzzyOptions::default().filter(&filter));
 
-    assert_eq!(ranked, ["src/main.rs", "main/lib.rs"]);
+    assert_eq!(
+        paths_at(&index, ranked.iter().map(|found| found.position)),
+        ["src/main.rs", "main/lib.rs"]
+    );
 }
 
 #[test]
@@ -531,16 +561,18 @@ fn a_glob_query_and_a_fuzzy_query_select_from_the_same_set() {
 
     let filter = Filter::new(["**/*"]).expect("compile the pattern");
     let selected = index.glob(&filter, &GlobOptions::default());
-    let listed = selected.items();
-    let ranked: Vec<&str> = index
-        .fuzzy("", &FuzzyOptions::default())
-        .iter()
-        .map(|found| found.path)
-        .collect();
+    let listed = paths_at(&index, selected.items().iter().copied());
+    let ranked = paths_at(
+        &index,
+        index
+            .fuzzy("", &FuzzyOptions::default())
+            .iter()
+            .map(|found| found.position),
+    );
 
     assert_eq!(listed, ranked);
     assert!(
-        !listed.contains(&"build.log"),
+        !listed.iter().any(|path| path == "build.log"),
         "the .gitignore applied to both"
     );
 }
@@ -561,7 +593,7 @@ fn a_gitignore_that_is_a_fifo_does_not_block_the_build() {
             .any(|error| matches!(error, BuildError::Ignore { .. }));
 
         let index = outcome.into_index();
-        let listed: Vec<String> = paths(&index).iter().map(|&p| p.to_owned()).collect();
+        let listed = paths(&index);
 
         (
             (carries_ignore, listed, kind_of(&index, ".gitignore")),
@@ -717,14 +749,10 @@ fn a_backslash_in_a_filename_is_not_a_path_separator_when_ranking() {
     let dir = tree(&[("main/x.rs", ""), ("main\\x.rs", "")]);
     let index = default_index(dir.path());
 
-    let ranked: Vec<&str> = index
-        .fuzzy("main", &FuzzyOptions::default())
-        .iter()
-        .map(|found| found.path)
-        .collect();
+    let ranked = index.fuzzy("main", &FuzzyOptions::default());
 
     assert_eq!(
-        ranked,
+        paths_at(&index, ranked.iter().map(|found| found.position)),
         ["main\\x.rs", "main/x.rs"],
         "one unix filename outranks a directory hit of the same spelling"
     );
@@ -796,7 +824,7 @@ fn a_symlink_reports_the_target_it_stores_without_resolving_it() {
     let index = default_index(dir.path());
 
     assert_eq!(
-        index.entry("nested/link").and_then(Entry::target),
+        index.entry("nested/link").and_then(|entry| entry.target()),
         Some("../nested/target.txt"),
         "the target is the link's own string, not a path resolved against the index root"
     );
@@ -817,7 +845,10 @@ fn a_dangling_symlink_reports_the_target_that_resolves_to_nothing() {
         outcome.errors()
     );
     assert_eq!(
-        outcome.index().entry("dangling").and_then(Entry::target),
+        outcome
+            .index()
+            .entry("dangling")
+            .and_then(|entry| entry.target()),
         Some("nowhere")
     );
 }
@@ -834,7 +865,7 @@ fn a_symlink_out_of_the_tree_reports_its_target_like_any_other() {
     let index = default_index(dir.path());
 
     assert_eq!(
-        index.entry("link").and_then(Entry::target),
+        index.entry("link").and_then(|entry| entry.target()),
         target.to_str(),
         "where the target leads is never consulted, so leaving the tree changes nothing"
     );
@@ -861,7 +892,7 @@ fn a_symlink_whose_target_is_not_utf8_reports_no_target_and_no_error() {
     let index = outcome.into_index();
     assert_eq!(kind_of(&index, "link"), EntryKind::Symlink, "still indexed");
     assert_eq!(
-        index.entry("link").and_then(Entry::target),
+        index.entry("link").and_then(|entry| entry.target()),
         None,
         "a lossy decode would read as a target rather than as the absence of one"
     );
@@ -872,24 +903,34 @@ fn only_a_symlink_carries_a_target() {
     let dir = tree(&[("dir/file.txt", "x")]);
     let index = default_index(dir.path());
 
-    assert_eq!(index.entry("dir").and_then(Entry::target), None);
-    assert_eq!(index.entry("dir/file.txt").and_then(Entry::target), None);
+    assert_eq!(index.entry("dir").and_then(|entry| entry.target()), None);
+    assert_eq!(
+        index.entry("dir/file.txt").and_then(|entry| entry.target()),
+        None
+    );
 }
 
-fn listed<'a>(listing: &Listing<'a>) -> Vec<&'a str> {
+fn listed(listing: &Listing<'_>) -> Vec<String> {
     listing
         .items()
         .iter()
-        .map(|found| found.entry().path())
+        .map(|found| found.entry().path().to_owned())
         .collect()
 }
 
 /// Each listed path beside what the listing says lies beneath it unlisted.
-fn unlisted<'a>(listing: &Listing<'a>) -> Vec<(&'a str, Option<usize>)> {
+fn unlisted(listing: &Listing<'_>) -> Vec<(String, Option<usize>)> {
     listing
         .items()
         .iter()
-        .map(|found| (found.entry().path(), found.unlisted()))
+        .map(|found| (found.entry().path().to_owned(), found.unlisted()))
+        .collect()
+}
+
+/// Expected [`unlisted`] rows, owned so they compare against it.
+fn owned(rows: &[(&str, Option<usize>)]) -> Vec<(String, Option<usize>)> {
+    rows.iter()
+        .map(|&(path, unlisted)| (path.to_owned(), unlisted))
         .collect()
 }
 
@@ -956,7 +997,7 @@ fn a_directory_at_the_depth_bound_says_how_many_entries_lie_beneath_it() {
         .expect("list a");
     assert_eq!(
         unlisted(&one),
-        [("a/b", Some(2)), ("a/empty", Some(0)), ("a/top.txt", None)],
+        owned(&[("a/b", Some(2)), ("a/empty", Some(0)), ("a/top.txt", None)]),
         "a/b holds c and c/d.txt; a/empty holds nothing, which reads differently from not being looked at"
     );
 
@@ -965,12 +1006,12 @@ fn a_directory_at_the_depth_bound_says_how_many_entries_lie_beneath_it() {
         .expect("list a");
     assert_eq!(
         unlisted(&two),
-        [
+        owned(&[
             ("a/b", None),
             ("a/b/c", Some(1)),
             ("a/empty", None),
             ("a/top.txt", None)
-        ],
+        ]),
         "a directory whose contents the listing holds has nothing unlisted to report"
     );
 }
@@ -1018,13 +1059,13 @@ fn a_collapsed_directory_is_listed_with_its_contents_counted_at_any_level() {
 
     assert_eq!(
         unlisted(&listing),
-        [
+        owned(&[
             ("lib", None),
             ("lib/vendor", Some(1)),
             ("src", None),
             ("src/main.rs", None),
             ("vendor", Some(3)),
-        ],
+        ]),
         "both vendor directories are listed, neither is entered, and each says what it holds"
     );
 }
@@ -1056,7 +1097,10 @@ fn a_collapsed_directory_counts_once_toward_the_limit() {
         .list("", &ListOptions::default().collapse(&big).limit(2))
         .expect("list the root");
 
-    assert_eq!(unlisted(&listing), [("big", Some(2)), ("small.rs", None)]);
+    assert_eq!(
+        unlisted(&listing),
+        owned(&[("big", Some(2)), ("small.rs", None)])
+    );
     assert!(
         !listing.truncated(),
         "big's two files were counted rather than listed, so the limit never saw them"
@@ -1299,7 +1343,7 @@ fn listing_the_root_one_level_deep_takes_only_the_top_level_entries() {
     );
     assert_eq!(
         unlisted(&top),
-        [("a", Some(3)), ("m", Some(1)), ("z.txt", None)],
+        owned(&[("a", Some(3)), ("m", Some(1)), ("z.txt", None)]),
         "the root's entries carry no prefix, and their counts come out the same as anywhere else"
     );
 }
@@ -1532,7 +1576,10 @@ fn glob_matching_exactly_the_limit_is_not_truncated() {
 
     let capped = index.glob(&filter, &GlobOptions::default().limit(2));
 
-    assert_eq!(capped.items(), ["a.rs", "b.rs"]);
+    assert_eq!(
+        paths_at(&index, capped.items().iter().copied()),
+        ["a.rs", "b.rs"]
+    );
     assert!(
         !capped.truncated(),
         "the limit was reached, and no matching path was turned away"
@@ -1592,7 +1639,7 @@ fn path_search_options_default_to_no_limit_and_zero_lifts_it() {
 
     let globbed = index.glob(&filter, &GlobOptions::default().limit(0));
     assert_eq!(
-        globbed.items(),
+        paths_at(&index, globbed.items().iter().copied()),
         ["a.rs", "b.rs", "c.rs"],
         "a zero limit reads as no limit"
     );
@@ -1606,21 +1653,27 @@ fn path_search_options_default_to_no_limit_and_zero_lifts_it() {
 #[test]
 fn a_sweep_answers_the_same_facts_as_the_keyed_lookups() {
     /// One entry's path beside every fact the index reads on demand for it.
-    type Facts<'a> = (&'a str, Option<u64>, Option<bool>);
+    type Facts = (String, Option<u64>, Option<bool>);
 
     let dir = tree(&[("a.txt", "hello"), ("sub/b.bin", "x"), ("empty/", "")]);
     fs::write(dir.path().join("sub/blob.txt"), b"has\0a nul").expect("write a binary file");
     let index = default_index(dir.path());
 
-    let swept: Vec<Facts<'_>> = index
+    let swept: Vec<Facts> = index
         .inspected()
-        .map(|found| (found.entry().path(), found.size(), found.is_binary()))
+        .map(|found| {
+            (
+                found.entry().path().to_owned(),
+                found.size(),
+                found.is_binary(),
+            )
+        })
         .collect();
-    let keyed: Vec<Facts<'_>> = index
+    let keyed: Vec<Facts> = index
         .entries()
         .map(|entry| {
             (
-                entry.path(),
+                entry.path().to_owned(),
                 index.size(entry.path()),
                 index.is_binary(entry.path()),
             )
@@ -1639,9 +1692,9 @@ fn a_sweep_reads_nothing_for_an_entry_it_never_asks_about() {
     let dir = tree(&[("gone.txt", "here for now")]);
     let index = default_index(dir.path());
 
-    let names: Vec<&str> = index
+    let names: Vec<String> = index
         .inspected()
-        .map(|found| found.entry().name())
+        .map(|found| found.entry().name().to_owned())
         .collect();
     assert_eq!(names, ["gone.txt"]);
 

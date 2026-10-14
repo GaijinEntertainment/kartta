@@ -21,7 +21,7 @@
 //! let index = outcome.into_index();
 //!
 //! let ranked = index.fuzzy("main", &FuzzyOptions::default());
-//! assert_eq!(ranked[0].path, "src/main.rs");
+//! assert_eq!(index.paths().get(ranked[0].position), "src/main.rs");
 //! assert!(index.entry("build.log").is_none(), "the .gitignore applied");
 //! # Ok(())
 //! # }
@@ -137,5 +137,5 @@ pub use crate::entry::{Entry, EntryKind};
 pub use crate::filter::{Filter, FilterError};
 pub use crate::fuzzy::{FuzzyMatch, FuzzyOptions};
 pub use crate::glob::GlobOptions;
-pub use crate::index::{BuildOutcome, Index, Inspected};
+pub use crate::index::{BuildOutcome, Index, Inspected, Paths};
 pub use crate::list::{ListError, ListOptions, Listed, Listing};

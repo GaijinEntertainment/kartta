@@ -54,8 +54,14 @@ use crate::rules::Rules;
 #[derive(Debug, Clone)]
 pub struct Index {
     root: PathBuf,
-    paths: Box<str>,
-    path_offsets: Vec<usize>,
+    /// Each entry's path past the bytes it shares with the previous entry's path, laid end to end; a restart's whole
+    /// path.
+    suffixes: Box<str>,
+    /// Where each entry's stored bytes start in `suffixes`, and one past the last.
+    suffix_starts: Vec<u32>,
+    /// How many leading bytes each entry's path shares with the previous entry's path, floored to a character boundary
+    /// and capped at `u16::MAX`. Kept for a restart too, which stores its whole path regardless.
+    shared: Vec<u16>,
     kinds: Vec<EntryKind>,
     symlink_targets: Vec<(usize, Box<str>)>,
     /// What the walk did not read, filled by the queries that need it.
@@ -97,65 +103,131 @@ impl Index {
     }
 
     fn from_tree(root: PathBuf, tree: Tree<Payload>, binary_extensions: BinaryExtensions) -> Self {
-        let mut paths_len = 0;
-        depth_first(&tree, |_, path| paths_len += path.len());
+        let mut suffixes_len = 0;
+        let mut at = 0;
+        depth_first(&tree, |_, path, common| {
+            suffixes_len += path.len() - stored_from(at, shared_len(path, common));
+            at += 1;
+        });
 
-        let mut paths = String::with_capacity(paths_len);
-        let mut path_offsets = Vec::with_capacity(tree.len() + 1);
-        path_offsets.push(0);
+        let mut suffixes = String::with_capacity(suffixes_len);
+        let mut suffix_starts = Vec::with_capacity(tree.len() + 1);
+        let mut shared = Vec::with_capacity(tree.len());
         let mut kinds = Vec::with_capacity(tree.len());
         let mut symlink_targets = Vec::new();
 
-        depth_first(&tree, |payload, path| {
+        depth_first(&tree, |payload, path, common| {
+            let at = kinds.len();
             if let Some(target) = &payload.target {
-                symlink_targets.push((kinds.len(), target.clone()));
+                symlink_targets.push((at, target.clone()));
             }
-            paths.push_str(path);
-            path_offsets.push(paths.len());
+            let common = shared_len(path, common);
+            suffix_starts.push(narrow(suffixes.len()));
+            suffixes.push_str(&path[stored_from(at, common)..]);
+            shared.push(u16::try_from(common).unwrap_or(u16::MAX));
             kinds.push(payload.kind);
         });
+        suffix_starts.push(narrow(suffixes.len()));
         drop(tree);
 
         Self {
             root,
             inspection: Inspection::new(kinds.len()),
-            paths: paths.into_boxed_str(),
-            path_offsets,
+            suffixes: suffixes.into_boxed_str(),
+            suffix_starts,
+            shared,
             kinds,
             symlink_targets,
             binary_extensions,
         }
     }
 
-    /// The path of the entry at position `at`.
-    pub(crate) fn path_at(&self, at: usize) -> &str {
-        path_in(&self.paths, &self.path_offsets, at)
+    /// The bytes stored for the entry at `at`: its whole path at a restart, the part past its shared prefix elsewhere.
+    pub(crate) fn suffix(&self, at: usize) -> &str {
+        path_between(
+            &self.suffixes,
+            self.suffix_starts[at] as usize,
+            self.suffix_starts[at + 1] as usize,
+        )
     }
 
-    /// The kind and path of every entry in `positions`, in order, for a sweep that reads each one once.
-    pub(crate) fn kinds_and_paths(
-        &self,
-        positions: Range<usize>,
-    ) -> impl DoubleEndedIterator<Item = (EntryKind, &str)> + ExactSizeIterator {
-        let offsets = &self.path_offsets[positions.start..=positions.end];
-        let bounds = offsets.iter().zip(&offsets[1..]);
-
-        self.kinds[positions]
-            .iter()
-            .zip(bounds)
-            .map(|(&kind, (&start, &end))| (kind, path_between(&self.paths, start, end)))
+    /// How many leading bytes the path at `at` shares with the path before it.
+    pub(crate) fn shared_at(&self, at: usize) -> usize {
+        usize::from(self.shared[at])
     }
 
-    /// The paths a query answers from: every entry in `positions` that is not a directory, narrowed by `filter`.
+    /// Turns `path`, holding the path at `at - 1`, into the path at `at`.
+    fn step_into(&self, at: usize, path: &mut String) {
+        if at.is_multiple_of(RESTART) {
+            path.clear();
+        } else {
+            path.truncate(self.shared_at(at));
+        }
+        path.push_str(self.suffix(at));
+    }
+
+    /// Rebuilds the path at `at` into `path` from the bytes stored at and before it.
+    ///
+    /// The walk goes backward from `at` toward its restart, and an earlier entry contributes only the bytes the path
+    /// still lacks — those past its own shared prefix. Every byte of the result is copied once, and an entry with
+    /// nothing to give costs one load, so a decode costs the path's length plus the entries back to the restart rather
+    /// than a copy per entry.
+    fn decode_into(&self, at: usize, path: &mut String) {
+        let restart = at - at % RESTART;
+        let mut pieces = [(0usize, 0usize); RESTART];
+        let mut count = 0;
+        let mut need = if at == restart { 0 } else { self.shared_at(at) };
+        let mut earlier = at;
+
+        while need > 0 {
+            earlier -= 1;
+            let shared = if earlier == restart {
+                0
+            } else {
+                self.shared_at(earlier)
+            };
+            if shared < need {
+                pieces[count] = (earlier, need - shared);
+                count += 1;
+                need = shared;
+            }
+        }
+
+        path.clear();
+        for &(earlier, take) in pieces[..count].iter().rev() {
+            path.push_str(&self.suffix(earlier)[..take]);
+        }
+        path.push_str(self.suffix(at));
+    }
+
+    /// A reader for the paths of this index's entries. See [`Paths`].
+    #[must_use]
+    pub const fn paths(&self) -> Paths<'_> {
+        Paths {
+            index: self,
+            at: None,
+            path: String::new(),
+        }
+    }
+
+    /// Visits every entry in `positions` that is not a directory and that `filter` selects, with its path, until
+    /// `visit` answers `false`.
     pub(crate) fn candidates(
         &self,
         positions: Range<usize>,
         filter: Option<&Filter>,
-    ) -> impl Iterator<Item = &str> {
-        self.kinds_and_paths(positions)
-            .filter(|&(kind, _)| kind != EntryKind::Dir)
-            .map(|(_, path)| path)
-            .filter(move |path| filter.is_none_or(|filter| filter.matches(path)))
+        mut visit: impl FnMut(usize, &str) -> bool,
+    ) {
+        let mut paths = self.paths();
+        for at in positions {
+            if self.kind_at(at) == EntryKind::Dir {
+                continue;
+            }
+            let path = paths.get(at);
+            if filter.is_none_or(|filter| filter.matches(path)) && !visit(at, path) {
+                return;
+            }
+        }
     }
 
     /// The kind of the entry at position `at`.
@@ -163,8 +235,8 @@ impl Index {
         self.kinds[at]
     }
 
-    /// The entry at position `at`.
-    pub(crate) fn entry_at(&self, at: usize) -> Entry<'_> {
+    /// The entry at position `at`, with `path` as its path.
+    fn entry_with(&self, at: usize, path: Box<str>) -> Entry<'_> {
         let kind = self.kind_at(at);
         let target = (kind == EntryKind::Symlink)
             .then(|| {
@@ -175,11 +247,14 @@ impl Index {
             .flatten()
             .map(|found| &*self.symlink_targets[found].1);
 
-        Entry {
-            path: self.path_at(at),
-            kind,
-            target,
-        }
+        Entry { path, kind, target }
+    }
+
+    /// The entry at position `at`, its path decoded.
+    pub(crate) fn entry_at(&self, at: usize) -> Entry<'_> {
+        let mut path = String::new();
+        self.decode_into(at, &mut path);
+        self.entry_with(at, path.into_boxed_str())
     }
 
     /// The directory the index was built from, as it was given to [`Index::build`].
@@ -192,8 +267,12 @@ impl Index {
     }
 
     /// Every indexed entry, in depth-first order.
+    ///
+    /// Each entry owns its path, so this allocates one per entry; a pass that only reads paths reads them through
+    /// [`Index::paths`] instead.
     pub fn entries(&self) -> impl ExactSizeIterator<Item = Entry<'_>> + DoubleEndedIterator {
-        (0..self.len()).map(|at| self.entry_at(at))
+        let mut paths = self.paths();
+        (0..self.len()).map(move |at| self.entry_with(at, paths.get(at).into()))
     }
 
     /// The entry at this root-relative forward-slash path, or `None` if nothing was indexed there.
@@ -202,7 +281,7 @@ impl Index {
     /// created after the walk all answer the same way.
     #[must_use]
     pub fn entry(&self, path: &str) -> Option<Entry<'_>> {
-        Some(self.entry_at(self.position(path)?))
+        Some(self.entry_with(self.position(path)?, path.into()))
     }
 
     /// Where the entry at this root-relative forward-slash path sits in [`Index::entries`], or `None` if nothing was
@@ -212,16 +291,37 @@ impl Index {
     /// directory's subtree is the run that starts immediately after it.
     ///
     /// Depth-first order with name-sorted siblings is itself sorted, by [`tree_order`], so the lookup is a binary
-    /// search over the entries as they lie.
+    /// search over the restarts, whose whole paths are stored, and then a walk forward through one block that compares
+    /// stored bytes against `path` without rebuilding any entry's path.
     pub(crate) fn position(&self, path: &str) -> Option<usize> {
-        let (mut low, mut high) = (0, self.len());
+        let (mut low, mut high) = (0, self.len().div_ceil(RESTART));
 
         while low < high {
             let middle = low + (high - low) / 2;
-            match tree_order(self.path_at(middle), path) {
+            match tree_order(self.suffix(middle * RESTART), path) {
                 Ordering::Less => low = middle + 1,
                 Ordering::Greater => high = middle,
-                Ordering::Equal => return Some(middle),
+                Ordering::Equal => return Some(middle * RESTART),
+            }
+        }
+
+        // Every entry the walk passes sorts below `path`, and `common` is how many leading bytes the last one shares
+        // with it. An entry sharing more than that with its predecessor differs from `path` at the same byte and in
+        // the same direction, so it is passed without a look at its bytes.
+        let restart = low.checked_sub(1)? * RESTART;
+        let mut common = common_len(self.suffix(restart).as_bytes(), path.as_bytes());
+        for at in restart + 1..self.len().min(restart + RESTART) {
+            let shared = self.shared_at(at);
+            if shared > common {
+                continue;
+            }
+
+            let stored = self.suffix(at);
+            let rest = path.get(shared..)?;
+            match tree_order(stored, rest) {
+                Ordering::Less => common = shared + common_len(stored.as_bytes(), rest.as_bytes()),
+                Ordering::Equal => return Some(at),
+                Ordering::Greater => return None,
             }
         }
         None
@@ -282,14 +382,20 @@ impl Index {
             return None;
         }
 
-        self.is_binary_at(at, path)
-    }
-
-    fn is_binary_at(&self, at: usize, path: &str) -> Option<bool> {
         self.inspection.is_binary(
             at,
             || self.binary_extensions.matches(path),
             || self.root.join(path),
+        )
+    }
+
+    /// [`Index::is_binary`] for an entry known by position, decoding its path only if the slot is still unread.
+    fn is_binary_at(&self, at: usize) -> Option<bool> {
+        let path = || self.entry_at(at).path;
+        self.inspection.is_binary(
+            at,
+            || self.binary_extensions.matches(&path()),
+            || self.root.join(&*path()),
         )
     }
 
@@ -303,10 +409,14 @@ impl Index {
     pub fn binary_extension_counts(&self) -> Vec<(&str, usize)> {
         let mut counts = vec![0; self.binary_extensions.extensions().len()];
 
-        let files = (0..self.len()).filter(|&at| self.kind_at(at) == EntryKind::File);
-        for found in files.filter_map(|at| self.binary_extensions.position(self.path_at(at))) {
-            counts[found] += 1;
-        }
+        self.candidates(0..self.len(), None, |at, path| {
+            if self.kind_at(at) == EntryKind::File
+                && let Some(found) = self.binary_extensions.position(path)
+            {
+                counts[found] += 1;
+            }
+            true
+        });
 
         self.binary_extensions.extensions().zip(counts).collect()
     }
@@ -359,10 +469,16 @@ impl Index {
 }
 
 impl<'a> Inspected<'a> {
-    /// The entry itself.
+    /// The entry itself, its path decoded.
     #[must_use]
     pub fn entry(&self) -> Entry<'a> {
         self.index.entry_at(self.at)
+    }
+
+    /// Where the entry sits in [`Index::entries`], for reading its path through [`Index::paths`].
+    #[must_use]
+    pub const fn position(&self) -> usize {
+        self.at
     }
 
     /// The entry's size, on the terms [`Index::size`] states.
@@ -373,7 +489,7 @@ impl<'a> Inspected<'a> {
         }
 
         self.index.inspection.size(self.at, || {
-            self.index.root.join(self.index.path_at(self.at))
+            self.index.root.join(self.index.paths().get(self.at))
         })
     }
 
@@ -384,27 +500,93 @@ impl<'a> Inspected<'a> {
             return None;
         }
 
-        self.index
-            .is_binary_at(self.at, self.index.path_at(self.at))
+        self.index.is_binary_at(self.at)
     }
 }
 
-/// The path at position `at` of `paths`, the index's paths laid end to end, which begins at `offsets[at]` and stops at
-/// `offsets[at + 1]`.
-fn path_in<'a>(paths: &'a str, offsets: &[usize], at: usize) -> &'a str {
-    path_between(paths, offsets[at], offsets[at + 1])
+/// Reads the paths of an [`Index`]'s entries by position, rebuilding each into one buffer the reader reuses.
+///
+/// Positions are the ones [`Index::entries`] runs in, and the ones a [`Listed`](crate::Listed), a
+/// [`FuzzyMatch`](crate::FuzzyMatch) and a [`Index::glob`] answer carry. Reading positions in rising order costs a few
+/// bytes per entry; any other order rebuilds the path from the nearest entry before it that stores its whole path.
+#[derive(Debug, Clone)]
+pub struct Paths<'a> {
+    index: &'a Index,
+    /// The position whose path `path` holds, `None` before the first read.
+    at: Option<usize>,
+    path: String,
 }
 
-/// The path of `paths` between `start` and `end`, which must be two consecutive offsets of the index's path offsets.
+impl Paths<'_> {
+    /// The path of the entry at `position`, valid until the next read.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `position` is not below [`Index::len`].
+    pub fn get(&mut self, position: usize) -> &str {
+        match self.at.and_then(|at| position.checked_sub(at)) {
+            Some(0) => {}
+            Some(gap) if gap <= STEP_LIMIT => {
+                (position - gap + 1..=position)
+                    .for_each(|at| self.index.step_into(at, &mut self.path));
+            }
+            _ => self.index.decode_into(position, &mut self.path),
+        }
+        self.at = Some(position);
+        &self.path
+    }
+}
+
+/// How many entries every restart covers: every `RESTART`-th entry stores its whole path, so rebuilding any path reads
+/// the stored bytes of at most this many entries.
+pub(crate) const RESTART: usize = 64;
+
+/// How far ahead [`Paths::get`] steps entry by entry rather than rebuilding the requested path outright: stepping
+/// copies each entry's stored bytes, rebuilding copies the requested path once.
+const STEP_LIMIT: usize = 4;
+
+/// Where an entry's stored bytes start in its path: nothing is skipped at a restart, the shared prefix elsewhere.
+const fn stored_from(at: usize, shared: usize) -> usize {
+    if at.is_multiple_of(RESTART) {
+        0
+    } else {
+        shared
+    }
+}
+
+/// The shared prefix the index records for `path` when it shares `common` leading bytes with the path before it:
+/// capped to what a `u16` holds and floored to a character boundary, so the stored bytes always start one.
+fn shared_len(path: &str, common: usize) -> usize {
+    let mut shared = common.min(usize::from(u16::MAX));
+    while !path.is_char_boundary(shared) {
+        shared -= 1;
+    }
+    shared
+}
+
+/// How many leading bytes `left` and `right` share.
+fn common_len(left: &[u8], right: &[u8]) -> usize {
+    left.iter().zip(right).take_while(|(l, r)| l == r).count()
+}
+
+/// Narrows an offset into the stored bytes to the width the index keeps.
+#[expect(
+    clippy::expect_used,
+    reason = "this needs over 4 GiB of stored path bytes, far past what the u32 offsets were chosen for"
+)]
+fn narrow(len: usize) -> u32 {
+    u32::try_from(len).expect("an index stores fewer than 4 GiB of path bytes")
+}
+
+/// The stored bytes of `suffixes` between `start` and `end`, which must be two consecutive suffix starts.
 ///
-/// Slicing a `str` by bytes checks that both ends sit on a character boundary, which reads the path's bytes. A sweep
-/// that only needs where each path lies would read every byte of the buffer for nothing, and a listing pays a third
-/// more for it.
-fn path_between(paths: &str, start: usize, end: usize) -> &str {
-    // SAFETY: every path offset is `paths.len()` read right after a whole `&str` was appended to `paths`, so each one
-    // is a character boundary of `paths` and they rise in order; `start` and `end` are two consecutive ones, read
-    // through a bounds-checked index or a zip of the offsets with themselves, so `start..end` lies inside `paths`.
-    unsafe { paths.get_unchecked(start..end) }
+/// Slicing a `str` by bytes checks that both ends sit on a character boundary, which reads the bytes. A sweep that only
+/// needs where each entry's bytes lie would read every byte of the buffer for nothing.
+fn path_between(suffixes: &str, start: usize, end: usize) -> &str {
+    // SAFETY: every suffix start is `suffixes.len()` read right after a whole `&str` was appended to `suffixes`, so
+    // each one is a character boundary of `suffixes` and they rise in order; `start` and `end` are two consecutive
+    // ones, read through a bounds-checked index, so `start..end` lies inside `suffixes`.
+    unsafe { suffixes.get_unchecked(start..end) }
 }
 
 /// The order [`Index::entries`] lies in: paths compared component by component, so a directory's subtree follows it
@@ -461,12 +643,15 @@ struct Frame<'a> {
     prefix_len: usize,
 }
 
-/// Visits the walk's tree in depth-first order, handing `visit` each node's payload and full path.
+/// Visits the walk's tree in depth-first order, handing `visit` each node's payload, full path, and how many leading
+/// bytes that path shares with the one visited before it.
 ///
 /// One buffer carries the path of the entry being visited, truncated back to the parent's length on the way down a
 /// sibling: every node under one directory shares that directory's prefix, so the bytes below the truncation point are
-/// always already correct. The stack holds one frame per level, not one per pending node.
-fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str)) {
+/// always already correct. The node visited before is the parent or something beneath the parent, so its path also
+/// starts with the parent's, and the shared length is the parent's length plus however far the old tail and the new one
+/// agree. The stack holds one frame per level, not one per pending node.
+fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str, usize)) {
     let mut path = String::new();
     let mut stack = vec![Frame {
         children: tree.children(),
@@ -480,13 +665,22 @@ fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str)) {
         };
         let prefix_len = frame.prefix_len;
 
+        let separator: &[u8] = if prefix_len == 0 { b"" } else { b"/" };
+        let tail = separator.iter().chain(node.name().as_bytes());
+        let common = prefix_len
+            + path.as_bytes()[prefix_len..]
+                .iter()
+                .zip(tail)
+                .take_while(|(old, new)| old == new)
+                .count();
+
         path.truncate(prefix_len);
         if prefix_len != 0 {
             path.push('/');
         }
         path.push_str(node.name());
 
-        visit(node.value(), &path);
+        visit(node.value(), &path, common);
 
         stack.push(Frame {
             children: node.children(),
