@@ -57,11 +57,17 @@ pub struct Index {
     /// Each entry's path past the bytes it shares with the previous entry's path, laid end to end; a restart's whole
     /// path.
     suffixes: Box<str>,
-    /// Where each entry's stored bytes start in `suffixes`, and one past the last.
-    suffix_starts: Vec<u32>,
+    /// Where each block of [`RESTART`] entries starts in `suffixes`.
+    block_starts: Vec<u32>,
+    /// Where each entry's stored bytes start, counted from its block's start. `u16::MAX` stands for an offset kept in
+    /// `overflow`.
+    offsets: Vec<u16>,
     /// How many leading bytes each entry's path shares with the previous entry's path, floored to a character boundary
-    /// and capped at `u16::MAX`. Kept for a restart too, which stores its whole path regardless.
-    shared: Vec<u16>,
+    /// so the stored bytes always start one. Kept for a restart too, which stores its whole path regardless. `u8::MAX`
+    /// stands for a length kept in `overflow`.
+    shared: Vec<u8>,
+    /// The offsets and shared lengths too large for their arrays, which almost no real path needs.
+    overflow: Overflow,
     kinds: Vec<EntryKind>,
     symlink_targets: Vec<(usize, Box<str>)>,
     /// What the walk did not read, filled by the queries that need it.
@@ -106,13 +112,15 @@ impl Index {
         let mut suffixes_len = 0;
         let mut at = 0;
         depth_first(&tree, |_, path, common| {
-            suffixes_len += path.len() - stored_from(at, shared_len(path, common));
+            suffixes_len += path.len() - stored_from(at, path.floor_char_boundary(common));
             at += 1;
         });
 
         let mut suffixes = String::with_capacity(suffixes_len);
-        let mut suffix_starts = Vec::with_capacity(tree.len() + 1);
+        let mut block_starts = Vec::with_capacity(tree.len().div_ceil(RESTART));
+        let mut offsets = Vec::with_capacity(tree.len());
         let mut shared = Vec::with_capacity(tree.len());
+        let mut overflow = Overflow::default();
         let mut kinds = Vec::with_capacity(tree.len());
         let mut symlink_targets = Vec::new();
 
@@ -121,39 +129,55 @@ impl Index {
             if let Some(target) = &payload.target {
                 symlink_targets.push((at, target.clone()));
             }
-            let common = shared_len(path, common);
-            suffix_starts.push(narrow(suffixes.len()));
+            if at.is_multiple_of(RESTART) {
+                block_starts.push(narrow(suffixes.len()));
+            }
+            let common = path.floor_char_boundary(common);
+            let offset = suffixes.len() - block_starts[at / RESTART] as usize;
+            offsets.push(overflow.keep_offset(at, offset));
+            shared.push(overflow.keep_shared(at, common));
             suffixes.push_str(&path[stored_from(at, common)..]);
-            shared.push(u16::try_from(common).unwrap_or(u16::MAX));
             kinds.push(payload.kind);
         });
-        suffix_starts.push(narrow(suffixes.len()));
         drop(tree);
 
         Self {
             root,
             inspection: Inspection::new(kinds.len()),
             suffixes: suffixes.into_boxed_str(),
-            suffix_starts,
+            block_starts,
+            offsets,
             shared,
+            overflow,
             kinds,
             symlink_targets,
             binary_extensions,
         }
     }
 
+    /// Where the bytes stored for the entry at `at` start in `suffixes`; past the last entry, the end of them.
+    fn start_of(&self, at: usize) -> usize {
+        if at == self.len() {
+            return self.suffixes.len();
+        }
+        let offset = match self.offsets[at] {
+            u16::MAX => self.overflow.offset(at),
+            offset => usize::from(offset),
+        };
+        self.block_starts[at / RESTART] as usize + offset
+    }
+
     /// The bytes stored for the entry at `at`: its whole path at a restart, the part past its shared prefix elsewhere.
     pub(crate) fn suffix(&self, at: usize) -> &str {
-        path_between(
-            &self.suffixes,
-            self.suffix_starts[at] as usize,
-            self.suffix_starts[at + 1] as usize,
-        )
+        path_between(&self.suffixes, self.start_of(at), self.start_of(at + 1))
     }
 
     /// How many leading bytes the path at `at` shares with the path before it.
     pub(crate) fn shared_at(&self, at: usize) -> usize {
-        usize::from(self.shared[at])
+        match self.shared[at] {
+            u8::MAX => self.overflow.shared(at),
+            shared => usize::from(shared),
+        }
     }
 
     /// Turns `path`, holding the path at `at - 1`, into the path at `at`.
@@ -556,14 +580,53 @@ const fn stored_from(at: usize, shared: usize) -> usize {
     }
 }
 
-/// The shared prefix the index records for `path` when it shares `common` leading bytes with the path before it:
-/// capped to what a `u16` holds and floored to a character boundary, so the stored bytes always start one.
-fn shared_len(path: &str, common: usize) -> usize {
-    let mut shared = common.min(usize::from(u16::MAX));
-    while !path.is_char_boundary(shared) {
-        shared -= 1;
+/// The per-entry values too large for the narrow arrays that hold the rest, by position.
+///
+/// A narrow array holds its largest value in place of a value kept here, so only an entry that needs one pays a search.
+/// The build keeps them in rising position order.
+#[derive(Debug, Clone, Default)]
+struct Overflow {
+    offsets: Vec<(usize, usize)>,
+    shared: Vec<(usize, usize)>,
+}
+
+impl Overflow {
+    /// `offset` as [`Index::offsets`] holds it, kept here when it does not fit below `u16::MAX`.
+    fn keep_offset(&mut self, at: usize, offset: usize) -> u16 {
+        match u16::try_from(offset) {
+            Ok(narrow) if narrow != u16::MAX => narrow,
+            _ => {
+                self.offsets.push((at, offset));
+                u16::MAX
+            }
+        }
     }
-    shared
+
+    /// `shared` as [`Index::shared`] holds it, kept here when it does not fit below `u8::MAX`.
+    fn keep_shared(&mut self, at: usize, shared: usize) -> u8 {
+        match u8::try_from(shared) {
+            Ok(narrow) if narrow != u8::MAX => narrow,
+            _ => {
+                self.shared.push((at, shared));
+                u8::MAX
+            }
+        }
+    }
+
+    /// The offset kept for the entry at `at`.
+    fn offset(&self, at: usize) -> usize {
+        kept(&self.offsets, at)
+    }
+
+    /// The shared length kept for the entry at `at`.
+    fn shared(&self, at: usize) -> usize {
+        kept(&self.shared, at)
+    }
+}
+
+/// The value `values` keeps for the entry at `at`, which must have one.
+fn kept(values: &[(usize, usize)], at: usize) -> usize {
+    values[values.partition_point(|&(position, _)| position < at)].1
 }
 
 /// How many leading bytes `left` and `right` share.
@@ -580,14 +643,15 @@ fn narrow(len: usize) -> u32 {
     u32::try_from(len).expect("an index stores fewer than 4 GiB of path bytes")
 }
 
-/// The stored bytes of `suffixes` between `start` and `end`, which must be two consecutive suffix starts.
+/// The stored bytes of `suffixes` between `start` and `end`, which must be two consecutive entry starts.
 ///
 /// Slicing a `str` by bytes checks that both ends sit on a character boundary, which reads the bytes. A sweep that only
 /// needs where each entry's bytes lie would read every byte of the buffer for nothing.
 fn path_between(suffixes: &str, start: usize, end: usize) -> &str {
-    // SAFETY: every suffix start is `suffixes.len()` read right after a whole `&str` was appended to `suffixes`, so
-    // each one is a character boundary of `suffixes` and they rise in order; `start` and `end` are two consecutive
-    // ones, read through a bounds-checked index, so `start..end` lies inside `suffixes`.
+    // SAFETY: every start `Index::start_of` rebuilds is `suffixes.len()` as the build read it before the first append or
+    // right after appending a whole `&str`, or past the last entry `suffixes.len()` itself, so each one is a character
+    // boundary of `suffixes` and they rise in order; `start` and `end` are two consecutive ones, so `start..end` lies
+    // inside `suffixes`.
     unsafe { suffixes.get_unchecked(start..end) }
 }
 
@@ -739,6 +803,72 @@ mod tests {
     fn tree_order_by_byte(left: &str, right: &str) -> Ordering {
         let rank = |byte: u8| if byte == b'/' { 0 } else { u16::from(byte) + 1 };
         left.bytes().map(rank).cmp(right.bytes().map(rank))
+    }
+
+    #[test]
+    fn a_value_too_wide_for_its_array_is_kept_aside_and_read_back() {
+        let mut overflow = Overflow::default();
+        let offsets = [
+            0,
+            1,
+            usize::from(u16::MAX) - 1,
+            usize::from(u16::MAX),
+            1 << 20,
+        ];
+        let shared = [0, 254, 255, 256, 70_000];
+
+        let narrow_offsets: Vec<u16> = (0..)
+            .zip(offsets)
+            .map(|(at, offset)| overflow.keep_offset(at, offset))
+            .collect();
+        let narrow_shared: Vec<u8> = (0..)
+            .zip(shared)
+            .map(|(at, shared)| overflow.keep_shared(at, shared))
+            .collect();
+
+        assert_eq!(narrow_offsets, [0, 1, u16::MAX - 1, u16::MAX, u16::MAX]);
+        assert_eq!(narrow_shared, [0, 254, u8::MAX, u8::MAX, u8::MAX]);
+        assert_eq!(overflow.offset(3), usize::from(u16::MAX));
+        assert_eq!(overflow.offset(4), 1 << 20);
+        assert_eq!(overflow.shared(2), 255);
+        assert_eq!(overflow.shared(3), 256);
+        assert_eq!(overflow.shared(4), 70_000);
+    }
+
+    #[test]
+    fn a_block_past_what_a_u16_offset_reaches_reads_back_whole() {
+        // No filesystem this suite runs on holds a path long enough to fill 64 KiB of one block, so the block is
+        // stored here through the build's own narrowing and read back through the index's reader.
+        let long = "d".repeat(70_000);
+        let paths = [long.clone(), format!("{long}/a"), format!("{long}/b")];
+        let mut overflow = Overflow::default();
+        let (mut suffixes, mut offsets, mut shared) = (String::new(), Vec::new(), Vec::new());
+        let mut previous = "";
+        for (at, path) in paths.iter().enumerate() {
+            let common = common_len(previous.as_bytes(), path.as_bytes());
+            offsets.push(overflow.keep_offset(at, suffixes.len()));
+            shared.push(overflow.keep_shared(at, common));
+            suffixes.push_str(&path[stored_from(at, common)..]);
+            previous = path;
+        }
+        let index = Index {
+            root: PathBuf::new(),
+            suffixes: suffixes.into_boxed_str(),
+            block_starts: vec![0],
+            offsets,
+            shared,
+            overflow,
+            kinds: vec![EntryKind::Dir, EntryKind::File, EntryKind::File],
+            symlink_targets: Vec::new(),
+            inspection: Inspection::new(paths.len()),
+            binary_extensions: BinaryExtensions::default(),
+        };
+
+        let mut reader = index.paths();
+        for at in [2, 0, 1, 2] {
+            assert_eq!(reader.get(at), paths[at], "position {at}");
+        }
+        assert_eq!(index.position(&paths[2]), Some(2));
     }
 
     #[test]
