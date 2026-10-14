@@ -26,6 +26,8 @@
   cover](./adr/1.11-say-what-a-limited-content-search-did-not-cover.md) — initiative `01-kartta-fs-port`, 2026-10-14
 - [1.12 Read each wanted file once, during the walk](./adr/1.12-read-each-wanted-file-once-during-the-walk.md) —
   initiative `01-kartta-fs-port`, 2026-10-14
+- [1.13 Let the caller bound the index's threads](./adr/1.13-let-the-caller-bound-the-index-s-threads.md) — initiative
+  `01-kartta-fs-port`, 2026-10-14
 
 ## Deprecated
 
