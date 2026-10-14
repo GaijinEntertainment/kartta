@@ -267,6 +267,14 @@ impl Index {
         self.kinds[at]
     }
 
+    pub(crate) const fn inspection(&self) -> &Inspection {
+        &self.inspection
+    }
+
+    pub(crate) const fn binary_extensions(&self) -> &BinaryExtensions {
+        &self.binary_extensions
+    }
+
     fn entry_with(&self, at: usize, path: Box<str>) -> Entry<'_> {
         let kind = self.kind_at(at);
         let target = (kind == EntryKind::Symlink)

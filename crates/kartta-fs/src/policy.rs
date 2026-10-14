@@ -54,7 +54,7 @@ impl Indexing {
             ));
         }
 
-        read_all(&open_regular(native_path, Symlinks::Follow)?)
+        read_all(&open_regular(native_path, Symlinks::Follow)?.0)
     }
 
     fn leads_into_tree(&self, native_path: &Path) -> io::Result<bool> {

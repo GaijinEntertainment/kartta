@@ -21,8 +21,13 @@ ignore = []
 # Several crates offer a choice: `r-efi` also offers LGPL-2.1-or-later, `rustix` Apache-2.0 WITH LLVM-exception,
 # `zerocopy` BSD-2-Clause. SPDX evaluation takes the first satisfiable branch, so allowing MIT and Apache-2.0 settles
 # all three, and none of the alternatives needs to appear here.
+#
+# BSD-3-Clause is the one conjunctive licence: `encoding_rs` is `(Apache-2.0 OR MIT) AND BSD-3-Clause`, and it arrives
+# with `grep-searcher`, which links it unconditionally for byte-order-mark sniffing that kartta-fs turns off. Taking
+# ripgrep's searcher costs this licence; owning a line scanner instead is what would drop it.
 allow = [
     "Apache-2.0",
+    "BSD-3-Clause",
     "MIT",
     "Unicode-3.0",
     "Unlicense",

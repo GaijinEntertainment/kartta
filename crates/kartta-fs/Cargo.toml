@@ -1,6 +1,6 @@
 [package]
 name = "kartta-fs"
-description = "Repository file index with glob and fuzzy path search over a single filesystem walk"
+description = "Repository file index with glob, fuzzy and content search over a single filesystem walk"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
@@ -20,6 +20,9 @@ gix-glob = "0.29.0"
 gix-ignore = "0.24.0"
 # default-features = false drops `log`, which globset uses only to trace glob compilation.
 globset = { version = "0.4.20", default-features = false }
+grep-matcher = "0.1.9"
+grep-regex = "0.1.14"
+grep-searcher = "0.1.17"
 kartta-fuzz = { version = "0.0.0", path = "../kartta-fuzz" }
 kartta-walk = { version = "0.0.0", path = "../kartta-walk" }
 rayon = "1.12.0"

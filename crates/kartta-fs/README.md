@@ -116,10 +116,32 @@ than the scorer's result type, so replacing the ranking engine stays a non-break
 Import resolution is deliberately out of scope: mapping a specifier to a file is language semantics. What lives here are
 the mechanical primitives a resolver queries.
 
+## Content search
+
+`grep` searches the content of regular files for a `Patterns` union, line by line, through ripgrep's own matcher and
+searcher, so a pattern written for `rg` means the same here. Files are streamed rather than read whole, so no size bound
+is needed and none is applied unless asked for. The binary rule is `is_binary`'s, applied before a byte is searched,
+and the size and verdict a search learns are kept for the next one.
+
+```rust
+let patterns = Patterns::new([r"\bG_ASSERT\b"], Case::Sensitive)?;
+let found = index.grep(&patterns, &GrepOptions::default().context(2).limit(100));
+if found.truncated() || found.unsearched() > 0 || !found.failures().is_empty() {
+    // not the whole answer: the limit cut it short, or a file would not read; `count_all` reads on and counts the rest
+}
+```
+
+The answer is in index order, so it is the same on every run that is not cancelled, and it accounts for every
+candidate — searched, binary, oversized, unreadable, or left unsearched because the limit filled first. A limited search
+does not read on through the rest of the tree to prove one more match exists, which can cost the whole search over
+again; it says how many candidates the answer does not cover instead, and `count_all` asks it to read on and count.
+
 `examples/probe.rs` indexes a real tree and reports what survived, how long the build took, and what a path search costs
 — a synthetic fixture cannot tell you magnitude, because a repository's `.gitignore` files are what decide how much of
 it is indexed at all.
 
-Status: the walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification, and
-both path searches — glob and fuzzy — each narrowed by a `Filter`. Not yet: content search, regex search, incremental
-re-walk, and the ignore sources outside the tree.
+`examples/grep.rs` does the same for a content search, timing it twice and printing where every candidate went.
+
+Status: the walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification,
+both path searches — glob and fuzzy — each narrowed by a `Filter`, and content search. Not yet: an index that narrows
+content search before it opens a file, incremental re-walk, and the ignore sources outside the tree.
