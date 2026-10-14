@@ -11,10 +11,10 @@ use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, IgnoreSources};
 use crate::content::{Content, ContentId, ContentVisitor};
 use crate::content_index::{Collector, Full, Pairs};
-use crate::inspection::PROBE;
+use crate::inspection::{PROBE, read_prefix};
 use crate::open::{Symlinks, open_regular};
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
-use crate::trigram::Trigram;
+use crate::trigram::{self, Trigram, Trigrams};
 
 #[derive(Debug)]
 pub(crate) struct Payload {
@@ -46,6 +46,7 @@ pub(crate) struct Reading<'a> {
     // ascending id order its posting lists are written in
     kept: Mutex<Kept>,
     unindexed: Mutex<Vec<Box<str>>>,
+    chunks: Mutex<Vec<Box<[u8]>>>,
 }
 
 struct Kept {
@@ -102,6 +103,7 @@ impl<'a> Reading<'a> {
                 pairs,
             }),
             unindexed: Mutex::new(Vec::new()),
+            chunks: Mutex::new(Vec::new()),
         }
     }
 }
@@ -270,44 +272,31 @@ impl<'a> Indexing<'a> {
         let (reading, visit) = self.wanted(path)?;
 
         let native_path = entry.native_path();
-        let (learned, readout) = match read_text(&native_path) {
-            Ok(read) => read,
-            Err(source) => {
+        let outcome = match (visit, &reading.collector) {
+            (false, Some(collector)) => reading.read_for_index(collector, &native_path),
+            _ => reading.read_whole(&native_path, path, visit),
+        };
+
+        match outcome {
+            ReadOutcome::Kept(id) => Some(id),
+            ReadOutcome::Failed { id, source } => {
                 self.record(BuildError::Read {
                     native_path,
                     source,
                 });
                 reading.leave_unindexed(path);
-                return None;
-            }
-        };
-
-        let id = match readout {
-            Readout::Text(bytes) => {
-                let id = reading.keep_text(learned, &bytes);
-                reading.hand_over(
-                    visit,
-                    Content {
-                        id,
-                        path,
-                        bytes: &bytes,
-                    },
-                );
                 id
             }
-            Readout::Binary => reading.keep(learned, None),
-            Readout::Failed(source) => {
-                self.record(BuildError::Read {
-                    native_path,
-                    source,
-                });
-                reading.leave_unindexed(path);
-                reading.keep(learned, None)
-            }
-        };
-
-        Some(id)
+        }
     }
+}
+
+enum ReadOutcome {
+    Kept(ContentId),
+    Failed {
+        id: Option<ContentId>,
+        source: io::Error,
+    },
 }
 
 struct IgnoreFile {
@@ -322,7 +311,71 @@ enum Readout {
     Failed(io::Error),
 }
 
+enum Streamed {
+    Text,
+    Binary,
+    Failed(io::Error),
+}
+
 impl Reading<'_> {
+    fn read_whole(&self, native_path: &Path, path: &str, visit: bool) -> ReadOutcome {
+        let (learned, readout) = match read_text(native_path) {
+            Ok(read) => read,
+            Err(source) => return ReadOutcome::Failed { id: None, source },
+        };
+
+        match readout {
+            Readout::Text(bytes) => {
+                let id = self.keep_text(learned, &bytes);
+                self.hand_over(
+                    visit,
+                    Content {
+                        id,
+                        path,
+                        bytes: &bytes,
+                    },
+                );
+                ReadOutcome::Kept(id)
+            }
+            Readout::Binary => ReadOutcome::Kept(self.keep(learned, None)),
+            Readout::Failed(source) => ReadOutcome::Failed {
+                id: Some(self.keep(learned, None)),
+                source,
+            },
+        }
+    }
+
+    // constraint: only the index wants this file, and the index needs its trigrams rather than its bytes, so the read
+    // streams through one chunk however large the file is
+    fn read_for_index(&self, collector: &Collector, native_path: &Path) -> ReadOutcome {
+        let mut chunk = self
+            .chunks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop()
+            .unwrap_or_else(|| vec![0; PROBE].into_boxed_slice());
+        let mut extractor = collector.extractor();
+
+        let outcome = match stream_text(native_path, &mut chunk, &mut extractor) {
+            Err(source) => ReadOutcome::Failed { id: None, source },
+            Ok((learned, Streamed::Text)) => {
+                ReadOutcome::Kept(self.keep(learned, Some(extractor.found())))
+            }
+            Ok((learned, Streamed::Binary)) => ReadOutcome::Kept(self.keep(learned, None)),
+            Ok((learned, Streamed::Failed(source))) => ReadOutcome::Failed {
+                id: Some(self.keep(learned, None)),
+                source,
+            },
+        };
+
+        collector.recycle(extractor);
+        self.chunks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(chunk);
+        outcome
+    }
+
     fn keep(&self, learned: Learned, trigrams: Option<&[Trigram]>) -> ContentId {
         let collector = self.collector.as_ref();
         let (slot, full) = self
@@ -402,6 +455,47 @@ fn read_text(native_path: &Path) -> io::Result<(Learned, Readout)> {
         Ok(_) => Ok((learned, Readout::Text(bytes))),
         Err(error) => Ok((learned, Readout::Failed(error))),
     }
+}
+
+fn stream_text(
+    native_path: &Path,
+    chunk: &mut [u8],
+    extractor: &mut Trigrams,
+) -> io::Result<(Learned, Streamed)> {
+    let (mut file, size) = open_regular(native_path, Symlinks::Refuse)?;
+    let mut learned = Learned { size, binary: None };
+
+    let filled = match read_prefix(&mut file, chunk) {
+        Ok(filled) => filled,
+        Err(error) => return Ok((learned, Streamed::Failed(error))),
+    };
+    let binary = chunk[..filled].contains(&0);
+    learned.binary = Some(binary);
+    if binary {
+        return Ok((learned, Streamed::Binary));
+    }
+
+    match feed_rest(&mut file, chunk, filled, extractor) {
+        Ok(()) => Ok((learned, Streamed::Text)),
+        Err(error) => Ok((learned, Streamed::Failed(error))),
+    }
+}
+
+fn feed_rest(
+    file: &mut fs::File,
+    chunk: &mut [u8],
+    mut filled: usize,
+    extractor: &mut Trigrams,
+) -> io::Result<()> {
+    while filled == chunk.len() {
+        let held = trigram::unfinished_fold(chunk);
+        extractor.feed(&chunk[..filled - held]);
+        chunk.copy_within(filled - held..filled, 0);
+        filled = held + read_prefix(file, &mut chunk[held..])?;
+    }
+    extractor.feed(&chunk[..filled]);
+
+    Ok(())
 }
 
 fn read_target(entry: &Entry<'_>, kind: EntryKind) -> Option<Box<str>> {

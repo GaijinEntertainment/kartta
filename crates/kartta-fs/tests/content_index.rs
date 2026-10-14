@@ -312,3 +312,73 @@ fn a_file_the_build_could_not_read_is_searched_whatever_the_pattern() {
     assert_eq!(found(&index, &matches), ["locked.txt:1:needle"]);
     assert_eq!(matches.ruled_out(), 1, "only the file the index holds");
 }
+
+const CHUNK: usize = 64 * 1024;
+
+fn straddling(text: &str) -> Vec<u8> {
+    let mut content = vec![b'x'; CHUNK - 1];
+    content.extend_from_slice(text.as_bytes());
+    content.extend_from_slice(b"\n");
+    content
+}
+
+struct Everything;
+
+impl ContentVisitor for Everything {
+    fn wants(&self, _path: &str) -> bool {
+        true
+    }
+
+    fn visit(&self, _content: Content<'_>) {}
+}
+
+#[test]
+fn a_file_only_the_index_reads_is_indexed_as_a_file_read_whole_is() {
+    let mut late = vec![b'y'; 3 * CHUNK];
+    late.extend_from_slice(b"needle far into the file\n");
+    let dir = tree(&[
+        ("straddle.txt", &straddling("needle")),
+        ("kelvin.txt", &straddling("\u{212A}elvin")),
+        ("long_s.txt", &straddling("\u{17F}tring")),
+        ("late.txt", &late),
+    ]);
+
+    let streamed = build(dir.path(), None)
+        .index()
+        .content_index_stats()
+        .expect("indexed");
+    let whole = build(dir.path(), Some(&Everything))
+        .index()
+        .content_index_stats()
+        .expect("indexed");
+
+    assert_eq!(
+        streamed.trigrams(),
+        whole.trigrams(),
+        "a chunk boundary loses no trigram and folds no character apart"
+    );
+}
+
+#[test]
+fn a_match_straddling_a_chunk_of_the_build_read_is_not_ruled_out() {
+    let dir = tree(&[
+        ("straddle.txt", &straddling("needle")),
+        ("kelvin.txt", &straddling("\u{212A}elvin")),
+    ]);
+    let index = build(dir.path(), None).into_index();
+
+    for (pattern, case, path) in [
+        ("needle", Case::Sensitive, "straddle.txt"),
+        ("kelvin", Case::Insensitive, "kelvin.txt"),
+    ] {
+        let patterns = Patterns::new([pattern], case).expect("compile");
+        let matches = index.grep(&patterns, &GrepOptions::default());
+
+        assert_eq!(
+            matches.files().len(),
+            1,
+            "{pattern} straddles the first chunk of {path}"
+        );
+        assert_eq!(matches.ruled_out(), 1, "the other file");
+    }
+}

@@ -20,6 +20,16 @@ pub(crate) const fn fold(rest: &[u8]) -> (u8, usize) {
     }
 }
 
+// constraint: `fold` folds a whole sequence to one letter, so bytes that end a chunk partway into one have to wait for
+// the next chunk to complete it
+pub(crate) fn unfinished_fold(chunk: &[u8]) -> usize {
+    [KELVIN_SIGN.as_slice(), LONG_S.as_slice()]
+        .into_iter()
+        .flat_map(|sequence| (1..sequence.len()).filter(|&len| chunk.ends_with(&sequence[..len])))
+        .max()
+        .unwrap_or(0)
+}
+
 pub(crate) struct Trigrams {
     seen: Box<[u64]>,
     found: Vec<Trigram>,
@@ -119,6 +129,20 @@ mod tests {
         pieces.sort_unstable();
 
         assert_eq!(pieces, found("abcde"));
+    }
+
+    #[test]
+    fn a_chunk_ending_partway_into_a_folded_sequence_holds_that_part_back() {
+        assert_eq!(unfinished_fold(b"ab\xE2"), 1);
+        assert_eq!(unfinished_fold(b"ab\xE2\x84"), 2);
+        assert_eq!(unfinished_fold(b"ab\xC5"), 1);
+        assert_eq!(
+            unfinished_fold("ab\u{212A}".as_bytes()),
+            0,
+            "a whole sequence"
+        );
+        assert_eq!(unfinished_fold(b"ab\x84"), 0, "no sequence starts there");
+        assert_eq!(unfinished_fold(b""), 0);
     }
 
     #[test]
