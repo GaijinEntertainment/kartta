@@ -20,6 +20,8 @@
   2026-10-13
 - [1.9 Front-code the stored paths](./adr/1.9-front-code-the-stored-paths.md) — initiative `01-kartta-fs-port`,
   2026-10-14
+- [1.10 Search content through ripgrep's engine](./adr/1.10-search-content-through-ripgrep-s-engine.md) — initiative
+  `01-kartta-fs-port`, 2026-10-14
 
 ## Deprecated
 
