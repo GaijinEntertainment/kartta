@@ -766,3 +766,59 @@ fn a_ranking_fed_by_position_agrees_with_rank_whole_and_merged() {
         }
     }
 }
+
+#[test]
+fn rankings_merge_in_any_grouping_that_keeps_their_order() {
+    let paths = [
+        "a/main.rs",
+        "b/main.rs",
+        "src/main.rs",
+        "main/lib.rs",
+        "c/main.rs",
+        "docs/main.md",
+        "lib.rs",
+        "d/main.rs",
+    ];
+    let mut without_length_tiebreak = Config::DEFAULT;
+    without_length_tiebreak.length_tiebreak = false;
+    let queries = ["main", "", "rs"];
+    let limits = [None, NonZeroUsize::new(1), NonZeroUsize::new(3)];
+    let splits: Vec<(usize, usize)> = (0..=paths.len())
+        .flat_map(|first| (first..=paths.len()).map(move |second| (first, second)))
+        .collect();
+
+    for config in [Config::DEFAULT, without_length_tiebreak] {
+        let mut matcher = Matcher::new(config);
+        for (query, limit) in queries
+            .iter()
+            .flat_map(|&query| limits.map(|limit| (query, limit)))
+        {
+            let mut offered = |range: std::ops::Range<usize>| {
+                let mut ranking = matcher.ranking(query, limit);
+                let _ = range
+                    .into_iter()
+                    .all(|position| ranking.offer(position, paths[position]));
+                ranking.finish()
+            };
+            let whole = offered(0..paths.len());
+
+            for &(first, second) in &splits {
+                let [a, b, c] = [
+                    offered(0..first),
+                    offered(first..second),
+                    offered(second..paths.len()),
+                ];
+                let merge = |left, right| Matcher::merge_ranked([left, right], query, limit);
+                let context =
+                    format!("query {query:?}, limit {limit:?}, slices at {first} and {second}");
+
+                assert_eq!(
+                    merge(merge(a.clone(), b.clone()), c.clone()),
+                    whole,
+                    "left first, {context}"
+                );
+                assert_eq!(merge(a, merge(b, c)), whole, "right first, {context}");
+            }
+        }
+    }
+}
