@@ -67,4 +67,4 @@ mod matcher;
 mod score;
 
 pub use crate::config::{CaseMatching, Config, Scoring};
-pub use crate::matcher::{Match, Matcher};
+pub use crate::matcher::{Match, Matcher, Ranked, Ranking};
