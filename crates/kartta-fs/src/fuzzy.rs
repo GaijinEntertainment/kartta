@@ -87,8 +87,7 @@ impl Index {
     /// otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are* ranked: they
     /// are files as far as the tree is concerned, and are reported without being followed.
     ///
-    /// Ranking runs on the ambient rayon thread pool; call this inside `ThreadPool::install` to bound the threads it
-    /// takes.
+    /// Ranking runs on the index's threads, as many as [`Index::threads`] reports.
     ///
     /// Matching ignores case. That is this crate's choice and not git's — `core.ignoreCase` describes what the
     /// filesystem does with case, which is a different question from what a search should do with it.
@@ -135,19 +134,21 @@ impl Index {
     #[must_use]
     pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> Vec<FuzzyMatch> {
         let FuzzyOptions { filter, limit } = *options;
-        let ranked: Vec<Ranked> = (0..self.len().div_ceil(RANK_CHUNK_LEN))
-            .into_par_iter()
-            .map(|chunk| {
-                let start = chunk * RANK_CHUNK_LEN;
-                let positions = start..self.len().min(start + RANK_CHUNK_LEN);
-                let mut matcher = Matcher::new(RANKING);
-                let mut ranking = matcher.ranking(query, limit);
-                self.candidates(positions, filter, |at, path| ranking.offer(at, path));
-                ranking.finish()
-            })
-            .reduce(Vec::new, |left, right| {
-                Matcher::merge_ranked([left, right], query, limit)
-            });
+        let ranked: Vec<Ranked> = self.on_threads(|| {
+            (0..self.len().div_ceil(RANK_CHUNK_LEN))
+                .into_par_iter()
+                .map(|chunk| {
+                    let start = chunk * RANK_CHUNK_LEN;
+                    let positions = start..self.len().min(start + RANK_CHUNK_LEN);
+                    let mut matcher = Matcher::new(RANKING);
+                    let mut ranking = matcher.ranking(query, limit);
+                    self.candidates(positions, filter, |at, path| ranking.offer(at, path));
+                    ranking.finish()
+                })
+                .reduce(Vec::new, |left, right| {
+                    Matcher::merge_ranked([left, right], query, limit)
+                })
+        });
 
         ranked
             .into_iter()

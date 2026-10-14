@@ -451,6 +451,25 @@ fn two_builds_of_one_tree_produce_identical_indexes() {
 }
 
 #[test]
+fn an_index_runs_on_exactly_the_thread_count_its_build_named() {
+    let dir = tree(&[("main.rs", "code")]);
+    let mut options = BuildOptions::default();
+    options.threads = NonZeroUsize::new(3);
+
+    assert_eq!(index(dir.path(), &options).threads(), 3);
+}
+
+#[test]
+fn an_index_with_no_thread_count_runs_on_the_ambient_pool() {
+    let dir = tree(&[("main.rs", "code")]);
+
+    assert_eq!(
+        default_index(dir.path()).threads(),
+        rayon::current_num_threads()
+    );
+}
+
+#[test]
 fn fuzzy_ranks_a_filename_hit_above_a_directory_hit() {
     let dir = tree(&[
         ("src/main.rs", ""),

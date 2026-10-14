@@ -1,8 +1,11 @@
 use std::cmp::Ordering;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use kartta_walk::{Children, EntryKind, Tree, WalkOptions, walk};
+use kartta_walk::{Children, EntryKind, Tree, WalkError, WalkOptions, walk};
+use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, BuildOptions};
@@ -61,6 +64,7 @@ pub struct Index {
     symlink_targets: Vec<(usize, Box<str>)>,
     inspection: Inspection,
     binary_extensions: BinaryExtensions,
+    pool: Option<Arc<ThreadPool>>,
 }
 
 impl Index {
@@ -77,26 +81,36 @@ impl Index {
         options: &BuildOptions,
     ) -> Result<BuildOutcome, BuildError> {
         let root = root.as_ref();
+        let pool = options.threads.map(thread_pool).transpose()?;
         let policy = Indexing::new(options.ignore_sources, root);
-        let walk_options = WalkOptions {
-            threads: options.threads,
-            ..WalkOptions::default()
-        };
+        let walk_options = WalkOptions::default();
 
-        let (tree, walk_errors, _cancelled) =
-            walk(root, &policy, &Rules::default(), &walk_options)?.into_parts();
+        let (tree, walk_errors, _cancelled) = on_pool(pool.as_deref(), || {
+            walk(root, &policy, &Rules::default(), &walk_options)
+        })?
+        .into_parts();
 
         let mut errors = policy.into_errors();
         errors.extend(walk_errors.into_iter().map(BuildError::Walk));
         order_errors(&mut errors);
 
         Ok(BuildOutcome {
-            index: Self::from_tree(root.to_path_buf(), tree, options.binary_extensions.clone()),
+            index: Self::from_tree(
+                root.to_path_buf(),
+                tree,
+                options.binary_extensions.clone(),
+                pool,
+            ),
             errors,
         })
     }
 
-    fn from_tree(root: PathBuf, tree: Tree<Payload>, binary_extensions: BinaryExtensions) -> Self {
+    fn from_tree(
+        root: PathBuf,
+        tree: Tree<Payload>,
+        binary_extensions: BinaryExtensions,
+        pool: Option<Arc<ThreadPool>>,
+    ) -> Self {
         let mut suffixes_len = 0;
         let mut at = 0;
         depth_first(&tree, |_, path, common| {
@@ -140,7 +154,25 @@ impl Index {
             kinds,
             symlink_targets,
             binary_extensions,
+            pool,
         }
+    }
+
+    /// How many threads this index runs its parallel work on: the walk that built it, and the searches after.
+    ///
+    /// Exactly what [`BuildOptions::threads`] named, which every parallel query of this index then shares, so two
+    /// searches at once divide those threads rather than each taking its own. When the build named none, the index runs
+    /// on the ambient rayon pool, and this is that pool's size as seen from the caller — every core the machine reports,
+    /// unless the process configured the pool otherwise.
+    #[must_use]
+    pub fn threads(&self) -> usize {
+        self.pool
+            .as_deref()
+            .map_or_else(rayon::current_num_threads, ThreadPool::current_num_threads)
+    }
+
+    pub(crate) fn on_threads<R: Send>(&self, operation: impl FnOnce() -> R + Send) -> R {
+        on_pool(self.pool.as_deref(), operation)
     }
 
     fn start_of(&self, at: usize) -> usize {
@@ -532,6 +564,27 @@ const fn stored_from(at: usize, shared: usize) -> usize {
     }
 }
 
+fn on_pool<R: Send>(pool: Option<&ThreadPool>, operation: impl FnOnce() -> R + Send) -> R {
+    match pool {
+        Some(pool) => pool.install(operation),
+        None => operation(),
+    }
+}
+
+fn thread_pool(threads: NonZeroUsize) -> Result<Arc<ThreadPool>, BuildError> {
+    ThreadPoolBuilder::new()
+        .num_threads(threads.get())
+        .thread_name(|index| format!("kartta-fs-{index}"))
+        .build()
+        .map(Arc::new)
+        .map_err(|source| {
+            BuildError::Walk(WalkError::ThreadPool {
+                threads,
+                source: Box::new(source),
+            })
+        })
+}
+
 #[derive(Debug, Clone, Default)]
 struct Overflow {
     offsets: Vec<(usize, usize)>,
@@ -781,6 +834,7 @@ mod tests {
             symlink_targets: Vec::new(),
             inspection: Inspection::new(paths.len()),
             binary_extensions: BinaryExtensions::default(),
+            pool: None,
         };
 
         let mut reader = index.paths();
