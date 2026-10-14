@@ -18,8 +18,6 @@ use kartta_fs::{
 };
 use tempfile::TempDir;
 
-/// Builds a temporary tree from `path -> content` pairs, creating parent directories as needed. A path ending in `/`
-/// makes an empty directory and ignores the content.
 fn tree(spec: &[(&str, &str)]) -> TempDir {
     let dir = tempfile::tempdir().expect("create temp dir");
     let root = dir.path();
@@ -40,7 +38,6 @@ fn tree(spec: &[(&str, &str)]) -> TempDir {
     dir
 }
 
-/// The index of a complete build, which is what every test but the failure ones expects.
 fn index(root: &Path, options: &BuildOptions) -> Index {
     let outcome = Index::build(root, options).expect("build the index");
     assert!(
@@ -52,7 +49,6 @@ fn index(root: &Path, options: &BuildOptions) -> Index {
     outcome.into_index()
 }
 
-/// The index of a complete build under the default configuration.
 fn default_index(root: &Path) -> Index {
     index(root, &BuildOptions::default())
 }
@@ -64,7 +60,6 @@ fn paths(index: &Index) -> Vec<String> {
         .collect()
 }
 
-/// The paths of `positions`, read back through [`Index::paths`].
 fn paths_at(index: &Index, positions: impl IntoIterator<Item = usize>) -> Vec<String> {
     let mut paths = index.paths();
     positions
@@ -154,8 +149,8 @@ fn every_entry_is_found_by_its_path_when_names_sort_below_the_separator() {
 
 #[test]
 fn paths_read_in_any_order_match_the_entries() {
-    // `é` and `ê` share their first byte, so a name of one following a name of the other shares a prefix that ends
-    // inside a character; enough of them span several restarts.
+    // constraint: `é` and `ê` share their first UTF-8 byte, so a name of one after a name of the other shares a prefix
+    // that ends inside a character; 150 of them span several restarts
     let names: Vec<String> = (0..150)
         .map(|n| format!("d{}/{}{n}.txt", n % 3, ['é', 'ê'][n % 2]))
         .collect();
@@ -164,7 +159,7 @@ fn paths_read_in_any_order_match_the_entries() {
     let index = default_index(dir.path());
     let entries = paths(&index);
 
-    // No name here holds a byte below `/`, so plain byte order is the index order.
+    // constraint: no name here holds a byte below `/`, so a plain byte sort gives the index order
     let mut expected: Vec<String> = ["d0", "d1", "d2"].map(String::from).into();
     expected.extend(names.iter().cloned());
     expected.sort();
@@ -184,8 +179,8 @@ fn paths_read_in_any_order_match_the_entries() {
 
 #[test]
 fn paths_sharing_a_prefix_too_long_for_a_byte_read_and_list_whole() {
-    // Every file under `long` shares more than 255 bytes with the entry before it, past what one byte of shared
-    // length holds.
+    // constraint: every file under `long` shares more than 255 bytes with the entry before it, past the index's one-byte
+    // shared length
     let long = "l".repeat(250);
     let names: Vec<String> = (0..140)
         .map(|n| format!("{long}/{}{n:03}", "f".repeat(10)))
@@ -676,11 +671,8 @@ fn a_gitignore_that_is_a_fifo_does_not_block_the_build() {
     assert_eq!(gitignore_kind, EntryKind::Other);
 }
 
-/// Runs `work` on its own thread and fails the test if it does not finish in time.
-///
-/// The failure this guards is a build that never returns: opening a fifo for reading waits for a writer that never
-/// comes. Calling straight through would hang the whole test binary rather than fail one test, and the workspace test
-/// job has no per-test deadline to catch it. A thread left blocked on a leaked fifo dies with the process.
+// constraint: the test job has no per-test deadline, so a build blocked on a fifo would hang the whole binary rather
+// than fail one test; a thread left blocked dies with the process
 #[cfg(unix)]
 fn within_deadline<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
     use std::sync::mpsc;
@@ -714,8 +706,6 @@ fn a_symlinked_gitignore_applies_its_rules_like_git_does() {
 #[cfg(unix)]
 #[test]
 fn a_gitignore_symlinked_out_of_the_tree_is_refused_and_reported() {
-    // Following it would let rules that do not travel with the tree decide the index, which is exactly what the
-    // in-tree level promises to keep out.
     let outside = tree(&[("rules.txt", "*.log\n")]);
     let dir = tree(&[("build.log", "noise")]);
     std::os::unix::fs::symlink(
@@ -780,8 +770,6 @@ fn a_dangling_gitignore_symlink_is_reported_and_its_rules_do_not_apply() {
 #[cfg(target_os = "linux")]
 #[test]
 fn an_entry_whose_name_is_not_utf8_is_reported_rather_than_indexed() {
-    // Two names that differ only in an invalid byte both decode to one replacement character, so indexing either would
-    // give the two a single lookup key and a path that opens neither.
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
 
@@ -809,9 +797,6 @@ fn an_entry_whose_name_is_not_utf8_is_reported_rather_than_indexed() {
 #[cfg(unix)]
 #[test]
 fn a_backslash_in_a_filename_is_not_a_path_separator_when_ranking() {
-    // Both candidates match, and both hold `main`. Under the scorer's default separators `\` splits `main\x.rs` so its
-    // basename is `x.rs` alone, which drops `main` out of the basename and lets the directory hit win. Only the
-    // narrowed separator set puts the whole filename in the basename and ranks it first.
     let dir = tree(&[("main/x.rs", ""), ("main\\x.rs", "")]);
     let index = default_index(dir.path());
 
@@ -984,7 +969,6 @@ fn listed(listing: &Listing<'_>) -> Vec<String> {
         .collect()
 }
 
-/// Each listed path beside what the listing says lies beneath it unlisted.
 fn unlisted(listing: &Listing<'_>) -> Vec<(String, Option<usize>)> {
     listing
         .items()
@@ -993,7 +977,6 @@ fn unlisted(listing: &Listing<'_>) -> Vec<(String, Option<usize>)> {
         .collect()
 }
 
-/// Expected [`unlisted`] rows, owned so they compare against it.
 fn owned(rows: &[(&str, Option<usize>)]) -> Vec<(String, Option<usize>)> {
     rows.iter()
         .map(|&(path, unlisted)| (path.to_owned(), unlisted))
@@ -1457,7 +1440,6 @@ fn an_extension_settles_a_binary_file_without_the_file_being_read() {
     );
 }
 
-/// The index of a complete build that classifies names by `binary` instead of the built-in set.
 fn index_with_binary_extensions(root: &Path, binary: BinaryExtensions) -> Index {
     let mut options = BuildOptions::default();
     options.binary_extensions = binary;
@@ -1736,7 +1718,6 @@ fn path_search_options_default_to_no_limit_and_zero_lifts_it() {
 
 #[test]
 fn a_sweep_answers_the_same_facts_as_the_keyed_lookups() {
-    /// One entry's path beside every fact the index reads on demand for it.
     type Facts = (String, Option<u64>, Option<bool>);
 
     let dir = tree(&[("a.txt", "hello"), ("sub/b.bin", "x"), ("empty/", "")]);

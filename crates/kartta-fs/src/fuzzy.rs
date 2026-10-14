@@ -1,5 +1,3 @@
-//! The fuzzy path search over a built [`Index`] — [`Index::fuzzy`].
-
 use std::num::NonZeroUsize;
 
 use kartta_fuzz::{Config, Matcher, Ranked};
@@ -8,17 +6,9 @@ use rayon::prelude::*;
 use crate::filter::Filter;
 use crate::index::Index;
 
-/// The scorer's configuration for indexed paths: its defaults, with the separator set narrowed to this crate's path
-/// grammar.
-///
-/// The scorer treats `\` as a segment separator too, which is right for a general matcher that may be handed a native
-/// Windows path. An indexed path is never one: every path here is forward-slash form, on every platform, so `/` is the
-/// only separator a candidate can carry and a `\` inside one is an ordinary character of a name. Left in, it would
-/// split `main\x.rs` into two segments and hand the basename bonus to the wrong half of a single filename, which is
-/// the ordering this crate exists to get right.
+// constraint: the scorer splits segments at `\` too by default, and in an indexed path `\` is a character of a name —
+// left in, `main\x.rs` hands its basename bonus to `x.rs`
 const RANKING: Config = ranking();
-
-/// How many entries one parallel ranking task scores.
 const RANK_CHUNK_LEN: usize = 16 * 1024;
 
 const fn ranking() -> Config {

@@ -1,5 +1,3 @@
-//! [`BuildOptions`] and [`BuildError`] — what a build indexes, which rules decide it, and what it could not read.
-
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -126,7 +124,6 @@ impl BuildError {
         }
     }
 
-    /// Orders one kind of failure against another, so a report built by racing threads still reads the same twice.
     pub(crate) const fn variant_rank(&self) -> u8 {
         match self {
             Self::Walk(_) => 0,
