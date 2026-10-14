@@ -7,19 +7,20 @@ pub(crate) enum Symlinks {
     Refuse,
 }
 
-pub(crate) fn open_regular(path: &Path, symlinks: Symlinks) -> io::Result<fs::File> {
+pub(crate) fn open_regular(path: &Path, symlinks: Symlinks) -> io::Result<(fs::File, u64)> {
     let file = open_guarded(path, symlinks)?;
+    let metadata = file.metadata()?;
 
     // constraint: the kind is settled on the opened handle — a stat of the name and an open of it resolve the name
     // twice, and a fifo renamed onto it in between blocks the read
-    if !file.metadata()?.is_file() {
+    if !metadata.is_file() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "not a regular file",
         ));
     }
 
-    Ok(file)
+    Ok((file, metadata.len()))
 }
 
 #[cfg(unix)]

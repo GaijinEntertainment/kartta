@@ -404,7 +404,7 @@ impl Index {
     }
 }
 
-fn is_below(path: &str, dir: &str) -> bool {
+pub(crate) fn is_below(path: &str, dir: &str) -> bool {
     path.strip_prefix(dir)
         .is_some_and(|below| below.starts_with('/'))
 }

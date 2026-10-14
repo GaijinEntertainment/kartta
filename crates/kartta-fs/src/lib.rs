@@ -109,12 +109,19 @@
 //! open" and never says text, so a file it does not name is read rather than assumed. And because the probe is
 //! bounded, the verdict describes a prefix: a file that is text for 64 KiB and binary after reports text.
 //!
+//! # Content search
+//!
+//! [`Index::grep`] searches the content of regular files with [`Patterns`], line by line, through ripgrep's own
+//! matcher and searcher, so a pattern written for `rg` means the same here. It reads each candidate as it is when
+//! searched, applies the binary rule above before it searches a byte, and answers in index order — and its [`Matches`]
+//! account for every candidate the answer does not cover, because an agent cannot see what it was not given.
+//!
 //! # What is here so far
 //!
-//! The walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification, and
-//! the two path searches — glob and fuzzy — both narrowed by a [`Filter`]. Not yet: content search, regex search,
-//! incremental re-walk, and the ignore sources outside the tree — [`IgnoreSources`] names only the levels that are
-//! implemented.
+//! The walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification, the two
+//! path searches — glob and fuzzy — both narrowed by a [`Filter`], and content search. Not yet: an index that narrows
+//! content search before it opens a file, incremental re-walk, and the ignore sources outside the tree —
+//! [`IgnoreSources`] names only the levels that are implemented.
 
 mod binary;
 mod build;
@@ -123,12 +130,18 @@ mod entry;
 mod filter;
 mod fuzzy;
 mod glob;
+mod grep;
 mod index;
 mod inspection;
 mod list;
+mod matches;
 mod open;
+mod patterns;
 mod policy;
 mod rules;
+mod scan;
+
+pub use kartta_walk::CancelToken;
 
 pub use crate::binary::{BinaryExtensions, BinaryExtensionsError, BinaryGroup};
 pub use crate::build::{BuildError, BuildOptions, IgnoreSources};
@@ -137,5 +150,8 @@ pub use crate::entry::{Entry, EntryKind};
 pub use crate::filter::{Filter, FilterError};
 pub use crate::fuzzy::{FuzzyMatch, FuzzyOptions};
 pub use crate::glob::GlobOptions;
+pub use crate::grep::GrepOptions;
 pub use crate::index::{BuildOutcome, Index, Inspected, Paths};
 pub use crate::list::{ListError, ListOptions, Listed, Listing};
+pub use crate::matches::{Cut, Failure, Line, LineKind, MatchedFile, Matches};
+pub use crate::patterns::{Case, PatternError, Patterns};

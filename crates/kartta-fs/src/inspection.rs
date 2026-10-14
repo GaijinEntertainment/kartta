@@ -9,7 +9,7 @@ const UNREAD: u64 = 0;
 // constraint: no filesystem addresses `u64::MAX - 1` bytes, so this cannot collide with a size stored plus one
 const UNREADABLE: u64 = u64::MAX;
 
-const PROBE: usize = 64 * 1024;
+pub(crate) const PROBE: usize = 64 * 1024;
 
 const UNCLASSIFIED: u8 = 0;
 const TEXT: u8 = 1;
@@ -73,6 +73,27 @@ impl Inspection {
             stored => decode_class(stored),
         }
     }
+
+    pub(crate) fn known_size(&self, at: usize) -> Option<u64> {
+        decode_size(self.sizes.get(at)?.load(Ordering::Relaxed))
+    }
+
+    pub(crate) fn known_binary(&self, at: usize) -> Option<bool> {
+        decode_class(self.classes.get(at)?.load(Ordering::Relaxed))
+    }
+
+    pub(crate) fn record_size(&self, at: usize, size: u64) {
+        if let Some(slot) = self.sizes.get(at) {
+            _ = slot.compare_exchange(UNREAD, size + 1, Ordering::Relaxed, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_binary(&self, at: usize, binary: bool) {
+        if let Some(slot) = self.classes.get(at) {
+            let class = if binary { BINARY } else { TEXT };
+            _ = slot.compare_exchange(UNCLASSIFIED, class, Ordering::Relaxed, Ordering::Relaxed);
+        }
+    }
 }
 
 const fn decode_size(stored: u64) -> Option<u64> {
@@ -98,23 +119,29 @@ fn classify(native_path: &Path) -> u8 {
     }
 }
 
-// constraint: one `read` may return short for reasons that say nothing about the file, and a verdict taken on a short
-// prefix is kept, so this reads until the file ends or the probe is full
 fn holds_nul(native_path: &Path) -> Option<bool> {
-    let mut file = open_regular(native_path, Symlinks::Refuse).ok()?;
+    let (mut file, _) = open_regular(native_path, Symlinks::Refuse).ok()?;
     let mut head = vec![0u8; PROBE];
+    let filled = read_prefix(&mut file, &mut head).ok()?;
+
+    Some(head[..filled].contains(&0))
+}
+
+// constraint: one `read` may return short for reasons that say nothing about the file, and a verdict taken on a short
+// prefix is kept, so this reads until the file ends or `head` is full
+pub(crate) fn read_prefix(file: &mut impl Read, head: &mut [u8]) -> io::Result<usize> {
     let mut filled = 0;
 
-    while filled < PROBE {
+    while filled < head.len() {
         match file.read(&mut head[filled..]) {
             Ok(0) => break,
             Ok(read) => filled += read,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(_) => return None,
+            Err(error) => return Err(error),
         }
     }
 
-    Some(head[..filled].contains(&0))
+    Ok(filled)
 }
 
 // constraint: `len()` answers for whatever the path names now, so the kind is settled on this stat rather than taken
