@@ -14,7 +14,7 @@ report(outcome.errors()); // a partial index looks exactly like a complete one
 let index = outcome.into_index();
 
 let ranked = index.fuzzy("main", &FuzzyOptions::default());
-assert_eq!(ranked[0].path, "src/main.rs");
+assert_eq!(index.paths().get(ranked[0].position), "src/main.rs");
 
 let listed = index.list("src", &ListOptions::default())?; // what is in a place, depth-first
 assert_eq!(index.size("src/main.rs"), Some(12)); // read now, kept
@@ -109,8 +109,9 @@ directory name, so `main` finds `src/main.rs` before `main/lib.rs`. Directories 
 for the same reason. Matching ignores case, which is this crate's choice and not git's: `core.ignoreCase` describes what
 the filesystem does with case, a different question from what a search should do with it.
 
-Results borrow from the index and carry this crate's own `FuzzyMatch` rather than the scorer's result type, so replacing
-the ranking engine stays a non-breaking change.
+The index keeps its paths front-coded, so results name entries by position and `Index::paths` reads each path back —
+cheaply in index order, from the nearest full path otherwise. A ranking carries this crate's own `FuzzyMatch` rather
+than the scorer's result type, so replacing the ranking engine stays a non-breaking change.
 
 Import resolution is deliberately out of scope: mapping a specifier to a file is language semantics. What lives here are
 the mechanical primitives a resolver queries.

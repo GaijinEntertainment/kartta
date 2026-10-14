@@ -2,7 +2,7 @@
 
 use std::num::NonZeroUsize;
 
-use kartta_fuzz::{Config, Match, Matcher};
+use kartta_fuzz::{Config, Matcher, Ranked};
 use rayon::prelude::*;
 
 use crate::filter::Filter;
@@ -27,17 +27,18 @@ const fn ranking() -> Config {
     ranking
 }
 
-/// One ranked path and the score it earned.
+/// One ranked entry and the score its path earned.
 ///
-/// The path is borrowed from the index, so a ranked list allocates one `Vec` and copies no path. The score is a rank
-/// key and nothing more: it is comparable against other scores from the same query, and means nothing on its own.
+/// The entry is known by position, so a ranking allocates one `Vec` and copies no path; [`Index::paths`] reads the
+/// path. The score is a rank key and nothing more: it is comparable against other scores from the same query, and means
+/// nothing on its own.
 ///
 /// This is deliberately this crate's own type rather than the scorer's. The ranking engine is an implementation
 /// detail, and re-exporting its result type would make swapping it a breaking change for every caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FuzzyMatch<'a> {
-    /// The matched path, root-relative and forward-slash separated, borrowed from the index.
-    pub path: &'a str,
+pub struct FuzzyMatch {
+    /// Where the matched entry sits in [`Index::entries`].
+    pub position: usize,
     /// Its rank key: higher is better.
     pub score: i32,
 }
@@ -128,35 +129,38 @@ impl Index {
     /// let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
     ///
     /// let ranked = index.fuzzy("main", &FuzzyOptions::default());
-    /// let paths: Vec<&str> = ranked.iter().map(|found| found.path).collect();
-    /// assert_eq!(paths, ["src/main.rs", "main/lib.rs"]);
+    /// let mut paths = index.paths();
+    /// let ranked_paths: Vec<String> = ranked.iter().map(|found| paths.get(found.position).to_owned()).collect();
+    /// assert_eq!(ranked_paths, ["src/main.rs", "main/lib.rs"]);
     ///
     /// assert_eq!(index.fuzzy("main", &FuzzyOptions::default().limit(1)).len(), 1);
     ///
     /// let in_src = Filter::new(["src/**"])?;
     /// let narrowed = index.fuzzy("main", &FuzzyOptions::default().filter(&in_src));
     /// assert_eq!(narrowed.len(), 1);
-    /// assert_eq!(narrowed[0].path, "src/main.rs");
+    /// assert_eq!(paths.get(narrowed[0].position), "src/main.rs");
     /// # Ok(())
     /// # }
     /// ```
     #[must_use]
-    pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> Vec<FuzzyMatch<'_>> {
+    pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> Vec<FuzzyMatch> {
         let FuzzyOptions { filter, limit } = *options;
-        let rankings: Vec<Vec<Match<'_>>> = (0..self.len().div_ceil(RANK_CHUNK_LEN))
+        let rankings: Vec<Vec<Ranked>> = (0..self.len().div_ceil(RANK_CHUNK_LEN))
             .into_par_iter()
             .map(|chunk| {
                 let start = chunk * RANK_CHUNK_LEN;
                 let positions = start..self.len().min(start + RANK_CHUNK_LEN);
-                Matcher::new(RANKING).rank(self.candidates(positions, filter), query, limit)
+                let mut matcher = Matcher::new(RANKING);
+                let mut ranking = matcher.ranking(query, limit);
+                self.candidates(positions, filter, |at, path| ranking.offer(at, path));
+                ranking.finish()
             })
             .collect();
 
-        Matcher::new(RANKING)
-            .merge(rankings, query, limit)
+        Matcher::merge_ranked(rankings, query, limit)
             .into_iter()
             .map(|found| FuzzyMatch {
-                path: found.candidate,
+                position: found.position,
                 score: found.score,
             })
             .collect()

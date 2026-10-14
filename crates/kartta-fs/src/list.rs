@@ -6,7 +6,7 @@ use kartta_walk::EntryKind;
 
 use crate::entry::Entry;
 use crate::filter::Filter;
-use crate::index::{Index, Inspected};
+use crate::index::{Index, Inspected, RESTART};
 
 /// How far a listing descends, which directories it does not enter, what it leaves out, and how many entries it
 /// returns.
@@ -158,10 +158,17 @@ pub struct Listed<'a> {
 }
 
 impl<'a> Listed<'a> {
-    /// The entry itself.
+    /// The entry itself, its path decoded.
     #[must_use]
     pub fn entry(&self) -> Entry<'a> {
         self.inspected.entry()
+    }
+
+    /// Where the entry sits in [`Index::entries`], for reading its path through [`Index::paths`]. A listing's
+    /// positions rise, so reading them in order costs a few bytes each.
+    #[must_use]
+    pub const fn position(&self) -> usize {
+        self.inspected.position()
     }
 
     /// The entry's size, on the terms [`Index::size`] states.
@@ -259,16 +266,17 @@ impl Index {
     /// let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
     ///
     /// let listed = index.list("src", &ListOptions::default())?;
-    /// let paths: Vec<&str> = listed.items().iter().map(|found| found.entry().path()).collect();
-    /// assert_eq!(paths, ["src/main.rs", "src/net", "src/net/tcp.rs"]);
+    /// let mut paths = index.paths();
+    /// let listed_paths: Vec<String> = listed.items().iter().map(|found| paths.get(found.position()).to_owned()).collect();
+    /// assert_eq!(listed_paths, ["src/main.rs", "src/net", "src/net/tcp.rs"]);
     /// assert!(!listed.truncated());
     ///
     /// // Each item carries its position, so a size beside a row costs no second lookup.
     /// assert_eq!(listed.items()[0].size(), Some(0));
     ///
     /// let shallow = index.list("src", &ListOptions::default().depth(1))?;
-    /// let paths: Vec<&str> = shallow.items().iter().map(|found| found.entry().path()).collect();
-    /// assert_eq!(paths, ["src/main.rs", "src/net"], "src/net/tcp.rs is a level too deep");
+    /// let shallow_paths: Vec<String> = shallow.items().iter().map(|found| found.entry().path().to_owned()).collect();
+    /// assert_eq!(shallow_paths, ["src/main.rs", "src/net"], "src/net/tcp.rs is a level too deep");
     /// assert_eq!(shallow.items()[1].unlisted(), Some(1), "and the listing says one entry sits beneath src/net");
     /// assert_eq!(shallow.total(), 3);
     ///
@@ -293,12 +301,13 @@ impl Index {
         let mut truncated = false;
         let mut excluded = 0;
         let mut at = start;
+        let mut paths = self.paths();
 
         while at < end {
             let here = at;
 
-            if exclude.is_some_and(|exclude| exclude.matches(self.path_at(here))) {
-                at = self.past_subtree(here + 1, self.path_at(here));
+            if exclude.is_some_and(|exclude| exclude.matches(paths.get(here))) {
+                at = self.past_subtree(here + 1, paths.get(here));
                 excluded += at - here;
                 continue;
             }
@@ -309,12 +318,12 @@ impl Index {
             }
 
             let unentered = self.kind_at(here) == EntryKind::Dir && {
-                let path = self.path_at(here);
+                let path = paths.get(here);
                 depth.is_some_and(|depth| bottoms_out(&path[below_from..], depth))
                     || collapse.is_some_and(|collapse| collapse.matches(path))
             };
             at = if unentered {
-                self.past_subtree(here + 1, self.path_at(here))
+                self.past_subtree(here + 1, paths.get(here))
             } else {
                 here + 1
             };
@@ -361,38 +370,64 @@ impl Index {
         Ok((at + 1, self.past_subtree(at + 1, dir)))
     }
 
-    /// The first position at or after `from` that has left `dir`'s subtree.
+    /// The first position at or after `from` that has left `dir`'s subtree, where `dir` is the path at `from - 1`.
     ///
-    /// [`Index::entries`] is depth-first, so `dir`'s descendants are the run at the front of what remains and the
-    /// predicate holds over a prefix of it. A binary search over that prefix is what makes a depth-limited listing cost
-    /// its own size rather than the size of everything it declined to descend into.
+    /// [`Index::entries`] is depth-first, so `dir`'s descendants are the run at the front of what remains. The entry
+    /// immediately after `dir` is checked first, because it settles the two commonest cases outright: an empty
+    /// directory and a leaf directory both have the next sibling sitting there.
     ///
-    /// The entry immediately after `dir` is checked first, because it settles the two commonest cases outright: an
-    /// empty directory and a leaf directory both have the next sibling sitting there. Searching for that would spend a
-    /// logarithmic probe per directory, which on a listing full of empty ones is the cost the search was meant to
-    /// avoid.
+    /// Past that, no path is rebuilt. A binary search over the restarts, whose whole paths are stored, finds the block
+    /// the run ends in, and inside it an entry following one inside `dir` is inside too exactly when it shares at
+    /// least `dir/` with it — which the recorded shared lengths answer alone.
     fn past_subtree(&self, from: usize, dir: &str) -> usize {
-        let inside = |at: usize| {
-            self.path_at(at)
-                .strip_prefix(dir)
-                .is_some_and(|below| below.starts_with('/'))
-        };
+        let below = dir.len() + 1;
+        if below > usize::from(u16::MAX) {
+            // A shared length this long is capped, so membership is read from the paths themselves.
+            let mut paths = self.paths();
+            return (from..self.len())
+                .find(|&at| !is_below(paths.get(at), dir))
+                .unwrap_or(self.len());
+        }
 
-        if from == self.len() || !inside(from) {
+        if from == self.len() || !self.starts_inside(from, dir) {
             return from;
         }
 
-        let (mut low, mut high) = (from + 1, self.len());
+        let first_block = from / RESTART + 1;
+        let (mut low, mut high) = (first_block, self.len().div_ceil(RESTART));
         while low < high {
             let middle = low + (high - low) / 2;
-            if inside(middle) {
+            if is_below(self.suffix(middle * RESTART), dir) {
                 low = middle + 1;
             } else {
                 high = middle;
             }
         }
-        low
+
+        let scan_from = if low > first_block {
+            (low - 1) * RESTART + 1
+        } else {
+            from + 1
+        };
+        let scan_end = self.len().min(low * RESTART);
+        (scan_from..scan_end)
+            .find(|&at| self.shared_at(at) < below)
+            .unwrap_or(scan_end)
     }
+
+    /// Whether the entry at `at`, which follows the entry at `dir`, lies beneath it.
+    fn starts_inside(&self, at: usize, dir: &str) -> bool {
+        if at.is_multiple_of(RESTART) {
+            return is_below(self.suffix(at), dir);
+        }
+        self.shared_at(at) == dir.len() && self.suffix(at).starts_with('/')
+    }
+}
+
+/// Whether `path` lies beneath `dir`.
+fn is_below(path: &str, dir: &str) -> bool {
+    path.strip_prefix(dir)
+        .is_some_and(|below| below.starts_with('/'))
 }
 
 /// Whether a directory `below` the listed one sits at the deepest level `depth` allows, so its own children are one
