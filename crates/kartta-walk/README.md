@@ -33,7 +33,10 @@ entries, or name conventions.
 Two properties it commits to:
 
 - **Deterministic.** Entries are sorted per directory before the policy sees them and subtree results collect in that
-  same order, so an unchanged tree walks to identical output at any thread count.
+  same order, so an unchanged tree walks to the same tree at any thread count. The values in it are the policy's: a
+  policy whose answer for an entry depends only on that entry and its directory's state walks to identical output, and
+  one that answers by call order — numbering entries as it meets them, say — does not, because directories are walked
+  in parallel and a large directory's entries are classified in parallel too.
 - **Symlinks are never followed.** A symlink is reported as one and never descended, so the walk stays inside the tree
   it was given and cycle detection is unnecessary.
 
