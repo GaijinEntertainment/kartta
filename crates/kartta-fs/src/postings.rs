@@ -21,6 +21,14 @@ impl Shape {
         }
     }
 
+    pub(crate) const fn len(self) -> u32 {
+        self.len
+    }
+
+    pub(crate) const fn is_bitmap(self) -> bool {
+        self.bitmap
+    }
+
     pub(crate) const fn bytes(self) -> usize {
         let bits = if self.bitmap {
             self.universe as usize

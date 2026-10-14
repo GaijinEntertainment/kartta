@@ -2,6 +2,8 @@ use std::fmt;
 
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 
+use crate::requirement::Requirement;
+
 /// Whether a content search tells letters of different case apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Case {
@@ -45,6 +47,7 @@ pub struct Patterns {
     given: Box<[Box<str>]>,
     case: Case,
     matcher: RegexMatcher,
+    requirement: Requirement,
 }
 
 impl Patterns {
@@ -83,6 +86,7 @@ impl Patterns {
         })?;
 
         Ok(Self {
+            requirement: Requirement::of(&given, case),
             given,
             case,
             matcher,
@@ -102,6 +106,10 @@ impl Patterns {
 
     pub(crate) const fn matcher(&self) -> &RegexMatcher {
         &self.matcher
+    }
+
+    pub(crate) const fn requirement(&self) -> &Requirement {
+        &self.requirement
     }
 }
 

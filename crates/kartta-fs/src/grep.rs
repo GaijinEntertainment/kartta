@@ -4,6 +4,7 @@ use std::ops::Range;
 use kartta_walk::{CancelToken, EntryKind};
 use rayon::prelude::*;
 
+use crate::content_index::Narrowed;
 use crate::filter::Filter;
 use crate::index::Index;
 use crate::list::is_below;
@@ -158,6 +159,11 @@ impl Index {
     /// searched without its first 64 KiB being checked again: each file has the one verdict [`Index::is_binary`]
     /// answers, from the first read that settled it.
     ///
+    /// An index built with [`BuildOptions::content_index`](crate::BuildOptions::content_index) opens fewer files: a
+    /// candidate missing a trigram every match must contain is counted in [`Matches::ruled_out`] and never read. Which
+    /// files hold a match is the same either way, as of the content the build read; a file changed since the build is
+    /// ruled in or out by that content.
+    ///
     /// The search runs on the index's threads, as many as [`Index::threads`] reports.
     ///
     /// # Examples
@@ -203,7 +209,8 @@ impl Index {
         patterns: &Patterns,
         options: &GrepOptions<'_>,
     ) -> Matches<'_> {
-        let (runs, tally) = self.plan_grep(options);
+        let narrowed = self.narrowed(patterns.requirement());
+        let (runs, tally) = self.plan_grep(options, narrowed.as_ref());
         let mut fold = Fold::new(options, tally);
         let mut batches = runs.iter().flat_map(|run| run.chunks(BATCH));
 
@@ -238,12 +245,17 @@ impl Index {
         fold.finish()
     }
 
-    fn plan_grep(&self, options: &GrepOptions<'_>) -> (Vec<Vec<u32>>, Tally) {
+    fn plan_grep(
+        &self,
+        options: &GrepOptions<'_>,
+        narrowed: Option<&Narrowed>,
+    ) -> (Vec<Vec<u32>>, Tally) {
         let planned: Vec<(Vec<u32>, Tally)> = (0..self.len().div_ceil(PLAN_CHUNK_LEN))
             .into_par_iter()
             .map(|chunk| {
                 let start = chunk * PLAN_CHUNK_LEN;
-                self.plan_chunk(start..self.len().min(start + PLAN_CHUNK_LEN), options)
+                let positions = start..self.len().min(start + PLAN_CHUNK_LEN);
+                self.plan_chunk(positions, options, narrowed)
             })
             .collect();
 
@@ -259,11 +271,17 @@ impl Index {
         (runs, tally)
     }
 
-    fn plan_chunk(&self, positions: Range<usize>, options: &GrepOptions<'_>) -> (Vec<u32>, Tally) {
+    fn plan_chunk(
+        &self,
+        positions: Range<usize>,
+        options: &GrepOptions<'_>,
+        narrowed: Option<&Narrowed>,
+    ) -> (Vec<u32>, Tally) {
         let mut paths = self.paths();
         let mut planner = Planner {
             index: self,
             options,
+            narrowed,
             excluded_dir: None,
             candidates: Vec::new(),
             tally: Tally::default(),
@@ -285,6 +303,7 @@ impl Index {
 struct Planner<'a, 'o> {
     index: &'a Index,
     options: &'a GrepOptions<'o>,
+    narrowed: Option<&'a Narrowed>,
     // constraint: index order is depth-first — once an entry is not beneath this directory, no later one is
     excluded_dir: Option<String>,
     candidates: Vec<u32>,
@@ -349,6 +368,8 @@ impl Planner<'_, '_> {
                 .is_some_and(|size| size > max.get())
         }) {
             self.tally.oversized += 1;
+        } else if self.narrowed.is_some_and(|narrowed| !narrowed.admits(at)) {
+            self.tally.ruled_out += 1;
         } else {
             self.candidates.push(narrow(at));
         }
@@ -510,7 +531,7 @@ mod tests {
         let exclude = Filter::new(["vendor"]).expect("compile");
         let options = GrepOptions::default().exclude(&exclude);
 
-        let (candidates, tally) = index.plan_chunk(2..4, &options);
+        let (candidates, tally) = index.plan_chunk(2..4, &options, None);
 
         assert_eq!(
             index.paths().get(2),

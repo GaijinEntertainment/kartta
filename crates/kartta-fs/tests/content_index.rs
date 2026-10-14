@@ -11,7 +11,8 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use kartta_fs::{
-    BuildError, BuildOptions, BuildOutcome, Content, ContentIndexStorage, ContentVisitor, Index,
+    BuildError, BuildOptions, BuildOutcome, Case, Content, ContentIndexStorage, ContentVisitor,
+    GrepOptions, Index, Matches, Patterns,
 };
 use tempfile::TempDir;
 
@@ -167,4 +168,147 @@ fn a_text_file_that_will_not_read_is_reported_and_left_out_of_the_index() {
             .map(|stats| stats.files()),
         Some(1)
     );
+}
+
+fn plain(root: &Path) -> Index {
+    Index::build(root, &BuildOptions::default())
+        .expect("build the index")
+        .into_index()
+}
+
+fn found(index: &Index, matches: &Matches<'_>) -> Vec<String> {
+    let mut paths = index.paths();
+
+    matches
+        .files()
+        .iter()
+        .flat_map(|file| {
+            let path = paths.get(file.position()).to_owned();
+            file.lines()
+                .iter()
+                .map(move |line| format!("{path}:{}:{}", line.number(), line.text()))
+        })
+        .collect()
+}
+
+fn assert_accounted(matches: &Matches<'_>) {
+    assert_eq!(
+        matches.candidates(),
+        matches.searched()
+            + matches.binary()
+            + matches.oversized()
+            + matches.ruled_out()
+            + matches.failures().len()
+            + matches.unsearched(),
+        "every candidate lands in exactly one count"
+    );
+}
+
+#[test]
+fn a_search_through_the_index_finds_what_a_full_search_finds() {
+    let dir = tree(&[
+        ("src/main.rs", b"fn main() {\n    run();\n}\n"),
+        ("src/run.rs", b"pub fn run() {}\n"),
+        ("src/Kelvin.rs", "// 7 \u{212A}elvin\n".as_bytes()),
+        ("docs/notes.md", b"run the tests, then RUN them again\n"),
+        ("docs/other.md", b"nothing to see\n"),
+        ("blob.dat", b"\0run"),
+    ]);
+    let indexed = build(dir.path(), None).into_index();
+    let plain = plain(dir.path());
+    let searches: [(&[&str], Case); 8] = [
+        (&[r"\brun\("], Case::Sensitive),
+        (&["run"], Case::Insensitive),
+        (&["kelvin"], Case::Insensitive),
+        (&["fn main", "see"], Case::Sensitive),
+        (&["(main|other)"], Case::Sensitive),
+        (&[r"t[eh]+"], Case::Sensitive),
+        (&["absent from every file"], Case::Sensitive),
+        (&[r"\w+"], Case::Sensitive),
+    ];
+
+    for (patterns, case) in searches {
+        let patterns = Patterns::new(patterns, case).expect("compile the patterns");
+        let through = indexed.grep(&patterns, &GrepOptions::default());
+        let full = plain.grep(&patterns, &GrepOptions::default());
+
+        assert_eq!(
+            found(&indexed, &through),
+            found(&plain, &full),
+            "{patterns:?}"
+        );
+        assert_eq!(through.candidates(), full.candidates(), "{patterns:?}");
+        assert_eq!(
+            through.searched() + through.ruled_out(),
+            full.searched(),
+            "{patterns:?}: what the index ruled out is what the full search read and found nothing in"
+        );
+        assert_accounted(&through);
+    }
+}
+
+#[test]
+fn a_literal_rules_out_every_file_missing_one_of_its_trigrams() {
+    let dir = tree(&[
+        ("hit.txt", b"needle\n"),
+        ("near.txt", b"need le\n"),
+        ("miss.txt", b"haystack\n"),
+    ]);
+    let index = build(dir.path(), None).into_index();
+    let patterns = Patterns::new(["needle"], Case::Sensitive).expect("compile");
+
+    let matches = index.grep(&patterns, &GrepOptions::default());
+
+    assert_eq!(found(&index, &matches), ["hit.txt:1:needle"]);
+    assert_eq!(matches.searched(), 1);
+    assert_eq!(matches.ruled_out(), 2);
+}
+
+#[test]
+fn a_pattern_that_needs_no_trigram_reads_every_candidate() {
+    let dir = tree(&[("a.txt", b"alpha\n"), ("b.txt", b"beta\n")]);
+    let index = build(dir.path(), None).into_index();
+    let patterns = Patterns::new([r"\w+", "ab"], Case::Sensitive).expect("compile");
+
+    let matches = index.grep(&patterns, &GrepOptions::default());
+
+    assert_eq!(matches.ruled_out(), 0);
+    assert_eq!(matches.searched(), 2);
+}
+
+#[test]
+fn a_file_changed_since_the_build_is_judged_by_the_content_the_build_read() {
+    let dir = tree(&[("changed.txt", b"old words\n")]);
+    let index = build(dir.path(), None).into_index();
+    fs::write(dir.path().join("changed.txt"), "needle\n").expect("rewrite");
+    let patterns = Patterns::new(["needle"], Case::Sensitive).expect("compile");
+
+    let matches = index.grep(&patterns, &GrepOptions::default());
+
+    assert!(
+        matches.files().is_empty(),
+        "the index rules the file out by what it held then"
+    );
+    assert_eq!(matches.ruled_out(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_the_build_could_not_read_is_searched_whatever_the_pattern() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tree(&[("locked.txt", b"needle\n"), ("open.txt", b"haystack\n")]);
+    let locked = dir.path().join("locked.txt");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("lock");
+    if fs::read(&locked).is_ok() {
+        return; // running as a user permissions do not bind, such as root
+    }
+    let index = build(dir.path(), None).into_index();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).expect("unlock");
+    let patterns = Patterns::new(["needle"], Case::Sensitive).expect("compile");
+
+    let matches = index.grep(&patterns, &GrepOptions::default());
+
+    assert_eq!(found(&index, &matches), ["locked.txt:1:needle"]);
+    assert_eq!(matches.ruled_out(), 1, "only the file the index holds");
 }
