@@ -1,5 +1,3 @@
-//! The directory listing over a built [`Index`] — [`Index::list`].
-
 use std::num::NonZeroUsize;
 
 use kartta_walk::EntryKind;
@@ -153,7 +151,6 @@ impl<'a> Listing<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct Listed<'a> {
     inspected: Inspected<'a>,
-    /// How many entries the directory's subtree holds, the directory included, when the listing did not enter it.
     unentered_subtree: Option<NonZeroUsize>,
 }
 
@@ -324,7 +321,7 @@ impl Index {
 
             let unentered = self.kind_at(here) == EntryKind::Dir && {
                 let path = paths.get(here);
-                depth.is_some_and(|depth| bottoms_out(&path[below_from..], depth))
+                depth.is_some_and(|depth| is_at_depth_bound(&path[below_from..], depth))
                     || collapse.is_some_and(|collapse| collapse.matches(path))
             };
             at = if unentered {
@@ -351,10 +348,6 @@ impl Index {
         })
     }
 
-    /// The run of [`Index::entries`] that `dir`'s subtree occupies: from one past the directory to the first position
-    /// that has left it.
-    ///
-    /// [`Index::entries`] is depth-first, so the subtree is contiguous and the end is one search away.
     fn subtree_of(&self, dir: &str) -> Result<(usize, usize), ListError> {
         if dir.is_empty() {
             return Ok((0, self.len()));
@@ -375,22 +368,13 @@ impl Index {
         Ok((at + 1, self.past_subtree(at + 1, dir)))
     }
 
-    /// The first position at or after `from` that has left `dir`'s subtree, where `dir` is the path at `from - 1`.
-    ///
-    /// [`Index::entries`] is depth-first, so `dir`'s descendants are the run at the front of what remains. The entry
-    /// immediately after `dir` is checked first, because it settles the two commonest cases outright: an empty
-    /// directory and a leaf directory both have the next sibling sitting there.
-    ///
-    /// Past that, no path is rebuilt. A binary search over the restarts, whose whole paths are stored, finds the block
-    /// the run ends in, and inside it an entry following one inside `dir` is inside too exactly when it shares at
-    /// least `dir/` with it — which the recorded shared lengths answer alone.
-    fn past_subtree(&self, from: usize, dir: &str) -> usize {
+    fn past_subtree(&self, after_dir: usize, dir: &str) -> usize {
         let below = dir.len() + 1;
-        if from == self.len() || !self.starts_inside(from, dir) {
-            return from;
+        if after_dir == self.len() || !self.starts_inside(after_dir, dir) {
+            return after_dir;
         }
 
-        let first_block = from / RESTART + 1;
+        let first_block = after_dir / RESTART + 1;
         let (mut low, mut high) = (first_block, self.len().div_ceil(RESTART));
         while low < high {
             let middle = low + (high - low) / 2;
@@ -404,7 +388,7 @@ impl Index {
         let scan_from = if low > first_block {
             (low - 1) * RESTART + 1
         } else {
-            from + 1
+            after_dir + 1
         };
         let scan_end = self.len().min(low * RESTART);
         (scan_from..scan_end)
@@ -412,24 +396,20 @@ impl Index {
             .unwrap_or(scan_end)
     }
 
-    /// Whether the entry at `at`, which follows the entry at `dir`, lies beneath it.
-    fn starts_inside(&self, at: usize, dir: &str) -> bool {
-        if at.is_multiple_of(RESTART) {
-            return is_below(self.suffix(at), dir);
+    fn starts_inside(&self, after_dir: usize, dir: &str) -> bool {
+        if after_dir.is_multiple_of(RESTART) {
+            return is_below(self.suffix(after_dir), dir);
         }
-        self.shared_at(at) == dir.len() && self.suffix(at).starts_with('/')
+        self.shared_at(after_dir) == dir.len() && self.suffix(after_dir).starts_with('/')
     }
 }
 
-/// Whether `path` lies beneath `dir`.
 fn is_below(path: &str, dir: &str) -> bool {
     path.strip_prefix(dir)
         .is_some_and(|below| below.starts_with('/'))
 }
 
-/// Whether a directory `below` the listed one sits at the deepest level `depth` allows, so its own children are one
-/// level too deep to list.
-fn bottoms_out(below: &str, depth: NonZeroUsize) -> bool {
+fn is_at_depth_bound(below: &str, depth: NonZeroUsize) -> bool {
     below.matches('/').count() + 1 >= depth.get()
 }
 

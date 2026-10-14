@@ -1,5 +1,3 @@
-//! [`Index`] — the snapshot one walk produces, and everything queries answer from.
-
 use std::cmp::Ordering;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -54,23 +52,13 @@ use crate::rules::Rules;
 #[derive(Debug, Clone)]
 pub struct Index {
     root: PathBuf,
-    /// Each entry's path past the bytes it shares with the previous entry's path, laid end to end; a restart's whole
-    /// path.
     suffixes: Box<str>,
-    /// Where each block of [`RESTART`] entries starts in `suffixes`.
     block_starts: Vec<u32>,
-    /// Where each entry's stored bytes start, counted from its block's start. `u16::MAX` stands for an offset kept in
-    /// `overflow`.
     offsets: Vec<u16>,
-    /// How many leading bytes each entry's path shares with the previous entry's path, floored to a character boundary
-    /// so the stored bytes always start one. Kept for a restart too, which stores its whole path regardless. `u8::MAX`
-    /// stands for a length kept in `overflow`.
     shared: Vec<u8>,
-    /// The offsets and shared lengths too large for their arrays, which almost no real path needs.
     overflow: Overflow,
     kinds: Vec<EntryKind>,
     symlink_targets: Vec<(usize, Box<str>)>,
-    /// What the walk did not read, filled by the queries that need it.
     inspection: Inspection,
     binary_extensions: BinaryExtensions,
 }
@@ -155,7 +143,6 @@ impl Index {
         }
     }
 
-    /// Where the bytes stored for the entry at `at` start in `suffixes`; past the last entry, the end of them.
     fn start_of(&self, at: usize) -> usize {
         if at == self.len() {
             return self.suffixes.len();
@@ -167,12 +154,10 @@ impl Index {
         self.block_starts[at / RESTART] as usize + offset
     }
 
-    /// The bytes stored for the entry at `at`: its whole path at a restart, the part past its shared prefix elsewhere.
     pub(crate) fn suffix(&self, at: usize) -> &str {
         path_between(&self.suffixes, self.start_of(at), self.start_of(at + 1))
     }
 
-    /// How many leading bytes the path at `at` shares with the path before it.
     pub(crate) fn shared_at(&self, at: usize) -> usize {
         match self.shared[at] {
             u8::MAX => self.overflow.shared(at),
@@ -180,8 +165,7 @@ impl Index {
         }
     }
 
-    /// Turns `path`, holding the path at `at - 1`, into the path at `at`.
-    fn step_into(&self, at: usize, path: &mut String) {
+    fn step_from_previous(&self, at: usize, path: &mut String) {
         if at.is_multiple_of(RESTART) {
             path.clear();
         } else {
@@ -190,7 +174,6 @@ impl Index {
         path.push_str(self.suffix(at));
     }
 
-    /// Rebuilds the path at `at` into `path` from the bytes stored at and before it.
     fn decode_into(&self, at: usize, path: &mut String) {
         let shared = if at.is_multiple_of(RESTART) {
             0
@@ -201,12 +184,6 @@ impl Index {
         self.push_prefix(at, shared + self.suffix(at).len(), path);
     }
 
-    /// Appends the first `len` bytes of the path at `at` to `path`.
-    ///
-    /// While an entry shares at least `len` bytes with the path before it, those bytes are the earlier path's, so the
-    /// walk goes back to the last entry that stores some of them: its shared prefix comes from before it, and its own
-    /// bytes follow. Every byte is copied once, and an entry with nothing to give costs one load, so a decode costs the
-    /// path's length plus the entries back to the restart rather than a copy per entry.
     fn push_prefix(&self, mut at: usize, len: usize, path: &mut String) {
         if len == 0 {
             return;
@@ -231,13 +208,11 @@ impl Index {
     pub const fn paths(&self) -> Paths<'_> {
         Paths {
             index: self,
-            at: None,
+            path_at: None,
             path: String::new(),
         }
     }
 
-    /// Visits every entry in `positions` that is not a directory and that `filter` selects, with its path, until
-    /// `visit` answers `false`.
     pub(crate) fn candidates(
         &self,
         positions: Range<usize>,
@@ -256,12 +231,10 @@ impl Index {
         }
     }
 
-    /// The kind of the entry at position `at`.
     pub(crate) fn kind_at(&self, at: usize) -> EntryKind {
         self.kinds[at]
     }
 
-    /// The entry at position `at`, with `path` as its path.
     fn entry_with(&self, at: usize, path: Box<str>) -> Entry<'_> {
         let kind = self.kind_at(at);
         let target = (kind == EntryKind::Symlink)
@@ -276,7 +249,6 @@ impl Index {
         Entry { path, kind, target }
     }
 
-    /// The entry at position `at`, its path decoded.
     pub(crate) fn entry_at(&self, at: usize) -> Entry<'_> {
         let mut path = String::new();
         self.decode_into(at, &mut path);
@@ -310,15 +282,6 @@ impl Index {
         Some(self.entry_with(self.position(path)?, path.into()))
     }
 
-    /// Where the entry at this root-relative forward-slash path sits in [`Index::entries`], or `None` if nothing was
-    /// indexed there.
-    ///
-    /// The position is what a query needs to reach an entry's neighbours: [`Index::entries`] is depth-first, so a
-    /// directory's subtree is the run that starts immediately after it.
-    ///
-    /// Depth-first order with name-sorted siblings is itself sorted, by [`tree_order`], so the lookup is a binary
-    /// search over the restarts, whose whole paths are stored, and then a walk forward through one block that compares
-    /// stored bytes against `path` without rebuilding any entry's path.
     pub(crate) fn position(&self, path: &str) -> Option<usize> {
         let (mut low, mut high) = (0, self.len().div_ceil(RESTART));
 
@@ -331,14 +294,12 @@ impl Index {
             }
         }
 
-        // Every entry the walk passes sorts below `path`, and `common` is how many leading bytes the last one shares
-        // with it. An entry sharing more than that with its predecessor differs from `path` at the same byte and in
-        // the same direction, so it is passed without a look at its bytes.
         let restart = low.checked_sub(1)? * RESTART;
         let mut common = common_len(self.suffix(restart).as_bytes(), path.as_bytes());
         for at in restart + 1..self.len().min(restart + RESTART) {
             let shared = self.shared_at(at);
-            if shared > common {
+            let below_path_like_its_predecessor = shared > common;
+            if below_path_like_its_predecessor {
                 continue;
             }
 
@@ -415,7 +376,6 @@ impl Index {
         )
     }
 
-    /// [`Index::is_binary`] for an entry known by position, decoding its path only if the slot is still unread.
     fn is_binary_at(&self, at: usize) -> Option<bool> {
         let path = || self.entry_at(at).path;
         self.inspection.is_binary(
@@ -488,7 +448,6 @@ pub struct Inspected<'a> {
 }
 
 impl Index {
-    /// One entry of this index by position, for a query that already knows where the entry sits.
     pub(crate) const fn inspected_at(&self, at: usize) -> Inspected<'_> {
         Inspected { index: self, at }
     }
@@ -538,8 +497,7 @@ impl<'a> Inspected<'a> {
 #[derive(Debug, Clone)]
 pub struct Paths<'a> {
     index: &'a Index,
-    /// The position whose path `path` holds, `None` before the first read.
-    at: Option<usize>,
+    path_at: Option<usize>,
     path: String,
 }
 
@@ -550,28 +508,22 @@ impl Paths<'_> {
     ///
     /// Panics if `position` is not below [`Index::len`].
     pub fn get(&mut self, position: usize) -> &str {
-        match self.at.and_then(|at| position.checked_sub(at)) {
+        match self.path_at.and_then(|at| position.checked_sub(at)) {
             Some(0) => {}
             Some(gap) if gap <= STEP_LIMIT => {
                 (position - gap + 1..=position)
-                    .for_each(|at| self.index.step_into(at, &mut self.path));
+                    .for_each(|at| self.index.step_from_previous(at, &mut self.path));
             }
             _ => self.index.decode_into(position, &mut self.path),
         }
-        self.at = Some(position);
+        self.path_at = Some(position);
         &self.path
     }
 }
 
-/// How many entries every restart covers: every `RESTART`-th entry stores its whole path, so rebuilding any path reads
-/// the stored bytes of at most this many entries.
 pub(crate) const RESTART: usize = 128;
-
-/// How far ahead [`Paths::get`] steps entry by entry rather than rebuilding the requested path outright: stepping
-/// copies each entry's stored bytes, rebuilding copies the requested path once.
 const STEP_LIMIT: usize = 4;
 
-/// Where an entry's stored bytes start in its path: nothing is skipped at a restart, the shared prefix elsewhere.
 const fn stored_from(at: usize, shared: usize) -> usize {
     if at.is_multiple_of(RESTART) {
         0
@@ -580,10 +532,6 @@ const fn stored_from(at: usize, shared: usize) -> usize {
     }
 }
 
-/// The per-entry values too large for the narrow arrays that hold the rest, by position.
-///
-/// A narrow array holds its largest value in place of a value kept here, so only an entry that needs one pays a search.
-/// The build keeps them in rising position order.
 #[derive(Debug, Clone, Default)]
 struct Overflow {
     offsets: Vec<(usize, usize)>,
@@ -591,7 +539,6 @@ struct Overflow {
 }
 
 impl Overflow {
-    /// `offset` as [`Index::offsets`] holds it, kept here when it does not fit below `u16::MAX`.
     fn keep_offset(&mut self, at: usize, offset: usize) -> u16 {
         match u16::try_from(offset) {
             Ok(narrow) if narrow != u16::MAX => narrow,
@@ -602,7 +549,6 @@ impl Overflow {
         }
     }
 
-    /// `shared` as [`Index::shared`] holds it, kept here when it does not fit below `u8::MAX`.
     fn keep_shared(&mut self, at: usize, shared: usize) -> u8 {
         match u8::try_from(shared) {
             Ok(narrow) if narrow != u8::MAX => narrow,
@@ -613,28 +559,23 @@ impl Overflow {
         }
     }
 
-    /// The offset kept for the entry at `at`.
     fn offset(&self, at: usize) -> usize {
         kept(&self.offsets, at)
     }
 
-    /// The shared length kept for the entry at `at`.
     fn shared(&self, at: usize) -> usize {
         kept(&self.shared, at)
     }
 }
 
-/// The value `values` keeps for the entry at `at`, which must have one.
 fn kept(values: &[(usize, usize)], at: usize) -> usize {
     values[values.partition_point(|&(position, _)| position < at)].1
 }
 
-/// How many leading bytes `left` and `right` share.
 fn common_len(left: &[u8], right: &[u8]) -> usize {
     left.iter().zip(right).take_while(|(l, r)| l == r).count()
 }
 
-/// Narrows an offset into the stored bytes to the width the index keeps.
 #[expect(
     clippy::expect_used,
     reason = "this needs over 4 GiB of stored path bytes, far past what the u32 offsets were chosen for"
@@ -643,10 +584,6 @@ fn narrow(len: usize) -> u32 {
     u32::try_from(len).expect("an index stores fewer than 4 GiB of path bytes")
 }
 
-/// The stored bytes of `suffixes` between `start` and `end`, which must be two consecutive entry starts.
-///
-/// Slicing a `str` by bytes checks that both ends sit on a character boundary, which reads the bytes. A sweep that only
-/// needs where each entry's bytes lie would read every byte of the buffer for nothing.
 fn path_between(suffixes: &str, start: usize, end: usize) -> &str {
     // SAFETY: every start `Index::start_of` rebuilds is `suffixes.len()` as the build read it before the first append or
     // right after appending a whole `&str`, or past the last entry `suffixes.len()` itself, so each one is a character
@@ -655,11 +592,8 @@ fn path_between(suffixes: &str, start: usize, end: usize) -> &str {
     unsafe { suffixes.get_unchecked(start..end) }
 }
 
-/// The order [`Index::entries`] lies in: paths compared component by component, so a directory's subtree follows it
-/// immediately — which is bytewise order with `/` ranked below every other byte.
-///
-/// The first differing byte decides, and it is found eight bytes at a time, because the paths being compared share long
-/// prefixes and comparing those a byte at a time made a lookup four times slower.
+// constraint: `kartta-walk` sorts siblings bytewise by name, which makes depth-first order sorted by this comparison
+// and lets `Index::position` binary-search it
 fn tree_order(left: &str, right: &str) -> Ordering {
     let (left, right) = (left.as_bytes(), right.as_bytes());
     let mut at = 0;
@@ -690,10 +624,6 @@ fn tree_order(left: &str, right: &str) -> Ordering {
         )
 }
 
-/// Puts the report in an order two builds of one tree agree on.
-///
-/// The walk collects failures as its threads reach them, so the order they arrive in is the scheduler's. An index that
-/// is identical across builds is worth little beside a report that is not.
 fn order_errors(errors: &mut [BuildError]) {
     errors.sort_by(|left, right| {
         left.native_path()
@@ -702,21 +632,11 @@ fn order_errors(errors: &mut [BuildError]) {
     });
 }
 
-/// One directory being expanded during the depth-first pass: the children left to visit, and how much of the shared
-/// path buffer this directory's own path occupies.
 struct Frame<'a> {
     children: Children<'a, Payload>,
     prefix_len: usize,
 }
 
-/// Visits the walk's tree in depth-first order, handing `visit` each node's payload, full path, and how many leading
-/// bytes that path shares with the one visited before it.
-///
-/// One buffer carries the path of the entry being visited, truncated back to the parent's length on the way down a
-/// sibling: every node under one directory shares that directory's prefix, so the bytes below the truncation point are
-/// always already correct. The node visited before is the parent or something beneath the parent, so its path also
-/// starts with the parent's, and the shared length is the parent's length plus however far the old tail and the new one
-/// agree. The stack holds one frame per level, not one per pending node.
 fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str, usize)) {
     let mut path = String::new();
     let mut stack = vec![Frame {
@@ -799,7 +719,6 @@ impl BuildOutcome {
 mod tests {
     use super::*;
 
-    /// The order spelled out a byte at a time, which the word-wise comparison has to agree with.
     fn tree_order_by_byte(left: &str, right: &str) -> Ordering {
         let rank = |byte: u8| if byte == b'/' { 0 } else { u16::from(byte) + 1 };
         left.bytes().map(rank).cmp(right.bytes().map(rank))
@@ -837,8 +756,8 @@ mod tests {
 
     #[test]
     fn a_block_past_what_a_u16_offset_reaches_reads_back_whole() {
-        // No filesystem this suite runs on holds a path long enough to fill 64 KiB of one block, so the block is
-        // stored here through the build's own narrowing and read back through the index's reader.
+        // constraint: no filesystem this suite runs on holds a path long enough to fill 64 KiB of one block, so the
+        // block is stored through the build's own narrowing rather than walked
         let long = "d".repeat(70_000);
         let paths = [long.clone(), format!("{long}/a"), format!("{long}/b")];
         let mut overflow = Overflow::default();
