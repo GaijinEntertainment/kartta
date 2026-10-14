@@ -43,6 +43,11 @@ because doing either during the walk costs far more than the answers are worth t
 files — on a 1.4M-entry tree the walk-time stat alone was about half the build, and classifying every file runs to
 minutes. Two such answers may therefore describe two different moments, and none is refreshed once taken.
 
+A consumer that needs file content anyway — a parser, a content index — builds with `Index::build_with` and a
+`ContentVisitor` instead. The build then reads each file the visitor wants once, while the walk is in its directory,
+hands a text file's whole content to the visitor, and keeps the size and binary verdict that read learned, so the
+consumer never opens the tree a second time after the walk.
+
 `Index::is_binary` settles a file by extension where the name names a format that is binary by construction, and by
 whether a NUL appears in the first 64 KiB otherwise. The extension set only ever says "binary": listing a text format
 wrongly would make it unfindable, where omitting a binary one costs a single read that answers correctly anyway. `svg`
@@ -86,14 +91,16 @@ crate, and `git ls-files` is the one that does not.
 ## A build reports what it could not read
 
 `Index::build` returns a `BuildOutcome`: the index plus the failures the build survived. Only an unlistable root and an
-unstartable thread pool are fatal. Each surviving kind costs something different, and the difference is the point:
+unstartable thread pool are fatal, and a cancellation is returned rather than survived, because a cancelled walk holds
+whichever entries its threads reached. Each surviving kind costs something different, and the difference is the point:
 
 - An unreadable directory costs its whole subtree, and an entry whose type will not resolve costs that entry.
 - An unreadable `.gitignore` costs its rules, so the index *holds* what that file would have hidden.
 - A name that is not valid UTF-8 costs that entry, and a directory takes its subtree with it.
+- A file a `ContentVisitor` wanted and the build could not read costs the visitor that file's content; the entry stays.
 
-A build never reads a file's size, so nothing here reports a failure to. A size or a binary verdict that cannot be read
-answers `None` at the point of the ask instead, where the caller can act on it.
+A build without a visitor never reads a file's size, so nothing here reports a failure to. A size or a binary verdict
+that cannot be read answers `None` at the point of the ask instead, where the caller can act on it.
 
 The report is ordered by path, so two builds of one tree report identically, and `into_index` hands over the snapshot.
 

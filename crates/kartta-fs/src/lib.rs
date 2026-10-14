@@ -42,7 +42,9 @@
 //!   those answers are coherent across the whole tree. [`Index::size`] and [`Index::is_binary`] instead read the
 //!   filesystem when first asked and keep what they read, because doing either for a whole tree during the walk costs
 //!   far more than the answers are worth to a caller who looks at a handful of files. Two such answers from one index
-//!   may therefore describe two different moments, and none is refreshed once taken.
+//!   may therefore describe two different moments, and none is refreshed once taken. A consumer that reads content
+//!   anyway builds with [`Index::build_with`] and a [`ContentVisitor`], so each file it wants is read once, during the
+//!   walk, and that read's answers are kept.
 //! - `Some(0)` is a genuinely empty file and `None` is a size that could not be read; the two are never conflated.
 //! - A build that could not read everything says so. [`BuildOutcome::errors`] is not a log — an index missing a
 //!   subtree, or holding files an unread `.gitignore` would have hidden, is indistinguishable from a correct one
@@ -126,6 +128,7 @@
 mod binary;
 mod build;
 mod capped;
+mod content;
 mod entry;
 mod filter;
 mod fuzzy;
@@ -146,6 +149,7 @@ pub use kartta_walk::CancelToken;
 pub use crate::binary::{BinaryExtensions, BinaryExtensionsError, BinaryGroup};
 pub use crate::build::{BuildError, BuildOptions, IgnoreSources};
 pub use crate::capped::Capped;
+pub use crate::content::{Content, ContentId, ContentVisitor};
 pub use crate::entry::{Entry, EntryKind};
 pub use crate::filter::{Filter, FilterError};
 pub use crate::fuzzy::{FuzzyMatch, FuzzyOptions};
