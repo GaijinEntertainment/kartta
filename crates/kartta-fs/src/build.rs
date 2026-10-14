@@ -61,7 +61,14 @@ pub enum IgnoreSources {
 pub struct BuildOptions {
     /// Which ignore sources apply. Defaults to the reproducible [`IgnoreSources::InTree`].
     pub ignore_sources: IgnoreSources,
-    /// How many threads walk the tree. `None` uses the ambient rayon pool.
+    /// How many threads the index runs on — the walk that builds it, the reads during that walk, and every parallel
+    /// search after. `None` runs on the ambient rayon pool, which takes every core the machine reports unless the
+    /// process configured it otherwise.
+    ///
+    /// Set it wherever the reported count is not the count the process may use: a container runtime that misreports
+    /// its CPU quota reports the host's cores, and an index sized by that would oversubscribe the quota it actually has.
+    /// A named count gets the index a pool of exactly that size, kept for its lifetime, so concurrent searches share
+    /// those threads rather than each starting more; [`Index::threads`](crate::Index::threads) reports the count.
     ///
     /// The result does not depend on this: entries are name-sorted within each directory whatever the thread count, so
     /// two builds of an unchanged tree produce identical indexes.
