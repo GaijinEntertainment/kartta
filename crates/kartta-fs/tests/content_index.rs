@@ -382,3 +382,61 @@ fn a_match_straddling_a_chunk_of_the_build_read_is_not_ruled_out() {
         assert_eq!(matches.ruled_out(), 1, "the other file");
     }
 }
+
+#[test]
+fn an_index_kept_in_a_file_or_a_mapping_answers_as_one_in_memory_does() {
+    let dir = tree(&[
+        ("src/main.rs", b"fn main() {\n    run();\n}\n"),
+        ("src/run.rs", b"pub fn run() {}\n"),
+        ("docs/notes.md", b"run the tests\n"),
+    ]);
+    let scratch = tempfile::tempdir().expect("create scratch dir");
+    let in_memory = build(dir.path(), None).into_index();
+    let patterns = Patterns::new([r"\brun\("], Case::Sensitive).expect("compile");
+    let expected = found(
+        &in_memory,
+        &in_memory.grep(&patterns, &GrepOptions::default()),
+    );
+
+    for storage in [
+        ContentIndexStorage::File {
+            dir: scratch.path().to_path_buf(),
+        },
+        ContentIndexStorage::Mapped {
+            dir: scratch.path().to_path_buf(),
+        },
+    ] {
+        let mut options = BuildOptions::default();
+        options.content_index = Some(storage.clone());
+        let index = Index::build(dir.path(), &options)
+            .expect("build the index")
+            .into_index();
+
+        let matches = index.grep(&patterns, &GrepOptions::default());
+
+        assert_eq!(found(&index, &matches), expected, "{storage:?}");
+        assert_eq!(matches.ruled_out(), 1, "{storage:?}");
+        assert_eq!(
+            index.content_index_stats(),
+            in_memory.content_index_stats(),
+            "{storage:?}"
+        );
+    }
+}
+
+#[test]
+fn a_scratch_directory_that_does_not_exist_fails_the_build_naming_it() {
+    let dir = tree(&[("main.rs", b"fn main() {}\n")]);
+    let missing = dir.path().join("no such directory");
+    let mut options = BuildOptions::default();
+    options.content_index = Some(ContentIndexStorage::Mapped {
+        dir: missing.clone(),
+    });
+
+    let built = Index::build(dir.path(), &options);
+
+    assert!(
+        matches!(&built, Err(BuildError::ContentIndex { native_path, .. }) if *native_path == missing),
+        "{built:?}"
+    );
+}
