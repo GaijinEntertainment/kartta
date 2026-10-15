@@ -9,9 +9,10 @@ use crate::requirement::Requirement;
 use crate::trigram::Trigram;
 
 mod build;
+mod compact;
 mod storage;
 
-pub(crate) use build::{Collector, Full, Pairs, Unfinished};
+pub(crate) use build::{Collector, Full, Pairs, Target, Unfinished};
 use storage::Blob;
 
 const PARTS: usize = 256;
@@ -80,7 +81,8 @@ impl ContentIndexStats {
     /// How many distinct trigrams those files hold, counted within each segment of the index.
     ///
     /// A build makes one segment. A refresh that carries text files over unread keeps their segments and indexes the
-    /// files it reads in one more, so a trigram held both by files carried and by files read counts once in each.
+    /// files it reads in one more, so a trigram held both by files carried and by files read counts once in each, until
+    /// a refresh merges the segments into one and each trigram counts once again.
     #[must_use]
     pub const fn trigrams(&self) -> usize {
         self.trigrams
@@ -129,6 +131,21 @@ pub(crate) struct IdPositions<'a> {
     pub(crate) positions: &'a [u32],
 }
 
+pub(crate) const NO_POSITION: u32 = u32::MAX;
+
+impl IdPositions<'_> {
+    fn is_live(self, id: u32) -> bool {
+        id.checked_sub(self.first)
+            .and_then(|slot| self.positions.get(slot as usize))
+            .is_some_and(|&at| at != NO_POSITION)
+    }
+}
+
+// constraint: each refresh that reads anything adds a segment, with its own bucket table and lists for the files it
+// read again beside the lists their old ids keep, so past this many segments, or once more than a quarter of the files
+// the segments hold lists for are gone, the segments are merged into one
+const MAX_SEGMENTS: usize = 8;
+
 pub(crate) struct Narrowed {
     positions: Bits,
 }
@@ -157,6 +174,28 @@ impl ContentIndexes {
 
     pub(crate) fn stats(&self) -> ContentIndexStats {
         ContentIndexStats::sum(&self.segments, &self.unindexed, self.files)
+    }
+
+    pub(crate) fn compacted_when_due(
+        self,
+        ids: IdPositions<'_>,
+        target: Target<'_>,
+    ) -> Result<Self, Unfinished> {
+        let held: usize = self
+            .segments
+            .iter()
+            .map(|segment| segment.stats.files)
+            .sum();
+        let dead = held.saturating_sub(self.files);
+        if self.segments.len() <= MAX_SEGMENTS && dead * 4 <= held {
+            return Ok(self);
+        }
+
+        let merged = compact::compact(&self.segments, ids, self.files, target)?;
+        Ok(Self {
+            segments: vec![Arc::new(merged)],
+            ..self
+        })
     }
 
     // constraint: a file the build could not index may hold anything, so it stays admitted whatever the requirement
@@ -592,6 +631,89 @@ mod tests {
             whole.all_bytes() == spilled.all_bytes(),
             "the merged index is byte for byte the same"
         );
+    }
+
+    #[test]
+    fn merging_segments_keeps_the_files_still_answered_for_and_only_those() {
+        let only_gone_files_hold: Trigram = 0x00_0001;
+        let mut earlier = files(40);
+        earlier[3].push(only_gone_files_hold);
+        let later = files(60).split_off(40);
+        let segments = vec![
+            Arc::new(index_of(&earlier, RUN_PAIRS_FOR_TESTS)),
+            Arc::new(index_of(&later, RUN_PAIRS_FOR_TESTS).with_first_id(40)),
+        ];
+        let gone = [3, 7, 41, 59];
+        let positions: Vec<u32> = (0..60)
+            .map(|id| if gone.contains(&id) { NO_POSITION } else { id })
+            .collect();
+        let ids = IdPositions {
+            first: 0,
+            positions: &positions,
+        };
+        let target = Target {
+            storage: &ContentIndexStorage::Memory,
+            cancel: None,
+        };
+
+        let Ok(merged) = compact::compact(&segments, ids, 56, target) else {
+            panic!("merge the segments");
+        };
+
+        let all: Vec<Vec<Trigram>> = earlier.iter().chain(&later).cloned().collect();
+        let mut held: Vec<Trigram> = (0..)
+            .zip(&all)
+            .filter(|(id, _)| !gone.contains(id))
+            .flat_map(|(_, trigrams)| trigrams.iter().copied())
+            .collect();
+        held.sort_unstable();
+        held.dedup();
+        for &trigram in &held {
+            let answered: Vec<u32> = expected(&all, trigram)
+                .into_iter()
+                .filter(|id| !gone.contains(id))
+                .collect();
+            assert_eq!(
+                merged.files_holding(trigram),
+                answered,
+                "trigram {trigram:06x}"
+            );
+        }
+        assert_eq!(merged.files_holding(only_gone_files_hold), [] as [u32; 0]);
+        assert_eq!(merged.stats().trigrams(), held.len());
+        assert_eq!(merged.stats().files(), 56);
+    }
+
+    #[test]
+    fn segments_merge_past_eight_or_once_more_than_a_quarter_of_their_files_are_gone() {
+        let target = Target {
+            storage: &ContentIndexStorage::Memory,
+            cancel: None,
+        };
+        let segments_after = |count: u32, gone: u32| {
+            let positions: Vec<u32> = (0..count * 4)
+                .map(|id| if id < gone { NO_POSITION } else { id })
+                .collect();
+            let ids = IdPositions {
+                first: 0,
+                positions: &positions,
+            };
+            let segments = (0..count)
+                .map(|at| Arc::new(index_of(&files(4), RUN_PAIRS_FOR_TESTS).with_first_id(at * 4)))
+                .collect();
+            let live = (count * 4 - gone) as usize;
+            let Ok(indexes) =
+                ContentIndexes::new(segments, Vec::new(), live).compacted_when_due(ids, target)
+            else {
+                panic!("merge the segments");
+            };
+            indexes.segments.len()
+        };
+
+        assert_eq!(segments_after(8, 0), 8, "eight segments stay apart");
+        assert_eq!(segments_after(9, 0), 1, "a ninth merges them");
+        assert_eq!(segments_after(2, 2), 2, "a quarter of their files gone");
+        assert_eq!(segments_after(2, 3), 1, "more than a quarter gone");
     }
 
     #[test]
