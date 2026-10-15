@@ -31,8 +31,18 @@ rayon = "1.12.0"
 regex-syntax = "0.8.11"
 thiserror = "2.0.21"
 
+[features]
+# Following a tree through the operating system's change notifications. Off by default: a consumer that never watches
+# builds none of it.
+watch = ["dep:notify"]
+
 [dev-dependencies]
 tempfile = "3.27.0"
 
 [target."cfg(unix)".dependencies]
 libc = "0.2.190"
+
+# Linux is watched through inotify directly, so only the directories the index holds are watched. The first release of
+# notify that asks Windows to report a lost batch, and inotify for no access events, is the 9.0 candidate.
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+notify = { version = "9.0.0-rc.5", optional = true }
