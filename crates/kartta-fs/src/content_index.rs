@@ -176,6 +176,10 @@ impl ContentIndexes {
         ContentIndexStats::sum(&self.segments, &self.unindexed, self.files)
     }
 
+    pub(crate) const fn files(&self) -> usize {
+        self.files
+    }
+
     pub(crate) fn compacted_when_due(
         self,
         ids: IdPositions<'_>,

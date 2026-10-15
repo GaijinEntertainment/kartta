@@ -1,5 +1,5 @@
-//! The refresh contract: what an index shows after `Index::refresh`, which ids the refresh hands out and retires, and
-//! what a refresh that does not finish leaves behind.
+//! The refresh contract: what an index shows after `Index::refresh` and `Index::refresh_paths`, which ids a refresh
+//! hands out and retires, and what a refresh that does not finish leaves behind.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and an integration test crate is built \
@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use kartta_fs::{
     BuildError, BuildOptions, CancelToken, Case, Content, ContentId, ContentIndexStorage,
-    ContentVisitor, GrepOptions, Index, Patterns,
+    ContentVisitor, EntryKind, GrepOptions, IgnoreSources, Index, Patterns,
 };
 use tempfile::TempDir;
 
@@ -471,4 +471,466 @@ fn a_refresh_that_leaves_too_many_files_gone_from_the_lists_merges_them_into_one
     assert_eq!(search(&index, "changed"), (5, 7));
     assert_eq!(search(&index, "kept"), (7, 5));
     assert_eq!(search(&index, "file00"), (1, 11));
+}
+
+type Shown = (String, EntryKind, Option<String>);
+
+fn shown(index: &Index) -> Vec<Shown> {
+    index
+        .entries()
+        .map(|entry| {
+            (
+                entry.path().to_owned(),
+                entry.kind(),
+                entry.target().map(str::to_owned),
+            )
+        })
+        .collect()
+}
+
+fn assert_as_built(index: &Index, options: &BuildOptions) {
+    let built = build(index.root(), options, None);
+    assert_eq!(shown(index), shown(&built));
+    for entry in built.entries() {
+        assert!(
+            index.entry(entry.path()).is_some(),
+            "{} is found by its path",
+            entry.path()
+        );
+    }
+}
+
+fn refresh_paths<'p>(index: &mut Index, paths: impl IntoIterator<Item = &'p str>) -> Vec<String> {
+    let outcome = index
+        .refresh_paths(paths, None, None)
+        .expect("refresh the paths");
+    assert!(outcome.errors().is_empty(), "{:?}", outcome.errors());
+    outcome.walked().to_vec()
+}
+
+#[test]
+fn refreshing_the_paths_that_changed_makes_the_index_a_build_would_make() {
+    let dir = tree(&[
+        ("a.rs", "a"),
+        ("src/gone.rs", "b"),
+        ("src/edit.rs", "c"),
+        ("old/x.rs", "d"),
+        ("old/deep/y.rs", "e"),
+        ("swap", "f"),
+        ("z.rs", "g"),
+    ]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    fs::remove_file(dir.path().join("src/gone.rs")).expect("remove");
+    write(dir.path(), "src/edit.rs", "changed");
+    write(dir.path(), "src/added.rs", "h");
+    write(dir.path(), "new/deeper/still/w.rs", "i");
+    fs::remove_dir_all(dir.path().join("old")).expect("remove the directory");
+    fs::remove_file(dir.path().join("swap")).expect("remove");
+    write(dir.path(), "swap/inside.rs", "j");
+    let walked = refresh_paths(
+        &mut index,
+        [
+            "src/gone.rs",
+            "src/edit.rs",
+            "src/added.rs",
+            "new/deeper/still/w.rs",
+            "old",
+            "swap/inside.rs",
+        ],
+    );
+
+    assert_as_built(&index, &BuildOptions::default());
+    assert_eq!(
+        walked,
+        [
+            "new",
+            "old",
+            "src/added.rs",
+            "src/edit.rs",
+            "src/gone.rs",
+            "swap"
+        ],
+        "a path below a directory the index lacks walks that directory"
+    );
+}
+
+#[test]
+fn paths_given_twice_out_of_order_or_below_one_another_are_walked_once() {
+    let dir = tree(&[("a/b/c.rs", "a"), ("a/d.rs", "b"), ("e.rs", "c")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "a/b/new.rs", "d");
+    let walked = refresh_paths(
+        &mut index,
+        ["e.rs", "./a/b/new.rs", "a//b", "a/b/", "a/d.rs", "e.rs"],
+    );
+
+    assert_eq!(walked, ["a/b", "a/d.rs", "e.rs"]);
+    assert_as_built(&index, &BuildOptions::default());
+}
+
+#[test]
+fn a_changed_gitignore_walks_again_the_directory_it_governs() {
+    let dir = tree(&[
+        ("sub/.gitignore", "*.log\n"),
+        ("sub/a.log", ""),
+        ("sub/b.txt", ""),
+        ("c.txt", ""),
+    ]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "sub/.gitignore", "*.txt\n");
+    let walked = refresh_paths(&mut index, ["sub/.gitignore"]);
+
+    assert_eq!(walked, ["sub"]);
+    assert!(index.entry("sub/a.log").is_some());
+    assert!(index.entry("sub/b.txt").is_none());
+    assert_as_built(&index, &BuildOptions::default());
+}
+
+#[test]
+fn a_part_walked_again_keeps_the_rules_of_the_directories_above_it() {
+    let dir = tree(&[
+        (".gitignore", "*.log\n"),
+        ("sub/.gitignore", "*.tmp\n"),
+        ("sub/deep/a.rs", ""),
+    ]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    for path in ["sub/deep/b.log", "sub/deep/c.tmp", "sub/deep/d.rs", "e.log"] {
+        write(dir.path(), path, "");
+    }
+    refresh_paths(
+        &mut index,
+        ["sub/deep/b.log", "sub/deep/c.tmp", "sub/deep/d.rs", "e.log"],
+    );
+
+    assert_eq!(
+        paths(&index),
+        [
+            ".gitignore",
+            "sub",
+            "sub/.gitignore",
+            "sub/deep",
+            "sub/deep/a.rs",
+            "sub/deep/d.rs"
+        ]
+    );
+}
+
+#[test]
+fn parts_in_sibling_directories_each_keep_their_own_rules() {
+    let dir = tree(&[
+        ("a/deep/keep.rs", ""),
+        ("b/.gitignore", "*.log\n"),
+        ("b/deep/keep.rs", ""),
+    ]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    for path in ["a/deep/x.log", "b/deep/y.log", "b/z.log"] {
+        write(dir.path(), path, "");
+    }
+    refresh_paths(&mut index, ["a/deep/x.log", "b/deep/y.log", "b/z.log"]);
+
+    assert!(index.entry("a/deep/x.log").is_some());
+    assert!(index.entry("b/deep/y.log").is_none());
+    assert_as_built(&index, &BuildOptions::default());
+}
+
+#[test]
+fn a_nested_repository_walked_again_drops_the_rules_from_above_it() {
+    let dir = tree(&[(".gitignore", "*.log\n"), ("nested/a.rs", "")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    fs::create_dir(dir.path().join("nested/.git")).expect("make a repository");
+    write(dir.path(), "nested/b.log", "");
+    let walked = refresh_paths(&mut index, ["nested/.git"]);
+
+    assert_eq!(walked, ["nested"]);
+    assert!(index.entry("nested/b.log").is_some());
+    assert_as_built(&index, &BuildOptions::default());
+}
+
+#[test]
+fn a_part_inside_a_nested_repository_is_walked_without_the_rules_from_above_it() {
+    let dir = tree(&[(".gitignore", "*.log\n"), ("nested/sub/a.rs", "")]);
+    fs::create_dir(dir.path().join("nested/.git")).expect("make a repository");
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "nested/sub/b.log", "");
+    let walked = refresh_paths(&mut index, ["nested/sub/b.log"]);
+
+    assert_eq!(walked, ["nested/sub/b.log"]);
+    assert!(index.entry("nested/sub/b.log").is_some());
+    assert_as_built(&index, &BuildOptions::default());
+}
+
+#[test]
+fn a_gitignore_is_an_ordinary_file_where_no_rules_apply() {
+    let dir = tree(&[(".gitignore", "*.log\n"), ("a.log", "")]);
+    let mut options = BuildOptions::default();
+    options.ignore_sources = IgnoreSources::None;
+    let mut index = build(dir.path(), &options, None);
+
+    write(dir.path(), ".gitignore", "*.rs\n");
+    let walked = refresh_paths(&mut index, [".gitignore", ".git/HEAD", "sub/.git"]);
+
+    assert_eq!(walked, [".gitignore"]);
+    assert_as_built(&index, &options);
+}
+
+#[test]
+fn a_path_that_widens_to_the_root_refreshes_the_whole_tree() {
+    let dir = tree(&[(".gitignore", "*.log\n"), ("a.log", ""), ("b.rs", "")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), ".gitignore", "*.rs\n");
+    let walked = refresh_paths(&mut index, ["b.rs", ".gitignore"]);
+
+    assert_eq!(walked, [""]);
+    assert_as_built(&index, &BuildOptions::default());
+}
+
+#[test]
+fn a_path_inside_git_or_naming_the_root_repository_changes_nothing() {
+    let dir = tree(&[("a.rs", "")]);
+    fs::create_dir(dir.path().join(".git")).expect("make a repository");
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "b.rs", "");
+    let walked = refresh_paths(&mut index, [".git/HEAD", ".git", "sub/.git/index"]);
+
+    assert_eq!(walked, Vec::<String>::new());
+    assert_eq!(paths(&index), ["a.rs"], "nothing was walked");
+}
+
+#[test]
+fn a_path_that_may_leave_the_tree_is_refused_before_anything_is_walked() {
+    let dir = tree(&[("a.rs", "")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "b.rs", "");
+    let refreshed = index.refresh_paths(["b.rs", "sub/../../outside"], None, None);
+
+    assert!(matches!(
+        refreshed,
+        Err(BuildError::OutsideTree { path }) if path == "sub/../../outside"
+    ));
+    assert_eq!(paths(&index), ["a.rs"]);
+}
+
+#[test]
+fn a_path_the_rules_ignore_stays_out_of_the_index() {
+    let dir = tree(&[(".gitignore", "build/\n"), ("a.rs", "")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "build/out.rs", "");
+    let walked = refresh_paths(&mut index, ["build/out.rs"]);
+
+    assert_eq!(walked, ["build"]);
+    assert_eq!(paths(&index), [".gitignore", "a.rs"]);
+}
+
+#[test]
+fn a_file_below_an_ignored_directory_stays_out_even_where_a_rule_below_takes_it_back() {
+    let dir = tree(&[
+        (".gitignore", "hidden/\n"),
+        ("hidden/.gitignore", "!file.rs\n"),
+        ("a.rs", ""),
+    ]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "hidden/file.rs", "");
+    let walked = refresh_paths(&mut index, ["hidden/file.rs"]);
+
+    assert_eq!(walked, ["hidden"]);
+    assert_eq!(paths(&index), [".gitignore", "a.rs"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_pointed_elsewhere_shows_its_new_target() {
+    let dir = tree(&[("a.rs", ""), ("b.rs", "")]);
+    std::os::unix::fs::symlink("a.rs", dir.path().join("link")).expect("link");
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    fs::remove_file(dir.path().join("link")).expect("unlink");
+    std::os::unix::fs::symlink("b.rs", dir.path().join("link")).expect("link again");
+    refresh_paths(&mut index, ["link"]);
+
+    assert_eq!(
+        index.entry("link").and_then(|entry| entry.target()),
+        Some("b.rs")
+    );
+}
+
+#[test]
+fn refreshing_paths_reads_only_what_they_name_and_retires_what_it_replaced() {
+    let dir = tree(&[("a.rs", "a"), ("b.rs", "b"), ("c.rs", "c")]);
+    let ids = Ids::default();
+    let mut index = build(dir.path(), &BuildOptions::default(), Some(&ids));
+    let built = ids.take();
+
+    write(dir.path(), "a.rs", "changed");
+    fs::remove_file(dir.path().join("c.rs")).expect("remove");
+    let outcome = index
+        .refresh_paths(["a.rs", "c.rs"], Some(&ids), None)
+        .expect("refresh the paths");
+    let refreshed = ids.take();
+
+    assert_eq!(refreshed.keys().collect::<Vec<_>>(), ["a.rs"]);
+    assert!(built.values().all(|old| *old < refreshed["a.rs"]));
+    let mut gone = vec![built["a.rs"], built["c.rs"]];
+    gone.sort();
+    assert_eq!(outcome.retired().collect::<Vec<_>>(), gone);
+    for (path, id) in [("a.rs", refreshed["a.rs"]), ("b.rs", built["b.rs"])] {
+        let position = index.content_position(id).expect("the id names its file");
+        assert_eq!(index.paths().get(position), path);
+    }
+}
+
+#[test]
+fn a_stamped_refresh_of_a_directory_reads_again_only_the_files_that_changed() {
+    let dir = settled_tree(&[("src/a.rs", "a"), ("src/b.rs", "b"), ("c.rs", "c")]);
+    let ids = Ids::default();
+    let mut index = build(dir.path(), &stamped(), Some(&ids));
+    let built = ids.take();
+
+    write(dir.path(), "src/b.rs", "changed");
+    let outcome = index
+        .refresh_paths(["src"], Some(&ids), None)
+        .expect("refresh the paths");
+
+    assert_eq!(ids.take().keys().collect::<Vec<_>>(), ["src/b.rs"]);
+    assert_eq!(outcome.retired().collect::<Vec<_>>(), [built["src/b.rs"]]);
+    for path in ["src/a.rs", "c.rs"] {
+        let position = index
+            .content_position(built[path])
+            .expect("an unchanged file keeps its id");
+        assert_eq!(index.paths().get(position), path);
+    }
+    assert_eq!(
+        index.size("src/a.rs"),
+        Some(1),
+        "and what was learned of it"
+    );
+}
+
+#[test]
+fn refreshed_paths_are_searched_as_they_are_now() {
+    let dir = settled_tree(&[("a.txt", "kept\n"), ("sub/b.txt", "before\n")]);
+    let mut options = stamped();
+    options.content_index = Some(ContentIndexStorage::Memory);
+    let mut index = build(dir.path(), &options, None);
+
+    write(dir.path(), "sub/b.txt", "after\n");
+    write(dir.path(), "sub/c.txt", "added\n");
+    refresh_paths(&mut index, ["sub"]);
+
+    assert_eq!(search(&index, "kept"), (1, 2));
+    assert_eq!(search(&index, "after"), (1, 2));
+    assert_eq!(search(&index, "added"), (1, 2));
+    assert_eq!(search(&index, "before"), (0, 3));
+    let built = build(dir.path(), &options, None);
+    assert_eq!(
+        index.content_index_stats().map(|stats| stats.files()),
+        built.content_index_stats().map(|stats| stats.files()),
+        "each file the index answers for counts once"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_refreshed_file_that_will_not_read_is_reported_and_never_ruled_out() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tree(&[("a.txt", "kept\n"), ("b.txt", "other\n")]);
+    let mut options = BuildOptions::default();
+    options.content_index = Some(ContentIndexStorage::Memory);
+    let mut index = build(dir.path(), &options, None);
+    let locked = dir.path().join("b.txt");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("lock");
+    if fs::read(&locked).is_ok() {
+        return; // running as a user permissions do not bind, such as root
+    }
+
+    let outcome = index
+        .refresh_paths(["b.txt"], None, None)
+        .expect("refresh the paths");
+
+    assert!(
+        matches!(outcome.errors(), [BuildError::Read { native_path, .. }] if native_path.ends_with("b.txt")),
+        "{:?}",
+        outcome.errors()
+    );
+    assert_eq!(
+        search(&index, "kept"),
+        (1, 0),
+        "a file the index holds no list for may hold anything"
+    );
+    assert_eq!(
+        index.content_index_stats().map(|stats| stats.files()),
+        Some(1)
+    );
+}
+
+#[test]
+fn a_cancelled_refresh_of_paths_leaves_the_index_as_it_was() {
+    let dir = tree(&[("a.rs", "a")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+    write(dir.path(), "b.rs", "b");
+
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let refreshed = index.refresh_paths(["b.rs"], None, Some(&cancel));
+
+    assert!(matches!(refreshed, Err(BuildError::Cancelled)));
+    assert_eq!(paths(&index), ["a.rs"]);
+}
+
+#[test]
+fn refreshing_paths_never_hands_out_again_an_id_a_stopped_refresh_handed_its_visitor() {
+    let names: Vec<String> = (0..16).map(|at| format!("dir/file{at:02}.rs")).collect();
+    let spec: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "x")).collect();
+    let dir = tree(&spec);
+    let mut index = build(dir.path(), &BuildOptions::default(), Some(&Ids::default()));
+
+    let cancelling = CancelAtFirstVisit {
+        ids: Ids::default(),
+        cancel: CancelToken::new(),
+    };
+    let cancelled = index.refresh_paths(["dir"], Some(&cancelling), Some(&cancelling.cancel));
+    assert!(matches!(cancelled, Err(BuildError::Cancelled)));
+    let panicking = PanicAtFirstVisit(Ids::default());
+    let unwound = panic::catch_unwind(AssertUnwindSafe(|| {
+        index.refresh_paths(["dir"], Some(&panicking), None)
+    }));
+    assert!(unwound.is_err(), "the visitor's panic reaches the caller");
+
+    let mut stopped = cancelling.ids.take();
+    stopped.extend(
+        panicking
+            .0
+            .take()
+            .into_iter()
+            .map(|(path, id)| (format!("{path}+"), id)),
+    );
+    let ids = Ids::default();
+    let outcome = index
+        .refresh_paths(["dir"], Some(&ids), None)
+        .expect("refresh the paths");
+
+    assert_eq!(stopped.len(), 2, "each stopped refresh handed out an id");
+    assert!(
+        ids.take()
+            .values()
+            .all(|id| !stopped.values().any(|then| then == id)),
+        "no id names two files"
+    );
+    let retired: Vec<ContentId> = outcome.retired().collect();
+    assert!(
+        stopped.values().all(|id| retired.contains(id)),
+        "the ids the stopped refreshes handed out are retired"
+    );
 }
