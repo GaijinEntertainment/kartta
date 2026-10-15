@@ -25,6 +25,7 @@ use crate::requirement::Requirement;
 use crate::stamp::{Stamp, Stamping, UNTRUSTED};
 
 mod refresh;
+mod splice;
 
 pub(crate) use refresh::Previous;
 
@@ -1355,7 +1356,7 @@ mod tests {
 
     // constraint: a build lays a block at every RESTART-th entry, so a block of any other length is stored here through
     // the build's own narrowing rather than walked
-    fn index_in_blocks(entries: &[(&str, EntryKind)], lengths: &[usize]) -> Index {
+    pub(super) fn index_in_blocks(entries: &[(&str, EntryKind)], lengths: &[usize]) -> Index {
         let firsts: Vec<usize> = lengths
             .iter()
             .scan(0, |at, len| {
