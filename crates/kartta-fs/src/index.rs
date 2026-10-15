@@ -14,7 +14,8 @@ use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, BuildOptions, IgnoreSources};
 use crate::content::{ContentId, ContentVisitor};
 use crate::content_index::{
-    Collector, ContentIndex, ContentIndexStats, ContentIndexStorage, Narrowed, Unfinished,
+    Collector, ContentIndexStats, ContentIndexStorage, ContentIndexes, IdPositions, Narrowed,
+    Unfinished,
 };
 use crate::entry::Entry;
 use crate::filter::Filter;
@@ -76,7 +77,7 @@ pub struct Index {
     next_content_id: u32,
     content_positions: Box<[u32]>,
     content_storage: Option<ContentIndexStorage>,
-    content: Option<Arc<ContentIndex>>,
+    content: ContentIndexes,
     pool: Option<Arc<ThreadPool>>,
 }
 
@@ -253,9 +254,7 @@ impl Index {
         if let Some(content) = content {
             let universe = node_sized(learned.len());
             drop(learned);
-            index.content = Some(Arc::new(
-                index.finish_content_index(content, universe, cancel)?,
-            ));
+            index.content = index.finish_content_index(content, universe, cancel)?;
         }
 
         Ok(BuildOutcome { index, errors })
@@ -266,7 +265,7 @@ impl Index {
         content: Collected,
         universe: u32,
         cancel: Option<&CancelToken>,
-    ) -> Result<ContentIndex, BuildError> {
+    ) -> Result<ContentIndexes, BuildError> {
         let Collected {
             collector,
             pairs,
@@ -284,8 +283,9 @@ impl Index {
             .filter_map(|path| self.position(path))
             .map(node_sized)
             .collect();
+        let segment = finished.with_first_id(self.first_content_id);
 
-        Ok(finished.with_unindexed(unindexed))
+        Ok(ContentIndexes::new(vec![Arc::new(segment)], unindexed))
     }
 
     fn from_tree(base: Base, tree: Tree<Payload>, learned: &[Learned]) -> Self {
@@ -354,7 +354,7 @@ impl Index {
             next_content_id: first_content_id + node_sized(learned.len()),
             content_positions: reads.positions,
             content_storage,
-            content: None,
+            content: ContentIndexes::default(),
             pool,
         }
     }
@@ -364,13 +364,17 @@ impl Index {
     /// See [`BuildOptions::content_index`] for what a build with one reads.
     #[must_use]
     pub fn content_index_stats(&self) -> Option<ContentIndexStats> {
-        self.content.as_deref().map(ContentIndex::stats)
+        self.content_storage.as_ref()?;
+        Some(self.content.stats())
     }
 
     pub(crate) fn narrowed(&self, requirement: &Requirement) -> Option<Narrowed> {
-        self.content
-            .as_deref()?
-            .narrow(requirement, &self.content_positions, self.len())
+        self.content_storage.as_ref()?;
+        let ids = IdPositions {
+            first: self.first_content_id,
+            positions: &self.content_positions,
+        };
+        self.content.narrow(requirement, ids, self.len())
     }
 
     /// How many threads this index runs its parallel work on: the walk that built it, and the searches after.
@@ -1154,7 +1158,7 @@ mod tests {
             next_content_id: 0,
             content_positions: Box::default(),
             content_storage: None,
-            content: None,
+            content: ContentIndexes::default(),
             pool: None,
         };
 
