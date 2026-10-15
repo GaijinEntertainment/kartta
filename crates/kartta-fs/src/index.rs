@@ -14,8 +14,8 @@ use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, BuildOptions, IgnoreSources};
 use crate::content::{ContentId, ContentVisitor};
 use crate::content_index::{
-    Collector, ContentIndexStats, ContentIndexStorage, ContentIndexes, IdPositions, Narrowed,
-    Unfinished,
+    Collector, ContentIndexStats, ContentIndexStorage, ContentIndexes, IdPositions, NO_POSITION,
+    Narrowed, Target, Unfinished,
 };
 use crate::entry::Entry;
 use crate::filter::Filter;
@@ -27,8 +27,6 @@ use crate::stamp::{Stamp, Stamping, UNTRUSTED};
 mod refresh;
 
 pub(crate) use refresh::Previous;
-
-const NO_POSITION: u32 = u32::MAX;
 
 /// A snapshot of a directory tree: every entry the ignore rules kept, in the order a depth-first descent finds them.
 ///
@@ -140,10 +138,13 @@ impl Index {
     /// the content index reads is read again, which costs what the build did. With them, a file whose size and change
     /// time match its stamp is carried over unread: it keeps its [`ContentId`], what the index knew of it
     /// and its place in the content index, and the visitor is not handed it again — unless the visitor wants it now
-    /// and was never handed it before. Checking a stamp costs one stat of the file. Either way the index in use stays
-    /// whole until the new one is done, so the two are held at once while it runs. A refresh that returns an error, a
-    /// cancelled one included, leaves the index answering as it did; one that returns [`RefreshOutcome`] has replaced
-    /// it, even when [`RefreshOutcome::errors`] lists what its walk could not read.
+    /// and was never handed it before. Checking a stamp costs one stat of the file. The files a refresh reads are
+    /// indexed in a segment of the content index beside the segments that hold the files it carried, and once there
+    /// are more than eight segments, or more than a quarter of the files they hold lists for are gone, the refresh
+    /// merges them into one, at about what the build's own merge cost. Either way the index in use stays whole until
+    /// the new one is done, so the two are held at once while it runs. A refresh that returns an error, a cancelled one
+    /// included, leaves the index answering as it did; one that returns [`RefreshOutcome`] has replaced it, even when
+    /// [`RefreshOutcome::errors`] lists what its walk could not read.
     ///
     /// Each file a refresh reads gets a new [`ContentId`], numbered past every id the index handed out before,
     /// including those of a refresh that returned an error or that a panicking visitor unwound, so one id never names
@@ -325,12 +326,13 @@ impl Index {
             previous,
         } = reads;
         let storage = collector.storage().clone();
+        let unfinished = |unfinished| match unfinished {
+            Unfinished::Cancelled => BuildError::Cancelled,
+            Unfinished::Failed(source) => storage_error(&storage, source),
+        };
         let finished = self
             .on_threads(|| collector.finish(pairs, count, cancel))
-            .map_err(|unfinished| match unfinished {
-                Unfinished::Cancelled => BuildError::Cancelled,
-                Unfinished::Failed(source) => storage_error(&storage, source),
-            })?;
+            .map_err(unfinished)?;
         let unindexed = unindexed
             .iter()
             .filter_map(|path| self.position(path))
@@ -347,7 +349,18 @@ impl Index {
             segments.push(Arc::new(read));
         }
 
-        Ok(ContentIndexes::new(segments, unindexed, files))
+        let ids = IdPositions {
+            first: self.first_content_id,
+            positions: &self.content_positions,
+        };
+        let target = Target {
+            storage: &storage,
+            cancel,
+        };
+        self.on_threads(|| {
+            ContentIndexes::new(segments, unindexed, files).compacted_when_due(ids, target)
+        })
+        .map_err(unfinished)
     }
 
     fn from_tree(base: Base, tree: Tree<Payload>, placing: Placing<'_>) -> (Self, usize) {

@@ -438,3 +438,37 @@ fn a_stamped_refresh_of_an_unchanged_tree_reads_nothing_and_retires_nothing() {
         assert_eq!(index.paths().get(position), path);
     }
 }
+
+#[test]
+fn a_refresh_that_leaves_too_many_files_gone_from_the_lists_merges_them_into_one() {
+    let names: Vec<String> = (0..12).map(|at| format!("file{at:02}.txt")).collect();
+    let spec: Vec<(&str, String)> = names
+        .iter()
+        .map(|name| (name.as_str(), format!("kept {name}\n")))
+        .collect();
+    let spec: Vec<(&str, &str)> = spec
+        .iter()
+        .map(|(name, text)| (*name, text.as_str()))
+        .collect();
+    let dir = settled_tree(&spec);
+    let mut options = stamped();
+    options.content_index = Some(ContentIndexStorage::Memory);
+    let mut index = build(dir.path(), &options, None);
+
+    for name in &names[..5] {
+        write(dir.path(), name, &format!("changed {name}\n"));
+    }
+    index.refresh(None, None).expect("refresh");
+
+    let fresh = build(dir.path(), &options, None);
+    let stats = index.content_index_stats().expect("a content index");
+    let built = fresh.content_index_stats().expect("a content index");
+    assert_eq!(
+        (stats.files(), stats.trigrams()),
+        (built.files(), built.trigrams()),
+        "one segment, each trigram counted once, as a build makes"
+    );
+    assert_eq!(search(&index, "changed"), (5, 7));
+    assert_eq!(search(&index, "kept"), (7, 5));
+    assert_eq!(search(&index, "file00"), (1, 11));
+}
