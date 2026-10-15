@@ -378,11 +378,7 @@ impl Index {
             at += 1;
         });
 
-        let mut suffixes = String::with_capacity(suffixes_len);
-        let mut blocks = Vec::with_capacity(tree.len().div_ceil(RESTART));
-        let mut offsets = Vec::with_capacity(tree.len());
-        let mut shared = Vec::with_capacity(tree.len());
-        let mut overflow = Overflow::default();
+        let mut encoder = Encoder::with_capacity(tree.len(), suffixes_len);
         let mut kinds = Vec::with_capacity(tree.len());
         let mut symlink_targets = Vec::new();
         let inspection = Inspection::new(tree.len());
@@ -397,21 +393,22 @@ impl Index {
             if let Some(id) = payload.content {
                 placed.place(&inspection, id, at);
             }
-            if at.is_multiple_of(RESTART) {
-                blocks.push(Block {
-                    first: node_sized(at),
-                    start: narrow(suffixes.len()),
-                });
-            }
-            let common = path.floor_char_boundary(common);
-            let offset = suffixes.len() - blocks.last().map_or(0, |block| block.start as usize);
-            offsets.push(overflow.keep_offset(at, offset));
-            shared.push(overflow.keep_shared(at, common));
-            suffixes.push_str(&path[stored_from(at, common)..]);
+            encoder.push(
+                path,
+                path.floor_char_boundary(common),
+                at.is_multiple_of(RESTART),
+            );
             kinds.push(payload.kind);
         });
         drop(tree);
 
+        let Encoder {
+            suffixes,
+            blocks,
+            offsets,
+            shared,
+            overflow,
+        } = encoder;
         let index = Self {
             root,
             inspection,
@@ -1091,6 +1088,43 @@ impl Overflow {
     }
 }
 
+#[derive(Debug, Default)]
+struct Encoder {
+    suffixes: String,
+    blocks: Vec<Block>,
+    offsets: Vec<u16>,
+    shared: Vec<u8>,
+    overflow: Overflow,
+}
+
+impl Encoder {
+    fn with_capacity(entries: usize, suffix_bytes: usize) -> Self {
+        Self {
+            suffixes: String::with_capacity(suffix_bytes),
+            blocks: Vec::with_capacity(entries.div_ceil(RESTART)),
+            offsets: Vec::with_capacity(entries),
+            shared: Vec::with_capacity(entries),
+            overflow: Overflow::default(),
+        }
+    }
+
+    fn push(&mut self, path: &str, common: usize, starts_block: bool) {
+        let at = self.offsets.len();
+        if starts_block {
+            self.blocks.push(Block {
+                first: node_sized(at),
+                start: narrow(self.suffixes.len()),
+            });
+        }
+        let start = self.blocks.last().map_or(0, |block| block.start as usize);
+        self.offsets
+            .push(self.overflow.keep_offset(at, self.suffixes.len() - start));
+        self.shared.push(self.overflow.keep_shared(at, common));
+        let stored = if starts_block { 0 } else { common };
+        self.suffixes.push_str(&path[stored..]);
+    }
+}
+
 fn kept(values: &[(usize, usize)], at: usize) -> usize {
     values[values.partition_point(|&(position, _)| position < at)].1
 }
@@ -1330,25 +1364,20 @@ mod tests {
                 Some(first)
             })
             .collect();
-        let mut overflow = Overflow::default();
-        let (mut suffixes, mut offsets, mut shared) = (String::new(), Vec::new(), Vec::new());
-        let mut blocks = Vec::new();
+        let mut encoder = Encoder::default();
         let mut previous = "";
         for (at, &(path, _)) in entries.iter().enumerate() {
-            let first = firsts.contains(&at);
-            if first {
-                blocks.push(Block {
-                    first: node_sized(at),
-                    start: narrow(suffixes.len()),
-                });
-            }
             let common = common_len(previous.as_bytes(), path.as_bytes());
-            let offset = suffixes.len() - blocks.last().map_or(0, |block| block.start as usize);
-            offsets.push(overflow.keep_offset(at, offset));
-            shared.push(overflow.keep_shared(at, common));
-            suffixes.push_str(&path[if first { 0 } else { common }..]);
+            encoder.push(path, common, firsts.contains(&at));
             previous = path;
         }
+        let Encoder {
+            suffixes,
+            blocks,
+            offsets,
+            shared,
+            overflow,
+        } = encoder;
         Index {
             root: PathBuf::new(),
             suffixes: suffixes.into_boxed_str(),
