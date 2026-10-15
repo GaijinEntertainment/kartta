@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
-use std::io;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
+use std::{io, iter};
 
 use kartta_walk::{CancelToken, Children, EntryKind, Tree, WalkError, WalkOptions, walk};
 use rayon::{ThreadPool, ThreadPoolBuilder};
@@ -22,6 +22,13 @@ use crate::filter::Filter;
 use crate::inspection::Inspection;
 use crate::policy::{Collected, DirState, Indexing, Learned, Numbering, Payload, Reading, Report};
 use crate::requirement::Requirement;
+use crate::stamp::{Stamp, Stamping, UNTRUSTED};
+
+mod refresh;
+
+pub(crate) use refresh::Previous;
+
+const NO_POSITION: u32 = u32::MAX;
 
 /// A snapshot of a directory tree: every entry the ignore rules kept, in the order a depth-first descent finds them.
 ///
@@ -76,6 +83,7 @@ pub struct Index {
     first_content_id: u32,
     next_content_id: u32,
     content_positions: Box<[u32]>,
+    content_stamps: Option<Box<[Stamp]>>,
     content_storage: Option<ContentIndexStorage>,
     content: ContentIndexes,
     pool: Option<Arc<ThreadPool>>,
@@ -122,21 +130,25 @@ impl Index {
     }
 
     /// Walks the tree again and makes this index what a build of it would make now, handing `visitor` each wanted text
-    /// file as a build does.
+    /// file it reads, as a build does.
     ///
     /// The walk applies the rules the index was built with: the same root, ignore sources and binary extensions, a
-    /// content index kept the same way, on the same threads. So a file added, removed or changed since, and a change to
-    /// a `.gitignore`, all show once this returns.
+    /// content index kept the same way, stamps or none, on the same threads. So a file added, removed or changed since,
+    /// and a change to a `.gitignore`, all show once this returns.
     ///
-    /// A refresh costs a build. Every file the visitor wants and every file the content index reads is read again, and
-    /// the index in use stays whole until the new one is done, so the two are held at once while it runs. A refresh
-    /// that returns an error, a cancelled one included, leaves the index answering as it did; one that returns
-    /// [`RefreshOutcome`] has replaced it, even when [`RefreshOutcome::errors`] lists what its walk could not read.
+    /// What it reads depends on [`BuildOptions::stamps`]. Without stamps, every file the visitor wants and every file
+    /// the content index reads is read again, which costs what the build did. With them, a file whose size and change
+    /// time match its stamp is carried over unread: it keeps its [`ContentId`], what the index knew of it
+    /// and its place in the content index, and the visitor is not handed it again — unless the visitor wants it now
+    /// and was never handed it before. Checking a stamp costs one stat of the file. Either way the index in use stays
+    /// whole until the new one is done, so the two are held at once while it runs. A refresh that returns an error, a
+    /// cancelled one included, leaves the index answering as it did; one that returns [`RefreshOutcome`] has replaced
+    /// it, even when [`RefreshOutcome::errors`] lists what its walk could not read.
     ///
-    /// The visitor sees each file under a new [`ContentId`]: a refresh numbers its reads past every id the index handed
-    /// out before, including those of a refresh that returned an error or that a panicking visitor unwound, so one id
-    /// never names two files. [`RefreshOutcome::retired`] lists the ids this index does not answer for, which a
-    /// consumer that keeps something per id drops.
+    /// Each file a refresh reads gets a new [`ContentId`], numbered past every id the index handed out before,
+    /// including those of a refresh that returned an error or that a panicking visitor unwound, so one id never names
+    /// two files. [`RefreshOutcome::retired`] lists the ids this index does not answer for now — every file read again
+    /// or gone, and every id such a refresh handed out — which a consumer that keeps something per id drops.
     ///
     /// # Errors
     ///
@@ -147,34 +159,52 @@ impl Index {
         visitor: Option<&dyn ContentVisitor>,
         cancel: Option<&CancelToken>,
     ) -> Result<RefreshOutcome, BuildError> {
+        let handed = AtomicU32::new(0);
+        // constraint: a visitor that panics unwinds through the walk after it was handed ids, and a caller that catches
+        // the panic keeps this index, so the ids it handed out are counted before the panic goes on
+        let walked = panic::catch_unwind(AssertUnwindSafe(|| {
+            self.walk_again(visitor, cancel, &handed)
+        }));
+        if !matches!(walked, Ok(Ok(_))) {
+            self.next_content_id += handed.into_inner();
+        }
+        let (BuildOutcome { index, errors }, retired) =
+            walked.unwrap_or_else(|panicked| panic::resume_unwind(panicked))?;
+        *self = index;
+
+        Ok(RefreshOutcome { errors, retired })
+    }
+
+    fn walk_again(
+        &self,
+        visitor: Option<&dyn ContentVisitor>,
+        cancel: Option<&CancelToken>,
+        handed: &AtomicU32,
+    ) -> Result<(BuildOutcome, Vec<Range<u32>>), BuildError> {
         let options = BuildOptions {
             ignore_sources: self.ignore_sources,
             threads: None,
             binary_extensions: self.binary_extensions.clone(),
             content_index: self.content_storage.clone(),
+            stamps: self.content_stamps.is_some(),
         };
-        let handed = AtomicU32::new(0);
+        let can_carry = visitor.is_some() || self.content_storage.is_some();
+        let previous = can_carry.then(|| Previous::of(self)).flatten();
         let walking = Walking {
             visitor,
             cancel,
             first_content_id: self.next_content_id,
-            handed: Some(&handed),
+            handed: Some(handed),
             pool: self.pool.clone(),
+            previous: previous.as_ref(),
         };
-        // constraint: a visitor that panics unwinds through the walk after it was handed ids, and a caller that catches
-        // the panic keeps this index, so the ids it handed out are counted before the panic goes on
-        let built = panic::catch_unwind(AssertUnwindSafe(|| {
-            Self::walk_and_build(&self.root, &options, walking)
-        }));
-        if !matches!(built, Ok(Ok(_))) {
-            self.next_content_id += handed.into_inner();
-        }
-        let BuildOutcome { index, errors } =
-            built.unwrap_or_else(|panicked| panic::resume_unwind(panicked))?;
-        let retired = self.first_content_id..self.next_content_id;
-        *self = index;
+        let outcome = Self::walk_and_build(&self.root, &options, walking)?;
+        let retired = previous.as_ref().map_or_else(
+            || iter::once(self.first_content_id..self.next_content_id).collect(),
+            Previous::retired,
+        );
 
-        Ok(RefreshOutcome { errors, retired })
+        Ok((outcome, retired))
     }
 
     fn build_walking(
@@ -189,6 +219,7 @@ impl Index {
             first_content_id: 0,
             handed: None,
             pool: options.threads.map(thread_pool).transpose()?,
+            previous: None,
         };
         Self::walk_and_build(root, options, walking)
     }
@@ -204,6 +235,7 @@ impl Index {
             first_content_id,
             handed,
             pool,
+            previous,
         } = walking;
         let collector = options
             .content_index
@@ -213,6 +245,8 @@ impl Index {
         let numbering = Numbering {
             first_id: first_content_id,
             handed,
+            stamps: options.stamps.then(Stamping::starting_now),
+            previous,
         };
         let reading = (visitor.is_some() || collector.is_some())
             .then(|| Reading::new(visitor, collector, &options.binary_extensions, numbering));
@@ -233,6 +267,7 @@ impl Index {
         let Report {
             mut errors,
             learned,
+            stamps,
             ran_out_of_ids,
             content,
         } = policy.into_report();
@@ -246,15 +281,27 @@ impl Index {
             root: root.to_path_buf(),
             ignore_sources: options.ignore_sources,
             binary_extensions: options.binary_extensions.clone(),
-            first_content_id,
             content_storage: options.content_index.clone(),
             pool,
         };
-        let mut index = Self::from_tree(base, tree, &learned);
+        let placing = Placing {
+            first_read: first_content_id,
+            learned: &learned,
+            stamps: options
+                .stamps
+                .then(|| stamps.as_deref().unwrap_or_default()),
+            previous,
+        };
+        let (mut index, carried_text) = Self::from_tree(base, tree, placing);
         if let Some(content) = content {
-            let universe = node_sized(learned.len());
+            let reads = ReadIds {
+                first: first_content_id,
+                count: node_sized(learned.len()),
+                carried_text,
+                previous,
+            };
             drop(learned);
-            index.content = index.finish_content_index(content, universe, cancel)?;
+            index.content = index.finish_content_index(content, reads, cancel)?;
         }
 
         Ok(BuildOutcome { index, errors })
@@ -263,7 +310,7 @@ impl Index {
     fn finish_content_index(
         &self,
         content: Collected,
-        universe: u32,
+        reads: ReadIds<'_>,
         cancel: Option<&CancelToken>,
     ) -> Result<ContentIndexes, BuildError> {
         let Collected {
@@ -271,9 +318,15 @@ impl Index {
             pairs,
             unindexed,
         } = content;
+        let ReadIds {
+            first,
+            count,
+            carried_text,
+            previous,
+        } = reads;
         let storage = collector.storage().clone();
         let finished = self
-            .on_threads(|| collector.finish(pairs, universe, cancel))
+            .on_threads(|| collector.finish(pairs, count, cancel))
             .map_err(|unfinished| match unfinished {
                 Unfinished::Cancelled => BuildError::Cancelled,
                 Unfinished::Failed(source) => storage_error(&storage, source),
@@ -283,17 +336,25 @@ impl Index {
             .filter_map(|path| self.position(path))
             .map(node_sized)
             .collect();
-        let segment = finished.with_first_id(self.first_content_id);
 
-        Ok(ContentIndexes::new(vec![Arc::new(segment)], unindexed))
+        let mut segments = match previous {
+            Some(previous) if carried_text > 0 => previous.index().content.segments.clone(),
+            _ => Vec::new(),
+        };
+        let read = finished.with_first_id(first);
+        let files = carried_text + read.files();
+        if segments.is_empty() || read.files() > 0 {
+            segments.push(Arc::new(read));
+        }
+
+        Ok(ContentIndexes::new(segments, unindexed, files))
     }
 
-    fn from_tree(base: Base, tree: Tree<Payload>, learned: &[Learned]) -> Self {
+    fn from_tree(base: Base, tree: Tree<Payload>, placing: Placing<'_>) -> (Self, usize) {
         let Base {
             root,
             ignore_sources,
             binary_extensions,
-            first_content_id,
             content_storage,
             pool,
         } = base;
@@ -312,11 +373,8 @@ impl Index {
         let mut kinds = Vec::with_capacity(tree.len());
         let mut symlink_targets = Vec::new();
         let inspection = Inspection::new(tree.len());
-        let mut reads = Reads {
-            learned,
-            first: first_content_id as usize,
-            positions: vec![0; learned.len()].into_boxed_slice(),
-        };
+        let next_content_id = placing.first_read + node_sized(placing.learned.len());
+        let mut placed = Placed::for_reads(placing);
 
         depth_first(&tree, |payload, path, common| {
             let at = kinds.len();
@@ -324,7 +382,7 @@ impl Index {
                 symlink_targets.push((at, target.clone()));
             }
             if let Some(id) = payload.content {
-                reads.place(&inspection, id, at);
+                placed.place(&inspection, id, at);
             }
             if at.is_multiple_of(RESTART) {
                 block_starts.push(narrow(suffixes.len()));
@@ -338,7 +396,7 @@ impl Index {
         });
         drop(tree);
 
-        Self {
+        let index = Self {
             root,
             inspection,
             suffixes: suffixes.into_boxed_str(),
@@ -350,13 +408,15 @@ impl Index {
             symlink_targets,
             ignore_sources,
             binary_extensions,
-            first_content_id,
-            next_content_id: first_content_id + node_sized(learned.len()),
-            content_positions: reads.positions,
+            first_content_id: placed.floor,
+            next_content_id,
+            content_positions: placed.positions,
+            content_stamps: placed.stamps,
             content_storage,
             content: ContentIndexes::default(),
             pool,
-        }
+        };
+        (index, placed.carried_text)
     }
 
     /// What the content index holds, or `None` when the build was not asked for one.
@@ -404,6 +464,7 @@ impl Index {
         let slot = id.slot().checked_sub(self.first_content_id as usize)?;
         self.content_positions
             .get(slot)
+            .filter(|&&position| position != NO_POSITION)
             .map(|&position| position as usize)
     }
 
@@ -810,7 +871,6 @@ struct Base {
     root: PathBuf,
     ignore_sources: IgnoreSources,
     binary_extensions: BinaryExtensions,
-    first_content_id: u32,
     content_storage: Option<ContentIndexStorage>,
     pool: Option<Arc<ThreadPool>>,
 }
@@ -821,6 +881,15 @@ struct Walking<'a> {
     first_content_id: u32,
     handed: Option<&'a AtomicU32>,
     pool: Option<Arc<ThreadPool>>,
+    previous: Option<&'a Previous<'a>>,
+}
+
+#[derive(Clone, Copy)]
+struct ReadIds<'a> {
+    first: u32,
+    count: u32,
+    carried_text: usize,
+    previous: Option<&'a Previous<'a>>,
 }
 
 fn on_pool<R: Send>(pool: Option<&ThreadPool>, operation: impl FnOnce() -> R + Send) -> R {
@@ -844,24 +913,71 @@ fn thread_pool(threads: NonZeroUsize) -> Result<Arc<ThreadPool>, BuildError> {
         })
 }
 
-struct Reads<'a> {
+struct Placing<'a> {
+    first_read: u32,
     learned: &'a [Learned],
-    first: usize,
-    positions: Box<[u32]>,
+    stamps: Option<&'a [Stamp]>,
+    previous: Option<&'a Previous<'a>>,
 }
 
-impl Reads<'_> {
+struct Placed<'a> {
+    placing: Placing<'a>,
+    floor: u32,
+    positions: Box<[u32]>,
+    stamps: Option<Box<[Stamp]>>,
+    carried_text: usize,
+}
+
+impl<'a> Placed<'a> {
+    fn for_reads(placing: Placing<'a>) -> Self {
+        let floor = match placing.previous {
+            Some(previous) if previous.carried_any() => previous.first_id(),
+            _ => placing.first_read,
+        };
+        let ids = (placing.first_read - floor) as usize + placing.learned.len();
+
+        Self {
+            floor,
+            positions: vec![NO_POSITION; ids].into_boxed_slice(),
+            stamps: placing
+                .stamps
+                .map(|_| vec![UNTRUSTED; ids].into_boxed_slice()),
+            carried_text: 0,
+            placing,
+        }
+    }
+
     #[expect(
         clippy::expect_used,
         reason = "positions are the walk's node ids, which it keeps in a u32 and cannot run past"
     )]
     fn place(&mut self, inspection: &Inspection, id: ContentId, at: usize) {
-        let slot = id.slot() - self.first;
-        let read = self.learned[slot];
+        let slot = id.slot() - self.floor as usize;
+        let read = id.slot().checked_sub(self.placing.first_read as usize);
+        let stamp = match (read, self.placing.previous) {
+            (Some(read), _) => {
+                let learned = self.placing.learned[read];
+                inspection.record_size(at, learned.size);
+                if let Some(binary) = learned.binary {
+                    inspection.record_binary(at, binary);
+                }
+                self.placing.stamps.map_or(UNTRUSTED, |stamps| stamps[read])
+            }
+            (None, Some(previous)) => {
+                let Some((raw, stamp)) = previous.carried(id) else {
+                    return;
+                };
+                inspection.set_raw(at, raw);
+                if Inspection::raw_is_text(raw) {
+                    self.carried_text += 1;
+                }
+                stamp
+            }
+            (None, None) => return,
+        };
         self.positions[slot] = u32::try_from(at).expect("a position fits the walk's u32 node ids");
-        inspection.record_size(at, read.size);
-        if let Some(binary) = read.binary {
-            inspection.record_binary(at, binary);
+        if let Some(stamps) = &mut self.stamps {
+            stamps[slot] = stamp;
         }
     }
 }
@@ -1070,7 +1186,7 @@ impl BuildOutcome {
 #[derive(Debug)]
 pub struct RefreshOutcome {
     errors: Vec<BuildError>,
-    retired: Range<u32>,
+    retired: Vec<Range<u32>>,
 }
 
 impl RefreshOutcome {
@@ -1081,9 +1197,13 @@ impl RefreshOutcome {
     }
 
     /// The ids the index handed out before this refresh, including those of a refresh that returned an error or that a
-    /// panicking visitor unwound, and does not answer for now: [`Index::content_position`] answers `None` for each.
-    pub fn retired(&self) -> impl ExactSizeIterator<Item = ContentId> {
-        self.retired.clone().map(ContentId::from_slot)
+    /// panicking visitor unwound, and does not answer for now, in rising order: [`Index::content_position`] answers
+    /// `None` for each.
+    pub fn retired(&self) -> impl Iterator<Item = ContentId> {
+        self.retired
+            .iter()
+            .flat_map(Clone::clone)
+            .map(ContentId::from_slot)
     }
 }
 
@@ -1157,6 +1277,7 @@ mod tests {
             first_content_id: 0,
             next_content_id: 0,
             content_positions: Box::default(),
+            content_stamps: None,
             content_storage: None,
             content: ContentIndexes::default(),
             pool: None,

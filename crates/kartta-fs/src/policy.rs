@@ -10,9 +10,11 @@ use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, IgnoreSources};
 use crate::content::{Content, ContentId, ContentVisitor};
 use crate::content_index::{Collector, Full, Pairs};
+use crate::index::Previous;
 use crate::inspection::{PROBE, read_prefix};
 use crate::open::{Symlinks, open_regular};
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
+use crate::stamp::{Stamp, Stamping, UNTRUSTED};
 use crate::trigram::{self, Trigram, Trigrams};
 
 #[derive(Debug)]
@@ -53,10 +55,13 @@ pub(crate) struct Reading<'a> {
 pub(crate) struct Numbering<'a> {
     pub(crate) first_id: u32,
     pub(crate) handed: Option<&'a AtomicU32>,
+    pub(crate) stamps: Option<Stamping>,
+    pub(crate) previous: Option<&'a Previous<'a>>,
 }
 
 struct Kept {
     learned: Vec<Learned>,
+    stamps: Option<Vec<Stamp>>,
     pairs: Option<Pairs>,
     room: usize,
     ran_out: bool,
@@ -69,7 +74,7 @@ impl Kept {
     )]
     fn keep(
         &mut self,
-        learned: Learned,
+        observed: Observed,
         indexed: Option<(&[Trigram], &Collector)>,
     ) -> Option<(u32, Option<Full>)> {
         // shortcut: ids never return to use, so an index runs out of them after about four billion reads and every
@@ -78,7 +83,10 @@ impl Kept {
             self.ran_out = true;
             return None;
         }
-        self.learned.push(learned);
+        self.learned.push(observed.learned);
+        if let Some(stamps) = &mut self.stamps {
+            stamps.push(observed.stamp);
+        }
         let slot = u32::try_from(self.learned.len() - 1).expect("a slot below the room fits a u32");
         let full = indexed
             .zip(self.pairs.as_mut())
@@ -88,9 +96,25 @@ impl Kept {
     }
 }
 
+#[derive(Clone, Copy)]
+struct Observed {
+    learned: Learned,
+    stamp: Stamp,
+}
+
+impl Observed {
+    const fn untrusted(learned: Learned) -> Self {
+        Self {
+            learned,
+            stamp: UNTRUSTED,
+        }
+    }
+}
+
 pub(crate) struct Report {
     pub(crate) errors: Vec<BuildError>,
     pub(crate) learned: Vec<Learned>,
+    pub(crate) stamps: Option<Vec<Stamp>>,
     pub(crate) ran_out_of_ids: bool,
     pub(crate) content: Option<Collected>,
 }
@@ -117,6 +141,7 @@ impl<'a> Reading<'a> {
             numbering,
             kept: Mutex::new(Kept {
                 learned: Vec::new(),
+                stamps: numbering.stamps.map(|_| Vec::new()),
                 pairs,
                 room: (u32::MAX - numbering.first_id) as usize,
                 ran_out: false,
@@ -150,6 +175,7 @@ impl<'a> Indexing<'a> {
             return Report {
                 errors,
                 learned: Vec::new(),
+                stamps: None,
                 ran_out_of_ids: false,
                 content: None,
             };
@@ -157,6 +183,7 @@ impl<'a> Indexing<'a> {
 
         let Kept {
             learned,
+            stamps,
             pairs,
             ran_out,
             ..
@@ -179,6 +206,7 @@ impl<'a> Indexing<'a> {
         Report {
             errors,
             learned,
+            stamps,
             ran_out_of_ids: ran_out,
             content,
         }
@@ -207,11 +235,11 @@ impl<'a> Indexing<'a> {
         } else {
             Symlinks::Refuse
         };
-        let (file, size) = open_regular(native_path, symlinks)?;
+        let (file, metadata) = open_regular(native_path, symlinks)?;
 
         Ok(IgnoreFile {
             bytes: read_all(&file)?,
-            size,
+            metadata,
             via_symlink,
         })
     }
@@ -249,17 +277,21 @@ impl<'a> Indexing<'a> {
 
     fn hand_over_ignore_file(&self, path: &str, read: &IgnoreFile) -> Option<ContentId> {
         let (reading, visit) = self.wanted(path)?;
+        if let Some(carried) = reading.carry(path, visit, || Some(read.metadata.clone())) {
+            return Some(carried);
+        }
         let bytes = &read.bytes;
         let binary = bytes[..bytes.len().min(PROBE)].contains(&0);
         let learned = Learned {
-            size: read.size,
+            size: read.metadata.len(),
             binary: Some(binary),
         };
         if binary {
-            return reading.keep(learned, None);
+            return reading.keep(reading.observed(learned, &read.metadata, false), None);
         }
+        let observed = reading.observed(learned, &read.metadata, visit);
 
-        let id = reading.keep_text(learned, bytes)?;
+        let id = reading.keep_text(observed, bytes)?;
         reading.hand_over(visit, Content { id, path, bytes });
         Some(id)
     }
@@ -296,6 +328,9 @@ impl<'a> Indexing<'a> {
     fn read_content(&self, entry: &Entry<'_>) -> Option<ContentId> {
         let path = entry.path();
         let (reading, visit) = self.wanted(path)?;
+        if let Some(carried) = reading.carry(path, visit, || entry.metadata().ok()) {
+            return Some(carried);
+        }
 
         let native_path = entry.native_path();
         let outcome = match (visit, &reading.collector) {
@@ -327,7 +362,7 @@ enum ReadOutcome {
 
 struct IgnoreFile {
     bytes: Vec<u8>,
-    size: u64,
+    metadata: fs::Metadata,
     via_symlink: bool,
 }
 
@@ -345,14 +380,14 @@ enum Streamed {
 
 impl Reading<'_> {
     fn read_whole(&self, native_path: &Path, path: &str, visit: bool) -> ReadOutcome {
-        let (learned, readout) = match read_text(native_path) {
+        let (learned, metadata, readout) = match read_text(native_path) {
             Ok(read) => read,
             Err(source) => return ReadOutcome::Failed { id: None, source },
         };
 
         match readout {
             Readout::Text(bytes) => {
-                let id = self.keep_text(learned, &bytes);
+                let id = self.keep_text(self.observed(learned, &metadata, visit), &bytes);
                 if let Some(id) = id {
                     self.hand_over(
                         visit,
@@ -365,11 +400,32 @@ impl Reading<'_> {
                 }
                 ReadOutcome::Kept(id)
             }
-            Readout::Binary => ReadOutcome::Kept(self.keep(learned, None)),
+            Readout::Binary => {
+                ReadOutcome::Kept(self.keep(self.observed(learned, &metadata, false), None))
+            }
             Readout::Failed(source) => ReadOutcome::Failed {
-                id: self.keep(learned, None),
+                id: self.keep(Observed::untrusted(learned), None),
                 source,
             },
+        }
+    }
+
+    fn carry(
+        &self,
+        path: &str,
+        visit: bool,
+        metadata: impl FnOnce() -> Option<fs::Metadata>,
+    ) -> Option<ContentId> {
+        self.numbering.previous?.carry(path, visit, metadata)
+    }
+
+    fn observed(&self, learned: Learned, metadata: &fs::Metadata, visited: bool) -> Observed {
+        Observed {
+            learned,
+            stamp: self
+                .numbering
+                .stamps
+                .map_or(UNTRUSTED, |stamping| stamping.stamp(metadata, visited)),
         }
     }
 
@@ -386,12 +442,15 @@ impl Reading<'_> {
 
         let outcome = match stream_text(native_path, &mut chunk, &mut extractor) {
             Err(source) => ReadOutcome::Failed { id: None, source },
-            Ok((learned, Streamed::Text)) => {
-                ReadOutcome::Kept(self.keep(learned, Some(extractor.found())))
+            Ok((learned, metadata, Streamed::Text)) => ReadOutcome::Kept(self.keep(
+                self.observed(learned, &metadata, false),
+                Some(extractor.found()),
+            )),
+            Ok((learned, metadata, Streamed::Binary)) => {
+                ReadOutcome::Kept(self.keep(self.observed(learned, &metadata, false), None))
             }
-            Ok((learned, Streamed::Binary)) => ReadOutcome::Kept(self.keep(learned, None)),
-            Ok((learned, Streamed::Failed(source))) => ReadOutcome::Failed {
-                id: self.keep(learned, None),
+            Ok((learned, _, Streamed::Failed(source))) => ReadOutcome::Failed {
+                id: self.keep(Observed::untrusted(learned), None),
                 source,
             },
         };
@@ -404,13 +463,13 @@ impl Reading<'_> {
         outcome
     }
 
-    fn keep(&self, learned: Learned, trigrams: Option<&[Trigram]>) -> Option<ContentId> {
+    fn keep(&self, observed: Observed, trigrams: Option<&[Trigram]>) -> Option<ContentId> {
         let collector = self.collector.as_ref();
         let (slot, full) = self
             .kept
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .keep(learned, trigrams.zip(collector))?;
+            .keep(observed, trigrams.zip(collector))?;
         if let Some(handed) = self.numbering.handed {
             handed.fetch_max(slot + 1, Ordering::Relaxed);
         }
@@ -421,14 +480,14 @@ impl Reading<'_> {
         Some(ContentId::from_slot(self.numbering.first_id + slot))
     }
 
-    fn keep_text(&self, learned: Learned, bytes: &[u8]) -> Option<ContentId> {
+    fn keep_text(&self, observed: Observed, bytes: &[u8]) -> Option<ContentId> {
         let Some(collector) = &self.collector else {
-            return self.keep(learned, None);
+            return self.keep(observed, None);
         };
 
         let mut extractor = collector.extractor();
         extractor.feed(bytes);
-        let id = self.keep(learned, Some(extractor.found()));
+        let id = self.keep(observed, Some(extractor.found()));
         collector.recycle(extractor);
         id
     }
@@ -454,8 +513,9 @@ impl Reading<'_> {
     reason = "the point is to read the handle whose identity was checked, which fs::read cannot do -- it reopens the \
               name and reopening is what the check exists to avoid"
 )]
-fn read_text(native_path: &Path) -> io::Result<(Learned, Readout)> {
-    let (mut file, size) = open_regular(native_path, Symlinks::Refuse)?;
+fn read_text(native_path: &Path) -> io::Result<(Learned, fs::Metadata, Readout)> {
+    let (mut file, metadata) = open_regular(native_path, Symlinks::Refuse)?;
+    let size = metadata.len();
     let whole = usize::try_from(size).unwrap_or(usize::MAX);
     let mut learned = Learned { size, binary: None };
 
@@ -464,17 +524,17 @@ fn read_text(native_path: &Path) -> io::Result<(Learned, Readout)> {
         .take(PROBE as u64)
         .read_to_end(&mut bytes)
     {
-        return Ok((learned, Readout::Failed(error)));
+        return Ok((learned, metadata, Readout::Failed(error)));
     }
 
     let binary = bytes.contains(&0);
     learned.binary = Some(binary);
     if binary {
-        return Ok((learned, Readout::Binary));
+        return Ok((learned, metadata, Readout::Binary));
     }
     let ended_within_probe = bytes.len() < PROBE;
     if ended_within_probe {
-        return Ok((learned, Readout::Text(bytes)));
+        return Ok((learned, metadata, Readout::Text(bytes)));
     }
 
     let rest = bytes
@@ -483,8 +543,8 @@ fn read_text(native_path: &Path) -> io::Result<(Learned, Readout)> {
         .and_then(|()| file.read_to_end(&mut bytes));
 
     match rest {
-        Ok(_) => Ok((learned, Readout::Text(bytes))),
-        Err(error) => Ok((learned, Readout::Failed(error))),
+        Ok(_) => Ok((learned, metadata, Readout::Text(bytes))),
+        Err(error) => Ok((learned, metadata, Readout::Failed(error))),
     }
 }
 
@@ -492,23 +552,26 @@ fn stream_text(
     native_path: &Path,
     chunk: &mut [u8],
     extractor: &mut Trigrams,
-) -> io::Result<(Learned, Streamed)> {
-    let (mut file, size) = open_regular(native_path, Symlinks::Refuse)?;
-    let mut learned = Learned { size, binary: None };
+) -> io::Result<(Learned, fs::Metadata, Streamed)> {
+    let (mut file, metadata) = open_regular(native_path, Symlinks::Refuse)?;
+    let mut learned = Learned {
+        size: metadata.len(),
+        binary: None,
+    };
 
     let filled = match read_prefix(&mut file, chunk) {
         Ok(filled) => filled,
-        Err(error) => return Ok((learned, Streamed::Failed(error))),
+        Err(error) => return Ok((learned, metadata, Streamed::Failed(error))),
     };
     let binary = chunk[..filled].contains(&0);
     learned.binary = Some(binary);
     if binary {
-        return Ok((learned, Streamed::Binary));
+        return Ok((learned, metadata, Streamed::Binary));
     }
 
     match feed_rest(&mut file, chunk, filled, extractor) {
-        Ok(()) => Ok((learned, Streamed::Text)),
-        Err(error) => Ok((learned, Streamed::Failed(error))),
+        Ok(()) => Ok((learned, metadata, Streamed::Text)),
+        Err(error) => Ok((learned, metadata, Streamed::Failed(error))),
     }
 }
 

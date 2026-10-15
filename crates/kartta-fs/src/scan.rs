@@ -77,7 +77,7 @@ impl<'a> Scanner<'a> {
         self.native_path.push(self.index.root());
         self.native_path.push(self.paths.get(at));
         let (mut file, size) = match open_regular(&self.native_path, Symlinks::Refuse) {
-            Ok(opened) => opened,
+            Ok((file, metadata)) => (file, metadata.len()),
             Err(error) => return Scanned::Failed(error),
         };
         let inspection = self.index.inspection();

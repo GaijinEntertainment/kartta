@@ -68,16 +68,19 @@ pub struct ContentIndexStats {
 }
 
 impl ContentIndexStats {
-    /// How many files the index holds the content of: every text file the build read to its end.
+    /// How many files the index holds the content of: every text file the build, or a refresh since, read to its end.
     ///
-    /// A file the build could not read is not among them, and is reported in
+    /// A file that could not be read is not among them, and is reported in
     /// [`BuildOutcome::errors`](crate::BuildOutcome::errors) instead.
     #[must_use]
     pub const fn files(&self) -> usize {
         self.files
     }
 
-    /// How many distinct trigrams those files hold between them.
+    /// How many distinct trigrams those files hold, counted within each segment of the index.
+    ///
+    /// A build makes one segment. A refresh that carries text files over unread keeps their segments and indexes the
+    /// files it reads in one more, so a trigram held both by files carried and by files read counts once in each.
     #[must_use]
     pub const fn trigrams(&self) -> usize {
         self.trigrams
@@ -91,19 +94,16 @@ impl ContentIndexStats {
 }
 
 impl ContentIndexStats {
-    fn sum(segments: &[Arc<ContentIndex>], unindexed: &[u32]) -> Self {
-        segments.iter().fold(
-            Self {
-                files: 0,
-                trigrams: 0,
-                bytes: size_of_val(unindexed) as u64,
-            },
-            |sum, segment| Self {
-                files: sum.files + segment.stats.files,
-                trigrams: sum.trigrams + segment.stats.trigrams,
-                bytes: sum.bytes + segment.stats.bytes,
-            },
-        )
+    fn sum(segments: &[Arc<ContentIndex>], unindexed: &[u32], files: usize) -> Self {
+        Self {
+            files,
+            trigrams: segments.iter().map(|segment| segment.stats.trigrams).sum(),
+            bytes: size_of_val(unindexed) as u64
+                + segments
+                    .iter()
+                    .map(|segment| segment.stats.bytes)
+                    .sum::<u64>(),
+        }
     }
 }
 
@@ -120,6 +120,7 @@ pub(crate) struct ContentIndex {
 pub(crate) struct ContentIndexes {
     pub(crate) segments: Vec<Arc<ContentIndex>>,
     pub(crate) unindexed: Box<[u32]>,
+    files: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -139,18 +140,23 @@ impl Narrowed {
 }
 
 impl ContentIndexes {
-    pub(crate) fn new(segments: Vec<Arc<ContentIndex>>, mut unindexed: Vec<u32>) -> Self {
+    pub(crate) fn new(
+        segments: Vec<Arc<ContentIndex>>,
+        mut unindexed: Vec<u32>,
+        files: usize,
+    ) -> Self {
         unindexed.sort_unstable();
         unindexed.dedup();
 
         Self {
             segments,
             unindexed: unindexed.into_boxed_slice(),
+            files,
         }
     }
 
     pub(crate) fn stats(&self) -> ContentIndexStats {
-        ContentIndexStats::sum(&self.segments, &self.unindexed)
+        ContentIndexStats::sum(&self.segments, &self.unindexed, self.files)
     }
 
     // constraint: a file the build could not index may hold anything, so it stays admitted whatever the requirement
@@ -191,6 +197,10 @@ impl ContentIndex {
     #[cfg(test)]
     const fn stats(&self) -> ContentIndexStats {
         self.stats
+    }
+
+    pub(crate) const fn files(&self) -> usize {
+        self.stats.files
     }
 
     pub(crate) const fn with_first_id(mut self, first_id: u32) -> Self {
@@ -597,7 +607,7 @@ mod tests {
         let index = index_of(&files(10), RUN_PAIRS_FOR_TESTS);
         let lists = index.stats().bytes();
 
-        let indexes = ContentIndexes::new(vec![Arc::new(index)], vec![7, 3, 7]);
+        let indexes = ContentIndexes::new(vec![Arc::new(index)], vec![7, 3, 7], 10);
 
         assert_eq!(
             indexes.stats().bytes(),
