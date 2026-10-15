@@ -1,12 +1,17 @@
+use std::borrow::Cow;
 use std::fmt;
+use std::ops::Range;
+use std::path::{Path, PathBuf};
 
 use crate::postings::{self, Shape};
 use crate::requirement::Requirement;
 use crate::trigram::Trigram;
 
 mod build;
+mod storage;
 
-pub(crate) use build::{Collector, Full, Pairs};
+pub(crate) use build::{Collector, Full, Pairs, Unfinished};
+use storage::Blob;
 
 const PARTS: usize = 256;
 const BUCKETS: usize = 1 << 16;
@@ -16,11 +21,41 @@ const BUCKET_BYTES: usize = 12;
 ///
 /// A content index records, for every trigram — every run of three bytes, ASCII letters folded to lowercase — which
 /// files hold it. See [`BuildOptions::content_index`](crate::BuildOptions::content_index) for what a build pays for one.
+///
+/// The two file-backed kinds keep the index in a scratch file under `dir`, which must already exist. A scratch file is
+/// private to the process and leaves nothing behind however the process ends. On Linux it is created with no name, where
+/// the filesystem under `dir` allows that; elsewhere on unix it is removed from `dir` the moment it is created, which
+/// leaves that one moment for a process of the same user to open it; on Windows it is opened with no sharing and deleted
+/// on close. While it builds the index, a
+/// build also spills what it has collected so far to a scratch file there rather than holding it in memory, so `dir`
+/// needs room for about twice the index while the build runs and once the index is done.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ContentIndexStorage {
-    /// In the process's own memory, beside the rest of the index.
+    /// In the process's own memory, beside the rest of the index. The build holds what it collects in memory too, so it
+    /// peaks at about twice the index.
     Memory,
+    /// In a scratch file under `dir`, read by position on each search: a search holds in memory only the lists it
+    /// reads, for as long as it reads them.
+    File {
+        /// The directory to create the scratch files in.
+        dir: PathBuf,
+    },
+    /// In a scratch file under `dir`, mapped into memory: the system keeps the pages searches read and gives them back
+    /// under pressure, so the index costs memory only while it is used.
+    Mapped {
+        /// The directory to create the scratch files in.
+        dir: PathBuf,
+    },
+}
+
+impl ContentIndexStorage {
+    pub(crate) fn dir(&self) -> Option<&Path> {
+        match self {
+            Self::Memory => None,
+            Self::File { dir } | Self::Mapped { dir } => Some(dir),
+        }
+    }
 }
 
 /// What a content index holds, as [`Index::content_index_stats`](crate::Index::content_index_stats) reports it.
@@ -57,7 +92,7 @@ impl ContentIndexStats {
 pub(crate) struct ContentIndex {
     stats: ContentIndexStats,
     universe: u32,
-    blob: Box<[u8]>,
+    blob: Blob,
     directory_start: usize,
     buckets_start: usize,
     unindexed: Box<[u32]>,
@@ -76,6 +111,17 @@ impl Narrowed {
 struct Unreadable;
 
 type Lookup<T> = Result<T, Unreadable>;
+
+struct Bucket {
+    postings: usize,
+    directory: Range<usize>,
+}
+
+#[derive(Clone, Copy)]
+struct Located {
+    shape: Shape,
+    start: usize,
+}
 
 impl ContentIndex {
     pub(crate) const fn stats(&self) -> ContentIndexStats {
@@ -114,8 +160,8 @@ impl ContentIndex {
     fn ids(&self, requirement: &Requirement) -> Lookup<Option<Bits>> {
         match requirement {
             Requirement::Anything => Ok(None),
-            Requirement::Trigram(trigram) => Ok(Some(match self.list(*trigram)? {
-                Some((shape, bytes)) => self.decode(shape, bytes),
+            Requirement::Trigram(trigram) => Ok(Some(match self.locate(*trigram)? {
+                Some(list) => self.decode(list.shape, &self.read(list)?),
                 None => self.no_ids(),
             })),
             Requirement::All(parts) => self.all(parts),
@@ -130,20 +176,21 @@ impl ContentIndex {
         let mut others = Vec::new();
         for part in parts {
             match part {
-                Requirement::Trigram(trigram) => match self.list(*trigram)? {
+                Requirement::Trigram(trigram) => match self.locate(*trigram)? {
                     Some(list) => lists.push(list),
                     None => return Ok(Some(self.no_ids())),
                 },
                 other => others.push(other),
             }
         }
-        lists.sort_by_key(|(shape, _)| shape.len());
+        lists.sort_by_key(|list| list.shape.len());
 
         let mut found: Option<Bits> = None;
-        for (shape, bytes) in lists {
+        for list in lists {
+            let bytes = self.read(list)?;
             let kept = found.take().map_or_else(
-                || self.decode(shape, bytes),
-                |found| found.keep_listed(shape, bytes),
+                || self.decode(list.shape, &bytes),
+                |found| found.keep_listed(list.shape, &bytes),
             );
             let none_left = kept.is_empty();
             found = Some(kept);
@@ -180,8 +227,8 @@ impl ContentIndex {
     }
 
     fn add_holding(&self, found: &mut Bits, trigram: Trigram) -> Lookup<()> {
-        if let Some((shape, bytes)) = self.list(trigram)? {
-            found.insert_listed(shape, bytes);
+        if let Some(list) = self.locate(trigram)? {
+            found.insert_listed(list.shape, &self.read(list)?);
         }
 
         Ok(())
@@ -197,41 +244,53 @@ impl ContentIndex {
         ids
     }
 
-    fn bucket(&self, bucket: usize) -> Lookup<(usize, usize)> {
+    // constraint: a bucket's entries end where the next bucket's begin, so one read of two adjacent table entries bounds
+    // them
+    fn bucket(&self, bucket: usize) -> Lookup<Bucket> {
         let at = self.buckets_start + bucket * BUCKET_BYTES;
-        let entry = self.blob.get(at..at + BUCKET_BYTES).ok_or(Unreadable)?;
-        let (postings, directory) = entry.split_first_chunk::<8>().ok_or(Unreadable)?;
-        let directory = directory.first_chunk::<4>().ok_or(Unreadable)?;
-
-        Ok((
-            usize::try_from(u64::from_le_bytes(*postings)).map_err(|_| Unreadable)?,
-            u32::from_le_bytes(*directory) as usize,
-        ))
-    }
-
-    fn list(&self, trigram: Trigram) -> Lookup<Option<(Shape, &[u8])>> {
-        let bucket = (trigram >> 8) as usize;
-        let (mut postings, start) = self.bucket(bucket)?;
-        let (_, end) = self.bucket(bucket + 1)?;
         let entries = self
             .blob
-            .get(self.directory_start + start..self.directory_start + end)
+            .bytes(at..at + 2 * BUCKET_BYTES)
+            .ok_or(Unreadable)?;
+        let (this, next) = entries.split_at(BUCKET_BYTES);
+        let (postings, directory) = this.split_first_chunk::<8>().ok_or(Unreadable)?;
+        let directory = directory.first_chunk::<4>().ok_or(Unreadable)?;
+        let directory_end = next
+            .get(8..)
+            .and_then(|end| end.first_chunk::<4>())
+            .ok_or(Unreadable)?;
+
+        Ok(Bucket {
+            postings: usize::try_from(u64::from_le_bytes(*postings)).map_err(|_| Unreadable)?,
+            directory: u32::from_le_bytes(*directory) as usize
+                ..u32::from_le_bytes(*directory_end) as usize,
+        })
+    }
+
+    fn locate(&self, trigram: Trigram) -> Lookup<Option<Located>> {
+        let bucket = self.bucket((trigram >> 8) as usize)?;
+        let entries = self
+            .blob
+            .bytes(
+                self.directory_start + bucket.directory.start
+                    ..self.directory_start + bucket.directory.end,
+            )
             .ok_or(Unreadable)?;
         let third = trigram.to_le_bytes()[0];
 
+        let mut postings = bucket.postings;
         let mut at = 0;
         while let Some(&stored) = entries.get(at) {
             at += 1;
             let shape = Shape::new(
-                read_varint(entries, &mut at).ok_or(Unreadable)?,
+                read_varint(&entries, &mut at).ok_or(Unreadable)?,
                 self.universe,
             );
             if stored == third {
-                let bytes = self
-                    .blob
-                    .get(postings..postings + shape.bytes())
-                    .ok_or(Unreadable)?;
-                return Ok(Some((shape, bytes)));
+                return Ok(Some(Located {
+                    shape,
+                    start: postings,
+                }));
             }
             postings += shape.bytes();
         }
@@ -239,13 +298,29 @@ impl ContentIndex {
         Ok(None)
     }
 
+    fn read(&self, list: Located) -> Lookup<Cow<'_, [u8]>> {
+        self.blob
+            .bytes(list.start..list.start + list.shape.bytes())
+            .ok_or(Unreadable)
+    }
+
     #[cfg(test)]
     fn files_holding(&self, trigram: Trigram) -> Vec<u32> {
         let mut ids = Vec::new();
-        if let Ok(Some((shape, bytes))) = self.list(trigram) {
-            postings::for_each(shape, bytes, |id| ids.push(id));
+        if let Ok(Some(list)) = self.locate(trigram)
+            && let Ok(bytes) = self.read(list)
+        {
+            postings::for_each(list.shape, &bytes, |id| ids.push(id));
         }
         ids
+    }
+
+    #[cfg(test)]
+    fn all_bytes(&self) -> Vec<u8> {
+        self.blob
+            .bytes(0..self.blob.len())
+            .expect("the whole blob reads")
+            .into_owned()
     }
 }
 
@@ -353,6 +428,7 @@ impl fmt::Debug for ContentIndex {
         formatter
             .debug_struct("ContentIndex")
             .field("stats", &self.stats)
+            .field("storage", &self.blob.kind())
             .field("unindexed", &self.unindexed.len())
             .finish_non_exhaustive()
     }
@@ -363,7 +439,15 @@ mod tests {
     use super::*;
 
     fn index_of(files: &[Vec<Trigram>], run_pairs: usize) -> ContentIndex {
-        let collector = Collector::with_run_pairs(run_pairs);
+        stored_in(&ContentIndexStorage::Memory, files, run_pairs)
+    }
+
+    fn stored_in(
+        storage: &ContentIndexStorage,
+        files: &[Vec<Trigram>],
+        run_pairs: usize,
+    ) -> ContentIndex {
+        let collector = Collector::with_run_pairs(storage, run_pairs).expect("create the storage");
         let mut pairs = collector.pairs();
         for (id, trigrams) in (0..).zip(files) {
             if let Some(full) = pairs.push(id, trigrams, &collector) {
@@ -372,9 +456,11 @@ mod tests {
         }
         let universe = u32::try_from(files.len()).expect("a small test");
 
-        collector
-            .finish(pairs, universe, None)
-            .expect("nothing cancels the build")
+        match collector.finish(pairs, universe, None) {
+            Ok(index) => index,
+            Err(Unfinished::Cancelled) => panic!("nothing cancels the build"),
+            Err(Unfinished::Failed(error)) => panic!("the storage failed: {error}"),
+        }
     }
 
     // Trigrams across many parts and buckets, each file holding its own subset.
@@ -435,7 +521,7 @@ mod tests {
 
         assert_eq!(whole.stats(), spilled.stats());
         assert!(
-            whole.blob == spilled.blob,
+            whole.all_bytes() == spilled.all_bytes(),
             "the merged index is byte for byte the same"
         );
     }
@@ -460,6 +546,52 @@ mod tests {
             lists + 8,
             "two distinct positions of four bytes each"
         );
+    }
+
+    #[test]
+    fn every_storage_holds_the_index_memory_holds() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let files = files(400);
+        let in_memory = index_of(&files, 97);
+
+        for storage in [
+            ContentIndexStorage::File {
+                dir: dir.path().to_path_buf(),
+            },
+            ContentIndexStorage::Mapped {
+                dir: dir.path().to_path_buf(),
+            },
+        ] {
+            let stored = stored_in(&storage, &files, 97);
+
+            assert_eq!(stored.stats(), in_memory.stats(), "{storage:?}");
+            assert!(
+                stored.all_bytes() == in_memory.all_bytes(),
+                "{storage:?} holds the bytes memory holds"
+            );
+            assert_eq!(
+                stored.files_holding(files[0][0]),
+                in_memory.files_holding(files[0][0])
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_scratch_file_leaves_no_name_behind() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let storage = ContentIndexStorage::Mapped {
+            dir: dir.path().to_path_buf(),
+        };
+
+        let index = stored_in(&storage, &files(50), 97);
+
+        assert_eq!(
+            std::fs::read_dir(dir.path()).expect("list").count(),
+            0,
+            "the spill and the index are open, and neither has a name in the directory"
+        );
+        drop(index);
     }
 
     const RUN_PAIRS_FOR_TESTS: usize = 1 << 10;

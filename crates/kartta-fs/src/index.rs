@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::io;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -10,7 +11,9 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, BuildOptions};
 use crate::content::{ContentId, ContentVisitor};
-use crate::content_index::{Collector, ContentIndex, ContentIndexStats, Narrowed};
+use crate::content_index::{
+    Collector, ContentIndex, ContentIndexStats, ContentIndexStorage, Narrowed, Unfinished,
+};
 use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::inspection::Inspection;
@@ -77,7 +80,8 @@ impl Index {
     /// # Errors
     ///
     /// Returns [`BuildError::Walk`] if `root` itself cannot be listed, or if the thread count
-    /// [`BuildOptions::threads`] asks for cannot be started. Every deeper failure is collected into
+    /// [`BuildOptions::threads`] asks for cannot be started, and [`BuildError::ContentIndex`] if the content index
+    /// cannot be kept where [`BuildOptions::content_index`] asks. Every deeper failure is collected into
     /// [`BuildOutcome::errors`] instead, leaving a partial index — check it before trusting the answer, because a
     /// partial index looks exactly like a complete one.
     pub fn build(
@@ -98,8 +102,9 @@ impl Index {
     ///
     /// # Errors
     ///
-    /// As [`Index::build`], and [`BuildError::Cancelled`] when `cancel` stopped the walk before it saw every entry. A
-    /// wanted file that cannot be read is collected into [`BuildOutcome::errors`] as [`BuildError::Read`].
+    /// As [`Index::build`], and [`BuildError::Cancelled`] when `cancel` stopped the build before it saw every entry or
+    /// finished the content index. A wanted file that cannot be read is collected into [`BuildOutcome::errors`] as
+    /// [`BuildError::Read`].
     pub fn build_with(
         root: impl AsRef<Path>,
         options: &BuildOptions,
@@ -116,7 +121,11 @@ impl Index {
         cancel: Option<&CancelToken>,
     ) -> Result<BuildOutcome, BuildError> {
         let pool = options.threads.map(thread_pool).transpose()?;
-        let collector = options.content_index.as_ref().map(|_| Collector::new());
+        let collector = options
+            .content_index
+            .as_ref()
+            .map(|storage| Collector::new(storage).map_err(|source| storage_error(storage, source)))
+            .transpose()?;
         let reading = (visitor.is_some() || collector.is_some())
             .then(|| Reading::new(visitor, collector, &options.binary_extensions));
         let policy = Indexing::new(options.ignore_sources, root, reading);
@@ -169,9 +178,13 @@ impl Index {
             pairs,
             unindexed,
         } = content;
+        let storage = collector.storage().clone();
         let finished = self
             .on_threads(|| collector.finish(pairs, universe, cancel))
-            .ok_or(BuildError::Cancelled)?;
+            .map_err(|unfinished| match unfinished {
+                Unfinished::Cancelled => BuildError::Cancelled,
+                Unfinished::Failed(source) => storage_error(&storage, source),
+            })?;
         let unindexed = unindexed
             .iter()
             .filter_map(|path| self.position(path))
@@ -784,6 +797,13 @@ fn common_len(left: &[u8], right: &[u8]) -> usize {
 )]
 fn narrow(len: usize) -> u32 {
     u32::try_from(len).expect("an index stores fewer than 4 GiB of path bytes")
+}
+
+fn storage_error(storage: &ContentIndexStorage, source: io::Error) -> BuildError {
+    BuildError::ContentIndex {
+        native_path: storage.dir().map(Path::to_path_buf).unwrap_or_default(),
+        source,
+    }
 }
 
 #[expect(

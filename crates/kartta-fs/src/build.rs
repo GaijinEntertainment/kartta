@@ -91,11 +91,11 @@ pub struct BuildOptions {
 /// A failure that stopped a build, or cost it one entry, one subtree, one directory's rules or one file's content.
 ///
 /// [`BuildError::Walk`] is returned for the two failures the walk itself treats as fatal — a root that cannot be listed,
-/// and a thread pool that cannot be started — and [`BuildError::Cancelled`] by
-/// [`Index::build_with`](crate::Index::build_with) when its cancel token stopped the walk;
-/// [`Index::build`](crate::Index::build) takes no token and returns only the first. Everything else is collected into
-/// [`BuildOutcome::errors`](crate::BuildOutcome::errors) and costs only what it names, so one unreadable directory
-/// yields a partial index rather than none.
+/// and a thread pool that cannot be started — [`BuildError::ContentIndex`] when the content index cannot be kept where
+/// it was asked to be, and [`BuildError::Cancelled`] by [`Index::build_with`](crate::Index::build_with) when its cancel
+/// token stopped the build; [`Index::build`](crate::Index::build) takes no token and returns only the first two.
+/// Everything else is collected into [`BuildOutcome::errors`](crate::BuildOutcome::errors) and costs only what it names,
+/// so one unreadable directory yields a partial index rather than none.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum BuildError {
@@ -136,6 +136,18 @@ pub enum BuildError {
         /// The underlying failure.
         source: io::Error,
     },
+    /// The content index could not be kept where [`BuildOptions::content_index`] asked: a scratch file in that
+    /// directory could not be created, written or mapped.
+    ///
+    /// Returned rather than collected, because the build was asked for an index it cannot hand back. The directory has
+    /// to exist and have room for the index and what the build spills while it makes it.
+    #[error("cannot keep the content index in {}: {source}", native_path.display())]
+    ContentIndex {
+        /// The directory the scratch files were to be created in.
+        native_path: PathBuf,
+        /// The underlying failure.
+        source: io::Error,
+    },
     /// The cancel token stopped the build before the walk saw every entry.
     ///
     /// Returned rather than collected: a cancelled walk holds whichever entries its threads had reached, which depends
@@ -161,7 +173,8 @@ impl BuildError {
             Self::Walk(source) => source.native_path(),
             Self::Ignore { native_path, .. }
             | Self::Name { native_path }
-            | Self::Read { native_path, .. } => Some(native_path),
+            | Self::Read { native_path, .. }
+            | Self::ContentIndex { native_path, .. } => Some(native_path),
             Self::Cancelled => None,
         }
     }
@@ -172,7 +185,8 @@ impl BuildError {
             Self::Ignore { .. } => 1,
             Self::Name { .. } => 2,
             Self::Read { .. } => 3,
-            Self::Cancelled => 4,
+            Self::ContentIndex { .. } => 4,
+            Self::Cancelled => 5,
         }
     }
 }

@@ -1,13 +1,17 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::io;
 use std::mem;
+use std::ops::Range;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use kartta_walk::CancelToken;
 use rayon::prelude::*;
 
+use super::storage::{Region, Spill, Writing};
 use super::{
-    BUCKET_BYTES, BUCKETS, ContentIndex, ContentIndexStats, PARTS, put_varint, read_varint,
+    BUCKET_BYTES, BUCKETS, ContentIndex, ContentIndexStats, ContentIndexStorage, PARTS, put_varint,
+    read_varint,
 };
 use crate::postings::{self, Shape, Writer};
 use crate::trigram::{Trigram, Trigrams};
@@ -16,10 +20,14 @@ const RUN_PAIRS: usize = 1 << 20;
 const BUCKETS_PER_PART: usize = BUCKETS / PARTS;
 const PART_BUCKET_BYTES: usize = BUCKETS_PER_PART * BUCKET_BYTES;
 const LOWS: usize = 1 << 16;
+const FLUSH_BYTES: usize = 1 << 16;
 
 pub(crate) struct Collector {
     run_pairs: usize,
+    storage: ContentIndexStorage,
     runs: Mutex<Vec<Run>>,
+    spill: Option<Mutex<Spill>>,
+    failure: Mutex<Option<io::Error>>,
     spare_pairs: Mutex<Vec<Vec<u64>>>,
     extractors: Mutex<Vec<Trigrams>>,
 }
@@ -36,16 +44,35 @@ pub(crate) struct Full {
     universe: u32,
 }
 
+pub(crate) enum Unfinished {
+    Cancelled,
+    Failed(io::Error),
+}
+
 struct Run {
     base: u32,
     universe: u32,
-    parts: Vec<Box<[u8]>>,
+    parts: Vec<Stored>,
+}
+
+enum Stored {
+    Held(Box<[u8]>),
+    Spilled(Range<usize>),
 }
 
 struct Part {
     base: u32,
     universe: u32,
-    bytes: Box<[u8]>,
+    stored: Stored,
+}
+
+impl Part {
+    fn bytes<'a>(&'a self, spilled: &'a [u8]) -> &'a [u8] {
+        match &self.stored {
+            Stored::Held(bytes) => bytes,
+            Stored::Spilled(range) => spilled.get(range.clone()).unwrap_or_default(),
+        }
+    }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -53,17 +80,29 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Collector {
-    pub(crate) const fn new() -> Self {
-        Self::with_run_pairs(RUN_PAIRS)
+    pub(crate) fn new(storage: &ContentIndexStorage) -> io::Result<Self> {
+        Self::with_run_pairs(storage, RUN_PAIRS)
     }
 
-    pub(super) const fn with_run_pairs(run_pairs: usize) -> Self {
-        Self {
+    pub(super) fn with_run_pairs(
+        storage: &ContentIndexStorage,
+        run_pairs: usize,
+    ) -> io::Result<Self> {
+        let spill = storage.dir().map(Spill::create).transpose()?;
+
+        Ok(Self {
             run_pairs,
+            storage: storage.clone(),
             runs: Mutex::new(Vec::new()),
+            spill: spill.map(Mutex::new),
+            failure: Mutex::new(None),
             spare_pairs: Mutex::new(Vec::new()),
             extractors: Mutex::new(Vec::new()),
-        }
+        })
+    }
+
+    pub(crate) const fn storage(&self) -> &ContentIndexStorage {
+        &self.storage
     }
 
     pub(crate) fn pairs(&self) -> Pairs {
@@ -99,16 +138,46 @@ impl Collector {
         } = full;
         let mut scratch = self.spare();
         sort_by_trigram(&mut pairs, &mut scratch);
-        let parts = encode_run(&pairs, base, universe);
-
+        let stored = self.store(&pairs, base, universe);
         pairs.clear();
         scratch.clear();
         lock(&self.spare_pairs).extend([pairs, scratch]);
-        lock(&self.runs).push(Run {
-            base,
-            universe,
-            parts,
+
+        match stored {
+            Ok(parts) => lock(&self.runs).push(Run {
+                base,
+                universe,
+                parts,
+            }),
+            Err(error) => {
+                lock(&self.failure).get_or_insert(error);
+            }
+        }
+    }
+
+    fn store(&self, pairs: &[u64], base: u32, universe: u32) -> io::Result<Vec<Stored>> {
+        let mut parts: Vec<Stored> = (0..PARTS).map(|_| Stored::Held(Box::default())).collect();
+        let Some(spill) = &self.spill else {
+            encode_run(pairs, base, universe, |part, bytes| {
+                parts[part] = Stored::Held(bytes.into());
+            });
+            return Ok(parts);
+        };
+
+        let mut whole = Vec::new();
+        encode_run(pairs, base, universe, |part, bytes| {
+            let start = whole.len();
+            whole.extend_from_slice(bytes);
+            parts[part] = Stored::Spilled(start..whole.len());
         });
+        let at = lock(spill).append(&whole)?.start;
+        for part in &mut parts {
+            if let Stored::Spilled(range) = part {
+                *range = at + range.start..at + range.end;
+            }
+        }
+
+        Ok(parts)
     }
 
     pub(crate) fn finish(
@@ -116,7 +185,7 @@ impl Collector {
         pairs: Pairs,
         universe: u32,
         cancel: Option<&CancelToken>,
-    ) -> Option<ContentIndex> {
+    ) -> Result<ContentIndex, Unfinished> {
         let files = pairs.files;
         if !pairs.buffer.is_empty() {
             self.spill(Full {
@@ -125,6 +194,25 @@ impl Collector {
                 pairs: pairs.buffer,
             });
         }
+        if let Some(error) = self
+            .failure
+            .into_inner()
+            .unwrap_or_else(PoisonError::into_inner)
+        {
+            return Err(Unfinished::Failed(error));
+        }
+
+        let spill = self
+            .spill
+            .map(|spill| spill.into_inner().unwrap_or_else(PoisonError::into_inner));
+        let mapped = spill
+            .map(Spill::into_map)
+            .transpose()
+            .map_err(Unfinished::Failed)?;
+        let spilled = mapped
+            .as_ref()
+            .and_then(Option::as_deref)
+            .unwrap_or_default();
         let parts = by_part(
             self.runs
                 .into_inner()
@@ -133,25 +221,26 @@ impl Collector {
 
         let sizes: Vec<Sizes> = parts
             .par_iter()
-            .map(|parts| Sizes::of(parts, universe))
+            .map(|parts| Sizes::of(parts, spilled, universe))
             .collect();
         let layout = Layout::of(&sizes);
-        let mut blob = vec![0; layout.bytes()].into_boxed_slice();
         let trigrams = sizes.iter().map(|sizes| sizes.lens.len()).sum();
+        let mut writing =
+            Writing::new(&self.storage, layout.bytes()).map_err(Unfinished::Failed)?;
 
-        let tasks = layout.tasks(&mut blob, parts, sizes);
-        let written = tasks.into_par_iter().all(|task| {
-            let go_on = cancel.is_none_or(|cancel| !cancel.is_cancelled());
-            if go_on {
-                task.write(universe);
+        let tasks = layout
+            .tasks(writing.region(), parts, sizes)
+            .map_err(Unfinished::Failed)?;
+        tasks.into_par_iter().try_for_each(|task| {
+            if cancel.is_some_and(CancelToken::is_cancelled) {
+                return Err(Unfinished::Cancelled);
             }
-            go_on
-        });
-        if !written {
-            return None;
-        }
+            task.write(universe, spilled).map_err(Unfinished::Failed)
+        })?;
+        drop(mapped);
+        let blob = writing.finish().map_err(Unfinished::Failed)?;
 
-        Some(ContentIndex {
+        Ok(ContentIndex {
             stats: ContentIndexStats {
                 files,
                 trigrams,
@@ -230,8 +319,7 @@ fn sort_by_trigram(pairs: &mut Vec<u64>, scratch: &mut Vec<u64>) {
     }
 }
 
-fn encode_run(pairs: &[u64], base: u32, universe: u32) -> Vec<Box<[u8]>> {
-    let mut parts = vec![Box::default(); PARTS];
+fn encode_run(pairs: &[u64], base: u32, universe: u32, mut emit: impl FnMut(usize, &[u8])) {
     let mut out = Vec::new();
     let mut part = None;
     let mut previous = 0;
@@ -241,7 +329,7 @@ fn encode_run(pairs: &[u64], base: u32, universe: u32) -> Vec<Box<[u8]>> {
         let this_part = (trigram >> 16) as usize;
         if part != Some(this_part) {
             if let Some(done) = part {
-                parts[done] = out.as_slice().into();
+                emit(done, &out);
                 out.clear();
             }
             part = Some(this_part);
@@ -261,10 +349,8 @@ fn encode_run(pairs: &[u64], base: u32, universe: u32) -> Vec<Box<[u8]>> {
         }
     }
     if let Some(done) = part {
-        parts[done] = out.into_boxed_slice();
+        emit(done, &out);
     }
-
-    parts
 }
 
 #[expect(
@@ -280,12 +366,16 @@ fn by_part(mut runs: Vec<Run>) -> Vec<Vec<Part>> {
     let mut parts: Vec<Vec<Part>> = (0..PARTS).map(|_| Vec::with_capacity(runs.len())).collect();
 
     for run in runs {
-        for (into, bytes) in parts.iter_mut().zip(run.parts) {
-            if !bytes.is_empty() {
+        for (into, stored) in parts.iter_mut().zip(run.parts) {
+            let empty = match &stored {
+                Stored::Held(bytes) => bytes.is_empty(),
+                Stored::Spilled(range) => range.is_empty(),
+            };
+            if !empty {
                 into.push(Part {
                     base: run.base,
                     universe: run.universe,
-                    bytes,
+                    stored,
                 });
             }
         }
@@ -302,15 +392,17 @@ struct Group<'a> {
 }
 
 struct Groups<'a> {
-    part: &'a Part,
+    bytes: &'a [u8],
+    universe: u32,
     at: usize,
     low: u32,
 }
 
 impl<'a> Groups<'a> {
-    const fn new(part: &'a Part) -> Self {
+    fn new(part: &'a Part, spilled: &'a [u8]) -> Self {
         Self {
-            part,
+            bytes: part.bytes(spilled),
+            universe: part.universe,
             at: 0,
             low: 0,
         }
@@ -321,11 +413,11 @@ impl<'a> Iterator for Groups<'a> {
     type Item = Group<'a>;
 
     fn next(&mut self) -> Option<Group<'a>> {
-        let bytes: &'a [u8] = &self.part.bytes;
+        let bytes = self.bytes;
         self.low += read_varint(bytes, &mut self.at)?;
         let len = read_varint(bytes, &mut self.at)?;
         let start = self.at;
-        self.at += Shape::new(len, self.part.universe).bytes();
+        self.at += Shape::new(len, self.universe).bytes();
 
         Some(Group {
             low: u16::try_from(self.low).ok()?,
@@ -342,7 +434,7 @@ struct Sizes {
 }
 
 impl Sizes {
-    fn of(parts: &[Part], universe: u32) -> Self {
+    fn of(parts: &[Part], spilled: &[u8], universe: u32) -> Self {
         if parts.is_empty() {
             return Self {
                 lens: Vec::new(),
@@ -352,7 +444,7 @@ impl Sizes {
         }
 
         let mut lens = vec![0u32; LOWS];
-        for group in parts.iter().flat_map(Groups::new) {
+        for group in parts.iter().flat_map(|part| Groups::new(part, spilled)) {
             lens[usize::from(group.low)] += group.len;
         }
         let lens: Vec<(u16, u32)> = (0..=u16::MAX)
@@ -394,27 +486,26 @@ impl Layout {
 
     fn tasks<'a>(
         &self,
-        blob: &'a mut [u8],
+        mut blob: Region<'a>,
         parts: Vec<Vec<Part>>,
         sizes: Vec<Sizes>,
-    ) -> Vec<Task<'a>> {
-        let (mut postings, rest) = blob.split_at_mut(self.postings);
-        let (mut directory, buckets) = rest.split_at_mut(self.directory);
-        let (buckets, end) = buckets.as_chunks_mut::<PART_BUCKET_BYTES>();
-        write_bucket(end, self.postings, self.directory);
+    ) -> io::Result<Vec<Task<'a>>> {
+        let mut postings = blob.split_to(self.postings);
+        let mut directory = blob.split_to(self.directory);
+        let mut end = [0; BUCKET_BYTES];
+        write_bucket(&mut end, self.postings, self.directory);
+        blob.write_at(BUCKETS * BUCKET_BYTES, &end)?;
         let (mut postings_at, mut directory_at) = (0, 0);
 
-        parts
+        Ok(parts
             .into_iter()
             .zip(sizes)
-            .zip(buckets)
-            .map(|((parts, sizes), buckets)| {
+            .map(|(parts, sizes)| {
                 let task = Task {
-                    postings: postings.split_off_mut(..sizes.postings).unwrap_or_default(),
-                    directory: directory
-                        .split_off_mut(..sizes.directory)
-                        .unwrap_or_default(),
-                    buckets,
+                    postings: postings.split_to(sizes.postings),
+                    directory: directory.split_to(sizes.directory),
+                    directory_len: sizes.directory,
+                    buckets: blob.split_to(PART_BUCKET_BYTES),
                     postings_at,
                     directory_at,
                     parts,
@@ -424,7 +515,7 @@ impl Layout {
                 directory_at += sizes.directory;
                 task
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -441,39 +532,54 @@ fn write_bucket(bucket: &mut [u8], postings: usize, directory: usize) {
 struct Task<'a> {
     parts: Vec<Part>,
     lens: Vec<(u16, u32)>,
-    postings: &'a mut [u8],
+    postings: Region<'a>,
     postings_at: usize,
-    directory: &'a mut [u8],
+    directory: Region<'a>,
+    directory_len: usize,
     directory_at: usize,
-    buckets: &'a mut [u8],
+    buckets: Region<'a>,
 }
 
 impl Task<'_> {
-    fn write(self, universe: u32) {
-        let mut merge = Merge::new(&self.parts);
-        let mut directory = Vec::with_capacity(self.directory.len());
-        let mut postings_at = 0;
+    fn write(mut self, universe: u32, spilled: &[u8]) -> io::Result<()> {
+        let mut merge = Merge::new(&self.parts, spilled);
+        let mut postings = Vec::with_capacity(FLUSH_BYTES);
+        let mut flushed = 0;
+        let mut directory = Vec::with_capacity(self.directory_len);
+        let mut buckets = [0; PART_BUCKET_BYTES];
         let mut starts = Starts {
-            buckets: self.buckets,
+            buckets: &mut buckets,
             next: 0,
             postings_at: self.postings_at,
             directory_at: self.directory_at,
         };
 
         for &(low, len) in &self.lens {
-            starts.through(usize::from(low >> 8), postings_at, directory.len());
-            let shape = Shape::new(len, universe);
-            let end = postings_at + shape.bytes();
-            merge.write(
-                low,
-                &mut Writer::new(shape, &mut self.postings[postings_at..end]),
+            starts.through(
+                usize::from(low >> 8),
+                flushed + postings.len(),
+                directory.len(),
             );
-            postings_at = end;
+            let shape = Shape::new(len, universe);
+            if postings.len() + shape.bytes() > FLUSH_BYTES {
+                self.postings.write_at(flushed, &postings)?;
+                flushed += postings.len();
+                postings.clear();
+            }
+            let start = postings.len();
+            postings.resize(start + shape.bytes(), 0);
+            merge.write(low, &mut Writer::new(shape, &mut postings[start..]));
             directory.push(low.to_le_bytes()[0]);
             put_varint(&mut directory, len);
         }
-        starts.through(BUCKETS_PER_PART - 1, postings_at, directory.len());
-        self.directory.copy_from_slice(&directory);
+        starts.through(
+            BUCKETS_PER_PART - 1,
+            flushed + postings.len(),
+            directory.len(),
+        );
+        self.postings.write_at(flushed, &postings)?;
+        self.directory.write_at(0, &directory)?;
+        self.buckets.write_at(0, &buckets)
     }
 }
 
@@ -506,8 +612,11 @@ struct Merge<'a> {
 }
 
 impl<'a> Merge<'a> {
-    fn new(parts: &'a [Part]) -> Self {
-        let mut groups: Vec<Groups<'a>> = parts.iter().map(Groups::new).collect();
+    fn new(parts: &'a [Part], spilled: &'a [u8]) -> Self {
+        let mut groups: Vec<Groups<'a>> = parts
+            .iter()
+            .map(|part| Groups::new(part, spilled))
+            .collect();
         let heads: Vec<Option<Group<'a>>> = groups.iter_mut().map(Iterator::next).collect();
         let queue = heads
             .iter()
