@@ -4,7 +4,7 @@ use kartta_walk::EntryKind;
 
 use crate::entry::Entry;
 use crate::filter::Filter;
-use crate::index::{Index, Inspected, RESTART};
+use crate::index::{Index, Inspected};
 
 /// How far a listing descends, which directories it does not enter, what it leaves out, and how many entries it
 /// returns.
@@ -374,11 +374,11 @@ impl Index {
             return after_dir;
         }
 
-        let first_block = after_dir / RESTART + 1;
-        let (mut low, mut high) = (first_block, self.len().div_ceil(RESTART));
+        let first_block = self.block_of(after_dir) + 1;
+        let (mut low, mut high) = (first_block, self.block_count());
         while low < high {
             let middle = low + (high - low) / 2;
-            if is_below(self.suffix(middle * RESTART), dir) {
+            if is_below(self.suffix_in(middle, self.block_first(middle)), dir) {
                 low = middle + 1;
             } else {
                 high = middle;
@@ -386,21 +386,23 @@ impl Index {
         }
 
         let scan_from = if low > first_block {
-            (low - 1) * RESTART + 1
+            self.block_first(low - 1) + 1
         } else {
             after_dir + 1
         };
-        let scan_end = self.len().min(low * RESTART);
+        let scan_end = self.block_end(low - 1);
         (scan_from..scan_end)
             .find(|&at| self.shared_at(at) < below)
             .unwrap_or(scan_end)
     }
 
     fn starts_inside(&self, after_dir: usize, dir: &str) -> bool {
-        if after_dir.is_multiple_of(RESTART) {
-            return is_below(self.suffix(after_dir), dir);
+        let block = self.block_of(after_dir);
+        let suffix = self.suffix_in(block, after_dir);
+        if self.starts_block(after_dir) {
+            return is_below(suffix, dir);
         }
-        self.shared_at(after_dir) == dir.len() && self.suffix(after_dir).starts_with('/')
+        self.shared_at(after_dir) == dir.len() && suffix.starts_with('/')
     }
 }
 
