@@ -245,24 +245,10 @@ impl<'a> Indexing<'a> {
     }
 
     fn apply_ignore_file(&self, dir: &Dir<'_>, name: &str, rules: &mut Rules) -> IgnoreFileRead {
-        let native_path = dir.native_path().join(name);
-        let read = match self.read_ignore_file(&native_path) {
-            Ok(read) => read,
-            Err(source) => {
-                self.record(BuildError::Ignore {
-                    native_path,
-                    source,
-                });
-                return IgnoreFileRead::Unread;
-            }
+        let Some(read) = self.push_ignore_file(dir.native_path().join(name), dir.path(), rules)
+        else {
+            return IgnoreFileRead::Unread;
         };
-
-        if let Err(source) = rules.push(&read.bytes, dir.path()) {
-            self.record(BuildError::Ignore {
-                native_path,
-                source,
-            });
-        }
 
         if self.reading.is_none() {
             return IgnoreFileRead::Read(None);
@@ -273,6 +259,32 @@ impl<'a> Indexing<'a> {
         }
 
         IgnoreFileRead::Read(self.hand_over_ignore_file(&path, &read))
+    }
+
+    fn push_ignore_file(
+        &self,
+        native_path: PathBuf,
+        dir_path: &str,
+        rules: &mut Rules,
+    ) -> Option<IgnoreFile> {
+        let read = match self.read_ignore_file(&native_path) {
+            Ok(read) => read,
+            Err(source) => {
+                self.record(BuildError::Ignore {
+                    native_path,
+                    source,
+                });
+                return None;
+            }
+        };
+
+        if let Err(source) = rules.push(&read.bytes, dir_path) {
+            self.record(BuildError::Ignore {
+                native_path,
+                source,
+            });
+        }
+        Some(read)
     }
 
     fn hand_over_ignore_file(&self, path: &str, read: &IgnoreFile) -> Option<ContentId> {
@@ -326,13 +338,25 @@ impl<'a> Indexing<'a> {
     }
 
     fn read_content(&self, entry: &Entry<'_>) -> Option<ContentId> {
-        let path = entry.path();
+        self.read_file(
+            entry.path(),
+            || entry.native_path(),
+            || entry.metadata().ok(),
+        )
+    }
+
+    pub(crate) fn read_file(
+        &self,
+        path: &str,
+        native_path: impl FnOnce() -> PathBuf,
+        metadata: impl FnOnce() -> Option<fs::Metadata>,
+    ) -> Option<ContentId> {
         let (reading, visit) = self.wanted(path)?;
-        if let Some(carried) = reading.carry(path, visit, || entry.metadata().ok()) {
+        if let Some(carried) = reading.carry(path, visit, metadata) {
             return Some(carried);
         }
 
-        let native_path = entry.native_path();
+        let native_path = native_path();
         let outcome = match (visit, &reading.collector) {
             (false, Some(collector)) => reading.read_for_index(collector, &native_path),
             _ => reading.read_whole(&native_path, path, visit),
