@@ -253,8 +253,8 @@ impl Index {
             .then(|| Reading::new(visitor, collector, &options.binary_extensions, numbering));
         let policy = Indexing::new(options.ignore_sources, root, reading);
         let walk_options = WalkOptions {
-            threads: None,
             cancel_token: cancel.cloned(),
+            ..WalkOptions::default()
         };
 
         let (tree, walk_errors, cancelled) = on_pool(pool.as_deref(), || {
