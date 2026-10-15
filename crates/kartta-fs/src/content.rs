@@ -97,13 +97,18 @@ impl<'a> Content<'a> {
 /// A position does not exist until the walk is over, because positions follow the order of the finished tree, so a
 /// file read during the walk is named by this instead, and
 /// [`Index::content_position`](crate::Index::content_position) maps it to its position afterwards. The id belongs to
-/// one build: two builds of one tree may number the same file differently, because the walk's threads read files in
-/// whatever order they reach them.
+/// one index: two builds of one tree may number the same file differently, because the walk's threads read files in
+/// whatever order they reach them, and a [`refresh`](crate::Index::refresh) numbers its reads past every id the index
+/// handed out before, so within one index an id names one file only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ContentId(pub(crate) NonZeroU32);
 
 impl ContentId {
     pub(crate) const fn slot(self) -> usize {
         self.0.get() as usize - 1
+    }
+
+    pub(crate) const fn from_slot(slot: u32) -> Self {
+        Self(NonZeroU32::MIN.saturating_add(slot))
     }
 }

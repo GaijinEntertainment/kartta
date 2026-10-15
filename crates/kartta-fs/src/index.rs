@@ -2,14 +2,16 @@ use std::cmp::Ordering;
 use std::io;
 use std::num::NonZeroUsize;
 use std::ops::Range;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 
 use kartta_walk::{CancelToken, Children, EntryKind, Tree, WalkError, WalkOptions, walk};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::binary::BinaryExtensions;
-use crate::build::{BuildError, BuildOptions};
+use crate::build::{BuildError, BuildOptions, IgnoreSources};
 use crate::content::{ContentId, ContentVisitor};
 use crate::content_index::{
     Collector, ContentIndex, ContentIndexStats, ContentIndexStorage, Narrowed, Unfinished,
@@ -17,14 +19,14 @@ use crate::content_index::{
 use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::inspection::Inspection;
-use crate::policy::{Collected, DirState, Indexing, Learned, Payload, Reading, Report};
+use crate::policy::{Collected, DirState, Indexing, Learned, Numbering, Payload, Reading, Report};
 use crate::requirement::Requirement;
 
 /// A snapshot of a directory tree: every entry the ignore rules kept, in the order a depth-first descent finds them.
 ///
 /// Build one with [`Index::build`] and query it as often as you like. The structure is fixed at the moment of the
-/// walk — which entries exist, what each one is, where a symlink points — and rebuilding is the only way to see a
-/// later change to it.
+/// walk — which entries exist, what each one is, where a symlink points — and [`Index::refresh`] walks the tree again
+/// to see a later change to it.
 ///
 /// A file's own contents are not part of that snapshot. [`Index::size`] reads the filesystem on the first ask for an
 /// entry and keeps the answer, because stat'ing a whole tree during the walk costs about half a build and most of
@@ -68,8 +70,12 @@ pub struct Index {
     kinds: Vec<EntryKind>,
     symlink_targets: Vec<(usize, Box<str>)>,
     inspection: Inspection,
+    ignore_sources: IgnoreSources,
     binary_extensions: BinaryExtensions,
+    first_content_id: u32,
+    next_content_id: u32,
     content_positions: Box<[u32]>,
+    content_storage: Option<ContentIndexStorage>,
     content: Option<Arc<ContentIndex>>,
     pool: Option<Arc<ThreadPool>>,
 }
@@ -114,20 +120,101 @@ impl Index {
         Self::build_walking(root.as_ref(), options, visitor, cancel)
     }
 
+    /// Walks the tree again and makes this index what a build of it would make now, handing `visitor` each wanted text
+    /// file as a build does.
+    ///
+    /// The walk applies the rules the index was built with: the same root, ignore sources and binary extensions, a
+    /// content index kept the same way, on the same threads. So a file added, removed or changed since, and a change to
+    /// a `.gitignore`, all show once this returns.
+    ///
+    /// A refresh costs a build. Every file the visitor wants and every file the content index reads is read again, and
+    /// the index in use stays whole until the new one is done, so the two are held at once while it runs. A refresh
+    /// that returns an error, a cancelled one included, leaves the index answering as it did; one that returns
+    /// [`RefreshOutcome`] has replaced it, even when [`RefreshOutcome::errors`] lists what its walk could not read.
+    ///
+    /// The visitor sees each file under a new [`ContentId`]: a refresh numbers its reads past every id the index handed
+    /// out before, including those of a refresh that returned an error or that a panicking visitor unwound, so one id
+    /// never names two files. [`RefreshOutcome::retired`] lists the ids this index does not answer for, which a
+    /// consumer that keeps something per id drops.
+    ///
+    /// # Errors
+    ///
+    /// As [`Index::build_with`], and [`BuildError::ContentIdsExhausted`] when the index has no id left for a file the
+    /// refresh reads.
+    pub fn refresh(
+        &mut self,
+        visitor: Option<&dyn ContentVisitor>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<RefreshOutcome, BuildError> {
+        let options = BuildOptions {
+            ignore_sources: self.ignore_sources,
+            threads: None,
+            binary_extensions: self.binary_extensions.clone(),
+            content_index: self.content_storage.clone(),
+        };
+        let handed = AtomicU32::new(0);
+        let walking = Walking {
+            visitor,
+            cancel,
+            first_content_id: self.next_content_id,
+            handed: Some(&handed),
+            pool: self.pool.clone(),
+        };
+        // constraint: a visitor that panics unwinds through the walk after it was handed ids, and a caller that catches
+        // the panic keeps this index, so the ids it handed out are counted before the panic goes on
+        let built = panic::catch_unwind(AssertUnwindSafe(|| {
+            Self::walk_and_build(&self.root, &options, walking)
+        }));
+        if !matches!(built, Ok(Ok(_))) {
+            self.next_content_id += handed.into_inner();
+        }
+        let BuildOutcome { index, errors } =
+            built.unwrap_or_else(|panicked| panic::resume_unwind(panicked))?;
+        let retired = self.first_content_id..self.next_content_id;
+        *self = index;
+
+        Ok(RefreshOutcome { errors, retired })
+    }
+
     fn build_walking(
         root: &Path,
         options: &BuildOptions,
         visitor: Option<&dyn ContentVisitor>,
         cancel: Option<&CancelToken>,
     ) -> Result<BuildOutcome, BuildError> {
-        let pool = options.threads.map(thread_pool).transpose()?;
+        let walking = Walking {
+            visitor,
+            cancel,
+            first_content_id: 0,
+            handed: None,
+            pool: options.threads.map(thread_pool).transpose()?,
+        };
+        Self::walk_and_build(root, options, walking)
+    }
+
+    fn walk_and_build(
+        root: &Path,
+        options: &BuildOptions,
+        walking: Walking<'_>,
+    ) -> Result<BuildOutcome, BuildError> {
+        let Walking {
+            visitor,
+            cancel,
+            first_content_id,
+            handed,
+            pool,
+        } = walking;
         let collector = options
             .content_index
             .as_ref()
             .map(|storage| Collector::new(storage).map_err(|source| storage_error(storage, source)))
             .transpose()?;
+        let numbering = Numbering {
+            first_id: first_content_id,
+            handed,
+        };
         let reading = (visitor.is_some() || collector.is_some())
-            .then(|| Reading::new(visitor, collector, &options.binary_extensions));
+            .then(|| Reading::new(visitor, collector, &options.binary_extensions, numbering));
         let policy = Indexing::new(options.ignore_sources, root, reading);
         let walk_options = WalkOptions {
             threads: None,
@@ -145,14 +232,21 @@ impl Index {
         let Report {
             mut errors,
             learned,
+            ran_out_of_ids,
             content,
         } = policy.into_report();
+        if ran_out_of_ids {
+            return Err(BuildError::ContentIdsExhausted);
+        }
         errors.extend(walk_errors.into_iter().map(BuildError::Walk));
         order_errors(&mut errors);
 
         let base = Base {
             root: root.to_path_buf(),
+            ignore_sources: options.ignore_sources,
             binary_extensions: options.binary_extensions.clone(),
+            first_content_id,
+            content_storage: options.content_index.clone(),
             pool,
         };
         let mut index = Self::from_tree(base, tree, &learned);
@@ -197,7 +291,10 @@ impl Index {
     fn from_tree(base: Base, tree: Tree<Payload>, learned: &[Learned]) -> Self {
         let Base {
             root,
+            ignore_sources,
             binary_extensions,
+            first_content_id,
+            content_storage,
             pool,
         } = base;
         let mut suffixes_len = 0;
@@ -217,6 +314,7 @@ impl Index {
         let inspection = Inspection::new(tree.len());
         let mut reads = Reads {
             learned,
+            first: first_content_id as usize,
             positions: vec![0; learned.len()].into_boxed_slice(),
         };
 
@@ -250,8 +348,12 @@ impl Index {
             overflow,
             kinds,
             symlink_targets,
+            ignore_sources,
             binary_extensions,
+            first_content_id,
+            next_content_id: first_content_id + node_sized(learned.len()),
             content_positions: reads.positions,
+            content_storage,
             content: None,
             pool,
         }
@@ -295,8 +397,9 @@ impl Index {
     /// answers for whatever this build read under it.
     #[must_use]
     pub fn content_position(&self, id: ContentId) -> Option<usize> {
+        let slot = id.slot().checked_sub(self.first_content_id as usize)?;
         self.content_positions
-            .get(id.slot())
+            .get(slot)
             .map(|&position| position as usize)
     }
 
@@ -701,7 +804,18 @@ const fn stored_from(at: usize, shared: usize) -> usize {
 
 struct Base {
     root: PathBuf,
+    ignore_sources: IgnoreSources,
     binary_extensions: BinaryExtensions,
+    first_content_id: u32,
+    content_storage: Option<ContentIndexStorage>,
+    pool: Option<Arc<ThreadPool>>,
+}
+
+struct Walking<'a> {
+    visitor: Option<&'a dyn ContentVisitor>,
+    cancel: Option<&'a CancelToken>,
+    first_content_id: u32,
+    handed: Option<&'a AtomicU32>,
     pool: Option<Arc<ThreadPool>>,
 }
 
@@ -728,6 +842,7 @@ fn thread_pool(threads: NonZeroUsize) -> Result<Arc<ThreadPool>, BuildError> {
 
 struct Reads<'a> {
     learned: &'a [Learned],
+    first: usize,
     positions: Box<[u32]>,
 }
 
@@ -737,9 +852,9 @@ impl Reads<'_> {
         reason = "positions are the walk's node ids, which it keeps in a u32 and cannot run past"
     )]
     fn place(&mut self, inspection: &Inspection, id: ContentId, at: usize) {
-        let read = self.learned[id.slot()];
-        self.positions[id.slot()] =
-            u32::try_from(at).expect("a position fits the walk's u32 node ids");
+        let slot = id.slot() - self.first;
+        let read = self.learned[slot];
+        self.positions[slot] = u32::try_from(at).expect("a position fits the walk's u32 node ids");
         inspection.record_size(at, read.size);
         if let Some(binary) = read.binary {
             inspection.record_binary(at, binary);
@@ -947,6 +1062,27 @@ impl BuildOutcome {
     }
 }
 
+/// What one [`Index::refresh`] reports: what its walk could not read, and which ids the index stopped answering for.
+#[derive(Debug)]
+pub struct RefreshOutcome {
+    errors: Vec<BuildError>,
+    retired: Range<u32>,
+}
+
+impl RefreshOutcome {
+    /// What the refresh could not read, as [`BuildOutcome::errors`] reports it for a build.
+    #[must_use]
+    pub fn errors(&self) -> &[BuildError] {
+        &self.errors
+    }
+
+    /// The ids the index handed out before this refresh, including those of a refresh that returned an error or that a
+    /// panicking visitor unwound, and does not answer for now: [`Index::content_position`] answers `None` for each.
+    pub fn retired(&self) -> impl ExactSizeIterator<Item = ContentId> {
+        self.retired.clone().map(ContentId::from_slot)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1012,8 +1148,12 @@ mod tests {
             kinds: vec![EntryKind::Dir, EntryKind::File, EntryKind::File],
             symlink_targets: Vec::new(),
             inspection: Inspection::new(paths.len()),
+            ignore_sources: IgnoreSources::default(),
             binary_extensions: BinaryExtensions::default(),
+            first_content_id: 0,
+            next_content_id: 0,
             content_positions: Box::default(),
+            content_storage: None,
             content: None,
             pool: None,
         };
@@ -1056,5 +1196,53 @@ mod tests {
                 );
             }
         }
+    }
+
+    // constraint: four billion reads are out of a test's reach, so the index is moved to `left` ids before its last
+    fn two_files_with_ids_left(left: u32) -> (tempfile::TempDir, Index) {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        for name in ["a.txt", "b.txt"] {
+            std::fs::write(dir.path().join(name), name).expect("write file");
+        }
+        let options = BuildOptions {
+            content_index: Some(ContentIndexStorage::Memory),
+            ..BuildOptions::default()
+        };
+        let mut index = Index::build(dir.path(), &options)
+            .expect("build")
+            .into_index();
+        index.next_content_id = u32::MAX - left;
+        (dir, index)
+    }
+
+    #[test]
+    fn a_refresh_that_needs_an_id_past_the_last_fails_and_leaves_the_index_answering() {
+        let (_dir, mut index) = two_files_with_ids_left(1);
+        let built = ContentId::from_slot(0);
+        let at = index.content_position(built).expect("a built id");
+
+        let refreshed = index.refresh(None, None);
+
+        assert!(matches!(refreshed, Err(BuildError::ContentIdsExhausted)));
+        assert_eq!(
+            index.content_position(built),
+            Some(at),
+            "the index answers as it did"
+        );
+    }
+
+    #[test]
+    fn a_refresh_numbers_a_read_with_the_last_id_an_index_has() {
+        let (_dir, mut index) = two_files_with_ids_left(2);
+
+        index
+            .refresh(None, None)
+            .expect("two ids are left for the two files");
+
+        assert!(
+            index
+                .content_position(ContentId::from_slot(u32::MAX - 1))
+                .is_some()
+        );
     }
 }
