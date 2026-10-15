@@ -1,5 +1,6 @@
 use std::fmt;
 use std::io::{self, Read};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
@@ -84,6 +85,15 @@ impl Inspection {
     pub(crate) fn set_raw(&self, at: usize, (size, class): (u64, u8)) {
         self.sizes[at].store(size, Ordering::Relaxed);
         self.classes[at].store(class, Ordering::Relaxed);
+    }
+
+    pub(crate) fn copy_run(&self, run: Range<usize>, into: &Self, at: usize) {
+        for (from, to) in self.sizes[run.clone()].iter().zip(&into.sizes[at..]) {
+            to.store(from.load(Ordering::Relaxed), Ordering::Relaxed);
+        }
+        for (from, to) in self.classes[run].iter().zip(&into.classes[at..]) {
+            to.store(from.load(Ordering::Relaxed), Ordering::Relaxed);
+        }
     }
 
     pub(crate) const fn raw_is_text((_, class): (u64, u8)) -> bool {

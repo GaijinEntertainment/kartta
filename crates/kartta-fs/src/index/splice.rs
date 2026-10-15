@@ -39,12 +39,6 @@ pub(crate) struct Spliced {
     pub(crate) retired_text: usize,
 }
 
-#[derive(Clone, Copy)]
-enum Slot<'a> {
-    Kept(usize),
-    Fresh(&'a Fresh),
-}
-
 struct Shifts<'a> {
     replacements: &'a [Replacement],
     added_before: Vec<isize>,
@@ -101,22 +95,6 @@ impl<'a> Shifts<'a> {
 )]
 fn added_by(replacement: &Replacement) -> isize {
     replacement.entries.len() as isize - replacement.range.len() as isize
-}
-
-fn merged(replacements: &[Replacement], len: usize) -> impl Iterator<Item = Slot<'_>> {
-    let tail = replacements.last().map_or(0, |last| last.range.end);
-    replacements
-        .iter()
-        .scan(0, |kept_from, replacement| {
-            let kept = *kept_from..replacement.range.start;
-            *kept_from = replacement.range.end;
-            Some((kept, replacement))
-        })
-        .flat_map(|(kept, replacement)| {
-            kept.map(Slot::Kept)
-                .chain(replacement.entries.iter().map(Slot::Fresh))
-        })
-        .chain((tail..len).map(Slot::Kept))
 }
 
 pub(crate) struct Pending {
@@ -201,7 +179,6 @@ impl Index {
         let mut splicing = Splicing {
             kinds: Vec::with_capacity(len),
             inspection: Inspection::new(len),
-            old_targets: 0,
             symlink_targets: Vec::new(),
             unindexed: self
                 .content
@@ -211,12 +188,15 @@ impl Index {
                 .collect(),
         };
 
-        for (at, slot) in merged(replacements, self.len()).enumerate() {
-            match slot {
-                Slot::Kept(old) => splicing.keep(self, at, old),
-                Slot::Fresh(fresh) => splicing.fresh(at, fresh),
+        let mut kept_from = 0;
+        for replacement in replacements {
+            splicing.keep(self, kept_from..replacement.range.start);
+            for fresh in &replacement.entries {
+                splicing.fresh(fresh);
             }
+            kept_from = replacement.range.end;
         }
+        splicing.keep(self, kept_from..self.len());
         splicing
     }
 
@@ -372,31 +352,27 @@ impl Index {
 struct Splicing {
     kinds: Vec<EntryKind>,
     inspection: Inspection,
-    old_targets: usize,
     symlink_targets: Vec<(usize, Box<str>)>,
     unindexed: Vec<u32>,
 }
 
 impl Splicing {
-    fn keep(&mut self, index: &Index, at: usize, old: usize) {
-        self.kinds.push(index.kinds[old]);
-        self.inspection.set_raw(at, index.inspection.raw(old));
+    fn keep(&mut self, index: &Index, run: Range<usize>) {
+        let at = self.kinds.len();
+        self.kinds.extend_from_slice(&index.kinds[run.clone()]);
+        index.inspection.copy_run(run.clone(), &self.inspection, at);
         let targets = &index.symlink_targets;
-        while targets
-            .get(self.old_targets)
-            .is_some_and(|&(position, _)| position < old)
-        {
-            self.old_targets += 1;
-        }
-        if let Some((_, target)) = targets
-            .get(self.old_targets)
-            .filter(|&&(position, _)| position == old)
-        {
-            self.symlink_targets.push((at, target.clone()));
-        }
+        let low = targets.partition_point(|&(position, _)| position < run.start);
+        let high = targets.partition_point(|&(position, _)| position < run.end);
+        self.symlink_targets.extend(
+            targets[low..high]
+                .iter()
+                .map(|(position, target)| (position - run.start + at, target.clone())),
+        );
     }
 
-    fn fresh(&mut self, at: usize, fresh: &Fresh) {
+    fn fresh(&mut self, fresh: &Fresh) {
+        let at = self.kinds.len();
         self.kinds.push(fresh.kind);
         self.inspection.set_raw(at, fresh.facts);
         if let Some(target) = &fresh.target {
@@ -688,6 +664,20 @@ mod tests {
             index.entry("h.rs").and_then(|entry| entry.target),
             Some("target")
         );
+    }
+
+    #[test]
+    fn what_was_learned_of_a_kept_entry_moves_with_it() {
+        let mut index = index_in_blocks(&TREE, &[3, 1, 4]);
+        index.inspection.record_size(6, 42);
+        index.inspection.record_binary(7, true);
+
+        index.splice(&[replacement(1..1, &[("a/a.rs", File)])], 0);
+
+        assert_eq!(index.position("f/g.rs"), Some(7));
+        assert_eq!(index.inspection.known_size(7), Some(42));
+        assert_eq!(index.inspection.known_binary(8), Some(true));
+        assert_eq!(index.inspection.known_size(6), None, "f learned nothing");
     }
 
     #[test]
