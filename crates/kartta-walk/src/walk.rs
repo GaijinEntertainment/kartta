@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fs;
 use std::io;
 use std::num::NonZeroUsize;
@@ -11,7 +12,7 @@ use crate::error::WalkError;
 use crate::policy::{Dir, Entry, EntryKind, ListedEntry, Policy, Visit};
 use crate::tree::{Slot, Tree};
 
-/// Settings for one walk. Both default to `None`; construct with functional-update syntax
+/// Settings for one walk. Every field defaults to `None`; construct with functional-update syntax
 /// (`WalkOptions { threads, ..Default::default() }`) — further fields may be added over time.
 ///
 /// There is deliberately no cap on entries recorded. Truncating a walk hands back an arbitrary subset — which entries
@@ -33,6 +34,15 @@ pub struct WalkOptions {
     /// leave this `None`. A pool that cannot be started is [`WalkError::ThreadPool`], not a silent fall back to some
     /// other parallelism.
     pub threads: Option<NonZeroUsize>,
+    /// The forward-slash path, relative to the walk root, of the one directory to walk. `None`, or an empty path, walks
+    /// the whole root. Empty and `.` components are dropped, so `/dir//./nested/` walks `dir/nested`; a `..` component
+    /// fails the walk with [`WalkError::Subtree`], since what it names may lie outside the root.
+    ///
+    /// The walk lists only that directory and what lies beneath it, and reports every path and depth — [`Dir::path`],
+    /// [`Entry::path`] and their `depth` — as a walk of the whole root would, so a policy sees the part exactly as it
+    /// sees it in the whole. The tree holds the directory's contents, not the directory itself. A caller walking part
+    /// of a tree again hands the state the directory's parent would have handed it as `initial`.
+    pub subtree: Option<String>,
 }
 
 /// Walks the tree rooted at `root`, recording every entry `policy` does not skip.
@@ -42,9 +52,10 @@ pub struct WalkOptions {
 ///
 /// # Errors
 ///
-/// Returns [`WalkError::ReadDir`] if `root` itself cannot be listed, or [`WalkError::ThreadPool`] if the requested
-/// thread count cannot be started. Every deeper failure is collected into [`WalkOutcome::errors`] instead, leaving a
-/// partial tree.
+/// Returns [`WalkError::ReadDir`] if `root` itself cannot be listed — or the directory [`WalkOptions::subtree`] names,
+/// when it names one — [`WalkError::Subtree`] if that path has a `..` component, or [`WalkError::ThreadPool`] if the
+/// requested thread count cannot be started. Every deeper failure is collected into [`WalkOutcome::errors`] instead,
+/// leaving a partial tree.
 ///
 /// # Examples
 ///
@@ -91,8 +102,19 @@ pub fn walk<P: Policy>(
     initial: &P::State,
     options: &WalkOptions,
 ) -> Result<WalkOutcome<P::Value>, WalkError> {
-    let listing = list_dir(root).map_err(|source| WalkError::ReadDir {
-        native_path: root.to_path_buf(),
+    let path = options
+        .subtree
+        .as_deref()
+        .map(subtree_path)
+        .transpose()?
+        .unwrap_or_default();
+    let (native_path, depth) = if path.is_empty() {
+        (Cow::Borrowed(root), 0)
+    } else {
+        (Cow::Owned(root.join(&path)), path.split('/').count())
+    };
+    let listing = list_dir(&native_path).map_err(|source| WalkError::ReadDir {
+        native_path: native_path.to_path_buf(),
         source,
     })?;
 
@@ -103,9 +125,9 @@ pub fn walk<P: Policy>(
     };
 
     let frame = Frame {
-        native_path: root,
-        path: "",
-        depth: 0,
+        native_path: &native_path,
+        path: &path,
+        depth,
         parent_state: initial,
     };
 
@@ -433,6 +455,23 @@ impl<V> Classified<V> {
             }
         }
     }
+}
+
+fn subtree_path(subtree: &str) -> Result<String, WalkError> {
+    let mut path = String::with_capacity(subtree.len());
+    for part in subtree.split('/').filter(|part| !matches!(*part, "" | ".")) {
+        if part == ".." {
+            return Err(WalkError::Subtree {
+                subtree: subtree.to_owned(),
+            });
+        }
+        if !path.is_empty() {
+            path.push('/');
+        }
+        path.push_str(part);
+    }
+
+    Ok(path)
 }
 
 fn path_prefix(path: &str) -> String {

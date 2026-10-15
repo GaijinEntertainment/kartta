@@ -7,9 +7,10 @@ use std::path::{Path, PathBuf};
 
 /// A failure that stopped a walk, or cost it one entry or subtree.
 ///
-/// Two of these are fatal and returned from [`walk`](crate::walk): an unreadable root, and a thread pool that could not
-/// be started. Every other failure is collected into [`WalkOutcome::errors`](crate::WalkOutcome::errors) and costs only
-/// the affected entry or subtree, so one unreadable directory yields a partial tree instead of nothing.
+/// Three of these are fatal and returned from [`walk`](crate::walk): an unreadable root, a subtree that leaves the root,
+/// and a thread pool that could not be started. Every other failure is collected into
+/// [`WalkOutcome::errors`](crate::WalkOutcome::errors) and costs only the affected entry or subtree, so one unreadable
+/// directory yields a partial tree instead of nothing.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum WalkError {
@@ -50,20 +51,27 @@ pub enum WalkError {
         /// The underlying failure, boxed so no dependency's error type reaches this crate's public API.
         source: Box<dyn Error + Send + Sync>,
     },
+    /// [`WalkOptions::subtree`](crate::WalkOptions::subtree) names a path with a `..` component, which may lead outside
+    /// the root, so the walk never began.
+    #[error("cannot walk the subtree {subtree:?}: a `..` component may lead outside the root")]
+    Subtree {
+        /// The path as it was given.
+        subtree: String,
+    },
 }
 
 impl WalkError {
     /// The native path the failed operation was applied to, or `None` for a failure that names no path.
     ///
     /// Every error in [`WalkOutcome::errors`](crate::WalkOutcome::errors) names a path; only
-    /// [`WalkError::ThreadPool`], which can be returned but never collected, does not.
+    /// [`WalkError::ThreadPool`] and [`WalkError::Subtree`], which can be returned but never collected, do not.
     #[must_use]
     pub fn native_path(&self) -> Option<&Path> {
         match self {
             Self::ReadDir { native_path, .. }
             | Self::ReadEntry { native_path, .. }
             | Self::FileType { native_path, .. } => Some(native_path),
-            Self::ThreadPool { .. } => None,
+            Self::ThreadPool { .. } | Self::Subtree { .. } => None,
         }
     }
 }

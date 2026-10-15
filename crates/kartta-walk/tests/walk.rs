@@ -14,7 +14,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 
 use kartta_walk::{
-    CancelToken, Children, Dir, Entry, EntryKind, Node, Policy, Tree, Visit, WalkOptions, walk,
+    CancelToken, Children, Dir, Entry, EntryKind, Node, Policy, Tree, Visit, WalkError,
+    WalkOptions, walk,
 };
 use tempfile::TempDir;
 
@@ -93,6 +94,113 @@ fn records_the_tree_depth_first_with_children_name_sorted() {
     );
     assert!(outcome.errors().is_empty());
     assert!(!outcome.is_cancelled());
+}
+
+#[derive(Default)]
+struct Seen {
+    dirs: Mutex<Vec<(String, usize)>>,
+    entries: Mutex<Vec<(String, usize)>>,
+}
+
+impl Policy for Seen {
+    type State = ();
+    type Value = EntryKind;
+
+    fn enter(&self, dir: &Dir<'_>, _parent_state: &()) {
+        let seen = (dir.path().to_owned(), dir.depth());
+        self.dirs.lock().expect("lock").push(seen);
+    }
+
+    fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<EntryKind> {
+        let seen = (entry.path().to_owned(), entry.depth());
+        self.entries.lock().expect("lock").push(seen);
+        Visit::Keep(entry.kind())
+    }
+}
+
+fn sorted(seen: &Mutex<Vec<(String, usize)>>) -> Vec<(String, usize)> {
+    let mut seen = seen.lock().expect("lock").clone();
+    seen.sort();
+    seen
+}
+
+#[test]
+fn a_subtree_walk_shows_the_policy_the_paths_and_depths_the_whole_walk_would() {
+    let dir = fixture();
+    let seen = Seen::default();
+    let options = WalkOptions {
+        subtree: Some("dir".to_owned()),
+        ..WalkOptions::default()
+    };
+
+    let outcome = walk(dir.path(), &seen, &(), &options).expect("walk");
+
+    assert_eq!(
+        render(outcome.tree()),
+        ["b.txt File", "nested Dir", "nested/c.txt File"],
+        "the tree holds the directory's contents"
+    );
+    assert_eq!(
+        sorted(&seen.dirs),
+        [("dir".to_owned(), 1), ("dir/nested".to_owned(), 2)]
+    );
+    assert_eq!(
+        sorted(&seen.entries),
+        [
+            ("dir/b.txt".to_owned(), 2),
+            ("dir/nested".to_owned(), 2),
+            ("dir/nested/c.txt".to_owned(), 3),
+        ]
+    );
+}
+
+#[test]
+fn a_nested_subtree_spelled_loosely_walks_as_the_whole_walk_sees_it() {
+    let dir = fixture();
+    let seen = Seen::default();
+    let options = WalkOptions {
+        subtree: Some("/dir//./nested/".to_owned()),
+        ..WalkOptions::default()
+    };
+
+    let outcome = walk(dir.path(), &seen, &(), &options).expect("walk");
+
+    assert_eq!(render(outcome.tree()), ["c.txt File"]);
+    assert_eq!(sorted(&seen.dirs), [("dir/nested".to_owned(), 2)]);
+    assert_eq!(sorted(&seen.entries), [("dir/nested/c.txt".to_owned(), 3)]);
+}
+
+#[test]
+fn a_subtree_that_may_leave_the_root_fails_the_walk() {
+    let dir = fixture();
+    let options = WalkOptions {
+        subtree: Some("dir/../dir".to_owned()),
+        ..WalkOptions::default()
+    };
+
+    let walked = walk(dir.path(), &Everything, &(), &options);
+
+    assert!(matches!(
+        walked,
+        Err(WalkError::Subtree { subtree }) if subtree == "dir/../dir"
+    ));
+}
+
+#[test]
+fn a_subtree_that_cannot_be_listed_fails_the_walk_naming_it() {
+    let dir = fixture();
+    let options = WalkOptions {
+        subtree: Some("dir/missing".to_owned()),
+        ..WalkOptions::default()
+    };
+
+    let walked = walk(dir.path(), &Everything, &(), &options);
+
+    let missing = dir.path().join("dir/missing");
+    assert!(matches!(
+        walked,
+        Err(WalkError::ReadDir { native_path, .. }) if native_path == missing
+    ));
 }
 
 #[test]
@@ -520,6 +628,7 @@ fn cancellation_composes_with_a_thread_limit() {
     let options = WalkOptions {
         cancel_token: Some(token),
         threads: NonZeroUsize::new(2),
+        ..WalkOptions::default()
     };
 
     let outcome = walk(dir.path(), &Everything, &(), &options).expect("walk");
@@ -687,8 +796,8 @@ fn a_directory_large_enough_to_classify_in_parallel_walks_to_the_same_tree_and_s
 fn a_thread_limit_records_the_whole_tree() {
     let dir = wide_fixture(8);
     let options = WalkOptions {
-        cancel_token: None,
         threads: NonZeroUsize::new(2),
+        ..WalkOptions::default()
     };
 
     let outcome = walk(dir.path(), &Everything, &(), &options).expect("walk");
