@@ -14,7 +14,7 @@ use crate::index::Previous;
 use crate::inspection::{PROBE, read_prefix};
 use crate::open::{Symlinks, open_regular};
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
-use crate::stamp::{Stamp, Stamping, UNTRUSTED};
+use crate::stamp::{Seen, Stamp, Stamping, UNTRUSTED};
 use crate::trigram::{self, Trigram, Trigrams};
 
 #[derive(Debug)]
@@ -307,11 +307,16 @@ impl<'a> Indexing<'a> {
         rules
     }
 
-    pub(crate) fn single(&self, path: &str, native_path: &Path, metadata: fs::Metadata) -> Payload {
+    pub(crate) fn single(
+        &self,
+        path: &str,
+        native_path: &Path,
+        metadata: &fs::Metadata,
+    ) -> Payload {
         let kind = EntryKind::from(metadata.file_type());
         let content = match kind {
             EntryKind::File => {
-                self.read_file(path, || native_path.to_path_buf(), || Some(metadata))
+                self.read_file(path, || native_path.to_path_buf(), || Seen::of(metadata))
             }
             _ => None,
         };
@@ -327,7 +332,7 @@ impl<'a> Indexing<'a> {
 
     fn hand_over_ignore_file(&self, path: &str, read: &IgnoreFile) -> Option<ContentId> {
         let (reading, visit) = self.wanted(path)?;
-        if let Some(carried) = reading.carry(path, visit, || Some(read.metadata.clone())) {
+        if let Some(carried) = reading.carry(path, visit, || Seen::of(&read.metadata)) {
             return Some(carried);
         }
         let bytes = &read.bytes;
@@ -375,11 +380,22 @@ impl<'a> Indexing<'a> {
         false
     }
 
+    pub(crate) fn may_carry(&self) -> bool {
+        self.reading
+            .as_ref()
+            .is_some_and(|reading| reading.numbering.previous.is_some())
+    }
+
     fn read_content(&self, entry: &Entry<'_>) -> Option<ContentId> {
         self.read_file(
             entry.path(),
             || entry.native_path(),
-            || entry.metadata().ok(),
+            || {
+                entry.listed_stat().map(Seen::listed).or_else(|| {
+                    let metadata = entry.metadata().ok()?;
+                    Seen::of(&metadata)
+                })
+            },
         )
     }
 
@@ -387,10 +403,10 @@ impl<'a> Indexing<'a> {
         &self,
         path: &str,
         native_path: impl FnOnce() -> PathBuf,
-        metadata: impl FnOnce() -> Option<fs::Metadata>,
+        seen: impl FnOnce() -> Option<Seen>,
     ) -> Option<ContentId> {
         let (reading, visit) = self.wanted(path)?;
-        if let Some(carried) = reading.carry(path, visit, metadata) {
+        if let Some(carried) = reading.carry(path, visit, seen) {
             return Some(carried);
         }
 
@@ -476,9 +492,9 @@ impl Reading<'_> {
         &self,
         path: &str,
         visit: bool,
-        metadata: impl FnOnce() -> Option<fs::Metadata>,
+        seen: impl FnOnce() -> Option<Seen>,
     ) -> Option<ContentId> {
-        self.numbering.previous?.carry(path, visit, metadata)
+        self.numbering.previous?.carry(path, visit, seen)
     }
 
     fn observed(&self, learned: Learned, metadata: &fs::Metadata, visited: bool) -> Observed {

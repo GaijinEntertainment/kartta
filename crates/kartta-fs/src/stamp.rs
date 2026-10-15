@@ -3,6 +3,8 @@
 use std::fs::Metadata;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use kartta_walk::ListedStat;
+
 pub(crate) type Stamp = u64;
 
 pub(crate) const UNTRUSTED: Stamp = 0;
@@ -41,15 +43,37 @@ impl Stamping {
     }
 }
 
-pub(crate) fn unchanged(stamp: Stamp, size: Option<u64>, metadata: &Metadata, visit: bool) -> bool {
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Seen {
+    size: u64,
+    changed: Option<u64>,
+}
+
+impl Seen {
+    pub(crate) fn of(metadata: &Metadata) -> Option<Self> {
+        metadata.is_file().then(|| Self {
+            size: metadata.len(),
+            changed: changed(metadata),
+        })
+    }
+
+    // constraint: only macOS lists stats, and there the stamp is the change time a listed stat carries
+    pub(crate) fn listed(stat: ListedStat) -> Self {
+        Self {
+            size: stat.size(),
+            changed: since_epoch(stat.ctime(), stat.ctime_nsec()),
+        }
+    }
+}
+
+pub(crate) fn unchanged(stamp: Stamp, size: Option<u64>, seen: Seen, visit: bool) -> bool {
     let time = stamp & !VISITED;
     let handed_over_if_wanted = !visit || stamp & VISITED != 0;
 
     time != UNTRUSTED
         && handed_over_if_wanted
-        && metadata.is_file()
-        && size == Some(metadata.len())
-        && changed(metadata) == Some(time)
+        && size == Some(seen.size)
+        && seen.changed == Some(time)
 }
 
 // constraint: the stamp is the inode change time where there is one, because a tool that keeps modification times
@@ -58,8 +82,12 @@ pub(crate) fn unchanged(stamp: Stamp, size: Option<u64>, metadata: &Metadata, vi
 fn changed(metadata: &Metadata) -> Option<u64> {
     use std::os::unix::fs::MetadataExt;
 
-    let seconds = u64::try_from(metadata.ctime()).ok()?;
-    let nanos = u64::try_from(metadata.ctime_nsec()).ok()?;
+    since_epoch(metadata.ctime(), metadata.ctime_nsec())
+}
+
+fn since_epoch(seconds: i64, nanos: i64) -> Option<u64> {
+    let seconds = u64::try_from(seconds).ok()?;
+    let nanos = u64::try_from(nanos).ok()?;
     seconds.checked_mul(1_000_000_000)?.checked_add(nanos)
 }
 

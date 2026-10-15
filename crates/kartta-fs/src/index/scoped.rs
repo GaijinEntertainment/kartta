@@ -407,7 +407,7 @@ impl Rewalk<'_, '_> {
             return Ok(Found::GONE);
         }
 
-        let entry = self.policy.single(scope, &native_path, metadata);
+        let entry = self.policy.single(scope, &native_path, &metadata);
         let below = if is_dir {
             self.below(scope, &DirState::below(rules))?
         } else {
@@ -423,6 +423,7 @@ impl Rewalk<'_, '_> {
         let options = WalkOptions {
             cancel_token: self.cancel.cloned(),
             subtree: Some(dir.to_owned()),
+            listed_stats: self.policy.may_carry(),
             ..WalkOptions::default()
         };
         let walked = self
