@@ -259,6 +259,7 @@ impl Index {
         let policy = indexing(root, options, visitor, numbering)?;
         let walk_options = WalkOptions {
             cancel_token: cancel.cloned(),
+            listed_stats: policy.may_carry(),
             ..WalkOptions::default()
         };
 

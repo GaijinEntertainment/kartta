@@ -1,10 +1,9 @@
-use std::fs::Metadata;
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::{Index, NO_POSITION, node_sized};
 use crate::content::ContentId;
-use crate::stamp::{self, Stamp};
+use crate::stamp::{self, Seen, Stamp};
 
 pub(crate) struct Previous<'a> {
     index: &'a Index,
@@ -75,19 +74,13 @@ impl<'a> Previous<'a> {
         &self,
         path: &str,
         visit: bool,
-        metadata: impl FnOnce() -> Option<Metadata>,
+        seen: impl FnOnce() -> Option<Seen>,
     ) -> Option<ContentId> {
         let at = self.index.position(path)?;
         let slot = self.slots.at(at)?;
         let local = slot.checked_sub(self.index.first_content_id)? as usize;
         let stamp = *self.stamps.get(local)?;
-        let metadata = metadata()?;
-        if !stamp::unchanged(
-            stamp,
-            self.index.inspection.known_size(at),
-            &metadata,
-            visit,
-        ) {
+        if !stamp::unchanged(stamp, self.index.inspection.known_size(at), seen()?, visit) {
             return None;
         }
 
