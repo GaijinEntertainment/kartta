@@ -84,8 +84,11 @@ pub enum EntryKind {
     Other,
 }
 
-impl EntryKind {
-    fn from_unfollowed(file_type: fs::FileType) -> Self {
+impl From<fs::FileType> for EntryKind {
+    /// Names what a file type is, as a walk names an entry: a type read without following symlinks
+    /// ([`fs::symlink_metadata`]) gives the kind the walk records, and a followed one never answers
+    /// [`EntryKind::Symlink`].
+    fn from(file_type: fs::FileType) -> Self {
         if file_type.is_dir() {
             Self::Dir
         } else if file_type.is_file() {
@@ -230,7 +233,7 @@ impl<'a> Entry<'a> {
     /// here and is never descended.
     #[must_use]
     pub fn kind(&self) -> EntryKind {
-        EntryKind::from_unfollowed(self.file_type)
+        EntryKind::from(self.file_type)
     }
 
     /// The raw non-following file type, for a platform question [`EntryKind`] does not answer — telling a socket from a
