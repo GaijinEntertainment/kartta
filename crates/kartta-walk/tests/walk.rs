@@ -9,7 +9,7 @@
 
 use std::fs;
 use std::num::NonZeroUsize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 
@@ -524,6 +524,135 @@ fn native_paths_stay_on_the_io_side() {
     );
 }
 
+struct Facts;
+
+impl Policy for Facts {
+    type State = ();
+    type Value = (EntryKind, usize, PathBuf, Option<u64>);
+
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
+
+    fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<Self::Value> {
+        Visit::Keep((
+            entry.kind(),
+            entry.depth(),
+            entry.native_path(),
+            entry.metadata().ok().map(|metadata| metadata.len()),
+        ))
+    }
+}
+
+type RenderedWithErrors = (Vec<String>, Vec<Option<PathBuf>>);
+
+fn with_and_without_listed_stats(root: &Path) -> [RenderedWithErrors; 2] {
+    [false, true].map(|listed_stats| {
+        let options = WalkOptions {
+            listed_stats,
+            ..WalkOptions::default()
+        };
+        let outcome = walk(root, &Facts, &(), &options).expect("walk");
+        let errors = outcome
+            .errors()
+            .iter()
+            .map(|error| error.native_path().map(Path::to_path_buf))
+            .collect();
+
+        (render(outcome.tree()), errors)
+    })
+}
+
+#[test]
+fn a_walk_asked_for_listed_stats_records_the_tree_a_walk_without_them_records() {
+    let dir = fixture();
+
+    let [without, with] = with_and_without_listed_stats(dir.path());
+
+    assert_eq!(
+        with, without,
+        "kinds, depths, native paths and metadata all agree"
+    );
+}
+
+struct Stats;
+
+type PathAndStat = (String, Option<(u64, i64, i64)>);
+
+impl Policy for Stats {
+    type State = ();
+    type Value = PathAndStat;
+
+    fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
+
+    fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<Self::Value> {
+        let stat = entry
+            .listed_stat()
+            .map(|stat| (stat.size(), stat.ctime(), stat.ctime_nsec()));
+
+        Visit::Keep((entry.path().to_owned(), stat))
+    }
+}
+
+fn stated(tree: &Tree<PathAndStat>) -> usize {
+    tree.nodes().filter(|node| node.value().1.is_some()).count()
+}
+
+#[test]
+fn a_walk_not_asked_for_listed_stats_hands_none() {
+    let dir = fixture();
+
+    let outcome = walk(dir.path(), &Stats, &(), &WalkOptions::default()).expect("walk");
+
+    assert_eq!(
+        stated(outcome.tree()),
+        0,
+        "only a walk that asks lists stats"
+    );
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn a_listing_that_carries_no_stats_hands_none_when_asked() {
+    let dir = fixture();
+    let options = WalkOptions {
+        listed_stats: true,
+        ..WalkOptions::default()
+    };
+
+    let outcome = walk(dir.path(), &Stats, &(), &options).expect("walk");
+
+    assert_eq!(
+        stated(outcome.tree()),
+        0,
+        "only macOS lists stats with the names"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn listed_stats_give_each_regular_file_what_a_stat_of_it_gives() {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let dir = fixture();
+    std::os::unix::fs::symlink(dir.path().join("a.txt"), dir.path().join("to_file"))
+        .expect("symlink to file");
+    let options = WalkOptions {
+        listed_stats: true,
+        ..WalkOptions::default()
+    };
+
+    let outcome = walk(dir.path(), &Stats, &(), &options).expect("walk");
+
+    for node in outcome.tree().nodes() {
+        let (path, stat) = node.value();
+        let metadata = fs::symlink_metadata(dir.path().join(path)).expect("stat the entry");
+        let stated = metadata
+            .is_file()
+            .then(|| (metadata.size(), metadata.ctime(), metadata.ctime_nsec()));
+        assert_eq!(*stat, stated, "{path} lists what a stat of it reports");
+    }
+    assert_eq!(stated(outcome.tree()), 4, "every regular file has its stat");
+}
+
 struct CancelAfter {
     token: CancelToken,
     after: usize,
@@ -869,6 +998,41 @@ mod unix {
             );
             assert_eq!(node.children().count(), 0, "{name} was not descended");
         }
+    }
+
+    #[test]
+    fn listed_stats_change_nothing_a_walk_records_or_misses_among_odd_entries() {
+        let dir = fixture();
+        let root = dir.path();
+        let status = std::process::Command::new("mkfifo")
+            .arg(root.join("pipe"))
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed");
+        std::os::unix::fs::symlink(root.join("dir"), root.join("to_dir")).expect("symlink to dir");
+        std::os::unix::fs::symlink(root.join("nowhere"), root.join("dangling"))
+            .expect("dangling symlink");
+        let locked = root.join("locked");
+        fs::create_dir(&locked).expect("create locked");
+        fs::write(locked.join("hidden.txt"), "x").expect("write inside locked");
+        let unsearchable = root.join("unsearchable");
+        fs::create_dir_all(unsearchable.join("below")).expect("create unsearchable/below");
+        fs::write(unsearchable.join("named.txt"), "x").expect("write inside unsearchable");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("chmod 000");
+        fs::set_permissions(&unsearchable, fs::Permissions::from_mode(0o400)).expect("chmod 400");
+
+        let [without, with] = with_and_without_listed_stats(root);
+
+        // constraint: a directory left unreadable cannot be removed, so the modes are restored before any assertion
+        // fails
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).expect("restore mode");
+        fs::set_permissions(&unsearchable, fs::Permissions::from_mode(0o755))
+            .expect("restore mode");
+
+        assert_eq!(
+            with, without,
+            "a fifo, symlinks, an unreadable directory and one whose names can be read but not searched all walk alike"
+        );
     }
 
     #[test]

@@ -9,10 +9,10 @@ use rayon::prelude::*;
 
 use crate::cancel::CancelToken;
 use crate::error::WalkError;
-use crate::policy::{Dir, Entry, EntryKind, ListedEntry, Policy, Visit};
+use crate::policy::{Dir, Entry, EntryKind, ListedEntry, Origin, Policy, Visit};
 use crate::tree::{Slot, Tree};
 
-/// Settings for one walk. Every field defaults to `None`; construct with functional-update syntax
+/// Settings for one walk. Every field defaults to `None` or `false`; construct with functional-update syntax
 /// (`WalkOptions { threads, ..Default::default() }`) — further fields may be added over time.
 ///
 /// There is deliberately no cap on entries recorded. Truncating a walk hands back an arbitrary subset — which entries
@@ -43,6 +43,14 @@ pub struct WalkOptions {
     /// sees it in the whole. The tree holds the directory's contents, not the directory itself. A caller walking part
     /// of a tree again hands the state the directory's parent would have handed it as `initial`.
     pub subtree: Option<String>,
+    /// Whether each directory is listed with its regular files' lengths and inode change times, which a policy then
+    /// reads from [`Entry::listed_stat`] with no stat call of its own.
+    ///
+    /// Only macOS lists them with the names, through `getattrlistbulk`; elsewhere the listing carries none and
+    /// [`Entry::listed_stat`] is `None`. Such a listing costs more than one without them, so a walk whose policy reads
+    /// no file's stat leaves this `false`. A directory the kernel cannot list with them is listed without, so the tree
+    /// is the one a walk without them records.
+    pub listed_stats: bool,
 }
 
 /// Walks the tree rooted at `root`, recording every entry `policy` does not skip.
@@ -113,7 +121,8 @@ pub fn walk<P: Policy>(
     } else {
         (Cow::Owned(root.join(&path)), path.split('/').count())
     };
-    let listing = list_dir(&native_path).map_err(|source| WalkError::ReadDir {
+    let list = lister(options);
+    let listing = list(&native_path).map_err(|source| WalkError::ReadDir {
         native_path: native_path.to_path_buf(),
         source,
     })?;
@@ -121,6 +130,7 @@ pub fn walk<P: Policy>(
     let walker = Walker {
         policy,
         options,
+        list,
         stopped: AtomicBool::new(false),
     };
 
@@ -222,6 +232,7 @@ struct Frame<'a, P: Policy> {
 struct Walker<'a, P: Policy> {
     policy: &'a P,
     options: &'a WalkOptions,
+    list: fn(&Path) -> io::Result<Listing>,
     stopped: AtomicBool,
 }
 
@@ -353,30 +364,24 @@ impl<P: Policy> Walker<'_, P> {
             return Decided::Stopped;
         }
 
-        let file_type = match item.dir_entry.file_type() {
-            Ok(file_type) => file_type,
-            Err(source) => {
-                return Decided::Failed(WalkError::FileType {
-                    native_path: item.dir_entry.path(),
-                    source,
-                });
-            }
+        let kind = match item.kind() {
+            Ok(kind) => kind,
+            Err(error) => return Decided::Failed(error),
         };
 
         prefixed_path.truncate(at.prefix_len);
         prefixed_path.push_str(&item.name);
 
-        let entry = Entry::new(item, prefixed_path, at.dir.depth() + 1, file_type);
-        let is_dir = entry.kind() == EntryKind::Dir;
+        let entry = Entry::new(item, at.dir, prefixed_path, kind);
         let (value, descendable) = match self.policy.visit(&entry, at.state) {
             Visit::Skip => return Decided::Skipped,
             Visit::Prune(value) => (value, false),
-            Visit::Keep(value) => (value, is_dir),
+            Visit::Keep(value) => (value, kind == EntryKind::Dir),
         };
 
         Decided::Recorded {
             value,
-            descent: descendable.then(|| (item.dir_entry.path(), prefixed_path.clone())),
+            descent: descendable.then(|| (entry.native_path(), prefixed_path.clone())),
         }
     }
 
@@ -386,7 +391,7 @@ impl<P: Policy> Walker<'_, P> {
         depth: usize,
         parent_state: &P::State,
     ) -> Subtree<P::Value> {
-        match list_dir(&descent.native_path) {
+        match (self.list)(&descent.native_path) {
             Ok(listing) => self.walk_dir(
                 &Frame {
                     native_path: &descent.native_path,
@@ -519,6 +524,28 @@ fn pool(threads: NonZeroUsize) -> Result<rayon::ThreadPool, WalkError> {
         })
 }
 
+#[cfg(target_os = "macos")]
+const fn lister(options: &WalkOptions) -> fn(&Path) -> io::Result<Listing> {
+    if options.listed_stats {
+        list_dir_with_stats
+    } else {
+        list_dir
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+const fn lister(_options: &WalkOptions) -> fn(&Path) -> io::Result<Listing> {
+    list_dir
+}
+
+#[cfg(target_os = "macos")]
+fn list_dir_with_stats(native_path: &Path) -> io::Result<Listing> {
+    crate::bulk::list(native_path)?.map_or_else(
+        || list_dir(native_path),
+        |entries| Ok(Listing::sorted(entries, Vec::new())),
+    )
+}
+
 fn list_dir(native_path: &Path) -> io::Result<Listing> {
     let mut entries = Vec::new();
     let mut errors = Vec::new();
@@ -531,7 +558,7 @@ fn list_dir(native_path: &Path) -> io::Result<Listing> {
                     .to_string_lossy()
                     .into_owned()
                     .into_boxed_str(),
-                dir_entry,
+                origin: Origin::ReadDir(dir_entry),
             }),
             Err(source) => errors.push(WalkError::ReadEntry {
                 native_path: native_path.to_path_buf(),
@@ -540,10 +567,16 @@ fn list_dir(native_path: &Path) -> io::Result<Listing> {
         }
     }
 
-    // constraint: the sort is bytewise by name, and `kartta-fs` binary-searches the depth-first order it gives
-    entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    Ok(Listing::sorted(entries, errors))
+}
 
-    Ok(Listing { entries, errors })
+impl Listing {
+    fn sorted(mut entries: Vec<ListedEntry>, errors: Vec<WalkError>) -> Self {
+        // constraint: the sort is bytewise by name, and `kartta-fs` binary-searches the depth-first order it gives
+        entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+
+        Self { entries, errors }
+    }
 }
 
 // shortcut: serial, so it bounds how much the parallel traversal can win — reserve each subtree's id range from its

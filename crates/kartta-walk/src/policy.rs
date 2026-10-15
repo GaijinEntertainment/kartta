@@ -1,11 +1,44 @@
+#[cfg(target_os = "macos")]
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::error::WalkError;
+
 #[derive(Debug)]
 pub(crate) struct ListedEntry {
     pub(crate) name: Box<str>,
-    pub(crate) dir_entry: fs::DirEntry,
+    pub(crate) origin: Origin,
+}
+
+#[derive(Debug)]
+pub(crate) enum Origin {
+    ReadDir(fs::DirEntry),
+    #[cfg(target_os = "macos")]
+    Bulk {
+        kind: EntryKind,
+        stat: Option<ListedStat>,
+        raw_name: Option<Box<OsStr>>,
+    },
+}
+
+impl ListedEntry {
+    pub(crate) fn kind(&self) -> Result<EntryKind, WalkError> {
+        match &self.origin {
+            Origin::ReadDir(dir_entry) => {
+                dir_entry
+                    .file_type()
+                    .map(EntryKind::from)
+                    .map_err(|source| WalkError::FileType {
+                        native_path: dir_entry.path(),
+                        source,
+                    })
+            }
+            #[cfg(target_os = "macos")]
+            Origin::Bulk { kind, .. } => Ok(*kind),
+        }
+    }
 }
 
 /// Decides what a walk records and where it descends.
@@ -80,7 +113,7 @@ pub enum EntryKind {
     File,
     /// A symlink, reported as itself whatever it points at — the walk neither follows nor descends one.
     Symlink,
-    /// None of the above: a socket, fifo or device node on unix. [`Entry::file_type`] says which.
+    /// None of the above: a socket, fifo or device node on unix. [`Entry::metadata`] says which.
     Other,
 }
 
@@ -176,23 +209,23 @@ impl<'a> Dir<'a> {
 #[derive(Debug)]
 pub struct Entry<'a> {
     listed: &'a ListedEntry,
+    dir: &'a Dir<'a>,
     path: &'a str,
-    depth: usize,
-    file_type: fs::FileType,
+    kind: EntryKind,
 }
 
 impl<'a> Entry<'a> {
     pub(crate) const fn new(
         listed: &'a ListedEntry,
+        dir: &'a Dir<'a>,
         path: &'a str,
-        depth: usize,
-        file_type: fs::FileType,
+        kind: EntryKind,
     ) -> Self {
         Entry {
             listed,
+            dir,
             path,
-            depth,
-            file_type,
+            kind,
         }
     }
 
@@ -218,13 +251,21 @@ impl<'a> Entry<'a> {
     /// Allocates. The walk does not need it, so it is built only when a policy asks.
     #[must_use]
     pub fn native_path(&self) -> PathBuf {
-        self.listed.dir_entry.path()
+        match &self.listed.origin {
+            Origin::ReadDir(dir_entry) => dir_entry.path(),
+            #[cfg(target_os = "macos")]
+            Origin::Bulk { raw_name, .. } => self.dir.native_path().join(
+                raw_name
+                    .as_deref()
+                    .unwrap_or_else(|| OsStr::new(self.name())),
+            ),
+        }
     }
 
     /// How far below the walk root this entry sits. `1` for an entry of the root directory.
     #[must_use]
     pub const fn depth(&self) -> usize {
-        self.depth
+        self.dir.depth() + 1
     }
 
     /// What the entry is, read without following symlinks.
@@ -232,26 +273,69 @@ impl<'a> Entry<'a> {
     /// A symlink reports [`EntryKind::Symlink`] whatever it points at, so a symlink to a directory is not a directory
     /// here and is never descended.
     #[must_use]
-    pub fn kind(&self) -> EntryKind {
-        EntryKind::from(self.file_type)
-    }
-
-    /// The raw non-following file type, for a platform question [`EntryKind`] does not answer — telling a socket from a
-    /// fifo through [`std::os::unix::fs::FileTypeExt`], say.
-    #[must_use]
-    pub const fn file_type(&self) -> fs::FileType {
-        self.file_type
+    pub const fn kind(&self) -> EntryKind {
+        self.kind
     }
 
     /// The entry's metadata, read without following symlinks — a symlink reports on itself, not on its target.
     ///
     /// This is the syscall a policy pays for a file's size or timestamps, and it is the policy's choice: the walk
-    /// itself never asks.
+    /// itself never asks. Where the listing carries them, [`Entry::listed_stat`] gives a regular file's length and
+    /// change time without one.
     ///
     /// # Errors
     ///
     /// Propagates the underlying failure to stat the entry.
     pub fn metadata(&self) -> io::Result<fs::Metadata> {
-        self.listed.dir_entry.metadata()
+        match &self.listed.origin {
+            Origin::ReadDir(dir_entry) => dir_entry.metadata(),
+            #[cfg(target_os = "macos")]
+            Origin::Bulk { .. } => fs::symlink_metadata(self.native_path()),
+        }
+    }
+
+    /// The entry's length and inode change time as its directory's listing reported them, with no call of its own.
+    ///
+    /// `Some` for a regular file when [`WalkOptions::listed_stats`](crate::WalkOptions::listed_stats) asked for them
+    /// and the platform's listing carries them, which only macOS's does; `None` otherwise, where
+    /// [`Entry::metadata`] reads them.
+    #[must_use]
+    pub const fn listed_stat(&self) -> Option<ListedStat> {
+        match &self.listed.origin {
+            Origin::ReadDir(_) => None,
+            #[cfg(target_os = "macos")]
+            Origin::Bulk { stat, .. } => *stat,
+        }
+    }
+}
+
+/// A regular file's length and inode change time, as its directory's listing reported them.
+///
+/// [`Entry::listed_stat`] hands one over. Each field is the one of the same name in unix's `MetadataExt`, so a stat of
+/// the file compares field for field.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct ListedStat {
+    pub(crate) size: u64,
+    pub(crate) ctime: i64,
+    pub(crate) ctime_nsec: i64,
+}
+
+impl ListedStat {
+    /// The file's length in bytes.
+    #[must_use]
+    pub const fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// When the file's inode last changed, in whole seconds since the Unix epoch.
+    #[must_use]
+    pub const fn ctime(&self) -> i64 {
+        self.ctime
+    }
+
+    /// The nanoseconds past [`ListedStat::ctime`].
+    #[must_use]
+    pub const fn ctime_nsec(&self) -> i64 {
+        self.ctime_nsec
     }
 }

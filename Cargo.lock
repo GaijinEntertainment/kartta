@@ -536,6 +536,7 @@ name = "kartta-walk"
 version = "0.0.0"
 dependencies = [
  "criterion",
+ "libc",
  "rayon",
  "tempfile",
  "thiserror",
