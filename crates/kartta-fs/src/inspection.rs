@@ -74,6 +74,22 @@ impl Inspection {
         }
     }
 
+    pub(crate) fn raw(&self, at: usize) -> (u64, u8) {
+        (
+            self.sizes[at].load(Ordering::Relaxed),
+            self.classes[at].load(Ordering::Relaxed),
+        )
+    }
+
+    pub(crate) fn set_raw(&self, at: usize, (size, class): (u64, u8)) {
+        self.sizes[at].store(size, Ordering::Relaxed);
+        self.classes[at].store(class, Ordering::Relaxed);
+    }
+
+    pub(crate) const fn raw_is_text((_, class): (u64, u8)) -> bool {
+        class == TEXT
+    }
+
     pub(crate) fn known_size(&self, at: usize) -> Option<u64> {
         decode_size(self.sizes.get(at)?.load(Ordering::Relaxed))
     }
@@ -120,7 +136,7 @@ fn classify(native_path: &Path) -> u8 {
 }
 
 fn holds_nul(native_path: &Path) -> Option<bool> {
-    let (mut file, _) = open_regular(native_path, Symlinks::Refuse).ok()?;
+    let (mut file, _metadata) = open_regular(native_path, Symlinks::Refuse).ok()?;
     let mut head = vec![0u8; PROBE];
     let filled = read_prefix(&mut file, &mut head).ok()?;
 

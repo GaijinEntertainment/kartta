@@ -7,7 +7,10 @@ pub(crate) enum Symlinks {
     Refuse,
 }
 
-pub(crate) fn open_regular(path: &Path, symlinks: Symlinks) -> io::Result<(fs::File, u64)> {
+pub(crate) fn open_regular(
+    path: &Path,
+    symlinks: Symlinks,
+) -> io::Result<(fs::File, fs::Metadata)> {
     let file = open_guarded(path, symlinks)?;
     let metadata = file.metadata()?;
 
@@ -20,7 +23,7 @@ pub(crate) fn open_regular(path: &Path, symlinks: Symlinks) -> io::Result<(fs::F
         ));
     }
 
-    Ok((file, metadata.len()))
+    Ok((file, metadata))
 }
 
 #[cfg(unix)]

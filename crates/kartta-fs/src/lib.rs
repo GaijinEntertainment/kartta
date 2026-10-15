@@ -151,6 +151,7 @@ mod postings;
 mod requirement;
 mod rules;
 mod scan;
+mod stamp;
 mod trigram;
 
 pub use kartta_walk::CancelToken;

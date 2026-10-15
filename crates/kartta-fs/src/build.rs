@@ -86,6 +86,19 @@ pub struct BuildOptions {
     /// all of them: on a tree of sources, reading every text file costs many times what the walk alone does.
     /// [`Index::content_index_stats`](crate::Index::content_index_stats) reports what the index holds.
     pub content_index: Option<ContentIndexStorage>,
+    /// Whether the index keeps a stamp of each file the build reads — the time it last changed, eight bytes a file — so
+    /// that [`Index::refresh`](crate::Index::refresh) reads again only the files that changed since. `false`, the
+    /// default, keeps none, and a refresh then reads every wanted file again, as the build did.
+    ///
+    /// On unix the time is the inode change time, which no write can set back: a tool that keeps modification times,
+    /// such as `cp -p` or `tar x`, still changes it. Elsewhere it is the modification time, and an edit that keeps the
+    /// file's size and sets its modification time back is carried over unread.
+    ///
+    /// A build reads files only for a [`ContentVisitor`](crate::ContentVisitor) and for
+    /// [`BuildOptions::content_index`], so without either this keeps nothing. A file changed within two seconds before
+    /// the build began is read again by the next refresh whatever its stamp says: a filesystem whose clock ticks
+    /// coarsely can give a later write the same time.
+    pub stamps: bool,
 }
 
 /// A failure that stopped a build, or cost it one entry, one subtree, one directory's rules or one file's content.
