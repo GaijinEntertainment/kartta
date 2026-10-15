@@ -8,7 +8,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use kartta_walk::CancelToken;
 use rayon::prelude::*;
 
-use super::storage::{Region, Spill, Writing};
+use super::storage::{Blob, Region, Spill, Writing};
 use super::{
     BUCKET_BYTES, BUCKETS, ContentIndex, ContentIndexStats, ContentIndexStorage, PARTS, put_varint,
     read_varint,
@@ -19,7 +19,7 @@ use crate::trigram::{Trigram, Trigrams};
 const RUN_PAIRS: usize = 1 << 20;
 const BUCKETS_PER_PART: usize = BUCKETS / PARTS;
 const PART_BUCKET_BYTES: usize = BUCKETS_PER_PART * BUCKET_BYTES;
-const LOWS: usize = 1 << 16;
+pub(super) const LOWS: usize = 1 << 16;
 const FLUSH_BYTES: usize = 1 << 16;
 
 pub(crate) struct Collector {
@@ -219,39 +219,103 @@ impl Collector {
                 .unwrap_or_else(PoisonError::into_inner),
         );
 
-        let sizes: Vec<Sizes> = parts
-            .par_iter()
-            .map(|parts| Sizes::of(parts, spilled, universe))
+        let parts: Vec<(Sizes, Vec<Part>)> = parts
+            .into_par_iter()
+            .map(|parts| (Sizes::of(&parts, spilled, universe), parts))
             .collect();
+        let target = Target {
+            storage: &self.storage,
+            cancel,
+        };
+        let merge =
+            |parts: Vec<Part>, task: Task<'_>| task.write(universe, Merge::new(&parts, spilled));
+        let written = Written::lists(target, parts, merge, Universe::of(universe));
+        drop(mapped);
+
+        written.map(|written| written.into_index(files))
+    }
+}
+
+pub(super) trait Lists {
+    fn write(&mut self, low: u16, writer: &mut Writer<'_>) -> io::Result<()>;
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct Universe {
+    pub(super) first_id: u32,
+    pub(super) ids: u32,
+}
+
+impl Universe {
+    const fn of(ids: u32) -> Self {
+        Self { first_id: 0, ids }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Target<'a> {
+    pub(crate) storage: &'a ContentIndexStorage,
+    pub(crate) cancel: Option<&'a CancelToken>,
+}
+
+pub(super) struct Written {
+    universe: Universe,
+    trigrams: usize,
+    layout: Layout,
+    blob: Blob,
+}
+
+impl Written {
+    // constraint: a part's source holds a cursor into every run or segment it merges, and a build's held runs are the
+    // part's own bytes, so each part is merged from its own seed inside the task that writes it, and the seed goes when
+    // that task ends
+    pub(super) fn lists<S: Send>(
+        target: Target<'_>,
+        parts: Vec<(Sizes, S)>,
+        write: impl Fn(S, Task<'_>) -> io::Result<()> + Sync,
+        universe: Universe,
+    ) -> Result<Self, Unfinished> {
+        let Target { storage, cancel } = target;
+        let (sizes, seeds): (Vec<Sizes>, Vec<S>) = parts.into_iter().unzip();
         let layout = Layout::of(&sizes);
         let trigrams = sizes.iter().map(|sizes| sizes.lens.len()).sum();
-        let mut writing =
-            Writing::new(&self.storage, layout.bytes()).map_err(Unfinished::Failed)?;
+        let mut writing = Writing::new(storage, layout.bytes()).map_err(Unfinished::Failed)?;
 
         let tasks = layout
-            .tasks(writing.region(), parts, sizes)
+            .tasks(writing.region(), sizes)
             .map_err(Unfinished::Failed)?;
-        tasks.into_par_iter().try_for_each(|task| {
-            if cancel.is_some_and(CancelToken::is_cancelled) {
-                return Err(Unfinished::Cancelled);
-            }
-            task.write(universe, spilled).map_err(Unfinished::Failed)
-        })?;
-        drop(mapped);
+        tasks
+            .into_par_iter()
+            .zip(seeds)
+            .try_for_each(|(task, seed)| {
+                if cancel.is_some_and(CancelToken::is_cancelled) {
+                    return Err(Unfinished::Cancelled);
+                }
+                write(seed, task).map_err(Unfinished::Failed)
+            })?;
         let blob = writing.finish().map_err(Unfinished::Failed)?;
 
-        Ok(ContentIndex {
-            stats: ContentIndexStats {
-                files,
-                trigrams,
-                bytes: blob.len() as u64,
-            },
-            first_id: 0,
+        Ok(Self {
             universe,
-            directory_start: layout.postings,
-            buckets_start: layout.postings + layout.directory,
+            trigrams,
+            layout,
             blob,
         })
+    }
+
+    pub(super) fn into_index(self, files: usize) -> ContentIndex {
+        ContentIndex {
+            stats: ContentIndexStats {
+                files,
+                trigrams: self.trigrams,
+                bytes: self.blob.len() as u64,
+            },
+            first_id: self.universe.first_id,
+            universe: self.universe.ids,
+            directory_start: self.layout.postings,
+            buckets_start: self.layout.postings + self.layout.directory,
+            blob: self.blob,
+        }
     }
 }
 
@@ -427,7 +491,7 @@ impl<'a> Iterator for Groups<'a> {
     }
 }
 
-struct Sizes {
+pub(super) struct Sizes {
     lens: Vec<(u16, u32)>,
     postings: usize,
     directory: usize,
@@ -436,19 +500,19 @@ struct Sizes {
 impl Sizes {
     fn of(parts: &[Part], spilled: &[u8], universe: u32) -> Self {
         if parts.is_empty() {
-            return Self {
-                lens: Vec::new(),
-                postings: 0,
-                directory: 0,
-            };
+            return Self::counted(&[], universe);
         }
 
         let mut lens = vec![0u32; LOWS];
         for group in parts.iter().flat_map(|part| Groups::new(part, spilled)) {
             lens[usize::from(group.low)] += group.len;
         }
+        Self::counted(&lens, universe)
+    }
+
+    pub(super) fn counted(lens: &[u32], universe: u32) -> Self {
         let lens: Vec<(u16, u32)> = (0..=u16::MAX)
-            .zip(lens)
+            .zip(lens.iter().copied())
             .filter(|&(_, len)| len > 0)
             .collect();
 
@@ -484,12 +548,7 @@ impl Layout {
         self.postings + self.directory + (BUCKETS + 1) * BUCKET_BYTES
     }
 
-    fn tasks<'a>(
-        &self,
-        mut blob: Region<'a>,
-        parts: Vec<Vec<Part>>,
-        sizes: Vec<Sizes>,
-    ) -> io::Result<Vec<Task<'a>>> {
+    fn tasks<'a>(&self, mut blob: Region<'a>, sizes: Vec<Sizes>) -> io::Result<Vec<Task<'a>>> {
         let mut postings = blob.split_to(self.postings);
         let mut directory = blob.split_to(self.directory);
         let mut end = [0; BUCKET_BYTES];
@@ -497,10 +556,9 @@ impl Layout {
         blob.write_at(BUCKETS * BUCKET_BYTES, &end)?;
         let (mut postings_at, mut directory_at) = (0, 0);
 
-        Ok(parts
+        Ok(sizes
             .into_iter()
-            .zip(sizes)
-            .map(|(parts, sizes)| {
+            .map(|sizes| {
                 let task = Task {
                     postings: postings.split_to(sizes.postings),
                     directory: directory.split_to(sizes.directory),
@@ -508,7 +566,6 @@ impl Layout {
                     buckets: blob.split_to(PART_BUCKET_BYTES),
                     postings_at,
                     directory_at,
-                    parts,
                     lens: sizes.lens,
                 };
                 postings_at += sizes.postings;
@@ -529,8 +586,7 @@ fn write_bucket(bucket: &mut [u8], postings: usize, directory: usize) {
     bucket[8..BUCKET_BYTES].copy_from_slice(&directory.to_le_bytes());
 }
 
-struct Task<'a> {
-    parts: Vec<Part>,
+pub(super) struct Task<'a> {
     lens: Vec<(u16, u32)>,
     postings: Region<'a>,
     postings_at: usize,
@@ -541,8 +597,7 @@ struct Task<'a> {
 }
 
 impl Task<'_> {
-    fn write(mut self, universe: u32, spilled: &[u8]) -> io::Result<()> {
-        let mut merge = Merge::new(&self.parts, spilled);
+    pub(super) fn write(mut self, universe: u32, mut lists: impl Lists) -> io::Result<()> {
         let mut postings = Vec::with_capacity(FLUSH_BYTES);
         let mut flushed = 0;
         let mut directory = Vec::with_capacity(self.directory_len);
@@ -568,7 +623,7 @@ impl Task<'_> {
             }
             let start = postings.len();
             postings.resize(start + shape.bytes(), 0);
-            merge.write(low, &mut Writer::new(shape, &mut postings[start..]));
+            lists.write(low, &mut Writer::new(shape, &mut postings[start..]))?;
             directory.push(low.to_le_bytes()[0]);
             put_varint(&mut directory, len);
         }
@@ -631,10 +686,12 @@ impl<'a> Merge<'a> {
             queue,
         }
     }
+}
 
+impl Lists for Merge<'_> {
     // constraint: the queue orders equal trigrams by part, and parts hold ascending id ranges, so each trigram's ids
     // reach the writer ascending
-    fn write(&mut self, low: u16, writer: &mut Writer<'_>) {
+    fn write(&mut self, low: u16, writer: &mut Writer<'_>) -> io::Result<()> {
         while let Some(&Reverse((head, at))) = self.queue.peek()
             && head == low
         {
@@ -652,5 +709,7 @@ impl<'a> Merge<'a> {
                 self.queue.push(Reverse((next.low, at)));
             }
         }
+
+        Ok(())
     }
 }
