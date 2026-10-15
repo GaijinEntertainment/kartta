@@ -368,7 +368,7 @@ impl Index {
         Ok((at + 1, self.past_subtree(at + 1, dir)))
     }
 
-    fn past_subtree(&self, after_dir: usize, dir: &str) -> usize {
+    pub(crate) fn past_subtree(&self, after_dir: usize, dir: &str) -> usize {
         let below = dir.len() + 1;
         if after_dir == self.len() || !self.starts_inside(after_dir, dir) {
             return after_dir;

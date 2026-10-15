@@ -105,9 +105,11 @@ pub struct BuildOptions {
 ///
 /// [`BuildError::Walk`] is returned for the two failures the walk itself treats as fatal — a root that cannot be listed,
 /// and a thread pool that cannot be started — [`BuildError::ContentIndex`] when the content index cannot be kept where
-/// it was asked to be, [`BuildError::Cancelled`] by [`Index::build_with`](crate::Index::build_with) when its cancel
-/// token stopped the build, and [`BuildError::ContentIdsExhausted`] by [`Index::refresh`](crate::Index::refresh) when
-/// the index has no ids left; [`Index::build`](crate::Index::build) takes no token and returns only the first two.
+/// it was asked to be, [`BuildError::Cancelled`] by [`Index::build_with`](crate::Index::build_with),
+/// [`Index::refresh`](crate::Index::refresh) and [`Index::refresh_paths`](crate::Index::refresh_paths) when their cancel
+/// token stopped them, [`BuildError::ContentIdsExhausted`] by both refreshes when the index has no ids left, and
+/// [`BuildError::OutsideTree`] by [`Index::refresh_paths`](crate::Index::refresh_paths) for a path that may lead out of
+/// the tree; [`Index::build`](crate::Index::build) takes no token and returns only the first two.
 /// Everything else is collected into [`BuildOutcome::errors`](crate::BuildOutcome::errors) and costs only what it names,
 /// so one unreadable directory yields a partial index rather than none.
 #[derive(Debug, thiserror::Error)]
@@ -171,11 +173,19 @@ pub enum BuildError {
     Cancelled,
     /// A refresh needed a [`ContentId`](crate::ContentId) past the last one the index can hand out.
     ///
-    /// Returned rather than collected, and only by [`Index::refresh`](crate::Index::refresh). An id never returns to
-    /// use within one index, so an index runs out once its build and refreshes have read about four billion files in
-    /// all, and every refresh that reads a file fails from then on. A new build numbers its reads from the start again.
+    /// Returned rather than collected, and only by [`Index::refresh`](crate::Index::refresh) and
+    /// [`Index::refresh_paths`](crate::Index::refresh_paths). An id never returns to use within one index, so an index
+    /// runs out once its build and refreshes have read about four billion files in all, and every refresh that reads a
+    /// file fails from then on. A new build numbers its reads from the start again.
     #[error("the index has no content ids left to number the files a refresh reads")]
     ContentIdsExhausted,
+    /// A path given to [`Index::refresh_paths`](crate::Index::refresh_paths) has a `..` component, so it may name
+    /// something outside the tree. Returned before anything is walked, so the index is left as it was.
+    #[error("cannot refresh {path:?}: a `..` component may lead outside the tree")]
+    OutsideTree {
+        /// The path as it was given.
+        path: String,
+    },
 }
 
 impl BuildError {
@@ -187,8 +197,8 @@ impl BuildError {
     /// could not be formed.
     ///
     /// Every collected error names a path. Only a returned [`BuildError::Walk`] wrapping
-    /// [`WalkError::ThreadPool`](kartta_walk::WalkError::ThreadPool), [`BuildError::Cancelled`] and
-    /// [`BuildError::ContentIdsExhausted`] do not.
+    /// [`WalkError::ThreadPool`](kartta_walk::WalkError::ThreadPool), [`BuildError::Cancelled`],
+    /// [`BuildError::ContentIdsExhausted`] and [`BuildError::OutsideTree`] do not.
     #[must_use]
     pub fn native_path(&self) -> Option<&Path> {
         match self {
@@ -197,7 +207,7 @@ impl BuildError {
             | Self::Name { native_path }
             | Self::Read { native_path, .. }
             | Self::ContentIndex { native_path, .. } => Some(native_path),
-            Self::Cancelled | Self::ContentIdsExhausted => None,
+            Self::Cancelled | Self::ContentIdsExhausted | Self::OutsideTree { .. } => None,
         }
     }
 
@@ -210,6 +220,7 @@ impl BuildError {
             Self::ContentIndex { .. } => 4,
             Self::Cancelled => 5,
             Self::ContentIdsExhausted => 6,
+            Self::OutsideTree { .. } => 7,
         }
     }
 }

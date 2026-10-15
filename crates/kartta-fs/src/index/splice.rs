@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the scoped refresh, the commit after this one, is the first caller outside the tests"
-    )
-)]
-
 use std::ops::Range;
 
 use kartta_walk::EntryKind;
@@ -133,6 +125,16 @@ pub(crate) struct Pending {
     placement: Placement,
     pub(crate) unindexed: Vec<u32>,
     spliced: Spliced,
+}
+
+impl Pending {
+    pub(crate) fn positions(&self) -> &[u32] {
+        &self.placement.positions
+    }
+
+    pub(crate) const fn retired_text(&self) -> usize {
+        self.spliced.retired_text
+    }
 }
 
 impl Index {

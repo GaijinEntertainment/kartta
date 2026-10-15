@@ -90,6 +90,15 @@ impl Inspection {
         class == TEXT
     }
 
+    pub(crate) const fn raw_of(size: u64, binary: Option<bool>) -> (u64, u8) {
+        let class = match binary {
+            None => UNCLASSIFIED,
+            Some(true) => BINARY,
+            Some(false) => TEXT,
+        };
+        (size.saturating_add(1), class)
+    }
+
     pub(crate) fn known_size(&self, at: usize) -> Option<u64> {
         decode_size(self.sizes.get(at)?.load(Ordering::Relaxed))
     }

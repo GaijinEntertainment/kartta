@@ -287,6 +287,44 @@ impl<'a> Indexing<'a> {
         Some(read)
     }
 
+    // constraint: a walk learns which control files a directory holds from the listing it already made; a directory
+    // above a part walked again was not listed, so it is asked for each by name, two stats a directory and a third
+    // where the ignore file is read
+    pub(crate) fn rules_in(&self, native_dir: &Path, dir_path: &str, inherited: &Rules) -> Rules {
+        if self.ignore_sources == IgnoreSources::None {
+            return Rules::default();
+        }
+
+        let mut rules = if fs::symlink_metadata(native_dir.join(DOT_GIT)).is_ok() {
+            Rules::default()
+        } else {
+            inherited.clone()
+        };
+        let native_path = native_dir.join(GITIGNORE);
+        if fs::symlink_metadata(&native_path).is_ok() {
+            _ = self.push_ignore_file(native_path, dir_path, &mut rules);
+        }
+        rules
+    }
+
+    pub(crate) fn single(&self, path: &str, native_path: &Path, metadata: fs::Metadata) -> Payload {
+        let kind = EntryKind::from(metadata.file_type());
+        let content = match kind {
+            EntryKind::File => {
+                self.read_file(path, || native_path.to_path_buf(), || Some(metadata))
+            }
+            _ => None,
+        };
+
+        Payload {
+            kind,
+            target: (kind == EntryKind::Symlink)
+                .then(|| link_target(native_path))
+                .flatten(),
+            content,
+        }
+    }
+
     fn hand_over_ignore_file(&self, path: &str, read: &IgnoreFile) -> Option<ContentId> {
         let (reading, visit) = self.wanted(path)?;
         if let Some(carried) = reading.carry(path, visit, || Some(read.metadata.clone())) {
@@ -621,9 +659,12 @@ fn read_target(entry: &Entry<'_>, kind: EntryKind) -> Option<Box<str>> {
         return None;
     }
 
-    let target = fs::read_link(entry.native_path()).ok()?;
+    link_target(&entry.native_path())
+}
 
-    target
+fn link_target(native_path: &Path) -> Option<Box<str>> {
+    fs::read_link(native_path)
+        .ok()?
         .into_os_string()
         .into_string()
         .ok()
@@ -644,7 +685,7 @@ fn read_all(mut file: &fs::File) -> io::Result<Vec<u8>> {
 
 // constraint: git folds the case of a control name only on Windows, whose filesystem resolves `.GIT` and `.GITIGNORE`
 // to the lowercase names; on unix `.GIT` is an ordinary directory git tracks
-fn names_match(name: &str, control: &str) -> bool {
+pub(crate) fn names_match(name: &str, control: &str) -> bool {
     if cfg!(windows) {
         name.eq_ignore_ascii_case(control)
     } else {
@@ -672,6 +713,15 @@ fn inherited_across_repository_boundary(dir: &Dir<'_>, parent_state: &Rules) -> 
 pub(crate) struct DirState {
     rules: Rules,
     ignore_file: IgnoreFileRead,
+}
+
+impl DirState {
+    pub(crate) const fn below(rules: Rules) -> Self {
+        Self {
+            rules,
+            ignore_file: IgnoreFileRead::Unread,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]

@@ -25,6 +25,7 @@ use crate::requirement::Requirement;
 use crate::stamp::{Stamp, Stamping, UNTRUSTED};
 
 mod refresh;
+mod scoped;
 mod splice;
 
 pub(crate) use refresh::Previous;
@@ -33,7 +34,7 @@ pub(crate) use refresh::Previous;
 ///
 /// Build one with [`Index::build`] and query it as often as you like. The structure is fixed at the moment of the
 /// walk — which entries exist, what each one is, where a symlink points — and [`Index::refresh`] walks the tree again
-/// to see a later change to it.
+/// to see a later change to it, or [`Index::refresh_paths`] only the parts of it a caller names.
 ///
 /// A file's own contents are not part of that snapshot. [`Index::size`] reads the filesystem on the first ask for an
 /// entry and keeps the answer, because stat'ing a whole tree during the walk costs about half a build and most of
@@ -161,20 +162,35 @@ impl Index {
         visitor: Option<&dyn ContentVisitor>,
         cancel: Option<&CancelToken>,
     ) -> Result<RefreshOutcome, BuildError> {
+        let (BuildOutcome { index, errors }, retired) =
+            self.counting_handed(|index, handed| index.walk_again(visitor, cancel, handed))?;
+        *self = index;
+
+        Ok(RefreshOutcome {
+            errors,
+            retired,
+            walked: vec![String::new()],
+        })
+    }
+
+    fn counting_handed<R>(&mut self, operation: impl FnOnce(&Self, &AtomicU32) -> R) -> R {
         let handed = AtomicU32::new(0);
         // constraint: a visitor that panics unwinds through the walk after it was handed ids, and a caller that catches
         // the panic keeps this index, so the ids it handed out are counted before the panic goes on
-        let walked = panic::catch_unwind(AssertUnwindSafe(|| {
-            self.walk_again(visitor, cancel, &handed)
-        }));
-        if !matches!(walked, Ok(Ok(_))) {
-            self.next_content_id += handed.into_inner();
-        }
-        let (BuildOutcome { index, errors }, retired) =
-            walked.unwrap_or_else(|panicked| panic::resume_unwind(panicked))?;
-        *self = index;
+        let ran = panic::catch_unwind(AssertUnwindSafe(|| operation(self, &handed)));
+        self.next_content_id += handed.into_inner();
 
-        Ok(RefreshOutcome { errors, retired })
+        ran.unwrap_or_else(|panicked| panic::resume_unwind(panicked))
+    }
+
+    fn rebuild_options(&self) -> BuildOptions {
+        BuildOptions {
+            ignore_sources: self.ignore_sources,
+            threads: None,
+            binary_extensions: self.binary_extensions.clone(),
+            content_index: self.content_storage.clone(),
+            stamps: self.content_stamps.is_some(),
+        }
     }
 
     fn walk_again(
@@ -183,13 +199,7 @@ impl Index {
         cancel: Option<&CancelToken>,
         handed: &AtomicU32,
     ) -> Result<(BuildOutcome, Vec<Range<u32>>), BuildError> {
-        let options = BuildOptions {
-            ignore_sources: self.ignore_sources,
-            threads: None,
-            binary_extensions: self.binary_extensions.clone(),
-            content_index: self.content_storage.clone(),
-            stamps: self.content_stamps.is_some(),
-        };
+        let options = self.rebuild_options();
         let can_carry = visitor.is_some() || self.content_storage.is_some();
         let previous = can_carry.then(|| Previous::of(self)).flatten();
         let walking = Walking {
@@ -239,20 +249,13 @@ impl Index {
             pool,
             previous,
         } = walking;
-        let collector = options
-            .content_index
-            .as_ref()
-            .map(|storage| Collector::new(storage).map_err(|source| storage_error(storage, source)))
-            .transpose()?;
         let numbering = Numbering {
             first_id: first_content_id,
             handed,
             stamps: options.stamps.then(Stamping::starting_now),
             previous,
         };
-        let reading = (visitor.is_some() || collector.is_some())
-            .then(|| Reading::new(visitor, collector, &options.binary_extensions, numbering));
-        let policy = Indexing::new(options.ignore_sources, root, reading);
+        let policy = indexing(root, options, visitor, numbering)?;
         let walk_options = WalkOptions {
             cancel_token: cancel.cloned(),
             ..WalkOptions::default()
@@ -327,10 +330,7 @@ impl Index {
             previous,
         } = reads;
         let storage = collector.storage().clone();
-        let unfinished = |unfinished| match unfinished {
-            Unfinished::Cancelled => BuildError::Cancelled,
-            Unfinished::Failed(source) => storage_error(&storage, source),
-        };
+        let unfinished = |unfinished| unfinished_error(&storage, unfinished);
         let finished = self
             .on_threads(|| collector.finish(pairs, count, cancel))
             .map_err(unfinished)?;
@@ -660,6 +660,10 @@ impl Index {
     }
 
     pub(crate) fn position(&self, path: &str) -> Option<usize> {
+        self.search(path).ok()
+    }
+
+    pub(crate) fn search(&self, path: &str) -> Result<usize, usize> {
         let (mut low, mut high) = (0, self.block_count());
 
         while low < high {
@@ -668,11 +672,13 @@ impl Index {
             match tree_order(self.suffix_in(middle, first), path) {
                 Ordering::Less => low = middle + 1,
                 Ordering::Greater => high = middle,
-                Ordering::Equal => return Some(first),
+                Ordering::Equal => return Ok(first),
             }
         }
 
-        let block = low.checked_sub(1)?;
+        let Some(block) = low.checked_sub(1) else {
+            return Err(0);
+        };
         let first = self.block_first(block);
         let mut common = common_len(self.suffix_in(block, first).as_bytes(), path.as_bytes());
         for at in first + 1..self.block_end(block) {
@@ -683,14 +689,16 @@ impl Index {
             }
 
             let stored = self.suffix_in(block, at);
-            let rest = path.get(shared..)?;
+            let Some(rest) = path.get(shared..) else {
+                return Err(at);
+            };
             match tree_order(stored, rest) {
                 Ordering::Less => common = shared + common_len(stored.as_bytes(), rest.as_bytes()),
-                Ordering::Equal => return Some(at),
-                Ordering::Greater => return None,
+                Ordering::Equal => return Ok(at),
+                Ordering::Greater => return Err(at),
             }
         }
-        None
+        Err(self.block_end(block))
     }
 
     /// The size in bytes of the regular file at this root-relative forward-slash path.
@@ -1149,6 +1157,30 @@ fn storage_error(storage: &ContentIndexStorage, source: io::Error) -> BuildError
     }
 }
 
+fn unfinished_error(storage: &ContentIndexStorage, unfinished: Unfinished) -> BuildError {
+    match unfinished {
+        Unfinished::Cancelled => BuildError::Cancelled,
+        Unfinished::Failed(source) => storage_error(storage, source),
+    }
+}
+
+fn indexing<'a>(
+    root: &Path,
+    options: &'a BuildOptions,
+    visitor: Option<&'a dyn ContentVisitor>,
+    numbering: Numbering<'a>,
+) -> Result<Indexing<'a>, BuildError> {
+    let collector = options
+        .content_index
+        .as_ref()
+        .map(|storage| Collector::new(storage).map_err(|source| storage_error(storage, source)))
+        .transpose()?;
+    let reading = (visitor.is_some() || collector.is_some())
+        .then(|| Reading::new(visitor, collector, &options.binary_extensions, numbering));
+
+    Ok(Indexing::new(options.ignore_sources, root, reading))
+}
+
 #[expect(
     clippy::expect_used,
     reason = "positions and read ids are node-sized, and the walk keeps its node ids in a u32"
@@ -1210,11 +1242,19 @@ struct Frame<'a> {
     prefix_len: usize,
 }
 
-fn depth_first(tree: &Tree<Payload>, mut visit: impl FnMut(&Payload, &str, usize)) {
-    let mut path = String::new();
+fn depth_first(tree: &Tree<Payload>, visit: impl FnMut(&Payload, &str, usize)) {
+    depth_first_below(tree, "", visit);
+}
+
+fn depth_first_below(
+    tree: &Tree<Payload>,
+    base: &str,
+    mut visit: impl FnMut(&Payload, &str, usize),
+) {
+    let mut path = base.to_owned();
     let mut stack = vec![Frame {
         children: tree.children(),
-        prefix_len: 0,
+        prefix_len: base.len(),
     }];
 
     while let Some(frame) = stack.last_mut() {
@@ -1290,11 +1330,13 @@ impl BuildOutcome {
     }
 }
 
-/// What one [`Index::refresh`] reports: what its walk could not read, and which ids the index stopped answering for.
+/// What one [`Index::refresh`] or [`Index::refresh_paths`] reports: what it walked, what its walks could not read, and
+/// which ids the index stopped answering for.
 #[derive(Debug)]
 pub struct RefreshOutcome {
     errors: Vec<BuildError>,
     retired: Vec<Range<u32>>,
+    walked: Vec<String>,
 }
 
 impl RefreshOutcome {
@@ -1302,6 +1344,16 @@ impl RefreshOutcome {
     #[must_use]
     pub fn errors(&self) -> &[BuildError] {
         &self.errors
+    }
+
+    /// The root-relative paths the refresh walked again, in [`Index::entries`] order, none below another: the empty
+    /// path when it walked the whole tree.
+    ///
+    /// [`Index::refresh_paths`] widens a path it cannot refresh alone to the nearest directory it can, so this is where
+    /// to see that a few changed paths cost a walk of a large directory, or of the whole tree.
+    #[must_use]
+    pub fn walked(&self) -> &[String] {
+        &self.walked
     }
 
     /// The ids the index handed out before this refresh, including those of a refresh that returned an error or that a
