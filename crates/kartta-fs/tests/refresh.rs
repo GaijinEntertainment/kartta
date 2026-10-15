@@ -890,6 +890,31 @@ fn a_cancelled_refresh_of_paths_leaves_the_index_as_it_was() {
 }
 
 #[test]
+fn refreshing_paths_that_change_nothing_still_retires_what_a_stopped_refresh_handed_out() {
+    let dir = tree(&[("a.rs", "a"), ("b.rs", "b")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), Some(&Ids::default()));
+    let cancelling = CancelAtFirstVisit {
+        ids: Ids::default(),
+        cancel: CancelToken::new(),
+    };
+    let cancelled = index.refresh(Some(&cancelling), Some(&cancelling.cancel));
+    assert!(matches!(cancelled, Err(BuildError::Cancelled)));
+    let stopped = cancelling.ids.take();
+
+    let outcome = index
+        .refresh_paths(["absent.rs"], None, None)
+        .expect("refresh the paths");
+
+    assert_eq!(paths(&index), ["a.rs", "b.rs"]);
+    let retired: Vec<ContentId> = outcome.retired().collect();
+    assert!(!stopped.is_empty() && stopped.values().all(|id| retired.contains(id)));
+    let again = index
+        .refresh_paths(["absent.rs"], None, None)
+        .expect("refresh the paths");
+    assert_eq!(again.retired().count(), 0, "each id retires once");
+}
+
+#[test]
 fn refreshing_paths_never_hands_out_again_an_id_a_stopped_refresh_handed_its_visitor() {
     let names: Vec<String> = (0..16).map(|at| format!("dir/file{at:02}.rs")).collect();
     let spec: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "x")).collect();
