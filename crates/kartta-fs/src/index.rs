@@ -69,7 +69,7 @@ pub(crate) use refresh::Previous;
 pub struct Index {
     root: PathBuf,
     suffixes: Box<str>,
-    block_starts: Vec<u32>,
+    blocks: Vec<Block>,
     offsets: Vec<u16>,
     shared: Vec<u8>,
     overflow: Overflow,
@@ -379,7 +379,7 @@ impl Index {
         });
 
         let mut suffixes = String::with_capacity(suffixes_len);
-        let mut block_starts = Vec::with_capacity(tree.len().div_ceil(RESTART));
+        let mut blocks = Vec::with_capacity(tree.len().div_ceil(RESTART));
         let mut offsets = Vec::with_capacity(tree.len());
         let mut shared = Vec::with_capacity(tree.len());
         let mut overflow = Overflow::default();
@@ -398,10 +398,13 @@ impl Index {
                 placed.place(&inspection, id, at);
             }
             if at.is_multiple_of(RESTART) {
-                block_starts.push(narrow(suffixes.len()));
+                blocks.push(Block {
+                    first: node_sized(at),
+                    start: narrow(suffixes.len()),
+                });
             }
             let common = path.floor_char_boundary(common);
-            let offset = suffixes.len() - block_starts[at / RESTART] as usize;
+            let offset = suffixes.len() - blocks.last().map_or(0, |block| block.start as usize);
             offsets.push(overflow.keep_offset(at, offset));
             shared.push(overflow.keep_shared(at, common));
             suffixes.push_str(&path[stored_from(at, common)..]);
@@ -413,7 +416,7 @@ impl Index {
             root,
             inspection,
             suffixes: suffixes.into_boxed_str(),
-            block_starts,
+            blocks,
             offsets,
             shared,
             overflow,
@@ -481,19 +484,55 @@ impl Index {
             .map(|&position| position as usize)
     }
 
-    fn start_of(&self, at: usize) -> usize {
-        if at == self.len() {
-            return self.suffixes.len();
-        }
+    pub(crate) const fn block_count(&self) -> usize {
+        self.blocks.len()
+    }
+
+    pub(crate) fn block_of(&self, at: usize) -> usize {
+        self.blocks
+            .partition_point(|block| block.first as usize <= at)
+            .saturating_sub(1)
+    }
+
+    pub(crate) fn block_first(&self, block: usize) -> usize {
+        self.blocks[block].first as usize
+    }
+
+    pub(crate) fn block_end(&self, block: usize) -> usize {
+        self.blocks
+            .get(block + 1)
+            .map_or(self.len(), |next| next.first as usize)
+    }
+
+    // constraint: an entry's offset counts the bytes its block stored before it, and every stored suffix is at least one
+    // byte — the next path in tree order is never a prefix of the one before it — so only a block's first entry has an
+    // offset of 0
+    pub(crate) fn starts_block(&self, at: usize) -> bool {
+        self.offsets[at] == 0
+    }
+
+    fn start_in(&self, block: usize, at: usize) -> usize {
         let offset = match self.offsets[at] {
             u16::MAX => self.overflow.offset(at),
             offset => usize::from(offset),
         };
-        self.block_starts[at / RESTART] as usize + offset
+        self.blocks[block].start as usize + offset
     }
 
-    pub(crate) fn suffix(&self, at: usize) -> &str {
-        path_between(&self.suffixes, self.start_of(at), self.start_of(at + 1))
+    fn end_in(&self, block: usize, at: usize) -> usize {
+        match self.offsets.get(at + 1) {
+            None => self.suffixes.len(),
+            Some(0) => self.blocks[block + 1].start as usize,
+            Some(_) => self.start_in(block, at + 1),
+        }
+    }
+
+    pub(crate) fn suffix_in(&self, block: usize, at: usize) -> &str {
+        path_between(
+            &self.suffixes,
+            self.start_in(block, at),
+            self.end_in(block, at),
+        )
     }
 
     pub(crate) fn shared_at(&self, at: usize) -> usize {
@@ -503,38 +542,31 @@ impl Index {
         }
     }
 
-    fn step_from_previous(&self, at: usize, path: &mut String) {
-        if at.is_multiple_of(RESTART) {
-            path.clear();
-        } else {
-            path.truncate(self.shared_at(at));
-        }
-        path.push_str(self.suffix(at));
-    }
-
-    fn decode_into(&self, at: usize, path: &mut String) {
-        let shared = if at.is_multiple_of(RESTART) {
+    fn decode_into(&self, block: usize, at: usize, path: &mut String) {
+        let shared = if self.starts_block(at) {
             0
         } else {
             self.shared_at(at)
         };
         path.clear();
-        self.push_prefix(at, shared + self.suffix(at).len(), path);
+        let len = shared + self.suffix_in(block, at).len();
+        self.push_prefix(InBlock { block, at }, len, path);
     }
 
-    fn push_prefix(&self, mut at: usize, len: usize, path: &mut String) {
+    fn push_prefix(&self, spot: InBlock, len: usize, path: &mut String) {
         if len == 0 {
             return;
         }
+        let InBlock { block, mut at } = spot;
         loop {
-            if at.is_multiple_of(RESTART) {
-                path.push_str(&self.suffix(at)[..len]);
+            if self.starts_block(at) {
+                path.push_str(&self.suffix_in(block, at)[..len]);
                 return;
             }
             let shared = self.shared_at(at);
             if shared < len {
-                self.push_prefix(at - 1, shared, path);
-                path.push_str(&self.suffix(at)[..len - shared]);
+                self.push_prefix(InBlock { block, at: at - 1 }, shared, path);
+                path.push_str(&self.suffix_in(block, at)[..len - shared]);
                 return;
             }
             at -= 1;
@@ -547,6 +579,7 @@ impl Index {
         Paths {
             index: self,
             path_at: None,
+            block: 0,
             path: String::new(),
         }
     }
@@ -597,7 +630,7 @@ impl Index {
 
     pub(crate) fn entry_at(&self, at: usize) -> Entry<'_> {
         let mut path = String::new();
-        self.decode_into(at, &mut path);
+        self.decode_into(self.block_of(at), at, &mut path);
         self.entry_with(at, path.into_boxed_str())
     }
 
@@ -629,27 +662,29 @@ impl Index {
     }
 
     pub(crate) fn position(&self, path: &str) -> Option<usize> {
-        let (mut low, mut high) = (0, self.len().div_ceil(RESTART));
+        let (mut low, mut high) = (0, self.block_count());
 
         while low < high {
             let middle = low + (high - low) / 2;
-            match tree_order(self.suffix(middle * RESTART), path) {
+            let first = self.block_first(middle);
+            match tree_order(self.suffix_in(middle, first), path) {
                 Ordering::Less => low = middle + 1,
                 Ordering::Greater => high = middle,
-                Ordering::Equal => return Some(middle * RESTART),
+                Ordering::Equal => return Some(first),
             }
         }
 
-        let restart = low.checked_sub(1)? * RESTART;
-        let mut common = common_len(self.suffix(restart).as_bytes(), path.as_bytes());
-        for at in restart + 1..self.len().min(restart + RESTART) {
+        let block = low.checked_sub(1)?;
+        let first = self.block_first(block);
+        let mut common = common_len(self.suffix_in(block, first).as_bytes(), path.as_bytes());
+        for at in first + 1..self.block_end(block) {
             let shared = self.shared_at(at);
             let below_path_like_its_predecessor = shared > common;
             if below_path_like_its_predecessor {
                 continue;
             }
 
-            let stored = self.suffix(at);
+            let stored = self.suffix_in(block, at);
             let rest = path.get(shared..)?;
             match tree_order(stored, rest) {
                 Ordering::Less => common = shared + common_len(stored.as_bytes(), rest.as_bytes()),
@@ -846,6 +881,7 @@ impl<'a> Inspected<'a> {
 pub struct Paths<'a> {
     index: &'a Index,
     path_at: Option<usize>,
+    block: usize,
     path: String,
 }
 
@@ -859,17 +895,41 @@ impl Paths<'_> {
         match self.path_at.and_then(|at| position.checked_sub(at)) {
             Some(0) => {}
             Some(gap) if gap <= STEP_LIMIT => {
-                (position - gap + 1..=position)
-                    .for_each(|at| self.index.step_from_previous(at, &mut self.path));
+                (position - gap + 1..=position).for_each(|at| self.step_to(at));
             }
-            _ => self.index.decode_into(position, &mut self.path),
+            _ => {
+                self.block = self.index.block_of(position);
+                self.index.decode_into(self.block, position, &mut self.path);
+            }
         }
         self.path_at = Some(position);
         &self.path
     }
+
+    fn step_to(&mut self, at: usize) {
+        if self.index.starts_block(at) {
+            self.block += 1;
+            self.path.clear();
+        } else {
+            self.path.truncate(self.index.shared_at(at));
+        }
+        self.path.push_str(self.index.suffix_in(self.block, at));
+    }
 }
 
-pub(crate) const RESTART: usize = 128;
+#[derive(Clone, Copy)]
+struct InBlock {
+    block: usize,
+    at: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Block {
+    first: u32,
+    start: u32,
+}
+
+const RESTART: usize = 128;
 const STEP_LIMIT: usize = 4;
 
 const fn stored_from(at: usize, shared: usize) -> usize {
@@ -1063,10 +1123,10 @@ fn node_sized(count: usize) -> u32 {
 }
 
 fn path_between(suffixes: &str, start: usize, end: usize) -> &str {
-    // SAFETY: every start `Index::start_of` rebuilds is `suffixes.len()` as the build read it before the first append or
-    // right after appending a whole `&str`, or past the last entry `suffixes.len()` itself, so each one is a character
-    // boundary of `suffixes` and they rise in order; `start` and `end` are two consecutive ones, so `start..end` lies
-    // inside `suffixes`.
+    // SAFETY: every start `Index::start_in` rebuilds — an entry's, the next block's, or past the last entry
+    // `suffixes.len()` itself — is `suffixes.len()` as the build read it before the first append or right after appending
+    // a whole `&str`, so each one is a character boundary of `suffixes` and they rise in order; `start` and `end` are an
+    // entry's start and its successor's, so `start..end` lies inside `suffixes`.
     unsafe { suffixes.get_unchecked(start..end) }
 }
 
@@ -1259,32 +1319,46 @@ mod tests {
         assert_eq!(overflow.shared(4), 70_000);
     }
 
-    #[test]
-    fn a_block_past_what_a_u16_offset_reaches_reads_back_whole() {
-        // constraint: no filesystem this suite runs on holds a path long enough to fill 64 KiB of one block, so the
-        // block is stored through the build's own narrowing rather than walked
-        let long = "d".repeat(70_000);
-        let paths = [long.clone(), format!("{long}/a"), format!("{long}/b")];
+    // constraint: a build lays a block at every RESTART-th entry, so a block of any other length is stored here through
+    // the build's own narrowing rather than walked
+    fn index_in_blocks(entries: &[(&str, EntryKind)], lengths: &[usize]) -> Index {
+        let firsts: Vec<usize> = lengths
+            .iter()
+            .scan(0, |at, len| {
+                let first = *at;
+                *at += len;
+                Some(first)
+            })
+            .collect();
         let mut overflow = Overflow::default();
         let (mut suffixes, mut offsets, mut shared) = (String::new(), Vec::new(), Vec::new());
+        let mut blocks = Vec::new();
         let mut previous = "";
-        for (at, path) in paths.iter().enumerate() {
+        for (at, &(path, _)) in entries.iter().enumerate() {
+            let first = firsts.contains(&at);
+            if first {
+                blocks.push(Block {
+                    first: node_sized(at),
+                    start: narrow(suffixes.len()),
+                });
+            }
             let common = common_len(previous.as_bytes(), path.as_bytes());
-            offsets.push(overflow.keep_offset(at, suffixes.len()));
+            let offset = suffixes.len() - blocks.last().map_or(0, |block| block.start as usize);
+            offsets.push(overflow.keep_offset(at, offset));
             shared.push(overflow.keep_shared(at, common));
-            suffixes.push_str(&path[stored_from(at, common)..]);
+            suffixes.push_str(&path[if first { 0 } else { common }..]);
             previous = path;
         }
-        let index = Index {
+        Index {
             root: PathBuf::new(),
             suffixes: suffixes.into_boxed_str(),
-            block_starts: vec![0],
+            blocks,
             offsets,
             shared,
             overflow,
-            kinds: vec![EntryKind::Dir, EntryKind::File, EntryKind::File],
+            kinds: entries.iter().map(|&(_, kind)| kind).collect(),
             symlink_targets: Vec::new(),
-            inspection: Inspection::new(paths.len()),
+            inspection: Inspection::new(entries.len()),
             ignore_sources: IgnoreSources::default(),
             binary_extensions: BinaryExtensions::default(),
             first_content_id: 0,
@@ -1294,13 +1368,72 @@ mod tests {
             content_storage: None,
             content: ContentIndexes::default(),
             pool: None,
-        };
+        }
+    }
+
+    #[test]
+    fn a_block_past_what_a_u16_offset_reaches_reads_back_whole() {
+        // constraint: no filesystem this suite runs on holds a path long enough to fill 64 KiB of one block
+        let long = "d".repeat(70_000);
+        let paths = [long.clone(), format!("{long}/a"), format!("{long}/b")];
+        let entries = [
+            (paths[0].as_str(), EntryKind::Dir),
+            (paths[1].as_str(), EntryKind::File),
+            (paths[2].as_str(), EntryKind::File),
+        ];
+        let index = index_in_blocks(&entries, &[3]);
 
         let mut reader = index.paths();
         for at in [2, 0, 1, 2] {
             assert_eq!(reader.get(at), paths[at], "position {at}");
         }
         assert_eq!(index.position(&paths[2]), Some(2));
+    }
+
+    #[test]
+    fn blocks_of_any_length_read_back_and_answer_lookups_and_listings() {
+        use EntryKind::{Dir, File};
+        let entries = [
+            ("a", Dir),
+            ("a/b", Dir),
+            ("a/b/c.rs", File),
+            ("a/b/d.rs", File),
+            ("a/e.rs", File),
+            ("f", Dir),
+            ("f/g.rs", File),
+            ("h.rs", File),
+        ];
+        let index = index_in_blocks(&entries, &[3, 1, 4]);
+
+        let mut reader = index.paths();
+        for (at, &(path, _)) in entries.iter().enumerate() {
+            assert_eq!(reader.get(at), path, "position {at} read in order");
+        }
+        let mut reader = index.paths();
+        for at in [7, 0, 3, 6, 2, 4] {
+            assert_eq!(
+                reader.get(at),
+                entries[at].0,
+                "position {at} read out of order"
+            );
+        }
+        for (at, &(path, _)) in entries.iter().enumerate() {
+            assert_eq!(index.position(path), Some(at), "{path}");
+        }
+        assert_eq!(index.position("a/b/z.rs"), None);
+        let listed = |dir| -> Vec<String> {
+            let listing = index
+                .list(dir, &crate::ListOptions::default())
+                .expect("a directory");
+            listing
+                .items()
+                .iter()
+                .map(|item| item.entry().path().to_owned())
+                .collect()
+        };
+        assert_eq!(listed("a"), ["a/b", "a/b/c.rs", "a/b/d.rs", "a/e.rs"]);
+        assert_eq!(listed("a/b"), ["a/b/c.rs", "a/b/d.rs"]);
+        assert_eq!(listed("f"), ["f/g.rs"]);
     }
 
     #[test]
