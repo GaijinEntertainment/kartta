@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
 use kartta_fuzz::{Config, Matcher, Ranked};
@@ -25,12 +26,30 @@ const fn ranking() -> Config {
 ///
 /// This is deliberately this crate's own type rather than the scorer's. The ranking engine is an implementation
 /// detail, and re-exporting its result type would make swapping it a breaking change for every caller.
+///
+/// A match borrows the index that ranked it, because a position names an entry only in that index as it was when it
+/// answered. So it cannot outlive the index:
+///
+/// ```compile_fail,E0597
+/// use kartta_fs::{BuildOptions, FuzzyOptions, Index};
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let dir = tempfile::tempdir()?;
+/// let ranked = {
+///     let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
+///     index.fuzzy("main", &FuzzyOptions::default())
+/// };
+/// # drop(ranked);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FuzzyMatch {
+pub struct FuzzyMatch<'a> {
     /// Where the matched entry sits in [`Index::entries`].
     pub position: usize,
     /// Its rank key: higher is better.
     pub score: i32,
+    index: PhantomData<&'a Index>,
 }
 
 /// Which paths a fuzzy search ranks, and how many it returns.
@@ -132,7 +151,7 @@ impl Index {
     /// # }
     /// ```
     #[must_use]
-    pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> Vec<FuzzyMatch> {
+    pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> Vec<FuzzyMatch<'_>> {
         let FuzzyOptions { filter, limit } = *options;
         let ranked: Vec<Ranked> = self.on_threads(|| {
             (0..self.len().div_ceil(RANK_CHUNK_LEN))
@@ -155,6 +174,7 @@ impl Index {
             .map(|found| FuzzyMatch {
                 position: found.position,
                 score: found.score,
+                index: PhantomData,
             })
             .collect()
     }

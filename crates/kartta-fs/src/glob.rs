@@ -83,7 +83,7 @@ impl Index {
         reason = "every query takes its options by reference, as list and fuzzy do; GlobOptions is one word only until \
                   it grows a second bound"
     )]
-    pub fn glob(&self, filter: &Filter, options: &GlobOptions) -> Capped<usize> {
+    pub fn glob(&self, filter: &Filter, options: &GlobOptions) -> Capped<'_, usize> {
         let limit = options.limit.map_or(usize::MAX, NonZeroUsize::get);
         let mut found = Vec::new();
         let mut truncated = false;
