@@ -876,6 +876,37 @@ fn a_refreshed_file_that_will_not_read_is_reported_and_never_ruled_out() {
 }
 
 #[test]
+fn many_refreshes_of_single_files_keep_searches_and_counts_a_build_would_give() {
+    let names: Vec<String> = (0..100).map(|at| format!("file{at:02}.txt")).collect();
+    let spec: Vec<(&str, String)> = names
+        .iter()
+        .map(|name| (name.as_str(), format!("kept {name}\n")))
+        .collect();
+    let spec: Vec<(&str, &str)> = spec
+        .iter()
+        .map(|(name, text)| (*name, text.as_str()))
+        .collect();
+    let dir = tree(&spec);
+    let mut options = BuildOptions::default();
+    options.content_index = Some(ContentIndexStorage::Memory);
+    let mut index = build(dir.path(), &options, None);
+
+    for name in &names[..10] {
+        write(dir.path(), name, &format!("changed {name}\n"));
+        refresh_paths(&mut index, [name.as_str()]);
+    }
+
+    assert_eq!(search(&index, "changed"), (10, 90));
+    assert_eq!(search(&index, "kept"), (90, 10));
+    assert_eq!(search(&index, "file09"), (1, 99));
+    let built = build(dir.path(), &options, None);
+    assert_eq!(
+        index.content_index_stats().map(|stats| stats.files()),
+        built.content_index_stats().map(|stats| stats.files())
+    );
+}
+
+#[test]
 fn a_cancelled_refresh_of_paths_leaves_the_index_as_it_was() {
     let dir = tree(&[("a.rs", "a")]);
     let mut index = build(dir.path(), &BuildOptions::default(), None);

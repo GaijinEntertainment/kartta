@@ -141,9 +141,10 @@ impl Index {
     /// time match its stamp is carried over unread: it keeps its [`ContentId`], what the index knew of it
     /// and its place in the content index, and the visitor is not handed it again — unless the visitor wants it now
     /// and was never handed it before. Checking a stamp costs one stat of the file. The files a refresh reads are
-    /// indexed in a segment of the content index beside the segments that hold the files it carried, and once there
-    /// are more than eight segments, or more than a quarter of the files they hold lists for are gone, the refresh
-    /// merges them into one, at about what the build's own merge cost. Either way the index in use stays whole until
+    /// indexed in a segment of the content index beside the segments that hold the files it carried. Once there are more
+    /// than eight segments, the refresh merges the ones after the first into one, at a cost that follows what those
+    /// segments hold; once more than a quarter of the files the segments hold lists for are gone, it merges all of them
+    /// into one, at about what the build's own merge cost. Either way the index in use stays whole until
     /// the new one is done, so the two are held at once while it runs. A refresh that returns an error, a cancelled one
     /// included, leaves the index answering as it did; one that returns [`RefreshOutcome`] has replaced it, even when
     /// [`RefreshOutcome::errors`] lists what its walk could not read.
@@ -359,7 +360,11 @@ impl Index {
             cancel,
         };
         self.on_threads(|| {
-            ContentIndexes::new(segments, unindexed, files).compacted_when_due(ids, target)
+            ContentIndexes::new(segments, unindexed, files).compacted_when_due(
+                ids,
+                &self.inspection,
+                target,
+            )
         })
         .map_err(unfinished)
     }
