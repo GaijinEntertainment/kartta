@@ -1,9 +1,8 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::{fs, io};
-
-use std::num::NonZeroU32;
 
 use kartta_walk::{Dir, Entry, EntryKind, Policy, Visit};
 
@@ -42,6 +41,7 @@ pub(crate) struct Reading<'a> {
     visitor: Option<&'a dyn ContentVisitor>,
     collector: Option<Collector>,
     binary_extensions: &'a BinaryExtensions,
+    numbering: Numbering<'a>,
     // constraint: an id is handed out and its trigrams join the run under one lock, so a run's pairs arrive in the
     // ascending id order its posting lists are written in
     kept: Mutex<Kept>,
@@ -49,34 +49,49 @@ pub(crate) struct Reading<'a> {
     chunks: Mutex<Vec<Box<[u8]>>>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct Numbering<'a> {
+    pub(crate) first_id: u32,
+    pub(crate) handed: Option<&'a AtomicU32>,
+}
+
 struct Kept {
     learned: Vec<Learned>,
     pairs: Option<Pairs>,
+    room: usize,
+    ran_out: bool,
 }
 
 impl Kept {
     #[expect(
         clippy::expect_used,
-        reason = "ids are node-sized, and a walk records fewer than u32::MAX nodes, of which reads are a part"
+        reason = "a slot stays below the room, which is at most u32::MAX"
     )]
     fn keep(
         &mut self,
         learned: Learned,
         indexed: Option<(&[Trigram], &Collector)>,
-    ) -> (u32, Option<Full>) {
+    ) -> Option<(u32, Option<Full>)> {
+        // shortcut: ids never return to use, so an index runs out of them after about four billion reads and every
+        // refresh that reads a file fails from then on — renumber every live id in one refresh to lift that
+        if self.learned.len() == self.room {
+            self.ran_out = true;
+            return None;
+        }
         self.learned.push(learned);
-        let slot = u32::try_from(self.learned.len() - 1).expect("fewer reads than a u32 counts");
+        let slot = u32::try_from(self.learned.len() - 1).expect("a slot below the room fits a u32");
         let full = indexed
             .zip(self.pairs.as_mut())
             .and_then(|((trigrams, collector), pairs)| pairs.push(slot, trigrams, collector));
 
-        (slot, full)
+        Some((slot, full))
     }
 }
 
 pub(crate) struct Report {
     pub(crate) errors: Vec<BuildError>,
     pub(crate) learned: Vec<Learned>,
+    pub(crate) ran_out_of_ids: bool,
     pub(crate) content: Option<Collected>,
 }
 
@@ -91,6 +106,7 @@ impl<'a> Reading<'a> {
         visitor: Option<&'a dyn ContentVisitor>,
         collector: Option<Collector>,
         binary_extensions: &'a BinaryExtensions,
+        numbering: Numbering<'a>,
     ) -> Self {
         let pairs = collector.as_ref().map(Collector::pairs);
 
@@ -98,9 +114,12 @@ impl<'a> Reading<'a> {
             visitor,
             collector,
             binary_extensions,
+            numbering,
             kept: Mutex::new(Kept {
                 learned: Vec::new(),
                 pairs,
+                room: (u32::MAX - numbering.first_id) as usize,
+                ran_out: false,
             }),
             unindexed: Mutex::new(Vec::new()),
             chunks: Mutex::new(Vec::new()),
@@ -131,11 +150,17 @@ impl<'a> Indexing<'a> {
             return Report {
                 errors,
                 learned: Vec::new(),
+                ran_out_of_ids: false,
                 content: None,
             };
         };
 
-        let Kept { learned, pairs } = reading
+        let Kept {
+            learned,
+            pairs,
+            ran_out,
+            ..
+        } = reading
             .kept
             .into_inner()
             .unwrap_or_else(PoisonError::into_inner);
@@ -154,6 +179,7 @@ impl<'a> Indexing<'a> {
         Report {
             errors,
             learned,
+            ran_out_of_ids: ran_out,
             content,
         }
     }
@@ -230,10 +256,10 @@ impl<'a> Indexing<'a> {
             binary: Some(binary),
         };
         if binary {
-            return Some(reading.keep(learned, None));
+            return reading.keep(learned, None);
         }
 
-        let id = reading.keep_text(learned, bytes);
+        let id = reading.keep_text(learned, bytes)?;
         reading.hand_over(visit, Content { id, path, bytes });
         Some(id)
     }
@@ -278,7 +304,7 @@ impl<'a> Indexing<'a> {
         };
 
         match outcome {
-            ReadOutcome::Kept(id) => Some(id),
+            ReadOutcome::Kept(id) => id,
             ReadOutcome::Failed { id, source } => {
                 self.record(BuildError::Read {
                     native_path,
@@ -292,7 +318,7 @@ impl<'a> Indexing<'a> {
 }
 
 enum ReadOutcome {
-    Kept(ContentId),
+    Kept(Option<ContentId>),
     Failed {
         id: Option<ContentId>,
         source: io::Error,
@@ -327,19 +353,21 @@ impl Reading<'_> {
         match readout {
             Readout::Text(bytes) => {
                 let id = self.keep_text(learned, &bytes);
-                self.hand_over(
-                    visit,
-                    Content {
-                        id,
-                        path,
-                        bytes: &bytes,
-                    },
-                );
+                if let Some(id) = id {
+                    self.hand_over(
+                        visit,
+                        Content {
+                            id,
+                            path,
+                            bytes: &bytes,
+                        },
+                    );
+                }
                 ReadOutcome::Kept(id)
             }
             Readout::Binary => ReadOutcome::Kept(self.keep(learned, None)),
             Readout::Failed(source) => ReadOutcome::Failed {
-                id: Some(self.keep(learned, None)),
+                id: self.keep(learned, None),
                 source,
             },
         }
@@ -363,7 +391,7 @@ impl Reading<'_> {
             }
             Ok((learned, Streamed::Binary)) => ReadOutcome::Kept(self.keep(learned, None)),
             Ok((learned, Streamed::Failed(source))) => ReadOutcome::Failed {
-                id: Some(self.keep(learned, None)),
+                id: self.keep(learned, None),
                 source,
             },
         };
@@ -376,21 +404,24 @@ impl Reading<'_> {
         outcome
     }
 
-    fn keep(&self, learned: Learned, trigrams: Option<&[Trigram]>) -> ContentId {
+    fn keep(&self, learned: Learned, trigrams: Option<&[Trigram]>) -> Option<ContentId> {
         let collector = self.collector.as_ref();
         let (slot, full) = self
             .kept
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .keep(learned, trigrams.zip(collector));
+            .keep(learned, trigrams.zip(collector))?;
+        if let Some(handed) = self.numbering.handed {
+            handed.fetch_max(slot + 1, Ordering::Relaxed);
+        }
         if let (Some(full), Some(collector)) = (full, collector) {
             collector.spill(full);
         }
 
-        ContentId(NonZeroU32::MIN.saturating_add(slot))
+        Some(ContentId::from_slot(self.numbering.first_id + slot))
     }
 
-    fn keep_text(&self, learned: Learned, bytes: &[u8]) -> ContentId {
+    fn keep_text(&self, learned: Learned, bytes: &[u8]) -> Option<ContentId> {
         let Some(collector) = &self.collector else {
             return self.keep(learned, None);
         };
