@@ -28,10 +28,11 @@
 //! exactly as on unix, so a consumer stores, compares, matches and serializes one path form and never branches on the
 //! host.
 //!
-//! That holds by construction rather than by convention. The only string the walk takes from the OS is
-//! [`std::fs::DirEntry::file_name`], a single path component, which contains no separator on any platform; the only
-//! separator it ever writes is a literal `/`. No full path is ever stringified, so a native separator has no route into
-//! a reported path.
+//! That holds by construction rather than by convention. The only string the walk takes from the OS is an entry's name
+//! as a directory listing gives it — [`std::fs::DirEntry::file_name`], or the name `getattrlistbulk` returns when
+//! [`WalkOptions::listed_stats`] lists macOS directories with their stats — a single path component, which contains no
+//! separator on any platform; the only separator it ever writes is a literal `/`. No full path is ever stringified, so
+//! a native separator has no route into a reported path.
 //!
 //! Native paths stay on the I/O side of that line: [`Entry::native_path`] and [`Dir::native_path`] return an OS
 //! [`std::path::Path`], because opening a file needs the platform's own spelling. The rule is one form for identity,
@@ -63,6 +64,10 @@
 //!
 //! [`WalkOptions::threads`] fixes how many threads walk the tree, for a caller that does not own the machine. Left
 //! `None`, the walk uses the ambient rayon pool.
+//!
+//! [`WalkOptions::listed_stats`] lists each directory with its regular files' lengths and change times where the
+//! platform's listing carries them, for a policy that compares files with what it saw before and would otherwise stat
+//! each one.
 //!
 //! # Errors
 //!
@@ -114,6 +119,8 @@
 //! # }
 //! ```
 
+#[cfg(target_os = "macos")]
+mod bulk;
 mod cancel;
 mod error;
 mod policy;
@@ -122,6 +129,6 @@ mod walk;
 
 pub use crate::cancel::CancelToken;
 pub use crate::error::WalkError;
-pub use crate::policy::{Dir, Entry, EntryKind, Policy, Visit};
+pub use crate::policy::{Dir, Entry, EntryKind, ListedStat, Policy, Visit};
 pub use crate::tree::{Children, Node, NodeId, Tree};
 pub use crate::walk::{WalkOptions, WalkOutcome, walk};

@@ -53,4 +53,8 @@ escapes the objection only because the caller who cancelled is the one discardin
 process under a thread limit. The count is exact, so `Some(1)` walks sequentially, and a pool that cannot be started is
 a returned error rather than a silent fall back to some other parallelism. Only that and an unreadable root are fatal.
 
+`listed_stats` lists each directory with its regular files' lengths and inode change times where the platform's listing
+carries them — macOS, through `getattrlistbulk` — so a policy that compares files with what it saw before pays no stat
+per file. Such a listing costs more than one without them, so a walk lists them only when asked.
+
 Status: the API is being ported into this repository and is not published yet.
