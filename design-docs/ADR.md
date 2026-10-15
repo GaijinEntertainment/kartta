@@ -30,7 +30,10 @@
 - [1.13 Let the caller bound the index's threads](./adr/1.13-let-the-caller-bound-the-index-s-threads.md) — initiative
   `01-kartta-fs-port`, 2026-10-14
 - [1.14 Narrow content search with a trigram index built from the walk's
-  reads](./adr/1.14-narrow-content-search-with-a-trigram-index.md) — initiative `01-kartta-fs-port`, 2026-10-14
+  reads](./adr/1.14-narrow-content-search-with-a-trigram-index.md) — initiative `01-kartta-fs-port`, 2026-10-14,
+  revised 2026-10-15
+- [1.15 Refresh an index in place from a second walk](./adr/1.15-refresh-an-index-in-place-from-a-second-walk.md) —
+  initiative `01-kartta-fs-port`, 2026-10-15
 
 ## Deprecated
 
