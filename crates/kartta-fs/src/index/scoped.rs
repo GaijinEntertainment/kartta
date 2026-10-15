@@ -6,7 +6,7 @@ use std::{fs, io};
 
 use kartta_walk::{CancelToken, EntryKind, Tree, WalkError, WalkOptions, walk};
 
-use super::splice::{Fresh, Pending, Replacement, Spliced};
+use super::splice::{Fresh, Pending, Replacement};
 use super::{
     Index, Previous, RefreshOutcome, depth_first_below, indexing, node_sized, order_errors,
     tree_order, unfinished_error,
@@ -45,11 +45,12 @@ impl Index {
     ///
     /// While ignore rules apply, the rules for a part walked again come from the `.gitignore` files of the directories
     /// above it, read again once a call for each such directory, at two stats a directory and a third with the read of
-    /// a `.gitignore` it holds; the visitor is not handed
-    /// those files, which lie outside the parts. Content is read, carried over and numbered as [`Index::refresh`] does,
-    /// and what it reads is indexed in a segment of the content index of its own. Unlike [`Index::refresh`], this
-    /// changes the index in place: every entry outside the walked parts moves once, so a call costs one pass over the
-    /// index's per-entry arrays whatever the number of paths, and the old and new arrays are held at once while it runs.
+    /// a `.gitignore` it holds; the visitor is not handed those files, which lie outside the parts. Content is read,
+    /// carried over and numbered as [`Index::refresh`] does, and what it reads is indexed in a segment of the content
+    /// index of its own. Unlike [`Index::refresh`], this changes the index in place: every entry outside the walked
+    /// parts moves once, so a call costs one pass over the index's per-entry arrays whatever the number of paths, and
+    /// the old and new arrays are held at once while it runs. A call whose parts are neither indexed nor on disk, such
+    /// as ignored paths and files already gone again, changes nothing and makes no such pass.
     ///
     /// # Errors
     ///
@@ -74,15 +75,17 @@ impl Index {
         }
 
         let asked = Asked { visitor, cancel };
-        let Planned {
-            pending,
-            content,
-            errors,
-        } = self.counting_handed(|index, handed| index.plan(&scopes, asked, handed))?;
-        if let Some(content) = content {
-            self.content = content;
-        }
-        let Spliced { retired, .. } = self.install(pending);
+        let Planned { pending, errors } =
+            self.counting_handed(|index, handed| index.plan(&scopes, asked, handed))?;
+        let retired = match pending {
+            Some((pending, content)) => {
+                if let Some(content) = content {
+                    self.content = content;
+                }
+                self.install(pending).retired
+            }
+            None => Vec::new(),
+        };
 
         Ok(RefreshOutcome {
             errors,
@@ -215,6 +218,16 @@ impl Index {
         }
         errors.extend(read_errors);
         order_errors(&mut errors);
+        let changes_nothing = ranges
+            .iter()
+            .zip(&found)
+            .all(|(range, found)| range.is_empty() && found.scope.is_none());
+        if changes_nothing && !self.holds_unreported_ids() {
+            return Ok(Planned {
+                pending: None,
+                errors,
+            });
+        }
 
         let (finished, mut unindexed) = match content {
             Some(collected) => {
@@ -239,10 +252,13 @@ impl Index {
             .transpose()?;
 
         Ok(Planned {
-            pending,
-            content,
+            pending: Some((pending, content)),
             errors,
         })
+    }
+
+    fn holds_unreported_ids(&self) -> bool {
+        self.first_content_id + node_sized(self.content_positions.len()) < self.next_content_id
     }
 
     fn finished(
@@ -305,8 +321,7 @@ struct Asked<'a> {
 }
 
 struct Planned {
-    pending: Pending,
-    content: Option<ContentIndexes>,
+    pending: Option<(Pending, Option<ContentIndexes>)>,
     errors: Vec<BuildError>,
 }
 
