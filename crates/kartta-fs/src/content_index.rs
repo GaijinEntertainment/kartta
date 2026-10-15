@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::postings::{self, Shape};
 use crate::requirement::Requirement;
@@ -89,13 +90,42 @@ impl ContentIndexStats {
     }
 }
 
+impl ContentIndexStats {
+    fn sum(segments: &[Arc<ContentIndex>], unindexed: &[u32]) -> Self {
+        segments.iter().fold(
+            Self {
+                files: 0,
+                trigrams: 0,
+                bytes: size_of_val(unindexed) as u64,
+            },
+            |sum, segment| Self {
+                files: sum.files + segment.stats.files,
+                trigrams: sum.trigrams + segment.stats.trigrams,
+                bytes: sum.bytes + segment.stats.bytes,
+            },
+        )
+    }
+}
+
 pub(crate) struct ContentIndex {
     stats: ContentIndexStats,
+    first_id: u32,
     universe: u32,
     blob: Blob,
     directory_start: usize,
     buckets_start: usize,
-    unindexed: Box<[u32]>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ContentIndexes {
+    pub(crate) segments: Vec<Arc<ContentIndex>>,
+    pub(crate) unindexed: Box<[u32]>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct IdPositions<'a> {
+    pub(crate) first: u32,
+    pub(crate) positions: &'a [u32],
 }
 
 pub(crate) struct Narrowed {
@@ -105,6 +135,40 @@ pub(crate) struct Narrowed {
 impl Narrowed {
     pub(crate) fn admits(&self, at: usize) -> bool {
         self.positions.contains(at)
+    }
+}
+
+impl ContentIndexes {
+    pub(crate) fn new(segments: Vec<Arc<ContentIndex>>, mut unindexed: Vec<u32>) -> Self {
+        unindexed.sort_unstable();
+        unindexed.dedup();
+
+        Self {
+            segments,
+            unindexed: unindexed.into_boxed_slice(),
+        }
+    }
+
+    pub(crate) fn stats(&self) -> ContentIndexStats {
+        ContentIndexStats::sum(&self.segments, &self.unindexed)
+    }
+
+    // constraint: a file the build could not index may hold anything, so it stays admitted whatever the requirement
+    pub(crate) fn narrow(
+        &self,
+        requirement: &Requirement,
+        ids: IdPositions<'_>,
+        entries: usize,
+    ) -> Option<Narrowed> {
+        let mut positions = Bits::new(entries);
+        for segment in &self.segments {
+            segment.admit(requirement, ids, &mut positions)?;
+        }
+        for &at in &self.unindexed {
+            positions.insert(at as usize);
+        }
+
+        Some(Narrowed { positions })
     }
 }
 
@@ -124,37 +188,31 @@ struct Located {
 }
 
 impl ContentIndex {
-    pub(crate) const fn stats(&self) -> ContentIndexStats {
+    #[cfg(test)]
+    const fn stats(&self) -> ContentIndexStats {
         self.stats
     }
 
-    pub(crate) fn with_unindexed(mut self, mut positions: Vec<u32>) -> Self {
-        positions.sort_unstable();
-        positions.dedup();
-        self.unindexed = positions.into_boxed_slice();
-        self.stats.bytes = (self.blob.len() + size_of_val(&*self.unindexed)) as u64;
+    pub(crate) const fn with_first_id(mut self, first_id: u32) -> Self {
+        self.first_id = first_id;
         self
     }
 
-    // constraint: a file the build could not index may hold anything, so it stays admitted whatever the requirement
-    pub(crate) fn narrow(
+    fn admit(
         &self,
         requirement: &Requirement,
-        content_positions: &[u32],
-        entries: usize,
-    ) -> Option<Narrowed> {
-        let ids = self.ids(requirement).ok()??;
-        let mut positions = Bits::new(entries);
-        ids.for_each_one(|id| {
-            if let Some(&at) = content_positions.get(id) {
+        ids: IdPositions<'_>,
+        positions: &mut Bits,
+    ) -> Option<()> {
+        let found = self.ids(requirement).ok()??;
+        let offset = self.first_id.checked_sub(ids.first)? as usize;
+        found.for_each_one(|id| {
+            if let Some(&at) = ids.positions.get(offset + id) {
                 positions.insert(at as usize);
             }
         });
-        for &at in &self.unindexed {
-            positions.insert(at as usize);
-        }
 
-        Some(Narrowed { positions })
+        Some(())
     }
 
     fn ids(&self, requirement: &Requirement) -> Lookup<Option<Bits>> {
@@ -428,8 +486,8 @@ impl fmt::Debug for ContentIndex {
         formatter
             .debug_struct("ContentIndex")
             .field("stats", &self.stats)
+            .field("first_id", &self.first_id)
             .field("storage", &self.blob.kind())
-            .field("unindexed", &self.unindexed.len())
             .finish_non_exhaustive()
     }
 }
@@ -539,10 +597,10 @@ mod tests {
         let index = index_of(&files(10), RUN_PAIRS_FOR_TESTS);
         let lists = index.stats().bytes();
 
-        let index = index.with_unindexed(vec![7, 3, 7]);
+        let indexes = ContentIndexes::new(vec![Arc::new(index)], vec![7, 3, 7]);
 
         assert_eq!(
-            index.stats().bytes(),
+            indexes.stats().bytes(),
             lists + 8,
             "two distinct positions of four bytes each"
         );

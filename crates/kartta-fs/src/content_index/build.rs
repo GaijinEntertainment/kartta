@@ -246,11 +246,11 @@ impl Collector {
                 trigrams,
                 bytes: blob.len() as u64,
             },
+            first_id: 0,
             universe,
             directory_start: layout.postings,
             buckets_start: layout.postings + layout.directory,
             blob,
-            unindexed: Box::default(),
         })
     }
 }
