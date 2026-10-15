@@ -53,8 +53,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo build --locked --workspace --all-targets
-      - run: cargo test --locked --workspace
+      # Every feature, as the clippy job builds: the watcher's backend differs per platform, and this is the only job
+      # that runs its tests on each.
+      - run: cargo build --locked --workspace --all-targets --all-features
+      - run: cargo test --locked --workspace --all-features
 
   # Advisories, licences and sources, against the resolved graph rather than the manifests. The other jobs prove the
   # code we wrote is sound; this one is about the code we did not write, which is most of what ships.
