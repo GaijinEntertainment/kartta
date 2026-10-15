@@ -4,6 +4,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::inspection::Inspection;
 use crate::postings::{self, Shape};
 use crate::requirement::Requirement;
 use crate::trigram::Trigram;
@@ -81,8 +82,9 @@ impl ContentIndexStats {
     /// How many distinct trigrams those files hold, counted within each segment of the index.
     ///
     /// A build makes one segment. A refresh that carries text files over unread keeps their segments and indexes the
-    /// files it reads in one more, so a trigram held both by files carried and by files read counts once in each, until
-    /// a refresh merges the segments into one and each trigram counts once again.
+    /// files it reads in one more, so a trigram held both by files carried and by files read counts once in each. Past
+    /// eight segments a refresh merges the ones after the first, which leaves two; once more than a quarter of the files
+    /// they hold lists for are gone it merges them all, and each trigram counts once again.
     #[must_use]
     pub const fn trigrams(&self) -> usize {
         self.trigrams
@@ -139,11 +141,19 @@ impl IdPositions<'_> {
             .and_then(|slot| self.positions.get(slot as usize))
             .is_some_and(|&at| at != NO_POSITION)
     }
+
+    fn from(self, first: u32) -> Option<Self> {
+        let skipped = first.checked_sub(self.first)?;
+        Some(Self {
+            first,
+            positions: self.positions.get(skipped as usize..)?,
+        })
+    }
 }
 
 // constraint: each refresh that reads anything adds a segment, with its own bucket table and lists for the files it
-// read again beside the lists their old ids keep, so past this many segments, or once more than a quarter of the files
-// the segments hold lists for are gone, the segments are merged into one
+// read again beside the lists their old ids keep, so past this many segments the ones after the first are merged into
+// one, and once more than a quarter of the files the segments hold lists for are gone, all of them are
 const MAX_SEGMENTS: usize = 8;
 
 pub(crate) struct Narrowed {
@@ -180,9 +190,17 @@ impl ContentIndexes {
         self.files
     }
 
+    // constraint: a read that fails after the first chunk leaves its file classified as text with no list in any
+    // segment, and only the unindexed positions record that
+    pub(crate) fn holds_list(&self, inspection: &Inspection, at: u32) -> bool {
+        Inspection::raw_is_text(inspection.raw(at as usize))
+            && self.unindexed.binary_search(&at).is_err()
+    }
+
     pub(crate) fn compacted_when_due(
         self,
         ids: IdPositions<'_>,
+        inspection: &Inspection,
         target: Target<'_>,
     ) -> Result<Self, Unfinished> {
         let held: usize = self
@@ -191,15 +209,34 @@ impl ContentIndexes {
             .map(|segment| segment.stats.files)
             .sum();
         let dead = held.saturating_sub(self.files);
-        if self.segments.len() <= MAX_SEGMENTS && dead * 4 <= held {
+        let mostly_live = dead * 4 <= held;
+        if self.segments.len() <= MAX_SEGMENTS && mostly_live {
             return Ok(self);
         }
 
-        let merged = compact::compact(&self.segments, ids, self.files, target)?;
-        Ok(Self {
-            segments: vec![Arc::new(merged)],
-            ..self
-        })
+        let tail = self
+            .segments
+            .get(1)
+            .and_then(|second| ids.from(second.first_id))
+            .filter(|_| mostly_live);
+        let Some(tail) = tail else {
+            let merged = compact::compact(&self.segments, ids, self.files, target)?;
+            return Ok(Self {
+                segments: vec![Arc::new(merged)],
+                ..self
+            });
+        };
+
+        let files = tail
+            .positions
+            .iter()
+            .filter(|&&at| at != NO_POSITION && self.holds_list(inspection, at))
+            .count();
+        let merged = compact::compact(&self.segments[1..], tail, files, target)?;
+        let mut segments = self.segments;
+        segments.truncate(1);
+        segments.push(Arc::new(merged));
+        Ok(Self { segments, ..self })
     }
 
     // constraint: a file the build could not index may hold anything, so it stays admitted whatever the requirement
@@ -688,8 +725,16 @@ mod tests {
         assert_eq!(merged.stats().files(), 56);
     }
 
+    fn text_at(positions: usize) -> Inspection {
+        let inspection = Inspection::new(positions);
+        for at in 0..positions {
+            inspection.record_binary(at, false);
+        }
+        inspection
+    }
+
     #[test]
-    fn segments_merge_past_eight_or_once_more_than_a_quarter_of_their_files_are_gone() {
+    fn past_eight_segments_the_ones_after_the_first_merge_and_past_a_quarter_gone_all_of_them_do() {
         let target = Target {
             storage: &ContentIndexStorage::Memory,
             cancel: None,
@@ -706,18 +751,77 @@ mod tests {
                 .map(|at| Arc::new(index_of(&files(4), RUN_PAIRS_FOR_TESTS).with_first_id(at * 4)))
                 .collect();
             let live = (count * 4 - gone) as usize;
-            let Ok(indexes) =
-                ContentIndexes::new(segments, Vec::new(), live).compacted_when_due(ids, target)
-            else {
+            let inspection = text_at(positions.len());
+            let Ok(indexes) = ContentIndexes::new(segments, Vec::new(), live).compacted_when_due(
+                ids,
+                &inspection,
+                target,
+            ) else {
                 panic!("merge the segments");
             };
             indexes.segments.len()
         };
 
         assert_eq!(segments_after(8, 0), 8, "eight segments stay apart");
-        assert_eq!(segments_after(9, 0), 1, "a ninth merges them");
-        assert_eq!(segments_after(2, 2), 2, "a quarter of their files gone");
+        assert_eq!(segments_after(9, 0), 2, "a ninth merges all but the first");
+        assert_eq!(segments_after(9, 9), 2, "a quarter of their files gone");
+        assert_eq!(
+            segments_after(9, 10),
+            1,
+            "more than a quarter gone merges all"
+        );
         assert_eq!(segments_after(2, 3), 1, "more than a quarter gone");
+    }
+
+    #[test]
+    fn a_merge_after_the_first_segment_keeps_it_whole_and_counts_the_files_the_rest_still_list() {
+        let base = Arc::new(index_of(&files(40), RUN_PAIRS_FOR_TESTS));
+        let later: Vec<Vec<Vec<Trigram>>> = (0..8).map(|_| files(4)).collect();
+        let mut segments = vec![Arc::clone(&base)];
+        segments.extend((0..).zip(&later).map(|(at, files)| {
+            Arc::new(index_of(files, RUN_PAIRS_FOR_TESTS).with_first_id(40 + at * 4))
+        }));
+        let gone = [41, 50];
+        let positions: Vec<u32> = (0..72)
+            .map(|id| if gone.contains(&id) { NO_POSITION } else { id })
+            .collect();
+        let ids = IdPositions {
+            first: 0,
+            positions: &positions,
+        };
+        let target = Target {
+            storage: &ContentIndexStorage::Memory,
+            cancel: None,
+        };
+
+        let Ok(indexes) = ContentIndexes::new(segments, vec![55], 69).compacted_when_due(
+            ids,
+            &text_at(positions.len()),
+            target,
+        ) else {
+            panic!("merge the segments");
+        };
+
+        assert_eq!(indexes.segments.len(), 2);
+        assert!(
+            Arc::ptr_eq(&indexes.segments[0], &base),
+            "the first segment is kept as it was"
+        );
+        let merged = &indexes.segments[1];
+        assert_eq!(merged.first_id, 40);
+        assert_eq!(
+            merged.stats().files(),
+            29,
+            "32 later files, two gone and one unindexed"
+        );
+        let tail: Vec<Vec<Trigram>> = later.into_iter().flatten().collect();
+        for trigram in tail.iter().flatten().copied() {
+            let live: Vec<u32> = expected(&tail, trigram)
+                .into_iter()
+                .filter(|id| !gone.contains(&(id + 40)))
+                .collect();
+            assert_eq!(merged.files_holding(trigram), live, "trigram {trigram:06x}");
+        }
     }
 
     #[test]

@@ -110,6 +110,10 @@ impl Pending {
         &self.placement.positions
     }
 
+    pub(crate) const fn inspection(&self) -> &Inspection {
+        &self.splicing.inspection
+    }
+
     pub(crate) const fn retired_text(&self) -> usize {
         self.spliced.retired_text
     }
@@ -233,7 +237,7 @@ impl Index {
             if placement.positions[local] != NO_POSITION {
                 continue;
             }
-            retired_text += usize::from(self.held_a_list(old));
+            retired_text += usize::from(self.content.holds_list(&self.inspection, node_sized(old)));
             let slot = self.first_content_id + node_sized(local);
             match retired.last_mut() {
                 Some(run) if run.end == slot => run.end += 1,
@@ -253,17 +257,6 @@ impl Index {
                 retired_text,
             },
         )
-    }
-
-    // constraint: a read that fails after the first chunk leaves its file classified as text with no list in any
-    // segment, and only the unindexed positions record that
-    fn held_a_list(&self, at: usize) -> bool {
-        Inspection::raw_is_text(self.inspection.raw(at))
-            && self
-                .content
-                .unindexed
-                .binary_search(&node_sized(at))
-                .is_err()
     }
 
     fn spliced_paths(&self, replacements: &[Replacement], len: usize) -> Encoder {

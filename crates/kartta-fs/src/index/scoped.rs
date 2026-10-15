@@ -308,7 +308,11 @@ impl Index {
         };
 
         self.on_threads(|| {
-            ContentIndexes::new(segments, unindexed, files).compacted_when_due(ids, target)
+            ContentIndexes::new(segments, unindexed, files).compacted_when_due(
+                ids,
+                pending.inspection(),
+                target,
+            )
         })
         .map_err(|unfinished| unfinished_error(&storage, unfinished))
     }
