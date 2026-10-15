@@ -123,12 +123,19 @@
 //! trigram a match needs, and counts the rest in [`Matches::ruled_out`]. The index is a snapshot of content as the
 //! build read it, as the structure is a snapshot of the tree.
 //!
+//! # Keeping an index current
+//!
+//! An index that nobody refreshes is a snapshot and costs nothing more. [`Index::refresh`] walks the tree again and
+//! makes the index what a build would make now; [`Index::refresh_paths`] walks again only the paths a caller names. With
+//! the `watch` feature, a `Watcher` follows the tree through the operating system's change notifications and hands
+//! over the paths to name.
+//!
 //! # What is here so far
 //!
 //! The walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification, the two
-//! path searches — glob and fuzzy — both narrowed by a [`Filter`], content search, and the content index that narrows
-//! it. Not yet: incremental re-walk and reindexing, and the ignore sources outside the tree — [`IgnoreSources`] names
-//! only the levels that are implemented.
+//! path searches — glob and fuzzy — both narrowed by a [`Filter`], content search, the content index that narrows it,
+//! and refreshing all of these as the tree changes. Not yet: the ignore sources outside the tree — [`IgnoreSources`]
+//! names only the levels that are implemented.
 
 mod binary;
 mod build;
@@ -153,6 +160,8 @@ mod rules;
 mod scan;
 mod stamp;
 mod trigram;
+#[cfg(feature = "watch")]
+mod watch;
 
 pub use kartta_walk::CancelToken;
 
@@ -170,3 +179,5 @@ pub use crate::index::{BuildOutcome, Index, Inspected, Paths, RefreshOutcome};
 pub use crate::list::{ListError, ListOptions, Listed, Listing};
 pub use crate::matches::{Cut, Failure, Line, LineKind, MatchedFile, Matches};
 pub use crate::patterns::{Case, PatternError, Patterns};
+#[cfg(feature = "watch")]
+pub use crate::watch::{Changes, WatchError, Watcher};

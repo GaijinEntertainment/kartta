@@ -25,9 +25,16 @@ ignore = []
 # BSD-3-Clause is the one conjunctive licence: `encoding_rs` is `(Apache-2.0 OR MIT) AND BSD-3-Clause`, and it arrives
 # with `grep-searcher`, which links it unconditionally for byte-order-mark sniffing that kartta-fs turns off. Taking
 # ripgrep's searcher costs this licence; owning a line scanner instead is what would drop it.
+#
+# The watcher's notify brings three more, each with no condition a binary has to meet: CC0-1.0 is notify's own,
+# BSL-1.0 is `xxhash-rust`'s, which notify hashes paths with on macOS and Windows, and ISC is `inotify`'s, notify's
+# Linux backend, which is in the graph although kartta-fs builds notify only for macOS and Windows.
 allow = [
     "Apache-2.0",
     "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "ISC",
     "MIT",
     "Unicode-3.0",
     "Unlicense",
