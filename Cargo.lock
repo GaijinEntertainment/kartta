@@ -712,6 +712,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kartta-lang-ruby"
+version = "0.0.0"
+dependencies = [
+ "kartta-lang",
+ "tree-sitter",
+ "tree-sitter-ruby",
+]
+
+[[package]]
 name = "kartta-lang-rust"
 version = "0.0.0"
 dependencies = [
@@ -1266,6 +1275,16 @@ name = "tree-sitter-quirrel"
 version = "4.43.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc02bfd4cb03b517c5f56f10c79c584fe1c5b84e0ce7ade8b5e9fd4f554ccbc1"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-ruby"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be0484ea4ef6bb9c575b4fdabde7e31340a8d2dbc7d52b321ac83da703249f95"
 dependencies = [
  "cc",
  "tree-sitter-language",
