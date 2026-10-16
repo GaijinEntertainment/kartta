@@ -1,0 +1,191 @@
+use std::fs::File;
+use std::io;
+use std::ops::Range;
+use std::path::Path;
+
+use memmap2::Mmap;
+
+use crate::key::{self, ContentHash, Namespace};
+
+pub(crate) const MAGIC: [u8; 8] = *b"KARTPACK";
+pub(crate) const VERSION: u32 = 1;
+pub(crate) const EXTENSION: &str = "pack";
+
+pub(crate) const FOOTER_LEN: usize = 40;
+pub(crate) const NAMESPACE_RECORD_LEN: usize = 48;
+pub(crate) const ENTRY_RECORD_LEN: usize = 52;
+
+pub(crate) struct Footer {
+    pub(crate) namespace_count: u32,
+    pub(crate) entry_count: u64,
+    pub(crate) index_offset: u64,
+    pub(crate) namespaces_offset: u64,
+}
+
+impl Footer {
+    pub(crate) fn encode(&self) -> [u8; FOOTER_LEN] {
+        let mut bytes = [0; FOOTER_LEN];
+        bytes[..8].copy_from_slice(&MAGIC);
+        bytes[8..12].copy_from_slice(&VERSION.to_le_bytes());
+        bytes[12..16].copy_from_slice(&self.namespace_count.to_le_bytes());
+        bytes[16..24].copy_from_slice(&self.entry_count.to_le_bytes());
+        bytes[24..32].copy_from_slice(&self.index_offset.to_le_bytes());
+        bytes[32..40].copy_from_slice(&self.namespaces_offset.to_le_bytes());
+
+        bytes
+    }
+
+    fn decode(bytes: &[u8; FOOTER_LEN]) -> Option<Self> {
+        let (magic, rest) = bytes.split_first_chunk::<8>()?;
+        let (version, rest) = rest.split_first_chunk::<4>()?;
+        let (namespace_count, rest) = rest.split_first_chunk::<4>()?;
+        let (entry_count, rest) = rest.split_first_chunk::<8>()?;
+        let (index_offset, rest) = rest.split_first_chunk::<8>()?;
+        let (namespaces_offset, _) = rest.split_first_chunk::<8>()?;
+        if *magic != MAGIC || u32::from_le_bytes(*version) != VERSION {
+            return None;
+        }
+
+        Some(Self {
+            namespace_count: u32::from_le_bytes(*namespace_count),
+            entry_count: u64::from_le_bytes(*entry_count),
+            index_offset: u64::from_le_bytes(*index_offset),
+            namespaces_offset: u64::from_le_bytes(*namespaces_offset),
+        })
+    }
+}
+
+pub(crate) fn namespace_record(
+    namespace: &Namespace,
+    entries: Range<u64>,
+) -> [u8; NAMESPACE_RECORD_LEN] {
+    let mut record = [0; NAMESPACE_RECORD_LEN];
+    record[..32].copy_from_slice(namespace.as_bytes());
+    record[32..40].copy_from_slice(&entries.start.to_le_bytes());
+    record[40..48].copy_from_slice(&entries.end.to_le_bytes());
+
+    record
+}
+
+pub(crate) fn entry_record(
+    content: &ContentHash,
+    offset: u64,
+    len: u32,
+    check: u64,
+) -> [u8; ENTRY_RECORD_LEN] {
+    let mut record = [0; ENTRY_RECORD_LEN];
+    record[..32].copy_from_slice(content.as_bytes());
+    record[32..40].copy_from_slice(&offset.to_le_bytes());
+    record[40..44].copy_from_slice(&len.to_le_bytes());
+    record[44..52].copy_from_slice(&check.to_le_bytes());
+
+    record
+}
+
+pub(crate) enum Lookup<'a> {
+    Absent,
+    Found(&'a [u8]),
+    Damaged,
+}
+
+#[derive(Debug)]
+pub(crate) struct Pack {
+    map: Mmap,
+    entries: Range<usize>,
+    namespaces: Range<usize>,
+}
+
+impl Pack {
+    pub(crate) fn open(path: &Path) -> io::Result<Option<Self>> {
+        let file = File::open(path)?;
+        if usize::try_from(file.metadata()?.len()).map_or(true, |len| len < FOOTER_LEN) {
+            return Ok(None);
+        }
+        // SAFETY: a published pack is never written again — the writer links a finished file into place and nothing
+        // in this crate opens one for writing — so the mapped bytes stay what they were when the pack was published.
+        // A program outside this crate that truncates a pack breaks that protocol and is not defended against.
+        let map = unsafe { Mmap::map(&file)? };
+
+        Ok(Self::laid_out(&map).map(|(entries, namespaces)| Self {
+            map,
+            entries,
+            namespaces,
+        }))
+    }
+
+    fn laid_out(map: &[u8]) -> Option<(Range<usize>, Range<usize>)> {
+        let footer_at = map.len().checked_sub(FOOTER_LEN)?;
+        let footer = Footer::decode(map[footer_at..].first_chunk()?)?;
+        let index_offset = usize::try_from(footer.index_offset).ok()?;
+        let namespaces_offset = usize::try_from(footer.namespaces_offset).ok()?;
+        let entries_len = usize::try_from(footer.entry_count)
+            .ok()?
+            .checked_mul(ENTRY_RECORD_LEN)?;
+        let namespaces_len = usize::try_from(footer.namespace_count)
+            .ok()?
+            .checked_mul(NAMESPACE_RECORD_LEN)?;
+        let laid_out = index_offset.checked_add(entries_len)? == namespaces_offset
+            && namespaces_offset.checked_add(namespaces_len)? == footer_at;
+
+        laid_out.then_some((
+            index_offset..namespaces_offset,
+            namespaces_offset..footer_at,
+        ))
+    }
+
+    pub(crate) fn get(&self, namespace: &Namespace, content: &ContentHash) -> Lookup<'_> {
+        let Some(range) = self.namespace_range(namespace) else {
+            return Lookup::Absent;
+        };
+        let Some(entries) = self.entry_records().get(range) else {
+            return Lookup::Damaged;
+        };
+        let Ok(found) = entries.binary_search_by(|record| record[..32].cmp(content.as_bytes()))
+        else {
+            return Lookup::Absent;
+        };
+
+        self.payload(&entries[found])
+            .filter(|payload| key::check(namespace, content, payload) == check_of(&entries[found]))
+            .map_or(Lookup::Damaged, Lookup::Found)
+    }
+
+    fn namespace_range(&self, namespace: &Namespace) -> Option<Range<usize>> {
+        let records = self.namespace_records();
+        let found = records
+            .binary_search_by(|record| record[..32].cmp(namespace.as_bytes()))
+            .ok()?;
+        let record = &records[found];
+        let start = u64::from_le_bytes(*record[32..].first_chunk()?);
+        let end = u64::from_le_bytes(*record[40..].first_chunk()?);
+
+        Some(usize::try_from(start).ok()?..usize::try_from(end).ok()?)
+    }
+
+    fn payload(&self, record: &[u8; ENTRY_RECORD_LEN]) -> Option<&[u8]> {
+        let offset = usize::try_from(u64::from_le_bytes(*record[32..].first_chunk()?)).ok()?;
+        let len = usize::try_from(u32::from_le_bytes(*record[40..].first_chunk()?)).ok()?;
+        let end = offset.checked_add(len)?;
+
+        (end <= self.entries.start).then(|| &self.map[offset..end])
+    }
+
+    fn entry_records(&self) -> &[[u8; ENTRY_RECORD_LEN]] {
+        self.map[self.entries.clone()].as_chunks().0
+    }
+
+    fn namespace_records(&self) -> &[[u8; NAMESPACE_RECORD_LEN]] {
+        self.map[self.namespaces.clone()].as_chunks().0
+    }
+
+    pub(crate) fn entry_count(&self) -> usize {
+        self.entries.len() / ENTRY_RECORD_LEN
+    }
+}
+
+const fn check_of(record: &[u8; ENTRY_RECORD_LEN]) -> u64 {
+    match record.last_chunk() {
+        Some(check) => u64::from_le_bytes(*check),
+        None => 0,
+    }
+}
