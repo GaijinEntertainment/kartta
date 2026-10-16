@@ -44,6 +44,7 @@ struct Pending {
 }
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const WRITE_BUFFER: usize = 1 << 20;
 
 impl PackWriter {
     pub(crate) fn new(dir: &Path) -> Self {
@@ -150,7 +151,7 @@ impl Writing {
 
         Ok(Self {
             temp,
-            file: BufWriter::new(file),
+            file: BufWriter::with_capacity(WRITE_BUFFER, file),
             written: 0,
             entries: Vec::new(),
             seen: HashSet::new(),
