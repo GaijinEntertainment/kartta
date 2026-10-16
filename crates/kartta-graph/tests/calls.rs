@@ -8,7 +8,8 @@
 use kartta_graph::{Graph, Limits, Walk};
 use kartta_lang::{
     CallRef, Callable, CallableRole, Conventions, Extraction, ImportBinding, IncludeRef,
-    InheritedMembers, LocalCall, OwnMembers, ReExport, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    InheritedMembers, LocalCall, OwnMembers, ReExport, RefSite, Symbol, SymbolFlags, SymbolId,
+    SymbolKind,
 };
 
 fn function(name: &str, line: u32) -> Symbol {
@@ -1085,9 +1086,13 @@ fn a_bare_name_several_free_functions_share_selects_the_one_with_the_most_caller
     let walk = graph
         .callers("parse", Limits::new(1))
         .expect("parse is defined");
+    let references = graph
+        .references("parse", 0, usize::MAX)
+        .expect("parse is defined");
 
     assert_eq!((walk.root.file, walk.passed_over), ("a.go", 1));
     assert_eq!(reached(&walk), ["a.go:5@80", "a.go:9@80"]);
+    assert_eq!((references.symbol.file, references.total), ("a.go", 2));
 }
 
 #[test]
@@ -1229,6 +1234,203 @@ fn a_cap_reached_only_by_symbols_already_visited_cuts_nothing() {
     assert_eq!(walk.turned_away, 0);
 }
 
+fn using(name: &str, qualifier: Option<&str>) -> RefSite {
+    RefSite {
+        site_of: SymbolId(0),
+        name: name.to_owned(),
+        qualifier: qualifier.map(str::to_owned),
+        line: 3,
+    }
+}
+
+#[test]
+fn references_bind_through_imports_the_file_and_the_package() {
+    let mut caller = importing(
+        "cmd/main.go",
+        None,
+        Some("pkg/lib"),
+        vec![member_call(0, "lib", "Config", 2)],
+    );
+    caller.references = vec![using("Config", Some("lib"))];
+    let mut same_file = package(
+        "pkg/lib/config.go",
+        "lib",
+        vec![
+            exported(Symbol::new("Config", SymbolKind::Struct, 1, 2)),
+            function("load", 5),
+        ],
+    );
+    same_file.references = vec![RefSite {
+        site_of: SymbolId(1),
+        ..using("Config", None)
+    }];
+    let mut same_package = package("pkg/lib/other.go", "lib", vec![function("other", 1)]);
+    same_package.references = vec![using("Config", None)];
+
+    let graph = graph_of(go(), &[caller, same_file, same_package]);
+
+    let references = graph
+        .references("Config", 0, usize::MAX)
+        .expect("Config is defined");
+    let found: Vec<String> = references
+        .sites
+        .iter()
+        .map(|reference| {
+            format!(
+                "{}:{}@{}{}",
+                reference.site_of.file,
+                reference.line,
+                reference.confidence,
+                if reference.call { "c" } else { "" }
+            )
+        })
+        .collect();
+    assert_eq!(
+        found,
+        [
+            "cmd/main.go:2@95c",
+            "cmd/main.go:3@95",
+            "pkg/lib/config.go:3@80",
+            "pkg/lib/other.go:3@75"
+        ]
+    );
+    assert_eq!(references.total, 4);
+}
+
+#[test]
+fn references_count_what_the_floor_and_the_limit_cut() {
+    let mut defining = file(
+        "a.go",
+        vec![
+            function("run", 1),
+            Symbol::new("Config", SymbolKind::Struct, 5, 6),
+        ],
+        vec![call(0, "Config", 2)],
+    );
+    defining.references = vec![using("Config", None), using("Config", None)];
+
+    let graph = graph(&[defining]);
+
+    let limited = graph.references("Config", 0, 1).expect("Config is defined");
+    let counted = graph.references("Config", 0, 0).expect("Config is defined");
+    let floored = graph
+        .references("Config", 90, usize::MAX)
+        .expect("Config is defined");
+    assert_eq!((limited.total, limited.sites.len()), (2, 1));
+    assert_eq!(limited.sites[0].line, 2);
+    assert_eq!((counted.total, counted.sites.len()), (2, 0));
+    assert_eq!((floored.total, floored.below_confidence), (0, 2));
+}
+
+#[test]
+fn references_select_the_symbol_with_the_most_calls_and_uses_together() {
+    let mut used = file(
+        "b.go",
+        vec![function("parse", 1), function("take", 5)],
+        Vec::new(),
+    );
+    used.references = vec![
+        RefSite {
+            site_of: SymbolId(1),
+            ..using("parse", None)
+        },
+        RefSite {
+            site_of: SymbolId(1),
+            line: 6,
+            ..using("parse", None)
+        },
+    ];
+    let graph = graph(&[
+        file(
+            "a.go",
+            vec![function("parse", 1), function("run", 5)],
+            vec![call(1, "parse", 6)],
+        ),
+        used,
+    ]);
+
+    let references = graph
+        .references("parse", 0, usize::MAX)
+        .expect("parse is defined");
+    let walk = graph
+        .callers("parse", Limits::new(1))
+        .expect("parse is defined");
+
+    assert_eq!((references.symbol.file, references.total), ("b.go", 2));
+    assert_eq!(walk.root.file, "a.go");
+}
+
+#[test]
+fn references_select_among_every_symbol_a_use_can_name_where_values_are_no_call_targets() {
+    let mut constant = file(
+        "c.cpp",
+        vec![
+            Symbol::new("limit", SymbolKind::Constant, 1, 1),
+            function("take", 5),
+        ],
+        Vec::new(),
+    );
+    constant.references = [6, 7, 8]
+        .into_iter()
+        .map(|line| RefSite {
+            site_of: SymbolId(1),
+            line,
+            ..using("limit", None)
+        })
+        .collect();
+    let graph = graph_of(
+        cpp(),
+        &[
+            file("a.cpp", vec![function("run", 1)], vec![call(0, "limit", 2)]),
+            file("b.cpp", vec![function("limit", 1)], Vec::new()),
+            constant,
+        ],
+    );
+
+    let references = graph
+        .references("limit", 0, usize::MAX)
+        .expect("limit is defined");
+
+    assert_eq!(
+        (
+            references.symbol.file,
+            references.symbol.kind,
+            references.total
+        ),
+        ("c.cpp", SymbolKind::Constant, 3)
+    );
+    assert_eq!(references.passed_over, 1);
+}
+
+#[test]
+fn a_qualified_reference_binds_an_imported_value_where_values_are_no_call_targets() {
+    let mut caller = importing("cmd/main.go", None, Some("pkg/lib"), Vec::new());
+    caller.references = vec![using("Limit", Some("lib"))];
+    let graph = graph_of(
+        cpp(),
+        &[
+            caller,
+            package(
+                "pkg/lib/limit.go",
+                "lib",
+                vec![exported(Symbol::new("Limit", SymbolKind::Constant, 1, 1))],
+            ),
+        ],
+    );
+
+    let references = graph
+        .references("Limit", 0, usize::MAX)
+        .expect("Limit is defined");
+
+    assert_eq!(references.total, 1);
+    let site = references.sites[0];
+    assert_eq!(
+        (site.site_of.file, site.site_of.name, site.line),
+        ("cmd/main.go", "main", 3)
+    );
+    assert_eq!((site.confidence, site.call), (95, false));
+}
+
 #[test]
 fn removing_a_file_takes_its_calls_and_its_callees_out_of_every_answer() {
     let mut graph = graph(&[
@@ -1248,6 +1450,53 @@ fn removing_a_file_takes_its_calls_and_its_callees_out_of_every_answer() {
     graph.remove("b.go");
     assert!(graph.callers("parse", Limits::new(1)).is_none());
     assert_eq!(callees(&graph, "run"), Vec::<String>::new());
+}
+
+#[test]
+fn a_file_inserted_again_answers_with_its_new_uses() {
+    let using_file = |line: u32| {
+        let mut using_file = file("a.go", vec![function("run", 1)], Vec::new());
+        using_file.references = vec![RefSite {
+            line,
+            ..using("Limit", None)
+        }];
+        using_file.package = Some("p".to_owned());
+        using_file
+    };
+    let mut defining = file(
+        "b.go",
+        vec![Symbol::new("Limit", SymbolKind::Constant, 1, 1)],
+        Vec::new(),
+    );
+    defining.package = Some("p".to_owned());
+    let mut graph = graph_of(go(), &[using_file(3), defining]);
+    let lines = |graph: &Graph| -> Vec<u32> {
+        graph
+            .references("Limit", 0, usize::MAX)
+            .expect("Limit is defined")
+            .sites
+            .iter()
+            .map(|site| site.line)
+            .collect()
+    };
+
+    let before = lines(&graph);
+    graph.insert(&using_file(7));
+    let after = lines(&graph);
+
+    assert_eq!(before, [3]);
+    assert_eq!(after, [7]);
+}
+
+#[test]
+fn a_name_only_fields_define_selects_no_symbol_to_reference() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![member("Config", "limit", SymbolKind::Field, 2)],
+        Vec::new(),
+    )]);
+
+    assert!(graph.references("limit", 0, usize::MAX).is_none());
 }
 
 #[test]
