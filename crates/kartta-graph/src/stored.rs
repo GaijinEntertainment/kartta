@@ -160,6 +160,7 @@ pub(crate) struct StoredCall {
 
 impl StoredCall {
     const FROM_ROOT: u32 = 1 << 31;
+    const QUALIFIED: u32 = 1 << 30;
 
     pub(crate) const fn new(
         caller_index: u32,
@@ -182,12 +183,23 @@ impl StoredCall {
         }
     }
 
+    pub(crate) const fn qualified(self) -> Self {
+        Self {
+            caller: self.caller | Self::QUALIFIED,
+            ..self
+        }
+    }
+
     pub(crate) const fn caller(self) -> u32 {
-        self.caller & !Self::FROM_ROOT
+        self.caller & !(Self::FROM_ROOT | Self::QUALIFIED)
     }
 
     pub(crate) const fn is_written_from_root(self) -> bool {
         self.caller & Self::FROM_ROOT != 0
+    }
+
+    pub(crate) const fn is_qualified(self) -> bool {
+        self.caller & Self::QUALIFIED != 0
     }
 }
 
@@ -243,10 +255,10 @@ mod tests {
         let mut strings = Strings::default();
         let call = StoredCall::new(5, strings.intern("ns::f"), None, 9);
 
-        let marked = call.written_from_root();
+        let marked = call.written_from_root().qualified();
 
         assert_eq!(marked.caller(), 5);
-        assert!(marked.is_written_from_root());
-        assert!(!call.is_written_from_root());
+        assert!(marked.is_written_from_root() && marked.is_qualified());
+        assert!(!call.is_written_from_root() && !call.is_qualified());
     }
 }

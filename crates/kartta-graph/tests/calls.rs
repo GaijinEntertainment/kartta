@@ -79,6 +79,13 @@ fn cpp() -> Conventions {
     conventions
 }
 
+fn callers(graph: &Graph, name: &str) -> Vec<String> {
+    let walk = graph
+        .callers(name, Limits::new(1))
+        .expect("the name selects a symbol");
+    reached(&walk)
+}
+
 fn reached(walk: &Walk<'_>) -> Vec<String> {
     walk.reached
         .iter()
@@ -465,6 +472,21 @@ fn a_re_export_chain_binds_the_renamed_definition() {
     ]);
 
     assert_eq!(callees(&graph, "run"), ["ui/button.ts:1@65"]);
+    assert_eq!(callers(&graph, "BaseButton"), ["app/main.ts:1@65"]);
+}
+
+#[test]
+fn a_caller_reaches_its_callee_through_every_rename_of_a_re_export_chain() {
+    let graph = graph(&[
+        including("app/main.ts", &["ui/a.ts"], vec![call(0, "E", 2)]),
+        barrel("ui/a.ts", vec![re_export("E", "D", "ui/b.ts")]),
+        barrel("ui/b.ts", vec![re_export("D", "C", "ui/c.ts")]),
+        barrel("ui/c.ts", vec![re_export("C", "B", "ui/d.ts")]),
+        barrel("ui/d.ts", vec![re_export("B", "A", "ui/base.ts")]),
+        file("ui/base.ts", vec![function("A", 1)], Vec::new()),
+    ]);
+
+    assert_eq!(callers(&graph, "A"), ["app/main.ts:1@65"]);
 }
 
 fn re_export(local_name: &str, source_name: &str, source_file: &str) -> ReExport {
@@ -963,6 +985,48 @@ fn a_bare_call_inside_a_member_reaches_a_member_of_a_base_the_lookup_finds() {
 }
 
 #[test]
+fn a_declaration_and_its_linked_definition_are_one_callable() {
+    let mut header = file("w.h", vec![function("draw", 1)], Vec::new());
+    header.callables = vec![Callable {
+        symbol: SymbolId(0),
+        key: "draw()".to_owned(),
+        role: CallableRole::Declaration,
+    }];
+    let mut source = including("w.cpp", &["w.h"], Vec::new());
+    source.symbols = vec![function("draw", 3)];
+    source.callables = vec![Callable {
+        symbol: SymbolId(0),
+        key: "draw()".to_owned(),
+        role: CallableRole::Definition,
+    }];
+    let caller = including("main.cpp", &["w.h"], vec![call(0, "draw", 2)]);
+
+    let graph = graph_of(cpp(), &[header, source, caller]);
+
+    let walk = graph
+        .callers("draw", Limits::new(1))
+        .expect("draw is defined");
+    assert_eq!(walk.root.file, "w.cpp");
+    assert_eq!(reached(&walk), ["main.cpp:1@70"]);
+}
+
+#[test]
+fn a_caller_that_calls_twice_counts_once_at_the_first_line_of_its_most_confident_calls() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![function("run", 1), function("parse", 9)],
+        vec![call(0, "parse", 4), call(0, "parse", 2)],
+    )]);
+
+    let walk = graph
+        .callers("parse", Limits::new(1))
+        .expect("parse is defined");
+
+    assert_eq!(walk.reached.len(), 1);
+    assert_eq!(walk.reached[0].line, 2);
+}
+
+#[test]
 fn a_caller_that_calls_twice_counts_its_most_confident_call() {
     let caller = file(
         "a.go",
@@ -989,10 +1053,60 @@ fn a_caller_that_calls_twice_counts_its_most_confident_call() {
     let outward = graph
         .callees("Widget::run", Limits::new(1))
         .expect("Widget::run is defined");
+    let inward = graph
+        .callers("Widget::draw", Limits::new(1))
+        .expect("Widget::draw is defined");
 
     let first = |walk: &Walk<'_>| (walk.reached[0].confidence, walk.reached[0].line);
     assert_eq!(outward.reached.len(), 1);
     assert_eq!(first(&outward), (85, 3));
+    assert_eq!(first(&inward), (85, 3));
+}
+
+#[test]
+fn a_bare_name_several_free_functions_share_selects_the_one_with_the_most_callers() {
+    let graph = graph(&[
+        file(
+            "a.go",
+            vec![
+                function("parse", 1),
+                function("first", 5),
+                function("second", 9),
+            ],
+            vec![call(1, "parse", 6), call(2, "parse", 10)],
+        ),
+        file(
+            "b.go",
+            vec![function("parse", 1), function("third", 5)],
+            vec![call(1, "parse", 6)],
+        ),
+    ]);
+
+    let walk = graph
+        .callers("parse", Limits::new(1))
+        .expect("parse is defined");
+
+    assert_eq!((walk.root.file, walk.passed_over), ("a.go", 1));
+    assert_eq!(reached(&walk), ["a.go:5@80", "a.go:9@80"]);
+}
+
+#[test]
+fn free_functions_with_as_many_callers_select_the_first_in_path_order_however_the_files_arrived() {
+    let defining = |path: &str| {
+        file(
+            path,
+            vec![function("parse", 1), function("caller", 5)],
+            vec![call(1, "parse", 6)],
+        )
+    };
+    let graph = graph(&[defining("c.go"), defining("b.go"), defining("a.go")]);
+
+    let walk = graph
+        .callers("parse", Limits::new(1))
+        .expect("parse is defined");
+
+    assert_eq!((walk.root.file, walk.passed_over), ("a.go", 2));
+    assert_eq!(reached(&walk), ["a.go:5@80"]);
 }
 
 fn chain() -> Graph {
@@ -1009,6 +1123,26 @@ fn chain() -> Graph {
 }
 
 #[test]
+fn a_walk_over_callers_goes_as_deep_as_its_limit_and_counts_what_it_did_not_follow() {
+    let graph = chain();
+
+    let shallow = graph.callers("d", Limits::new(1)).expect("d is defined");
+    let deep = graph.callers("d", Limits::new(5)).expect("d is defined");
+
+    assert_eq!(reached(&shallow), ["a.go:20@80"]);
+    assert_eq!(shallow.unexpanded, 1);
+    assert_eq!(reached(&deep), ["a.go:20@80", "a.go:10@80", "a.go:1@80"]);
+    assert_eq!(
+        deep.reached
+            .iter()
+            .map(|reached| reached.depth)
+            .collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+    assert_eq!(deep.unexpanded, 0);
+}
+
+#[test]
 fn a_walk_over_callees_follows_calls_outward() {
     let graph = chain();
 
@@ -1022,6 +1156,98 @@ fn a_walk_over_callees_follows_calls_outward() {
             .collect::<Vec<_>>(),
         [1, 2, 3]
     );
+}
+
+#[test]
+fn the_confidence_floor_counts_the_calls_it_left_out() {
+    let graph = graph(&[
+        file(
+            "x/a.go",
+            vec![function("run", 1)],
+            vec![call(0, "parse", 2)],
+        ),
+        file(
+            "y/b.go",
+            vec![function("parse", 1), function("near", 5)],
+            vec![call(1, "parse", 6)],
+        ),
+    ]);
+
+    let walk = graph
+        .callers("parse", Limits::new(1).with_min_confidence(70))
+        .expect("parse is defined");
+
+    assert_eq!(reached(&walk), ["y/b.go:5@80"]);
+    assert_eq!(walk.below_confidence, 1);
+}
+
+#[test]
+fn the_symbol_cap_reports_what_it_turned_away_and_left_unexpanded() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![
+            function("target", 1),
+            function("a", 10),
+            function("b", 20),
+            function("c", 30),
+        ],
+        vec![
+            call(1, "target", 11),
+            call(2, "target", 21),
+            call(3, "target", 31),
+        ],
+    )]);
+
+    let walk = graph
+        .callers("target", Limits::new(3).with_max_symbols(3))
+        .expect("target is defined");
+
+    assert!(walk.truncated);
+    assert_eq!(reached(&walk), ["a.go:10@80", "a.go:20@80"]);
+    assert_eq!(walk.turned_away, 1);
+    assert_eq!(walk.unexpanded, 2);
+}
+
+#[test]
+fn a_cap_reached_only_by_symbols_already_visited_cuts_nothing() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![function("target", 1), function("a", 10), function("b", 20)],
+        vec![
+            call(1, "target", 11),
+            call(2, "a", 21),
+            call(2, "target", 22),
+        ],
+    )]);
+
+    let walk = graph
+        .callers("target", Limits::new(3).with_max_symbols(3))
+        .expect("target is defined");
+
+    assert_eq!(walk.reached.len(), 2);
+    assert!(!walk.truncated);
+    assert_eq!(walk.turned_away, 0);
+}
+
+#[test]
+fn removing_a_file_takes_its_calls_and_its_callees_out_of_every_answer() {
+    let mut graph = graph(&[
+        file("a.go", vec![function("run", 1)], vec![call(0, "parse", 2)]),
+        file("b.go", vec![function("parse", 1)], Vec::new()),
+    ]);
+    assert_eq!(callers(&graph, "parse"), ["a.go:1@60"]);
+
+    graph.remove("a.go");
+    assert_eq!(callers(&graph, "parse"), Vec::<String>::new());
+
+    graph.insert(&file(
+        "a.go",
+        vec![function("run", 1)],
+        vec![call(0, "parse", 2)],
+    ));
+    graph.remove("b.go");
+    assert!(graph.callers("parse", Limits::new(1)).is_none());
+    assert_eq!(callees(&graph, "run"), Vec::<String>::new());
 }
 
 #[test]
@@ -1042,6 +1268,8 @@ fn a_file_inserted_again_answers_with_its_new_calls() {
     ));
 
     assert_eq!(callees(&graph, "run"), ["b.go:5@60"]);
+    assert_eq!(callers(&graph, "parse"), Vec::<String>::new());
+    assert_eq!(callers(&graph, "render"), ["a.go:1@60"]);
 }
 
 #[test]
