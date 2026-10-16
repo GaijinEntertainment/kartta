@@ -72,15 +72,18 @@
 //!
 //! # Status
 //!
-//! The engine builds the index and each family's graph of definitions. Calls, references and the queries over them
-//! are being ported, and the first release with a public surface will be `0.1.0`.
+//! The engine builds the index and each family's graph of definitions, calls and uses, and each graph answers callers,
+//! callees, references and call paths. The first release with a public surface will be `0.1.0`.
 
 mod engine;
 mod extracting;
 mod repository;
 
 pub use kartta_fs::{BuildError, BuildOptions, CancelToken, Index};
-pub use kartta_graph::{Definition, Definitions, Found, Graph, Nearness};
+pub use kartta_graph::{
+    CallPath, Definition, Definitions, Found, Graph, Limits, Nearness, Reached, Reference,
+    References, Walk, confidence,
+};
 pub use kartta_lang::{
     Conventions, Extraction, Language, RawExtraction, Repository, Resolver, Symbol, SymbolFlags,
     SymbolKind,
