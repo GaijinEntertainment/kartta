@@ -154,6 +154,7 @@ impl Language for Cpp {
         conventions.own_members = OwnMembers::First;
         conventions.inherited_members = InheritedMembers::Found;
         conventions.values_are_call_targets = false;
+        conventions.scope_separator = Some("::");
         conventions
     }
 
@@ -247,6 +248,8 @@ mod tests {
         assert!(!conventions.values_are_call_targets);
         assert_eq!(conventions.owner_chain_separator, None);
         assert!(!conventions.bare_call_reaches_enclosing_owners);
+        assert_eq!(conventions.scope_separator, Some("::"));
+        assert!(!conventions.directory_packages);
     }
 
     #[test]
