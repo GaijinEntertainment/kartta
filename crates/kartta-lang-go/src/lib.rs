@@ -115,6 +115,7 @@ impl Language for Go {
     fn conventions(&self) -> Conventions {
         let mut conventions = Conventions::default();
         conventions.own_members = OwnMembers::Unreached;
+        conventions.directory_packages = true;
 
         conventions
     }

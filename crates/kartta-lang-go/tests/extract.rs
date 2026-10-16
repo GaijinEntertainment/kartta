@@ -135,6 +135,14 @@ fn a_bare_call_never_reaches_a_member_and_a_value_is_callable() {
 }
 
 #[test]
+fn a_package_is_a_directory_and_names_join_no_scopes() {
+    let conventions = Go::new().conventions();
+
+    assert!(conventions.directory_packages);
+    assert_eq!(conventions.scope_separator, None);
+}
+
+#[test]
 fn symbols_are_qualified_by_the_package_in_declaration_order() {
     let raw = extract(SAMPLE);
 
