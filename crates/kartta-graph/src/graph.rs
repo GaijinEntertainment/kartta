@@ -6,8 +6,9 @@ use kartta_lang::{Conventions, Extraction, Symbol, SymbolFlags, SymbolId, Symbol
 
 use crate::order::PathOrder;
 use crate::stored::{
-    Entry, Folded, Local, Occurrence, Parent, Site, StoredBinding, StoredCall, StoredCallable,
-    StoredFile, StoredLocalCall, StoredReExport, StoredReference, StoredSymbol, SymbolAt, UseAt,
+    Entry, Folded, Local, Occurrence, Parent, Site, StoredAssertion, StoredBinding, StoredCall,
+    StoredCallable, StoredFile, StoredLocalCall, StoredReExport, StoredReference, StoredSymbol,
+    SymbolAt, UseAt,
 };
 use crate::strings::{Str, Strings};
 
@@ -433,8 +434,20 @@ impl Graph {
             includes: self.store_includes(path, extraction),
             re_exports: self.store_re_exports(extraction),
             bindings: self.store_bindings(extraction),
+            assertions: self.store_assertions(extraction),
             symbols,
         }
+    }
+
+    fn store_assertions(&mut self, extraction: &Extraction) -> Box<[StoredAssertion]> {
+        extraction
+            .assertions
+            .iter()
+            .map(|assertion| StoredAssertion {
+                type_name: self.strings.intern(&assertion.type_name),
+                iface: self.strings.intern(&assertion.iface),
+            })
+            .collect()
     }
 
     fn store_symbol(&mut self, symbol: &Symbol) -> StoredSymbol {
@@ -696,10 +709,18 @@ impl Graph {
     }
 
     fn parent_keys_of(&mut self, slot: u32) -> Vec<Str> {
-        let mut keys = Vec::with_capacity(self.file(slot).parents.len());
-        for at in 0..self.file(slot).parents.len() {
+        let (parents, assertions) = {
+            let file = self.file(slot);
+            (file.parents.len(), file.assertions.len())
+        };
+        let mut keys = Vec::with_capacity(parents + assertions);
+        for at in 0..parents {
             let written = self.file(slot).parents[at].written;
             keys.push(self.listing_key(written));
+        }
+        for at in 0..assertions {
+            let iface = self.file(slot).assertions[at].iface;
+            keys.push(self.listing_key(iface));
         }
         keys.sort_unstable();
         keys.dedup();
