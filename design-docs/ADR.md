@@ -60,6 +60,8 @@
   name](./adr/3.8-extract-only-the-daslang-a-file-opts-into-gen2.md) — initiative `03-code-graph`, 2026-10-16
 - [3.9 Resolve a Quirrel import through the nearest .sqconfig, and name a function value by its
   binding](./adr/3.9-resolve-a-quirrel-import-through-the-nearest-sqconfig.md) — initiative `03-code-graph`, 2026-10-16
+- [3.10 Resolve a BLK include as the engine loads it, and read the mount table from the files that state it by
+  name](./adr/3.10-resolve-a-blk-include-as-the-engine-loads-it.md) — initiative `03-code-graph`, 2026-10-16
 
 ## Deprecated
 
