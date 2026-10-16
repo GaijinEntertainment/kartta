@@ -1,0 +1,162 @@
+//! TypeScript, TSX and JavaScript for the kartta code graph.
+//!
+//! Three [`Language`] values, [`TypeScript`], [`Tsx`] and [`JavaScript`], each parse their files with their own
+//! tree-sitter grammar and share one walk and one family, `jsts`, so a `.tsx` component and the `.ts` module it
+//! imports resolve against each other in one graph.
+//!
+//! # What a file yields
+//!
+//! - Functions, classes, interfaces, type aliases, enums, namespaces and ambient `declare module "m"` blocks, a member
+//!   owned by the chain of names that encloses it: `run` in `namespace A { class Worker { run() {} } }` is
+//!   `A.Worker.run`. A body never owns members, so a class declared inside a function starts a new chain.
+//! - A function bound to a name is a function that owns the calls in its body: `const f = () => {}`, a function
+//!   wrapped in `memo`, `forwardRef`, `useCallback`, `useMemo`, `observer` or `debounce`, an object property
+//!   `{ onClick: () => {} }`, a class field `handler = () => {}`, and an anonymous `export default` function, named
+//!   `default`. An anonymous callback such as an inline JSX prop opens no scope: its calls belong to the function
+//!   around it.
+//! - A test registration — `describe`, `it` and `test` with their `x` and `f` forms, `suite`, `bench`, and their
+//!   `.skip`, `.only`, `.todo`, `.concurrent`, `.sequential` and `.failing` modifiers — is a function named by its
+//!   description, and a lifecycle hook one named by the hook. A registration whose description is not a plain string
+//!   opens no scope.
+//! - Calls, with a capitalised JSX tag as a call of the component and `new Foo()` as a call of `Foo`. A call on
+//!   `this` names the type that owns the enclosing method as its receiver.
+//! - Overload signatures joined to the implementation that follows them, as one callable.
+//! - Imports, `require` and dynamic `import()` of a string, and `export … from` re-exports, a type-only one included.
+//!
+//! Export assignments, `module.exports = …` and `exports.f = …`, are not modelled: a function that exists only as the
+//! right side of one yields no symbol. No symbol is an entry point.
+//!
+//! A file is test code when its name holds `.test.` or `.spec.`, or a directory on its path is `__tests__` or
+//! `tests`; a directory named `test` is not enough. A file is generated code when a `@generated` or `DO NOT EDIT`
+//! banner, outside a backtick span, stands in the comments before its first line of code, or when its name holds
+//! `.gen.` or `.generated.` or its stem ends in `_pb`, `.pb` or `.min`. A hand-written `.d.ts` file stays ordinary.
+//!
+//! # How imports resolve
+//!
+//! The resolver reads every `tsconfig.json` and `package.json` of the repository, except those under a
+//! `node_modules` or `vendor` directory, when it is built, and a `tsconfig*.json` that one of them extends or
+//! references when it compiles that one. A specifier then resolves to a file of the repository:
+//!
+//! - `./m` and `../m` probe the specifier as written, with each script extension, and as a directory with an
+//!   `index` file; a miss retries an ESM `./m.js` as the TypeScript source beside it.
+//! - `#m` takes the `imports` of the nearest `package.json` above the importing file.
+//! - Any other specifier takes the `paths` of the nearest `tsconfig.json` above the importing file, with its
+//!   `baseUrl` and one `extends` hop applied, or those of the sibling configs a solution-style config references.
+//!   Failing that, a specifier that names a package of the repository takes its `exports`, its `module` or `main`,
+//!   or the file under its directory. Two packages of one name resolve to the one nearer the importing file, and
+//!   two equally near resolve to neither.
+//! - A specifier with a `?query`, as Vite writes them, resolves without the query when it does not resolve with it.
+//!
+//! A resolved import is an include of its file; one that names no file of the repository, such as an external
+//! package, is kept as an import as written. A re-export names the file its specifier resolves to by the same rules,
+//! or none.
+//!
+//! # Fingerprint
+//!
+//! Each language's fingerprint digests this crate's name, version and sources, the language's name, and its
+//! grammar's declared version, node types, ABI version and counts of node kinds, parse states and fields. A change in
+//! `kartta-lang` is covered by `kartta_lang::FINGERPRINT`, which a cache keys beside it. It cannot see a change in the
+//! tree-sitter runtime, or in a grammar that keeps all of those equal.
+//!
+//! # Examples
+//!
+//! ```
+//! use kartta_lang::{Language, SymbolKind};
+//! use kartta_lang_jsts::TypeScript;
+//!
+//! let raw = TypeScript::new().extract(b"export const greet = (name: string) => hello(name);\n");
+//!
+//! let greet = &raw.symbols[0];
+//! assert_eq!((greet.name.as_str(), greet.kind, greet.exported), ("greet", SymbolKind::Function, true));
+//! assert_eq!(raw.calls[0].callee, "hello");
+//! ```
+
+mod config;
+mod flavor;
+mod fnv;
+mod generated;
+mod modules;
+mod package_json;
+mod resolve;
+mod syntax;
+#[cfg(test)]
+mod tests;
+mod tsconfig;
+mod walk;
+
+use kartta_lang::{Conventions, Language, OwnMembers, RawExtraction, Repository, Resolver};
+
+use crate::flavor::Flavor;
+use crate::resolve::JstsResolver;
+
+const FAMILY: &str = "jsts";
+
+fn conventions() -> Conventions {
+    let mut conventions = Conventions::default();
+    conventions.own_members = OwnMembers::Unreached;
+    conventions.owner_chain_separator = Some(".");
+    conventions.bare_call_reaches_enclosing_owners = true;
+    conventions
+}
+
+macro_rules! flavor_language {
+    ($(#[$doc:meta])* $language:ident => $flavor:expr) => {
+        $(#[$doc])*
+        #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+        #[non_exhaustive]
+        pub struct $language;
+
+        impl $language {
+            /// The language.
+            #[must_use]
+            pub const fn new() -> Self {
+                Self
+            }
+        }
+
+        impl Language for $language {
+            fn name(&self) -> &str {
+                $flavor.name()
+            }
+
+            fn family(&self) -> &str {
+                FAMILY
+            }
+
+            fn claims(&self, path: &str) -> bool {
+                $flavor.claims(path)
+            }
+
+            fn fingerprint(&self) -> &[u8] {
+                $flavor.fingerprint()
+            }
+
+            fn conventions(&self) -> Conventions {
+                conventions()
+            }
+
+            fn extract(&self, source: &[u8]) -> RawExtraction {
+                $flavor.extract(source)
+            }
+
+            fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+                Box::new(JstsResolver::new(repository))
+            }
+        }
+    };
+}
+
+flavor_language! {
+    /// TypeScript, named `typescript`: the files ending in `.ts`, `.mts` or `.cts`, in any case.
+    TypeScript => Flavor::TypeScript
+}
+
+flavor_language! {
+    /// TypeScript with JSX, named `tsx`: the files ending in `.tsx`, in any case.
+    Tsx => Flavor::Tsx
+}
+
+flavor_language! {
+    /// JavaScript, named `javascript`: the files ending in `.js`, `.jsx`, `.mjs` or `.cjs`, in any case.
+    JavaScript => Flavor::JavaScript
+}
