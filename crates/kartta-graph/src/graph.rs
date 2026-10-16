@@ -6,8 +6,8 @@ use kartta_lang::{Conventions, Extraction, Symbol, SymbolFlags, SymbolId, Symbol
 
 use crate::order::PathOrder;
 use crate::stored::{
-    Folded, Local, Occurrence, Parent, StoredBinding, StoredCall, StoredCallable, StoredFile,
-    StoredLocalCall, StoredReExport, StoredSymbol, SymbolAt,
+    Entry, Folded, Local, Occurrence, Parent, Site, StoredBinding, StoredCall, StoredCallable,
+    StoredFile, StoredLocalCall, StoredReExport, StoredSymbol, SymbolAt,
 };
 use crate::strings::{Str, Strings};
 
@@ -28,9 +28,17 @@ pub struct Graph {
     by_path: HashMap<Str, u32, FixedState>,
     by_name: HashMap<Str, Vec<SymbolAt>, FixedState>,
     order: PathOrder,
+    sites: HashMap<Str, Vec<u32>, FixedState>,
     callables: HashMap<Str, Vec<Occurrence>, FixedState>,
     package_files: HashMap<Str, Vec<u32>, FixedState>,
+    renamed_from: HashMap<Str, Vec<Rename>, FixedState>,
     symbols: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Rename {
+    pub(crate) file: u32,
+    pub(crate) local_name: Str,
 }
 
 /// One definition, as a query answers it, borrowed from the graph.
@@ -103,8 +111,10 @@ impl Graph {
             by_path: HashMap::with_hasher(FixedState::default()),
             by_name: HashMap::with_hasher(FixedState::default()),
             order: PathOrder::default(),
+            sites: HashMap::with_hasher(FixedState::default()),
             callables: HashMap::with_hasher(FixedState::default()),
             package_files: HashMap::with_hasher(FixedState::default()),
+            renamed_from: HashMap::with_hasher(FixedState::default()),
             symbols: 0,
         }
     }
@@ -260,12 +270,50 @@ impl Graph {
         &named[start..start + len]
     }
 
+    pub(crate) fn sites_into(&self, key: Str, sites: &mut Vec<Site>) {
+        for &slot in self.sites.get(&key).into_iter().flatten() {
+            self.sites_in(slot, key, sites);
+        }
+    }
+
+    fn sites_in(&self, slot: u32, key: Str, sites: &mut Vec<Site>) {
+        let file = self.file(slot);
+        let calls = file.calls.iter().enumerate().filter(|(_, call)| {
+            call.callee == key || (call.is_qualified() && self.is_listed_under(call.callee, key))
+        });
+        sites.extend(calls.map(|(index, _)| Site::new(slot, Entry::Call(narrow(index)))));
+        let local_calls =
+            file.local_calls.iter().enumerate().filter(|(_, call)| {
+                self.is_listed_under(file.symbols[call.local as usize].name, key)
+            });
+        sites
+            .extend(local_calls.map(|(index, _)| Site::new(slot, Entry::LocalCall(narrow(index)))));
+    }
+
+    fn is_listed_under(&self, callee: Str, key: Str) -> bool {
+        callee == key || self.site_key(callee) == Some(key)
+    }
+
+    pub(crate) fn site_key(&self, name: Str) -> Option<Str> {
+        let written = self.strings.resolve(name);
+        match written.rsplit(QUALIFIER_SEPARATORS).next() {
+            Some(last) if !last.is_empty() && last.len() < written.len() => self.strings.get(last),
+            _ => Some(name),
+        }
+    }
+
     pub(crate) fn occurrences(&self, key: Str) -> &[Occurrence] {
         self.callables.get(&key).map_or(&[], Vec::as_slice)
     }
 
     pub(crate) fn package_files(&self, dir: Str) -> &[u32] {
         self.package_files.get(&dir).map_or(&[], Vec::as_slice)
+    }
+
+    pub(crate) fn renamed_from(&self, source_name: Str) -> &[Rename] {
+        self.renamed_from
+            .get(&source_name)
+            .map_or(&[], Vec::as_slice)
     }
 
     pub(crate) fn slot_of(&self, path: Str) -> Option<u32> {
@@ -431,6 +479,9 @@ impl Graph {
                 if rooted.is_some() {
                     stored = stored.written_from_root();
                 }
+                if callee.contains(QUALIFIER_SEPARATORS) {
+                    stored = stored.qualified();
+                }
                 stored
             })
             .collect();
@@ -503,6 +554,18 @@ impl Graph {
                 )
             })
             .collect();
+        let renames: Vec<(Str, Rename)> = file
+            .re_exports
+            .iter()
+            .filter(|re_export| re_export.local_name != re_export.source_name)
+            .map(|re_export| {
+                let rename = Rename {
+                    file: slot,
+                    local_name: re_export.local_name,
+                };
+                (re_export.source_name, rename)
+            })
+            .collect();
 
         for (index, name) in names.into_iter().enumerate() {
             let at = SymbolAt {
@@ -521,9 +584,58 @@ impl Graph {
         for (key, occurrence) in callables {
             self.callables.entry(key).or_default().push(occurrence);
         }
+        for (source_name, rename) in renames {
+            self.renamed_from
+                .entry(source_name)
+                .or_default()
+                .push(rename);
+        }
+        self.index_sites(slot);
         if self.conventions.directory_packages {
             self.index_package(slot);
         }
+    }
+
+    fn index_sites(&mut self, slot: u32) {
+        for key in self.site_keys_of(slot) {
+            self.sites.entry(key).or_default().push(slot);
+        }
+    }
+
+    fn site_keys_of(&mut self, slot: u32) -> Vec<Str> {
+        let file = self.file(slot);
+        let mut callees: Vec<Str> = file
+            .calls
+            .iter()
+            .map(|call| call.callee)
+            .chain(
+                file.local_calls
+                    .iter()
+                    .map(|call| file.symbols[call.local as usize].name),
+            )
+            .collect();
+        callees.sort_unstable();
+        callees.dedup();
+        let mut keys: Vec<Str> = callees
+            .into_iter()
+            .map(|callee| self.call_key(callee))
+            .collect();
+        keys.sort_unstable();
+        keys.dedup();
+        keys
+    }
+
+    fn call_key(&mut self, callee: Str) -> Str {
+        let written = self.strings.resolve(callee);
+        let last = match written.rsplit(QUALIFIER_SEPARATORS).next() {
+            Some(last) if !last.is_empty() && last.len() < written.len() => last,
+            _ => return callee,
+        };
+        if let Some(key) = self.strings.get(last) {
+            return key;
+        }
+        let last = last.to_owned();
+        self.strings.intern(&last)
     }
 
     fn index_package(&mut self, slot: u32) {
@@ -549,6 +661,10 @@ impl Graph {
     }
 
     fn forget(&mut self, slot: u32) {
+        if self.files[slot as usize].is_none() {
+            return;
+        }
+        let site_keys = self.site_keys_of(slot);
         let Some(file) = self.files[slot as usize].take() else {
             return;
         };
@@ -559,9 +675,17 @@ impl Graph {
         for name in names {
             unlist(&mut self.by_name, name, |at| at.file != slot);
         }
+        for key in site_keys {
+            unlist(&mut self.sites, key, |&held| held != slot);
+        }
         for callable in &file.callables {
             unlist(&mut self.callables, callable.key, |occurrence| {
                 occurrence.at.file != slot
+            });
+        }
+        for re_export in &file.re_exports {
+            unlist(&mut self.renamed_from, re_export.source_name, |rename| {
+                rename.file != slot
             });
         }
         unlist(&mut self.package_files, file.dir, |&held| held != slot);

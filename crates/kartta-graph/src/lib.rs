@@ -1,16 +1,16 @@
 //! A language-agnostic code graph: the definitions and calls of one language family's files.
 //!
 //! A [`Graph`] takes in [`Extraction`](kartta_lang::Extraction)s, one per file, as the languages of `kartta-lang`
-//! produce them, and answers what a file defines, where a name is defined, and what a callable calls. It names no
-//! language: what differs between languages reaches it as the extractions and the
-//! [`Conventions`](kartta_lang::Conventions) it is built with.
+//! produce them, and answers what a file defines, where a name is defined, and who calls what. It names no language:
+//! what differs between languages reaches it as the extractions and the [`Conventions`](kartta_lang::Conventions) it
+//! is built with.
 //!
 //! The graph is kept a file at a time. [`Graph::insert`] replaces whatever it held for a path and [`Graph::remove`]
 //! forgets a path, so a graph follows a tree that changes without being built again, and inserting or removing one
 //! file renumbers nothing else.
 //!
-//! A file keeps its call sites as its language wrote them, and [`Graph::callees`] resolves the sites it reaches when it
-//! is asked, so no answer goes stale when another file changes.
+//! A file keeps its call sites as its language wrote them, and [`Graph::callers`] and [`Graph::callees`] resolve the
+//! sites of the names they reach when they are asked, so no answer goes stale when another file changes.
 //!
 //! # Examples
 //!
@@ -40,9 +40,9 @@
 //! assert_eq!(found.total, 1);
 //! assert_eq!(found.found[0].definition.file, "src/parse.go");
 //!
-//! let callees = graph.callees("main", Limits::new(1)).ok_or("main is defined")?;
-//! assert_eq!(callees.reached[0].symbol.name, "Parse");
-//! assert_eq!(callees.reached[0].line, 2);
+//! let callers = graph.callers("Parse", Limits::new(1)).ok_or("Parse is defined")?;
+//! assert_eq!(callers.reached[0].symbol.name, "main");
+//! assert_eq!(callers.reached[0].line, 2);
 //! # Ok::<(), &str>(())
 //! ```
 
