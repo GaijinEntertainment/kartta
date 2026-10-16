@@ -1,6 +1,6 @@
 //! How sure each tier of the call cascade is of the symbol it binds, from 95 down to 15.
 //!
-//! A call is resolved by the first tier that binds it, and the answer carries that tier's confidence: a
+//! A call or a use is resolved by the first tier that binds it, and the answer carries that tier's confidence: a
 //! [`Limits`](crate::Limits) floor of [`INCLUDE`] keeps the calls bound through an include and every tier above it.
 
 /// A receiver that names an import binds an export of the imported directory, or a dot import binds its one export of
