@@ -56,10 +56,13 @@ mod implementations;
 mod order;
 mod resolve;
 mod scope;
+mod search;
 mod stored;
 mod strings;
+mod words;
 
 pub use crate::calls::{CallPath, Limits, Reached, Reference, References, Walk};
 pub use crate::dependents::{Dependent, Dependents};
 pub use crate::graph::{Definition, Definitions, Found, Graph, Nearness};
 pub use crate::implementations::{Implementations, Implementor};
+pub use crate::search::{Hit, Search};

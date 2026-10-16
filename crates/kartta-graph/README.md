@@ -29,6 +29,12 @@ when another file changes.
   file the graph does not hold, which an empty outline is not.
 - `Graph::definitions` — where a bare or qualified name is defined, nearest to the asking file first, cut to a limit and
   counting what the limit left out.
+- `Graph::search` — the definitions whose names and file paths share the most words with a query, ranked by BM25
+  weighed by the share of the query's words each holds and doubled for those in query order, a name that is the query
+  first, generated and vendored code demoted, counting every match, those a name matched rather than a path, the
+  query's words no definition holds and those past the eighth. Each file keeps the distinct words of its definitions
+  and path, gathered by the first search, so building spends nothing on search and a search splits only the names of
+  the files that may hold a word it asks for.
 - `Graph::callers` and `Graph::callees` — the callers or callees of a callable, to a depth, above a confidence floor and
   under a symbol cap, counting what the cap, the depth bound and the floor left out.
 - `Graph::references` — the sites that call or use a symbol, by file and line, counting what the floor and the limit
