@@ -1,0 +1,751 @@
+//! What one daslang file extracts to from its bytes alone.
+#![expect(
+    clippy::panic,
+    reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
+              helpers of an integration test crate are neither; a failed lookup is the assertion"
+)]
+
+use kartta_lang::{
+    Conventions, Language, NO_CALLER_ID, RawExtraction, Symbol, SymbolId, SymbolKind,
+};
+use kartta_lang_daslang::Daslang;
+
+const SAMPLE: &str = r"
+options gen2
+
+require daslib/strings
+require math/vec as vmath
+
+struct Base {
+  x : int;
+  y : float;
+}
+
+class Service : Base {
+  count : int;
+  def area() : int {
+    return helper(count)
+  }
+}
+
+enum Color {
+  red,
+  green = 2,
+  blue
+}
+
+typedef MyInt = int
+
+let origin = 0
+var counter : int = 1
+
+def helper(n : int) : int {
+  return n
+}
+
+def run() {
+  var s = Service()
+  s.area()
+  s->reset()
+}
+";
+
+const COVERAGE_SAMPLE: &str = r"
+options gen2
+
+include helperlib
+
+struct Holder {
+  typedef Alias = int
+}
+
+tuple Pair {
+  first : int
+  second : float
+}
+
+variant Shape {
+  circle : int
+  square : float
+}
+
+bitfield Flags : uint {
+  alpha
+  beta
+}
+";
+
+fn extract(source: &str) -> RawExtraction {
+    Daslang::new().extract(source.as_bytes())
+}
+
+fn named<'a>(raw: &'a RawExtraction, name: &str) -> &'a Symbol {
+    raw.symbols
+        .iter()
+        .find(|symbol| symbol.name == name)
+        .unwrap_or_else(|| panic!("no symbol {name} in {:?}", raw.symbols))
+}
+
+fn id_of(raw: &RawExtraction, name: &str) -> SymbolId {
+    let position = raw
+        .symbols
+        .iter()
+        .position(|symbol| symbol.name == name)
+        .unwrap_or_else(|| panic!("no symbol {name} in {:?}", raw.symbols));
+    SymbolId(u32::try_from(position).unwrap_or_else(|_| panic!("symbol {name} is past u32::MAX")))
+}
+
+fn caller_of(raw: &RawExtraction, callee: &str) -> SymbolId {
+    raw.calls
+        .iter()
+        .find(|call| call.callee == callee)
+        .unwrap_or_else(|| panic!("no call of {callee} in {:?}", raw.calls))
+        .caller_id
+}
+
+fn calls(raw: &RawExtraction) -> Vec<(&str, Option<&str>)> {
+    raw.calls
+        .iter()
+        .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+        .collect()
+}
+
+fn specs(raw: &RawExtraction) -> Vec<&str> {
+    raw.directives
+        .iter()
+        .map(|directive| directive.spec.as_str())
+        .collect()
+}
+
+fn parses_with_errors(source: &str) -> bool {
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&tree_sitter_daslang::LANGUAGE.into())
+        .unwrap_or_else(|error| panic!("the grammar loads: {error}"));
+    parser
+        .parse(source, None)
+        .unwrap_or_else(|| panic!("{source:?} parses"))
+        .root_node()
+        .has_error()
+}
+
+#[test]
+fn daslang_claims_files_with_the_das_extension_in_any_case() {
+    let daslang = Daslang::new();
+
+    assert!(daslang.claims("daslib/strings.das"));
+    assert!(daslang.claims("GAME/MAIN.DAS"));
+    assert!(!daslang.claims("daslib/strings.dasx"));
+    assert!(!daslang.claims("das"));
+    assert!(!daslang.claims("das/README"));
+    assert_eq!(daslang.name(), "daslang");
+    assert_eq!(daslang.family(), "daslang");
+}
+
+#[test]
+fn daslang_resolves_calls_under_the_default_conventions() {
+    assert_eq!(Daslang::new().conventions(), Conventions::default());
+}
+
+#[test]
+fn the_fingerprint_stays_put_and_names_the_crate() {
+    let daslang = Daslang::new();
+    let fingerprint = daslang.fingerprint();
+
+    assert!(fingerprint.starts_with(b"kartta-lang-daslang\0"));
+    assert_eq!(Daslang::new().fingerprint(), fingerprint);
+}
+
+#[test]
+fn extracts_functions_types_members_and_enumerators() {
+    let raw = extract(SAMPLE);
+
+    let symbols: Vec<(&str, SymbolKind, Option<&str>, bool)> = raw
+        .symbols
+        .iter()
+        .map(|symbol| {
+            let owner = symbol.owner.as_deref();
+            (
+                symbol.qualified_name.as_str(),
+                symbol.kind,
+                owner,
+                symbol.exported,
+            )
+        })
+        .collect();
+    assert_eq!(
+        symbols,
+        [
+            ("Base", SymbolKind::Struct, None, true),
+            ("Base.x", SymbolKind::Field, Some("Base"), true),
+            ("Base.y", SymbolKind::Field, Some("Base"), true),
+            ("Service", SymbolKind::Class, None, true),
+            ("Service.count", SymbolKind::Field, Some("Service"), true),
+            ("Service.area", SymbolKind::Method, Some("Service"), true),
+            ("Color", SymbolKind::Enum, None, true),
+            ("Color.red", SymbolKind::EnumVariant, Some("Color"), true),
+            ("Color.green", SymbolKind::EnumVariant, Some("Color"), true),
+            ("Color.blue", SymbolKind::EnumVariant, Some("Color"), true),
+            ("MyInt", SymbolKind::TypeAlias, None, true),
+            ("origin", SymbolKind::Constant, None, true),
+            ("counter", SymbolKind::Variable, None, true),
+            ("helper", SymbolKind::Function, None, true),
+            ("run", SymbolKind::Function, None, true),
+        ]
+    );
+    assert_eq!(named(&raw, "Service").parents, ["Base"]);
+    assert_eq!(
+        named(&raw, "helper").signature.as_deref(),
+        Some("def helper(n : int) : int")
+    );
+}
+
+#[test]
+fn covers_include_member_typedef_and_alias_declarations() {
+    let raw = extract(COVERAGE_SAMPLE);
+
+    assert_eq!(specs(&raw), ["helperlib"]);
+
+    let alias = named(&raw, "Alias");
+    assert_eq!(alias.kind, SymbolKind::TypeAlias);
+    assert_eq!(alias.owner.as_deref(), Some("Holder"));
+
+    assert_eq!(named(&raw, "Pair").kind, SymbolKind::Struct);
+    let first = named(&raw, "first");
+    assert_eq!(first.kind, SymbolKind::Field);
+    assert_eq!(first.owner.as_deref(), Some("Pair"));
+
+    assert_eq!(named(&raw, "Shape").kind, SymbolKind::Enum);
+    let circle = named(&raw, "circle");
+    assert_eq!(circle.kind, SymbolKind::EnumVariant);
+    assert_eq!(circle.owner.as_deref(), Some("Shape"));
+
+    assert_eq!(named(&raw, "Flags").kind, SymbolKind::Enum);
+    let alpha = named(&raw, "alpha");
+    assert_eq!(alpha.kind, SymbolKind::EnumVariant);
+    assert_eq!(alpha.owner.as_deref(), Some("Flags"));
+
+    for name in [
+        "Alias", "Pair", "first", "Shape", "circle", "Flags", "alpha",
+    ] {
+        assert!(named(&raw, name).exported, "{name} is exported");
+    }
+}
+
+#[test]
+fn a_distinct_typedef_is_a_type_alias() {
+    let raw = extract("options gen2\ntypedef distinct Meters = float\n");
+
+    assert_eq!(named(&raw, "Meters").kind, SymbolKind::TypeAlias);
+}
+
+#[test]
+fn a_field_list_declares_one_field_per_name() {
+    let raw = extract("options gen2\nstruct P {\n  a, b : int\n}\n");
+
+    let fields: Vec<(&str, Option<&str>)> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Field)
+        .map(|symbol| (symbol.qualified_name.as_str(), symbol.owner.as_deref()))
+        .collect();
+    assert_eq!(fields, [("P.a", Some("P")), ("P.b", Some("P"))]);
+}
+
+#[test]
+fn a_macro_spliced_field_name_is_kept_as_written() {
+    let raw = extract("options gen2\nstruct S {\n  $i(generated) : int\n  plain : int\n}\n");
+
+    let quoted = named(&raw, "$i(generated)");
+    assert_eq!(quoted.kind, SymbolKind::Field);
+    assert_eq!(quoted.owner.as_deref(), Some("S"));
+    assert_eq!(named(&raw, "plain").kind, SymbolKind::Field);
+}
+
+#[test]
+fn the_private_modifier_clears_exported() {
+    let raw = extract(
+        "options gen2\n\
+         def private secret() {}\n\
+         def open() {}\n\
+         struct private Hidden {}\n\
+         struct Shown {}\n\
+         let private p = 0\n\
+         var q = 1\n",
+    );
+
+    assert!(!named(&raw, "secret").exported);
+    assert!(named(&raw, "open").exported);
+    assert!(!named(&raw, "Hidden").exported);
+    assert!(named(&raw, "Shown").exported);
+    assert!(!named(&raw, "p").exported);
+    assert!(named(&raw, "q").exported);
+}
+
+#[test]
+fn the_module_clause_is_a_namespace_that_qualifies_every_symbol() {
+    let raw =
+        extract("options gen2\nmodule ui\nstruct Button {\n  def press() {}\n}\ndef draw() {}\n");
+
+    let module = named(&raw, "ui");
+    assert_eq!(module.kind, SymbolKind::Namespace);
+    assert!(module.exported);
+    let names: Vec<&str> = raw
+        .symbols
+        .iter()
+        .map(|symbol| symbol.qualified_name.as_str())
+        .collect();
+    assert_eq!(names, ["ui", "ui.Button", "ui.Button.press", "ui.draw"]);
+    assert_eq!(raw.package.as_deref(), Some("ui"));
+}
+
+#[test]
+fn the_builtin_module_clause_names_no_namespace() {
+    let source = "options gen2\nmodule $\ndef dot() {}\n";
+    assert!(!parses_with_errors(source));
+
+    let raw = extract(source);
+
+    let names: Vec<&str> = raw
+        .symbols
+        .iter()
+        .map(|symbol| symbol.qualified_name.as_str())
+        .collect();
+    assert_eq!(names, ["dot"]);
+    assert_eq!(raw.package, None);
+}
+
+#[test]
+fn a_global_symbol_spans_its_own_binding() {
+    let raw = extract("options gen2\nlet {\n  a = 1\n  b = 2\n}\n");
+
+    let lines: Vec<(&str, u32)> = raw
+        .symbols
+        .iter()
+        .map(|symbol| (symbol.name.as_str(), symbol.line))
+        .collect();
+    assert_eq!(lines, [("a", 3), ("b", 4)]);
+}
+
+#[test]
+fn records_calls_attributed_to_their_callable() {
+    let raw = extract(SAMPLE);
+
+    let helper = raw
+        .calls
+        .iter()
+        .find(|call| call.callee == "helper")
+        .unwrap_or_else(|| panic!("no helper call in {:?}", raw.calls));
+    assert_eq!(helper.caller_id, id_of(&raw, "area"));
+    assert_eq!(helper.receiver, None);
+}
+
+#[test]
+fn a_module_scoped_call_keeps_its_scope_as_the_receiver() {
+    let raw = extract("options gen2\ndef g() {\n  geom::dot()\n  ::top()\n}\n");
+
+    assert_eq!(calls(&raw), [("dot", Some("geom")), ("top", None)]);
+}
+
+#[test]
+fn member_calls_capture_their_receiver() {
+    let raw = extract(SAMPLE);
+
+    let run_calls: Vec<(&str, Option<&str>)> = raw
+        .calls
+        .iter()
+        .filter(|call| call.caller_id == id_of(&raw, "run"))
+        .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+        .collect();
+    assert_eq!(
+        run_calls,
+        [("Service", None), ("area", Some("s")), ("reset", Some("s"))]
+    );
+}
+
+#[test]
+fn a_member_call_on_an_unnamed_expression_keeps_an_empty_receiver() {
+    let raw = extract(
+        "options gen2\n\
+         def f() {\n\
+           items[0].close()\n\
+           self.pool->get()\n\
+           items[1].handler { use() }\n\
+         }\n",
+    );
+
+    assert_eq!(
+        calls(&raw),
+        [
+            ("close", Some("")),
+            ("get", Some("")),
+            ("handler", Some("")),
+            ("use", None)
+        ]
+    );
+}
+
+#[test]
+fn a_call_with_named_arguments_records_its_callee_and_receiver() {
+    let raw = extract(
+        "options gen2\n\
+         def f() {\n\
+           g([k = 1])\n\
+           obj.m([k = 1])\n\
+           w->render([title = \"brk\", depth = 3])\n\
+         }\n",
+    );
+
+    assert_eq!(
+        calls(&raw),
+        [("g", None), ("m", Some("obj")), ("render", Some("w"))]
+    );
+}
+
+#[test]
+fn a_new_expression_calls_the_type_it_constructs() {
+    let raw = extract(
+        "options gen2\n\
+         def make() {\n\
+           var p = new Prototype()\n\
+           var q = new mod::Widget()\n\
+           var r = new Bare\n\
+         }\n",
+    );
+
+    assert_eq!(
+        calls(&raw),
+        [("Prototype", None), ("Widget", Some("mod")), ("Bare", None)]
+    );
+    assert!(
+        raw.calls
+            .iter()
+            .all(|call| call.caller_id == id_of(&raw, "make"))
+    );
+}
+
+#[test]
+fn a_new_over_a_container_type_calls_nothing() {
+    let raw = extract(
+        "options gen2\n\
+         def make() {\n\
+           var xs = new array<int>()\n\
+           var m = new table<string; int>()\n\
+         }\n",
+    );
+
+    assert!(raw.calls.is_empty(), "calls: {:?}", raw.calls);
+}
+
+#[test]
+fn a_new_over_a_make_expression_parses_without_error() {
+    for form in [
+        "let shared protos <- new { 1 => Proto(name = \"a\") }",
+        "let shared ids <- new [ 1, 2 ]",
+        "let shared sq <- new [for (x in xs); x]",
+        "let shared tb <- new {for (x in xs); x => x}",
+        "let shared { protos <- new { 1 => 2 } }",
+        "let p <- new Widget()",
+        "let q <- new array<int>()",
+    ] {
+        assert!(
+            !parses_with_errors(&format!("options gen2\n{form}\n")),
+            "{form:?}"
+        );
+    }
+}
+
+#[test]
+fn a_new_over_a_make_expression_names_no_constructed_type() {
+    let make_only = extract("options gen2\ndef f() {\n  var b = new { 1 => 2 }\n}\n");
+    assert!(make_only.calls.is_empty(), "calls: {:?}", make_only.calls);
+
+    let raw =
+        extract("options gen2\ndef f() {\n  var a = new Widget()\n  var b = new { 1 => 2 }\n}\n");
+    assert_eq!(calls(&raw), [("Widget", None)]);
+}
+
+#[test]
+fn a_struct_constructor_records_one_call_to_its_type() {
+    let raw = extract(
+        "options gen2\n\
+         def make() {\n\
+           var a = Widget(size = 1)\n\
+           var b = mod::Gadget(size = 2)\n\
+           var c = default<Widget>\n\
+         }\n",
+    );
+
+    assert_eq!(calls(&raw), [("Widget", None), ("Gadget", Some("mod"))]);
+}
+
+#[test]
+fn a_macro_splice_in_call_position_records_no_call() {
+    let raw = extract("options gen2\ndef emit() {\n  var e = qmacro($c(fn_name)(1))\n}\n");
+
+    assert_eq!(calls(&raw), [("qmacro", None)]);
+}
+
+#[test]
+fn require_and_include_record_their_specifiers_in_source_order() {
+    let raw = extract(SAMPLE);
+
+    assert_eq!(specs(&raw), ["daslib/strings", "math/vec"]);
+    let lines: Vec<u32> = raw
+        .directives
+        .iter()
+        .map(|directive| directive.line)
+        .collect();
+    assert_eq!(lines, [4, 5]);
+}
+
+#[test]
+fn an_optional_require_records_its_target_and_not_its_guard() {
+    let raw = extract(
+        "options gen2\nrequire ?llvm_tune llvm\nrequire ?llvm/daslib/llvm_tune daslib/llvm\n",
+    );
+
+    assert_eq!(specs(&raw), ["llvm", "daslib/llvm"]);
+}
+
+#[test]
+fn a_require_of_a_module_group_records_nothing() {
+    let source = "options gen2\n\
+                  require [sql_provider]\n\
+                  require [tune_framework] public\n\
+                  require strings\n";
+    assert!(!parses_with_errors(source));
+
+    assert_eq!(specs(&extract(source)), ["strings"]);
+}
+
+#[test]
+fn directive_forms_the_compiler_rejects_keep_their_valid_prefix() {
+    for (form, expected) in [
+        ("require strings if defined", &["strings"][..]),
+        ("expect x == 1", &[]),
+    ] {
+        let source = format!("options gen2\n{form}\n");
+        assert!(parses_with_errors(&source), "{form:?} parses cleanly");
+
+        assert_eq!(specs(&extract(&source)), expected, "{form:?}");
+    }
+}
+
+#[test]
+fn an_include_records_its_file_name_as_written() {
+    let raw = extract("options gen2\ninclude \"foo.das\"\ninclude lib/foo.das\n");
+
+    assert_eq!(specs(&raw), ["\"foo.das\"", "lib/foo.das"]);
+}
+
+#[test]
+fn a_file_without_the_gen2_option_extracts_to_nothing() {
+    for source in [
+        "def foo() {}\nstruct Bar {}\n",
+        "options ni\ndef foo() {}\n",
+        "options gen2 = false\nrequire ecs\ndef foo() {\n  bar()\n}\n",
+        "options gen2\noptions gen2 = false\ndef foo() {}\n",
+        "/*\noptions gen2\n*/\ndef foo() {}\nstruct Bar {}\n",
+    ] {
+        assert_eq!(extract(source), RawExtraction::default(), "{source:?}");
+    }
+}
+
+#[test]
+fn each_spelling_of_the_gen2_option_opts_in() {
+    for source in [
+        "options gen2\ndef foo() {}\n",
+        "options gen2 = true\ndef foo() {}\n",
+        "options indenting = 4, gen2\ndef foo() {}\n",
+        "\u{feff}options gen2\ndef foo() {}\n",
+    ] {
+        assert_eq!(
+            named(&extract(source), "foo").kind,
+            SymbolKind::Function,
+            "{source:?}"
+        );
+    }
+
+    let late = format!("{}options gen2\ndef deep() {{}}\n", "\n".repeat(80));
+    assert_eq!(named(&extract(&late), "deep").kind, SymbolKind::Function);
+}
+
+#[test]
+fn only_a_marker_in_the_leading_comments_marks_generated_code() {
+    let generated = |source: &str| {
+        extract(source)
+            .symbols
+            .iter()
+            .any(|symbol| symbol.flags.is_generated())
+    };
+
+    assert!(generated("// @generated\noptions gen2\ndef f() {}\n"));
+    assert!(generated("/* DO NOT EDIT */\noptions gen2\ndef f() {}\n"));
+    assert!(!generated("options gen2\ndef f() {}\n// @generated\n"));
+    assert!(!generated("options gen2\ndef f() {}\n"));
+}
+
+#[test]
+fn inline_expression_forms_keep_the_calls_around_them() {
+    let raw = extract(
+        "options gen2\n\
+         def run(p : int?) {\n\
+           with (module daslib/math) {\n\
+             helper(p)\n\
+           }\n\
+           var a = addr<int?>(p)\n\
+         }\n",
+    );
+
+    assert_eq!(caller_of(&raw, "helper"), id_of(&raw, "run"));
+}
+
+#[test]
+fn a_stored_block_keeps_its_calls_out_of_the_enclosing_def() {
+    let lambda = extract("options gen2\ndef outer() {\n  var f = @(e) { cb(e) }\n  reg()\n}\n");
+    assert_eq!(caller_of(&lambda, "cb"), NO_CALLER_ID);
+    assert_eq!(caller_of(&lambda, "reg"), id_of(&lambda, "outer"));
+
+    let local = extract(
+        "options gen2\n\
+         def outer() {\n\
+           var f = @@(x : int) { cb(x) }\n\
+           reg(@@(x : int) { on(x) })\n\
+         }\n",
+    );
+    let outer = id_of(&local, "outer");
+    assert_eq!(caller_of(&local, "cb"), NO_CALLER_ID);
+    assert_eq!(caller_of(&local, "on"), outer);
+    assert_eq!(caller_of(&local, "reg"), outer);
+}
+
+#[test]
+fn an_applied_block_keeps_its_calls_in_the_enclosing_def() {
+    let piped = extract("options gen2\ndef sys() {\n  query() <| ${ process(eid) }\n}\n");
+    assert_eq!(caller_of(&piped, "query"), id_of(&piped, "sys"));
+    assert_eq!(caller_of(&piped, "process"), id_of(&piped, "sys"));
+
+    let annotated = extract(
+        "options gen2\ndef sys2() {\n  query() <| $ [es] (eid : EntityId) {\n    tick()\n  }\n}\n",
+    );
+    assert_eq!(caller_of(&annotated, "tick"), id_of(&annotated, "sys2"));
+
+    let argument = extract("options gen2\ndef reg() {\n  subscribe(\"k\", @(e) { on(e) })\n}\n");
+    assert_eq!(caller_of(&argument, "on"), id_of(&argument, "reg"));
+
+    let constructed =
+        extract("options gen2\ndef reg() {\n  var w = new Widget(@(e) { on(e) })\n}\n");
+    assert_eq!(caller_of(&constructed, "on"), id_of(&constructed, "reg"));
+}
+
+#[test]
+fn a_block_applied_to_a_field_calls_the_field() {
+    let braced = extract("options gen2\ndef outer() {\n  obj.handler { use() }\n}\n");
+    let handler = braced
+        .calls
+        .iter()
+        .find(|call| call.callee == "handler")
+        .unwrap_or_else(|| panic!("no handler call in {:?}", braced.calls));
+    assert_eq!(handler.receiver.as_deref(), Some("obj"));
+    assert_eq!(handler.caller_id, id_of(&braced, "outer"));
+    assert_eq!(caller_of(&braced, "use"), id_of(&braced, "outer"));
+
+    let piped = extract("options gen2\ndef outer() {\n  obj.handler <| ${ use() }\n}\n");
+    assert_eq!(calls(&piped), [("handler", Some("obj")), ("use", None)]);
+}
+
+#[test]
+fn a_data_pipe_calls_nothing_through_its_field() {
+    let raw = extract("options gen2\ndef outer() {\n  obj.field |> compute()\n}\n");
+
+    assert_eq!(calls(&raw), [("compute", None)]);
+}
+
+#[test]
+fn an_expression_body_signature_drops_its_arrow() {
+    let raw = extract("options gen2\ndef f() => 1\ndef g() : int => h()\ndef k() { m() }\n");
+
+    assert_eq!(named(&raw, "f").signature.as_deref(), Some("def f()"));
+    assert_eq!(named(&raw, "g").signature.as_deref(), Some("def g() : int"));
+    assert_eq!(named(&raw, "k").signature.as_deref(), Some("def k()"));
+}
+
+#[test]
+fn a_brace_less_if_body_on_the_next_line_keeps_the_rest_of_the_file() {
+    let raw = extract(
+        "options gen2\n\
+         def classify(x : int) : int {\n\
+           if (x < 0)\n\
+             return negative()\n\
+           elif (x == 0)\n\
+             return zero()\n\
+           else\n\
+             return positive()\n\
+         }\n\
+         def after() {\n\
+           tail()\n\
+         }\n",
+    );
+
+    let classify = id_of(&raw, "classify");
+    for callee in ["negative", "zero", "positive"] {
+        assert_eq!(caller_of(&raw, callee), classify, "{callee}");
+    }
+    assert_eq!(caller_of(&raw, "tail"), id_of(&raw, "after"));
+}
+
+#[test]
+fn braced_and_same_line_if_bodies_keep_their_shape() {
+    let raw = extract(
+        "options gen2\n\
+         def f(x : int) {\n\
+           if (x < 0) { a() }\n\
+           if (x > 0) b()\n\
+           if (x == 0)\n\
+           {\n\
+             c()\n\
+           }\n\
+         }\n",
+    );
+
+    let f = id_of(&raw, "f");
+    for callee in ["a", "b", "c"] {
+        assert_eq!(caller_of(&raw, callee), f, "{callee}");
+    }
+}
+
+#[test]
+fn an_annotation_after_an_arrow_bodied_or_abstract_def_opens_the_next_def() {
+    let raw = extract(
+        "options gen2\n\
+         def lane(v : int) : int => v\n\
+         \n\
+         [export]\n\
+         def main() {}\n\
+         class C {\n\
+           def abstract area() : float\n\
+           [unused_argument(dt)]\n\
+           def update(dt : float) {}\n\
+         }\n",
+    );
+
+    let lane = named(&raw, "lane");
+    assert_eq!((lane.line, lane.end_line), (2, 2));
+    let main = named(&raw, "main");
+    assert_eq!(main.line, 4);
+    assert_eq!(main.signature.as_deref(), Some("[export]\ndef main()"));
+
+    let area = named(&raw, "area");
+    assert_eq!((area.line, area.end_line), (7, 7));
+    assert_eq!(
+        area.signature.as_deref(),
+        Some("def abstract area() : float")
+    );
+    let update = named(&raw, "update");
+    assert_eq!(update.line, 8);
+    assert_eq!(
+        update.signature.as_deref(),
+        Some("[unused_argument(dt)]\ndef update(dt : float)")
+    );
+}
