@@ -527,7 +527,60 @@ fn a_member_call_on_an_unnamed_expression_keeps_an_empty_receiver() {
         .iter()
         .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
         .collect();
-    assert_eq!(receivers, [("First", Some("")), ("Items", Some("s"))]);
+    assert_eq!(receivers, [("First", Some("")), ("Items", Some(""))]);
+}
+
+#[test]
+fn a_receiver_the_caller_declares_as_a_value_names_no_type_and_a_method_s_own_names_its_owner() {
+    let raw = extract(
+        br#"package p
+
+import "example.com/conn"
+
+type Widget struct{}
+
+func (w *Widget) Run(param Server) {
+	w.draw()
+	param.Close()
+	local := conn.Dial()
+	local.Close()
+	var declared Server
+	declared.Close()
+	conn.Close()
+	Widget.helper(w)
+	go func(inner Server) { inner.Close(); w.Flush() }(param)
+	for _, each := range servers {
+		each.Close()
+	}
+	switch typed := param.(type) {
+	case Server:
+		typed.Close()
+	}
+}
+"#,
+    );
+
+    let receivers: Vec<(&str, Option<&str>)> = raw
+        .calls
+        .iter()
+        .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+        .collect();
+    assert_eq!(
+        receivers,
+        [
+            ("draw", Some("Widget")),
+            ("Close", Some("")),
+            ("Dial", Some("conn")),
+            ("Close", Some("")),
+            ("Close", Some("")),
+            ("Close", Some("conn")),
+            ("helper", Some("Widget")),
+            ("Close", Some("")),
+            ("Flush", Some("Widget")),
+            ("Close", Some("")),
+            ("Close", Some("")),
+        ]
+    );
 }
 
 #[test]
@@ -711,7 +764,7 @@ func F(i int, t Table) {
             ("F", "Generic", None, 14),
             ("F", "Generic", None, 15),
             ("F", "Map", Some("pkg"), 16),
-            ("F", "Get", Some("t"), 17),
+            ("F", "Get", Some(""), 17),
         ],
         "an index by a local value calls an element, not an instantiation"
     );
