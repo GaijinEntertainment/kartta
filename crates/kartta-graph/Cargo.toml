@@ -1,0 +1,20 @@
+[package]
+name = "kartta-graph"
+description = "A language-agnostic code graph: definitions per file, found by name, updated a file at a time"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["code-graph", "symbols", "static-analysis", "index", "definitions"]
+categories = ["development-tools", "data-structures"]
+
+[lints]
+workspace = true
+
+[dependencies]
+foldhash = "0.2.0"
+hashbrown = { version = "0.17.1", default-features = false }
+kartta-lang = { version = "0.0.0", path = "../kartta-lang" }

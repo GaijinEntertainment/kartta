@@ -604,6 +604,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kartta-graph"
+version = "0.0.0"
+dependencies = [
+ "foldhash",
+ "hashbrown",
+ "kartta-lang",
+]
+
+[[package]]
 name = "kartta-lang"
 version = "0.0.0"
 dependencies = [

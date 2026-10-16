@@ -5,6 +5,7 @@ members = [
     "crates/kartta-cache",
     "crates/kartta-fs",
     "crates/kartta-fuzz",
+    "crates/kartta-graph",
     "crates/kartta-lang",
     "crates/kartta-walk",
 ]
