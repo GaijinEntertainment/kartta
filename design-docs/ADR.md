@@ -41,6 +41,8 @@
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-16
+- [2.2 Take per-file data from the shared cache in the walk's
+  read](./adr/2.2-take-per-file-data-from-the-cache-in-the-walk-s-read.md) — initiative `02-shared-cache`, 2026-10-16
 
 ## Deprecated
 
