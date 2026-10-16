@@ -101,6 +101,8 @@ fn a_bare_call_reaches_enclosing_namespaces_but_not_its_own_type() {
     assert_eq!(conventions.owner_chain_separator, Some("."));
     assert!(conventions.bare_call_reaches_enclosing_owners);
     assert!(conventions.values_are_call_targets);
+    assert_eq!(conventions.scope_separator, None);
+    assert!(!conventions.directory_packages);
     assert_eq!(Tsx::new().conventions(), conventions);
     assert_eq!(JavaScript::new().conventions(), conventions);
 }
@@ -795,6 +797,38 @@ fn test_files_mark_every_symbol_as_test() {
             .flags
             .is_test()
     );
+}
+
+#[test]
+fn files_under_node_modules_or_vendor_are_vendored() {
+    let source = "export function helper() {}\nexport function other() {}\n";
+    let is_vendored = |path: &str| {
+        symbol(&extracted(path, source), "helper")
+            .flags
+            .is_vendored()
+    };
+
+    for path in [
+        "node_modules/left-pad/index.js",
+        "web/node_modules/left-pad/index.js",
+        "vendor/lib.ts",
+        "web/vendor/lib.ts",
+    ] {
+        assert!(is_vendored(path), "{path}");
+        assert!(
+            symbol(&extracted(path, source), "other")
+                .flags
+                .is_vendored(),
+            "{path}"
+        );
+    }
+    for path in [
+        "src/foo.ts",
+        "src/vendors/lib.ts",
+        "src/my_node_modules/lib.ts",
+    ] {
+        assert!(!is_vendored(path), "{path}");
+    }
 }
 
 #[test]

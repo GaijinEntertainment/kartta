@@ -4,14 +4,14 @@ use crate::extraction::{
 };
 use crate::symbol::{Symbol, SymbolFlags, SymbolId, SymbolKind};
 
-const QUALIFIED_AS_NAME: u8 = 1 << 3;
-const EXPORTED: u8 = 1 << 4;
+const QUALIFIED_AS_NAME: u8 = 1 << 6;
+const EXPORTED: u8 = 1 << 7;
 
 impl RawExtraction {
     /// The identity of the bytes [`RawExtraction::encode`] writes: a cache keys an encoded extraction by it as well as
     /// by its language's fingerprint, so an entry in another layout is never decoded.
     // constraint: names the layout `encode` writes, so it changes with any change to it
-    pub const CODEC: &'static [u8] = b"kartta-lang raw extraction 1";
+    pub const CODEC: &'static [u8] = b"kartta-lang raw extraction 2";
 
     /// Appends this extraction to `out` in a compact binary form that [`RawExtraction::decode`] reads back.
     pub fn encode(&self, out: &mut Vec<u8>) {
@@ -372,7 +372,10 @@ mod tests {
         method.parents = vec!["Reader".to_owned(), "io.Closer".to_owned()];
         method.exported = true;
         method.signature = Some("func (p *Parser) parse() error".to_owned());
-        method.flags = SymbolFlags::empty().with_test(true).with_generated(true);
+        method.flags = SymbolFlags::empty()
+            .with_test(true)
+            .with_generated(true)
+            .with_vendored(true);
         let free = Symbol::new("ünïcode", SymbolKind::EnumVariant, 1, 1);
 
         RawExtraction {

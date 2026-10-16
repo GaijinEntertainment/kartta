@@ -29,7 +29,8 @@
 //! A file is test code when its name holds `.test.` or `.spec.`, or a directory on its path is `__tests__` or
 //! `tests`; a directory named `test` is not enough. A file is generated code when a `@generated` or `DO NOT EDIT`
 //! banner, outside a backtick span, stands in the comments before its first line of code, or when its name holds
-//! `.gen.` or `.generated.` or its stem ends in `_pb`, `.pb` or `.min`. A hand-written `.d.ts` file stays ordinary.
+//! `.gen.` or `.generated.` or its stem ends in `_pb`, `.pb` or `.min`. A hand-written `.d.ts` file stays ordinary. A
+//! file under a `node_modules` or `vendor` directory is vendored code.
 //!
 //! # How imports resolve
 //!
