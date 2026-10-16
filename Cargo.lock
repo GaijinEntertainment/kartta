@@ -562,6 +562,14 @@ dependencies = [
 [[package]]
 name = "kartta"
 version = "0.0.0"
+dependencies = [
+ "foldhash",
+ "kartta-fs",
+ "kartta-graph",
+ "kartta-lang",
+ "rayon",
+ "tempfile",
+]
 
 [[package]]
 name = "kartta-cache"
