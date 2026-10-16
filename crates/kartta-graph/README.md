@@ -35,5 +35,8 @@ when another file changes.
   left out.
 - `Graph::call_path` — the shortest chain of calls from one callable to another, counting what the cap, the depth bound
   and the floor left out.
+- `Graph::dependents` — the files that include a file, transitively, nearest first, to a depth and under a file cap,
+  counting the includers the cap turned away and the files reached whose own includers the walk did not read; `None`
+  for a file the graph does not hold. The includers of each file are kept as an index, updated as files go in and out.
 
 Status: the API is new and is not published yet.

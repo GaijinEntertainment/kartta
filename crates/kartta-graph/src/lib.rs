@@ -50,6 +50,7 @@
 mod calls;
 mod candidates;
 pub mod confidence;
+mod dependents;
 mod graph;
 mod order;
 mod resolve;
@@ -58,4 +59,5 @@ mod stored;
 mod strings;
 
 pub use crate::calls::{CallPath, Limits, Reached, Reference, References, Walk};
+pub use crate::dependents::{Dependent, Dependents};
 pub use crate::graph::{Definition, Definitions, Found, Graph, Nearness};
