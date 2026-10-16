@@ -1,4 +1,4 @@
-//! A language-agnostic code graph: the definitions and calls of one language family's files.
+//! A language-agnostic code graph: the definitions, calls and uses of one language family's files.
 //!
 //! A [`Graph`] takes in [`Extraction`](kartta_lang::Extraction)s, one per file, as the languages of `kartta-lang`
 //! produce them, and answers what a file defines, where a name is defined, and who calls what. It names no language:
@@ -9,8 +9,9 @@
 //! forgets a path, so a graph follows a tree that changes without being built again, and inserting or removing one
 //! file renumbers nothing else.
 //!
-//! A file keeps its call sites as its language wrote them, and [`Graph::callers`] and [`Graph::callees`] resolve the
-//! sites of the names they reach when they are asked, so no answer goes stale when another file changes.
+//! A file keeps its call sites and uses as its language wrote them, and [`Graph::callers`], [`Graph::callees`] and
+//! [`Graph::references`] resolve the sites of the names they reach when they are asked, so no answer goes stale when
+//! another file changes.
 //!
 //! # Examples
 //!
@@ -56,5 +57,5 @@ mod scope;
 mod stored;
 mod strings;
 
-pub use crate::calls::{Limits, Reached, Walk};
+pub use crate::calls::{Limits, Reached, Reference, References, Walk};
 pub use crate::graph::{Definition, Definitions, Found, Graph, Nearness};

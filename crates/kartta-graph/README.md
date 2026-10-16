@@ -1,6 +1,6 @@
 # kartta-graph
 
-A language-agnostic code graph: the definitions and calls of one language family's files.
+A language-agnostic code graph: the definitions, calls and uses of one language family's files.
 
 A `Graph` takes in one `kartta_lang::Extraction` per file, as the languages built on `kartta-lang` produce them, and
 answers what a file defines, where a name is defined, and who calls what. It names no language: what differs between
@@ -15,11 +15,13 @@ Names are interned once per graph.
 
 ## Calls are resolved when a query asks
 
-A file keeps its call sites as its language wrote them, and a query resolves the sites of the name it asks about
-through a confidence-ranked cascade: the owner a receiver names, the caller's own scope, its imports, its package, its
-includes and the re-export chains through them, the caller's own owner, the one callable of the name, and the
-callables nearest the caller. Each tier's confidence is a constant of `kartta_graph::confidence`. No edge is stored, so
-nothing a file holds goes stale when another file changes.
+A file keeps its call sites and uses as its language wrote them, and a query resolves the sites of the name it asks
+about. A call goes through a confidence-ranked cascade: the owner a receiver names, the caller's own scope, its
+imports, its package, its includes and the re-export chains through them, the caller's own owner, the one callable of
+the name, and the callables nearest the caller. A use outside a call binds more narrowly: through the import its
+qualifier names, else a package-level definition of its own file, of a dot import, or of its package directory. Each
+tier's confidence is a constant of `kartta_graph::confidence`. No edge is stored, so nothing a file holds goes stale
+when another file changes.
 
 ## Answers
 
@@ -29,5 +31,7 @@ nothing a file holds goes stale when another file changes.
   counting what the limit left out.
 - `Graph::callers` and `Graph::callees` — the callers or callees of a callable, to a depth, above a confidence floor and
   under a symbol cap, counting what the cap, the depth bound and the floor left out.
+- `Graph::references` — the sites that call or use a symbol, by file and line, counting what the floor and the limit
+  left out.
 
 Status: the API is new and is not published yet.
