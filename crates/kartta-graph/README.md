@@ -38,5 +38,10 @@ when another file changes.
 - `Graph::dependents` — the files that include a file, transitively, nearest first, to a depth and under a file cap,
   counting the includers the cap turned away and the files reached whose own includers the walk did not read; `None`
   for a file the graph does not hold. The includers of each file are kept as an index, updated as files go in and out.
+- `Graph::implementations` — the types that name a type as a parent, transitively, to a depth and cut to a limit,
+  counting the implementors the limit left out and the types reached whose own implementors the query did not look
+  for. A written parent names the type its language's scopes reach: a type of its package directory or of the
+  directory its import binds where a package is a directory, the type its owner chain or its enclosing scopes reach
+  first where a language has them, else the type of that name nearest the file.
 
 Status: the API is new and is not published yet.

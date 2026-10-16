@@ -418,7 +418,7 @@ impl Cascade<'_> {
         }
     }
 
-    fn base_owner(&self, child: SymbolAt, written: &str) -> Option<Str> {
+    pub(crate) fn base_owner(&self, child: SymbolAt, written: &str) -> Option<Str> {
         let Some(separator) = self.conventions.owner_chain_separator else {
             return self
                 .graph
@@ -929,6 +929,6 @@ impl Cascade<'_> {
     }
 }
 
-const fn is_type(kind: SymbolKind) -> bool {
+pub(crate) const fn is_type(kind: SymbolKind) -> bool {
     derives(kind) || matches!(kind, SymbolKind::Namespace)
 }

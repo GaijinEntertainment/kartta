@@ -418,7 +418,7 @@ impl<'g> Cascade<'g> {
             .find_map(|&slot| self.graph.file(slot).package_stamp())
     }
 
-    fn binding(&self, file: u32, name: Str) -> Option<ImportedDir> {
+    pub(crate) fn binding(&self, file: u32, name: Str) -> Option<ImportedDir> {
         self.bindings(file)
             .named
             .iter()

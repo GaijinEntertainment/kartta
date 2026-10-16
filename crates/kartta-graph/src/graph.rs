@@ -34,6 +34,7 @@ pub struct Graph {
     package_files: HashMap<Str, Vec<u32>, FixedState>,
     renamed_from: HashMap<Str, Vec<Rename>, FixedState>,
     included_by: HashMap<Str, Vec<u32>, FixedState>,
+    parented: HashMap<Str, Vec<u32>, FixedState>,
     symbols: usize,
 }
 
@@ -119,6 +120,7 @@ impl Graph {
             package_files: HashMap::with_hasher(FixedState::default()),
             renamed_from: HashMap::with_hasher(FixedState::default()),
             included_by: HashMap::with_hasher(FixedState::default()),
+            parented: HashMap::with_hasher(FixedState::default()),
             symbols: 0,
         }
     }
@@ -338,6 +340,10 @@ impl Graph {
 
     pub(crate) fn slot_of(&self, path: Str) -> Option<u32> {
         self.by_path.get(&path).copied()
+    }
+
+    pub(crate) fn parenting_files(&self, name: Str) -> &[u32] {
+        self.parented.get(&name).map_or(&[], Vec::as_slice)
     }
 
     pub(crate) fn includers_of(&self, slot: u32) -> impl Iterator<Item = u32> + '_ {
@@ -648,6 +654,9 @@ impl Graph {
                 .push(rename);
         }
         self.index_sites(slot);
+        for key in self.parent_keys_of(slot) {
+            self.parented.entry(key).or_default().push(slot);
+        }
         for at in 0..self.file(slot).includes.len() {
             let target = self.file(slot).includes[at];
             self.included_by.entry(target).or_default().push(slot);
@@ -679,18 +688,29 @@ impl Graph {
         callees.dedup();
         let mut keys: Vec<Str> = callees
             .into_iter()
-            .map(|callee| self.call_key(callee))
+            .map(|callee| self.listing_key(callee))
             .collect();
         keys.sort_unstable();
         keys.dedup();
         keys
     }
 
-    fn call_key(&mut self, callee: Str) -> Str {
-        let written = self.strings.resolve(callee);
-        let last = match written.rsplit(QUALIFIER_SEPARATORS).next() {
-            Some(last) if !last.is_empty() && last.len() < written.len() => last,
-            _ => return callee,
+    fn parent_keys_of(&mut self, slot: u32) -> Vec<Str> {
+        let mut keys = Vec::with_capacity(self.file(slot).parents.len());
+        for at in 0..self.file(slot).parents.len() {
+            let written = self.file(slot).parents[at].written;
+            keys.push(self.listing_key(written));
+        }
+        keys.sort_unstable();
+        keys.dedup();
+        keys
+    }
+
+    fn listing_key(&mut self, written: Str) -> Str {
+        let text = self.strings.resolve(written);
+        let last = match text.rsplit(QUALIFIER_SEPARATORS).next() {
+            Some(last) if !last.is_empty() && last.len() < text.len() => last,
+            _ => return written,
         };
         if let Some(key) = self.strings.get(last) {
             return key;
@@ -726,9 +746,13 @@ impl Graph {
             return;
         }
         let site_keys = self.site_keys_of(slot);
+        let parent_keys = self.parent_keys_of(slot);
         let Some(file) = self.files[slot as usize].take() else {
             return;
         };
+        for key in parent_keys {
+            unlist(&mut self.parented, key, |&held| held != slot);
+        }
 
         let mut names: Vec<Str> = file.symbols.iter().map(|symbol| symbol.name).collect();
         names.sort_unstable();
