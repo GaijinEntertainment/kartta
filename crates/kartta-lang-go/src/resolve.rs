@@ -17,6 +17,7 @@ struct Module {
 impl<'r> GoResolver<'r> {
     pub(crate) fn new(repository: &'r dyn Repository) -> Self {
         let mut modules = Vec::new();
+        // constraint: a vendored `go.mod` belongs to a third-party package, and a checkout can hold thousands of them
         for path in repository
             .files_named("go.mod")
             .filter(|path| !is_vendored(path))
@@ -110,7 +111,8 @@ impl Resolver for GoResolver<'_> {
 
         let path_flags = SymbolFlags::empty()
             .with_test(path.ends_with("_test.go"))
-            .with_generated(path.ends_with(".pb.go"));
+            .with_generated(path.ends_with(".pb.go"))
+            .with_vendored(is_vendored(path));
         if path_flags != SymbolFlags::empty() {
             for symbol in &mut extraction.symbols {
                 symbol.flags = symbol.flags.union(path_flags);
@@ -136,7 +138,6 @@ impl Resolver for GoResolver<'_> {
     }
 }
 
-// constraint: a vendored `go.mod` belongs to a third-party package, and a checkout can hold thousands of them
 fn is_vendored(path: &str) -> bool {
     path.starts_with("vendor/") || path.contains("/vendor/")
 }

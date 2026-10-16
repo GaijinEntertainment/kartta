@@ -9,7 +9,7 @@
 //! [`RawExtraction`] is the same for every file with the same content, wherever it sits; a cache keyed by the content's
 //! hash and the language's [`fingerprint`](Language::fingerprint) computes it once for all of them. The
 //! [`Resolver`] a language builds over the [`Repository`] then applies the path: resolves imports to the files they
-//! name, and marks test or generated code by the file's name.
+//! name, and marks the test, generated or vendored code the file's path shows, as the bytes alone cannot.
 //!
 //! # Examples
 //!
