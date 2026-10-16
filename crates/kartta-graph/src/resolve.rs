@@ -48,6 +48,7 @@ pub(crate) struct Cascade<'g> {
     star: Option<Str>,
     bindings: Derived<u32, Rc<Bindings>>,
     candidates: Derived<Str, Rc<Candidates<'g>>>,
+    referenceable: Derived<Str, Rc<Candidates<'g>>>,
     includes: Derived<u32, Rc<[u32]>>,
     closures: Derived<u32, Rc<[u32]>>,
     canonical: Derived<SymbolAt, SymbolAt>,
@@ -65,6 +66,7 @@ impl<'g> Cascade<'g> {
             star: graph.strings.get("*"),
             bindings: RefCell::default(),
             candidates: RefCell::default(),
+            referenceable: RefCell::default(),
             includes: RefCell::default(),
             closures: RefCell::default(),
             canonical: RefCell::default(),
@@ -205,10 +207,16 @@ impl<'g> Cascade<'g> {
     fn pick(
         &self,
         pick: Pick,
-        candidates: impl Iterator<Item = SymbolAt> + Clone,
+        mut candidates: impl Iterator<Item = SymbolAt> + Clone,
     ) -> Option<SymbolAt> {
         match pick {
             Pick::FreeTarget(caller) => self.free_target(caller, candidates),
+            Pick::PackageLevel => candidates.find(|&at| {
+                let symbol = self.graph.sym(at);
+                symbol.owner.is_none()
+                    && is_call_target_kind(symbol.kind)
+                    && self.holder(at).is_none()
+            }),
         }
     }
 
@@ -623,6 +631,57 @@ impl<'g> Cascade<'g> {
             .strings
             .get(&written[previous + separator.len()..])
     }
+
+    // constraint: a use can name a value even where a call cannot target one, so every kind but a field and a variant
+    // is a candidate, whatever `values_are_call_targets` says
+    fn referenceable(&self, name: Str) -> Rc<Candidates<'g>> {
+        if let Some(held) = self.referenceable.borrow().get(&name) {
+            return Rc::clone(held);
+        }
+        let named = self.named(name);
+        let targets = named
+            .iter()
+            .copied()
+            .filter(|&at| is_call_target_kind(self.graph.sym(at).kind))
+            .collect();
+        let referenceable = Rc::new(Candidates::scanned(named, targets));
+        self.referenceable
+            .borrow_mut()
+            .insert(name, Rc::clone(&referenceable));
+        referenceable
+    }
+
+    pub(crate) fn resolve_reference(&self, file: u32, index: u32) -> Option<Bound> {
+        let stored = self.graph.file(file);
+        let site = stored.references[index as usize];
+
+        if let Some(qualifier) = site.qualifier {
+            let target = self.binding(file, qualifier)?;
+            return self.imported(&self.referenceable(site.name), target, Pick::PackageLevel);
+        }
+        let named = self.named(site.name);
+        if let Some(at) = self.pick(
+            Pick::PackageLevel,
+            self.graph.in_file(named, file).iter().copied(),
+        ) {
+            return Some((at, confidence::SAME_FILE));
+        }
+        if !self.bindings(file).dot_dirs.is_empty()
+            && let Some(at) =
+                self.dot_imported(&self.referenceable(site.name), file, Pick::PackageLevel)
+        {
+            return Some((at, confidence::IMPORT));
+        }
+        if !self.conventions.directory_packages {
+            return None;
+        }
+        let in_package = named.iter().copied().filter(|&at| {
+            let declaring = self.graph.file(at.file);
+            declaring.dir == stored.dir && declaring.package == stored.package
+        });
+        self.pick(Pick::PackageLevel, in_package)
+            .map(|at| (at, confidence::PACKAGE))
+    }
 }
 
 type ImportedDir = Option<Str>;
@@ -630,6 +689,7 @@ type ImportedDir = Option<Str>;
 #[derive(Debug, Clone, Copy)]
 enum Pick {
     FreeTarget(SymbolAt),
+    PackageLevel,
 }
 
 struct ReExportWalk<'c, 'g> {
