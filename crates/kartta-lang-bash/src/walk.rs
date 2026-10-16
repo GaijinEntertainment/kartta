@@ -1,0 +1,253 @@
+use kartta_lang::tree::{named_children, preorder, text};
+use kartta_lang::{
+    CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+};
+use tree_sitter::{Node, Tree};
+
+use crate::banner::is_generated_source;
+
+pub(crate) const SOURCE_FORM: u32 = 0;
+
+const PROGRAM: &str = "program";
+
+pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
+    let mut emitter = Emitter {
+        source,
+        scopes: Vec::new(),
+        flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
+        raw: RawExtraction::default(),
+    };
+
+    preorder(tree, |node| {
+        if node.is_named() {
+            emitter.handle(node);
+        }
+        true
+    });
+
+    emitter.raw
+}
+
+#[derive(Clone, Copy)]
+struct Scope {
+    end: usize,
+    id: SymbolId,
+}
+
+struct Emitter<'a> {
+    source: &'a [u8],
+    scopes: Vec<Scope>,
+    flags: SymbolFlags,
+    raw: RawExtraction,
+}
+
+impl Emitter<'_> {
+    fn handle(&mut self, node: Node<'_>) {
+        let start = node.start_byte();
+        while self.scopes.last().is_some_and(|scope| scope.end <= start) {
+            self.scopes.pop();
+        }
+        let caller = self.scopes.last().map_or(NO_CALLER_ID, |scope| scope.id);
+
+        match node.kind() {
+            "function_definition" => {
+                if let Some(id) = self.function(node) {
+                    self.scopes.push(Scope {
+                        end: node.end_byte(),
+                        id,
+                    });
+                }
+            }
+            "variable_assignment" => self.variable(node),
+            "command" => self.command(node, caller),
+            _ => {}
+        }
+    }
+
+    fn push_symbol(&mut self, symbol: Symbol) -> SymbolId {
+        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
+        self.raw.symbols.push(symbol);
+        id
+    }
+
+    fn symbol(&self, name: String, kind: SymbolKind, node: Node<'_>) -> Symbol {
+        let mut symbol = Symbol::new(name, kind, start_line(node), end_line(node));
+        symbol.exported = true;
+        symbol.flags = self.flags;
+        symbol
+    }
+
+    // constraint: a script runs through a top-level `main "$@"` by the common shell style, so only a `main` function
+    // directly under the program root is the entry point; a nested `main`, a variable or an alias is not
+    fn function(&mut self, node: Node<'_>) -> Option<SymbolId> {
+        let name = text(node.child_by_field_name("name")?, self.source);
+        let entry = name == "main" && node.parent().is_some_and(|parent| parent.kind() == PROGRAM);
+
+        let mut symbol = self.symbol(name, SymbolKind::Function, node);
+        symbol.flags = symbol.flags.with_entry(entry);
+        Some(self.push_symbol(symbol))
+    }
+
+    // constraint: an assignment outside every function is a global, inside an `if`, a loop or a list too, unless it
+    // prefixes a command, which sets the variable for that command alone; one inside a function runs only with the
+    // function and is no symbol
+    fn variable(&mut self, node: Node<'_>) {
+        let Some(name) = node.child_by_field_name("name") else {
+            return;
+        };
+        let top_level = self.scopes.is_empty()
+            && node
+                .parent()
+                .is_some_and(|parent| parent.kind() != "command");
+        if top_level {
+            let symbol = self.symbol(text(name, self.source), SymbolKind::Variable, node);
+            self.push_symbol(symbol);
+        }
+    }
+
+    fn command(&mut self, node: Node<'_>, caller_id: SymbolId) {
+        let Some(name) = node.child_by_field_name("name") else {
+            return;
+        };
+        let command = &self.source[name.byte_range()];
+
+        if command == b"alias" && self.alias_definitions(node) {
+            return;
+        }
+        if command == b"source" || command == b"." {
+            self.source_directive(node);
+            return;
+        }
+        if self.raw.symbols.is_empty() {
+            return;
+        }
+
+        self.raw.calls.push(CallRef {
+            caller_id,
+            callee: text(name, self.source),
+            receiver: None,
+            line: start_line(node),
+        });
+    }
+
+    fn source_directive(&mut self, node: Node<'_>) {
+        let Some(spec) = node
+            .child_by_field_name("argument")
+            .and_then(|argument| literal_specifier(argument, self.source))
+        else {
+            return;
+        };
+        self.raw
+            .directives
+            .push(RawDirective::new(SOURCE_FORM, spec, start_line(node)));
+    }
+
+    fn alias_definitions(&mut self, node: Node<'_>) -> bool {
+        let mut emitted = false;
+        let mut cursor = node.walk();
+        for argument in node.children_by_field_name("argument", &mut cursor) {
+            let assignment = &self.source[argument.byte_range()];
+            let Some(name) = assignment
+                .iter()
+                .position(|&byte| byte == b'=')
+                .map(|end| &assignment[..end])
+                .filter(|name| !name.is_empty())
+            else {
+                continue;
+            };
+            let name = String::from_utf8_lossy(name).into_owned();
+            let symbol = self.symbol(name, SymbolKind::Function, argument);
+            self.push_symbol(symbol);
+            emitted = true;
+        }
+        emitted
+    }
+}
+
+fn start_line(node: Node<'_>) -> u32 {
+    line(node.start_position().row)
+}
+
+fn end_line(node: Node<'_>) -> u32 {
+    line(node.end_position().row)
+}
+
+fn line(row: usize) -> u32 {
+    u32::try_from(row).map_or(u32::MAX, |row| row.saturating_add(1))
+}
+
+const EXPANSIONS: [&str; 4] = [
+    "simple_expansion",
+    "expansion",
+    "command_substitution",
+    "arithmetic_expansion",
+];
+
+// constraint: an ANSI-C `$'...'` or translated `$"..."` string is essentially never a sourced path, so it names nothing
+// rather than being salvaged
+fn literal_specifier(argument: Node<'_>, source: &[u8]) -> Option<String> {
+    if !matches!(
+        argument.kind(),
+        "word" | "raw_string" | "string" | "concatenation"
+    ) {
+        return None;
+    }
+    let mut tail = Tail::default();
+    if argument.kind() == "concatenation" {
+        for part in named_children(argument).filter_map(|at| argument.named_child(at)) {
+            argument_part(part, source, &mut tail)?;
+        }
+    } else {
+        argument_part(argument, source, &mut tail)?;
+    }
+    tail.finish()
+}
+
+fn argument_part(part: Node<'_>, source: &[u8], tail: &mut Tail) -> Option<()> {
+    let bytes = &source[part.byte_range()];
+    match part.kind() {
+        "raw_string" => {
+            let unquoted = bytes.strip_prefix(b"'").unwrap_or(bytes);
+            tail.literal(unquoted.strip_suffix(b"'").unwrap_or(unquoted));
+        }
+        "string" => {
+            for inner in named_children(part).filter_map(|at| part.named_child(at)) {
+                match inner.kind() {
+                    "string_content" => tail.literal(&source[inner.byte_range()]),
+                    kind if EXPANSIONS.contains(&kind) => tail.expansion()?,
+                    _ => {}
+                }
+            }
+        }
+        kind if EXPANSIONS.contains(&kind) => tail.expansion()?,
+        _ => tail.literal(bytes),
+    }
+    Some(())
+}
+
+// constraint: an argument names its literal tail after the expansions it starts with, without its leading `/`; an
+// expansion after a literal part names nothing, because that literal is part of a path the extraction cannot spell
+#[derive(Default)]
+struct Tail {
+    text: String,
+    expanded: bool,
+}
+
+impl Tail {
+    fn literal(&mut self, part: &[u8]) {
+        self.text.push_str(&String::from_utf8_lossy(part));
+    }
+
+    fn expansion(&mut self) -> Option<()> {
+        self.expanded = true;
+        self.text.is_empty().then_some(())
+    }
+
+    fn finish(self) -> Option<String> {
+        let text = match self.text.strip_prefix('/') {
+            Some(rest) if self.expanded => rest.to_owned(),
+            _ => self.text,
+        };
+        (!text.is_empty()).then_some(text)
+    }
+}
