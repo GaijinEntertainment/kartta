@@ -628,6 +628,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kartta-lang-go"
+version = "0.0.0"
+dependencies = [
+ "kartta-lang",
+ "tree-sitter",
+ "tree-sitter-golang",
+]
+
+[[package]]
 name = "kartta-walk"
 version = "0.0.0"
 dependencies = [
@@ -1079,6 +1088,16 @@ dependencies = [
  "regex",
  "serde_json",
  "streaming-iterator",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-golang"
+version = "1.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0ba22e3e877d8b8c05becedae5f73a14eb7bd57f81eefb08ab22678772d4146"
+dependencies = [
+ "cc",
  "tree-sitter-language",
 ]
 
