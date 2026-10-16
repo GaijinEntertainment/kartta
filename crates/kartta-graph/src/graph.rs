@@ -33,6 +33,7 @@ pub struct Graph {
     callables: HashMap<Str, Vec<Occurrence>, FixedState>,
     package_files: HashMap<Str, Vec<u32>, FixedState>,
     renamed_from: HashMap<Str, Vec<Rename>, FixedState>,
+    included_by: HashMap<Str, Vec<u32>, FixedState>,
     symbols: usize,
 }
 
@@ -117,6 +118,7 @@ impl Graph {
             callables: HashMap::with_hasher(FixedState::default()),
             package_files: HashMap::with_hasher(FixedState::default()),
             renamed_from: HashMap::with_hasher(FixedState::default()),
+            included_by: HashMap::with_hasher(FixedState::default()),
             symbols: 0,
         }
     }
@@ -336,6 +338,14 @@ impl Graph {
 
     pub(crate) fn slot_of(&self, path: Str) -> Option<u32> {
         self.by_path.get(&path).copied()
+    }
+
+    pub(crate) fn includers_of(&self, slot: u32) -> impl Iterator<Item = u32> + '_ {
+        self.included_by
+            .get(&self.file(slot).path)
+            .into_iter()
+            .flatten()
+            .copied()
     }
 
     #[expect(
@@ -638,6 +648,10 @@ impl Graph {
                 .push(rename);
         }
         self.index_sites(slot);
+        for at in 0..self.file(slot).includes.len() {
+            let target = self.file(slot).includes[at];
+            self.included_by.entry(target).or_default().push(slot);
+        }
         if self.conventions.directory_packages {
             self.index_package(slot);
         }
@@ -742,6 +756,9 @@ impl Graph {
             });
         }
         unlist(&mut self.package_files, file.dir, |&held| held != slot);
+        for &target in &file.includes {
+            unlist(&mut self.included_by, target, |&held| held != slot);
+        }
         self.symbols -= file.symbols.len();
     }
 }
