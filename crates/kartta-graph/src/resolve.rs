@@ -5,7 +5,7 @@ use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{CallableRole, Conventions, InheritedMembers, OwnMembers, SymbolKind};
 
-use crate::candidates::Candidates;
+use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
 use crate::confidence;
 use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind};
 use crate::scope::{Ancestors, Reach};
@@ -47,6 +47,7 @@ pub(crate) struct Cascade<'g> {
     pub(crate) conventions: Conventions,
     star: Option<Str>,
     bindings: Derived<u32, Rc<Bindings>>,
+    candidates: Derived<Str, Rc<Candidates<'g>>>,
     includes: Derived<u32, Rc<[u32]>>,
     closures: Derived<u32, Rc<[u32]>>,
     canonical: Derived<SymbolAt, SymbolAt>,
@@ -63,6 +64,7 @@ impl<'g> Cascade<'g> {
             conventions: graph.conventions(),
             star: graph.strings.get("*"),
             bindings: RefCell::default(),
+            candidates: RefCell::default(),
             includes: RefCell::default(),
             closures: RefCell::default(),
             canonical: RefCell::default(),
@@ -457,12 +459,44 @@ impl<'g> Cascade<'g> {
         self.resolve_by_name(call)
     }
 
-    fn candidates(&self, call: &Call) -> Candidates<'g> {
+    fn candidates(&self, call: &Call) -> CandidateSet<'g> {
         let named = self.named(call.callee);
-        let targets = self
-            .call_targets(call.caller_at(), named.iter().copied())
-            .collect();
-        Candidates::scanned(named, targets)
+        let scoped = || {
+            let targets = self
+                .call_targets(call.caller_at(), named.iter().copied())
+                .collect();
+            CandidateSet::Own(Candidates::scanned(named, targets))
+        };
+        if named.len() < INDEXED_FROM {
+            return scoped();
+        }
+        let shared = self.shared_candidates(call.callee, named);
+        let caller = call.caller_at();
+        let scope = self.holder(caller).unwrap_or(caller);
+        if shared
+            .locals()
+            .iter()
+            .any(|&local| local.file == call.file && self.is_candidate_in(scope, local))
+        {
+            return scoped();
+        }
+        CandidateSet::Shared(shared)
+    }
+
+    fn shared_candidates(&self, name: Str, named: &'g [SymbolAt]) -> Rc<Candidates<'g>> {
+        if let Some(shared) = self.candidates.borrow().get(&name) {
+            return Rc::clone(shared);
+        }
+        let (locals, targets): (Vec<SymbolAt>, Vec<SymbolAt>) = named
+            .iter()
+            .copied()
+            .filter(|&at| self.is_call_target(self.graph.sym(at).kind))
+            .partition(|&at| self.holder(at).is_some());
+        let shared = Rc::new(Candidates::indexed(self.graph, named, targets, locals));
+        self.candidates
+            .borrow_mut()
+            .insert(name, Rc::clone(&shared));
+        shared
     }
 
     fn resolve_by_name(&self, call: &Call) -> Option<Bound> {
