@@ -145,7 +145,9 @@ again; it says how many candidates the answer does not cover instead, and `count
 
 A build given `BuildOptions::content_index` also records each text file's trigrams in the walk's one read, and a search
 then rules out, before opening it, every indexed file missing a trigram its patterns need; a file the index holds no
-trigrams for, such as one the build could not read, stays a candidate.
+trigrams for, such as one the build could not read, stays a candidate. Builds of nearly identical trees can share that
+work through `BuildOptions::content_cache`, a `kartta-cache` directory keyed by each file's content: a file whose
+trigrams another build already computed is hashed and looked up rather than scanned.
 
 `examples/probe.rs` indexes a real tree and reports what survived, how long the build took, and what a path search costs
 — a synthetic fixture cannot tell you magnitude, because a repository's `.gitignore` files are what decide how much of
@@ -155,5 +157,5 @@ it is indexed at all.
 
 Status: the walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification,
 both path searches — glob and fuzzy — each narrowed by a `Filter`, content search and the trigram index that narrows
-it, refreshes of the whole tree or of named paths, and change notifications behind the `watch` feature. Not yet: the
-ignore sources outside the tree.
+it, refreshes of the whole tree or of named paths, change notifications behind the `watch` feature, and trigrams shared
+through a content cache. Not yet: the ignore sources outside the tree.

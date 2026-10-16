@@ -555,6 +555,7 @@ dependencies = [
  "grep-matcher",
  "grep-regex",
  "grep-searcher",
+ "kartta-cache",
  "kartta-fuzz",
  "kartta-walk",
  "libc",

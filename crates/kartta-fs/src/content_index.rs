@@ -547,7 +547,7 @@ impl Bits {
     }
 }
 
-fn put_varint(out: &mut Vec<u8>, mut value: u32) {
+pub(crate) fn put_varint(out: &mut Vec<u8>, mut value: u32) {
     while value >= 0x80 {
         out.push(value.to_le_bytes()[0] | 0x80);
         value >>= 7;
@@ -555,7 +555,7 @@ fn put_varint(out: &mut Vec<u8>, mut value: u32) {
     out.push(value.to_le_bytes()[0]);
 }
 
-fn read_varint(bytes: &[u8], at: &mut usize) -> Option<u32> {
+pub(crate) fn read_varint(bytes: &[u8], at: &mut usize) -> Option<u32> {
     let mut value = 0;
 
     for shift in (0..u32::BITS).step_by(7) {
