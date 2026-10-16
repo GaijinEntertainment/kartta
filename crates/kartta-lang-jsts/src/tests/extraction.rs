@@ -433,7 +433,7 @@ fn class_heritage_yields_parents() {
 }
 
 #[test]
-fn calls_are_attributed_with_receiver() {
+fn calls_are_attributed_to_their_caller() {
     let extraction = extracted("src/app.ts", SAMPLE_TS);
 
     let compute_caller = caller_of(&extraction, "compute");
@@ -441,7 +441,107 @@ fn calls_are_attributed_with_receiver() {
         .find(|call| call.callee == "area")
         .expect("area call");
     assert_eq!(compute_caller.qualified_name, "Circle.area");
-    assert_eq!(area_call.receiver.as_deref(), Some("c"));
+    assert_eq!(area_call.receiver.as_deref(), Some(""));
+}
+
+#[test]
+fn a_receiver_the_caller_declares_names_no_type() {
+    let extraction = extracted(
+        "src/f.ts",
+        "import * as ns from './ns';\nconst store = make();\nclass Widget {\n  static create() {}\n  \
+         run(Widget: number) { this.step(); Widget.create(); }\n  step() {}\n}\n\
+         export function f(p: Svc, { a, b: [c] }: Opts, ...rest: X[]) {\n  p.go(); a.go(); c.go(); rest.go();\n  \
+         let v = 1, { w } = o;\n  v.go(); w.go(); store.go();\n  for (const it of items) it.go();\n  \
+         try {} catch (err) { err.go(); }\n  [1].map(x => x.go());\n  ns.go(); Widget.create(); console.log();\n  \
+         later.go();\n}\nconst later = 1;\n",
+    );
+
+    assert_eq!(
+        calls(&extraction),
+        [
+            ("make", None),
+            ("step", Some("Widget")),
+            ("create", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("map", Some("")),
+            ("go", Some("")),
+            ("go", Some("ns")),
+            ("create", Some("Widget")),
+            ("log", Some("console")),
+            ("go", Some("later")),
+        ]
+    );
+}
+
+#[test]
+fn a_declared_value_names_no_type_only_inside_the_scope_that_declares_it() {
+    let extraction = extracted(
+        "src/f.ts",
+        "class Widget { static create() {} }\nexport function f() {\n  { const Widget = 1; Widget.go(); }\n  \
+         Widget.create();\n  try {} catch (Widget) { var kept = 1; Widget.go(); kept.go(); }\n  Widget.create();\n}\n\
+         let Box = make();\nexport function g() {\n  class Box { static go() {} }\n  Box.go();\n}\n\
+         export function h() { Box.go(); }\nexport function k() {\n  const Box = class { static go() {} };\n  \
+         Box.go();\n}\nexport function m(n) {\n  for (let Widget = 0; Widget < n; Widget++) Widget.go();\n  \
+         switch (n) { case 1: const Widget = 2; Widget.go(); }\n  Widget.create();\n}\n\
+         export function p() {\n  { function Widget() {} Widget.go(); }\n  Widget.create();\n}\n\
+         function merged() {}\nnamespace merged { export function g() {} }\nexport function q() { merged.g(); }\n\
+         namespace Inner { const Widget = 1; }\nexport function r() { Widget.create(); }\n\
+         const Named = 0;\nexport const Y = class Named { static run() { Named.go(); } };\n\
+         export function s() { Named.go(); }\nexport const t = function Widget() { Widget.go(); };\n",
+    );
+
+    assert_eq!(
+        calls(&extraction),
+        [
+            ("go", Some("")),
+            ("create", Some("Widget")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("create", Some("Widget")),
+            ("make", None),
+            ("go", Some("Box")),
+            ("go", Some("")),
+            ("go", Some("Box")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("create", Some("Widget")),
+            ("go", Some("")),
+            ("create", Some("Widget")),
+            ("g", Some("merged")),
+            ("create", Some("Widget")),
+            ("go", Some("Named")),
+            ("go", Some("")),
+            ("go", Some("")),
+        ]
+    );
+}
+
+#[test]
+fn a_javascript_receiver_the_file_declares_names_no_type() {
+    let extraction = extracted(
+        "src/f.js",
+        "class Widget { static create() {} }\nfunction f(p, { a }) {\n  p.go(); a.go();\n  var v = make();\n  \
+         v.go();\n  Widget.create();\n}\n",
+    );
+
+    assert_eq!(
+        calls(&extraction),
+        [
+            ("go", Some("")),
+            ("go", Some("")),
+            ("make", None),
+            ("go", Some("")),
+            ("create", Some("Widget")),
+        ]
+    );
 }
 
 #[test]
@@ -753,6 +853,25 @@ fn a_call_on_this_names_the_enclosing_class() {
             ("fill", Some("Circle")),
             ("register", None),
             ("step", Some("")),
+        ]
+    );
+}
+
+#[test]
+fn a_construction_and_a_tag_on_a_declared_value_name_no_type() {
+    let extraction = extracted(
+        "src/f.tsx",
+        "import * as ui from './ui';\nexport function f(m) {\n  new m.Thing(); new ui.Thing();\n  \
+         return [<m.Panel />, <ui.Panel />];\n}\n",
+    );
+
+    assert_eq!(
+        calls(&extraction),
+        [
+            ("Thing", Some("")),
+            ("Thing", Some("ui")),
+            ("Panel", Some("")),
+            ("Panel", Some("ui")),
         ]
     );
 }
