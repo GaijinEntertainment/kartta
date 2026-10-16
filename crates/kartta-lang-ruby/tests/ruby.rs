@@ -1,0 +1,911 @@
+//! What a Ruby file extracts to, and how its requires resolve against the repository.
+#![expect(
+    clippy::panic,
+    reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
+              helpers of an integration test crate are neither; a failed lookup is the assertion"
+)]
+
+use std::io;
+
+use kartta_lang::path::{base, dir};
+use kartta_lang::{
+    CallRef, CallableRole, Extraction, InheritedMembers, Language, OwnMembers, RawExtraction,
+    Repository, Symbol, SymbolId, SymbolKind,
+};
+use kartta_lang_ruby::Ruby;
+
+const SAMPLE: &[u8] = br#"
+require "set"
+
+module Geometry
+  class Shape
+    include Comparable
+    extend Mixins::Walkable
+
+    attr_accessor :width, :height
+    attr_reader :name
+
+    MAX_SIDES = 12
+
+    def area
+      compute(width)
+    end
+
+    def self.build
+      new
+    end
+
+    private
+
+    def _secret
+      0
+    end
+  end
+end
+
+class Circle < Shape
+  def radius
+    helper.draw
+  end
+end
+
+def top_level
+  puts("hi")
+end
+"#;
+
+const WIDGET: &[u8] = b"\nclass Widget\n  def run\n    1\n  end\nend\n";
+
+struct Files(Vec<String>);
+
+impl Repository for Files {
+    fn contains(&self, path: &str) -> bool {
+        self.0.iter().any(|file| file == path)
+    }
+
+    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
+        let in_dir = in_dir.to_owned();
+        Box::new(
+            self.0
+                .iter()
+                .filter(move |file| dir(file) == in_dir)
+                .cloned(),
+        )
+    }
+
+    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
+        let name = name.to_owned();
+        Box::new(
+            self.0
+                .iter()
+                .filter(move |file| base(file) == name)
+                .cloned(),
+        )
+    }
+
+    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
+        Err(io::Error::new(io::ErrorKind::NotFound, path.to_owned()))
+    }
+}
+
+fn extract(source: &[u8]) -> RawExtraction {
+    Ruby::new().extract(source)
+}
+
+fn resolve(source: &[u8], path: &str, files: &[&str]) -> Extraction {
+    let ruby = Ruby::new();
+    let repository = Files(files.iter().map(|file| (*file).to_owned()).collect());
+    let resolver = ruby.resolver(&repository);
+    resolver.resolve(ruby.extract(source), path)
+}
+
+fn symbol<'r>(symbols: &'r [Symbol], qualified: &str) -> &'r Symbol {
+    symbols
+        .iter()
+        .find(|symbol| symbol.qualified_name == qualified)
+        .unwrap_or_else(|| panic!("no symbol {qualified}"))
+}
+
+fn id_of(symbols: &[Symbol], qualified: &str) -> SymbolId {
+    let at = symbols
+        .iter()
+        .position(|symbol| symbol.qualified_name == qualified)
+        .unwrap_or_else(|| panic!("no symbol {qualified}"));
+    SymbolId(u32::try_from(at).unwrap_or(u32::MAX))
+}
+
+fn call<'r>(calls: &'r [CallRef], callee: &str) -> &'r CallRef {
+    calls
+        .iter()
+        .find(|call| call.callee == callee)
+        .unwrap_or_else(|| panic!("no call of {callee}"))
+}
+
+fn calls(raw: &RawExtraction) -> Vec<(&str, Option<&str>)> {
+    raw.calls
+        .iter()
+        .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+        .collect()
+}
+
+fn names(symbols: &[Symbol]) -> Vec<&str> {
+    symbols
+        .iter()
+        .map(|symbol| symbol.qualified_name.as_str())
+        .collect()
+}
+
+fn includes(extraction: &Extraction) -> Vec<&str> {
+    extraction
+        .includes
+        .iter()
+        .map(|include| include.target.as_str())
+        .collect()
+}
+
+fn imports(extraction: &Extraction) -> Vec<&str> {
+    extraction
+        .imports
+        .iter()
+        .map(|import| import.module.as_str())
+        .collect()
+}
+
+#[test]
+fn every_definition_is_qualified_by_its_namespace_chain() {
+    let raw = extract(SAMPLE);
+
+    let symbols: Vec<(&str, SymbolKind)> = raw
+        .symbols
+        .iter()
+        .map(|symbol| (symbol.qualified_name.as_str(), symbol.kind))
+        .collect();
+    assert_eq!(
+        symbols,
+        [
+            ("Geometry", SymbolKind::Namespace),
+            ("Geometry::Shape", SymbolKind::Class),
+            ("Geometry::Shape#width", SymbolKind::Method),
+            ("Geometry::Shape#width=", SymbolKind::Method),
+            ("Geometry::Shape#height", SymbolKind::Method),
+            ("Geometry::Shape#height=", SymbolKind::Method),
+            ("Geometry::Shape#name", SymbolKind::Method),
+            ("Geometry::Shape::MAX_SIDES", SymbolKind::Constant),
+            ("Geometry::Shape#area", SymbolKind::Method),
+            ("Geometry::Shape.build", SymbolKind::Method),
+            ("Geometry::Shape#_secret", SymbolKind::Method),
+            ("Circle", SymbolKind::Class),
+            ("Circle#radius", SymbolKind::Method),
+            ("top_level", SymbolKind::Function),
+        ]
+    );
+}
+
+#[test]
+fn a_member_is_owned_by_its_type_and_a_top_level_def_by_nothing() {
+    let raw = extract(SAMPLE);
+
+    let area = symbol(&raw.symbols, "Geometry::Shape#area");
+    assert_eq!(area.owner.as_deref(), Some("Geometry::Shape"));
+    assert!(area.exported);
+    let max = symbol(&raw.symbols, "Geometry::Shape::MAX_SIDES");
+    assert_eq!(max.owner.as_deref(), Some("Geometry::Shape"));
+    let build = symbol(&raw.symbols, "Geometry::Shape.build");
+    assert_eq!(build.owner.as_deref(), Some("Geometry::Shape"));
+    assert!(build.exported);
+    assert_eq!(symbol(&raw.symbols, "top_level").owner, None);
+}
+
+#[test]
+fn a_superclass_and_the_mixins_are_parents() {
+    let raw = extract(SAMPLE);
+
+    assert_eq!(
+        symbol(&raw.symbols, "Geometry::Shape").parents,
+        ["Comparable", "Mixins::Walkable"]
+    );
+    assert_eq!(symbol(&raw.symbols, "Circle").parents, ["Shape"]);
+}
+
+#[test]
+fn an_accessor_macro_defines_methods_and_stays_a_call() {
+    let raw = extract(SAMPLE);
+
+    let width = symbol(&raw.symbols, "Geometry::Shape#width");
+    assert_eq!(width.owner.as_deref(), Some("Geometry::Shape"));
+    assert!(width.exported);
+    assert!(raw.calls.iter().any(|call| call.callee == "attr_accessor"));
+}
+
+#[test]
+fn attr_writer_defines_only_the_setter() {
+    let raw = extract(b"\nclass Conf\n  attr_writer :level\nend\n");
+
+    assert_eq!(names(&raw.symbols), ["Conf", "Conf#level="]);
+}
+
+#[test]
+fn a_call_is_made_by_the_method_around_it() {
+    let raw = extract(SAMPLE);
+
+    let compute = call(&raw.calls, "compute");
+    assert_eq!(
+        compute.caller_id,
+        id_of(&raw.symbols, "Geometry::Shape#area")
+    );
+    assert_eq!(compute.receiver, None);
+    let draw = call(&raw.calls, "draw");
+    assert_eq!(draw.caller_id, id_of(&raw.symbols, "Circle#radius"));
+    assert_eq!(draw.receiver.as_deref(), Some("helper"));
+}
+
+#[test]
+fn a_call_before_the_first_symbol_records_nothing() {
+    let raw = extract(SAMPLE);
+
+    assert!(raw.calls.iter().all(|call| call.callee != "require"));
+}
+
+#[test]
+fn a_member_call_on_an_expression_keeps_the_empty_receiver() {
+    let raw = extract(b"def f\n  items[0].close\n  @pool.get(1)\n  make(2).run(3)\nend\n");
+
+    assert_eq!(
+        calls(&raw),
+        [
+            ("close", Some("")),
+            ("get", Some("")),
+            ("run", Some("")),
+            ("make", None),
+        ]
+    );
+}
+
+#[test]
+fn a_self_receiver_names_the_type_chain_and_a_constant_receiver_is_empty() {
+    let raw = extract(
+        b"module Geo\n  class Shape\n    def area\n      1\n    end\n    def report\n      \
+          self.area\n      Shape.build\n      Geo::Shape.build\n    end\n  end\nend\n",
+    );
+
+    assert_eq!(
+        calls(&raw),
+        [
+            ("area", Some("Geo::Shape")),
+            ("build", Some("")),
+            ("build", Some("")),
+        ]
+    );
+}
+
+#[test]
+fn a_bare_word_is_no_call_and_a_parenthesized_one_is() {
+    let raw = extract(
+        b"\nclass Foo\n  def initialize\n    setup\n    setup()\n  end\n\n  def setup\n    @x = 1\n  end\nend\n",
+    );
+
+    let setups = raw
+        .calls
+        .iter()
+        .filter(|call| call.callee == "setup")
+        .count();
+    assert_eq!(setups, 1);
+}
+
+#[test]
+fn an_endless_method_a_builder_and_a_singleton_object() {
+    let raw = extract(
+        b"\ndef area = 3.14\n\nPoint = Struct.new(:x, :y)\nRecord = Data.define(:a, :b)\nLIMIT = 10\n\n\
+          def Config.load\nend\n\nobj = Object.new\ndef obj.greet\nend\n",
+    );
+
+    assert_eq!(
+        symbol(&raw.symbols, "area").signature.as_deref(),
+        Some("def area")
+    );
+    assert_eq!(symbol(&raw.symbols, "Point").kind, SymbolKind::Class);
+    assert_eq!(symbol(&raw.symbols, "Record").kind, SymbolKind::Class);
+    assert_eq!(symbol(&raw.symbols, "LIMIT").kind, SymbolKind::Constant);
+    assert_eq!(
+        symbol(&raw.symbols, "Config.load").owner.as_deref(),
+        Some("Config")
+    );
+    assert_eq!(symbol(&raw.symbols, "greet").owner, None);
+}
+
+#[test]
+fn a_qualified_constant_assignment_defines_nothing() {
+    let raw = extract(b"Foo::BAR = 5\nlimit = 3\n$debug = true\n");
+
+    assert_eq!(raw.symbols.len(), 0);
+}
+
+#[test]
+fn a_signature_is_the_header_without_the_body() {
+    let raw = extract(b"def greet(name)\n  puts name\nend\n\ndef self.build(x)\n  make x\nend\n");
+
+    assert_eq!(
+        symbol(&raw.symbols, "greet").signature.as_deref(),
+        Some("def greet(name)")
+    );
+    assert_eq!(
+        symbol(&raw.symbols, "build").signature.as_deref(),
+        Some("def self.build(x)")
+    );
+}
+
+#[test]
+fn a_deep_type_takes_every_ancestor_into_its_chain() {
+    let raw = extract(b"\nclass A\n  class B\n    class C\n    end\n  end\nend\n");
+
+    assert_eq!(
+        symbol(&raw.symbols, "A::B::C").owner.as_deref(),
+        Some("A::B")
+    );
+}
+
+#[test]
+fn a_type_inside_a_method_has_no_owner() {
+    let raw = extract(
+        b"\nmodule Geometry\n  class Outer\n    def m\n      class Inner\n      end\n    end\n  end\nend\n",
+    );
+
+    assert_eq!(symbol(&raw.symbols, "Inner").owner, None);
+}
+
+#[test]
+fn every_member_form_takes_the_chain_of_its_type() {
+    let raw = extract(
+        br"
+module A
+  module B
+    class C
+      attr_reader :size
+      LIMIT = 1
+      def i; end
+      def self.s; end
+      def C.k; end
+      def B.m; end
+      def Other.o; end
+      class << self
+        def t; end
+        alias u t
+        alias_method :v, :t
+      end
+      alias j i
+      alias_method :l, :i
+    end
+  end
+end
+",
+    );
+
+    let owners: Vec<(&str, Option<&str>)> = raw
+        .symbols
+        .iter()
+        .map(|symbol| (symbol.qualified_name.as_str(), symbol.owner.as_deref()))
+        .collect();
+    assert_eq!(
+        owners,
+        [
+            ("A", None),
+            ("A::B", Some("A")),
+            ("A::B::C", Some("A::B")),
+            ("A::B::C#size", Some("A::B::C")),
+            ("A::B::C::LIMIT", Some("A::B::C")),
+            ("A::B::C#i", Some("A::B::C")),
+            ("A::B::C.s", Some("A::B::C")),
+            ("A::B::C.k", Some("A::B::C")),
+            ("A::B.m", Some("A::B")),
+            ("Other.o", Some("Other")),
+            ("A::B::C.t", Some("A::B::C")),
+            ("A::B::C.u", Some("A::B::C")),
+            ("A::B::C.v", Some("A::B::C")),
+            ("A::B::C#j", Some("A::B::C")),
+            ("A::B::C#l", Some("A::B::C")),
+        ]
+    );
+}
+
+#[test]
+fn two_types_of_one_name_keep_their_members_apart() {
+    let raw = extract(
+        b"\nmodule A\n  class Worker\n    def run; end\n    alias go run\n  end\nend\n\
+          module B\n  class Worker\n    def run; end\n    alias go run\n  end\nend\n",
+    );
+
+    let methods: Vec<&str> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Method)
+        .map(|symbol| symbol.qualified_name.as_str())
+        .collect();
+    assert_eq!(
+        methods,
+        [
+            "A::Worker#run",
+            "A::Worker#go",
+            "B::Worker#run",
+            "B::Worker#go"
+        ]
+    );
+}
+
+#[test]
+fn a_mixin_is_a_parent_of_the_type_whose_body_holds_it() {
+    let raw = extract(
+        b"\nmodule A\n  class Worker\n    class Worker\n    end\n    include Walkable\n  end\nend\n",
+    );
+
+    assert_eq!(symbol(&raw.symbols, "A::Worker").parents, ["Walkable"]);
+    assert_eq!(symbol(&raw.symbols, "A::Worker::Worker").parents.len(), 0);
+}
+
+#[test]
+fn a_macro_with_a_receiver_adds_no_parent() {
+    let raw = extract(
+        b"\nclass Shape\n  include Walkable\n  Other.include Comparable\n  Other.new.extend Comparable\nend\n",
+    );
+
+    assert_eq!(symbol(&raw.symbols, "Shape").parents, ["Walkable"]);
+}
+
+#[test]
+fn visibility_modifiers_decide_what_is_exported() {
+    let raw = extract(
+        br"
+class Vault
+  def opened
+    1
+  end
+
+  def _helper
+    9
+  end
+
+  private
+
+  def hidden
+    2
+  end
+
+  def _looks_private
+    3
+  end
+
+  public
+
+  def reopened
+    4
+  end
+
+  protected
+
+  def shared
+    5
+  end
+
+  def redacted
+    6
+  end
+  private :redacted
+
+  private def inlined
+    7
+  end
+
+  private
+
+  public def forced_public
+    8
+  end
+
+  protected def kept_visible
+    9
+  end
+end
+",
+    );
+
+    let exported = |qualified: &str| symbol(&raw.symbols, qualified).exported;
+    assert!(exported("Vault#opened"));
+    assert!(exported("Vault#_helper"));
+    assert!(!exported("Vault#hidden"));
+    assert!(!exported("Vault#_looks_private"));
+    assert!(exported("Vault#reopened"));
+    assert!(exported("Vault#shared"));
+    assert!(!exported("Vault#redacted"));
+    assert!(!exported("Vault#inlined"));
+    assert!(exported("Vault#forced_public"));
+    assert!(exported("Vault#kept_visible"));
+}
+
+#[test]
+fn a_private_method_after_the_sample_modifier_is_unexported() {
+    let raw = extract(SAMPLE);
+
+    assert!(!symbol(&raw.symbols, "Geometry::Shape#_secret").exported);
+}
+
+#[test]
+fn a_visibility_argument_finds_the_method_by_its_chain() {
+    let raw = extract(
+        b"\nmodule A\n  class Vault\n    def redacted; end\n    private :redacted\n  end\nend\n",
+    );
+
+    assert!(!symbol(&raw.symbols, "A::Vault#redacted").exported);
+}
+
+#[test]
+fn a_modifier_inside_a_method_sets_nothing() {
+    let raw =
+        extract(b"\nclass Vault\n  def setup\n    private\n  end\n\n  def after\n  end\nend\n");
+
+    assert!(symbol(&raw.symbols, "Vault#after").exported);
+}
+
+#[test]
+fn accessors_take_the_running_visibility() {
+    let raw = extract(
+        b"\nclass Vault\n  attr_reader :opened\n\n  private\n\n  attr_accessor :secret\n  attr_writer :sealed\nend\n",
+    );
+
+    let exported = |qualified: &str| symbol(&raw.symbols, qualified).exported;
+    assert!(exported("Vault#opened"));
+    assert!(!exported("Vault#secret"));
+    assert!(!exported("Vault#secret="));
+    assert!(!exported("Vault#sealed="));
+}
+
+#[test]
+fn a_def_inside_class_self_is_a_class_method() {
+    let raw = extract(
+        b"\nclass Conf\n  class << self\n    def load\n      1\n    end\n  end\n\n  def fetch\n    2\n  end\nend\n",
+    );
+
+    assert!(symbol(&raw.symbols, "Conf.load").exported);
+    assert_eq!(symbol(&raw.symbols, "Conf#fetch").kind, SymbolKind::Method);
+}
+
+#[test]
+fn a_modifier_inside_class_self_covers_the_class_methods_after_it() {
+    let raw = extract(
+        br"
+class Conf
+  class << self
+    def open; end
+    def named; end
+    private :named
+    private
+    def secret; end
+    attr_reader :hidden
+    alias covert open
+  end
+
+  def named; end
+end
+",
+    );
+
+    let exported = |qualified: &str| symbol(&raw.symbols, qualified).exported;
+    assert!(exported("Conf.open"));
+    assert!(!exported("Conf.named"));
+    assert!(!exported("Conf.secret"));
+    assert!(!exported("Conf.hidden"));
+    assert!(!exported("Conf.covert"));
+    assert!(exported("Conf#named"));
+}
+
+#[test]
+fn private_class_method_hides_a_class_method_and_a_bare_private_does_not() {
+    let raw = extract(
+        b"\nclass Conf\n  def self.make; end\n  private_class_method :make\n\n  private\n\n  \
+          def self.open; end\n  def hidden; end\nend\n",
+    );
+
+    let exported = |qualified: &str| symbol(&raw.symbols, qualified).exported;
+    assert!(!exported("Conf.make"));
+    assert!(exported("Conf.open"));
+    assert!(!exported("Conf#hidden"));
+}
+
+#[test]
+fn an_alias_defines_the_new_name_as_one_callable_with_its_original() {
+    let resolved = resolve(
+        b"\nclass Api\n  def fetch\n    1\n  end\n\n  alias get fetch\n  alias_method :retrieve, :fetch\n\n  \
+          private\n\n  def secret\n    2\n  end\n\n  alias hidden secret\nend\n",
+        "api.rb",
+        &[],
+    );
+
+    let get = symbol(&resolved.symbols, "Api#get");
+    assert_eq!(get.kind, SymbolKind::Method);
+    assert_eq!(get.owner.as_deref(), Some("Api"));
+    assert!(get.exported);
+    assert_eq!(
+        symbol(&resolved.symbols, "Api#retrieve").owner.as_deref(),
+        Some("Api")
+    );
+    assert!(!symbol(&resolved.symbols, "Api#hidden").exported);
+
+    let record = |qualified: &str, body: &str, role| {
+        (
+            id_of(&resolved.symbols, qualified),
+            format!("api.rb#{}", id_of(&resolved.symbols, body).0),
+            role,
+        )
+    };
+    let records: Vec<(SymbolId, String, CallableRole)> = resolved
+        .callables
+        .iter()
+        .map(|callable| (callable.symbol, callable.key.clone(), callable.role))
+        .collect();
+    assert_eq!(
+        records,
+        [
+            record("Api#fetch", "Api#fetch", CallableRole::Definition),
+            record("Api#get", "Api#fetch", CallableRole::Declaration),
+            record("Api#retrieve", "Api#fetch", CallableRole::Declaration),
+            record("Api#secret", "Api#secret", CallableRole::Definition),
+            record("Api#hidden", "Api#secret", CallableRole::Declaration),
+        ]
+    );
+}
+
+#[test]
+fn an_alias_keeps_the_body_its_original_named_at_the_alias() {
+    let raw = extract(
+        b"\nclass Api\n  def fetch\n    1\n  end\n  alias get fetch\n  def fetch\n    2\n  end\nend\n",
+    );
+
+    let first = raw.symbols.iter().position(|symbol| symbol.name == "fetch");
+    let first = SymbolId(u32::try_from(first.unwrap_or(usize::MAX)).unwrap_or(u32::MAX));
+    let keys: Vec<&str> = raw
+        .callables
+        .iter()
+        .map(|callable| callable.key.as_str())
+        .collect();
+    assert_eq!(keys, [first.0.to_string(), first.0.to_string()]);
+    assert_eq!(raw.callables[0].symbol, first);
+}
+
+#[test]
+fn an_alias_its_own_name_redefines_is_no_callable() {
+    let raw =
+        extract(b"\nclass Api\n  def fetch\n  end\n  alias get fetch\n  def get\n  end\nend\n");
+
+    assert_eq!(raw.callables.len(), 0);
+}
+
+#[test]
+fn an_alias_of_an_undeclared_original_is_its_own_callable() {
+    let raw = extract(b"\nclass Api < Base\n  alias get fetch\nend\n");
+
+    assert_eq!(symbol(&raw.symbols, "Api#get").kind, SymbolKind::Method);
+    assert_eq!(raw.callables.len(), 0);
+}
+
+#[test]
+fn a_def_inside_a_method_binds_apart_from_a_top_level_one() {
+    let raw = extract(
+        b"def fetch; end\ndef setup\n  def fetch; end\n  alias inner fetch\nend\nalias outer fetch\n",
+    );
+
+    let key_of = |alias: &str| {
+        raw.callables
+            .iter()
+            .find(|callable| callable.symbol == id_of(&raw.symbols, alias))
+            .map_or_else(
+                || panic!("no callable of {alias}"),
+                |callable| callable.key.clone(),
+            )
+    };
+    let fetches: Vec<String> = raw
+        .symbols
+        .iter()
+        .enumerate()
+        .filter(|(_, symbol)| symbol.name == "fetch")
+        .map(|(at, _)| at.to_string())
+        .collect();
+    assert_eq!(key_of("inner"), fetches[1]);
+    assert_eq!(key_of("outer"), fetches[0]);
+}
+
+#[test]
+fn an_alias_inside_class_self_is_a_class_method() {
+    let raw = extract(
+        b"\nclass Vault\n  def open\n  end\n  alias unlock open\n\n  class << self\n    def reset\n    end\n    \
+          alias clear reset\n    alias_method :wipe, :reset\n  end\nend\n",
+    );
+
+    assert_eq!(
+        symbol(&raw.symbols, "Vault#unlock").kind,
+        SymbolKind::Method
+    );
+    for qualified in ["Vault.clear", "Vault.wipe"] {
+        let alias = symbol(&raw.symbols, qualified);
+        assert_eq!(alias.owner.as_deref(), Some("Vault"), "{qualified}");
+        assert!(alias.exported, "{qualified}");
+    }
+    assert!(
+        !raw.symbols
+            .iter()
+            .any(|symbol| symbol.qualified_name == "Vault#clear")
+    );
+}
+
+#[test]
+fn only_a_bare_require_with_a_string_is_a_require() {
+    let resolved = resolve(
+        b"\nrequire 'real_dep'\n\nclass SomeConfig\n  def require(path)\n  end\nend\n\n\
+          SomeConfig.new.require 'phantom'\nSomeConfig.require 'phantom_too'\nrequire File.join(\"a\", \"b\")\n",
+        "cfg.rb",
+        &[],
+    );
+
+    assert_eq!(imports(&resolved), ["real_dep"]);
+}
+
+#[test]
+fn an_interpolated_or_escaped_require_names_nothing() {
+    let resolved = resolve(
+        b"\nrequire \"cmd/#{name}\"\nrequire \"\\x61\"\nrequire 'plain'\n\nclass Main\nend\n",
+        "main.rb",
+        &["a.rb", "main.rb"],
+    );
+
+    assert_eq!(includes(&resolved), Vec::<&str>::new());
+    assert_eq!(imports(&resolved), ["plain"]);
+}
+
+#[test]
+fn a_require_of_a_repository_file_is_an_include_and_no_import() {
+    let resolved = resolve(
+        b"\nrequire \"set\"\nrequire_relative 'helper'\n\ndef go\n  1\nend\n",
+        "main.rb",
+        &["helper.rb", "main.rb"],
+    );
+
+    assert_eq!(includes(&resolved), ["helper.rb"]);
+    assert_eq!(imports(&resolved), ["set"]);
+}
+
+#[test]
+fn require_relative_resolves_from_the_requiring_file_with_or_without_its_extension() {
+    let files = ["app/models/user.rb", "app/models/account.rb"];
+
+    for spec in ["account", "account.rb"] {
+        let source = format!("\nrequire_relative \"{spec}\"\n\nclass User\nend\n");
+        let resolved = resolve(source.as_bytes(), "app/models/user.rb", &files);
+        assert_eq!(includes(&resolved), ["app/models/account.rb"], "{spec}");
+    }
+}
+
+#[test]
+fn a_require_resolves_under_the_first_load_root_that_holds_it() {
+    let resolved = resolve(
+        b"\nrequire \"widget/painter\"\nrequire \"config/boot\"\n\nclass Main\nend\n",
+        "main.rb",
+        &[
+            "lib/widget/painter.rb",
+            "app/widget/painter.rb",
+            "config/boot.rb",
+            "main.rb",
+        ],
+    );
+
+    assert_eq!(
+        includes(&resolved),
+        ["lib/widget/painter.rb", "config/boot.rb"]
+    );
+}
+
+#[test]
+fn a_require_of_a_gem_is_an_import_as_written() {
+    let resolved = resolve(
+        b"\nrequire \"json\"\nrequire \"active_support/core_ext\"\n\nclass Main\nend\n",
+        "main.rb",
+        &["lib/app.rb", "main.rb"],
+    );
+
+    assert_eq!(includes(&resolved), Vec::<&str>::new());
+    assert_eq!(imports(&resolved), ["json", "active_support/core_ext"]);
+}
+
+#[test]
+fn a_test_path_marks_test_code() {
+    for path in [
+        "foo_test.rb",
+        "foo_spec.rb",
+        "app/spec/util.rb",
+        "lib/test/run.rb",
+        "lib/tests/run.rb",
+    ] {
+        let resolved = resolve(WIDGET, path, &[]);
+        assert_eq!(resolved.symbols.len(), 2, "{path}");
+        assert!(
+            resolved.symbols.iter().all(|symbol| symbol.flags.is_test()),
+            "{path}"
+        );
+    }
+
+    let production = resolve(WIDGET, "lib/foo.rb", &[]);
+    assert!(
+        production
+            .symbols
+            .iter()
+            .all(|symbol| !symbol.flags.is_test())
+    );
+}
+
+#[test]
+fn a_protobuf_name_or_a_header_marker_marks_generated_code() {
+    let generated = |source: &[u8], path: &str| {
+        let resolved = resolve(source, path, &[]);
+        assert_eq!(resolved.symbols.len(), 2, "{path}");
+        resolved
+            .symbols
+            .iter()
+            .all(|symbol| symbol.flags.is_generated())
+    };
+
+    assert!(generated(WIDGET, "proto/widget_pb.rb"));
+    assert!(generated(
+        concat!(
+            "# frozen_string_literal: true\n# @generated by tooling - DO NOT EDIT\n\n",
+            "class Widget\n  def run\n    1\n  end\nend\n",
+        )
+        .as_bytes(),
+        "lib/widget.rb"
+    ));
+    assert!(!generated(
+        b"# A plain widget.\nclass Widget\n  def run\n    1\n  end\nend\n",
+        "lib/widget.rb"
+    ));
+    assert!(!generated(
+        b"\nclass Widget\n  # @generated\n  def run\n    1\n  end\nend\n",
+        "lib/widget.rb"
+    ));
+}
+
+#[test]
+fn no_symbol_is_an_entry_point() {
+    let script = resolve(b"\ndef main\n  run\nend\n\nmain\n", "bin/run.rb", &[]);
+
+    assert_eq!(script.symbols.len(), 1);
+    assert!(script.symbols.iter().all(|symbol| !symbol.flags.is_entry()));
+    assert!(
+        extract(SAMPLE)
+            .symbols
+            .iter()
+            .all(|symbol| !symbol.flags.is_entry())
+    );
+}
+
+#[test]
+fn a_bare_call_reaches_its_own_type_first_and_admits_inherited_members() {
+    let conventions = Ruby::new().conventions();
+
+    assert_eq!(conventions.own_members, OwnMembers::First);
+    assert_eq!(conventions.inherited_members, InheritedMembers::Admitted);
+    assert_eq!(conventions.owner_chain_separator, Some("::"));
+}
+
+#[test]
+fn a_file_is_claimed_by_its_extension_in_any_case() {
+    let ruby = Ruby::new();
+
+    assert!(ruby.claims("lib/a.rb"));
+    assert!(ruby.claims("lib/A.RB"));
+    assert!(!ruby.claims("Gemfile"));
+    assert!(!ruby.claims("lib/a.rbs"));
+    assert_eq!(ruby.name(), "ruby");
+}
+
+#[test]
+fn the_fingerprint_names_the_crate_and_is_computed_once() {
+    let (one, other) = (Ruby::new(), Ruby::new());
+
+    assert!(one.fingerprint().starts_with(b"kartta-lang-ruby\0"));
+    assert!(std::ptr::eq(one.fingerprint(), other.fingerprint()));
+}
