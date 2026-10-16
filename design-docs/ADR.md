@@ -50,6 +50,8 @@
   2026-10-16
 - [3.3 Repair what the C++ grammar cannot parse instead of vendoring
   it](./adr/3.3-repair-what-the-c-plus-plus-grammar-cannot-parse.md) — initiative `03-code-graph`, 2026-10-16
+- [3.4 Extract TypeScript and JavaScript as one
+  family](./adr/3.4-extract-typescript-and-javascript-as-one-family.md) — initiative `03-code-graph`, 2026-10-16
 - [3.5 Keep the graph a file at a time](./adr/3.5-keep-the-graph-a-file-at-a-time.md) — initiative `03-code-graph`,
   2026-10-16
 - [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md) — initiative
