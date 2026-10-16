@@ -67,6 +67,9 @@
   `03-code-graph`, 2026-10-16
 - [3.12 Qualify Python by the module its path
   names](./adr/3.12-qualify-python-by-the-module-its-path-names.md) — initiative `03-code-graph`, 2026-10-16
+- [3.13 Read a shell script's commands as calls and its sources as
+  includes](./adr/3.13-read-a-shell-script-s-commands-as-calls-and-its-sources-as-includes.md) — initiative
+  `03-code-graph`, 2026-10-16
 
 ## Deprecated
 
