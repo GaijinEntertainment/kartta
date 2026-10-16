@@ -1,10 +1,10 @@
 # kartta-graph
 
-A language-agnostic code graph: the definitions of one language family's files, found by name.
+A language-agnostic code graph: the definitions and calls of one language family's files.
 
 A `Graph` takes in one `kartta_lang::Extraction` per file, as the languages built on `kartta-lang` produce them, and
-answers what a file defines and where a name is defined. It names no language: what differs between languages reaches it
-as the extractions and the `Conventions` it is built with.
+answers what a file defines, where a name is defined, and what a callable calls. It names no language: what differs
+between languages reaches it as the extractions and the `Conventions` it is built with.
 
 ## A file at a time
 
@@ -13,11 +13,21 @@ removal frees for the next insertion, and a definition is addressed by its file'
 graph follows a tree that changes without being built again, and one file going in or out renumbers nothing else.
 Names are interned once per graph.
 
+## Calls are resolved when a query asks
+
+A file keeps its call sites as its language wrote them, and a query resolves the sites of the name it asks about
+through a confidence-ranked cascade: the owner a receiver names, the caller's own scope, its imports, its package, its
+includes and the re-export chains through them, the caller's own owner, the one callable of the name, and the
+callables nearest the caller. Each tier's confidence is a constant of `kartta_graph::confidence`. No edge is stored, so
+nothing a file holds goes stale when another file changes.
+
 ## Answers
 
 - `Graph::outline` — what a file defines, ordered by line, an enclosing definition before those it holds; `None` for a
   file the graph does not hold, which an empty outline is not.
 - `Graph::definitions` — where a bare or qualified name is defined, nearest to the asking file first, cut to a limit and
   counting what the limit left out.
+- `Graph::callees` — the callees of a callable, to a depth, above a confidence floor and under a symbol cap, counting
+  what the cap, the depth bound and the floor left out.
 
 Status: the API is new and is not published yet.
