@@ -83,6 +83,26 @@ fn a_definition_beside_the_asking_file_ranks_first_and_test_code_last() {
 }
 
 #[test]
+fn vendored_code_ranks_after_the_repository_s_own_code_and_before_test_code() {
+    let mut in_test = symbol("Parse", "Parse", 1, 2);
+    in_test.flags = SymbolFlags::empty().with_test(true);
+    let mut vendored = symbol("Parse", "Parse", 5, 6);
+    vendored.flags = SymbolFlags::empty().with_vendored(true);
+    let graph = graph(&[
+        file("aaa/parse_test.go", vec![in_test]),
+        file("vendor/parse.go", vec![vendored]),
+        file("zzz/parse.go", vec![symbol("Parse", "Parse", 3, 4)]),
+    ]);
+
+    let found = graph.definitions("Parse", Some("lib/main.go"), 10);
+
+    assert_eq!(
+        places(&found),
+        ["zzz/parse.go:3", "vendor/parse.go:5", "aaa/parse_test.go:1"]
+    );
+}
+
+#[test]
 fn a_limit_keeps_the_nearest_definitions_in_rank_order() {
     let graph = graph(&[
         file("a/parse.go", vec![symbol("Parse", "Parse", 1, 1)]),
