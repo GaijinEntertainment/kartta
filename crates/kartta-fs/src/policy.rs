@@ -1,13 +1,15 @@
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::{fs, io};
 
+use kartta_cache::{ContentHash, ContentHasher};
 use kartta_walk::{Dir, Entry, EntryKind, Policy, Visit};
 
 use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, IgnoreSources};
+use crate::cache::SharedCache;
 use crate::content::{Content, ContentId, ContentVisitor};
 use crate::content_index::{Collector, Full, Pairs};
 use crate::index::Previous;
@@ -42,6 +44,7 @@ pub(crate) struct Indexing<'a> {
 pub(crate) struct Reading<'a> {
     visitor: Option<&'a dyn ContentVisitor>,
     collector: Option<Collector>,
+    cache: Option<SharedCache>,
     binary_extensions: &'a BinaryExtensions,
     numbering: Numbering<'a>,
     // constraint: an id is handed out and its trigrams join the run under one lock, so a run's pairs arrive in the
@@ -137,6 +140,7 @@ impl<'a> Reading<'a> {
         Self {
             visitor,
             collector,
+            cache: None,
             binary_extensions,
             numbering,
             kept: Mutex::new(Kept {
@@ -149,6 +153,10 @@ impl<'a> Reading<'a> {
             unindexed: Mutex::new(Vec::new()),
             chunks: Mutex::new(Vec::new()),
         }
+    }
+
+    pub(crate) fn with_cache(self, cache: Option<SharedCache>) -> Self {
+        Self { cache, ..self }
     }
 }
 
@@ -167,7 +175,7 @@ impl<'a> Indexing<'a> {
     }
 
     pub(crate) fn into_report(self) -> Report {
-        let errors = self
+        let mut errors = self
             .errors
             .into_inner()
             .unwrap_or_else(PoisonError::into_inner);
@@ -191,6 +199,7 @@ impl<'a> Indexing<'a> {
             .kept
             .into_inner()
             .unwrap_or_else(PoisonError::into_inner);
+        errors.extend(reading.cache.and_then(SharedCache::publish));
         let content = reading
             .collector
             .zip(pairs)
@@ -212,7 +221,7 @@ impl<'a> Indexing<'a> {
         }
     }
 
-    fn record(&self, error: BuildError) {
+    pub(crate) fn record(&self, error: BuildError) {
         self.errors
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -346,7 +355,8 @@ impl<'a> Indexing<'a> {
         }
         let observed = reading.observed(learned, &read.metadata, visit);
 
-        let id = reading.keep_text(observed, bytes)?;
+        let hash = reading.hash_of(bytes);
+        let id = reading.keep_text(observed, bytes, hash.as_ref())?;
         reading.hand_over(visit, Content { id, path, bytes });
         Some(id)
     }
@@ -465,7 +475,9 @@ impl Reading<'_> {
 
         match readout {
             Readout::Text(bytes) => {
-                let id = self.keep_text(self.observed(learned, &metadata, visit), &bytes);
+                let hash = self.hash_of(&bytes);
+                let observed = self.observed(learned, &metadata, visit);
+                let id = self.keep_text(observed, &bytes, hash.as_ref());
                 if let Some(id) = id {
                     self.hand_over(
                         visit,
@@ -517,8 +529,9 @@ impl Reading<'_> {
             .pop()
             .unwrap_or_else(|| vec![0; PROBE].into_boxed_slice());
         let mut extractor = collector.extractor();
+        let cache = self.cache.as_ref();
 
-        let outcome = match stream_text(native_path, &mut chunk, &mut extractor) {
+        let outcome = match stream_text(native_path, &mut chunk, &mut extractor, cache) {
             Err(source) => ReadOutcome::Failed { id: None, source },
             Ok((learned, metadata, Streamed::Text)) => ReadOutcome::Kept(self.keep(
                 self.observed(learned, &metadata, false),
@@ -558,13 +571,25 @@ impl Reading<'_> {
         Some(ContentId::from_slot(self.numbering.first_id + slot))
     }
 
-    fn keep_text(&self, observed: Observed, bytes: &[u8]) -> Option<ContentId> {
+    fn hash_of(&self, bytes: &[u8]) -> Option<ContentHash> {
+        self.cache.as_ref().map(|_| ContentHash::of(bytes))
+    }
+
+    fn keep_text(
+        &self,
+        observed: Observed,
+        bytes: &[u8],
+        hash: Option<&ContentHash>,
+    ) -> Option<ContentId> {
         let Some(collector) = &self.collector else {
             return self.keep(observed, None);
         };
 
         let mut extractor = collector.extractor();
-        extractor.feed(bytes);
+        match self.cache.as_ref().zip(hash) {
+            Some((cache, hash)) => cache.fill_trigrams(hash, bytes, &mut extractor),
+            None => extractor.feed(bytes),
+        }
         let id = self.keep(observed, Some(extractor.found()));
         collector.recycle(extractor);
         id
@@ -630,6 +655,7 @@ fn stream_text(
     native_path: &Path,
     chunk: &mut [u8],
     extractor: &mut Trigrams,
+    cache: Option<&SharedCache>,
 ) -> io::Result<(Learned, fs::Metadata, Streamed)> {
     let (mut file, metadata) = open_regular(native_path, Symlinks::Refuse)?;
     let mut learned = Learned {
@@ -647,25 +673,65 @@ fn stream_text(
         return Ok((learned, metadata, Streamed::Binary));
     }
 
-    match feed_rest(&mut file, chunk, filled, extractor) {
+    let streamed = match cache {
+        Some(cache) if filled < chunk.len() => {
+            let whole = &chunk[..filled];
+            cache.fill_trigrams(&ContentHash::of(whole), whole, extractor);
+            Ok(())
+        }
+        Some(cache) => stream_cached(&mut file, chunk, extractor, cache),
+        None => feed_rest(&mut file, chunk, filled, &mut |bytes| extractor.feed(bytes)),
+    };
+    match streamed {
         Ok(()) => Ok((learned, metadata, Streamed::Text)),
         Err(error) => Ok((learned, metadata, Streamed::Failed(error))),
     }
+}
+
+// constraint: a lookup needs the hash of the whole file before the scan it would skip, so a file past one chunk is read
+// to hash it and, when the store lacks it, read again to scan it; the scan's own hash keys what it shares, so a write
+// between the two reads cannot file one content's trigrams under another's hash
+fn stream_cached(
+    file: &mut fs::File,
+    chunk: &mut [u8],
+    extractor: &mut Trigrams,
+    cache: &SharedCache,
+) -> io::Result<()> {
+    let mut hasher = ContentHasher::new();
+    let mut filled = chunk.len();
+    while filled > 0 {
+        hasher.update(&chunk[..filled]);
+        filled = read_prefix(file, chunk)?;
+    }
+    if cache.take_trigrams(&hasher.finish(), extractor) {
+        return Ok(());
+    }
+
+    file.rewind()?;
+    let filled = read_prefix(file, chunk)?;
+    let mut scanned = ContentHasher::new();
+    feed_rest(file, chunk, filled, &mut |bytes| {
+        extractor.feed(bytes);
+        scanned.update(bytes);
+    })?;
+    cache.share_trigrams(&scanned.finish(), extractor);
+
+    Ok(())
 }
 
 fn feed_rest(
     file: &mut fs::File,
     chunk: &mut [u8],
     mut filled: usize,
-    extractor: &mut Trigrams,
+    feed: &mut impl FnMut(&[u8]),
 ) -> io::Result<()> {
     while filled == chunk.len() {
         let held = trigram::unfinished_fold(chunk);
-        extractor.feed(&chunk[..filled - held]);
+        feed(&chunk[..filled - held]);
         chunk.copy_within(filled - held..filled, 0);
         filled = held + read_prefix(file, &mut chunk[held..])?;
     }
-    extractor.feed(&chunk[..filled]);
+    feed(&chunk[..filled]);
 
     Ok(())
 }

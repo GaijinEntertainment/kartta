@@ -23,6 +23,7 @@ globset = { version = "0.4.20", default-features = false }
 grep-matcher = "0.1.9"
 grep-regex = "0.1.14"
 grep-searcher = "0.1.17"
+kartta-cache = { version = "0.0.0", path = "../kartta-cache" }
 kartta-fuzz = { version = "0.0.0", path = "../kartta-fuzz" }
 kartta-walk = { version = "0.0.0", path = "../kartta-walk" }
 memmap2 = "0.9.11"

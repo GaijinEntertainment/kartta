@@ -12,6 +12,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::binary::BinaryExtensions;
 use crate::build::{BuildError, BuildOptions, IgnoreSources};
+use crate::cache::SharedCache;
 use crate::content::{ContentId, ContentVisitor};
 use crate::content_index::{
     Collector, ContentIndexStats, ContentIndexStorage, ContentIndexes, IdPositions, NO_POSITION,
@@ -85,6 +86,7 @@ pub struct Index {
     content_positions: Box<[u32]>,
     content_stamps: Option<Box<[Stamp]>>,
     content_storage: Option<ContentIndexStorage>,
+    content_cache: Option<PathBuf>,
     content: ContentIndexes,
     pool: Option<Arc<ThreadPool>>,
 }
@@ -190,6 +192,7 @@ impl Index {
             threads: None,
             binary_extensions: self.binary_extensions.clone(),
             content_index: self.content_storage.clone(),
+            content_cache: self.content_cache.clone(),
             stamps: self.content_stamps.is_some(),
         }
     }
@@ -289,6 +292,7 @@ impl Index {
             ignore_sources: options.ignore_sources,
             binary_extensions: options.binary_extensions.clone(),
             content_storage: options.content_index.clone(),
+            content_cache: options.content_cache.clone(),
             pool,
         };
         let placing = Placing {
@@ -376,6 +380,7 @@ impl Index {
             ignore_sources,
             binary_extensions,
             content_storage,
+            content_cache,
             pool,
         } = base;
         let mut suffixes_len = 0;
@@ -433,6 +438,7 @@ impl Index {
             content_positions: placed.positions,
             content_stamps: placed.stamps,
             content_storage,
+            content_cache,
             content: ContentIndexes::default(),
             pool,
         };
@@ -957,6 +963,7 @@ struct Base {
     ignore_sources: IgnoreSources,
     binary_extensions: BinaryExtensions,
     content_storage: Option<ContentIndexStorage>,
+    content_cache: Option<PathBuf>,
     pool: Option<Arc<ThreadPool>>,
 }
 
@@ -1181,10 +1188,24 @@ fn indexing<'a>(
         .as_ref()
         .map(|storage| Collector::new(storage).map_err(|source| storage_error(storage, source)))
         .transpose()?;
-    let reading = (visitor.is_some() || collector.is_some())
-        .then(|| Reading::new(visitor, collector, &options.binary_extensions, numbering));
+    let opened = collector
+        .as_ref()
+        .and(options.content_cache.as_deref())
+        .map(SharedCache::open)
+        .transpose();
+    let (cache, unopened) = match opened {
+        Ok(cache) => (cache, None),
+        Err(error) => (None, Some(error)),
+    };
+    let reading = (visitor.is_some() || collector.is_some()).then(|| {
+        Reading::new(visitor, collector, &options.binary_extensions, numbering).with_cache(cache)
+    });
 
-    Ok(Indexing::new(options.ignore_sources, root, reading))
+    let indexing = Indexing::new(options.ignore_sources, root, reading);
+    if let Some(error) = unopened {
+        indexing.record(error);
+    }
+    Ok(indexing)
 }
 
 #[expect(
@@ -1454,6 +1475,7 @@ mod tests {
             content_positions: Box::default(),
             content_stamps: None,
             content_storage: None,
+            content_cache: None,
             content: ContentIndexes::default(),
             pool: None,
         }

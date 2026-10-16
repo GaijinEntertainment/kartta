@@ -1,9 +1,29 @@
+use crate::content_index::{put_varint, read_varint};
+
 pub(crate) type Trigram = u32;
 
 const BITS: u32 = 24;
 const SPACE: usize = 1 << BITS;
 pub(crate) const KELVIN_SIGN: [u8; 3] = [0xE2, 0x84, 0xAA];
 pub(crate) const LONG_S: [u8; 2] = [0xC5, 0xBF];
+const FOLDED_SEQUENCES: [&[u8]; 2] = [&KELVIN_SIGN, &LONG_S];
+
+// constraint: a cache shared with builds of other versions keys its trigrams by this, and the probe holds every byte
+// value and every sequence `fold` folds, so a change to the folding, the window or `Trigrams::encode` changes it
+pub(crate) fn fingerprint() -> Vec<u8> {
+    let mut probe: Vec<u8> = (0..=u8::MAX).collect();
+    for sequence in FOLDED_SEQUENCES {
+        probe.push(b'a');
+        probe.extend_from_slice(sequence);
+        probe.push(b'b');
+    }
+    let mut trigrams = Trigrams::new();
+    trigrams.feed(&probe);
+
+    let mut fingerprint = Vec::new();
+    trigrams.encode(&mut fingerprint);
+    fingerprint
+}
 
 pub(crate) const fn pack(first: u8, second: u8, third: u8) -> Trigram {
     ((first as Trigram) << 16) | ((second as Trigram) << 8) | third as Trigram
@@ -23,7 +43,7 @@ pub(crate) const fn fold(rest: &[u8]) -> (u8, usize) {
 // constraint: `fold` folds a whole sequence to one letter, so bytes that end a chunk partway into one have to wait for
 // the next chunk to complete it
 pub(crate) fn unfinished_fold(chunk: &[u8]) -> usize {
-    [KELVIN_SIGN.as_slice(), LONG_S.as_slice()]
+    FOLDED_SEQUENCES
         .into_iter()
         .flat_map(|sequence| (1..sequence.len()).filter(|&len| chunk.ends_with(&sequence[..len])))
         .max()
@@ -68,6 +88,35 @@ impl Trigrams {
 
     pub(crate) fn found(&self) -> &[Trigram] {
         &self.found
+    }
+
+    pub(crate) fn encode(&mut self, out: &mut Vec<u8>) {
+        self.found.sort_unstable();
+        let mut previous = 0;
+        for &trigram in &self.found {
+            put_varint(out, trigram - previous);
+            previous = trigram;
+        }
+    }
+
+    pub(crate) fn decode(&mut self, encoded: &[u8]) -> bool {
+        let mut at = 0;
+        let mut previous: Trigram = 0;
+        while at < encoded.len() {
+            let ascending = !self.found.is_empty();
+            let next = read_varint(encoded, &mut at)
+                .filter(|&delta| delta > 0 || !ascending)
+                .and_then(|delta| previous.checked_add(delta))
+                .filter(|&trigram| trigram >> BITS == 0);
+            let Some(trigram) = next else {
+                self.found.clear();
+                return false;
+            };
+            self.found.push(trigram);
+            previous = trigram;
+        }
+
+        true
     }
 
     pub(crate) fn clear(&mut self) {
@@ -160,5 +209,51 @@ mod tests {
             found("xyabc"),
             "neither the window nor the seen set carries over"
         );
+    }
+
+    #[test]
+    fn encoded_trigrams_decode_to_the_set_they_came_from() {
+        let text = "\0\0\0 AbCd a\u{e9}b \u{212A}elvin";
+        let mut source = Trigrams::new();
+        source.feed(text.as_bytes());
+        let mut encoded = Vec::new();
+        source.encode(&mut encoded);
+
+        let mut decoded = Trigrams::new();
+        let whole = decoded.decode(&encoded);
+
+        assert!(whole);
+        assert_eq!(
+            decoded.found(),
+            found(text),
+            "ascending, the NUL trigram first"
+        );
+    }
+
+    #[test]
+    fn the_fingerprint_holds_what_each_folded_sequence_folds_to() {
+        let mut probed = Trigrams::new();
+
+        let whole = probed.decode(&fingerprint());
+
+        assert!(whole);
+        for folded in [*b"akb", *b"asb", *b"abc", [0xFD, 0xFE, 0xFF]] {
+            assert!(probed.found().contains(&trigram(folded)), "{folded:?}");
+        }
+    }
+
+    #[test]
+    fn an_encoding_no_encoder_writes_decodes_to_nothing() {
+        let truncated: &[u8] = &[0x80];
+        let repeated: &[u8] = &[0x05, 0x00];
+        let wider_than_a_trigram: &[u8] = &[0x80, 0x80, 0x80, 0x08];
+
+        for encoded in [truncated, repeated, wider_than_a_trigram] {
+            let mut decoded = Trigrams::new();
+            let whole = decoded.decode(encoded);
+
+            assert!(!whole, "{encoded:?}");
+            assert_eq!(decoded.found(), [], "{encoded:?}");
+        }
     }
 }

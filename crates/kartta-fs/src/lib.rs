@@ -139,6 +139,7 @@
 
 mod binary;
 mod build;
+mod cache;
 mod capped;
 mod content;
 mod content_index;
