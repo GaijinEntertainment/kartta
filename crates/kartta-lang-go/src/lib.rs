@@ -15,7 +15,9 @@
 //!
 //! A call records its callee and, for a member call, its receiver. Go spells an owner as a bare type name, so only an
 //! identifier operand is a receiver: `s.client.Do()` and `f().g()` record the empty receiver, a member call on a value
-//! of no known type. A chained call records every call in the chain. A call of a symbol that a body declares, a local
+//! of no known type, and so does a call on a value the caller declares, a parameter or a variable, whose name names no
+//! type. The method's own receiver records the owner its declaration spells: `w.draw()` in `func (w *Widget) run()`
+//! records `Widget`. A chained call records every call in the chain. A call of a symbol that a body declares, a local
 //! `var`, `const` or `type`, is a local call of that symbol; a call of a local value with no symbol — a parameter, a
 //! `:=` variable — and a computed callee, `(*p)()` or `fns[i]()`, record nothing. An index call names the generic
 //! function or method it instantiates, `f[T](x)` and `v.F[T](x)`, when its indices are type arguments; an index by a
