@@ -131,6 +131,33 @@ pub struct References<'g> {
     pub below_confidence: usize,
 }
 
+/// The shortest chain of calls the graph holds from one symbol to another.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct CallPath<'g> {
+    /// The callable the first name selects.
+    pub from: Definition<'g>,
+    /// The callable the second name selects.
+    pub to: Definition<'g>,
+    /// The callers along the chain, `from` first, each calling the next and the last calling `to`; empty when no
+    /// chain was found, and when `from` is `to`.
+    pub hops: Vec<Reached<'g>>,
+    /// Whether a chain was found within the depth bound; a symbol reaches itself with no hop.
+    pub found: bool,
+    /// Whether the symbol cap stopped the search before it covered the depth bound.
+    pub truncated: bool,
+    /// The callers the cap turned away at the callable where it stopped the search.
+    pub turned_away: usize,
+    /// The callers other than `from` the search reached at the depth bound, whose own callers it did not look at: a
+    /// chain longer than the bound may pass through them.
+    pub at_depth_bound: usize,
+    /// The callers the confidence floor left out, counted at each callable the search looked at the callers of: a
+    /// caller that calls it from several lines counts once there, at its most confident call.
+    pub below_confidence: usize,
+    /// The other callables each name selects, which the search did not start or end at: `from`'s, then `to`'s.
+    pub passed_over: (usize, usize),
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Edge {
     far: SymbolAt,
@@ -242,6 +269,22 @@ impl Graph {
                 .collect(),
             below_confidence,
         })
+    }
+
+    /// The shortest chain of calls from the symbol `from` selects to the one `to` selects, within `limits`, or `None`
+    /// when either selects none; each name selects as [`Graph::callers`] describes. A chain the graph does not hold is
+    /// no proof that the code holds none: calls are resolved by name and miss dynamic dispatch.
+    #[must_use]
+    pub fn call_path(&self, from: &str, to: &str, limits: Limits) -> Option<CallPath<'_>> {
+        let mut calls = Calls::new(self);
+        let start = calls.select(from, Calls::caller_count)?;
+        let target = calls.select(to, Calls::caller_count)?;
+        let mut path = calls.path(start, target, limits);
+        path.passed_over = (
+            calls.passed_over(from, start),
+            calls.passed_over(to, target),
+        );
+        Some(path)
     }
 }
 
@@ -538,6 +581,48 @@ impl<'g> Calls<'g> {
         state.walk.unresolved = self.unresolved;
         state.walk
     }
+
+    fn path(&mut self, start: SymbolAt, target: SymbolAt, limits: Limits) -> CallPath<'g> {
+        let mut search = PathSearch {
+            start,
+            limits,
+            toward: HashMap::with_hasher(FixedState::default()),
+            queue: VecDeque::new(),
+            turned_away: 0,
+            at_depth_bound: 0,
+            below_confidence: 0,
+        };
+        search.toward.insert(target, (0, None));
+        if limits.depth > 0 {
+            search.queue.push_back(target);
+        }
+        let mut end = if start == target {
+            PathEnd::Found
+        } else {
+            PathEnd::Exhausted
+        };
+
+        while end == PathEnd::Exhausted
+            && let Some(current) = search.queue.pop_front()
+        {
+            let depth = search.toward[&current].0;
+            self.resolve_callers(self.graph.sym(current).name);
+            let edges = self.callers.get(&current).map_or(&[][..], Vec::as_slice);
+            end = search.take(&self.cascade, (current, depth + 1), edges);
+        }
+
+        CallPath {
+            from: self.graph.definition_at(start),
+            to: self.graph.definition_at(target),
+            hops: search.hops(self.graph, end),
+            found: end == PathEnd::Found,
+            truncated: end == PathEnd::Truncated,
+            turned_away: search.turned_away,
+            at_depth_bound: search.at_depth_bound,
+            below_confidence: search.below_confidence,
+            passed_over: (0, 0),
+        }
+    }
 }
 
 struct WalkState<'g> {
@@ -572,5 +657,88 @@ impl WalkState<'_> {
                 line: edge.line,
             });
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PathEnd {
+    Found,
+    Truncated,
+    Exhausted,
+}
+
+type Toward = Option<(SymbolAt, Edge)>;
+
+struct PathSearch {
+    start: SymbolAt,
+    limits: Limits,
+    toward: HashMap<SymbolAt, (u32, Toward), FixedState>,
+    queue: VecDeque<SymbolAt>,
+    turned_away: usize,
+    at_depth_bound: usize,
+    below_confidence: usize,
+}
+
+impl PathSearch {
+    fn take(
+        &mut self,
+        cascade: &Cascade<'_>,
+        (nearer_the_end, depth): (SymbolAt, u32),
+        edges: &[Edge],
+    ) -> PathEnd {
+        let is_taken = |search: &Self, edge: &Edge| {
+            !search.toward.contains_key(&cascade.canonical(edge.far))
+                && edge.confidence >= search.limits.min_confidence
+        };
+        for (at, &edge) in edges.iter().enumerate() {
+            let reached = cascade.canonical(edge.far);
+            if self.toward.contains_key(&reached) {
+                continue;
+            }
+            if edge.confidence < self.limits.min_confidence {
+                self.below_confidence += 1;
+                continue;
+            }
+            if self.limits.max_symbols > 0 && self.toward.len() >= self.limits.max_symbols {
+                self.turned_away = 1 + edges[at + 1..]
+                    .iter()
+                    .filter(|edge| is_taken(self, edge))
+                    .count();
+                return PathEnd::Truncated;
+            }
+            if reached == self.start {
+                self.toward
+                    .insert(reached, (depth, Some((nearer_the_end, edge))));
+                return PathEnd::Found;
+            }
+            self.reach(reached, depth, Some((nearer_the_end, edge)));
+        }
+        PathEnd::Exhausted
+    }
+
+    fn reach(&mut self, at: SymbolAt, depth: u32, toward: Toward) {
+        self.toward.insert(at, (depth, toward));
+        if depth < self.limits.depth {
+            self.queue.push_back(at);
+        } else {
+            self.at_depth_bound += 1;
+        }
+    }
+
+    fn hops<'g>(&self, graph: &'g Graph, end: PathEnd) -> Vec<Reached<'g>> {
+        let mut hops = Vec::new();
+        let mut node = self.start;
+        while end == PathEnd::Found
+            && let Some(&(_, Some((callee, edge)))) = self.toward.get(&node)
+        {
+            hops.push(Reached {
+                symbol: graph.definition_at(node),
+                depth: narrow(hops.len()),
+                confidence: edge.confidence,
+                line: edge.line,
+            });
+            node = callee;
+        }
+        hops
     }
 }
