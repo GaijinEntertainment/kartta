@@ -1,0 +1,20 @@
+[package]
+name = "kartta-lang-dshl"
+description = "DSHL extraction for the kartta code graph: shaders, blocks, macros and variables of Dagor shaders"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["code-graph", "dshl", "shader", "tree-sitter", "static-analysis"]
+categories = ["development-tools", "parser-implementations"]
+
+[lints]
+workspace = true
+
+[dependencies]
+kartta-lang = { version = "0.0.0", path = "../kartta-lang", features = ["tree-sitter"] }
+tree-sitter = "0.27.1"
+tree-sitter-dshl = "1.0.0"

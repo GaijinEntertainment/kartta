@@ -664,6 +664,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kartta-lang-dshl"
+version = "0.0.0"
+dependencies = [
+ "kartta-lang",
+ "tree-sitter",
+ "tree-sitter-dshl",
+]
+
+[[package]]
 name = "kartta-lang-go"
 version = "0.0.0"
 dependencies = [
@@ -1237,6 +1246,16 @@ name = "tree-sitter-daslang"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45efe0003ce37cb23d805117b7e3757e11b033c9675db9930cde4714a468eff3"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-dshl"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fc7f53b58ab11fb3d0ab9c8ac962bbf79f80b83a13f3a015f2f34f2e5f76165"
 dependencies = [
  "cc",
  "tree-sitter-language",
