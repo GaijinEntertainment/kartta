@@ -62,6 +62,9 @@
   binding](./adr/3.9-resolve-a-quirrel-import-through-the-nearest-sqconfig.md) — initiative `03-code-graph`, 2026-10-16
 - [3.10 Resolve a BLK include as the engine loads it, and read the mount table from the files that state it by
   name](./adr/3.10-resolve-a-blk-include-as-the-engine-loads-it.md) — initiative `03-code-graph`, 2026-10-16
+- [3.11 Name Rust items by their module chain and resolve modules by Cargo's
+  layout](./adr/3.11-name-rust-items-by-their-module-chain-and-resolve-modules-by-cargo-s-layout.md) — initiative
+  `03-code-graph`, 2026-10-16
 
 ## Deprecated
 
