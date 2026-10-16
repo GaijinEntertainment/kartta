@@ -3,11 +3,12 @@ use std::collections::VecDeque;
 use std::hash::Hash;
 
 use foldhash::fast::FixedState;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 
 use crate::graph::{Definition, Graph, QUALIFIER_SEPARATORS, narrow};
 use crate::resolve::Cascade;
 use crate::stored::{Entry, Site, SymbolAt};
+use crate::strings::Str;
 
 /// How far a walk over calls goes, and which calls it takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -113,15 +114,28 @@ fn keep_stronger<K: Eq + Hash>(strongest: &mut HashMap<K, Edge, FixedState>, key
 }
 
 impl Graph {
-    /// The callees of the symbol `name` selects, transitively within `limits`, or `None` when it selects none.
+    /// The callers of the symbol `name` selects, transitively within `limits`, or `None` when it selects none.
     ///
     /// A name selects as [`Graph::definitions`] does, and one symbol among them, a callable before any symbol that is
-    /// not one: the symbol whose qualified name it is, else the first definition of a bare name in path order, else the
-    /// one callable a qualified name ends with at a separator. Where several share the qualified name, as free
-    /// functions of one name do, the first in path order is selected. A declaration and the definition it links to are
-    /// one callable, and a call of either is a call of that definition.
+    /// not one: the symbol whose qualified name it is, else, among the definitions of a bare name, the one with the
+    /// most callers, else the one callable a qualified name ends with at a separator. Where several share the qualified
+    /// name, as free functions of one name do, the one with the most callers is selected, the first in path order on a
+    /// tie. A declaration and the definition it links to are one callable, and a call of either is a call of that
+    /// definition.
     ///
-    /// Calls are resolved when this asks, from the call sites the graph keeps.
+    /// Calls are resolved when this asks, from the call sites the graph keeps: the cost grows with the call sites of
+    /// each name the walk reaches.
+    #[must_use]
+    pub fn callers(&self, name: &str, limits: Limits) -> Option<Walk<'_>> {
+        let mut calls = Calls::new(self);
+        let root = calls.select(name)?;
+        let mut walk = calls.walk(root, limits, Calls::callers_of);
+        walk.passed_over = calls.passed_over(name, root);
+        Some(walk)
+    }
+
+    /// The callees of the symbol `name` selects, transitively within `limits`, or `None` when it selects none; a name
+    /// selects as [`Graph::callers`] describes.
     #[must_use]
     pub fn callees(&self, name: &str, limits: Limits) -> Option<Walk<'_>> {
         let mut calls = Calls::new(self);
@@ -136,6 +150,8 @@ struct Calls<'g> {
     graph: &'g Graph,
     cascade: Cascade<'g>,
     unresolved: usize,
+    callers: HashMap<SymbolAt, Vec<Edge>, FixedState>,
+    called_names: HashSet<Str, FixedState>,
 }
 
 impl<'g> Calls<'g> {
@@ -144,20 +160,23 @@ impl<'g> Calls<'g> {
             graph,
             cascade: Cascade::new(graph),
             unresolved: 0,
+            callers: HashMap::with_hasher(FixedState::default()),
+            called_names: HashSet::with_hasher(FixedState::default()),
         }
     }
 
-    fn select(&self, name: &str) -> Option<SymbolAt> {
+    fn select(&mut self, name: &str) -> Option<SymbolAt> {
         let key = self.graph.strings.get(name);
         if let Some(key) = key {
             let holders = self.targets_first(self.cascade.qualified_as(key).collect());
-            if let Some(&first) = holders.first() {
-                return Some(self.cascade.canonical(first));
+            if !holders.is_empty() {
+                return self.ranked_first(&holders);
             }
         }
         let named = key.map_or_else(Vec::new, |key| self.graph.named(key).to_vec());
-        if let Some(&first) = self.targets_first(named).first() {
-            return Some(self.cascade.canonical(first));
+        let named = self.targets_first(named);
+        if !named.is_empty() {
+            return self.ranked_first(&named);
         }
         if !name.contains(QUALIFIER_SEPARATORS) {
             return None;
@@ -178,6 +197,22 @@ impl<'g> Calls<'g> {
         candidates
     }
 
+    fn ranked_first(&mut self, candidates: &[SymbolAt]) -> Option<SymbolAt> {
+        let (&first, others) = candidates.split_first()?;
+        if self.cascade.is_one_callable(first, others.iter().copied()) {
+            return Some(self.cascade.canonical(first));
+        }
+        let mut best: Option<(SymbolAt, usize)> = None;
+        for &at in candidates {
+            let callable = self.cascade.canonical(at);
+            let ranked = self.caller_count(callable);
+            if best.is_none_or(|(_, held)| ranked > held) {
+                best = Some((callable, ranked));
+            }
+        }
+        best.map(|(callable, _)| callable)
+    }
+
     fn passed_over(&self, name: &str, chosen: SymbolAt) -> usize {
         let mut others: Vec<SymbolAt> = self
             .targets_first(self.graph.selected(name).collect())
@@ -188,6 +223,82 @@ impl<'g> Calls<'g> {
         others.sort_unstable();
         others.dedup();
         others.len()
+    }
+
+    fn sites_of_name(&self, name: Str) -> Vec<Site> {
+        let mut names = vec![name];
+        let mut seen: HashSet<Str, FixedState> = HashSet::with_hasher(FixedState::default());
+        seen.insert(name);
+        let mut next = 0;
+        while let Some(&source) = names.get(next) {
+            next += 1;
+            let renamed = self.graph.renamed_from(source).iter();
+            names.extend(
+                renamed
+                    .map(|rename| rename.local_name)
+                    .filter(|&local| seen.insert(local)),
+            );
+        }
+        let mut keys: Vec<Str> = names
+            .into_iter()
+            .filter_map(|name| self.graph.site_key(name))
+            .collect();
+        keys.sort_unstable();
+        keys.dedup();
+        let mut sites = Vec::new();
+        for key in keys {
+            self.graph.sites_into(key, &mut sites);
+        }
+        if sites.len() > 1 {
+            sites.sort_unstable();
+        }
+        sites
+    }
+
+    fn callers_of(&mut self, target: SymbolAt) -> Vec<Edge> {
+        self.resolve_callers(self.graph.sym(target).name);
+        self.callers.get(&target).cloned().unwrap_or_default()
+    }
+
+    fn caller_count(&mut self, target: SymbolAt) -> usize {
+        self.resolve_callers(self.graph.sym(target).name);
+        self.callers.get(&target).map_or(0, Vec::len)
+    }
+
+    fn resolve_callers(&mut self, name: Str) {
+        if !self.called_names.insert(name) {
+            return;
+        }
+        let mut strongest: HashMap<(SymbolAt, SymbolAt), Edge, FixedState> =
+            HashMap::with_hasher(FixedState::default());
+        for site in self.sites_of_name(name) {
+            let call = self.cascade.call(site);
+            let Some((callee, confidence)) = self.cascade.resolve_call(&call) else {
+                continue;
+            };
+            let callable = self.cascade.canonical(callee);
+            if self.graph.sym(callable).name != name {
+                continue;
+            }
+            keep_stronger(
+                &mut strongest,
+                (callable, call.caller_at()),
+                Edge {
+                    far: call.caller_at(),
+                    confidence,
+                    line: call.line,
+                },
+            );
+        }
+        let mut by_callable: HashMap<SymbolAt, Vec<Edge>, FixedState> =
+            HashMap::with_hasher(FixedState::default());
+        for ((callable, _), edge) in strongest {
+            by_callable.entry(callable).or_default().push(edge);
+        }
+        for (callable, mut edges) in by_callable {
+            self.sort(&mut edges);
+            self.callers.insert(callable, edges);
+        }
     }
 
     fn callees_of(&mut self, body: SymbolAt) -> Vec<Edge> {

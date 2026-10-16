@@ -3,8 +3,8 @@
 A language-agnostic code graph: the definitions and calls of one language family's files.
 
 A `Graph` takes in one `kartta_lang::Extraction` per file, as the languages built on `kartta-lang` produce them, and
-answers what a file defines, where a name is defined, and what a callable calls. It names no language: what differs
-between languages reaches it as the extractions and the `Conventions` it is built with.
+answers what a file defines, where a name is defined, and who calls what. It names no language: what differs between
+languages reaches it as the extractions and the `Conventions` it is built with.
 
 ## A file at a time
 
@@ -27,7 +27,7 @@ nothing a file holds goes stale when another file changes.
   file the graph does not hold, which an empty outline is not.
 - `Graph::definitions` — where a bare or qualified name is defined, nearest to the asking file first, cut to a limit and
   counting what the limit left out.
-- `Graph::callees` — the callees of a callable, to a depth, above a confidence floor and under a symbol cap, counting
-  what the cap, the depth bound and the floor left out.
+- `Graph::callers` and `Graph::callees` — the callers or callees of a callable, to a depth, above a confidence floor and
+  under a symbol cap, counting what the cap, the depth bound and the floor left out.
 
 Status: the API is new and is not published yet.
