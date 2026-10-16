@@ -1,7 +1,9 @@
 use std::ops::Range;
+use std::sync::OnceLock;
 
 use kartta_lang::{CallableRole, SymbolFlags, SymbolKind};
 
+use crate::search::WordSet;
 use crate::strings::Str;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -70,6 +72,7 @@ pub(crate) struct StoredFile {
     pub(crate) re_exports: Box<[StoredReExport]>,
     pub(crate) bindings: Box<[StoredBinding]>,
     pub(crate) assertions: Box<[StoredAssertion]>,
+    pub(crate) words: OnceLock<WordSet>,
 }
 
 impl StoredFile {
