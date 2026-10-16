@@ -69,6 +69,7 @@ pub(crate) struct StoredFile {
     pub(crate) includes: Box<[Str]>,
     pub(crate) re_exports: Box<[StoredReExport]>,
     pub(crate) bindings: Box<[StoredBinding]>,
+    pub(crate) assertions: Box<[StoredAssertion]>,
 }
 
 impl StoredFile {
@@ -237,6 +238,12 @@ pub(crate) struct StoredBinding {
     pub(crate) alias: Option<Str>,
     pub(crate) target_dir: Option<Str>,
     pub(crate) last_segment: Str,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StoredAssertion {
+    pub(crate) type_name: Str,
+    pub(crate) iface: Str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
