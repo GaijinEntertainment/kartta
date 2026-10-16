@@ -24,8 +24,11 @@ verified on each lookup, so damage on disk escapes it only with a chance of 2^-6
 another pack's sound copy answers, or the lookup misses. The check guards against damage, not against a process that
 can write the directory.
 
-The store's directory must allow hard links. Packs accumulate: each publish adds one, and nothing merges or removes them
-yet.
+The store's directory must allow hard links. Each publish of entries adds a pack, unless the same pack is already in
+place, and `Store::merge` keeps their number bounded: past eight it merges every pack but the largest while the largest
+holds more entries than all of them together, every pack otherwise, and removes what it merged; a store that mapped a
+removed pack keeps answering from it, and one that opens during a merge lists the directory again when a listed pack
+has gone. The caller decides when to merge. Nothing removes an entry by age yet.
 
 `design-docs/adr/2.1-share-per-file-data-through-content-addressed-packs.md` records what was measured and why the
 alternatives were rejected.

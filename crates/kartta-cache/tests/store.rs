@@ -10,7 +10,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use kartta_cache::{ContentHash, ContentHasher, Namespace, PackWriter, Store};
+use kartta_cache::{ContentHash, ContentHasher, Merged, Namespace, PackWriter, Store};
 use tempfile::TempDir;
 
 fn trigrams() -> Namespace {
@@ -306,4 +306,161 @@ fn a_streamed_hash_is_the_hash_of_the_whole_content() {
             "split into chunks of {split}"
         );
     }
+}
+
+fn publish_each(dir: &TempDir, contents: impl IntoIterator<Item = String>) {
+    for content in contents {
+        published(
+            dir,
+            &[(&trigrams(), content.as_bytes(), content.as_bytes())],
+        );
+    }
+}
+
+fn answers(store: &Store, content: &str) -> bool {
+    store.get(&trigrams(), &ContentHash::of(content.as_bytes())) == Some(content.as_bytes())
+}
+
+#[test]
+fn a_store_of_eight_packs_is_left_as_it_is() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    publish_each(&dir, (0..8).map(|at| format!("file {at}")));
+
+    let merged = Store::open(dir.path())
+        .expect("open")
+        .merge()
+        .expect("merge");
+
+    assert_eq!(merged, Merged::default());
+    assert_eq!(packs(dir.path()).len(), 8);
+}
+
+#[test]
+fn nine_packs_of_one_size_merge_into_one_that_answers_for_all() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    publish_each(&dir, (0..9).map(|at| format!("file {at}")));
+
+    let merged = Store::open(dir.path())
+        .expect("open")
+        .merge()
+        .expect("merge");
+
+    assert_eq!(
+        (merged.packs, merged.entries, merged.left_in_place),
+        (9, 9, 0)
+    );
+    assert_eq!(
+        packs(dir.path()),
+        merged.published.into_iter().collect::<Vec<_>>()
+    );
+    let store = Store::open(dir.path()).expect("reopen");
+    assert!((0..9).all(|at| answers(&store, &format!("file {at}"))));
+}
+
+#[test]
+fn the_largest_pack_stays_while_the_ones_added_since_merge() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let base: Vec<String> = (0..20).map(|at| format!("base {at}")).collect();
+    let namespace = trigrams();
+    let entries: Vec<Entry<'_>> = base
+        .iter()
+        .map(|content| (&namespace, content.as_bytes(), content.as_bytes()))
+        .collect();
+    published(&dir, &entries);
+    let base_pack = packs(dir.path()).remove(0);
+    publish_each(&dir, (0..8).map(|at| format!("added {at}")));
+
+    let merged = Store::open(dir.path())
+        .expect("open")
+        .merge()
+        .expect("merge");
+
+    assert_eq!((merged.packs, merged.entries), (8, 8));
+    assert!(base_pack.exists(), "the largest pack was not rewritten");
+    assert_eq!(packs(dir.path()).len(), 2);
+    let store = Store::open(dir.path()).expect("reopen");
+    assert!(base.iter().all(|content| answers(&store, content)));
+    assert!((0..8).all(|at| answers(&store, &format!("added {at}"))));
+}
+
+#[test]
+fn a_store_that_mapped_the_merged_packs_keeps_answering() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    publish_each(&dir, (0..9).map(|at| format!("file {at}")));
+    let reader = Store::open(dir.path()).expect("open");
+
+    Store::open(dir.path())
+        .expect("open")
+        .merge()
+        .expect("merge");
+
+    assert!((0..9).all(|at| answers(&reader, &format!("file {at}"))));
+}
+
+#[test]
+fn a_key_several_packs_hold_is_merged_once() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let namespace = trigrams();
+    for at in 0..9 {
+        let own = format!("file {at}");
+        published(
+            &dir,
+            &[
+                (&namespace, own.as_bytes(), own.as_bytes()),
+                (&namespace, b"shared", b"shared"),
+            ],
+        );
+    }
+
+    let merged = Store::open(dir.path())
+        .expect("open")
+        .merge()
+        .expect("merge");
+
+    assert_eq!(
+        (merged.packs, merged.entries),
+        (9, 10),
+        "nine keys of their own and one all nine packs hold"
+    );
+}
+
+#[test]
+fn a_merge_drops_the_entries_that_fail_their_check() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    publish_each(&dir, (0..9).map(|at| format!("file {at}")));
+    let pack = &packs(dir.path())[0];
+    let mut bytes = fs::read(pack).expect("read the pack");
+    bytes[0] ^= 0xff;
+    fs::remove_file(pack).expect("remove the pack");
+    fs::write(pack, &bytes).expect("write the damaged pack");
+
+    let merged = Store::open(dir.path())
+        .expect("open")
+        .merge()
+        .expect("merge");
+
+    assert_eq!((merged.packs, merged.entries), (9, 8));
+}
+
+#[test]
+fn a_pack_whose_namespace_ranges_are_damaged_is_refused_and_never_merged_away() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    publish_each(&dir, (0..10).map(|at| format!("file {at}")));
+    let pack = packs(dir.path()).remove(0);
+    let mut bytes = fs::read(&pack).expect("read the pack");
+    let (footer_len, namespace_record_len, range_start_in_record) = (40, 48, 32);
+    let range_start = bytes.len() - footer_len - namespace_record_len + range_start_in_record;
+    bytes[range_start] = 1;
+    fs::remove_file(&pack).expect("remove the pack");
+    fs::write(&pack, &bytes).expect("write the damaged pack");
+
+    let store = Store::open(dir.path()).expect("open");
+    let merged = store.merge().expect("merge");
+
+    assert_eq!((store.stats().packs, store.stats().rejected_packs), (9, 1));
+    assert_eq!(merged.packs, 9);
+    assert!(
+        pack.exists(),
+        "a pack the store refused is not the merge's to remove"
+    );
 }
