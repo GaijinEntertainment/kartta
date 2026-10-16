@@ -58,6 +58,8 @@
   `03-code-graph`, 2026-10-16
 - [3.8 Extract only the daslang a file opts into gen2, and find modules by file
   name](./adr/3.8-extract-only-the-daslang-a-file-opts-into-gen2.md) — initiative `03-code-graph`, 2026-10-16
+- [3.9 Resolve a Quirrel import through the nearest .sqconfig, and name a function value by its
+  binding](./adr/3.9-resolve-a-quirrel-import-through-the-nearest-sqconfig.md) — initiative `03-code-graph`, 2026-10-16
 
 ## Deprecated
 
