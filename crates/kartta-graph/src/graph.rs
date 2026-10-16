@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::sync::OnceLock;
 
 use foldhash::fast::FixedState;
 use hashbrown::HashMap;
@@ -24,7 +25,7 @@ pub(crate) const QUALIFIER_SEPARATORS: [char; 5] = ['.', ':', '\\', '#', '/'];
 pub struct Graph {
     conventions: Conventions,
     pub(crate) strings: Strings,
-    files: Vec<Option<StoredFile>>,
+    pub(crate) files: Vec<Option<StoredFile>>,
     vacant: Vec<u32>,
     by_path: HashMap<Str, u32, FixedState>,
     by_name: HashMap<Str, Vec<SymbolAt>, FixedState>,
@@ -436,6 +437,7 @@ impl Graph {
             bindings: self.store_bindings(extraction),
             assertions: self.store_assertions(extraction),
             symbols,
+            words: OnceLock::new(),
         }
     }
 

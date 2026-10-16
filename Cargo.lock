@@ -618,6 +618,7 @@ dependencies = [
  "foldhash",
  "hashbrown",
  "kartta-lang",
+ "rayon",
 ]
 
 [[package]]
