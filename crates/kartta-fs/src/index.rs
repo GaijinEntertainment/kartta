@@ -1188,16 +1188,18 @@ fn indexing<'a>(
         .as_ref()
         .map(|storage| Collector::new(storage).map_err(|source| storage_error(storage, source)))
         .transpose()?;
-    let opened = collector
-        .as_ref()
-        .and(options.content_cache.as_deref())
+    let reads = visitor.is_some() || collector.is_some();
+    let opened = options
+        .content_cache
+        .as_deref()
+        .filter(|_| reads)
         .map(SharedCache::open)
         .transpose();
     let (cache, unopened) = match opened {
         Ok(cache) => (cache, None),
         Err(error) => (None, Some(error)),
     };
-    let reading = (visitor.is_some() || collector.is_some()).then(|| {
+    let reading = reads.then(|| {
         Reading::new(visitor, collector, &options.binary_extensions, numbering).with_cache(cache)
     });
 
