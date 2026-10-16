@@ -27,4 +27,7 @@ can write the directory.
 The store's directory must allow hard links. Packs accumulate: each publish adds one, and nothing merges or removes them
 yet.
 
+`design-docs/adr/2.1-share-per-file-data-through-content-addressed-packs.md` records what was measured and why the
+alternatives were rejected.
+
 Status: the API is new and is not published yet.
