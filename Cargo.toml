@@ -15,6 +15,7 @@ members = [
     "crates/kartta-lang-jsts",
     "crates/kartta-lang-lua",
     "crates/kartta-lang-php",
+    "crates/kartta-lang-puppet",
     "crates/kartta-lang-python",
     "crates/kartta-lang-quirrel",
     "crates/kartta-lang-ruby",
