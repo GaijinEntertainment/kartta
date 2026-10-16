@@ -35,8 +35,8 @@
 //! onto local directories, which apply to the files of the module that declares them, as the go command applies only
 //! the main module's. An import names the vendored copy of its package when the `vendor` directory of the importing
 //! file's module holds one, and otherwise the directory under the module whose path is the longest prefix of the
-//! import; an import that matches no
-//! module, or whose directory holds no files, is external. A resolved import includes every Go file of the package's
+//! import, the importing file's own module where several declare that path; an import that matches no module, or whose
+//! directory holds no files, is external. A resolved import includes every Go file of the package's
 //! directory that is not a test file, except the importing file itself.
 //!
 //! A `_test.go` file is test code, and a file named `*.pb.go` or carrying the `// Code generated ... DO NOT EDIT.`
