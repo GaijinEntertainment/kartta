@@ -143,6 +143,10 @@ candidate — searched, binary, oversized, unreadable, or left unsearched becaus
 does not read on through the rest of the tree to prove one more match exists, which can cost the whole search over
 again; it says how many candidates the answer does not cover instead, and `count_all` asks it to read on and count.
 
+A build given `BuildOptions::content_index` also records each text file's trigrams in the walk's one read, and a search
+then rules out, before opening it, every indexed file missing a trigram its patterns need; a file the index holds no
+trigrams for, such as one the build could not read, stays a candidate.
+
 `examples/probe.rs` indexes a real tree and reports what survived, how long the build took, and what a path search costs
 — a synthetic fixture cannot tell you magnitude, because a repository's `.gitignore` files are what decide how much of
 it is indexed at all.
@@ -150,5 +154,6 @@ it is indexed at all.
 `examples/grep.rs` does the same for a content search, timing it twice and printing where every candidate went.
 
 Status: the walk, the ignore rules, the snapshot, path lookup, the directory listing, sizes, binary classification,
-both path searches — glob and fuzzy — each narrowed by a `Filter`, and content search. Not yet: an index that narrows
-content search before it opens a file, incremental re-walk, and the ignore sources outside the tree.
+both path searches — glob and fuzzy — each narrowed by a `Filter`, content search and the trigram index that narrows
+it, refreshes of the whole tree or of named paths, and change notifications behind the `watch` feature. Not yet: the
+ignore sources outside the tree.
