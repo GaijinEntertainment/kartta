@@ -13,6 +13,7 @@ members = [
     "crates/kartta-lang-daslang",
     "crates/kartta-lang-go",
     "crates/kartta-lang-jsts",
+    "crates/kartta-lang-lua",
     "crates/kartta-lang-php",
     "crates/kartta-lang-python",
     "crates/kartta-lang-quirrel",
