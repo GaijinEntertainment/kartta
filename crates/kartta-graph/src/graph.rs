@@ -1,12 +1,19 @@
+use std::cmp::Ordering;
+
 use foldhash::fast::FixedState;
 use hashbrown::HashMap;
-use kartta_lang::{Conventions, Extraction, Symbol, SymbolFlags, SymbolKind, path};
+use kartta_lang::{Conventions, Extraction, Symbol, SymbolFlags, SymbolId, SymbolKind, path};
 
+use crate::order::PathOrder;
+use crate::stored::{
+    Folded, Local, Occurrence, Parent, StoredBinding, StoredCall, StoredCallable, StoredFile,
+    StoredLocalCall, StoredReExport, StoredSymbol, SymbolAt,
+};
 use crate::strings::{Str, Strings};
 
-const QUALIFIER_SEPARATORS: [char; 5] = ['.', ':', '\\', '#', '/'];
+pub(crate) const QUALIFIER_SEPARATORS: [char; 5] = ['.', ':', '\\', '#', '/'];
 
-/// The definitions of one language family's files, kept a file at a time and found by name.
+/// The definitions and calls of one language family's files, kept a file at a time and found by name.
 ///
 /// A file goes in as its [`Extraction`] and comes out whole: [`Graph::insert`] replaces whatever the graph held for
 /// the same path, and [`Graph::remove`] forgets it, so a graph follows a tree that changes a file at a time without
@@ -15,37 +22,15 @@ const QUALIFIER_SEPARATORS: [char; 5] = ['.', ':', '\\', '#', '/'];
 #[derive(Debug)]
 pub struct Graph {
     conventions: Conventions,
-    strings: Strings,
+    pub(crate) strings: Strings,
     files: Vec<Option<StoredFile>>,
     vacant: Vec<u32>,
     by_path: HashMap<Str, u32, FixedState>,
     by_name: HashMap<Str, Vec<SymbolAt>, FixedState>,
+    order: PathOrder,
+    callables: HashMap<Str, Vec<Occurrence>, FixedState>,
+    package_files: HashMap<Str, Vec<u32>, FixedState>,
     symbols: usize,
-}
-
-#[derive(Debug)]
-struct StoredFile {
-    path: Str,
-    symbols: Box<[StoredSymbol]>,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct StoredSymbol {
-    name: Str,
-    qualified_name: Str,
-    owner: Option<Str>,
-    signature: Option<Str>,
-    line: u32,
-    end_line: u32,
-    kind: SymbolKind,
-    flags: SymbolFlags,
-    exported: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SymbolAt {
-    file: u32,
-    index: u32,
 }
 
 /// One definition, as a query answers it, borrowed from the graph.
@@ -70,7 +55,7 @@ pub struct Definition<'g> {
     pub signature: Option<&'g str>,
     /// Whether the definition is visible outside its module.
     pub exported: bool,
-    /// Test code, generated code, an entry point.
+    /// Test code, generated code, vendored code, an entry point.
     pub flags: SymbolFlags,
 }
 
@@ -117,6 +102,9 @@ impl Graph {
             vacant: Vec::new(),
             by_path: HashMap::with_hasher(FixedState::default()),
             by_name: HashMap::with_hasher(FixedState::default()),
+            order: PathOrder::default(),
+            callables: HashMap::with_hasher(FixedState::default()),
+            package_files: HashMap::with_hasher(FixedState::default()),
             symbols: 0,
         }
     }
@@ -140,30 +128,27 @@ impl Graph {
     }
 
     /// Takes in one file's extraction, replacing whatever the graph held for the same path.
+    ///
+    /// Files can arrive in any order: the graph keeps them in path order, and placing a file among those it holds
+    /// renumbers a few hundred of them, and every file once in a run of at least four thousand inserts at one place.
     pub fn insert(&mut self, extraction: &Extraction) {
         let path = self.strings.intern(&extraction.file);
-        self.remove_at(path);
-
-        let slot = self.vacant.pop().unwrap_or_else(|| {
-            self.files.push(None);
-            narrow(self.files.len() - 1)
-        });
-        let symbols: Box<[StoredSymbol]> = extraction
-            .symbols
-            .iter()
-            .map(|symbol| self.store(symbol))
-            .collect();
-        for (index, symbol) in symbols.iter().enumerate() {
-            let at = SymbolAt {
-                file: slot,
-                index: narrow(index),
-            };
-            self.by_name.entry(symbol.name).or_default().push(at);
-        }
-
-        self.symbols += symbols.len();
-        self.files[slot as usize] = Some(StoredFile { path, symbols });
-        self.by_path.insert(path, slot);
+        let slot = if let Some(&held) = self.by_path.get(&path) {
+            self.forget(held);
+            held
+        } else {
+            let slot = self.vacant.pop().unwrap_or_else(|| {
+                self.files.push(None);
+                narrow(self.files.len() - 1)
+            });
+            self.place_in_path_order(slot, &extraction.file);
+            self.by_path.insert(path, slot);
+            slot
+        };
+        let file = self.store(path, extraction);
+        self.symbols += file.symbols.len();
+        self.files[slot as usize] = Some(file);
+        self.index(slot);
     }
 
     /// Forgets the file at `path`, and answers whether the graph held it.
@@ -214,12 +199,15 @@ impl Graph {
         let from_dir = from.map(path::dir);
         let mut found: Vec<(usize, Found<'_>)> = self
             .selected(name)
-            .map(|definition| Found {
-                nearness: match from_dir {
-                    Some(dir) if path::dir(definition.file) == dir => Nearness::SameDirectory,
-                    _ => Nearness::Elsewhere,
-                },
-                definition,
+            .map(|at| {
+                let definition = self.definition_at(at);
+                Found {
+                    nearness: match from_dir {
+                        Some(dir) if path::dir(definition.file) == dir => Nearness::SameDirectory,
+                        _ => Nearness::Elsewhere,
+                    },
+                    definition,
+                }
             })
             .enumerate()
             .collect();
@@ -236,33 +224,79 @@ impl Graph {
         }
     }
 
-    fn selected(&self, name: &str) -> impl Iterator<Item = Definition<'_>> {
+    pub(crate) fn selected<'a>(&'a self, name: &'a str) -> impl Iterator<Item = SymbolAt> + 'a {
         let last = name.rsplit(QUALIFIER_SEPARATORS).next().unwrap_or(name);
         let qualified = last != name;
         let at_separator =
             |head: Option<&str>| head.is_some_and(|head| head.ends_with(QUALIFIER_SEPARATORS));
+        let named = |text: &str| {
+            self.strings
+                .get(text)
+                .map_or(&[][..], |name| self.named(name))
+        };
 
         let suffixed = qualified.then(|| {
-            self.named(last).filter(move |definition| {
-                let own = definition.qualified_name;
+            named(last).iter().copied().filter(move |&at| {
+                let own = self.strings.resolve(self.sym(at).qualified_name);
                 own == name
                     || at_separator(own.strip_suffix(name))
                     || (own != last && at_separator(name.strip_suffix(own)))
             })
         });
-        self.named(name).chain(suffixed.into_iter().flatten())
+        named(name)
+            .iter()
+            .copied()
+            .chain(suffixed.into_iter().flatten())
     }
 
-    fn named(&self, name: &str) -> impl Iterator<Item = Definition<'_>> {
-        self.strings
-            .get(name)
-            .and_then(|name| self.by_name.get(&name))
-            .into_iter()
-            .flatten()
-            .filter_map(|at| {
-                let file = self.files[at.file as usize].as_ref()?;
-                Some(self.definition(file.path, &file.symbols[at.index as usize]))
-            })
+    pub(crate) fn named(&self, name: Str) -> &[SymbolAt] {
+        self.by_name.get(&name).map_or(&[], Vec::as_slice)
+    }
+
+    pub(crate) fn in_file<'a>(&self, named: &'a [SymbolAt], slot: u32) -> &'a [SymbolAt] {
+        let rank = self.path_rank(slot);
+        let start = named.partition_point(|at| self.path_rank(at.file) < rank);
+        let len = named[start..].partition_point(|at| at.file == slot);
+        &named[start..start + len]
+    }
+
+    pub(crate) fn occurrences(&self, key: Str) -> &[Occurrence] {
+        self.callables.get(&key).map_or(&[], Vec::as_slice)
+    }
+
+    pub(crate) fn package_files(&self, dir: Str) -> &[u32] {
+        self.package_files.get(&dir).map_or(&[], Vec::as_slice)
+    }
+
+    pub(crate) fn slot_of(&self, path: Str) -> Option<u32> {
+        self.by_path.get(&path).copied()
+    }
+
+    #[expect(
+        clippy::expect_used,
+        reason = "every index names only the files the graph holds, and a slot is vacant only between a removal \
+                  and the next insert"
+    )]
+    pub(crate) fn file(&self, slot: u32) -> &StoredFile {
+        self.files[slot as usize]
+            .as_ref()
+            .expect("an index names a file the graph holds")
+    }
+
+    pub(crate) fn sym(&self, at: SymbolAt) -> &StoredSymbol {
+        &self.file(at.file).symbols[at.index as usize]
+    }
+
+    pub(crate) fn path_rank(&self, slot: u32) -> u64 {
+        self.order.rank(slot)
+    }
+
+    pub(crate) fn order_of(&self, at: SymbolAt) -> (u64, u32, u32) {
+        (self.path_rank(at.file), self.sym(at).line, at.index)
+    }
+
+    pub(crate) fn definition_at(&self, at: SymbolAt) -> Definition<'_> {
+        self.definition(self.file(at.file).path, self.sym(at))
     }
 
     fn definition(&self, path: Str, symbol: &StoredSymbol) -> Definition<'_> {
@@ -282,7 +316,45 @@ impl Graph {
         }
     }
 
-    fn store(&mut self, symbol: &Symbol) -> StoredSymbol {
+    fn place_in_path_order(&mut self, slot: u32, path: &str) {
+        let (files, strings) = (&self.files, &self.strings);
+        self.order.insert(slot, |held| {
+            files[held as usize]
+                .as_ref()
+                .is_some_and(|file| tree_order(strings.resolve(file.path), path) == Ordering::Less)
+        });
+    }
+
+    fn store(&mut self, path: Str, extraction: &Extraction) -> StoredFile {
+        let dir = path::dir(&extraction.file);
+        let symbols: Box<[StoredSymbol]> = extraction
+            .symbols
+            .iter()
+            .map(|symbol| self.store_symbol(symbol))
+            .collect();
+
+        StoredFile {
+            path,
+            dir: self.strings.intern(dir),
+            parent_dir: self.strings.intern(path::dir(dir)),
+            package: extraction
+                .package
+                .as_deref()
+                .map(|package| self.strings.intern(package)),
+            parents: self.store_parents(&extraction.symbols),
+            locals: locals(extraction),
+            callables: self.store_callables(extraction),
+            folded: folded(extraction),
+            calls: self.store_calls(extraction),
+            local_calls: local_calls(extraction),
+            includes: self.store_includes(path, extraction),
+            re_exports: self.store_re_exports(extraction),
+            bindings: self.store_bindings(extraction),
+            symbols,
+        }
+    }
+
+    fn store_symbol(&mut self, symbol: &Symbol) -> StoredSymbol {
         StoredSymbol {
             name: self.strings.intern(&symbol.name),
             qualified_name: self.strings.intern(&symbol.qualified_name),
@@ -302,34 +374,276 @@ impl Graph {
         }
     }
 
+    fn written_from_root<'a>(&self, written: &'a str) -> Option<&'a str> {
+        let separator = self.conventions.scope_separator?;
+        self.conventions
+            .owner_chain_separator
+            .is_none()
+            .then(|| written.strip_prefix(separator))
+            .flatten()
+    }
+
+    fn store_parents(&mut self, symbols: &[Symbol]) -> Box<[Parent]> {
+        let mut parents = Vec::new();
+        for (index, symbol) in symbols.iter().enumerate() {
+            for written in &symbol.parents {
+                let rooted = self.written_from_root(written);
+                parents.push(Parent {
+                    symbol: narrow(index),
+                    written: self.strings.intern(rooted.unwrap_or(written)),
+                    written_from_root: rooted.is_some(),
+                });
+            }
+        }
+        parents.into_boxed_slice()
+    }
+
+    fn store_callables(&mut self, extraction: &Extraction) -> Box<[StoredCallable]> {
+        let mut callables: Vec<StoredCallable> = extraction
+            .callables
+            .iter()
+            .map(|callable| StoredCallable {
+                symbol: callable.symbol.0,
+                key: self.strings.intern(&callable.key),
+                role: callable.role,
+            })
+            .collect();
+        callables.sort_by_key(|callable| callable.symbol);
+        callables.into_boxed_slice()
+    }
+
+    fn store_calls(&mut self, extraction: &Extraction) -> Box<[StoredCall]> {
+        let mut calls: Vec<StoredCall> = extraction
+            .calls
+            .iter()
+            .filter(|call| holds(extraction, call.caller_id))
+            .map(|call| {
+                let rooted = self.written_from_root(&call.callee);
+                let callee = rooted.unwrap_or(&call.callee);
+                let mut stored = StoredCall::new(
+                    call.caller_id.0,
+                    self.strings.intern(callee),
+                    call.receiver
+                        .as_deref()
+                        .map(|receiver| self.strings.intern(receiver)),
+                    call.line,
+                );
+                if rooted.is_some() {
+                    stored = stored.written_from_root();
+                }
+                stored
+            })
+            .collect();
+        calls.sort_by_key(|call| call.caller());
+        calls.into_boxed_slice()
+    }
+
+    fn store_includes(&mut self, path: Str, extraction: &Extraction) -> Box<[Str]> {
+        let mut includes: Vec<Str> = extraction
+            .includes
+            .iter()
+            .map(|include| self.strings.intern(&include.target))
+            .filter(|&target| target != path)
+            .collect();
+        includes.sort_unstable();
+        includes.dedup();
+        includes.into_boxed_slice()
+    }
+
+    fn store_re_exports(&mut self, extraction: &Extraction) -> Box<[StoredReExport]> {
+        extraction
+            .re_exports
+            .iter()
+            .map(|re_export| StoredReExport {
+                local_name: self.strings.intern(&re_export.local_name),
+                source_name: self.strings.intern(&re_export.source_name),
+                source_file: re_export
+                    .source_file
+                    .as_deref()
+                    .map(|file| self.strings.intern(file)),
+            })
+            .collect()
+    }
+
+    fn store_bindings(&mut self, extraction: &Extraction) -> Box<[StoredBinding]> {
+        extraction
+            .bindings
+            .iter()
+            .map(|binding| StoredBinding {
+                alias: binding
+                    .alias
+                    .as_deref()
+                    .map(|alias| self.strings.intern(alias)),
+                target_dir: binding
+                    .target_dir
+                    .as_deref()
+                    .map(|dir| self.strings.intern(dir)),
+                last_segment: self.strings.intern(&binding.last_segment),
+            })
+            .collect()
+    }
+
+    fn index(&mut self, slot: u32) {
+        let file = self.file(slot);
+        let names: Vec<Str> = file.symbols.iter().map(|symbol| symbol.name).collect();
+        let callables: Vec<(Str, Occurrence)> = file
+            .callables
+            .iter()
+            .map(|callable| {
+                let at = SymbolAt {
+                    file: slot,
+                    index: callable.symbol,
+                };
+                (
+                    callable.key,
+                    Occurrence {
+                        at,
+                        role: callable.role,
+                    },
+                )
+            })
+            .collect();
+
+        for (index, name) in names.into_iter().enumerate() {
+            let at = SymbolAt {
+                file: slot,
+                index: narrow(index),
+            };
+            let key = self.order_of(at);
+            let position = self.by_name.get(&name).map_or(0, |held| match held.last() {
+                Some(&last) if self.order_of(last) > key => {
+                    held.partition_point(|&other| self.order_of(other) < key)
+                }
+                _ => held.len(),
+            });
+            self.by_name.entry(name).or_default().insert(position, at);
+        }
+        for (key, occurrence) in callables {
+            self.callables.entry(key).or_default().push(occurrence);
+        }
+        if self.conventions.directory_packages {
+            self.index_package(slot);
+        }
+    }
+
+    fn index_package(&mut self, slot: u32) {
+        let dir = self.file(slot).dir;
+        let rank = self.path_rank(slot);
+        let position = self.package_files.get(&dir).map_or(0, |files| {
+            files.partition_point(|&held| self.path_rank(held) < rank)
+        });
+        self.package_files
+            .entry(dir)
+            .or_default()
+            .insert(position, slot);
+    }
+
     fn remove_at(&mut self, path: Str) -> bool {
         let Some(slot) = self.by_path.remove(&path) else {
             return false;
         };
+        self.forget(slot);
+        self.order.remove(slot);
+        self.vacant.push(slot);
+        true
+    }
+
+    fn forget(&mut self, slot: u32) {
         let Some(file) = self.files[slot as usize].take() else {
-            return false;
+            return;
         };
 
         let mut names: Vec<Str> = file.symbols.iter().map(|symbol| symbol.name).collect();
         names.sort_unstable();
         names.dedup();
         for name in names {
-            self.unlist(name, slot);
+            unlist(&mut self.by_name, name, |at| at.file != slot);
         }
+        for callable in &file.callables {
+            unlist(&mut self.callables, callable.key, |occurrence| {
+                occurrence.at.file != slot
+            });
+        }
+        unlist(&mut self.package_files, file.dir, |&held| held != slot);
         self.symbols -= file.symbols.len();
-        self.vacant.push(slot);
-        true
     }
+}
 
-    fn unlist(&mut self, name: Str, slot: u32) {
-        let Some(holders) = self.by_name.get_mut(&name) else {
-            return;
-        };
-        holders.retain(|at| at.file != slot);
-        if holders.is_empty() {
-            self.by_name.remove(&name);
+fn unlist<T>(index: &mut HashMap<Str, Vec<T>, FixedState>, key: Str, keep: impl FnMut(&T) -> bool) {
+    let Some(held) = index.get_mut(&key) else {
+        return;
+    };
+    held.retain(keep);
+    if held.is_empty() {
+        index.remove(&key);
+    }
+}
+
+fn locals(extraction: &Extraction) -> Box<[Local]> {
+    let mut is_local = vec![false; extraction.symbols.len()];
+    for local in &extraction.local_symbols {
+        if let Some(slot) = is_local.get_mut(local.0 as usize) {
+            *slot = true;
         }
     }
+    let mut holder = None;
+    let mut locals = Vec::new();
+    for (index, &local) in is_local.iter().enumerate() {
+        let index = narrow(index);
+        if local {
+            locals.push(Local {
+                symbol: index,
+                holder: holder.unwrap_or(index),
+            });
+        } else {
+            holder = Some(index);
+        }
+    }
+    locals.into_boxed_slice()
+}
+
+fn folded(extraction: &Extraction) -> Box<[Folded]> {
+    let mut folded: Vec<Folded> = extraction
+        .folded_declarations
+        .iter()
+        .map(|folded| Folded {
+            definition: folded.definition.0,
+            line: folded.line,
+        })
+        .collect();
+    folded.sort_by_key(|folded| folded.definition);
+    folded.into_boxed_slice()
+}
+
+fn local_calls(extraction: &Extraction) -> Box<[StoredLocalCall]> {
+    let mut local_calls: Vec<StoredLocalCall> = extraction
+        .local_calls
+        .iter()
+        .filter(|call| holds(extraction, call.caller_id) && holds(extraction, call.local))
+        .map(|call| StoredLocalCall {
+            caller: call.caller_id.0,
+            local: call.local.0,
+            line: call.line,
+        })
+        .collect();
+    local_calls.sort_by_key(|call| call.caller);
+    local_calls.into_boxed_slice()
+}
+
+// constraint: `NO_CALLER_ID`, the caller of a call at file scope, lies past every extraction's symbols
+const fn holds(extraction: &Extraction, id: SymbolId) -> bool {
+    (id.0 as usize) < extraction.symbols.len()
+}
+
+pub(crate) const fn is_call_target_kind(kind: SymbolKind) -> bool {
+    !matches!(kind, SymbolKind::Field | SymbolKind::EnumVariant)
+}
+
+// constraint: the order of the file index, whose `/` ranks below every other byte, so the engine inserts files in this
+// order and path order ties break the same way in the graph and in the index
+pub(crate) fn tree_order(left: &str, right: &str) -> Ordering {
+    let rank = |byte: u8| if byte == b'/' { 0 } else { u16::from(byte) + 1 };
+    left.bytes().map(rank).cmp(right.bytes().map(rank))
 }
 
 const fn rank_key<'g>(
@@ -347,8 +661,25 @@ const fn rank_key<'g>(
 
 #[expect(
     clippy::expect_used,
-    reason = "a graph holds fewer than four billion files and a file fewer than four billion definitions"
+    reason = "a graph holds fewer than two billion files and a file fewer than two billion definitions or calls"
 )]
-fn narrow(len: usize) -> u32 {
-    u32::try_from(len).expect("fewer than four billion")
+pub(crate) fn narrow(len: usize) -> u32 {
+    u32::try_from(len)
+        .ok()
+        .filter(|&narrow| narrow < 1 << 31)
+        .expect("fewer than two billion")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_directory_comes_before_a_sibling_its_name_prefixes() {
+        let mut paths = ["a-b/x.go", "a/z.go", "a/b/y.go", "a.go"];
+
+        paths.sort_by(|left, right| tree_order(left, right));
+
+        assert_eq!(paths, ["a/b/y.go", "a/z.go", "a-b/x.go", "a.go"]);
+    }
 }
