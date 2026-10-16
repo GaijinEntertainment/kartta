@@ -8,6 +8,7 @@ members = [
     "crates/kartta-graph",
     "crates/kartta-lang",
     "crates/kartta-lang-cpp",
+    "crates/kartta-lang-daslang",
     "crates/kartta-lang-go",
     "crates/kartta-lang-jsts",
     "crates/kartta-walk",
