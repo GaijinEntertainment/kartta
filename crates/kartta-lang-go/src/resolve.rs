@@ -1,3 +1,5 @@
+use std::cmp::Reverse;
+
 use kartta_lang::path::{dir, join};
 use kartta_lang::{
     Extraction, ImportBinding, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
@@ -57,16 +59,24 @@ impl<'r> GoResolver<'r> {
             return Some((vendored, files));
         }
 
+        // constraint: two modules can declare one path, a checkout's nested copy among them; the go command builds
+        // the importing file's own module, so its packages win the tie
         let (module, suffix) = self
             .modules
             .iter()
             .filter(|module| module.replaced_in.is_none() || module.replaced_in.as_deref() == owner)
-            .find_map(|module| {
+            .filter_map(|module| {
                 let suffix = match spec.strip_prefix(module.prefix.as_str())? {
                     "" => "",
                     rest => rest.strip_prefix('/')?,
                 };
                 Some((module, suffix))
+            })
+            .min_by_key(|(module, _)| {
+                (
+                    Reverse(module.prefix.len()),
+                    Some(module.dir.as_str()) != owner,
+                )
             })?;
         let target = match (module.dir.as_str(), suffix) {
             ("", "") => ".".to_owned(),
