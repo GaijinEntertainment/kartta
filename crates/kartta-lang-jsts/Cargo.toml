@@ -1,0 +1,22 @@
+[package]
+name = "kartta-lang-jsts"
+description = "TypeScript, TSX and JavaScript extraction for the kartta code graph"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["code-graph", "typescript", "javascript", "tree-sitter", "static-analysis"]
+categories = ["development-tools", "parser-implementations"]
+
+[lints]
+workspace = true
+
+[dependencies]
+kartta-lang = { version = "0.0.0", path = "../kartta-lang", features = ["tree-sitter"] }
+serde_json = "1.0.154"
+tree-sitter = "0.27.1"
+tree-sitter-javascript = "0.25.0"
+tree-sitter-typescript = "0.23.2"
