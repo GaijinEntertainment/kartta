@@ -1,0 +1,30 @@
+# kartta-cache
+
+Content-addressed cache shared by concurrent processes, stored as immutable mapped packs.
+
+Processes that index nearly identical trees compute the same per-file data over and over: checkouts that differ in a
+hundred files out of a hundred thousand share everything else. This crate lets them share it. An entry is keyed by the
+`ContentHash` of the bytes it was computed from and by a `Namespace` naming what was computed and by which version of
+the code. Nothing in a key names a path or a tree, so identical contents share one entry wherever they sit.
+
+## Packs
+
+A process gathers the entries it computed in a `PackWriter` and publishes them together as one pack: payloads, an index
+sorted by key, and a footer. `Store::open` maps every pack in the directory and `Store::get` binary-searches their
+indexes, so a lookup opens no file and copies no byte. A store of one file per entry spends its time opening files —
+on macOS, three million lookups that way took 47–49s against 0.05s in one mapped index.
+
+## Sharing without coordination
+
+A published pack is never written again. The writer stages it under a temporary name, syncs it, and hard-links it under
+a name derived from its index, which creates the name only where none exists, so a pack appears whole or not at all and
+is never replaced under a reader. Processes read and publish in one directory with no lock; a store keeps the packs it
+mapped for its life and sees later ones when opened again. Every entry carries a 64-bit check over its key and payload,
+verified on each lookup, so damage on disk escapes it only with a chance of 2^-64: a damaged entry is passed over and
+another pack's sound copy answers, or the lookup misses. The check guards against damage, not against a process that
+can write the directory.
+
+The store's directory must allow hard links. Packs accumulate: each publish adds one, and nothing merges or removes them
+yet.
+
+Status: the API is new and is not published yet.
