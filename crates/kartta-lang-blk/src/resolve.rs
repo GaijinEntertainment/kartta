@@ -1,0 +1,110 @@
+use std::borrow::Cow;
+
+use kartta_lang::path::{base, dir, join};
+use kartta_lang::{Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver};
+
+use crate::mounts::MountTable;
+use crate::raw_extraction;
+use crate::walk::INCLUDE_FORM;
+
+// shortcut: the mount table is read only from the files of these names -- the settings file of a game, the
+// `application.blk` of a tool and the `--config` files of the AOT compilers -- though an application may name any
+// file; compile it from the extraction of every BLK file once a resolver can be built over the files it claims
+const MOUNT_FILE_NAMES: [&str; 4] = [
+    "settings.blk",
+    "application.blk",
+    "aot_config.blk",
+    "libs_aot_config.blk",
+];
+
+pub(crate) struct BlkResolver<'r> {
+    repository: &'r dyn Repository,
+    mounts: MountTable,
+}
+
+impl<'r> BlkResolver<'r> {
+    pub(crate) fn new(repository: &'r dyn Repository) -> Self {
+        let mut mounts = MountTable::default();
+        let stating_files = MOUNT_FILE_NAMES
+            .into_iter()
+            .flat_map(|name| repository.files_named(name));
+        for path in stating_files {
+            if let Ok(source) = repository.read(&path) {
+                mounts.add(&path, &raw_extraction(&source));
+            }
+        }
+
+        Self { repository, mounts }
+    }
+
+    // constraint: the file layer reads `\` as `/`; a `#` path is relative to a root the application sets, and an
+    // absolute path, a drive-letter one included, or one relative to the working directory (`:/`) names no
+    // repository file
+    fn target(&self, read: &str, including: &str) -> Option<String> {
+        if read.starts_with('%') {
+            return self.mounts.resolve(read, including, self.repository);
+        }
+        let read = forward_slashes(read);
+        if let Some(root_relative) = read.strip_prefix('#') {
+            return self.sole_candidate(root_relative);
+        }
+        if read.starts_with('/') || read.contains(':') {
+            return None;
+        }
+
+        indexed(join(dir(including), &read)?, self.repository)
+    }
+
+    fn sole_candidate(&self, root_relative: &str) -> Option<String> {
+        let suffix = join(".", root_relative).filter(|suffix| !suffix.is_empty())?;
+        let mut matches = self
+            .repository
+            .files_named(base(&suffix))
+            .filter(|candidate| {
+                candidate
+                    .strip_suffix(suffix.as_str())
+                    .is_some_and(|root| root.is_empty() || root.ends_with('/'))
+            });
+        let only = matches.next()?;
+
+        matches.next().is_none().then_some(only)
+    }
+}
+
+impl Resolver for BlkResolver<'_> {
+    fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
+        let (mut extraction, directives) = raw.into_extraction(path);
+
+        for directive in directives {
+            if directive.form != INCLUDE_FORM {
+                continue;
+            }
+            let read = directive.names.first().unwrap_or(&directive.spec);
+            match self.target(read, path) {
+                Some(target) => extraction.includes.push(IncludeRef { target }),
+                None => extraction.imports.push(ImportRef {
+                    module: directive.spec,
+                    names: Vec::new(),
+                    line: directive.line,
+                }),
+            }
+        }
+
+        extraction
+    }
+}
+
+pub(crate) fn forward_slashes(path: &str) -> Cow<'_, str> {
+    if path.contains('\\') {
+        Cow::Owned(path.replace('\\', "/"))
+    } else {
+        Cow::Borrowed(path)
+    }
+}
+
+// shortcut: a target matches its file in letter case, though a game reads its shipped files from a vromfs that
+// ignores case and takes the one file that differs only in case -- match without case once `Repository` can look a
+// path up that way
+pub(crate) fn indexed(path: String, repository: &dyn Repository) -> Option<String> {
+    repository.contains(&path).then_some(path)
+}

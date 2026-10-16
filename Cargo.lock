@@ -628,6 +628,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kartta-lang-blk"
+version = "0.0.0"
+dependencies = [
+ "kartta-lang",
+ "tree-sitter",
+ "tree-sitter-blk",
+]
+
+[[package]]
 name = "kartta-lang-cpp"
 version = "0.0.0"
 dependencies = [
@@ -1126,6 +1135,16 @@ dependencies = [
  "regex",
  "serde_json",
  "streaming-iterator",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-blk"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94b2411ab0fb115774184f13c0b13331c2dba01bec1e4778c0907fffafa1af05"
+dependencies = [
+ "cc",
  "tree-sitter-language",
 ]
 
