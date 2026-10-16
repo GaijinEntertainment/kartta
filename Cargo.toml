@@ -13,6 +13,7 @@ members = [
     "crates/kartta-lang-go",
     "crates/kartta-lang-jsts",
     "crates/kartta-lang-quirrel",
+    "crates/kartta-lang-rust",
     "crates/kartta-walk",
 ]
 

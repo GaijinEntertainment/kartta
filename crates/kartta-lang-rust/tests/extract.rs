@@ -1,0 +1,712 @@
+//! What a Rust file extracts to from its bytes alone: its items and members, the calls its functions make, and the
+//! code its attributes and banner mark.
+#![expect(
+    clippy::panic,
+    reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
+              helpers of an integration test crate are neither; a failed lookup is the assertion"
+)]
+
+use kartta_lang::{Language, RawExtraction, Symbol, SymbolId, SymbolKind};
+use kartta_lang_rust::Rust;
+
+const SAMPLE: &[u8] = br#"
+pub struct Service {
+    name: String,
+}
+
+enum State {
+    Idle,
+    Busy,
+}
+
+pub trait Greeter {
+    fn greet(&self) -> String;
+}
+
+pub type Alias = Service;
+
+macro_rules! greet_all {
+    () => {};
+}
+
+mod internal {
+    pub const MAX: u32 = 10;
+    static COUNTER: u32 = 0;
+}
+
+impl Greeter for Service {
+    fn greet(&self) -> String {
+        helper(&self.name)
+    }
+}
+
+impl Iterator for Service {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<u32> {
+        None
+    }
+}
+
+impl Service {
+    pub fn new(name: String) -> Service {
+        Service { name }
+    }
+
+    fn touch(&self) {
+        self.greet();
+        log::info!("touched");
+        std::mem::drop(0);
+        std::mem::size_of::<u8>();
+        let buf: Vec<u8> = Vec::<u8>::new();
+        Self::new(String::new());
+    }
+}
+
+pub fn helper(v: &str) -> String {
+    v.to_owned()
+}
+
+fn private_fn() {
+    println!("hi");
+}
+"#;
+
+fn extract(source: &[u8]) -> RawExtraction {
+    Rust::new().extract(source)
+}
+
+fn named<'r>(raw: &'r RawExtraction, name: &str) -> &'r Symbol {
+    raw.symbols
+        .iter()
+        .find(|symbol| symbol.name == name)
+        .unwrap_or_else(|| panic!("no symbol {name}"))
+}
+
+fn qualified<'r>(raw: &'r RawExtraction, name: &str) -> &'r Symbol {
+    raw.symbols
+        .iter()
+        .find(|symbol| symbol.qualified_name == name)
+        .unwrap_or_else(|| panic!("no symbol {name}"))
+}
+
+fn id_of(raw: &RawExtraction, name: &str) -> SymbolId {
+    let at = raw
+        .symbols
+        .iter()
+        .position(|symbol| symbol.qualified_name == name)
+        .unwrap_or_else(|| panic!("no symbol {name}"));
+    SymbolId(u32::try_from(at).unwrap_or(u32::MAX))
+}
+
+fn qualified_names(raw: &RawExtraction) -> Vec<&str> {
+    raw.symbols
+        .iter()
+        .map(|symbol| symbol.qualified_name.as_str())
+        .collect()
+}
+
+fn is_test(source: &[u8], name: &str) -> bool {
+    named(&extract(source), name).flags.is_test()
+}
+
+fn is_generated(source: &[u8]) -> bool {
+    let raw = extract(source);
+    assert_ne!(raw.symbols.len(), 0);
+    raw.symbols.iter().all(|symbol| symbol.flags.is_generated())
+}
+
+#[test]
+fn items_and_members_are_symbols_in_source_order() {
+    let raw = extract(SAMPLE);
+
+    assert_eq!(
+        qualified_names(&raw),
+        [
+            "Service",
+            "Service::name",
+            "State",
+            "State::Idle",
+            "State::Busy",
+            "Greeter",
+            "Greeter::greet",
+            "Alias",
+            "greet_all",
+            "internal",
+            "internal::MAX",
+            "internal::COUNTER",
+            "Service::greet",
+            "Service::Item",
+            "Service::next",
+            "Service::new",
+            "Service::touch",
+            "helper",
+            "private_fn",
+        ]
+    );
+    let kinds = [
+        ("Service", SymbolKind::Struct),
+        ("State", SymbolKind::Enum),
+        ("Greeter", SymbolKind::Interface),
+        ("Alias", SymbolKind::TypeAlias),
+        ("greet_all", SymbolKind::Macro),
+        ("internal", SymbolKind::Namespace),
+        ("MAX", SymbolKind::Constant),
+        ("COUNTER", SymbolKind::Variable),
+        ("helper", SymbolKind::Function),
+        ("name", SymbolKind::Field),
+        ("Idle", SymbolKind::EnumVariant),
+    ];
+    for (name, kind) in kinds {
+        assert_eq!(named(&raw, name).kind, kind, "{name}");
+    }
+}
+
+#[test]
+fn fields_and_variants_are_owned_by_their_type() {
+    let raw = extract(SAMPLE);
+    let name = qualified(&raw, "Service::name");
+
+    assert_eq!(
+        (name.kind, name.owner.as_deref(), name.exported),
+        (SymbolKind::Field, Some("Service"), false)
+    );
+    for variant in ["State::Idle", "State::Busy"] {
+        let variant = qualified(&raw, variant);
+        assert_eq!(variant.kind, SymbolKind::EnumVariant);
+        assert_eq!(variant.owner.as_deref(), Some("State"));
+    }
+}
+
+#[test]
+fn an_impl_member_is_a_method_of_its_type_and_a_free_function_is_owned_by_nothing() {
+    let raw = extract(SAMPLE);
+    let greet = qualified(&raw, "Service::greet");
+    let helper = named(&raw, "helper");
+
+    assert_eq!(
+        (greet.kind, greet.owner.as_deref()),
+        (SymbolKind::Method, Some("Service"))
+    );
+    assert_eq!(
+        (helper.kind, helper.owner.as_deref()),
+        (SymbolKind::Function, None)
+    );
+}
+
+#[test]
+fn a_trait_impl_adds_the_trait_to_the_parents_of_the_type() {
+    let raw = extract(SAMPLE);
+
+    assert_eq!(named(&raw, "Service").parents, ["Greeter", "Iterator"]);
+    assert_eq!(named(&raw, "State").parents.len(), 0);
+}
+
+#[test]
+fn a_trait_member_is_a_method_of_the_trait_with_its_visibility() {
+    let raw = extract(SAMPLE);
+    let signature = qualified(&raw, "Greeter::greet");
+
+    assert_eq!(
+        (
+            signature.kind,
+            signature.owner.as_deref(),
+            signature.exported
+        ),
+        (SymbolKind::Method, Some("Greeter"), true)
+    );
+}
+
+#[test]
+fn a_signature_is_the_declaration_without_its_body() {
+    let raw = extract(SAMPLE);
+
+    assert_eq!(
+        qualified(&raw, "Service::new").signature.as_deref(),
+        Some("pub fn new(name: String) -> Service")
+    );
+    assert_eq!(
+        qualified(&raw, "Greeter::greet").signature.as_deref(),
+        Some("fn greet(&self) -> String")
+    );
+    assert_eq!(named(&raw, "Service").signature, None);
+}
+
+#[test]
+fn an_associated_type_is_an_alias_owned_by_its_type() {
+    let raw = extract(SAMPLE);
+    let item = qualified(&raw, "Service::Item");
+
+    assert_eq!(
+        (item.kind, item.owner.as_deref()),
+        (SymbolKind::TypeAlias, Some("Service"))
+    );
+}
+
+#[test]
+fn a_trait_declared_associated_type_is_an_alias_of_the_trait() {
+    let raw = extract(
+        b"pub trait Stream {\n    type Item;\n    type Error: Clone;\n\
+          \x20   fn next(&mut self) -> Option<Self::Item>;\n}\n",
+    );
+    let item = qualified(&raw, "Stream::Item");
+
+    assert_eq!(
+        qualified_names(&raw),
+        ["Stream", "Stream::Item", "Stream::Error", "Stream::next"]
+    );
+    assert_eq!(
+        (item.kind, item.owner.as_deref(), item.exported),
+        (SymbolKind::TypeAlias, Some("Stream"), true)
+    );
+    assert_eq!(qualified(&raw, "Stream::Error").kind, SymbolKind::TypeAlias);
+}
+
+#[test]
+fn visibility_follows_the_pub_modifier() {
+    let raw = extract(SAMPLE);
+
+    for name in ["Service", "new", "MAX", "Alias"] {
+        assert!(named(&raw, name).exported, "{name}");
+    }
+    for name in ["State", "touch", "private_fn", "greet_all"] {
+        assert!(!named(&raw, name).exported, "{name}");
+    }
+}
+
+#[test]
+fn a_visibility_restricted_to_its_own_module_is_not_exported() {
+    let raw = extract(
+        b"pub(self) fn own() {}\npub(in self) fn also_own() {}\npub(crate) fn shared() {}\n",
+    );
+
+    assert!(!named(&raw, "own").exported);
+    assert!(!named(&raw, "also_own").exported);
+    assert!(named(&raw, "shared").exported);
+}
+
+#[test]
+fn a_union_is_a_struct_with_fields() {
+    let raw = extract(b"pub union U {\n    pub a: u32,\n    b: f32,\n}\n");
+
+    assert_eq!(qualified_names(&raw), ["U", "U::a", "U::b"]);
+    assert_eq!(named(&raw, "U").kind, SymbolKind::Struct);
+    assert_eq!(qualified(&raw, "U::a").kind, SymbolKind::Field);
+    assert!(qualified(&raw, "U::a").exported);
+    assert!(!qualified(&raw, "U::b").exported);
+}
+
+#[test]
+fn extern_crate_and_pub_use_extract_nothing() {
+    let raw = extract(b"extern crate serde;\n\npub use crate::foo::Bar;\n\npub fn anchor() {}\n");
+
+    assert_eq!(qualified_names(&raw), ["anchor"]);
+    assert_eq!(raw.directives.len(), 0);
+    assert_eq!(raw.re_exports.len(), 0);
+}
+
+#[test]
+fn an_impl_of_a_wrapped_target_is_owned_by_its_nominal_type() {
+    let raw = extract(
+        b"impl Display for &str {\n    fn fmt(&self) -> u32 { Self::helper() }\n}\n\n\
+          impl Pair for (u8, u8) {\n    fn swap(&self) {}\n}\n\n\
+          impl Show for dyn Bar {\n    fn show(&self) {}\n}\n\n\
+          impl Reader for *const u8 {\n    fn read(&self) -> u32 { 0 }\n}\n\n\
+          pub struct Elem;\n\nimpl Marker for &[Elem] {}\n",
+    );
+    let helper = raw
+        .calls
+        .iter()
+        .find(|call| call.callee == "helper")
+        .expect("helper call");
+
+    assert_eq!(named(&raw, "fmt").qualified_name, "str::fmt");
+    assert_eq!(helper.receiver.as_deref(), Some("str"));
+    assert_eq!(named(&raw, "swap").owner, None);
+    assert_eq!(named(&raw, "show").owner, None);
+    assert_eq!(named(&raw, "read").qualified_name, "u8::read");
+    assert_eq!(named(&raw, "Elem").parents, ["Marker"]);
+}
+
+#[test]
+fn a_trait_impl_whose_scoped_path_names_no_declaration_adds_no_parent() {
+    let raw = extract(
+        b"pub struct Foo;\nimpl Display for crate::Foo {}\nimpl Debug for other::Foo {}\nimpl Eq for Foo {}\n",
+    );
+
+    assert_eq!(named(&raw, "Foo").parents, ["Eq"]);
+    assert_eq!(raw.symbols.len(), 1);
+}
+
+#[test]
+fn a_trait_impl_goes_to_the_type_of_its_qualified_name_before_one_of_its_bare_name() {
+    let raw = extract(
+        b"mod a {\n    pub struct Foo;\n    pub struct Bar;\n}\npub struct Foo;\nimpl Eq for Foo {}\n\
+          mod b {\n    use super::a::Bar;\n    impl Ord for Bar {}\n}\n",
+    );
+
+    assert_eq!(qualified(&raw, "Foo").parents, ["Eq"]);
+    assert_eq!(qualified(&raw, "a::Foo").parents.len(), 0);
+    assert_eq!(qualified(&raw, "a::Bar").parents, ["Ord"]);
+}
+
+#[test]
+fn an_associated_const_is_owned_by_its_type_and_a_scoped_impl_target_finds_its_type() {
+    let raw = extract(
+        b"pub struct Limits;\nimpl Limits {\n    pub const MAX: u32 = 10;\n}\n\
+          pub trait Tagged {\n    const TAG: u32;\n}\n\
+          mod inner {\n    pub struct Widget;\n}\n\
+          impl Tagged for inner::Widget {\n    const TAG: u32 = 1;\n}\n",
+    );
+    let max = qualified(&raw, "Limits::MAX");
+
+    assert_eq!(
+        (max.kind, max.owner.as_deref()),
+        (SymbolKind::Constant, Some("Limits"))
+    );
+    assert!(qualified(&raw, "Tagged::TAG").exported);
+    assert_eq!(named(&raw, "Widget").parents, ["Tagged"]);
+}
+
+#[test]
+fn a_call_belongs_to_the_function_around_it_and_self_names_the_impl_type() {
+    let raw = extract(SAMPLE);
+    let helper = raw
+        .calls
+        .iter()
+        .find(|call| call.callee == "helper")
+        .expect("helper call");
+    let greet = raw
+        .calls
+        .iter()
+        .find(|call| call.callee == "greet")
+        .expect("self.greet() call");
+
+    assert_eq!(
+        (helper.caller_id, helper.receiver.as_deref()),
+        (id_of(&raw, "Service::greet"), None)
+    );
+    assert_eq!(
+        (greet.caller_id, greet.receiver.as_deref()),
+        (id_of(&raw, "Service::touch"), Some("Service"))
+    );
+}
+
+#[test]
+fn a_scoped_or_macro_call_names_its_last_segment() {
+    let raw = extract(SAMPLE);
+    let receiver_of = |callee: &str| {
+        raw.calls
+            .iter()
+            .find(|call| call.callee == callee)
+            .map(|call| call.receiver.clone())
+    };
+
+    assert_eq!(receiver_of("drop"), Some(Some("mem".to_owned())));
+    assert_eq!(receiver_of("size_of"), Some(Some("mem".to_owned())));
+    assert_eq!(receiver_of("info"), Some(None));
+    assert_eq!(receiver_of("println"), Some(None));
+}
+
+#[test]
+fn a_generic_path_or_self_path_names_its_type() {
+    let raw = extract(SAMPLE);
+    let receivers: Vec<Option<&str>> = raw
+        .calls
+        .iter()
+        .filter(|call| call.callee == "new")
+        .map(|call| call.receiver.as_deref())
+        .collect();
+
+    assert_eq!(receivers, [Some("Vec"), Some("Service"), Some("String")]);
+}
+
+#[test]
+fn a_member_call_on_an_unnamed_expression_keeps_an_empty_receiver() {
+    let raw = extract(b"fn f() { items[0].close(); self.pool.get(); make().run(); }\n");
+    let calls: Vec<(&str, Option<&str>)> = raw
+        .calls
+        .iter()
+        .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+        .collect();
+
+    assert_eq!(
+        calls,
+        [
+            ("close", Some("")),
+            ("get", Some("")),
+            ("run", Some("")),
+            ("make", None)
+        ]
+    );
+}
+
+#[test]
+fn a_closure_opens_no_scope() {
+    let raw = extract(
+        b"fn outer() {\n    let f = |x: u32| helper(x);\n    f(1);\n}\n\nfn helper(_x: u32) {}\n",
+    );
+    let call = raw
+        .calls
+        .iter()
+        .find(|call| call.callee == "helper")
+        .expect("helper call");
+
+    assert_eq!(call.caller_id, id_of(&raw, "outer"));
+}
+
+#[test]
+fn a_cfg_test_module_marks_everything_in_it() {
+    let source = b"pub fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    fn helper() -> u32 {\n        0\n    }\n\n\
+                   #[test]\n    fn it_works() {\n        helper();\n    }\n}\n";
+
+    assert!(!is_test(source, "prod"));
+    for name in ["tests", "helper", "it_works"] {
+        assert!(is_test(source, name), "{name}");
+    }
+}
+
+#[test]
+fn a_cfg_test_extern_block_marks_its_functions() {
+    let source =
+        b"extern \"C\" {\n    fn prod();\n}\n\n#[cfg(test)]\nextern \"C\" {\n    fn probe();\n}\n";
+
+    assert!(!is_test(source, "prod"));
+    assert!(is_test(source, "probe"));
+}
+
+#[test]
+fn a_file_top_inner_cfg_test_marks_the_whole_file() {
+    let source = b"#![cfg(test)]\n\nfn helper() {}\n\nfn another() {}\n";
+
+    assert!(is_test(source, "helper"));
+    assert!(is_test(source, "another"));
+}
+
+#[test]
+fn an_inner_cfg_test_in_an_inline_module_marks_the_module_and_nothing_outside() {
+    let source = b"pub fn prod() {}\n\nmod helpers {\n    #![cfg(test)]\n\n    fn within() {}\n}\n";
+
+    assert!(is_test(source, "within"));
+    assert!(is_test(source, "helpers"));
+    assert!(!is_test(source, "prod"));
+}
+
+#[test]
+fn a_cfg_gates_test_code_only_when_it_holds_only_under_test() {
+    let source = br#"
+#[cfg(all(test, feature = "extra"))]
+mod gated { fn within() {} }
+#[cfg(all(test, not(miri)))]
+mod skips_under_miri { fn helper() {} }
+#[cfg(not(test))]
+fn prod_only() {}
+#[cfg(feature = "fastest")]
+fn fast_path() {}
+#[cfg(any())]
+fn never_compiled() {}
+#[cfg(all())]
+fn always_compiled() {}
+#[cfg(any(test, feature = "extra"))]
+mod maybe_prod { fn maybe() {} }
+#[cfg(any(test))]
+mod only_test { fn solely() {} }
+#[cfg(not(not(test)))]
+fn double_neg() {}
+#[cfg(test)]
+fn under_test() {}
+"#;
+
+    for name in [
+        "gated",
+        "within",
+        "skips_under_miri",
+        "helper",
+        "solely",
+        "double_neg",
+        "under_test",
+    ] {
+        assert!(is_test(source, name), "{name}");
+    }
+    for name in [
+        "prod_only",
+        "fast_path",
+        "never_compiled",
+        "always_compiled",
+        "maybe_prod",
+        "maybe",
+    ] {
+        assert!(!is_test(source, name), "{name}");
+    }
+}
+
+#[test]
+fn a_repeated_cfg_atom_takes_one_truth_in_each_configuration() {
+    let source = br#"
+#[cfg(all(any(test, feature = "x"), not(feature = "x")))]
+fn needs_test() {}
+#[cfg(all(feature = "x", not(feature="x")))]
+fn never_compiled() {}
+#[cfg(any(feature = "x", not(feature = "x")))]
+fn always_compiled() {}
+"#;
+
+    assert!(is_test(source, "needs_test"));
+    assert!(!is_test(source, "never_compiled"));
+    assert!(!is_test(source, "always_compiled"));
+}
+
+#[test]
+fn a_cfg_of_many_atoms_written_once_still_gates_test_code() {
+    let features: Vec<String> = ('a'..='p')
+        .map(|name| format!("feature = \"{name}\""))
+        .collect();
+    let source = format!(
+        "#[cfg(all(test, {all}))]\nfn needs_test() {{}}\n#[cfg(any(test, {all}))]\nfn maybe_prod() {{}}\n",
+        all = features.join(", ")
+    );
+
+    assert!(is_test(source.as_bytes(), "needs_test"));
+    assert!(!is_test(source.as_bytes(), "maybe_prod"));
+}
+
+#[test]
+fn a_test_gated_field_or_variant_is_test_code() {
+    let source =
+        b"pub struct Config {\n    pub name: String,\n    #[cfg(test)]\n    pub probe: u32,\n}\n\
+                   pub enum Mode {\n    Live,\n    #[cfg(test)]\n    Fake,\n}\n";
+
+    assert!(is_test(source, "probe"));
+    assert!(is_test(source, "Fake"));
+    assert!(!is_test(source, "name"));
+    assert!(!is_test(source, "Live"));
+    assert!(!is_test(source, "Config"));
+}
+
+#[test]
+fn a_test_or_bench_attribute_marks_its_function() {
+    let source = b"#[test]\nfn standalone() {}\n\n#[tokio::test]\n// a comment between\nasync fn spawned() {}\n\n\
+                   #[bench]\nfn measures(b: &mut Bencher) {}\n\npub fn ordinary() {}\n";
+
+    for name in ["standalone", "spawned", "measures"] {
+        assert!(is_test(source, name), "{name}");
+    }
+    let ordinary = named(&extract(source), "ordinary").flags;
+    assert!(!ordinary.is_test() && !ordinary.is_entry());
+}
+
+#[test]
+fn every_top_level_main_and_nothing_else_is_an_entry_candidate() {
+    let raw = extract(
+        b"#[cfg(unix)]\nfn main() {}\n\n#[cfg(windows)]\nfn main() {}\n\n\
+          struct App;\nimpl App {\n    fn main(&self) {}\n}\nmod cli {\n    fn main() {}\n}\n",
+    );
+    let candidates: Vec<&str> = raw
+        .entry_candidates
+        .iter()
+        .map(|id| raw.symbols[id.0 as usize].qualified_name.as_str())
+        .collect();
+
+    assert_eq!(candidates, ["main", "main"]);
+    assert!(raw.symbols.iter().all(|symbol| !symbol.flags.is_entry()));
+}
+
+#[test]
+fn a_bodiless_mod_leaves_a_directive_with_its_path_override_and_its_test_gate() {
+    let raw = extract(
+        b"#[path = \"platform/linux.rs\"]\n// platform-specific\nmod platform;\n\
+          mod plain;\n#[cfg(test)]\nmod tests;\nmod inline {}\n",
+    );
+    let directives: Vec<(&str, &[String])> = raw
+        .directives
+        .iter()
+        .map(|directive| (directive.spec.as_str(), directive.names.as_slice()))
+        .collect();
+
+    assert_eq!(
+        directives,
+        [
+            ("platform", ["platform/linux.rs".to_owned()].as_slice()),
+            ("plain", [].as_slice()),
+            ("tests", [].as_slice())
+        ]
+    );
+    assert_ne!(raw.directives[2].form, raw.directives[1].form);
+    assert_eq!(raw.directives[0].form, raw.directives[1].form);
+}
+
+#[test]
+fn a_bodiless_mod_in_an_inline_module_names_its_path_from_the_file() {
+    let raw = extract(b"mod a {\n    mod b {\n        mod c;\n    }\n    mod d;\n}\nmod e;\n");
+    let specs: Vec<&str> = raw
+        .directives
+        .iter()
+        .map(|directive| directive.spec.as_str())
+        .collect();
+
+    assert_eq!(specs, ["a/b/c", "a/d", "e"]);
+}
+
+#[test]
+fn a_path_override_of_a_prior_item_does_not_reach_the_next() {
+    let raw = extract(b"#[path = \"custom/first.rs\"]\nmod first;\nmod second;\n");
+
+    assert_eq!(raw.directives[0].names, ["custom/first.rs"]);
+    assert_eq!(raw.directives[1].names.len(), 0);
+}
+
+#[test]
+fn a_marker_in_the_leading_comments_marks_the_file_generated() {
+    for source in [
+        b"// @generated by a tool. DO NOT EDIT.\n\npub fn emitted() {}\n".as_slice(),
+        b"//! Bindings for the wire protocol.\n//!\n//! @generated by a tool. DO NOT EDIT.\n\npub fn emitted() {}\n",
+        b"/*\n * @generated by tool\n */\npub fn from_block() {}\n",
+        b"/* @generated */\npub fn one_liner() {}\n",
+        b"/* header */ // @generated\npub fn after_a_block() {}\n",
+        b"/* a */ /* @generated */\npub fn second_block() {}\n",
+        b"\xEF\xBB\xBF// @generated\npub fn after_a_byte_order_mark() {}\n",
+    ] {
+        assert!(is_generated(source), "{}", String::from_utf8_lossy(source));
+    }
+}
+
+#[test]
+fn a_mention_a_marker_after_code_or_a_plain_header_marks_nothing() {
+    for source in [
+        b"//! The lua extractor.\n//!\n//! Role flags: a `*.gen.lua` name or a `@generated` / `DO NOT EDIT` marker\n\
+          //! in the file's leading comment run marks every symbol generated.\n\npub fn extract() {}\n"
+            .as_slice(),
+        b"//! a `@generated` / `DO NOT EDIT` marker\n\npub fn f() {}\n",
+        b"/* header */ pub fn real() {}\n// DO NOT EDIT\n",
+        b"/* header\n*/ pub fn spans() {}\n// DO NOT EDIT\n",
+        b"/* header */ pub const S: &str = \"DO NOT EDIT\";\npub fn coded() {}\n",
+        b"pub fn handwritten() {}\n// @generated\n",
+    ] {
+        let raw = extract(source);
+
+        assert_ne!(raw.symbols.len(), 0);
+        assert!(
+            raw.symbols.iter().all(|symbol| !symbol.flags.is_generated()),
+            "{}",
+            String::from_utf8_lossy(source)
+        );
+    }
+}
+
+#[test]
+fn rust_claims_its_extension_in_any_case() {
+    let rust = Rust::new();
+
+    assert!(rust.claims("src/lib.rs"));
+    assert!(rust.claims("src/Main.RS"));
+    assert!(!rust.claims("Cargo.toml"));
+    assert!(!rust.claims("rs"));
+}
+
+#[test]
+fn the_fingerprint_names_the_crate_and_stays_put() {
+    let first = Rust::new().fingerprint().to_vec();
+
+    assert!(first.starts_with(b"kartta-lang-rust\0"));
+    assert_eq!(Rust::new().fingerprint(), first.as_slice());
+}
