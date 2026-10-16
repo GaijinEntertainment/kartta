@@ -3,6 +3,7 @@ use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
 
+use crate::config::is_vendored;
 use crate::generated::name_marks_generated;
 use crate::modules::Modules;
 
@@ -24,7 +25,8 @@ impl Resolver for JstsResolver<'_> {
 
         let path_flags = SymbolFlags::empty()
             .with_test(is_test_file(path))
-            .with_generated(name_marks_generated(base(path)));
+            .with_generated(name_marks_generated(base(path)))
+            .with_vendored(is_vendored(path));
         for symbol in &mut extraction.symbols {
             symbol.flags = symbol.flags.union(path_flags);
         }

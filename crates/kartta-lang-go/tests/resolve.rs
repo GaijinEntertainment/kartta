@@ -315,6 +315,25 @@ fn a_test_file_marks_every_symbol_as_test() {
 }
 
 #[test]
+fn a_file_under_a_vendor_directory_marks_every_symbol_as_vendored() {
+    let source = b"\npackage sample\n\nfunc Helper() {}\n\nfunc Other() {}\n";
+
+    for path in ["vendor/x/sample.go", "app/vendor/x/sample.go"] {
+        let vendored = resolve(&APP, source, path);
+        for name in ["sample.Helper", "sample.Other"] {
+            assert!(qualified(&vendored, name).flags.is_vendored(), "{path}");
+        }
+    }
+    for path in ["sample.go", "vendors/sample.go", "app/myvendor/sample.go"] {
+        let ordinary = resolve(&APP, source, path);
+        assert!(
+            !qualified(&ordinary, "sample.Helper").flags.is_vendored(),
+            "{path}"
+        );
+    }
+}
+
+#[test]
 fn a_pb_go_file_is_generated_without_the_banner() {
     let source = b"\npackage sample\n\nfunc FromProto() {}\n";
 

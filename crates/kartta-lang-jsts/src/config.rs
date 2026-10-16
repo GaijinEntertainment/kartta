@@ -44,12 +44,16 @@ pub(crate) fn config_dir(path: &str) -> &str {
     }
 }
 
-fn is_project_config(path: &str) -> bool {
-    let vendored = path.starts_with("node_modules/")
+pub(crate) fn is_vendored(path: &str) -> bool {
+    path.starts_with("node_modules/")
         || path.contains("/node_modules/")
         || path.starts_with("vendor/")
-        || path.contains("/vendor/");
+        || path.contains("/vendor/")
+}
+
+fn is_project_config(path: &str) -> bool {
     let name = base(path);
 
-    !vendored && (name == "package.json" || (name.starts_with("tsconfig") && is_json(name)))
+    !is_vendored(path)
+        && (name == "package.json" || (name.starts_with("tsconfig") && is_json(name)))
 }

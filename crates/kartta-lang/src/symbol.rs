@@ -78,11 +78,11 @@ impl fmt::Display for SymbolKind {
     }
 }
 
-/// What a symbol is for besides its kind: test code, generated code, a program's entry point.
+/// What a symbol is for besides its kind: test code, generated code, vendored code, a program's entry point.
 ///
-/// A language sets these by its own conventions — a Go `_test.go` file, a Rust `#[test]`, a generated-code banner —
-/// so they are heuristic: they rank answers, a caller that is test code below one that is not, and never decide what
-/// an answer holds.
+/// A language sets these by its own conventions — a Go `_test.go` file, a Rust `#[test]`, a generated-code banner, a
+/// `vendor` directory — so they are heuristic: they rank answers, a caller that is test code below one that is not,
+/// and never decide what an answer holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct SymbolFlags(u8);
 
@@ -90,6 +90,7 @@ impl SymbolFlags {
     const TEST: u8 = 1 << 0;
     const ENTRY: u8 = 1 << 1;
     const GENERATED: u8 = 1 << 2;
+    const VENDORED: u8 = 1 << 3;
 
     /// No flag set: an ordinary definition.
     #[must_use]
@@ -115,6 +116,13 @@ impl SymbolFlags {
         self.0 & Self::GENERATED != 0
     }
 
+    /// Whether the symbol is third-party code the repository carries, as a Go `vendor` directory or an npm
+    /// `node_modules` holds.
+    #[must_use]
+    pub const fn is_vendored(self) -> bool {
+        self.0 & Self::VENDORED != 0
+    }
+
     /// These flags with test code set to `yes`.
     #[must_use]
     pub const fn with_test(self, yes: bool) -> Self {
@@ -133,6 +141,12 @@ impl SymbolFlags {
         self.set(Self::GENERATED, yes)
     }
 
+    /// These flags with vendored code set to `yes`.
+    #[must_use]
+    pub const fn with_vendored(self, yes: bool) -> Self {
+        self.set(Self::VENDORED, yes)
+    }
+
     /// The flags set in either: how a resolver adds what a file's path shows to what its bytes showed.
     #[must_use]
     pub const fn union(self, other: Self) -> Self {
@@ -143,7 +157,7 @@ impl SymbolFlags {
         self.0
     }
 
-    pub(crate) const ALL: u8 = Self::TEST | Self::ENTRY | Self::GENERATED;
+    pub(crate) const ALL: u8 = Self::TEST | Self::ENTRY | Self::GENERATED | Self::VENDORED;
 
     pub(crate) const fn from_bits(bits: u8) -> Self {
         Self(bits & Self::ALL)
