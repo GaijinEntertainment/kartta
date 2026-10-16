@@ -680,7 +680,7 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
-    fn calls_are_attributed_with_receiver_capture() {
+    fn calls_are_attributed_to_their_caller() {
         let raw = extract(SAMPLE);
         let render = id_of(&raw, "render");
 
@@ -689,7 +689,7 @@ int defined_and_declared(int x) { return x; }
             .iter()
             .find(|call| call.callee == "draw")
             .expect("draw call");
-        assert_eq!(draw.receiver.as_deref(), Some("painter_"));
+        assert_eq!(draw.receiver.as_deref(), Some(""));
         assert_eq!(draw.caller_id, render);
 
         let bare_compute = raw
@@ -701,9 +701,11 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
-    fn a_member_call_on_an_unnamed_expression_keeps_an_empty_receiver() {
-        let raw =
-            extract(b"void f() { descs[i].init(); a.b.close(); make().run(); this->reset(); }\n");
+    fn a_member_call_names_no_type_unless_it_is_on_this() {
+        let raw = extract(
+            b"void f() { descs[i].init(); a.b.close(); make().run(); this->reset(); buffer.resize(1);\n\
+              list->clear(); Widget::create(); (*ptr).run(); }\n",
+        );
 
         let calls: Vec<(&str, Option<&str>)> = raw
             .calls
@@ -718,6 +720,10 @@ int defined_and_declared(int x) { return x; }
                 ("run", Some("")),
                 ("make", None),
                 ("reset", Some("this")),
+                ("resize", Some("")),
+                ("clear", Some("")),
+                ("Widget::create", None),
+                ("run", Some("")),
             ]
         );
     }
@@ -1478,7 +1484,7 @@ void F() {
             .iter()
             .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
             .collect();
-        assert_eq!(calls, [("method", Some("w"))]);
+        assert_eq!(calls, [("method", Some(""))]);
     }
 
     #[test]
@@ -1515,7 +1521,7 @@ void F() {
             .iter()
             .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
             .collect();
-        assert_eq!(calls, [("get", Some("w"))]);
+        assert_eq!(calls, [("get", Some(""))]);
     }
 
     #[test]
