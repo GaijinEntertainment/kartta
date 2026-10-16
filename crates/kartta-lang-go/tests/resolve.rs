@@ -92,6 +92,26 @@ fn an_import_under_the_module_path_names_the_package_directory() {
 }
 
 #[test]
+fn an_import_of_a_module_path_two_modules_declare_names_the_importer_s_own_module() {
+    let files = Files(&[
+        (".copies/old/go.mod", "module example.com/app\n"),
+        (".copies/old/lib/cache/cache.go", ""),
+        ("go.mod", "module example.com/app\n"),
+        ("lib/cache/cache.go", ""),
+    ]);
+    let source = b"package main\n\nimport \"example.com/app/lib/cache\"\n";
+
+    let root = resolve(&files, source, "main.go");
+    let copy = resolve(&files, source, ".copies/old/main.go");
+
+    assert_eq!(root.bindings[0].target_dir.as_deref(), Some("lib/cache"));
+    assert_eq!(
+        copy.bindings[0].target_dir.as_deref(),
+        Some(".copies/old/lib/cache")
+    );
+}
+
+#[test]
 fn a_comment_after_the_module_path_is_not_part_of_it() {
     let files = Files(&[
         ("go.mod", "module example.com/app // toolchain note\n"),
