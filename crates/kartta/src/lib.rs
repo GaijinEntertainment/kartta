@@ -8,7 +8,82 @@
 //! This crate is the entry point: it owns the engine and re-exports the types that cross its API boundary, so ordinary
 //! use needs no direct dependency on the `kartta-*` building blocks.
 //!
+//! The engine names no language of its own. [`Engine::build`] is handed the languages to build with, each a value
+//! implementing [`Language`], so a language kartta does not ship plugs in as one more crate implementing that trait.
+//!
+//! # Examples
+//!
+//! ```
+//! use kartta::{BuildOptions, Engine, Extraction, Language, RawExtraction, Repository, Resolver, Symbol, SymbolKind};
+//!
+//! #[derive(Debug)]
+//! struct Defs;
+//!
+//! impl Language for Defs {
+//!     fn name(&self) -> &str {
+//!         "defs"
+//!     }
+//!
+//!     fn claims(&self, path: &str) -> bool {
+//!         path.ends_with(".defs")
+//!     }
+//!
+//!     fn fingerprint(&self) -> &[u8] {
+//!         b"defs 1"
+//!     }
+//!
+//!     fn extract(&self, source: &[u8]) -> RawExtraction {
+//!         let mut raw = RawExtraction::default();
+//!         for (at, line) in String::from_utf8_lossy(source).lines().enumerate() {
+//!             if let Some(name) = line.strip_prefix("def ") {
+//!                 let line = u32::try_from(at + 1).unwrap_or(u32::MAX);
+//!                 raw.symbols.push(Symbol::new(name, SymbolKind::Function, line, line));
+//!             }
+//!         }
+//!         raw
+//!     }
+//!
+//!     fn resolver<'r>(&'r self, _repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+//!         Box::new(Paths)
+//!     }
+//! }
+//!
+//! struct Paths;
+//!
+//! impl Resolver for Paths {
+//!     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
+//!         raw.into_extraction(path).0
+//!     }
+//! }
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let tree = tempfile::tempdir()?;
+//! std::fs::write(tree.path().join("main.defs"), "def parse\n")?;
+//!
+//! let outcome = Engine::build(tree.path(), &BuildOptions::default(), vec![Box::new(Defs)], None)?;
+//! assert!(outcome.errors().is_empty());
+//! let engine = outcome.into_engine();
+//!
+//! let graph = engine.graph_of("main.defs").ok_or("defs claims the file")?;
+//! assert_eq!(graph.definitions("parse", None, 10).total, 1);
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! # Status
 //!
-//! This release carries no API. The engine is being ported into this repository crate by crate, starting with
-//! `kartta-fs`, and the first release with a public surface will be `0.1.0`.
+//! The engine builds the index and each family's graph of definitions. Calls, references and the queries over them
+//! are being ported, and the first release with a public surface will be `0.1.0`.
+
+mod engine;
+mod extracting;
+mod repository;
+
+pub use kartta_fs::{BuildError, BuildOptions, CancelToken, Index};
+pub use kartta_graph::{Definition, Definitions, Found, Graph, Nearness};
+pub use kartta_lang::{
+    Conventions, Extraction, Language, RawExtraction, Repository, Resolver, Symbol, SymbolFlags,
+    SymbolKind,
+};
+
+pub use crate::engine::{Engine, EngineOutcome};
