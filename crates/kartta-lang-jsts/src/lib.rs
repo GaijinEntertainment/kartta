@@ -19,7 +19,11 @@
 //!   description, and a lifecycle hook one named by the hook. A registration whose description is not a plain string
 //!   opens no scope.
 //! - Calls, with a capitalised JSX tag as a call of the component and `new Foo()` as a call of `Foo`. A call on
-//!   `this` names the type that owns the enclosing method as its receiver.
+//!   `this` names the type that owns the enclosing method as its receiver. A call on a value the file declares before
+//!   it, inside the scope that declares it — a parameter, a `let`, `const` or `var`, a destructured name, a catch
+//!   binding, a loop variable, a function declared inside a function body, the name of a function expression inside
+//!   it — records the empty receiver, because a value's name names no type; an import binding, a class, a namespace
+//!   and a class declared in a nearer scope keep their name.
 //! - Overload signatures joined to the implementation that follows them, as one callable.
 //! - Imports, `require` and dynamic `import()` of a string, and `export … from` re-exports, a type-only one included.
 //!
