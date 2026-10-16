@@ -1,0 +1,1118 @@
+//! What a PHP file extracts to, and how its includes and uses resolve against the repository.
+#![expect(
+    clippy::panic,
+    reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
+              helpers of an integration test crate are neither; a failed lookup is the assertion"
+)]
+
+use std::io;
+
+use kartta_lang::path::{base, dir};
+use kartta_lang::{
+    CallRef, Extraction, InheritedMembers, Language, OwnMembers, RawExtraction, Repository, Symbol,
+    SymbolId, SymbolKind,
+};
+use kartta_lang_php::Php;
+
+const SAMPLE: &[u8] = br#"<?php
+namespace App\Service;
+
+interface Greeter extends Stringable {
+    public function greet(): string;
+}
+
+trait Walkable {
+    public function walk(): void {}
+}
+
+class Base {
+}
+
+class Service extends Base implements Greeter {
+    use Walkable;
+
+    public function greet(): string {
+        return helper($this->name);
+    }
+
+    private function secret(): void {
+        $this->greet();
+        $svc?->maybe();
+        Logger::log("x");
+        $w = new Widget();
+        $u = new \App\Models\User();
+        $d = new $factory();
+    }
+}
+
+enum Suit {
+    case Hearts;
+}
+
+function helper(string $v): string {
+    return $v;
+}
+"#;
+
+const WIDGET: &[u8] =
+    b"<?php\nclass Widget {\n    public function run(): int {\n        return 1;\n    }\n}\n";
+
+const APP_SRC: &str = r#"{ "autoload": { "psr-4": { "App\\": "src/" } } }"#;
+
+struct Files {
+    paths: Vec<String>,
+    configs: Vec<(String, String)>,
+}
+
+impl Files {
+    fn all(&self) -> impl Iterator<Item = &String> {
+        self.paths
+            .iter()
+            .chain(self.configs.iter().map(|(path, _)| path))
+    }
+}
+
+impl Repository for Files {
+    fn contains(&self, path: &str) -> bool {
+        self.all().any(|file| file == path)
+    }
+
+    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
+        let in_dir = in_dir.to_owned();
+        Box::new(self.all().filter(move |file| dir(file) == in_dir).cloned())
+    }
+
+    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
+        let name = name.to_owned();
+        Box::new(self.all().filter(move |file| base(file) == name).cloned())
+    }
+
+    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
+        self.configs
+            .iter()
+            .find(|(config, _)| config == path)
+            .map(|(_, contents)| contents.clone().into_bytes())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, path.to_owned()))
+    }
+}
+
+fn extract(source: &[u8]) -> RawExtraction {
+    Php::new().extract(source)
+}
+
+fn resolve(source: &[u8], path: &str, files: &[&str]) -> Extraction {
+    resolve_with(source, path, files, &[])
+}
+
+fn resolve_with(source: &[u8], path: &str, files: &[&str], configs: &[(&str, &str)]) -> Extraction {
+    let php = Php::new();
+    let repository = Files {
+        paths: files.iter().map(|file| (*file).to_owned()).collect(),
+        configs: configs
+            .iter()
+            .map(|(path, contents)| ((*path).to_owned(), (*contents).to_owned()))
+            .collect(),
+    };
+    let resolver = php.resolver(&repository);
+    resolver.resolve(php.extract(source), path)
+}
+
+fn symbol<'r>(symbols: &'r [Symbol], name: &str) -> &'r Symbol {
+    symbols
+        .iter()
+        .find(|symbol| symbol.name == name)
+        .unwrap_or_else(|| panic!("no symbol {name}"))
+}
+
+fn id_of(symbols: &[Symbol], qualified: &str) -> SymbolId {
+    let at = symbols
+        .iter()
+        .position(|symbol| symbol.qualified_name == qualified)
+        .unwrap_or_else(|| panic!("no symbol {qualified}"));
+    SymbolId(u32::try_from(at).unwrap_or(u32::MAX))
+}
+
+fn call<'r>(calls: &'r [CallRef], callee: &str) -> &'r CallRef {
+    calls
+        .iter()
+        .find(|call| call.callee == callee)
+        .unwrap_or_else(|| panic!("no call of {callee}"))
+}
+
+fn callees(calls: &[CallRef]) -> Vec<&str> {
+    calls.iter().map(|call| call.callee.as_str()).collect()
+}
+
+fn names(symbols: &[Symbol]) -> Vec<&str> {
+    symbols
+        .iter()
+        .map(|symbol| symbol.qualified_name.as_str())
+        .collect()
+}
+
+fn names_by_line(source: &[u8]) -> Vec<(String, u32)> {
+    extract(source)
+        .symbols
+        .into_iter()
+        .map(|symbol| (symbol.qualified_name, symbol.line))
+        .collect()
+}
+
+fn includes(extraction: &Extraction) -> Vec<&str> {
+    extraction
+        .includes
+        .iter()
+        .map(|include| include.target.as_str())
+        .collect()
+}
+
+fn imports(extraction: &Extraction) -> Vec<&str> {
+    extraction
+        .imports
+        .iter()
+        .map(|import| import.module.as_str())
+        .collect()
+}
+
+#[test]
+fn php_claims_its_extensions_in_any_case() {
+    let php = Php::new();
+
+    assert_eq!(php.name(), "php");
+    assert!(php.claims("src/Service.php"));
+    assert!(php.claims("views/page.phtml"));
+    assert!(php.claims("LEGACY.PHP"));
+    assert!(!php.claims("src/Service.php.bak"));
+    assert!(!php.claims("php"));
+}
+
+#[test]
+fn a_bare_call_reaches_no_member_of_its_own_class() {
+    let conventions = Php::new().conventions();
+
+    assert_eq!(conventions.own_members, OwnMembers::Unreached);
+    assert_eq!(conventions.inherited_members, InheritedMembers::Unreached);
+    assert!(conventions.values_are_call_targets);
+    assert_eq!(conventions.owner_chain_separator, None);
+}
+
+#[test]
+fn the_fingerprint_names_the_crate() {
+    let (php, other) = (Php::new(), Php::new());
+
+    assert!(php.fingerprint().starts_with(b"kartta-lang-php\0"));
+    assert_eq!(php.fingerprint(), other.fingerprint());
+}
+
+#[test]
+fn every_declaration_is_qualified_by_its_namespace() {
+    let raw = extract(SAMPLE);
+
+    assert_eq!(
+        names(&raw.symbols),
+        [
+            "App\\Service\\Greeter",
+            "App\\Service\\Greeter::greet",
+            "App\\Service\\Walkable",
+            "App\\Service\\Walkable::walk",
+            "App\\Service\\Base",
+            "App\\Service\\Service",
+            "App\\Service\\Service::greet",
+            "App\\Service\\Service::secret",
+            "App\\Service\\Suit",
+            "App\\Service\\Suit::Hearts",
+            "App\\Service\\helper",
+        ]
+    );
+    assert_eq!(raw.symbols[0].kind, SymbolKind::Interface);
+    assert_eq!(symbol(&raw.symbols, "Walkable").kind, SymbolKind::Trait);
+    assert_eq!(
+        symbol(&raw.symbols, "walk").owner.as_deref(),
+        Some("Walkable")
+    );
+    assert_eq!(symbol(&raw.symbols, "Suit").kind, SymbolKind::Enum);
+    let hearts = symbol(&raw.symbols, "Hearts");
+    assert_eq!(hearts.kind, SymbolKind::EnumVariant);
+    assert_eq!(hearts.owner.as_deref(), Some("Suit"));
+    let helper = symbol(&raw.symbols, "helper");
+    assert_eq!(helper.kind, SymbolKind::Function);
+    assert_eq!(helper.owner, None);
+}
+
+#[test]
+fn a_private_method_is_not_exported() {
+    let raw = extract(SAMPLE);
+
+    let secret = symbol(&raw.symbols, "secret");
+    assert_eq!(secret.kind, SymbolKind::Method);
+    assert_eq!(secret.owner.as_deref(), Some("Service"));
+    assert!(!secret.exported);
+    let greet = &raw.symbols[id_of(&raw.symbols, "App\\Service\\Service::greet").0 as usize];
+    assert!(greet.exported);
+}
+
+#[test]
+fn extends_implements_and_a_trait_use_are_parents() {
+    let raw = extract(SAMPLE);
+
+    assert_eq!(
+        symbol(&raw.symbols, "Service").parents,
+        ["Base", "Greeter", "Walkable"]
+    );
+    assert_eq!(symbol(&raw.symbols, "Greeter").parents, ["Stringable"]);
+}
+
+#[test]
+fn an_enum_takes_the_interfaces_it_implements_as_parents() {
+    let raw = extract(
+        b"<?php\nnamespace App;\n\nenum Suit: string implements Colorful, HasIcon {\n    case Hearts = 'H';\n}\n",
+    );
+
+    let suit = symbol(&raw.symbols, "Suit");
+    assert_eq!(suit.qualified_name, "App\\Suit");
+    assert_eq!(suit.parents, ["Colorful", "HasIcon"]);
+}
+
+#[test]
+fn a_trait_use_lands_on_the_class_not_a_member_of_its_name() {
+    let raw = extract(b"<?php\nclass Foo {\n    const Foo = 1;\n    use Walkable;\n}\n");
+
+    let class = raw
+        .symbols
+        .iter()
+        .find(|symbol| symbol.kind == SymbolKind::Class)
+        .unwrap_or_else(|| panic!("no class"));
+    assert_eq!(class.parents, ["Walkable"]);
+    let constant = raw
+        .symbols
+        .iter()
+        .find(|symbol| symbol.kind == SymbolKind::Constant)
+        .unwrap_or_else(|| panic!("no constant"));
+    assert_eq!(constant.parents, Vec::<String>::new());
+}
+
+#[test]
+fn a_trait_use_in_an_anonymous_class_leaves_the_outer_class_alone() {
+    let raw = extract(
+        b"<?php\nclass Outer {\n    public function make() {\n        return new class { use Inner; };\n    }\n}\n",
+    );
+
+    assert_eq!(symbol(&raw.symbols, "Outer").parents, Vec::<String>::new());
+}
+
+#[test]
+fn a_call_is_made_by_the_enclosing_method() {
+    let raw = extract(SAMPLE);
+
+    let helper = call(&raw.calls, "helper");
+    assert_eq!(
+        helper.caller_id,
+        id_of(&raw.symbols, "App\\Service\\Service::greet")
+    );
+    assert_eq!(helper.receiver, None);
+}
+
+#[test]
+fn member_and_static_calls_record_their_receivers() {
+    let raw = extract(SAMPLE);
+    let secret = id_of(&raw.symbols, "App\\Service\\Service::secret");
+
+    let member = call(&raw.calls, "greet");
+    assert_eq!(member.receiver.as_deref(), Some("$this"));
+    assert_eq!(member.caller_id, secret);
+    let scoped = call(&raw.calls, "log");
+    assert_eq!(scoped.receiver.as_deref(), Some("Logger"));
+    assert_eq!(scoped.caller_id, secret);
+    assert_eq!(call(&raw.calls, "maybe").receiver.as_deref(), Some("$svc"));
+}
+
+#[test]
+fn a_construction_calls_the_class_by_its_bare_name() {
+    let raw = extract(SAMPLE);
+
+    assert_eq!(
+        call(&raw.calls, "Widget").caller_id,
+        id_of(&raw.symbols, "App\\Service\\Service::secret")
+    );
+    assert_eq!(call(&raw.calls, "User").receiver, None);
+    assert!(raw.calls.iter().all(|call| call.callee != "$factory"));
+}
+
+#[test]
+fn a_relative_class_construction_calls_nothing() {
+    let raw = extract(
+        br"<?php
+class Foo extends Bar {
+    public static function create(): static {
+        return new static();
+    }
+    public function a() { return new self(); }
+    public function b() { return new parent(); }
+    public function c() { return new Widget(); }
+}
+",
+    );
+
+    assert_eq!(callees(&raw.calls), ["Widget"]);
+}
+
+#[test]
+fn a_chained_or_computed_receiver_is_empty() {
+    let raw = extract(
+        br#"<?php
+class Runner {
+    public function go(): void {
+        Factory::for(1)::build();
+        $this->pool->get();
+        Logger::log("x");
+        self::x();
+        parent::y();
+        $cls::vcall();
+    }
+}
+"#,
+    );
+    let receiver = |callee: &str| call(&raw.calls, callee).receiver.as_deref();
+
+    assert_eq!(receiver("build"), Some(""));
+    assert_eq!(receiver("get"), Some(""));
+    assert_eq!(receiver("log"), Some("Logger"));
+    assert_eq!(receiver("x"), Some("self"));
+    assert_eq!(receiver("y"), Some("parent"));
+    assert_eq!(receiver("vcall"), Some("$cls"));
+}
+
+#[test]
+fn a_qualified_scope_is_the_receiver_of_its_last_segment() {
+    let raw = extract(
+        br#"<?php
+class Runner {
+    public function go(): void {
+        App\Logger::qlog("x");
+        \App\Logger::flog("x");
+        namespace\Helper::nhelp();
+    }
+}
+"#,
+    );
+    let receiver = |callee: &str| call(&raw.calls, callee).receiver.as_deref();
+
+    assert_eq!(receiver("qlog"), Some("Logger"));
+    assert_eq!(receiver("flog"), Some("Logger"));
+    assert_eq!(receiver("nhelp"), Some("Helper"));
+}
+
+#[test]
+fn a_qualified_function_call_calls_its_last_segment() {
+    let raw = extract(b"<?php\nfunction caller() {\n    \\strlen(\"x\");\n    App\\Helper\\run();\n    plain();\n}\n");
+
+    assert_eq!(callees(&raw.calls), ["strlen", "run", "plain"]);
+}
+
+#[test]
+fn a_relative_name_reduces_like_a_qualified_one() {
+    let extraction = resolve(
+        br#"<?php
+class C extends namespace\Base {
+    public function m(): void {
+        $x = new namespace\X();
+        namespace\helper();
+    }
+}
+include "$base/x.php";
+"#,
+        "here.php",
+        &["x.php", "here.php"],
+    );
+
+    assert_eq!(
+        symbol(&extraction.symbols, "C").parents,
+        ["namespace\\Base"]
+    );
+    assert_eq!(callees(&extraction.calls), ["X", "helper"]);
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+}
+
+#[test]
+fn a_call_before_the_first_symbol_records_nothing() {
+    let raw = extract(b"<?php\nboot();\nfunction main(): void {}\nmain();\n");
+
+    assert_eq!(callees(&raw.calls), ["main"]);
+}
+
+#[test]
+fn a_callable_carries_its_header_as_the_signature() {
+    let raw = extract(SAMPLE);
+
+    let signature = symbol(&raw.symbols, "helper").signature.as_deref();
+    assert_eq!(signature, Some("function helper(string $v): string"));
+    assert_eq!(
+        symbol(&raw.symbols, "secret").signature.as_deref(),
+        Some("private function secret(): void")
+    );
+}
+
+#[test]
+fn a_closure_bound_to_a_variable_makes_the_calls_in_its_body() {
+    let raw = extract(
+        br"<?php
+class Foo {
+    public function m(): void {
+        $f = function () { bar(); };
+        $f();
+        after_close();
+        array_map(function ($x) { inner($x); }, [1]);
+        $obj->cb = function () { mem(); };
+        $g = 1;
+        [$a, $b] = [function () {}, function () {}];
+    }
+}
+
+$top = fn($x) => topcall($x);
+",
+    );
+    let method = id_of(&raw.symbols, "Foo::m");
+
+    let bound = id_of(&raw.symbols, "f");
+    let f = &raw.symbols[bound.0 as usize];
+    assert_eq!(f.kind, SymbolKind::Function);
+    assert!(!f.exported);
+    assert_eq!(f.signature.as_deref(), Some("$f = function ()"));
+    assert_eq!(call(&raw.calls, "bar").caller_id, bound);
+    assert_eq!(call(&raw.calls, "after_close").caller_id, method);
+    assert_eq!(call(&raw.calls, "inner").caller_id, method);
+    assert_eq!(call(&raw.calls, "mem").caller_id, method);
+    for unbound in ["cb", "g", "a", "b"] {
+        assert!(
+            raw.symbols.iter().all(|symbol| symbol.name != unbound),
+            "{unbound} is no symbol"
+        );
+    }
+    let top = id_of(&raw.symbols, "top");
+    assert_eq!(call(&raw.calls, "topcall").caller_id, top);
+    assert_eq!(
+        raw.symbols[top.0 as usize].signature.as_deref(),
+        Some("$top = fn($x) =>")
+    );
+}
+
+#[test]
+fn properties_constants_and_promoted_parameters_are_members() {
+    let raw = extract(
+        br"<?php
+namespace App;
+
+class Account {
+    const STATUS_ACTIVE = 'active';
+    private const SECRET = 'x';
+    public int $id;
+    private string $name = 'anon';
+    public static array $registry = [];
+    private int $width, $height;
+
+    public function __construct(
+        public readonly string $owner,
+        private int $balance,
+        protected array &$refs,
+    ) {}
+}
+",
+    );
+
+    let members: Vec<(&str, SymbolKind)> = raw
+        .symbols
+        .iter()
+        .map(|symbol| (symbol.qualified_name.as_str(), symbol.kind))
+        .collect();
+    assert_eq!(
+        members,
+        [
+            ("App\\Account", SymbolKind::Class),
+            ("App\\Account::STATUS_ACTIVE", SymbolKind::Constant),
+            ("App\\Account::SECRET", SymbolKind::Constant),
+            ("App\\Account::id", SymbolKind::Field),
+            ("App\\Account::name", SymbolKind::Field),
+            ("App\\Account::registry", SymbolKind::Field),
+            ("App\\Account::width", SymbolKind::Field),
+            ("App\\Account::height", SymbolKind::Field),
+            ("App\\Account::__construct", SymbolKind::Method),
+            ("App\\Account::owner", SymbolKind::Field),
+            ("App\\Account::balance", SymbolKind::Field),
+            ("App\\Account::refs", SymbolKind::Field),
+        ]
+    );
+    for name in [
+        "id", "name", "registry", "width", "height", "owner", "balance", "refs",
+    ] {
+        assert_eq!(
+            symbol(&raw.symbols, name).owner.as_deref(),
+            Some("Account"),
+            "{name}"
+        );
+    }
+    let exported: Vec<(&str, bool)> = raw.symbols[1..]
+        .iter()
+        .filter(|symbol| symbol.kind != SymbolKind::Method)
+        .map(|symbol| (symbol.name.as_str(), symbol.exported))
+        .collect();
+    assert_eq!(
+        exported,
+        [
+            ("STATUS_ACTIVE", true),
+            ("SECRET", false),
+            ("id", true),
+            ("name", false),
+            ("registry", true),
+            ("width", false),
+            ("height", false),
+            ("owner", true),
+            ("balance", false),
+            ("refs", true),
+        ]
+    );
+}
+
+#[test]
+fn a_constant_at_file_scope_has_no_owner() {
+    let raw = extract(b"<?php\nnamespace App;\n\nconst VERSION = '1.2.3';\n");
+
+    let version = symbol(&raw.symbols, "VERSION");
+    assert_eq!(version.kind, SymbolKind::Constant);
+    assert_eq!(version.owner, None);
+    assert_eq!(version.qualified_name, "App\\VERSION");
+}
+
+#[test]
+fn a_member_of_an_anonymous_class_has_no_owner() {
+    let raw = extract(
+        br"<?php
+namespace App;
+
+class Factory {
+    public function make(): object {
+        return new class(5) {
+            public function __construct(public int $tag) {}
+        };
+    }
+}
+",
+    );
+
+    let tag = symbol(&raw.symbols, "tag");
+    assert_eq!(tag.kind, SymbolKind::Field);
+    assert_eq!(tag.owner, None);
+    assert!(
+        raw.symbols
+            .iter()
+            .all(|symbol| symbol.qualified_name != "App\\Factory::tag")
+    );
+}
+
+#[test]
+fn the_global_namespace_block_clears_the_namespace() {
+    assert_eq!(
+        names_by_line(
+            b"<?php\nnamespace A { class Worker { public static function run() {} } }\n\
+              namespace { class Worker { public static function run() {} } }\n"
+        ),
+        [
+            ("A\\Worker".to_owned(), 2),
+            ("A\\Worker::run".to_owned(), 2),
+            ("Worker".to_owned(), 3),
+            ("Worker::run".to_owned(), 3),
+        ]
+    );
+}
+
+#[test]
+fn each_namespace_block_qualifies_its_own_declarations() {
+    assert_eq!(
+        names_by_line(
+            br"<?php
+namespace A { function first() {} }
+namespace B { }
+namespace { function second() {} }
+namespace C { function third() {} class Job { const LIMIT = 1; } }
+namespace { function fourth() {} }
+"
+        ),
+        [
+            ("A\\first".to_owned(), 2),
+            ("second".to_owned(), 4),
+            ("C\\third".to_owned(), 5),
+            ("C\\Job".to_owned(), 5),
+            ("C\\Job::LIMIT".to_owned(), 5),
+            ("fourth".to_owned(), 6),
+        ]
+    );
+}
+
+#[test]
+fn an_unbraced_namespace_holds_until_the_next_one() {
+    assert_eq!(
+        names_by_line(
+            b"<?php\nnamespace A;\nfunction first() {}\nclass Job {}\nnamespace B;\nfunction second() {}\n"
+        ),
+        [
+            ("A\\first".to_owned(), 3),
+            ("A\\Job".to_owned(), 4),
+            ("B\\second".to_owned(), 6),
+        ]
+    );
+}
+
+#[test]
+fn an_include_of_dir_resolves_from_the_files_directory() {
+    let extraction = resolve(
+        b"<?php\ninclude __DIR__ . '/partials/header.php';\nfunction render(): void {}\n",
+        "src/views/index.php",
+        &["src/views/index.php", "src/views/partials/header.php"],
+    );
+
+    assert_eq!(includes(&extraction), ["src/views/partials/header.php"]);
+    assert_eq!(imports(&extraction), Vec::<&str>::new());
+}
+
+#[test]
+fn a_parenthesized_include_folds_like_a_bare_one() {
+    let extraction = resolve(
+        b"<?php\nrequire_once('config/app.php');\nrequire_once(__DIR__ . '/partials/header.php');\ninclude ($path);\n",
+        "src/boot.php",
+        &["config/app.php", "src/partials/header.php", "src/boot.php"],
+    );
+
+    assert_eq!(
+        includes(&extraction),
+        ["config/app.php", "src/partials/header.php"]
+    );
+}
+
+#[test]
+fn dirname_of_a_path_marker_climbs_from_the_files_directory() {
+    let extraction = resolve(
+        b"<?php\ninclude dirname(__DIR__) . '/shared.php';\ninclude dirname(__FILE__) . '/local.php';\n",
+        "src/feature/page.php",
+        &["src/feature/page.php", "src/shared.php", "src/feature/local.php"],
+    );
+
+    assert_eq!(
+        includes(&extraction),
+        ["src/shared.php", "src/feature/local.php"]
+    );
+}
+
+#[test]
+fn dirname_strips_a_written_dot_dot_and_nested_dirname_climbs_twice() {
+    let extraction = resolve(
+        br"<?php
+include dirname(__DIR__ . '/..') . '/lexical.php';
+include dirname(__DIR__ . '/../') . '/slashed.php';
+include dirname(__DIR__ . '/') . '/trailing.php';
+include dirname(dirname(__DIR__)) . '/nested.php';
+",
+        "src/feature/page.php",
+        &[
+            "src/feature/page.php",
+            "src/feature/lexical.php",
+            "src/feature/slashed.php",
+            "src/trailing.php",
+            "nested.php",
+            "lexical.php",
+            "slashed.php",
+            "src/feature/trailing.php",
+        ],
+    );
+
+    assert_eq!(
+        includes(&extraction),
+        [
+            "src/feature/lexical.php",
+            "src/feature/slashed.php",
+            "src/trailing.php",
+            "nested.php"
+        ]
+    );
+}
+
+#[test]
+fn dirname_cuts_at_a_written_dot_dot_inside_the_path() {
+    let extraction = resolve(
+        br"<?php
+include dirname(dirname(__DIR__ . '/../a')) . '/y.php';
+include dirname(__DIR__ . '/../a') . '/y.php';
+",
+        "src/feature/page.php",
+        &[
+            "src/feature/page.php",
+            "src/feature/y.php",
+            "src/y.php",
+            "y.php",
+        ],
+    );
+
+    assert_eq!(includes(&extraction), ["src/feature/y.php", "src/y.php"]);
+}
+
+#[test]
+fn dirname_of_a_literal_path_cuts_it_in_place() {
+    let extraction = resolve(
+        b"<?php\ninclude dirname('config/app/x.php') . '/db.php';\n",
+        "src/boot.php",
+        &["src/boot.php", "config/app/db.php"],
+    );
+
+    assert_eq!(includes(&extraction), ["config/app/db.php"]);
+}
+
+#[test]
+fn dirname_of_dir_at_a_root_file_names_no_file_of_the_repository() {
+    let extraction = resolve(
+        b"<?php\ninclude dirname(__DIR__) . '/shared.php';\n",
+        "page.php",
+        &["page.php", "shared.php"],
+    );
+
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+}
+
+#[test]
+fn a_path_marker_after_a_literal_includes_nothing() {
+    let extraction = resolve(
+        b"<?php\ninclude 'inc/' . __DIR__ . '/y.php';\ninclude dirname('inc/' . __DIR__) . '/y.php';\n",
+        "src/feature/page.php",
+        &["src/feature/page.php", "inc/src/feature/y.php", "inc/src/y.php"],
+    );
+
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+}
+
+#[test]
+fn a_literal_holding_the_marker_byte_includes_nothing() {
+    let extraction = resolve(
+        b"<?php\ninclude '\x01D/x.php';\nfunction render(): void {}\n",
+        "src/page.php",
+        &["src/page.php", "src/x.php"],
+    );
+
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+}
+
+#[test]
+fn a_plain_path_resolves_from_the_root() {
+    let extraction = resolve(
+        b"<?php\nrequire_once 'config/app.php';\n",
+        "src/boot.php",
+        &["src/boot.php", "config/app.php"],
+    );
+
+    assert_eq!(includes(&extraction), ["config/app.php"]);
+}
+
+#[test]
+fn a_path_found_nowhere_else_is_the_one_file_ending_in_it() {
+    let found = resolve(
+        b"<?php\nrequire 'db.php';\n",
+        "src/boot.php",
+        &["src/boot.php", "app/config/db.php"],
+    );
+    let ambiguous = resolve(
+        b"<?php\nrequire 'config/db.php';\n",
+        "src/boot.php",
+        &["src/boot.php", "app/config/db.php", "lib/config/db.php"],
+    );
+
+    assert_eq!(includes(&found), ["app/config/db.php"]);
+    assert_eq!(includes(&ambiguous), Vec::<&str>::new());
+}
+
+#[test]
+fn a_dot_path_resolves_from_the_files_directory() {
+    let extraction = resolve(
+        b"<?php\ninclude './partials/a.php';\ninclude '../shared/b.php';\ninclude '../../../c.php';\n",
+        "src/views/page.php",
+        &["src/views/partials/a.php", "src/shared/b.php", "c.php"],
+    );
+
+    assert_eq!(
+        includes(&extraction),
+        ["src/views/partials/a.php", "src/shared/b.php"]
+    );
+}
+
+#[test]
+fn an_include_of_a_variable_includes_nothing() {
+    let extraction = resolve(
+        b"<?php\n$path = 'plugin.php';\ninclude $path;\nfunction load(): void {}\n",
+        "src/loader.php",
+        &["src/loader.php", "src/plugin.php"],
+    );
+
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+}
+
+#[test]
+fn a_use_without_an_autoload_is_an_import_only() {
+    let extraction = resolve(
+        b"<?php\nuse App\\Foo;\nrequire \"bar.php\";\nfunction f(): void {}\n",
+        "uses.php",
+        &[],
+    );
+
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+    assert_eq!(imports(&extraction), ["App\\Foo"]);
+    assert_eq!(extraction.imports[0].line, 2);
+}
+
+#[test]
+fn a_use_that_psr4_maps_to_a_class_file_is_an_include_only() {
+    let extraction = resolve_with(
+        b"<?php\nnamespace App;\n\nuse App\\Foo;\nuse App\\Foo as Bar;\n\nclass Service {}\n",
+        "src/Service.php",
+        &["src/Service.php", "src/Foo.php"],
+        &[("composer.json", APP_SRC)],
+    );
+
+    assert_eq!(includes(&extraction), ["src/Foo.php", "src/Foo.php"]);
+    assert_eq!(imports(&extraction), Vec::<&str>::new());
+}
+
+#[test]
+fn a_grouped_use_shares_its_prefix_across_the_clauses() {
+    let extraction = resolve_with(
+        b"<?php\nnamespace App;\n\nuse App\\{Foo, Sub\\Bar};\n\nclass Service {}\n",
+        "src/Service.php",
+        &["src/Service.php", "src/Foo.php", "src/Sub/Bar.php"],
+        &[("composer.json", APP_SRC)],
+    );
+
+    assert_eq!(includes(&extraction), ["src/Foo.php", "src/Sub/Bar.php"]);
+}
+
+#[test]
+fn a_function_use_maps_to_its_namespaces_file() {
+    let extraction = resolve_with(
+        b"<?php\nnamespace App;\n\nuse function App\\Text\\slugify;\n\nclass Service {}\n",
+        "src/Service.php",
+        &["src/Service.php", "src/Text.php"],
+        &[("composer.json", APP_SRC)],
+    );
+
+    assert_eq!(includes(&extraction), ["src/Text.php"]);
+}
+
+#[test]
+fn a_class_use_maps_only_to_its_own_file() {
+    let extraction = resolve_with(
+        b"<?php\nnamespace App;\n\nuse App\\Text\\Missing;\nuse const App\\Text\\LIMIT;\n\nclass Service {}\n",
+        "src/Service.php",
+        &["src/Service.php", "src/Text.php"],
+        &[("composer.json", APP_SRC)],
+    );
+
+    assert_eq!(includes(&extraction), ["src/Text.php"]);
+    assert_eq!(imports(&extraction), ["App\\Text\\Missing"]);
+}
+
+#[test]
+fn a_mixed_group_use_maps_each_clause_by_its_own_kind() {
+    let extraction = resolve_with(
+        b"<?php\nnamespace App;\n\nuse App\\Text\\{Missing, function slugify};\nuse function App\\Text\\{trim};\n",
+        "src/Service.php",
+        &["src/Service.php", "src/Text.php"],
+        &[("composer.json", APP_SRC)],
+    );
+
+    assert_eq!(includes(&extraction), ["src/Text.php", "src/Text.php"]);
+    assert_eq!(imports(&extraction), ["App\\Text\\Missing"]);
+}
+
+#[test]
+fn a_use_of_a_namespace_no_prefix_maps_is_an_import_only() {
+    let extraction = resolve_with(
+        b"<?php\nnamespace App;\n\nuse Psr\\Log\\LoggerInterface;\nuse App\\Missing;\n\nclass Service {}\n",
+        "src/Service.php",
+        &["src/Service.php"],
+        &[("composer.json", APP_SRC)],
+    );
+
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+    assert_eq!(
+        imports(&extraction),
+        ["Psr\\Log\\LoggerInterface", "App\\Missing"]
+    );
+}
+
+#[test]
+fn a_longer_prefix_maps_first_and_directories_rebase_on_their_composer_json() {
+    let composer = r#"{
+        "autoload": { "psr-4": { "App\\": "src/" } },
+        "autoload-dev": { "psr-4": { "App\\Tests\\": ["tests/", "spec/"] } }
+    }"#;
+    let extraction = resolve_with(
+        b"<?php\nuse App\\Tests\\FooTest;\nuse App\\Tests\\BarSpec;\nuse \\App\\Models\\User;\n",
+        "backend/src/boot.php",
+        &[
+            "backend/src/Tests/FooTest.php",
+            "backend/tests/FooTest.php",
+            "backend/spec/BarSpec.php",
+            "backend/src/Models/User.php",
+        ],
+        &[("backend/composer.json", composer)],
+    );
+
+    assert_eq!(
+        includes(&extraction),
+        [
+            "backend/tests/FooTest.php",
+            "backend/spec/BarSpec.php",
+            "backend/src/Models/User.php"
+        ]
+    );
+}
+
+#[test]
+fn the_empty_prefix_maps_any_name_after_every_other_prefix() {
+    let composer = r#"{ "autoload": { "psr-4": { "": "lib/", "App\\": "src/" } } }"#;
+    let extraction = resolve_with(
+        b"<?php\nuse Widget;\nuse App\\Foo;\nuse Acme\\Gadget;\nuse Missing;\n",
+        "boot.php",
+        &[
+            "lib/Widget.php",
+            "src/Foo.php",
+            "lib/App/Foo.php",
+            "lib/Acme/Gadget.php",
+        ],
+        &[("composer.json", composer)],
+    );
+
+    assert_eq!(
+        includes(&extraction),
+        ["lib/Widget.php", "src/Foo.php", "lib/Acme/Gadget.php"]
+    );
+    assert_eq!(imports(&extraction), ["Missing"]);
+}
+
+#[test]
+fn a_vendored_or_unreadable_composer_json_maps_nothing() {
+    let extraction = resolve_with(
+        b"<?php\nuse Vendor\\Lib\\Thing;\nuse App\\Foo;\n",
+        "src/boot.php",
+        &["vendor/acme/lib/src/Lib/Thing.php", "src/Foo.php"],
+        &[
+            (
+                "vendor/acme/lib/composer.json",
+                r#"{ "autoload": { "psr-4": { "Vendor\\": "src/" } } }"#,
+            ),
+            ("composer.json", "not json"),
+        ],
+    );
+
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+}
+
+#[test]
+fn a_test_file_marks_every_symbol_as_test_code() {
+    for path in ["FooTest.php", "app/tests/Util.php", "app/test/Helper.php"] {
+        let extraction = resolve(WIDGET, path, &[]);
+        assert!(!extraction.symbols.is_empty(), "{path}");
+        assert!(
+            extraction
+                .symbols
+                .iter()
+                .all(|symbol| symbol.flags.is_test()),
+            "{path}"
+        );
+    }
+    for path in [
+        "app/src/Foo.php",
+        "latest.php",
+        "app/src/fooTest.phtml",
+        "app/src/FooTest.PHP",
+    ] {
+        let extraction = resolve(WIDGET, path, &[]);
+        assert!(
+            extraction
+                .symbols
+                .iter()
+                .all(|symbol| !symbol.flags.is_test()),
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn a_generated_name_marks_every_symbol_as_generated() {
+    for path in ["proto/Widget.generated.php", "proto/widget_pb.php"] {
+        let extraction = resolve(WIDGET, path, &[]);
+        assert!(!extraction.symbols.is_empty(), "{path}");
+        assert!(
+            extraction
+                .symbols
+                .iter()
+                .all(|symbol| symbol.flags.is_generated()),
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn a_marker_in_the_leading_comments_marks_the_file_generated() {
+    let generated = [
+        &b"<?php\n// @generated by tooling\ndeclare(strict_types=1);\n\nclass Widget {}\n"[..],
+        b"<?php /* DO NOT EDIT */\nclass Widget {}\n",
+        b"<?php\n/*\n * @generated by tooling\n */\nclass Widget {}\n",
+        b"<?php\n/* license */ // @generated by tooling\nclass Widget {}\n",
+        b"\xEF\xBB\xBF<?php\n// @generated by tooling\nclass Widget {}\n",
+    ];
+    let ordinary = [
+        &b"<?php\n// A plain widget.\nclass Widget {}\n"[..],
+        b"<?php\nclass Widget {\n    // @generated\n    public function run(): int { return 1; }\n}\n",
+        b"<?php\n/* license header */ $boot = 1;\n// @generated by tooling\nclass Widget {}\n",
+        b"<?php\n/*\n * ordinary banner\n */ $mode = '@generated';\nclass Widget {}\n",
+    ];
+
+    for source in generated {
+        let extraction = resolve(source, "src/Widget.php", &[]);
+        assert_ne!(extraction.symbols.len(), 0);
+        assert!(
+            extraction
+                .symbols
+                .iter()
+                .all(|symbol| symbol.flags.is_generated()),
+            "{}",
+            String::from_utf8_lossy(source)
+        );
+    }
+    for source in ordinary {
+        let extraction = resolve(source, "src/Widget.php", &[]);
+        assert_ne!(extraction.symbols.len(), 0);
+        assert!(
+            extraction
+                .symbols
+                .iter()
+                .all(|symbol| !symbol.flags.is_generated()),
+            "{}",
+            String::from_utf8_lossy(source)
+        );
+    }
+}
+
+#[test]
+fn no_symbol_is_an_entry_point() {
+    let sample = resolve(SAMPLE, "sample.php", &[]);
+    let front = resolve(
+        b"<?php\nfunction main(): void {\n    run();\n}\n\nmain();\n",
+        "public/index.php",
+        &[],
+    );
+
+    for extraction in [sample, front] {
+        assert_ne!(extraction.symbols.len(), 0);
+        assert!(
+            extraction
+                .symbols
+                .iter()
+                .all(|symbol| !symbol.flags.is_entry())
+        );
+    }
+}
