@@ -13,7 +13,8 @@ The engine names no language of its own: it is handed the languages to build wit
 [`kartta-lang`](https://crates.io/crates/kartta-lang)'s `Language` trait, so a language kartta does not ship plugs in as
 one more crate.
 
-Status: the engine builds the file index and each language family's graph of definitions from one walk that reads each
-claimed text file once — twice only for a file whose extraction the shared cache holds in a form the build cannot read,
-or one a language's resolver asks for again, as configuration it reads.
-Calls, references and the queries over them are being ported; the first release with a public surface will be `0.1.0`.
+Status: the engine builds the file index and each language family's graph of definitions, calls and uses from one walk
+that reads each claimed text file once — twice only for a file whose extraction the shared cache holds in a form the
+build cannot read, or one a language's resolver asks for again, as configuration it reads. Each graph answers callers,
+callees, references and call paths, resolving calls when a query asks. The first release with a public surface will be
+`0.1.0`.
