@@ -14,8 +14,9 @@ that embeds it, and so is the interface of a compile-time assertion such as `var
 
 A call records its callee and, for a member call, its receiver. Go spells an owner as a bare type name, so only an
 identifier operand is a receiver: `s.client.Do()` and `f().g()` record the empty receiver, a member call on a value of
-no known type. A name outside a call — a type in a signature, a field, a conversion — is a use of what it names,
-unless a local binding covers it.
+no known type, and so does a call on a parameter or a variable the caller declares. The method's own receiver records
+the owner its declaration spells: `w.draw()` in `func (w *Widget) run()` records `Widget`. A name outside a call — a
+type in a signature, a field, a conversion — is a use of what it names, unless a local binding covers it.
 
 ## Resolution
 

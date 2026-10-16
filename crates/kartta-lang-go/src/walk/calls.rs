@@ -15,7 +15,7 @@ impl Emitter<'_> {
         };
         self.named_by_call = Some(invoked.id());
 
-        let target = call_target(invoked, self.source);
+        let target = self.spelled_receiver(invoked, call_target(invoked, self.source));
         let callee = target.0.as_str();
         if invoked.kind() == "identifier" && matches!(callee, "new" | "make") {
             self.record_allocated_type(node);
@@ -33,6 +33,35 @@ impl Emitter<'_> {
             return;
         }
         self.push_call(target, node, caller_id);
+    }
+
+    // constraint: a receiver the caller declares as a value names no type, so it is the empty receiver of a member call
+    // on a value of no known type; the method's own receiver is the owner its declaration spells
+    fn spelled_receiver(
+        &self,
+        invoked: Node<'_>,
+        (callee, receiver): (String, Option<String>),
+    ) -> (String, Option<String>) {
+        let Some(operand) = invoked
+            .child_by_field_name("operand")
+            .filter(|operand| operand.kind() == "identifier")
+        else {
+            return (callee, receiver);
+        };
+        let declared = self
+            .innermost_local(self.borrowed(operand), operand.start_byte())
+            .map(|local| local.kind);
+        let receiver = match declared {
+            Some(LocalKind::ReceiverOf(method)) => Some(
+                self.raw.symbols[method.0 as usize]
+                    .owner
+                    .clone()
+                    .unwrap_or_default(),
+            ),
+            Some(LocalKind::Value | LocalKind::ValueSymbol(_)) => Some(String::new()),
+            Some(LocalKind::TypeSymbol(_)) | None => receiver,
+        };
+        (callee, receiver)
     }
 
     // constraint: a conversion, `(T)(x)` or `(*T)(x)`, and a call of a parenthesized name, `(f)(x)`, have one tree, so
