@@ -194,8 +194,8 @@ impl Graph {
         Some(outline)
     }
 
-    /// The definitions `name` selects, nearest to the file `from` first, then those outside test code, then by path
-    /// and line, at most `limit` of them.
+    /// The definitions `name` selects, nearest to the file `from` first, then those outside test code, then those
+    /// outside vendored code, then by path and line, at most `limit` of them.
     ///
     /// A bare name selects the definitions of that name. A qualified one, `Owner.parse` or `ns::Owner::parse`,
     /// selects every definition whose qualified name equals it or ends with it at a separator, and every definition
@@ -332,10 +332,13 @@ impl Graph {
     }
 }
 
-const fn rank_key<'g>(&(at, found): &(usize, Found<'g>)) -> (Nearness, bool, &'g str, u32, usize) {
+const fn rank_key<'g>(
+    &(at, found): &(usize, Found<'g>),
+) -> (Nearness, bool, bool, &'g str, u32, usize) {
     (
         found.nearness,
         found.definition.flags.is_test(),
+        found.definition.flags.is_vendored(),
         found.definition.file,
         found.definition.line,
         at,
