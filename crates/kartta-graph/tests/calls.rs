@@ -1234,6 +1234,151 @@ fn a_cap_reached_only_by_symbols_already_visited_cuts_nothing() {
     assert_eq!(walk.turned_away, 0);
 }
 
+#[test]
+fn a_call_path_names_each_hop_from_the_start() {
+    let graph = chain();
+
+    let path = graph
+        .call_path("a", "d", Limits::new(5))
+        .expect("both are defined");
+    let short = graph
+        .call_path("a", "d", Limits::new(2))
+        .expect("both are defined");
+    let itself = graph
+        .call_path("a", "a", Limits::new(5))
+        .expect("a is defined");
+    let no_depth = graph
+        .call_path("a", "d", Limits::new(0))
+        .expect("both are defined");
+
+    assert!(path.found);
+    let hops: Vec<(&str, u32, u32, u8)> = path
+        .hops
+        .iter()
+        .map(|hop| (hop.symbol.name, hop.line, hop.depth, hop.confidence))
+        .collect();
+    assert_eq!(hops, [("a", 2, 0, 80), ("b", 11, 1, 80), ("c", 21, 2, 80)]);
+    assert!(!short.found);
+    assert!(!short.truncated);
+    assert_eq!(short.at_depth_bound, 1);
+    assert!(itself.found);
+    assert_eq!(itself.hops.len(), 0);
+    assert!(!no_depth.found);
+    assert_eq!(no_depth.at_depth_bound, 0);
+}
+
+#[test]
+fn a_call_path_takes_the_shorter_of_two_chains() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![
+            function("a", 1),
+            function("b", 10),
+            function("c", 20),
+            function("d", 30),
+        ],
+        vec![
+            call(0, "b", 2),
+            call(0, "d", 3),
+            call(1, "c", 11),
+            call(2, "d", 21),
+        ],
+    )]);
+
+    let path = graph
+        .call_path("a", "d", Limits::new(5))
+        .expect("both are defined");
+
+    let hops: Vec<(&str, u32)> = path
+        .hops
+        .iter()
+        .map(|hop| (hop.symbol.name, hop.line))
+        .collect();
+    assert_eq!(hops, [("a", 3)]);
+}
+
+#[test]
+fn a_call_path_found_at_the_depth_bound_counts_the_other_callers_it_reached_there() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![
+            function("end", 1),
+            function("middle", 10),
+            function("other", 20),
+            function("start", 30),
+        ],
+        vec![
+            call(1, "end", 11),
+            call(2, "middle", 21),
+            call(3, "middle", 31),
+        ],
+    )]);
+
+    let path = graph
+        .call_path("start", "end", Limits::new(2))
+        .expect("both are defined");
+
+    assert!(path.found);
+    assert_eq!(path.at_depth_bound, 1);
+}
+
+#[test]
+fn a_call_path_counts_the_calls_its_confidence_floor_left_out() {
+    let graph = graph(&[
+        file(
+            "x/a.go",
+            vec![function("run", 1)],
+            vec![call(0, "parse", 2)],
+        ),
+        file("y/b.go", vec![function("parse", 1)], Vec::new()),
+    ]);
+
+    let path = graph
+        .call_path("run", "parse", Limits::new(1).with_min_confidence(70))
+        .expect("both are defined");
+
+    assert!(!path.found);
+    assert_eq!(path.below_confidence, 1);
+}
+
+#[test]
+fn a_call_path_search_the_cap_stops_says_so() {
+    let graph = chain();
+
+    let path = graph
+        .call_path("a", "d", Limits::new(5).with_max_symbols(2))
+        .expect("both are defined");
+
+    assert!(!path.found);
+    assert!(path.truncated);
+    assert_eq!(path.turned_away, 1);
+}
+
+#[test]
+fn a_call_path_counts_the_other_callables_each_name_selects() {
+    let graph = graph(&[
+        file(
+            "a.go",
+            vec![function("start", 1), function("end", 10)],
+            vec![call(0, "end", 2)],
+        ),
+        file(
+            "b.go",
+            vec![function("start", 1), function("end", 10)],
+            Vec::new(),
+        ),
+        file("c.go", vec![function("end", 1)], Vec::new()),
+    ]);
+
+    let path = graph
+        .call_path("start", "end", Limits::new(3))
+        .expect("both are defined");
+
+    assert!(path.found);
+    assert_eq!((path.from.file, path.to.file), ("a.go", "a.go"));
+    assert_eq!(path.passed_over, (1, 2));
+}
+
 fn using(name: &str, qualifier: Option<&str>) -> RefSite {
     RefSite {
         site_of: SymbolId(0),
