@@ -1,0 +1,20 @@
+[package]
+name = "kartta-lang-blk"
+description = "BLK extraction for the kartta code graph: the includes of Dagor DataBlock text files"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["code-graph", "blk", "dagor", "tree-sitter", "static-analysis"]
+categories = ["development-tools", "parser-implementations"]
+
+[lints]
+workspace = true
+
+[dependencies]
+kartta-lang = { version = "0.0.0", path = "../kartta-lang", features = ["tree-sitter"] }
+tree-sitter = "0.27.1"
+tree-sitter-blk = "1.0.1"
