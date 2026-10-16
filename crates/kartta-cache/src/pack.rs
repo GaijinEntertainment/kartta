@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io;
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use memmap2::Mmap;
 
@@ -90,6 +90,7 @@ pub(crate) enum Lookup<'a> {
 
 #[derive(Debug)]
 pub(crate) struct Pack {
+    path: PathBuf,
     map: Mmap,
     entries: Range<usize>,
     namespaces: Range<usize>,
@@ -106,11 +107,34 @@ impl Pack {
         // A program outside this crate that truncates a pack breaks that protocol and is not defended against.
         let map = unsafe { Mmap::map(&file)? };
 
-        Ok(Self::laid_out(&map).map(|(entries, namespaces)| Self {
-            map,
-            entries,
-            namespaces,
-        }))
+        Ok(Self::laid_out(&map)
+            .map(|(entries, namespaces)| Self {
+                path: path.to_path_buf(),
+                map,
+                entries,
+                namespaces,
+            })
+            .filter(Self::ranges_tile_the_index))
+    }
+
+    // constraint: a pack whose namespace ranges do not cover its index in order is refused whole, because a merge that
+    // read such a range as empty would publish without its entries and then remove the only copy of them
+    fn ranges_tile_the_index(&self) -> bool {
+        let mut next = 0;
+        let mut previous: Option<&[u8]> = None;
+        for record in self.namespace_records() {
+            let Some(range) = entry_range(record) else {
+                return false;
+            };
+            let ascending = previous.is_none_or(|previous| previous < &record[..32]);
+            if !ascending || range.start != next || range.end <= range.start {
+                return false;
+            }
+            next = range.end;
+            previous = Some(&record[..32]);
+        }
+
+        next == self.entry_count()
     }
 
     fn laid_out(map: &[u8]) -> Option<(Range<usize>, Range<usize>)> {
@@ -155,11 +179,36 @@ impl Pack {
         let found = records
             .binary_search_by(|record| record[..32].cmp(namespace.as_bytes()))
             .ok()?;
-        let record = &records[found];
-        let start = u64::from_le_bytes(*record[32..].first_chunk()?);
-        let end = u64::from_le_bytes(*record[40..].first_chunk()?);
 
-        Some(usize::try_from(start).ok()?..usize::try_from(end).ok()?)
+        entry_range(&records[found])
+    }
+
+    pub(crate) fn entries(&self) -> impl Iterator<Item = (Namespace, ContentHash, &[u8])> {
+        self.namespace_records().iter().flat_map(move |record| {
+            let namespace = record.first_chunk().copied().map(Namespace::from_bytes);
+            let entries = entry_range(record)
+                .and_then(|range| self.entry_records().get(range))
+                .unwrap_or_default();
+            entries
+                .iter()
+                .filter_map(move |entry| self.checked_entry(namespace?, entry))
+        })
+    }
+
+    fn checked_entry(
+        &self,
+        namespace: Namespace,
+        entry: &[u8; ENTRY_RECORD_LEN],
+    ) -> Option<(Namespace, ContentHash, &[u8])> {
+        let content = ContentHash::from_bytes(*entry.first_chunk()?);
+        let payload = self.payload(entry)?;
+
+        (key::check(&namespace, &content, payload) == check_of(entry))
+            .then_some((namespace, content, payload))
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
     }
 
     fn payload(&self, record: &[u8; ENTRY_RECORD_LEN]) -> Option<&[u8]> {
@@ -181,6 +230,13 @@ impl Pack {
     pub(crate) fn entry_count(&self) -> usize {
         self.entries.len() / ENTRY_RECORD_LEN
     }
+}
+
+fn entry_range(record: &[u8; NAMESPACE_RECORD_LEN]) -> Option<Range<usize>> {
+    let start = u64::from_le_bytes(*record[32..].first_chunk()?);
+    let end = u64::from_le_bytes(*record[40..].first_chunk()?);
+
+    Some(usize::try_from(start).ok()?..usize::try_from(end).ok()?)
 }
 
 const fn check_of(record: &[u8; ENTRY_RECORD_LEN]) -> u64 {
