@@ -47,6 +47,8 @@
   2026-10-16
 - [3.5 Keep the graph a file at a time](./adr/3.5-keep-the-graph-a-file-at-a-time.md) — initiative `03-code-graph`,
   2026-10-16
+- [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md) — initiative
+  `03-code-graph`, 2026-10-16
 
 ## Deprecated
 
