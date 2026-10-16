@@ -1,0 +1,158 @@
+//! Compile-time implements assertions a file states about a type it does not declare, `var _ io.Reader = (*File)(nil)`
+//! in Go: the type they name implements the interface they name, both names read from the asserting file.
+
+use kartta_graph::{Graph, Implementations};
+use kartta_lang::{
+    Conventions, Extraction, ImplementsAssertion, ImportBinding, Symbol, SymbolKind,
+};
+
+fn ty(name: &str, qualified: &str, kind: SymbolKind) -> Symbol {
+    let mut symbol = Symbol::new(name, kind, 1, 5);
+    qualified.clone_into(&mut symbol.qualified_name);
+    symbol
+}
+
+fn file(path: &str, symbols: Vec<Symbol>) -> Extraction {
+    let mut extraction = Extraction::default();
+    path.clone_into(&mut extraction.file);
+    extraction.symbols = symbols;
+    extraction
+}
+
+fn asserting(path: &str, assertions: &[(&str, &str)], imports: &[(&str, &str)]) -> Extraction {
+    let mut extraction = file(path, Vec::new());
+    extraction.assertions = assertions
+        .iter()
+        .map(|&(type_name, iface)| ImplementsAssertion {
+            type_name: type_name.to_owned(),
+            iface: iface.to_owned(),
+        })
+        .collect();
+    extraction.bindings = imports
+        .iter()
+        .map(|&(name, dir)| ImportBinding {
+            alias: Some(name.to_owned()),
+            target_dir: Some(dir.to_owned()),
+            last_segment: name.to_owned(),
+        })
+        .collect();
+    extraction
+}
+
+fn graph(files: &[Extraction]) -> Graph {
+    let mut conventions = Conventions::default();
+    conventions.directory_packages = true;
+    let mut graph = Graph::new(conventions);
+    for extraction in files {
+        graph.insert(extraction);
+    }
+    graph
+}
+
+fn found(implementations: &Implementations<'_>) -> Vec<String> {
+    implementations
+        .found
+        .iter()
+        .map(|implementor| {
+            format!(
+                "{}:{}",
+                implementor.symbol.file, implementor.symbol.qualified_name
+            )
+        })
+        .collect()
+}
+
+fn package() -> Vec<Extraction> {
+    vec![
+        file(
+            "io/reader.go",
+            vec![ty("Reader", "io.Reader", SymbolKind::Interface)],
+        ),
+        file(
+            "app/closer.go",
+            vec![ty("Closer", "app.Closer", SymbolKind::Interface)],
+        ),
+        file(
+            "app/file.go",
+            vec![ty("File", "app.File", SymbolKind::Struct)],
+        ),
+        file(
+            "lib/handle.go",
+            vec![ty("Handle", "lib.Handle", SymbolKind::TypeAlias)],
+        ),
+    ]
+}
+
+#[test]
+fn an_assertion_makes_the_type_it_names_an_implementor_of_the_interface_it_names() {
+    let mut files = package();
+    files.push(asserting(
+        "app/assert.go",
+        &[
+            ("File", "io.Reader"),
+            ("File", "Closer"),
+            ("lib.Handle", "Closer"),
+        ],
+        &[("io", "io"), ("lib", "lib")],
+    ));
+    let graph = graph(&files);
+
+    let reader = graph.implementations("io.Reader", 1, 10).expect("a type");
+    let closer = graph.implementations("app.Closer", 1, 10).expect("a type");
+
+    assert_eq!(found(&reader), ["app/file.go:app.File"]);
+    assert_eq!(
+        found(&closer),
+        ["app/file.go:app.File", "lib/handle.go:lib.Handle"]
+    );
+}
+
+#[test]
+fn an_assertion_whose_names_reach_another_type_names_none_of_these() {
+    let mut files = package();
+    files.push(file(
+        "other/closer.go",
+        vec![ty("Closer", "other.Closer", SymbolKind::Interface)],
+    ));
+    files.push(asserting(
+        "other/assert.go",
+        &[("File", "Closer"), ("app.Missing", "Closer")],
+        &[("app", "app")],
+    ));
+    let graph = graph(&files);
+
+    let own = graph.implementations("app.Closer", 1, 10).expect("a type");
+    let other = graph
+        .implementations("other.Closer", 1, 10)
+        .expect("a type");
+
+    assert_eq!(found(&own), [] as [&str; 0]);
+    assert_eq!(found(&other), [] as [&str; 0]);
+}
+
+#[test]
+fn a_type_name_two_types_of_the_package_share_names_neither() {
+    let mut files = package();
+    files.push(file(
+        "app/file_test.go",
+        vec![ty("File", "app_test.File", SymbolKind::Struct)],
+    ));
+    files.push(asserting("app/assert.go", &[("File", "Closer")], &[]));
+    let graph = graph(&files);
+
+    let closer = graph.implementations("app.Closer", 1, 10).expect("a type");
+
+    assert_eq!(found(&closer), [] as [&str; 0]);
+}
+
+#[test]
+fn a_replaced_asserting_file_stops_asserting() {
+    let mut files = package();
+    files.push(asserting("app/assert.go", &[("File", "Closer")], &[]));
+    let mut graph = graph(&files);
+
+    graph.insert(&asserting("app/assert.go", &[], &[]));
+    let closer = graph.implementations("app.Closer", 1, 10).expect("a type");
+
+    assert_eq!(found(&closer), [] as [&str; 0]);
+}

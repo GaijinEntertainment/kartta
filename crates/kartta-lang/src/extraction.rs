@@ -231,8 +231,9 @@ pub struct ImportBinding {
 
 /// A compile-time assertion that a type implements an interface, where the asserting file does not declare the type.
 ///
-/// The graph matches the names, as written, in the asserting file's package first, then through its imports; no match
-/// adds nothing.
+/// The graph reads both names from the asserting file by the rules it reads a parent the file writes by: where a
+/// package is a directory, a bare name in the file's own package and a qualified one in the package its import binds.
+/// A type name that reaches no type, or several, adds nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ImplementsAssertion {
     /// The implementing type as written: `T` or `pkg.T`.

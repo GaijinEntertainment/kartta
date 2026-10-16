@@ -7,6 +7,7 @@ use crate::graph::{Definition, Graph, QUALIFIER_SEPARATORS};
 use crate::resolve::{Cascade, is_type_kind};
 use crate::scope::is_type;
 use crate::stored::{Parent, SymbolAt};
+use crate::strings::Str;
 
 /// A type that names another as its parent, or names one of that type's implementors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -41,6 +42,8 @@ impl Graph {
     ///
     /// A parent is what a language records a type to implement, extend, embed or include: a base class, an
     /// interface, a trait, a mixed-in module; only a type, an enum or a namespace that records one is an implementor.
+    /// A compile-time assertion that a type implements an interface, as Go's `var _ I = T{}` in a file that does not
+    /// declare `T`, makes the interface a parent of the type it names, read from the asserting file.
     /// A name selects among classes, structs, interfaces, traits and namespaces as [`Graph::definitions`] does: the
     /// type whose qualified name it is, else the type of that bare name, and where several share it, the one the
     /// most types name as a parent, the first in path order on a tie.
@@ -185,29 +188,52 @@ impl Types<'_> {
 
     fn implementors_of(&self, ty: SymbolAt) -> Vec<SymbolAt> {
         let key = self.graph.sym(ty).name;
-        let parents = self.graph.parenting_files(key).iter().flat_map(|&slot| {
-            self.graph
-                .file(slot)
-                .parents
-                .iter()
-                .map(move |parent| (slot, parent))
-        });
-        parents
-            .filter(|&(slot, parent)| {
+        let mut implementors = Vec::new();
+        for &slot in self.graph.parenting_files(key) {
+            self.declared_in(slot, ty, &mut implementors);
+            self.asserted_in(slot, ty, &mut implementors);
+        }
+        implementors
+    }
+
+    fn declared_in(&self, slot: u32, ty: SymbolAt, implementors: &mut Vec<SymbolAt>) {
+        let key = self.graph.sym(ty).name;
+        let declared = self
+            .graph
+            .file(slot)
+            .parents
+            .iter()
+            .map(|parent| {
                 let child = SymbolAt {
                     file: slot,
                     index: parent.symbol,
                 };
+                (child, parent)
+            })
+            .filter(|&(child, parent)| {
                 child != ty
                     && is_implementor_kind(self.graph.sym(child).kind)
                     && self.graph.site_key(parent.written) == Some(key)
                     && self.names(child, parent, ty)
             })
-            .map(|(slot, parent)| SymbolAt {
-                file: slot,
-                index: parent.symbol,
+            .map(|(child, _)| child);
+        implementors.extend(declared);
+    }
+
+    fn asserted_in(&self, slot: u32, ty: SymbolAt, implementors: &mut Vec<SymbolAt>) {
+        let key = self.graph.sym(ty).name;
+        let asserted = self
+            .graph
+            .file(slot)
+            .assertions
+            .iter()
+            .filter(|assertion| {
+                self.graph.site_key(assertion.iface) == Some(key)
+                    && self.file_names(slot, assertion.iface, ty)
             })
-            .collect()
+            .filter_map(|assertion| self.asserted_type(slot, assertion.type_name))
+            .filter(|&implementor| implementor != ty);
+        implementors.extend(asserted);
     }
 
     fn names(&self, child: SymbolAt, parent: &Parent, ty: SymbolAt) -> bool {
@@ -258,6 +284,39 @@ impl Types<'_> {
             depth(ty) == Some(innermost)
                 && self.nearest_of_its_name(child.file, Spelling::FromRoot(qualified(ty)), ty)
         })
+    }
+
+    fn file_names(&self, file: u32, written: Str, ty: SymbolAt) -> bool {
+        let written = self
+            .graph
+            .strings
+            .resolve(written)
+            .trim_start_matches(QUALIFIER_SEPARATORS);
+        if self.cascade.conventions.directory_packages {
+            self.names_in_packages(file, written, ty)
+        } else {
+            self.nearest_of_its_name(file, Spelling::Written(written), ty)
+        }
+    }
+
+    // constraint: an assertion names its implementing type as the file writes it, and a name that selects several
+    // types, as an external test package shadowing its own package's type does, names none
+    fn asserted_type(&self, file: u32, type_name: Str) -> Option<SymbolAt> {
+        let written = self
+            .graph
+            .strings
+            .resolve(type_name)
+            .trim_start_matches(QUALIFIER_SEPARATORS);
+        let last = written
+            .rsplit(QUALIFIER_SEPARATORS)
+            .next()
+            .unwrap_or(written);
+        let named = self.graph.named(self.graph.strings.get(last)?);
+        let mut types = named.iter().copied().filter(|&at| {
+            is_type_kind(self.graph.sym(at).kind) && self.file_names(file, type_name, at)
+        });
+        let found = types.next()?;
+        types.next().is_none().then_some(found)
     }
 
     fn names_in_packages(&self, file: u32, written: &str, ty: SymbolAt) -> bool {
