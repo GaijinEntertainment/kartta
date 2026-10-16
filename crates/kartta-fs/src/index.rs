@@ -476,7 +476,12 @@ impl Index {
             .map_or_else(rayon::current_num_threads, ThreadPool::current_num_threads)
     }
 
-    pub(crate) fn on_threads<R: Send>(&self, operation: impl FnOnce() -> R + Send) -> R {
+    /// Runs `operation` on the threads this index runs on, so that a consumer's parallel work after the build shares
+    /// the [`BuildOptions::threads`] the index was built with rather than starting threads of its own.
+    ///
+    /// A rayon call inside `operation` — `par_iter`, `join`, `scope` — runs on the index's pool when the build named a
+    /// count, and on the ambient pool when it named none, as the index's own searches do.
+    pub fn on_threads<R: Send>(&self, operation: impl FnOnce() -> R + Send) -> R {
         on_pool(self.pool.as_deref(), operation)
     }
 
@@ -1341,6 +1346,12 @@ impl BuildOutcome {
     #[must_use]
     pub fn into_index(self) -> Index {
         self.index
+    }
+
+    /// Takes the index and the report both, for a consumer that keeps the index and hands the report on.
+    #[must_use]
+    pub fn into_parts(self) -> (Index, Vec<BuildError>) {
+        (self.index, self.errors)
     }
 
     /// What the build could not read, ordered by path so two builds of one tree report identically.

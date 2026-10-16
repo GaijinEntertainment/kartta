@@ -469,6 +469,48 @@ fn an_index_with_no_thread_count_runs_on_the_ambient_pool() {
     );
 }
 
+fn ambient_pool(threads: usize) -> rayon::ThreadPool {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .expect("start a thread pool")
+}
+
+#[test]
+fn a_consumer_runs_its_parallel_work_on_the_threads_the_build_named() {
+    let dir = tree(&[("main.rs", "code")]);
+    let mut options = BuildOptions::default();
+    options.threads = NonZeroUsize::new(3);
+    let index = index(dir.path(), &options);
+
+    let threads = ambient_pool(1).install(|| index.on_threads(rayon::current_num_threads));
+
+    assert_eq!(threads, 3);
+}
+
+#[test]
+fn a_consumer_of_an_index_with_no_thread_count_runs_on_the_ambient_pool() {
+    let dir = tree(&[("main.rs", "code")]);
+    let index = default_index(dir.path());
+
+    let threads = ambient_pool(2).install(|| index.on_threads(rayon::current_num_threads));
+
+    assert_eq!(threads, 2);
+}
+
+#[test]
+fn a_build_outcome_hands_over_its_index_and_its_report_together() {
+    let gitignore_that_is_a_directory = (".gitignore/", "");
+    let dir = tree(&[gitignore_that_is_a_directory, ("main.rs", "code")]);
+
+    let (index, errors) = Index::build(dir.path(), &BuildOptions::default())
+        .expect("build the index")
+        .into_parts();
+
+    assert!(index.entry("main.rs").is_some());
+    assert!(matches!(errors.as_slice(), [BuildError::Ignore { .. }]));
+}
+
 #[test]
 fn fuzzy_ranks_a_filename_hit_above_a_directory_hit() {
     let dir = tree(&[
