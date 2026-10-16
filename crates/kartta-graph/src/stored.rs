@@ -16,6 +16,12 @@ pub(crate) struct Site {
     entry: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct UseAt {
+    pub(crate) file: u32,
+    pub(crate) index: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Entry {
     Call(u32),
@@ -59,6 +65,7 @@ pub(crate) struct StoredFile {
     // calls without a scan
     pub(crate) calls: Box<[StoredCall]>,
     pub(crate) local_calls: Box<[StoredLocalCall]>,
+    pub(crate) references: Box<[StoredReference]>,
     pub(crate) includes: Box<[Str]>,
     pub(crate) re_exports: Box<[StoredReExport]>,
     pub(crate) bindings: Box<[StoredBinding]>,
@@ -207,6 +214,14 @@ impl StoredCall {
 pub(crate) struct StoredLocalCall {
     pub(crate) caller: u32,
     pub(crate) local: u32,
+    pub(crate) line: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StoredReference {
+    pub(crate) site_of: u32,
+    pub(crate) name: Str,
+    pub(crate) qualifier: Option<Str>,
     pub(crate) line: u32,
 }
 

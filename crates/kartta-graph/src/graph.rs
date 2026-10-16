@@ -7,7 +7,7 @@ use kartta_lang::{Conventions, Extraction, Symbol, SymbolFlags, SymbolId, Symbol
 use crate::order::PathOrder;
 use crate::stored::{
     Entry, Folded, Local, Occurrence, Parent, Site, StoredBinding, StoredCall, StoredCallable,
-    StoredFile, StoredLocalCall, StoredReExport, StoredSymbol, SymbolAt,
+    StoredFile, StoredLocalCall, StoredReExport, StoredReference, StoredSymbol, SymbolAt, UseAt,
 };
 use crate::strings::{Str, Strings};
 
@@ -29,6 +29,7 @@ pub struct Graph {
     by_name: HashMap<Str, Vec<SymbolAt>, FixedState>,
     order: PathOrder,
     sites: HashMap<Str, Vec<u32>, FixedState>,
+    uses: HashMap<Str, Vec<u32>, FixedState>,
     callables: HashMap<Str, Vec<Occurrence>, FixedState>,
     package_files: HashMap<Str, Vec<u32>, FixedState>,
     renamed_from: HashMap<Str, Vec<Rename>, FixedState>,
@@ -112,6 +113,7 @@ impl Graph {
             by_name: HashMap::with_hasher(FixedState::default()),
             order: PathOrder::default(),
             sites: HashMap::with_hasher(FixedState::default()),
+            uses: HashMap::with_hasher(FixedState::default()),
             callables: HashMap::with_hasher(FixedState::default()),
             package_files: HashMap::with_hasher(FixedState::default()),
             renamed_from: HashMap::with_hasher(FixedState::default()),
@@ -302,6 +304,22 @@ impl Graph {
         }
     }
 
+    pub(crate) fn uses(&self, name: Str) -> impl Iterator<Item = UseAt> + '_ {
+        self.uses
+            .get(&name)
+            .into_iter()
+            .flatten()
+            .flat_map(move |&slot| {
+                let references = self.file(slot).references.iter().enumerate();
+                references
+                    .filter(move |(_, site)| site.name == name)
+                    .map(move |(index, _)| UseAt {
+                        file: slot,
+                        index: narrow(index),
+                    })
+            })
+    }
+
     pub(crate) fn occurrences(&self, key: Str) -> &[Occurrence] {
         self.callables.get(&key).map_or(&[], Vec::as_slice)
     }
@@ -395,6 +413,7 @@ impl Graph {
             folded: folded(extraction),
             calls: self.store_calls(extraction),
             local_calls: local_calls(extraction),
+            references: self.store_references(extraction),
             includes: self.store_includes(path, extraction),
             re_exports: self.store_re_exports(extraction),
             bindings: self.store_bindings(extraction),
@@ -487,6 +506,23 @@ impl Graph {
             .collect();
         calls.sort_by_key(|call| call.caller());
         calls.into_boxed_slice()
+    }
+
+    fn store_references(&mut self, extraction: &Extraction) -> Box<[StoredReference]> {
+        extraction
+            .references
+            .iter()
+            .filter(|site| holds(extraction, site.site_of))
+            .map(|site| StoredReference {
+                site_of: site.site_of.0,
+                name: self.strings.intern(&site.name),
+                qualifier: site
+                    .qualifier
+                    .as_deref()
+                    .map(|qualifier| self.strings.intern(qualifier)),
+                line: site.line,
+            })
+            .collect()
     }
 
     fn store_includes(&mut self, path: Str, extraction: &Extraction) -> Box<[Str]> {
@@ -584,6 +620,17 @@ impl Graph {
         for (key, occurrence) in callables {
             self.callables.entry(key).or_default().push(occurrence);
         }
+        let mut used: Vec<Str> = self
+            .file(slot)
+            .references
+            .iter()
+            .map(|site| site.name)
+            .collect();
+        used.sort_unstable();
+        used.dedup();
+        for name in used {
+            self.uses.entry(name).or_default().push(slot);
+        }
         for (source_name, rename) in renames {
             self.renamed_from
                 .entry(source_name)
@@ -677,6 +724,12 @@ impl Graph {
         }
         for key in site_keys {
             unlist(&mut self.sites, key, |&held| held != slot);
+        }
+        let mut used: Vec<Str> = file.references.iter().map(|site| site.name).collect();
+        used.sort_unstable();
+        used.dedup();
+        for name in used {
+            unlist(&mut self.uses, name, |&held| held != slot);
         }
         for callable in &file.callables {
             unlist(&mut self.callables, callable.key, |occurrence| {
