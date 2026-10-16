@@ -11,6 +11,7 @@ members = [
     "crates/kartta-lang-daslang",
     "crates/kartta-lang-go",
     "crates/kartta-lang-jsts",
+    "crates/kartta-lang-quirrel",
     "crates/kartta-walk",
 ]
 
