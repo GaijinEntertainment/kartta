@@ -33,5 +33,7 @@ when another file changes.
   under a symbol cap, counting what the cap, the depth bound and the floor left out.
 - `Graph::references` — the sites that call or use a symbol, by file and line, counting what the floor and the limit
   left out.
+- `Graph::call_path` — the shortest chain of calls from one callable to another, counting what the cap, the depth bound
+  and the floor left out.
 
 Status: the API is new and is not published yet.
