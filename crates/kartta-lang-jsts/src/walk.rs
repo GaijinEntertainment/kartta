@@ -1,6 +1,9 @@
 mod calls;
 mod exports;
 
+use std::collections::HashMap;
+use std::ops::Range;
+
 use kartta_lang::tree::{preorder, signature, signature_from, text};
 use kartta_lang::{
     Callable, CallableRole, NO_CALLER_ID, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
@@ -10,7 +13,7 @@ use tree_sitter::{Node, Tree};
 use crate::generated::is_generated_source;
 use crate::syntax::{
     declarator_kind, end_line, function_value, is_function_type, is_member_exported, member_name,
-    parents, start_line, trim_quotes, type_name,
+    named_child_nodes, parents, start_line, trim_quotes, type_name,
 };
 
 pub(crate) fn walk(tree: &Tree, source: &[u8]) -> RawExtraction {
@@ -99,11 +102,30 @@ struct DeclScope {
     exported: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Binding {
+    Value,
+    Type,
+}
+
+// constraint: a binding lives until the innermost scope around its declaration ends — a function, a block, a catch
+// clause, a loop, a `switch` — so bindings close in the order they opened and each restores the one it shadowed; a
+// `var` is held to its block too, so a call after the block keeps the name, a miss rather than a wrong empty receiver
+struct Declared {
+    name: Range<usize>,
+    until: usize,
+    shadowed: Option<Binding>,
+}
+
 struct Emitter<'s> {
     source: &'s [u8],
     scopes: Vec<Scope>,
     types: Vec<TypeScope>,
     decls: Vec<DeclScope>,
+    scope_ends: Vec<usize>,
+    function_ends: Vec<usize>,
+    declared: Vec<Declared>,
+    bindings: HashMap<&'s [u8], Binding>,
     exported_ids: (Option<usize>, Option<usize>),
     exported_names: Vec<String>,
     file_is_generated: bool,
@@ -119,6 +141,10 @@ impl<'s> Emitter<'s> {
             scopes: Vec::new(),
             types: Vec::new(),
             decls: Vec::new(),
+            scope_ends: Vec::new(),
+            function_ends: Vec::new(),
+            declared: Vec::new(),
+            bindings: HashMap::new(),
             exported_ids: (None, None),
             exported_names: Vec::new(),
             file_is_generated: is_generated_source(source),
@@ -134,18 +160,35 @@ impl<'s> Emitter<'s> {
 
         match node.kind() {
             "function_declaration" | "generator_function_declaration" => {
+                self.declare_function(node);
                 self.function_declaration(node);
             }
-            "method_definition" => self.method_definition(node),
+            "method_definition" => {
+                self.declare_parameters(node);
+                self.method_definition(node);
+            }
             "function_expression" | "generator_function" | "arrow_function" => {
+                self.declare_parameters(node);
                 self.anonymous_function(node, caller);
             }
             "class_declaration" | "abstract_class_declaration" => {
+                if let Some(name) = node.child_by_field_name("name") {
+                    self.declare(name.byte_range(), self.scope_end(), Binding::Type);
+                }
                 self.type_with_members(node, SymbolKind::Class);
+            }
+            "statement_block" | "switch_body" | "for_statement" | "catch_clause"
+            | "for_in_statement" => {
+                self.open_scope(node);
             }
             "interface_declaration" => self.type_with_members(node, SymbolKind::Interface),
             "internal_module" | "module" => self.type_with_members(node, SymbolKind::Namespace),
-            "class" => self.push_type_scope(node),
+            "class" => {
+                if let Some(name) = node.child_by_field_name("name") {
+                    self.declare(name.byte_range(), node.end_byte(), Binding::Type);
+                }
+                self.push_type_scope(node);
+            }
             "type_alias_declaration" => {
                 self.type_declaration(node, SymbolKind::TypeAlias, Vec::new());
             }
@@ -155,7 +198,10 @@ impl<'s> Emitter<'s> {
                 kind: declarator_kind(node),
                 exported: self.is_export_target(node),
             }),
-            "variable_declarator" => self.declarator(node),
+            "variable_declarator" => {
+                self.declare_declarator(node);
+                self.declarator(node);
+            }
             "pair" => self.pair_function(node),
             "field_definition" | "public_field_definition" => self.class_field(node),
             "method_signature" => {
@@ -197,6 +243,130 @@ impl<'s> Emitter<'s> {
         while self.decls.last().is_some_and(|scope| scope.end <= start) {
             self.decls.pop();
         }
+        while self.scope_ends.last().is_some_and(|&end| end <= start) {
+            self.scope_ends.pop();
+        }
+        while self.function_ends.last().is_some_and(|&end| end <= start) {
+            self.function_ends.pop();
+        }
+        while let Some(closed) = self.declared.pop_if(|declared| declared.until <= start) {
+            let name = &self.source[closed.name];
+            match closed.shadowed {
+                Some(binding) => self.bindings.insert(name, binding),
+                None => self.bindings.remove(name),
+            };
+        }
+    }
+
+    fn scope_end(&self) -> usize {
+        self.scope_ends.last().copied().unwrap_or(usize::MAX)
+    }
+
+    // constraint: a catch clause binds its parameter and a `for … in` or `for … of` with a `let`, `const` or `var`
+    // binds its left side, each for the statement alone
+    fn open_scope(&mut self, node: Node<'_>) {
+        self.scope_ends.push(node.end_byte());
+        let bound = match node.kind() {
+            "catch_clause" => node.child_by_field_name("parameter"),
+            "for_in_statement" if node.child_by_field_name("kind").is_some() => {
+                node.child_by_field_name("left")
+            }
+            _ => None,
+        };
+        if let Some(bound) = bound {
+            self.declare_pattern(bound, node.end_byte());
+        }
+    }
+
+    fn declare(&mut self, name: Range<usize>, until: usize, binding: Binding) {
+        let source = self.source;
+        let shadowed = self.bindings.insert(&source[name.clone()], binding);
+        self.declared.push(Declared {
+            name,
+            until,
+            shadowed,
+        });
+    }
+
+    // constraint: a function declared inside a function body names a value of its scope, while one at module or
+    // namespace level keeps its name, because TypeScript merges it with a namespace of that name
+    fn declare_function(&mut self, function: Node<'_>) {
+        if !self.function_ends.is_empty()
+            && let Some(name) = function.child_by_field_name("name")
+        {
+            self.declare(name.byte_range(), self.scope_end(), Binding::Value);
+        }
+        self.declare_parameters(function);
+    }
+
+    // constraint: the name of a named function expression is a value of its own body
+    fn declare_parameters(&mut self, function: Node<'_>) {
+        if matches!(
+            function.kind(),
+            "function_expression" | "generator_function"
+        ) && let Some(name) = function.child_by_field_name("name")
+        {
+            self.declare(name.byte_range(), function.end_byte(), Binding::Value);
+        }
+        self.function_ends.push(function.end_byte());
+        self.scope_ends.push(function.end_byte());
+        for field in ["parameter", "parameters"] {
+            if let Some(parameters) = function.child_by_field_name(field) {
+                self.declare_pattern(parameters, function.end_byte());
+            }
+        }
+    }
+
+    // constraint: a declarator whose value is a class expression binds the class, whose static members a call on the
+    // name reaches, so it is a type binding that shadows a value of that name
+    fn declare_declarator(&mut self, declarator: Node<'_>) {
+        let Some(name) = declarator.child_by_field_name("name") else {
+            return;
+        };
+        let binds_a_class = declarator
+            .child_by_field_name("value")
+            .is_some_and(|value| value.kind() == "class");
+        if binds_a_class && name.kind() == "identifier" {
+            self.declare(name.byte_range(), self.scope_end(), Binding::Type);
+        } else {
+            self.declare_pattern(name, self.scope_end());
+        }
+    }
+
+    // constraint: a pattern binds its identifiers and its shorthand properties; a property key, a default value and a
+    // type annotation bind nothing
+    fn declare_pattern(&mut self, pattern: Node<'_>, until: usize) {
+        let inner = |field| pattern.child_by_field_name(field);
+        match pattern.kind() {
+            "identifier" | "shorthand_property_identifier_pattern" => {
+                self.declare(pattern.byte_range(), until, Binding::Value);
+            }
+            "required_parameter" | "optional_parameter" => {
+                if let Some(bound) = inner("pattern") {
+                    self.declare_pattern(bound, until);
+                }
+            }
+            "assignment_pattern" | "object_assignment_pattern" => {
+                if let Some(bound) = inner("left") {
+                    self.declare_pattern(bound, until);
+                }
+            }
+            "pair_pattern" => {
+                if let Some(bound) = inner("value") {
+                    self.declare_pattern(bound, until);
+                }
+            }
+            "formal_parameters" | "object_pattern" | "array_pattern" | "rest_pattern" => {
+                for bound in named_child_nodes(pattern) {
+                    self.declare_pattern(bound, until);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn names_a_declared_value(&self, receiver: &str) -> bool {
+        self.bindings.get(receiver.as_bytes()) == Some(&Binding::Value)
     }
 
     fn function_declaration(&mut self, node: Node<'_>) {

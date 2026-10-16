@@ -68,7 +68,8 @@ impl Emitter<'_> {
             .first()
             .is_some_and(u8::is_ascii_uppercase)
         {
-            self.push_call(target, node, caller_id);
+            let (callee, receiver) = target;
+            self.push_call((callee, self.value_receiver(receiver)), node, caller_id);
         }
     }
 
@@ -86,7 +87,7 @@ impl Emitter<'_> {
                 let Some(property) = constructor.child_by_field_name("property") else {
                     return;
                 };
-                (text(property, self.source), receiver)
+                (text(property, self.source), self.value_receiver(receiver))
             }
             _ => return,
         };
@@ -94,10 +95,10 @@ impl Emitter<'_> {
     }
 
     pub(super) fn call(&mut self, node: Node<'_>, caller_id: SymbolId) {
-        let (callee, mut receiver) = call_target(node, self.source);
-        if let Some(owner) = self.this_owner(node) {
-            receiver = Some(owner);
-        }
+        let (callee, written) = call_target(node, self.source);
+        let owner = self.this_owner(node);
+        let on_this = owner.is_some();
+        let receiver = owner.or(written);
 
         if receiver.is_none()
             && matches!(callee.as_str(), "require" | "import")
@@ -106,8 +107,22 @@ impl Emitter<'_> {
             self.push_directive(unquote(specifier), start_line(node));
         }
 
-        self.push_call((callee.clone(), receiver.clone()), node, caller_id);
+        let recorded = if on_this {
+            receiver.clone()
+        } else {
+            self.value_receiver(receiver.clone())
+        };
+        self.push_call((callee.clone(), recorded), node, caller_id);
         self.test_registration(node, &callee, receiver.as_deref());
+    }
+
+    // constraint: a receiver the caller declares as a value names no type, so it is the empty receiver of a member call
+    // on a value of no known type; an import binding, a class and a namespace keep their name
+    fn value_receiver(&self, receiver: Option<String>) -> Option<String> {
+        match receiver {
+            Some(name) if self.names_a_declared_value(&name) => Some(String::new()),
+            receiver => receiver,
+        }
     }
 
     fn this_owner(&self, call: Node<'_>) -> Option<String> {
