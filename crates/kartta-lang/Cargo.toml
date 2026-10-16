@@ -1,0 +1,22 @@
+[package]
+name = "kartta-lang"
+description = "The contract a language implements to plug its extraction into the kartta code graph"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["code-graph", "tree-sitter", "parser", "static-analysis", "symbols"]
+categories = ["development-tools", "parser-implementations"]
+
+[lints]
+workspace = true
+
+[dependencies]
+tree-sitter = { version = "0.27.1", optional = true }
+
+[features]
+# Walk helpers for a language that extracts through tree-sitter. Off by default: the contract itself names no parser.
+tree-sitter = ["dep:tree-sitter"]

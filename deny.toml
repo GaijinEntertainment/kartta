@@ -29,6 +29,9 @@ ignore = []
 # The watcher's notify brings three more, each with no condition a binary has to meet: CC0-1.0 is notify's own,
 # BSL-1.0 is `xxhash-rust`'s, which notify hashes paths with on macOS and Windows, and ISC is `inotify`'s, notify's
 # Linux backend, which is in the graph although kartta-fs builds notify only for macOS and Windows.
+#
+# Zlib is `foldhash`'s, which `serde_json` brings into tree-sitter's build script: it runs while a grammar compiles and
+# is linked into nothing, and the licence asks nothing of a binary either way.
 allow = [
     "Apache-2.0",
     "BSD-3-Clause",
@@ -38,6 +41,7 @@ allow = [
     "MIT",
     "Unicode-3.0",
     "Unlicense",
+    "Zlib",
 ]
 # The default 0.8 accepts a paraphrased licence text as a match. These crates are all standard boilerplate, so the bar
 # for "this is really that licence" is raised rather than left at a guess.
