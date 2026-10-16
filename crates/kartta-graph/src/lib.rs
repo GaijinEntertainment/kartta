@@ -9,9 +9,9 @@
 //! forgets a path, so a graph follows a tree that changes without being built again, and inserting or removing one
 //! file renumbers nothing else.
 //!
-//! A file keeps its call sites and uses as its language wrote them, and [`Graph::callers`], [`Graph::callees`] and
-//! [`Graph::references`] resolve the sites of the names they reach when they are asked, so no answer goes stale when
-//! another file changes.
+//! A file keeps its call sites and uses as its language wrote them, and [`Graph::callers`], [`Graph::callees`],
+//! [`Graph::references`] and [`Graph::call_path`] resolve the sites of the names they reach when they are asked, so no
+//! answer goes stale when another file changes.
 //!
 //! # Examples
 //!
@@ -57,5 +57,5 @@ mod scope;
 mod stored;
 mod strings;
 
-pub use crate::calls::{Limits, Reached, Reference, References, Walk};
+pub use crate::calls::{CallPath, Limits, Reached, Reference, References, Walk};
 pub use crate::graph::{Definition, Definitions, Found, Graph, Nearness};
