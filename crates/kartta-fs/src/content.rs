@@ -1,11 +1,19 @@
 use std::num::NonZeroU32;
 
+use kartta_cache::{ContentHash, Namespace};
+
+use crate::cache::SharedCache;
+
 /// A consumer of file content, handed each wanted text file once, during the walk that indexes it.
 ///
 /// A build that is given one reads every regular file the visitor [`wants`](ContentVisitor::wants) while the walk is
 /// in that file's directory, and hands its whole content to [`visit`](ContentVisitor::visit). That is the one read of
 /// the file a build makes: a consumer that parses, hashes or indexes content does its work there rather than opening
 /// the file again after the walk, when the filesystem's caches of the tree have long moved on.
+///
+/// A build given [`BuildOptions::content_cache`](crate::BuildOptions::content_cache) lends the visitor the same
+/// store and the same hash of each file: what the visitor computes per file it can take from
+/// [`Content::cached`] and share through [`Content::cache`], so builds of nearly identical trees compute it once.
 ///
 /// Both methods run on the walk's threads, many at a time and in no particular order, which is why the visitor is
 /// [`Sync`]. [`Content::id`] names each file for the rest of the build, and
@@ -70,6 +78,7 @@ pub struct Content<'a> {
     pub(crate) id: ContentId,
     pub(crate) path: &'a str,
     pub(crate) bytes: &'a [u8],
+    pub(crate) cache: Option<(&'a SharedCache, ContentHash)>,
 }
 
 impl<'a> Content<'a> {
@@ -89,6 +98,71 @@ impl<'a> Content<'a> {
     #[must_use]
     pub const fn bytes(&self) -> &'a [u8] {
         self.bytes
+    }
+
+    /// The blake3 hash of [`Content::bytes`], or `None` when the build was given no
+    /// [`BuildOptions::content_cache`](crate::BuildOptions::content_cache), which is what has it hash each read.
+    #[must_use]
+    pub fn hash(&self) -> Option<ContentHash> {
+        self.cache.map(|(_, hash)| hash)
+    }
+
+    /// What a build sharing the cache stored under `namespace` for these bytes, borrowed from the store for the length
+    /// of the call, or `None` when the store holds nothing there or the build was given no cache.
+    ///
+    /// The store answers with what it held when the build opened it, so an entry this build caches is found by the next
+    /// build, not by this one. The namespace names the producer and its version — see [`Namespace::new`] — so data a
+    /// different version computed is never answered.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kartta_fs::{BuildOptions, Content, ContentVisitor, Index, Namespace};
+    ///
+    /// struct Lines(Namespace);
+    ///
+    /// impl ContentVisitor for Lines {
+    ///     fn wants(&self, path: &str) -> bool {
+    ///         path.ends_with(".rs")
+    ///     }
+    ///
+    ///     fn visit(&self, content: Content<'_>) {
+    ///         if content.cached(&self.0).is_none() {
+    ///             let lines = content.bytes().iter().filter(|&&byte| byte == b'\n').count();
+    ///             content.cache(&self.0, &lines.to_le_bytes());
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let tree = tempfile::tempdir()?;
+    /// std::fs::write(tree.path().join("main.rs"), "fn main() {}\n")?;
+    /// let cache = tempfile::tempdir()?;
+    /// let mut options = BuildOptions::default();
+    /// options.content_cache = Some(cache.path().to_path_buf());
+    ///
+    /// let lines = Lines(Namespace::new("lines", b"newline count, little-endian usize, 1"));
+    /// let outcome = Index::build_with(tree.path(), &options, Some(&lines), None)?;
+    /// assert!(outcome.errors().is_empty());
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn cached(&self, namespace: &Namespace) -> Option<&'a [u8]> {
+        let (cache, hash) = self.cache?;
+        cache.get(namespace, &hash)
+    }
+
+    /// Shares `payload` under `namespace` for these bytes with every build that uses the same cache, or does nothing
+    /// when the build was given none.
+    ///
+    /// The payload joins the pack the build publishes once its walk is done, beside the content index's trigrams, and
+    /// a payload already given for the same namespace and bytes in this build is kept rather than replaced. A failure
+    /// to write it costs the sharing only, and is reported as [`BuildError::Cache`](crate::BuildError::Cache).
+    pub fn cache(&self, namespace: &Namespace, payload: &[u8]) {
+        if let Some((cache, hash)) = self.cache {
+            cache.insert(namespace, &hash, payload);
+        }
     }
 }
 

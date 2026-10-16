@@ -357,7 +357,15 @@ impl<'a> Indexing<'a> {
 
         let hash = reading.hash_of(bytes);
         let id = reading.keep_text(observed, bytes, hash.as_ref())?;
-        reading.hand_over(visit, Content { id, path, bytes });
+        reading.hand_over(
+            visit,
+            Content {
+                id,
+                path,
+                bytes,
+                cache: reading.lent(hash),
+            },
+        );
         Some(id)
     }
 
@@ -485,6 +493,7 @@ impl Reading<'_> {
                             id,
                             path,
                             bytes: &bytes,
+                            cache: self.lent(hash),
                         },
                     );
                 }
@@ -573,6 +582,10 @@ impl Reading<'_> {
 
     fn hash_of(&self, bytes: &[u8]) -> Option<ContentHash> {
         self.cache.as_ref().map(|_| ContentHash::of(bytes))
+    }
+
+    fn lent(&self, hash: Option<ContentHash>) -> Option<(&SharedCache, ContentHash)> {
+        self.cache.as_ref().zip(hash)
     }
 
     fn keep_text(

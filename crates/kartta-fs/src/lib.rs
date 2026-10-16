@@ -164,6 +164,7 @@ mod trigram;
 #[cfg(feature = "watch")]
 mod watch;
 
+pub use kartta_cache::{ContentHash, Namespace};
 pub use kartta_walk::CancelToken;
 
 pub use crate::binary::{BinaryExtensions, BinaryExtensionsError, BinaryGroup};

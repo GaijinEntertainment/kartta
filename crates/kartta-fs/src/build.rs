@@ -86,23 +86,26 @@ pub struct BuildOptions {
     /// all of them: on a tree of sources, reading every text file costs many times what the walk alone does.
     /// [`Index::content_index_stats`](crate::Index::content_index_stats) reports what the index holds.
     pub content_index: Option<ContentIndexStorage>,
-    /// A [`kartta_cache`] store the content index shares each text file's trigrams through, with every build that uses
-    /// the same directory — in this process or any other, of this tree or another. `None`, the default, shares nothing.
-    /// Without [`BuildOptions::content_index`] it is not opened. The directory is created when absent, and must allow
-    /// hard links.
+    /// A [`kartta_cache`] store that per-file data is shared through, with every build that uses the same directory —
+    /// in this process or any other, of this tree or another. The content index takes each text file's trigrams from
+    /// it, and a [`ContentVisitor`](crate::ContentVisitor) is lent it through
+    /// [`Content::cached`](crate::Content::cached) and [`Content::cache`](crate::Content::cache). `None`, the default,
+    /// shares nothing. A build with neither a content index nor a visitor does not open it. The directory is created
+    /// when absent, and must allow hard links.
     ///
-    /// An entry is keyed by the blake3 hash of a file's content and by the rules that computed its trigrams, never by
-    /// its path, so checkouts a few files apart share every other file's entry, and a version of this crate that
-    /// computes trigrams differently keeps entries of its own. A file whose entry the store holds is not scanned for
-    /// trigrams. The build computes the rest and publishes them into the directory, as one pack, once its walk is done,
-    /// then merges the directory's packs when they pass eight; a refresh does the same for the files it reads.
+    /// An entry is keyed by the blake3 hash of a file's content and by a namespace naming what computed it, never by
+    /// its path, so checkouts a few files apart share every other file's entry, and a version of this crate, or of a
+    /// visitor, that computes differently keeps entries of its own. A file whose trigrams the store holds is not
+    /// scanned. The build computes the rest and publishes them, with what the visitor cached, into the directory as one
+    /// pack once its walk is done, then merges the directory's packs when they pass eight; a refresh does the same for
+    /// the files it reads.
     ///
-    /// The cache is a trade. Each text file the build indexes is hashed, and a file only the content index reads that
-    /// runs past one 64 KiB chunk is read twice when the store lacks it — once to hash it, and once to scan and hash it
-    /// again — so the read still holds one chunk at a time. A build that finds nothing in the store pays for hashing,
-    /// encoding and writing every entry; one that finds everything pays for hashing and the lookups in place of
-    /// scanning. Where the build is bound by its CPUs, as under a container's quota, that saves what scanning cost;
-    /// where opening the files costs most of a build, as on macOS, it changes little.
+    /// The cache is a trade. Each file the build reads for the content index or a visitor is hashed, and a file only
+    /// the content index reads that runs past one 64 KiB chunk is read twice when the store lacks it — once to hash it,
+    /// and once to scan and hash it again — so the read still holds one chunk at a time. A build that finds nothing in
+    /// the store pays for hashing, encoding and writing every entry; one that finds everything pays for hashing and the
+    /// lookups in place of scanning. Where the build is bound by its CPUs, as under a container's quota, that saves
+    /// what scanning cost; where opening the files costs most of a build, as on macOS, it changes little.
     ///
     /// A failure to open, write or publish to the directory costs only the sharing: the build computes what it could
     /// not take from the store, and reports the failure as [`BuildError::Cache`].
@@ -209,10 +212,10 @@ pub enum BuildError {
     },
     /// The directory [`BuildOptions::content_cache`] names could not be opened, written, published to or merged.
     ///
-    /// Collected rather than returned: the content index is whole, because the build computed every file's trigrams
-    /// it could not take from the cache. What it lost is the sharing — the trigrams it computed are not in the
-    /// directory for the next build, unless the failure came after publishing, in the merge.
-    #[error("cannot share trigrams through {}: {source}", native_path.display())]
+    /// Collected rather than returned: a content index is whole, because the build computed every file's trigrams it
+    /// could not take from the cache. What it lost is the sharing — what it computed, and what a visitor cached, is
+    /// not in the directory for the next build, unless the failure came after publishing, in the merge.
+    #[error("cannot share per-file data through {}: {source}", native_path.display())]
     Cache {
         /// The cache directory.
         native_path: PathBuf,

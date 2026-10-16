@@ -8,10 +8,12 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::Mutex;
 
-use kartta_cache::{ContentHash, Namespace, Store};
+use kartta_cache::Store;
 use kartta_fs::{
-    BuildError, BuildOptions, BuildOutcome, Case, ContentIndexStorage, GrepOptions, Index, Patterns,
+    BuildError, BuildOptions, BuildOutcome, Case, Content, ContentHash, ContentIndexStorage,
+    ContentVisitor, GrepOptions, Index, Namespace, Patterns,
 };
 use tempfile::TempDir;
 
@@ -180,4 +182,119 @@ fn a_cache_that_cannot_be_opened_costs_only_the_sharing() {
         Some(2)
     );
     assert_eq!(found(&index, "alpha"), ["a.txt"]);
+}
+
+#[derive(Debug, PartialEq)]
+struct Visited {
+    path: String,
+    cached: Option<Vec<u8>>,
+    hash: Option<ContentHash>,
+}
+
+struct Lengths {
+    namespace: Namespace,
+    visited: Mutex<Vec<Visited>>,
+}
+
+impl Lengths {
+    fn new() -> Self {
+        Self {
+            namespace: Namespace::new("lengths", b"byte length, little-endian usize, 1"),
+            visited: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn visited(self) -> Vec<Visited> {
+        let mut visited = self.visited.into_inner().expect("lock");
+        visited.sort_by(|left, right| left.path.cmp(&right.path));
+        visited
+    }
+}
+
+impl ContentVisitor for Lengths {
+    fn wants(&self, _path: &str) -> bool {
+        true
+    }
+
+    fn visit(&self, content: Content<'_>) {
+        let cached = content.cached(&self.namespace).map(<[u8]>::to_vec);
+        if cached.is_none() {
+            content.cache(&self.namespace, &content.bytes().len().to_le_bytes());
+        }
+        self.visited.lock().expect("lock").push(Visited {
+            path: content.path().to_owned(),
+            cached,
+            hash: content.hash(),
+        });
+    }
+}
+
+fn build_visited(root: &Path, options: &BuildOptions, visitor: &Lengths) {
+    let outcome = Index::build_with(root, options, Some(visitor), None).expect("build the index");
+    assert_eq!(outcome.errors().len(), 0, "{:?}", outcome.errors());
+}
+
+#[test]
+fn a_visitor_finds_what_a_build_of_another_tree_cached_for_the_same_content() {
+    let cache = tempfile::tempdir().expect("cache dir");
+    let content = b"alpha\n";
+    let first = tree(&[("a.txt", content)]);
+    let moved = tree(&[("moved/a.txt", content)]);
+    let before = Lengths::new();
+    let after = Lengths::new();
+
+    build_visited(first.path(), &cached(cache.path()), &before);
+    build_visited(moved.path(), &cached(cache.path()), &after);
+
+    let hash = Some(ContentHash::of(content));
+    assert_eq!(
+        before.visited(),
+        [Visited {
+            path: "a.txt".to_owned(),
+            cached: None,
+            hash,
+        }]
+    );
+    assert_eq!(
+        after.visited(),
+        [Visited {
+            path: "moved/a.txt".to_owned(),
+            cached: Some(content.len().to_le_bytes().to_vec()),
+            hash,
+        }]
+    );
+    assert_eq!(
+        packs_and_entries(cache.path()),
+        (1, 2),
+        "the trigrams and the visitor's entry share the first build's pack"
+    );
+}
+
+#[test]
+fn a_visitor_without_a_content_index_still_shares_through_the_cache() {
+    let cache = tempfile::tempdir().expect("cache dir");
+    let root = tree(&[("a.txt", b"alpha\n"), ("b.txt", b"beta\n")]);
+    let mut options = BuildOptions::default();
+    options.content_cache = Some(cache.path().to_path_buf());
+
+    build_visited(root.path(), &options, &Lengths::new());
+
+    assert_eq!(packs_and_entries(cache.path()), (1, 2));
+}
+
+#[test]
+fn a_build_without_a_cache_hands_the_visitor_no_hash_and_no_entry() {
+    let root = tree(&[("a.txt", b"alpha\n")]);
+    let lengths = Lengths::new();
+
+    build_visited(root.path(), &BuildOptions::default(), &lengths);
+
+    assert_eq!(
+        lengths.visited(),
+        [Visited {
+            path: "a.txt".to_owned(),
+            cached: None,
+            hash: None,
+        }]
+    );
 }

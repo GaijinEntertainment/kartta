@@ -7,6 +7,7 @@ use kartta_cache::{ContentHash, Namespace, PackWriter, Store};
 use crate::build::BuildError;
 use crate::trigram::{self, Trigrams};
 
+#[derive(Debug)]
 pub(crate) struct SharedCache {
     store: Store,
     writer: PackWriter,
