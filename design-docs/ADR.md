@@ -76,6 +76,8 @@
   chain](./adr/3.15-qualify-a-ruby-member-by-its-whole-namespace-chain.md) — initiative `03-code-graph`, 2026-10-16
 - [3.16 Load a Lua module only from a literal name](./adr/3.16-load-a-lua-module-only-from-a-literal-name.md) —
   initiative `03-code-graph`, 2026-10-16
+- [3.17 Resolve a Puppet class through the autoloader's
+  layout](./adr/3.17-resolve-a-puppet-class-through-the-autoloader-s-layout.md) — initiative `03-code-graph`, 2026-10-16
 
 ## Deprecated
 
