@@ -72,6 +72,8 @@
   `03-code-graph`, 2026-10-16
 - [3.14 Fold a PHP include path and map a use through
   PSR-4](./adr/3.14-fold-a-php-include-path-and-map-a-use-through-psr-4.md) — initiative `03-code-graph`, 2026-10-16
+- [3.15 Qualify a Ruby member by its whole namespace
+  chain](./adr/3.15-qualify-a-ruby-member-by-its-whole-namespace-chain.md) — initiative `03-code-graph`, 2026-10-16
 
 ## Deprecated
 
