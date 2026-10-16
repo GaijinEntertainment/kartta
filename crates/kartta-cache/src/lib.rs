@@ -30,7 +30,11 @@
 //! is served, and a cache that served wrong data would turn into wrong answers downstream. The check guards against
 //! damage, not against a writer: a process that can write the directory can publish any pack it likes.
 //!
-//! Packs accumulate: each publish adds one, and this crate does not yet merge or remove them.
+//! Each publish of entries adds a pack, unless the same pack is already in place, and [`Store::merge`] keeps their
+//! number bounded: past eight it merges every pack but the largest into one while the largest holds more entries than
+//! all of them together, every pack otherwise, and removes what it merged. The caller decides when to merge — after
+//! publishing is the natural moment — because only it knows how many processes share the directory. Nothing removes an
+//! entry by age yet.
 //!
 //! # Examples
 //!
@@ -62,5 +66,5 @@ mod store;
 mod writer;
 
 pub use crate::key::{ContentHash, ContentHasher, Namespace};
-pub use crate::store::{Stats, Store};
+pub use crate::store::{Merged, Stats, Store};
 pub use crate::writer::PackWriter;
