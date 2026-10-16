@@ -1,0 +1,20 @@
+[package]
+name = "kartta-lang-cpp"
+description = "C and C++ for the kartta code graph: definitions, calls and includes extracted through tree-sitter"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["code-graph", "tree-sitter", "cpp", "static-analysis", "symbols"]
+categories = ["development-tools", "parser-implementations"]
+
+[lints]
+workspace = true
+
+[dependencies]
+kartta-lang = { version = "0.0.0", path = "../kartta-lang", features = ["tree-sitter"] }
+tree-sitter = "0.27.1"
+tree-sitter-cpp = "0.23.4"
