@@ -41,10 +41,11 @@
 //!
 //! # Calls
 //!
-//! A bare call `f()` names `f`; a member call names the field, its template arguments dropped, with the receiver
-//! variable, `this`, or an empty receiver for any other expression. A call through a named scope keeps the scope as
-//! written, `ns::f`, and one through the root keeps the `::`, `::f`. `new ns::Widget<T>()` is a call of `Widget`. A
-//! cast, a call spelled by a type keyword, and a call before the first symbol of the file are not recorded.
+//! A bare call `f()` names `f`; a member call names the field, its template arguments dropped, with `this` as its
+//! receiver on `this` and the empty receiver on any other operand, a named one included, because the operand of `.` or
+//! `->` is a value and its name names no type. A call through a named scope keeps the scope as written, `ns::f`, and
+//! one through the root keeps the `::`, `::f`. `new ns::Widget<T>()` is a call of `Widget`. A cast, a call spelled by a
+//! type keyword, and a call before the first symbol of the file are not recorded.
 //!
 //! # Includes
 //!

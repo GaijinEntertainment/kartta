@@ -92,19 +92,21 @@ pub(super) fn head_scope(class: Node<'_>, source: &[u8]) -> Option<String> {
     Some(scope.to_owned())
 }
 
+// constraint: the operand of `.` or `->` is a value, never a type, so a named one records the empty receiver like any
+// other expression, and only `this` names an owner, the caller's own
 pub(super) fn call_target(call: Node<'_>, source: &[u8]) -> Option<(String, Option<String>)> {
     let function = call.child_by_field_name("function")?;
     let target = match function.kind() {
         "identifier" => (unless_cast(text(function, source))?, None),
         "field_expression" => {
             let field = function.child_by_field_name("field")?;
-            let receiver = function
-                .child_by_field_name("argument")
-                .map(|argument| match argument.kind() {
-                    "identifier" => text(argument, source),
-                    "this" | "pointer_expression" => "this".to_owned(),
-                    _ => String::new(),
-                });
+            let receiver = function.child_by_field_name("argument").map(|argument| {
+                if argument.kind() == "this" {
+                    "this".to_owned()
+                } else {
+                    String::new()
+                }
+            });
             (function_base_name(field, source), receiver)
         }
         "qualified_identifier" if function.child_by_field_name("scope").is_some() => {

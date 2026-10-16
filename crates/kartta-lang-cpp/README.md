@@ -9,10 +9,11 @@ C and C++ for the kartta code graph: definitions, calls and includes extracted t
 
 From the bytes alone: functions and methods, classes, structs, unions and enums, type aliases, class data members, and
 namespace-scope variables and constants, each qualified the way C++ names it — `ns::f` for a free function in a
-namespace, `Widget::area` for a member. Calls carry the receiver a member call names. Callables carry an identity of
-scope, parameter types and member qualifiers wherever the walk can establish one without guessing, so a declaration and
-its definition meet in the graph and two overloads stay apart. Function-like macros, a test harness's `TEST(...)` blocks
-and trailing annotation macros included, are never mistaken for definitions.
+namespace, `Widget::area` for a member. A member call on `this` carries `this` as its receiver and one on any other
+operand the empty receiver, because a value's name names no type. Callables carry an identity of scope, parameter types
+and member qualifiers wherever the walk can establish one without guessing, so a declaration and its definition meet in
+the graph and two overloads stay apart. Function-like macros, a test harness's `TEST(...)` blocks and trailing
+annotation macros included, are never mistaken for definitions.
 
 From the path and the repository: each `#include` resolved to the file of the repository it names — the path relative to
 the including file, the exact path, the one file whose path ends in it — with no compiler search path, or kept as an
