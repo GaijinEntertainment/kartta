@@ -9,5 +9,11 @@ This crate is the entry point. It owns the engine and re-exports the types that 
 needs no direct dependency on the `kartta-*` building blocks. An MCP server over the same engine ships separately as
 `kartta-mcp`, and Go and Node bindings are published from the engine's C ABI.
 
-Status: this release carries no API. The engine is being ported into this repository crate by crate, starting with
-[`kartta-fs`](https://crates.io/crates/kartta-fs); the first release with a public surface will be `0.1.0`.
+The engine names no language of its own: it is handed the languages to build with, each a value implementing
+[`kartta-lang`](https://crates.io/crates/kartta-lang)'s `Language` trait, so a language kartta does not ship plugs in as
+one more crate.
+
+Status: the engine builds the file index and each language family's graph of definitions from one walk that reads each
+claimed text file once — twice only for a file whose extraction the shared cache holds in a form the build cannot read,
+or one a language's resolver asks for again, as configuration it reads.
+Calls, references and the queries over them are being ported; the first release with a public surface will be `0.1.0`.
