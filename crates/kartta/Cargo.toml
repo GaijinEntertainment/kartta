@@ -14,3 +14,11 @@ categories = ["development-tools", "parser-implementations"]
 workspace = true
 
 [dependencies]
+foldhash = "0.2.0"
+kartta-fs = { version = "0.0.0", path = "../kartta-fs" }
+kartta-graph = { version = "0.0.0", path = "../kartta-graph" }
+kartta-lang = { version = "0.0.0", path = "../kartta-lang" }
+rayon = "1.12.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"
