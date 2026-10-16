@@ -31,12 +31,13 @@ impl Block {
 #[derive(Clone, Copy)]
 pub(super) enum LocalKind {
     Value,
+    ReceiverOf(SymbolId),
     ValueSymbol(SymbolId),
     TypeSymbol(SymbolId),
 }
 
 impl Emitter<'_> {
-    pub(super) fn push_params(&mut self, function: Node<'_>, field: &str) {
+    pub(super) fn push_params(&mut self, function: Node<'_>, field: &str, kind: LocalKind) {
         let Some(list) = function
             .child_by_field_name(field)
             .filter(|list| list.kind() == "parameters")
@@ -56,7 +57,7 @@ impl Emitter<'_> {
                     from,
                     block,
                     name: text(name, self.source),
-                    kind: LocalKind::Value,
+                    kind,
                 });
             }
         }

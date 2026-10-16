@@ -140,8 +140,8 @@ impl<'a> Emitter<'a> {
             "function_declaration" => self.enter_function(node),
             "method_declaration" => self.enter_method(node),
             "function_literal" => {
-                self.push_params(node, "parameters");
-                self.push_params(node, "result");
+                self.push_params(node, "parameters", LocalKind::Value);
+                self.push_params(node, "result", LocalKind::Value);
             }
             "type_switch_statement" => self.enter_type_switch(node),
             "block" | "expression_case_clause" | "type_case_clause" | "communication_clause" => {
@@ -201,20 +201,22 @@ impl<'a> Emitter<'a> {
         }
         self.push_type_params(node.child_by_field_name("type_parameters"), node.end_byte());
         self.locals.clear();
-        self.push_params(node, "parameters");
-        self.push_params(node, "result");
+        self.push_params(node, "parameters", LocalKind::Value);
+        self.push_params(node, "result", LocalKind::Value);
     }
 
     fn enter_method(&mut self, node: Node<'_>) {
-        if let Some(id) = self.method(node) {
+        let method = self.method(node);
+        if let Some(id) = method {
             self.enter_body(node, id);
         }
         self.push_receiver_type_params(node);
         self.push_type_params(node.child_by_field_name("type_parameters"), node.end_byte());
         self.locals.clear();
-        self.push_params(node, "receiver");
-        self.push_params(node, "parameters");
-        self.push_params(node, "result");
+        let receiver = method.map_or(LocalKind::Value, LocalKind::ReceiverOf);
+        self.push_params(node, "receiver", receiver);
+        self.push_params(node, "parameters", LocalKind::Value);
+        self.push_params(node, "result", LocalKind::Value);
     }
 
     fn enter_body(&mut self, node: Node<'_>, id: SymbolId) {
