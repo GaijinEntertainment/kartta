@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
-use kartta_lang::{InheritedMembers, MemberCalls, SymbolKind};
+use kartta_lang::{CallsOnValues, InheritedMembers, MemberCalls, SymbolKind};
 
 use crate::candidates::Candidates;
 use crate::confidence;
@@ -916,6 +916,13 @@ impl Cascade<'_> {
         candidates: &Candidates<'_>,
         reach: Option<&Reach>,
     ) -> Option<Bound> {
+        if self.conventions.calls_on_values == CallsOnValues::NoNearestGuess
+            && call
+                .receiver
+                .is_some_and(|receiver| self.graph.strings.resolve(receiver).is_empty())
+        {
+            return None;
+        }
         let caller_file = self.graph.file(call.file);
         let same_dir = candidates.in_dir(self.graph, caller_file.dir);
         let (nearby, confidence) = if same_dir.is_empty() {

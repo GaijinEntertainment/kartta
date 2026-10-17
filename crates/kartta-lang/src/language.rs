@@ -122,6 +122,9 @@ pub struct Conventions {
     /// order: a member call of one, `line.trim()`, binds a member of the name and no free definition, because a call on
     /// such a value reaches the runtime, not a function of the repository. Empty where a language names none.
     pub runtime_methods: &'static [&'static str],
+    /// Whether a member call on a value, `x.f()` with an `x` that names no owner, guesses the callable of its name
+    /// nearest the caller.
+    pub calls_on_values: CallsOnValues,
     /// Where the language records a use of a type.
     pub type_uses: TypeUses,
 }
@@ -139,6 +142,7 @@ impl Default for Conventions {
             include_reach: IncludeReach::Direct,
             member_calls: MemberCalls::NearbyFreeFunctions,
             runtime_methods: &[],
+            calls_on_values: CallsOnValues::NearestGuessed,
             type_uses: TypeUses::Partial,
         }
     }
@@ -171,6 +175,19 @@ pub enum MemberCalls {
     /// Nothing: a Go member call calls a method or a field of its value and reaches a package's function only through
     /// the import of the package, which binds before any tier that takes a member.
     Members,
+}
+
+/// Whether a member call on a value, `x.f()` with an `x` that names no owner, guesses the callable of its name nearest
+/// the caller once nothing the caller's file sees binds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum CallsOnValues {
+    /// The callable in the caller's directory or the one above it, then the one outside vendored code.
+    #[default]
+    NearestGuessed,
+    /// None near the caller, where such a value's type is most often declared far from it, as a C++ operand's
+    /// container, smart pointer or library type is, so the nearest namesake is most often not what the value holds.
+    /// The one callable of the name still binds.
+    NoNearestGuess,
 }
 
 /// Where a language records a use of a type.
