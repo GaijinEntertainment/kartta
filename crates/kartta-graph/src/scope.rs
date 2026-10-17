@@ -11,6 +11,14 @@ use crate::resolve::{Bound, Call, Cascade, derives};
 use crate::stored::SymbolAt;
 use crate::strings::Str;
 
+/// What a set of candidates offers a call: no target its shape admits, one, or several on different owners.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Scoped {
+    Nothing,
+    One(SymbolAt),
+    Several,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum Shape {
     Free,
@@ -754,19 +762,33 @@ impl Cascade<'_> {
         candidates: impl Iterator<Item = SymbolAt> + Clone,
         reach: Option<&Reach>,
     ) -> Option<SymbolAt> {
+        match self.scoped(call, candidates, reach) {
+            Scoped::One(at) => Some(at),
+            Scoped::Nothing | Scoped::Several => None,
+        }
+    }
+
+    pub(crate) fn scoped(
+        &self,
+        call: &Call,
+        candidates: impl Iterator<Item = SymbolAt> + Clone,
+        reach: Option<&Reach>,
+    ) -> Scoped {
         let targets = self.call_targets(call.caller_at(), candidates);
         let shape = match self.shape(call, &targets, reach) {
             Shape::FreeOrInherited(_) | Shape::FreeOrEnclosing(_) => Shape::Free,
             shape => shape,
         };
         let mut admitted = targets.filter(|&at| self.admits(&shape, at));
-        let first = admitted.next()?;
+        let Some(first) = admitted.next() else {
+            return Scoped::Nothing;
+        };
         let owner = self.owner(first);
         if !admitted.clone().all(|at| self.owner(at) == owner) {
-            return None;
+            return Scoped::Several;
         }
 
-        Some(match &shape {
+        Scoped::One(match &shape {
             Shape::Own(reach) if reach.own_type_body.is_some_and(|home| !home.alone_in_file) => {
                 std::iter::once(first)
                     .chain(admitted)

@@ -458,6 +458,37 @@ fn two_included_files_that_define_the_name_leave_the_call_to_later_tiers() {
 }
 
 #[test]
+fn an_included_file_that_defines_the_name_on_two_owners_leaves_the_call_to_later_tiers() {
+    let graph = graph(&[
+        including(
+            "src/saver.cpp",
+            &["inc/log.h", "inc/file.h"],
+            vec![member_call(0, "", "close", 2)],
+        ),
+        file(
+            "inc/log.h",
+            vec![
+                member("Log", "close", SymbolKind::Method, 1),
+                member("Grpc", "close", SymbolKind::Method, 2),
+            ],
+            Vec::new(),
+        ),
+        file(
+            "inc/file.h",
+            vec![member("File", "close", SymbolKind::Method, 1)],
+            Vec::new(),
+        ),
+    ]);
+
+    let walk = graph
+        .callees("run", Limits::new(1))
+        .expect("run is defined");
+
+    assert_eq!(reached(&walk), Vec::<String>::new());
+    assert_eq!(walk.unresolved, 1);
+}
+
+#[test]
 fn a_re_export_chain_binds_the_renamed_definition() {
     let mut barrel = file("ui/index.ts", Vec::new(), Vec::new());
     barrel.re_exports = vec![ReExport {
