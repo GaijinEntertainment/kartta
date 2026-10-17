@@ -41,7 +41,7 @@ impl<'r> Includes<'r> {
             .filter(|candidate| ends_at_segment(candidate, spec));
         match (suffixed.next(), suffixed.next()) {
             (Some(hit), None) => return Some(hit.clone()),
-            (Some(_), Some(_)) => return None,
+            (Some(_), Some(_)) => return enclosing_copy(&candidates, spec, path),
             (None, _) => {}
         }
         if candidates.len() == 1 {
@@ -108,6 +108,28 @@ fn has_c_external_linkage(symbol: &Symbol) -> bool {
                 .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
                 .any(|word| word == "static")
         })
+}
+
+// constraint: several copies of a library each end in the specifier, and a file of one copy reaches its own through
+// the include path its build sets, so the copy whose root holds the including file is meant, the deepest root if
+// roots nest; a file under no copy's root names none of them, as a system header the repository vendors twice
+fn enclosing_copy(candidates: &[String], spec: &str, path: &str) -> Option<String> {
+    let mut roots = candidates
+        .iter()
+        .filter(|candidate| ends_at_segment(candidate, spec))
+        .map(|candidate| (&candidate[..candidate.len() - spec.len()], candidate))
+        .filter(|(root, _)| path.starts_with(root));
+    let mut deepest = roots.next()?;
+    let mut tied = false;
+    for (root, candidate) in roots {
+        if root.len() > deepest.0.len() {
+            deepest = (root, candidate);
+            tied = false;
+        } else if root.len() == deepest.0.len() {
+            tied = true;
+        }
+    }
+    (!tied).then(|| deepest.1.clone())
 }
 
 fn ends_at_segment(path: &str, spec: &str) -> bool {
@@ -246,35 +268,48 @@ mod tests {
 
     #[test]
     fn quoted_include_prefers_the_including_files_directory() {
-        let extraction = resolved(
-            b"#include \"driver.h\"\n#include <driver.h>\nvoid run() {}\n",
+        let files = [
+            "drv/dx11/driver.h",
+            "drv/dx12/driver.h",
+            "drv/vulkan/driver.h",
             "drv/vulkan/impl.cpp",
-            &[
-                "drv/dx11/driver.h",
-                "drv/dx12/driver.h",
-                "drv/vulkan/driver.h",
-                "drv/vulkan/impl.cpp",
-            ],
-        );
+            "drv/common/impl.cpp",
+        ];
+        let source = b"#include \"driver.h\"\n#include <driver.h>\nvoid run() {}\n";
 
-        assert_eq!(targets(&extraction), ["drv/vulkan/driver.h"]);
-        assert_eq!(modules(&extraction), ["driver.h"]);
+        let beside = resolved(source, "drv/vulkan/impl.cpp", &files);
+        let apart = resolved(source, "drv/common/impl.cpp", &files);
+
+        assert_eq!(
+            targets(&beside),
+            ["drv/vulkan/driver.h", "drv/vulkan/driver.h"]
+        );
+        assert_eq!(targets(&apart), Vec::<&str>::new());
+        assert_eq!(modules(&apart), ["driver.h", "driver.h"]);
     }
 
     #[test]
-    fn ambiguous_suffix_includes_abstain() {
-        let extraction = resolved(
-            b"#include \"main/app.h\"\nvoid run() {}\n",
+    fn an_include_several_copies_end_in_names_the_copy_that_holds_the_includer() {
+        let files = [
+            "racing/main/app.h",
+            "flight/main/app.h",
             "flight/render/scene.cpp",
-            &[
-                "racing/main/app.h",
-                "flight/main/app.h",
-                "flight/render/scene.cpp",
-            ],
-        );
+            "libs/zlib/zlib.h",
+            "libs/zlib/contrib/zlib.h",
+            "vendor/zlib/zlib.h",
+        ];
+        let source = b"#include \"main/app.h\"\n#include <zlib.h>\nvoid run() {}\n";
 
-        assert_eq!(targets(&extraction), Vec::<&str>::new());
-        assert_eq!(modules(&extraction), ["main/app.h"]);
+        let inside = resolved(source, "flight/render/scene.cpp", &files);
+        let nested = resolved(source, "libs/zlib/contrib/inflate.c", &files);
+        let outside = resolved(source, "game/scene.cpp", &files);
+
+        assert_eq!(targets(&inside), ["flight/main/app.h"]);
+        assert_eq!(modules(&inside), ["zlib.h"]);
+        assert_eq!(targets(&nested), ["libs/zlib/contrib/zlib.h"]);
+        assert_eq!(modules(&nested), ["main/app.h"]);
+        assert_eq!(targets(&outside), Vec::<&str>::new());
+        assert_eq!(modules(&outside), ["main/app.h", "zlib.h"]);
     }
 
     #[test]
