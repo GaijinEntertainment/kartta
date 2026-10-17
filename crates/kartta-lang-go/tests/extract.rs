@@ -5,7 +5,7 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{Language, OwnMembers, RawExtraction, Symbol, SymbolId, SymbolKind};
+use kartta_lang::{Language, OwnMembers, RawExtraction, Symbol, SymbolId, SymbolKind, TypeUses};
 use kartta_lang_go::Go;
 
 const SAMPLE: &[u8] = br#"
@@ -140,6 +140,40 @@ fn a_package_is_a_directory_and_names_join_no_scopes() {
 
     assert!(conventions.directory_packages);
     assert_eq!(conventions.scope_separator, None);
+}
+
+#[test]
+fn a_type_named_in_a_declaration_or_a_composite_literal_is_a_use_and_in_a_conversion_a_call() {
+    let raw = extract(
+        b"package p\n\ntype A struct{}\ntype B int\ntype C struct{}\ntype D struct{}\n\nvar _ = D{}\n\n\
+          func f(x int) {\n\tvar a A\n\t_ = a\n\t_ = B(x)\n\t_ = C{}\n}\n",
+    );
+    let used: Vec<(&str, Option<&str>)> = raw
+        .references
+        .iter()
+        .map(|site| {
+            let owner = raw.symbols.get(site.site_of.0 as usize);
+            (site.name.as_str(), owner.map(|owner| owner.name.as_str()))
+        })
+        .collect();
+    let called: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+
+    assert_eq!(used, [("D", None), ("A", Some("f")), ("C", Some("f"))]);
+    assert_eq!(called, ["B"]);
+    assert_eq!(Go::new().conventions().type_uses, TypeUses::Every);
+}
+
+#[test]
+fn a_type_local_to_a_body_is_a_local_symbol_no_use_names() {
+    let raw = extract(b"package p\n\nfunc f() {\n\ttype L struct{}\n\tvar l L\n\t_ = l\n}\n");
+    let local: Vec<&str> = raw
+        .local_symbols
+        .iter()
+        .map(|id| raw.symbols[id.0 as usize].name.as_str())
+        .collect();
+
+    assert_eq!(local, ["L", "l"]);
+    assert!(!raw.references.iter().any(|site| site.name == "L"));
 }
 
 #[test]

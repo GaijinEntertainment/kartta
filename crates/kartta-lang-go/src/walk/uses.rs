@@ -86,7 +86,7 @@ impl<'a> Emitter<'a> {
         site: Node<'_>,
         (name, qualifier): (Node<'_>, Option<Node<'_>>),
     ) {
-        if self.named_by_call == Some(site.id()) || owner == NO_CALLER_ID {
+        if self.named_by_call == Some(site.id()) {
             return;
         }
         self.raw.references.push(RefSite {

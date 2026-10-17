@@ -77,7 +77,7 @@ pub use crate::extraction::{
     ReExport, RefSite,
 };
 pub use crate::language::{
-    Conventions, InheritedMembers, Language, OwnMembers, Repository, Resolver,
+    Conventions, InheritedMembers, Language, OwnMembers, Repository, Resolver, TypeUses,
 };
 pub use crate::symbol::{NO_CALLER_ID, Symbol, SymbolFlags, SymbolId, SymbolKind};
 

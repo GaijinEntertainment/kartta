@@ -71,7 +71,9 @@ use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use kartta_lang::path::base;
-use kartta_lang::{Conventions, Language, OwnMembers, RawExtraction, Repository, Resolver};
+use kartta_lang::{
+    Conventions, Language, OwnMembers, RawExtraction, Repository, Resolver, TypeUses,
+};
 use tree_sitter::{Parser, Tree};
 
 use crate::fnv::{FNV_OFFSET, fnv};
@@ -119,6 +121,7 @@ impl Language for Go {
         let mut conventions = Conventions::default();
         conventions.own_members = OwnMembers::Unreached;
         conventions.directory_packages = true;
+        conventions.type_uses = TypeUses::Every;
 
         conventions
     }
