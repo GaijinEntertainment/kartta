@@ -69,5 +69,9 @@ when another file changes.
   name is resolved, so a query over a whole graph costs what resolving its calls costs.
 - `Graph::stats` — what the graph holds: its files and those with no definition, its definitions by kind, the calls,
   local calls and uses inside definitions, and the includes, counted when asked.
+- `Graph::resolution` — how every call site binds: the sites bound at each confidence, the caller and callee pairs they
+  make, and the sites that bound nothing by reason — an import of code outside the repository, an import that exports
+  no callable of the name, a name no definition has, definitions the call cannot bind, and a choice nothing settles —
+  listing the first of them in path order up to a limit and counting the rest. It resolves every site, in parallel.
 
 Status: the API is new and is not published yet.

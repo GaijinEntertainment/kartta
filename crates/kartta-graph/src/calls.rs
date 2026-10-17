@@ -542,7 +542,7 @@ impl<'g> Calls<'g> {
             HashMap::with_hasher(FixedState::default());
         for site in self.sites_of_name(name) {
             let call = self.cascade.call(site);
-            let resolved = self.cascade.resolve_call(&call);
+            let resolved = self.cascade.resolve_call(&call).ok();
             let through_a_value = call
                 .receiver
                 .is_some_and(|receiver| self.graph.strings.resolve(receiver).is_empty());
@@ -594,7 +594,7 @@ impl<'g> Calls<'g> {
             HashMap::with_hasher(FixedState::default());
         for site in sites {
             let call = self.cascade.call(site);
-            let Some((callee, confidence)) = self.cascade.resolve_call(&call) else {
+            let Ok((callee, confidence)) = self.cascade.resolve_call(&call) else {
                 self.unresolved += 1;
                 continue;
             };
