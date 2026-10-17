@@ -14,7 +14,12 @@
 //!
 //! A call records its callee and, for a member call, its receiver: `self.greet()` records `greet` on `self`, and a
 //! member call on anything but a name, `items[0].close()`, records the empty receiver. A call is attributed to the
-//! function around it; a class opens no scope. A call before the first definition of the file is dropped.
+//! function around it, one in a class body included. A call before the first definition of the file is dropped.
+//!
+//! A bare call of a function or class that a function around the call defines is a local call to that definition, as
+//! Python's scoping finds the name: a parameter, an assignment, an import or a `global` declaration nearer the call
+//! hides the definition, a `nonlocal` declaration does not, and the names a class body binds reach a call in that body
+//! but neither its methods nor the function around the class.
 //!
 //! # Resolution
 //!

@@ -1,6 +1,9 @@
+use std::ops::Range;
+
 use kartta_lang::tree::{children, named_children, preorder, signature, text};
 use kartta_lang::{
-    CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    CallRef, LocalCall, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
+    SymbolKind,
 };
 use tree_sitter::{Node, Tree};
 
@@ -18,7 +21,7 @@ const FUNCTION_DEFINITION: &str = "function_definition";
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter {
         source,
-        scopes: Vec::new(),
+        frames: Vec::new(),
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
         raw: RawExtraction::default(),
     };
@@ -29,46 +32,294 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         }
         true
     });
+    emitter.close_frames(usize::MAX);
 
     emitter.raw
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FrameKind {
+    Function,
+    Comprehension,
+    Class,
+}
+
 #[derive(Clone, Copy)]
-struct Scope {
+enum Binding {
+    Module,
+    Enclosing,
+    Definition(SymbolId),
+    Value,
+}
+
+impl Binding {
+    // constraint: a `global` or `nonlocal` declaration holds for the whole of its scope, so it outranks every other
+    // binding of the name there
+    const fn strength(self) -> u8 {
+        match self {
+            Self::Module => 3,
+            Self::Enclosing => 2,
+            Self::Definition(_) => 1,
+            Self::Value => 0,
+        }
+    }
+}
+
+struct BareCall<'a> {
+    caller_id: SymbolId,
+    callee: &'a [u8],
+    line: u32,
+    at: usize,
+}
+
+// constraint: Python binds a name for the whole of the scope that binds it, so a call made before the binding, one in a
+// nested function included, is decided only when the frame closes
+struct Frame<'a> {
     end: usize,
-    id: SymbolId,
+    caller: SymbolId,
+    kind: FrameKind,
+    outside: Range<usize>,
+    bindings: Vec<(&'a [u8], Binding)>,
+    calls: Vec<BareCall<'a>>,
+}
+
+impl Frame<'_> {
+    fn holds(&self, at: usize) -> bool {
+        !self.outside.contains(&at)
+    }
 }
 
 struct Emitter<'a> {
     source: &'a [u8],
-    scopes: Vec<Scope>,
+    frames: Vec<Frame<'a>>,
     flags: SymbolFlags,
     raw: RawExtraction,
 }
 
-impl Emitter<'_> {
+impl<'a> Emitter<'a> {
     fn handle(&mut self, node: Node<'_>) {
-        let start = node.start_byte();
-        while self.scopes.last().is_some_and(|scope| scope.end <= start) {
-            self.scopes.pop();
-        }
-        let caller = self.scopes.last().map_or(NO_CALLER_ID, |scope| scope.id);
+        self.close_frames(node.start_byte());
+        let caller = self
+            .frames
+            .last()
+            .map_or(NO_CALLER_ID, |frame| frame.caller);
 
         match node.kind() {
             FUNCTION_DEFINITION => {
                 if let Some(id) = self.function(node) {
-                    self.scopes.push(Scope {
-                        end: node.end_byte(),
-                        id,
-                    });
+                    self.define(node, id);
+                    self.open(node, id, FrameKind::Function);
                 }
             }
-            CLASS_DEFINITION => self.class(node),
+            CLASS_DEFINITION => {
+                if let Some(id) = self.class(node) {
+                    self.define(node, id);
+                }
+                self.open(node, caller, FrameKind::Class);
+            }
+            "lambda" => self.open(node, caller, FrameKind::Function),
+            "list_comprehension"
+            | "set_comprehension"
+            | "dictionary_comprehension"
+            | "generator_expression" => {
+                self.open(node, caller, FrameKind::Comprehension);
+            }
+            "parameters" | "lambda_parameters" | "splat_pattern" => self.bind(node, Binding::Value),
+            "for_statement" | "for_in_clause" | "augmented_assignment" => {
+                self.bind_field(node, "left");
+            }
+            "as_pattern" => self.bind_alias(node),
+            "case_pattern" | "keyword_pattern" => self.bind_capture(node),
+            "named_expression" => self.bind_outside_comprehensions(node),
+            "global_statement" => self.bind(node, Binding::Module),
+            "nonlocal_statement" => self.bind(node, Binding::Enclosing),
             "call" => self.call(node, caller),
-            "assignment" => self.assignment(node),
-            "import_statement" => self.import(node),
-            "import_from_statement" => self.import_from(node),
+            "assignment" => {
+                self.bind_field(node, "left");
+                self.assignment(node);
+            }
+            "import_statement" => {
+                self.bind_imported(node);
+                self.import(node);
+            }
+            "import_from_statement" => {
+                self.bind_imported(node);
+                self.import_from(node);
+            }
             "future_import_statement" => self.future_import(node),
+            _ => {}
+        }
+    }
+
+    // constraint: a comprehension evaluates its first iterable in the scope around it
+    fn open(&mut self, node: Node<'_>, caller: SymbolId, kind: FrameKind) {
+        let outside = if kind == FrameKind::Comprehension {
+            named_children(node)
+                .filter_map(|at| node.named_child(at))
+                .find(|child| child.kind() == "for_in_clause")
+                .and_then(|clause| clause.child_by_field_name("right"))
+                .map_or(0..0, |iterable| iterable.byte_range())
+        } else {
+            0..0
+        };
+        self.frames.push(Frame {
+            end: node.end_byte(),
+            caller,
+            kind,
+            outside,
+            bindings: Vec::new(),
+            calls: Vec::new(),
+        });
+    }
+
+    fn close_frames(&mut self, before: usize) {
+        while let Some(frame) = self.frames.pop_if(|frame| frame.end <= before) {
+            self.close(frame);
+        }
+    }
+
+    // constraint: a definition in a class body at module level is no local, so a call of it there stays a call
+    fn close(
+        &mut self,
+        Frame {
+            caller,
+            bindings,
+            calls,
+            ..
+        }: Frame<'a>,
+    ) {
+        for call in calls {
+            let binding = bindings
+                .iter()
+                .filter(|&&(name, _)| name == call.callee)
+                .map(|&(_, binding)| binding)
+                .max_by_key(|binding| binding.strength());
+            match binding {
+                Some(Binding::Definition(local)) if caller != NO_CALLER_ID => {
+                    self.raw.local_calls.push(LocalCall {
+                        caller_id: call.caller_id,
+                        local,
+                        line: call.line,
+                    });
+                }
+                Some(Binding::Definition(_) | Binding::Module | Binding::Value) => {
+                    self.push_call(&call);
+                }
+                Some(Binding::Enclosing) | None => match self.scope_frame(call.at) {
+                    Some(outer) => outer.calls.push(call),
+                    None => self.push_call(&call),
+                },
+            }
+        }
+    }
+
+    // constraint: the names a class body binds reach neither its methods nor the function around the class
+    fn scope_frame(&mut self, at: usize) -> Option<&mut Frame<'a>> {
+        self.frames
+            .iter_mut()
+            .rev()
+            .find(|frame| frame.kind != FrameKind::Class && frame.holds(at))
+    }
+
+    fn define(&mut self, node: Node<'_>, id: SymbolId) {
+        if let Some(name) = node.child_by_field_name("name") {
+            self.bind(name, Binding::Definition(id));
+        }
+    }
+
+    fn bind_field(&mut self, node: Node<'_>, field: &str) {
+        if let Some(target) = node.child_by_field_name(field) {
+            self.bind(target, Binding::Value);
+        }
+    }
+
+    // constraint: an assignment expression in a comprehension binds its name in the scope around the comprehension
+    fn bind_outside_comprehensions(&mut self, node: Node<'_>) {
+        let frame = self
+            .frames
+            .iter_mut()
+            .rev()
+            .find(|frame| frame.kind != FrameKind::Comprehension);
+        if let (Some(frame), Some(name)) = (frame, node.child_by_field_name("name")) {
+            frame
+                .bindings
+                .push((&self.source[name.byte_range()], Binding::Value));
+        }
+    }
+
+    // constraint: the grammar spells the alias of a `with` or `except` target as a field, and that of a `case` pattern
+    // as its last child
+    fn bind_alias(&mut self, node: Node<'_>) {
+        let alias = node.child_by_field_name("alias").or_else(|| {
+            named_children(node)
+                .last()
+                .and_then(|at| node.named_child(at))
+                .filter(|last| last.kind() == IDENTIFIER)
+        });
+        if let Some(alias) = alias {
+            self.bind(alias, Binding::Value);
+        }
+    }
+
+    // constraint: a `case` pattern captures a bare name and compares against a dotted one, and a keyword pattern's own
+    // keyword is no capture
+    fn bind_capture(&mut self, node: Node<'_>) {
+        let captured = named_children(node)
+            .filter_map(|at| node.named_child(at))
+            .filter(|child| child.kind() == "dotted_name" && child.named_child_count() == 1)
+            .filter_map(|name| name.named_child(0));
+        for name in captured {
+            self.bind(name, Binding::Value);
+        }
+    }
+
+    fn bind_imported(&mut self, node: Node<'_>) {
+        let mut cursor = node.walk();
+        for imported in node.children_by_field_name("name", &mut cursor) {
+            let bound = match imported.kind() {
+                "aliased_import" => imported.child_by_field_name("alias"),
+                "dotted_name" => imported.named_child(0),
+                _ => None,
+            };
+            if let Some(bound) = bound {
+                self.bind(bound, Binding::Module);
+            }
+        }
+    }
+
+    // constraint: an attribute or a subscript target binds no name, and a default value or an annotation is no target
+    fn bind(&mut self, target: Node<'_>, binding: Binding) {
+        match target.kind() {
+            IDENTIFIER => {
+                if let Some(frame) = self.frames.last_mut() {
+                    frame
+                        .bindings
+                        .push((&self.source[target.byte_range()], binding));
+                }
+            }
+            "default_parameter" | "typed_default_parameter" => {
+                if let Some(name) = target.child_by_field_name("name") {
+                    self.bind(name, binding);
+                }
+            }
+            "parameters"
+            | "lambda_parameters"
+            | "typed_parameter"
+            | "list_splat_pattern"
+            | "dictionary_splat_pattern"
+            | "splat_pattern"
+            | "pattern_list"
+            | "tuple_pattern"
+            | "list_pattern"
+            | "as_pattern_target"
+            | "tuple"
+            | "list"
+            | "global_statement"
+            | "nonlocal_statement" => {
+                for child in named_children(target).filter_map(|at| target.named_child(at)) {
+                    self.bind(child, binding);
+                }
+            }
             _ => {}
         }
     }
@@ -77,7 +328,11 @@ impl Emitter<'_> {
     fn push_symbol(&mut self, mut symbol: Symbol) -> SymbolId {
         symbol.flags = symbol.flags.union(self.flags);
         let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
-        if !self.scopes.is_empty() {
+        if self
+            .frames
+            .iter()
+            .any(|frame| frame.kind == FrameKind::Function)
+        {
             self.raw.local_symbols.push(id);
         }
         self.raw.symbols.push(symbol);
@@ -104,11 +359,8 @@ impl Emitter<'_> {
         Some(self.push_symbol(symbol))
     }
 
-    fn class(&mut self, node: Node<'_>) {
-        let Some(name) = node.child_by_field_name("name") else {
-            return;
-        };
-        let name = text(name, self.source);
+    fn class(&mut self, node: Node<'_>) -> Option<SymbolId> {
+        let name = text(node.child_by_field_name("name")?, self.source);
         let qualified_name =
             enclosing_classes(node, self.source).map(|chain| format!("{chain}.{name}"));
 
@@ -119,7 +371,7 @@ impl Emitter<'_> {
             decorated_lines(node),
         );
         symbol.parents = superclasses(node, self.source);
-        self.push_symbol(symbol);
+        Some(self.push_symbol(symbol))
     }
 
     // constraint: only a bare identifier on the left is a symbol, so `a = b = 1` defines `a` alone and `a, b = 1, 2`
@@ -165,6 +417,22 @@ impl Emitter<'_> {
         if self.raw.symbols.is_empty() {
             return;
         }
+        let line = line(node.start_position().row);
+        let at = node.start_byte();
+        let source = self.source;
+        if let Some(function) = node
+            .child_by_field_name("function")
+            .filter(|function| function.kind() == IDENTIFIER)
+            && let Some(frame) = self.frames.iter_mut().rev().find(|frame| frame.holds(at))
+        {
+            frame.calls.push(BareCall {
+                caller_id,
+                callee: &source[function.byte_range()],
+                line,
+                at,
+            });
+            return;
+        }
         let Some((callee, receiver)) = callee(node, self.source) else {
             return;
         };
@@ -173,7 +441,16 @@ impl Emitter<'_> {
             caller_id,
             callee,
             receiver,
-            line: line(node.start_position().row),
+            line,
+        });
+    }
+
+    fn push_call(&mut self, call: &BareCall<'_>) {
+        self.raw.calls.push(CallRef {
+            caller_id: call.caller_id,
+            callee: String::from_utf8_lossy(call.callee).into_owned(),
+            receiver: None,
+            line: call.line,
         });
     }
 

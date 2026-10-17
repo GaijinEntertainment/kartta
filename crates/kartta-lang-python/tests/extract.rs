@@ -6,7 +6,7 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{Language, RawExtraction, Symbol, SymbolId, SymbolKind};
+use kartta_lang::{CallRef, Language, LocalCall, RawExtraction, Symbol, SymbolId, SymbolKind};
 use kartta_lang_python::Python;
 
 const SAMPLE: &[u8] = br#"
@@ -189,6 +189,196 @@ fn a_definition_inside_a_function_body_is_local_to_it() {
         .collect();
 
     assert_eq!(raw.local_symbols, locals);
+}
+
+fn local_calls(raw: &RawExtraction) -> Vec<(&str, &str, u32)> {
+    let name = |id: SymbolId| raw.symbols[id.0 as usize].name.as_str();
+    raw.local_calls
+        .iter()
+        .map(|call| (name(call.caller_id), name(call.local), call.line))
+        .collect()
+}
+
+fn callers_of<'r>(raw: &'r RawExtraction, callee: &str) -> Vec<&'r str> {
+    raw.calls
+        .iter()
+        .filter(|call| call.callee == callee)
+        .map(|call| raw.symbols[call.caller_id.0 as usize].name.as_str())
+        .collect()
+}
+
+#[test]
+fn a_bare_call_of_a_definition_a_function_around_it_holds_is_a_local_call() {
+    let raw = extract(
+        b"def outer():\n    def first():\n        return second()\n    def second():\n        pass\n    \
+          class Local:\n        pass\n    return first(), Local()\n",
+    );
+
+    assert_eq!(
+        local_calls(&raw),
+        [
+            ("first", "second", 3),
+            ("outer", "first", 8),
+            ("outer", "Local", 8)
+        ]
+    );
+    assert_eq!(raw.calls, Vec::<CallRef>::new());
+}
+
+#[test]
+fn a_call_binds_the_definition_its_own_function_holds_beside_a_namesake_in_another() {
+    let raw = extract(
+        b"def first():\n    def helper():\n        pass\n    return helper()\ndef second():\n    \
+          def helper():\n        pass\n    return helper()\n",
+    );
+    let calls: Vec<(&str, u32)> = raw
+        .local_calls
+        .iter()
+        .map(|call| {
+            (
+                raw.symbols[call.caller_id.0 as usize].name.as_str(),
+                raw.symbols[call.local.0 as usize].line,
+            )
+        })
+        .collect();
+
+    assert_eq!(calls, [("first", 2), ("second", 6)]);
+}
+
+#[test]
+fn a_name_bound_nearer_the_call_hides_a_definition_around_it() {
+    let raw = extract(
+        b"def outer():\n    def helper():\n        pass\n    def by_parameter(helper):\n        return helper()\n    \
+          def by_assignment():\n        helper = make()\n        return helper()\n    def by_target():\n        \
+          with open() as helper:\n            helper()\n        try:\n            pass\n        \
+          except Error as helper:\n            helper()\n    def by_case(subject):\n        \
+          match subject:\n            case helper:\n                helper()\n            \
+          case [*helper] as other:\n                helper()\n    \
+          def by_lambda():\n        return (lambda helper: helper())(make)\n    def by_import():\n        \
+          from tools import helper\n        return helper()\n    def by_global():\n        global helper\n        \
+          return helper()\n    return [helper() for helper in handlers]\n",
+    );
+
+    assert_eq!(raw.local_calls, Vec::<LocalCall>::new());
+    assert_eq!(
+        callers_of(&raw, "helper"),
+        [
+            "by_parameter",
+            "by_assignment",
+            "by_target",
+            "by_target",
+            "by_case",
+            "by_case",
+            "by_lambda",
+            "by_import",
+            "by_global",
+            "outer"
+        ]
+    );
+}
+
+#[test]
+fn the_first_iterable_of_a_comprehension_sees_the_scope_around_it() {
+    let raw = extract(
+        b"def outer():\n    def helper():\n        pass\n    return [item for helper in helper()]\n",
+    );
+
+    assert_eq!(local_calls(&raw), [("outer", "helper", 4)]);
+}
+
+#[test]
+fn an_assignment_expression_in_a_comprehension_binds_in_the_function_around_it() {
+    let raw = extract(
+        b"def outer():\n    def helper():\n        pass\n    def inner():\n        \
+          [(helper := x) for x in xs]\n        return helper()\n",
+    );
+
+    assert_eq!(raw.local_calls, Vec::<LocalCall>::new());
+    assert_eq!(callers_of(&raw, "helper"), ["inner"]);
+}
+
+#[test]
+fn a_definition_is_the_target_of_a_name_its_scope_also_assigns() {
+    let raw = extract(
+        b"def outer():\n    def helper():\n        pass\n    helper = wrap(helper)\n    return helper()\n",
+    );
+
+    assert_eq!(local_calls(&raw), [("outer", "helper", 5)]);
+    assert_eq!(callers_of(&raw, "wrap"), ["outer"]);
+}
+
+#[test]
+fn a_name_defined_twice_binds_its_later_definition() {
+    let raw = extract(
+        b"def outer():\n    def helper():\n        pass\n    def helper():\n        pass\n    return helper()\n",
+    );
+    let lines: Vec<u32> = raw
+        .local_calls
+        .iter()
+        .map(|call| raw.symbols[call.local.0 as usize].line)
+        .collect();
+
+    assert_eq!(lines, [4]);
+}
+
+#[test]
+fn an_annotation_of_a_parameter_binds_no_name() {
+    let raw = extract(
+        b"def outer():\n    def helper():\n        pass\n    def inner(value: helper, *rest: helper):\n        \
+          return helper()\n",
+    );
+
+    assert_eq!(local_calls(&raw), [("inner", "helper", 5)]);
+}
+
+#[test]
+fn a_call_in_a_class_body_sees_the_names_that_body_binds() {
+    let raw = extract(
+        b"def outer():\n    def helper():\n        pass\n    class Local:\n        def helper():\n            \
+          pass\n        made = helper()\n    return helper()\n",
+    );
+    let calls: Vec<(&str, u32)> = raw
+        .local_calls
+        .iter()
+        .map(|call| {
+            (
+                raw.symbols[call.caller_id.0 as usize].name.as_str(),
+                raw.symbols[call.local.0 as usize].line,
+            )
+        })
+        .collect();
+
+    assert_eq!(calls, [("outer", 5), ("outer", 2)]);
+}
+
+#[test]
+fn a_call_in_a_class_body_at_module_level_stays_a_call_of_its_method() {
+    let raw = extract(b"class Table:\n    def column():\n        pass\n    made = column()\n");
+    let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+
+    assert_eq!(raw.local_calls, Vec::<LocalCall>::new());
+    assert_eq!(callees, ["column"]);
+}
+
+#[test]
+fn a_nonlocal_name_reaches_the_definition_around_it() {
+    let raw = extract(
+        b"def outer():\n    def helper():\n        pass\n    def inner():\n        nonlocal helper\n        \
+          helper = wrap(helper)\n        return helper()\n",
+    );
+
+    assert_eq!(local_calls(&raw), [("inner", "helper", 7)]);
+    assert_eq!(callers_of(&raw, "wrap"), ["inner"]);
+}
+
+#[test]
+fn a_definition_in_a_class_body_is_hidden_from_its_methods_and_the_function_around_it() {
+    let raw = extract(
+        b"def outer():\n    class Local:\n        def run(self):\n            return run()\n    return run()\n",
+    );
+
+    assert_eq!(raw.local_calls, Vec::<LocalCall>::new());
+    assert_eq!(callers_of(&raw, "run"), ["run", "outer"]);
 }
 
 #[test]
