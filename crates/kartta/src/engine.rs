@@ -1,13 +1,14 @@
-use std::fs;
 use std::path::Path;
+use std::{fs, io, iter};
 
 use kartta_fs::{BuildError, BuildOptions, CancelToken, ContentVisitor, Index};
-use kartta_graph::{Change, Graph, Limits, Region, Resolution};
-use kartta_lang::{Extraction, Language, RawExtraction, Resolver};
+use kartta_graph::{Change, Definition, Graph, Limits, Region, Resolution};
+use kartta_lang::{DocComments, Extraction, Language, RawExtraction, Resolver};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::extracting::{Extracted, Extracting, FileCounts};
 use crate::repository::IndexRepository;
+use crate::source::{FileLines, Source, SourceOptions};
 use crate::stats::{EngineStats, LanguageFiles};
 
 const RESOLVED_AT_ONCE: usize = 4096;
@@ -213,6 +214,61 @@ impl Engine {
                 .map(|(name, graph)| (name, graph.resolution(limit)))
                 .collect()
         })
+    }
+
+    /// The text of each of `definitions`, in their order, read from its file now: from the doc comment that the file's
+    /// language writes directly above the definition through the definition's last line, as much of it as `options`
+    /// lets through. A file is read once for all of its definitions, and only as far as the last line one of them ends
+    /// on.
+    ///
+    /// The graph holds the lines the build found a definition on, so a file edited since the build answers its new
+    /// text at those lines, and [`Source::resized`] says when its size changed. An element is the error of opening or
+    /// reading the file where that failed, its message naming the file: a file deleted since the build answers
+    /// [`io::ErrorKind::NotFound`].
+    #[must_use]
+    pub fn sources(
+        &self,
+        definitions: &[Definition<'_>],
+        options: SourceOptions,
+    ) -> Vec<io::Result<Source>> {
+        let mut order: Vec<usize> = (0..definitions.len()).collect();
+        order.sort_by_key(|&at| definitions[at].file);
+        let mut sources: Vec<Option<io::Result<Source>>> =
+            iter::repeat_with(|| None).take(definitions.len()).collect();
+        for run in order.chunk_by(|&left, &right| definitions[left].file == definitions[right].file)
+        {
+            let path = definitions[run[0]].file;
+            let through = run
+                .iter()
+                .map(|&at| options.last_line_answered(&definitions[at]))
+                .max();
+            let file = self.file_lines(path, through.unwrap_or(0));
+            let reading = file
+                .as_ref()
+                .map(|file| file.reading(self.doc_comments_of(path), options));
+            for &at in run {
+                sources[at] = Some(match &reading {
+                    Ok(reading) => Ok(reading.source(&definitions[at])),
+                    Err(error) => Err(io::Error::new(error.kind(), format!("{path}: {error}"))),
+                });
+            }
+        }
+        sources.into_iter().flatten().collect()
+    }
+
+    fn file_lines(&self, path: &str, through: u32) -> io::Result<FileLines> {
+        FileLines::read(
+            &self.index.root().join(path),
+            self.index.size(path),
+            through,
+        )
+    }
+
+    fn doc_comments_of(&self, path: &str) -> DocComments {
+        self.languages
+            .iter()
+            .find(|language| language.claims(path))
+            .map_or(DocComments::NONE, |language| language.doc_comments())
     }
 
     fn family_claiming(&self, path: &str) -> Option<usize> {
