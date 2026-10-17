@@ -386,6 +386,30 @@ fn a_second_build_takes_each_extraction_from_the_shared_cache() {
 }
 
 #[test]
+fn files_extracted_one_after_another_on_one_thread_are_each_extracted_and_cached_once() {
+    let tree = tree(&[
+        ("a.defs", "def parse\ncall render\n"),
+        ("b.defs", "def render\n"),
+        ("c.defs", "def main\ncall parse\n"),
+    ]);
+    let cache = tempfile::tempdir().expect("create cache dir");
+    let mut options = cached(cache.path());
+    options.threads = NonZeroUsize::new(1);
+    let cold = Defs::new("defs", "defs", ".defs");
+    let cold_extracted = Arc::clone(&cold.extracted);
+    let warm = Defs::new("defs", "defs", ".defs");
+    let warm_extracted = Arc::clone(&warm.extracted);
+
+    build(tree.path(), &options, vec![Box::new(cold)]);
+    let engine = build(tree.path(), &options, vec![Box::new(warm)]);
+
+    assert_eq!(cold_extracted.load(Ordering::Relaxed), 3);
+    assert_eq!(warm_extracted.load(Ordering::Relaxed), 0);
+    let graph = engine.graph_of("c.defs").expect("defs claims the file");
+    assert_eq!(places(&graph.definitions("main", None, 10)), ["c.defs:1"]);
+}
+
+#[test]
 fn the_stats_count_the_files_each_language_claimed_read_took_from_the_cache_and_holds() {
     let tree = tree(&[
         ("a.defs", "def parse\n"),
