@@ -37,6 +37,7 @@ pub struct Graph {
     renamed_from: HashMap<Str, Vec<Rename>, FixedState>,
     included_by: HashMap<Str, Vec<u32>, FixedState>,
     parented: HashMap<Str, Vec<u32>, FixedState>,
+    named_at_file_scope: HashMap<Str, Vec<u32>, FixedState>,
     symbols: usize,
 }
 
@@ -123,6 +124,7 @@ impl Graph {
             renamed_from: HashMap::with_hasher(FixedState::default()),
             included_by: HashMap::with_hasher(FixedState::default()),
             parented: HashMap::with_hasher(FixedState::default()),
+            named_at_file_scope: HashMap::with_hasher(FixedState::default()),
             symbols: 0,
         }
     }
@@ -348,6 +350,24 @@ impl Graph {
         self.parented.get(&name).map_or(&[], Vec::as_slice)
     }
 
+    pub(crate) fn is_spelled(&self, name: Str) -> bool {
+        self.uses.contains_key(&name)
+            || self.renamed_from.contains_key(&name)
+            || self.site_key(name).is_some_and(|key| {
+                self.sites.contains_key(&key) || self.named_at_file_scope.contains_key(&key)
+            })
+    }
+
+    pub(crate) fn named_at_file_scope(&self, key: Str) -> &[u32] {
+        self.named_at_file_scope
+            .get(&key)
+            .map_or(&[], Vec::as_slice)
+    }
+
+    pub(crate) fn file_slots(&self) -> impl Iterator<Item = u32> + '_ {
+        self.by_path.values().copied()
+    }
+
     pub(crate) fn includers_of(&self, slot: u32) -> impl Iterator<Item = u32> + '_ {
         self.included_by
             .get(&self.file(slot).path)
@@ -430,6 +450,7 @@ impl Graph {
             callables: self.store_callables(extraction),
             folded: folded(extraction),
             calls: self.store_calls(extraction),
+            file_scope_names: self.store_file_scope_names(extraction),
             local_calls: local_calls(extraction),
             references: self.store_references(extraction),
             includes: self.store_includes(path, extraction),
@@ -537,6 +558,26 @@ impl Graph {
             .collect();
         calls.sort_by_key(|call| call.caller());
         calls.into_boxed_slice()
+    }
+
+    fn store_file_scope_names(&mut self, extraction: &Extraction) -> Box<[Str]> {
+        let mut keys = Vec::new();
+        for call in &extraction.calls {
+            if holds(extraction, call.caller_id) {
+                continue;
+            }
+            let callee = self.written_from_root(&call.callee).unwrap_or(&call.callee);
+            let callee = self.strings.intern(callee);
+            keys.push(self.listing_key(callee));
+        }
+        for site in &extraction.references {
+            if !holds(extraction, site.site_of) {
+                keys.push(self.strings.intern(&site.name));
+            }
+        }
+        keys.sort_unstable();
+        keys.dedup();
+        keys.into_boxed_slice()
     }
 
     fn store_references(&mut self, extraction: &Extraction) -> Box<[StoredReference]> {
@@ -676,6 +717,10 @@ impl Graph {
             let target = self.file(slot).includes[at];
             self.included_by.entry(target).or_default().push(slot);
         }
+        for at in 0..self.file(slot).file_scope_names.len() {
+            let key = self.file(slot).file_scope_names[at];
+            self.named_at_file_scope.entry(key).or_default().push(slot);
+        }
         if self.conventions.directory_packages {
             self.index_package(slot);
         }
@@ -805,6 +850,9 @@ impl Graph {
         unlist(&mut self.package_files, file.dir, |&held| held != slot);
         for &target in &file.includes {
             unlist(&mut self.included_by, target, |&held| held != slot);
+        }
+        for &key in &file.file_scope_names {
+            unlist(&mut self.named_at_file_scope, key, |&held| held != slot);
         }
         self.symbols -= file.symbols.len();
     }

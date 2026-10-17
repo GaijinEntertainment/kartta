@@ -7,8 +7,8 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SymbolId(pub u32);
 
-/// The caller of a call made outside any symbol, at file scope. The graph drops such a call, so it never becomes an
-/// edge from nowhere.
+/// The caller of a call made outside any symbol, at file scope. Such a call never becomes an edge from nowhere: the
+/// graph keeps only the name it spells.
 pub const NO_CALLER_ID: SymbolId = SymbolId(u32::MAX);
 
 /// What a definition is.
@@ -78,11 +78,11 @@ impl fmt::Display for SymbolKind {
     }
 }
 
-/// What a symbol is for besides its kind: test code, generated code, vendored code, a program's entry point.
+/// What a symbol is for besides its kind: test code, generated code, vendored code, an entry point.
 ///
 /// A language sets these by its own conventions — a Go `_test.go` file, a Rust `#[test]`, a generated-code banner, a
 /// `vendor` directory — so they are heuristic: they rank answers, a caller that is test code below one that is not,
-/// and never decide what an answer holds.
+/// and a query that leaves flagged symbols out, as a dead-code query does, counts what it left out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct SymbolFlags(u8);
 
@@ -104,7 +104,9 @@ impl SymbolFlags {
         self.0 & Self::TEST != 0
     }
 
-    /// Whether the symbol is a program's entry point.
+    /// Whether the symbol is an entry point: a definition that runs with no call that spells its name, as a program's
+    /// `main`, which the runtime starts, a function an annotation registers with what calls it, and a method the
+    /// language calls for an operator, a statement, an attribute read or an object it makes or ends.
     #[must_use]
     pub const fn is_entry(self) -> bool {
         self.0 & Self::ENTRY != 0

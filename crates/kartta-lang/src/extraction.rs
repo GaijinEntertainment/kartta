@@ -183,7 +183,7 @@ pub struct LocalCall {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RefSite {
     /// The innermost symbol declared around the use, or [`NO_CALLER_ID`](crate::NO_CALLER_ID) at file scope, where
-    /// the graph drops the use.
+    /// the use binds no edge and the graph keeps only the name it spells.
     pub site_of: SymbolId,
     /// The name as written, without its qualifier.
     pub name: String,
