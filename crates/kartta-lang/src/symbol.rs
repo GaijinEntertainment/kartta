@@ -203,6 +203,11 @@ pub struct Symbol {
     /// The declaration's source text up to its body, as written, or `None` where the language keeps none for this
     /// kind.
     pub signature: Option<String>,
+    /// The types of the values the definition yields, each a type path as
+    /// [`Receivers::TypePaths`](crate::Receivers::TypePaths) spells one, read in the scope of the definition's file: a
+    /// variable's or a field's type, a function's results in order, an empty path for one the language cannot name,
+    /// and the type an alias names. Empty where the language records none.
+    pub value_types: Vec<String>,
     /// What the symbol is for besides its kind.
     pub flags: SymbolFlags,
 }
@@ -224,6 +229,7 @@ impl Symbol {
             kind,
             exported: false,
             signature: None,
+            value_types: Vec::new(),
             flags: SymbolFlags::empty(),
         }
     }
