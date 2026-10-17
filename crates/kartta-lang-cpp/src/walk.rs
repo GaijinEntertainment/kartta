@@ -46,7 +46,7 @@ struct FunctionScope {
 
 struct ClassScope {
     end: usize,
-    name: String,
+    id: SymbolId,
 }
 
 struct NamespaceScope {
@@ -305,11 +305,10 @@ impl<'s> Replayer<'s> {
         }
         self.apply_flags(&mut symbol);
 
-        let name = symbol.name.clone();
-        self.push_symbol(symbol);
+        let id = self.push_symbol(symbol);
         self.classes.push(ClassScope {
             end: node.end_byte(),
-            name,
+            id,
         });
     }
 
@@ -446,9 +445,10 @@ impl<'s> Replayer<'s> {
         if symbol.owner.is_some() {
             return;
         }
-        let Some(class) = self.classes.last() else {
+        let Some(scope) = self.classes.last() else {
             return;
         };
+        let class = &self.raw.symbols[scope.id.0 as usize];
 
         symbol.kind = SymbolKind::Method;
         symbol.qualified_name = format!("{}::{}", class.name, symbol.name);
@@ -456,17 +456,18 @@ impl<'s> Replayer<'s> {
     }
 
     fn nest_in_class(&self, symbol: &mut Symbol, node: Node<'_>) {
-        let Some(class) = self.classes.last() else {
+        let Some(scope) = self.classes.last() else {
             return;
         };
         let in_body = std::iter::successors(node.parent(), Node::parent)
-            .take_while(|ancestor| ancestor.end_byte() < class.end)
+            .take_while(|ancestor| ancestor.end_byte() < scope.end)
             .any(|ancestor| matches!(ancestor.kind(), "function_definition" | "lambda_expression"));
         if in_body {
             return;
         }
 
-        symbol.qualified_name = format!("{}::{}", class.name, symbol.name);
+        let class = &self.raw.symbols[scope.id.0 as usize];
+        symbol.qualified_name = format!("{}::{}", class.qualified_name, symbol.name);
         symbol.owner = Some(class.name.clone());
     }
 
@@ -1592,6 +1593,12 @@ class Guest {
 };
 struct Params { int other; };
 }
+namespace guest_ns {
+class Host {
+    struct Params { int depth; };
+    struct Inner { enum Kind { X }; };
+};
+}
 ",
         );
 
@@ -1599,31 +1606,49 @@ struct Params { int other; };
             qualified_names(&raw),
             [
                 "host_ns::Host",
-                "Host::Params",
+                "host_ns::Host::Params",
                 "Params::size",
-                "Host::Mode",
+                "host_ns::Host::Mode",
                 "Host::run",
                 "host_ns::Local",
                 "Local::x",
                 "host_ns::LocalAlias",
                 "host_ns::Guest",
-                "Guest::Params",
+                "host_ns::Guest::Params",
                 "Params::count",
                 "Guest::x",
                 "host_ns::InLambda",
                 "InLambda::a",
                 "host_ns::Params",
                 "Params::other",
+                "guest_ns::Host",
+                "guest_ns::Host::Params",
+                "Params::depth",
+                "guest_ns::Host::Inner",
+                "guest_ns::Host::Inner::Kind",
             ]
         );
         assert_eq!(
-            qualified(&raw, "Host::Params").owner.as_deref(),
+            qualified(&raw, "host_ns::Host::Params").owner.as_deref(),
             Some("Host")
         );
-        assert_eq!(qualified(&raw, "Host::Mode").owner.as_deref(), Some("Host"));
         assert_eq!(
-            qualified(&raw, "Guest::Params").owner.as_deref(),
+            qualified(&raw, "host_ns::Host::Mode").owner.as_deref(),
+            Some("Host")
+        );
+        assert_eq!(
+            qualified(&raw, "host_ns::Guest::Params").owner.as_deref(),
             Some("Guest")
+        );
+        assert_eq!(
+            qualified(&raw, "guest_ns::Host::Params").owner.as_deref(),
+            Some("Host")
+        );
+        assert_eq!(
+            qualified(&raw, "guest_ns::Host::Inner::Kind")
+                .owner
+                .as_deref(),
+            Some("Inner")
         );
         assert_eq!(qualified(&raw, "host_ns::Local").owner, None);
         assert_eq!(qualified(&raw, "host_ns::LocalAlias").owner, None);
