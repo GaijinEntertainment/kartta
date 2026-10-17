@@ -369,6 +369,60 @@ fn a_second_build_takes_each_extraction_from_the_shared_cache() {
 }
 
 #[test]
+fn the_stats_count_the_files_each_language_claimed_read_took_from_the_cache_and_holds() {
+    let tree = tree(&[
+        ("a.defs", "def parse\n"),
+        ("b.defs", "def render\n"),
+        ("blob.defs", "def\0\0\0binary\n"),
+        ("one.alpha", "def one\n"),
+        ("notes.md", "def notes\n"),
+    ]);
+    let cache = tempfile::tempdir().expect("create cache dir");
+    let languages = || -> Vec<Box<dyn Language>> {
+        vec![
+            Box::new(Defs::new("defs", "defs", ".defs")),
+            Box::new(Defs::new("alpha", "defs", ".alpha")),
+        ]
+    };
+    let counts = |engine: &Engine| -> Vec<(String, usize, usize, usize, usize)> {
+        engine
+            .stats()
+            .languages
+            .iter()
+            .map(|files| {
+                let name = format!("{}/{}", files.family, files.name);
+                (name, files.claimed, files.read, files.cached, files.held)
+            })
+            .collect()
+    };
+
+    let cold = build(tree.path(), &cached(cache.path()), languages());
+    let warm = build(tree.path(), &cached(cache.path()), languages());
+
+    assert_eq!(
+        counts(&cold),
+        [
+            ("defs/defs".to_owned(), 3, 2, 0, 2),
+            ("defs/alpha".to_owned(), 1, 1, 0, 1)
+        ]
+    );
+    assert_eq!(
+        counts(&warm),
+        [
+            ("defs/defs".to_owned(), 3, 2, 2, 2),
+            ("defs/alpha".to_owned(), 1, 1, 1, 1)
+        ]
+    );
+    let stats = warm.stats();
+    let families: Vec<(&str, usize, usize)> = stats
+        .families
+        .iter()
+        .map(|(family, graph)| (*family, graph.files, graph.symbols))
+        .collect();
+    assert_eq!(families, [("defs", 3, 3)]);
+}
+
+#[test]
 fn an_extraction_the_cache_holds_malformed_is_extracted_again_from_the_file() {
     let tree = tree(&[("a.defs", "def parse\n")]);
     let cache = tempfile::tempdir().expect("create cache dir");
