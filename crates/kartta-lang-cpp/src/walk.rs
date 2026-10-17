@@ -940,6 +940,37 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
+    fn a_macro_in_a_class_head_keeps_the_class_and_its_members() {
+        let raw = extract(
+            b"namespace libtorrent {\n\
+              class TORRENT_EXTRA_EXPORT torrent : public request_callback, public peer_class_set\n\
+              {\npublic:\n  void start();\n  int size() const { return 1; }\n};\n}\n\
+              struct DLL_API Foo { void run(); };\nclass JPH_EXPORT Bar final { void go(); };\n\
+              struct STAT st;\n",
+        );
+
+        assert_eq!(
+            qualified_names(&raw),
+            [
+                "libtorrent::torrent",
+                "torrent::size",
+                "Foo",
+                "Bar",
+                "st",
+                "torrent::start",
+                "Foo::run",
+                "Bar::go"
+            ]
+        );
+        assert_eq!(
+            symbol(&raw, "torrent").parents,
+            ["request_callback", "peer_class_set"]
+        );
+        assert_eq!(symbol(&raw, "size").kind, SymbolKind::Method);
+        assert_eq!(symbol(&raw, "st").kind, SymbolKind::Variable);
+    }
+
+    #[test]
     fn templated_bases_record_their_name_without_arguments() {
         let raw = extract(
             b"class Foo : public Base<Foo> {};\n\
