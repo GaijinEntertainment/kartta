@@ -108,6 +108,8 @@ pub struct Conventions {
     /// Whether a package is the files of one directory that declare it, as a Go package is: they see each other's
     /// package-level symbols with no import, and an import names the directory.
     pub directory_packages: bool,
+    /// What a member call, `x.f()`, can call besides a member.
+    pub member_calls: MemberCalls,
     /// Where the language records a use of a type.
     pub type_uses: TypeUses,
 }
@@ -122,9 +124,27 @@ impl Default for Conventions {
             bare_call_reaches_enclosing_owners: false,
             scope_separator: None,
             directory_packages: false,
+            member_calls: MemberCalls::NearbyFreeFunctions,
             type_uses: TypeUses::Partial,
         }
     }
+}
+
+/// What a member call, `x.f()`, can call besides a member.
+///
+/// A free function is a definition with no owner. Beyond the caller's directory and the one above it, where only the
+/// one callable of the name outside vendored code is left to guess at, a member call takes a member alone under either,
+/// so a lone free `trim` elsewhere in the tree is not guessed for `line.trim()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum MemberCalls {
+    /// A free function the caller's file sees, the one definition of its name, or one in the caller's directory or the
+    /// one above it, where no member of the name is a candidate: what a value holds can be read as free, an object's
+    /// property, a table's slot, a module that a name holds or a path a call spells.
+    #[default]
+    NearbyFreeFunctions,
+    /// Nothing: a Go member call calls a method or a field of its value and reaches a package's function only through
+    /// the import of the package, which binds before any tier that takes a member.
+    Members,
 }
 
 /// Where a language records a use of a type.
