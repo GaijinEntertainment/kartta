@@ -87,6 +87,7 @@ mod generated;
 mod modules;
 mod package_json;
 mod resolve;
+mod runtime;
 mod syntax;
 #[cfg(test)]
 mod tests;
@@ -107,6 +108,7 @@ fn conventions() -> Conventions {
     conventions.own_members = OwnMembers::Unreached;
     conventions.owner_chain_separator = Some(".");
     conventions.bare_call_reaches_enclosing_owners = true;
+    conventions.runtime_methods = runtime::METHODS;
     conventions
 }
 

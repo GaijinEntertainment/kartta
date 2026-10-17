@@ -17,6 +17,9 @@ variable, names none inside the scope that declares it, because a value's name n
 block that declares it only, so a call on it after that block keeps the name. CommonJS export assignments are not
 modelled.
 
+The conventions name the methods that ECMAScript's built-in objects and the DOM give a value, so a member call of one,
+`line.trim()` or `node.addEventListener()`, binds a member of the name and no free function of the repository.
+
 ## How imports resolve
 
 The resolver reads the repository's `tsconfig.json` and `package.json` files, outside `node_modules` and `vendor`, and

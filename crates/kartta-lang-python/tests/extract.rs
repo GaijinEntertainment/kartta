@@ -82,6 +82,16 @@ fn generated(source: &[u8]) -> Vec<bool> {
 }
 
 #[test]
+fn the_runtime_methods_ascend_without_a_repeat_and_name_the_built_in_types() {
+    let methods = Python::new().conventions().runtime_methods;
+
+    assert!(methods.is_sorted_by(|earlier, later| earlier < later));
+    for method in ["strip", "append", "items", "read_text"] {
+        assert!(methods.binary_search(&method).is_ok(), "{method}");
+    }
+}
+
+#[test]
 fn symbols_are_qualified_by_their_classes_in_source_order() {
     let raw = extract(SAMPLE);
     let names: Vec<&str> = raw

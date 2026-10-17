@@ -17,7 +17,9 @@ of the `Type` the file declares under that name or path.
 
 A call records its callee and, where the syntax spells one, its receiver: `self.greet()` and `Self::new()` record the
 type of the `impl` around them, and `Widget::new()` records `Widget`. A macro invocation is a call of the macro. A call
-of an item that a function body declares is a local call of that item.
+of an item that a function body declares is a local call of that item. The conventions name the methods and associated
+functions of the standard library that code calls most, so a call of one through a receiver or a path, `name.clone()`
+or `fs::write()`, binds a member of the name and no free function of the repository.
 
 ## Resolution
 
