@@ -9,7 +9,7 @@ use crate::order::PathOrder;
 use crate::stored::{
     Entry, Folded, Local, Occurrence, Parent, Site, StoredAssertion, StoredBinding, StoredCall,
     StoredCallable, StoredFile, StoredLocalCall, StoredReExport, StoredReference, StoredSymbol,
-    SymbolAt, UseAt,
+    SymbolAt, UseAt, VALUE_TYPE_SEPARATOR, ValueTypes,
 };
 use crate::strings::{Str, Strings};
 
@@ -507,6 +507,7 @@ impl Graph {
                 .as_deref()
                 .map(|package| self.strings.intern(package)),
             parents: self.store_parents(&extraction.symbols),
+            value_types: self.store_value_types(&extraction.symbols),
             locals: locals(extraction),
             callables: self.store_callables(extraction),
             folded: folded(extraction),
@@ -576,6 +577,20 @@ impl Graph {
             }
         }
         parents.into_boxed_slice()
+    }
+
+    fn store_value_types(&mut self, symbols: &[Symbol]) -> Box<[ValueTypes]> {
+        symbols
+            .iter()
+            .enumerate()
+            .filter(|(_, symbol)| !symbol.value_types.is_empty())
+            .map(|(index, symbol)| ValueTypes {
+                symbol: narrow(index),
+                types: self
+                    .strings
+                    .intern(&symbol.value_types.join(VALUE_TYPE_SEPARATOR)),
+            })
+            .collect()
     }
 
     fn store_callables(&mut self, extraction: &Extraction) -> Box<[StoredCallable]> {
