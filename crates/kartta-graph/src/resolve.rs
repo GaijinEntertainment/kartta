@@ -8,7 +8,7 @@ use kartta_lang::{CallableRole, Conventions, InheritedMembers, OwnMembers, Symbo
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
 use crate::confidence;
 use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind};
-use crate::scope::{Ancestors, Reach};
+use crate::scope::{Ancestors, Reach, Scoped};
 use crate::stored::{Entry, Site, SymbolAt};
 use crate::strings::Str;
 
@@ -588,6 +588,8 @@ impl<'g> Cascade<'g> {
         unique
     }
 
+    // constraint: the name binds only where one target is unique among every directly included file, so a file that
+    // offers several makes the tier abstain as two files that offer one each do
     fn included(
         &self,
         call: &Call,
@@ -600,13 +602,11 @@ impl<'g> Cascade<'g> {
             if defined.is_empty() {
                 continue;
             }
-            let Some(at) = self.scoped_target(call, defined.iter().copied(), reach) else {
-                continue;
-            };
-            if unique.is_some() {
-                return None;
+            match self.scoped(call, defined.iter().copied(), reach) {
+                Scoped::Nothing => {}
+                Scoped::One(at) if unique.is_none() => unique = Some(at),
+                Scoped::One(_) | Scoped::Several => return None,
             }
-            unique = Some(at);
         }
         unique
     }
