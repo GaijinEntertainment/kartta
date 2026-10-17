@@ -14,7 +14,8 @@
 //!   nothing, and `namespace a::b` adds both names.
 //! - A class member, a type declared in a class body included, is qualified by its class alone, `Widget::area`, and
 //!   is owned by it. An out-of-line definition takes its owner from the scope it writes: `int ns::Widget::area()`
-//!   defines `Widget::area`.
+//!   defines `Widget::area`, unless the file opens or uses that scope as a namespace and declares no type of its name:
+//!   `void ImGui::EndGroup() {}` beside a `namespace ImGui` defines the free function `ImGui::EndGroup`.
 //! - A class whose head writes a scope, `class ns::Widget {}`, is qualified by that scope after the enclosing
 //!   namespaces, up to the innermost one named like the scope's first name, so both definitions of `ns::Widget` store
 //!   one qualified name.

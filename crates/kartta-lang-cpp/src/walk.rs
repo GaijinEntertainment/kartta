@@ -5,7 +5,7 @@ mod name;
 
 use std::collections::{HashMap, HashSet};
 
-use kartta_lang::tree::{preorder, signature, text};
+use kartta_lang::tree::{children, preorder, signature, text};
 use kartta_lang::{
     CallRef, Callable, CallableRole, FoldedDeclaration, NO_CALLER_ID, RawDirective, RawExtraction,
     Symbol, SymbolFlags, SymbolId, SymbolKind,
@@ -18,7 +18,7 @@ use self::data::{
     alias_declarator_name, at_namespace_scope, data_declarator, data_signature, field_declarator,
     field_owner, has_qualifier, has_storage_class,
 };
-use self::declarator::{function_symbol, is_macro_invocation, is_pure_virtual};
+use self::declarator::{function_symbol, is_macro_invocation, is_pure_virtual, nested_scope};
 use self::name::{
     call_target, class_symbol, head_scope, include_spec, is_simple_identifier, type_base_name,
 };
@@ -34,6 +34,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     });
 
     replayer.flush_prototypes();
+    replayer.free_namespace_members();
     replayer.raw
 }
 
@@ -49,6 +50,7 @@ struct ClassScope {
 
 struct NamespaceScope {
     end: usize,
+    path: Option<usize>,
     name: Option<String>,
 }
 
@@ -58,14 +60,23 @@ struct Prototype {
     in_class: bool,
 }
 
+struct WrittenScope {
+    nested: Option<String>,
+    namespace: Option<usize>,
+}
+
 struct Replayer<'s> {
     source: &'s [u8],
     functions: Vec<FunctionScope>,
     classes: Vec<ClassScope>,
     namespaces: Vec<NamespaceScope>,
+    namespace_names: HashSet<String>,
     prototypes: Vec<Prototype>,
     callable_keys: HashSet<String>,
     out_of_line: HashMap<String, Vec<SymbolId>>,
+    namespace_paths: Vec<String>,
+    used_namespaces: Vec<(Option<usize>, String)>,
+    written_scopes: HashMap<usize, WrittenScope>,
     generated: bool,
     symbol_count: u32,
     raw: RawExtraction,
@@ -78,9 +89,13 @@ impl<'s> Replayer<'s> {
             functions: Vec::new(),
             classes: Vec::new(),
             namespaces: Vec::new(),
+            namespace_names: HashSet::new(),
             prototypes: Vec::new(),
             callable_keys: HashSet::new(),
             out_of_line: HashMap::new(),
+            namespace_paths: Vec::new(),
+            used_namespaces: Vec::new(),
+            written_scopes: HashMap::new(),
             generated: is_generated_source(source),
             symbol_count: 0,
             raw: RawExtraction::default(),
@@ -91,12 +106,22 @@ impl<'s> Replayer<'s> {
         self.close_scopes(node.start_byte());
 
         match node.kind() {
-            "namespace_definition" => self.namespaces.push(NamespaceScope {
-                end: node.end_byte(),
-                name: node
-                    .child_by_field_name("name")
-                    .map(|name| text(name, self.source)),
-            }),
+            "namespace_definition" => self.open_namespace(node),
+            "using_declaration" if is_using_namespace(node) => {
+                let used = children(node)
+                    .filter_map(|index| node.child(index))
+                    .rfind(|child| {
+                        matches!(
+                            child.kind(),
+                            "identifier" | "qualified_identifier" | "namespace_identifier"
+                        )
+                    });
+                if let Some(name) = used.map(|name| text(name, self.source)) {
+                    self.note_namespace(&name);
+                    let at = self.namespaces.last().and_then(|scope| scope.path);
+                    self.used_namespaces.push((at, name));
+                }
+            }
             "function_definition" => self.define_function(node),
             "field_declaration" if is_pure_virtual(node) => self.declare_pure_virtual(node),
             "field_declaration" => {
@@ -159,6 +184,30 @@ impl<'s> Replayer<'s> {
         }
     }
 
+    fn open_namespace(&mut self, node: Node<'_>) {
+        let name = node
+            .child_by_field_name("name")
+            .map(|name| text(name, self.source));
+        let enclosing = self.namespaces.last().and_then(|scope| scope.path);
+        let path = match &name {
+            Some(name) => {
+                self.note_namespace(name);
+                let path = enclosing.map_or_else(
+                    || name.clone(),
+                    |outer| format!("{}::{name}", self.namespace_paths[outer]),
+                );
+                self.namespace_paths.push(path);
+                Some(self.namespace_paths.len() - 1)
+            }
+            None => enclosing,
+        };
+        self.namespaces.push(NamespaceScope {
+            end: node.end_byte(),
+            path,
+            name,
+        });
+    }
+
     fn define_function(&mut self, node: Node<'_>) {
         let Some(symbol) = self.callable_symbol(node) else {
             return;
@@ -169,6 +218,13 @@ impl<'s> Replayer<'s> {
         let id = self.push_symbol(symbol);
         if out_of_line && let Some(key) = &key {
             self.out_of_line.entry(key.clone()).or_default().push(id);
+        }
+        if out_of_line {
+            let written = WrittenScope {
+                nested: nested_scope(node, self.source),
+                namespace: self.namespaces.last().and_then(|scope| scope.path),
+            };
+            self.written_scopes.insert(id.0 as usize, written);
         }
         self.record_callable(id, key, CallableRole::Definition);
         self.functions.push(FunctionScope {
@@ -467,6 +523,98 @@ impl<'s> Replayer<'s> {
         }
     }
 
+    fn note_namespace(&mut self, name: &str) {
+        for segment in name
+            .split("::")
+            .map(str::trim)
+            .filter(|segment| !segment.is_empty())
+        {
+            if !self.namespace_names.contains(segment) {
+                self.namespace_names.insert(segment.to_owned());
+            }
+        }
+    }
+
+    // constraint: an out-of-line definition names its scope as a class does, `bool d3d::clearview() {}`, and only the
+    // file tells a namespace from a class: a scope the file opens as a namespace or uses as one, and declares no type
+    // the scope can name, holds a free function
+    fn free_namespace_members(&mut self) {
+        if self.namespace_names.is_empty() {
+            return;
+        }
+        let mut types: HashMap<&str, Vec<&str>> = HashMap::new();
+        for symbol in self.raw.symbols.iter().filter(|symbol| {
+            matches!(
+                symbol.kind,
+                SymbolKind::Class | SymbolKind::Struct | SymbolKind::Enum | SymbolKind::TypeAlias
+            )
+        }) {
+            types
+                .entry(symbol.name.as_str())
+                .or_default()
+                .push(symbol.qualified_name.as_str());
+        }
+        let freed: Vec<usize> = self
+            .written_scopes
+            .keys()
+            .copied()
+            .filter(|&index| {
+                let symbol = &self.raw.symbols[index];
+                symbol.kind == SymbolKind::Method
+                    && symbol
+                        .owner
+                        .as_deref()
+                        .is_some_and(|owner| self.is_namespace_member(index, owner, &types))
+            })
+            .collect();
+        for index in freed {
+            let symbol = &mut self.raw.symbols[index];
+            symbol.kind = SymbolKind::Function;
+            symbol.owner = None;
+        }
+    }
+
+    fn is_namespace_member(
+        &self,
+        symbol: usize,
+        owner: &str,
+        types: &HashMap<&str, Vec<&str>>,
+    ) -> bool {
+        self.namespace_names.contains(owner)
+            && !types.get(owner).is_some_and(|named| {
+                named
+                    .iter()
+                    .any(|type_name| self.reaches(symbol, owner, type_name))
+            })
+    }
+
+    // constraint: the scope an out-of-line definition writes names a type of that scope in an enclosing namespace or
+    // in a namespace the file uses: `N::g` inside `namespace B` reaches `B::N` and a root `N`, and a root `N::g` no
+    // `A::N`
+    fn reaches(&self, symbol: usize, owner: &str, type_name: &str) -> bool {
+        let written = self.written_scopes.get(&symbol);
+        let scope = written
+            .and_then(|written| written.nested.as_deref())
+            .unwrap_or(owner);
+        let Some(head) = type_name.strip_suffix(scope).and_then(|head| {
+            head.strip_suffix("::")
+                .or_else(|| head.is_empty().then_some(head))
+        }) else {
+            return false;
+        };
+        let enclosing = written
+            .and_then(|written| written.namespace)
+            .map(|path| self.namespace_paths[path].as_str());
+        head.is_empty()
+            || enclosing.is_some_and(|path| lies_in(path, head))
+            || self.used_namespaces.iter().any(|(at, used)| {
+                used == head
+                    && at.is_none_or(|at| {
+                        enclosing.is_some_and(|path| lies_in(path, &self.namespace_paths[at]))
+                    })
+            })
+    }
+
     fn record_callable(&mut self, symbol: SymbolId, key: Option<String>, role: CallableRole) {
         let Some(key) = key else {
             return;
@@ -487,6 +635,17 @@ fn exported_symbol(name: String, kind: SymbolKind, node: Node<'_>) -> Symbol {
     );
     symbol.exported = true;
     symbol
+}
+
+fn lies_in(path: &str, outer: &str) -> bool {
+    path.strip_prefix(outer)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
+}
+
+fn is_using_namespace(node: Node<'_>) -> bool {
+    children(node)
+        .filter_map(|index| node.child(index))
+        .any(|child| child.kind() == "namespace")
 }
 
 fn is_entry_point(symbol: &Symbol) -> bool {
@@ -968,6 +1127,50 @@ int defined_and_declared(int x) { return x; }
         );
         assert_eq!(symbol(&raw, "size").kind, SymbolKind::Method);
         assert_eq!(symbol(&raw, "st").kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn an_out_of_line_definition_through_a_namespace_is_a_free_function() {
+        let raw = extract(
+            b"namespace ImGui { static void NavUpdate(); void EndGroup(); }\nvoid ImGui::EndGroup() {}\n\
+              using namespace physx::shdfnd;\nint shdfnd::readChunk() { return 0; }\n\
+              class Widget { int area(); };\nint Widget::area() { return 0; }\nint Other::size() { return 0; }\n\
+              namespace Twin {}\nclass Twin { void run(); };\nvoid Twin::run() {}\n\
+              namespace A::N {}\nclass N {};\nvoid A::N::f() {}\nnamespace B { void N::g() {} }\n\
+              namespace C { struct M {}; }\nnamespace M {}\nnamespace D { using namespace C; }\nvoid M::h() {}\n\
+              namespace Outer { class ImGui { void Begin() {} }; }\nnamespace Kind {}\nenum Kind { K };\n\
+              void Kind::m() {}\nnamespace Alias {}\nusing Alias = Widget;\nvoid Alias::n() {}\n",
+        );
+
+        let shapes: Vec<(&str, SymbolKind, Option<&str>)> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| matches!(symbol.kind, SymbolKind::Function | SymbolKind::Method))
+            .map(|symbol| {
+                (
+                    symbol.qualified_name.as_str(),
+                    symbol.kind,
+                    symbol.owner.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shapes,
+            [
+                ("ImGui::EndGroup", SymbolKind::Function, None),
+                ("shdfnd::readChunk", SymbolKind::Function, None),
+                ("Widget::area", SymbolKind::Method, Some("Widget")),
+                ("Other::size", SymbolKind::Method, Some("Other")),
+                ("Twin::run", SymbolKind::Method, Some("Twin")),
+                ("N::f", SymbolKind::Function, None),
+                ("N::g", SymbolKind::Method, Some("N")),
+                ("M::h", SymbolKind::Function, None),
+                ("ImGui::Begin", SymbolKind::Method, Some("ImGui")),
+                ("Kind::m", SymbolKind::Method, Some("Kind")),
+                ("Alias::n", SymbolKind::Method, Some("Alias")),
+                ("ImGui::NavUpdate", SymbolKind::Function, None),
+            ]
+        );
     }
 
     #[test]
