@@ -79,8 +79,8 @@ pub trait Repository: Sync {
     fn read(&self, path: &str) -> io::Result<Vec<u8>>;
 }
 
-/// The conventions a language's calls resolve under, which the graph cannot infer from its extractions. The default
-/// states those of the languages that change none.
+/// The conventions a language's calls resolve under and its uses are recorded by, which the graph cannot infer from its
+/// extractions. The default states those of the languages that change none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Conventions {
@@ -108,6 +108,8 @@ pub struct Conventions {
     /// Whether a package is the files of one directory that declare it, as a Go package is: they see each other's
     /// package-level symbols with no import, and an import names the directory.
     pub directory_packages: bool,
+    /// Where the language records a use of a type.
+    pub type_uses: TypeUses,
 }
 
 impl Default for Conventions {
@@ -120,8 +122,21 @@ impl Default for Conventions {
             bare_call_reaches_enclosing_owners: false,
             scope_separator: None,
             directory_packages: false,
+            type_uses: TypeUses::Partial,
         }
     }
+}
+
+/// Where a language records a use of a type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TypeUses {
+    /// Code can name a type where the language records no use, so a type that no use names may still be named.
+    #[default]
+    Partial,
+    /// Wherever code names a type that is not local to a body, as Go's extraction records a use in a declaration or a
+    /// composite literal and a call in a conversion: such a type that no call and no use names is named nowhere the
+    /// language reads. A local type stays unjudged, because no use binds a local.
+    Every,
 }
 
 /// When a bare call inside a member reaches the members of that member's own owner.
