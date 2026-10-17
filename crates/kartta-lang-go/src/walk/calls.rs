@@ -35,33 +35,24 @@ impl Emitter<'_> {
         self.push_call(target, node, caller_id);
     }
 
-    // constraint: a receiver the caller declares as a value names no type, so it is the empty receiver of a member call
-    // on a value of no known type; the method's own receiver is the owner its declaration spells
+    // constraint: the receiver is the type path of the operand's value, and the empty receiver of a member call on a
+    // value of no known type where the walk names none; a local type's name is kept as written
     fn spelled_receiver(
         &self,
         invoked: Node<'_>,
         (callee, receiver): (String, Option<String>),
     ) -> (String, Option<String>) {
-        let Some(operand) = invoked
-            .child_by_field_name("operand")
-            .filter(|operand| operand.kind() == "identifier")
-        else {
+        let Some(operand) = invoked.child_by_field_name("operand") else {
             return (callee, receiver);
         };
-        let declared = self
-            .innermost_local(self.borrowed(operand), operand.start_byte())
-            .map(|local| local.kind);
-        let receiver = match declared {
-            Some(LocalKind::ReceiverOf(method)) => Some(
-                self.raw.symbols[method.0 as usize]
-                    .owner
-                    .clone()
-                    .unwrap_or_default(),
-            ),
-            Some(LocalKind::Value | LocalKind::ValueSymbol(_)) => Some(String::new()),
-            Some(LocalKind::TypeSymbol(_)) | None => receiver,
-        };
-        (callee, receiver)
+        let local_type = operand.kind() == "identifier"
+            && self
+                .innermost_local(self.borrowed(operand), operand.start_byte())
+                .is_some_and(|local| matches!(local.kind, LocalKind::TypeSymbol(_)));
+        if local_type {
+            return (callee, receiver);
+        }
+        (callee, Some(self.value_path(operand).unwrap_or_default()))
     }
 
     // constraint: a conversion, `(T)(x)` or `(*T)(x)`, and a call of a parenthesized name, `(f)(x)`, have one tree, so
