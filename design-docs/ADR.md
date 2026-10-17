@@ -53,7 +53,7 @@
 - [3.4 Extract TypeScript and JavaScript as one
   family](./adr/3.4-extract-typescript-and-javascript-as-one-family.md) — initiative `03-code-graph`, 2026-10-16
 - [3.5 Keep the graph a file at a time](./adr/3.5-keep-the-graph-a-file-at-a-time.md) — initiative `03-code-graph`,
-  2026-10-16
+  2026-10-16, revised 2026-10-17
 - [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md) — initiative
   `03-code-graph`, 2026-10-16
 - [3.7 Resolve calls when a query asks](./adr/3.7-resolve-calls-when-a-query-asks.md) — initiative `03-code-graph`,
@@ -61,9 +61,11 @@
 - [3.8 Extract only the daslang a file opts into gen2, and find modules by file
   name](./adr/3.8-extract-only-the-daslang-a-file-opts-into-gen2.md) — initiative `03-code-graph`, 2026-10-16
 - [3.9 Resolve a Quirrel import through the nearest .sqconfig, and name a function value by its
-  binding](./adr/3.9-resolve-a-quirrel-import-through-the-nearest-sqconfig.md) — initiative `03-code-graph`, 2026-10-16
+  binding](./adr/3.9-resolve-a-quirrel-import-through-the-nearest-sqconfig.md) — initiative `03-code-graph`, 2026-10-16,
+  revised 2026-10-17
 - [3.10 Resolve a BLK include as the engine loads it, and read the mount table from the files that state it by
-  name](./adr/3.10-resolve-a-blk-include-as-the-engine-loads-it.md) — initiative `03-code-graph`, 2026-10-16
+  name](./adr/3.10-resolve-a-blk-include-as-the-engine-loads-it.md) — initiative `03-code-graph`, 2026-10-16, revised
+  2026-10-17
 - [3.11 Name Rust items by their module chain and resolve modules by Cargo's
   layout](./adr/3.11-name-rust-items-by-their-module-chain-and-resolve-modules-by-cargo-s-layout.md) — initiative
   `03-code-graph`, 2026-10-16
@@ -102,6 +104,9 @@
   2026-10-17
 - [3.25 Read a definition's text and doc comment from its file when
   asked](./adr/3.25-read-a-definition-s-text-and-doc-comment-from-its-file-when-asked.md) — initiative
+  `03-code-graph`, 2026-10-17
+- [3.30 Look a repository path up without ASCII case through a table built when first
+  asked](./adr/3.30-look-a-repository-path-up-without-case-through-a-table-built-when-first-asked.md) — initiative
   `03-code-graph`, 2026-10-17
 
 ## Deprecated
