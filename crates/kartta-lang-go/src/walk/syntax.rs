@@ -57,8 +57,10 @@ pub(super) fn is_exported(name: &str) -> bool {
 }
 
 // constraint: `go help generate` fixes the banner as a line matching `^// Code generated .* DO NOT EDIT\.$` before the
-// package clause, so the scan stops at the clause and an indented comment is not the banner
+// package clause, so the scan stops at the clause and an indented comment is not the banner; a byte order mark the
+// go command accepts before the first line is not part of it
 pub(super) fn is_generated_source(source: &[u8]) -> bool {
+    let source = source.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(source);
     for raw in source.split(|&byte| byte == b'\n') {
         let line = raw.strip_suffix(b"\r").unwrap_or(raw);
         if line.starts_with(b"// Code generated ") && line.ends_with(b" DO NOT EDIT.") {
