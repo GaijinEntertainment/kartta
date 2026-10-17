@@ -65,6 +65,7 @@ mod search;
 mod stats;
 mod stored;
 mod strings;
+mod typed;
 mod words;
 
 pub use crate::analyze::{Blast, DirectCalls, ReachBand, Segment, SegmentSymbol};

@@ -14,6 +14,7 @@ use crate::resolution::Miss;
 use crate::scope::{Ancestors, Reach, Scoped, is_value};
 use crate::stored::{Entry, Site, SymbolAt};
 use crate::strings::Str;
+use crate::typed::{Typed, Value};
 
 const THROUGH_INCLUDES_MAX_DEFINITIONS: usize = 32;
 
@@ -62,6 +63,8 @@ pub(crate) struct Cascade<'g> {
     constructor_types: Derived<SymbolAt, Option<Rc<[SymbolAt]>>>,
     pub(crate) type_ancestors: Derived<SymbolAt, Option<Rc<Ancestors>>>,
     pub(crate) owner_ancestors: Derived<Str, Option<Rc<Ancestors>>>,
+    pub(crate) receiver_types: Derived<(u32, Str), Value<'g>>,
+    empty_receiver: Option<Str>,
 }
 
 impl<'g> Cascade<'g> {
@@ -80,6 +83,8 @@ impl<'g> Cascade<'g> {
             constructor_types: RefCell::default(),
             type_ancestors: RefCell::default(),
             owner_ancestors: RefCell::default(),
+            receiver_types: RefCell::default(),
+            empty_receiver: graph.strings.get(""),
         }
     }
 
@@ -468,6 +473,10 @@ impl<'g> Cascade<'g> {
             .map(|&(_, dir)| dir)
     }
 
+    pub(crate) fn dot_imported_dirs(&self, file: u32) -> Vec<Str> {
+        self.bindings(file).dot_dirs.clone()
+    }
+
     pub(crate) fn resolve_call(&self, call: &Call) -> Result<Bound, Miss> {
         let caller = call.caller_at();
 
@@ -495,6 +504,21 @@ impl<'g> Cascade<'g> {
                     Pick::FreeTarget(caller),
                 )
                 .ok_or(Miss::NotExported);
+        }
+        if self.reads_type_paths()
+            && let Some(receiver) = call.receiver
+            && !self.graph.strings.resolve(receiver).is_empty()
+        {
+            return match self.typed_member(call, receiver) {
+                Typed::Member(at) => Ok((at, confidence::RECEIVER)),
+                Typed::Imported => Err(Miss::ExternalImport),
+                Typed::Undeclared => Err(Miss::Undefined),
+                Typed::NoMethod => Err(Miss::NotAdmitted),
+                Typed::Unknown => self.resolve_by_name(&Call {
+                    receiver: self.empty_receiver.or(call.receiver),
+                    ..*call
+                }),
+            };
         }
 
         if self
