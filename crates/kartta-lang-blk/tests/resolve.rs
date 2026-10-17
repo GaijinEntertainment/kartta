@@ -36,6 +36,17 @@ impl Repository for Files<'_> {
         )
     }
 
+    fn files_ignoring_case<'a>(&'a self, path: &str) -> Box<dyn Iterator<Item = String> + 'a> {
+        let path = path.to_owned();
+        Box::new(
+            self.0
+                .iter()
+                .map(|&(file, _)| file)
+                .filter(move |file| file.eq_ignore_ascii_case(&path))
+                .map(str::to_owned),
+        )
+    }
+
     fn read(&self, path: &str) -> io::Result<Vec<u8>> {
         self.0
             .iter()
@@ -252,13 +263,31 @@ fn unmapped_mount_absolute_and_working_directory_paths_stay_unresolved() {
 }
 
 #[test]
-fn a_target_that_differs_only_in_letter_case_names_no_file() {
+fn a_target_that_differs_only_in_letter_case_names_its_sole_case_variant() {
     let files = [
         ("cfg/gamedata/units/tank.blk", ""),
+        ("cfg/twice.blk", ""),
+        ("cfg/TWICE.blk", ""),
+        ("cfg/exact.blk", ""),
+        ("cfg/Exact.blk", ""),
         ("gamedata/root.blk", ""),
     ];
 
-    assert_eq!(target(&files, "gameData/Units/tank.blk", "cfg/a.blk"), None);
+    assert_eq!(
+        target(&files, "gameData/Units/tank.blk", "cfg/a.blk").as_deref(),
+        Some("cfg/gamedata/units/tank.blk")
+    );
+    assert_eq!(target(&files, "Twice.blk", "cfg/a.blk"), None);
+    assert_eq!(
+        target(&files, "exact.blk", "cfg/a.blk").as_deref(),
+        Some("cfg/exact.blk")
+    );
+}
+
+#[test]
+fn a_root_path_matches_its_file_in_letter_case() {
+    let files = [("gamedata/root.blk", "")];
+
     assert_eq!(target(&files, "#/GameData/root.blk", "cfg/a.blk"), None);
 }
 
@@ -290,7 +319,7 @@ fn a_mount_path_resolves_through_the_mount_table_as_the_engine_reads_it() {
 }
 
 #[test]
-fn a_mount_target_matches_its_name_and_its_file_in_letter_case() {
+fn a_mount_target_matches_its_name_in_letter_case_and_its_file_without() {
     let files = [
         ("game/prog/gameBase/config/settings.blk", GAME_BASE),
         ("game/prog/gameBase/gamedata/units/tank.blk", ""),
@@ -302,8 +331,8 @@ fn a_mount_target_matches_its_name_and_its_file_in_letter_case() {
         Some("game/prog/gameBase/gamedata/units/tank.blk")
     );
     assert_eq!(
-        target(&files, "%gameBase/gameData/Units/tank.blk", including),
-        None
+        target(&files, "%gameBase/gameData/Units/tank.blk", including).as_deref(),
+        Some("game/prog/gameBase/gamedata/units/tank.blk")
     );
     assert_eq!(
         target(&files, "%gamebase/gamedata/units/tank.blk", including),
@@ -459,6 +488,15 @@ fn several_ancestors_holding_the_target_abstain() {
             ("game/prog/gameLibs/a.blk", "")
         ]),
         None
+    );
+    assert_eq!(
+        place(&[
+            settings,
+            ("prog/gameLibs/a.blk", ""),
+            ("game/prog/gameLibs/A.blk", "")
+        ]),
+        None,
+        "an ancestor that holds the target in another letter case holds it too"
     );
     assert_eq!(place(&[settings, ("other/prog/gameLibs/a.blk", "")]), None);
 }
