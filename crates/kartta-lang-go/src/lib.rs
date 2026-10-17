@@ -30,8 +30,9 @@
 //! or method selected from a value, `c.Limit`, is not: which type declares it is the value's type, which extraction
 //! does not know. A name a local binding covers is no use of what it would otherwise name.
 //!
-//! A function bound to a package-level variable, `var Handler = func() {}`, is the variable alone: its body is no
-//! caller, so the calls in it are made from file scope, and the graph drops them.
+//! A function bound to a package-level variable, `var Handler = func() {}`, is the variable alone, and the calls of a
+//! package-level `var` or `const` initializer, a function literal's body among them, are calls of the name the value
+//! initializes, or of the first name when the values do not line up with the names, as one call's results do.
 //!
 //! # Resolution
 //!

@@ -260,10 +260,47 @@ impl<'a> Emitter<'a> {
             .is_some_and(|&(start, _)| start == node.start_byte())
             && let Some((_, id)) = self.spec_owners.pop_front()
         {
-            self.use_owners.push(Scope {
+            let scope = Scope {
                 end: node.end_byte(),
                 id,
-            });
+            };
+            self.use_owners.push(scope);
+            self.callers.push(scope);
+            self.push_value_callers(node, id);
+        }
+    }
+
+    // constraint: a spec's values follow one another in the source, so their scopes, stacked last to first, close in
+    // turn; a blank name's value, and every value of a list that does not line up with the names, calls as the first
+    fn push_value_callers(&mut self, spec: Node<'_>, first: SymbolId) {
+        let Some(list) = spec.child_by_field_name("value") else {
+            return;
+        };
+        let mut cursor = spec.walk();
+        let names = spec.children_by_field_name("name", &mut cursor).count();
+        if names < 2 || names != named_children(list).len() {
+            return;
+        }
+        let stacked = self.callers.len();
+        let mut next = first.0;
+        let names = spec.children_by_field_name("name", &mut cursor);
+        for (name, i) in names.zip(named_children(list)) {
+            let id = if name.utf8_text(self.source) == Ok("_") {
+                first
+            } else {
+                let id = SymbolId(next);
+                next += 1;
+                id
+            };
+            if let Some(value) = list.named_child(i) {
+                self.callers.push(Scope {
+                    end: value.end_byte(),
+                    id,
+                });
+            }
+        }
+        if let Some(values) = self.callers.get_mut(stacked..) {
+            values.reverse();
         }
     }
 
