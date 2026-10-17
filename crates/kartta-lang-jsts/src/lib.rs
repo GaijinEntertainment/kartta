@@ -8,7 +8,9 @@
 //!
 //! - Functions, classes, interfaces, type aliases, enums, namespaces and ambient `declare module "m"` blocks, a member
 //!   owned by the chain of names that encloses it: `run` in `namespace A { class Worker { run() {} } }` is
-//!   `A.Worker.run`. A body never owns members, so a class declared inside a function starts a new chain.
+//!   `A.Worker.run`. A body never owns members, so a class declared inside a function starts a new chain. A class with
+//!   no name goes by the name that binds it, as JavaScript names it: `default` for an anonymous `export default class`,
+//!   `Box` for `const Box = class {}`; the methods of one that nothing names are free functions.
 //! - A function bound to a name is a function that owns the calls in its body: `const f = () => {}`, a function
 //!   wrapped in `memo`, `forwardRef`, `useCallback`, `useMemo`, `observer` or `debounce`, an object property
 //!   `{ onClick: () => {} }`, a class field `handler = () => {}`, and an anonymous `export default` function, named

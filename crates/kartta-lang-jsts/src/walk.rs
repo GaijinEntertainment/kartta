@@ -584,18 +584,33 @@ impl<'s> Emitter<'s> {
     }
 
     fn push_type_scope(&mut self, node: Node<'_>) {
-        let owner = node.child_by_field_name("name").map(|name| {
-            let name = type_name(name, self.source);
-            if node.kind() == "class" {
-                name
-            } else {
-                self.qualified(&name)
-            }
-        });
+        let owner = node.child_by_field_name("name").map_or_else(
+            || self.anonymous_class_name(node),
+            |name| {
+                let name = type_name(name, self.source);
+                Some(if node.kind() == "class" {
+                    name
+                } else {
+                    self.qualified(&name)
+                })
+            },
+        );
         self.types.push(TypeScope {
             end: node.end_byte(),
             owner,
         });
+    }
+
+    fn anonymous_class_name(&self, class: Node<'_>) -> Option<String> {
+        if self.is_export_target(class) {
+            return Some("default".to_owned());
+        }
+        let declarator = class
+            .parent()
+            .filter(|parent| parent.kind() == "variable_declarator")?;
+        let name = declarator.child_by_field_name("name")?;
+        (name.kind() == "identifier" && declarator.child_by_field_name("value") == Some(class))
+            .then(|| text(name, self.source))
     }
 
     fn push_type_barrier(&mut self, node: Node<'_>) {

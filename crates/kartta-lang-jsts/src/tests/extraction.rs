@@ -858,6 +858,37 @@ fn a_call_on_this_names_the_enclosing_class() {
 }
 
 #[test]
+fn an_anonymous_class_goes_by_the_name_that_binds_it() {
+    let extraction = extracted(
+        "src/socket.ts",
+        "export default class {\n  send(data: string) { this.ping(); }\n  ping() {}\n}\n\
+         const Box = class { static go() {} };\nlet [Lost] = [class { gone() {} }];\n",
+    );
+
+    let owned: Vec<(&str, Option<&str>, SymbolKind)> = (extraction.symbols.iter())
+        .map(|symbol| {
+            (
+                symbol.qualified_name.as_str(),
+                symbol.owner.as_deref(),
+                symbol.kind,
+            )
+        })
+        .collect();
+    assert_eq!(
+        owned,
+        [
+            ("default", None, SymbolKind::Class),
+            ("default.send", Some("default"), SymbolKind::Method),
+            ("default.ping", Some("default"), SymbolKind::Method),
+            ("Box", None, SymbolKind::Constant),
+            ("Box.go", Some("Box"), SymbolKind::Method),
+            ("gone", None, SymbolKind::Function),
+        ]
+    );
+    assert_eq!(calls(&extraction), [("ping", Some("default"))]);
+}
+
+#[test]
 fn a_construction_and_a_tag_on_a_declared_value_name_no_type() {
     let extraction = extracted(
         "src/f.tsx",
