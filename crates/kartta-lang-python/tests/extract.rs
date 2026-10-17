@@ -260,21 +260,7 @@ fn a_name_bound_nearer_the_call_hides_a_definition_around_it() {
     );
 
     assert_eq!(raw.local_calls, Vec::<LocalCall>::new());
-    assert_eq!(
-        callers_of(&raw, "helper"),
-        [
-            "by_parameter",
-            "by_assignment",
-            "by_target",
-            "by_target",
-            "by_case",
-            "by_case",
-            "by_lambda",
-            "by_import",
-            "by_global",
-            "outer"
-        ]
-    );
+    assert_eq!(callers_of(&raw, "helper"), ["by_import", "by_global"]);
 }
 
 #[test]
@@ -294,7 +280,7 @@ fn an_assignment_expression_in_a_comprehension_binds_in_the_function_around_it()
     );
 
     assert_eq!(raw.local_calls, Vec::<LocalCall>::new());
-    assert_eq!(callers_of(&raw, "helper"), ["inner"]);
+    assert_eq!(callers_of(&raw, "helper"), Vec::<&str>::new());
 }
 
 #[test]
@@ -369,6 +355,36 @@ fn a_nonlocal_name_reaches_the_definition_around_it() {
 
     assert_eq!(local_calls(&raw), [("inner", "helper", 7)]);
     assert_eq!(callers_of(&raw, "wrap"), ["inner"]);
+}
+
+#[test]
+fn a_bare_call_of_a_value_a_function_around_it_binds_records_nothing() {
+    let raw = extract(
+        b"def f(a, b=1, *c, d: int = 2, **e):\n    a(); b(); c(); d(); e()\n    g = make\n    g()\n    \
+          for h in items:\n        h()\n    with open() as i:\n        i()\n    try:\n        pass\n    \
+          except Error as j:\n        j()\n    k = lambda m: m()\n    [n() for n in items]\n    (o := make)\n    \
+          o()\n    def inner():\n        return a()\n",
+    );
+    let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+
+    assert_eq!(callees, ["open"]);
+    assert_eq!(raw.local_calls, Vec::<LocalCall>::new());
+}
+
+#[test]
+fn a_bare_call_of_a_module_variable_is_still_a_call() {
+    let raw = extract(b"handler = make()\ndef f():\n    return handler()\n");
+
+    assert_eq!(callers_of(&raw, "handler"), ["f"]);
+}
+
+#[test]
+fn a_bare_call_of_a_name_its_scope_imports_and_assigns_is_still_a_call() {
+    let raw = extract(
+        b"def f():\n    from tools import helper\n    helper = wrap(helper)\n    return helper()\n",
+    );
+
+    assert_eq!(callers_of(&raw, "helper"), ["f"]);
 }
 
 #[test]

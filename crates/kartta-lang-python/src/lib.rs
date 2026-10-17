@@ -17,9 +17,11 @@
 //! function around it, one in a class body included. A call before the first definition of the file is dropped.
 //!
 //! A bare call of a function or class that a function around the call defines is a local call to that definition, as
-//! Python's scoping finds the name: a parameter, an assignment, an import or a `global` declaration nearer the call
-//! hides the definition, a `nonlocal` declaration does not, and the names a class body binds reach a call in that body
-//! but neither its methods nor the function around the class.
+//! Python's scoping finds the name, and a bare call of a value that such a function binds, a parameter or the target
+//! of an assignment, a loop, a `with` or an `except`, is not recorded, because nothing tells what the value holds. An
+//! import or a `global` declaration nearer the call hides a definition around it, a `nonlocal` declaration does not,
+//! and the names a class body binds reach a call in that body but neither its methods nor the function around the
+//! class.
 //!
 //! # Resolution
 //!
