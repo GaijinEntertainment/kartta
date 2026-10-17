@@ -38,6 +38,8 @@
   initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-15
 - [1.17 Follow a tree through its change notifications](./adr/1.17-follow-a-tree-through-its-change-notifications.md) —
   initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-15
+- [1.18 Return the memory a build freed to the system](./adr/1.18-return-the-memory-a-build-freed-to-the-system.md) —
+  initiative `01-kartta-fs-port`, 2026-10-17
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-16
