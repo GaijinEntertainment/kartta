@@ -5,6 +5,7 @@ use kartta_walk::EntryKind;
 use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::index::{Index, Inspected};
+use crate::policy::pruned;
 
 /// How far a listing descends, which directories it does not enter, what it leaves out, and how many entries it
 /// returns.
@@ -201,13 +202,23 @@ impl<'a> Listed<'a> {
 pub enum ListError {
     /// Nothing is indexed at the path.
     ///
-    /// Which is not the same as nothing being there: an ignored directory, a pruned one, a directory below one that
-    /// would not read, and a directory created after the walk all answer this way, exactly as they do through
-    /// [`Index::entry`].
+    /// Which is not the same as nothing being there: an ignored directory, a directory below one that would not read,
+    /// and a directory created after the walk all answer this way, exactly as they do through [`Index::entry`]. A path
+    /// through a name the build prunes answers [`ListError::Pruned`] instead.
     #[error("nothing is indexed at {path:?}")]
     NotFound {
         /// The path that was asked for.
         path: String,
+    },
+    /// Nothing is indexed at the path, because one of its names is one the build prunes: `.git`, or a name in
+    /// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names). Whether anything is there on disk is not
+    /// known.
+    #[error("nothing is indexed at {path:?}: the build prunes every entry named {name:?}")]
+    Pruned {
+        /// The path that was asked for.
+        path: String,
+        /// The first name of the path that the build prunes.
+        name: String,
     },
     /// The path is indexed, as something the index holds no children for.
     #[error("{path:?} is indexed as {kind:?}, which has no listing")]
@@ -247,8 +258,9 @@ impl Index {
     ///
     /// # Errors
     ///
-    /// Returns [`ListError::NotFound`] when `dir` names no indexed entry, and [`ListError::NotADirectory`] when
-    /// it names one that is not a directory.
+    /// Returns [`ListError::Pruned`] when `dir` names no indexed entry and one of its names is one the build prunes,
+    /// [`ListError::NotFound`] when it names no indexed entry otherwise, and [`ListError::NotADirectory`] when it names
+    /// one that is not a directory.
     ///
     /// # Examples
     ///
@@ -354,9 +366,7 @@ impl Index {
             return Ok((0, self.len()));
         }
 
-        let at = self.position(dir).ok_or_else(|| ListError::NotFound {
-            path: dir.to_owned(),
-        })?;
+        let at = self.position(dir).ok_or_else(|| self.not_found(dir))?;
         let kind = self.kind_at(at);
 
         if kind != EntryKind::Dir {
@@ -367,6 +377,20 @@ impl Index {
         }
 
         Ok((at + 1, self.past_subtree(at + 1, dir)))
+    }
+
+    fn not_found(&self, dir: &str) -> ListError {
+        let path = dir.to_owned();
+        match dir
+            .split('/')
+            .find(|name| pruned(name, self.pruned_names()))
+        {
+            Some(name) => ListError::Pruned {
+                path,
+                name: name.to_owned(),
+            },
+            None => ListError::NotFound { path },
+        }
     }
 
     pub(crate) fn past_subtree(&self, after_dir: usize, dir: &str) -> usize {
