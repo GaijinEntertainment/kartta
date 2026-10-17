@@ -115,6 +115,8 @@
 - [3.30 Look a repository path up without ASCII case through a table built when first
   asked](./adr/3.30-look-a-repository-path-up-without-case-through-a-table-built-when-first-asked.md) — initiative
   `03-code-graph`, 2026-10-17
+- [3.31 Parse a C or C++ table without its numbers, and hold one tree at a
+  time](./adr/3.31-parse-a-c-or-c-plus-plus-table-without-its-numbers.md) — initiative `03-code-graph`, 2026-10-18
 
 ## Deprecated
 
