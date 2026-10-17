@@ -269,6 +269,15 @@ impl<'g> Cascade<'g> {
         closure
     }
 
+    // constraint: a file sees the definitions of its own, of the files it includes, and where a package is a
+    // directory, of its package
+    pub(crate) fn sees(&self, file: u32, at: SymbolAt) -> bool {
+        file == at.file
+            || self.includes(file).contains(&at.file)
+            || (self.conventions.directory_packages
+                && self.graph.file(file).dir == self.graph.file(at.file).dir)
+    }
+
     pub(crate) fn canonical(&self, at: SymbolAt) -> SymbolAt {
         if let Some(&canonical) = self.canonical.borrow().get(&at) {
             return canonical;

@@ -66,6 +66,9 @@ pub(crate) struct StoredFile {
     // constraint: both sorted by caller, in source order within one, so `calls_by` and `local_calls_by` find a body's
     // calls without a scan
     pub(crate) calls: Box<[StoredCall]>,
+    // constraint: the listing keys of the calls and the names of the uses made at file scope, sorted and once each;
+    // they have no symbol to resolve from, so they are kept as names the file spells and not as sites
+    pub(crate) file_scope_names: Box<[Str]>,
     pub(crate) local_calls: Box<[StoredLocalCall]>,
     pub(crate) references: Box<[StoredReference]>,
     pub(crate) includes: Box<[Str]>,
