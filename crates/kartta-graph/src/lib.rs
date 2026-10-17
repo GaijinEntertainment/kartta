@@ -12,6 +12,7 @@
 //! A file keeps its call sites and uses as its language wrote them, and [`Graph::callers`], [`Graph::callees`],
 //! [`Graph::references`], [`Graph::call_path`], [`Graph::analyze_segment`] and [`Graph::analyze_change`] resolve the
 //! sites of the names they reach when they are asked, so no answer goes stale when another file changes.
+//! [`Graph::resolution`] resolves every site, to answer how the graph's calls bind.
 //!
 //! # Examples
 //!
@@ -57,6 +58,7 @@ mod dependents;
 mod graph;
 mod implementations;
 mod order;
+mod resolution;
 mod resolve;
 mod scope;
 mod search;
@@ -72,5 +74,6 @@ pub use crate::dead::{Dead, DeadCode, Excluded};
 pub use crate::dependents::{Dependent, Dependents};
 pub use crate::graph::{Definition, Definitions, Found, Graph, Nearness};
 pub use crate::implementations::{Implementations, Implementor};
+pub use crate::resolution::{Miss, Misses, Resolution, Unbound};
 pub use crate::search::{Hit, Search};
 pub use crate::stats::Stats;

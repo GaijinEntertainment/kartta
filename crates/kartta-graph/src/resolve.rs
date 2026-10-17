@@ -8,6 +8,7 @@ use kartta_lang::{CallableRole, Conventions, InheritedMembers, OwnMembers, Symbo
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
 use crate::confidence;
 use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind};
+use crate::resolution::Miss;
 use crate::scope::{Ancestors, Reach, Scoped};
 use crate::stored::{Entry, Site, SymbolAt};
 use crate::strings::Str;
@@ -435,7 +436,7 @@ impl<'g> Cascade<'g> {
             .map(|&(_, dir)| dir)
     }
 
-    pub(crate) fn resolve_call(&self, call: &Call) -> Option<Bound> {
+    pub(crate) fn resolve_call(&self, call: &Call) -> Result<Bound, Miss> {
         let caller = call.caller_at();
 
         if let Some(local) = call.local {
@@ -445,13 +446,19 @@ impl<'g> Cascade<'g> {
             };
             return self
                 .is_call_target(self.graph.sym(at).kind)
-                .then_some((at, confidence::SAME_FILE));
+                .then_some((at, confidence::SAME_FILE))
+                .ok_or(Miss::NotAdmitted);
         }
 
         if let Some(receiver) = call.receiver
             && let Some(target) = self.binding(call.file, receiver)
         {
-            return self.imported(&self.candidates(call), target, Pick::FreeTarget(caller));
+            if target.is_none() {
+                return Err(Miss::ExternalImport);
+            }
+            return self
+                .imported(&self.candidates(call), target, Pick::FreeTarget(caller))
+                .ok_or(Miss::NotExported);
         }
 
         if self
@@ -463,14 +470,14 @@ impl<'g> Cascade<'g> {
         {
             let symbol = self.graph.sym(at);
             if self.is_candidate(caller, at) && symbol.qualified_name != symbol.name {
-                return Some((at, confidence::QUALIFIED));
+                return Ok((at, confidence::QUALIFIED));
             }
         }
         if let Some(tail) = self.trailing_pair(call.callee)
             && let Some(at) = self.qualified(tail)
             && self.is_candidate(caller, at)
         {
-            return Some((at, confidence::QUALIFIED_TAIL));
+            return Ok((at, confidence::QUALIFIED_TAIL));
         }
 
         self.resolve_by_name(call)
@@ -516,10 +523,10 @@ impl<'g> Cascade<'g> {
         shared
     }
 
-    fn resolve_by_name(&self, call: &Call) -> Option<Bound> {
+    fn resolve_by_name(&self, call: &Call) -> Result<Bound, Miss> {
         let candidates = self.candidates(call);
         if let Some(at) = self.member_of_the_receiver_s_owner(call, &candidates) {
-            return Some((at, confidence::RECEIVER));
+            return Ok((at, confidence::RECEIVER));
         }
         let targets = candidates.targets().iter().copied();
         let reach = self.reach(call, &candidates);
@@ -530,13 +537,13 @@ impl<'g> Cascade<'g> {
             candidates.in_file(self.graph, call.file).iter().copied(),
             reach,
         ) {
-            return Some((at, confidence::SAME_FILE));
+            return Ok((at, confidence::SAME_FILE));
         }
         if call.receiver.is_none()
             && let Some(at) =
                 self.dot_imported(&candidates, call.file, Pick::FreeTarget(call.caller_at()))
         {
-            return Some((at, confidence::IMPORT));
+            return Ok((at, confidence::IMPORT));
         }
         if self.conventions.directory_packages
             && let Some(at) = self.scoped_target(
@@ -546,18 +553,18 @@ impl<'g> Cascade<'g> {
                 reach,
             )
         {
-            return Some((at, confidence::PACKAGE));
+            return Ok((at, confidence::PACKAGE));
         }
         if let Some(at) = self.included(call, &candidates, reach) {
-            return Some((at, confidence::INCLUDE));
+            return Ok((at, confidence::INCLUDE));
         }
         if let Some(at) = self.re_exported(call) {
-            return Some((at, confidence::RE_EXPORT));
+            return Ok((at, confidence::RE_EXPORT));
         }
 
         let shape = self.shape(call, &targets, reach);
         if !targets.clone().any(|at| self.admits(&shape, at)) {
-            return None;
+            return Err(self.unadmitted(call));
         }
         self.member_of_the_caller_s_owner(call, &candidates)
             .or_else(|| {
@@ -565,6 +572,15 @@ impl<'g> Cascade<'g> {
                     .map(|at| (at, confidence::UNIQUE))
             })
             .or_else(|| self.resolve_by_proximity(call, &candidates, reach))
+            .ok_or(Miss::Ambiguous)
+    }
+
+    fn unadmitted(&self, call: &Call) -> Miss {
+        if self.named(call.callee).is_empty() && self.qualified(call.callee).is_none() {
+            Miss::Undefined
+        } else {
+            Miss::NotAdmitted
+        }
     }
 
     fn imported(
