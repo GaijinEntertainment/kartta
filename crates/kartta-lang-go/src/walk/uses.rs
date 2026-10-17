@@ -97,15 +97,19 @@ impl<'a> Emitter<'a> {
         });
     }
 
+    // constraint: an import binds the name its package clause declares, which the import path need not spell, so a
+    // qualifier that names nothing the file declares is kept for the graph, which binds it only to an import
     fn import_qualifier<'t>(&self, selector: Node<'t>) -> Option<(Node<'t>, Node<'t>)> {
-        let operand = selector.child_by_field_name("operand")?;
+        let operand = selector
+            .child_by_field_name("operand")
+            .filter(|operand| operand.kind() == "identifier")?;
         let field = selector.child_by_field_name("field")?;
         let qualifier = self.borrowed(operand);
+        let may_name_an_import = self.import_names.iter().any(|name| name == qualifier)
+            || (!self.package_values.contains(qualifier) && !PREDECLARED.contains(&qualifier));
 
-        (operand.kind() == "identifier"
-            && self.import_names.iter().any(|name| name == qualifier)
-            && !self.is_local(qualifier, selector.start_byte()))
-        .then_some((operand, field))
+        (may_name_an_import && !self.is_local(qualifier, selector.start_byte()))
+            .then_some((operand, field))
     }
 
     fn names_package_type(&self, name: &str, at: usize) -> bool {
