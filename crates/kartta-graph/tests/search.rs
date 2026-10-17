@@ -359,6 +359,169 @@ fn a_query_with_no_word_finds_only_a_name_it_spells_exactly() {
 }
 
 #[test]
+fn a_query_that_spells_part_of_a_name_is_found_by_the_fill_up() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![
+            symbol("Authenticate", "auth.Authenticate", 1),
+            symbol("render", "render", 2),
+        ],
+    )]);
+
+    let found = graph.search("authent", 10);
+
+    assert_eq!(names(&found), ["auth.Authenticate"]);
+    assert!(found.hits[0].fuzzy && !found.hits[0].exact);
+    assert_eq!((found.total, found.fuzzy_total), (0, Some(1)));
+}
+
+#[test]
+fn the_fill_up_runs_only_while_word_matches_leave_the_limit_short() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![
+            symbol("parseConfig", "parseConfig", 1),
+            symbol("prsCfg", "prsCfg", 2),
+            symbol("parse", "parse", 3),
+        ],
+    )]);
+
+    let short = graph.search("parse", 10);
+    let full = graph.search("parse", 2);
+    let counted = graph.search("parse", 0);
+
+    assert_eq!(names(&short), ["parse", "parseConfig"]);
+    assert_eq!(short.fuzzy_total, Some(0));
+    assert_eq!(names(&full), ["parse", "parseConfig"]);
+    assert_eq!((full.fuzzy_total, counted.fuzzy_total), (None, None));
+}
+
+#[test]
+fn the_fill_up_counts_every_name_that_spells_the_query_past_the_limit() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![
+            symbol("parseConfigFile", "parseConfigFile", 1),
+            symbol("pickColorFile", "pickColorFile", 2),
+            symbol("printCurrentFrame", "printCurrentFrame", 3),
+            symbol("pacifier", "pacifier", 4),
+        ],
+    )]);
+
+    let found = graph.search("pcf", 2);
+
+    assert_eq!(found.hits.len(), 2);
+    assert!(found.hits.iter().all(|hit| hit.fuzzy));
+    assert_eq!((found.total, found.fuzzy_total), (0, Some(4)));
+}
+
+#[test]
+fn a_fill_up_hit_ranks_by_how_densely_it_spells_the_query() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![
+            symbol("parseConfigFile", "parseConfigFile", 1),
+            symbol("pickColorFromPaletteFile", "pickColorFromPaletteFile", 2),
+            symbol("pcf", "util.pcf", 3),
+        ],
+    )]);
+
+    let found = graph.search("pcf", 10);
+
+    assert_eq!(
+        names(&found),
+        ["util.pcf", "parseConfigFile", "pickColorFromPaletteFile"]
+    );
+    assert!(!found.hits[0].fuzzy && found.hits[1].fuzzy && found.hits[2].fuzzy);
+    assert!(found.hits[1].score > found.hits[2].score);
+}
+
+#[test]
+fn a_fill_up_hit_is_as_dense_as_its_name_whatever_its_owner_and_its_qualified_name_counts_only_when_needed()
+ {
+    let graph = graph(&[file(
+        "a.py",
+        vec![
+            symbol("HOST_ARCH", "build_all.HOST_ARCH", 1),
+            symbol("HOST_ARCH", "buildtools.apps.common.dabuild.HOST_ARCH", 2),
+            symbol("render", "widget.render", 3),
+        ],
+    )]);
+
+    let short = graph.search("hostarc", 10);
+    let spanning = graph.search("wrender", 10);
+
+    assert_eq!(
+        names(&short),
+        [
+            "build_all.HOST_ARCH",
+            "buildtools.apps.common.dabuild.HOST_ARCH"
+        ]
+    );
+    assert!((short.hits[0].score - 7.0 / 9.0).abs() < 1e-9);
+    assert!((short.hits[1].score - 7.0 / 9.0).abs() < 1e-9);
+    assert_eq!(names(&spanning), ["widget.render"]);
+    assert!((spanning.hits[0].score - 7.0 / 13.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_fill_up_score_stays_within_one_when_lowercasing_lengthens_the_name() {
+    let graph = graph(&[file("a.go", vec![symbol("İx", "İx", 1)])]);
+
+    let found = graph.search("İ x", 10);
+
+    assert_eq!(names(&found), ["İx"]);
+    assert!(found.hits[0].fuzzy);
+    assert!((found.hits[0].score - 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn the_fill_up_takes_any_limit() {
+    let graph = graph(&[file("a.go", vec![symbol("render", "render", 1)])]);
+
+    let found = graph.search("!", usize::MAX);
+
+    assert_eq!((found.total, found.fuzzy_total), (0, Some(0)));
+}
+
+#[test]
+fn the_fill_up_drops_the_query_s_whitespace_and_demotes_generated_code() {
+    let mut generated = symbol("AuthenticationServer", "gen.AuthenticationServer", 1);
+    generated.flags = SymbolFlags::empty().with_generated(true);
+    let graph = graph(&[
+        file("a.go", vec![generated]),
+        file(
+            "b.go",
+            vec![symbol(
+                "AuthenticationServer",
+                "srv.AuthenticationServer",
+                1,
+            )],
+        ),
+    ]);
+
+    let found = graph.search("authn srvr", 10);
+
+    assert_eq!(places(&found), ["b.go:1", "a.go:1"]);
+    assert!((found.hits[1].score - found.hits[0].score / 2.0).abs() < 1e-9);
+    assert_eq!(found.fuzzy_total, Some(2));
+}
+
+#[test]
+fn a_fill_up_hit_follows_the_word_hits_and_counts_only_itself() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![symbol("cfg", "cfg", 1), symbol("configure", "configure", 2)],
+    )]);
+
+    let found = graph.search("cfg", 10);
+
+    assert_eq!(names(&found), ["cfg", "configure"]);
+    assert!(!found.hits[0].fuzzy && found.hits[1].fuzzy);
+    assert_eq!((found.total, found.fuzzy_total), (1, Some(1)));
+}
+
+#[test]
 fn a_name_with_a_combining_mark_is_found_by_either_spelling() {
     let graph = graph(&[file(
         "a.go",
@@ -376,5 +539,6 @@ fn a_name_with_a_combining_mark_is_found_by_either_spelling() {
     ] {
         let found = graph.search(query, 10);
         assert_eq!(names(&found), [wanted], "{query}");
+        assert!(!found.hits[0].fuzzy, "{query}");
     }
 }

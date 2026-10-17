@@ -29,11 +29,16 @@ pub struct Hit<'g> {
     /// The definition.
     pub definition: Definition<'g>,
     /// What the hit ranks by, highest first: its word score, at most 500, halved for generated code and cut by a
-    /// quarter for vendored code, and 1000 more when its name is the query. Each graph weighs words by its own
-    /// definitions, so of the scores of several language families' graphs only the exact-name lead ranks the same.
+    /// quarter for vendored code, and 1000 more when its name is the query; for a fill-up hit, the share of its name
+    /// the query spells, or of its qualified name when only that spells the query, 0 to 1, demoted the same way. Each
+    /// graph weighs words by its own definitions, so of the scores of several language families' graphs only the
+    /// exact-name lead ranks the same.
     pub score: f64,
     /// Whether its name is the query, as written.
     pub exact: bool,
+    /// Whether the fill-up found it: it shares no word with the query, whose characters its name or qualified name
+    /// holds in order.
+    pub fuzzy: bool,
 }
 
 /// What a search found, and what it left out.
@@ -51,11 +56,15 @@ pub struct Search<'g> {
     pub unmatched_words: Vec<String>,
     /// The distinct words of the query past the first eight, which the search did not look for.
     pub dropped_words: usize,
+    /// When the fill-up ran, the definitions it found before the limit; `None` when it did not run, because the word
+    /// matches filled the limit or the limit is 0.
+    pub fuzzy_total: Option<usize>,
 }
 
 impl Graph {
     /// The definitions whose names and file paths share the most words with `query`, best first, at most `limit` of
-    /// them. With `limit` 0 the answer holds no hit, and its counts and its words are those of any other limit.
+    /// them. With `limit` 0 the answer holds no hit and the fill-up does not run, and its other counts and its words
+    /// are those of any other limit.
     ///
     /// A name, and each of the last three segments of its file's path, splits into words at every character that is
     /// not a letter or a digit, between a lowercase letter or a digit and the capital after it, and before the last
@@ -68,17 +77,24 @@ impl Graph {
     /// holds of the query's words that some definition holds, doubled when the query looks for two or more words and
     /// its qualified name holds them all in query order with no word between, capped at 500, halved for generated code
     /// and cut by a quarter for vendored code; one whose name is the query as written scores 1000 more, so it leads
-    /// every other hit. Equal scores rank by path and line.
+    /// every other hit. Equal scores rank by path and line, a word match before a fill-up one.
+    ///
+    /// When fewer definitions match than `limit`, a fill-up adds those whose name or qualified name holds the query,
+    /// its whitespace dropped, as a subsequence of its lowercased characters, `auth` reaching `Authenticate` and `pcf`
+    /// reaching `parseConfigFile`: each scores the share of its name's characters the query spells, or of its
+    /// qualified name's when only that spells the query, 0 to 1, demoted as a word match is, and ranks among the word
+    /// matches by that score.
     ///
     /// The search reads the words of every file, in parallel on the rayon pool it is called on, and splits the names
     /// of the definitions only in the files whose words may hold one of the query's: past that scan, cost grows with
     /// how many files hold the query's words. A file's words are gathered by the first search that reads it and kept
     /// until the file is replaced or removed, so building the graph spends nothing on search and the first search
-    /// splits every name once. A query with no words skips the scan.
+    /// splits every name once. A query with no words skips the scan. A fill-up reads the name, and where needed the
+    /// qualified name, of every definition the graph holds.
     #[must_use]
     pub fn search(&self, query: &str, limit: usize) -> Search<'_> {
         let asked = Asked::new(query);
-        let (scored, holders) = self.scored(query, &asked);
+        let (mut scored, holders) = self.scored(query, &asked);
 
         let unmatched_words = asked
             .words
@@ -89,15 +105,22 @@ impl Graph {
             .collect();
         let total = scored.len();
         let named = scored.iter().filter(|(_, held)| held.named).count();
+        let filled = (total < limit).then(|| self.fill(query, &scored, limit));
+        let fuzzy_total = filled.map(|(found, matched)| {
+            scored.extend(found);
+            matched
+        });
         Search {
             hits: self.best(scored, limit),
             total,
             named,
             unmatched_words,
             dropped_words: asked.dropped,
+            fuzzy_total,
         }
     }
 
+    // constraint: sorted by place, so a fill-up walks a file's word matches in step with its definitions
     fn scored(
         &self,
         query: &str,
@@ -154,6 +177,93 @@ impl Graph {
             lead_exact(&mut scored, self.named(name));
         }
         (scored, holders)
+    }
+
+    // constraint: a part, and a merge of two parts, keeps its best `limit` once it holds twice that many, so a query
+    // that most qualified names spell holds no more than that per part while every match is still counted
+    fn fill(
+        &self,
+        query: &str,
+        matched: &[(SymbolAt, Scored)],
+        limit: usize,
+    ) -> (Vec<(SymbolAt, Scored)>, usize) {
+        let spelled: Vec<char> = query
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .flat_map(char::to_lowercase)
+            .collect();
+        if spelled.is_empty() {
+            return (Vec::new(), 0);
+        }
+        let spelled = Spelled::new(spelled, matched);
+        let (mut found, spelling) = (0..self.files.len())
+            .into_par_iter()
+            .with_min_len(FILES_PER_TASK)
+            .fold(
+                || (Vec::new(), 0_usize),
+                |(mut found, mut spelling), slot| {
+                    spelling += self.file_spelling(narrow(slot), &spelled, &mut found);
+                    if found.len() >= limit.saturating_mul(2) {
+                        self.keep_best(&mut found, limit);
+                    }
+                    (found, spelling)
+                },
+            )
+            .reduce(
+                || (Vec::new(), 0),
+                |(mut left, spelled_left), (mut right, spelled_right)| {
+                    left.append(&mut right);
+                    if left.len() >= limit.saturating_mul(2) {
+                        self.keep_best(&mut left, limit);
+                    }
+                    (left, spelled_left + spelled_right)
+                },
+            );
+        self.keep_best(&mut found, limit);
+        (found, spelling)
+    }
+
+    fn file_spelling(
+        &self,
+        slot: u32,
+        spelled: &Spelled<'_>,
+        found: &mut Vec<(SymbolAt, Scored)>,
+    ) -> usize {
+        let Some(file) = &self.files[slot as usize] else {
+            return 0;
+        };
+        let start = spelled.matched.partition_point(|(at, _)| at.file < slot);
+        let mut matched = spelled.matched[start..]
+            .iter()
+            .take_while(|(at, _)| at.file == slot)
+            .map(|(at, _)| at.index)
+            .peekable();
+        let mut spelling = 0;
+        for (index, symbol) in file.symbols.iter().enumerate() {
+            let at = SymbolAt {
+                file: slot,
+                index: narrow(index),
+            };
+            if matched.next_if_eq(&at.index).is_some() {
+                continue;
+            }
+            let share = spelled
+                .share_of(self.strings.resolve(symbol.name))
+                .or_else(|| spelled.share_of(self.strings.resolve(symbol.qualified_name)));
+            let Some(share) = share else {
+                continue;
+            };
+            spelling += 1;
+            found.push((
+                at,
+                Scored {
+                    score: self.demoted(at, share),
+                    fuzzy: true,
+                    ..Scored::default()
+                },
+            ));
+        }
+        spelling
     }
 
     // constraint: every file's word set is read, so the scan also sums the words of every definition, the mean a
@@ -258,6 +368,7 @@ impl Graph {
                 definition: self.definition_at(at),
                 score: held.score,
                 exact: held.exact,
+                fuzzy: held.fuzzy,
             })
             .collect()
     }
@@ -276,6 +387,7 @@ impl Graph {
             .1
             .score
             .total_cmp(&left.1.score)
+            .then(left.1.fuzzy.cmp(&right.1.fuzzy))
             .then_with(|| self.order_of(left.0).cmp(&self.order_of(right.0)))
     }
 }
@@ -285,6 +397,54 @@ struct Scored {
     score: f64,
     exact: bool,
     named: bool,
+    fuzzy: bool,
+}
+
+struct Spelled<'m> {
+    chars: Vec<char>,
+    ascii: Option<Vec<u8>>,
+    matched: &'m [(SymbolAt, Scored)],
+}
+
+impl<'m> Spelled<'m> {
+    fn new(chars: Vec<char>, matched: &'m [(SymbolAt, Scored)]) -> Self {
+        let ascii = chars
+            .iter()
+            .all(char::is_ascii)
+            .then(|| chars.iter().collect::<String>().into_bytes());
+        Self {
+            chars,
+            ascii,
+            matched,
+        }
+    }
+
+    // constraint: the share of the text's characters the query spells, both counted lowercased, so a denser match
+    // ranks above a looser one and no share exceeds one
+    fn share_of(&self, text: &str) -> Option<f64> {
+        if let Some(bytes) = &self.ascii
+            && text.is_ascii()
+        {
+            let mut wanted = bytes.iter().peekable();
+            for byte in text.bytes() {
+                wanted.next_if(|&&wanted| wanted == byte.to_ascii_lowercase());
+            }
+            return wanted
+                .peek()
+                .is_none()
+                .then(|| real(bytes.len()) / real(text.len()));
+        }
+        let mut wanted = self.chars.iter().peekable();
+        let mut length = 0_usize;
+        for lower in text.chars().flat_map(char::to_lowercase) {
+            length += 1;
+            wanted.next_if(|&&wanted| wanted == lower);
+        }
+        wanted
+            .peek()
+            .is_none()
+            .then(|| real(self.chars.len()) / real(length.max(1)))
+    }
 }
 
 /// The words a file holds, and how many its definitions hold.
@@ -467,7 +627,7 @@ impl Asked {
 }
 
 // constraint: a name that is the query holds every word the query asks, so its definitions are word matches already
-// unless the query holds no word, and those are added
+// unless the query holds no word; those are added, and the list sorted by place again
 fn lead_exact(scored: &mut Vec<(SymbolAt, Scored)>, exact: &[SymbolAt]) {
     let matched = scored.len();
     for &at in exact {
@@ -481,6 +641,9 @@ fn lead_exact(scored: &mut Vec<(SymbolAt, Scored)>, exact: &[SymbolAt]) {
         held.score += EXACT_NAME_LEAD;
         held.exact = true;
         held.named = true;
+    }
+    if scored.len() > matched {
+        scored.sort_unstable_by_key(|&(at, _)| at);
     }
 }
 
