@@ -2210,7 +2210,11 @@ fn a_package_forgets_a_removed_file_s_names() {
 
     graph.remove("app/parse.go");
 
-    assert_eq!(callees(&graph, "run"), ["lib/parse.go:1@60"]);
+    assert_eq!(
+        callees(&graph, "run"),
+        Vec::<String>::new(),
+        "a bare call reaches no other package's function"
+    );
 }
 
 #[test]
