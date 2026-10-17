@@ -106,6 +106,8 @@
 - [3.25 Read a definition's text and doc comment from its file when
   asked](./adr/3.25-read-a-definition-s-text-and-doc-comment-from-its-file-when-asked.md) — initiative
   `03-code-graph`, 2026-10-17
+- [3.29 Name a Go receiver by the type its declarations
+  spell](./adr/3.29-name-a-go-receiver-by-the-type-its-declarations-spell.md) — initiative `03-code-graph`, 2026-10-17
 - [3.30 Look a repository path up without ASCII case through a table built when first
   asked](./adr/3.30-look-a-repository-path-up-without-case-through-a-table-built-when-first-asked.md) — initiative
   `03-code-graph`, 2026-10-17
