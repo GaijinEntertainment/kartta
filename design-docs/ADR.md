@@ -85,6 +85,9 @@
 - [3.19 Find the files that include a file through an index of
   includers](./adr/3.19-find-the-files-that-include-a-file-through-an-index-of-includers.md) — initiative
   `03-code-graph`, 2026-10-17
+- [3.20 Resolve implementors from the parents written when a query
+  asks](./adr/3.20-resolve-implementors-from-the-parents-written-when-a-query-asks.md) — initiative `03-code-graph`,
+  2026-10-17
 
 ## Deprecated
 
