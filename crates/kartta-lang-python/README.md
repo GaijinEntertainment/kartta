@@ -14,8 +14,9 @@ and by the classes around it: `pkg.service.Service.greet` for a method of `Servi
 starts with `_` is not exported.
 
 A call records its callee and, for a member call, its receiver: `self.greet()` records `greet` on `self`, and a member
-call on anything but a name records the empty receiver. A call belongs to the function around it; a class opens no
-scope.
+call on anything but a name records the empty receiver. A call belongs to the function around it, one in a class body
+included. A bare call of a function or class that a function around the call defines is a local call to that
+definition, unless a name nearer the call hides it, as Python's scoping decides.
 
 ## Resolution
 

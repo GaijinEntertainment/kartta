@@ -68,7 +68,8 @@
   layout](./adr/3.11-name-rust-items-by-their-module-chain-and-resolve-modules-by-cargo-s-layout.md) — initiative
   `03-code-graph`, 2026-10-16
 - [3.12 Qualify Python by the module its path
-  names](./adr/3.12-qualify-python-by-the-module-its-path-names.md) — initiative `03-code-graph`, 2026-10-16
+  names](./adr/3.12-qualify-python-by-the-module-its-path-names.md) — initiative `03-code-graph`, 2026-10-16, revised
+  2026-10-17
 - [3.13 Read a shell script's commands as calls and its sources as
   includes](./adr/3.13-read-a-shell-script-s-commands-as-calls-and-its-sources-as-includes.md) — initiative
   `03-code-graph`, 2026-10-16
