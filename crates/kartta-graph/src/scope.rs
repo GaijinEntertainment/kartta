@@ -22,6 +22,7 @@ pub(crate) enum Scoped {
 #[derive(Debug, Clone)]
 pub(crate) enum Shape {
     Free,
+    FreeFunction,
     Global,
     Member,
     Own(Reach),
@@ -376,6 +377,7 @@ impl Cascade<'_> {
         let free = || owner.is_none() || self.stands_for_its_type(at);
         match shape {
             Shape::Free => free(),
+            Shape::FreeFunction => free() && !is_value(self.graph.sym(at).kind),
             Shape::Global => {
                 let symbol = self.graph.sym(at);
                 free() && (owner.is_some() || symbol.qualified_name == symbol.name)
@@ -692,7 +694,7 @@ impl Cascade<'_> {
             return if self.conventions.member_calls == MemberCalls::Members || any(&Shape::Member) {
                 Shape::Member
             } else {
-                Shape::Free
+                Shape::FreeFunction
             };
         }
         if call.written_from_root {
@@ -941,7 +943,11 @@ impl Cascade<'_> {
     ) -> Option<SymbolAt> {
         if !matches!(
             shape,
-            Shape::Free | Shape::Global | Shape::FreeOrInherited(_) | Shape::FreeOrEnclosing(_)
+            Shape::Free
+                | Shape::FreeFunction
+                | Shape::Global
+                | Shape::FreeOrInherited(_)
+                | Shape::FreeOrEnclosing(_)
         ) {
             return None;
         }
@@ -957,4 +963,8 @@ impl Cascade<'_> {
 
 pub(crate) const fn is_type(kind: SymbolKind) -> bool {
     derives(kind) || matches!(kind, SymbolKind::Namespace)
+}
+
+pub(crate) const fn is_value(kind: SymbolKind) -> bool {
+    matches!(kind, SymbolKind::Variable | SymbolKind::Constant)
 }
