@@ -16,5 +16,6 @@ one more crate.
 Status: the engine builds the file index and each language family's graph of definitions, calls and uses from one walk
 that reads each claimed text file once — twice only for a file whose extraction the shared cache holds in a form the
 build cannot read, or one a language's resolver asks for again, as configuration it reads. Each graph answers callers,
-callees, references and call paths, resolving calls when a query asks, and the files that include a file and the
-implementors of a type. The first release with a public surface will be `0.1.0`.
+callees, references and call paths, resolving calls when a query asks, the files that include a file and the
+implementors of a type, and searches definitions by the words of their names and paths. The first release with a
+public surface will be `0.1.0`.
