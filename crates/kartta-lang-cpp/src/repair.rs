@@ -69,6 +69,14 @@ fn spilled_error_rows(tree: &Tree) -> Vec<(usize, usize)> {
     spills
 }
 
+/// Whether a name is spelled as a macro: three or more upper-case letters, digits and underscores.
+pub(crate) fn is_macro_name(name: &[u8]) -> bool {
+    name.len() >= 3
+        && name
+            .iter()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || *byte == b'_')
+}
+
 fn macro_invocation_len(line: &[u8]) -> Option<usize> {
     let indent = line.iter().position(|byte| !byte.is_ascii_whitespace())?;
     let head = &line[indent..];
@@ -80,12 +88,7 @@ fn macro_invocation_len(line: &[u8]) -> Option<usize> {
         .iter()
         .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'_')
         .count();
-    let name = &head[..name_len];
-    if name_len < 3
-        || !name
-            .iter()
-            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || *byte == b'_')
-    {
+    if !is_macro_name(&head[..name_len]) {
         return None;
     }
 
