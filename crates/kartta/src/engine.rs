@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use kartta_fs::{BuildError, BuildOptions, CancelToken, ContentVisitor, Index};
-use kartta_graph::{Change, Graph, Limits, Region};
+use kartta_graph::{Change, Graph, Limits, Region, Resolution};
 use kartta_lang::{Extraction, Language, RawExtraction, Resolver};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -201,6 +201,18 @@ impl Engine {
                 .map(|(name, graph)| (name, graph.stats()))
                 .collect(),
         }
+    }
+
+    /// How every call site of each family's graph binds, resolved as [`Graph::resolution`] does on the index's
+    /// [threads](kartta_fs::Index::on_threads), at most `limit` of each family's unbound sites listed. Each family
+    /// resolves after the one before it, in the order of [`Engine::graphs`].
+    #[must_use]
+    pub fn resolution(&self, limit: usize) -> Vec<(&str, Resolution<'_>)> {
+        self.index.on_threads(|| {
+            self.graphs()
+                .map(|(name, graph)| (name, graph.resolution(limit)))
+                .collect()
+        })
     }
 
     fn family_claiming(&self, path: &str) -> Option<usize> {
