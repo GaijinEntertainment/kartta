@@ -1,5 +1,9 @@
 const MARKERS: [&[u8]; 2] = [b"@generated", b"DO NOT EDIT"];
 
+// constraint: a minifier or a code generator writes a whole module on a few lines, and a hand-written file opens with
+// a short line of code, so a first line of code longer than this is a build output
+const MINIFIED_LINE: usize = 500;
+
 const SCRIPT_EXTENSIONS: [&str; 11] = [
     ".d.ts", ".d.mts", ".d.cts", ".tsx", ".ts", ".mts", ".cts", ".jsx", ".js", ".mjs", ".cjs",
 ];
@@ -17,7 +21,7 @@ pub(crate) fn is_generated_source(source: &[u8]) -> bool {
         match header_line(line.trim_ascii(), block_open) {
             HeaderLine::Generated => return true,
             HeaderLine::Comment { block_open: open } => block_open = open,
-            HeaderLine::Code => return false,
+            HeaderLine::Code => return line.len() > MINIFIED_LINE,
         }
     }
 
