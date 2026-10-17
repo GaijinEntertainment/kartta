@@ -11,7 +11,7 @@ impl RawExtraction {
     /// The identity of the bytes [`RawExtraction::encode`] writes: a cache keys an encoded extraction by it as well as
     /// by its language's fingerprint, so an entry in another layout is never decoded.
     // constraint: names the layout `encode` writes, so it changes with any change to it
-    pub const CODEC: &'static [u8] = b"kartta-lang raw extraction 2";
+    pub const CODEC: &'static [u8] = b"kartta-lang raw extraction 3";
 
     /// Appends this extraction to `out` in a compact binary form that [`RawExtraction::decode`] reads back.
     pub fn encode(&self, out: &mut Vec<u8>) {
@@ -153,6 +153,7 @@ impl Writer<'_> {
         self.uint(symbol.line);
         self.uint(symbol.end_line);
         self.optional(symbol.signature.as_deref());
+        self.seq(&symbol.value_types, |writer, path| writer.text(path));
     }
 
     fn callable(&mut self, callable: &Callable) {
@@ -279,12 +280,14 @@ impl Reader<'_> {
         let line = self.uint()?;
         let end_line = self.uint()?;
         let signature = self.optional()?;
+        let value_types = self.seq(Reader::text)?;
         let mut symbol = Symbol::new(name, kind, line, end_line);
         symbol.qualified_name = qualified_name;
         symbol.owner = owner;
         symbol.parents = parents;
         symbol.exported = marks & EXPORTED != 0;
         symbol.signature = signature;
+        symbol.value_types = value_types;
         symbol.flags = SymbolFlags::from_bits(marks);
         Ok(symbol)
     }
@@ -372,6 +375,7 @@ mod tests {
         method.parents = vec!["Reader".to_owned(), "io.Closer".to_owned()];
         method.exported = true;
         method.signature = Some("func (p *Parser) parse() error".to_owned());
+        method.value_types = vec!["[]Token".to_owned(), String::new(), "io.Reader".to_owned()];
         method.flags = SymbolFlags::empty()
             .with_test(true)
             .with_generated(true)

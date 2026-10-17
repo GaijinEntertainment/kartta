@@ -135,6 +135,8 @@ pub struct Conventions {
     /// Whether a member call on a value, `x.f()` with an `x` that names no owner, guesses the callable of its name
     /// nearest the caller.
     pub calls_on_values: CallsOnValues,
+    /// What a member call's receiver spells.
+    pub receivers: Receivers,
     /// Where the language records a use of a type.
     pub type_uses: TypeUses,
 }
@@ -153,6 +155,7 @@ impl Default for Conventions {
             member_calls: MemberCalls::NearbyFreeFunctions,
             runtime_methods: &[],
             calls_on_values: CallsOnValues::NearestGuessed,
+            receivers: Receivers::Owners,
             type_uses: TypeUses::Partial,
         }
     }
@@ -168,6 +171,24 @@ pub enum IncludeReach {
     /// Every file it reaches through includes, however deep, as a C or C++ `#include` pastes the included text in
     /// place. A call whose receiver names an owner or an import binds through that name, not through includes.
     Transitive,
+}
+
+/// What a member call's receiver spells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Receivers {
+    /// The owner of the member the call reaches, as the language writes owners, or an import: the graph binds a member
+    /// of an owner of that name.
+    #[default]
+    Owners,
+    /// A type path, which names the receiver's type in the scope of the calling file. It starts with a name that the
+    /// file's package declares or that an import of the file binds, `Server` or `http`, and goes on in steps: `.name`
+    /// selects a member of a package or a field or a method of a type, `()` takes the first result of calling what
+    /// precedes and `()#n` its result `n`, counted from zero, so `()` is `()#0` and `pkg.Open()#1` is the second
+    /// result of `pkg.Open`, and `[]` takes an element of a container. A path that starts with `[]` is a container of
+    /// what follows, `[]Item`. The graph follows the paths that definitions give as their
+    /// [value types](crate::Symbol::value_types) and binds a member of the type the receiver reaches or of a type that
+    /// type embeds; a path that leaves the code the graph holds binds nothing.
+    TypePaths,
 }
 
 /// What a member call, `x.f()`, can call besides a member.
