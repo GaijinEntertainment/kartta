@@ -100,6 +100,9 @@
 - [3.24 Count what a graph holds and how its calls bind when
   asked](./adr/3.24-count-what-a-graph-holds-and-how-its-calls-bind-when-asked.md) — initiative `03-code-graph`,
   2026-10-17
+- [3.25 Read a definition's text and doc comment from its file when
+  asked](./adr/3.25-read-a-definition-s-text-and-doc-comment-from-its-file-when-asked.md) — initiative
+  `03-code-graph`, 2026-10-17
 
 ## Deprecated
 
