@@ -15,6 +15,7 @@ use crate::content_index::{Collector, Full, Pairs};
 use crate::index::Previous;
 use crate::inspection::{PROBE, read_prefix};
 use crate::open::{Symlinks, open_regular};
+use crate::pruned::PrunedNames;
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 use crate::stamp::{Seen, Stamp, Stamping, UNTRUSTED};
 use crate::trigram::{self, Trigram, Trigrams};
@@ -34,6 +35,7 @@ pub(crate) struct Learned {
 
 pub(crate) struct Indexing<'a> {
     ignore_sources: IgnoreSources,
+    pruned_names: &'a PrunedNames,
     canonical_root: PathBuf,
     // constraint: `Policy::enter` and `Policy::visit` return no `Result`, so a failure that costs the build information
     // collects here
@@ -163,11 +165,13 @@ impl<'a> Reading<'a> {
 impl<'a> Indexing<'a> {
     pub(crate) fn new(
         ignore_sources: IgnoreSources,
+        pruned_names: &'a PrunedNames,
         root: &Path,
         reading: Option<Reading<'a>>,
     ) -> Self {
         Self {
             ignore_sources,
+            pruned_names,
             canonical_root: fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()),
             errors: Mutex::new(Vec::new()),
             reading,
@@ -263,7 +267,7 @@ impl<'a> Indexing<'a> {
             return IgnoreFileRead::Read(None);
         }
         let path = child_path(dir.path(), name);
-        if read.via_symlink || rules.ignores(&path, false) {
+        if read.via_symlink || self.pruned_names.matches(name) || rules.ignores(&path, false) {
             return IgnoreFileRead::Read(None);
         }
 
@@ -788,6 +792,10 @@ pub(crate) fn names_match(name: &str, control: &str) -> bool {
     }
 }
 
+pub(crate) fn pruned(name: &str, pruned_names: &PrunedNames) -> bool {
+    names_match(name, DOT_GIT) || pruned_names.matches(name)
+}
+
 fn listed_control_name<'a>(dir: &Dir<'a>, control: &'a str) -> Option<&'a str> {
     if !cfg!(windows) {
         return dir.contains(control).then_some(control);
@@ -848,7 +856,7 @@ impl Policy for Indexing<'_> {
     }
 
     fn visit(&self, entry: &Entry<'_>, state: &DirState) -> Visit<Payload> {
-        if names_match(entry.name(), DOT_GIT) {
+        if pruned(entry.name(), self.pruned_names) {
             return Visit::Skip;
         }
 

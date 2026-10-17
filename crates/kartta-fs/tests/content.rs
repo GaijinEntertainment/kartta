@@ -14,6 +14,7 @@ use std::sync::Mutex;
 
 use kartta_fs::{
     BuildError, BuildOptions, BuildOutcome, CancelToken, Content, ContentId, ContentVisitor, Index,
+    PrunedNames,
 };
 use tempfile::TempDir;
 
@@ -185,6 +186,31 @@ fn an_ignored_ignore_file_still_applies_its_rules_and_is_never_offered() {
     );
     assert_eq!(visitor.asked(), [".gitignore", "sub/kept.rs"]);
     assert!(!visitor.seen().contains_key("sub/.gitignore"));
+}
+
+#[test]
+fn a_pruned_ignore_file_still_applies_its_rules_and_is_never_offered() {
+    let dir = tree(&[
+        (".gitignore", b"*.log\n"),
+        (".vscode/settings.json", b"{}"),
+        ("debug.log", b"x"),
+        ("kept.rs", b"x"),
+    ]);
+    let mut options = BuildOptions::default();
+    options.pruned_names =
+        PrunedNames::builtin().union(&PrunedNames::new([".gitignore"]).expect("a name"));
+    let visitor = Recorder::new(everything);
+
+    let outcome = Index::build_with(dir.path(), &options, Some(&visitor), None).expect("build");
+    let index = outcome.into_index();
+
+    assert!(index.entry(".gitignore").is_none());
+    assert!(
+        index.entry("debug.log").is_none(),
+        "its rules applied all the same"
+    );
+    assert_eq!(visitor.asked(), ["kept.rs"], "nothing pruned is offered");
+    assert_eq!(visitor.seen().keys().collect::<Vec<_>>(), ["kept.rs"]);
 }
 
 #[test]
