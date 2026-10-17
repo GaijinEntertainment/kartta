@@ -1068,6 +1068,80 @@ fn a_member_call_binds_a_free_function_its_file_defines_or_the_one_of_its_name()
 }
 
 #[test]
+fn a_member_call_of_a_runtime_method_binds_a_member_and_no_free_function() {
+    let mut conventions = Conventions::default();
+    conventions.runtime_methods = &["push", "trim"];
+    let calling = |site: CallRef, others: Vec<Extraction>| {
+        let mut files = vec![file(
+            "a/x.js",
+            vec![function("run", 1), function("trim", 5)],
+            vec![site],
+        )];
+        files.extend(others);
+        callees(&graph_of(conventions, &files), "run")
+    };
+    let elsewhere = |path: &str, symbol: Symbol| file(path, vec![symbol], Vec::new());
+
+    for receiver in ["", "line"] {
+        assert_eq!(
+            calling(member_call(0, receiver, "trim", 2), Vec::new()),
+            Vec::<String>::new()
+        );
+        for path in ["a/y.js", "b/y.js"] {
+            assert_eq!(
+                calling(
+                    member_call(0, receiver, "push", 2),
+                    vec![elsewhere(path, function("push", 1))]
+                ),
+                Vec::<String>::new()
+            );
+        }
+    }
+    assert_eq!(
+        calling(
+            member_call(0, "", "push", 2),
+            vec![elsewhere(
+                "b/y.js",
+                member("Stack", "push", SymbolKind::Method, 1)
+            )]
+        ),
+        ["b/y.js:1@60"]
+    );
+    assert_eq!(calling(call(0, "trim", 2), Vec::new()), ["a/x.js:5@80"]);
+    assert_eq!(
+        calling(
+            member_call(0, "", "join", 2),
+            vec![elsewhere("a/y.js", function("join", 1))]
+        ),
+        ["a/y.js:1@60"]
+    );
+}
+
+#[test]
+fn a_member_call_of_a_runtime_method_binds_no_free_function_a_barrel_re_exports() {
+    let mut conventions = Conventions::default();
+    conventions.runtime_methods = &["trim"];
+    let calling = |callee: &str| {
+        let graph = graph_of(
+            conventions,
+            &[
+                including(
+                    "app/main.ts",
+                    &["ui/index.ts"],
+                    vec![member_call(0, "", callee, 2)],
+                ),
+                barrel("ui/index.ts", vec![re_export(callee, "base", "ui/base.ts")]),
+                file("ui/base.ts", vec![function("base", 1)], Vec::new()),
+            ],
+        );
+        callees(&graph, "run")
+    };
+
+    assert_eq!(calling("trim"), Vec::<String>::new());
+    assert_eq!(calling("pad"), ["ui/base.ts:1@65"]);
+}
+
+#[test]
 fn a_member_call_binds_no_free_value_and_a_bare_call_still_does() {
     let calling = |site: CallRef, elsewhere: SymbolKind| {
         callees(

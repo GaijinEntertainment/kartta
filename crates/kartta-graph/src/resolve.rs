@@ -20,6 +20,7 @@ pub(crate) struct Call {
     pub(crate) callee: Str,
     pub(crate) receiver: Option<Str>,
     pub(crate) written_from_root: bool,
+    pub(crate) names_a_runtime_method: bool,
     pub(crate) local: Option<u32>,
     pub(crate) line: u32,
 }
@@ -89,6 +90,8 @@ impl<'g> Cascade<'g> {
                     callee: call.callee,
                     receiver: call.receiver,
                     written_from_root: call.is_written_from_root(),
+                    names_a_runtime_method: call.receiver.is_some()
+                        && self.is_runtime_method(call.callee),
                     local: None,
                     line: call.line,
                 }
@@ -101,11 +104,20 @@ impl<'g> Cascade<'g> {
                     callee: file.symbols[call.local as usize].name,
                     receiver: None,
                     written_from_root: false,
+                    names_a_runtime_method: false,
                     local: Some(call.local),
                     line: call.line,
                 }
             }
         }
+    }
+
+    fn is_runtime_method(&self, callee: Str) -> bool {
+        let methods = self.conventions.runtime_methods;
+        !methods.is_empty()
+            && methods
+                .binary_search(&self.graph.strings.resolve(callee))
+                .is_ok()
     }
 
     pub(crate) fn implicit_receiver(&self) -> bool {
@@ -556,7 +568,9 @@ impl<'g> Cascade<'g> {
         if let Some(at) = self.included(call, &candidates, reach) {
             return Ok((at, confidence::INCLUDE));
         }
-        if let Some(at) = self.re_exported(call) {
+        if !call.names_a_runtime_method
+            && let Some(at) = self.re_exported(call)
+        {
             return Ok((at, confidence::RE_EXPORT));
         }
 
