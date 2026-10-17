@@ -2,6 +2,7 @@ use kartta_lang::tree::{children, text};
 use kartta_lang::{Symbol, SymbolKind};
 use tree_sitter::Node;
 
+use super::data::data_declarator;
 use super::exported_symbol;
 use crate::{BRACKET_INCLUDE, QUOTED_INCLUDE};
 
@@ -151,6 +152,48 @@ fn unless_cast(name: String) -> Option<String> {
     );
 
     (!cast_or_keyword).then_some(name)
+}
+
+/// The names a template's parameter list declares, types and values alike.
+pub(super) fn template_parameters(template: Node<'_>, source: &[u8]) -> Vec<String> {
+    let Some(list) = template.child_by_field_name("parameters") else {
+        return Vec::new();
+    };
+    children(list)
+        .filter_map(|index| list.child(index))
+        .filter_map(|parameter| template_parameter_name(parameter, source))
+        .map(|name| text(name, source))
+        .collect()
+}
+
+fn template_parameter_name<'t>(parameter: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
+    match parameter.kind() {
+        "type_parameter_declaration" | "variadic_type_parameter_declaration" => {
+            first_child_of_kind(parameter, "type_identifier")
+        }
+        "optional_type_parameter_declaration" => parameter.child_by_field_name("name"),
+        "template_template_parameter_declaration" => children(parameter)
+            .filter_map(|index| parameter.child(index))
+            .find(|child| child.kind().ends_with("type_parameter_declaration"))
+            .and_then(|declared| template_parameter_name(declared, source)),
+        "parameter_declaration"
+        | "optional_parameter_declaration"
+        | "variadic_parameter_declaration" => {
+            let declarator = parameter.child_by_field_name("declarator")?;
+            let declarator = match declarator.kind() {
+                "variadic_declarator" => declarator.named_child(0)?,
+                _ => declarator,
+            };
+            data_declarator(declarator, source).map(|(name, _)| name)
+        }
+        _ => None,
+    }
+}
+
+fn first_child_of_kind<'t>(node: Node<'t>, kind: &str) -> Option<Node<'t>> {
+    children(node)
+        .filter_map(|index| node.child(index))
+        .find(|child| child.kind() == kind)
 }
 
 pub(super) fn include_spec(include: Node<'_>, source: &[u8]) -> Option<(String, u32)> {
