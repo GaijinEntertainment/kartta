@@ -17,7 +17,9 @@ A call records its callee and, for a member call, its receiver: `self.greet()` r
 call on anything but a name records the empty receiver. A call belongs to the function around it, one in a class body
 included. A bare call of a function or class that a function around the call defines is a local call to that
 definition, unless a name nearer the call hides it, as Python's scoping decides, and a bare call of a value such a
-function binds, such as a parameter, is not recorded.
+function binds, such as a parameter, is not recorded. The conventions name the methods of the built-in types and of the
+standard library's values a script holds most, so a member call of one, `name.strip()` or `path.read_text()`, binds a
+member of the name and no free function of the repository.
 
 ## Resolution
 

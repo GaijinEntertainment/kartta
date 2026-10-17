@@ -108,6 +108,16 @@ fn a_bare_call_reaches_enclosing_namespaces_but_not_its_own_type() {
 }
 
 #[test]
+fn the_runtime_methods_ascend_without_a_repeat_and_name_a_string_s_and_the_dom_s() {
+    let methods = TypeScript::new().conventions().runtime_methods;
+
+    assert!(methods.is_sorted_by(|earlier, later| earlier < later));
+    for method in ["trim", "split", "defineProperty", "addEventListener"] {
+        assert!(methods.binary_search(&method).is_ok(), "{method}");
+    }
+}
+
+#[test]
 fn each_language_has_a_fingerprint_of_its_own_that_stays_put() {
     let [typescript, tsx, javascript] = LANGUAGES.map(Language::fingerprint);
 

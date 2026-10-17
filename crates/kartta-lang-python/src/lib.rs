@@ -79,6 +79,7 @@ use crate::resolve::Modules;
 mod banner;
 mod fnv;
 mod resolve;
+mod runtime;
 mod walk;
 
 include!(concat!(env!("OUT_DIR"), "/source_digest.rs"));
@@ -123,6 +124,7 @@ impl Language for Python {
         let mut conventions = Conventions::default();
         conventions.own_members = OwnMembers::Unreached;
         conventions.owner_chain_separator = Some(".");
+        conventions.runtime_methods = runtime::METHODS;
 
         conventions
     }

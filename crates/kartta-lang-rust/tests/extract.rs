@@ -106,6 +106,16 @@ fn qualified_names(raw: &RawExtraction) -> Vec<&str> {
         .collect()
 }
 
+#[test]
+fn the_runtime_methods_ascend_without_a_repeat_and_name_the_standard_library_s() {
+    let methods = Rust::new().conventions().runtime_methods;
+
+    assert!(methods.is_sorted_by(|earlier, later| earlier < later));
+    for method in ["clone", "unwrap", "iter", "write"] {
+        assert!(methods.binary_search(&method).is_ok(), "{method}");
+    }
+}
+
 fn is_test(source: &[u8], name: &str) -> bool {
     named(&extract(source), name).flags.is_test()
 }
