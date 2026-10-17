@@ -435,7 +435,8 @@ impl<'s> Replayer<'s> {
     }
 
     fn apply_flags(&self, symbol: &mut Symbol) {
-        let entry = self.namespaces.is_empty() && is_entry_point(symbol);
+        let entry =
+            (self.namespaces.is_empty() && is_entry_point(symbol)) || is_implicitly_called(symbol);
         symbol.flags = self.base_flags().with_entry(entry);
     }
 
@@ -495,6 +496,19 @@ fn is_entry_point(symbol: &Symbol) -> bool {
             symbol.name.as_str(),
             "main" | "wmain" | "WinMain" | "wWinMain" | "DagorWinMain"
         )
+}
+
+// constraint: the language calls a constructor for each object it makes, of which only a `new` expression is recorded
+// as a call, a destructor for each object it ends and an operator for an expression
+fn is_implicitly_called(symbol: &Symbol) -> bool {
+    let is_operator = symbol
+        .name
+        .strip_prefix("operator")
+        .is_some_and(|rest| !rest.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_'));
+    matches!(symbol.kind, SymbolKind::Function | SymbolKind::Method)
+        && (is_operator
+            || symbol.name.starts_with('~')
+            || symbol.owner.as_deref() == Some(symbol.name.as_str()))
 }
 
 #[expect(
@@ -1018,6 +1032,41 @@ int wmain() { return 0; }
         assert!(qualified(&raw, "main").flags.is_entry());
         assert!(!qualified(&raw, "app::WinMain").flags.is_entry());
         assert!(!qualified(&raw, "app::nested::wmain").flags.is_entry());
+    }
+
+    #[test]
+    fn a_constructor_a_destructor_or_an_operator_is_an_entry_point() {
+        let raw = extract(
+            br"
+struct Box {
+    Box() {}
+    ~Box() {}
+    bool operator==(const Box &) const { return true; }
+    void operatorName() {}
+    void make() {}
+};
+
+Box::Box(int) {}
+
+Box operator+(const Box &, const Box &) { return Box(); }
+",
+        );
+
+        for name in ["Box::Box", "Box::~Box", "Box::operator==", "operator+"] {
+            let entries: Vec<bool> = raw
+                .symbols
+                .iter()
+                .filter(|symbol| symbol.qualified_name == name)
+                .map(|symbol| symbol.flags.is_entry())
+                .collect();
+            assert!(
+                !entries.is_empty() && !entries.contains(&false),
+                "{name}: {entries:?}"
+            );
+        }
+        assert!(!qualified(&raw, "Box::operatorName").flags.is_entry());
+        assert!(!qualified(&raw, "Box::make").flags.is_entry());
+        assert!(!qualified(&raw, "Box").flags.is_entry());
     }
 
     #[test]
