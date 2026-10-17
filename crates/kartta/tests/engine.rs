@@ -99,6 +99,7 @@ struct Seen {
     in_root: Vec<String>,
     in_root_spelled_empty: Vec<String>,
     named_b: Vec<String>,
+    ignoring_case: [Vec<String>; 3],
     contains: [bool; 3],
     go_mod: Vec<u8>,
 }
@@ -131,6 +132,11 @@ impl Language for Probe {
             in_root: repository.files_in_dir(".").collect(),
             in_root_spelled_empty: repository.files_in_dir("").collect(),
             named_b: repository.files_named("b.probe").collect(),
+            ignoring_case: [
+                repository.files_ignoring_case("SRC/Sub/C.Probe").collect(),
+                repository.files_ignoring_case("Src/SUB").collect(),
+                repository.files_ignoring_case("Ignored.probe").collect(),
+            ],
             contains: [
                 repository.contains("src/sub/c.probe"),
                 repository.contains("src/sub"),
@@ -520,6 +526,7 @@ fn a_resolver_sees_the_regular_files_the_build_indexed() {
             in_root: vec![".gitignore".to_owned(), "go.mod".to_owned()],
             in_root_spelled_empty: vec![".gitignore".to_owned(), "go.mod".to_owned()],
             named_b: vec!["other/b.probe".to_owned(), "src/b.probe".to_owned()],
+            ignoring_case: [vec!["src/sub/c.probe".to_owned()], Vec::new(), Vec::new()],
             contains: [true, false, false],
             go_mod: b"module example".to_vec(),
         }

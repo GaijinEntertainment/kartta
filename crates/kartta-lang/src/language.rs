@@ -77,6 +77,16 @@ pub trait Repository: Sync {
     /// The regular files whose last component is `name`, in index order.
     fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a>;
 
+    /// The regular files whose path equals `path` when ASCII letters are compared without case, `path` itself among
+    /// them when it is one, in index order. A byte outside ASCII matches only itself.
+    ///
+    /// This is for a language whose loader ignores letter case, such as a game engine reading its files from an
+    /// archive that lowercases every path. The default answers `path` alone when it is a file, for a repository that
+    /// cannot compare paths without case.
+    fn files_ignoring_case<'a>(&'a self, path: &str) -> Box<dyn Iterator<Item = String> + 'a> {
+        Box::new(self.contains(path).then(|| path.to_owned()).into_iter())
+    }
+
     /// The content of the file at `path`.
     ///
     /// # Errors
