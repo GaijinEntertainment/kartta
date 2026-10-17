@@ -1262,6 +1262,36 @@ func Block() {
 }
 
 #[test]
+fn a_selector_on_a_name_the_file_does_not_declare_is_a_use_of_what_an_import_may_bind() {
+    let raw = extract(
+        br#"package svc
+
+import "example.com/lib/go-thing"
+
+var settings = struct{ Limit int }{}
+
+func Run(local Options) {
+	_ = thing.Limit
+	_ = renamed.Limit
+	_ = settings.Limit
+	_ = local.Limit
+	_ = string.Limit
+}
+"#,
+    );
+
+    assert_eq!(
+        uses(&raw),
+        [
+            ("Options", None, "Run", 7),
+            ("Limit", Some("thing"), "Run", 8),
+            ("Limit", Some("renamed"), "Run", 9),
+        ],
+        "a package clause need not be the import's last element, and the graph binds a qualifier only to an import"
+    );
+}
+
+#[test]
 fn uses_outside_calls_are_recorded_against_their_enclosing_symbol() {
     let raw = extract(
         br#"package svc
