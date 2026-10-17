@@ -691,7 +691,10 @@ impl Cascade<'_> {
         let any = |shape: &Shape| candidates.clone().any(|at| self.admits(shape, at));
 
         if call.receiver.is_some() {
-            return if self.conventions.member_calls == MemberCalls::Members || any(&Shape::Member) {
+            return if self.conventions.member_calls == MemberCalls::Members
+                || call.names_a_runtime_method
+                || any(&Shape::Member)
+            {
                 Shape::Member
             } else {
                 Shape::FreeFunction

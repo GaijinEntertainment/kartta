@@ -116,6 +116,10 @@ pub struct Conventions {
     pub directory_packages: bool,
     /// What a member call, `x.f()`, can call besides a member.
     pub member_calls: MemberCalls,
+    /// The methods the language's runtime gives its own values, a string's, an array's or a table's, in ascending
+    /// order: a member call of one, `line.trim()`, binds a member of the name and no free definition, because a call on
+    /// such a value reaches the runtime, not a function of the repository. Empty where a language names none.
+    pub runtime_methods: &'static [&'static str],
     /// Where the language records a use of a type.
     pub type_uses: TypeUses,
 }
@@ -131,6 +135,7 @@ impl Default for Conventions {
             scope_separator: None,
             directory_packages: false,
             member_calls: MemberCalls::NearbyFreeFunctions,
+            runtime_methods: &[],
             type_uses: TypeUses::Partial,
         }
     }
