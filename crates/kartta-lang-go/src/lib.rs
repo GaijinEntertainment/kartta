@@ -74,7 +74,8 @@ use std::sync::OnceLock;
 
 use kartta_lang::path::base;
 use kartta_lang::{
-    Conventions, Language, MemberCalls, OwnMembers, RawExtraction, Repository, Resolver, TypeUses,
+    Conventions, DocComments, Language, MemberCalls, OwnMembers, RawExtraction, Repository,
+    Resolver, TypeUses,
 };
 use tree_sitter::{Parser, Tree};
 
@@ -127,6 +128,10 @@ impl Language for Go {
         conventions.type_uses = TypeUses::Every;
 
         conventions
+    }
+
+    fn doc_comments(&self) -> DocComments {
+        DocComments::C_LIKE
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {

@@ -62,7 +62,9 @@ use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use kartta_lang::path::base;
-use kartta_lang::{Conventions, Language, OwnMembers, RawExtraction, Repository, Resolver};
+use kartta_lang::{
+    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
+};
 use tree_sitter::{Parser, Tree};
 
 use crate::fnv::{FNV_OFFSET, fnv};
@@ -105,6 +107,10 @@ impl Language for Rust {
         static FINGERPRINT: OnceLock<Vec<u8>> = OnceLock::new();
 
         FINGERPRINT.get_or_init(fingerprint)
+    }
+
+    fn doc_comments(&self) -> DocComments {
+        DocComments::C_LIKE.with_carried(&["#["])
     }
 
     fn conventions(&self) -> Conventions {

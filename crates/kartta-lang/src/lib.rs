@@ -64,6 +64,7 @@
 //! ```
 
 mod codec;
+mod doc;
 mod extraction;
 mod language;
 pub mod path;
@@ -71,6 +72,7 @@ mod symbol;
 #[cfg(feature = "tree-sitter")]
 pub mod tree;
 
+pub use crate::doc::{BlockComment, DocComments};
 pub use crate::extraction::{
     CallRef, Callable, CallableRole, Extraction, FoldedDeclaration, ImplementsAssertion,
     ImportBinding, ImportRef, IncludeRef, LocalCall, RawDirective, RawExtraction, RawReExport,
