@@ -156,6 +156,7 @@ mod open;
 mod patterns;
 mod policy;
 mod postings;
+mod pruned;
 mod requirement;
 mod rules;
 mod scan;
@@ -181,5 +182,6 @@ pub use crate::index::{BuildOutcome, Index, Inspected, Paths, RefreshOutcome};
 pub use crate::list::{ListError, ListOptions, Listed, Listing};
 pub use crate::matches::{Cut, Failure, Line, LineKind, MatchedFile, Matches};
 pub use crate::patterns::{Case, PatternError, Patterns};
+pub use crate::pruned::{PrunedNames, PrunedNamesError};
 #[cfg(feature = "watch")]
 pub use crate::watch::{Changes, WatchError, Watcher};
