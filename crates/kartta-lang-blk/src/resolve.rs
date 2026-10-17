@@ -102,9 +102,14 @@ pub(crate) fn forward_slashes(path: &str) -> Cow<'_, str> {
     }
 }
 
-// shortcut: a target matches its file in letter case, though a game reads its shipped files from a vromfs that
-// ignores case and takes the one file that differs only in case -- match without case once `Repository` can look a
-// path up that way
+// constraint: a game reads its shipped files from a vromfs, whose lookup lowercases the path over names the packer
+// stores lowercased, so a target that names no file loads the one file that differs from it only in letter case
 pub(crate) fn indexed(path: String, repository: &dyn Repository) -> Option<String> {
-    repository.contains(&path).then_some(path)
+    if repository.contains(&path) {
+        return Some(path);
+    }
+    let mut matches = repository.files_ignoring_case(&path);
+    let only = matches.next()?;
+
+    matches.next().is_none().then_some(only)
 }
