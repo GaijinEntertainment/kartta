@@ -10,8 +10,8 @@
 //! file renumbers nothing else.
 //!
 //! A file keeps its call sites and uses as its language wrote them, and [`Graph::callers`], [`Graph::callees`],
-//! [`Graph::references`], [`Graph::call_path`] and [`Graph::analyze_segment`] resolve the sites of the names they reach
-//! when they are asked, so no answer goes stale when another file changes.
+//! [`Graph::references`], [`Graph::call_path`], [`Graph::analyze_segment`] and [`Graph::analyze_change`] resolve the
+//! sites of the names they reach when they are asked, so no answer goes stale when another file changes.
 //!
 //! # Examples
 //!
@@ -50,6 +50,7 @@
 mod analyze;
 mod calls;
 mod candidates;
+mod change;
 pub mod confidence;
 mod dependents;
 mod graph;
@@ -64,6 +65,7 @@ mod words;
 
 pub use crate::analyze::{Blast, DirectCalls, ReachBand, Segment, SegmentSymbol};
 pub use crate::calls::{CallPath, Limits, Reached, Reference, References, Walk};
+pub use crate::change::{Change, DirCount, Hotspot, Region, Seed};
 pub use crate::dependents::{Dependent, Dependents};
 pub use crate::graph::{Definition, Definitions, Found, Graph, Nearness};
 pub use crate::implementations::{Implementations, Implementor};

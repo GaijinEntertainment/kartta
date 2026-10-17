@@ -55,5 +55,12 @@ when another file changes.
   callers reaches by depth, the files they and the file's includers sit in, and a reach band, counting what the cap,
   the depth bound and the floor left out; `None` for a file the graph does not hold. Each name's call sites are
   resolved once for the whole segment.
+- `Graph::analyze_change` — what a change to a set of line regions reaches: the symbols they overlap, a declaration
+  and its definition counting once, the callers a walk over each one's callers reaches, the footprint those walks
+  cover together, and the hotspots two or more of them reach, at most 300 hotspots and 300 changed symbols listed and
+  all of them counted. Each changed symbol lists its direct callers while 30 or fewer pass the floor, and counts them
+  by directory past that. The regions whose file the graph does not hold, those that overlap no symbol, and the walks
+  the cap stopped are counted. `Change::merge` ranks the answers of several graphs together, as a change across
+  language families needs.
 
 Status: the API is new and is not published yet.
