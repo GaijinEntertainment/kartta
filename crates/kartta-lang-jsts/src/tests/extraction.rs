@@ -989,6 +989,22 @@ fn generated_markers_and_names_are_generated() {
 }
 
 #[test]
+fn a_first_line_of_code_a_minifier_would_write_is_generated() {
+    let body = "var a=1;".repeat(64);
+    let minified = format!("/*! sdk v1 */\nexport function emitted(){{{body}}}\n");
+    let long_later = format!("export function emitted() {{}}\nconst data = \"{body}\";\n");
+
+    let is_generated = |source: &str| {
+        symbol(&extracted("src/sdk.mjs", source), "emitted")
+            .flags
+            .is_generated()
+    };
+
+    assert!(is_generated(&minified));
+    assert!(!is_generated(&long_later));
+}
+
+#[test]
 fn block_comment_close_with_trailing_code_does_not_swallow_later_markers() {
     let one_liner = "/* banner */ const NOTE = \"DO NOT EDIT\";\n\nexport function coded() {}\n";
     let trailing =
