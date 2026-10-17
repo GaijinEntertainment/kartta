@@ -56,15 +56,11 @@ impl<'r> QuirrelResolver<'r> {
     // constraint: the loader resolves `%name/rest` below the directory the config mounts as `name`, and any other
     // `.nut` specifier beside the script, else below the first base path that holds it; it appends no extension, so a
     // specifier without `.nut` is a native module
-    // shortcut: a target matches its file in letter case, though the loader reads shipped scripts from a vromfs that
-    // ignores case and takes the one file that differs only in case -- match without case once `Repository` can look
-    // a path up that way
     fn configured(&self, config: &SqConfig, spec: &str, path: &str) -> Option<String> {
         if let Some(mounted) = spec.strip_prefix('%') {
             let (name, rest) = mounted.split_once('/')?;
             let mount_dir = config.mounts.get(name)?;
-            let candidate = join(mount_dir, &forward_slashes(rest))?;
-            return self.repository.contains(&candidate).then_some(candidate);
+            return self.loaded(join(mount_dir, &forward_slashes(rest))?);
         }
         if !names_a_script(spec) {
             return None;
@@ -73,8 +69,20 @@ impl<'r> QuirrelResolver<'r> {
         let spec = forward_slashes(spec);
         iter::once(dir(path))
             .chain(config.base_paths.iter().map(String::as_str))
-            .filter_map(|base_dir| join(base_dir, &spec))
-            .find(|candidate| self.repository.contains(candidate))
+            .find_map(|base_dir| self.loaded(join(base_dir, &spec)?))
+    }
+
+    // constraint: the loader reads shipped scripts from a vromfs, whose lookup lowercases the path over names the
+    // packer stores lowercased, so a path that names no file loads the one file that differs from it only in letter
+    // case
+    fn loaded(&self, candidate: String) -> Option<String> {
+        if self.repository.contains(&candidate) {
+            return Some(candidate);
+        }
+        let mut matches = self.repository.files_ignoring_case(&candidate);
+        let only = matches.next()?;
+
+        matches.next().is_none().then_some(only)
     }
 
     // constraint: without a `.sqconfig` the mounts are unknown, so a `%root/rest` path takes the nearest ancestor of
