@@ -212,11 +212,14 @@ fn extract(parser: &mut Parser, source: &[u8]) -> RawExtraction {
         return RawExtraction::default();
     };
 
-    let tree = repair::after_recovery(&tree, parsed)
-        .and_then(|second| parser.parse(&second, None))
-        .unwrap_or(tree);
-
-    walk::raw_walk(&tree, source)
+    let Some(second) = repair::after_recovery(&tree, parsed) else {
+        return walk::raw_walk(&tree, source);
+    };
+    drop(tree);
+    parser
+        .parse(&second, None)
+        .or_else(|| parser.parse(parsed, None))
+        .map_or_else(RawExtraction::default, |tree| walk::raw_walk(&tree, source))
 }
 
 #[cfg(test)]
