@@ -114,6 +114,8 @@ pub struct Conventions {
     /// Whether a package is the files of one directory that declare it, as a Go package is: they see each other's
     /// package-level symbols with no import, and an import names the directory.
     pub directory_packages: bool,
+    /// How far through its includes a file's calls bind the names they define.
+    pub include_reach: IncludeReach,
     /// What a member call, `x.f()`, can call besides a member.
     pub member_calls: MemberCalls,
     /// The methods the language's runtime gives its own values, a string's, an array's or a table's, in ascending
@@ -134,11 +136,24 @@ impl Default for Conventions {
             bare_call_reaches_enclosing_owners: false,
             scope_separator: None,
             directory_packages: false,
+            include_reach: IncludeReach::Direct,
             member_calls: MemberCalls::NearbyFreeFunctions,
             runtime_methods: &[],
             type_uses: TypeUses::Partial,
         }
     }
+}
+
+/// How far through its includes a file's calls bind the names they define.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum IncludeReach {
+    /// The files it includes itself: an import names one module, and what that module imports in turn is not in the
+    /// importing file's scope.
+    #[default]
+    Direct,
+    /// Every file it reaches through includes, however deep, as a C or C++ `#include` pastes the included text in
+    /// place. A call whose receiver names an owner or an import binds through that name, not through includes.
+    Transitive,
 }
 
 /// What a member call, `x.f()`, can call besides a member.
