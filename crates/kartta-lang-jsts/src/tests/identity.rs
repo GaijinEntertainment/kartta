@@ -105,7 +105,7 @@ namespace A {
             identity("Impl", None),
             identity("Named.run", Some("Named")),
             identity("Anon", None),
-            identity("run", None),
+            identity("Anon.run", Some("Anon")),
         ]
     );
 }
