@@ -168,15 +168,32 @@ impl Resolver for GoResolver<'_> {
                 dir
             });
 
-            let spec = directive.spec.as_str();
             extraction.bindings.push(ImportBinding {
                 alias: directive.names.into_iter().next(),
                 target_dir,
-                last_segment: spec.rsplit('/').next().unwrap_or(spec).to_owned(),
+                last_segment: package_name(&directive.spec).to_owned(),
             });
         }
 
         extraction
+    }
+}
+
+// constraint: a module's major version suffix, `/v2` or gopkg.in's `.v3`, is no part of its package's name, which the
+// go command's convention takes from the element before it
+fn package_name(spec: &str) -> &str {
+    let is_version = |tail: &str| {
+        tail.len() > 1 && tail.starts_with('v') && tail[1..].bytes().all(|b| b.is_ascii_digit())
+    };
+    let mut segments = spec.rsplit('/');
+    let last = segments.next().unwrap_or(spec);
+    let element = match segments.next() {
+        Some(previous) if is_version(last) => previous,
+        _ => last,
+    };
+    match element.rsplit_once('.') {
+        Some((head, tail)) if !head.is_empty() && is_version(tail) => head,
+        _ => element,
     }
 }
 

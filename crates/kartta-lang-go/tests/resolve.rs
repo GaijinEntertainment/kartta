@@ -371,6 +371,32 @@ func main() {}
 }
 
 #[test]
+fn an_import_with_a_major_version_suffix_binds_the_element_before_it() {
+    let files = Files(&[("go.mod", "module example.com/app\n"), ("main.go", "")]);
+    let source = br#"
+package main
+
+import (
+    "math/rand/v2"
+    "gopkg.in/yaml.v3"
+    "example.com/kit/v10"
+    "example.com/vendor.version"
+)
+
+func main() {}
+"#;
+
+    let extraction = resolve(&files, source, "main.go");
+
+    let names: Vec<&str> = extraction
+        .bindings
+        .iter()
+        .map(|binding| binding.last_segment.as_str())
+        .collect();
+    assert_eq!(names, ["rand", "yaml", "kit", "vendor.version"]);
+}
+
+#[test]
 fn an_importing_file_does_not_include_itself() {
     let files = Files(&[("go.mod", "module m\n"), ("a/a.go", ""), ("a/b.go", "")]);
 
