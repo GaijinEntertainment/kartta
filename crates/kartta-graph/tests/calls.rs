@@ -321,6 +321,34 @@ fn a_callee_written_with_more_scopes_binds_its_trailing_owner_and_name() {
     assert_eq!(callees(&unscoped, "run"), Vec::<String>::new());
 }
 
+fn nested(scope: &str, owner: &str, name: &str, line: u32) -> Symbol {
+    let mut symbol = member(owner, name, SymbolKind::Struct, line);
+    symbol.qualified_name = format!("{scope}::{owner}::{name}");
+    symbol
+}
+
+#[test]
+fn a_callee_written_from_the_owner_binds_a_member_of_a_longer_qualified_name() {
+    let files = [
+        including("a.cpp", &["w2.h"], vec![call(0, "Widget::Kind", 2)]),
+        file("o.h", vec![nested("gfx", "Other", "Kind", 1)], Vec::new()),
+        file("w1.h", vec![nested("gfx", "Widget", "Kind", 1)], Vec::new()),
+        file("w2.h", vec![nested("ui", "Widget", "Kind", 1)], Vec::new()),
+        file(
+            "z.cpp",
+            vec![function("go", 1)],
+            vec![call(0, "Widget::Kind", 2)],
+        ),
+    ];
+
+    let scoped = graph_of(cpp(), &files);
+    let unscoped = graph(&files);
+
+    assert_eq!(callees(&scoped, "run"), ["w2.h:1@88"]);
+    assert_eq!(callees(&scoped, "go"), ["w1.h:1@88"]);
+    assert_eq!(callees(&unscoped, "run"), Vec::<String>::new());
+}
+
 #[test]
 fn a_bare_call_binds_its_own_file_before_any_other() {
     let graph = graph(&[

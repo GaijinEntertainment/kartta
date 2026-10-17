@@ -8,7 +8,10 @@
 pub const IMPORT: u8 = 95;
 /// A callee written qualified binds the symbol of that qualified name.
 pub const QUALIFIED: u8 = 90;
-/// A callee written with more scopes than a qualified name keeps binds its trailing owner and name.
+/// A callee written with more scopes or fewer than a qualified name keeps binds by its trailing owner and name.
+///
+/// `ns::inner::Widget::draw` binds `Widget::draw`, and `Widget::Kind` binds a member of `Widget` of a longer qualified
+/// name, `ns::Widget::Kind`, one that the caller's file sees first.
 pub const QUALIFIED_TAIL: u8 = 88;
 /// A receiver that names an owner binds that owner's member.
 pub const RECEIVER: u8 = 85;
