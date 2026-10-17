@@ -74,6 +74,7 @@ use crate::resolve::QuirrelResolver;
 mod banner;
 mod fnv;
 mod resolve;
+mod runtime;
 mod sqconfig;
 mod walk;
 
@@ -121,6 +122,7 @@ impl Language for Quirrel {
     fn conventions(&self) -> Conventions {
         let mut conventions = Conventions::default();
         conventions.own_members = OwnMembers::First;
+        conventions.runtime_methods = runtime::METHODS;
 
         conventions
     }

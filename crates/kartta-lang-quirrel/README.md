@@ -13,7 +13,9 @@ of an `=` or `<-`. A member of a named or bound class is a method of the class, 
 is a method of `gui.Widget`. A data slot with a plain name, of a class or of a table a file-scope `let` or `local`
 binds, is a field. A function value with no binding and no name of its own gives its calls to no symbol.
 
-A call records its callee and, for a member call, the whole receiver expression as written.
+A call records its callee and, for a member call, the whole receiver expression as written. The conventions name the
+methods of Quirrel's built-in types, so a member call of one, `list.len()` or `t.rawin()`, binds a member of the name
+and no free function of the repository.
 
 ## Resolution
 

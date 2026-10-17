@@ -103,10 +103,22 @@ fn quirrel_claims_files_with_the_nut_extension_in_any_case() {
 
 #[test]
 fn a_bare_call_in_a_member_reaches_the_class_first() {
+    let conventions = Quirrel::new().conventions();
     let mut expected = Conventions::default();
     expected.own_members = OwnMembers::First;
+    expected.runtime_methods = conventions.runtime_methods;
 
-    assert_eq!(Quirrel::new().conventions(), expected);
+    assert_eq!(conventions, expected);
+}
+
+#[test]
+fn the_runtime_methods_ascend_without_a_repeat_and_name_the_built_in_delegates() {
+    let methods = Quirrel::new().conventions().runtime_methods;
+
+    assert!(methods.is_sorted_by(|earlier, later| earlier < later));
+    for method in ["len", "rawin", "tostring", "each", "bindenv"] {
+        assert!(methods.binary_search(&method).is_ok(), "{method}");
+    }
 }
 
 #[test]
