@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use kartta_fs::{
     BuildError, BuildOptions, CancelToken, Case, Content, ContentId, ContentIndexStorage,
-    ContentVisitor, EntryKind, GrepOptions, IgnoreSources, Index, Patterns,
+    ContentVisitor, EntryKind, GrepOptions, IgnoreSources, Index, Patterns, PrunedNames,
 };
 use tempfile::TempDir;
 
@@ -703,6 +703,73 @@ fn a_path_inside_git_or_naming_the_root_repository_changes_nothing() {
 
     assert_eq!(walked, Vec::<String>::new());
     assert_eq!(paths(&index), ["a.rs"], "nothing was walked");
+}
+
+fn pruning_node_modules() -> BuildOptions {
+    let mut options = BuildOptions::default();
+    options.pruned_names =
+        PrunedNames::builtin().union(&PrunedNames::new(["node_modules"]).expect("a name"));
+    options
+}
+
+#[test]
+fn a_refresh_prunes_the_names_the_build_was_given() {
+    let dir = tree(&[("a.rs", "")]);
+    let options = pruning_node_modules();
+    let mut index = build(dir.path(), &options, None);
+
+    write(dir.path(), ".idea/workspace.xml", "<project/>");
+    write(dir.path(), "web/node_modules/left-pad/index.js", "");
+    write(dir.path(), "web/app.js", "");
+    index.refresh(None, None).expect("refresh");
+
+    assert_eq!(paths(&index), ["a.rs", "web", "web/app.js"]);
+    assert_as_built(&index, &options);
+}
+
+#[test]
+fn a_path_through_a_pruned_name_changes_nothing() {
+    let dir = tree(&[("a.rs", ""), ("web/app.js", "")]);
+    let options = pruning_node_modules();
+    let mut index = build(dir.path(), &options, None);
+
+    write(dir.path(), ".idea/workspace.xml", "<project/>");
+    write(dir.path(), ".vscode/.gitignore", "*\n");
+    write(dir.path(), "web/node_modules/left-pad/index.js", "");
+    write(dir.path(), "web/.DS_Store", "\0");
+    let walked = refresh_paths(
+        &mut index,
+        [
+            ".idea/workspace.xml",
+            ".idea",
+            ".vscode/.gitignore",
+            "web/node_modules/left-pad/index.js",
+            "web/.DS_Store",
+        ],
+    );
+
+    assert_eq!(walked, Vec::<String>::new());
+    assert_eq!(paths(&index), ["a.rs", "web", "web/app.js"]);
+}
+
+#[test]
+fn a_changed_pruned_gitignore_walks_again_the_directory_its_rules_govern() {
+    let dir = tree(&[
+        ("sub/.gitignore", "*.log\n"),
+        ("sub/a.log", ""),
+        ("sub/b.rs", ""),
+    ]);
+    let mut options = BuildOptions::default();
+    options.pruned_names =
+        PrunedNames::builtin().union(&PrunedNames::new([".gitignore"]).expect("a name"));
+    let mut index = build(dir.path(), &options, None);
+
+    write(dir.path(), "sub/.gitignore", "*.rs\n");
+    let walked = refresh_paths(&mut index, ["sub/.gitignore"]);
+
+    assert_eq!(walked, ["sub"], "the file is pruned, and its rules are not");
+    assert_eq!(paths(&index), ["sub", "sub/a.log"]);
+    assert_as_built(&index, &options);
 }
 
 #[test]

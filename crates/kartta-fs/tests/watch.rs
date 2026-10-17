@@ -32,7 +32,11 @@ fn write(root: &Path, path: &str, content: &str) {
 }
 
 fn build(root: &Path) -> Index {
-    let outcome = Index::build(root, &BuildOptions::default()).expect("build the index");
+    build_with(root, &BuildOptions::default())
+}
+
+fn build_with(root: &Path, options: &BuildOptions) -> Index {
+    let outcome = Index::build(root, options).expect("build the index");
     assert!(outcome.errors().is_empty(), "{:?}", outcome.errors());
     outcome.into_index()
 }
@@ -119,6 +123,71 @@ fn refreshing_with_what_the_watcher_hands_over_keeps_the_index_a_build_would_mak
     follow(&mut watcher, &mut index);
 
     assert_eq!(shown(&index), shown(&build(dir.path())));
+}
+
+#[test]
+fn what_the_watcher_hands_over_from_a_pruned_directory_stays_out_of_the_index() {
+    let dir = tree(&[("a.rs", "a")]);
+    let mut index = build(dir.path());
+    let mut watcher = Watcher::new(&index).expect("start watching");
+
+    write(dir.path(), ".vscode/settings.json", "{}");
+    write(dir.path(), "b.rs", "b");
+    follow(&mut watcher, &mut index);
+
+    assert!(index.entry("b.rs").is_some());
+    assert!(index.entry(".vscode").is_none());
+    assert_eq!(shown(&index), shown(&build(dir.path())));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_directory_made_after_the_start_under_a_pruned_name_is_not_watched() {
+    let dir = tree(&[("a.rs", "a")]);
+    let mut options = BuildOptions::default();
+    options.pruned_names = kartta_fs::PrunedNames::builtin()
+        .union(&kartta_fs::PrunedNames::new(["node_modules"]).expect("a name"));
+    let mut index = build_with(dir.path(), &options);
+    let mut watcher = Watcher::new(&index).expect("start watching");
+
+    fs::create_dir(dir.path().join(".idea")).expect("make a directory");
+    fs::create_dir_all(dir.path().join("web/node_modules")).expect("make a directory");
+    follow(&mut watcher, &mut index);
+    write(dir.path(), ".idea/workspace.xml", "<project/>");
+    write(dir.path(), "web/node_modules/index.js", "");
+    write(dir.path(), "b.rs", "b");
+
+    let seen = wait_for(&mut watcher, "b.rs");
+    assert!(seen.iter().any(|path| path == "b.rs"), "{seen:?}");
+    assert!(
+        !seen
+            .iter()
+            .any(|path| path.starts_with(".idea/") || path.starts_with("web/node_modules/")),
+        "{seen:?}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_watched_directory_renamed_to_a_pruned_name_is_no_longer_watched() {
+    let dir = tree(&[("src/deep/a.rs", "a")]);
+    let mut index = build(dir.path());
+    let mut watcher = Watcher::new(&index).expect("start watching");
+
+    fs::rename(dir.path().join("src"), dir.path().join(".idea")).expect("rename");
+    follow(&mut watcher, &mut index);
+    write(dir.path(), ".idea/b.rs", "b");
+    write(dir.path(), ".idea/deep/c.rs", "c");
+    write(dir.path(), "d.rs", "d");
+
+    let seen = wait_for(&mut watcher, "d.rs");
+    assert!(seen.iter().any(|path| path == "d.rs"), "{seen:?}");
+    assert!(
+        !seen
+            .iter()
+            .any(|path| path.starts_with("src/") || path.starts_with(".idea/")),
+        "{seen:?}"
+    );
 }
 
 #[test]

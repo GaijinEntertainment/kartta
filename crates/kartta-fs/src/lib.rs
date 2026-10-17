@@ -65,6 +65,11 @@
 //! everything under it, nested repository or not, because an ignored directory is never descended — which is git's own
 //! answer, as `git status` on a tree whose `.gitignore` names the directory will confirm.
 //!
+//! [`BuildOptions::pruned_names`] names what else is never indexed and never descended: the clutter an editor or the
+//! operating system leaves in a tree — `.idea`, `.vscode`, `.fleet` and `.DS_Store` unless the caller composes a
+//! [`PrunedNames`] of its own. An entry so named is pruned at any depth before any rule is consulted, so no negation
+//! brings it back and no choice of ignore sources indexes it.
+//!
 //! Which ignore files apply is [`BuildOptions::ignore_sources`], and the default is the reproducible one — in-tree
 //! `.gitignore` files only, which is the level at which the same tree indexes identically wherever it sits. Sources
 //! outside the tree are machine-local, so honouring one gives that up; [`IgnoreSources`] carries the full reasoning.

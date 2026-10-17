@@ -14,7 +14,7 @@ use std::path::Path;
 
 use kartta_fs::{
     BinaryExtensions, BuildError, BuildOptions, Entry, EntryKind, Filter, FuzzyOptions,
-    GlobOptions, IgnoreSources, Index, ListError, ListOptions, Listed, Listing,
+    GlobOptions, IgnoreSources, Index, ListError, ListOptions, Listed, Listing, PrunedNames,
 };
 use tempfile::TempDir;
 
@@ -409,6 +409,99 @@ fn ignore_sources_none_indexes_everything_except_the_git_directory() {
     let index = index(dir.path(), &options);
 
     assert_eq!(paths(&index), [".gitignore", "build.log"]);
+}
+
+#[test]
+fn editor_and_os_clutter_is_never_indexed_or_descended_at_any_depth() {
+    let dir = tree(&[
+        (".idea/workspace.xml", "<project/>"),
+        (".vscode/settings.json", "{}"),
+        (".fleet/settings.json", "{}"),
+        (".DS_Store", "\0"),
+        ("src/.DS_Store", "\0"),
+        ("src/.idea/modules.xml", "<project/>"),
+        ("src/main.rs", "fn main() {}"),
+    ]);
+    let index = default_index(dir.path());
+
+    assert_eq!(paths(&index), ["src", "src/main.rs"]);
+}
+
+#[test]
+fn a_pruned_name_prunes_an_entry_of_any_kind() {
+    let dir = tree(&[
+        (".idea", "a file"),
+        (".DS_Store/inside.txt", "x"),
+        ("a.rs", ""),
+    ]);
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("a.rs", dir.path().join(".vscode")).expect("create a symlink");
+
+    let index = default_index(dir.path());
+
+    assert_eq!(paths(&index), ["a.rs"]);
+}
+
+#[test]
+fn no_ignore_rule_brings_a_pruned_name_back() {
+    let dir = tree(&[
+        (".gitignore", "!.idea/\n!.idea/**\n"),
+        (".idea/workspace.xml", "<project/>"),
+        ("a.rs", ""),
+    ]);
+    let mut none = BuildOptions::default();
+    none.ignore_sources = IgnoreSources::None;
+
+    assert_eq!(paths(&default_index(dir.path())), [".gitignore", "a.rs"]);
+    assert_eq!(
+        paths(&index(dir.path(), &none)),
+        [".gitignore", "a.rs"],
+        "pruning is not an ignore rule, so turning the rules off keeps it"
+    );
+}
+
+#[test]
+fn a_caller_composes_the_names_it_prunes() {
+    let dir = tree(&[
+        (".git/config", "[core]\n"),
+        (".idea/workspace.xml", "<project/>"),
+        (".vscode/settings.json", "{}"),
+        ("node_modules/left-pad/index.js", ""),
+        ("a.rs", ""),
+    ]);
+    let mut composed = BuildOptions::default();
+    composed.pruned_names = PrunedNames::builtin()
+        .difference(&PrunedNames::new([".vscode"]).expect("a name"))
+        .union(&PrunedNames::new(["node_modules"]).expect("a name"));
+    let mut none = BuildOptions::default();
+    none.pruned_names = PrunedNames::none();
+
+    assert_eq!(
+        paths(&index(dir.path(), &composed)),
+        [".vscode", ".vscode/settings.json", "a.rs"]
+    );
+    assert_eq!(
+        paths(&index(dir.path(), &none)),
+        [
+            ".idea",
+            ".idea/workspace.xml",
+            ".vscode",
+            ".vscode/settings.json",
+            "a.rs",
+            "node_modules",
+            "node_modules/left-pad",
+            "node_modules/left-pad/index.js",
+        ],
+        "`.git` is pruned whatever the set holds"
+    );
+}
+
+#[test]
+fn the_root_is_never_pruned_whatever_its_name() {
+    let dir = tree(&[(".idea/workspace.xml", "<project/>")]);
+    let index = default_index(&dir.path().join(".idea"));
+
+    assert_eq!(paths(&index), ["workspace.xml"]);
 }
 
 #[test]
