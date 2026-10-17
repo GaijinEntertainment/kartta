@@ -244,6 +244,24 @@ impl<'g> Cascade<'g> {
             .collect()
     }
 
+    // constraint: a directory can hold a package and its external test package, and a package's test files are
+    // compiled only with its tests, so a caller sees the package its own file declares, test files only from a test
+    fn in_package_of(&self, candidates: &Candidates<'_>, caller: SymbolAt) -> Vec<SymbolAt> {
+        let file = self.graph.file(caller.file);
+        let test = self.graph.sym(caller).flags.is_test();
+        candidates
+            .in_dir(self.graph, file.dir)
+            .iter()
+            .copied()
+            .filter(|&at| {
+                let symbol = self.graph.sym(at);
+                (test || !symbol.flags.is_test())
+                    && self.graph.file(at.file).package == file.package
+                    && self.holder(at).is_none()
+            })
+            .collect()
+    }
+
     pub(crate) fn includes(&self, file: u32) -> Rc<[u32]> {
         if let Some(includes) = self.includes.borrow().get(&file) {
             return Rc::clone(includes);
@@ -569,12 +587,17 @@ impl<'g> Cascade<'g> {
         if self.conventions.directory_packages
             && let Some(at) = self.scoped_target(
                 call,
-                self.declared_in(&candidates, self.graph.file(call.file).dir)
+                self.in_package_of(&candidates, call.caller_at())
                     .into_iter(),
                 reach,
             )
         {
             return Ok((at, confidence::PACKAGE));
+        }
+        // constraint: where a package is a directory, a bare call names its own package or a dot import, which the
+        // tiers above read, and only a qualifier reaches another package
+        if self.conventions.directory_packages && call.receiver.is_none() {
+            return Err(self.unadmitted(call));
         }
         if let Some(at) = self.included(call, &candidates, reach) {
             return Ok((at, confidence::INCLUDE));

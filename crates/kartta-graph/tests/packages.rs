@@ -35,6 +35,13 @@ fn member_call(receiver: &str, callee: &str, line: u32) -> CallRef {
     }
 }
 
+fn bare_call(callee: &str, line: u32) -> CallRef {
+    CallRef {
+        receiver: None,
+        ..member_call("", callee, line)
+    }
+}
+
 fn file(path: &str, package: &str, symbols: Vec<Symbol>, calls: Vec<CallRef>) -> Extraction {
     let mut extraction = Extraction::default();
     path.clone_into(&mut extraction.file);
@@ -84,6 +91,51 @@ fn callees_of(graph: &Graph, name: &str) -> Vec<(String, u8)> {
             )
         })
         .collect()
+}
+
+#[test]
+fn a_bare_call_binds_in_the_package_its_file_declares_and_never_through_an_import() {
+    let library = file(
+        "lib/lib.go",
+        "lib",
+        vec![function("lib", "helper", 1), function("lib", "Shared", 2)],
+        Vec::new(),
+    );
+    let helpers = test_file(file(
+        "lib/helpers_test.go",
+        "lib_test",
+        vec![function("lib_test", "helper", 1)],
+        Vec::new(),
+    ));
+    let tests = test_file(importing(
+        file(
+            "lib/lib_test.go",
+            "lib_test",
+            vec![function("lib_test", "TestRun", 1)],
+            vec![bare_call("helper", 2), bare_call("Shared", 3)],
+        ),
+        &[("lib", Some("lib"))],
+    ));
+    let mut through_import = file(
+        "app/main.go",
+        "main",
+        vec![function("main", "Run", 1)],
+        vec![bare_call("Shared", 2)],
+    );
+    through_import.includes = vec![kartta_lang::IncludeRef {
+        target: "lib/lib.go".to_owned(),
+    }];
+
+    let graph = graph(&[library, helpers, tests, through_import]);
+
+    assert_eq!(
+        callees_of(&graph, "lib_test.TestRun"),
+        [("lib/helpers_test.go:lib_test.helper".to_owned(), 75)]
+    );
+    assert!(
+        callees_of(&graph, "main.Run").is_empty(),
+        "a bare call cannot name an imported package's function"
+    );
 }
 
 #[test]
