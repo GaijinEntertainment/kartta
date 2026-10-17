@@ -7,9 +7,9 @@
 
 use kartta_graph::{Graph, Limits, Walk};
 use kartta_lang::{
-    CallRef, Callable, CallableRole, Conventions, Extraction, ImportBinding, IncludeReach,
-    IncludeRef, InheritedMembers, LocalCall, MemberCalls, OwnMembers, ReExport, RefSite, Symbol,
-    SymbolFlags, SymbolId, SymbolKind,
+    CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, ImportBinding,
+    IncludeReach, IncludeRef, InheritedMembers, LocalCall, MemberCalls, OwnMembers, ReExport,
+    RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
 
 fn function(name: &str, line: u32) -> Symbol {
@@ -78,6 +78,7 @@ fn cpp() -> Conventions {
     conventions.values_are_call_targets = false;
     conventions.scope_separator = Some("::");
     conventions.include_reach = IncludeReach::Transitive;
+    conventions.calls_on_values = CallsOnValues::NoNearestGuess;
     conventions
 }
 
@@ -1176,6 +1177,49 @@ fn a_member_call_takes_the_one_member_near_the_caller() {
     ]);
 
     assert_eq!(callees(&graph, "run"), ["a/y.js:1@50"]);
+}
+
+#[test]
+fn a_member_call_on_a_value_binds_no_nearby_member_where_the_language_guesses_none() {
+    let mut conventions = Conventions::default();
+    conventions.calls_on_values = CallsOnValues::NoNearestGuess;
+    let caller = || {
+        file(
+            "a/x.cpp",
+            vec![function("run", 1)],
+            vec![member_call(0, "", "join", 2)],
+        )
+    };
+    let nearby = graph_of(
+        conventions,
+        &[
+            caller(),
+            file(
+                "a/y.cpp",
+                vec![member("Path", "join", SymbolKind::Method, 1)],
+                Vec::new(),
+            ),
+            file(
+                "b/y.cpp",
+                vec![member("Url", "join", SymbolKind::Method, 1)],
+                Vec::new(),
+            ),
+        ],
+    );
+    let the_one = graph_of(
+        conventions,
+        &[
+            caller(),
+            file(
+                "b/y.cpp",
+                vec![member("Url", "join", SymbolKind::Method, 1)],
+                Vec::new(),
+            ),
+        ],
+    );
+
+    assert_eq!(callees(&nearby, "run"), Vec::<String>::new());
+    assert_eq!(callees(&the_one, "run"), ["b/y.cpp:1@60"]);
 }
 
 #[test]
