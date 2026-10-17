@@ -77,7 +77,8 @@ a pruned `.gitignore` still applies its rules, as an ignored one does, so changi
 refresh prunes the names the build was given, and the Linux watcher watches no directory they name. `.git` is not in
 the set, because it marks where a repository's rules start rather than clutter a caller may want back. A misspelled
 name needs no report: what it was meant to prune is in the index for anyone to see, unless the ignore rules hide it
-too.
+too. A listing asked for a path through a pruned name, `.git` included, fails as `ListError::Pruned` and names the
+name, so the caller learns why it found nothing rather than only that it did.
 
 `BuildOptions::ignore_sources` selects which ignore files apply, and the default is the reproducible level: in-tree
 `.gitignore` files only, which is the level at which the same tree indexes identically wherever it sits. Sources outside

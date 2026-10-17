@@ -1398,6 +1398,36 @@ fn an_excluded_entry_never_counts_toward_the_limit() {
 }
 
 #[test]
+fn a_listing_through_a_pruned_name_says_which_name_pruned_it() {
+    let dir = tree(&[
+        (".git/config", "[core]\n"),
+        (".idea/scopes/all.xml", "<project/>"),
+        ("src/main.rs", ""),
+    ]);
+    let index = default_index(dir.path());
+    let pruned = |path: &str, name: &str| ListError::Pruned {
+        path: path.to_owned(),
+        name: name.to_owned(),
+    };
+
+    assert_eq!(
+        index.list(".idea/scopes", &ListOptions::default()).err(),
+        Some(pruned(".idea/scopes", ".idea"))
+    );
+    assert_eq!(
+        index.list("src/.git", &ListOptions::default()).err(),
+        Some(pruned("src/.git", ".git"))
+    );
+    assert_eq!(
+        index.list("src/absent", &ListOptions::default()).err(),
+        Some(ListError::NotFound {
+            path: "src/absent".to_owned()
+        }),
+        "a path through no pruned name is merely not indexed"
+    );
+}
+
+#[test]
 fn a_limit_cuts_the_listing_and_says_so() {
     let dir = tree(&[("a/one.txt", "1"), ("a/two.txt", "2"), ("a/three.txt", "3")]);
     let index = default_index(dir.path());
