@@ -30,8 +30,8 @@
 //! pointer or a reference get no key.
 //!
 //! A symbol is unexported inside an anonymous namespace, as a `static` free function, and as a namespace-scope
-//! constant that is neither `extern` nor `inline`.
-//! A file whose leading comments, after a byte order mark if it has one,
+//! constant that is neither `extern` nor `inline`, but for a file-scope constant of a `.c` file, which C links outside
+//! its file unless it is `static`. A file whose leading comments, after a byte order mark if it has one,
 //! announce generated code — `@generated`, `DO NOT EDIT` or `Code generated` outside a backtick span — flags every
 //! symbol generated, and a free `main`, `wmain`, `WinMain`, `wWinMain` or `DagorWinMain` at global scope is an entry
 //! point, as is a constructor, a destructor and an operator, which the language calls for an object it makes or ends
