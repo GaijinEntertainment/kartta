@@ -30,10 +30,12 @@
 //! pointer or a reference get no key.
 //!
 //! A symbol is unexported inside an anonymous namespace, as a `static` free function, and as a namespace-scope
-//! constant that is neither `extern` nor `inline`. A file whose leading comments announce generated code —
-//! `@generated`, `DO NOT EDIT` or `Code generated` outside a backtick span — flags every symbol generated, and a free
-//! `main`, `wmain`, `WinMain`, `wWinMain` or `DagorWinMain` at global scope is an entry point, as is a constructor, a
-//! destructor and an operator, which the language calls for an object it makes or ends and for an expression.
+//! constant that is neither `extern` nor `inline`.
+//! A file whose leading comments, after a byte order mark if it has one,
+//! announce generated code — `@generated`, `DO NOT EDIT` or `Code generated` outside a backtick span — flags every
+//! symbol generated, and a free `main`, `wmain`, `WinMain`, `wWinMain` or `DagorWinMain` at global scope is an entry
+//! point, as is a constructor, a destructor and an operator, which the language calls for an object it makes or ends
+//! and for an expression.
 //!
 //! A function-like macro is not a symbol: a definition without a return type outside a class, such as a test
 //! harness's `TEST(Suite, Case) {}`, is dropped, as is one inside a class that is not a constructor, a destructor or an
