@@ -567,6 +567,7 @@ dependencies = [
  "kartta-fs",
  "kartta-graph",
  "kartta-lang",
+ "libc",
  "rayon",
  "tempfile",
 ]
