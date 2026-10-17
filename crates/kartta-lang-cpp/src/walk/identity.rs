@@ -59,7 +59,11 @@ impl Replayer<'_> {
             .map(|namespace| namespace.name.as_deref().unwrap_or("(anonymous)"))
             .collect();
         if !qualified_by_scope {
-            scope.extend(self.classes.iter().map(|class| class.name.as_str()));
+            scope.extend(
+                self.classes
+                    .iter()
+                    .map(|class| self.raw.symbols[class.id.0 as usize].name.as_str()),
+            );
         }
 
         Some(if rooted || scope.is_empty() {
