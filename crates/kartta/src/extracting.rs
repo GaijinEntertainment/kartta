@@ -30,6 +30,7 @@ pub(crate) struct Extracting<'l> {
     namespaces: Box<[Namespace]>,
     counters: Box<[Counters]>,
     extracted: Mutex<Vec<Extracted>>,
+    encoding_buffers: Mutex<Vec<Vec<u8>>>,
 }
 
 impl<'l> Extracting<'l> {
@@ -52,6 +53,7 @@ impl<'l> Extracting<'l> {
             namespaces,
             counters: languages.iter().map(|_| Counters::default()).collect(),
             extracted: Mutex::new(Vec::new()),
+            encoding_buffers: Mutex::new(Vec::new()),
         }
     }
 
@@ -78,6 +80,28 @@ impl<'l> Extracting<'l> {
             .iter()
             .position(|language| language.claims(path))
     }
+
+    // constraint: on glibc, encodings grown in place and shrunk to fit raised a large tree's resident peak by a quarter
+    // (ADR 1.18), so each is written into a buffer the walk's threads reuse and kept as an exact-size copy
+    fn extract(&self, language: usize, content: &Content<'_>) -> Box<[u8]> {
+        let mut buffer = self
+            .encoding_buffers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop()
+            .unwrap_or_default();
+        buffer.clear();
+        self.languages[language]
+            .extract(content.bytes())
+            .encode(&mut buffer);
+        content.cache(&self.namespaces[language], &buffer);
+        let encoded = Box::from(buffer.as_slice());
+        self.encoding_buffers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(buffer);
+        encoded
+    }
 }
 
 impl ContentVisitor for Extracting<'_> {
@@ -95,18 +119,10 @@ impl ContentVisitor for Extracting<'_> {
         let Some(language) = self.claimant(content.path()) else {
             return;
         };
-        let namespace = &self.namespaces[language];
         let counters = &self.counters[language];
         counters.read.fetch_add(1, Ordering::Relaxed);
-        let encoded = content.cached(namespace).map_or_else(
-            || {
-                let mut encoded = Vec::new();
-                self.languages[language]
-                    .extract(content.bytes())
-                    .encode(&mut encoded);
-                content.cache(namespace, &encoded);
-                encoded.into_boxed_slice()
-            },
+        let encoded = content.cached(&self.namespaces[language]).map_or_else(
+            || self.extract(language, &content),
             |cached| {
                 counters.cached.fetch_add(1, Ordering::Relaxed);
                 Box::from(cached)
