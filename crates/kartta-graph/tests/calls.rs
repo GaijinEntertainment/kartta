@@ -8,8 +8,8 @@
 use kartta_graph::{Graph, Limits, Walk};
 use kartta_lang::{
     CallRef, Callable, CallableRole, Conventions, Extraction, ImportBinding, IncludeRef,
-    InheritedMembers, LocalCall, OwnMembers, ReExport, RefSite, Symbol, SymbolFlags, SymbolId,
-    SymbolKind,
+    InheritedMembers, LocalCall, MemberCalls, OwnMembers, ReExport, RefSite, Symbol, SymbolFlags,
+    SymbolId, SymbolKind,
 };
 
 fn function(name: &str, line: u32) -> Symbol {
@@ -894,6 +894,177 @@ fn proximity_binds_the_one_callable_nearest_the_caller() {
     assert_eq!(callees(&same_dir, "run"), ["a/y.go:1@50"]);
     assert_eq!(callees(&parent_dir, "run"), ["a/y/p.go:1@30"]);
     assert_eq!(callees(&first_party, "run"), ["b/y.go:1@15"]);
+}
+
+fn members_alone() -> Conventions {
+    let mut conventions = go();
+    conventions.member_calls = MemberCalls::Members;
+    conventions
+}
+
+const fn vendored(mut symbol: Symbol) -> Symbol {
+    symbol.flags = SymbolFlags::empty().with_vendored(true);
+    symbol
+}
+
+#[test]
+fn a_member_call_takes_a_free_function_in_the_caller_s_directory_and_none_beyond_its_parent() {
+    let near = graph(&[
+        file(
+            "a/x.js",
+            vec![function("run", 1)],
+            vec![member_call(0, "", "join", 2)],
+        ),
+        file("a/y.js", vec![function("join", 1)], Vec::new()),
+        file("b/y.js", vec![function("join", 1)], Vec::new()),
+    ]);
+    let above = graph(&[
+        file(
+            "a/x/main.js",
+            vec![function("run", 1)],
+            vec![member_call(0, "", "join", 2)],
+        ),
+        file("a/y/p.js", vec![function("join", 1)], Vec::new()),
+        file("b/y.js", vec![function("join", 1)], Vec::new()),
+    ]);
+    let far = |receiver: &str| {
+        callees(
+            &graph(&[
+                file(
+                    "a/x/main.js",
+                    vec![function("run", 1)],
+                    vec![member_call(0, receiver, "join", 2)],
+                ),
+                file(
+                    "vendor/y.js",
+                    vec![vendored(function("join", 1))],
+                    Vec::new(),
+                ),
+                file("b/y.js", vec![function("join", 1)], Vec::new()),
+            ]),
+            "run",
+        )
+    };
+
+    assert_eq!(callees(&near, "run"), ["a/y.js:1@50"]);
+    assert_eq!(callees(&above, "run"), ["a/y/p.js:1@30"]);
+    assert_eq!(far(""), Vec::<String>::new());
+    assert_eq!(far("items"), Vec::<String>::new());
+}
+
+#[test]
+fn a_member_call_takes_the_one_member_beyond_its_parent_directory() {
+    let graph = graph(&[
+        file(
+            "a/x/main.js",
+            vec![function("run", 1)],
+            vec![member_call(0, "", "join", 2)],
+        ),
+        file(
+            "vendor/y.js",
+            vec![vendored(member("Url", "join", SymbolKind::Method, 1))],
+            Vec::new(),
+        ),
+        file(
+            "b/y.js",
+            vec![member("Path", "join", SymbolKind::Method, 1)],
+            Vec::new(),
+        ),
+    ]);
+
+    assert_eq!(callees(&graph, "run"), ["b/y.js:1@15"]);
+}
+
+#[test]
+fn a_member_call_that_calls_members_alone_binds_no_free_function_at_any_tier() {
+    let calling = |receiver: &str, mut caller_symbols: Vec<Symbol>, others: Vec<Extraction>| {
+        caller_symbols.insert(0, function("run", 1));
+        let mut files = vec![file(
+            "a/x.go",
+            caller_symbols,
+            vec![member_call(0, receiver, "Join", 2)],
+        )];
+        files.extend(others);
+        callees(&graph_of(members_alone(), &files), "run")
+    };
+    let elsewhere = |path: &str| file(path, vec![function("Join", 1)], Vec::new());
+
+    for receiver in ["", "items"] {
+        assert_eq!(
+            calling(receiver, vec![function("Join", 5)], Vec::new()),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            calling(receiver, Vec::new(), vec![elsewhere("a/y.go")]),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            calling(
+                receiver,
+                Vec::new(),
+                vec![elsewhere("a/y.go"), elsewhere("b/y.go")]
+            ),
+            Vec::<String>::new()
+        );
+    }
+    assert_eq!(
+        calling(
+            "",
+            Vec::new(),
+            vec![file(
+                "b/y.go",
+                vec![member("Path", "Join", SymbolKind::Method, 1)],
+                Vec::new()
+            )]
+        ),
+        ["b/y.go:1@60"]
+    );
+}
+
+#[test]
+fn a_member_call_takes_the_one_member_near_the_caller() {
+    let graph = graph(&[
+        file(
+            "a/x.js",
+            vec![function("run", 1)],
+            vec![member_call(0, "", "join", 2)],
+        ),
+        file(
+            "a/y.js",
+            vec![member("Path", "join", SymbolKind::Method, 1)],
+            Vec::new(),
+        ),
+        file(
+            "b/y.js",
+            vec![member("Url", "join", SymbolKind::Method, 1)],
+            Vec::new(),
+        ),
+    ]);
+
+    assert_eq!(callees(&graph, "run"), ["a/y.js:1@50"]);
+}
+
+#[test]
+fn a_member_call_binds_a_free_function_its_file_defines_or_the_one_of_its_name() {
+    let same_file = graph(&[
+        file(
+            "a/x.js",
+            vec![function("run", 1), function("join", 5)],
+            vec![member_call(0, "", "join", 2)],
+        ),
+        file("a/y.js", vec![function("join", 1)], Vec::new()),
+    ]);
+    let the_one = graph(&[
+        file(
+            "a/x.js",
+            vec![function("run", 1)],
+            vec![member_call(0, "", "join", 2)],
+        ),
+        file("b/y.js", vec![function("join", 1)], Vec::new()),
+    ]);
+
+    assert_eq!(callees(&same_file, "run"), ["a/x.js:5@80"]);
+    assert_eq!(callees(&the_one, "run"), ["b/y.js:1@60"]);
 }
 
 #[test]
