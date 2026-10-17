@@ -4,22 +4,128 @@ use tree_sitter::Tree;
 const RECOVERY_SPILL_ROWS: usize = 3;
 const CLASS_KEYS: [&[u8]; 3] = [b"class", b"struct", b"union"];
 const HEAD_WORDS_MAX: usize = 4;
+const DATA_GROUP_MIN: usize = 4096;
 
 pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
     let mut repaired: Option<Vec<u8>> = None;
 
-    for at in 0..source.len() {
+    let mut judged_to = 0;
+
+    let mut at = 0;
+    while at < source.len() {
+        if source[at] == b'{' && at >= judged_to {
+            let scan = scan_data(source, at);
+            for &(start, end) in &scan.tables {
+                blank(&mut repaired.get_or_insert_with(|| source.to_vec())[start..end]);
+            }
+            judged_to = scan.end;
+            if scan.closed {
+                at = scan.end;
+                continue;
+            }
+        }
         let blanked = match source[at] {
             b',' if opens_an_empty_slot(source, at) => Some((at, at + 1)),
             b'c' | b's' | b'u' if is_class_key(source, at) => head_macros(source, at),
             _ => None,
         };
-        if let Some((start, end)) = blanked {
-            blank(&mut repaired.get_or_insert_with(|| source.to_vec())[start..end]);
-        }
+        at = match blanked {
+            Some((start, end)) => {
+                blank(&mut repaired.get_or_insert_with(|| source.to_vec())[start..end]);
+                end
+            }
+            None => at + 1,
+        };
     }
 
     repaired
+}
+
+// constraint: tree-sitter keeps a node for each literal of an initializer, 20 to 60 bytes of tree for each byte of a
+// numeric table, and a large table after a syntax error defeats its error recovery for the whole file; no definition,
+// call or use is written among the literals, so the parse is spared them
+struct DataScan {
+    tables: Vec<(usize, usize)>,
+    end: usize,
+    closed: bool,
+}
+
+fn scan_data(source: &[u8], open: usize) -> DataScan {
+    let mut opens = Vec::new();
+    let mut closed: Vec<(usize, usize)> = Vec::new();
+    let mut at = open + 1;
+    while let Some(&byte) = source.get(at) {
+        match byte {
+            b'{' => opens.push(at),
+            b'}' => {
+                let Some(start) = opens.pop() else {
+                    return DataScan {
+                        tables: table_interiors(vec![(open, at)]),
+                        end: at + 1,
+                        closed: true,
+                    };
+                };
+                while closed.last().is_some_and(|&(inner, _)| inner > start) {
+                    closed.pop();
+                }
+                closed.push((start, at));
+            }
+            _ => match data_token_len(&source[at..]) {
+                Some(len) => {
+                    at += len;
+                    continue;
+                }
+                None => break,
+            },
+        }
+        at += 1;
+    }
+    DataScan {
+        tables: table_interiors(closed),
+        end: at,
+        closed: false,
+    }
+}
+
+fn table_interiors(mut groups: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+    groups.retain(|&(open, close)| close - open >= DATA_GROUP_MIN);
+    for group in &mut groups {
+        group.0 += 1;
+    }
+    groups
+}
+
+fn data_token_len(text: &[u8]) -> Option<usize> {
+    match text[0] {
+        b'/' => comment_len(text),
+        byte if byte.is_ascii_digit()
+            || (byte == b'.' && text.get(1).is_some_and(u8::is_ascii_digit)) =>
+        {
+            Some(number_len(text))
+        }
+        byte if byte.is_ascii_whitespace() || matches!(byte, b',' | b'-' | b'+') => Some(1),
+        _ => None,
+    }
+}
+
+fn number_len(text: &[u8]) -> usize {
+    let mut len = 0;
+    while let Some(&byte) = text.get(len) {
+        let separator = byte == b'\'' && text.get(len + 1).is_some_and(u8::is_ascii_alphanumeric);
+        if !(is_word_byte(byte) || byte == b'.' || separator) {
+            break;
+        }
+        len += 1;
+    }
+    len
+}
+
+fn comment_len(text: &[u8]) -> Option<usize> {
+    match text.get(1) {
+        Some(b'/') => Some(text.iter().take_while(|byte| **byte != b'\n').count()),
+        Some(b'*') => Some(text[2..].windows(2).position(|pair| pair == b"*/")? + 4),
+        _ => None,
+    }
 }
 
 fn blank(text: &mut [u8]) {
@@ -195,6 +301,8 @@ fn macro_invocation_len(line: &[u8]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
+
     use kartta_lang::Language;
 
     use super::*;
@@ -361,6 +469,97 @@ void free_fn() {}
             for_parse(b"class Plain : public Base {};\nstruct STAT st;\n"),
             None
         );
+    }
+
+    fn numeric_rows(rows: usize) -> String {
+        let mut text = String::new();
+        for row in 0..rows {
+            writeln!(
+                text,
+                "  {{ {row}, -0.5f, 0x1F, .25e-3, +7, 1'000 }}, /* {row} */ // row"
+            )
+            .expect("a String takes any write");
+        }
+        text
+    }
+
+    #[test]
+    fn a_large_numeric_table_is_blanked_inside_its_braces_and_keeps_its_lines() {
+        let source = format!(
+            "static const float weights[200][5] = {{\n{}}};\nint after() {{ return 1; }}\n",
+            numeric_rows(200)
+        );
+
+        let repaired = for_parse(source.as_bytes()).expect("a table to blank");
+
+        assert_eq!(repaired.len(), source.len());
+        let open = source.find('{').expect("the table opens");
+        let close = source.find("};").expect("the table closes");
+        assert!(
+            repaired[open + 1..close]
+                .iter()
+                .all(u8::is_ascii_whitespace)
+        );
+        assert_eq!(repaired[..=open], source.as_bytes()[..=open]);
+        assert_eq!(repaired[close..], source.as_bytes()[close..]);
+        let newlines = |text: &[u8]| -> Vec<usize> {
+            text.iter()
+                .enumerate()
+                .filter(|(_, byte)| **byte == b'\n')
+                .map(|(at, _)| at)
+                .collect()
+        };
+        assert_eq!(newlines(&repaired), newlines(source.as_bytes()));
+    }
+
+    #[test]
+    fn a_small_table_or_one_that_names_anything_is_parsed_as_written() {
+        assert_eq!(for_parse(b"int pair[2] = { 1, 2 };\n"), None);
+
+        let named = format!(
+            "int rows[201][6] = {{\n{}  {{ LIMIT }},\n}};\n",
+            numeric_rows(200)
+        );
+        assert_eq!(for_parse(named.as_bytes()), None);
+    }
+
+    #[test]
+    fn a_large_table_inside_a_group_that_names_something_is_blanked_alone() {
+        let source = format!(
+            "struct Weights weights = {{ 2, {{\n{}}}, LIMIT }};\n",
+            numeric_rows(200)
+        );
+
+        let repaired = for_parse(source.as_bytes()).expect("the inner table to blank");
+
+        let open = source.find("{\n").expect("the table opens");
+        let close = source.find("}, LIMIT").expect("the table closes");
+        assert!(
+            repaired[open + 1..close]
+                .iter()
+                .all(u8::is_ascii_whitespace)
+        );
+        assert_eq!(repaired[..=open], source.as_bytes()[..=open]);
+        assert_eq!(repaired[close..], source.as_bytes()[close..]);
+    }
+
+    #[test]
+    fn the_definitions_around_a_blanked_table_keep_their_lines() {
+        let rows = numeric_rows(200);
+        let source = format!(
+            "const float filters[200][6] = {{\n{rows}}};\n\nconst int8_t ALIGN(taps[200][6], 8) = {{\n{rows}}};\n\n\
+             void after(void) {{}}\n"
+        );
+
+        let raw = Cpp::new().extract(source.as_bytes());
+
+        let lines: Vec<(&str, u32, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.line, symbol.end_line))
+            .collect();
+        assert_eq!(lines[0], ("filters", 1, 202));
+        assert_eq!(lines.last(), Some(&("after", 407, 407)));
     }
 
     #[test]

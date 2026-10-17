@@ -86,6 +86,12 @@
 //! holds an error that spills over three rows or more, the upper-case macro invocations that open its lines are blanked
 //! and the file is parsed again; a `#define` body is left as written. A re-parse that fails keeps the first tree.
 //!
+//! A table's data is blanked too: a brace group of 4 KiB or more that holds nothing but numeric literals, signs,
+//! commas, comments and nested groups of the same, the initializer of `static const float weights[] = { 0.1, ... }`,
+//! keeps its braces and newlines and loses the rest before the first parse. tree-sitter holds a node for every literal,
+//! which is far more memory than the file, and such a table after a syntax error can take every definition of the file
+//! down; nothing a graph holds is written among the literals.
+//!
 //! # Fingerprint
 //!
 //! The fingerprint covers the crate's name and version, a digest of its own sources, and the grammar's version where
