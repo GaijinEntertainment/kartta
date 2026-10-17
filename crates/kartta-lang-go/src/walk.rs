@@ -120,7 +120,10 @@ impl<'a> Emitter<'a> {
                 symbol.name == type_name
                     && matches!(
                         symbol.kind,
-                        SymbolKind::Struct | SymbolKind::Interface | SymbolKind::TypeAlias
+                        SymbolKind::Struct
+                            | SymbolKind::Interface
+                            | SymbolKind::TypeAlias
+                            | SymbolKind::DefinedType
                     )
             });
             match declared {
@@ -489,7 +492,8 @@ impl<'a> Emitter<'a> {
             Some(node) if node.kind() == "interface_type" => {
                 (SymbolKind::Interface, parents_of(node, self.source))
             }
-            _ => (SymbolKind::TypeAlias, Vec::new()),
+            _ if spec.kind() == "alias_declaration" => (SymbolKind::TypeAlias, Vec::new()),
+            _ => (SymbolKind::DefinedType, Vec::new()),
         };
         let type_params = spec.child_by_field_name("type_parameters");
         self.push_type_params(type_params, spec.end_byte());
