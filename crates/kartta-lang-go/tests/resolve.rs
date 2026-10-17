@@ -169,6 +169,68 @@ fn a_file_of_a_nested_module_takes_its_module_s_vendored_copy() {
 }
 
 #[test]
+fn a_replaced_module_without_a_vendor_directory_is_built_by_the_module_that_replaces_it() {
+    let files = Files(&[
+        (
+            "go.mod",
+            "module example.com/app\n\nreplace (\n\texample.com/lib => ./lib\n\
+             \tgithub.com/x/openai => ./ext/openai\n)\n",
+        ),
+        ("vendor/modules.txt", ""),
+        ("vendor/github.com/pkg/errors/errors.go", ""),
+        ("ext/openai/client.go", ""),
+        ("lib/go.mod", "module example.com/lib\n"),
+        ("lib/lib.go", ""),
+        ("tools/go.mod", "module example.com/tools\n"),
+        ("tools/main.go", ""),
+    ]);
+    let source =
+        b"package lib\n\nimport (\n\t\"github.com/pkg/errors\"\n\t\"github.com/x/openai\"\n)\n";
+
+    let in_lib = resolve(&files, source, "lib/lib.go");
+    let in_tools = resolve(&files, source, "tools/main.go");
+    let lib_dirs: Vec<Option<&str>> = in_lib
+        .bindings
+        .iter()
+        .map(|binding| binding.target_dir.as_deref())
+        .collect();
+    let tools_dirs: Vec<Option<&str>> = in_tools
+        .bindings
+        .iter()
+        .map(|binding| binding.target_dir.as_deref())
+        .collect();
+
+    assert_eq!(
+        lib_dirs,
+        [Some("vendor/github.com/pkg/errors"), Some("ext/openai")]
+    );
+    assert_eq!(tools_dirs, [None, None]);
+}
+
+#[test]
+fn a_replaced_module_with_its_own_vendor_directory_keeps_it() {
+    let files = Files(&[
+        (
+            "go.mod",
+            "module example.com/app\n\nreplace example.com/lib => ./lib\n",
+        ),
+        ("vendor/modules.txt", ""),
+        ("vendor/github.com/pkg/errors/errors.go", ""),
+        ("lib/go.mod", "module example.com/lib\n"),
+        ("lib/vendor/modules.txt", ""),
+        ("lib/vendor/github.com/pkg/errors/errors.go", ""),
+    ]);
+    let source = b"package lib\n\nimport \"github.com/pkg/errors\"\n";
+
+    let in_lib = resolve(&files, source, "lib/lib.go");
+
+    assert_eq!(
+        in_lib.bindings[0].target_dir.as_deref(),
+        Some("lib/vendor/github.com/pkg/errors")
+    );
+}
+
+#[test]
 fn a_file_sees_the_replaces_of_its_own_module_only() {
     let files = Files(&[
         (
