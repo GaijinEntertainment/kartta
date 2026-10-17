@@ -95,6 +95,8 @@
 - [3.22 Analyze what a change reaches with the walk the call queries
   take](./adr/3.22-analyze-what-a-change-reaches-with-the-walk-the-call-queries-take.md) — initiative `03-code-graph`,
   2026-10-17
+- [3.23 Judge code dead only where the graph sees it
+  used](./adr/3.23-judge-code-dead-only-where-the-graph-sees-it-used.md) — initiative `03-code-graph`, 2026-10-17
 
 ## Deprecated
 
