@@ -1,6 +1,7 @@
 use kartta_lang::path::{base, dir, join};
 use kartta_lang::{
-    Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
+    Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, Symbol, SymbolFlags,
+    SymbolKind,
 };
 
 use crate::QUOTED_INCLUDE;
@@ -70,6 +71,11 @@ impl Resolver for Includes<'_> {
                 symbol.flags = symbol.flags.union(path_flags);
             }
         }
+        if is_c_source(path) {
+            for symbol in &mut extraction.symbols {
+                symbol.exported |= has_c_external_linkage(symbol);
+            }
+        }
 
         for directive in directives {
             match self.include(&directive.spec, directive.form == QUOTED_INCLUDE, path) {
@@ -84,6 +90,24 @@ impl Resolver for Includes<'_> {
 
         extraction
     }
+}
+
+fn is_c_source(path: &str) -> bool {
+    base(path)
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("c"))
+}
+
+// constraint: C gives a file-scope `const` external linkage where C++ gives it internal linkage, and the extraction
+// reads every file as C++, so only the signature still shows a `static` that keeps a C constant to its file
+fn has_c_external_linkage(symbol: &Symbol) -> bool {
+    symbol.kind == SymbolKind::Constant
+        && symbol.owner.is_none()
+        && !symbol.signature.as_deref().is_some_and(|signature| {
+            signature
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .any(|word| word == "static")
+        })
 }
 
 fn ends_at_segment(path: &str, spec: &str) -> bool {
@@ -353,6 +377,39 @@ mod tests {
         }
         let hand_written = resolved(source, "src/foo.cpp", &[]);
         assert!(!hand_written.symbols[0].flags.is_generated());
+    }
+
+    #[test]
+    fn a_file_scope_constant_of_a_c_file_is_exported_unless_static() {
+        let source = b"const int limit = 4;\nstatic const int local_limit = 2;\nconst static int other = 1;\n\
+                       void use_them(void) { const int inner = 3; }\n";
+
+        let exported = |path: &str| -> Vec<(String, bool)> {
+            resolved(source, path, &[])
+                .symbols
+                .iter()
+                .filter(|symbol| symbol.kind == SymbolKind::Constant)
+                .map(|symbol| (symbol.name.clone(), symbol.exported))
+                .collect()
+        };
+
+        let in_c = exported("src/limits.c");
+        assert_eq!(
+            in_c,
+            [
+                ("limit".to_owned(), true),
+                ("local_limit".to_owned(), false),
+                ("other".to_owned(), false)
+            ]
+        );
+        assert_eq!(exported("src/LIMITS.C"), in_c);
+        let unexported = [
+            ("limit".to_owned(), false),
+            ("local_limit".to_owned(), false),
+            ("other".to_owned(), false),
+        ];
+        assert_eq!(exported("src/limits.cpp"), unexported);
+        assert_eq!(exported("src/limits.h"), unexported);
     }
 
     #[test]
