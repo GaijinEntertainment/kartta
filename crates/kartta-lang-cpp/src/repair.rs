@@ -15,11 +15,17 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
             _ => None,
         };
         if let Some((start, end)) = blanked {
-            repaired.get_or_insert_with(|| source.to_vec())[start..end].fill(b' ');
+            blank(&mut repaired.get_or_insert_with(|| source.to_vec())[start..end]);
         }
     }
 
     repaired
+}
+
+fn blank(text: &mut [u8]) {
+    for byte in text.iter_mut().filter(|byte| **byte != b'\n') {
+        *byte = b' ';
+    }
 }
 
 fn opens_an_empty_slot(source: &[u8], comma: usize) -> bool {
@@ -355,6 +361,21 @@ void free_fn() {}
             for_parse(b"class Plain : public Base {};\nstruct STAT st;\n"),
             None
         );
+    }
+
+    #[test]
+    fn class_head_macros_on_lines_of_their_own_keep_every_line_after_them() {
+        const SOURCE: &[u8] =
+            b"class EXPORT_A\nEXPORT_B Widget {\n  void draw();\n};\n\nvoid after() {}\n";
+
+        let raw = Cpp::new().extract(SOURCE);
+
+        let lines: Vec<(&str, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.line))
+            .collect();
+        assert_eq!(lines, [("Widget", 1), ("after", 6), ("draw", 3)]);
     }
 
     #[test]
