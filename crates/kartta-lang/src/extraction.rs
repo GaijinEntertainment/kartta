@@ -146,7 +146,9 @@ pub struct Extraction {
     pub package: Option<String>,
     /// Compile-time implements assertions whose implementing type the file does not declare.
     pub assertions: Vec<ImplementsAssertion>,
-    /// Files of test-only modules this file pulls in, resolved: every symbol in them is test code.
+    /// Files of `includes` that this file pulls in as test-only modules. A file is test code, with every symbol in
+    /// it, when every file that includes it lists it here or is such a file itself; one that a production file
+    /// includes is not.
     pub test_includes: Vec<String>,
 }
 

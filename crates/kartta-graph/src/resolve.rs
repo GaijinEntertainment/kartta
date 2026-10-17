@@ -240,7 +240,7 @@ impl<'g> Cascade<'g> {
             .in_dir(self.graph, dir)
             .iter()
             .copied()
-            .filter(|&at| !self.graph.sym(at).flags.is_test() && self.holder(at).is_none())
+            .filter(|&at| !self.graph.flags(at).is_test() && self.holder(at).is_none())
             .collect()
     }
 

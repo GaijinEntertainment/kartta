@@ -305,6 +305,24 @@ fn test_generated_entry_and_vendored_code_is_counted_and_not_judged() {
 }
 
 #[test]
+fn a_file_only_test_modules_include_is_counted_as_test_code() {
+    let mut lib = file("src/lib.rs", vec![function("unused", 1)], Vec::new());
+    lib.includes.push(IncludeRef {
+        target: "src/tests.rs".to_owned(),
+    });
+    lib.test_includes.push("src/tests.rs".to_owned());
+    let graph = graph(&[
+        lib,
+        file("src/tests.rs", vec![function("fixture", 1)], Vec::new()),
+    ]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(names(&dead), ["unused"]);
+    assert_eq!(dead.excluded.test, 1);
+}
+
+#[test]
 fn fields_values_and_types_are_unobservable_where_uses_name_no_type() {
     let graph = graph(&[file(
         "src/model.py",
