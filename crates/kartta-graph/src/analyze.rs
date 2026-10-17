@@ -1,0 +1,330 @@
+use std::cmp::Reverse;
+use std::ops::RangeInclusive;
+
+use foldhash::fast::FixedState;
+use hashbrown::HashSet;
+use kartta_lang::SymbolKind;
+
+use crate::calls::{Calls, Edge, Limits, Reached, WalkState};
+use crate::graph::{Definition, Graph, narrow};
+use crate::stored::SymbolAt;
+
+// constraint: the docs of `DirectCalls::listed` and the README state this number
+const LISTED_CALLS: usize = 50;
+
+/// How widely a change to a symbol reaches, from the callers a walk over them reaches.
+///
+/// An interface escalates sooner, because each implementor answers for its contract, and so does a symbol visible
+/// outside its module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum ReachBand {
+    /// Fewer than 10 callers, and not exported with 20 or more.
+    Low,
+    /// 10 to 49 callers, and not exported with 20 or more.
+    Medium,
+    /// 50 or more callers, or 20 or more for an exported symbol.
+    High,
+    /// 200 or more callers, or 50 or more for an interface.
+    Critical,
+}
+
+impl ReachBand {
+    pub(crate) fn of(reach: usize, kind: SymbolKind, exported: bool) -> Self {
+        if reach >= 200 || (kind == SymbolKind::Interface && reach >= 50) {
+            Self::Critical
+        } else if reach >= 50 || (exported && reach >= 20) {
+            Self::High
+        } else if reach >= 10 {
+            Self::Medium
+        } else {
+            Self::Low
+        }
+    }
+}
+
+/// The callers a change to a symbol reaches within a walk's limits, and the files they and the file's includers sit
+/// in.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct Blast {
+    /// The callers reached, the symbol itself not among them.
+    pub reach: usize,
+    /// The callers reached at each depth, the direct callers first.
+    pub by_depth: Vec<usize>,
+    /// The files other than the symbol's own that hold a caller reached, or include its file within the walk's depth.
+    pub affected_files: usize,
+    /// How widely the reach ranks.
+    pub band: ReachBand,
+    /// Whether the symbol cap stopped the walk.
+    pub truncated: bool,
+    /// The callers the cap turned away at the symbol where it stopped the walk.
+    pub turned_away: usize,
+    /// The callers reached whose own callers the walk did not follow: those at the depth bound, the symbol itself at a
+    /// depth of 0, and those the cap left.
+    pub unexpanded: usize,
+    /// The callers the confidence floor left out, counted at each symbol the walk expanded that they call.
+    pub below_confidence: usize,
+}
+
+/// One side of a symbol's direct calls: its callers, or its callees.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct DirectCalls<'g> {
+    /// At most 50 of them, in path order, each with its most confident call.
+    pub listed: Vec<Reached<'g>>,
+    /// Every one that passes the confidence floor, before the list was cut.
+    pub total: usize,
+    /// Those the confidence floor left out.
+    pub below_confidence: usize,
+}
+
+/// One symbol a segment holds, with its direct calls and the reach of a change to it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct SegmentSymbol<'g> {
+    /// The symbol, as the file defines it.
+    pub definition: Definition<'g>,
+    /// The symbols that call it.
+    pub callers: DirectCalls<'g>,
+    /// The symbols it calls.
+    pub callees: DirectCalls<'g>,
+    /// The calls of its body that bound no definition the graph holds: calls into code outside it, and calls the
+    /// cascade could not tell apart.
+    pub unresolved: usize,
+    /// The reach of a change to it.
+    pub blast: Blast,
+}
+
+/// The symbols a range of lines in one file overlaps, and the files that file includes and is included by.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct Segment<'g> {
+    /// The root-relative path of the file.
+    pub file: &'g str,
+    /// The one-based lines asked about.
+    pub lines: RangeInclusive<u32>,
+    /// The symbols whose lines overlap them, ordered by the line each starts on, one that encloses others before them.
+    pub symbols: Vec<SegmentSymbol<'g>>,
+    /// The files of the graph the file includes directly, in path order.
+    pub includes: Vec<&'g str>,
+    /// The files of the graph that include the file directly, in path order.
+    pub included_by: Vec<&'g str>,
+}
+
+impl Graph {
+    /// The symbols of the file at `path` whose lines overlap `lines`, each with its direct callers and callees and the
+    /// callers a change to it reaches within `limits`, or `None` when the graph does not hold the file. `1..=u32::MAX`
+    /// asks about the whole file, and a range that starts past its end overlaps no symbol.
+    ///
+    /// A declaration answers for the definition it links to. The direct calls take the confidence floor of `limits`;
+    /// its depth and symbol cap bound the walk over each symbol's callers, and its depth the files that include the
+    /// file. Calls are resolved when this asks, and each name's call sites once for the whole segment.
+    #[must_use]
+    pub fn analyze_segment(
+        &self,
+        path: &str,
+        lines: RangeInclusive<u32>,
+        limits: Limits,
+    ) -> Option<Segment<'_>> {
+        let slot = self.slot_of(self.strings.get(path)?)?;
+        let file = self.file(slot);
+
+        let overlapping = self.overlapping(slot, &lines);
+        let symbols = if overlapping.is_empty() {
+            Vec::new()
+        } else {
+            let includers = self.includers_within(slot, limits.depth);
+            let mut analysis = Analysis::new(self, limits);
+            overlapping
+                .into_iter()
+                .map(|at| analysis.segment_symbol(at, &includers))
+                .collect()
+        };
+
+        let mut targets: Vec<u32> = file
+            .includes
+            .iter()
+            .filter_map(|&target| self.slot_of(target))
+            .collect();
+        let mut sources: Vec<u32> = self.includers_of(slot).collect();
+        Some(Segment {
+            file: self.strings.resolve(file.path),
+            lines,
+            symbols,
+            includes: self.paths_in_order(&mut targets),
+            included_by: self.paths_in_order(&mut sources),
+        })
+    }
+
+    fn overlapping(&self, slot: u32, lines: &RangeInclusive<u32>) -> Vec<SymbolAt> {
+        if lines.is_empty() {
+            return Vec::new();
+        }
+        let file = self.file(slot);
+        let (start, end) = (*lines.start(), *lines.end());
+        let mut overlapping: Vec<u32> = (0..narrow(file.symbols.len()))
+            .filter(|&index| {
+                let symbol = &file.symbols[index as usize];
+                symbol.line <= end && symbol.end_line.max(symbol.line) >= start
+            })
+            .collect();
+        overlapping.sort_by_key(|&index| {
+            let symbol = &file.symbols[index as usize];
+            (
+                symbol.line,
+                Reverse(symbol.end_line.max(symbol.line)),
+                index,
+            )
+        });
+        overlapping
+            .into_iter()
+            .map(|index| SymbolAt { file: slot, index })
+            .collect()
+    }
+
+    fn includers_within(&self, slot: u32, depth: u32) -> HashSet<u32, FixedState> {
+        let mut found: HashSet<u32, FixedState> = HashSet::with_hasher(FixedState::default());
+        let mut level = vec![slot];
+        for _ in 0..depth {
+            level = level
+                .iter()
+                .flat_map(|&file| self.includers_of(file))
+                .filter(|&includer| includer != slot && found.insert(includer))
+                .collect();
+            if level.is_empty() {
+                break;
+            }
+        }
+        found
+    }
+
+    fn paths_in_order(&self, slots: &mut Vec<u32>) -> Vec<&str> {
+        slots.sort_unstable_by_key(|&slot| self.path_rank(slot));
+        slots.dedup();
+        slots
+            .iter()
+            .map(|&slot| self.strings.resolve(self.file(slot).path))
+            .collect()
+    }
+}
+
+struct Analysis<'g> {
+    graph: &'g Graph,
+    calls: Calls<'g>,
+    limits: Limits,
+}
+
+impl<'g> Analysis<'g> {
+    fn new(graph: &'g Graph, limits: Limits) -> Self {
+        Self {
+            graph,
+            calls: Calls::new(graph),
+            limits,
+        }
+    }
+
+    fn segment_symbol(
+        &mut self,
+        at: SymbolAt,
+        includers: &HashSet<u32, FixedState>,
+    ) -> SegmentSymbol<'g> {
+        let root = self.calls.canonical(at);
+        let floor = self.limits.min_confidence;
+        let callers = DirectCalls::of(self.graph, self.calls.caller_edges(root), floor);
+        let unresolved_before = self.calls.unresolved();
+        let outgoing = self.calls.callees_of(root);
+        let unresolved = self.calls.unresolved() - unresolved_before;
+
+        SegmentSymbol {
+            definition: self.graph.definition_at(at),
+            callers,
+            callees: DirectCalls::of(self.graph, &outgoing, floor),
+            unresolved,
+            blast: self.blast(at, root, includers),
+        }
+    }
+
+    fn blast(
+        &mut self,
+        at: SymbolAt,
+        root: SymbolAt,
+        includers: &HashSet<u32, FixedState>,
+    ) -> Blast {
+        let mut by_depth: Vec<usize> = Vec::new();
+        let mut caller_files: HashSet<u32, FixedState> =
+            HashSet::with_hasher(FixedState::default());
+        let walk = WalkState::new(root, self.limits);
+        let left_out = self.calls.reach(walk, Calls::callers_of, |edge, depth| {
+            let index = depth as usize - 1;
+            if by_depth.len() <= index {
+                by_depth.resize(index + 1, 0);
+            }
+            by_depth[index] += 1;
+            if edge.far.file != at.file && !includers.contains(&edge.far.file) {
+                caller_files.insert(edge.far.file);
+            }
+        });
+        let reach = by_depth.iter().sum();
+        let symbol = self.graph.sym(at);
+
+        Blast {
+            reach,
+            by_depth,
+            affected_files: includers.len() + caller_files.len(),
+            band: ReachBand::of(reach, symbol.kind, symbol.exported),
+            truncated: left_out.truncated,
+            turned_away: left_out.turned_away,
+            unexpanded: left_out.unexpanded,
+            below_confidence: left_out.below_confidence,
+        }
+    }
+}
+
+impl<'g> DirectCalls<'g> {
+    fn of(graph: &'g Graph, edges: &[Edge], floor: u8) -> Self {
+        let mut passing = edges.iter().filter(|edge| edge.confidence >= floor);
+        let listed: Vec<Reached<'g>> = passing
+            .by_ref()
+            .take(LISTED_CALLS)
+            .map(|edge| edge.reached(graph, 1))
+            .collect();
+        let total = listed.len() + passing.count();
+        Self {
+            listed,
+            total,
+            below_confidence: edges.len() - total,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_interface_and_an_exported_symbol_reach_a_band_sooner() {
+        let plain = |reach| ReachBand::of(reach, SymbolKind::Function, false);
+
+        assert_eq!(plain(9), ReachBand::Low);
+        assert_eq!(plain(10), ReachBand::Medium);
+        assert_eq!(plain(50), ReachBand::High);
+        assert_eq!(plain(200), ReachBand::Critical);
+        assert_eq!(
+            ReachBand::of(20, SymbolKind::Function, true),
+            ReachBand::High
+        );
+        assert_eq!(
+            ReachBand::of(19, SymbolKind::Function, true),
+            ReachBand::Medium
+        );
+        assert_eq!(
+            ReachBand::of(50, SymbolKind::Interface, false),
+            ReachBand::Critical
+        );
+        assert_eq!(
+            ReachBand::of(49, SymbolKind::Interface, true),
+            ReachBand::High
+        );
+    }
+}
