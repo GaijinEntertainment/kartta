@@ -12,10 +12,10 @@ qualified by the package clause: `api.Serve`, and `api.Server.Close` for a membe
 local binding, not a symbol. An embedded type is a parent of the type
 that embeds it, and so is the interface of a compile-time assertion such as `var _ io.Reader = (*File)(nil)`.
 
-A call records its callee and, for a member call, its receiver. Go spells an owner as a bare type name, so only an
-identifier operand is a receiver: `s.client.Do()` and `f().g()` record the empty receiver, a member call on a value of
-no known type, and so does a call on a parameter or a variable the caller declares. The method's own receiver records
-the owner its declaration spells: `w.draw()` in `func (w *Widget) run()` records `Widget`. A name outside a call — a
+A call records its callee and, for a member call, its receiver as a type path: the type of the operand's value, as far
+as the file's declarations spell it. `s.client.Do()` in `func f(s *Server)` records `Server.client`, and `w.draw()` in
+`func (w *Widget) run()` records `Widget`; the graph follows the path through the value types each definition records,
+a field's type or a function's results, to the method the call reaches. A name outside a call — a
 type in a signature, a field, a conversion — is a use of what it names, unless a local binding covers it.
 
 ## Resolution

@@ -10,6 +10,7 @@ pub(super) struct Local {
     pub(super) block: Block,
     pub(super) name: String,
     pub(super) kind: LocalKind,
+    pub(super) type_path: Option<String>,
 }
 
 // constraint: two blocks can end at the same byte, so a block is told apart by its node's id
@@ -51,6 +52,9 @@ impl Emitter<'_> {
             let Some(param) = list.named_child(i) else {
                 continue;
             };
+            let type_path = param
+                .child_by_field_name("type")
+                .and_then(|written| self.type_path(written));
             let mut cursor = param.walk();
             for name in param.children_by_field_name("name", &mut cursor) {
                 self.locals.push(Local {
@@ -58,16 +62,23 @@ impl Emitter<'_> {
                     block,
                     name: text(name, self.source),
                     kind,
+                    type_path: type_path.clone(),
                 });
             }
         }
     }
 
-    pub(super) fn push_locals(&mut self, left: Node<'_>, from: usize, block: Block) {
+    pub(super) fn push_locals(
+        &mut self,
+        left: Node<'_>,
+        (from, block): (usize, Block),
+        type_paths: &mut dyn FnMut(usize) -> Option<String>,
+    ) {
         let names = named_children(left)
             .filter_map(|i| left.named_child(i))
-            .filter(|name| name.kind() == "identifier");
-        for name in names {
+            .enumerate()
+            .filter(|(_, name)| name.kind() == "identifier");
+        for (position, name) in names {
             let name = text(name, self.source);
             let reassigned =
                 (self.locals.iter()).any(|local| local.block == block && local.name == name);
@@ -77,6 +88,7 @@ impl Emitter<'_> {
                     block,
                     name,
                     kind: LocalKind::Value,
+                    type_path: type_paths(position),
                 });
             }
         }

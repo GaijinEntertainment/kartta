@@ -12,10 +12,12 @@ use self::syntax::{
     assertion_value_type, default_name_candidates, is_exported, is_generated_source, line,
     parents_of, receiver_type, trim_quotes,
 };
+use self::types::{element_of, is_container_type};
 
 mod calls;
 mod locals;
 mod syntax;
+mod types;
 mod uses;
 
 pub(crate) const IMPORT_FORM: u32 = 0;
@@ -144,8 +146,12 @@ impl<'a> Emitter<'a> {
                 self.push_params(node, "result", LocalKind::Value);
             }
             "type_switch_statement" => self.enter_type_switch(node),
-            "block" | "expression_case_clause" | "type_case_clause" | "communication_clause" => {
+            "block" | "expression_case_clause" | "communication_clause" => {
                 self.blocks.push(Block::of(node));
+            }
+            "type_case_clause" => {
+                self.blocks.push(Block::of(node));
+                self.enter_type_case(node);
             }
             "short_var_declaration" | "range_clause" | "receive_statement" => {
                 self.declare_short(node);
@@ -196,22 +202,22 @@ impl<'a> Emitter<'a> {
     }
 
     fn enter_function(&mut self, node: Node<'_>) {
+        self.push_type_params(node.child_by_field_name("type_parameters"), node.end_byte());
         if let Some(id) = self.function(node) {
             self.enter_body(node, id);
         }
-        self.push_type_params(node.child_by_field_name("type_parameters"), node.end_byte());
         self.locals.clear();
         self.push_params(node, "parameters", LocalKind::Value);
         self.push_params(node, "result", LocalKind::Value);
     }
 
     fn enter_method(&mut self, node: Node<'_>) {
+        self.push_receiver_type_params(node);
+        self.push_type_params(node.child_by_field_name("type_parameters"), node.end_byte());
         let method = self.method(node);
         if let Some(id) = method {
             self.enter_body(node, id);
         }
-        self.push_receiver_type_params(node);
-        self.push_type_params(node.child_by_field_name("type_parameters"), node.end_byte());
         self.locals.clear();
         let receiver = method.map_or(LocalKind::Value, LocalKind::ReceiverOf);
         self.push_params(node, "receiver", receiver);
@@ -228,16 +234,40 @@ impl<'a> Emitter<'a> {
         self.use_owners.push(scope);
     }
 
+    // constraint: outside a clause that names one type, the switch's variable holds the guard's value
     fn enter_type_switch(&mut self, node: Node<'_>) {
         if let Some(name) = node.child_by_field_name("name") {
-            let from = node
-                .child_by_field_name("operand")
-                .map_or_else(|| name.end_byte(), |guard| guard.end_byte());
+            let guard = node.child_by_field_name("operand");
+            let from = guard.map_or_else(|| name.end_byte(), |guard| guard.end_byte());
             self.locals.push(Local {
                 from,
                 block: Block::of(node),
                 name: text(name, self.source),
                 kind: LocalKind::Value,
+                type_path: guard.and_then(|guard| self.value_path(guard)),
+            });
+        }
+    }
+
+    // constraint: in a clause that names one type, the switch's variable holds a value of that type
+    fn enter_type_case(&mut self, clause: Node<'_>) {
+        let Some(name) = clause
+            .parent()
+            .and_then(|switch| switch.child_by_field_name("name"))
+        else {
+            return;
+        };
+        let mut cursor = clause.walk();
+        let mut types = clause.children_by_field_name("type", &mut cursor);
+        if let (Some(single), None) = (types.next(), types.next())
+            && let Some(type_path) = self.type_path(single)
+        {
+            self.locals.push(Local {
+                from: clause.start_byte(),
+                block: Block::of(clause),
+                name: text(name, self.source),
+                kind: LocalKind::Value,
+                type_path: Some(type_path),
             });
         }
     }
@@ -249,8 +279,33 @@ impl<'a> Emitter<'a> {
                 .map(Block::of)
                 .or_else(|| self.blocks.last().copied())
         {
-            self.push_locals(left, node.end_byte(), block);
+            let mut paths = self.declared_paths(node, left);
+            self.push_locals(left, (node.end_byte(), block), &mut |position| {
+                paths.get_mut(position).and_then(Option::take)
+            });
         }
+    }
+
+    // constraint: a range yields an index or a key first, which no path names, and an element second
+    fn declared_paths(&self, node: Node<'_>, left: Node<'_>) -> Vec<Option<String>> {
+        let names = named_children(left).len();
+        let right = node.child_by_field_name("right");
+        if node.kind() == "range_clause" {
+            let element = right
+                .and_then(|ranged| self.value_path(ranged))
+                .and_then(|ranged| element_of(&ranged));
+            return vec![None, element];
+        }
+        let values: Vec<Node<'_>> = match right {
+            Some(list) if list.kind() == "expression_list" => named_children(list)
+                .filter_map(|i| list.named_child(i))
+                .collect(),
+            Some(value) => vec![value],
+            None => Vec::new(),
+        };
+        (0..names)
+            .map(|position| self.value_path_at(&values, names, position))
+            .collect()
     }
 
     fn enter_spec(&mut self, node: Node<'_>) {
@@ -384,6 +439,7 @@ impl<'a> Emitter<'a> {
         let mut symbol = self.declared(SymbolKind::Function, node, (None, name));
         symbol.signature = signature(node, self.source);
         symbol.flags = symbol.flags.with_entry(is_entry);
+        symbol.value_types = self.result_paths(node);
         Some(self.push_symbol(symbol))
     }
 
@@ -396,6 +452,7 @@ impl<'a> Emitter<'a> {
 
         let mut symbol = self.declared(SymbolKind::Method, node, (owner, name));
         symbol.signature = signature(node, self.source);
+        symbol.value_types = self.result_paths(node);
         Some(self.push_symbol(symbol))
     }
 
@@ -414,6 +471,7 @@ impl<'a> Emitter<'a> {
                     block,
                     name: text(name, self.source),
                     kind: LocalKind::TypeSymbol(SymbolId(self.symbol_count)),
+                    type_path: None,
                 });
             }
             self.type_spec(spec);
@@ -433,12 +491,19 @@ impl<'a> Emitter<'a> {
             }
             _ => (SymbolKind::TypeAlias, Vec::new()),
         };
-        let Some((owner, type_id)) = self.named_type(spec, kind, parents) else {
+        let type_params = spec.child_by_field_name("type_parameters");
+        self.push_type_params(type_params, spec.end_byte());
+        let value_types = match type_node {
+            Some(written) if written.kind() == "function_type" => self.result_paths(written),
+            Some(written) if spec.kind() == "alias_declaration" || is_container_type(written) => {
+                self.type_path(written).into_iter().collect()
+            }
+            _ => Vec::new(),
+        };
+        let Some((owner, type_id)) = self.named_type(spec, kind, (parents, value_types)) else {
             return;
         };
 
-        let type_params = spec.child_by_field_name("type_parameters");
-        self.push_type_params(type_params, spec.end_byte());
         if let Some(list) = type_params {
             self.record_uses_in(list, type_id);
         }
@@ -457,12 +522,13 @@ impl<'a> Emitter<'a> {
         &mut self,
         spec: Node<'_>,
         kind: SymbolKind,
-        parents: Vec<String>,
+        (parents, value_types): (Vec<String>, Vec<String>),
     ) -> Option<(String, SymbolId)> {
         let name = text(spec.child_by_field_name("name")?, self.source);
 
         let mut symbol = self.declared(kind, spec, (None, name.clone()));
         symbol.parents = parents;
+        symbol.value_types = value_types;
         Some((name, self.push_symbol(symbol)))
     }
 
@@ -481,6 +547,7 @@ impl<'a> Emitter<'a> {
             let mut symbol =
                 self.declared(SymbolKind::Method, element, (Some(owner.to_owned()), name));
             symbol.signature = signature(element, self.source);
+            symbol.value_types = self.result_paths(element);
             self.push_symbol(symbol);
         }
     }
@@ -504,12 +571,16 @@ impl<'a> Emitter<'a> {
     }
 
     fn field_names(&mut self, field: Node<'_>, owner: &str) {
+        let type_path = field
+            .child_by_field_name("type")
+            .and_then(|written| self.type_path(written));
         let mut cursor = field.walk();
         for name_node in field.children_by_field_name("name", &mut cursor) {
             let name = text(name_node, self.source);
             if name != "_" {
-                let symbol =
+                let mut symbol =
                     self.declared(SymbolKind::Field, field, (Some(owner.to_owned()), name));
+                symbol.value_types = type_path.clone().into_iter().collect();
                 self.push_symbol(symbol);
             }
         }
@@ -531,17 +602,34 @@ impl<'a> Emitter<'a> {
 
     fn spec_names(&mut self, spec: Node<'_>, kind: SymbolKind) {
         let mut cursor = spec.walk();
-        for name_node in spec.children_by_field_name("name", &mut cursor) {
+        let names: Vec<Node<'_>> = spec.children_by_field_name("name", &mut cursor).collect();
+        let written = spec.child_by_field_name("type");
+        let values: Vec<Node<'_>> = match spec.child_by_field_name("value") {
+            Some(list) if written.is_none() => named_children(list)
+                .filter_map(|i| list.named_child(i))
+                .collect(),
+            _ => Vec::new(),
+        };
+        for (position, &name_node) in names.iter().enumerate() {
             let name = text(name_node, self.source);
             if name == "_" {
                 self.assertion_implements(spec);
             } else {
-                self.spec_name(spec, kind, name);
+                let type_path = written.map_or_else(
+                    || self.value_path_at(&values, names.len(), position),
+                    |written| self.type_path(written),
+                );
+                self.spec_name(spec, kind, (name, type_path));
             }
         }
     }
 
-    fn spec_name(&mut self, spec: Node<'_>, kind: SymbolKind, name: String) {
+    fn spec_name(
+        &mut self,
+        spec: Node<'_>,
+        kind: SymbolKind,
+        (name, type_path): (String, Option<String>),
+    ) {
         let id = SymbolId(self.symbol_count);
         if let Some(&block) = self.blocks.last() {
             self.locals.push(Local {
@@ -549,9 +637,11 @@ impl<'a> Emitter<'a> {
                 block,
                 name: name.clone(),
                 kind: LocalKind::ValueSymbol(id),
+                type_path: type_path.clone(),
             });
         }
-        let symbol = self.declared(kind, spec, (None, name));
+        let mut symbol = self.declared(kind, spec, (None, name));
+        symbol.value_types = type_path.into_iter().collect();
         self.push_symbol(symbol);
 
         let first_of_spec = self

@@ -206,7 +206,8 @@ pub struct Symbol {
     /// The types of the values the definition yields, each a type path as
     /// [`Receivers::TypePaths`](crate::Receivers::TypePaths) spells one, read in the scope of the definition's file: a
     /// variable's or a field's type, a function's results in order, an empty path for one the language cannot name,
-    /// and the type an alias names. Empty where the language records none.
+    /// and the type an alias names. Empty where the language records none, and for a function none of whose results
+    /// has a path, since an absent result reads as an empty path does.
     pub value_types: Vec<String>,
     /// What the symbol is for besides its kind.
     pub flags: SymbolFlags,
