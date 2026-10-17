@@ -36,9 +36,11 @@ const LONGEST: Duration = Duration::from_millis(500);
 ///
 /// On Linux each directory the index holds is watched through inotify, one watch a directory, and each directory made
 /// later is watched as its creation is seen, before the refresh that names it walks it. A directory the ignore rules
-/// hide is therefore never watched unless it is made after the start. On macOS the root is watched through `FSEvents`
-/// and on Windows through `ReadDirectoryChangesW`, both of which cover the whole tree, ignored parts included; a
-/// refresh of an ignored path changes nothing and costs no pass over the index.
+/// hide is therefore never watched unless it is made after the start, and a directory named `.git` or in
+/// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names) is never watched. On macOS the root is watched
+/// through `FSEvents` and on Windows through `ReadDirectoryChangesW`, both of which cover the whole tree, ignored and
+/// pruned parts included; a refresh of an ignored or pruned path changes nothing and costs no pass over the index,
+/// except that a changed `.gitignore` under a pruned name re-walks the directory whose rules it holds.
 ///
 /// A change made before the watcher starts is not reported, so a caller that builds and then watches refreshes once
 /// more if the tree may have changed in between. When the operating system drops changes it could not deliver,
@@ -151,7 +153,7 @@ impl Changes {
     /// The root-relative forward-slash paths that changed, each once, for [`Index::refresh_paths`]: the empty path, the
     /// whole tree, when [`Changes::lost`].
     ///
-    /// A path is named as the operating system reported it, so it may be ignored, or inside `.git`, or gone again;
+    /// A path is named as the operating system reported it, so it may be ignored, pruned, inside `.git`, or gone again;
     /// [`Index::refresh_paths`] skips or widens each as it does any path. A name that is not valid UTF-8 is named by the
     /// directory that holds it.
     pub fn paths(&self) -> impl ExactSizeIterator<Item = &str> + Clone {

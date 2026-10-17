@@ -11,8 +11,8 @@ use kartta_walk::EntryKind;
 
 use super::{Found, WatchError};
 use crate::index::Index;
-use crate::policy::names_match;
-use crate::rules::DOT_GIT;
+use crate::policy::pruned;
+use crate::pruned::PrunedNames;
 
 // constraint: no access events, so the reads of a refresh raise none; a write is seen at every write and at the close
 const MASK: u32 = libc::IN_CREATE
@@ -33,7 +33,9 @@ const HEADER: usize = size_of::<libc::inotify_event>();
 pub(super) struct Backend {
     fd: OwnedFd,
     root: PathBuf,
+    pruned_names: PrunedNames,
     dirs: HashMap<i32, PathBuf>,
+    moved_from: Option<(u32, PathBuf)>,
     buffer: Box<[u8]>,
 }
 
@@ -51,7 +53,9 @@ impl Backend {
         let mut backend = Self {
             fd,
             root: root.clone(),
+            pruned_names: index.pruned_names().clone(),
             dirs: HashMap::new(),
+            moved_from: None,
             buffer: vec![0; 64 * 1024].into_boxed_slice(),
         };
 
@@ -171,14 +175,50 @@ impl Backend {
                 continue;
             }
 
-            let path = dir.join(OsStr::from_bytes(name));
-            if event.mask & libc::IN_ISDIR != 0
-                && event.mask & (libc::IN_CREATE | libc::IN_MOVED_TO) != 0
-            {
+            let name = OsStr::from_bytes(name);
+            let path = dir.join(name);
+            let pruned = prunes(name, &self.pruned_names);
+            if event.mask & libc::IN_ISDIR != 0 && self.follows(&event, &path, pruned) {
                 made.push(path.clone());
             }
             found.paths.push(path);
         }
+    }
+
+    // constraint: a rename raises IN_MOVED_FROM and then IN_MOVED_TO under one cookie, and the watches inside the moved
+    // directory keep the path it had until a follow of the new name re-points them; a pruned name is never followed, so
+    // its watches are dropped instead of reporting changes under the old name
+    fn follows(&mut self, event: &libc::inotify_event, path: &Path, pruned: bool) -> bool {
+        if event.mask & libc::IN_MOVED_FROM != 0 {
+            self.moved_from = Some((event.cookie, path.to_path_buf()));
+        }
+        if event.mask & (libc::IN_CREATE | libc::IN_MOVED_TO) == 0 {
+            return false;
+        }
+        if !pruned {
+            return true;
+        }
+        if event.mask & libc::IN_MOVED_TO != 0
+            && let Some((_, from)) = self
+                .moved_from
+                .take_if(|(cookie, _)| *cookie == event.cookie)
+        {
+            self.unwatch_below(&from);
+        }
+        false
+    }
+
+    fn unwatch_below(&mut self, dir: &Path) {
+        let fd = self.fd.as_raw_fd();
+        self.dirs.retain(|&wd, path| {
+            let below = path.starts_with(dir);
+            if below {
+                // SAFETY: the descriptor is this backend's own, and the kernel refuses a watch it no longer holds
+                // without changing anything.
+                unsafe { libc::inotify_rm_watch(fd, wd) };
+            }
+            !below
+        });
     }
 
     // constraint: whatever is made in a new directory before its watch is added raises no event, so the watch goes on
@@ -187,7 +227,7 @@ impl Backend {
         let mut pending = vec![dir];
         while let Some(dir) = pending.pop() {
             match self.add(&dir) {
-                Ok(()) => pending.extend(subdirs(&dir)),
+                Ok(()) => pending.extend(subdirs(&dir, &self.pruned_names)),
                 Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => {
                     return Err(WatchError::Limit {
                         watched: self.dirs.len(),
@@ -218,19 +258,18 @@ fn dirs_from(index: &Index, from: usize) -> usize {
         .count()
 }
 
-fn subdirs(dir: &Path) -> impl Iterator<Item = PathBuf> {
+fn subdirs(dir: &Path, pruned_names: &PrunedNames) -> impl Iterator<Item = PathBuf> {
     fs::read_dir(dir)
         .into_iter()
         .flatten()
         .flatten()
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .filter(|entry| {
-            !entry
-                .file_name()
-                .to_str()
-                .is_some_and(|name| names_match(name, DOT_GIT))
-        })
+        .filter(|entry| !prunes(&entry.file_name(), pruned_names))
         .map(|entry| entry.path())
+}
+
+fn prunes(name: &OsStr, pruned_names: &PrunedNames) -> bool {
+    name.to_str().is_some_and(|name| pruned(name, pruned_names))
 }
 
 fn gone(error: &io::Error) -> bool {

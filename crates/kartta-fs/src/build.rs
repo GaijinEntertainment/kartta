@@ -6,6 +6,7 @@ use kartta_walk::WalkError;
 
 use crate::binary::BinaryExtensions;
 use crate::content_index::ContentIndexStorage;
+use crate::pruned::PrunedNames;
 
 /// Which of git's ignore sources a build honours.
 ///
@@ -36,7 +37,8 @@ use crate::content_index::ContentIndexStorage;
 pub enum IgnoreSources {
     /// No ignore rules at all: every entry under the root is indexed, `.gitignore` files included.
     ///
-    /// `.git` itself is still skipped — that is a repository boundary rather than an ignore rule.
+    /// `.git` itself is still skipped — that is a repository boundary rather than an ignore rule — and so is every
+    /// name in [`BuildOptions::pruned_names`], which the walk prunes before any rule is consulted.
     None,
     /// The `.gitignore` files found inside the tree, and nothing else. The same tree indexes identically on any
     /// machine.
@@ -62,6 +64,14 @@ pub enum IgnoreSources {
 pub struct BuildOptions {
     /// Which ignore sources apply. Defaults to the reproducible [`IgnoreSources::InTree`].
     pub ignore_sources: IgnoreSources,
+    /// The entry names the build neither indexes nor descends. Defaults to [`PrunedNames::builtin`], the clutter
+    /// editors and the operating system leave in a tree.
+    ///
+    /// A name is pruned before any ignore rule is consulted, so no `.gitignore` negation brings it back and
+    /// [`IgnoreSources::None`] prunes it too. While ignore rules apply, a pruned `.gitignore` still applies its rules,
+    /// as an ignored one does. `.git` is pruned whatever the set holds. A refresh prunes the names the build was given,
+    /// and so does a `Watcher` on Linux, which watches no directory they name.
+    pub pruned_names: PrunedNames,
     /// How many threads the index runs on — the walk that builds it, the reads during that walk, and every parallel
     /// search after. `None` runs on the ambient rayon pool, which takes every core the machine reports unless the
     /// process configured it otherwise.

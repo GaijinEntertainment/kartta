@@ -40,8 +40,9 @@ impl Index {
     ///   their rules govern everything below that directory;
     /// - to the whole tree, when it widens to the root, which makes this [`Index::refresh`].
     ///
-    /// A path inside a `.git` directory names nothing the index holds and is skipped, as is a `.git` at the root, and a
-    /// `.git` anywhere when no ignore rules apply.
+    /// A path inside a `.git` directory names nothing the index holds and is skipped, as is a `.git` at the root, a
+    /// `.git` anywhere when no ignore rules apply, and a path through a name in
+    /// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names).
     ///
     /// While ignore rules apply, the rules for a part walked again come from the `.gitignore` files of the directories
     /// above it, read again once a call for each such directory, at two stats a directory and a third with the read of
@@ -139,6 +140,9 @@ impl Index {
                 .is_some_and(|part| names_match(part, GITIGNORE))
         {
             parts.pop();
+        }
+        if parts.iter().any(|part| self.pruned_names.matches(part)) {
+            return Ok(None);
         }
 
         let mut scope = parts.join("/");

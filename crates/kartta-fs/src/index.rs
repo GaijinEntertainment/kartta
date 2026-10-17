@@ -22,6 +22,7 @@ use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::inspection::Inspection;
 use crate::policy::{Collected, DirState, Indexing, Learned, Numbering, Payload, Reading, Report};
+use crate::pruned::PrunedNames;
 use crate::requirement::Requirement;
 use crate::stamp::{Stamp, Stamping, UNTRUSTED};
 
@@ -80,6 +81,7 @@ pub struct Index {
     symlink_targets: Vec<(usize, Box<str>)>,
     inspection: Inspection,
     ignore_sources: IgnoreSources,
+    pruned_names: PrunedNames,
     binary_extensions: BinaryExtensions,
     first_content_id: u32,
     next_content_id: u32,
@@ -196,6 +198,7 @@ impl Index {
     fn rebuild_options(&self) -> BuildOptions {
         BuildOptions {
             ignore_sources: self.ignore_sources,
+            pruned_names: self.pruned_names.clone(),
             threads: None,
             binary_extensions: self.binary_extensions.clone(),
             content_index: self.content_storage.clone(),
@@ -300,6 +303,7 @@ impl Index {
         let base = Base {
             root: root.to_path_buf(),
             ignore_sources: options.ignore_sources,
+            pruned_names: options.pruned_names.clone(),
             binary_extensions: options.binary_extensions.clone(),
             content_storage: options.content_index.clone(),
             content_cache: options.content_cache.clone(),
@@ -388,6 +392,7 @@ impl Index {
         let Base {
             root,
             ignore_sources,
+            pruned_names,
             binary_extensions,
             content_storage,
             content_cache,
@@ -442,6 +447,7 @@ impl Index {
             kinds,
             symlink_targets,
             ignore_sources,
+            pruned_names,
             binary_extensions,
             first_content_id: placed.floor,
             next_content_id,
@@ -639,6 +645,17 @@ impl Index {
         &self.binary_extensions
     }
 
+    #[cfg_attr(
+        not(all(feature = "watch", target_os = "linux")),
+        expect(
+            dead_code,
+            reason = "only the inotify watcher prunes by name outside the walk"
+        )
+    )]
+    pub(crate) const fn pruned_names(&self) -> &PrunedNames {
+        &self.pruned_names
+    }
+
     fn entry_with(&self, at: usize, path: Box<str>) -> Entry<'_> {
         let kind = self.kind_at(at);
         let target = (kind == EntryKind::Symlink)
@@ -679,8 +696,8 @@ impl Index {
 
     /// The entry at this root-relative forward-slash path, or `None` if nothing was indexed there.
     ///
-    /// `None` does not mean the path does not exist: an ignored file, a file below an unreadable directory and a file
-    /// created after the walk all answer the same way.
+    /// `None` does not mean the path does not exist: an ignored file, a file under a pruned name, a file below an
+    /// unreadable directory and a file created after the walk all answer the same way.
     #[must_use]
     pub fn entry(&self, path: &str) -> Option<Entry<'_>> {
         Some(self.entry_with(self.position(path)?, path.into()))
@@ -976,6 +993,7 @@ const fn stored_from(at: usize, shared: usize) -> usize {
 struct Base {
     root: PathBuf,
     ignore_sources: IgnoreSources,
+    pruned_names: PrunedNames,
     binary_extensions: BinaryExtensions,
     content_storage: Option<ContentIndexStorage>,
     content_cache: Option<PathBuf>,
@@ -1230,7 +1248,7 @@ fn indexing<'a>(
         Reading::new(visitor, collector, &options.binary_extensions, numbering).with_cache(cache)
     });
 
-    let indexing = Indexing::new(options.ignore_sources, root, reading);
+    let indexing = Indexing::new(options.ignore_sources, &options.pruned_names, root, reading);
     if let Some(error) = unopened {
         indexing.record(error);
     }
@@ -1504,6 +1522,7 @@ mod tests {
             symlink_targets: Vec::new(),
             inspection: Inspection::new(entries.len()),
             ignore_sources: IgnoreSources::default(),
+            pruned_names: PrunedNames::default(),
             binary_extensions: BinaryExtensions::default(),
             first_content_id: 0,
             next_content_id: 0,

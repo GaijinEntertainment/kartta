@@ -201,8 +201,9 @@ impl<'a> Listed<'a> {
 pub enum ListError {
     /// Nothing is indexed at the path.
     ///
-    /// Which is not the same as nothing being there: an ignored directory, a directory below one that would not read,
-    /// and a directory created after the walk all answer this way, exactly as they do through [`Index::entry`].
+    /// Which is not the same as nothing being there: an ignored directory, a pruned one, a directory below one that
+    /// would not read, and a directory created after the walk all answer this way, exactly as they do through
+    /// [`Index::entry`].
     #[error("nothing is indexed at {path:?}")]
     NotFound {
         /// The path that was asked for.

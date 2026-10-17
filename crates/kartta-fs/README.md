@@ -68,6 +68,17 @@ describes. A `.git` found deeper marks another repository's root, and the inheri
 git's own rules stop at a repository boundary — its contents are still indexed, because this crate indexes a directory
 tree rather than a git index.
 
+`BuildOptions::pruned_names` names what else is never indexed and never descended: the clutter an editor or the
+operating system leaves in a tree. The default is `.idea`, `.vscode`, `.fleet` and `.DS_Store`; a caller composes its
+own `PrunedNames` from that set and its own names by union and difference, or prunes nothing beyond `.git` with
+`PrunedNames::none`. An entry so named is pruned at any depth and whatever its kind, before any ignore rule is
+consulted, so no negation brings it back and `IgnoreSources::None` keeps it out too. While ignore rules apply,
+a pruned `.gitignore` still applies its rules, as an ignored one does, so changing it refreshes its directory; a
+refresh prunes the names the build was given, and the Linux watcher watches no directory they name. `.git` is not in
+the set, because it marks where a repository's rules start rather than clutter a caller may want back. A misspelled
+name needs no report: what it was meant to prune is in the index for anyone to see, unless the ignore rules hide it
+too.
+
 `BuildOptions::ignore_sources` selects which ignore files apply, and the default is the reproducible level: in-tree
 `.gitignore` files only, which is the level at which the same tree indexes identically wherever it sits. Sources outside
 the tree — `$GIT_DIR/info/exclude`, `core.excludesFile`, the XDG fallback — are machine-local, so honouring one gives
