@@ -9,15 +9,17 @@
 
 use std::fmt::Write as _;
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use kartta::{
-    BuildError, BuildOptions, CancelToken, Definitions, Engine, Extraction, Language, Limits,
-    RawExtraction, Region, Repository, Resolver, Symbol, SymbolKind,
+    BuildError, BuildOptions, CancelToken, Definitions, Engine, Extraction, Language, Limits, Miss,
+    RawExtraction, Region, Repository, Resolver, Symbol, SymbolKind, confidence,
 };
 use kartta_fs::{Content, ContentVisitor, Index, Namespace};
+use kartta_lang::{CallRef, SymbolId};
 use tempfile::TempDir;
 
 #[derive(Debug)]
@@ -60,10 +62,19 @@ impl Language for Defs {
         self.extracted.fetch_add(1, Ordering::Relaxed);
         let mut raw = RawExtraction::default();
         for (at, line) in String::from_utf8_lossy(source).lines().enumerate() {
+            let number = u32::try_from(at + 1).unwrap_or(u32::MAX);
             if let Some(name) = line.strip_prefix("def ") {
-                let line = u32::try_from(at + 1).unwrap_or(u32::MAX);
                 raw.symbols
-                    .push(Symbol::new(name, SymbolKind::Function, line, line));
+                    .push(Symbol::new(name, SymbolKind::Function, number, number));
+            } else if let Some(callee) = line.strip_prefix("call ")
+                && let Some(caller) = raw.symbols.len().checked_sub(1)
+            {
+                raw.calls.push(CallRef {
+                    caller_id: SymbolId(u32::try_from(caller).unwrap_or(u32::MAX)),
+                    callee: callee.to_owned(),
+                    receiver: None,
+                    line: number,
+                });
             }
         }
         raw
@@ -420,6 +431,41 @@ fn the_stats_count_the_files_each_language_claimed_read_took_from_the_cache_and_
         .map(|(family, graph)| (*family, graph.files, graph.symbols))
         .collect();
     assert_eq!(families, [("defs", 3, 3)]);
+}
+
+#[test]
+fn every_family_s_call_sites_resolve_on_the_index_s_threads() {
+    let tree = tree(&[
+        ("a.defs", "def main\ncall parse\ncall printf\n"),
+        ("b.defs", "def parse\n"),
+        ("c.other", "def solo\ncall absent\n"),
+    ]);
+    let mut options = BuildOptions::default();
+    options.threads = NonZeroUsize::new(2);
+    let engine = build(
+        tree.path(),
+        &options,
+        vec![
+            Box::new(Defs::new("defs", "defs", ".defs")),
+            Box::new(Defs::new("other", "other", ".other")),
+        ],
+    );
+
+    let resolution = engine.resolution(1);
+
+    let families: Vec<&str> = resolution.iter().map(|(family, _)| *family).collect();
+    assert_eq!(families, ["defs", "other"]);
+    let (defs, other) = (&resolution[0].1, &resolution[1].1);
+    assert_eq!(
+        (defs.sites, defs.bound.as_slice()),
+        (2, &[(confidence::UNIQUE, 1)][..])
+    );
+    assert_eq!(
+        (defs.unbound[0].callee, defs.unbound[0].miss),
+        ("printf", Miss::Undefined)
+    );
+    assert_eq!((other.sites, other.misses.undefined), (1, 1));
+    assert_eq!(other.unbound[0].caller.name, "solo");
 }
 
 #[test]

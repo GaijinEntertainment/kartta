@@ -18,6 +18,6 @@ that reads each claimed text file once — twice only for a file whose extractio
 build cannot read, or one a language's resolver asks for again, as configuration it reads. Each graph answers callers,
 callees, references and call paths, resolving calls when a query asks, the files that include a file, the implementors
 of a type and what a change to a range of a file's lines reaches, and searches definitions by the words of their names
-and paths; the engine answers what a change to regions across families reaches, and how many files each language
-claimed, how many of them the walk read, the cache held and the graph holds. The first release with a public surface
-will be `0.1.0`.
+and paths; the engine answers what a change to regions across families reaches, how many files each language claimed,
+how many of them the walk read, the cache held and the graph holds, and how every call site of each family binds,
+resolved on the index's threads. The first release with a public surface will be `0.1.0`.
