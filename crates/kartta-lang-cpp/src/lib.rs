@@ -66,9 +66,11 @@
 //! `#include MACRO` records nothing. A `./` or `../` specifier names a file from the including file's directory, and a
 //! quoted one names a file in that directory first. A specifier then names the file at its own path, else the one file
 //! whose path ends in it at a `/`, else the one file of its last component's name, else the first of the specifier
-//! with `.h`, `.hpp`, `.c`, `.cpp` or `.cc` added. Two files that end in the specifier name neither: a missing include
-//! is better than a wrong one. A file sees what the files it includes include in turn, as the preprocessor pastes them
-//! in, so its includes are [`IncludeReach::Transitive`].
+//! with `.h`, `.hpp`, `.c`, `.cpp` or `.cc` added. Of several files that end in the specifier, the one whose root, its
+//! path less the specifier, holds the including file is named, the deepest root where roots nest, as a file of one
+//! vendored copy of a library reaches its own copy; where no root holds the including file, none is named, since a
+//! missing include is better than a wrong one. A file sees what the files it includes include in turn, as the
+//! preprocessor pastes them in, so its includes are [`IncludeReach::Transitive`].
 //!
 //! The resolver also flags a file's symbols by its path: as test code under a `test`, `tests`, `unittest` or
 //! `unittests` directory or with a name ending in `Test`, `_test` or `_unittest` or starting with `test_`, and as
