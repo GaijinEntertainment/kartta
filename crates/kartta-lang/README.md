@@ -21,9 +21,9 @@ extraction is stored in, so a new version of a language or of this crate never r
 
 ## Call conventions
 
-How a bare call resolves differs between languages — C++ looks in the caller's class first and sees what its includes
-include, Go never reaches a method without a receiver — and the graph cannot infer it from the extractions. A language
-states it in `Conventions`.
+How a call resolves differs between languages — C++ looks in the caller's class first, sees what its includes include
+and guesses no nearby member for a call on a value, Go never reaches a method without a receiver — and the graph cannot
+infer it from the extractions. A language states it in `Conventions`.
 
 ## Doc comments
 
