@@ -12,8 +12,10 @@ struct DeclaredName {
 }
 
 pub(super) fn function_symbol(node: Node<'_>, source: &[u8]) -> Option<Symbol> {
-    let DeclaredName { name, scope } =
-        declared_name(real_function_declarator(node, source)?, source)?;
+    let DeclaredName { name, scope } = match conversion_operator(node, source) {
+        Some(declared) => declared,
+        None => declared_name(real_function_declarator(node, source)?, source)?,
+    };
 
     let mut symbol = exported_symbol(name, SymbolKind::Function, node);
     if let Some(scope) = scope {
@@ -23,6 +25,37 @@ pub(super) fn function_symbol(node: Node<'_>, source: &[u8]) -> Option<Symbol> {
     }
     symbol.signature = signature(node, source);
     Some(symbol)
+}
+
+// constraint: a conversion operator, `operator bool() const`, has no function declarator of its own: the grammar
+// gives it an `operator_cast` that holds the target type and an abstract declarator of its parameters
+fn conversion_operator(node: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
+    let declarator = node.child_by_field_name("declarator")?;
+    let (cast, scope) = match declarator.kind() {
+        "operator_cast" => (declarator, None),
+        "qualified_identifier" => match qualified_terminal(declarator) {
+            (Some(terminal), scope) if terminal.kind() == "operator_cast" => (terminal, scope),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let mut abstract_declarator = cast.child_by_field_name("declarator")?;
+    while abstract_declarator.kind() != "abstract_function_declarator" {
+        let outer = abstract_declarator;
+        abstract_declarator = outer.child_by_field_name("declarator").or_else(|| {
+            children(outer)
+                .filter_map(|index| outer.child(index))
+                .find(|child| child.kind().starts_with("abstract_"))
+        })?;
+    }
+    let parameters = abstract_declarator.child_by_field_name("parameters")?;
+    let written = String::from_utf8_lossy(&source[cast.start_byte()..parameters.start_byte()]);
+    Some(DeclaredName {
+        name: sanitize_name(&written),
+        scope: scope
+            .map(|scope| type_base_name(scope, source))
+            .filter(|scope| is_simple_identifier(scope)),
+    })
 }
 
 fn declared_name(function: Node<'_>, source: &[u8]) -> Option<DeclaredName> {

@@ -1213,6 +1213,38 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
+    fn a_conversion_operator_is_a_member() {
+        let raw = extract(
+            b"struct Conv { operator bool() const { return true; } explicit operator int() const;\n\
+              operator const char *() const; };\nConv::operator int() const { return 0; }\n\
+              template <class T> Wrap<T>::operator T&() { return v; }\n",
+        );
+
+        let members: Vec<(&str, Option<&str>, bool)> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.kind == SymbolKind::Method)
+            .map(|symbol| {
+                (
+                    symbol.qualified_name.as_str(),
+                    symbol.owner.as_deref(),
+                    symbol.flags.is_entry(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            members,
+            [
+                ("Conv::operator bool", Some("Conv"), true),
+                ("Conv::operator int", Some("Conv"), true),
+                ("Wrap::operator T&", Some("Wrap"), true),
+                ("Conv::operator int", Some("Conv"), true),
+                ("Conv::operator const char *", Some("Conv"), true),
+            ]
+        );
+    }
+
+    #[test]
     fn a_template_parameter_is_not_a_callee() {
         let raw = extract(
             b"template <class Compare, typename T = int, typename... Rest, auto F>\n\
