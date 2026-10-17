@@ -195,3 +195,21 @@ pub(super) fn is_macro_invocation(node: Node<'_>, symbol: &Symbol) -> bool {
             || symbol.name.starts_with("operator"))
     })
 }
+
+/// The scope a function's declarator writes before its name where it holds more than one name, each by its base
+/// name: `A::N` of `void A::N::f() {}`.
+pub(super) fn nested_scope(node: Node<'_>, source: &[u8]) -> Option<String> {
+    let name = real_function_declarator(node, source)?.child_by_field_name("declarator")?;
+    let scopes = std::iter::successors(Some(name), |qualified| {
+        qualified.child_by_field_name("name")
+    })
+    .take_while(|qualified| qualified.kind() == "qualified_identifier")
+    .filter_map(|qualified| qualified.child_by_field_name("scope"));
+    scopes.clone().nth(1)?;
+    Some(
+        scopes
+            .map(|scope| type_base_name(scope, source))
+            .collect::<Vec<_>>()
+            .join("::"),
+    )
+}
