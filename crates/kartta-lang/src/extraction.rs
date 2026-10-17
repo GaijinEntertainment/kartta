@@ -226,8 +226,9 @@ pub struct ImportBinding {
     pub alias: Option<String>,
     /// The imported module's root-relative directory, or `None` when it lies outside the repository.
     pub target_dir: Option<String>,
-    /// The specifier's last path segment: the name the import binds when no alias is written and the module's declared
-    /// name is unknown.
+    /// The name the import binds when no alias is written and the module's declared name is unknown: the specifier's
+    /// last path segment, or the segment before it where the language's convention skips a version suffix, `yaml` for
+    /// Go's `gopkg.in/yaml.v3`.
     pub last_segment: String,
 }
 
