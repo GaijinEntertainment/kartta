@@ -50,5 +50,10 @@ when another file changes.
   for. A written parent names the type its language's scopes reach: a type of its package directory or of the
   directory its import binds where a package is a directory, the type its owner chain or its enclosing scopes reach
   first where a language has them, else the type of that name nearest the file.
+- `Graph::analyze_segment` — the symbols a range of a file's lines overlaps, each with its direct callers and callees,
+  at most 50 of each listed and all of them counted, and the blast of a change to it: the callers a walk over its
+  callers reaches by depth, the files they and the file's includers sit in, and a reach band, counting what the cap,
+  the depth bound and the floor left out; `None` for a file the graph does not hold. Each name's call sites are
+  resolved once for the whole segment.
 
 Status: the API is new and is not published yet.

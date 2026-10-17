@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::collections::VecDeque;
 use std::hash::Hash;
@@ -159,18 +160,29 @@ pub struct CallPath<'g> {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Edge {
-    far: SymbolAt,
-    confidence: u8,
-    line: u32,
+pub(crate) struct Edge {
+    pub(crate) far: SymbolAt,
+    pub(crate) confidence: u8,
+    pub(crate) line: u32,
+}
+
+impl Edge {
+    pub(crate) fn reached(self, graph: &Graph, depth: u32) -> Reached<'_> {
+        Reached {
+            symbol: graph.definition_at(self.far),
+            depth,
+            confidence: self.confidence,
+            line: self.line,
+        }
+    }
 }
 
 #[derive(Default)]
-struct LeftOut {
-    truncated: bool,
-    turned_away: usize,
-    unexpanded: usize,
-    below_confidence: usize,
+pub(crate) struct LeftOut {
+    pub(crate) truncated: bool,
+    pub(crate) turned_away: usize,
+    pub(crate) unexpanded: usize,
+    pub(crate) below_confidence: usize,
 }
 
 fn keep_stronger<K: Eq + Hash>(strongest: &mut HashMap<K, Edge, FixedState>, key: K, edge: Edge) {
@@ -207,7 +219,7 @@ impl Graph {
     pub fn callees(&self, name: &str, limits: Limits) -> Option<Walk<'_>> {
         let mut calls = Calls::new(self);
         let root = calls.select(name, Calls::caller_count)?;
-        let mut walk = calls.walk(root, limits, Calls::callees_of);
+        let mut walk = calls.walk(root, limits, Calls::walked_callees);
         walk.passed_over = calls.passed_over(name, root);
         Some(walk)
     }
@@ -302,7 +314,7 @@ fn edges_of(held: &HashMap<SymbolAt, Vec<Edge>, FixedState>, at: SymbolAt) -> &[
 
 type Rank<'g> = fn(&mut Calls<'g>, SymbolAt) -> usize;
 
-type EdgesOf<'g> = fn(&mut Calls<'g>, SymbolAt) -> Vec<Edge>;
+pub(crate) type EdgesOf<'g> = for<'c> fn(&'c mut Calls<'g>, SymbolAt) -> Cow<'c, [Edge]>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wanted {
@@ -310,7 +322,7 @@ enum Wanted {
     Referents,
 }
 
-struct Calls<'g> {
+pub(crate) struct Calls<'g> {
     graph: &'g Graph,
     cascade: Cascade<'g>,
     wanted: Wanted,
@@ -322,8 +334,16 @@ struct Calls<'g> {
 }
 
 impl<'g> Calls<'g> {
-    fn new(graph: &'g Graph) -> Self {
+    pub(crate) fn new(graph: &'g Graph) -> Self {
         Self::wanting(graph, Wanted::Callables)
+    }
+
+    pub(crate) fn canonical(&self, at: SymbolAt) -> SymbolAt {
+        self.cascade.canonical(at)
+    }
+
+    pub(crate) const fn unresolved(&self) -> usize {
+        self.unresolved
     }
 
     fn wanting(graph: &'g Graph, wanted: Wanted) -> Self {
@@ -435,9 +455,13 @@ impl<'g> Calls<'g> {
         sites
     }
 
-    fn callers_of(&mut self, target: SymbolAt) -> Vec<Edge> {
+    pub(crate) fn callers_of(&mut self, target: SymbolAt) -> Cow<'_, [Edge]> {
+        Cow::Borrowed(self.caller_edges(target))
+    }
+
+    pub(crate) fn caller_edges(&mut self, target: SymbolAt) -> &[Edge] {
         self.resolve_callers(self.graph.sym(target).name);
-        self.callers.get(&target).cloned().unwrap_or_default()
+        edges_of(&self.callers, target)
     }
 
     fn caller_count(&mut self, target: SymbolAt) -> usize {
@@ -481,7 +505,7 @@ impl<'g> Calls<'g> {
         }
     }
 
-    fn callees_of(&mut self, body: SymbolAt) -> Vec<Edge> {
+    pub(crate) fn callees_of(&mut self, body: SymbolAt) -> Vec<Edge> {
         let file = self.graph.file(body.file);
         let sites = file
             .calls_by(body.index)
@@ -510,6 +534,10 @@ impl<'g> Calls<'g> {
         let mut edges: Vec<Edge> = strongest.into_values().collect();
         self.sort(&mut edges);
         edges
+    }
+
+    fn walked_callees(&mut self, body: SymbolAt) -> Cow<'_, [Edge]> {
+        Cow::Owned(self.callees_of(body))
     }
 
     fn site_count(&mut self, target: SymbolAt) -> usize {
@@ -555,12 +583,7 @@ impl<'g> Calls<'g> {
         let graph = self.graph;
         let mut reached = Vec::new();
         let left_out = self.reach(WalkState::new(root, limits), edges_of, |edge, depth| {
-            reached.push(Reached {
-                symbol: graph.definition_at(edge.far),
-                depth,
-                confidence: edge.confidence,
-                line: edge.line,
-            });
+            reached.push(edge.reached(graph, depth));
         });
         Walk {
             root: graph.definition_at(root),
@@ -574,7 +597,7 @@ impl<'g> Calls<'g> {
         }
     }
 
-    fn reach(
+    pub(crate) fn reach(
         &mut self,
         mut state: WalkState,
         edges_of: EdgesOf<'g>,
@@ -587,7 +610,7 @@ impl<'g> Calls<'g> {
                 continue;
             }
             let edges = edges_of(self, self.cascade.canonical(current));
-            state.take(edges, depth + 1, &mut visit);
+            state.take(&edges, depth + 1, &mut visit);
             if state.left_out.truncated {
                 state.left_out.unexpanded += state.queue.len();
                 break;
@@ -639,7 +662,7 @@ impl<'g> Calls<'g> {
     }
 }
 
-struct WalkState {
+pub(crate) struct WalkState {
     limits: Limits,
     left_out: LeftOut,
     visited: HashMap<SymbolAt, u32, FixedState>,
@@ -647,7 +670,7 @@ struct WalkState {
 }
 
 impl WalkState {
-    fn new(root: SymbolAt, limits: Limits) -> Self {
+    pub(crate) fn new(root: SymbolAt, limits: Limits) -> Self {
         let mut visited = HashMap::with_hasher(FixedState::default());
         visited.insert(root, 0);
         Self {
@@ -658,8 +681,8 @@ impl WalkState {
         }
     }
 
-    fn take(&mut self, edges: Vec<Edge>, depth: u32, visit: &mut impl FnMut(Edge, u32)) {
-        for edge in edges {
+    fn take(&mut self, edges: &[Edge], depth: u32, visit: &mut impl FnMut(Edge, u32)) {
+        for &edge in edges {
             if self.visited.contains_key(&edge.far) {
                 continue;
             }
