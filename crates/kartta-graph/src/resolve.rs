@@ -9,7 +9,7 @@ use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
 use crate::confidence;
 use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind};
 use crate::resolution::Miss;
-use crate::scope::{Ancestors, Reach, Scoped};
+use crate::scope::{Ancestors, Reach, Scoped, is_value};
 use crate::stored::{Entry, Site, SymbolAt};
 use crate::strings::Str;
 
@@ -122,9 +122,7 @@ impl<'g> Cascade<'g> {
     }
 
     pub(crate) const fn is_call_target(&self, kind: SymbolKind) -> bool {
-        is_call_target_kind(kind)
-            && (self.conventions.values_are_call_targets
-                || !matches!(kind, SymbolKind::Variable | SymbolKind::Constant))
+        is_call_target_kind(kind) && (self.conventions.values_are_call_targets || !is_value(kind))
     }
 
     pub(crate) fn named(&self, name: Str) -> &'g [SymbolAt] {

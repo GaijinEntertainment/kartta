@@ -18,10 +18,11 @@ Names are interned once per graph.
 A file keeps its call sites and uses as its language wrote them, and a query resolves the sites of the name it asks
 about. A call goes through a confidence-ranked cascade: the owner a receiver names, the caller's own scope, its
 imports, its package, its includes and the re-export chains through them, the caller's own owner, the one callable of
-the name, and the callables nearest the caller. A use outside a call binds more narrowly: through the import its
-qualifier names, else a package-level definition of its own file, of a dot import, or of its package directory. Each
-tier's confidence is a constant of `kartta_graph::confidence`. No edge is stored, so nothing a file holds goes stale
-when another file changes.
+the name, and the callables nearest the caller. A member call, `x.f()`, binds a free function only where its language's
+conventions let one stand for what a value holds, and never a free variable or constant, whose name no property of a
+value reads. A use outside a call binds more narrowly: through the import its qualifier names, else a package-level
+definition of its own file, of a dot import, or of its package directory. Each tier's confidence is a constant of
+`kartta_graph::confidence`. No edge is stored, so nothing a file holds goes stale when another file changes.
 
 ## Answers
 

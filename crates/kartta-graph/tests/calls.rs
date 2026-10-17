@@ -1068,6 +1068,51 @@ fn a_member_call_binds_a_free_function_its_file_defines_or_the_one_of_its_name()
 }
 
 #[test]
+fn a_member_call_binds_no_free_value_and_a_bare_call_still_does() {
+    let calling = |site: CallRef, elsewhere: SymbolKind| {
+        callees(
+            &graph(&[
+                file(
+                    "a/x.js",
+                    vec![
+                        function("run", 1),
+                        Symbol::new("now", SymbolKind::Variable, 5, 5),
+                    ],
+                    vec![site],
+                ),
+                file(
+                    "b/y.js",
+                    vec![Symbol::new("max", elsewhere, 1, 1)],
+                    Vec::new(),
+                ),
+            ]),
+            "run",
+        )
+    };
+
+    assert_eq!(
+        calling(member_call(0, "Date", "now", 2), SymbolKind::Constant),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        calling(member_call(0, "", "now", 2), SymbolKind::Constant),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        calling(member_call(0, "Math", "max", 2), SymbolKind::Constant),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        calling(member_call(0, "Math", "max", 2), SymbolKind::Function),
+        ["b/y.js:1@60"]
+    );
+    assert_eq!(
+        calling(call(0, "now", 2), SymbolKind::Constant),
+        ["a/x.js:5@80"]
+    );
+}
+
+#[test]
 fn several_callables_of_a_name_with_nothing_to_tell_them_apart_bind_nothing() {
     let graph = graph(&[
         file(
