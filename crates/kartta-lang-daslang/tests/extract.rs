@@ -749,3 +749,14 @@ fn an_annotation_after_an_arrow_bodied_or_abstract_def_opens_the_next_def() {
         Some("[unused_argument(dt)]\ndef update(dt : float)")
     );
 }
+
+#[test]
+fn a_def_an_annotation_registers_is_an_entry_point_and_a_compile_hint_registers_nothing() {
+    let raw = extract(
+        "options gen2\n[es(tag=gameClient), unused_argument(evt)]\ndef on_update(evt : Event) {\n  pass\n}\n\
+         [unused_argument(a), no_aot]\ndef tuned(a : int) {\n  pass\n}\ndef plain() {\n  pass\n}\n",
+    );
+    let entries = ["on_update", "tuned", "plain"].map(|name| named(&raw, name).flags.is_entry());
+
+    assert_eq!(entries, [true, false, false]);
+}

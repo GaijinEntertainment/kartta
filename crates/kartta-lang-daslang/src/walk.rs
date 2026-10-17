@@ -8,6 +8,40 @@ use crate::banner::is_generated_source;
 
 const REQUIRE_FORM: u32 = 0;
 
+// constraint: the function annotations daslang's runtime defines that only tune how a function compiles or what it
+// may do; any other annotation, its own `[export]`, `[init]` or `[run]` or a project's `[es]` or `[console_cmd]`,
+// registers the function with what calls it
+const COMPILE_HINTS: [&str; 28] = [
+    "alias_cmres",
+    "arch",
+    "cold_path",
+    "deprecated",
+    "generic",
+    "hint",
+    "hot_path",
+    "hybrid",
+    "inline",
+    "jit",
+    "local_only",
+    "never_alias_cmres",
+    "never_inline",
+    "no_alloc",
+    "no_aot",
+    "no_env",
+    "no_io",
+    "no_jit",
+    "no_lint",
+    "nodiscard",
+    "sideeffects",
+    "temp_string_result",
+    "unsafe_deref",
+    "unsafe_heap_collect",
+    "unsafe_operation",
+    "unsafe_outside_of_for",
+    "unsafe_when_not_clone_array",
+    "unused_argument",
+];
+
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     if !opts_into_gen2(tree.root_node(), source) {
         return RawExtraction::default();
@@ -208,6 +242,7 @@ impl<'a> Emitter<'a> {
         let mut symbol = self.declared(kind, node, (owner, name));
         symbol.exported = !is_private(node);
         symbol.signature = arrow_trimmed_signature(node, self.source);
+        symbol.flags = symbol.flags.with_entry(is_registered(node, self.source));
         let id = self.push_symbol(symbol);
         self.scopes.push(Scope {
             end: node.end_byte(),
@@ -518,6 +553,21 @@ fn has_child_token(node: Node<'_>, token: &str) -> bool {
 
 fn is_private(node: Node<'_>) -> bool {
     has_child_token(node, "private")
+}
+
+fn is_registered(function: Node<'_>, source: &[u8]) -> bool {
+    function
+        .child_by_field_name("annotations")
+        .is_some_and(|list| {
+            children(list)
+                .filter_map(|i| list.child(i))
+                .filter(|annotation| annotation.kind() == "annotation_declaration")
+                .filter_map(|annotation| annotation.child_by_field_name("name"))
+                .any(|name| {
+                    name.utf8_text(source)
+                        .is_ok_and(|name| !COMPILE_HINTS.contains(&name))
+                })
+        })
 }
 
 fn start_line(node: Node<'_>) -> u32 {
