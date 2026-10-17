@@ -36,7 +36,10 @@
 //! A file named `test_*`, `*_test` or `conftest`, or below a `test` or `tests` directory, is test code. A `*_pb2` or
 //! `*_pb2_grpc` file, or one with a `@generated` or `DO NOT EDIT` marker in the comments and module docstring that open
 //! it, outside a backtick span, is generated code. A `.pyi` stub takes the module name and the role of the `.py` source
-//! it describes. A free `def main` at module level is the entry point.
+//! it describes. A free `def main` at module level is an entry point, as is a method whose name opens and ends with
+//! `__`, the spelling Python keeps for the special methods it calls, `__init__` or `__eq__`, and a method that
+//! `property` or `cached_property` decorates or that an accessor of the property of its name does, `@size.setter` over
+//! `def size`: no call spells their names. The spelling is a heuristic, so a class's own `__custom__` is one too.
 //!
 //! # Fingerprint
 //!

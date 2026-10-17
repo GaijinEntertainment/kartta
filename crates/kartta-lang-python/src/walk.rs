@@ -340,12 +340,17 @@ impl<'a> Emitter<'a> {
         id
     }
 
-    // constraint: only a free `def main` directly at module level is the entry point, the one a script runs under
-    // `if __name__ == "__main__":`; a method or a nested `main` is not
+    // constraint: a free `def main` directly at module level is the one a script runs under
+    // `if __name__ == "__main__":`, where a method or a nested `main` is not; the interpreter calls a special method,
+    // such as `__init__` or `__enter__`, for an operator, a statement or an object it makes, and a property for an
+    // attribute read
     fn function(&mut self, node: Node<'_>) -> Option<SymbolId> {
         let name = text(node.child_by_field_name("name")?, self.source);
         let owner = enclosing_classes(node, self.source);
-        let entry = name == "main" && owner.is_none() && is_module_level(node);
+        let entry = match owner {
+            None => name == "main" && is_module_level(node),
+            Some(_) => is_special(&name) || is_property(node, &name, self.source),
+        };
 
         let kind = if owner.is_some() {
             SymbolKind::Method
@@ -567,6 +572,25 @@ fn decorated(node: Node<'_>) -> Node<'_> {
     node.parent()
         .filter(|parent| parent.kind() == "decorated_definition")
         .unwrap_or(node)
+}
+
+fn is_special(name: &str) -> bool {
+    name.len() > 4 && name.starts_with("__") && name.ends_with("__")
+}
+
+// constraint: an accessor is written `@size.setter` over a `def size`, naming the property it extends
+fn is_property(function: Node<'_>, name: &str, source: &[u8]) -> bool {
+    let holder = decorated(function);
+    named_children(holder)
+        .filter_map(|i| holder.named_child(i))
+        .filter(|decorator| decorator.kind() == "decorator")
+        .filter_map(|decorator| decorator.named_child(0))
+        .any(|written| {
+            let written = text(written, source);
+            let (object, last) = written.rsplit_once('.').unwrap_or(("", &written));
+            matches!(last, "property" | "cached_property")
+                || (matches!(last, "getter" | "setter" | "deleter") && object == name)
+        })
 }
 
 fn is_exported(name: &str) -> bool {
