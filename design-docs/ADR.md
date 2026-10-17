@@ -82,6 +82,9 @@
   layout](./adr/3.17-resolve-a-puppet-class-through-the-autoloader-s-layout.md) — initiative `03-code-graph`, 2026-10-16
 - [3.18 Extract DSHL as one namespace that its includes
   join](./adr/3.18-extract-dshl-as-one-namespace-its-includes-join.md) — initiative `03-code-graph`, 2026-10-16
+- [3.19 Find the files that include a file through an index of
+  includers](./adr/3.19-find-the-files-that-include-a-file-through-an-index-of-includers.md) — initiative
+  `03-code-graph`, 2026-10-17
 
 ## Deprecated
 
