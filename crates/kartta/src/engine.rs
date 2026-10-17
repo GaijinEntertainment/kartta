@@ -6,8 +6,9 @@ use kartta_graph::{Change, Graph, Limits, Region};
 use kartta_lang::{Extraction, Language, RawExtraction, Resolver};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-use crate::extracting::{Extracted, Extracting};
+use crate::extracting::{Extracted, Extracting, FileCounts};
 use crate::repository::IndexRepository;
+use crate::stats::{EngineStats, LanguageFiles};
 
 const RESOLVED_AT_ONCE: usize = 4096;
 
@@ -21,6 +22,7 @@ const RESOLVED_AT_ONCE: usize = 4096;
 pub struct Engine {
     index: Index,
     languages: Vec<Box<dyn Language>>,
+    file_counts: Vec<FileCounts>,
     families: Vec<Family>,
     family_of: Vec<usize>,
 }
@@ -103,7 +105,7 @@ impl Engine {
         let visitor: &dyn ContentVisitor = &extracting;
         let (index, mut errors) =
             Index::build_with(root, options, Some(visitor), cancel)?.into_parts();
-        let extracted = extracting.into_extracted();
+        let (extracted, mut file_counts) = extracting.into_extracted();
 
         let (mut families, family_of) = families(&languages);
         let resolving = Resolving {
@@ -112,12 +114,16 @@ impl Engine {
             family_of: &family_of,
             cancel,
         };
-        resolving.insert_all(extracted, &mut families, &mut errors)?;
+        let held = resolving.insert_all(extracted, &mut families, &mut errors)?;
+        for (counts, held) in file_counts.iter_mut().zip(held) {
+            counts.held = held;
+        }
 
         Ok(EngineOutcome {
             engine: Self {
                 index,
                 languages,
+                file_counts,
                 families,
                 family_of,
             },
@@ -170,6 +176,33 @@ impl Engine {
         change
     }
 
+    /// What the build made of each language's files, and what each family's graph holds, as [`Graph::stats`] counts
+    /// it. The files are counted as the build met them, so this costs only the graphs' counts.
+    #[must_use]
+    pub fn stats(&self) -> EngineStats<'_> {
+        let languages = self
+            .languages
+            .iter()
+            .zip(&self.file_counts)
+            .zip(&self.family_of)
+            .map(|((language, counts), &family)| LanguageFiles {
+                name: language.name(),
+                family: &self.families[family].name,
+                claimed: counts.claimed,
+                read: counts.read,
+                cached: counts.cached,
+                held: counts.held,
+            })
+            .collect();
+        EngineStats {
+            languages,
+            families: self
+                .graphs()
+                .map(|(name, graph)| (name, graph.stats()))
+                .collect(),
+        }
+    }
+
     fn family_claiming(&self, path: &str) -> Option<usize> {
         let language = self
             .languages
@@ -214,7 +247,7 @@ impl Resolving<'_> {
         extracted: Vec<Extracted>,
         families: &mut [Family],
         errors: &mut Vec<BuildError>,
-    ) -> Result<(), BuildError> {
+    ) -> Result<Vec<usize>, BuildError> {
         if self.cancel.is_some_and(CancelToken::is_cancelled) {
             return Err(BuildError::Cancelled);
         }
@@ -237,6 +270,7 @@ impl Resolving<'_> {
             .collect();
         let mut paths = self.index.paths();
         let mut placed = placed.into_iter();
+        let mut held = vec![0; self.languages.len()];
 
         loop {
             let batch: Vec<(String, Extracted)> = placed
@@ -245,13 +279,14 @@ impl Resolving<'_> {
                 .map(|(position, extracted)| (paths.get(position).to_owned(), extracted))
                 .collect();
             if batch.is_empty() {
-                return Ok(());
+                return Ok(held);
             }
             if self.cancel.is_some_and(CancelToken::is_cancelled) {
                 return Err(BuildError::Cancelled);
             }
 
             for (language, extraction) in self.resolve_batch(batch, &resolvers) {
+                held[language] += usize::from(extraction.is_ok());
                 match extraction {
                     Ok(extraction) => families[self.family_of[language]].graph.insert(&extraction),
                     Err(error) => errors.push(error),
