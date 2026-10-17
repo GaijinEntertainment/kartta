@@ -621,6 +621,41 @@ func (w *Widget) Run(param Server) {
 }
 
 #[test]
+fn the_initializer_of_a_package_level_variable_calls_as_that_variable() {
+    let raw = extract(
+        br#"package p
+
+var Handler = func() { serve() }
+
+var config, other = load(), build(func() { serve() })
+
+var first, second = pair()
+
+var _, last = skip(), keep()
+
+const size = len("abc")
+
+func f() { serve() }
+"#,
+    );
+
+    assert_eq!(
+        calls(&raw),
+        [
+            ("Handler", "serve", None, 3),
+            ("config", "load", None, 5),
+            ("other", "build", None, 5),
+            ("other", "serve", None, 5),
+            ("first", "pair", None, 7),
+            ("last", "skip", None, 9),
+            ("last", "keep", None, 9),
+            ("size", "len", None, 11),
+            ("f", "serve", None, 13),
+        ]
+    );
+}
+
+#[test]
 fn grouped_const_declarations_extract_every_spec() {
     let raw = extract(
         br"
