@@ -6,8 +6,9 @@ use std::hash::Hash;
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 
+use crate::confidence;
 use crate::graph::{Definition, Graph, QUALIFIER_SEPARATORS, is_call_target_kind, narrow};
-use crate::resolve::Cascade;
+use crate::resolve::{Call, Cascade};
 use crate::stored::{Entry, Site, SymbolAt};
 use crate::strings::Str;
 
@@ -324,13 +325,36 @@ enum Wanted {
 
 pub(crate) struct Calls<'g> {
     graph: &'g Graph,
-    cascade: Cascade<'g>,
+    pub(crate) cascade: Cascade<'g>,
     wanted: Wanted,
     unresolved: usize,
     callers: HashMap<SymbolAt, Vec<Edge>, FixedState>,
     called_names: HashSet<Str, FixedState>,
+    uncertain: HashMap<Str, Uncertain, FixedState>,
     uses: HashMap<SymbolAt, Vec<Edge>, FixedState>,
     used_names: HashSet<Str, FixedState>,
+}
+
+// constraint: the calls of one name that bind no definition, bind one only by proximity, or bind their own caller
+// through a value, by how they are written: whether one is bare, and the files that make one through a receiver,
+// sorted and once each; whether a member of the name exists is looked up once, when a free definition first asks
+#[derive(Debug, Default)]
+struct Uncertain {
+    bare: bool,
+    through_a_receiver_in: Vec<u32>,
+    has_members: Option<bool>,
+}
+
+impl Uncertain {
+    fn add(&mut self, call: &Call) {
+        match call.receiver {
+            None => self.bare = true,
+            Some(_) if self.through_a_receiver_in.last() != Some(&call.file) => {
+                self.through_a_receiver_in.push(call.file);
+            }
+            Some(_) => {}
+        }
+    }
 }
 
 impl<'g> Calls<'g> {
@@ -346,6 +370,46 @@ impl<'g> Calls<'g> {
         self.unresolved
     }
 
+    pub(crate) fn reached_by(&mut self, at: SymbolAt) -> impl Iterator<Item = (SymbolAt, u8)> + '_ {
+        let name = self.graph.sym(at).name;
+        self.resolve_callers(name);
+        self.resolve_uses(name);
+        edges_of(&self.callers, at)
+            .iter()
+            .chain(edges_of(&self.uses, at))
+            .map(|edge| (edge.far, edge.confidence))
+    }
+
+    // constraint: a call that binds no definition, binds one only by proximity, or binds its own caller through a value
+    // may reach any other definition the way it is written admits: a bare call any definition of the name, and a call
+    // through a receiver a member, or a free definition its file sees or that no member of the name could stand for,
+    // as a module's function, a function a table holds, or one the extractor could not place in its class is called
+    pub(crate) fn is_called_uncertainly(&mut self, at: SymbolAt) -> bool {
+        let symbol = self.graph.sym(at);
+        self.resolve_callers(symbol.name);
+        let (graph, cascade) = (self.graph, &self.cascade);
+        let Some(uncertain) = self.uncertain.get_mut(&symbol.name) else {
+            return false;
+        };
+        let files = &uncertain.through_a_receiver_in;
+        if uncertain.bare || (symbol.owner.is_some() && !files.is_empty()) {
+            return true;
+        }
+        if files.is_empty() {
+            return false;
+        }
+        if files.iter().any(|&file| cascade.sees(file, at)) {
+            return true;
+        }
+        let has_members = uncertain.has_members.get_or_insert_with(|| {
+            graph.named(symbol.name).iter().any(|&member| {
+                let member = graph.sym(member);
+                member.owner.is_some() && cascade.is_call_target(member.kind)
+            })
+        });
+        !*has_members
+    }
+
     fn wanting(graph: &'g Graph, wanted: Wanted) -> Self {
         Self {
             graph,
@@ -354,6 +418,7 @@ impl<'g> Calls<'g> {
             unresolved: 0,
             callers: HashMap::with_hasher(FixedState::default()),
             called_names: HashSet::with_hasher(FixedState::default()),
+            uncertain: HashMap::with_hasher(FixedState::default()),
             uses: HashMap::with_hasher(FixedState::default()),
             used_names: HashSet::with_hasher(FixedState::default()),
         }
@@ -477,7 +542,17 @@ impl<'g> Calls<'g> {
             HashMap::with_hasher(FixedState::default());
         for site in self.sites_of_name(name) {
             let call = self.cascade.call(site);
-            let Some((callee, confidence)) = self.cascade.resolve_call(&call) else {
+            let resolved = self.cascade.resolve_call(&call);
+            let through_a_value = call
+                .receiver
+                .is_some_and(|receiver| self.graph.strings.resolve(receiver).is_empty());
+            if resolved.is_none_or(|(callee, confidence)| {
+                confidence < confidence::UNIQUE
+                    || (through_a_value && self.cascade.canonical(callee) == call.caller_at())
+            }) {
+                self.uncertain.entry(name).or_default().add(&call);
+            }
+            let Some((callee, confidence)) = resolved else {
                 continue;
             };
             let callable = self.cascade.canonical(callee);

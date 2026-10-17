@@ -66,10 +66,7 @@ impl Graph {
         depth: u32,
         limit: usize,
     ) -> Option<Implementations<'_>> {
-        let types = Types {
-            graph: self,
-            cascade: Cascade::new(self),
-        };
+        let types = Types::new(self);
         let (root, mut direct) = types.select(name)?;
         let mut visited: HashSet<SymbolAt, FixedState> =
             HashSet::with_hasher(FixedState::default());
@@ -109,9 +106,22 @@ impl Graph {
     }
 }
 
-struct Types<'g> {
+pub(crate) struct Types<'g> {
     graph: &'g Graph,
     cascade: Cascade<'g>,
+}
+
+impl<'g> Types<'g> {
+    pub(crate) fn new(graph: &'g Graph) -> Self {
+        Self {
+            graph,
+            cascade: Cascade::new(graph),
+        }
+    }
+
+    pub(crate) fn is_a_parent(&self, ty: SymbolAt) -> bool {
+        !self.implementors_of(ty).is_empty()
+    }
 }
 
 impl Types<'_> {

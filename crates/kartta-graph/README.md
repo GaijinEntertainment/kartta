@@ -62,5 +62,10 @@ when another file changes.
   by directory past that. The regions whose file the graph does not hold, those that overlap no symbol, and the walks
   the cap stopped are counted. `Change::merge` ranks the answers of several graphs together, as a change across
   language families needs.
+- `Graph::dead_code` — the definitions no call and no use reaches, in path order, cut to a limit and counting every one
+  found, those found reached, and those it did not judge, by reason: of a kind not asked for; test, generated, entry
+  and vendored code; a kind no call and no use shows used; a definition a call that binds nothing, or binds only by
+  proximity, may reach; and a method a call through another type may reach. Every call and use that spells a judged
+  name is resolved, so a query over a whole graph costs what resolving its calls costs.
 
 Status: the API is new and is not published yet.

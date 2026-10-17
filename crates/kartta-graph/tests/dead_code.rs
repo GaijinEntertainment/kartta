@@ -1,0 +1,602 @@
+//! The definitions no call and no use reaches: what the query judges, what keeps a definition alive, and what it counts
+//! as left out.
+
+use kartta_graph::{DeadCode, Graph};
+use kartta_lang::{
+    CallRef, Callable, CallableRole, Conventions, Extraction, IncludeRef, NO_CALLER_ID, OwnMembers,
+    RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind, TypeUses,
+};
+
+fn function(name: &str, line: u32) -> Symbol {
+    Symbol::new(name, SymbolKind::Function, line, line + 1)
+}
+
+fn member(owner: &str, name: &str, line: u32) -> Symbol {
+    let mut symbol = Symbol::new(name, SymbolKind::Method, line, line + 1);
+    symbol.qualified_name = format!("{owner}::{name}");
+    symbol.owner = Some(owner.to_owned());
+    symbol
+}
+
+fn with_parent(mut symbol: Symbol, parent: &str) -> Symbol {
+    symbol.parents.push(parent.to_owned());
+    symbol
+}
+
+const fn flagged(mut symbol: Symbol, flags: SymbolFlags) -> Symbol {
+    symbol.flags = flags;
+    symbol
+}
+
+fn call(from: u32, callee: &str, line: u32) -> CallRef {
+    CallRef {
+        caller_id: SymbolId(from),
+        callee: callee.to_owned(),
+        receiver: None,
+        line,
+    }
+}
+
+fn file(path: &str, symbols: Vec<Symbol>, calls: Vec<CallRef>) -> Extraction {
+    let mut extraction = Extraction::default();
+    path.clone_into(&mut extraction.file);
+    extraction.symbols = symbols;
+    extraction.calls = calls;
+    extraction
+}
+
+fn graph_of(conventions: Conventions, files: &[Extraction]) -> Graph {
+    let mut graph = Graph::new(conventions);
+    for extraction in files {
+        graph.insert(extraction);
+    }
+    graph
+}
+
+fn graph(files: &[Extraction]) -> Graph {
+    graph_of(Conventions::default(), files)
+}
+
+fn go() -> Conventions {
+    let mut conventions = Conventions::default();
+    conventions.own_members = OwnMembers::Unreached;
+    conventions.directory_packages = true;
+    conventions.type_uses = TypeUses::Every;
+    conventions
+}
+
+fn names<'g>(dead: &DeadCode<'g>) -> Vec<&'g str> {
+    dead.found
+        .iter()
+        .map(|found| found.definition.name)
+        .collect()
+}
+
+#[test]
+fn a_function_no_call_reaches_is_dead_and_a_called_one_is_live() {
+    let graph = graph(&[file(
+        "src/lib.c",
+        vec![
+            function("main_loop", 1),
+            function("helper", 5),
+            function("orphan", 9),
+        ],
+        vec![call(0, "helper", 2)],
+    )]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(names(&dead), ["main_loop", "orphan"]);
+    assert_eq!((dead.total, dead.live), (2, 1));
+    assert!(dead.found.iter().all(|found| !found.spelled));
+}
+
+#[test]
+fn recursion_alone_keeps_nothing_alive() {
+    let graph = graph(&[file(
+        "src/walk.c",
+        vec![function("walk", 1)],
+        vec![call(0, "walk", 2)],
+    )]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(names(&dead), ["walk"]);
+    assert!(dead.found[0].spelled);
+}
+
+#[test]
+fn a_call_at_file_scope_reaches_its_file_and_the_files_it_includes() {
+    let mut script = file(
+        "bin/run.sh",
+        vec![function("setup", 1)],
+        vec![
+            call(NO_CALLER_ID.0, "setup", 9),
+            call(NO_CALLER_ID.0, "shared", 10),
+        ],
+    );
+    script.includes.push(IncludeRef {
+        target: "lib/common.sh".to_owned(),
+    });
+    let graph = graph(&[
+        script,
+        file("lib/common.sh", vec![function("shared", 1)], Vec::new()),
+        file("lib/other.sh", vec![function("setup", 1)], Vec::new()),
+    ]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(dead.live, 2);
+    assert_eq!(names(&dead), ["setup"]);
+    assert_eq!(dead.found[0].definition.file, "lib/other.sh");
+    assert!(dead.found[0].spelled);
+}
+
+#[test]
+fn removing_the_file_that_calls_a_function_leaves_it_dead() {
+    let mut graph = graph(&[
+        file("src/a.c", vec![function("used", 1)], Vec::new()),
+        file(
+            "src/b.c",
+            vec![function("caller", 1)],
+            vec![call(0, "used", 2), call(NO_CALLER_ID.0, "caller", 5)],
+        ),
+    ]);
+    assert_eq!(graph.dead_code(&[], None, 10).total, 0);
+
+    graph.remove("src/b.c");
+
+    assert_eq!(names(&graph.dead_code(&[], None, 10)), ["used"]);
+}
+
+#[test]
+fn a_call_the_cascade_cannot_bind_leaves_every_definition_of_its_name_uncertain() {
+    let graph = graph(&[
+        file("a/one.c", vec![function("helper", 1)], Vec::new()),
+        file("b/two.c", vec![function("helper", 1)], Vec::new()),
+        file(
+            "c/main.c",
+            vec![function("run", 1)],
+            vec![call(0, "helper", 2), call(NO_CALLER_ID.0, "run", 5)],
+        ),
+    ]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!((dead.total, dead.live), (0, 1));
+    assert_eq!(dead.excluded.uncertain, 2);
+}
+
+#[test]
+fn a_receiver_call_that_binds_nothing_leaves_members_and_what_its_file_sees_uncertain() {
+    let mut caller = file("app/main.c", vec![function("run", 1)], Vec::new());
+    caller.calls.push(CallRef {
+        caller_id: SymbolId(0),
+        callee: "close".to_owned(),
+        receiver: Some(String::new()),
+        line: 2,
+    });
+    caller
+        .includes
+        .extend(["lib/fd.h", "lib/sock.h"].map(|target| IncludeRef {
+            target: target.to_owned(),
+        }));
+    let graph = graph(&[
+        caller,
+        file("lib/fd.h", vec![function("close", 1)], Vec::new()),
+        file("lib/sock.h", vec![function("close", 1)], Vec::new()),
+        file(
+            "src/file.cpp",
+            vec![
+                Symbol::new("File", SymbolKind::Class, 1, 3),
+                member("File", "close", 2),
+                Symbol::new("Pipe", SymbolKind::Class, 4, 6),
+                member("Pipe", "close", 5),
+            ],
+            Vec::new(),
+        ),
+        file("src/io.c", vec![function("close", 1)], Vec::new()),
+    ]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(names(&dead), ["run", "close"]);
+    assert_eq!(dead.found[1].definition.file, "src/io.c");
+    assert_eq!(dead.excluded.uncertain, 4);
+}
+
+#[test]
+fn a_receiver_call_that_binds_nothing_leaves_a_free_definition_no_member_could_stand_for_uncertain()
+{
+    let mut loader = file("tools/load.py", vec![function("load", 1)], Vec::new());
+    loader.calls.push(CallRef {
+        caller_id: SymbolId(0),
+        callee: "get_mapping".to_owned(),
+        receiver: Some("module".to_owned()),
+        line: 3,
+    });
+    let graph = graph(&[
+        loader,
+        file(
+            "layouts/console.py",
+            vec![function("get_mapping", 1)],
+            Vec::new(),
+        ),
+        file(
+            "layouts/store.py",
+            vec![function("get_mapping", 1)],
+            Vec::new(),
+        ),
+    ]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(names(&dead), ["load"]);
+    assert_eq!(dead.excluded.uncertain, 2);
+}
+
+#[test]
+fn a_call_through_a_value_bound_to_its_own_caller_leaves_the_members_of_its_name_uncertain() {
+    let mut wrapper = file(
+        "src/group.cpp",
+        vec![
+            Symbol::new("Group", SymbolKind::Class, 1, 9),
+            member("Group", "setLimit", 2),
+        ],
+        Vec::new(),
+    );
+    wrapper.calls.push(CallRef {
+        caller_id: SymbolId(1),
+        callee: "setLimit".to_owned(),
+        receiver: Some(String::new()),
+        line: 3,
+    });
+    let graph = graph(&[
+        wrapper,
+        file(
+            "src/group_impl.cpp",
+            vec![
+                Symbol::new("GroupImpl", SymbolKind::Class, 1, 9),
+                member("GroupImpl", "setLimit", 2),
+            ],
+            Vec::new(),
+        ),
+    ]);
+
+    let dead = graph.dead_code(&[SymbolKind::Method], None, 10);
+
+    assert_eq!(dead.total, 0);
+    assert_eq!(dead.excluded.uncertain, 2);
+}
+
+#[test]
+fn test_generated_entry_and_vendored_code_is_counted_and_not_judged() {
+    let graph = graph(&[file(
+        "src/main.c",
+        vec![
+            flagged(function("check", 1), SymbolFlags::empty().with_test(true)),
+            flagged(
+                function("made", 3),
+                SymbolFlags::empty().with_generated(true),
+            ),
+            flagged(function("main", 5), SymbolFlags::empty().with_entry(true)),
+            flagged(
+                function("third", 7),
+                SymbolFlags::empty().with_vendored(true),
+            ),
+            function("orphan", 9),
+        ],
+        Vec::new(),
+    )]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(names(&dead), ["orphan"]);
+    let excluded = dead.excluded;
+    assert_eq!(
+        (
+            excluded.test,
+            excluded.generated,
+            excluded.entry,
+            excluded.vendored
+        ),
+        (1, 1, 1, 1)
+    );
+}
+
+#[test]
+fn fields_values_and_types_are_unobservable_where_uses_name_no_type() {
+    let graph = graph(&[file(
+        "src/model.py",
+        vec![
+            Symbol::new("Model", SymbolKind::Class, 1, 9),
+            member("Model", "name", 2),
+            Symbol::new("LIMIT", SymbolKind::Constant, 10, 10),
+            Symbol::new("count", SymbolKind::Field, 11, 11),
+        ],
+        Vec::new(),
+    )]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(names(&dead), ["name"]);
+    assert_eq!(dead.excluded.unobservable, 3);
+}
+
+#[test]
+fn a_type_is_judged_where_uses_name_every_type() {
+    let mut user = file("pkg/user.go", vec![function("Handle", 1)], Vec::new());
+    user.references.push(RefSite {
+        site_of: SymbolId(0),
+        name: "Request".to_owned(),
+        qualifier: None,
+        line: 2,
+    });
+    let graph = graph_of(
+        go(),
+        &[
+            user,
+            file(
+                "pkg/types.go",
+                vec![
+                    Symbol::new("Request", SymbolKind::Struct, 1, 4),
+                    Symbol::new("Unused", SymbolKind::Struct, 5, 8),
+                    Symbol::new("Base", SymbolKind::Interface, 9, 12),
+                    with_parent(Symbol::new("Impl", SymbolKind::Struct, 13, 16), "Base"),
+                ],
+                vec![call(0, "Handle", 3)],
+            ),
+        ],
+    );
+
+    let dead = graph.dead_code(&[SymbolKind::Struct, SymbolKind::Interface], None, 10);
+
+    assert_eq!(names(&dead), ["Unused", "Impl"]);
+    assert_eq!(dead.live, 2);
+    assert_eq!(dead.excluded.kind, 1);
+}
+
+#[test]
+fn a_definition_local_to_a_body_is_unobservable_as_no_use_binds_a_local() {
+    let mut body = file(
+        "pkg/run.go",
+        vec![
+            function("Run", 1),
+            Symbol::new("row", SymbolKind::Struct, 2, 2),
+            function("each", 3),
+        ],
+        vec![call(NO_CALLER_ID.0, "Run", 9)],
+    );
+    body.local_symbols.extend([SymbolId(1), SymbolId(2)]);
+    let graph = graph_of(go(), &[body]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!((dead.total, dead.live), (0, 1));
+    assert_eq!(dead.excluded.unobservable, 2);
+}
+
+#[test]
+fn a_use_at_file_scope_reaches_the_types_its_package_defines() {
+    let mut assertion = file("pkg/assert.go", Vec::new(), Vec::new());
+    assertion.references.push(RefSite {
+        site_of: NO_CALLER_ID,
+        name: "Checked".to_owned(),
+        qualifier: None,
+        line: 3,
+    });
+    let graph = graph_of(
+        go(),
+        &[
+            assertion,
+            file(
+                "pkg/types.go",
+                vec![Symbol::new("Checked", SymbolKind::Struct, 1, 4)],
+                Vec::new(),
+            ),
+            file(
+                "other/types.go",
+                vec![Symbol::new("Checked", SymbolKind::Struct, 1, 4)],
+                Vec::new(),
+            ),
+        ],
+    );
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(dead.live, 1);
+    assert_eq!(names(&dead), ["Checked"]);
+    assert_eq!(dead.found[0].definition.file, "other/types.go");
+    assert!(dead.found[0].spelled);
+}
+
+#[test]
+fn a_type_only_its_own_members_name_is_dead() {
+    let mut types = file(
+        "pkg/list.go",
+        vec![
+            Symbol::new("Lonely", SymbolKind::Struct, 1, 3),
+            member("Lonely", "Walk", 5),
+            Symbol::new("Used", SymbolKind::Struct, 9, 9),
+            function("Make", 11),
+        ],
+        vec![call(NO_CALLER_ID.0, "Make", 20)],
+    );
+    for (site_of, name, line) in [(1, "Lonely", 5), (1, "Lonely", 6), (3, "Used", 12)] {
+        types.references.push(RefSite {
+            site_of: SymbolId(site_of),
+            name: name.to_owned(),
+            qualifier: None,
+            line,
+        });
+    }
+    let graph = graph_of(go(), &[types]);
+
+    let dead = graph.dead_code(&[SymbolKind::Struct], None, 10);
+
+    assert_eq!(names(&dead), ["Lonely"]);
+    assert_eq!(dead.live, 1);
+}
+
+#[test]
+fn a_method_a_call_through_another_type_may_reach_is_counted_as_dispatched() {
+    let graph = graph(&[
+        file(
+            "src/shapes.ts",
+            vec![
+                Symbol::new("Shape", SymbolKind::Interface, 1, 3),
+                member("Shape", "area", 2),
+                with_parent(Symbol::new("Square", SymbolKind::Class, 4, 9), "Shape"),
+                member("Square", "area", 5),
+                member("Square", "describe", 7),
+            ],
+            Vec::new(),
+        ),
+        file(
+            "src/widget.ts",
+            vec![
+                with_parent(Symbol::new("Widget", SymbolKind::Class, 1, 6), "Component"),
+                member("Widget", "render", 2),
+                Symbol::new("Plain", SymbolKind::Class, 7, 9),
+                member("Plain", "render", 8),
+            ],
+            Vec::new(),
+        ),
+    ]);
+
+    let dead = graph.dead_code(&[SymbolKind::Method], None, 10);
+
+    assert_eq!(names(&dead), ["area", "describe", "render"]);
+    assert_eq!(dead.found[0].definition.owner, Some("Shape"));
+    assert_eq!(dead.found[2].definition.owner, Some("Plain"));
+    assert_eq!(dead.excluded.dispatched, 2);
+}
+
+#[test]
+fn a_declaration_and_the_definition_it_links_to_are_judged_once() {
+    let mut header = file("src/api.h", vec![function("open", 1)], Vec::new());
+    header.callables.push(Callable {
+        symbol: SymbolId(0),
+        key: "open()".to_owned(),
+        role: CallableRole::Declaration,
+    });
+    let mut source = file("src/api.c", vec![function("open", 3)], Vec::new());
+    source.callables.push(Callable {
+        symbol: SymbolId(0),
+        key: "open()".to_owned(),
+        role: CallableRole::Definition,
+    });
+    source.includes.push(IncludeRef {
+        target: "src/api.h".to_owned(),
+    });
+    let graph = graph(&[header, source]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(names(&dead), ["open"]);
+    assert_eq!(dead.found[0].definition.file, "src/api.c");
+}
+
+#[test]
+fn a_call_reaches_every_definition_the_tier_that_bound_it_held_equal() {
+    let draw = |line| {
+        let mut symbol = function("draw", line);
+        symbol.qualified_name = "gfx::draw".to_owned();
+        symbol
+    };
+    let graph = graph(&[
+        file(
+            "app/main.c",
+            vec![function("run", 1)],
+            vec![call(0, "gfx::draw", 2)],
+        ),
+        file(
+            "lib/a.c",
+            vec![
+                function("helper", 1),
+                function("helper", 3),
+                function("user", 5),
+            ],
+            vec![call(2, "helper", 6)],
+        ),
+        file("lib/b.c", vec![function("helper", 1)], Vec::new()),
+        file("real/render.c", vec![draw(1)], Vec::new()),
+        file("stub/render.c", vec![draw(1)], Vec::new()),
+    ]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(names(&dead), ["run", "user", "helper"]);
+    assert_eq!(dead.found[2].definition.file, "lib/b.c");
+    assert_eq!(dead.live, 4);
+}
+
+#[test]
+fn every_definition_of_a_declaration_too_many_implement_to_link_is_reached_through_it() {
+    let callable = |at: u32, role| Callable {
+        symbol: SymbolId(at),
+        key: "open()".to_owned(),
+        role,
+    };
+    let including = |mut extraction: Extraction| {
+        extraction.includes.push(IncludeRef {
+            target: "include/api.h".to_owned(),
+        });
+        extraction
+    };
+    let mut header = file("include/api.h", vec![function("open", 1)], Vec::new());
+    header
+        .callables
+        .push(callable(0, CallableRole::Declaration));
+    let mut real = including(file("src/real.c", vec![function("open", 1)], Vec::new()));
+    real.callables.push(callable(0, CallableRole::Definition));
+    let mut stub = including(file("src/stub.c", vec![function("open", 1)], Vec::new()));
+    stub.callables.push(callable(0, CallableRole::Definition));
+    let user = including(file(
+        "app/main.c",
+        vec![function("run", 1)],
+        vec![call(0, "open", 2)],
+    ));
+    let graph = graph(&[header, real, stub, user]);
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    assert_eq!(names(&dead), ["run"]);
+    assert_eq!(dead.live, 3);
+}
+
+#[test]
+fn the_limit_bounds_the_answer_and_a_path_prefix_the_files_judged() {
+    let graph = graph(&[
+        file(
+            "app/a.c",
+            vec![function("one", 1), function("two", 3)],
+            Vec::new(),
+        ),
+        file("lib/b.c", vec![function("three", 1)], Vec::new()),
+        file(
+            "lib/c.c",
+            vec![
+                function("used", 1),
+                flagged(function("check", 3), SymbolFlags::empty().with_test(true)),
+            ],
+            vec![call(1, "used", 4)],
+        ),
+    ]);
+
+    let limited = graph.dead_code(&[], None, 1);
+    let counted = graph.dead_code(&[], None, 0);
+    let in_app = graph.dead_code(&[], Some("app/"), 10);
+
+    assert_eq!((names(&limited), limited.total), (vec!["one"], 3));
+    assert_eq!(
+        (
+            counted.found.len(),
+            counted.total,
+            counted.live,
+            counted.excluded.test
+        ),
+        (0, 3, 1, 1)
+    );
+    assert_eq!(names(&in_app), ["one", "two"]);
+}
