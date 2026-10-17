@@ -493,6 +493,9 @@ impl<'g> Cascade<'g> {
         {
             return Ok((at, confidence::QUALIFIED_TAIL));
         }
+        if let Some(at) = self.nested_in_written_owner(call) {
+            return Ok((at, confidence::QUALIFIED_TAIL));
+        }
 
         self.resolve_by_name(call)
     }
@@ -717,6 +720,32 @@ impl<'g> Cascade<'g> {
         self.graph
             .strings
             .get(&written[previous + separator.len()..])
+    }
+
+    // constraint: a member nested in a class can keep the class's whole qualified name, `ns::Widget::Kind`, which a
+    // callee inside the namespace writes from the class alone, `Widget::Kind`
+    fn nested_in_written_owner(&self, call: &Call) -> Option<SymbolAt> {
+        let separator = self.conventions.scope_separator?;
+        let strings = &self.graph.strings;
+        let written = strings.resolve(call.callee);
+        let (scope, name) = written.rsplit_once(separator)?;
+        let owner = scope.rsplit(separator).next()?;
+        let tail = &written[written.len() - owner.len() - separator.len() - name.len()..];
+        let (owner, name) = (strings.get(owner)?, strings.get(name)?);
+        let caller = call.caller_at();
+        self.named(name)
+            .iter()
+            .copied()
+            .filter(|&at| {
+                let symbol = self.graph.sym(at);
+                symbol.owner == Some(owner)
+                    && strings
+                        .resolve(symbol.qualified_name)
+                        .strip_suffix(tail)
+                        .is_some_and(|head| head.ends_with(separator))
+                    && self.is_candidate(caller, at)
+            })
+            .min_by_key(|&at| (!self.sees(call.file, at), self.graph.order_of(at)))
     }
 
     // constraint: a use can name a value even where a call cannot target one, so every kind but a field and a variant
