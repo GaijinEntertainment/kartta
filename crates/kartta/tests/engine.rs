@@ -7,14 +7,15 @@
               is the assertion"
 )]
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use kartta::{
-    BuildError, BuildOptions, CancelToken, Definitions, Engine, Extraction, Language,
-    RawExtraction, Repository, Resolver, Symbol, SymbolKind,
+    BuildError, BuildOptions, CancelToken, Definitions, Engine, Extraction, Language, Limits,
+    RawExtraction, Region, Repository, Resolver, Symbol, SymbolKind,
 };
 use kartta_fs::{Content, ContentVisitor, Index, Namespace};
 use tempfile::TempDir;
@@ -275,6 +276,78 @@ fn languages_of_one_family_share_a_graph_and_the_first_to_claim_a_file_takes_it(
         .map(|(family, graph)| (family, graph.file_count()))
         .collect();
     assert_eq!(files, [("shared", 2), ("other", 0)]);
+}
+
+#[test]
+fn a_change_across_families_is_analyzed_by_each_graph_and_answered_as_one() {
+    let tree = tree(&[
+        ("one.alpha", "def one\n"),
+        ("two.beta", "def two\n"),
+        ("notes.md", "def notes\n"),
+    ]);
+    let engine = build(
+        tree.path(),
+        &BuildOptions::default(),
+        vec![
+            Box::new(Defs::new("alpha", "first", ".alpha")),
+            Box::new(Defs::new("beta", "second", ".beta")),
+        ],
+    );
+    let regions = [
+        Region::new("two.beta", 1..=1),
+        Region::new("one.alpha", 1..=1),
+        Region::new("notes.md", 1..=1),
+        Region::new("absent.alpha", 1..=1),
+    ];
+
+    let change = engine.analyze_change(&regions, Limits::new(3));
+    let mut seeds: Vec<&str> = change.seeds.iter().map(|seed| seed.symbol.name).collect();
+    seeds.sort_unstable();
+
+    assert_eq!(change.changed_symbols, 2);
+    assert_eq!(change.changed_files, 2);
+    assert_eq!(seeds, ["one", "two"]);
+    assert_eq!(
+        change.unheld_regions, 2,
+        "notes.md no language claims, absent.alpha no graph holds"
+    );
+}
+
+fn two_hundred_defs(prefix: &str) -> String {
+    let mut source = String::new();
+    for index in 0..200 {
+        writeln!(source, "def {prefix}{index:03}").expect("a String takes every write");
+    }
+    source
+}
+
+#[test]
+fn the_seeds_of_several_families_compete_for_one_limit() {
+    let alpha = two_hundred_defs("a");
+    let beta = two_hundred_defs("b");
+    let tree = tree(&[("many.alpha", &alpha), ("many.beta", &beta)]);
+    let engine = build(
+        tree.path(),
+        &BuildOptions::default(),
+        vec![
+            Box::new(Defs::new("alpha", "first", ".alpha")),
+            Box::new(Defs::new("beta", "second", ".beta")),
+        ],
+    );
+    let regions = [
+        Region::new("many.beta", 1..=u32::MAX),
+        Region::new("many.alpha", 1..=u32::MAX),
+    ];
+
+    let change = engine.analyze_change(&regions, Limits::new(1));
+    let seeds: Vec<&str> = change.seeds.iter().map(|seed| seed.symbol.name).collect();
+
+    assert_eq!(change.changed_symbols, 400);
+    assert_eq!(seeds.len(), 300);
+    assert_eq!(
+        (seeds[0], seeds[199], seeds[200], seeds[299]),
+        ("a000", "a199", "b000", "b099")
+    );
 }
 
 #[test]
