@@ -60,6 +60,7 @@ pub(crate) struct StoredFile {
     pub(crate) package: Option<Str>,
     pub(crate) symbols: Box<[StoredSymbol]>,
     pub(crate) parents: Box<[Parent]>,
+    pub(crate) value_types: Box<[ValueTypes]>,
     pub(crate) locals: Box<[Local]>,
     pub(crate) callables: Box<[StoredCallable]>,
     pub(crate) folded: Box<[Folded]>,
@@ -119,6 +120,16 @@ impl StoredFile {
         &self.parents[start..start + len]
     }
 
+    // constraint: a symbol's value types are kept as one string joined at `VALUE_TYPE_SEPARATOR`, which no type path
+    // holds
+    pub(crate) fn value_types(&self, index: u32) -> Option<Str> {
+        let at = self
+            .value_types
+            .binary_search_by_key(&index, |held| held.symbol)
+            .ok()?;
+        Some(self.value_types[at].types)
+    }
+
     pub(crate) fn package_stamp(&self) -> Option<Str> {
         self.package
             .filter(|_| self.symbols.iter().any(|symbol| !symbol.flags.is_test()))
@@ -149,6 +160,14 @@ pub(crate) struct Parent {
 pub(crate) struct Local {
     pub(crate) symbol: u32,
     pub(crate) holder: u32,
+}
+
+pub(crate) const VALUE_TYPE_SEPARATOR: &str = ",";
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ValueTypes {
+    pub(crate) symbol: u32,
+    pub(crate) types: Str,
 }
 
 #[derive(Debug, Clone, Copy)]
