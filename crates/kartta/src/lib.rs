@@ -75,12 +75,14 @@
 //! The engine builds the index and each family's graph of definitions, calls and uses, and each graph answers callers,
 //! callees, references, call paths, the files that include a file, the implementors of a type, what a change to a range
 //! of a file's lines reaches and searches by the words of names and paths; [`Engine::analyze_change`] answers what a
-//! change to regions across families reaches, [`Engine::stats`] what the build made of each language's files, and
-//! [`Engine::resolution`] how every call site binds. The first release with a public surface will be `0.1.0`.
+//! change to regions across families reaches, [`Engine::stats`] what the build made of each language's files,
+//! [`Engine::resolution`] how every call site binds, and [`Engine::sources`] the text of definitions with their doc
+//! comments. The first release with a public surface will be `0.1.0`.
 
 mod engine;
 mod extracting;
 mod repository;
+mod source;
 mod stats;
 
 pub use kartta_fs::{BuildError, BuildOptions, CancelToken, Index};
@@ -91,9 +93,10 @@ pub use kartta_graph::{
     SegmentSymbol, Stats, Unbound, Walk, confidence,
 };
 pub use kartta_lang::{
-    Conventions, Extraction, Language, RawExtraction, Repository, Resolver, Symbol, SymbolFlags,
-    SymbolKind,
+    BlockComment, Conventions, DocComments, Extraction, Language, RawExtraction, Repository,
+    Resolver, Symbol, SymbolFlags, SymbolKind,
 };
 
 pub use crate::engine::{Engine, EngineOutcome};
+pub use crate::source::{CutLine, Source, SourceOptions};
 pub use crate::stats::{EngineStats, LanguageFiles};
