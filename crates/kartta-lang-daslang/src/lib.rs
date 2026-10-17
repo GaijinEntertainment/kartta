@@ -41,7 +41,9 @@
 //!
 //! A file with a `test` or `tests` directory in its path, or whose stem ends in `_test` or starts with `test_`, is test
 //! code. A file whose name holds `.gen.` or `_gen.`, or whose leading comments carry `@generated`, `DO NOT EDIT` or
-//! `Code generated`, is generated code.
+//! `Code generated`, is generated code. A `def` that carries an annotation other than one of the compile hints the
+//! runtime defines, `[unused_argument]`, `[no_aot]`, `[hint]` and the like, is an entry point: the annotation
+//! registers it with what calls it, as `[export]`, `[init]` or an entity system's `[es]` does.
 //!
 //! # Fingerprint
 //!
