@@ -351,6 +351,41 @@ fn interface_members_are_methods_owned_by_the_interface() {
 }
 
 #[test]
+fn the_members_of_an_object_type_alias_are_owned_by_the_alias() {
+    let extraction = extracted(
+        "src/gsea.ts",
+        "export type GSEA = {\n  open(page?: string): void;\n  config: Config;\n  onClose: () => void;\n};\n\
+         namespace Auth { export type Session = { logout(): Promise<void> }; }\n",
+    );
+
+    let owned: Vec<(&str, Option<&str>, SymbolKind)> = (extraction.symbols.iter())
+        .map(|symbol| {
+            (
+                symbol.qualified_name.as_str(),
+                symbol.owner.as_deref(),
+                symbol.kind,
+            )
+        })
+        .collect();
+    assert_eq!(
+        owned,
+        [
+            ("GSEA", None, SymbolKind::TypeAlias),
+            ("GSEA.open", Some("GSEA"), SymbolKind::Method),
+            ("GSEA.config", Some("GSEA"), SymbolKind::Field),
+            ("GSEA.onClose", Some("GSEA"), SymbolKind::Method),
+            ("Auth", None, SymbolKind::Namespace),
+            ("Auth.Session", Some("Auth"), SymbolKind::TypeAlias),
+            (
+                "Auth.Session.logout",
+                Some("Auth.Session"),
+                SymbolKind::Method
+            ),
+        ]
+    );
+}
+
+#[test]
 fn arrow_consts_are_functions_that_own_their_calls() {
     let extraction = values();
 
