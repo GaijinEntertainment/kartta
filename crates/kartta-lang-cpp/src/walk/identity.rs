@@ -4,7 +4,7 @@ use kartta_lang::tree::{children, text};
 use tree_sitter::Node;
 
 use super::Replayer;
-use super::declarator::{qualified_terminal, real_function_declarator};
+use super::declarator::{joins_a_macro_as_scope, qualified_terminal, real_function_declarator};
 use super::name::is_simple_identifier;
 
 impl Replayer<'_> {
@@ -12,13 +12,23 @@ impl Replayer<'_> {
         if !self.functions.is_empty() || has_unkeyed_ancestor(node) {
             return None;
         }
-        let declarator =
-            real_function_declarator(node).filter(|declarator| !declarator.has_error())?;
-        let name = declarator.child_by_field_name("declarator")?;
+        let declarator = real_function_declarator(node, self.source)?;
+        let written = declarator.child_by_field_name("declarator")?;
+        let name = if joins_a_macro_as_scope(written) {
+            written.child_by_field_name("name")?
+        } else {
+            written
+        };
+        let error_beside_the_name = children(declarator)
+            .filter_map(|index| declarator.child(index))
+            .any(|child| child != written && child.has_error());
+        if error_beside_the_name || name.has_error() {
+            return None;
+        }
         let qualified = self.qualified_callable_name(name)?;
         let parameters = declarator.child_by_field_name("parameters")?;
         let types = parameter_types(parameters, self.source)?;
-        let qualifiers = member_qualifiers(declarator, name, parameters, self.source)?;
+        let qualifiers = member_qualifiers(declarator, written, parameters, self.source)?;
 
         Some(format!("{qualified}({}){qualifiers}", types.join(",")))
     }

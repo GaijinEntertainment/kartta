@@ -856,6 +856,70 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
+    fn a_macro_before_the_return_type_keeps_the_function() {
+        let raw = extract(
+            b"JPH_INLINE float Tan(float x) { return x; }\nstatic JPH_INLINE Vec3 sMake() { return Vec3(); }\n\
+              JPH_EXPORT void RegisterTypes();\nBOOL WINAPI DllMain(HINSTANCE h) { return TRUE; }\n\
+              class FS {\n  int size_ DAG_TS_GUARDED_BY(mtx);\n  UINT32 count_ DAG_TS_GUARDED_BY(mtx);\n};\n",
+        );
+
+        assert_eq!(
+            qualified_names(&raw),
+            ["Tan", "sMake", "DllMain", "FS", "RegisterTypes"]
+        );
+        assert_eq!(symbol(&raw, "Tan").kind, SymbolKind::Function);
+        assert!(!symbol(&raw, "sMake").exported);
+        assert_eq!(
+            symbol(&raw, "Tan").signature.as_deref(),
+            Some("JPH_INLINE float Tan(float x)")
+        );
+        let keys: Vec<&str> = raw
+            .callables
+            .iter()
+            .map(|callable| callable.key.as_str())
+            .collect();
+        assert!(keys.contains(&"Tan(float)"), "{keys:?}");
+        assert!(keys.contains(&"RegisterTypes()"), "{keys:?}");
+    }
+
+    #[test]
+    fn a_macro_between_the_return_type_and_the_name_names_no_scope() {
+        let raw = extract(
+            b"inline XMMATRIX XM_CALLCONV XMMatrixRotationZ(float Angle) noexcept { return M; }\n\
+              GLM_FUNC_QUALIFIER GLM_CONSTEXPR vec<L, T, Q> mix(vec<L, T, Q> const& x) { return x; }\n\
+              namespace ns {\nXMVECTOR XM_CALLCONV Rotate(XMVECTOR v) { return v; }\n}\n\
+              int Widget::area() const { return 0; }\n\
+              PUGI__FN xpath_node_set xpath_query::evaluate_node_set(xpath_node n) const { return x; }\n",
+        );
+
+        assert_eq!(
+            qualified_names(&raw),
+            [
+                "XMMatrixRotationZ",
+                "mix",
+                "ns::Rotate",
+                "Widget::area",
+                "xpath_query::evaluate_node_set"
+            ]
+        );
+        assert_eq!(
+            symbol(&raw, "evaluate_node_set").owner.as_deref(),
+            Some("xpath_query")
+        );
+        for name in ["XMMatrixRotationZ", "mix", "Rotate"] {
+            assert_eq!(symbol(&raw, name).kind, SymbolKind::Function, "{name}");
+            assert_eq!(symbol(&raw, name).owner, None, "{name}");
+        }
+        assert_eq!(symbol(&raw, "area").owner.as_deref(), Some("Widget"));
+        let keys: Vec<&str> = raw
+            .callables
+            .iter()
+            .map(|callable| callable.key.as_str())
+            .collect();
+        assert!(keys.contains(&"XMMatrixRotationZ(float)"), "{keys:?}");
+    }
+
+    #[test]
     fn trailing_macros_on_ctor_dtor_keep_the_member() {
         let raw = extract(
             b"class FS {\n  FS() DAG_TS_ACQUIRE(mtx) { init(); }\n  ~FS() DAG_TS_RELEASE(mtx) { drop(); }\n};\n\
