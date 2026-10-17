@@ -555,20 +555,37 @@ fn calls_are_attributed_to_the_enclosing_function() {
     assert_eq!(helper_call.receiver, None);
 }
 
-#[test]
-fn a_member_call_on_an_unnamed_expression_keeps_an_empty_receiver() {
-    let raw = extract(b"package p\nfunc f(s S) { s.Findings().Verdict(v) }\n");
-
-    let receivers: Vec<(&str, Option<&str>)> = raw
-        .calls
+fn receivers(raw: &RawExtraction) -> Vec<(&str, Option<&str>)> {
+    raw.calls
         .iter()
         .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
-        .collect();
-    assert_eq!(receivers, [("Verdict", Some("")), ("Findings", Some(""))]);
+        .collect()
 }
 
 #[test]
-fn a_receiver_the_caller_declares_as_a_value_names_no_type_and_a_method_s_own_names_its_owner() {
+fn a_member_call_on_a_chain_records_the_type_path_of_its_operand() {
+    let raw = extract(b"package p\nfunc f(s S) { s.Findings().Verdict(v) }\n");
+
+    assert_eq!(
+        receivers(&raw),
+        [("Verdict", Some("S.Findings()")), ("Findings", Some("S"))]
+    );
+}
+
+#[test]
+fn a_member_call_on_a_value_the_walk_cannot_type_keeps_an_empty_receiver() {
+    let raw = extract(
+        b"package p\nfunc f(fn func() S, one, two T) {\n\tfn().Verdict()\n\tsum := one + two\n\tsum.Close()\n}\n",
+    );
+
+    assert_eq!(
+        receivers(&raw),
+        [("Verdict", Some("")), ("Close", Some(""))]
+    );
+}
+
+#[test]
+fn a_receiver_names_the_type_its_value_is_declared_with() {
     let raw = extract(
         br#"package p
 
@@ -597,26 +614,75 @@ func (w *Widget) Run(param Server) {
 "#,
     );
 
-    let receivers: Vec<(&str, Option<&str>)> = raw
-        .calls
-        .iter()
-        .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
-        .collect();
     assert_eq!(
-        receivers,
+        receivers(&raw),
         [
             ("draw", Some("Widget")),
-            ("Close", Some("")),
+            ("Close", Some("Server")),
             ("Dial", Some("conn")),
-            ("Close", Some("")),
-            ("Close", Some("")),
+            ("Close", Some("conn.Dial()")),
+            ("Close", Some("Server")),
             ("Close", Some("conn")),
             ("helper", Some("Widget")),
-            ("Close", Some("")),
+            ("Close", Some("Server")),
             ("Flush", Some("Widget")),
-            ("Close", Some("")),
-            ("Close", Some("")),
+            ("Close", Some("servers[]")),
+            ("Close", Some("Server")),
         ]
+    );
+}
+
+#[test]
+fn a_local_s_type_path_follows_how_its_declaration_gives_the_value() {
+    let raw = extract(
+        br#"package p
+
+import "example.com/pkg"
+
+func F(xs []*pkg.Item, m map[string]Box, ch chan Box, anything any) {
+	lit := &Box{}
+	lit.A()
+	made := new(pkg.Item)
+	made.B()
+	one, two := pkg.Open()
+	one.C()
+	two.D()
+	asserted, ok := anything.(*Box)
+	asserted.E()
+	xs[0].F()
+	for _, each := range m {
+		each.G()
+	}
+	got := <-ch
+	got.H()
+	value, found := m["k"]
+	value.I()
+	switch typed := anything.(type) {
+	case Box, *pkg.Item:
+		typed.J()
+	}
+	_, _ = ok, found
+}
+"#,
+    );
+
+    assert_eq!(
+        receivers(&raw),
+        [
+            ("A", Some("Box")),
+            ("new", None),
+            ("B", Some("pkg.Item")),
+            ("Open", Some("pkg")),
+            ("C", Some("pkg.Open()")),
+            ("D", Some("pkg.Open()#1")),
+            ("E", Some("Box")),
+            ("F", Some("pkg.Item")),
+            ("G", Some("Box")),
+            ("H", Some("Box")),
+            ("I", Some("Box")),
+            ("J", Some("any")),
+        ],
+        "a clause that names several types leaves the variable the guard's type"
     );
 }
 
@@ -653,6 +719,73 @@ func f() { serve() }
             ("f", "serve", None, 13),
         ]
     );
+}
+
+#[test]
+fn a_definition_records_the_types_of_the_values_it_yields() {
+    let raw = extract(
+        br#"package p
+
+import "example.com/pkg"
+
+type Server struct {
+	client, backup *pkg.Client
+	hooks          []Hook
+	handler        func()
+}
+
+type Alias = pkg.Client
+
+type Servers []*Server
+
+type Factory func() (*Server, error)
+
+type Defined Server
+
+var Default = NewServer()
+
+var typed pkg.Client
+
+var literal = &Server{}
+
+func NewServer() *Server { return nil }
+
+func Open() (conn *pkg.Conn, closer, other func(), err error) { return }
+
+func (s *Server) Wait() {}
+
+func Each[T any](v T) T { return v }
+"#,
+    );
+
+    let expected: [(&str, &[&str]); 15] = [
+        ("p.Server.client", &["pkg.Client"]),
+        ("p.Server.backup", &["pkg.Client"]),
+        ("p.Server.hooks", &["[]Hook"]),
+        ("p.Server.handler", &[]),
+        ("p.Alias", &["pkg.Client"]),
+        ("p.Servers", &["[]Server"]),
+        ("p.Factory", &["Server", "error"]),
+        ("p.Defined", &[]),
+        ("p.Default", &["NewServer()"]),
+        ("p.typed", &["pkg.Client"]),
+        ("p.literal", &["Server"]),
+        ("p.NewServer", &["Server"]),
+        ("p.Open", &["pkg.Conn", "", "", "error"]),
+        ("p.Server.Wait", &[]),
+        ("p.Each", &[]),
+    ];
+    for (qualified, value_types) in expected {
+        let symbol = raw
+            .symbols
+            .iter()
+            .find(|symbol| symbol.qualified_name == qualified)
+            .unwrap_or_else(|| panic!("{qualified} is extracted"));
+        assert_eq!(
+            symbol.value_types, value_types,
+            "{qualified}: a function literal type, a defined type's underlying type and a type parameter name no path"
+        );
+    }
 }
 
 #[test]
@@ -844,7 +977,7 @@ func F(i int, t Table) {
             ("F", "Generic", None, 14),
             ("F", "Generic", None, 15),
             ("F", "Map", Some("pkg"), 16),
-            ("F", "Get", Some(""), 17),
+            ("F", "Get", Some("Table"), 17),
         ],
         "an index by a local value calls an element, not an instantiation"
     );

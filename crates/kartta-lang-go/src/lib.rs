@@ -13,11 +13,14 @@
 //! (`var _ I = T{}`, `&T{}`, `new(T)` or `(*T)(nil)`). An assertion whose type the file does not declare is recorded as
 //! an assertion, for the graph to apply where it sees the whole package.
 //!
-//! A call records its callee and, for a member call, its receiver. Go spells an owner as a bare type name, so only an
-//! identifier operand is a receiver: `s.client.Do()` and `f().g()` record the empty receiver, a member call on a value
-//! of no known type, and so does a call on a value the caller declares, a parameter or a variable, whose name names no
-//! type. The method's own receiver records the owner its declaration spells: `w.draw()` in `func (w *Widget) run()`
-//! records `Widget`. A member call calls a method or a field of its value and reaches a function only through an
+//! A call records its callee and, for a member call, its receiver as a type path
+//! ([`Receivers::TypePaths`]): the type of the operand's value, as far as the
+//! file's declarations spell it. `s.client.Do()` in `func f(s *Server)` records `Server.client`, `w.draw()` in
+//! `func (w *Widget) run()` records `Widget`, and a variable records the path of what its declaration gives it: a
+//! type it names, a composite literal's type, a call's result, `new(T)`, an element of a container, a type switch's
+//! one type. A definition records the types of the values it yields: a variable's or a field's type, a function's
+//! results, an alias's target. A member call on a value the walk cannot type, `(a + b).f()`, records the empty
+//! receiver. A member call calls a method or a field of its value and reaches a function only through an
 //! import, so no tier binds it to a function of the caller's file, package or neighbors. A chained call records every
 //! call in the chain. A call of a symbol that a body declares, a local `var`, `const` or `type`, is a local call of
 //! that symbol; a call of a local value with no symbol — a parameter, a `:=` variable — and a computed callee, `(*p)()`
@@ -75,8 +78,8 @@ use std::sync::OnceLock;
 
 use kartta_lang::path::base;
 use kartta_lang::{
-    Conventions, DocComments, Language, MemberCalls, OwnMembers, RawExtraction, Repository,
-    Resolver, TypeUses,
+    Conventions, DocComments, Language, MemberCalls, OwnMembers, RawExtraction, Receivers,
+    Repository, Resolver, TypeUses,
 };
 use tree_sitter::{Parser, Tree};
 
@@ -126,6 +129,7 @@ impl Language for Go {
         conventions.own_members = OwnMembers::Unreached;
         conventions.directory_packages = true;
         conventions.member_calls = MemberCalls::Members;
+        conventions.receivers = Receivers::TypePaths;
         conventions.type_uses = TypeUses::Every;
 
         conventions
