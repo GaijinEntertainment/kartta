@@ -22,10 +22,11 @@ the name, and the callables nearest the caller. A member call, `x.f()`, binds a 
 conventions let one stand for what a value holds and `f` names no method the language's runtime gives its own values,
 as `trim` in `line.trim()` does; it binds no free variable or constant, whose name no property of a value reads. Where
 a language's includes are transitive, as C++'s are, a call of a name at most 32 definitions share that no included file
-defines binds the one file the includes reach in turn that defines it, a member call only a member. A use outside a
-call binds more narrowly: through the import its qualifier names, else a package-level definition of its own file, of
-a dot import, or of its package directory. Each tier's confidence is a constant of `kartta_graph::confidence`. No edge
-is stored, so nothing a file holds goes stale when another file changes.
+defines binds the one file the includes reach in turn that defines it, a member call only a member. Where a language
+says so, a member call on a value takes nothing from the callables nearest the caller. A use outside a call binds more
+narrowly: through the import its qualifier names, else a package-level definition of its own file, of a dot import, or
+of its package directory. Each tier's confidence is a constant of `kartta_graph::confidence`. No edge is stored, so
+nothing a file holds goes stale when another file changes.
 
 ## Answers
 
