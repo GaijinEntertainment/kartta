@@ -67,5 +67,7 @@ when another file changes.
   and vendored code; a kind no call and no use shows used; a definition a call that binds nothing, or binds only by
   proximity, may reach; and a method a call through another type may reach. Every call and use that spells a judged
   name is resolved, so a query over a whole graph costs what resolving its calls costs.
+- `Graph::stats` — what the graph holds: its files and those with no definition, its definitions by kind, the calls,
+  local calls and uses inside definitions, and the includes, counted when asked.
 
 Status: the API is new and is not published yet.
