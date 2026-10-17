@@ -1,0 +1,137 @@
+//! How much parse tree an extraction holds at once, counted through tree-sitter's allocator.
+#![expect(
+    clippy::expect_used,
+    reason = "clippy's allow-expect-in-tests covers #[test] functions and #[cfg(test)] modules, and the allocator \
+              of an integration test crate is neither; a layout tree-sitter cannot have is the assertion"
+)]
+
+use std::alloc::{self, Layout};
+use std::ffi::c_void;
+use std::fmt::Write as _;
+use std::sync::Once;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use kartta_lang::Language;
+use kartta_lang_cpp::Cpp;
+use tree_sitter::{Allocator, Parser};
+
+const HEADER: usize = 16;
+
+type SizeBytes = [u8; size_of::<usize>()];
+
+static LIVE: AtomicUsize = AtomicUsize::new(0);
+static PEAK: AtomicUsize = AtomicUsize::new(0);
+static COUNTING: Once = Once::new();
+
+fn layout(size: usize) -> Layout {
+    Layout::from_size_align(size + HEADER, HEADER)
+        .expect("a block tree-sitter asks for fits a layout")
+}
+
+fn counted(raw: *mut u8, size: usize) -> *mut c_void {
+    if raw.is_null() {
+        return raw.cast();
+    }
+    // SAFETY: `raw` is a fresh block of `HEADER + size` bytes, so its first word is writable.
+    unsafe { raw.cast::<SizeBytes>().write(size.to_ne_bytes()) };
+    let live = LIVE.fetch_add(size, Ordering::Relaxed) + size;
+    PEAK.fetch_max(live, Ordering::Relaxed);
+    // SAFETY: the block is `HEADER + size` bytes long, so the caller's part starts `HEADER` bytes in.
+    unsafe { raw.add(HEADER) }.cast()
+}
+
+const fn header(block: *mut c_void) -> (*mut u8, usize) {
+    // SAFETY: tree-sitter hands back only pointers `counted` returned, `HEADER` bytes into their block.
+    let raw = unsafe { block.cast::<u8>().sub(HEADER) };
+    // SAFETY: the block's first word holds the size `counted` wrote there.
+    (
+        raw,
+        usize::from_ne_bytes(unsafe { raw.cast::<SizeBytes>().read() }),
+    )
+}
+
+unsafe extern "C" fn counting_malloc(size: usize) -> *mut c_void {
+    // SAFETY: the layout is never zero-sized, since it holds the header.
+    counted(unsafe { alloc::alloc(layout(size)) }, size)
+}
+
+unsafe extern "C" fn counting_calloc(count: usize, size: usize) -> *mut c_void {
+    let size = count * size;
+    // SAFETY: the layout is never zero-sized, since it holds the header.
+    counted(unsafe { alloc::alloc_zeroed(layout(size)) }, size)
+}
+
+unsafe extern "C" fn counting_realloc(block: *mut c_void, size: usize) -> *mut c_void {
+    if block.is_null() {
+        // SAFETY: a null block asks for a fresh one, as `malloc` does.
+        return unsafe { counting_malloc(size) };
+    }
+    let (raw, old) = header(block);
+    LIVE.fetch_sub(old, Ordering::Relaxed);
+    // SAFETY: `raw` was allocated with `layout(old)`, and the new size keeps the header.
+    counted(
+        unsafe { alloc::realloc(raw, layout(old), size + HEADER) },
+        size,
+    )
+}
+
+unsafe extern "C" fn counting_free(block: *mut c_void) {
+    if block.is_null() {
+        return;
+    }
+    let (raw, size) = header(block);
+    LIVE.fetch_sub(size, Ordering::Relaxed);
+    // SAFETY: `raw` was allocated with `layout(size)` and is freed once.
+    unsafe { alloc::dealloc(raw, layout(size)) };
+}
+
+fn peak_while(work: impl FnOnce()) -> usize {
+    COUNTING.call_once(|| {
+        // SAFETY: this runs before the first tree-sitter call of the process, and once.
+        unsafe {
+            tree_sitter::set_allocator(Some(Allocator {
+                malloc: counting_malloc,
+                calloc: counting_calloc,
+                realloc: counting_realloc,
+                free: counting_free,
+            }));
+        }
+    });
+    let before = LIVE.load(Ordering::Relaxed);
+    PEAK.store(before, Ordering::Relaxed);
+    work();
+    PEAK.load(Ordering::Relaxed) - before
+}
+
+#[test]
+fn a_reparse_after_recovery_never_holds_the_first_tree_beside_the_second() {
+    let mut source = String::new();
+    for at in 0..400 {
+        write!(
+            source,
+            "class Wrap{at} final : public Base\n{{\npublic:\n  void render(ContextId ctx, uint32_t mask,\n    \
+             bool cuttings = true)\n#ifndef PROJECT_X\n    DAG_TS_REQUIRES(render_lock)\n#endif\n      ;\n  \
+             void render(ContextId ctx, ContextId pilots, uint32_t mask,\n    bool cuttings = true)\n\
+             #ifndef PROJECT_X\n    DAG_TS_REQUIRES(render_lock)\n#endif\n      ;\n  void close();\n}};\n\n"
+        )
+        .expect("a String takes any write");
+    }
+
+    let one_parse = peak_while(|| {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_cpp::LANGUAGE.into())
+            .expect("the pinned grammar loads");
+        let tree = parser.parse(&source, None).expect("a tree");
+        assert!(tree.root_node().has_error());
+    });
+    let extraction = peak_while(|| {
+        let raw = Cpp::new().extract(source.as_bytes());
+        assert_eq!(raw.symbols.len(), 400 * 4);
+    });
+
+    assert!(
+        extraction <= one_parse,
+        "an extraction peaked at {extraction} bytes of trees, one parse at {one_parse}"
+    );
+}
