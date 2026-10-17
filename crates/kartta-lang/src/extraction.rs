@@ -159,8 +159,9 @@ pub struct CallRef {
     pub caller_id: SymbolId,
     /// The called name as written.
     pub callee: String,
-    /// The type of the receiver of a member call, where the language and the call's form name one. Empty for a member
-    /// call on an expression the language cannot name, which is still not a bare call; `None` for a bare call.
+    /// The type of the receiver of a member call, where the language and the call's form name one, spelled as the
+    /// language's [`Receivers`](crate::Receivers) convention says. Empty for a member call on an expression the
+    /// language cannot name, which is still not a bare call; `None` for a bare call.
     pub receiver: Option<String>,
     /// The one-based line of the call.
     pub line: u32,
