@@ -90,7 +90,9 @@ mod tests;
 mod tsconfig;
 mod walk;
 
-use kartta_lang::{Conventions, Language, OwnMembers, RawExtraction, Repository, Resolver};
+use kartta_lang::{
+    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
+};
 
 use crate::flavor::Flavor;
 use crate::resolve::JstsResolver;
@@ -139,6 +141,10 @@ macro_rules! flavor_language {
 
             fn conventions(&self) -> Conventions {
                 conventions()
+            }
+
+            fn doc_comments(&self) -> DocComments {
+                DocComments::C_LIKE
             }
 
             fn extract(&self, source: &[u8]) -> RawExtraction {

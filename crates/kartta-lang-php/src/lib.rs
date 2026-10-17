@@ -60,7 +60,10 @@ use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use kartta_lang::path::base;
-use kartta_lang::{Conventions, Language, OwnMembers, RawExtraction, Repository, Resolver};
+use kartta_lang::{
+    BlockComment, Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository,
+    Resolver,
+};
 use tree_sitter::{Parser, Tree};
 
 use crate::fnv::{FNV_OFFSET, fnv};
@@ -90,6 +93,9 @@ impl Php {
     }
 }
 
+const DOC_COMMENTS: DocComments =
+    DocComments::lines(&["//", "#"]).with_blocks(&[BlockComment::new("/*", "*/")]);
+
 impl Language for Php {
     fn name(&self) -> &'static str {
         "php"
@@ -105,6 +111,10 @@ impl Language for Php {
         static FINGERPRINT: OnceLock<Vec<u8>> = OnceLock::new();
 
         FINGERPRINT.get_or_init(fingerprint)
+    }
+
+    fn doc_comments(&self) -> DocComments {
+        DOC_COMMENTS
     }
 
     // constraint: a bare call never reaches a method of its own class, which PHP calls only through `$this`, `self`

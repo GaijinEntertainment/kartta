@@ -1,6 +1,7 @@
 use std::fmt;
 use std::io;
 
+use crate::doc::DocComments;
 use crate::extraction::{Extraction, RawExtraction};
 
 /// A language the code graph understands: which files are its, what it extracts from their bytes, and how it
@@ -35,6 +36,11 @@ pub trait Language: Send + Sync + fmt::Debug {
     /// The conventions the graph resolves this language's calls under.
     fn conventions(&self) -> Conventions {
         Conventions::default()
+    }
+
+    /// Where the language writes the comments that document a definition from the lines above it; none by default.
+    fn doc_comments(&self) -> DocComments {
+        DocComments::NONE
     }
 
     /// What `source`, one file's whole content, holds, from the bytes alone.

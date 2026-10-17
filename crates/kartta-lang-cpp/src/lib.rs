@@ -101,7 +101,8 @@ mod walk;
 use std::cell::RefCell;
 
 use kartta_lang::{
-    Conventions, InheritedMembers, Language, OwnMembers, RawExtraction, Repository, Resolver,
+    Conventions, DocComments, InheritedMembers, Language, OwnMembers, RawExtraction, Repository,
+    Resolver,
 };
 use tree_sitter::Parser;
 
@@ -158,6 +159,10 @@ impl Language for Cpp {
         conventions.values_are_call_targets = false;
         conventions.scope_separator = Some("::");
         conventions
+    }
+
+    fn doc_comments(&self) -> DocComments {
+        DocComments::C_LIKE.with_carried(&["template ", "template<"])
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {

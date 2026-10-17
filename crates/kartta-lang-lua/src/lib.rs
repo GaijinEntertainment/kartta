@@ -57,7 +57,10 @@ use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use kartta_lang::path::base;
-use kartta_lang::{Conventions, Language, OwnMembers, RawExtraction, Repository, Resolver};
+use kartta_lang::{
+    BlockComment, Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository,
+    Resolver,
+};
 use tree_sitter::{Parser, Tree};
 
 use crate::fnv::{FNV_OFFSET, fnv};
@@ -85,6 +88,15 @@ impl Lua {
     }
 }
 
+// constraint: a long comment closes at a bracket of its own level, so each level is a comment of its own; a level past
+// the third is not read as doc
+const DOC_COMMENTS: DocComments = DocComments::lines(&["--"]).with_blocks(&[
+    BlockComment::new("--[[", "]]").closed_alone(),
+    BlockComment::new("--[=[", "]=]").closed_alone(),
+    BlockComment::new("--[==[", "]==]").closed_alone(),
+    BlockComment::new("--[===[", "]===]").closed_alone(),
+]);
+
 impl Language for Lua {
     fn name(&self) -> &'static str {
         "lua"
@@ -100,6 +112,10 @@ impl Language for Lua {
         static FINGERPRINT: OnceLock<Vec<u8>> = OnceLock::new();
 
         FINGERPRINT.get_or_init(fingerprint)
+    }
+
+    fn doc_comments(&self) -> DocComments {
+        DOC_COMMENTS
     }
 
     fn conventions(&self) -> Conventions {

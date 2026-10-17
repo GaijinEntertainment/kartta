@@ -71,7 +71,7 @@ use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use kartta_lang::path::base;
-use kartta_lang::{Language, RawExtraction, Repository, Resolver};
+use kartta_lang::{DocComments, Language, RawExtraction, Repository, Resolver};
 use tree_sitter::{Parser, Tree};
 
 use crate::fnv::{FNV_OFFSET, fnv};
@@ -114,6 +114,10 @@ impl Language for Daslang {
         static FINGERPRINT: OnceLock<Vec<u8>> = OnceLock::new();
 
         FINGERPRINT.get_or_init(fingerprint)
+    }
+
+    fn doc_comments(&self) -> DocComments {
+        DocComments::C_LIKE
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {
