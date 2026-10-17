@@ -3,7 +3,9 @@ use std::rc::Rc;
 
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
-use kartta_lang::{CallableRole, Conventions, InheritedMembers, OwnMembers, SymbolKind};
+use kartta_lang::{
+    CallableRole, Conventions, IncludeReach, InheritedMembers, OwnMembers, SymbolKind,
+};
 
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
 use crate::confidence;
@@ -12,6 +14,8 @@ use crate::resolution::Miss;
 use crate::scope::{Ancestors, Reach, Scoped, is_value};
 use crate::stored::{Entry, Site, SymbolAt};
 use crate::strings::Str;
+
+const THROUGH_INCLUDES_MAX_DEFINITIONS: usize = 32;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Call {
@@ -633,16 +637,62 @@ impl<'g> Cascade<'g> {
         candidates: &Candidates<'_>,
         reach: Option<&Reach>,
     ) -> Option<SymbolAt> {
-        let mut unique = None;
-        for &included in self.includes(call.file).iter() {
-            let defined = candidates.in_file(self.graph, included);
-            if defined.is_empty() {
-                continue;
+        let includes = self.includes(call.file);
+        let defined_directly = includes
+            .iter()
+            .map(|&included| candidates.in_file(self.graph, included));
+        match self.offered(call, reach, defined_directly) {
+            Scoped::One(at) => Some(at),
+            Scoped::Several => None,
+            Scoped::Nothing => self.through_includes(call, candidates, reach),
+        }
+    }
+
+    // constraint: past the direct includes a name binds only where few definitions share it and one file of those the
+    // includes reach offers it, as a common name's one definition there is most often a namesake of code outside the
+    // graph; a member call takes a member alone there, since a free function offered to it is a member read as free
+    fn through_includes(
+        &self,
+        call: &Call,
+        candidates: &Candidates<'_>,
+        reach: Option<&Reach>,
+    ) -> Option<SymbolAt> {
+        if self.conventions.include_reach != IncludeReach::Transitive {
+            return None;
+        }
+        let named_receiver = call
+            .receiver
+            .is_some_and(|receiver| !self.graph.strings.resolve(receiver).is_empty());
+        let named = candidates.named();
+        if named_receiver || named.len() > THROUGH_INCLUDES_MAX_DEFINITIONS {
+            return None;
+        }
+        let closure = self.closure(call.file);
+        let defined_further_in = named
+            .chunk_by(|left, right| left.file == right.file)
+            .filter(|defined| {
+                defined[0].file != call.file && closure.binary_search(&defined[0].file).is_ok()
+            });
+        match self.offered(call, reach, defined_further_in) {
+            Scoped::One(at) if call.receiver.is_none() || self.graph.sym(at).owner.is_some() => {
+                Some(at)
             }
+            Scoped::One(_) | Scoped::Nothing | Scoped::Several => None,
+        }
+    }
+
+    fn offered<'a>(
+        &self,
+        call: &Call,
+        reach: Option<&Reach>,
+        defined_per_file: impl Iterator<Item = &'a [SymbolAt]>,
+    ) -> Scoped {
+        let mut unique = Scoped::Nothing;
+        for defined in defined_per_file.filter(|defined| !defined.is_empty()) {
             match self.scoped(call, defined.iter().copied(), reach) {
                 Scoped::Nothing => {}
-                Scoped::One(at) if unique.is_none() => unique = Some(at),
-                Scoped::One(_) | Scoped::Several => return None,
+                Scoped::One(at) if unique == Scoped::Nothing => unique = Scoped::One(at),
+                Scoped::One(_) | Scoped::Several => return Scoped::Several,
             }
         }
         unique

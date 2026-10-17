@@ -7,9 +7,9 @@
 
 use kartta_graph::{Graph, Limits, Walk};
 use kartta_lang::{
-    CallRef, Callable, CallableRole, Conventions, Extraction, ImportBinding, IncludeRef,
-    InheritedMembers, LocalCall, MemberCalls, OwnMembers, ReExport, RefSite, Symbol, SymbolFlags,
-    SymbolId, SymbolKind,
+    CallRef, Callable, CallableRole, Conventions, Extraction, ImportBinding, IncludeReach,
+    IncludeRef, InheritedMembers, LocalCall, MemberCalls, OwnMembers, ReExport, RefSite, Symbol,
+    SymbolFlags, SymbolId, SymbolKind,
 };
 
 fn function(name: &str, line: u32) -> Symbol {
@@ -77,6 +77,7 @@ fn cpp() -> Conventions {
     conventions.inherited_members = InheritedMembers::Found;
     conventions.values_are_call_targets = false;
     conventions.scope_separator = Some("::");
+    conventions.include_reach = IncludeReach::Transitive;
     conventions
 }
 
@@ -479,6 +480,139 @@ fn an_included_file_that_defines_the_name_on_two_owners_leaves_the_call_to_later
             Vec::new(),
         ),
     ]);
+
+    let walk = graph
+        .callees("run", Limits::new(1))
+        .expect("run is defined");
+
+    assert_eq!(reached(&walk), Vec::<String>::new());
+    assert_eq!(walk.unresolved, 1);
+}
+
+fn header(path: &str, symbols: Vec<Symbol>, includes: &[&str]) -> Extraction {
+    let mut extraction = file(path, symbols, Vec::new());
+    extraction.includes = includes
+        .iter()
+        .map(|target| IncludeRef {
+            target: (*target).to_owned(),
+        })
+        .collect();
+    extraction
+}
+
+fn includes_through_headers(called: CallRef, defined: Symbol) -> [Extraction; 5] {
+    [
+        including("src/a.cpp", &["inc/scene.h"], vec![called]),
+        header("inc/scene.h", Vec::new(), &["inc/core.h"]),
+        header("inc/core.h", vec![defined.clone()], &["inc/scene.h"]),
+        file("copy/core.h", vec![defined.clone()], Vec::new()),
+        file("lib/parse.cpp", vec![defined], Vec::new()),
+    ]
+}
+
+#[test]
+fn a_bare_call_binds_the_one_file_its_includes_include_that_defines_the_name() {
+    let graph = graph_of(
+        cpp(),
+        &includes_through_headers(call(0, "parse", 2), function("parse", 1)),
+    );
+
+    assert_eq!(callees(&graph, "run"), ["inc/core.h:1@70"]);
+}
+
+#[test]
+fn a_file_that_an_include_includes_defines_nothing_the_caller_sees_where_includes_are_direct() {
+    let graph = graph(&includes_through_headers(
+        call(0, "parse", 2),
+        function("parse", 1),
+    ));
+
+    assert_eq!(callees(&graph, "run"), Vec::<String>::new());
+}
+
+#[test]
+fn a_member_call_on_a_value_binds_the_one_member_its_includes_include() {
+    let graph = graph_of(
+        cpp(),
+        &includes_through_headers(
+            member_call(0, "", "parse", 2),
+            member("Core", "parse", SymbolKind::Method, 1),
+        ),
+    );
+
+    assert_eq!(callees(&graph, "run"), ["inc/core.h:1@70"]);
+}
+
+#[test]
+fn a_member_call_on_a_value_binds_no_free_function_its_includes_include() {
+    let graph = graph_of(
+        cpp(),
+        &includes_through_headers(member_call(0, "", "parse", 2), function("parse", 1)),
+    );
+
+    assert_eq!(callees(&graph, "run"), Vec::<String>::new());
+}
+
+#[test]
+fn a_name_more_than_32_definitions_share_binds_through_direct_includes_alone() {
+    let mut files = includes_through_headers(call(0, "parse", 2), function("parse", 1)).to_vec();
+    files.push(file(
+        "lib/many.cpp",
+        (0..30)
+            .map(|line| function("parse", line * 2 + 1))
+            .collect(),
+        Vec::new(),
+    ));
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "run"), Vec::<String>::new());
+}
+
+#[test]
+fn a_name_32_definitions_share_binds_through_the_files_includes_include() {
+    let mut files = includes_through_headers(call(0, "parse", 2), function("parse", 1)).to_vec();
+    files.push(file(
+        "lib/many.cpp",
+        (0..29)
+            .map(|line| function("parse", line * 2 + 1))
+            .collect(),
+        Vec::new(),
+    ));
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "run"), ["inc/core.h:1@70"]);
+}
+
+#[test]
+fn a_directly_included_definition_binds_before_one_included_further_in() {
+    let graph = graph_of(
+        cpp(),
+        &[
+            including(
+                "src/a.cpp",
+                &["inc/near.h", "inc/scene.h"],
+                vec![call(0, "parse", 2)],
+            ),
+            header("inc/near.h", vec![function("parse", 1)], &[]),
+            header("inc/scene.h", Vec::new(), &["inc/core.h"]),
+            header("inc/core.h", vec![function("parse", 1)], &[]),
+        ],
+    );
+
+    assert_eq!(callees(&graph, "run"), ["inc/near.h:1@70"]);
+}
+
+#[test]
+fn two_files_included_further_in_that_define_the_name_leave_the_call_to_later_tiers() {
+    let graph = graph_of(
+        cpp(),
+        &[
+            including("src/a.cpp", &["inc/scene.h"], vec![call(0, "parse", 2)]),
+            header("inc/scene.h", Vec::new(), &["inc/one.h", "inc/two.h"]),
+            header("inc/one.h", vec![function("parse", 1)], &[]),
+            header("inc/two.h", vec![function("parse", 1)], &[]),
+        ],
+    );
 
     let walk = graph
         .callees("run", Limits::new(1))

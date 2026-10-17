@@ -18,6 +18,9 @@ pub const SAME_FILE: u8 = 80;
 /// A definition in the caller's package directory binds, where a language's packages are directories.
 pub const PACKAGE: u8 = 75;
 /// The one file of those the caller's file includes that defines the name binds.
+///
+/// Where the language's includes are transitive and none of those defines the name, the one file of those the
+/// includes reach in turn binds a name few definitions share.
 pub const INCLUDE: u8 = 70;
 /// A re-export chain from an included file binds the definition it renames.
 pub const RE_EXPORT: u8 = 65;
