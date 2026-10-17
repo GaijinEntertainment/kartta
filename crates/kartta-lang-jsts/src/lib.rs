@@ -10,7 +10,8 @@
 //!   owned by the chain of names that encloses it: `run` in `namespace A { class Worker { run() {} } }` is
 //!   `A.Worker.run`. A body never owns members, so a class declared inside a function starts a new chain. A class with
 //!   no name goes by the name that binds it, as JavaScript names it: `default` for an anonymous `export default class`,
-//!   `Box` for `const Box = class {}`; the methods of one that nothing names are free functions.
+//!   `Box` for `const Box = class {}`; the methods of one that nothing names are free functions. A type alias owns the
+//!   members its type spells, as an interface does: `open` in `type Api = { open(): void }` is `Api.open`.
 //! - A function bound to a name is a function that owns the calls in its body: `const f = () => {}`, a function
 //!   wrapped in `memo`, `forwardRef`, `useCallback`, `useMemo`, `observer` or `debounce`, an object property
 //!   `{ onClick: () => {} }`, a class field `handler = () => {}`, and an anonymous `export default` function, named

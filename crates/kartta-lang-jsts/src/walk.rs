@@ -191,6 +191,7 @@ impl<'s> Emitter<'s> {
             }
             "type_alias_declaration" => {
                 self.type_declaration(node, SymbolKind::TypeAlias, Vec::new());
+                self.push_type_scope(node);
             }
             "enum_declaration" => self.type_declaration(node, SymbolKind::Enum, Vec::new()),
             "lexical_declaration" | "variable_declaration" => self.decls.push(DeclScope {
