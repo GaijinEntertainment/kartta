@@ -157,7 +157,7 @@ impl Graph {
         })
     }
 
-    fn overlapping(&self, slot: u32, lines: &RangeInclusive<u32>) -> Vec<SymbolAt> {
+    pub(crate) fn overlapping(&self, slot: u32, lines: &RangeInclusive<u32>) -> Vec<SymbolAt> {
         if lines.is_empty() {
             return Vec::new();
         }
@@ -209,14 +209,14 @@ impl Graph {
     }
 }
 
-struct Analysis<'g> {
-    graph: &'g Graph,
-    calls: Calls<'g>,
-    limits: Limits,
+pub(crate) struct Analysis<'g> {
+    pub(crate) graph: &'g Graph,
+    pub(crate) calls: Calls<'g>,
+    pub(crate) limits: Limits,
 }
 
 impl<'g> Analysis<'g> {
-    fn new(graph: &'g Graph, limits: Limits) -> Self {
+    pub(crate) fn new(graph: &'g Graph, limits: Limits) -> Self {
         Self {
             graph,
             calls: Calls::new(graph),
