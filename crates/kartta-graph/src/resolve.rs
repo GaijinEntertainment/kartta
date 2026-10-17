@@ -471,7 +471,11 @@ impl<'g> Cascade<'g> {
                 return Err(Miss::ExternalImport);
             }
             return self
-                .imported(&self.candidates(call), target, Pick::FreeTarget(caller))
+                .imported(
+                    &self.candidates(call),
+                    (call.file, target),
+                    Pick::FreeTarget(caller),
+                )
                 .ok_or(Miss::NotExported);
         }
 
@@ -605,14 +609,44 @@ impl<'g> Cascade<'g> {
     fn imported(
         &self,
         candidates: &Candidates<'_>,
-        target: Option<Str>,
+        (importer, target): (u32, Option<Str>),
         pick: Pick,
     ) -> Option<Bound> {
-        let at = self.pick(pick, self.declared_in(candidates, target?).into_iter())?;
+        let dir = target?;
+        let declared = if self.is_external_test_of(importer, dir) {
+            self.in_tested_package(candidates, importer)
+        } else {
+            self.declared_in(candidates, dir)
+        };
+        let at = self.pick(pick, declared.into_iter())?;
         self.graph
             .sym(at)
             .exported
             .then_some((at, confidence::IMPORT))
+    }
+
+    // constraint: the go command compiles a package's test files into the package an external test package of the same
+    // directory imports, so such an import sees what a test file of the package declares, most often `export_test.go`
+    fn is_external_test_of(&self, importer: u32, dir: Str) -> bool {
+        let file = self.graph.file(importer);
+        self.conventions.directory_packages
+            && file.dir == dir
+            && file
+                .symbols
+                .first()
+                .is_some_and(|symbol| symbol.flags.is_test())
+    }
+
+    fn in_tested_package(&self, candidates: &Candidates<'_>, importer: u32) -> Vec<SymbolAt> {
+        let file = self.graph.file(importer);
+        candidates
+            .in_dir(self.graph, file.dir)
+            .iter()
+            .copied()
+            .filter(|&at| {
+                self.graph.file(at.file).package != file.package && self.holder(at).is_none()
+            })
+            .collect()
     }
 
     fn dot_imported(&self, candidates: &Candidates<'_>, file: u32, pick: Pick) -> Option<SymbolAt> {
@@ -773,7 +807,11 @@ impl<'g> Cascade<'g> {
 
         if let Some(qualifier) = site.qualifier {
             let target = self.binding(file, qualifier)?;
-            return self.imported(&self.referenceable(site.name), target, Pick::PackageLevel);
+            return self.imported(
+                &self.referenceable(site.name),
+                (file, target),
+                Pick::PackageLevel,
+            );
         }
         let named = self.named(site.name);
         if let Some(at) = self.pick(
