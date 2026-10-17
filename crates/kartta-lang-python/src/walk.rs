@@ -179,6 +179,8 @@ impl<'a> Emitter<'a> {
     }
 
     // constraint: a definition in a class body at module level is no local, so a call of it there stays a call
+    // constraint: the graph binds a recorded call by its name, so a call of a value is not recorded, or it would bind
+    // a definition the value only shares a name with
     fn close(
         &mut self,
         Frame {
@@ -202,9 +204,8 @@ impl<'a> Emitter<'a> {
                         line: call.line,
                     });
                 }
-                Some(Binding::Definition(_) | Binding::Module | Binding::Value) => {
-                    self.push_call(&call);
-                }
+                Some(Binding::Definition(_) | Binding::Module) => self.push_call(&call),
+                Some(Binding::Value) => {}
                 Some(Binding::Enclosing) | None => match self.scope_frame(call.at) {
                     Some(outer) => outer.calls.push(call),
                     None => self.push_call(&call),
