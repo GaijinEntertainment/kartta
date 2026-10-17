@@ -5,7 +5,9 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{Language, OwnMembers, RawExtraction, Symbol, SymbolId, SymbolKind, TypeUses};
+use kartta_lang::{
+    Language, MemberCalls, OwnMembers, RawExtraction, Symbol, SymbolId, SymbolKind, TypeUses,
+};
 use kartta_lang_go::Go;
 
 const SAMPLE: &[u8] = br#"
@@ -132,6 +134,7 @@ fn a_bare_call_never_reaches_a_member_and_a_value_is_callable() {
     assert_eq!(conventions.own_members, OwnMembers::Unreached);
     assert!(conventions.values_are_call_targets);
     assert_eq!(conventions.owner_chain_separator, None);
+    assert_eq!(conventions.member_calls, MemberCalls::Members);
 }
 
 #[test]

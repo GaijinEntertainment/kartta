@@ -17,11 +17,13 @@
 //! identifier operand is a receiver: `s.client.Do()` and `f().g()` record the empty receiver, a member call on a value
 //! of no known type, and so does a call on a value the caller declares, a parameter or a variable, whose name names no
 //! type. The method's own receiver records the owner its declaration spells: `w.draw()` in `func (w *Widget) run()`
-//! records `Widget`. A chained call records every call in the chain. A call of a symbol that a body declares, a local
-//! `var`, `const` or `type`, is a local call of that symbol; a call of a local value with no symbol — a parameter, a
-//! `:=` variable — and a computed callee, `(*p)()` or `fns[i]()`, record nothing. An index call names the generic
-//! function or method it instantiates, `f[T](x)` and `v.F[T](x)`, when its indices are type arguments; an index by a
-//! value of the file, or of a package-level variable, calls an element and records nothing.
+//! records `Widget`. A member call calls a method or a field of its value and reaches a function only through an
+//! import, so no tier binds it to a function of the caller's file, package or neighbors. A chained call records every
+//! call in the chain. A call of a symbol that a body declares, a local `var`, `const` or `type`, is a local call of
+//! that symbol; a call of a local value with no symbol — a parameter, a `:=` variable — and a computed callee, `(*p)()`
+//! or `fns[i]()`, record nothing. An index call names the generic function or method it instantiates, `f[T](x)` and
+//! `v.F[T](x)`, when its indices are type arguments; an index by a value of the file, or of a package-level variable,
+//! calls an element and records nothing.
 //!
 //! A name outside a call that names a package-level type or a member of an imported package — a type in a signature or
 //! a declaration, a conversion, `pkg.Member` — is a use, attributed to the symbol whose declaration holds it. A field
@@ -72,7 +74,7 @@ use std::sync::OnceLock;
 
 use kartta_lang::path::base;
 use kartta_lang::{
-    Conventions, Language, OwnMembers, RawExtraction, Repository, Resolver, TypeUses,
+    Conventions, Language, MemberCalls, OwnMembers, RawExtraction, Repository, Resolver, TypeUses,
 };
 use tree_sitter::{Parser, Tree};
 
@@ -121,6 +123,7 @@ impl Language for Go {
         let mut conventions = Conventions::default();
         conventions.own_members = OwnMembers::Unreached;
         conventions.directory_packages = true;
+        conventions.member_calls = MemberCalls::Members;
         conventions.type_uses = TypeUses::Every;
 
         conventions

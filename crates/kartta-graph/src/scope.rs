@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
-use kartta_lang::{InheritedMembers, SymbolKind};
+use kartta_lang::{InheritedMembers, MemberCalls, SymbolKind};
 
 use crate::candidates::Candidates;
 use crate::confidence;
@@ -689,7 +689,7 @@ impl Cascade<'_> {
         let any = |shape: &Shape| candidates.clone().any(|at| self.admits(shape, at));
 
         if call.receiver.is_some() {
-            return if any(&Shape::Member) {
+            return if self.conventions.member_calls == MemberCalls::Members || any(&Shape::Member) {
                 Shape::Member
             } else {
                 Shape::Free
@@ -924,7 +924,11 @@ impl Cascade<'_> {
             (same_dir, confidence::SAME_DIR)
         };
         let nearby = nearby.iter().copied();
-        let shape = self.shape(call, &nearby, reach);
+        let shape = if call.receiver.is_some() && confidence == confidence::FIRST_PARTY {
+            Shape::Member
+        } else {
+            self.shape(call, &nearby, reach)
+        };
         self.one_callable(&shape, nearby.clone())
             .or_else(|| self.constructor_of_a_type_outside(&shape, &nearby))
             .map(|at| (at, confidence))
