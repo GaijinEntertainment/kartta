@@ -47,6 +47,9 @@ pub enum SymbolKind {
     Field,
     /// One variant of an enum type.
     EnumVariant,
+    /// A new type defined over another type and of none of the kinds above, as Go's `type Celsius float64` or
+    /// `type HandlerFunc func(w Writer)`: it has a method set of its own, where an alias names the type it aliases.
+    DefinedType,
 }
 
 impl SymbolKind {
@@ -68,6 +71,7 @@ impl SymbolKind {
             Self::Macro => "macro",
             Self::Field => "field",
             Self::EnumVariant => "variant",
+            Self::DefinedType => "type",
         }
     }
 }

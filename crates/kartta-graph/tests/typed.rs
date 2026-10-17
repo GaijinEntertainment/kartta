@@ -265,7 +265,7 @@ fn fields_results_and_elements_carry_the_path_to_the_receiver_s_type() {
                 yielding(function("main", "Open", 4), &["", "Holder"]),
                 yielding(function("main", "All", 6), &["[]Holder"]),
                 yielding(
-                    typed("main", "Factory", SymbolKind::TypeAlias, 8),
+                    typed("main", "Factory", SymbolKind::DefinedType, 8),
                     &["Holder", "error"],
                 ),
                 yielding(
