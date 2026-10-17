@@ -8,7 +8,8 @@
 //! Every function, method, type, interface member, struct field, constant and variable is a symbol, qualified by the
 //! package clause: `api.Serve`, and `api.Server.Close` for a member of `Server`. A struct body gives one field symbol
 //! per named field, an interface body one method symbol per member, whether the type is defined (`type T struct{}`)
-//! or a literal alias (`type T = struct{}`); any other type, `type X = Y` or `type H func()`, is a type alias. An
+//! or a literal alias (`type T = struct{}`); any other alias, `type X = Y`, is a type alias, and any other defined
+//! type, `type H func()`, a defined type. An
 //! embedded field or interface is a parent of its type, and so is the interface of a compile-time assertion
 //! (`var _ I = T{}`, `&T{}`, `new(T)` or `(*T)(nil)`). An assertion whose type the file does not declare is recorded as
 //! an assertion, for the graph to apply where it sees the whole package.

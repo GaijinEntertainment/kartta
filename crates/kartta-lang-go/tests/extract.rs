@@ -232,13 +232,13 @@ fn interface_members_are_methods_owned_by_the_interface() {
 }
 
 #[test]
-fn aliases_and_defined_non_struct_types_are_type_aliases() {
+fn an_alias_is_a_type_alias_and_a_defined_non_struct_type_a_defined_type() {
     let raw = extract(SAMPLE);
 
     assert_eq!(qualified(&raw, "sample.Alias").kind, SymbolKind::TypeAlias);
     assert_eq!(
         qualified(&raw, "sample.Handler").kind,
-        SymbolKind::TypeAlias
+        SymbolKind::DefinedType
     );
 }
 
@@ -1306,7 +1306,7 @@ func Pair() {
         [
             ("Literal", 4, "helper", SymbolKind::Variable, 4),
             ("Later", 14, "helper", SymbolKind::Variable, 13),
-            ("Later", 15, "helper", SymbolKind::TypeAlias, 15),
+            ("Later", 15, "helper", SymbolKind::DefinedType, 15),
             ("Later", 16, "helper", SymbolKind::Variable, 13),
             ("Capture", 20, "helper", SymbolKind::Variable, 19),
             ("Pair", 24, "first", SymbolKind::Variable, 23),
