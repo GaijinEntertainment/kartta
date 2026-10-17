@@ -16,7 +16,8 @@ starts with `_` is not exported.
 A call records its callee and, for a member call, its receiver: `self.greet()` records `greet` on `self`, and a member
 call on anything but a name records the empty receiver. A call belongs to the function around it, one in a class body
 included. A bare call of a function or class that a function around the call defines is a local call to that
-definition, unless a name nearer the call hides it, as Python's scoping decides.
+definition, unless a name nearer the call hides it, as Python's scoping decides, and a bare call of a value such a
+function binds, such as a parameter, is not recorded.
 
 ## Resolution
 
