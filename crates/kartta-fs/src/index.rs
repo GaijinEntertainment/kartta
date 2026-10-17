@@ -94,6 +94,10 @@ pub struct Index {
 impl Index {
     /// Walks `root` and builds the index.
     ///
+    /// On Linux with glibc, a build that returns an index ends with `malloc_trim(0)`, because glibc keeps the pages
+    /// the walk freed resident in the arenas of the threads that freed them. The trim returns the free pages of every
+    /// arena in the process, the caller's own included, and holds each arena's lock while it trims that arena.
+    ///
     /// # Errors
     ///
     /// Returns [`BuildError::Walk`] if `root` itself cannot be listed, or if the thread count
@@ -115,7 +119,8 @@ impl Index {
     /// file it wants once, while the walk is in its directory, rather than the consumer opening every file again after
     /// the walk. [`ContentVisitor`] carries the contract. Each read also settles the file's size and binary verdict,
     /// which [`Index::size`] and [`Index::is_binary`] then answer without a read of their own. Without a visitor, the
-    /// build reads only what [`BuildOptions::content_index`] asks it to, and with neither it reads no file.
+    /// build reads only what [`BuildOptions::content_index`] asks it to, and with neither it reads no file. It ends
+    /// with the trim [`Index::build`] ends with.
     ///
     /// # Errors
     ///
@@ -149,7 +154,8 @@ impl Index {
     /// into one, at about what the build's own merge cost. Either way the index in use stays whole until
     /// the new one is done, so the two are held at once while it runs. A refresh that returns an error, a cancelled one
     /// included, leaves the index answering as it did; one that returns [`RefreshOutcome`] has replaced it, even when
-    /// [`RefreshOutcome::errors`] lists what its walk could not read.
+    /// [`RefreshOutcome::errors`] lists what its walk could not read, and ends with the trim [`Index::build`] ends
+    /// with, once the replaced index is dropped.
     ///
     /// Each file a refresh reads gets a new [`ContentId`], numbered past every id the index handed out before,
     /// including those of a refresh that returned an error or that a panicking visitor unwound, so one id never names
@@ -168,6 +174,7 @@ impl Index {
         let (BuildOutcome { index, errors }, retired) =
             self.counting_handed(|index, handed| index.walk_again(visitor, cancel, handed))?;
         *self = index;
+        release_freed_memory();
 
         Ok(RefreshOutcome {
             errors,
@@ -237,7 +244,10 @@ impl Index {
             pool: options.threads.map(thread_pool).transpose()?,
             previous: None,
         };
-        Self::walk_and_build(root, options, walking)
+        let outcome = Self::walk_and_build(root, options, walking)?;
+        release_freed_memory();
+
+        Ok(outcome)
     }
 
     fn walk_and_build(
@@ -995,6 +1005,18 @@ fn on_pool<R: Send>(pool: Option<&ThreadPool>, operation: impl FnOnce() -> R + S
         None => operation(),
     }
 }
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn release_freed_memory() {
+    // SAFETY: `malloc_trim` takes no pointer: it returns the pages of glibc's own free chunks to the system, each arena
+    // under its own lock, so it is sound from any thread at any time.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+const fn release_freed_memory() {}
 
 fn thread_pool(threads: NonZeroUsize) -> Result<Arc<ThreadPool>, BuildError> {
     ThreadPoolBuilder::new()
