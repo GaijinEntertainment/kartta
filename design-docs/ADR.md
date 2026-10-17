@@ -88,6 +88,9 @@
 - [3.20 Resolve implementors from the parents written when a query
   asks](./adr/3.20-resolve-implementors-from-the-parents-written-when-a-query-asks.md) — initiative `03-code-graph`,
   2026-10-17
+- [3.21 Search definitions by the words of their names and
+  paths](./adr/3.21-search-definitions-by-the-words-of-their-names-and-paths.md) — initiative `03-code-graph`,
+  2026-10-17
 
 ## Deprecated
 
