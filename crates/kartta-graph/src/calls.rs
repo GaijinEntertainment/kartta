@@ -165,6 +165,14 @@ struct Edge {
     line: u32,
 }
 
+#[derive(Default)]
+struct LeftOut {
+    truncated: bool,
+    turned_away: usize,
+    unexpanded: usize,
+    below_confidence: usize,
+}
+
 fn keep_stronger<K: Eq + Hash>(strongest: &mut HashMap<K, Edge, FixedState>, key: K, edge: Edge) {
     let held = strongest.entry(key).or_insert(edge);
     if (edge.confidence, Reverse(edge.line)) > (held.confidence, Reverse(held.line)) {
@@ -293,6 +301,8 @@ fn edges_of(held: &HashMap<SymbolAt, Vec<Edge>, FixedState>, at: SymbolAt) -> &[
 }
 
 type Rank<'g> = fn(&mut Calls<'g>, SymbolAt) -> usize;
+
+type EdgesOf<'g> = fn(&mut Calls<'g>, SymbolAt) -> Vec<Edge>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wanted {
@@ -541,45 +551,49 @@ impl<'g> Calls<'g> {
         edges.sort_unstable_by_key(|edge| (self.graph.path_rank(edge.far.file), edge.far.index));
     }
 
-    fn walk(
-        &mut self,
-        root: SymbolAt,
-        limits: Limits,
-        edges_of: fn(&mut Self, SymbolAt) -> Vec<Edge>,
-    ) -> Walk<'g> {
-        let mut state = WalkState {
-            graph: self.graph,
-            limits,
-            walk: Walk {
-                root: self.graph.definition_at(root),
-                passed_over: 0,
-                reached: Vec::new(),
-                truncated: false,
-                turned_away: 0,
-                unexpanded: 0,
-                below_confidence: 0,
-                unresolved: 0,
-            },
-            visited: HashMap::with_hasher(FixedState::default()),
-            queue: VecDeque::from([root]),
-        };
-        state.visited.insert(root, 0);
+    fn walk(&mut self, root: SymbolAt, limits: Limits, edges_of: EdgesOf<'g>) -> Walk<'g> {
+        let graph = self.graph;
+        let mut reached = Vec::new();
+        let left_out = self.reach(WalkState::new(root, limits), edges_of, |edge, depth| {
+            reached.push(Reached {
+                symbol: graph.definition_at(edge.far),
+                depth,
+                confidence: edge.confidence,
+                line: edge.line,
+            });
+        });
+        Walk {
+            root: graph.definition_at(root),
+            passed_over: 0,
+            reached,
+            truncated: left_out.truncated,
+            turned_away: left_out.turned_away,
+            unexpanded: left_out.unexpanded,
+            below_confidence: left_out.below_confidence,
+            unresolved: self.unresolved,
+        }
+    }
 
+    fn reach(
+        &mut self,
+        mut state: WalkState,
+        edges_of: EdgesOf<'g>,
+        mut visit: impl FnMut(Edge, u32),
+    ) -> LeftOut {
         while let Some(current) = state.queue.pop_front() {
             let depth = state.visited[&current];
-            if depth >= limits.depth {
-                state.walk.unexpanded += 1;
+            if depth >= state.limits.depth {
+                state.left_out.unexpanded += 1;
                 continue;
             }
             let edges = edges_of(self, self.cascade.canonical(current));
-            state.take(edges, depth + 1);
-            if state.walk.truncated {
-                state.walk.unexpanded += state.queue.len();
+            state.take(edges, depth + 1, &mut visit);
+            if state.left_out.truncated {
+                state.left_out.unexpanded += state.queue.len();
                 break;
             }
         }
-        state.walk.unresolved = self.unresolved;
-        state.walk
+        state.left_out
     }
 
     fn path(&mut self, start: SymbolAt, target: SymbolAt, limits: Limits) -> CallPath<'g> {
@@ -625,37 +639,42 @@ impl<'g> Calls<'g> {
     }
 }
 
-struct WalkState<'g> {
-    graph: &'g Graph,
+struct WalkState {
     limits: Limits,
-    walk: Walk<'g>,
+    left_out: LeftOut,
     visited: HashMap<SymbolAt, u32, FixedState>,
     queue: VecDeque<SymbolAt>,
 }
 
-impl WalkState<'_> {
-    fn take(&mut self, edges: Vec<Edge>, depth: u32) {
+impl WalkState {
+    fn new(root: SymbolAt, limits: Limits) -> Self {
+        let mut visited = HashMap::with_hasher(FixedState::default());
+        visited.insert(root, 0);
+        Self {
+            limits,
+            left_out: LeftOut::default(),
+            visited,
+            queue: VecDeque::from([root]),
+        }
+    }
+
+    fn take(&mut self, edges: Vec<Edge>, depth: u32, visit: &mut impl FnMut(Edge, u32)) {
         for edge in edges {
             if self.visited.contains_key(&edge.far) {
                 continue;
             }
             if edge.confidence < self.limits.min_confidence {
-                self.walk.below_confidence += 1;
+                self.left_out.below_confidence += 1;
                 continue;
             }
             if self.limits.max_symbols > 0 && self.visited.len() >= self.limits.max_symbols {
-                self.walk.truncated = true;
-                self.walk.turned_away += 1;
+                self.left_out.truncated = true;
+                self.left_out.turned_away += 1;
                 continue;
             }
             self.visited.insert(edge.far, depth);
             self.queue.push_back(edge.far);
-            self.walk.reached.push(Reached {
-                symbol: self.graph.definition_at(edge.far),
-                depth,
-                confidence: edge.confidence,
-                line: edge.line,
-            });
+            visit(edge, depth);
         }
     }
 }
