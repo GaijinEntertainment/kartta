@@ -8,6 +8,7 @@ use kartta_lang::{
 pub(crate) struct GoResolver<'r> {
     repository: &'r dyn Repository,
     modules: Vec<Module>,
+    vendoring: Vec<String>,
 }
 
 struct Module {
@@ -36,11 +37,42 @@ impl<'r> GoResolver<'r> {
                 .cmp(&a.prefix.len())
                 .then_with(|| a.prefix.cmp(&b.prefix))
         });
+        let mut vendoring: Vec<String> = modules
+            .iter()
+            .filter(|module| module.replaced_in.is_none())
+            .map(|module| module.dir.clone())
+            .filter(|dir| repository.contains(&join_dir(dir, "vendor/modules.txt")))
+            .collect();
+        vendoring.sort_unstable();
+        vendoring.dedup();
 
         Self {
             repository,
             modules,
+            vendoring,
         }
+    }
+
+    // constraint: a module with no vendor directory of its own is compiled by the module that replaces it onto its
+    // directory, with that module's vendor directory and replace directives, as the go command builds the
+    // dependencies of its main module; one that vendors keeps its own build
+    fn main_module<'a>(&'a self, owner: Option<&'a str>) -> Option<&'a str> {
+        let own = owner?;
+        if self.vendors(own) {
+            return owner;
+        }
+        self.modules
+            .iter()
+            .filter(|module| module.dir == own)
+            .filter_map(|module| module.replaced_in.as_deref())
+            .max_by_key(|replacing| (self.vendors(replacing), replacing.len()))
+            .or(owner)
+    }
+
+    fn vendors(&self, module_dir: &str) -> bool {
+        self.vendoring
+            .binary_search_by(|dir| dir.as_str().cmp(module_dir))
+            .is_ok()
     }
 
     // constraint: a vendored build prefers the vendored copy; otherwise the longest module prefix decides alone, and a
@@ -129,7 +161,7 @@ impl Resolver for GoResolver<'_> {
             }
         }
 
-        let owner = self.owner(path);
+        let owner = self.main_module(self.owner(path));
         for directive in directives {
             let target_dir = self.package(&directive.spec, owner).map(|(dir, files)| {
                 includes(files, path, &mut extraction.includes);
@@ -145,6 +177,14 @@ impl Resolver for GoResolver<'_> {
         }
 
         extraction
+    }
+}
+
+fn join_dir(dir: &str, rest: &str) -> String {
+    if dir.is_empty() {
+        rest.to_owned()
+    } else {
+        format!("{dir}/{rest}")
     }
 }
 
