@@ -102,8 +102,8 @@ mod walk;
 use std::cell::RefCell;
 
 use kartta_lang::{
-    Conventions, DocComments, IncludeReach, InheritedMembers, Language, OwnMembers, RawExtraction,
-    Repository, Resolver,
+    CallsOnValues, Conventions, DocComments, IncludeReach, InheritedMembers, Language, OwnMembers,
+    RawExtraction, Repository, Resolver,
 };
 use tree_sitter::Parser;
 
@@ -160,6 +160,7 @@ impl Language for Cpp {
         conventions.values_are_call_targets = false;
         conventions.scope_separator = Some("::");
         conventions.include_reach = IncludeReach::Transitive;
+        conventions.calls_on_values = CallsOnValues::NoNearestGuess;
         conventions
     }
 
@@ -260,6 +261,7 @@ mod tests {
         assert_eq!(conventions.scope_separator, Some("::"));
         assert!(!conventions.directory_packages);
         assert_eq!(conventions.include_reach, IncludeReach::Transitive);
+        assert_eq!(conventions.calls_on_values, CallsOnValues::NoNearestGuess);
     }
 
     #[test]
