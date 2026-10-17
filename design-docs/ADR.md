@@ -97,6 +97,9 @@
   2026-10-17
 - [3.23 Judge code dead only where the graph sees it
   used](./adr/3.23-judge-code-dead-only-where-the-graph-sees-it-used.md) — initiative `03-code-graph`, 2026-10-17
+- [3.24 Count what a graph holds and how its calls bind when
+  asked](./adr/3.24-count-what-a-graph-holds-and-how-its-calls-bind-when-asked.md) — initiative `03-code-graph`,
+  2026-10-17
 
 ## Deprecated
 
