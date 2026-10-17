@@ -230,12 +230,14 @@ impl<'g> Cascade<'g> {
     }
 
     fn is_function_type(&self, ty: SymbolAt) -> bool {
-        self.graph.sym(ty).kind == SymbolKind::TypeAlias
-            && self
-                .graph
-                .file(ty.file)
-                .value_types(ty.index)
-                .is_some_and(|types| !self.graph.strings.resolve(types).starts_with("[]"))
+        matches!(
+            self.graph.sym(ty).kind,
+            SymbolKind::TypeAlias | SymbolKind::DefinedType
+        ) && self
+            .graph
+            .file(ty.file)
+            .value_types(ty.index)
+            .is_some_and(|types| !self.graph.strings.resolve(types).starts_with("[]"))
     }
 
     fn element(&self, value: Value<'g>, depth: u8) -> Value<'g> {

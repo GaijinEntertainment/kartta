@@ -346,7 +346,7 @@ fn kind_code(kind: SymbolKind) -> u8 {
 }
 
 // constraint: a kind's position here is its byte in an encoding, so a new kind goes at the end and none moves
-const KINDS: [SymbolKind; 14] = [
+const KINDS: [SymbolKind; 15] = [
     SymbolKind::Function,
     SymbolKind::Method,
     SymbolKind::Class,
@@ -361,6 +361,7 @@ const KINDS: [SymbolKind; 14] = [
     SymbolKind::Macro,
     SymbolKind::Field,
     SymbolKind::EnumVariant,
+    SymbolKind::DefinedType,
 ];
 
 #[cfg(test)]

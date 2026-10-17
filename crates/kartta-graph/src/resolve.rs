@@ -937,7 +937,11 @@ impl ReExportWalk<'_, '_> {
 }
 
 pub(crate) const fn is_type_kind(kind: SymbolKind) -> bool {
-    derives(kind) || matches!(kind, SymbolKind::Enum | SymbolKind::TypeAlias)
+    derives(kind)
+        || matches!(
+            kind,
+            SymbolKind::Enum | SymbolKind::TypeAlias | SymbolKind::DefinedType
+        )
 }
 
 pub(crate) const fn derives(kind: SymbolKind) -> bool {
