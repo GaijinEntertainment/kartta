@@ -90,6 +90,10 @@ impl Engine {
     /// [resolver](Language::resolver) only when it claimed a file the build read, so one with nothing to resolve reads
     /// no configuration.
     ///
+    /// On Linux with glibc, the index build and this build both end with the trim [`kartta_fs::Index::build`]
+    /// describes: the index build once its walk is done, and this build once the graphs hold every extraction, since
+    /// resolving frees each extraction and its decode.
+    ///
     /// # Errors
     ///
     /// As [`kartta_fs::Index::build_with`], and [`BuildError::Cancelled`] when `cancel` stopped the build before it
@@ -119,6 +123,7 @@ impl Engine {
         for (counts, held) in file_counts.iter_mut().zip(held) {
             counts.held = held;
         }
+        release_freed_memory();
 
         Ok(EngineOutcome {
             engine: Self {
@@ -301,6 +306,18 @@ fn families(languages: &[Box<dyn Language>]) -> (Vec<Family>, Vec<usize>) {
 
     (families, family_of)
 }
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn release_freed_memory() {
+    // SAFETY: `malloc_trim` takes no pointer: it returns the pages of glibc's own free chunks to the system, each arena
+    // under its own lock, so it is sound from any thread at any time.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+const fn release_freed_memory() {}
 
 struct Resolving<'b> {
     index: &'b Index,
