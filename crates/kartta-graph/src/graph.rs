@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::sync::OnceLock;
 
 use foldhash::fast::FixedState;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use kartta_lang::{Conventions, Extraction, Symbol, SymbolFlags, SymbolId, SymbolKind, path};
 
 use crate::order::PathOrder;
@@ -36,6 +36,8 @@ pub struct Graph {
     package_files: HashMap<Str, Vec<u32>, FixedState>,
     renamed_from: HashMap<Str, Vec<Rename>, FixedState>,
     included_by: HashMap<Str, Vec<u32>, FixedState>,
+    test_included_by: HashMap<Str, Vec<u32>, FixedState>,
+    test_modules: OnceLock<HashSet<u32, FixedState>>,
     parented: HashMap<Str, Vec<u32>, FixedState>,
     named_at_file_scope: HashMap<Str, Vec<u32>, FixedState>,
     symbols: usize,
@@ -123,6 +125,8 @@ impl Graph {
             package_files: HashMap::with_hasher(FixedState::default()),
             renamed_from: HashMap::with_hasher(FixedState::default()),
             included_by: HashMap::with_hasher(FixedState::default()),
+            test_included_by: HashMap::with_hasher(FixedState::default()),
+            test_modules: OnceLock::new(),
             parented: HashMap::with_hasher(FixedState::default()),
             named_at_file_scope: HashMap::with_hasher(FixedState::default()),
             symbols: 0,
@@ -152,6 +156,7 @@ impl Graph {
     /// Files can arrive in any order: the graph keeps them in path order, and placing a file among those it holds
     /// renumbers a few hundred of them, and every file once in a run of at least four thousand inserts at one place.
     pub fn insert(&mut self, extraction: &Extraction) {
+        self.test_modules.take();
         let path = self.strings.intern(&extraction.file);
         let slot = if let Some(&held) = self.by_path.get(&path) {
             self.forget(held);
@@ -169,6 +174,14 @@ impl Graph {
         self.symbols += file.symbols.len();
         self.files[slot as usize] = Some(file);
         self.index(slot);
+        for target in &extraction.test_includes {
+            let Some(target) = self.strings.get(target) else {
+                continue;
+            };
+            if self.file(slot).includes.binary_search(&target).is_ok() {
+                self.test_included_by.entry(target).or_default().push(slot);
+            }
+        }
     }
 
     /// Forgets the file at `path`, and answers whether the graph held it.
@@ -189,7 +202,7 @@ impl Graph {
         let mut outline: Vec<Definition<'_>> = file
             .symbols
             .iter()
-            .map(|symbol| self.definition(file.path, symbol))
+            .map(|symbol| self.definition(slot, symbol))
             .collect();
         outline.sort_by(|left, right| {
             left.line
@@ -400,23 +413,71 @@ impl Graph {
     }
 
     pub(crate) fn definition_at(&self, at: SymbolAt) -> Definition<'_> {
-        self.definition(self.file(at.file).path, self.sym(at))
+        self.definition(at.file, self.sym(at))
     }
 
-    fn definition(&self, path: Str, symbol: &StoredSymbol) -> Definition<'_> {
+    /// The flags of the symbol at `at`, test code too when its file is a test module.
+    pub(crate) fn flags(&self, at: SymbolAt) -> SymbolFlags {
+        self.flags_in(at.file, self.sym(at).flags)
+    }
+
+    fn flags_in(&self, slot: u32, flags: SymbolFlags) -> SymbolFlags {
+        if self.is_test_module(slot) {
+            flags.with_test(true)
+        } else {
+            flags
+        }
+    }
+
+    fn is_test_module(&self, slot: u32) -> bool {
+        !self.test_included_by.is_empty()
+            && self
+                .test_modules
+                .get_or_init(|| self.find_test_modules())
+                .contains(&slot)
+    }
+
+    // constraint: a file is a test module when every file that includes it pulls it in as one or is a test module
+    // itself, since a module that code outside the tests reaches is compiled outside them
+    fn find_test_modules(&self) -> HashSet<u32, FixedState> {
+        let mut modules = HashSet::with_hasher(FixedState::default());
+        let mut pending: Vec<Str> = self.test_included_by.keys().copied().collect();
+        while let Some(path) = pending.pop() {
+            let Some(slot) = self.slot_of(path) else {
+                continue;
+            };
+            let Some(includers) = self.included_by.get(&path) else {
+                continue;
+            };
+            let test_includers = self
+                .test_included_by
+                .get(&path)
+                .map_or(&[][..], Vec::as_slice);
+            let in_tests_only = includers
+                .iter()
+                .all(|includer| test_includers.contains(includer) || modules.contains(includer));
+            if in_tests_only && modules.insert(slot) {
+                pending.extend_from_slice(&self.file(slot).includes);
+            }
+        }
+        modules
+    }
+
+    fn definition(&self, slot: u32, symbol: &StoredSymbol) -> Definition<'_> {
+        let flags = self.flags_in(slot, symbol.flags);
         Definition {
             name: self.strings.resolve(symbol.name),
             qualified_name: self.strings.resolve(symbol.qualified_name),
             owner: symbol.owner.map(|owner| self.strings.resolve(owner)),
             kind: symbol.kind,
-            file: self.strings.resolve(path),
+            file: self.strings.resolve(self.file(slot).path),
             line: symbol.line,
             end_line: symbol.end_line.max(symbol.line),
             signature: symbol
                 .signature
                 .map(|signature| self.strings.resolve(signature)),
             exported: symbol.exported,
-            flags: symbol.flags,
+            flags,
         }
     }
 
@@ -803,6 +864,7 @@ impl Graph {
         let Some(slot) = self.by_path.remove(&path) else {
             return false;
         };
+        self.test_modules.take();
         self.forget(slot);
         self.order.remove(slot);
         self.vacant.push(slot);
@@ -850,6 +912,7 @@ impl Graph {
         unlist(&mut self.package_files, file.dir, |&held| held != slot);
         for &target in &file.includes {
             unlist(&mut self.included_by, target, |&held| held != slot);
+            unlist(&mut self.test_included_by, target, |&held| held != slot);
         }
         for &key in &file.file_scope_names {
             unlist(&mut self.named_at_file_scope, key, |&held| held != slot);

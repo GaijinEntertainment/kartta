@@ -205,17 +205,18 @@ impl Judge<'_, '_> {
             return;
         }
         let symbol = *self.graph.sym(at);
+        let flags = self.graph.flags(at);
         let observable = self.is_observable(at);
         let excluded = &mut self.answer.excluded;
         let reason = if !self.kinds.is_empty() && !self.kinds.contains(&symbol.kind) {
             Some(&mut excluded.kind)
-        } else if symbol.flags.is_test() {
+        } else if flags.is_test() {
             Some(&mut excluded.test)
-        } else if symbol.flags.is_generated() {
+        } else if flags.is_generated() {
             Some(&mut excluded.generated)
-        } else if symbol.flags.is_entry() {
+        } else if flags.is_entry() {
             Some(&mut excluded.entry)
-        } else if symbol.flags.is_vendored() {
+        } else if flags.is_vendored() {
             Some(&mut excluded.vendored)
         } else if !observable {
             Some(&mut excluded.unobservable)

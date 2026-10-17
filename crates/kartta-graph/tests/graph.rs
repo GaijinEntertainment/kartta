@@ -1,7 +1,7 @@
 //! The graph's contract: what it answers about the files it holds, and how a file going in or out changes that.
 
 use kartta_graph::{Definitions, Graph, Nearness};
-use kartta_lang::{Conventions, Extraction, Symbol, SymbolFlags, SymbolKind};
+use kartta_lang::{Conventions, Extraction, IncludeRef, Symbol, SymbolFlags, SymbolKind};
 
 fn symbol(name: &str, qualified: &str, line: u32, end_line: u32) -> Symbol {
     let mut symbol = Symbol::new(name, SymbolKind::Function, line, end_line);
@@ -182,4 +182,92 @@ fn a_removed_file_is_forgotten_and_its_slot_serves_the_next_file() {
     assert_eq!(places(&graph.definitions("Shared", None, 10)), ["b.go:2"]);
     assert_eq!(places(&graph.definitions("Fresh", None, 10)), ["c.go:3"]);
     assert_eq!((graph.file_count(), graph.symbol_count()), (2, 2));
+}
+
+fn including(mut extraction: Extraction, target: &str) -> Extraction {
+    extraction.includes.push(IncludeRef {
+        target: target.to_owned(),
+    });
+    extraction
+}
+
+fn including_as_test(extraction: Extraction, target: &str) -> Extraction {
+    let mut extraction = including(extraction, target);
+    extraction.test_includes.push(target.to_owned());
+    extraction
+}
+
+fn is_test_code(graph: &Graph, path: &str) -> Vec<bool> {
+    graph
+        .outline(path)
+        .unwrap_or_default()
+        .iter()
+        .map(|definition| definition.flags.is_test())
+        .collect()
+}
+
+#[test]
+fn every_definition_of_a_file_only_test_modules_include_is_test_code() {
+    let graph = graph(&[
+        including_as_test(
+            file("src/lib.rs", vec![symbol("run", "run", 1, 1)]),
+            "src/tests.rs",
+        ),
+        file(
+            "src/tests.rs",
+            vec![symbol("helper", "tests::helper", 1, 1)],
+        ),
+    ]);
+
+    assert_eq!(is_test_code(&graph, "src/tests.rs"), [true]);
+    assert_eq!(is_test_code(&graph, "src/lib.rs"), [false]);
+    let found = graph.definitions("helper", None, 10);
+    assert!(found.found[0].definition.flags.is_test());
+}
+
+#[test]
+fn a_file_a_plain_include_reaches_is_test_code_only_once_that_includer_is_removed() {
+    let mut graph = graph(&[
+        file("src/shared.rs", vec![symbol("util", "shared::util", 1, 1)]),
+        including_as_test(file("src/lib.rs", Vec::new()), "src/shared.rs"),
+        including(file("src/main.rs", Vec::new()), "src/shared.rs"),
+    ]);
+    let while_plain = is_test_code(&graph, "src/shared.rs");
+
+    graph.remove("src/main.rs");
+    let while_test_only = is_test_code(&graph, "src/shared.rs");
+    graph.remove("src/lib.rs");
+
+    assert_eq!(while_plain, [false]);
+    assert_eq!(while_test_only, [true]);
+    assert_eq!(is_test_code(&graph, "src/shared.rs"), [false]);
+}
+
+#[test]
+fn a_module_only_test_modules_include_is_test_code_too() {
+    let graph = graph(&[
+        including(file("src/tests.rs", Vec::new()), "src/tests/helpers.rs"),
+        including_as_test(file("src/lib.rs", Vec::new()), "src/tests.rs"),
+        file(
+            "src/tests/helpers.rs",
+            vec![symbol("fixture", "tests::helpers::fixture", 1, 1)],
+        ),
+    ]);
+
+    assert_eq!(is_test_code(&graph, "src/tests/helpers.rs"), [true]);
+}
+
+#[test]
+fn a_test_include_the_file_does_not_include_marks_nothing() {
+    let mut lib = file("src/lib.rs", Vec::new());
+    lib.test_includes.push("src/tests.rs".to_owned());
+    let graph = graph(&[
+        lib,
+        file(
+            "src/tests.rs",
+            vec![symbol("helper", "tests::helper", 1, 1)],
+        ),
+    ]);
+
+    assert_eq!(is_test_code(&graph, "src/tests.rs"), [false]);
 }
