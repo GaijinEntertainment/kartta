@@ -30,9 +30,9 @@
 //! recorded for an exported function only where its identity is certain: the key is its scope — the enclosing
 //! namespaces, then the enclosing classes — its name, its parameter types without their names, defaults and top-level
 //! `const` or `volatile`, and its member qualifiers, as in `ns::Widget::run(const int &,int)const &`. A template, a
-//! function inside a body or a lambda, a member of an unnamed class, a scope written with template arguments, a
-//! relative scope that can name an enclosing namespace, and a parameter declared through anything but a name, a
-//! pointer or a reference get no key.
+//! function inside a body or a lambda, a member of an unnamed class, a conversion operator, `operator bool()`, a scope
+//! written with template arguments, a relative scope that can name an enclosing namespace, and a parameter declared
+//! through anything but a name, a pointer or a reference get no key.
 //!
 //! A symbol is unexported inside an anonymous namespace, as a `static` free function, and as a namespace-scope
 //! constant that is neither `extern` nor `inline`, but for a file-scope constant of a `.c` file, which C links outside
