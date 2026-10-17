@@ -645,13 +645,6 @@ impl Index {
         &self.binary_extensions
     }
 
-    #[cfg_attr(
-        not(all(feature = "watch", target_os = "linux")),
-        expect(
-            dead_code,
-            reason = "only the inotify watcher prunes by name outside the walk"
-        )
-    )]
     pub(crate) const fn pruned_names(&self) -> &PrunedNames {
         &self.pruned_names
     }
