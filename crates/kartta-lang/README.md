@@ -24,6 +24,13 @@ extraction is stored in, so a new version of a language or of this crate never r
 How a bare call resolves differs between languages — C++ looks in the caller's class first, Go never reaches a method
 without a receiver — and the graph cannot infer it from the extractions. A language states it in `Conventions`.
 
+## Doc comments
+
+A definition's doc comment sits on the lines above it, in the comment forms of its language, beside what a declaration
+carries there, a Rust attribute or a C++ template header. A language states those forms in
+`DocComments`, and a query that answers a definition's text reads its doc comment from the file when asked, so no
+extraction records it.
+
 ## Walking tree-sitter trees
 
 The `tree-sitter` feature adds `kartta_lang::tree`: a pre-order walk and the text and signature helpers a language

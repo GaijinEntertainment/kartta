@@ -63,7 +63,8 @@ use std::sync::OnceLock;
 
 use kartta_lang::path::base;
 use kartta_lang::{
-    Conventions, InheritedMembers, Language, OwnMembers, RawExtraction, Repository, Resolver,
+    BlockComment, Conventions, DocComments, InheritedMembers, Language, OwnMembers, RawExtraction,
+    Repository, Resolver,
 };
 use tree_sitter::{Parser, Tree};
 
@@ -95,6 +96,9 @@ impl Ruby {
     }
 }
 
+const DOC_COMMENTS: DocComments =
+    DocComments::lines(&["#"]).with_blocks(&[BlockComment::new("=begin", "=end").closed_alone()]);
+
 impl Language for Ruby {
     fn name(&self) -> &'static str {
         "ruby"
@@ -110,6 +114,10 @@ impl Language for Ruby {
         static FINGERPRINT: OnceLock<Vec<u8>> = OnceLock::new();
 
         FINGERPRINT.get_or_init(fingerprint)
+    }
+
+    fn doc_comments(&self) -> DocComments {
+        DOC_COMMENTS
     }
 
     // constraint: a bare call inside a method has the implicit receiver `self`, so it reaches the methods of its own
