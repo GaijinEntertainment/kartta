@@ -8,7 +8,9 @@
 //!
 //! A file yields its functions and methods, its classes, structs, unions (as structs) and enums that have a body, its
 //! type aliases (`using` and `typedef`), the data members of its classes as fields, and its namespace-scope variables
-//! and constants. A namespace yields no symbol of its own; it shows in the qualified names of what it holds:
+//! and constants. A class's parents are its base classes as written, without template arguments, but for a parameter
+//! of an enclosing template, `: public Compare`, which names no type. A namespace yields no symbol of its own; it
+//! shows in the qualified names of what it holds:
 //!
 //! - A symbol outside every class is qualified by its enclosing named namespaces, `ns::f`. An anonymous namespace adds
 //!   nothing, and `namespace a::b` adds both names.
@@ -52,7 +54,8 @@
 //! receiver on `this` and the empty receiver on any other operand, a named one included, because the operand of `.` or
 //! `->` is a value and its name names no type. A call through a named scope keeps the scope as written, `ns::f`, and
 //! one through the root keeps the `::`, `::f`. `new ns::Widget<T>()` is a call of `Widget`. A cast, a call spelled by a
-//! type keyword, and a call before the first symbol of the file are not recorded.
+//! type keyword, a call or a `new` of a parameter of an enclosing template, `Compare()` in a template over `Compare`,
+//! and a call before the first symbol of the file are not recorded.
 //!
 //! # Includes
 //!

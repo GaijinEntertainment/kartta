@@ -20,7 +20,8 @@ use self::data::{
 };
 use self::declarator::{function_symbol, is_macro_invocation, is_pure_virtual, nested_scope};
 use self::name::{
-    call_target, class_symbol, head_scope, include_spec, is_simple_identifier, type_base_name,
+    call_target, class_symbol, head_scope, include_spec, is_simple_identifier, template_parameters,
+    type_base_name,
 };
 
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
@@ -54,6 +55,11 @@ struct NamespaceScope {
     name: Option<String>,
 }
 
+struct TemplateScope {
+    end: usize,
+    parameters: Vec<String>,
+}
+
 struct Prototype {
     symbol: Symbol,
     key: Option<String>,
@@ -71,6 +77,7 @@ struct Replayer<'s> {
     classes: Vec<ClassScope>,
     namespaces: Vec<NamespaceScope>,
     namespace_names: HashSet<String>,
+    templates: Vec<TemplateScope>,
     prototypes: Vec<Prototype>,
     callable_keys: HashSet<String>,
     out_of_line: HashMap<String, Vec<SymbolId>>,
@@ -90,6 +97,7 @@ impl<'s> Replayer<'s> {
             classes: Vec::new(),
             namespaces: Vec::new(),
             namespace_names: HashSet::new(),
+            templates: Vec::new(),
             prototypes: Vec::new(),
             callable_keys: HashSet::new(),
             out_of_line: HashMap::new(),
@@ -150,6 +158,15 @@ impl<'s> Replayer<'s> {
                     self.push_type_alias(text(name, self.source), node);
                 }
             }
+            "template_declaration" => {
+                let parameters = template_parameters(node, self.source);
+                if !parameters.is_empty() {
+                    self.templates.push(TemplateScope {
+                        end: node.end_byte(),
+                        parameters,
+                    });
+                }
+            }
             "call_expression" => self.record_call(node),
             "new_expression" => self.record_construction(node),
             "preproc_include" => {
@@ -174,6 +191,13 @@ impl<'s> Replayer<'s> {
         }
         while self.classes.last().is_some_and(|scope| scope.end <= start) {
             self.classes.pop();
+        }
+        while self
+            .templates
+            .last()
+            .is_some_and(|scope| scope.end <= start)
+        {
+            self.templates.pop();
         }
         while self
             .namespaces
@@ -270,6 +294,9 @@ impl<'s> Replayer<'s> {
         let Some(mut symbol) = class_symbol(node, self.source) else {
             return;
         };
+        symbol
+            .parents
+            .retain(|parent| !self.is_template_parameter(parent));
         self.nest_in_class(&mut symbol, node);
         if symbol.owner.is_none()
             && let Some(scope) = head_scope(node, self.source)
@@ -371,6 +398,9 @@ impl<'s> Replayer<'s> {
         let Some((callee, receiver)) = call_target(node, self.source) else {
             return;
         };
+        if receiver.is_none() && self.is_template_parameter(&callee) {
+            return;
+        }
 
         self.raw.calls.push(CallRef {
             caller_id: self.caller(),
@@ -388,7 +418,7 @@ impl<'s> Replayer<'s> {
             return;
         };
         let callee = type_base_name(type_node, self.source);
-        if !is_simple_identifier(&callee) {
+        if !is_simple_identifier(&callee) || self.is_template_parameter(&callee) {
             return;
         }
 
@@ -398,6 +428,14 @@ impl<'s> Replayer<'s> {
             receiver: None,
             line: line(node.start_position().row),
         });
+    }
+
+    // constraint: a template parameter names a type or a value the instantiation supplies, so `Compare()` and `F()`
+    // inside the template call no definition of that name, and `: public Compare` derives from none
+    fn is_template_parameter(&self, callee: &str) -> bool {
+        self.templates
+            .iter()
+            .any(|scope| scope.parameters.iter().any(|parameter| parameter == callee))
     }
 
     fn caller(&self) -> SymbolId {
@@ -1171,6 +1209,51 @@ int defined_and_declared(int x) { return x; }
                 ("ImGui::NavUpdate", SymbolKind::Function, None),
             ]
         );
+    }
+
+    #[test]
+    fn a_template_parameter_is_not_a_callee() {
+        let raw = extract(
+            b"template <class Compare, typename T = int, typename... Rest, auto F>\n\
+              void sort3(Compare c) { Compare()(1, 2); T(); F(); auto *p = new T(); c(1); helper(); }\n\
+              template <class Item> struct Box { void fill() { Item(); refill(); } };\n\
+              template <template <class Elem> class Seq, void (*Hook)(), int &Ref, auto... Steps>\n\
+              void build() { Seq<int>(); Hook(); Elem(); (Steps(), ...); }\n\
+              void plain() { Compare(); T(); }\n",
+        );
+
+        let calls: Vec<(&str, SymbolId)> = raw
+            .calls
+            .iter()
+            .map(|call| (call.callee.as_str(), call.caller_id))
+            .collect();
+        assert_eq!(
+            calls,
+            [
+                ("c", id_of(&raw, "sort3")),
+                ("helper", id_of(&raw, "sort3")),
+                ("refill", id_of(&raw, "fill")),
+                ("Elem", id_of(&raw, "build")),
+                ("Compare", id_of(&raw, "plain")),
+                ("T", id_of(&raw, "plain")),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_template_parameter_is_not_a_parent() {
+        let raw = extract(
+            b"template <typename Compare> struct rb_base : public Compare {};\n\
+              template <class T> class Holder : public Base<T>, public T {};\nclass Plain : public Compare {};\n\
+              template <template <class Elem> class Policy> struct Adapter : public Policy<int>, public Elem {};\n\
+              template <template <class> class Store = Vec> struct Cache : public Store<int> {};\n",
+        );
+
+        assert_eq!(symbol(&raw, "rb_base").parents, Vec::<String>::new());
+        assert_eq!(symbol(&raw, "Holder").parents, ["Base"]);
+        assert_eq!(symbol(&raw, "Adapter").parents, ["Elem"]);
+        assert_eq!(symbol(&raw, "Cache").parents, Vec::<String>::new());
+        assert_eq!(symbol(&raw, "Plain").parents, ["Compare"]);
     }
 
     #[test]
