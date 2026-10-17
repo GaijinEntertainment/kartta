@@ -39,8 +39,11 @@
 //!
 //! A function-like macro is not a symbol: a definition without a return type outside a class, such as a test
 //! harness's `TEST(Suite, Case) {}`, is dropped, as is one inside a class that is not a constructor, a destructor or an
-//! operator, and a trailing annotation macro, `void load() LOCKS(mtx) {}`, never names the symbol it annotates. A
-//! declaration that holds a parse error yields no field and no data symbol.
+//! operator, and a trailing annotation macro, `void load() LOCKS(mtx) {}`, never names the symbol it annotates. A macro
+//! before the return type, `JPH_INLINE float Tan(float x)`, keeps the function it annotates, as does an upper-case
+//! return type before a calling convention, `BOOL WINAPI DllMain()`, and a macro between the return type and the name,
+//! `XMMATRIX XM_CALLCONV XMMatrixRotationZ()`, which the parser reads as a scope, names no owner. A declaration that
+//! holds a parse error yields no field and no data symbol.
 //!
 //! # Calls
 //!
