@@ -21,11 +21,11 @@ imports, its package, its includes and the re-export chains through them, the ca
 the name, and the callables nearest the caller. A member call, `x.f()`, binds a free function only where its language's
 conventions let one stand for what a value holds and `f` names no method the language's runtime gives its own values,
 as `trim` in `line.trim()` does; it binds no free variable or constant, whose name no property of a value reads. Where
-a language's includes are transitive, a call of a name at most 32 definitions share that no included file defines binds
-the one file the includes reach in turn that defines it, a member call only a member. A use outside a call binds more
-narrowly: through the import its qualifier names, else a package-level definition of its own file, of a dot import, or
-of its package directory. Each tier's confidence is a constant of `kartta_graph::confidence`. No edge is stored, so
-nothing a file holds goes stale when another file changes.
+a language's includes are transitive, as C++'s are, a call of a name at most 32 definitions share that no included file
+defines binds the one file the includes reach in turn that defines it, a member call only a member. A use outside a
+call binds more narrowly: through the import its qualifier names, else a package-level definition of its own file, of
+a dot import, or of its package directory. Each tier's confidence is a constant of `kartta_graph::confidence`. No edge
+is stored, so nothing a file holds goes stale when another file changes.
 
 ## Answers
 

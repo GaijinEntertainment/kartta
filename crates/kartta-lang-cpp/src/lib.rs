@@ -56,7 +56,8 @@
 //! quoted one names a file in that directory first. A specifier then names the file at its own path, else the one file
 //! whose path ends in it at a `/`, else the one file of its last component's name, else the first of the specifier
 //! with `.h`, `.hpp`, `.c`, `.cpp` or `.cc` added. Two files that end in the specifier name neither: a missing include
-//! is better than a wrong one.
+//! is better than a wrong one. A file sees what the files it includes include in turn, as the preprocessor pastes them
+//! in, so its includes are [`IncludeReach::Transitive`].
 //!
 //! The resolver also flags a file's symbols by its path: as test code under a `test`, `tests`, `unittest` or
 //! `unittests` directory or with a name ending in `Test`, `_test` or `_unittest` or starting with `test_`, and as
@@ -101,8 +102,8 @@ mod walk;
 use std::cell::RefCell;
 
 use kartta_lang::{
-    Conventions, DocComments, InheritedMembers, Language, OwnMembers, RawExtraction, Repository,
-    Resolver,
+    Conventions, DocComments, IncludeReach, InheritedMembers, Language, OwnMembers, RawExtraction,
+    Repository, Resolver,
 };
 use tree_sitter::Parser;
 
@@ -158,6 +159,7 @@ impl Language for Cpp {
         conventions.inherited_members = InheritedMembers::Found;
         conventions.values_are_call_targets = false;
         conventions.scope_separator = Some("::");
+        conventions.include_reach = IncludeReach::Transitive;
         conventions
     }
 
@@ -257,6 +259,7 @@ mod tests {
         assert!(!conventions.bare_call_reaches_enclosing_owners);
         assert_eq!(conventions.scope_separator, Some("::"));
         assert!(!conventions.directory_packages);
+        assert_eq!(conventions.include_reach, IncludeReach::Transitive);
     }
 
     #[test]
