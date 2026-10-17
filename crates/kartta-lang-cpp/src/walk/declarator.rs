@@ -4,6 +4,7 @@ use tree_sitter::Node;
 
 use super::exported_symbol;
 use super::name::{function_base_name, is_simple_identifier, sanitize_name, type_base_name};
+use crate::repair::is_macro_name;
 
 struct DeclaredName {
     name: String,
@@ -11,7 +12,8 @@ struct DeclaredName {
 }
 
 pub(super) fn function_symbol(node: Node<'_>, source: &[u8]) -> Option<Symbol> {
-    let DeclaredName { name, scope } = declared_name(real_function_declarator(node)?, source)?;
+    let DeclaredName { name, scope } =
+        declared_name(real_function_declarator(node, source)?, source)?;
 
     let mut symbol = exported_symbol(name, SymbolKind::Function, node);
     if let Some(scope) = scope {
@@ -24,13 +26,19 @@ pub(super) fn function_symbol(node: Node<'_>, source: &[u8]) -> Option<Symbol> {
 }
 
 fn declared_name(function: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
-    let declarator = function.child_by_field_name("declarator")?;
+    declared_name_of(function.child_by_field_name("declarator")?, source)
+}
+
+fn declared_name_of(declarator: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
     let declared = match declarator.kind() {
         "identifier" | "field_identifier" | "operator_name" | "destructor_name"
         | "template_function" | "template_method" => DeclaredName {
             name: function_base_name(declarator, source),
             scope: None,
         },
+        "qualified_identifier" if joins_a_macro_as_scope(declarator) => {
+            return declared_name_of(declarator.child_by_field_name("name")?, source);
+        }
         "qualified_identifier" => {
             let (terminal, scope) = qualified_terminal(declarator);
             let name = terminal
@@ -54,15 +62,18 @@ fn declared_name(function: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
     (!declared.name.is_empty()).then_some(declared)
 }
 
-pub(super) fn real_function_declarator(node: Node<'_>) -> Option<Node<'_>> {
-    match misparse_real_declarator(node) {
+pub(super) fn real_function_declarator<'t>(node: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
+    match misparse_real_declarator(node, source) {
         Some(real) => unwrap_to_function_declarator(real),
         None => unwrap_to_function_declarator(node.child_by_field_name("declarator")?),
     }
 }
 
-fn misparse_real_declarator(node: Node<'_>) -> Option<Node<'_>> {
+fn misparse_real_declarator<'t>(node: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
     let field = node.child_by_field_name("declarator")?;
+    if leads_with_a_macro(node, field, source) {
+        return None;
+    }
     let evicted = children(node)
         .filter_map(|index| node.child(index))
         .filter(|child| child.is_error() && child.end_byte() <= field.start_byte())
@@ -83,6 +94,19 @@ fn misparse_real_declarator(node: Node<'_>) -> Option<Node<'_>> {
     (previous.kind() == "function_declarator"
         && node.parent().is_some_and(|parent| parent.is_error()))
     .then_some(previous)
+}
+
+// constraint: a macro before the return type, `JPH_INLINE float Tan(float x)`, parses as the type and pushes the real
+// type into an error, where an annotation after the name, `int size_ GUARDED_BY(mtx)`, parses as the declarator and
+// pushes the real name there; which of the two is spelled as a macro tells them apart
+fn leads_with_a_macro(node: Node<'_>, field: Node<'_>, source: &[u8]) -> bool {
+    let macro_type = node.child_by_field_name("type").is_some_and(|written| {
+        written.kind() == "type_identifier" && is_macro_name(&source[written.byte_range()])
+    });
+    macro_type
+        && unwrap_to_function_declarator(field)
+            .and_then(|function| function.child_by_field_name("declarator"))
+            .is_some_and(|name| !is_macro_name(&source[name.byte_range()]))
 }
 
 fn declarator_in_error(error: Node<'_>) -> Option<Node<'_>> {
@@ -128,6 +152,14 @@ fn inner_declarator(node: Node<'_>) -> Option<Node<'_>> {
                 )
             })
     })
+}
+
+// constraint: a macro between the return type and the name, `XMMATRIX XM_CALLCONV XMMatrixRotationZ()`, parses as a
+// scope that the parser joins to the name with a `::` the source does not hold
+pub(super) fn joins_a_macro_as_scope(qualified: Node<'_>) -> bool {
+    children(qualified)
+        .filter_map(|index| qualified.child(index))
+        .any(|child| child.is_missing())
 }
 
 pub(super) fn qualified_terminal(qualified: Node<'_>) -> (Option<Node<'_>>, Option<Node<'_>>) {
