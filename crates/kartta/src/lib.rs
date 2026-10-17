@@ -73,8 +73,9 @@
 //! # Status
 //!
 //! The engine builds the index and each family's graph of definitions, calls and uses, and each graph answers callers,
-//! callees, references, call paths, the files that include a file, the implementors of a type and searches by the words
-//! of names and paths. The first release with a public surface will be `0.1.0`.
+//! callees, references, call paths, the files that include a file, the implementors of a type, what a change to a range
+//! of a file's lines reaches and searches by the words of names and paths; [`Engine::analyze_change`] answers what a
+//! change to regions across families reaches. The first release with a public surface will be `0.1.0`.
 
 mod engine;
 mod extracting;
@@ -82,8 +83,9 @@ mod repository;
 
 pub use kartta_fs::{BuildError, BuildOptions, CancelToken, Index};
 pub use kartta_graph::{
-    CallPath, Definition, Definitions, Dependent, Dependents, Found, Graph, Hit, Implementations,
-    Implementor, Limits, Nearness, Reached, Reference, References, Search, Walk, confidence,
+    Blast, CallPath, Change, Definition, Definitions, Dependent, Dependents, DirCount, DirectCalls,
+    Found, Graph, Hit, Hotspot, Implementations, Implementor, Limits, Nearness, ReachBand, Reached,
+    Reference, References, Region, Search, Seed, Segment, SegmentSymbol, Walk, confidence,
 };
 pub use kartta_lang::{
     Conventions, Extraction, Language, RawExtraction, Repository, Resolver, Symbol, SymbolFlags,

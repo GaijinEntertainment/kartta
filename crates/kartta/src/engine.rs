@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use kartta_fs::{BuildError, BuildOptions, CancelToken, ContentVisitor, Index};
-use kartta_graph::Graph;
+use kartta_graph::{Change, Graph, Limits, Region};
 use kartta_lang::{Extraction, Language, RawExtraction, Resolver};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -143,11 +143,39 @@ impl Engine {
     /// The graph answers for the file only if the build read it; a claimed path the tree does not hold is in no graph.
     #[must_use]
     pub fn graph_of(&self, path: &str) -> Option<&Graph> {
+        Some(&self.families[self.family_claiming(path)?].graph)
+    }
+
+    /// What a change to the lines of `regions` reaches, across the families whose languages claim their files: each
+    /// family's graph analyzes the regions of its files as [`Graph::analyze_change`] does, within `limits`, and
+    /// [`Change::merge`] ranks the answers together. A region whose file no language claims counts as unheld.
+    #[must_use]
+    pub fn analyze_change(&self, regions: &[Region<'_>], limits: Limits) -> Change<'_> {
+        let mut by_family: Vec<Vec<Region<'_>>> = vec![Vec::new(); self.families.len()];
+        let mut unclaimed = 0;
+        for region in regions {
+            match self.family_claiming(region.path) {
+                Some(family) => by_family[family].push(region.clone()),
+                None => unclaimed += 1,
+            }
+        }
+        let mut change = Change::merge(
+            self.families
+                .iter()
+                .zip(&by_family)
+                .filter(|(_, regions)| !regions.is_empty())
+                .map(|(family, regions)| family.graph.analyze_change(regions, limits)),
+        );
+        change.unheld_regions += unclaimed;
+        change
+    }
+
+    fn family_claiming(&self, path: &str) -> Option<usize> {
         let language = self
             .languages
             .iter()
             .position(|language| language.claims(path))?;
-        Some(&self.families[self.family_of[language]].graph)
+        Some(self.family_of[language])
     }
 }
 
