@@ -40,6 +40,17 @@ impl Repository for Files<'_> {
         )
     }
 
+    fn files_ignoring_case<'a>(&'a self, path: &str) -> Box<dyn Iterator<Item = String> + 'a> {
+        let path = path.to_owned();
+        Box::new(
+            self.0
+                .iter()
+                .map(|&(file, _)| file)
+                .filter(move |file| file.eq_ignore_ascii_case(&path))
+                .map(str::to_owned),
+        )
+    }
+
     fn read(&self, path: &str) -> io::Result<Vec<u8>> {
         self.0
             .iter()
@@ -183,7 +194,7 @@ fn a_nut_specifier_resolves_beside_the_script_then_under_each_base_path_in_order
 }
 
 #[test]
-fn a_target_in_another_letter_case_resolves_nothing() {
+fn a_target_in_another_letter_case_loads_its_sole_case_variant() {
     let files = [
         (
             "game/.sqconfig",
@@ -191,7 +202,12 @@ fn a_target_in_another_letter_case_resolves_nothing() {
         ),
         ("prog/daRg/Components/Button.nut", ""),
         ("prog/daRg/Twin.nut", ""),
+        ("prog/daRg/TWIN.nut", ""),
+        ("prog/daRg/twice.nut", ""),
+        ("prog/daRg/TWICE.nut", ""),
         ("game/stubs/Std/Frp.nut", ""),
+        ("game/Local.nut", ""),
+        ("game/stubs/local.nut", ""),
     ];
     let target = |spec: &str| target(&files, spec, "game/main.nut");
 
@@ -199,8 +215,20 @@ fn a_target_in_another_letter_case_resolves_nothing() {
         target("%darg/Twin.nut").as_deref(),
         Some("prog/daRg/Twin.nut")
     );
-    assert_eq!(target("%darg/components/button.nut"), None);
-    assert_eq!(target("std/frp.nut"), None);
+    assert_eq!(
+        target("%darg/components/button.nut").as_deref(),
+        Some("prog/daRg/Components/Button.nut")
+    );
+    assert_eq!(
+        target("std/frp.nut").as_deref(),
+        Some("game/stubs/Std/Frp.nut")
+    );
+    assert_eq!(
+        target("local.nut").as_deref(),
+        Some("game/Local.nut"),
+        "the file beside the script loads before a base path's"
+    );
+    assert_eq!(target("%darg/Twice.nut"), None, "two case variants abstain");
     assert_eq!(
         target("Std/Frp.NUT"),
         None,
