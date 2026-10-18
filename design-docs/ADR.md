@@ -44,9 +44,12 @@
   walk](./adr/1.19-prune-editor-and-os-clutter-by-name-during-the-walk.md) — initiative `01-kartta-fs-port`, 2026-10-17
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
-  revised 2026-10-16
+  revised 2026-10-18
 - [2.2 Take per-file data from the shared cache in the walk's
   read](./adr/2.2-take-per-file-data-from-the-cache-in-the-walk-s-read.md) — initiative `02-shared-cache`, 2026-10-16
+- [2.3 Expire cache entries by the time each was
+  published](./adr/2.3-expire-cache-entries-by-the-time-each-was-published.md) — initiative `02-shared-cache`,
+  2026-10-18
 - [3.1 Plug languages in through a trait](./adr/3.1-plug-languages-in-through-a-trait.md) — initiative `03-code-graph`,
   2026-10-16
 - [3.2 Name a Go call's target only where the syntax
