@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -150,13 +151,13 @@ pub struct BuildOptions {
 
 /// A failure that stopped a build, or cost it one entry, one subtree, one directory's rules or one file's content.
 ///
-/// [`BuildError::Walk`] is returned for the two failures the walk itself treats as fatal — a root that cannot be listed,
-/// and a thread pool that cannot be started — [`BuildError::ContentIndex`] when the content index cannot be kept where
-/// it was asked to be, [`BuildError::Cancelled`] by [`Index::build_with`](crate::Index::build_with),
+/// [`BuildError::Walk`] is returned for a root that cannot be listed, [`BuildError::ThreadPool`] for a thread pool that
+/// cannot be started, [`BuildError::ContentIndex`] when the content index cannot be kept where it was asked to be,
+/// [`BuildError::Cancelled`] by [`Index::build_with`](crate::Index::build_with),
 /// [`Index::refresh`](crate::Index::refresh) and [`Index::refresh_paths`](crate::Index::refresh_paths) when their cancel
 /// token stopped them, [`BuildError::ContentIdsExhausted`] by both refreshes when the index has no ids left, and
 /// [`BuildError::OutsideTree`] by [`Index::refresh_paths`](crate::Index::refresh_paths) for a path that may lead out of
-/// the tree; [`Index::build`](crate::Index::build) takes no token and returns only the first two.
+/// the tree; [`Index::build`](crate::Index::build) takes no token and returns only the first three.
 /// Everything else is collected into [`BuildOutcome::errors`](crate::BuildOutcome::errors) and costs only what it names,
 /// so one unreadable directory yields a partial index rather than none.
 #[derive(Debug, thiserror::Error)]
@@ -165,6 +166,17 @@ pub enum BuildError {
     /// The walk failed — outright when returned, or for one directory or entry when collected.
     #[error(transparent)]
     Walk(#[from] WalkError),
+    /// The thread pool [`BuildOptions::threads`] asked for could not be started, so the build never began.
+    ///
+    /// A restricted environment is where this happens: a process or cgroup thread limit, or a sandbox that refuses to
+    /// spawn. The build fails rather than quietly running at a parallelism the caller did not ask for.
+    #[error("cannot start a thread pool of {threads} for the walk: {source}")]
+    ThreadPool {
+        /// The thread count that was requested.
+        threads: NonZeroUsize,
+        /// The underlying failure, boxed so no dependency's error type reaches this crate's public API.
+        source: Box<dyn Error + Send + Sync>,
+    },
     /// A `.gitignore` exists but could not be read, so its rules were not applied.
     ///
     /// This is the one collected failure that leaves the index holding *more* than it should rather than less: every
@@ -255,8 +267,7 @@ impl BuildError {
     /// at, and the entry it concerns may have no indexed path at all: [`BuildError::Name`] exists precisely because one
     /// could not be formed.
     ///
-    /// Every collected error names a path. Only a returned [`BuildError::Walk`] wrapping
-    /// [`WalkError::ThreadPool`](kartta_walk::WalkError::ThreadPool), [`BuildError::Cancelled`],
+    /// Every collected error names a path. Only the returned [`BuildError::ThreadPool`], [`BuildError::Cancelled`],
     /// [`BuildError::ContentIdsExhausted`] and [`BuildError::OutsideTree`] do not.
     #[must_use]
     pub fn native_path(&self) -> Option<&Path> {
@@ -267,7 +278,10 @@ impl BuildError {
             | Self::Read { native_path, .. }
             | Self::ContentIndex { native_path, .. }
             | Self::Cache { native_path, .. } => Some(native_path),
-            Self::Cancelled | Self::ContentIdsExhausted | Self::OutsideTree { .. } => None,
+            Self::ThreadPool { .. }
+            | Self::Cancelled
+            | Self::ContentIdsExhausted
+            | Self::OutsideTree { .. } => None,
         }
     }
 
@@ -282,6 +296,7 @@ impl BuildError {
             Self::ContentIdsExhausted => 6,
             Self::OutsideTree { .. } => 7,
             Self::Cache { .. } => 8,
+            Self::ThreadPool { .. } => 9,
         }
     }
 }
