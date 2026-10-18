@@ -95,6 +95,16 @@ pub(crate) struct IndexStatsParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct RefreshParams {
+    /// Repo-relative paths of the files or directories that changed, as find_files prints them; a directory covers
+    /// everything below it, and a deleted or renamed file is named by its old path as well as its new one. Omit to
+    /// check the whole tree.
+    #[serde(default)]
+    pub(crate) paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct FindFilesParams {
     /// Fuzzy pattern matched against repo-relative paths: characters must appear in order but gaps are fine, and
     /// filename matches rank above directory matches - "serv" finds pkg/service.go, "cfgyaml" finds
