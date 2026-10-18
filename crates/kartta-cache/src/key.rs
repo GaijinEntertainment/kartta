@@ -26,11 +26,7 @@ impl ContentHash {
 
 impl fmt::Debug for ContentHash {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "ContentHash({})",
-            blake3::Hash::from_bytes(self.0).to_hex()
-        )
+        write!(formatter, "ContentHash({})", hex(self.0))
     }
 }
 
@@ -97,12 +93,12 @@ impl Namespace {
 
 impl fmt::Debug for Namespace {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "Namespace({})",
-            blake3::Hash::from_bytes(self.0).to_hex()
-        )
+        write!(formatter, "Namespace({})", hex(self.0))
     }
+}
+
+fn hex(bytes: [u8; 32]) -> impl fmt::Display {
+    blake3::Hash::from_bytes(bytes).to_hex()
 }
 
 pub(crate) fn check(namespace: &Namespace, content: &ContentHash, payload: &[u8]) -> u64 {
