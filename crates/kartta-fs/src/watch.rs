@@ -47,7 +47,7 @@ const LONGEST: Duration = Duration::from_millis(500);
 /// the build, and takes it in when it does not. A caller that builds and then watches refreshes once
 /// more, for what changed in between, then calls [`Watcher::cover`] and refreshes the paths it names: on Linux a
 /// directory that refresh added is watched only from that call. When the operating system drops changes it could not
-/// deliver, [`Changes::lost`] says so and the batch names the whole tree.
+/// deliver, the batch names the whole tree.
 ///
 /// # Examples
 ///
@@ -162,7 +162,6 @@ impl Watcher {
         if found.lost {
             return Changes {
                 paths: vec![String::new()],
-                lost: true,
             };
         }
         let paths: BTreeSet<String> = found
@@ -173,7 +172,6 @@ impl Watcher {
 
         Changes {
             paths: paths.into_iter().collect(),
-            lost: false,
         }
     }
 }
@@ -182,16 +180,19 @@ impl Watcher {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Changes {
     paths: Vec<String>,
-    lost: bool,
 }
 
 impl Changes {
-    /// The root-relative forward-slash paths that changed, each once, for [`Index::refresh_paths`]: the empty path, the
-    /// whole tree, when [`Changes::lost`].
+    /// The root-relative forward-slash paths that changed, each once, for [`Index::refresh_paths`].
     ///
     /// A path is named as the operating system reported it, so it may be ignored, pruned, inside `.git`, or gone again;
     /// [`Index::refresh_paths`] skips or widens each as it does any path. A name that is not valid UTF-8 is named by the
     /// directory that holds it.
+    ///
+    /// The batch is the empty path alone, the whole tree, when changes were dropped before they could be handed over:
+    /// an inotify queue that overflowed, an `FSEvents` stream that dropped events with no directory to scan, a
+    /// `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that piled up while the caller was not
+    /// waiting.
     pub fn paths(&self) -> impl ExactSizeIterator<Item = &str> + Clone {
         self.paths.iter().map(String::as_str)
     }
@@ -200,15 +201,6 @@ impl Changes {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.paths.is_empty()
-    }
-
-    /// Whether changes were dropped before they could be handed over, so the batch names the whole tree: an inotify
-    /// queue that overflowed, an `FSEvents` stream that dropped events with no directory to scan, a
-    /// `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that piled up while the caller was not
-    /// waiting.
-    #[must_use]
-    pub const fn lost(&self) -> bool {
-        self.lost
     }
 }
 
