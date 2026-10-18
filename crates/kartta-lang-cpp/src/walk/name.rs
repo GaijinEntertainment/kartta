@@ -1,9 +1,9 @@
-use kartta_lang::tree::{children, text};
+use kartta_lang::tree::text;
 use kartta_lang::{Symbol, SymbolKind};
 use tree_sitter::Node;
 
 use super::data::data_declarator;
-use super::exported_symbol;
+use super::{child_nodes, exported_symbol};
 use crate::{BRACKET_INCLUDE, QUOTED_INCLUDE};
 
 pub(super) fn function_base_name(node: Node<'_>, source: &[u8]) -> String {
@@ -56,10 +56,9 @@ pub(super) fn class_symbol(node: Node<'_>, source: &[u8]) -> Option<Symbol> {
     };
 
     let mut symbol = exported_symbol(type_base_name(name, source), kind, node);
-    symbol.parents = children(node)
-        .filter_map(|index| node.child(index))
+    symbol.parents = child_nodes(node)
         .filter(|child| child.kind() == "base_class_clause")
-        .flat_map(|clause| children(clause).filter_map(move |index| clause.child(index)))
+        .flat_map(child_nodes)
         .filter_map(|base| base_parent_name(base, source))
         .collect();
     Some(symbol)
@@ -159,8 +158,7 @@ pub(super) fn template_parameters(template: Node<'_>, source: &[u8]) -> Vec<Stri
     let Some(list) = template.child_by_field_name("parameters") else {
         return Vec::new();
     };
-    children(list)
-        .filter_map(|index| list.child(index))
+    child_nodes(list)
         .filter_map(|parameter| template_parameter_name(parameter, source))
         .map(|name| text(name, source))
         .collect()
@@ -169,11 +167,10 @@ pub(super) fn template_parameters(template: Node<'_>, source: &[u8]) -> Vec<Stri
 fn template_parameter_name<'t>(parameter: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
     match parameter.kind() {
         "type_parameter_declaration" | "variadic_type_parameter_declaration" => {
-            first_child_of_kind(parameter, "type_identifier")
+            child_nodes(parameter).find(|child| child.kind() == "type_identifier")
         }
         "optional_type_parameter_declaration" => parameter.child_by_field_name("name"),
-        "template_template_parameter_declaration" => children(parameter)
-            .filter_map(|index| parameter.child(index))
+        "template_template_parameter_declaration" => child_nodes(parameter)
             .find(|child| child.kind().ends_with("type_parameter_declaration"))
             .and_then(|declared| template_parameter_name(declared, source)),
         "parameter_declaration"
@@ -188,12 +185,6 @@ fn template_parameter_name<'t>(parameter: Node<'t>, source: &[u8]) -> Option<Nod
         }
         _ => None,
     }
-}
-
-fn first_child_of_kind<'t>(node: Node<'t>, kind: &str) -> Option<Node<'t>> {
-    children(node)
-        .filter_map(|index| node.child(index))
-        .find(|child| child.kind() == kind)
 }
 
 pub(super) fn include_spec(include: Node<'_>, source: &[u8]) -> Option<(String, u32)> {

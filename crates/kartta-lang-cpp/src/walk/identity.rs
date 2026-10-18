@@ -1,11 +1,11 @@
 use std::borrow::Cow;
 
-use kartta_lang::tree::{children, text};
+use kartta_lang::tree::text;
 use tree_sitter::Node;
 
-use super::Replayer;
 use super::declarator::{joins_a_macro_as_scope, qualified_terminal, real_function_declarator};
 use super::name::is_simple_identifier;
+use super::{Replayer, child_nodes};
 
 impl Replayer<'_, '_> {
     pub(super) fn callable_key(&self, node: Node<'_>) -> Option<String> {
@@ -19,9 +19,8 @@ impl Replayer<'_, '_> {
         } else {
             written
         };
-        let error_beside_the_name = children(declarator)
-            .filter_map(|index| declarator.child(index))
-            .any(|child| child != written && child.has_error());
+        let error_beside_the_name =
+            child_nodes(declarator).any(|child| child != written && child.has_error());
         if error_beside_the_name || name.has_error() {
             return None;
         }
@@ -95,7 +94,7 @@ fn has_unkeyed_ancestor(node: Node<'_>) -> bool {
 
 fn parameter_types(parameters: Node<'_>, source: &[u8]) -> Option<Vec<String>> {
     let mut types = Vec::new();
-    for parameter in children(parameters).filter_map(|index| parameters.child(index)) {
+    for parameter in child_nodes(parameters) {
         if parameter.kind() == "..." {
             types.push("...".to_owned());
         } else if parameter.is_named() && parameter.kind() != "comment" {
@@ -116,7 +115,7 @@ fn member_qualifiers(
 ) -> Option<String> {
     let mut qualifiers = Vec::new();
     let mut reference = None;
-    for child in children(declarator).filter_map(|index| declarator.child(index)) {
+    for child in child_nodes(declarator) {
         if child == name || child == parameters || !child.is_named() {
             continue;
         }
@@ -173,14 +172,12 @@ fn binding_and_top_level_type(parameter: Node<'_>) -> Option<(Option<Node<'_>>, 
 }
 
 fn inlined_declarator(node: Node<'_>) -> Option<Node<'_>> {
-    children(node)
-        .filter_map(|index| node.child(index))
-        .find(|child| {
-            matches!(
-                child.kind(),
-                "identifier" | "pointer_declarator" | "reference_declarator"
-            )
-        })
+    child_nodes(node).find(|child| {
+        matches!(
+            child.kind(),
+            "identifier" | "pointer_declarator" | "reference_declarator"
+        )
+    })
 }
 
 struct ParameterIdentity<'t, 's> {
@@ -210,8 +207,7 @@ impl<'t, 's> ParameterIdentity<'t, 's> {
     }
 
     fn expand(&self, node: Node<'t>, pending: &mut Vec<Node<'t>>, tokens: &mut Vec<Cow<'s, str>>) {
-        let mut qualifiers: Vec<Node<'t>> = children(node)
-            .filter_map(|index| node.child(index))
+        let mut qualifiers: Vec<Node<'t>> = child_nodes(node)
             .filter(|child| child.kind() == "type_qualifier")
             .collect();
         qualifiers.sort_unstable_by_key(|qualifier| &self.source[qualifier.byte_range()]);
@@ -227,22 +223,16 @@ impl<'t, 's> ParameterIdentity<'t, 's> {
                     .map(|qualifier| self.spelling(*qualifier)),
             );
             pending.extend(
-                children(node)
+                child_nodes(node)
                     .rev()
-                    .filter_map(|index| node.child(index))
                     .filter(|child| child.kind() != "type_qualifier"),
             );
         } else {
             let mut sorted = qualifiers.into_iter().rev();
-            pending.extend(
-                children(node)
-                    .rev()
-                    .filter_map(|index| node.child(index))
-                    .map(|child| match child.kind() {
-                        "type_qualifier" => sorted.next().unwrap_or(child),
-                        _ => child,
-                    }),
-            );
+            pending.extend(child_nodes(node).rev().map(|child| match child.kind() {
+                "type_qualifier" => sorted.next().unwrap_or(child),
+                _ => child,
+            }));
         }
     }
 
