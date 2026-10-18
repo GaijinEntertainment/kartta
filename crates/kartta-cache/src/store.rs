@@ -327,27 +327,20 @@ fn pack_paths(dir: &Path) -> io::Result<Vec<PathBuf>> {
 mod tests {
     use super::*;
 
-    fn publish(dir: &Path, content: &[u8]) -> PathBuf {
-        let writer = PackWriter::new(dir);
-        writer
-            .insert(
-                &Namespace::new("test", b"1"),
-                &ContentHash::of(content),
-                content,
-            )
-            .expect("insert");
-        writer.publish().expect("publish").expect("a pack")
+    fn namespace() -> Namespace {
+        Namespace::new("test", b"1")
     }
 
-    fn holds(store: &Store, content: &[u8]) -> bool {
-        store.get(&Namespace::new("test", b"1"), &ContentHash::of(content)) == Some(content)
+    fn holds(store: &Store, content: &str) -> bool {
+        store.get(&namespace(), &ContentHash::of(content.as_bytes())) == Some(content.as_bytes())
     }
 
     #[test]
     fn a_pack_a_merge_removed_after_the_listing_sends_the_store_back_to_the_listing() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let kept = publish(dir.path(), b"kept");
-        let merged = publish(dir.path(), b"merged");
+        let now = SystemTime::now();
+        let kept = publish_at(dir.path(), now, &named("kept", 1)).expect("a pack");
+        let merged = publish_at(dir.path(), now, &named("merged", 1)).expect("a pack");
         let removed = dir.path().join("removed by a merge.pack");
         let mut listings = 0;
 
@@ -362,7 +355,7 @@ mod tests {
         .expect("open");
 
         assert_eq!(listings, 2);
-        assert!(holds(&store, b"kept") && holds(&store, b"merged"));
+        assert!(holds(&store, "kept 0") && holds(&store, "merged 0"));
         assert_eq!(store.stats().packs, 2);
     }
 
@@ -388,7 +381,7 @@ mod tests {
         for content in contents {
             writer
                 .insert(
-                    &Namespace::new("test", b"1"),
+                    &namespace(),
                     &ContentHash::of(content.as_bytes()),
                     content.as_bytes(),
                 )
@@ -470,16 +463,8 @@ mod tests {
             (1, 4, 5, 0)
         );
         let store = Store::open(dir.path()).expect("reopen");
-        assert!(
-            named("new", 4)
-                .iter()
-                .all(|new| holds(&store, new.as_bytes()))
-        );
-        assert!(
-            !named("old", 5)
-                .iter()
-                .any(|old| holds(&store, old.as_bytes()))
-        );
+        assert!(named("new", 4).iter().all(|new| holds(&store, new)));
+        assert!(!named("old", 5).iter().any(|old| holds(&store, old)));
     }
 
     #[test]
@@ -508,11 +493,7 @@ mod tests {
             (0, 0, 4)
         );
         let store = Store::open(dir.path()).expect("reopen");
-        assert!(
-            named("old", 4)
-                .iter()
-                .all(|old| holds(&store, old.as_bytes()))
-        );
+        assert!(named("old", 4).iter().all(|old| holds(&store, old)));
     }
 
     #[test]
@@ -598,7 +579,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let writer = PackWriter::new(dir.path());
         writer
-            .insert(&Namespace::new("test", b"1"), &ContentHash::of(b"a"), b"a")
+            .insert(&namespace(), &ContentHash::of(b"a"), b"a")
             .expect("insert");
 
         let merged = merged_at(
