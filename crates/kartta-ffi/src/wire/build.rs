@@ -5,10 +5,11 @@ use std::time::Duration;
 
 use kartta::{
     BinaryExtensions, BuildError, BuildOptions, ContentIndexStorage, Engine, IgnoreSources,
-    Language, PrunedNames, SymbolKind,
+    Language, LanguageFiles, PrunedNames, Stats,
 };
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
+use super::graph::Wired;
 use crate::error::{Error, ErrorCode};
 
 const ERRORS_LISTED: usize = 20;
@@ -165,38 +166,21 @@ pub(crate) const fn kind_of(error: &BuildError) -> &'static str {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub(crate) struct StatsAnswer<'e> {
     entries: usize,
-    languages: Vec<LanguageView<'e>>,
-    graphs: Vec<GraphView<'e>>,
+    languages: Vec<Wired<LanguageFiles<'e>>>,
+    graphs: Vec<GraphStats<'e>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     content_index: Option<ContentIndexView>,
     errors: &'e StoredErrors,
 }
 
-#[derive(Debug, Serialize)]
-struct LanguageView<'e> {
+#[derive(Serialize)]
+struct GraphStats<'e> {
     name: &'e str,
-    family: &'e str,
-    claimed: usize,
-    read: usize,
-    cached: usize,
-    held: usize,
-}
-
-#[derive(Debug, Serialize)]
-struct GraphView<'e> {
-    name: &'e str,
-    files: usize,
-    files_without_symbols: usize,
-    symbols: usize,
-    #[serde(serialize_with = "kinds")]
-    kinds: Vec<(SymbolKind, usize)>,
-    calls: usize,
-    local_calls: usize,
-    uses: usize,
-    includes: usize,
+    #[serde(flatten)]
+    stats: Wired<Stats>,
 }
 
 #[derive(Debug, Serialize)]
@@ -206,40 +190,18 @@ struct ContentIndexView {
     bytes: u64,
 }
 
-fn kinds<S: Serializer>(kinds: &[(SymbolKind, usize)], serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.collect_map(kinds.iter().map(|(kind, count)| (kind.label(), count)))
-}
-
 impl<'e> StatsAnswer<'e> {
     pub(crate) fn new(engine: &'e Engine, errors: &'e StoredErrors) -> Self {
         let stats = engine.stats();
         Self {
             entries: engine.index().len(),
-            languages: stats
-                .languages
-                .iter()
-                .map(|language| LanguageView {
-                    name: language.name,
-                    family: language.family,
-                    claimed: language.claimed,
-                    read: language.read,
-                    cached: language.cached,
-                    held: language.held,
-                })
-                .collect(),
+            languages: stats.languages.into_iter().map(Wired).collect(),
             graphs: stats
                 .families
                 .into_iter()
-                .map(|(name, stats)| GraphView {
+                .map(|(name, stats)| GraphStats {
                     name,
-                    files: stats.files,
-                    files_without_symbols: stats.files_without_symbols,
-                    symbols: stats.symbols,
-                    kinds: stats.kinds,
-                    calls: stats.calls,
-                    local_calls: stats.local_calls,
-                    uses: stats.uses,
-                    includes: stats.includes,
+                    stats: Wired(stats),
                 })
                 .collect(),
             content_index: engine
