@@ -1,5 +1,6 @@
 //! What a Python file extracts to from its bytes alone: its symbols qualified by their classes, the calls its
-//! functions make, and the directives its imports leave for the resolver.
+//! functions make, and the directives its imports leave for the resolver; and where the doc comment of a definition
+//! starts.
 #![expect(
     clippy::panic,
     reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
@@ -885,4 +886,31 @@ fn a_use_names_its_receiver_s_class_and_reads_a_module_value_the_file_binds() {
         ],
         "a name the function binds later is its own, and a module value owns no attribute"
     );
+}
+
+fn doc_line(source: &str, name: &str) -> u32 {
+    let line = named(&extract(source.as_bytes()), name).line;
+    let lines: Vec<&[u8]> = source.lines().map(str::as_bytes).collect();
+    Python::new().doc_comments().first_line(&lines, line)
+}
+
+#[test]
+fn the_comments_above_the_first_decorator_document_a_definition() {
+    let source = "import os
+
+# Parses.
+# Fails on nothing.
+@cached
+@traced
+def parse():
+    \"\"\"The docstring is in the body.\"\"\"
+
+
+x = 1
+def after():
+    pass
+";
+
+    assert_eq!(doc_line(source, "parse"), 3);
+    assert_eq!(doc_line(source, "after"), 12);
 }
