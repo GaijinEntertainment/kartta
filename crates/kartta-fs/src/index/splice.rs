@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use kartta_walk::EntryKind;
 
-use super::{Encoder, Index, NO_POSITION, Overflow, RESTART, common_len, node_sized};
+use super::{Encoder, Index, NO_POSITION, RESTART, common_len, node_sized};
 use crate::content::ContentId;
 use crate::inspection::Inspection;
 use crate::stamp::{Stamp, UNTRUSTED};
@@ -347,14 +347,8 @@ impl Splicing {
         let at = self.kinds.len();
         self.kinds.extend_from_slice(&index.kinds[run.clone()]);
         index.inspection.copy_run(run.clone(), &self.inspection, at);
-        let targets = &index.symlink_targets;
-        let low = targets.partition_point(|&(position, _)| position < run.start);
-        let high = targets.partition_point(|&(position, _)| position < run.end);
-        self.symlink_targets.extend(
-            targets[low..high]
-                .iter()
-                .map(|(position, target)| (position - run.start + at, target.clone())),
-        );
+        self.symlink_targets
+            .extend(moved_pairs(&index.symlink_targets, run, at));
     }
 
     fn fresh(&mut self, fresh: &Fresh) {
@@ -413,24 +407,26 @@ impl Encoder {
         self.suffixes.push_str(&index.suffixes[start..bytes_end]);
         self.offsets.extend_from_slice(&index.offsets[first..end]);
         self.shared.extend_from_slice(&index.shared[first..end]);
-        self.overflow.copy(&index.overflow, first..end, at);
+        let overflow = &index.overflow;
+        self.overflow
+            .offsets
+            .extend(moved_pairs(&overflow.offsets, first..end, at));
+        self.overflow
+            .shared
+            .extend(moved_pairs(&overflow.shared, first..end, at));
     }
 }
 
-impl Overflow {
-    fn copy(&mut self, from: &Self, positions: Range<usize>, to: usize) {
-        let moved = |kept: &[(usize, usize)], into: &mut Vec<(usize, usize)>| {
-            let low = kept.partition_point(|&(at, _)| at < positions.start);
-            let high = kept.partition_point(|&(at, _)| at < positions.end);
-            into.extend(
-                kept[low..high]
-                    .iter()
-                    .map(|&(at, value)| (at - positions.start + to, value)),
-            );
-        };
-        moved(&from.offsets, &mut self.offsets);
-        moved(&from.shared, &mut self.shared);
-    }
+fn moved_pairs<T: Clone>(
+    pairs: &[(usize, T)],
+    run: Range<usize>,
+    to: usize,
+) -> impl Iterator<Item = (usize, T)> + '_ {
+    let low = pairs.partition_point(|(at, _)| *at < run.start);
+    let high = pairs.partition_point(|(at, _)| *at < run.end);
+    pairs[low..high]
+        .iter()
+        .map(move |(at, value)| (at - run.start + to, value.clone()))
 }
 
 #[cfg(test)]
