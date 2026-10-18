@@ -322,7 +322,7 @@ impl<P: Policy> Walker<'_, P> {
         let entry = Entry::new(item, at.dir, prefixed_path, kind);
         let (value, descendable) = match self.policy.visit(&entry, at.state) {
             Visit::Skip => return Decided::Skipped,
-            Visit::Prune(value) => (value, false),
+            Visit::Opaque(value) => (value, false),
             Visit::Keep(value) => (value, kind == EntryKind::Dir),
         };
 

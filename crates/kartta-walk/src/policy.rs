@@ -67,7 +67,7 @@ impl ListedEntry {
 ///
 ///         if kind == EntryKind::Dir && entry.name() == "vendor" {
 ///             // Listed, but opaque: `vendor` appears in the tree with no children.
-///             return Visit::Prune(kind);
+///             return Visit::Opaque(kind);
 ///         }
 ///
 ///         Visit::Keep(kind)
@@ -140,7 +140,7 @@ pub enum Visit<V> {
     /// Record the entry, and descend into it when it is a directory.
     Keep(V),
     /// Record the entry but never descend into it: the entry appears in the tree, its contents do not.
-    Prune(V),
+    Opaque(V),
     /// Drop the entry. Nothing is recorded and nothing is descended.
     Skip,
 }
