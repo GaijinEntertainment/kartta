@@ -7,6 +7,8 @@ use gix_glob::pattern::Case;
 use gix_glob::search::pattern::List;
 use gix_ignore::search::{Ignore, pattern_matching_relative_path};
 
+use crate::policy::child_path;
+
 pub(crate) const GITIGNORE: &str = ".gitignore";
 pub(crate) const DOT_GIT: &str = ".git";
 
@@ -31,12 +33,7 @@ impl Rules {
     // constraint: a layer is anchored at a synthetic root-relative source path rather than a filesystem path, so its
     // patterns match the root-relative paths the index stores; gix-glob fails on a `dir` it cannot spell as git bytes
     pub(crate) fn push(&mut self, bytes: &[u8], dir: &str) -> io::Result<()> {
-        let source = if dir.is_empty() {
-            PathBuf::from(GITIGNORE)
-        } else {
-            PathBuf::from(format!("{dir}/{GITIGNORE}"))
-        };
-
+        let source = PathBuf::from(child_path(dir, GITIGNORE));
         let layer = List::from_bytes(bytes, source, Some(Path::new("")), DIALECT)?;
         self.layers.push(Arc::new(layer));
         Ok(())
