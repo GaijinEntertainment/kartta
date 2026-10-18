@@ -103,7 +103,8 @@
   take](./adr/3.22-analyze-what-a-change-reaches-with-the-walk-the-call-queries-take.md) — initiative `03-code-graph`,
   2026-10-17
 - [3.23 Judge code dead only where the graph sees it
-  used](./adr/3.23-judge-code-dead-only-where-the-graph-sees-it-used.md) — initiative `03-code-graph`, 2026-10-17
+  used](./adr/3.23-judge-code-dead-only-where-the-graph-sees-it-used.md) — initiative `03-code-graph`, 2026-10-17,
+  revised 2026-10-18
 - [3.24 Count what a graph holds and how its calls bind when
   asked](./adr/3.24-count-what-a-graph-holds-and-how-its-calls-bind-when-asked.md) — initiative `03-code-graph`,
   2026-10-17
