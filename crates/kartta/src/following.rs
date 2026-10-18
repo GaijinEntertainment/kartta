@@ -131,7 +131,7 @@ impl Following {
         );
 
         Ok(EngineRefresh {
-            outcome,
+            index: outcome,
             errors: inserted.errors,
             extracted,
             resolved_again,

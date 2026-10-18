@@ -129,7 +129,7 @@ impl Served {
             .errors()
             .map(|error| Failure::new(error, root))
             .collect();
-        replace_failures(&mut indexed.errors, &refresh.index().walked, failed);
+        replace_failures(&mut indexed.errors, &refresh.index.walked, failed);
         drop(indexed);
         Ok(Refreshed {
             refresh,
@@ -425,9 +425,9 @@ fn build(
             error => format!("cannot index {}: {error}", request.root.display()),
         },
     )?;
-    let root = outcome.engine().index().root();
+    let root = outcome.engine.index().root();
     let errors = outcome
-        .errors()
+        .errors
         .iter()
         .map(|error| Failure::new(error, root))
         .collect();
@@ -435,7 +435,7 @@ fn build(
         indexed: RwLock::new(Indexed {
             root: request.root.display().to_string(),
             gitignore: !request.index_ignored,
-            engine: outcome.into_engine(),
+            engine: outcome.engine,
             errors,
             watch,
         }),

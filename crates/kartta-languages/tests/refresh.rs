@@ -106,8 +106,8 @@ fn build(root: &Path, stamps: bool) -> Engine {
     options.stamps = stamps;
     let outcome =
         Engine::build(root, &options, kartta_languages::all(), None).expect("the tree builds");
-    assert!(outcome.errors().is_empty(), "{:?}", outcome.errors());
-    outcome.into_engine()
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    outcome.engine
 }
 
 /// Every count the engine keeps and an answer to each query a change can move, written out to compare.
@@ -191,21 +191,17 @@ fn an_engine_refreshed_after_edits_answers_as_a_build_of_the_edited_tree() {
         fresh,
         "a refresh that builds every graph again"
     );
-    assert!(!whole.rebuilt() && !named.rebuilt() && rebuilt.rebuilt());
-    assert_eq!((whole.widened(), named.widened()), (None, None));
-    assert_ne!(
-        named.index().walked,
-        [""],
-        "the named paths are walked apart"
-    );
+    assert!(!whole.rebuilt && !named.rebuilt && rebuilt.rebuilt);
+    assert_eq!((whole.widened, named.widened), (None, None));
+    assert_ne!(named.index.walked, [""], "the named paths are walked apart");
     assert!(
-        whole.resolved_again() > 0 && named.resolved_again() > 0,
+        whole.resolved_again > 0 && named.resolved_again > 0,
         "files whose includes or packages changed are resolved again: {} and {}",
-        whole.resolved_again(),
-        named.resolved_again()
+        whole.resolved_again,
+        named.resolved_again
     );
     assert_eq!(
-        (whole.dropped(), named.dropped(), rebuilt.dropped()),
+        (whole.dropped, named.dropped, rebuilt.dropped),
         (Some(2), Some(2), None),
         "gone.cpp and old.cpp leave"
     );
@@ -226,14 +222,14 @@ fn more_named_paths_than_the_limit_refresh_the_whole_tree() {
     let refresh = refreshed(engine.refresh_paths(named, None));
 
     assert_eq!(
-        refresh.widened(),
+        refresh.widened,
         Some(Widened {
             named: EDITED.len() + limit,
             limit
         })
     );
-    assert_eq!(refresh.index().walked, [""]);
-    assert!(!refresh.rebuilt());
+    assert_eq!(refresh.index.walked, [""]);
+    assert!(!refresh.rebuilt);
     assert_eq!(answers(&engine), answers(&build(tree.path(), false)));
 }
 
@@ -279,14 +275,14 @@ fn a_refresh_of_an_unchanged_tree_reads_and_resolves_nothing() {
     let refresh = refreshed(engine.refresh(None));
 
     assert_eq!(
-        (
-            refresh.extracted(),
-            refresh.resolved_again(),
-            refresh.dropped()
-        ),
+        (refresh.extracted, refresh.resolved_again, refresh.dropped),
         (0, 0, Some(0))
     );
-    assert_eq!(refresh.reconfigured(), &[] as &[String]);
+    assert!(
+        refresh.reconfigured.is_empty(),
+        "{:?}",
+        refresh.reconfigured
+    );
     assert_eq!(answers(&engine), before);
 }
 
@@ -298,7 +294,7 @@ fn a_changed_go_mod_resolves_every_go_file_again() {
     write(tree.path(), "go.mod", "module example.com/n\n");
     let refresh = refreshed(engine.refresh_paths(["go.mod"], None));
 
-    assert_eq!(refresh.reconfigured(), ["go"]);
-    assert_eq!(refresh.resolved_again(), 2, "main.go and lib/lib.go");
+    assert_eq!(refresh.reconfigured, ["go"]);
+    assert_eq!(refresh.resolved_again, 2, "main.go and lib/lib.go");
     assert_eq!(answers(&engine), answers(&build(tree.path(), false)));
 }

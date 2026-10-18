@@ -62,8 +62,8 @@
 //! std::fs::write(tree.path().join("main.defs"), "def parse\n")?;
 //!
 //! let outcome = Engine::build(tree.path(), &BuildOptions::default(), vec![Box::new(Defs)], None)?;
-//! assert!(outcome.errors().is_empty());
-//! let engine = outcome.into_engine();
+//! assert!(outcome.errors.is_empty());
+//! let engine = outcome.engine;
 //!
 //! let graph = engine.graph_of("main.defs").ok_or("defs claims the file")?;
 //! assert_eq!(graph.definitions("parse", None, 10).total, 1);

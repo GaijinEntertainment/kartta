@@ -232,7 +232,7 @@ fn failures(count: usize, failed: impl Iterator<Item = impl Display>) -> Option<
 /// took, and the failures it collected.
 pub(crate) fn refresh(refreshed: &Refreshed) -> String {
     let refresh = &refreshed.refresh;
-    let outcome = refresh.index();
+    let outcome = &refresh.index;
     let walked = &outcome.walked;
     let mut element = Element::new("refresh");
     element = if walked.iter().any(String::is_empty) {
@@ -243,14 +243,14 @@ pub(crate) fn refresh(refreshed: &Refreshed) -> String {
     element = element
         .count("added", outcome.added.len())
         .count("removed", outcome.removed.len())
-        .count("extracted", refresh.extracted())
-        .count("resolved_again", refresh.resolved_again())
-        .count("dropped", refresh.dropped().unwrap_or(0))
-        .flag("rebuilt", refresh.rebuilt());
-    if !refresh.reconfigured().is_empty() {
-        element = element.attr("reconfigured", refresh.reconfigured().join(", "));
+        .count("extracted", refresh.extracted)
+        .count("resolved_again", refresh.resolved_again)
+        .count("dropped", refresh.dropped.unwrap_or(0))
+        .flag("rebuilt", refresh.rebuilt);
+    if !refresh.reconfigured.is_empty() {
+        element = element.attr("reconfigured", refresh.reconfigured.join(", "));
     }
-    if let Some(widened) = refresh.widened() {
+    if let Some(widened) = refresh.widened {
         element = element
             .attr("widened", widened.named)
             .attr("limit", widened.limit);
@@ -261,10 +261,10 @@ pub(crate) fn refresh(refreshed: &Refreshed) -> String {
     }
     let changed = outcome.added.len()
         + outcome.removed.len()
-        + refresh.extracted()
-        + refresh.resolved_again()
-        + refresh.dropped().unwrap_or(0);
-    if changed == 0 && !refresh.rebuilt() && refresh.reconfigured().is_empty() {
+        + refresh.extracted
+        + refresh.resolved_again
+        + refresh.dropped.unwrap_or(0);
+    if changed == 0 && !refresh.rebuilt && refresh.reconfigured.is_empty() {
         element.inline("nothing changed - the index already matched the tree")
     } else {
         element.close()
