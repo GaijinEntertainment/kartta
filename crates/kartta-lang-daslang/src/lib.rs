@@ -77,7 +77,6 @@ use tree_sitter::{Parser, Tree};
 use crate::fnv::{FNV_OFFSET, fnv};
 use crate::resolve::DaslangResolver;
 
-mod banner;
 mod fnv;
 mod resolve;
 mod walk;

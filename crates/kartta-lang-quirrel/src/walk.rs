@@ -1,12 +1,15 @@
 use kartta_lang::tree::{named_children, preorder, signature_from, text};
 use kartta_lang::{
-    CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
+    SymbolKind,
 };
 use tree_sitter::{Node, Tree};
 
-use crate::banner::is_generated_source;
-
 const IMPORT_FORM: u32 = 0;
+
+const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT", "Code generated"])
+    .with_lines(&["//"])
+    .with_block("/*", "*/");
 
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter::new(source);
@@ -57,7 +60,7 @@ impl<'a> Emitter<'a> {
             source,
             scopes: Vec::new(),
             containers: Vec::new(),
-            flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
+            flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
             symbol_count: 0,
             raw: RawExtraction::default(),
         }

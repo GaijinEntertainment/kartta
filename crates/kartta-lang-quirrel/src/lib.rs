@@ -71,7 +71,6 @@ use tree_sitter::{Parser, Tree};
 use crate::fnv::{FNV_OFFSET, fnv};
 use crate::resolve::QuirrelResolver;
 
-mod banner;
 mod fnv;
 mod resolve;
 mod runtime;

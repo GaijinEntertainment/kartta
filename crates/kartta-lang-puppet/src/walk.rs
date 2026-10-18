@@ -1,13 +1,15 @@
 use kartta_lang::tree::{children, preorder, text};
 use kartta_lang::{
-    CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
+    SymbolKind,
 };
 use tree_sitter::{Node, Tree};
 
-use crate::banner::is_generated_source;
 use crate::class::class_name;
 
 pub(crate) const CLASS_FORM: u32 = 0;
+
+const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT"]).with_lines(&["#"]);
 
 const IDENTIFIER: &str = "identifier";
 const CLASS_IDENTIFIER: &str = "class_identifier";
@@ -17,7 +19,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter {
         source,
         scopes: Vec::new(),
-        flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
+        flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
         raw: RawExtraction::default(),
     };
 

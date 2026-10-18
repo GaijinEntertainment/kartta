@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use kartta_lang::tree::{named_children, preorder, signature, text};
 use kartta_lang::{
-    NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Banner, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
 use tree_sitter::{Node, Tree};
 
@@ -13,7 +13,10 @@ use self::blocks::{BlockCall, BlockItem};
 use self::syntax::{
     impl_type_name, is_attributable_item, is_exported, line, named_child_of_kind, symbol, type_base,
 };
-use crate::banner::is_generated_source;
+
+const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT"])
+    .with_lines(&["//"])
+    .with_block("/*", "*/");
 
 mod attributes;
 mod blocks;
@@ -114,7 +117,7 @@ impl<'a> Emitter<'a> {
             impl_owners: Vec::new(),
             receiver_paths: Vec::new(),
             pending_parents: Vec::new(),
-            generated: is_generated_source(source),
+            generated: BANNER.opens(source),
             test_scopes: Vec::new(),
             block_items: HashMap::new(),
             block_calls: Vec::new(),

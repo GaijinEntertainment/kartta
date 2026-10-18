@@ -126,7 +126,6 @@
 //! assert_eq!(keys, ["gfx::area(int,int)"]);
 //! ```
 
-mod banner;
 mod fingerprint;
 mod fnv;
 mod repair;
