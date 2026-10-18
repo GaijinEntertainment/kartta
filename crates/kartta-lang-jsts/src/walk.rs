@@ -142,7 +142,6 @@ struct Emitter<'s> {
     exported_names: Vec<String>,
     file_is_generated: bool,
     overloads: OverloadRun,
-    symbol_count: u32,
     raw: RawExtraction,
 }
 
@@ -162,7 +161,6 @@ impl<'s> Emitter<'s> {
             exported_names: Vec::new(),
             file_is_generated: is_generated_source(source),
             overloads: OverloadRun::default(),
-            symbol_count: 0,
             raw: RawExtraction::default(),
         }
     }
@@ -706,8 +704,7 @@ impl<'s> Emitter<'s> {
     }
 
     fn push_symbol(&mut self, symbol: Symbol) -> SymbolId {
-        let id = SymbolId(self.symbol_count);
-        self.symbol_count += 1;
+        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
         self.raw.symbols.push(symbol);
         id
     }
