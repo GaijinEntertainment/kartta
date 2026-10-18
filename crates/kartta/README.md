@@ -11,7 +11,8 @@ needs no direct dependency on the `kartta-*` building blocks. An MCP server over
 
 The engine names no language of its own: it is handed the languages to build with, each a value implementing
 [`kartta-lang`](https://crates.io/crates/kartta-lang)'s `Language` trait, so a language kartta does not ship plugs in as
-one more crate.
+one more crate. [`kartta-languages`](https://crates.io/crates/kartta-languages) gives every language kartta ships, or
+the ones a list of names selects.
 
 Status: the engine builds the file index and each language family's graph of definitions, calls and uses from one walk
 that reads each claimed text file once — twice only for a file whose extraction the shared cache holds in a form the
