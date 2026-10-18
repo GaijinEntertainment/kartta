@@ -34,17 +34,14 @@ pub struct Stats {
 impl Graph {
     /// Counts the files, definitions, call sites, uses and includes the graph holds.
     ///
-    /// The graph keeps no count but those of its files and definitions, so this reads every file and definition it
-    /// holds, and its cost grows with them. A call or a use made outside every definition is not a site: the graph
+    /// This reads every file and definition the graph holds, so its cost grows with them. A call or a use made outside every definition is not a site: the graph
     /// keeps only the name it spells, and no count here holds it.
     #[must_use]
     pub fn stats(&self) -> Stats {
-        let mut stats = Stats {
-            files: self.file_count(),
-            symbols: self.symbol_count(),
-            ..Stats::default()
-        };
+        let mut stats = Stats::default();
         for file in self.files.iter().flatten() {
+            stats.files += 1;
+            stats.symbols += file.symbols.len();
             stats.files_without_symbols += usize::from(file.symbols.is_empty());
             stats.calls += file.calls.len();
             stats.local_calls += file.local_calls.len();

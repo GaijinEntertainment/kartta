@@ -163,7 +163,7 @@ fn a_file_inserted_again_replaces_what_it_defined() {
 
     assert_eq!(graph.definitions("Old", None, 10).total, 0);
     assert_eq!(graph.definitions("New", None, 10).total, 1);
-    assert_eq!((graph.file_count(), graph.symbol_count()), (1, 1));
+    assert_eq!((graph.stats().files, graph.stats().symbols), (1, 1));
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn a_removed_file_is_forgotten_and_its_slot_serves_the_next_file() {
     assert_eq!(graph.outline("a.go"), None);
     assert_eq!(places(&graph.definitions("Shared", None, 10)), ["b.go:2"]);
     assert_eq!(places(&graph.definitions("Fresh", None, 10)), ["c.go:3"]);
-    assert_eq!((graph.file_count(), graph.symbol_count()), (2, 2));
+    assert_eq!((graph.stats().files, graph.stats().symbols), (2, 2));
 }
 
 fn including(mut extraction: Extraction, target: &str) -> Extraction {

@@ -17,8 +17,6 @@ pub struct Dependent<'g> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Dependents<'g> {
-    /// The root-relative path of the file asked about.
-    pub file: &'g str,
     /// The files that include it, each once, nearest first, then in path order.
     pub found: Vec<Dependent<'g>>,
     /// Whether the file cap stopped the walk.
@@ -41,7 +39,6 @@ impl Graph {
     pub fn dependents(&self, path: &str, depth: u32, max_files: usize) -> Option<Dependents<'_>> {
         let start = self.slot_of(self.strings.get(path)?)?;
         let mut dependents = Dependents {
-            file: self.strings.resolve(self.file(start).path),
             found: Vec::new(),
             truncated: false,
             turned_away: 0,

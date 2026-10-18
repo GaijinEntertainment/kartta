@@ -55,12 +55,6 @@ impl Limits {
     }
 }
 
-impl Default for Limits {
-    fn default() -> Self {
-        Self::new(1)
-    }
-}
-
 /// A symbol a walk over calls reached, and the call it reached it through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]

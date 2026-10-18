@@ -36,7 +36,7 @@ fn build(tree: &TempDir, names: &[&str]) -> Engine {
 fn callees_of_render(engine: &Engine) -> (Vec<(&str, &str)>, usize) {
     let graph = engine.graph_of("app.ts").expect("typescript claims app.ts");
     let callees = graph
-        .callees("render", Limits::default())
+        .callees("render", Limits::new(1))
         .expect("render is defined");
     let reached = (callees.reached.iter())
         .map(|reached| (reached.symbol.name, reached.symbol.file))

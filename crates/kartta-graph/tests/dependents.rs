@@ -49,7 +49,6 @@ fn includers_come_nearest_first_then_in_path_order() {
         .dependents("base.h", 3, 0)
         .expect("the graph holds base.h");
 
-    assert_eq!(dependents.file, "base.h");
     assert_eq!(
         found(&dependents),
         [
