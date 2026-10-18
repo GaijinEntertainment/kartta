@@ -2,7 +2,7 @@ use kartta_lang::tree::{signature_from, text};
 use kartta_lang::{RawDirective, RawReExport, SymbolKind};
 use tree_sitter::Node;
 
-use super::{Emitter, Scope};
+use super::{Binding, Emitter, Scope};
 use crate::syntax::{child_nodes, start_line, unquote};
 
 const IMPORT_FORM: u32 = 0;
@@ -11,6 +11,28 @@ impl Emitter<'_> {
     pub(super) fn import_statement(&mut self, node: Node<'_>) {
         if let Some(source) = node.child_by_field_name("source") {
             self.push_directive(unquote(text(source, self.source)), start_line(node));
+        }
+    }
+
+    // constraint: an import binds its default name, its namespace's name, and each named import by its alias, else by
+    // its name
+    pub(super) fn declare_imported(&mut self, node: Node<'_>) {
+        match node.kind() {
+            "identifier" => self.declare(node.byte_range(), usize::MAX, Binding::Imported),
+            "import_specifier" => {
+                let bound = node
+                    .child_by_field_name("alias")
+                    .or_else(|| node.child_by_field_name("name"));
+                if let Some(bound) = bound {
+                    self.declare(bound.byte_range(), usize::MAX, Binding::Imported);
+                }
+            }
+            "import_statement" | "import_clause" | "namespace_import" | "named_imports" => {
+                for child in child_nodes(node) {
+                    self.declare_imported(child);
+                }
+            }
+            _ => {}
         }
     }
 

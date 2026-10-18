@@ -1,5 +1,6 @@
 mod calls;
 mod exports;
+mod uses;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -10,6 +11,7 @@ use kartta_lang::{
 };
 use tree_sitter::{Node, Tree};
 
+use self::uses::{annotated_type, constructed_type, names_a_value};
 use crate::generated::is_generated_source;
 use crate::syntax::{
     declarator_kind, end_line, function_value, is_function_type, is_member_exported, member_name,
@@ -18,6 +20,7 @@ use crate::syntax::{
 
 pub(crate) fn walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter::new(source);
+    emitter.hoist(tree.root_node());
 
     preorder(tree, |node| {
         emitter.overloads.observe(node);
@@ -102,15 +105,22 @@ struct DeclScope {
     exported: bool,
 }
 
+type Span = (usize, usize);
+
+/// What a name the file declares stands for where a use spells it; a value carries the span of the one type its
+/// declaration spells, if any.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Binding {
-    Value,
+    Value(Option<Span>),
+    Module(Option<Span>),
+    Imported,
     Type,
 }
 
 // constraint: a binding lives until the innermost scope around its declaration ends — a function, a block, a catch
 // clause, a loop, a `switch` — so bindings close in the order they opened and each restores the one it shadowed; a
-// `var` is held to its block too, so a call after the block keeps the name, a miss rather than a wrong empty receiver
+// `var` is held to its block too, so a call after the block keeps the name, a miss rather than a wrong empty receiver;
+// a binding of the module's top level never closes, so nothing records it
 struct Declared {
     name: Range<usize>,
     until: usize,
@@ -126,6 +136,8 @@ struct Emitter<'s> {
     function_ends: Vec<usize>,
     declared: Vec<Declared>,
     bindings: HashMap<&'s [u8], Binding>,
+    /// What each name the module declares or imports at its top level stands for, wherever in the file a use spells it.
+    module_bindings: HashMap<&'s [u8], Binding>,
     exported_ids: (Option<usize>, Option<usize>),
     exported_names: Vec<String>,
     file_is_generated: bool,
@@ -145,6 +157,7 @@ impl<'s> Emitter<'s> {
             function_ends: Vec::new(),
             declared: Vec::new(),
             bindings: HashMap::new(),
+            module_bindings: HashMap::new(),
             exported_ids: (None, None),
             exported_names: Vec::new(),
             file_is_generated: is_generated_source(source),
@@ -228,10 +241,34 @@ impl<'s> Emitter<'s> {
             "jsx_opening_element" | "jsx_self_closing_element" => self.jsx_call(node, caller),
             "new_expression" => self.new_call(node, caller),
             "call_expression" => self.call(node, caller),
+            "member_expression" => self.member_use(node, caller),
+            "object" => self.literal_keys(node, caller),
             "export_statement" => self.export_statement(node),
             "import_statement" => self.import_statement(node),
+            kind if names_a_value(kind) => self.value_use(node, caller),
             _ => {}
         }
+    }
+
+    // constraint: a body runs once the module has run its top level, so it reads a value the module declares or
+    // imports after the body as well as before it
+    fn hoist(&mut self, program: Node<'_>) {
+        let declarations = named_child_nodes(program).filter_map(|statement| {
+            if statement.kind() == "export_statement" {
+                statement.child_by_field_name("declaration")
+            } else {
+                Some(statement)
+            }
+        });
+        for declaration in declarations {
+            match declaration.kind() {
+                "lexical_declaration" | "variable_declaration" => named_child_nodes(declaration)
+                    .for_each(|declarator| self.declare_declarator(declarator)),
+                "import_statement" => self.declare_imported(declaration),
+                _ => {}
+            }
+        }
+        self.module_bindings = std::mem::take(&mut self.bindings);
     }
 
     fn close_scopes(&mut self, start: usize) {
@@ -280,13 +317,19 @@ impl<'s> Emitter<'s> {
     }
 
     fn declare(&mut self, name: Range<usize>, until: usize, binding: Binding) {
+        let binding = match binding {
+            Binding::Value(typed) if until == usize::MAX => Binding::Module(typed),
+            binding => binding,
+        };
         let source = self.source;
         let shadowed = self.bindings.insert(&source[name.clone()], binding);
-        self.declared.push(Declared {
-            name,
-            until,
-            shadowed,
-        });
+        if until != usize::MAX {
+            self.declared.push(Declared {
+                name,
+                until,
+                shadowed,
+            });
+        }
     }
 
     // constraint: a function declared inside a function body names a value of its scope, while one at module or
@@ -295,7 +338,7 @@ impl<'s> Emitter<'s> {
         if !self.function_ends.is_empty()
             && let Some(name) = function.child_by_field_name("name")
         {
-            self.declare(name.byte_range(), self.scope_end(), Binding::Value);
+            self.declare(name.byte_range(), self.scope_end(), Binding::Value(None));
         }
         self.declare_parameters(function);
     }
@@ -307,7 +350,7 @@ impl<'s> Emitter<'s> {
             "function_expression" | "generator_function"
         ) && let Some(name) = function.child_by_field_name("name")
         {
-            self.declare(name.byte_range(), function.end_byte(), Binding::Value);
+            self.declare(name.byte_range(), function.end_byte(), Binding::Value(None));
         }
         self.function_ends.push(function.end_byte());
         self.scope_ends.push(function.end_byte());
@@ -329,24 +372,33 @@ impl<'s> Emitter<'s> {
             .is_some_and(|value| value.kind() == "class");
         if binds_a_class && name.kind() == "identifier" {
             self.declare(name.byte_range(), self.scope_end(), Binding::Type);
+        } else if name.kind() == "identifier" {
+            let typed = declarator
+                .child_by_field_name("type")
+                .and_then(annotated_type)
+                .or_else(|| constructed_type(declarator));
+            self.declare(name.byte_range(), self.scope_end(), Binding::Value(typed));
         } else {
             self.declare_pattern(name, self.scope_end());
         }
     }
 
     // constraint: a pattern binds its identifiers and its shorthand properties; a property key, a default value and a
-    // type annotation bind nothing
+    // type annotation bind nothing, though a parameter's name keeps the one type its annotation spells
     fn declare_pattern(&mut self, pattern: Node<'_>, until: usize) {
         let inner = |field| pattern.child_by_field_name(field);
         match pattern.kind() {
             "identifier" | "shorthand_property_identifier_pattern" => {
-                self.declare(pattern.byte_range(), until, Binding::Value);
+                self.declare(pattern.byte_range(), until, Binding::Value(None));
             }
-            "required_parameter" | "optional_parameter" => {
-                if let Some(bound) = inner("pattern") {
-                    self.declare_pattern(bound, until);
+            "required_parameter" | "optional_parameter" => match inner("pattern") {
+                Some(bound) if bound.kind() == "identifier" => {
+                    let typed = inner("type").and_then(annotated_type);
+                    self.declare(bound.byte_range(), until, Binding::Value(typed));
                 }
-            }
+                Some(bound) => self.declare_pattern(bound, until),
+                None => {}
+            },
             "assignment_pattern" | "object_assignment_pattern" => {
                 if let Some(bound) = inner("left") {
                     self.declare_pattern(bound, until);
@@ -367,7 +419,10 @@ impl<'s> Emitter<'s> {
     }
 
     fn names_a_declared_value(&self, receiver: &str) -> bool {
-        self.bindings.get(receiver.as_bytes()) == Some(&Binding::Value)
+        matches!(
+            self.bindings.get(receiver.as_bytes()),
+            Some(Binding::Value(_) | Binding::Module(_))
+        )
     }
 
     fn function_declaration(&mut self, node: Node<'_>) {

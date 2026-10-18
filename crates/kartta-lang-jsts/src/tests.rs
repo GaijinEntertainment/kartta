@@ -1,6 +1,7 @@
 mod extraction;
 mod identity;
 mod resolution;
+mod uses;
 
 use std::io;
 
