@@ -86,12 +86,18 @@ mod repository;
 mod source;
 mod stats;
 
-pub use kartta_fs::{BuildError, BuildOptions, CancelToken, Index};
+pub use kartta_fs::{
+    BinaryExtensions, BinaryExtensionsError, BinaryGroup, BuildError, BuildOptions, CancelToken,
+    Capped, Case, ContentIndexStats, ContentIndexStorage, Cut, Entry, EntryKind, Failure, Filter,
+    FilterError, FuzzyMatch, FuzzyOptions, GlobOptions, GrepOptions, IgnoreSources, Index,
+    Inspected, Line, LineKind, ListError, ListOptions, Listed, Listing, MatchedFile, Matches,
+    Paths, PatternError, Patterns, PrunedNames, PrunedNamesError,
+};
 pub use kartta_graph::{
-    Blast, CallPath, Change, Definition, Definitions, Dependent, Dependents, DirCount, DirectCalls,
-    Found, Graph, Hit, Hotspot, Implementations, Implementor, Limits, Miss, Misses, Nearness,
-    ReachBand, Reached, Reference, References, Region, Resolution, Search, Seed, Segment,
-    SegmentSymbol, Stats, Unbound, Walk, confidence,
+    Blast, CallPath, Change, Dead, DeadCode, Definition, Definitions, Dependent, Dependents,
+    DirCount, DirectCalls, Excluded, Found, Graph, Hit, Hotspot, Implementations, Implementor,
+    Limits, Miss, Misses, Nearness, ReachBand, Reached, Reference, References, Region, Resolution,
+    Search, Seed, Segment, SegmentSymbol, Stats, Unbound, Walk, confidence,
 };
 pub use kartta_lang::{
     BlockComment, Conventions, DocComments, Extraction, Language, RawExtraction, Repository,
