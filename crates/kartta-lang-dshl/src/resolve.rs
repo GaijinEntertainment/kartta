@@ -2,14 +2,10 @@ use kartta_lang::path::{base, dir, join};
 use kartta_lang::{Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver};
 
 pub(crate) struct Includes<'r> {
-    repository: &'r dyn Repository,
+    pub(crate) repository: &'r dyn Repository,
 }
 
-impl<'r> Includes<'r> {
-    pub(crate) const fn new(repository: &'r dyn Repository) -> Self {
-        Self { repository }
-    }
-
+impl Includes<'_> {
     // constraint: the shader compiler looks an include up under the include paths of the build configuration that
     // compiles the file, which the repository does not tie to a file, so a spelling is matched against the paths
     // that end in it, and of several the one nearest the including file wins

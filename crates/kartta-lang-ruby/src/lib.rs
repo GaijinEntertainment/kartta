@@ -135,7 +135,7 @@ impl Language for Ruby {
     }
 
     fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(Requires::new(repository))
+        Box::new(Requires { repository })
     }
 }
 

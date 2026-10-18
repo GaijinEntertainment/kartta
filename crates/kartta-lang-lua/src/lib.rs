@@ -129,7 +129,7 @@ impl Language for Lua {
     }
 
     fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(Loaders::new(repository))
+        Box::new(Loaders { repository })
     }
 }
 

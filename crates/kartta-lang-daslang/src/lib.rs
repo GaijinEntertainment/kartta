@@ -123,7 +123,7 @@ impl Language for Daslang {
     }
 
     fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(DaslangResolver::new(repository))
+        Box::new(DaslangResolver { repository })
     }
 }
 
