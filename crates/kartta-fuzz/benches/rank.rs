@@ -11,7 +11,7 @@ use std::hint::black_box;
 use std::num::NonZeroUsize;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use kartta_fuzz::Matcher;
+use kartta_fuzz::{Matcher, Ranked};
 
 /// Corpus size. Large enough that per-candidate costs dominate setup and that the profile resembles a real repository,
 /// small enough that the whole suite runs in well under a minute.
@@ -107,6 +107,18 @@ fn corpus(len: usize) -> Vec<String> {
         .collect()
 }
 
+/// Ranks `candidates` against `query` the way a caller does: a fresh matcher, every candidate offered by position.
+fn ranked(candidates: &[&str], query: &str, limit: Option<NonZeroUsize>) -> Vec<Ranked> {
+    let mut matcher = Matcher::new();
+    let mut ranking = matcher.ranking(query, limit);
+    for (position, candidate) in candidates.iter().enumerate() {
+        if !ranking.offer(position, candidate) {
+            break;
+        }
+    }
+    ranking.finish()
+}
+
 fn rank(c: &mut Criterion) {
     let paths = corpus(CORPUS_LEN);
     let candidates: Vec<&str> = paths.iter().map(String::as_str).collect();
@@ -115,22 +127,13 @@ fn rank(c: &mut Criterion) {
     group.throughput(Throughput::Elements(CORPUS_LEN as u64));
 
     for &query in QUERIES {
-        let survivors = Matcher::new()
-            .rank(candidates.iter().copied(), query, None)
-            .len();
+        let survivors = ranked(&candidates, query, None).len();
 
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{query} ({survivors})")),
             &query,
             |b, &query| {
-                b.iter(|| {
-                    let mut matcher = Matcher::new();
-                    black_box(matcher.rank(
-                        black_box(candidates.iter().copied()),
-                        black_box(query),
-                        None,
-                    ))
-                });
+                b.iter(|| black_box(ranked(black_box(&candidates), black_box(query), None)));
             },
         );
     }
@@ -152,14 +155,7 @@ fn rank_limited(c: &mut Criterion) {
 
     for &query in QUERIES {
         group.bench_with_input(BenchmarkId::from_parameter(query), &query, |b, &query| {
-            b.iter(|| {
-                let mut matcher = Matcher::new();
-                black_box(matcher.rank(
-                    black_box(candidates.iter().copied()),
-                    black_box(query),
-                    limit,
-                ))
-            });
+            b.iter(|| black_box(ranked(black_box(&candidates), black_box(query), limit)));
         });
     }
 

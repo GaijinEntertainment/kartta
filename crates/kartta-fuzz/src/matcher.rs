@@ -6,18 +6,6 @@ use std::num::NonZeroUsize;
 
 use crate::score::{ALIGNED_MIN, FULL_MATCH_SCORE, MATCH_FLOOR, Representation, Scorer, Term};
 
-/// One ranked candidate and the score it earned.
-///
-/// The candidate is borrowed from the input, so a ranking allocates one `Vec` and copies no path. The score is a
-/// ranking key, not a similarity measure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Match<'a> {
-    /// The matched candidate, borrowed from the input.
-    pub candidate: &'a str,
-    /// Its rank key: higher is better.
-    pub score: i32,
-}
-
 /// What an aggregate was built from, which decides the range it may occupy.
 ///
 /// The three ranges do not overlap, so no arithmetic on the scores inside one can move a candidate into another.
@@ -96,7 +84,10 @@ impl<T: Eq> PartialOrd for HeapEntry<T> {
     }
 }
 
-/// One ranked candidate, known by the position it was offered at rather than by a borrow of it.
+/// One ranked candidate, known by the position it was offered at.
+///
+/// A ranking holds positions rather than borrows, so it allocates one `Vec` and copies no candidate. The score is a
+/// ranking key, not a similarity measure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ranked {
     /// The position the candidate was offered at.
@@ -107,11 +98,27 @@ pub struct Ranked {
     tiebreak: u32,
 }
 
-/// A ranking fed one candidate at a time, for candidates that are never alive together — a path rebuilt into one
+/// A ranking fed one candidate at a time, so its candidates need never be alive together — a path rebuilt into one
 /// reused buffer, say. [`Matcher::ranking`] starts one.
 ///
-/// Positions must rise in the order candidates are offered, because they break ties the way input order does in
-/// [`Matcher::rank`].
+/// Positions must rise in the order candidates are offered, because they break ties the way input order does.
+///
+/// # Examples
+///
+/// ```
+/// use kartta_fuzz::Matcher;
+///
+/// let paths = ["main/lib.rs", "src/main.rs", "src/lib.rs"];
+/// let mut matcher = Matcher::new();
+/// let mut ranking = matcher.ranking("main", None);
+/// for (position, path) in paths.iter().enumerate() {
+///     ranking.offer(position, path);
+/// }
+///
+/// // `src/lib.rs` has no `main`; the filename hit outranks the directory hit.
+/// let ranked: Vec<&str> = ranking.finish().iter().map(|found| paths[found.position]).collect();
+/// assert_eq!(ranked, ["src/main.rs", "main/lib.rs"]);
+/// ```
 #[derive(Debug)]
 pub struct Ranking<'m> {
     matcher: &'m mut Matcher,
@@ -164,7 +171,7 @@ impl Ranking<'_> {
         true
     }
 
-    /// The ranking, best first, in the order [`Matcher::rank`] gives the same candidates.
+    /// The ranking, best first, keeping only the candidates that match every term.
     #[must_use]
     pub fn finish(self) -> Vec<Ranked> {
         if self.matcher.terms.is_empty() {
@@ -208,18 +215,6 @@ fn sort_ranked(ranked: &mut [Ranked]) {
 ///
 /// A query splits on whitespace into terms, and a candidate must match **every** term — the rank is the sum of the
 /// per-term scores. An empty or whitespace-only query matches everything, in input order, at score zero.
-///
-/// # Examples
-///
-/// ```
-/// use kartta_fuzz::Matcher;
-///
-/// let mut matcher = Matcher::new();
-/// let ranked = matcher.rank(["main/lib.rs", "src/main.rs"], "main", None);
-///
-/// // The filename hit outranks the directory hit.
-/// assert_eq!(ranked[0].candidate, "src/main.rs");
-/// ```
 #[derive(Debug, Default)]
 pub struct Matcher {
     scorer: Scorer,
@@ -233,157 +228,8 @@ impl Matcher {
         Self::default()
     }
 
-    /// Ranks `candidates` against `query`, best first, keeping only those that match every term.
-    ///
-    /// Equal scores break by shorter candidate, and then by input order — the sort is stable, so an unchanged input
-    /// ranks identically every time. `limit` caps the returned list; `None` returns every match.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use kartta_fuzz::Matcher;
-    ///
-    /// let mut matcher = Matcher::new();
-    /// let paths = ["src/auth/handler.go", "src/api/handler.go"];
-    ///
-    /// // Both terms must match, so only the auth path survives.
-    /// let ranked = matcher.rank(paths, "handler auth", None);
-    /// assert_eq!(ranked.len(), 1);
-    /// assert_eq!(ranked[0].candidate, "src/auth/handler.go");
-    /// ```
-    #[must_use]
-    pub fn rank<'a>(
-        &mut self,
-        candidates: impl IntoIterator<Item = &'a str>,
-        query: &str,
-        limit: Option<NonZeroUsize>,
-    ) -> Vec<Match<'a>> {
-        self.begin(query);
-
-        // A whitespace-only query matches everything in input order, so a limit is a prefix and nothing is scored.
-        if self.terms.is_empty() {
-            let keep = limit.map_or(usize::MAX, NonZeroUsize::get);
-            return candidates
-                .into_iter()
-                .take(keep)
-                .map(|candidate| Match {
-                    candidate,
-                    score: 0,
-                })
-                .collect();
-        }
-
-        if let Some(limit) = limit {
-            return self.rank_limited(candidates, limit);
-        }
-
-        let mut scored: Vec<Match<'a>> = candidates
-            .into_iter()
-            .filter_map(|candidate| {
-                self.score_terms(candidate)
-                    .map(|score| Match { candidate, score })
-            })
-            .collect();
-        Self::sort(&mut scored);
-        scored
-    }
-
-    /// Merges the rankings of consecutive slices of one candidate list into the ranking [`Matcher::rank`] gives the
-    /// whole list.
-    ///
-    /// `rankings` holds one [`Matcher::rank`] result per slice, in the order the slices occur in the list, each ranked
-    /// with this `query` and this `limit`. That is what lets a long list be ranked slice by slice on several threads:
-    /// ties break by input order, and the slices arrive in it.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use kartta_fuzz::Matcher;
-    /// # use std::num::NonZeroUsize;
-    ///
-    /// let paths = ["main/lib.rs", "src/main.rs", "docs/main.md", "src/lib.rs"];
-    /// let limit = NonZeroUsize::new(2);
-    /// let mut matcher = Matcher::new();
-    ///
-    /// let whole = matcher.rank(paths, "main", limit);
-    /// let halves = [
-    ///     matcher.rank(paths[..2].iter().copied(), "main", limit),
-    ///     matcher.rank(paths[2..].iter().copied(), "main", limit),
-    /// ];
-    ///
-    /// assert_eq!(Matcher::merge(halves, "main", limit), whole);
-    /// ```
-    #[must_use]
-    pub fn merge<'a>(
-        rankings: impl IntoIterator<Item = Vec<Match<'a>>>,
-        query: &str,
-        limit: Option<NonZeroUsize>,
-    ) -> Vec<Match<'a>> {
-        let mut merged: Vec<Match<'a>> = rankings.into_iter().flatten().collect();
-
-        let ranked_by_score = query.split_whitespace().next().is_some();
-        if ranked_by_score {
-            Self::sort(&mut merged);
-        }
-
-        if let Some(limit) = limit {
-            merged.truncate(limit.get());
-        }
-        merged
-    }
-
-    /// The `limit` best matches, kept in a bounded heap rather than collected and sorted.
-    ///
-    /// Ranking a repository of millions of paths against a permissive query otherwise materializes a `Match` per
-    /// survivor purely to throw almost all of them away. The heap holds `limit` entries, so memory is bounded by what
-    /// the caller asked for, and once it is full an entry that cannot displace the worst costs a single comparison.
-    fn rank_limited<'a>(
-        &mut self,
-        candidates: impl IntoIterator<Item = &'a str>,
-        limit: NonZeroUsize,
-    ) -> Vec<Match<'a>> {
-        let limit = limit.get();
-        let candidates = candidates.into_iter();
-
-        // A limit is a cap on what comes back, not a promise that much exists. Reserving against it alone lets a
-        // caller's `usize::MAX` demand an allocation before a single candidate is read, so the reservation is bounded
-        // by what the input claims to hold and the heap grows from there.
-        let mut heap: BinaryHeap<HeapEntry<&'a str>> =
-            BinaryHeap::with_capacity(limit.min(candidates.size_hint().0));
-
-        for (index, candidate) in candidates.enumerate() {
-            let Some(score) = self.score_terms(candidate) else {
-                continue;
-            };
-            let entry = HeapEntry {
-                item: candidate,
-                score,
-                tiebreak: length_key(candidate),
-                index,
-            };
-
-            if heap.len() < limit {
-                heap.push(entry);
-            } else if heap.peek().is_some_and(|worst| entry < *worst) {
-                heap.pop();
-                heap.push(entry);
-            }
-        }
-
-        // `HeapEntry` orders the worst greatest, so ascending order is best first.
-        heap.into_sorted_vec()
-            .into_iter()
-            .map(|entry| Match {
-                candidate: entry.item,
-                score: entry.score,
-            })
-            .collect()
-    }
-
-    /// Starts a ranking against `query` that is fed one candidate at a time through [`Ranking::offer`].
-    ///
-    /// For candidates that cannot all be borrowed at once. Fed the same candidates in the same order, it ranks exactly
-    /// as [`Matcher::rank`] does, by position rather than by borrow.
+    /// Starts a ranking against `query` that is fed one candidate at a time through [`Ranking::offer`]. `limit` caps
+    /// the ranking; `None` keeps every match.
     pub fn ranking(&mut self, query: &str, limit: Option<NonZeroUsize>) -> Ranking<'_> {
         self.begin(query);
 
@@ -395,11 +241,12 @@ impl Matcher {
         }
     }
 
-    /// [`Matcher::merge`] for rankings built with [`Matcher::ranking`], over consecutive slices of one candidate list.
+    /// Merges the rankings of consecutive slices of one candidate list into the ranking of the whole list.
     ///
     /// `rankings` holds one ranking per slice, in the order the slices occur in the list, each built with this `query`
     /// and this `limit`. Nothing here can check that: a ranking built otherwise merges into an order no single ranking
-    /// of the list would give.
+    /// of the list would give. That is what lets a long list be ranked slice by slice on several threads: ties break
+    /// by input order, and the slices arrive in it.
     ///
     /// Merging is associative: a merge of consecutive rankings is itself a ranking of their slices put together, so
     /// rankings can be merged in any grouping that keeps their order — pairwise as parallel tasks finish, say — and
@@ -420,30 +267,6 @@ impl Matcher {
             merged.truncate(limit.get());
         }
         merged
-    }
-
-    /// The score of one candidate against `query`, or `None` when it does not match every term.
-    ///
-    /// An empty or whitespace-only query matches everything at score zero. Prefer [`Matcher::rank`] for a list: this
-    /// re-splits the query on every call.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use kartta_fuzz::Matcher;
-    ///
-    /// let mut matcher = Matcher::new();
-    /// assert!(matcher.score("src/main.rs", "main").is_some());
-    /// assert_eq!(matcher.score("src/lib.rs", "main"), None);
-    /// ```
-    #[must_use]
-    pub fn score(&mut self, candidate: &str, query: &str) -> Option<i32> {
-        self.begin(query);
-
-        if self.terms.is_empty() {
-            return Some(0);
-        }
-        self.score_terms(candidate)
     }
 
     /// Splits `query` into terms, settling the byte form of each once rather than per candidate.
@@ -492,16 +315,6 @@ impl Matcher {
         }
 
         Some(band.confine(total))
-    }
-
-    /// Orders by descending score, then by length. `sort_by` is stable, so candidates equal on every key keep their
-    /// input position.
-    fn sort(matches: &mut [Match<'_>]) {
-        matches.sort_by(|a, b| {
-            b.score
-                .cmp(&a.score)
-                .then_with(|| a.candidate.len().cmp(&b.candidate.len()))
-        });
     }
 }
 
