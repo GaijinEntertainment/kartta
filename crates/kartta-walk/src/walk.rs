@@ -26,10 +26,10 @@ pub struct WalkOptions {
     /// the whole root. Empty and `.` components are dropped, so `/dir//./nested/` walks `dir/nested`; a `..` component
     /// fails the walk with [`WalkError::Subtree`], since what it names may lie outside the root.
     ///
-    /// The walk lists only that directory and what lies beneath it, and reports every path and depth — [`Dir::path`],
-    /// [`Entry::path`] and their `depth` — as a walk of the whole root would, so a policy sees the part exactly as it
-    /// sees it in the whole. The tree holds the directory's contents, not the directory itself. A caller walking part
-    /// of a tree again hands the state the directory's parent would have handed it as `initial`.
+    /// The walk lists only that directory and what lies beneath it, and reports every path — [`Dir::path`] and
+    /// [`Entry::path`] — as a walk of the whole root would, so a policy sees the part exactly as it sees it in the
+    /// whole. The tree holds the directory's contents, not the directory itself. A caller walking part of a tree again
+    /// hands the state the directory's parent would have handed it as `initial`.
     pub subtree: Option<String>,
     /// Whether each directory is listed with its regular files' lengths and inode change times, which a policy then
     /// reads from [`Entry::listed_stat`] with no stat call of its own.
@@ -104,10 +104,10 @@ pub fn walk<P: Policy>(
         .map(subtree_path)
         .transpose()?
         .unwrap_or_default();
-    let (native_path, depth) = if path.is_empty() {
-        (Cow::Borrowed(root), 0)
+    let native_path = if path.is_empty() {
+        Cow::Borrowed(root)
     } else {
-        (Cow::Owned(root.join(&path)), path.split('/').count())
+        Cow::Owned(root.join(&path))
     };
     let list = lister(options);
     let listing = list(&native_path).map_err(|source| WalkError::ReadDir {
@@ -125,7 +125,6 @@ pub fn walk<P: Policy>(
     let frame = Frame {
         native_path: &native_path,
         path: &path,
-        depth,
         parent_state: initial,
     };
 
@@ -210,7 +209,6 @@ impl<V> WalkOutcome<V> {
 struct Frame<'a, P: Policy> {
     native_path: &'a Path,
     path: &'a str,
-    depth: usize,
     parent_state: &'a P::State,
 }
 
@@ -238,7 +236,7 @@ impl<P: Policy> Walker<'_, P> {
     fn walk_dir(&self, frame: &Frame<'_, P>, listing: Listing) -> Subtree<P::Value> {
         let Listing { entries, errors } = listing;
 
-        let dir = Dir::new(frame.native_path, frame.path, frame.depth, &entries);
+        let dir = Dir::new(frame.native_path, frame.path, &entries);
         let state = self.policy.enter(&dir, frame.parent_state);
 
         let (mut subtree, descents) = self.classify(&dir, &state, errors);
@@ -254,7 +252,7 @@ impl<P: Policy> Walker<'_, P> {
             .map(|descent| {
                 let index = descent.index;
 
-                (index, self.walk_child(descent, frame.depth + 1, &state))
+                (index, self.walk_child(descent, &state))
             })
             .collect();
 
@@ -370,18 +368,12 @@ impl<P: Policy> Walker<'_, P> {
         }
     }
 
-    fn walk_child(
-        &self,
-        descent: Descent,
-        depth: usize,
-        parent_state: &P::State,
-    ) -> Subtree<P::Value> {
+    fn walk_child(&self, descent: Descent, parent_state: &P::State) -> Subtree<P::Value> {
         match (self.list)(&descent.native_path) {
             Ok(listing) => self.walk_dir(
                 &Frame {
                     native_path: &descent.native_path,
                     path: &descent.path,
-                    depth,
                     parent_state,
                 },
                 listing,
