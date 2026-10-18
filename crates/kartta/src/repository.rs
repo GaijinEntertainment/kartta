@@ -1,8 +1,9 @@
+use std::cell::RefCell;
 use std::hash::{BuildHasher, Hasher};
 use std::sync::OnceLock;
 use std::{fs, io, iter};
 
-use foldhash::fast::FixedState;
+use foldhash::fast::{FixedState, FoldHasher};
 use kartta_fs::{EntryKind, Index, ListOptions};
 use kartta_lang::{Repository, path};
 
@@ -10,6 +11,134 @@ pub(crate) struct IndexRepository<'i> {
     index: &'i Index,
     by_name: OnceLock<Box<[HashedAt]>>,
     folded_paths: OnceLock<FoldedPaths>,
+    records: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Query {
+    Contains,
+    InDir,
+    Named,
+    IgnoringCase,
+    Read,
+}
+
+/// What a resolver asked the repository while it was built: a hash of each question and of each answer it read, the
+/// questions alone, and the files it read.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Configuration {
+    pub(crate) answers: u64,
+    pub(crate) asked: Box<[u32]>,
+    pub(crate) read: Box<[Box<str>]>,
+}
+
+enum Asking {
+    File(Vec<u32>),
+    Configuration {
+        answers: FoldHasher<'static>,
+        asked: Vec<u32>,
+        read: Vec<Box<str>>,
+    },
+}
+
+thread_local! {
+    static ASKING: RefCell<Option<Asking>> = const { RefCell::new(None) };
+}
+
+/// Runs `resolve`, and answers beside its result the questions it put to a recording repository on this thread, as
+/// [`asked`] keys them, sorted and once each.
+pub(crate) fn asked_while<R>(resolve: impl FnOnce() -> R) -> (R, Box<[u32]>) {
+    ASKING.set(Some(Asking::File(Vec::new())));
+    let resolved = resolve();
+    let mut asked = match ASKING.take() {
+        Some(Asking::File(asked)) => asked,
+        _ => Vec::new(),
+    };
+    asked.sort_unstable();
+    asked.dedup();
+    (resolved, asked.into_boxed_slice())
+}
+
+/// Runs `construct`, and answers beside the resolver it made what it asked a recording repository on this thread.
+pub(crate) fn configured_while<R>(construct: impl FnOnce() -> R) -> (R, Configuration) {
+    ASKING.set(Some(Asking::Configuration {
+        answers: FixedState::default().build_hasher(),
+        asked: Vec::new(),
+        read: Vec::new(),
+    }));
+    let made = construct();
+    let configuration = match ASKING.take() {
+        Some(Asking::Configuration {
+            answers,
+            mut asked,
+            read,
+        }) => {
+            asked.sort_unstable();
+            asked.dedup();
+            Configuration {
+                answers: answers.finish(),
+                asked: asked.into_boxed_slice(),
+                read: read.into_boxed_slice(),
+            }
+        }
+        _ => Configuration {
+            answers: 0,
+            asked: Box::default(),
+            read: Box::default(),
+        },
+    };
+    (made, configuration)
+}
+
+/// The key a recording repository files a question under: the query and the path, directory or name it names.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a key that collides only makes a refresh resolve one more file again"
+)]
+pub(crate) fn asked(query: Query, text: &str) -> u32 {
+    FixedState::default().hash_one((query as u8, text)) as u32
+}
+
+/// The keys of every question whose answer a file's appearing or vanishing at `path` can change.
+pub(crate) fn reached_by_presence(path: &str) -> [u32; 5] {
+    let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
+    [
+        asked(Query::Contains, path),
+        asked(Query::InDir, dir),
+        asked(Query::Named, name),
+        asked(Query::IgnoringCase, &path.to_ascii_lowercase()),
+        asked(Query::Read, path),
+    ]
+}
+
+fn record(query: Query, text: &str) {
+    ASKING.with_borrow_mut(|asking| match asking {
+        Some(Asking::File(asked)) => asked.push(self::asked(query, text)),
+        Some(Asking::Configuration {
+            answers,
+            asked,
+            read,
+        }) => {
+            asked.push(self::asked(query, text));
+            answers.write_u8(query as u8);
+            answers.write(text.as_bytes());
+            if matches!(query, Query::Read) {
+                read.push(text.into());
+            }
+        }
+        None => {}
+    });
+}
+
+fn record_answer(answer: Option<&[u8]>) {
+    ASKING.with_borrow_mut(|asking| {
+        if let Some(Asking::Configuration { answers, .. }) = asking {
+            answers.write_u8(u8::from(answer.is_some()));
+            let answer = answer.unwrap_or_default();
+            answers.write_usize(answer.len());
+            answers.write(answer);
+        }
+    });
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -78,6 +207,33 @@ impl<'i> IndexRepository<'i> {
             index,
             by_name: OnceLock::new(),
             folded_paths: OnceLock::new(),
+            records: false,
+        }
+    }
+
+    /// A repository that files each question it is asked, and each answer while a resolver is built, with whatever
+    /// [`asked_while`] or [`configured_while`] runs on the asking thread.
+    pub(crate) fn recording(index: &'i Index) -> Self {
+        Self {
+            records: true,
+            ..Self::new(index)
+        }
+    }
+
+    fn ask(&self, query: Query, text: &str) {
+        if self.records {
+            record(query, text);
+        }
+    }
+
+    fn answering<'a>(
+        &self,
+        paths: impl Iterator<Item = String> + 'a,
+    ) -> Box<dyn Iterator<Item = String> + 'a> {
+        if self.records {
+            Box::new(paths.inspect(|path| record_answer(Some(path.as_bytes()))))
+        } else {
+            Box::new(paths)
         }
     }
 
@@ -103,18 +259,22 @@ impl<'i> IndexRepository<'i> {
 
 impl Repository for IndexRepository<'_> {
     fn contains(&self, path: &str) -> bool {
-        self.index
-            .entry(path)
-            .is_some_and(|entry| entry.kind() == EntryKind::File)
+        self.ask(Query::Contains, path);
+        let contains = self.holds_file(path);
+        if self.records {
+            record_answer(Some(&[u8::from(contains)]));
+        }
+        contains
     }
 
     fn files_in_dir<'a>(&'a self, dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
         let dir = if dir == "." { "" } else { dir };
+        self.ask(Query::InDir, dir);
         let Ok(listing) = self.index.list(dir, &ListOptions::default().depth(1)) else {
             return Box::new(iter::empty());
         };
 
-        Box::new(
+        self.answering(
             listing
                 .into_items()
                 .into_iter()
@@ -125,10 +285,11 @@ impl Repository for IndexRepository<'_> {
     }
 
     fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
+        self.ask(Query::Named, name);
         let name = name.to_owned();
         let mut paths = self.index.paths();
 
-        Box::new(
+        self.answering(
             hashed(self.by_name(), name_hash(&name))
                 .iter()
                 .map(move |named| paths.get(named.position as usize).to_owned())
@@ -137,13 +298,14 @@ impl Repository for IndexRepository<'_> {
     }
 
     fn files_ignoring_case<'a>(&'a self, path: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let path = path.to_owned();
+        let path = path.to_ascii_lowercase();
+        self.ask(Query::IgnoringCase, &path);
         let mut paths = self.index.paths();
         let folded_paths = self
             .folded_paths
             .get_or_init(|| FoldedPaths::new(self.index));
 
-        Box::new(
+        self.answering(
             folded_paths
                 .hashed(folded_hash(&path))
                 .iter()
@@ -153,13 +315,27 @@ impl Repository for IndexRepository<'_> {
     }
 
     fn read(&self, path: &str) -> io::Result<Vec<u8>> {
-        if !self.contains(path) {
-            return Err(io::Error::new(
+        self.ask(Query::Read, path);
+        let read = if self.holds_file(path) {
+            fs::read(self.index.root().join(path))
+        } else {
+            Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 format!("{path} is not a regular file the build indexed"),
-            ));
+            ))
+        };
+        if self.records {
+            record_answer(read.as_deref().ok());
         }
-        fs::read(self.index.root().join(path))
+        read
+    }
+}
+
+impl IndexRepository<'_> {
+    fn holds_file(&self, path: &str) -> bool {
+        self.index
+            .entry(path)
+            .is_some_and(|entry| entry.kind() == EntryKind::File)
     }
 }
 

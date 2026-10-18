@@ -1,14 +1,18 @@
 use std::path::Path;
 use std::{io, iter};
 
-use kartta_fs::{BuildError, BuildOptions, CancelToken, ContentVisitor, Index};
+use kartta_fs::{BuildError, BuildOptions, CancelToken, ContentVisitor, Index, RefreshOutcome};
 use kartta_graph::{Change, Definition, Graph, Limits, Region, Resolution};
 use kartta_lang::{DocComments, Language};
 
 use crate::extracting::{Extracting, FileCounts};
-use crate::resolving::Resolving;
+use crate::following::{Following, Refreshing, Walked};
+use crate::resolving::{Graphs, Resolving};
 use crate::source::{FileLines, Source, SourceOptions};
 use crate::stats::{EngineStats, LanguageFiles};
+
+const ENTRIES_PER_NAMED_PATH: usize = 150;
+const FEWEST_NAMED_PATHS: usize = 50;
 
 /// A tree's file index and the code graph of its languages, built from one walk that reads each source file once.
 ///
@@ -23,6 +27,7 @@ pub struct Engine {
     file_counts: Vec<FileCounts>,
     families: Vec<Family>,
     family_of: Vec<usize>,
+    following: Option<Following>,
 }
 
 #[derive(Debug)]
@@ -59,6 +64,86 @@ impl EngineOutcome {
     #[must_use]
     pub fn errors(&self) -> &[BuildError] {
         &self.errors
+    }
+}
+
+/// What one [`Engine::refresh`] or [`Engine::refresh_paths`] did: what the index's refresh walked and found, and what
+/// the graphs took in, dropped and resolved again.
+#[derive(Debug)]
+pub struct EngineRefresh {
+    pub(crate) outcome: RefreshOutcome,
+    pub(crate) errors: Vec<BuildError>,
+    pub(crate) extracted: usize,
+    pub(crate) resolved_again: usize,
+    pub(crate) dropped: Option<usize>,
+    pub(crate) reconfigured: Vec<String>,
+    pub(crate) rebuilt: bool,
+    pub(crate) widened: Option<Widened>,
+}
+
+/// How an [`Engine::refresh_paths`] came to refresh the whole tree: it was named more paths than it walks apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Widened {
+    /// The paths the call was named.
+    pub named: usize,
+    /// The most paths the call would have walked apart, [`Engine::refresh_paths_limit`] when it began.
+    pub limit: usize,
+}
+
+impl EngineRefresh {
+    /// What the index's refresh reports: the parts it walked, the regular files it added and removed, and the ids it
+    /// retired.
+    #[must_use]
+    pub const fn index(&self) -> &RefreshOutcome {
+        &self.outcome
+    }
+
+    /// The failures the refresh collected rather than returned: those of the index's walk, then the files a graph
+    /// could not read again, each listed as [`BuildError::Read`] and held by no graph.
+    pub fn errors(&self) -> impl Iterator<Item = &BuildError> {
+        self.outcome.errors().iter().chain(&self.errors)
+    }
+
+    /// The files the walk read, new or changed, whose extraction went into a graph.
+    #[must_use]
+    pub const fn extracted(&self) -> usize {
+        self.extracted
+    }
+
+    /// The files the walk carried over unchanged that were read and resolved again, because a question their
+    /// resolution asked of the tree has another answer now, or their language's configuration changed.
+    #[must_use]
+    pub const fn resolved_again(&self) -> usize {
+        self.resolved_again
+    }
+
+    /// The files the graphs held and hold no more: gone, hidden by the ignore rules, no longer read as text, or not
+    /// read again where a change reached them. `None` when every graph was [rebuilt](EngineRefresh::rebuilt), which
+    /// keeps no list of the files held before; [`RefreshOutcome::removed`] still names the files the tree lost.
+    #[must_use]
+    pub const fn dropped(&self) -> Option<usize> {
+        self.dropped
+    }
+
+    /// The languages whose resolver read another configuration than it read before, a `go.mod` or a `tsconfig.json`,
+    /// so that every file of theirs was resolved again, in the order the languages were given to [`Engine::build`].
+    #[must_use]
+    pub fn reconfigured(&self) -> &[String] {
+        &self.reconfigured
+    }
+
+    /// Whether every graph was built again from every file, because the engine was built without
+    /// [`BuildOptions::stamps`] and kept nothing to find what a change reaches.
+    #[must_use]
+    pub const fn rebuilt(&self) -> bool {
+        self.rebuilt
+    }
+
+    /// The paths an [`Engine::refresh_paths`] was named and the limit they passed, when it refreshed the whole tree
+    /// in their place; `None` from [`Engine::refresh`] and from a call that walked the paths it was named.
+    #[must_use]
+    pub const fn widened(&self) -> Option<Widened> {
+        self.widened
     }
 }
 
@@ -109,17 +194,26 @@ impl Engine {
             Index::build_with(root, options, Some(visitor), cancel)?.into_parts();
         let (extracted, mut file_counts) = extracting.into_extracted();
 
-        let (mut families, family_of) = families(&languages);
+        let (families, family_of) = families(&languages);
         let resolving = Resolving {
             index: &index,
             languages: &languages,
             family_of: &family_of,
             cancel,
+            recording: options.stamps,
         };
-        let held = resolving.insert_all(extracted, &mut families, &mut errors)?;
-        for (counts, held) in file_counts.iter_mut().zip(held) {
+        let Graphs {
+            families,
+            inserted,
+            configurations,
+        } = resolving.graphs(families, extracted)?;
+        for (counts, held) in file_counts.iter_mut().zip(inserted.held) {
             counts.held = held;
         }
+        errors.extend(inserted.errors);
+        let following = options
+            .stamps
+            .then(|| Following::new(inserted.followed, configurations));
         release_freed_memory();
 
         Ok(EngineOutcome {
@@ -129,8 +223,152 @@ impl Engine {
                 file_counts,
                 families,
                 family_of,
+                following,
             },
             errors,
+        })
+    }
+
+    /// Walks the tree again as [`kartta_fs::Index::refresh`] does and brings every family's graph up to it, in place,
+    /// so each answers as a build of the tree would now, stopping the walk when `cancel` is cancelled.
+    ///
+    /// What the refresh costs depends on [`BuildOptions::stamps`] at the build. Without stamps the engine kept nothing
+    /// for a refresh, every file is read again, and each graph is built again from every file. With stamps the
+    /// engine kept, for each file its graphs hold, the questions its language's [resolver](Language::resolver) asked
+    /// of the tree while it resolved that file: a file read again is extracted again, through the content cache when
+    /// it holds the new bytes, a file gone or no longer read as text leaves its graph, and a file whose questions the
+    /// refresh answers differently, such as an include that now finds a file or a Go package that gained one, is read
+    /// again and resolved again. When the configuration a resolver read as it was built changed, every file of its
+    /// language is read and resolved again. [`EngineRefresh`] counts each.
+    ///
+    /// The engine attributes a question to the file whose resolution asked it on the asking thread, so a
+    /// [`Resolver`](kartta_lang::Resolver) that asks from another thread, or answers one file from what it asked for
+    /// another, leaves a change to that answer unseen.
+    ///
+    /// # Errors
+    ///
+    /// As [`kartta_fs::Index::refresh`]: a returned error, a cancelled refresh included, leaves the engine answering
+    /// as it did. Once the index is replaced, the graphs are brought up to it whatever `cancel` says.
+    pub fn refresh(&mut self, cancel: Option<&CancelToken>) -> Result<EngineRefresh, BuildError> {
+        let extracting = Extracting::new(&self.languages);
+        let outcome = self.index.refresh(Some(&extracting), cancel)?;
+        let (extracted, counts) = extracting.into_extracted();
+        self.brought_up(Walked {
+            outcome,
+            extracted,
+            counts,
+        })
+    }
+
+    /// Walks again only the parts of the tree at `paths`, as [`kartta_fs::Index::refresh_paths`] does, and brings
+    /// every family's graph up to them as [`Engine::refresh`] does, stopping the walk when `cancel` is cancelled.
+    ///
+    /// The paths are what changed, as a [`kartta_fs::Watcher`] or a version control tool names them, and a change no
+    /// path names is not seen. The named files are read and extracted one after another, where a whole refresh reads
+    /// and extracts on every thread, so a call named more paths than [`Engine::refresh_paths_limit`] is
+    /// [`Engine::refresh`], and [`EngineRefresh::widened`] says so. Without [`BuildOptions::stamps`] at the build,
+    /// the engine kept nothing to find the files a change reaches, so this is [`Engine::refresh`] and walks the whole
+    /// tree, however few the paths.
+    ///
+    /// # Errors
+    ///
+    /// As [`kartta_fs::Index::refresh_paths`], and as [`Engine::refresh`] once the walk is done.
+    pub fn refresh_paths<'p>(
+        &mut self,
+        paths: impl IntoIterator<Item = &'p str>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<EngineRefresh, BuildError> {
+        let walks_apart = self.following.is_some();
+        let limit = self.refresh_paths_limit();
+        let mut walked_apart: Vec<&str> = Vec::new();
+        let mut named = 0;
+        for path in paths {
+            if leads_outside_tree(path) {
+                return Err(BuildError::OutsideTree {
+                    path: path.to_owned(),
+                });
+            }
+            if walks_apart && named < limit {
+                walked_apart.push(path);
+            }
+            named += 1;
+        }
+        if !walks_apart {
+            return self.refresh(cancel);
+        }
+        if named > limit {
+            let mut refresh = self.refresh(cancel)?;
+            refresh.widened = Some(Widened { named, limit });
+            return Ok(refresh);
+        }
+        let extracting = Extracting::new(&self.languages);
+        let outcome = self
+            .index
+            .refresh_paths(walked_apart, Some(&extracting), cancel)?;
+        let (extracted, counts) = extracting.into_extracted();
+        self.brought_up(Walked {
+            outcome,
+            extracted,
+            counts,
+        })
+    }
+
+    /// The most paths [`Engine::refresh_paths`] walks apart before it refreshes the whole tree in their place: one for
+    /// every 150 entries the index holds, since a whole refresh costs a pass over every entry, and never fewer than 50.
+    #[must_use]
+    pub fn refresh_paths_limit(&self) -> usize {
+        (self.index.len() / ENTRIES_PER_NAMED_PATH).max(FEWEST_NAMED_PATHS)
+    }
+
+    fn brought_up(&mut self, walked: Walked) -> Result<EngineRefresh, BuildError> {
+        let Some(following) = self.following.as_mut() else {
+            return self.rebuilt(walked);
+        };
+        following.refresh(
+            Refreshing {
+                index: &self.index,
+                languages: &self.languages,
+                family_of: &self.family_of,
+                families: &mut self.families,
+                file_counts: &mut self.file_counts,
+            },
+            walked,
+        )
+    }
+
+    fn rebuilt(&mut self, walked: Walked) -> Result<EngineRefresh, BuildError> {
+        let Walked {
+            outcome,
+            extracted,
+            mut counts,
+        } = walked;
+        let resolving = Resolving {
+            index: &self.index,
+            languages: &self.languages,
+            family_of: &self.family_of,
+            cancel: None,
+            recording: false,
+        };
+        let Graphs {
+            families, inserted, ..
+        } = resolving.graphs(families(&self.languages).0, extracted)?;
+        for (counts, held) in counts.iter_mut().zip(inserted.held) {
+            counts.held = held;
+        }
+        let extracted = counts.iter().map(|counts| counts.held).sum();
+        self.families = families;
+        self.file_counts = counts;
+        release_freed_memory();
+
+        Ok(EngineRefresh {
+            outcome,
+            errors: inserted.errors,
+            extracted,
+            resolved_again: 0,
+            dropped: None,
+            reconfigured: Vec::new(),
+            rebuilt: true,
+            widened: None,
         })
     }
 
@@ -282,7 +520,7 @@ impl Engine {
     }
 }
 
-fn families(languages: &[Box<dyn Language>]) -> (Vec<Family>, Vec<usize>) {
+pub(crate) fn families(languages: &[Box<dyn Language>]) -> (Vec<Family>, Vec<usize>) {
     let mut families: Vec<Family> = Vec::new();
     let mut family_of = Vec::with_capacity(languages.len());
 
@@ -302,6 +540,11 @@ fn families(languages: &[Box<dyn Language>]) -> (Vec<Family>, Vec<usize>) {
     }
 
     (families, family_of)
+}
+
+// constraint: kartta_fs::Index::refresh_paths refuses a path by this rule, and a call that never reaches it must too
+fn leads_outside_tree(path: &str) -> bool {
+    path.split('/').any(|part| part == "..")
 }
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]

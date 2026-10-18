@@ -82,6 +82,7 @@
 
 mod engine;
 mod extracting;
+mod following;
 mod repository;
 mod resolving;
 mod source;
@@ -92,7 +93,7 @@ pub use kartta_fs::{
     Capped, Case, ContentIndexStats, ContentIndexStorage, Cut, Entry, EntryKind, Failure, Filter,
     FilterError, FuzzyMatch, FuzzyOptions, GlobOptions, GrepOptions, IgnoreSources, Index,
     Inspected, Line, LineKind, ListError, ListOptions, Listed, Listing, MatchedFile, Matches,
-    Paths, PatternError, Patterns, PrunedNames, PrunedNamesError,
+    Paths, PatternError, Patterns, PrunedNames, PrunedNamesError, RefreshOutcome,
 };
 pub use kartta_graph::{
     Blast, CallPath, Change, Dead, DeadCode, Definition, Definitions, Dependent, Dependents,
@@ -105,6 +106,6 @@ pub use kartta_lang::{
     Resolver, Symbol, SymbolFlags, SymbolKind,
 };
 
-pub use crate::engine::{Engine, EngineOutcome};
+pub use crate::engine::{Engine, EngineOutcome, EngineRefresh, Widened};
 pub use crate::source::{CutLine, Source, SourceOptions};
 pub use crate::stats::{EngineStats, LanguageFiles};
