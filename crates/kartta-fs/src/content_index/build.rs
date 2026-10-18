@@ -10,14 +10,13 @@ use rayon::prelude::*;
 
 use super::storage::{Blob, Region, Spill, Writing};
 use super::{
-    BUCKET_BYTES, BUCKETS, ContentIndex, ContentIndexStats, ContentIndexStorage, PARTS, put_varint,
-    read_varint,
+    BUCKET_BYTES, BUCKETS, BUCKETS_PER_PART, ContentIndex, ContentIndexStats, ContentIndexStorage,
+    PARTS, put_varint, read_varint,
 };
 use crate::postings::{self, Shape, Writer};
 use crate::trigram::{Trigram, Trigrams};
 
 const RUN_PAIRS: usize = 1 << 20;
-const BUCKETS_PER_PART: usize = BUCKETS / PARTS;
 const PART_BUCKET_BYTES: usize = BUCKETS_PER_PART * BUCKET_BYTES;
 pub(super) const LOWS: usize = 1 << 16;
 const FLUSH_BYTES: usize = 1 << 16;

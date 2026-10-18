@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::fmt;
-use std::ops::Range;
+use std::ops::{ControlFlow, Range};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -18,6 +18,7 @@ use storage::Blob;
 
 const PARTS: usize = 256;
 const BUCKETS: usize = 1 << 16;
+const BUCKETS_PER_PART: usize = BUCKETS / PARTS;
 const BUCKET_BYTES: usize = 12;
 
 /// Where a build keeps the content index it makes.
@@ -415,35 +416,49 @@ impl ContentIndex {
         })
     }
 
-    fn locate(&self, trigram: Trigram) -> Lookup<Option<Located>> {
-        let bucket = self.bucket((trigram >> 8) as usize)?;
+    fn bucket_lists<B>(
+        &self,
+        bucket: usize,
+        mut each: impl FnMut(u8, Located) -> ControlFlow<B>,
+    ) -> Lookup<Option<B>> {
+        let Bucket {
+            mut postings,
+            directory,
+        } = self.bucket(bucket)?;
         let entries = self
             .blob
-            .bytes(
-                self.directory_start + bucket.directory.start
-                    ..self.directory_start + bucket.directory.end,
-            )
+            .bytes(self.directory_start + directory.start..self.directory_start + directory.end)
             .ok_or(Unreadable)?;
-        let third = trigram.to_le_bytes()[0];
 
-        let mut postings = bucket.postings;
         let mut at = 0;
-        while let Some(&stored) = entries.get(at) {
+        while let Some(&third) = entries.get(at) {
             at += 1;
             let shape = Shape::new(
                 read_varint(&entries, &mut at).ok_or(Unreadable)?,
                 self.universe,
             );
-            if stored == third {
-                return Ok(Some(Located {
-                    shape,
-                    start: postings,
-                }));
+            let located = Located {
+                shape,
+                start: postings,
+            };
+            if let ControlFlow::Break(found) = each(third, located) {
+                return Ok(Some(found));
             }
             postings += shape.bytes();
         }
 
         Ok(None)
+    }
+
+    fn locate(&self, trigram: Trigram) -> Lookup<Option<Located>> {
+        let third = trigram.to_le_bytes()[0];
+        self.bucket_lists((trigram >> 8) as usize, |stored, list| {
+            if stored == third {
+                ControlFlow::Break(list)
+            } else {
+                ControlFlow::Continue(())
+            }
+        })
     }
 
     fn read(&self, list: Located) -> Lookup<Cow<'_, [u8]>> {

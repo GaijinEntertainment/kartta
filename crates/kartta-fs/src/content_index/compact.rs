@@ -1,15 +1,12 @@
 use std::io;
+use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use rayon::prelude::*;
 
 use super::build::{LOWS, Lists, Sizes, Target, Task, Unfinished, Universe, Written};
-use super::{
-    BUCKETS, Bucket, ContentIndex, IdPositions, Located, Lookup, PARTS, Unreadable, read_varint,
-};
-use crate::postings::{self, Shape, Writer};
-
-const BUCKETS_PER_PART: usize = BUCKETS / PARTS;
+use super::{BUCKETS_PER_PART, ContentIndex, IdPositions, Located, Lookup, PARTS, Unreadable};
+use crate::postings::{self, Writer};
 
 pub(super) fn compact(
     segments: &[Arc<ContentIndex>],
@@ -133,31 +130,14 @@ impl ContentIndex {
     fn lists_in(&self, part: usize) -> Lookup<Vec<Listed>> {
         let mut lists = Vec::new();
         for bucket in part * BUCKETS_PER_PART..(part + 1) * BUCKETS_PER_PART {
-            let Bucket {
-                mut postings,
-                directory,
-            } = self.bucket(bucket)?;
-            let entries = self
-                .blob
-                .bytes(self.directory_start + directory.start..self.directory_start + directory.end)
-                .ok_or(Unreadable)?;
             let second = bucket.to_le_bytes()[0];
-            let mut at = 0;
-            while let Some(&third) = entries.get(at) {
-                at += 1;
-                let shape = Shape::new(
-                    read_varint(&entries, &mut at).ok_or(Unreadable)?,
-                    self.universe,
-                );
+            self.bucket_lists(bucket, |third, located| {
                 lists.push(Listed {
                     low: u16::from_le_bytes([third, second]),
-                    located: Located {
-                        shape,
-                        start: postings,
-                    },
+                    located,
                 });
-                postings += shape.bytes();
-            }
+                ControlFlow::<()>::Continue(())
+            })?;
         }
 
         Ok(lists)
