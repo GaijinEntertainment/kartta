@@ -62,7 +62,7 @@ impl Index {
     /// std::fs::write(dir.path().join("Cargo.toml"), "")?;
     /// std::fs::write(dir.path().join("README.md"), "")?;
     ///
-    /// let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
+    /// let index = Index::build(dir.path(), &BuildOptions::default())?.index;
     ///
     /// let filter = Filter::new(["*.{rs,toml}"])?;
     /// let found = index.glob(&filter, &GlobOptions::default());

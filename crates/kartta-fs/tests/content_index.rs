@@ -69,8 +69,8 @@ fn a_build_asked_for_a_content_index_reads_every_text_file_and_indexes_it() {
     ]);
 
     let outcome = Index::build(dir.path(), &indexed()).expect("build the index");
-    assert!(outcome.errors().is_empty(), "{:?}", outcome.errors());
-    let index = outcome.into_index();
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    let index = outcome.index;
     for path in ["src/main.rs", "notes.md", "blob.dat", "image.png"] {
         fs::remove_file(dir.path().join(path)).expect("remove");
     }
@@ -98,7 +98,7 @@ fn the_index_counts_each_distinct_trigram_once() {
     let dir = tree(&[("a.txt", b"abcd"), ("b.txt", b"BCDE")]);
 
     let stats = build(dir.path(), None)
-        .index()
+        .index
         .content_index_stats()
         .expect("the build was asked for one");
 
@@ -125,7 +125,7 @@ fn a_visitor_beside_the_index_is_still_handed_only_what_it_wants() {
     assert_eq!(visitor.seen.into_inner().expect("lock"), ["main.rs"]);
     assert_eq!(
         outcome
-            .index()
+            .index
             .content_index_stats()
             .map(|stats| stats.files()),
         Some(2),
@@ -139,7 +139,7 @@ fn a_build_not_asked_for_one_has_no_content_index() {
 
     let outcome = Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
 
-    assert_eq!(outcome.index().content_index_stats(), None);
+    assert_eq!(outcome.index.content_index_stats(), None);
 }
 
 #[cfg(unix)]
@@ -157,13 +157,13 @@ fn a_text_file_that_will_not_read_is_reported_and_left_out_of_the_index() {
     let outcome = build(dir.path(), None);
 
     assert!(
-        matches!(outcome.errors(), [BuildError::Read { native_path, .. }] if native_path.ends_with("locked.rs")),
+        matches!(outcome.errors.as_slice(), [BuildError::Read { native_path, .. }] if native_path.ends_with("locked.rs")),
         "{:?}",
-        outcome.errors()
+        outcome.errors
     );
     assert_eq!(
         outcome
-            .index()
+            .index
             .content_index_stats()
             .map(|stats| stats.files()),
         Some(1)
@@ -173,7 +173,7 @@ fn a_text_file_that_will_not_read_is_reported_and_left_out_of_the_index() {
 fn plain(root: &Path) -> Index {
     Index::build(root, &BuildOptions::default())
         .expect("build the index")
-        .into_index()
+        .index
 }
 
 fn found(index: &Index, matches: &Matches<'_>) -> Vec<String> {
@@ -214,7 +214,7 @@ fn a_search_through_the_index_finds_what_a_full_search_finds() {
         ("docs/other.md", b"nothing to see\n"),
         ("blob.dat", b"\0run"),
     ]);
-    let indexed = build(dir.path(), None).into_index();
+    let indexed = build(dir.path(), None).index;
     let plain = plain(dir.path());
     let searches: [(&[&str], Case); 8] = [
         (&[r"\brun\("], Case::Sensitive),
@@ -254,7 +254,7 @@ fn a_literal_rules_out_every_file_missing_one_of_its_trigrams() {
         ("near.txt", b"need le\n"),
         ("miss.txt", b"haystack\n"),
     ]);
-    let index = build(dir.path(), None).into_index();
+    let index = build(dir.path(), None).index;
     let patterns = Patterns::new(["needle"], Case::Sensitive).expect("compile");
 
     let matches = index.grep(&patterns, &GrepOptions::default());
@@ -267,7 +267,7 @@ fn a_literal_rules_out_every_file_missing_one_of_its_trigrams() {
 #[test]
 fn a_pattern_that_needs_no_trigram_reads_every_candidate() {
     let dir = tree(&[("a.txt", b"alpha\n"), ("b.txt", b"beta\n")]);
-    let index = build(dir.path(), None).into_index();
+    let index = build(dir.path(), None).index;
     let patterns = Patterns::new([r"\w+", "ab"], Case::Sensitive).expect("compile");
 
     let matches = index.grep(&patterns, &GrepOptions::default());
@@ -279,7 +279,7 @@ fn a_pattern_that_needs_no_trigram_reads_every_candidate() {
 #[test]
 fn a_file_changed_since_the_build_is_judged_by_the_content_the_build_read() {
     let dir = tree(&[("changed.txt", b"old words\n")]);
-    let index = build(dir.path(), None).into_index();
+    let index = build(dir.path(), None).index;
     fs::write(dir.path().join("changed.txt"), "needle\n").expect("rewrite");
     let patterns = Patterns::new(["needle"], Case::Sensitive).expect("compile");
 
@@ -303,7 +303,7 @@ fn a_file_the_build_could_not_read_is_searched_whatever_the_pattern() {
     if fs::read(&locked).is_ok() {
         return; // running as a user permissions do not bind, such as root
     }
-    let index = build(dir.path(), None).into_index();
+    let index = build(dir.path(), None).index;
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).expect("unlock");
     let patterns = Patterns::new(["needle"], Case::Sensitive).expect("compile");
 
@@ -344,11 +344,11 @@ fn a_file_only_the_index_reads_is_indexed_as_a_file_read_whole_is() {
     ]);
 
     let streamed = build(dir.path(), None)
-        .index()
+        .index
         .content_index_stats()
         .expect("indexed");
     let whole = build(dir.path(), Some(&Everything))
-        .index()
+        .index
         .content_index_stats()
         .expect("indexed");
 
@@ -365,7 +365,7 @@ fn a_match_straddling_a_chunk_of_the_build_read_is_not_ruled_out() {
         ("straddle.txt", &straddling("needle")),
         ("kelvin.txt", &straddling("\u{212A}elvin")),
     ]);
-    let index = build(dir.path(), None).into_index();
+    let index = build(dir.path(), None).index;
 
     for (pattern, case, path) in [
         ("needle", Case::Sensitive, "straddle.txt"),
@@ -391,7 +391,7 @@ fn an_index_kept_in_a_file_or_a_mapping_answers_as_one_in_memory_does() {
         ("docs/notes.md", b"run the tests\n"),
     ]);
     let scratch = tempfile::tempdir().expect("create scratch dir");
-    let in_memory = build(dir.path(), None).into_index();
+    let in_memory = build(dir.path(), None).index;
     let patterns = Patterns::new([r"\brun\("], Case::Sensitive).expect("compile");
     let expected = found(
         &in_memory,
@@ -410,7 +410,7 @@ fn an_index_kept_in_a_file_or_a_mapping_answers_as_one_in_memory_does() {
         options.content_index = Some(storage.clone());
         let index = Index::build(dir.path(), &options)
             .expect("build the index")
-            .into_index();
+            .index;
 
         let matches = index.grep(&patterns, &GrepOptions::default());
 

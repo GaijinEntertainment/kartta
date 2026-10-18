@@ -177,7 +177,7 @@ impl Index {
     /// std::fs::write(dir.path().join("src/main.rs"), "fn main() {\n    run();\n}\n")?;
     /// std::fs::write(dir.path().join("src/run.rs"), "pub fn run() {}\n")?;
     ///
-    /// let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
+    /// let index = Index::build(dir.path(), &BuildOptions::default())?.index;
     ///
     /// let patterns = Patterns::new([r"\brun\("], Case::Sensitive)?;
     /// let found = index.grep(&patterns, &GrepOptions::default());
@@ -527,7 +527,7 @@ mod tests {
         }
         let index = Index::build(dir.path(), &BuildOptions::default())
             .expect("build")
-            .into_index();
+            .index;
         let exclude = Filter::new(["vendor"]).expect("compile");
         let options = GrepOptions::default().exclude(&exclude);
 
@@ -563,7 +563,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("create temp dir");
         let index = Index::build(dir.path(), &BuildOptions::default())
             .expect("build")
-            .into_index();
+            .index;
         let mut fold = Fold::new(&GrepOptions::default().limit(1), Tally::default());
         fold.lines = 1;
         fold.truncated = true;

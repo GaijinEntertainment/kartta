@@ -85,14 +85,14 @@ fn main() {
     let built = started.elapsed();
 
     if mode == "after" {
-        read_after(outcome.index(), &tally);
+        read_after(&outcome.index, &tally);
     }
     let elapsed = started.elapsed();
 
     println!(
         "{mode}: {} entries, build {built:.2?}, total {elapsed:.2?}, {} failures; read {} files, {} bytes",
-        outcome.index().len(),
-        outcome.errors().len(),
+        outcome.index.len(),
+        outcome.errors.len(),
         tally.files.into_inner(),
         tally.bytes.into_inner(),
     );

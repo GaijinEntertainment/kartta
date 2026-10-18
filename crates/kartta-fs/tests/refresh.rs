@@ -60,8 +60,8 @@ fn paths(index: &Index) -> Vec<String> {
 
 fn build(root: &Path, options: &BuildOptions, visitor: Option<&dyn ContentVisitor>) -> Index {
     let outcome = Index::build_with(root, options, visitor, None).expect("build the index");
-    assert!(outcome.errors().is_empty(), "{:?}", outcome.errors());
-    outcome.into_index()
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    outcome.index
 }
 
 #[derive(Default)]
@@ -95,7 +95,7 @@ fn a_refresh_shows_what_was_added_and_removed_since_the_build() {
     write(dir.path(), "src/new.rs", "d");
     let outcome = index.refresh(None, None).expect("refresh");
 
-    assert!(outcome.errors().is_empty(), "{:?}", outcome.errors());
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
     assert_eq!(
         paths(&index),
         ["keep.rs", "src", "src/lib.rs", "src/new.rs"]
@@ -123,11 +123,11 @@ fn a_refresh_lists_the_regular_files_it_added_and_removed_and_not_those_it_chang
     let outcome = index.refresh(None, None).expect("refresh");
 
     assert_eq!(
-        outcome.added(),
+        outcome.added,
         [".gitignore", "became_dir/inner.rs", "became_file"]
     );
     assert_eq!(
-        outcome.removed(),
+        outcome.removed,
         [
             "became_dir",
             "became_file/inner.rs",
@@ -150,9 +150,9 @@ fn refreshing_paths_lists_the_regular_files_added_and_removed_in_the_parts_it_wa
         .refresh_paths(["gone.rs", "old", "new/deep/two.rs"], None, None)
         .expect("refresh the paths");
 
-    assert_eq!(outcome.walked(), ["gone.rs", "new", "old"]);
-    assert_eq!(outcome.added(), ["new/deep/two.rs"]);
-    assert_eq!(outcome.removed(), ["gone.rs", "old/one.rs"]);
+    assert_eq!(outcome.walked, ["gone.rs", "new", "old"]);
+    assert_eq!(outcome.added, ["new/deep/two.rs"]);
+    assert_eq!(outcome.removed, ["gone.rs", "old/one.rs"]);
 }
 
 #[test]
@@ -557,8 +557,8 @@ fn refresh_paths<'p>(index: &mut Index, paths: impl IntoIterator<Item = &'p str>
     let outcome = index
         .refresh_paths(paths, None, None)
         .expect("refresh the paths");
-    assert!(outcome.errors().is_empty(), "{:?}", outcome.errors());
-    outcome.walked().to_vec()
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    outcome.walked
 }
 
 #[test]
@@ -980,9 +980,9 @@ fn a_refreshed_file_that_will_not_read_is_reported_and_never_ruled_out() {
         .expect("refresh the paths");
 
     assert!(
-        matches!(outcome.errors(), [BuildError::Read { native_path, .. }] if native_path.ends_with("b.txt")),
+        matches!(outcome.errors.as_slice(), [BuildError::Read { native_path, .. }] if native_path.ends_with("b.txt")),
         "{:?}",
-        outcome.errors()
+        outcome.errors
     );
     assert_eq!(
         search(&index, "kept"),

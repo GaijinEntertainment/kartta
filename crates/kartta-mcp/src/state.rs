@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 
 use kartta::{BuildError, BuildOptions, CancelToken, Engine, EngineRefresh};
-use kartta_fs::{Changes, EntryKind, Watcher};
+use kartta_fs::{EntryKind, Watcher};
 use tokio::sync::watch;
 
 /// How long a rebuild waits between looks at whether a query still holds the engine it replaces.
@@ -129,7 +129,7 @@ impl Served {
             .errors()
             .map(|error| Failure::new(error, root))
             .collect();
-        replace_failures(&mut indexed.errors, refresh.index().walked(), failed);
+        replace_failures(&mut indexed.errors, &refresh.index().walked, failed);
         drop(indexed);
         Ok(Refreshed {
             refresh,
@@ -143,7 +143,7 @@ impl Served {
     }
 
     /// Watches through `watcher` each directory the index holds that it does not watch yet, and names them.
-    pub(crate) fn cover(&self, watcher: &mut Watcher) -> Result<Changes, String> {
+    pub(crate) fn cover(&self, watcher: &mut Watcher) -> Result<Vec<String>, String> {
         watcher
             .cover(self.read()?.engine.index())
             .map_err(|error| error.to_string())
@@ -599,7 +599,7 @@ mod tests {
         let mut seen = Vec::new();
         while Instant::now() < deadline && !seen.iter().any(|path| path == "late/b.go") {
             let changes = watcher.wait(Duration::from_millis(500)).unwrap();
-            seen.extend(changes.paths().map(str::to_owned));
+            seen.extend(changes);
         }
         assert!(seen.iter().any(|path| path == "late/b.go"), "{seen:?}");
     }

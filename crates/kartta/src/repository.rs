@@ -391,7 +391,7 @@ mod tests {
         }
         let index = Index::build(dir.path(), &BuildOptions::default())
             .expect("build the index")
-            .into_index();
+            .index;
         let repository = IndexRepository::new(&index);
 
         for at in 0..300 {

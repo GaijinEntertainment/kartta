@@ -130,9 +130,7 @@ mod tests {
             ..BuildOptions::default()
         };
 
-        let index = Index::build(root.path(), &options)
-            .expect("build")
-            .into_index();
+        let index = Index::build(root.path(), &options).expect("build").index;
         let needle = Patterns::new(["needle"], Case::Sensitive).expect("compile");
         let haystack = Patterns::new(["haystack"], Case::Sensitive).expect("compile");
 

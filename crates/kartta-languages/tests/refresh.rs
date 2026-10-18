@@ -194,7 +194,7 @@ fn an_engine_refreshed_after_edits_answers_as_a_build_of_the_edited_tree() {
     assert!(!whole.rebuilt() && !named.rebuilt() && rebuilt.rebuilt());
     assert_eq!((whole.widened(), named.widened()), (None, None));
     assert_ne!(
-        named.index().walked(),
+        named.index().walked,
         [""],
         "the named paths are walked apart"
     );
@@ -232,7 +232,7 @@ fn more_named_paths_than_the_limit_refresh_the_whole_tree() {
             limit
         })
     );
-    assert_eq!(refresh.index().walked(), [""]);
+    assert_eq!(refresh.index().walked, [""]);
     assert!(!refresh.rebuilt());
     assert_eq!(answers(&engine), answers(&build(tree.path(), false)));
 }

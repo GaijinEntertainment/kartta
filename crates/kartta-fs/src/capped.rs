@@ -21,7 +21,7 @@ use crate::index::Index;
 /// let dir = tempfile::tempdir()?;
 /// let filter = Filter::new(["*"])?;
 /// let found = {
-///     let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
+///     let index = Index::build(dir.path(), &BuildOptions::default())?.index;
 ///     index.glob(&filter, &GlobOptions::default())
 /// };
 /// # drop(found);

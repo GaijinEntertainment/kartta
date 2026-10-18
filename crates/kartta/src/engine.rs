@@ -1,7 +1,9 @@
 use std::path::Path;
 use std::{io, iter};
 
-use kartta_fs::{BuildError, BuildOptions, CancelToken, ContentVisitor, Index, RefreshOutcome};
+use kartta_fs::{
+    BuildError, BuildOptions, BuildOutcome, CancelToken, ContentVisitor, Index, RefreshOutcome,
+};
 use kartta_graph::{Change, Definition, Graph, Limits, Region, Resolution};
 use kartta_lang::{DocComments, Language};
 
@@ -101,7 +103,7 @@ impl EngineRefresh {
     /// The failures the refresh collected rather than returned: those of the index's walk, then the files a graph
     /// could not read again, each listed as [`BuildError::Read`] and held by no graph.
     pub fn errors(&self) -> impl Iterator<Item = &BuildError> {
-        self.outcome.errors().iter().chain(&self.errors)
+        self.outcome.errors.iter().chain(&self.errors)
     }
 
     /// The files the walk read, new or changed, whose extraction went into a graph.
@@ -190,8 +192,8 @@ impl Engine {
     ) -> Result<EngineOutcome, BuildError> {
         let extracting = Extracting::new(&languages);
         let visitor: &dyn ContentVisitor = &extracting;
-        let (index, mut errors) =
-            Index::build_with(root, options, Some(visitor), cancel)?.into_parts();
+        let BuildOutcome { index, mut errors } =
+            Index::build_with(root, options, Some(visitor), cancel)?;
         let (extracted, mut file_counts) = extracting.into_extracted();
 
         let (families, family_of) = families(&languages);
