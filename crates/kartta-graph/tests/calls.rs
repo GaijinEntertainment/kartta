@@ -5,7 +5,7 @@
               of an integration test crate are neither; a name that selects nothing is the failure"
 )]
 
-use kartta_graph::{Graph, Limits, Walk};
+use kartta_graph::{Graph, Limits, SiteQuery, Walk};
 use kartta_lang::{
     Access, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, ImportBinding,
     IncludeReach, IncludeRef, InheritedMembers, LocalCall, MemberCalls, OwnMembers, ReExport,
@@ -1614,7 +1614,7 @@ fn a_bare_name_several_free_functions_share_selects_the_one_with_the_most_caller
         .callers("parse", Limits::new(1))
         .expect("parse is defined");
     let references = graph
-        .references("parse", 0, usize::MAX)
+        .references("parse", SiteQuery::new(usize::MAX))
         .expect("parse is defined");
 
     assert_eq!((walk.root.file, walk.passed_over), ("a.go", 1));
@@ -1945,7 +1945,7 @@ fn references_bind_through_imports_the_file_and_the_package() {
     let graph = graph_of(go(), &[caller, same_file, same_package]);
 
     let references = graph
-        .references("Config", 0, usize::MAX)
+        .references("Config", SiteQuery::new(usize::MAX))
         .expect("Config is defined");
     let found: Vec<String> = references
         .sites
@@ -1986,12 +1986,21 @@ fn references_count_what_the_floor_and_the_limit_cut() {
 
     let graph = graph(&[defining]);
 
-    let limited = graph.references("Config", 0, 1).expect("Config is defined");
-    let counted = graph.references("Config", 0, 0).expect("Config is defined");
+    let limited = graph
+        .references("Config", SiteQuery::new(1))
+        .expect("Config is defined");
+    let counted = graph
+        .references("Config", SiteQuery::new(0))
+        .expect("Config is defined");
     let floored = graph
-        .references("Config", 90, usize::MAX)
+        .references("Config", SiteQuery::new(usize::MAX).with_min_confidence(90))
         .expect("Config is defined");
     assert_eq!((limited.total, limited.sites.len()), (2, 1));
+    assert_eq!(
+        (limited.counts.calls, limited.counts.reads),
+        (1, 1),
+        "the counts count the sites past the limit"
+    );
     assert_eq!(limited.sites[0].line, 2);
     assert_eq!((counted.total, counted.sites.len()), (2, 0));
     assert_eq!((floored.total, floored.below_confidence), (0, 2));
@@ -2025,7 +2034,7 @@ fn references_select_the_symbol_with_the_most_calls_and_uses_together() {
     ]);
 
     let references = graph
-        .references("parse", 0, usize::MAX)
+        .references("parse", SiteQuery::new(usize::MAX))
         .expect("parse is defined");
     let walk = graph
         .callers("parse", Limits::new(1))
@@ -2063,7 +2072,7 @@ fn references_select_among_every_symbol_a_use_can_name_where_values_are_no_call_
     );
 
     let references = graph
-        .references("limit", 0, usize::MAX)
+        .references("limit", SiteQuery::new(usize::MAX))
         .expect("limit is defined");
 
     assert_eq!(
@@ -2094,7 +2103,7 @@ fn a_qualified_reference_binds_an_imported_value_where_values_are_no_call_target
     );
 
     let references = graph
-        .references("Limit", 0, usize::MAX)
+        .references("Limit", SiteQuery::new(usize::MAX))
         .expect("Limit is defined");
 
     assert_eq!(references.total, 1);
@@ -2147,7 +2156,7 @@ fn a_file_inserted_again_answers_with_its_new_uses() {
     let mut graph = graph_of(go(), &[using_file(3), defining]);
     let lines = |graph: &Graph| -> Vec<u32> {
         graph
-            .references("Limit", 0, usize::MAX)
+            .references("Limit", SiteQuery::new(usize::MAX))
             .expect("Limit is defined")
             .sites
             .iter()
@@ -2175,10 +2184,14 @@ fn a_name_only_a_field_defines_selects_the_field_and_one_a_variant_defines_selec
     )]);
 
     let field = graph
-        .references("limit", 0, usize::MAX)
+        .references("limit", SiteQuery::new(usize::MAX))
         .map(|references| references.symbol.kind);
     assert_eq!(field, Some(SymbolKind::Field));
-    assert!(graph.references("Red", 0, usize::MAX).is_none());
+    assert!(
+        graph
+            .references("Red", SiteQuery::new(usize::MAX))
+            .is_none()
+    );
 }
 
 #[test]

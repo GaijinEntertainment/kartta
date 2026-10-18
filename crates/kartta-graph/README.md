@@ -45,8 +45,9 @@ edge is stored, so nothing a file holds goes stale when another file changes.
   search splits only the names of the files that may hold a word it asks for.
 - `Graph::callers` and `Graph::callees` — the callers or callees of a callable, to a depth, above a confidence floor and
   under a symbol cap, counting what the cap, the depth bound and the floor left out.
-- `Graph::references` — the sites that call or use a symbol, by file and line, counting what the floor and the limit
-  left out.
+- `Graph::references` — the sites that call or use a symbol, a field included, by file and line, each marked a read, a
+  write or an update; it can keep the readers or the writers alone, counts every site by kind whatever it keeps, and
+  counts what the floor and the limit left out and the uses of a member's name it could not tell apart.
 - `Graph::call_path` — the shortest chain of calls from one callable to another, counting what the cap, the depth bound
   and the floor left out.
 - `Graph::dependents` — the files that include a file, transitively, nearest first, to a depth and under a file cap,
