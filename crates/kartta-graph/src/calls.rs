@@ -601,7 +601,7 @@ impl<'g> Calls<'g> {
         let keys = self
             .renamings(name)
             .into_iter()
-            .filter_map(|name| self.graph.site_key(name));
+            .filter_map(|name| self.graph.listing_key(name));
         let mut sites = Vec::new();
         for key in distinct(keys) {
             self.graph.sites_into(key, &mut sites);
@@ -721,7 +721,7 @@ impl<'g> Calls<'g> {
         let mut ambiguous = 0;
         let renamings = self.renamings(name);
         for site in renamings.iter().flat_map(|&alias| self.graph.uses(alias)) {
-            let (used, confidence) = match self.cascade.resolve_reference(site.file, site.index) {
+            let (used, confidence) = match self.cascade.resolve_use(site.file, site.index) {
                 Ok(bound) => bound,
                 Err(UseMiss::Ambiguous) => {
                     ambiguous += 1;
@@ -729,16 +729,16 @@ impl<'g> Calls<'g> {
                 }
                 Err(UseMiss::Elsewhere) => continue,
             };
-            let reference = self.graph.file(site.file).references[site.index as usize];
+            let stored = self.graph.file(site.file).uses[site.index as usize];
             let at = SymbolAt {
                 file: site.file,
-                index: reference.site_of(),
+                index: stored.site_of(),
             };
             let key = (
                 self.cascade.canonical(used),
                 at,
-                reference.line,
-                reference.access(),
+                stored.line,
+                stored.access(),
             );
             let held = best.entry(key).or_insert(confidence);
             *held = (*held).max(confidence);

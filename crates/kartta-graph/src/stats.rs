@@ -45,9 +45,9 @@ impl Graph {
             stats.files_without_symbols += usize::from(file.symbols.is_empty());
             stats.calls += file.calls.len();
             stats.local_calls += file.local_calls.len();
-            stats.uses += file.references.len();
-            for reference in &file.references {
-                match reference.access() {
+            stats.uses += file.uses.len();
+            for site in &file.uses {
+                match site.access() {
                     Access::Read => stats.reads += 1,
                     Access::Write => stats.writes += 1,
                     Access::Update => stats.updates += 1,

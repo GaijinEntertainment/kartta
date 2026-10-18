@@ -71,7 +71,7 @@ pub(crate) struct StoredFile {
     // they have no symbol to resolve from, so they are kept as names the file spells and not as sites
     pub(crate) file_scope_names: Box<[Str]>,
     pub(crate) local_calls: Box<[StoredLocalCall]>,
-    pub(crate) references: Box<[StoredReference]>,
+    pub(crate) uses: Box<[StoredUse]>,
     pub(crate) includes: Box<[Str]>,
     pub(crate) re_exports: Box<[StoredReExport]>,
     pub(crate) bindings: Box<[StoredBinding]>,
@@ -228,7 +228,7 @@ pub(crate) struct StoredLocalCall {
 // constraint: 16 bytes a site, as a call: the receiver's form and the access ride in the top bits of `site_of`, and the
 // qualifier or the path in `written`
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct StoredReference {
+pub(crate) struct StoredUse {
     site_of: u32,
     pub(crate) name: Str,
     written: Option<Str>,
@@ -244,7 +244,7 @@ pub(crate) enum UseReceiver {
     Path(Option<Str>),
 }
 
-impl StoredReference {
+impl StoredUse {
     pub(crate) const SITES: u32 = 1 << 28;
     const FORM_SHIFT: u32 = 30;
     const ACCESS_SHIFT: u32 = 28;
@@ -366,7 +366,7 @@ mod tests {
     fn a_use_keeps_its_site_apart_from_its_receiver_and_its_access() {
         let mut strings = Strings::default();
         let (name, path) = (strings.intern("timeout"), strings.intern("Server.options"));
-        let last = StoredReference::SITES - 1;
+        let last = StoredUse::SITES - 1;
         let receivers = [
             UseReceiver::Bare,
             UseReceiver::Qualifier(path),
@@ -377,7 +377,7 @@ mod tests {
 
         for receiver in receivers {
             for access in [Access::Read, Access::Write, Access::Update] {
-                let stored = StoredReference::new(last, (name, receiver), access, 9);
+                let stored = StoredUse::new(last, (name, receiver), access, 9);
 
                 assert_eq!(
                     (stored.site_of(), stored.receiver(), stored.access()),
@@ -385,6 +385,6 @@ mod tests {
                 );
             }
         }
-        assert_eq!(size_of::<StoredReference>(), 16);
+        assert_eq!(size_of::<StoredUse>(), 16);
     }
 }
