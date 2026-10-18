@@ -3,9 +3,10 @@ use std::ops::RangeInclusive;
 
 use kartta::{
     Access, Blast, CallPath, Change, CutLine, Dead, DeadCode, Definition, Definitions, Dependent,
-    Dependents, DirCount, DirectCalls, Excluded, Hit, Hotspot, Implementations, Implementor, Miss,
-    Misses, Nearness, ReachBand, Reached, Reference, References, Resolution, Search, Seed, Segment,
-    SegmentSymbol, SiteCounts, Source, SymbolFlags, SymbolKind, Unbound, Walk,
+    Dependents, DirCount, DirectCalls, Excluded, Hit, Hotspot, Implementations, Implementor,
+    LanguageFiles, Miss, Misses, Nearness, ReachBand, Reached, Reference, References, Resolution,
+    Search, Seed, Segment, SegmentSymbol, SiteCounts, Source, Stats, SymbolFlags, SymbolKind,
+    Unbound, Walk,
 };
 use serde::{Serialize, Serializer};
 
@@ -62,6 +63,8 @@ wire!(
     DeadCode<'_> => DeadCodeDef,
     Unbound<'_> => UnboundDef,
     Resolution<'_> => ResolutionDef,
+    LanguageFiles<'_> => LanguageFilesDef,
+    Stats => StatsDef,
 );
 
 fn each<T: Wire, S: Serializer>(items: &[T], serializer: S) -> Result<S::Ok, S::Error> {
@@ -78,6 +81,13 @@ mod label {
 
     pub(super) fn kind<S: Serializer>(kind: &SymbolKind, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(kind.label())
+    }
+
+    pub(super) fn kinds<S: Serializer>(
+        kinds: &[(SymbolKind, usize)],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(kinds.iter().map(|(kind, count)| (kind.label(), count)))
     }
 
     pub(super) fn band<S: Serializer>(band: &ReachBand, serializer: S) -> Result<S::Ok, S::Error> {
@@ -599,4 +609,29 @@ struct UnboundDef<'g> {
     receiver: Option<&'g str>,
     #[serde(serialize_with = "label::miss")]
     miss: Miss,
+}
+
+#[derive(Serialize)]
+#[serde(remote = "LanguageFiles")]
+struct LanguageFilesDef<'e> {
+    name: &'e str,
+    family: &'e str,
+    claimed: usize,
+    read: usize,
+    cached: usize,
+    held: usize,
+}
+
+#[derive(Serialize)]
+#[serde(remote = "Stats")]
+struct StatsDef {
+    files: usize,
+    files_without_symbols: usize,
+    symbols: usize,
+    #[serde(serialize_with = "label::kinds")]
+    kinds: Vec<(SymbolKind, usize)>,
+    calls: usize,
+    local_calls: usize,
+    uses: usize,
+    includes: usize,
 }
