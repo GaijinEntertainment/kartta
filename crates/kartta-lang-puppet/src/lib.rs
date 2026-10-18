@@ -62,7 +62,6 @@ use tree_sitter::{Parser, Tree};
 use crate::fnv::{FNV_OFFSET, fnv};
 use crate::resolve::Manifests;
 
-mod banner;
 mod class;
 mod fnv;
 mod resolve;

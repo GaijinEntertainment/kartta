@@ -1,12 +1,15 @@
 use kartta_lang::tree::{children, preorder, signature, text};
 use kartta_lang::{
-    CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
+    SymbolKind,
 };
 use tree_sitter::{Node, Tree};
 
-use crate::banner::is_generated_source;
-
 const REQUIRE_FORM: u32 = 0;
+
+const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT", "Code generated"])
+    .with_lines(&["//"])
+    .with_block("/*", "*/");
 
 // constraint: the function annotations daslang's runtime defines that only tune how a function compiles or what it
 // may do; any other annotation, its own `[export]`, `[init]` or `[run]` or a project's `[es]` or `[console_cmd]`,
@@ -131,7 +134,7 @@ impl<'a> Emitter<'a> {
             module: None,
             scopes: Vec::new(),
             types: Vec::new(),
-            flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
+            flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
             symbol_count: 0,
             raw: RawExtraction::default(),
         }

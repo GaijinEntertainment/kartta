@@ -1,15 +1,18 @@
 use kartta_lang::tree::{named_children, preorder, signature, text};
 use kartta_lang::{
-    CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
+    SymbolKind,
 };
 use tree_sitter::{Node, Tree};
 
-use crate::banner::is_generated_source;
 use crate::bindings::{Bindings, MethodKind, NameKey};
 use crate::owner::{constant_type, enclosing_type, in_singleton_class, type_qualification};
 
 pub(crate) const REQUIRE_FORM: u32 = 0;
 pub(crate) const REQUIRE_RELATIVE_FORM: u32 = 1;
+
+const BANNER: Banner =
+    Banner::new(&["@generated", "DO NOT EDIT", "This file is auto-generated"]).with_lines(&["#"]);
 
 pub(crate) const IDENTIFIER: &str = "identifier";
 
@@ -19,7 +22,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         scopes: Vec::new(),
         open_types: Vec::new(),
         visibilities: Vec::new(),
-        flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
+        flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
         bindings: Bindings::default(),
         raw: RawExtraction::default(),
     };

@@ -858,10 +858,21 @@ fn a_protobuf_name_or_a_header_marker_marks_generated_code() {
         .as_bytes(),
         "lib/widget.rb"
     ));
+    assert!(generated(
+        b"# This file is auto-generated\nclass Widget\n  def run\n    1\n  end\nend\n",
+        "lib/widget.rb"
+    ));
     assert!(!generated(
         b"# A plain widget.\nclass Widget\n  def run\n    1\n  end\nend\n",
         "lib/widget.rb"
     ));
+    assert!(
+        !generated(
+            b"=begin\n@generated\n=end\nclass Widget\n  def run\n    1\n  end\nend\n",
+            "lib/widget.rb"
+        ),
+        "a block comment is code to the banner"
+    );
     assert!(!generated(
         b"\nclass Widget\n  # @generated\n  def run\n    1\n  end\nend\n",
         "lib/widget.rb"
