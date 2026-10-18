@@ -40,16 +40,7 @@ impl<'r> QuirrelResolver<'r> {
             return None;
         }
 
-        let mut config_dir = dir(path);
-        loop {
-            if let Some(config) = self.configs.get(config_dir) {
-                return Some(config);
-            }
-            if config_dir == "." {
-                return None;
-            }
-            config_dir = dir(config_dir);
-        }
+        ancestors(path).find_map(|config_dir| self.configs.get(config_dir))
     }
 
     // constraint: the loader resolves `%name/rest` below the directory the config mounts as `name`, and any other
@@ -102,21 +93,13 @@ impl<'r> QuirrelResolver<'r> {
     }
 
     fn nearest_ancestor(&self, relative: &str, path: &str) -> Option<String> {
-        let mut ancestor = dir(path);
-        loop {
-            let candidate = if ancestor == "." {
-                relative.to_owned()
-            } else {
-                format!("{ancestor}/{relative}")
-            };
-            if let Some(found) = self.probe(&candidate) {
-                return Some(found);
-            }
+        ancestors(path).find_map(|ancestor| {
             if ancestor == "." {
-                return None;
+                self.probe(relative)
+            } else {
+                self.probe(&format!("{ancestor}/{relative}"))
             }
-            ancestor = dir(ancestor);
-        }
+        })
     }
 
     fn probe(&self, candidate: &str) -> Option<String> {
@@ -165,6 +148,10 @@ impl Resolver for QuirrelResolver<'_> {
 
         extraction
     }
+}
+
+fn ancestors(path: &str) -> impl Iterator<Item = &str> {
+    iter::successors(Some(dir(path)), |&above| (above != ".").then(|| dir(above)))
 }
 
 #[expect(
