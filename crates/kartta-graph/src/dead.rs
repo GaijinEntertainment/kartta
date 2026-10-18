@@ -256,7 +256,7 @@ impl Judge<'_, '_> {
         }
         match self.graph.sym(at).kind {
             SymbolKind::Function | SymbolKind::Method | SymbolKind::Macro => true,
-            kind if is_type_kind(kind) => self.graph.conventions().type_uses == TypeUses::Every,
+            kind if is_type_kind(kind) => self.graph.conventions.type_uses == TypeUses::Every,
             _ => false,
         }
     }

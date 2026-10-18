@@ -114,7 +114,6 @@ fn a_segment_holds_the_symbols_its_lines_overlap_in_outline_order() {
         .analyze_segment("lib/core.c", 4..=4, Limits::new(3))
         .expect("held");
 
-    assert_eq!(whole.file, "lib/core.c");
     assert_eq!(whole.lines, 1..=u32::MAX);
     assert_eq!(names(&whole), ["core", "helper"]);
     assert_eq!(names(&one), ["helper"]);

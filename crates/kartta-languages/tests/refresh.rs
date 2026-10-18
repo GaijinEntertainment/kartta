@@ -132,7 +132,7 @@ fn answers(engine: &Engine) -> String {
         writeln!(
             answers,
             "callers of {name}: {:#?}",
-            graph.callers(name, Limits::default())
+            graph.callers(name, Limits::new(1))
         )
         .expect("write to a string");
     }

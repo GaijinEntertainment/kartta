@@ -135,7 +135,7 @@ impl Graph {
                 *holder += usize::from(count > 0);
             }
         }
-        let definitions = real(self.symbol_count());
+        let definitions = real(self.symbols);
         let mean_words = real(word_count) / definitions.max(1.0);
         let weights = holders.map(|holders| {
             if holders == 0 {

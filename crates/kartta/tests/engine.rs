@@ -290,7 +290,7 @@ fn languages_of_one_family_share_a_graph_and_the_first_to_claim_a_file_takes_it(
 
     let files: Vec<(&str, usize)> = engine
         .graphs()
-        .map(|(family, graph)| (family, graph.file_count()))
+        .map(|(family, graph)| (family, graph.stats().files))
         .collect();
     assert_eq!(files, [("shared", 2), ("other", 0)]);
 }
@@ -612,7 +612,7 @@ fn a_build_cancelled_while_it_resolves_its_last_batch_completes() {
     let graph = engine
         .graph_of("a.defs")
         .expect("the language claims the file");
-    assert_eq!(graph.file_count(), 1);
+    assert_eq!(graph.stats().files, 1);
 }
 
 #[test]
@@ -633,5 +633,5 @@ fn a_tree_of_more_files_than_one_batch_resolves_whole() {
     );
 
     let graph = engine.graph_of("f0.defs").expect("defs claims the file");
-    assert_eq!((graph.file_count(), graph.symbol_count()), (4100, 4100));
+    assert_eq!((graph.stats().files, graph.stats().symbols), (4100, 4100));
 }

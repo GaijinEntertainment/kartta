@@ -25,7 +25,7 @@ pub(crate) const QUALIFIER_SEPARATORS: [char; 5] = ['.', ':', '\\', '#', '/'];
 /// the [`Conventions`] it is built with.
 #[derive(Debug)]
 pub struct Graph {
-    conventions: Conventions,
+    pub(crate) conventions: Conventions,
     pub(crate) strings: Strings,
     pub(crate) files: Vec<Option<StoredFile>>,
     vacant: Vec<u32>,
@@ -42,7 +42,7 @@ pub struct Graph {
     test_modules: OnceLock<HashSet<u32, FixedState>>,
     parented: HashMap<Str, Vec<u32>, FixedState>,
     named_at_file_scope: HashMap<Str, Vec<u32>, FixedState>,
-    symbols: usize,
+    pub(crate) symbols: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -133,24 +133,6 @@ impl Graph {
             named_at_file_scope: HashMap::with_hasher(FixedState::default()),
             symbols: 0,
         }
-    }
-
-    /// The conventions the graph's calls resolve under.
-    #[must_use]
-    pub const fn conventions(&self) -> Conventions {
-        self.conventions
-    }
-
-    /// How many files the graph holds.
-    #[must_use]
-    pub fn file_count(&self) -> usize {
-        self.by_path.len()
-    }
-
-    /// How many definitions the graph holds.
-    #[must_use]
-    pub const fn symbol_count(&self) -> usize {
-        self.symbols
     }
 
     /// Takes in one file's extraction, replacing whatever the graph held for the same path.
