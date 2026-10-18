@@ -3,7 +3,7 @@ use kartta_lang::tree::{named_children, text};
 use tree_sitter::Node;
 
 use super::Emitter;
-use super::syntax::next_in_preorder;
+use super::syntax::preorder_within;
 
 pub(super) struct Local {
     pub(super) from: usize,
@@ -130,17 +130,13 @@ impl Emitter<'_> {
             return;
         };
         let end = method.end_byte();
-        let mut cursor = receiver.walk();
-        loop {
-            let current = cursor.node();
+        preorder_within(receiver, |current| {
             let is_arguments = current.kind() == "type_arguments";
             if is_arguments {
                 self.push_type_arguments(current, end);
             }
-            if !next_in_preorder(&mut cursor, !is_arguments) {
-                return;
-            }
-        }
+            !is_arguments
+        });
     }
 
     fn push_type_arguments(&mut self, arguments: Node<'_>, end: usize) {

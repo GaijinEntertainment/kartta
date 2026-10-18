@@ -4,7 +4,7 @@ use tree_sitter::Node;
 
 use super::Emitter;
 use super::locals::declares_left;
-use super::syntax::{PREDECLARED, first_operand, is_pointer_indirection, next_in_preorder};
+use super::syntax::{PREDECLARED, first_operand, is_pointer_indirection, preorder_within};
 use super::types::{element_of, is_container_path, is_container_type};
 
 impl<'a> Emitter<'a> {
@@ -231,14 +231,9 @@ impl<'a> Emitter<'a> {
     }
 
     pub(super) fn record_uses_in(&mut self, node: Node<'_>, owner: SymbolId) {
-        let mut cursor = node.walk();
-        loop {
-            let current = cursor.node();
-            let descend = !current.is_named() || self.record_use(current, owner);
-            if !next_in_preorder(&mut cursor, descend) {
-                return;
-            }
-        }
+        preorder_within(node, |current| {
+            !current.is_named() || self.record_use(current, owner)
+        });
     }
 
     pub(super) fn use_owner(&self) -> SymbolId {
