@@ -1,5 +1,3 @@
-//! [`Filter`] — the compiled globs a path search selects with.
-
 use std::fmt;
 
 use globset::{Candidate, Glob, GlobBuilder, GlobSet, GlobSetBuilder};
@@ -107,10 +105,7 @@ impl Filter {
     }
 }
 
-/// Shows the patterns, which is the whole of what a filter says.
-///
-/// The compiled matcher derives a [`fmt::Debug`] that prints its automaton, so a derive here would bury the two
-/// strings a reader wants under several screens of transition table.
+// constraint: the compiled matcher's own `Debug` prints its automaton, which buries the patterns
 impl fmt::Debug for Filter {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
