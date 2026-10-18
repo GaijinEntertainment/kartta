@@ -169,22 +169,10 @@ impl Emitter<'_> {
 
     // constraint: a node is inside a scope while it starts before the scope's end, which is exclusive
     fn close_scopes(&mut self, start: usize) {
-        while self
-            .functions
-            .last()
-            .is_some_and(|scope| scope.end <= start)
-        {
-            self.functions.pop();
-        }
-        while self.types.last().is_some_and(|scope| scope.end <= start) {
-            self.types.pop();
-        }
-        while self.modules.last().is_some_and(|scope| scope.end <= start) {
-            self.modules.pop();
-        }
-        while self.test_scopes.last().is_some_and(|&end| end <= start) {
-            self.test_scopes.pop();
-        }
+        while self.functions.pop_if(|scope| scope.end <= start).is_some() {}
+        while self.types.pop_if(|scope| scope.end <= start).is_some() {}
+        while self.modules.pop_if(|scope| scope.end <= start).is_some() {}
+        while self.test_scopes.pop_if(|end| *end <= start).is_some() {}
     }
 
     // constraint: a test gate opens before the item it gates is emitted, so the item's own symbol reads it; a

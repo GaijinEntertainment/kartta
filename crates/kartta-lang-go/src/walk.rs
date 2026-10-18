@@ -186,26 +186,10 @@ impl<'a> Emitter<'a> {
 
     // constraint: a node is inside a scope while it starts before the scope's end, which is exclusive
     fn close_scopes(&mut self, start: usize) {
-        while self.callers.last().is_some_and(|scope| scope.end <= start) {
-            self.callers.pop();
-        }
-        while self
-            .use_owners
-            .last()
-            .is_some_and(|scope| scope.end <= start)
-        {
-            self.use_owners.pop();
-        }
-        while self
-            .type_params
-            .last()
-            .is_some_and(|&(end, _)| end <= start)
-        {
-            self.type_params.pop();
-        }
-        while self.blocks.last().is_some_and(|block| block.end <= start) {
-            self.blocks.pop();
-        }
+        while self.callers.pop_if(|scope| scope.end <= start).is_some() {}
+        while self.use_owners.pop_if(|scope| scope.end <= start).is_some() {}
+        while self.type_params.pop_if(|(end, _)| *end <= start).is_some() {}
+        while self.blocks.pop_if(|block| block.end <= start).is_some() {}
     }
 
     fn enter_function(&mut self, node: Node<'_>) {

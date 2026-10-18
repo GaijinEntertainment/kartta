@@ -69,12 +69,8 @@ struct Emitter<'s> {
 impl Emitter<'_> {
     fn handle(&mut self, node: Node<'_>) {
         let start = node.start_byte();
-        while self.scopes.last().is_some_and(|scope| scope.end <= start) {
-            self.scopes.pop();
-        }
-        while self.types.last().is_some_and(|scope| scope.end <= start) {
-            self.types.pop();
-        }
+        while self.scopes.pop_if(|scope| scope.end <= start).is_some() {}
+        while self.types.pop_if(|scope| scope.end <= start).is_some() {}
 
         match node.kind() {
             "namespace_definition" => {
