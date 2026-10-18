@@ -1,4 +1,5 @@
-//! What a PHP file extracts to, and how its includes and uses resolve against the repository.
+//! What a PHP file extracts to, how its includes and uses resolve against the repository, and where the doc comment
+//! of a definition starts.
 #![expect(
     clippy::panic,
     reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
@@ -1069,4 +1070,28 @@ fn no_symbol_is_an_entry_point() {
                 .all(|symbol| !symbol.flags.is_entry())
         );
     }
+}
+
+fn doc_line(source: &str, name: &str) -> u32 {
+    let line = symbol(&extract(source.as_bytes()).symbols, name).line;
+    let lines: Vec<&[u8]> = source.lines().map(str::as_bytes).collect();
+    Php::new().doc_comments().first_line(&lines, line)
+}
+
+#[test]
+fn a_doc_block_and_the_attributes_below_it_document_a_function() {
+    let source = "<?php
+/**
+ * Parses.
+ */
+#[Pure]
+function parse() {}
+
+# Renders.
+// Twice.
+function render() {}
+";
+
+    assert_eq!(doc_line(source, "parse"), 2);
+    assert_eq!(doc_line(source, "render"), 8);
 }

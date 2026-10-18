@@ -1,5 +1,5 @@
 //! What a Rust file extracts to from its bytes alone: its items and members, the calls its functions make, and the
-//! code its attributes and banner mark.
+//! code its attributes and banner mark; and where the doc comment of an item starts.
 #![expect(
     clippy::panic,
     reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
@@ -719,4 +719,29 @@ fn the_fingerprint_names_the_crate_and_stays_put() {
 
     assert!(first.starts_with(b"kartta-lang-rust "));
     assert_eq!(Rust::new().fingerprint(), first.as_slice());
+}
+
+fn doc_line(source: &str, name: &str) -> u32 {
+    let line = named(&extract(source.as_bytes()), name).line;
+    let lines: Vec<&[u8]> = source.lines().map(str::as_bytes).collect();
+    Rust::new().doc_comments().first_line(&lines, line)
+}
+
+#[test]
+fn the_attributes_between_a_doc_comment_and_its_item_belong_to_the_item() {
+    let source = "use std::fmt;
+
+/// Parses.
+#[must_use]
+#[inline]
+pub fn parse() -> u32 {
+    1
+}
+
+/* Renders. */
+fn render() {}
+";
+
+    assert_eq!(doc_line(source, "parse"), 3);
+    assert_eq!(doc_line(source, "render"), 10);
 }
