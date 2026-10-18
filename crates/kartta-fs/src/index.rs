@@ -826,23 +826,6 @@ impl Index {
         )
     }
 
-    /// Every indexed entry paired with the facts read on demand, in depth-first order.
-    ///
-    /// This is the surface for a pass over the whole index — totalling sizes, tallying what is binary. Reaching the
-    /// same answers through [`Index::size`] and [`Index::is_binary`] costs a path lookup per entry, because those take
-    /// a path and must find the entry again; here the position is already known. On a 1.1M-file index that lookup is
-    /// about 300ms of the sweep with every answer already cached.
-    ///
-    /// It takes no limit, and deliberately. A bounded answer has to say whether the bound turned anything away — see
-    /// [`Capped`](crate::Capped) and [`Listing`](crate::Listing) — and an iterator has nowhere to put that, because the
-    /// caller ends it rather than the query. Bound a query that returns one of those; sweep with this.
-    ///
-    /// Reading is lazy per entry, so an entry the caller skips costs nothing, and one it stops before is never
-    /// touched. Each fact is read on its first ask and kept, exactly as the keyed methods do.
-    pub fn inspected(&self) -> impl Iterator<Item = Inspected<'_>> {
-        (0..self.len()).map(|at| self.inspected_at(at))
-    }
-
     /// How many entries the index holds.
     #[must_use]
     pub const fn len(&self) -> usize {
@@ -856,12 +839,8 @@ impl Index {
     }
 }
 
-/// One entry of a sweep, with the late reads reachable without looking the entry up again.
-///
-/// Holding one borrows the index, so the facts stay readable for as long as the entry does. Nothing is read until
-/// asked for.
 #[derive(Debug, Clone, Copy)]
-pub struct Inspected<'a> {
+pub(crate) struct Inspected<'a> {
     index: &'a Index,
     at: usize,
 }
@@ -873,21 +852,15 @@ impl Index {
 }
 
 impl<'a> Inspected<'a> {
-    /// The entry itself, its path decoded.
-    #[must_use]
-    pub fn entry(&self) -> Entry<'a> {
+    pub(crate) fn entry(&self) -> Entry<'a> {
         self.index.entry_at(self.at)
     }
 
-    /// Where the entry sits in [`Index::entries`], for reading its path through [`Index::paths`].
-    #[must_use]
-    pub const fn position(&self) -> usize {
+    pub(crate) const fn position(&self) -> usize {
         self.at
     }
 
-    /// The entry's size, on the terms [`Index::size`] states.
-    #[must_use]
-    pub fn size(&self) -> Option<u64> {
+    pub(crate) fn size(&self) -> Option<u64> {
         if self.index.kind_at(self.at) != EntryKind::File {
             return None;
         }
@@ -897,9 +870,7 @@ impl<'a> Inspected<'a> {
         })
     }
 
-    /// Whether the entry holds binary content, on the terms [`Index::is_binary`] states.
-    #[must_use]
-    pub fn is_binary(&self) -> Option<bool> {
+    pub(crate) fn is_binary(&self) -> Option<bool> {
         if self.index.kind_at(self.at) != EntryKind::File {
             return None;
         }
