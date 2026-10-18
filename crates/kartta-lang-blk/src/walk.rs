@@ -16,7 +16,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
 
     // constraint: an application registers the entries of the first `mountPoints` block at the root of the file and
     // reads no other; a statement nests only in a block, so no parameter holds one
-    preorder(tree, |node| {
+    preorder(tree.root_node(), |node| {
         if !node.is_named() {
             return false;
         }

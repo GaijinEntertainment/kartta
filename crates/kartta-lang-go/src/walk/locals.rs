@@ -1,9 +1,8 @@
 use kartta_lang::SymbolId;
-use kartta_lang::tree::{named_child_nodes, text};
+use kartta_lang::tree::{named_child_nodes, preorder, text};
 use tree_sitter::Node;
 
 use super::Emitter;
-use super::syntax::preorder_within;
 
 pub(super) struct Local {
     pub(super) from: usize,
@@ -123,7 +122,7 @@ impl Emitter<'_> {
             return;
         };
         let end = method.end_byte();
-        preorder_within(receiver, |current| {
+        preorder(receiver, |current| {
             let is_arguments = current.kind() == "type_arguments";
             if is_arguments {
                 self.push_type_arguments(current, end);

@@ -66,14 +66,14 @@ pub fn fingerprint(source_id: &str, grammar: &Language, node_types: &str) -> Vec
     fingerprint
 }
 
-/// Calls `visit` with every node of `tree` in pre-order, and descends into a node's children only when `visit`
-/// returns `true` for it.
+/// Calls `visit` with `node` and every node under it in pre-order, and descends into a node's children only when
+/// `visit` returns `true` for it.
 ///
 /// A cursor yields nodes already in pre-order, which is the order a walk that keeps a stack of enclosing scopes
 /// needs: a scope is open while the nodes visited start before its end. A node lives as long as the tree, so such a
 /// stack can hold the enclosing nodes themselves.
-pub fn preorder<'t>(tree: &'t Tree, mut visit: impl FnMut(Node<'t>) -> bool) {
-    let mut cursor = tree.walk();
+pub fn preorder<'t>(node: Node<'t>, mut visit: impl FnMut(Node<'t>) -> bool) {
+    let mut cursor = node.walk();
 
     loop {
         if visit(cursor.node()) && cursor.goto_first_child() {
