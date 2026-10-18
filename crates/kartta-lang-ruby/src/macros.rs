@@ -19,12 +19,7 @@ impl Emitter<'_> {
             "include" | "extend" | "prepend" => self.mixin(call),
             "attr_accessor" | "attr_reader" | "attr_writer" => self.accessors(call, callee),
             "private" | "protected" | "public" => {
-                let kind = if in_singleton_class(call) {
-                    MethodKind::Singleton
-                } else {
-                    MethodKind::Instance
-                };
-                self.visibility_arguments(call, kind, callee != "private");
+                self.visibility_arguments(call, method_kind(call).0, callee != "private");
             }
             "private_class_method" | "public_class_method" => {
                 self.visibility_arguments(
@@ -75,11 +70,7 @@ impl Emitter<'_> {
         let Some(arguments) = call.child_by_field_name("arguments") else {
             return;
         };
-        let (kind, separator) = if in_singleton_class(call) {
-            (MethodKind::Singleton, ".")
-        } else {
-            (MethodKind::Instance, "#")
-        };
+        let (kind, separator) = method_kind(call);
         let accessors = Accessors {
             owner,
             kind,
@@ -196,12 +187,7 @@ impl Emitter<'_> {
             return;
         }
         let owner = enclosing_type(node, self.source);
-        let singleton = in_singleton_class(node);
-        let (method_kind, separator) = if singleton {
-            (MethodKind::Singleton, ".")
-        } else {
-            (MethodKind::Instance, "#")
-        };
+        let (method_kind, separator) = method_kind(node);
         let qualify = |name: &str| {
             owner
                 .as_ref()
@@ -225,6 +211,14 @@ impl Emitter<'_> {
         let id = self.push(symbol);
         let name = self.name_key(method_kind, qualified);
         self.bindings.bind_alias(name, id, body);
+    }
+}
+
+fn method_kind(node: Node<'_>) -> (MethodKind, &'static str) {
+    if in_singleton_class(node) {
+        (MethodKind::Singleton, ".")
+    } else {
+        (MethodKind::Instance, "#")
     }
 }
 
