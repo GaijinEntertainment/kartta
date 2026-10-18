@@ -14,7 +14,6 @@ const GREP_LIMIT: usize = 100;
 const GREP_MAX_LINE_BYTES: usize = 1024;
 const GREP_MAX_FILE_BYTES: u64 = 4 << 20;
 
-/// Compiles `globs` as one filter, or none when there are none.
 fn filter(globs: Option<&[String]>) -> Result<Option<Filter>, Error> {
     globs
         .map(|globs| {
@@ -24,42 +23,34 @@ fn filter(globs: Option<&[String]>) -> Result<Option<Filter>, Error> {
         .transpose()
 }
 
-/// The params of `list`: the directory, `""` for the root, and how much of its subtree to answer.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct ListParams {
     path: String,
-    /// How many levels to descend; 0 takes the whole subtree, and left out, the directory's children alone.
     depth: Option<usize>,
-    /// How many entries to answer at most; 0 sets no cap.
     limit: Option<usize>,
     collapse: Option<Vec<String>>,
     exclude: Option<Vec<String>>,
 }
 
-/// The params of `glob`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GlobParams {
     globs: Vec<String>,
-    /// How many paths to answer at most; 0 or left out sets no cap.
     #[serde(default)]
     limit: usize,
 }
 
-/// The params of `fuzzy`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FuzzyParams {
     query: String,
     #[serde(default)]
     globs: Option<Vec<String>>,
-    /// How many matches to answer at most; 0 or left out takes the default.
     #[serde(default)]
     limit: Option<usize>,
 }
 
-/// The params of `grep`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GrepParams {
@@ -72,7 +63,6 @@ pub(crate) struct GrepParams {
     exclude: Option<Vec<String>>,
     #[serde(default)]
     context: usize,
-    /// How many matching lines to answer at most; 0 sets no cap.
     #[serde(default)]
     limit: Option<usize>,
     #[serde(default)]
@@ -83,7 +73,6 @@ pub(crate) struct GrepParams {
     max_file_bytes: Option<u64>,
 }
 
-/// The answer of `list`.
 #[derive(Debug, Serialize)]
 pub(crate) struct ListView<'a> {
     path: &'a str,
@@ -168,7 +157,6 @@ fn list_error(error: &ListError) -> Error {
     Error::new(code, error.to_string())
 }
 
-/// The answer of `glob`: the matching paths in index order.
 #[derive(Debug, Serialize)]
 pub(crate) struct GlobView {
     paths: Vec<String>,
@@ -192,7 +180,6 @@ impl GlobView {
     }
 }
 
-/// The answer of `fuzzy`: the best-ranked paths, best first.
 #[derive(Debug, Serialize)]
 pub(crate) struct FuzzyView {
     matches: Vec<FuzzyMatchView>,
@@ -232,7 +219,6 @@ impl FuzzyView {
     }
 }
 
-/// The answer of `grep`: the files holding a match with their lines, and the account of every candidate.
 #[derive(Debug, Serialize)]
 pub(crate) struct GrepView<'a> {
     files: Vec<GrepFileView<'a>>,
