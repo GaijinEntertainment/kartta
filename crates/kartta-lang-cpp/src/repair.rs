@@ -236,7 +236,7 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
 fn spilled_error_rows(tree: &Tree) -> Vec<(usize, usize)> {
     let mut spills = Vec::new();
 
-    preorder(tree, |node| {
+    preorder(tree.root_node(), |node| {
         if node.is_error() {
             let (start, end) = (node.start_position().row, node.end_position().row);
             if end.saturating_sub(start) >= RECOVERY_SPILL_ROWS {

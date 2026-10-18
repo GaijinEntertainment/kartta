@@ -22,7 +22,7 @@ pub(crate) fn walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter::new(source);
     emitter.hoist(tree.root_node());
 
-    preorder(tree, |node| {
+    preorder(tree.root_node(), |node| {
         emitter.overloads.observe(node);
         if node.is_named() {
             emitter.handle(node);

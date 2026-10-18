@@ -23,7 +23,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         raw: RawExtraction::default(),
     };
 
-    preorder(tree, |node| {
+    preorder(tree.root_node(), |node| {
         if node.is_named() {
             emitter.handle(node);
         }

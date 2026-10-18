@@ -243,23 +243,6 @@ pub(super) fn call_target(function: Node<'_>, source: &[u8]) -> (String, Option<
     }
 }
 
-pub(super) fn preorder_within<'t>(node: Node<'t>, mut visit: impl FnMut(Node<'t>) -> bool) {
-    let mut cursor = node.walk();
-    loop {
-        if visit(cursor.node()) && cursor.goto_first_child() {
-            continue;
-        }
-        loop {
-            if cursor.goto_next_sibling() {
-                break;
-            }
-            if !cursor.goto_parent() {
-                return;
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
