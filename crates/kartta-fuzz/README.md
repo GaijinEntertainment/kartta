@@ -89,8 +89,14 @@ path. Passing a `limit` also bounds memory: the best matches are kept in a heap 
 collected and sorted, which matters when a permissive query over millions of paths would otherwise materialize a
 result per survivor.
 
-`benches/rank.rs` tracks regressions against a generated corpus, ranking both without and with a `limit`, the way a
-caller does. It is also the profiling target: `cargo bench --bench rank -- --profile-time 10` under a sampling profiler
-reports where the time goes.
+`benches/rank.rs` tracks regressions against a generated corpus of repository-shaped paths, ranking both without and
+with a `limit`; a caller answering a language model asks for a page, so the limited ranking is the one in production.
+The corpus is deterministic, so criterion's run-to-run comparison holds, and generated, because one large enough to
+profile like a repository is too large to commit; it is sized so per-candidate cost dominates setup while the suite
+still runs in well under a minute. Every offered candidate goes through the subsequence prefilter, and only its
+survivors are aligned, so the queries span selectivity: from one character nearly every path matches, where the
+alignment dominates, through a two-term query, to one nothing matches, which times the prefilter alone. It is also
+the profiling target: `cargo bench --bench rank -- --profile-time 10` under a sampling profiler reports where the time
+goes.
 
 Status: the API is not published yet.
