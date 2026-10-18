@@ -54,7 +54,7 @@ pub(crate) const MATCH_FLOOR: i32 = NO_ALIGNMENT + 1;
 ///
 /// Takes an ASCII fast path whenever either side is ASCII and falls back to Unicode lowercase comparison only for a
 /// pair of non-ASCII characters. The crate documentation says why that is not full Unicode folding.
-pub(crate) fn fold_eq(a: char, b: char) -> bool {
+fn fold_eq(a: char, b: char) -> bool {
     if a == b {
         true
     } else if a.is_ascii() || b.is_ascii() {
@@ -92,7 +92,7 @@ impl Term {
     /// reaches through its own ASCII fast path.
     pub(crate) fn present_in(&self, candidate: &str) -> bool {
         self.bytes.as_ref().map_or_else(
-            || is_subsequence_chars(&self.chars, candidate.chars()),
+            || is_subsequence_chars(&self.chars, candidate),
             |bytes| is_subsequence_bytes(bytes, candidate.as_bytes()),
         )
     }
@@ -122,9 +122,9 @@ impl Representation {
 /// Whether `term` occurs in `candidate` as an ordered subsequence, up to case.
 ///
 /// Allocates nothing. Used when either side holds a non-ASCII character.
-pub(crate) fn is_subsequence_chars(term: &[char], candidate: impl Iterator<Item = char>) -> bool {
+fn is_subsequence_chars(term: &[char], candidate: &str) -> bool {
     let mut next = 0;
-    for c in candidate {
+    for c in candidate.chars() {
         if next < term.len() && fold_eq(c, term[next]) {
             next += 1;
             if next == term.len() {
@@ -230,11 +230,7 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
     /// The span is only worth locating for a term of two or more symbols — for a single symbol the two scans cost
     /// more than the one row they would shorten.
     fn narrow(self, term: &[T]) -> Self {
-        if term.len() < 2 {
-            return self;
-        }
-
-        let (Some(&first), Some(&last)) = (term.first(), term.last()) else {
+        let &[first, .., last] = term else {
             return self;
         };
         let start = self.candidate.iter().position(|&c| (self.eq)(first, c));
@@ -438,28 +434,26 @@ pub(crate) struct Scorer {
     /// stops at [`Scorer::scan_bound`], which is far enough to decide every question still open. Recorded rather than
     /// read off a buffer, because an over-long candidate never fills one.
     positions: usize,
-    /// How far a candidate is ever counted, set once per query by [`Scorer::begin`].
+    /// How far a candidate is ever counted.
     scan_bound: usize,
     /// Whether the prepared candidate is in `bytes` rather than `chars`.
     prepared_as_bytes: bool,
-    /// The representation the current query's terms allow.
+    /// The representation the query's terms allow.
     representation: Representation,
     rows: Rows,
 }
 
 impl Scorer {
-    /// Fixes the representation and scan bound for the query about to run.
+    /// A scorer for a query whose terms allow `representation` and whose longest term has `longest_term` symbols.
     ///
     /// `longest_term` bounds how far a candidate is ever counted: for an over-long candidate the only thing its length
     /// still decides is whether some term equals it, and a candidate longer than every term cannot.
-    pub(crate) const fn begin(&mut self, representation: Representation, longest_term: usize) {
-        self.representation = representation;
-        self.scan_bound = if longest_term > MAX_ALIGNED_POSITIONS {
-            longest_term
-        } else {
-            MAX_ALIGNED_POSITIONS
+    pub(crate) fn new(representation: Representation, longest_term: usize) -> Self {
+        Self {
+            representation,
+            scan_bound: longest_term.max(MAX_ALIGNED_POSITIONS).saturating_add(1),
+            ..Self::default()
         }
-        .saturating_add(1);
     }
 
     /// Records each position's boundary bonus and the basename start in one pass, reusing the buffers across
@@ -603,12 +597,10 @@ mod tests {
     fn both_representations(candidate: &str, term: &str) -> (i32, i32) {
         let term = Term::new(term);
 
-        let mut as_bytes = Scorer::default();
-        as_bytes.begin(Representation::Bytes, term.chars.len());
+        let mut as_bytes = Scorer::new(Representation::Bytes, term.chars.len());
         as_bytes.prepare(candidate);
 
-        let mut as_chars = Scorer::default();
-        as_chars.begin(Representation::Chars, term.chars.len());
+        let mut as_chars = Scorer::new(Representation::Chars, term.chars.len());
         as_chars.prepare(candidate);
 
         (as_bytes.score_matched(&term), as_chars.score_matched(&term))
@@ -648,8 +640,7 @@ mod tests {
         let term = Term::new(term);
         let bytes = term.bytes.as_deref().unwrap_or_default();
 
-        let mut scorer = Scorer::default();
-        scorer.begin(Representation::Bytes, term.chars.len());
+        let mut scorer = Scorer::new(Representation::Bytes, term.chars.len());
         scorer.prepare(candidate);
 
         let build = || Alignment {
@@ -802,8 +793,7 @@ mod tests {
             return 0;
         };
 
-        let mut scorer = Scorer::default();
-        scorer.begin(Representation::Bytes, symbols.len());
+        let mut scorer = Scorer::new(Representation::Bytes, symbols.len());
         scorer.prepare(candidate);
         if scorer.bytes.len() <= symbols.len() {
             return 0;
@@ -872,8 +862,7 @@ mod tests {
             };
             let term = [symbol.to_ascii_lowercase()];
 
-            let mut scorer = Scorer::default();
-            scorer.begin(Representation::Bytes, term.len());
+            let mut scorer = Scorer::new(Representation::Bytes, term.len());
             scorer.prepare(&candidate);
 
             let build = || Alignment {
