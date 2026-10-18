@@ -437,7 +437,16 @@ impl<'a> Emitter<'a> {
 
     fn function(&mut self, node: Node<'_>) -> Option<SymbolId> {
         let name = text(node.child_by_field_name("name")?, self.source);
-        let is_entry = name == "main" && self.package == "main";
+        let is_entry = match name.as_str() {
+            "main" => self.package == "main",
+            "init" => {
+                node.child_by_field_name("result").is_none()
+                    && node
+                        .child_by_field_name("parameters")
+                        .is_some_and(|list| list.named_child_count() == 0)
+            }
+            _ => false,
+        };
 
         let mut symbol = self.declared(SymbolKind::Function, node, (None, name));
         symbol.signature = signature(node, self.source);

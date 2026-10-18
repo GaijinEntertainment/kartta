@@ -946,6 +946,47 @@ fn main_outside_package_main_is_not_an_entry_point() {
 }
 
 #[test]
+fn every_free_init_of_a_package_is_an_entry_point() {
+    let raw = extract(
+        br"
+package worker
+
+type Pool struct{}
+
+func (p *Pool) init() {}
+
+func init() {}
+
+func setup() {}
+
+func init() { setup() }
+",
+    );
+
+    let inits: Vec<&Symbol> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.qualified_name == "worker.init")
+        .collect();
+    assert_eq!(inits.len(), 2);
+    assert!(inits.iter().all(|init| init.flags.is_entry()));
+    assert!(!qualified(&raw, "worker.Pool.init").flags.is_entry());
+    assert!(!qualified(&raw, "worker.setup").flags.is_entry());
+}
+
+#[test]
+fn an_init_that_takes_or_returns_a_value_is_not_an_entry_point() {
+    for source in [
+        &b"package worker\n\nfunc init(n int) {}\n"[..],
+        b"package worker\n\nfunc init() error { return nil }\n",
+    ] {
+        let raw = extract(source);
+
+        assert!(!qualified(&raw, "worker.init").flags.is_entry());
+    }
+}
+
+#[test]
 fn an_instantiation_call_names_the_generic_it_instantiates() {
     let raw = extract(
         br#"package p
