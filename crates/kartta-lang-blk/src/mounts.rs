@@ -4,7 +4,7 @@ use std::iter;
 use kartta_lang::path::{dir, forward_slashes, join};
 use kartta_lang::{RawExtraction, Repository};
 
-use crate::resolve::indexed;
+use crate::resolve::{indexed, sole};
 use crate::walk::{MOUNT_BLOCK_FORM, MOUNT_PARAMETER_FORM};
 
 // constraint: `MAX_MOUNT_NAME_LEN` of the engine's `dag_basePath.h`
@@ -68,12 +68,10 @@ impl Mount {
         match &self.dir {
             MountDir::InRepository(mount_dir) => indexed(join(mount_dir, rest)?, repository),
             MountDir::BelowAncestor(tail) => {
-                let mut found = ancestors(&self.stating_dir).filter_map(|ancestor| {
+                sole(ancestors(&self.stating_dir).filter_map(|ancestor| {
                     let mount_dir = join(ancestor, tail)?;
                     indexed(join(&mount_dir, rest)?, repository)
-                });
-                let only = found.next()?;
-                found.next().is_none().then_some(only)
+                }))
             }
             MountDir::Outside => None,
         }
