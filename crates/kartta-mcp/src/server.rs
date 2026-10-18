@@ -14,7 +14,7 @@ use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 
 use crate::config::Config;
 use crate::diff::{self, Changed};
-use crate::languages::{Catalog, echo};
+use crate::languages::{CATALOG, echo};
 use crate::params::{
     CallerRole, FileParams, FindCallPathParams, FindCalleesParams, FindCallersParams,
     FindFilesParams, FindImplementationsParams, FindReferencesParams, FindSymbolsParams,
@@ -104,7 +104,6 @@ const CALLEE_HOPS: u32 = 1;
 pub struct Server {
     slot: Arc<Slot>,
     config: Arc<Config>,
-    catalog: Arc<Catalog>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -125,7 +124,6 @@ impl Server {
         Self {
             slot: Arc::new(Slot::new(config.watch)),
             config: Arc::new(config),
-            catalog: Arc::new(Catalog::new()),
             tool_router: Self::tool_router(),
         }
     }
@@ -138,7 +136,7 @@ impl Server {
     pub fn index_at_launch(&self, root: PathBuf) {
         let request = Request {
             root,
-            languages: self.catalog.to_build(None),
+            languages: CATALOG.to_build(None),
             index_ignored: false,
         };
         drop(self.slot.start(request, self.config.build_options(false)));
@@ -170,15 +168,11 @@ where
 type Nearest<'g> = (&'g str, kartta::Found<'g>);
 
 /// The family graphs a query filtered by `languages` searches, in the engine's order.
-fn selected<'g>(
-    indexed: &'g Indexed,
-    catalog: &Catalog,
-    languages: Option<&[String]>,
-) -> Vec<(&'g str, &'g Graph)> {
+fn selected<'g>(indexed: &'g Indexed, languages: Option<&[String]>) -> Vec<(&'g str, &'g Graph)> {
     indexed
         .engine
         .graphs()
-        .filter(|(family, _)| catalog.selects(languages, family))
+        .filter(|(family, _)| CATALOG.selects(languages, family))
         .collect()
 }
 
@@ -194,12 +188,10 @@ fn globs(patterns: &[String]) -> Result<Option<Filter>, String> {
 
 /// Up to [`SUGGESTIONS`] close alternatives to `name` from the graphs a query searched, best first, none of them
 /// named `name` itself.
-fn suggestions<'g>(indexed: &'g Indexed, families: &[&'g str], name: &str) -> Vec<Suggestion<'g>> {
-    let mut found: Vec<Suggestion<'g>> = indexed
-        .engine
-        .graphs()
-        .filter(|(family, _)| families.contains(family))
-        .flat_map(|(family, graph)| {
+fn suggestions<'g>(searched: &[(&'g str, &'g Graph)], name: &str) -> Vec<Suggestion<'g>> {
+    let mut found: Vec<Suggestion<'g>> = searched
+        .iter()
+        .flat_map(|&(family, graph)| {
             graph
                 .search(name, SUGGESTIONS)
                 .hits
@@ -234,10 +226,10 @@ impl Server {
         &self,
         Parameters(p): Parameters<IndexRepoParams>,
     ) -> Result<String, String> {
-        self.catalog.check(p.languages.as_deref())?;
+        CATALOG.check(p.languages.as_deref())?;
         let request = Request {
             root: PathBuf::from(&p.root),
-            languages: self.catalog.to_build(p.languages.as_deref()),
+            languages: CATALOG.to_build(p.languages.as_deref()),
             index_ignored: p.index_ignored,
         };
         let mut outcome = self
@@ -588,11 +580,10 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindSymbolsParams>,
     ) -> Result<String, String> {
-        self.catalog.check(p.languages.as_deref())?;
-        let catalog = Arc::clone(&self.catalog);
+        CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limit = p.limit.map_or(SYMBOLS, NonZeroUsize::get);
-            let searched = selected(indexed, &catalog, p.languages.as_deref());
+            let searched = selected(indexed, p.languages.as_deref());
             let searches: Vec<(&str, Search<'_>)> = searched
                 .iter()
                 .map(|&(family, graph)| (family, graph.search(&p.query, limit)))
@@ -699,11 +690,10 @@ impl Server {
         if p.names.iter().any(String::is_empty) {
             return Err("names must not contain an empty name".to_owned());
         }
-        self.catalog.check(p.languages.as_deref())?;
-        let catalog = Arc::clone(&self.catalog);
+        CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limit = p.limit.map_or(DEFINITIONS, NonZeroUsize::get);
-            let searched = selected(indexed, &catalog, p.languages.as_deref());
+            let searched = selected(indexed, p.languages.as_deref());
             let per_name: Vec<(usize, Vec<Nearest<'_>>)> = p
                 .names
                 .iter()
@@ -770,10 +760,9 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindImplementationsParams>,
     ) -> Result<String, String> {
-        self.catalog.check(p.languages.as_deref())?;
-        let catalog = Arc::clone(&self.catalog);
+        CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
-            let searched = selected(indexed, &catalog, p.languages.as_deref());
+            let searched = selected(indexed, p.languages.as_deref());
             let mut found: Vec<_> = searched
                 .iter()
                 .filter_map(|&(family, graph)| {
@@ -788,9 +777,8 @@ impl Server {
                 implementations.found.truncate(room);
                 room -= implementations.found.len();
             }
-            let families: Vec<&str> = searched.iter().map(|&(family, _)| family).collect();
             let suggestions = if found.is_empty() {
-                suggestions(indexed, &families, &p.name)
+                suggestions(&searched, &p.name)
             } else {
                 Vec::new()
             };
@@ -869,15 +857,14 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindCallPathParams>,
     ) -> Result<String, String> {
-        self.catalog.check(p.languages.as_deref())?;
-        let catalog = Arc::clone(&self.catalog);
+        CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let hops = p.hops.map_or(PATH_HOPS, NonZeroU32::get);
             let floor = p.min_confidence.floor();
             let limits = Limits::new(hops)
                 .with_min_confidence(floor)
                 .with_max_symbols(PATH_MAX_SYMBOLS);
-            let paths: Vec<_> = selected(indexed, &catalog, p.languages.as_deref())
+            let paths: Vec<_> = selected(indexed, p.languages.as_deref())
                 .into_iter()
                 .filter_map(|(family, graph)| {
                     Some((family, graph.call_path(&p.from, &p.to, limits)?))
@@ -923,11 +910,10 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindReferencesParams>,
     ) -> Result<String, String> {
-        self.catalog.check(p.languages.as_deref())?;
-        let catalog = Arc::clone(&self.catalog);
+        CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let floor = p.min_confidence.floor();
-            let searched = selected(indexed, &catalog, p.languages.as_deref());
+            let searched = selected(indexed, p.languages.as_deref());
             let found: Vec<_> = searched
                 .iter()
                 .filter_map(|&(family, graph)| {
@@ -938,9 +924,8 @@ impl Server {
                     Some((family, graph.references(&p.name, query)?))
                 })
                 .collect();
-            let families: Vec<&str> = searched.iter().map(|&(family, _)| family).collect();
             let suggestions = if found.is_empty() {
-                suggestions(indexed, &families, &p.name)
+                suggestions(&searched, &p.name)
             } else {
                 Vec::new()
             };
@@ -1071,12 +1056,11 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindUnusedParams>,
     ) -> Result<String, String> {
-        self.catalog.check(p.languages.as_deref())?;
-        let catalog = Arc::clone(&self.catalog);
+        CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limit = p.limit.map_or(UNUSED, NonZeroUsize::get);
             let path_prefix = p.path_prefix.as_deref();
-            let judged: Vec<_> = selected(indexed, &catalog, p.languages.as_deref())
+            let judged: Vec<_> = selected(indexed, p.languages.as_deref())
                 .into_iter()
                 .map(|(family, graph)| (family, graph.dead_code(&[], path_prefix, limit)))
                 .collect();
@@ -1119,26 +1103,18 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindCallersParams>,
     ) -> Result<String, String> {
-        self.catalog.check(p.languages.as_deref())?;
-        let catalog = Arc::clone(&self.catalog);
+        CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limits = Limits::new(p.hops.map_or(CALLER_HOPS, NonZeroU32::get))
                 .with_min_confidence(p.min_confidence.floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
-            let families: Vec<&str> = indexed
-                .engine
-                .graphs()
-                .map(|(family, _)| family)
-                .filter(|family| catalog.selects(p.languages.as_deref(), family))
-                .collect();
-            let walks: Vec<_> = indexed
-                .engine
-                .graphs()
-                .filter(|(family, _)| families.contains(family))
-                .filter_map(|(family, graph)| Some((family, graph.callers(&p.name, limits)?)))
+            let searched = selected(indexed, p.languages.as_deref());
+            let walks: Vec<_> = searched
+                .iter()
+                .filter_map(|&(family, graph)| Some((family, graph.callers(&p.name, limits)?)))
                 .collect();
             let suggestions = if walks.is_empty() {
-                suggestions(indexed, &families, &p.name)
+                suggestions(&searched, &p.name)
             } else {
                 Vec::new()
             };
@@ -1179,14 +1155,13 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindCalleesParams>,
     ) -> Result<String, String> {
-        self.catalog.check(p.languages.as_deref())?;
-        let catalog = Arc::clone(&self.catalog);
+        CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let floor = p.min_confidence.floor();
             let limits = Limits::new(p.hops.map_or(CALLEE_HOPS, NonZeroU32::get))
                 .with_min_confidence(floor)
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
-            let searched = selected(indexed, &catalog, p.languages.as_deref());
+            let searched = selected(indexed, p.languages.as_deref());
             let walks: Vec<_> = searched
                 .iter()
                 .filter_map(|&(family, graph)| {
@@ -1194,8 +1169,7 @@ impl Server {
                 })
                 .collect();
             let suggestions = if walks.is_empty() {
-                let families: Vec<&str> = searched.iter().map(|&(family, _)| family).collect();
-                suggestions(indexed, &families, &p.name)
+                suggestions(&searched, &p.name)
             } else {
                 Vec::new()
             };
