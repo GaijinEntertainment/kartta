@@ -398,15 +398,12 @@ impl<'g> Cascade<'g> {
     // constraint: where a qualified name starts with the module that declares it, a receiver that ends that module's
     // name names the module, as `mod.LIMIT` names `pkg.mod.LIMIT` after `import mod`
     fn is_module_member(&self, at: SymbolAt, owner: Str) -> bool {
-        let symbol = self.graph.sym(at);
         let separator = self.conventions.owner_chain_separator.unwrap_or(".");
-        let qualified = self.graph.strings.resolve(symbol.qualified_name);
-        let name = self.graph.strings.resolve(symbol.name);
-        symbol.owner.is_none()
+        self.graph.sym(at).owner.is_none()
             && self.holder(at).is_none()
-            && qualified
-                .strip_suffix(name)
-                .and_then(|module| module.strip_suffix(separator))
+            && self
+                .graph
+                .enclosing_scope(at, separator)
                 .is_some_and(|module| self.ends_chain(module, owner))
     }
 

@@ -6,7 +6,7 @@ use hashbrown::{HashMap, HashSet};
 
 use crate::analyze::{Analysis, ReachBand};
 use crate::calls::{Calls, Edge, Limits, Reached, WalkState};
-use crate::graph::{Definition, Graph};
+use crate::graph::{Definition, Graph, keep_first};
 use crate::stored::SymbolAt;
 
 // constraint: the docs of `Seed::consumers` and `Seed::consumer_dirs` and the README state this number
@@ -231,10 +231,7 @@ impl Graph {
             change.truncated_seeds += usize::from(seed.truncated);
             change.seeds.push(seed);
             if change.seeds.len() >= 2 * LISTED_SEEDS {
-                change
-                    .seeds
-                    .select_nth_unstable_by(LISTED_SEEDS - 1, by_fan_out);
-                change.seeds.truncate(LISTED_SEEDS);
+                keep_first(&mut change.seeds, LISTED_SEEDS, by_fan_out);
             }
         }
 

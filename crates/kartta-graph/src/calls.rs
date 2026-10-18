@@ -8,7 +8,10 @@ use hashbrown::{HashMap, HashSet};
 use kartta_lang::{Access, SymbolKind};
 
 use crate::confidence;
-use crate::graph::{Definition, Graph, QUALIFIER_SEPARATORS, is_call_target_kind, narrow};
+use crate::graph::{
+    Definition, Graph, QUALIFIER_SEPARATORS, distinct, is_call_target_kind, keep_first, listed,
+    narrow,
+};
 use crate::resolve::{Call, Cascade, UseMiss};
 use crate::stored::{Entry, Site, SymbolAt};
 use crate::strings::Str;
@@ -325,11 +328,11 @@ impl Graph {
         let named = self.sym(root).name;
         calls.resolve_callers(named);
         calls.resolve_uses(named);
-        let mut sites: Vec<(Edge, Option<Access>)> = edges_of(&calls.callers, root)
+        let mut sites: Vec<(Edge, Option<Access>)> = listed(&calls.callers, &root)
             .iter()
             .map(|&edge| (edge, None))
             .chain(
-                edges_of(&calls.uses, root)
+                listed(&calls.uses, &root)
                     .iter()
                     .map(|&(edge, access)| (edge, Some(access))),
             )
@@ -353,12 +356,9 @@ impl Graph {
                 edge.far.index,
             )
         };
-        if query.limit < sites.len() {
-            if let Some(last) = query.limit.checked_sub(1) {
-                sites.select_nth_unstable_by_key(last, by_file_and_line);
-            }
-            sites.truncate(query.limit);
-        }
+        keep_first(&mut sites, query.limit, |left, right| {
+            by_file_and_line(left).cmp(&by_file_and_line(right))
+        });
         sites.sort_unstable_by_key(by_file_and_line);
 
         Some(References {
@@ -400,10 +400,6 @@ impl Graph {
         );
         Some(path)
     }
-}
-
-fn edges_of<T>(held: &HashMap<SymbolAt, Vec<T>, FixedState>, at: SymbolAt) -> &[T] {
-    held.get(&at).map_or(&[], Vec::as_slice)
 }
 
 type Rank<'g> = fn(&mut Calls<'g>, SymbolAt) -> usize;
@@ -468,8 +464,8 @@ impl<'g> Calls<'g> {
         let name = self.graph.sym(at).name;
         self.resolve_callers(name);
         self.resolve_uses(name);
-        let uses = edges_of(&self.uses, at).iter().map(|&(edge, _)| edge);
-        edges_of(&self.callers, at)
+        let uses = listed(&self.uses, &at).iter().map(|&(edge, _)| edge);
+        listed(&self.callers, &at)
             .iter()
             .copied()
             .chain(uses)
@@ -576,15 +572,12 @@ impl<'g> Calls<'g> {
     }
 
     fn passed_over(&self, name: &str, chosen: SymbolAt) -> usize {
-        let mut others: Vec<SymbolAt> = self
+        let others = self
             .wanted_first(self.graph.selected(name).collect())
             .into_iter()
             .map(|at| self.cascade.canonical(at))
-            .filter(|&at| at != chosen)
-            .collect();
-        others.sort_unstable();
-        others.dedup();
-        others.len()
+            .filter(|&at| at != chosen);
+        distinct(others).len()
     }
 
     fn renamings(&self, name: Str) -> Vec<Str> {
@@ -605,15 +598,12 @@ impl<'g> Calls<'g> {
     }
 
     fn sites_of_name(&self, name: Str) -> Vec<Site> {
-        let mut keys: Vec<Str> = self
+        let keys = self
             .renamings(name)
             .into_iter()
-            .filter_map(|name| self.graph.site_key(name))
-            .collect();
-        keys.sort_unstable();
-        keys.dedup();
+            .filter_map(|name| self.graph.site_key(name));
         let mut sites = Vec::new();
-        for key in keys {
+        for key in distinct(keys) {
             self.graph.sites_into(key, &mut sites);
         }
         if sites.len() > 1 {
@@ -628,12 +618,11 @@ impl<'g> Calls<'g> {
 
     pub(crate) fn caller_edges(&mut self, target: SymbolAt) -> &[Edge] {
         self.resolve_callers(self.graph.sym(target).name);
-        edges_of(&self.callers, target)
+        listed(&self.callers, &target)
     }
 
     fn caller_count(&mut self, target: SymbolAt) -> usize {
-        self.resolve_callers(self.graph.sym(target).name);
-        self.callers.get(&target).map_or(0, Vec::len)
+        self.caller_edges(target).len()
     }
 
     fn resolve_callers(&mut self, name: Str) {
@@ -720,7 +709,7 @@ impl<'g> Calls<'g> {
     fn site_count(&mut self, target: SymbolAt) -> usize {
         let name = self.graph.sym(target).name;
         self.resolve_uses(name);
-        self.caller_count(target) + self.uses.get(&target).map_or(0, Vec::len)
+        self.caller_count(target) + listed(&self.uses, &target).len()
     }
 
     fn resolve_uses(&mut self, name: Str) {
@@ -836,7 +825,7 @@ impl<'g> Calls<'g> {
         {
             let depth = search.toward[&current].0;
             self.resolve_callers(self.graph.sym(current).name);
-            let edges = self.callers.get(&current).map_or(&[][..], Vec::as_slice);
+            let edges = listed(&self.callers, &current);
             end = search.take(&self.cascade, (current, depth + 1), edges);
         }
 

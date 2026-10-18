@@ -5,7 +5,7 @@ use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
-use crate::graph::{Definition, Graph, narrow};
+use crate::graph::{Definition, Graph, keep_first, narrow};
 use crate::stored::{StoredFile, SymbolAt};
 use crate::words::{is_combining_mark, path_words, words};
 
@@ -374,12 +374,7 @@ impl Graph {
     }
 
     fn keep_best(&self, scored: &mut Vec<(SymbolAt, Scored)>, limit: usize) {
-        if limit < scored.len() {
-            if let Some(last) = limit.checked_sub(1) {
-                scored.select_nth_unstable_by(last, |left, right| self.ranked(left, right));
-            }
-            scored.truncate(limit);
-        }
+        keep_first(scored, limit, |left, right| self.ranked(left, right));
     }
 
     fn ranked(&self, left: &(SymbolAt, Scored), right: &(SymbolAt, Scored)) -> Ordering {
