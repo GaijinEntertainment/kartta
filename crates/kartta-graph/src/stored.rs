@@ -81,53 +81,35 @@ pub(crate) struct StoredFile {
 
 impl StoredFile {
     pub(crate) fn holder(&self, index: u32) -> Option<u32> {
-        let at = self
-            .locals
-            .binary_search_by_key(&index, |local| local.symbol)
-            .ok()?;
-        Some(self.locals[at].holder)
+        of_symbol(&self.locals, index, |local| local.symbol).map(|local| local.holder)
     }
 
     pub(crate) fn callable(&self, index: u32) -> Option<&StoredCallable> {
-        let at = self
-            .callables
-            .binary_search_by_key(&index, |callable| callable.symbol)
-            .ok()?;
-        Some(&self.callables[at])
+        of_symbol(&self.callables, index, |callable| callable.symbol)
     }
 
     pub(crate) fn folded_lines(&self, index: u32) -> impl Iterator<Item = u32> + Clone + '_ {
-        let start = self
-            .folded
-            .partition_point(|folded| folded.definition < index);
-        self.folded[start..]
+        self.folded[run(&self.folded, index, |folded| folded.definition)]
             .iter()
-            .take_while(move |folded| folded.definition == index)
             .map(|folded| folded.line)
     }
 
     pub(crate) fn calls_by(&self, caller: u32) -> Range<usize> {
-        caller_range(&self.calls, caller, |call| call.caller())
+        run(&self.calls, caller, |call| call.caller())
     }
 
     pub(crate) fn local_calls_by(&self, caller: u32) -> Range<usize> {
-        caller_range(&self.local_calls, caller, |call| call.caller)
+        run(&self.local_calls, caller, |call| call.caller)
     }
 
     pub(crate) fn parents_of(&self, index: u32) -> &[Parent] {
-        let start = self.parents.partition_point(|parent| parent.symbol < index);
-        let len = self.parents[start..].partition_point(|parent| parent.symbol == index);
-        &self.parents[start..start + len]
+        &self.parents[run(&self.parents, index, |parent| parent.symbol)]
     }
 
     // constraint: a symbol's value types are kept as one string joined at `VALUE_TYPE_SEPARATOR`, which no type path
     // holds
     pub(crate) fn value_types(&self, index: u32) -> Option<Str> {
-        let at = self
-            .value_types
-            .binary_search_by_key(&index, |held| held.symbol)
-            .ok()?;
-        Some(self.value_types[at].types)
+        of_symbol(&self.value_types, index, |held| held.symbol).map(|held| held.types)
     }
 
     pub(crate) fn package_stamp(&self) -> Option<Str> {
@@ -343,9 +325,14 @@ pub(crate) struct Occurrence {
     pub(crate) role: CallableRole,
 }
 
-fn caller_range<T>(entries: &[T], caller: u32, caller_of: impl Fn(&T) -> u32) -> Range<usize> {
-    let start = entries.partition_point(|entry| caller_of(entry) < caller);
-    start..start + entries[start..].partition_point(|entry| caller_of(entry) == caller)
+fn run<T>(entries: &[T], key: u32, key_of: impl Fn(&T) -> u32) -> Range<usize> {
+    let start = entries.partition_point(|entry| key_of(entry) < key);
+    start..start + entries[start..].partition_point(|entry| key_of(entry) == key)
+}
+
+fn of_symbol<T>(entries: &[T], index: u32, symbol_of: impl Fn(&T) -> u32) -> Option<&T> {
+    let at = entries.binary_search_by_key(&index, symbol_of).ok()?;
+    entries.get(at)
 }
 
 #[cfg(test)]
