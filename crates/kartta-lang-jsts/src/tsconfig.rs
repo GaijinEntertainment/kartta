@@ -4,17 +4,10 @@ use kartta_lang::Repository;
 use kartta_lang::path::join;
 use serde_json::Value;
 
-use crate::config::{self, config_dir, is_json};
+use crate::config::{self, Aliases, ScopedAliases, config_dir, is_json};
 
-pub(crate) type Aliases = Vec<(String, Vec<String>)>;
-
-pub(crate) struct TsAliasConfig {
-    pub(crate) dir: String,
-    pub(crate) aliases: Aliases,
-}
-
-pub(crate) fn alias_configs(repository: &dyn Repository) -> Vec<TsAliasConfig> {
-    let mut compiled: Vec<TsAliasConfig> = config::named(repository, "tsconfig.json")
+pub(crate) fn alias_configs(repository: &dyn Repository) -> Vec<ScopedAliases> {
+    let mut compiled: Vec<ScopedAliases> = config::named(repository, "tsconfig.json")
         .filter_map(|(path, contents)| compile(&path, &contents, repository))
         .collect();
 
@@ -22,7 +15,7 @@ pub(crate) fn alias_configs(repository: &dyn Repository) -> Vec<TsAliasConfig> {
     compiled
 }
 
-fn compile(path: &str, contents: &str, repository: &dyn Repository) -> Option<TsAliasConfig> {
+fn compile(path: &str, contents: &str, repository: &dyn Repository) -> Option<ScopedAliases> {
     let dir = config_dir(path);
     let value = parse(contents)?;
 
@@ -32,7 +25,7 @@ fn compile(path: &str, contents: &str, repository: &dyn Repository) -> Option<Ts
 
     // constraint: the nearest config governs alone, so one that yields no aliases keeps an empty entry that stops the
     // lookup at it
-    Some(TsAliasConfig {
+    Some(ScopedAliases {
         dir: dir.to_owned(),
         aliases,
     })
