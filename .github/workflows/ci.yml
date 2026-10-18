@@ -58,6 +58,32 @@ jobs:
       - run: cargo build --locked --workspace --all-targets --all-features
       - run: cargo test --locked --workspace --all-features
 
+  # The Go binding, linked against the static library the same checkout builds. Its cgo build compiles the
+  # hand-written kartta.h and links every function it declares, so a header that drifts from the library fails here,
+  # and the round trip exercises the ABI's ownership rules under the race detector.
+  go:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+    runs-on: ${{ matrix.os }}
+    env:
+      CGO_LDFLAGS: -L${{ github.workspace }}/target/debug
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # The Go version is the one go.mod's go directive names; the module has no dependencies to cache.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: bindings/go/go.mod
+          cache: false
+      - run: cargo build --locked -p kartta-ffi
+      - run: go vet ./...
+        working-directory: bindings/go
+      - run: go test -race ./...
+        working-directory: bindings/go
+
   # Advisories, licences and sources, against the resolved graph rather than the manifests. The other jobs prove the
   # code we wrote is sound; this one is about the code we did not write, which is most of what ships.
   deny:
@@ -72,7 +98,7 @@ jobs:
   # when every triggered job passed or was skipped — so conditional jobs never need enumerating in rulesets.
   ci-ok:
     if: always()
-    needs: [fmt, clippy, docs, test, deny]
+    needs: [fmt, clippy, docs, test, go, deny]
     runs-on: ubuntu-24.04
     steps:
       - name: verify all jobs succeeded
