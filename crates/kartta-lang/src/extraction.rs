@@ -38,6 +38,13 @@ pub struct RawExtraction {
 }
 
 impl RawExtraction {
+    /// Adds `symbol` to [`symbols`](Self::symbols) and returns its id, its position there.
+    pub fn push_symbol(&mut self, symbol: Symbol) -> SymbolId {
+        let id = SymbolId(u32::try_from(self.symbols.len()).unwrap_or(u32::MAX));
+        self.symbols.push(symbol);
+        id
+    }
+
     /// The [`Extraction`] of the file at `path`, holding everything this one holds but the directives, which come
     /// back beside it for the resolver to replay, and the entry candidates, which only the resolver can judge.
     ///

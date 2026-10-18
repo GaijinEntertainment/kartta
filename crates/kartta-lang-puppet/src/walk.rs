@@ -107,9 +107,7 @@ impl Emitter<'_> {
         symbol.exported = true;
         symbol.flags = self.flags;
 
-        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
-        self.raw.symbols.push(symbol);
-        Some(id)
+        Some(self.raw.push_symbol(symbol))
     }
 
     fn resource_declaration(&mut self, node: Node<'_>) {

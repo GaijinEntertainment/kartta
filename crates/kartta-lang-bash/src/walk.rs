@@ -68,12 +68,6 @@ impl Emitter<'_> {
         }
     }
 
-    fn push_symbol(&mut self, symbol: Symbol) -> SymbolId {
-        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
-        self.raw.symbols.push(symbol);
-        id
-    }
-
     fn symbol(&self, name: String, kind: SymbolKind, node: Node<'_>) -> Symbol {
         let mut symbol = Symbol::new(name, kind, start_line(node), end_line(node));
         symbol.exported = true;
@@ -89,7 +83,7 @@ impl Emitter<'_> {
 
         let mut symbol = self.symbol(name, SymbolKind::Function, node);
         symbol.flags = symbol.flags.with_entry(entry);
-        Some(self.push_symbol(symbol))
+        Some(self.raw.push_symbol(symbol))
     }
 
     // constraint: an assignment outside every function is a global, inside an `if`, a loop or a list too, unless it
@@ -105,7 +99,7 @@ impl Emitter<'_> {
                 .is_some_and(|parent| parent.kind() != "command");
         if top_level {
             let symbol = self.symbol(text(name, self.source), SymbolKind::Variable, node);
-            self.push_symbol(symbol);
+            self.raw.push_symbol(symbol);
         }
     }
 
@@ -161,7 +155,7 @@ impl Emitter<'_> {
             };
             let name = String::from_utf8_lossy(name).into_owned();
             let symbol = self.symbol(name, SymbolKind::Function, argument);
-            self.push_symbol(symbol);
+            self.raw.push_symbol(symbol);
             emitted = true;
         }
         emitted

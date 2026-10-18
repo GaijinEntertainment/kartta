@@ -105,12 +105,12 @@ impl Emitter<'_> {
         symbol.exported = true;
         if kind == SymbolKind::Function {
             symbol.signature = signature_from(node.start_byte(), target, self.source);
-            let id = self.push_symbol(symbol);
+            let id = self.raw.push_symbol(symbol);
             let this_of = self.lexical_this(target);
             self.scopes
                 .push(Scope::spanning(target, target, id, this_of));
         } else {
-            self.push_symbol(symbol);
+            self.raw.push_symbol(symbol);
         }
     }
 }
