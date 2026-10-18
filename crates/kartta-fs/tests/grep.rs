@@ -1,5 +1,5 @@
 //! The content search contract: what `Index::grep` finds, in what order, and how its answer accounts for every file it
-//! did not search.
+//! did not search; and what a build asked for a content index reads, and what the index then holds.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and an integration test crate is built \
@@ -9,9 +9,11 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::Mutex;
 
 use kartta_fs::{
-    BuildOptions, CancelToken, Case, Cut, Filter, GrepOptions, Index, LineKind, Matches, Patterns,
+    BuildError, BuildOptions, BuildOutcome, CancelToken, Case, Content, ContentIndexStorage,
+    ContentVisitor, Cut, Filter, GrepOptions, Index, LineKind, Matches, Patterns,
 };
 use tempfile::TempDir;
 
@@ -583,4 +585,371 @@ fn an_empty_index_searches_nothing() {
     assert!(found.files().is_empty());
     assert_eq!(found.candidates(), 0);
     assert!(!found.truncated() && found.unsearched() == 0);
+}
+
+fn indexed() -> BuildOptions {
+    let mut options = BuildOptions::default();
+    options.content_index = Some(ContentIndexStorage::Memory);
+    options
+}
+
+fn build(root: &Path, visitor: Option<&dyn ContentVisitor>) -> BuildOutcome {
+    Index::build_with(root, &indexed(), visitor, None).expect("build the index")
+}
+
+struct Recorder {
+    asked: Mutex<Vec<String>>,
+    seen: Mutex<Vec<String>>,
+}
+
+impl ContentVisitor for Recorder {
+    fn wants(&self, path: &str) -> bool {
+        self.asked.lock().expect("lock").push(path.to_owned());
+        path == "main.rs"
+    }
+
+    fn visit(&self, content: Content<'_>) {
+        self.seen
+            .lock()
+            .expect("lock")
+            .push(content.path().to_owned());
+    }
+}
+
+#[test]
+fn a_build_asked_for_a_content_index_reads_every_text_file_and_indexes_it() {
+    let dir = tree(&[
+        ("src/main.rs", "fn main() {}\n"),
+        ("notes.md", "some notes\n"),
+        ("blob.dat", "\0binary"),
+        ("image.png", "looks like text"),
+    ]);
+
+    let outcome = Index::build(dir.path(), &indexed()).expect("build the index");
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    let index = outcome.index;
+    for path in ["src/main.rs", "notes.md", "blob.dat", "image.png"] {
+        fs::remove_file(dir.path().join(path)).expect("remove");
+    }
+
+    let stats = index
+        .content_index_stats()
+        .expect("the build was asked for one");
+    assert_eq!(stats.files(), 2, "the two text files");
+    assert!(stats.trigrams() > 0 && stats.bytes() > 0);
+    assert_eq!(
+        index.size("notes.md"),
+        Some(11),
+        "the build read it, and kept what the read learned"
+    );
+    assert_eq!(index.is_binary("blob.dat"), Some(true));
+    assert_eq!(
+        index.size("image.png"),
+        None,
+        "a binary extension is never opened"
+    );
+}
+
+#[test]
+fn the_index_counts_each_distinct_trigram_once() {
+    let dir = tree(&[("a.txt", "abcd"), ("b.txt", "BCDE")]);
+
+    let stats = build(dir.path(), None)
+        .index
+        .content_index_stats()
+        .expect("the build was asked for one");
+
+    assert_eq!(
+        stats.trigrams(),
+        3,
+        "abc, bcd and cde, the letters folded to one case"
+    );
+}
+
+#[test]
+fn a_visitor_beside_the_index_is_still_handed_only_what_it_wants() {
+    let dir = tree(&[("main.rs", "fn main() {}\n"), ("notes.md", "notes\n")]);
+    let visitor = Recorder {
+        asked: Mutex::new(Vec::new()),
+        seen: Mutex::new(Vec::new()),
+    };
+
+    let outcome = build(dir.path(), Some(&visitor));
+
+    let mut asked = visitor.asked.into_inner().expect("lock");
+    asked.sort();
+    assert_eq!(asked, ["main.rs", "notes.md"], "asked once per file");
+    assert_eq!(visitor.seen.into_inner().expect("lock"), ["main.rs"]);
+    assert_eq!(
+        outcome
+            .index
+            .content_index_stats()
+            .map(|stats| stats.files()),
+        Some(2),
+        "the index read the file the visitor turned down"
+    );
+}
+
+#[test]
+fn a_build_not_asked_for_one_has_no_content_index() {
+    let dir = tree(&[("main.rs", "fn main() {}\n")]);
+
+    assert_eq!(index(dir.path()).content_index_stats(), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_text_file_that_will_not_read_is_reported_and_left_out_of_the_index() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tree(&[("locked.rs", "locked"), ("open.rs", "open")]);
+    let locked = dir.path().join("locked.rs");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("lock");
+    if fs::read(&locked).is_ok() {
+        return; // running as a user permissions do not bind, such as root
+    }
+
+    let outcome = build(dir.path(), None);
+
+    assert!(
+        matches!(outcome.errors.as_slice(), [BuildError::Read { native_path, .. }] if native_path.ends_with("locked.rs")),
+        "{:?}",
+        outcome.errors
+    );
+    assert_eq!(
+        outcome
+            .index
+            .content_index_stats()
+            .map(|stats| stats.files()),
+        Some(1)
+    );
+}
+
+#[test]
+fn a_search_through_the_index_finds_what_a_full_search_finds() {
+    let dir = tree(&[
+        ("src/main.rs", "fn main() {\n    run();\n}\n"),
+        ("src/run.rs", "pub fn run() {}\n"),
+        ("src/Kelvin.rs", "// 7 \u{212A}elvin\n"),
+        ("docs/notes.md", "run the tests, then RUN them again\n"),
+        ("docs/other.md", "nothing to see\n"),
+        ("blob.dat", "\0run"),
+    ]);
+    let indexed = build(dir.path(), None).index;
+    let plain = index(dir.path());
+    let searches: [(&[&str], Case); 8] = [
+        (&[r"\brun\("], Case::Sensitive),
+        (&["run"], Case::Insensitive),
+        (&["kelvin"], Case::Insensitive),
+        (&["fn main", "see"], Case::Sensitive),
+        (&["(main|other)"], Case::Sensitive),
+        (&[r"t[eh]+"], Case::Sensitive),
+        (&["absent from every file"], Case::Sensitive),
+        (&[r"\w+"], Case::Sensitive),
+    ];
+
+    for (patterns, case) in searches {
+        let patterns = Patterns::new(patterns, case).expect("compile the patterns");
+        let through = indexed.grep(&patterns, &GrepOptions::default());
+        let full = plain.grep(&patterns, &GrepOptions::default());
+
+        assert_eq!(
+            printed(&indexed, &through),
+            printed(&plain, &full),
+            "{patterns:?}"
+        );
+        assert_eq!(through.candidates(), full.candidates(), "{patterns:?}");
+        assert_eq!(
+            through.searched() + through.ruled_out(),
+            full.searched(),
+            "{patterns:?}: what the index ruled out is what the full search read and found nothing in"
+        );
+        assert_accounted(&through);
+    }
+}
+
+#[test]
+fn a_literal_rules_out_every_file_missing_one_of_its_trigrams() {
+    let dir = tree(&[
+        ("hit.txt", "needle\n"),
+        ("near.txt", "need le\n"),
+        ("miss.txt", "haystack\n"),
+    ]);
+    let index = build(dir.path(), None).index;
+
+    let matches = index.grep(&patterns(&["needle"]), &GrepOptions::default());
+
+    assert_eq!(printed(&index, &matches), ["hit.txt:1:needle"]);
+    assert_eq!(matches.searched(), 1);
+    assert_eq!(matches.ruled_out(), 2);
+}
+
+#[test]
+fn a_pattern_that_needs_no_trigram_reads_every_candidate() {
+    let dir = tree(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")]);
+    let index = build(dir.path(), None).index;
+
+    let matches = index.grep(&patterns(&[r"\w+", "ab"]), &GrepOptions::default());
+
+    assert_eq!(matches.ruled_out(), 0);
+    assert_eq!(matches.searched(), 2);
+}
+
+#[test]
+fn a_file_changed_since_the_build_is_judged_by_the_content_the_build_read() {
+    let dir = tree(&[("changed.txt", "old words\n")]);
+    let index = build(dir.path(), None).index;
+    fs::write(dir.path().join("changed.txt"), "needle\n").expect("rewrite");
+
+    let matches = index.grep(&patterns(&["needle"]), &GrepOptions::default());
+
+    assert!(
+        matches.files().is_empty(),
+        "the index rules the file out by what it held then"
+    );
+    assert_eq!(matches.ruled_out(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_the_build_could_not_read_is_searched_whatever_the_pattern() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tree(&[("locked.txt", "needle\n"), ("open.txt", "haystack\n")]);
+    let locked = dir.path().join("locked.txt");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("lock");
+    if fs::read(&locked).is_ok() {
+        return; // running as a user permissions do not bind, such as root
+    }
+    let index = build(dir.path(), None).index;
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).expect("unlock");
+
+    let matches = index.grep(&patterns(&["needle"]), &GrepOptions::default());
+
+    assert_eq!(printed(&index, &matches), ["locked.txt:1:needle"]);
+    assert_eq!(matches.ruled_out(), 1, "only the file the index holds");
+}
+
+const CHUNK: usize = 64 * 1024;
+
+fn straddling(text: &str) -> String {
+    format!("{}{text}\n", "x".repeat(CHUNK - 1))
+}
+
+struct Everything;
+
+impl ContentVisitor for Everything {
+    fn wants(&self, _path: &str) -> bool {
+        true
+    }
+
+    fn visit(&self, _content: Content<'_>) {}
+}
+
+#[test]
+fn a_file_only_the_index_reads_is_indexed_as_a_file_read_whole_is() {
+    let late = format!("{}needle far into the file\n", "y".repeat(3 * CHUNK));
+    let dir = tree(&[
+        ("straddle.txt", &straddling("needle")),
+        ("kelvin.txt", &straddling("\u{212A}elvin")),
+        ("long_s.txt", &straddling("\u{17F}tring")),
+        ("late.txt", &late),
+    ]);
+
+    let streamed = build(dir.path(), None)
+        .index
+        .content_index_stats()
+        .expect("indexed");
+    let whole = build(dir.path(), Some(&Everything))
+        .index
+        .content_index_stats()
+        .expect("indexed");
+
+    assert_eq!(
+        streamed.trigrams(),
+        whole.trigrams(),
+        "a chunk boundary loses no trigram and folds no character apart"
+    );
+}
+
+#[test]
+fn a_match_straddling_a_chunk_of_the_build_read_is_not_ruled_out() {
+    let dir = tree(&[
+        ("straddle.txt", &straddling("needle")),
+        ("kelvin.txt", &straddling("\u{212A}elvin")),
+    ]);
+    let index = build(dir.path(), None).index;
+
+    for (pattern, case, path) in [
+        ("needle", Case::Sensitive, "straddle.txt"),
+        ("kelvin", Case::Insensitive, "kelvin.txt"),
+    ] {
+        let patterns = Patterns::new([pattern], case).expect("compile");
+        let matches = index.grep(&patterns, &GrepOptions::default());
+
+        assert_eq!(
+            matches.files().len(),
+            1,
+            "{pattern} straddles the first chunk of {path}"
+        );
+        assert_eq!(matches.ruled_out(), 1, "the other file");
+    }
+}
+
+#[test]
+fn an_index_kept_in_a_file_or_a_mapping_answers_as_one_in_memory_does() {
+    let dir = tree(&[
+        ("src/main.rs", "fn main() {\n    run();\n}\n"),
+        ("src/run.rs", "pub fn run() {}\n"),
+        ("docs/notes.md", "run the tests\n"),
+    ]);
+    let scratch = tempfile::tempdir().expect("create scratch dir");
+    let in_memory = build(dir.path(), None).index;
+    let patterns = patterns(&[r"\brun\("]);
+    let expected = printed(
+        &in_memory,
+        &in_memory.grep(&patterns, &GrepOptions::default()),
+    );
+
+    for storage in [
+        ContentIndexStorage::File {
+            dir: scratch.path().to_path_buf(),
+        },
+        ContentIndexStorage::Mapped {
+            dir: scratch.path().to_path_buf(),
+        },
+    ] {
+        let mut options = BuildOptions::default();
+        options.content_index = Some(storage.clone());
+        let index = Index::build(dir.path(), &options)
+            .expect("build the index")
+            .index;
+
+        let matches = index.grep(&patterns, &GrepOptions::default());
+
+        assert_eq!(printed(&index, &matches), expected, "{storage:?}");
+        assert_eq!(matches.ruled_out(), 1, "{storage:?}");
+        assert_eq!(
+            index.content_index_stats(),
+            in_memory.content_index_stats(),
+            "{storage:?}"
+        );
+    }
+}
+
+#[test]
+fn a_scratch_directory_that_does_not_exist_fails_the_build_naming_it() {
+    let dir = tree(&[("main.rs", "fn main() {}\n")]);
+    let missing = dir.path().join("no such directory");
+    let mut options = BuildOptions::default();
+    options.content_index = Some(ContentIndexStorage::Mapped {
+        dir: missing.clone(),
+    });
+
+    let built = Index::build(dir.path(), &options);
+
+    assert!(
+        matches!(&built, Err(BuildError::ContentIndex { native_path, .. }) if *native_path == missing),
+        "{built:?}"
+    );
 }
