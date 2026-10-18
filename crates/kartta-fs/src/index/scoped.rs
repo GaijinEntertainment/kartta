@@ -14,6 +14,7 @@ use crate::build::{BuildError, IgnoreSources};
 use crate::content::{ContentId, ContentVisitor};
 use crate::content_index::{ContentIndexes, IdPositions, Target};
 use crate::inspection::Inspection;
+use crate::list::is_below;
 use crate::policy::{DirState, Indexing, Learned, Numbering, Payload, Report, names_match};
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 use crate::stamp::{Stamp, Stamping, UNTRUSTED};
@@ -497,8 +498,5 @@ fn parent_of(path: &str) -> &str {
 }
 
 fn holds(dir: &str, path: &str) -> bool {
-    dir.is_empty()
-        || path
-            .strip_prefix(dir)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    dir.is_empty() || path == dir || is_below(path, dir)
 }
