@@ -20,8 +20,9 @@ reconstructing one costs a second owned copy of every path. What the consumer ke
 crate feeds flattens the tree into a depth-first list in one pass and answers even its directory listings from that.
 Building that list here would put the consumer's data structure in the walker.
 
-`examples/survey.rs` reports what a real tree holds and how long walking it takes at each thread count;
-`benches/walk.rs` tracks regressions against a small deterministic fixture.
+`examples/survey.rs` reports what a real tree holds and how long walking it takes at each thread count. There is no
+benchmark: a fixture small enough to generate for one hides the costs that only appear on a tree of millions of
+entries.
 
 ## The policy
 
