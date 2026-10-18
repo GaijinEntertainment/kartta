@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::hash::Hash;
 use std::rc::Rc;
 
 use foldhash::fast::FixedState;
@@ -59,6 +60,19 @@ struct Bindings {
 }
 
 type Derived<K, V> = RefCell<HashMap<K, V, FixedState>>;
+
+pub(crate) fn derived<K: Eq + Hash, V: Clone>(
+    cache: &Derived<K, V>,
+    key: K,
+    derive: impl FnOnce() -> V,
+) -> V {
+    if let Some(held) = cache.borrow().get(&key) {
+        return held.clone();
+    }
+    let value = derive();
+    cache.borrow_mut().insert(key, value.clone());
+    value
+}
 
 pub(crate) struct Cascade<'g> {
     pub(crate) graph: &'g Graph,
@@ -281,43 +295,37 @@ impl<'g> Cascade<'g> {
     }
 
     pub(crate) fn includes(&self, file: u32) -> Rc<[u32]> {
-        if let Some(includes) = self.includes.borrow().get(&file) {
-            return Rc::clone(includes);
-        }
-        let mut slots: Vec<u32> = self
-            .graph
-            .file(file)
-            .includes
-            .iter()
-            .filter_map(|&target| self.graph.slot_of(target))
-            .collect();
-        slots.sort_unstable_by_key(|&slot| self.graph.path_rank(slot));
-        let slots: Rc<[u32]> = slots.into();
-        self.includes.borrow_mut().insert(file, Rc::clone(&slots));
-        slots
+        derived(&self.includes, file, || {
+            let mut slots: Vec<u32> = self
+                .graph
+                .file(file)
+                .includes
+                .iter()
+                .filter_map(|&target| self.graph.slot_of(target))
+                .collect();
+            slots.sort_unstable_by_key(|&slot| self.graph.path_rank(slot));
+            slots.into()
+        })
     }
 
     pub(crate) fn closure(&self, file: u32) -> Rc<[u32]> {
-        if let Some(closure) = self.closures.borrow().get(&file) {
-            return Rc::clone(closure);
-        }
-        let mut visited: HashSet<u32, FixedState> = HashSet::with_hasher(FixedState::default());
-        visited.insert(file);
-        let mut pending = vec![file];
-        while let Some(current) = pending.pop() {
-            let includes = self.includes(current);
-            pending.extend(
-                includes
-                    .iter()
-                    .copied()
-                    .filter(|&included| visited.insert(included)),
-            );
-        }
-        let mut closure: Vec<u32> = visited.into_iter().collect();
-        closure.sort_unstable();
-        let closure: Rc<[u32]> = closure.into();
-        self.closures.borrow_mut().insert(file, Rc::clone(&closure));
-        closure
+        derived(&self.closures, file, || {
+            let mut visited: HashSet<u32, FixedState> = HashSet::with_hasher(FixedState::default());
+            visited.insert(file);
+            let mut pending = vec![file];
+            while let Some(current) = pending.pop() {
+                let includes = self.includes(current);
+                pending.extend(
+                    includes
+                        .iter()
+                        .copied()
+                        .filter(|&included| visited.insert(included)),
+                );
+            }
+            let mut closure: Vec<u32> = visited.into_iter().collect();
+            closure.sort_unstable();
+            closure.into()
+        })
     }
 
     // constraint: a file sees the definitions of its own, of the files it includes, and where a package is a
@@ -330,12 +338,9 @@ impl<'g> Cascade<'g> {
     }
 
     pub(crate) fn canonical(&self, at: SymbolAt) -> SymbolAt {
-        if let Some(&canonical) = self.canonical.borrow().get(&at) {
-            return canonical;
-        }
-        let canonical = self.linked_definition(at).unwrap_or(at);
-        self.canonical.borrow_mut().insert(at, canonical);
-        canonical
+        derived(&self.canonical, at, || {
+            self.linked_definition(at).unwrap_or(at)
+        })
     }
 
     fn linked_definition(&self, declaration: SymbolAt) -> Option<SymbolAt> {
@@ -362,20 +367,14 @@ impl<'g> Cascade<'g> {
     }
 
     pub(crate) fn declarations(&self, definition: SymbolAt) -> Rc<[SymbolAt]> {
-        if let Some(declarations) = self.declarations.borrow().get(&definition) {
-            return Rc::clone(declarations);
-        }
-        let declarations: Rc<[SymbolAt]> = if self.conventions.owner_chain_separator.is_none()
-            && self.bare_call_reaches_members()
-        {
-            self.linked_declarations(definition).into()
-        } else {
-            Rc::from([])
-        };
-        self.declarations
-            .borrow_mut()
-            .insert(definition, Rc::clone(&declarations));
-        declarations
+        derived(&self.declarations, definition, || {
+            if self.conventions.owner_chain_separator.is_none() && self.bare_call_reaches_members()
+            {
+                self.linked_declarations(definition).into()
+            } else {
+                Rc::from([])
+            }
+        })
     }
 
     fn linked_declarations(&self, definition: SymbolAt) -> Vec<SymbolAt> {
@@ -395,18 +394,13 @@ impl<'g> Cascade<'g> {
     }
 
     pub(crate) fn constructor_types(&self, at: SymbolAt) -> Option<Rc<[SymbolAt]>> {
-        if let Some(types) = self.constructor_types.borrow().get(&at) {
-            return types.clone();
-        }
-        let symbol = self.graph.sym(at);
-        let types = (self.conventions.owner_chain_separator.is_none()
-            && symbol.kind == SymbolKind::Method
-            && symbol.owner == Some(symbol.name))
-        .then(|| self.seen_types(at).into());
-        self.constructor_types
-            .borrow_mut()
-            .insert(at, types.clone());
-        types
+        derived(&self.constructor_types, at, || {
+            let symbol = self.graph.sym(at);
+            (self.conventions.owner_chain_separator.is_none()
+                && symbol.kind == SymbolKind::Method
+                && symbol.owner == Some(symbol.name))
+            .then(|| self.seen_types(at).into())
+        })
     }
 
     fn seen_types(&self, constructor: SymbolAt) -> Vec<SymbolAt> {
@@ -442,9 +436,10 @@ impl<'g> Cascade<'g> {
     }
 
     fn bindings(&self, file: u32) -> Rc<Bindings> {
-        if let Some(bindings) = self.bindings.borrow().get(&file) {
-            return Rc::clone(bindings);
-        }
+        derived(&self.bindings, file, || Rc::new(self.read_bindings(file)))
+    }
+
+    fn read_bindings(&self, file: u32) -> Bindings {
         let mut bindings = Bindings::default();
         for binding in &self.graph.file(file).bindings {
             match binding.alias.map(|alias| self.graph.strings.resolve(alias)) {
@@ -464,10 +459,6 @@ impl<'g> Cascade<'g> {
             bindings.named.retain(|&(held, _)| held != name);
             bindings.named.push((name, binding.target_dir));
         }
-        let bindings = Rc::new(bindings);
-        self.bindings
-            .borrow_mut()
-            .insert(file, Rc::clone(&bindings));
         bindings
     }
 
@@ -584,19 +575,14 @@ impl<'g> Cascade<'g> {
     }
 
     fn shared_candidates(&self, name: Str, named: &'g [SymbolAt]) -> Rc<Candidates<'g>> {
-        if let Some(shared) = self.candidates.borrow().get(&name) {
-            return Rc::clone(shared);
-        }
-        let (locals, targets): (Vec<SymbolAt>, Vec<SymbolAt>) = named
-            .iter()
-            .copied()
-            .filter(|&at| self.is_call_target(self.graph.sym(at).kind))
-            .partition(|&at| self.holder(at).is_some());
-        let shared = Rc::new(Candidates::indexed(self.graph, named, targets, locals));
-        self.candidates
-            .borrow_mut()
-            .insert(name, Rc::clone(&shared));
-        shared
+        derived(&self.candidates, name, || {
+            let (locals, targets): (Vec<SymbolAt>, Vec<SymbolAt>) = named
+                .iter()
+                .copied()
+                .filter(|&at| self.is_call_target(self.graph.sym(at).kind))
+                .partition(|&at| self.holder(at).is_some());
+            Rc::new(Candidates::indexed(self.graph, named, targets, locals))
+        })
     }
 
     fn resolve_by_name(&self, call: &Call) -> Result<Bound, Miss> {
@@ -845,20 +831,15 @@ impl<'g> Cascade<'g> {
     // constraint: a use can name a value even where a call cannot target one, so every kind but a field and a variant
     // is a candidate, whatever `values_are_call_targets` says
     fn referenceable(&self, name: Str) -> Rc<Candidates<'g>> {
-        if let Some(held) = self.referenceable.borrow().get(&name) {
-            return Rc::clone(held);
-        }
-        let named = self.named(name);
-        let targets = named
-            .iter()
-            .copied()
-            .filter(|&at| is_call_target_kind(self.graph.sym(at).kind))
-            .collect();
-        let referenceable = Rc::new(Candidates::scanned(named, targets));
-        self.referenceable
-            .borrow_mut()
-            .insert(name, Rc::clone(&referenceable));
-        referenceable
+        derived(&self.referenceable, name, || {
+            let named = self.named(name);
+            let targets = named
+                .iter()
+                .copied()
+                .filter(|&at| is_call_target_kind(self.graph.sym(at).kind))
+                .collect();
+            Rc::new(Candidates::scanned(named, targets))
+        })
     }
 
     // constraint: a member of a value binds through the type its path spells, or of the owner it names where receivers

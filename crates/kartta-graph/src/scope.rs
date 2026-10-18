@@ -7,7 +7,7 @@ use kartta_lang::{CallsOnValues, InheritedMembers, MemberCalls, SymbolKind};
 use crate::candidates::Candidates;
 use crate::confidence;
 use crate::graph::QUALIFIER_SEPARATORS;
-use crate::resolve::{Bound, Call, Cascade, derives};
+use crate::resolve::{Bound, Call, Cascade, derived, derives};
 use crate::stored::SymbolAt;
 use crate::strings::Str;
 
@@ -564,14 +564,9 @@ impl Cascade<'_> {
     }
 
     fn type_ancestors(&self, ty: SymbolAt) -> Option<Rc<Ancestors>> {
-        if let Some(ancestors) = self.type_ancestors.borrow().get(&ty) {
-            return ancestors.clone();
-        }
-        let ancestors = self.walk_type_ancestors(ty).map(Rc::new);
-        self.type_ancestors
-            .borrow_mut()
-            .insert(ty, ancestors.clone());
-        ancestors
+        derived(&self.type_ancestors, ty, || {
+            self.walk_type_ancestors(ty).map(Rc::new)
+        })
     }
 
     fn walk_type_ancestors(&self, ty: SymbolAt) -> Option<Ancestors> {
@@ -625,18 +620,13 @@ impl Cascade<'_> {
     }
 
     fn owner_ancestors(&self, own: Str) -> Option<Rc<Ancestors>> {
-        if let Some(ancestors) = self.owner_ancestors.borrow().get(&own) {
-            return ancestors.clone();
-        }
-        let ancestors = match self.conventions.owner_chain_separator {
-            Some(_) => self.chain_ancestors(own),
-            None => self.union_of_type_ancestors(own),
-        }
-        .map(Rc::new);
-        self.owner_ancestors
-            .borrow_mut()
-            .insert(own, ancestors.clone());
-        ancestors
+        derived(&self.owner_ancestors, own, || {
+            match self.conventions.owner_chain_separator {
+                Some(_) => self.chain_ancestors(own),
+                None => self.union_of_type_ancestors(own),
+            }
+            .map(Rc::new)
+        })
     }
 
     fn union_of_type_ancestors(&self, own: Str) -> Option<Ancestors> {
