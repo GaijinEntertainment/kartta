@@ -1,5 +1,5 @@
 use kartta_lang::tree::{children, named_children, text};
-use tree_sitter::{Node, TreeCursor};
+use tree_sitter::Node;
 
 pub(super) const PREDECLARED: &[&str] = &[
     "any",
@@ -262,16 +262,19 @@ pub(super) fn call_target(function: Node<'_>, source: &[u8]) -> (String, Option<
     }
 }
 
-pub(super) fn next_in_preorder(cursor: &mut TreeCursor<'_>, descend: bool) -> bool {
-    if descend && cursor.goto_first_child() {
-        return true;
-    }
+pub(super) fn preorder_within<'t>(node: Node<'t>, mut visit: impl FnMut(Node<'t>) -> bool) {
+    let mut cursor = node.walk();
     loop {
-        if cursor.goto_next_sibling() {
-            return true;
+        if visit(cursor.node()) && cursor.goto_first_child() {
+            continue;
         }
-        if !cursor.goto_parent() {
-            return false;
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return;
+            }
         }
     }
 }
