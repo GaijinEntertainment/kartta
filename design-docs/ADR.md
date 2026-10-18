@@ -126,6 +126,8 @@
 - [3.33 Follow a tree through the questions each file's resolution
   asked](./adr/3.33-follow-a-tree-through-the-questions-each-file-s-resolution-asked.md) — initiative `03-code-graph`,
   2026-10-18
+- [3.34 Record each read and write of a field or a value, and bind it when a query
+  asks](./adr/3.34-record-each-read-and-write-of-a-field-or-a-value.md) — initiative `03-code-graph`, 2026-10-18
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md) — initiative
   `04-consumer-surfaces`, 2026-10-18
