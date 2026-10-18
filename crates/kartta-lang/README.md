@@ -41,10 +41,10 @@ A language states its markers and the comment forms of its header as a `Banner`,
 banner opens as generated code. A marker inside a backtick span is a mention, and one below the first code is no
 banner.
 
-## Walking tree-sitter trees
+## Parsing and walking tree-sitter trees
 
-The `tree-sitter` feature adds `kartta_lang::tree`: a pre-order walk, the text and signature helpers a language
-extracting through tree-sitter needs, and the fingerprint of such a language from its `SOURCE_ID` and its grammar. The
-contract itself names no parser.
+The `tree-sitter` feature adds `kartta_lang::tree`: a parse on the parser each thread keeps per grammar, a pre-order
+walk, the text and signature helpers a language extracting through tree-sitter needs, and the fingerprint of such a
+language from its `SOURCE_ID` and its grammar. The contract itself names no parser.
 
 Status: the API is new and is not published yet.
