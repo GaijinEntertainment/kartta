@@ -5,11 +5,11 @@ use std::hash::Hash;
 
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
-use kartta_lang::SymbolKind;
+use kartta_lang::{Access, SymbolKind};
 
 use crate::confidence;
 use crate::graph::{Definition, Graph, QUALIFIER_SEPARATORS, is_call_target_kind, narrow};
-use crate::resolve::{Call, Cascade};
+use crate::resolve::{Call, Cascade, UseMiss};
 use crate::stored::{Entry, Site, SymbolAt};
 use crate::strings::Str;
 
@@ -102,6 +102,59 @@ pub struct Walk<'g> {
     pub unresolved: usize,
 }
 
+/// Which of a symbol's sites [`Graph::references`] answers, and how many of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct SiteQuery {
+    /// The least [`confidence`](crate::confidence) a site needs, 0 to 100; 0 takes every site.
+    pub min_confidence: u8,
+    /// The uses kept: those that read the symbol for [`Access::Read`], that assign it for [`Access::Write`], and the
+    /// updates alone for [`Access::Update`]; an update reads and assigns, and no call is kept. `None` keeps every site.
+    pub access: Option<Access>,
+    /// How many sites the answer lists at most.
+    pub limit: usize,
+}
+
+impl SiteQuery {
+    /// A query for at most `limit` sites, of any confidence and any access.
+    #[must_use]
+    pub const fn new(limit: usize) -> Self {
+        Self {
+            min_confidence: 0,
+            access: None,
+            limit,
+        }
+    }
+
+    /// This query with the confidence floor set to `min_confidence`.
+    #[must_use]
+    pub const fn with_min_confidence(self, min_confidence: u8) -> Self {
+        Self {
+            min_confidence,
+            ..self
+        }
+    }
+
+    /// This query keeping only the uses that touch the symbol as `access` says.
+    #[must_use]
+    pub const fn with_access(self, access: Access) -> Self {
+        Self {
+            access: Some(access),
+            ..self
+        }
+    }
+
+    const fn keeps(self, access: Option<Access>) -> bool {
+        match (self.access, access) {
+            (None, _) => true,
+            (Some(_), None) => false,
+            (Some(Access::Read), Some(access)) => access.reads(),
+            (Some(Access::Write), Some(access)) => access.writes(),
+            (Some(Access::Update), Some(access)) => matches!(access, Access::Update),
+        }
+    }
+}
+
 /// A site that uses a symbol: a call of it, or a use of its name outside a call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -114,8 +167,35 @@ pub struct Reference<'g> {
     /// bound it.
     pub confidence: u8,
     /// Whether the site calls the symbol. A caller counts once, at the line of its call; any other use counts once a
-    /// line.
+    /// line for each way it touches the symbol.
     pub call: bool,
+    /// How the site touches the symbol; a call, and a use as a type, read it.
+    pub access: Access,
+}
+
+/// How many sites of each kind a symbol has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub struct SiteCounts {
+    /// The calls.
+    pub calls: usize,
+    /// The other uses that read the symbol, or name it as a type.
+    pub reads: usize,
+    /// The uses that assign it without reading it.
+    pub writes: usize,
+    /// The uses that read and assign it.
+    pub updates: usize,
+}
+
+impl SiteCounts {
+    const fn add(&mut self, access: Option<Access>) {
+        match access {
+            None => self.calls += 1,
+            Some(Access::Read) => self.reads += 1,
+            Some(Access::Write) => self.writes += 1,
+            Some(Access::Update) => self.updates += 1,
+        }
+    }
 }
 
 /// The sites that use one symbol.
@@ -128,10 +208,16 @@ pub struct References<'g> {
     pub passed_over: usize,
     /// The sites, by file and line, at most the query's limit.
     pub sites: Vec<Reference<'g>>,
-    /// The sites that pass the confidence floor, before the limit.
+    /// The sites that pass the confidence floor and the access the query keeps, before the limit.
     pub total: usize,
     /// The sites the confidence floor left out.
     pub below_confidence: usize,
+    /// The sites that pass the confidence floor, of each kind, whatever access the query keeps.
+    pub counts: SiteCounts,
+    /// The uses that take a member of the symbol's name on a value and bind no definition, because the graph could
+    /// not follow the value's type and no other tier picked one of the members of the name: any of them, this one
+    /// included, may be meant. Counted for a member only, and 0 for any other symbol.
+    pub ambiguous: usize,
 }
 
 /// The shortest chain of calls the graph holds from one symbol to another.
@@ -226,70 +312,78 @@ impl Graph {
         Some(walk)
     }
 
-    /// The sites that call or use the symbol `name` selects, at least `min_confidence` sure on the 0 to 100 scale of
-    /// [`confidence`](crate::confidence), 0 taking every site, at most `limit` of them, or `None` when it selects none.
-    /// A name selects among every symbol a use can name, a value and a field included where calls target neither, and
-    /// a bare name shared by several of them selects the one with the most sites.
+    /// The sites that call or use the symbol `name` selects that `query` keeps, or `None` when it selects none. A name
+    /// selects among every symbol a use can name, a value and a field included where calls target neither, and a bare
+    /// name shared by several of them selects the one with the most sites.
     ///
     /// The uses are those the language records. A member taken on a value binds through the type the language spells
     /// for the value, else the one field of the name in the use's own file. Every site of the name is resolved before
-    /// `limit` applies, so the limit bounds the answer, not the work, and `total` counts them all.
+    /// the query's limit applies, so the limit bounds the answer, not the work, and `total` counts them all.
     #[must_use]
-    pub fn references(
-        &self,
-        name: &str,
-        min_confidence: u8,
-        limit: usize,
-    ) -> Option<References<'_>> {
+    pub fn references(&self, name: &str, query: SiteQuery) -> Option<References<'_>> {
         let mut calls = Calls::wanting(self, Wanted::Referents);
         let root = calls.select(name, Calls::site_count)?;
 
         let named = self.sym(root).name;
         calls.resolve_callers(named);
         calls.resolve_uses(named);
-        let mut uses: Vec<(Edge, bool)> = edges_of(&calls.callers, root)
+        let mut sites: Vec<(Edge, Option<Access>)> = edges_of(&calls.callers, root)
             .iter()
-            .map(|&edge| (edge, true))
+            .map(|&edge| (edge, None))
             .chain(
                 edges_of(&calls.uses, root)
                     .iter()
-                    .map(|&edge| (edge, false)),
+                    .map(|&(edge, access)| (edge, Some(access))),
             )
             .collect();
-        let before = uses.len();
-        uses.retain(|(edge, _)| edge.confidence >= min_confidence);
-        let below_confidence = before - uses.len();
-        let total = uses.len();
-        let by_file_and_line = |&(edge, call): &(Edge, bool)| {
+        let mut below_confidence = 0;
+        let mut counts = SiteCounts::default();
+        sites.retain(|&(edge, access)| {
+            if edge.confidence < query.min_confidence {
+                below_confidence += 1;
+                return false;
+            }
+            counts.add(access);
+            query.keeps(access)
+        });
+        let total = sites.len();
+        let by_file_and_line = |&(edge, access): &(Edge, Option<Access>)| {
             (
                 self.path_rank(edge.far.file),
                 edge.line,
-                call,
+                access,
                 edge.far.index,
             )
         };
-        if limit < uses.len() {
-            if let Some(last) = limit.checked_sub(1) {
-                uses.select_nth_unstable_by_key(last, by_file_and_line);
+        if query.limit < sites.len() {
+            if let Some(last) = query.limit.checked_sub(1) {
+                sites.select_nth_unstable_by_key(last, by_file_and_line);
             }
-            uses.truncate(limit);
+            sites.truncate(query.limit);
         }
-        uses.sort_unstable_by_key(by_file_and_line);
+        sites.sort_unstable_by_key(by_file_and_line);
 
         Some(References {
             symbol: self.definition_at(root),
             passed_over: calls.passed_over(name, root),
             total,
-            sites: uses
+            sites: sites
                 .into_iter()
-                .map(|(edge, call)| Reference {
+                .map(|(edge, access)| Reference {
                     site_of: self.definition_at(edge.far),
                     line: edge.line,
                     confidence: edge.confidence,
-                    call,
+                    call: access.is_none(),
+                    access: access.unwrap_or(Access::Read),
                 })
                 .collect(),
             below_confidence,
+            counts,
+            ambiguous: if self.sym(root).owner.is_some() {
+                calls.ambiguous.get(&named).copied().unwrap_or(0)
+            } else {
+                0
+            },
         })
     }
 
@@ -310,7 +404,7 @@ impl Graph {
     }
 }
 
-fn edges_of(held: &HashMap<SymbolAt, Vec<Edge>, FixedState>, at: SymbolAt) -> &[Edge] {
+fn edges_of<T>(held: &HashMap<SymbolAt, Vec<T>, FixedState>, at: SymbolAt) -> &[T] {
     held.get(&at).map_or(&[], Vec::as_slice)
 }
 
@@ -332,8 +426,9 @@ pub(crate) struct Calls<'g> {
     callers: HashMap<SymbolAt, Vec<Edge>, FixedState>,
     called_names: HashSet<Str, FixedState>,
     uncertain: HashMap<Str, Uncertain, FixedState>,
-    uses: HashMap<SymbolAt, Vec<Edge>, FixedState>,
+    uses: HashMap<SymbolAt, Vec<(Edge, Access)>, FixedState>,
     used_names: HashSet<Str, FixedState>,
+    ambiguous: HashMap<Str, usize, FixedState>,
 }
 
 // constraint: the calls of one name that bind no definition, bind one only by proximity, or bind their own caller
@@ -375,9 +470,11 @@ impl<'g> Calls<'g> {
         let name = self.graph.sym(at).name;
         self.resolve_callers(name);
         self.resolve_uses(name);
+        let uses = edges_of(&self.uses, at).iter().map(|&(edge, _)| edge);
         edges_of(&self.callers, at)
             .iter()
-            .chain(edges_of(&self.uses, at))
+            .copied()
+            .chain(uses)
             .map(|edge| (edge.far, edge.confidence))
     }
 
@@ -422,6 +519,7 @@ impl<'g> Calls<'g> {
             uncertain: HashMap::with_hasher(FixedState::default()),
             uses: HashMap::with_hasher(FixedState::default()),
             used_names: HashSet::with_hasher(FixedState::default()),
+            ambiguous: HashMap::with_hasher(FixedState::default()),
         }
     }
 
@@ -626,28 +724,42 @@ impl<'g> Calls<'g> {
         if !self.used_names.insert(name) {
             return;
         }
-        let mut best: HashMap<(SymbolAt, SymbolAt, u32), u8, FixedState> =
+        let mut best: HashMap<(SymbolAt, SymbolAt, u32, Access), u8, FixedState> =
             HashMap::with_hasher(FixedState::default());
+        let mut ambiguous = 0;
         for site in self.graph.uses(name) {
-            let Some((used, confidence)) = self.cascade.resolve_reference(site.file, site.index)
-            else {
-                continue;
+            let (used, confidence) = match self.cascade.resolve_reference(site.file, site.index) {
+                Ok(bound) => bound,
+                Err(UseMiss::Ambiguous) => {
+                    ambiguous += 1;
+                    continue;
+                }
+                Err(UseMiss::Elsewhere) => continue,
             };
             let reference = self.graph.file(site.file).references[site.index as usize];
             let at = SymbolAt {
                 file: site.file,
                 index: reference.site_of(),
             };
-            let key = (self.cascade.canonical(used), at, reference.line);
+            let key = (
+                self.cascade.canonical(used),
+                at,
+                reference.line,
+                reference.access(),
+            );
             let held = best.entry(key).or_insert(confidence);
             *held = (*held).max(confidence);
         }
-        for ((used, far, line), confidence) in best {
-            self.uses.entry(used).or_default().push(Edge {
+        if ambiguous > 0 {
+            self.ambiguous.insert(name, ambiguous);
+        }
+        for ((used, far, line, access), confidence) in best {
+            let edge = Edge {
                 far,
                 confidence,
                 line,
-            });
+            };
+            self.uses.entry(used).or_default().push((edge, access));
         }
     }
 

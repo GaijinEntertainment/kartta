@@ -99,11 +99,11 @@ pub use kartta_graph::{
     Blast, CallPath, Change, Dead, DeadCode, Definition, Definitions, Dependent, Dependents,
     DirCount, DirectCalls, Excluded, Found, Graph, Hit, Hotspot, Implementations, Implementor,
     Limits, Miss, Misses, Nearness, ReachBand, Reached, Reference, References, Region, Resolution,
-    Search, Seed, Segment, SegmentSymbol, Stats, Unbound, Walk, confidence,
+    Search, Seed, Segment, SegmentSymbol, SiteCounts, SiteQuery, Stats, Unbound, Walk, confidence,
 };
 pub use kartta_lang::{
-    BlockComment, Conventions, DocComments, Extraction, Language, RawExtraction, Repository,
-    Resolver, Symbol, SymbolFlags, SymbolKind,
+    Access, BlockComment, Conventions, DocComments, Extraction, Language, RawExtraction,
+    Repository, Resolver, Symbol, SymbolFlags, SymbolKind,
 };
 
 pub use crate::engine::{Engine, EngineOutcome, EngineRefresh, Widened};

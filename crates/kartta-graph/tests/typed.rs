@@ -5,7 +5,7 @@
               of an integration test crate are neither; a name that selects nothing is the failure"
 )]
 
-use kartta_graph::{Graph, Limits, Miss};
+use kartta_graph::{Graph, Limits, Miss, SiteCounts, SiteQuery};
 use kartta_lang::{
     Access, CallRef, Conventions, Extraction, ImportBinding, MemberCalls, OwnMembers, Receiver,
     Receivers, RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind,
@@ -493,7 +493,7 @@ fn config_package() -> Extraction {
 
 fn sites_of(graph: &Graph, name: &str) -> Vec<(String, u32, u8)> {
     let references = graph
-        .references(name, 0, usize::MAX)
+        .references(name, SiteQuery::new(usize::MAX))
         .expect("the name selects a symbol");
     references
         .sites
@@ -600,4 +600,67 @@ fn a_member_of_a_type_outside_the_graph_or_of_one_without_it_binds_nothing() {
     let graph = graph(&[config_package(), caller]);
 
     assert_eq!(sites_of(&graph, "Config.Timeout"), []);
+}
+
+#[test]
+fn a_field_answers_each_access_counted_the_ones_asked_for_and_the_uses_it_could_not_tell() {
+    let mut caller = file(
+        "app/main.go",
+        "main",
+        vec![function("main", "Run", 1)],
+        Vec::new(),
+    );
+    caller.references = vec![
+        accessing("Timeout", "cfg.Config", Access::Write, 2),
+        accessing("Timeout", "cfg.Config", Access::Read, 2),
+        accessing("Timeout", "cfg.Config", Access::Update, 3),
+        accessing("Timeout", "cfg.Config", Access::Read, 4),
+        accessing("Timeout", "", Access::Read, 5),
+        accessing("Timeout", "http.Client", Access::Read, 6),
+    ];
+    let caller = importing(caller, &[("cfg", Some("cfg")), ("http", None)]);
+    let graph = graph(&[config_package(), caller]);
+    let answer = |query| {
+        graph
+            .references("Config.Timeout", query)
+            .expect("the field is selected")
+    };
+
+    let every = answer(SiteQuery::new(usize::MAX));
+    let writers = answer(SiteQuery::new(usize::MAX).with_access(Access::Write));
+    let readers = answer(SiteQuery::new(1).with_access(Access::Read));
+
+    let accesses = |sites: &[kartta_graph::Reference<'_>]| -> Vec<(u32, Access)> {
+        sites.iter().map(|site| (site.line, site.access)).collect()
+    };
+    assert_eq!(
+        accesses(&every.sites),
+        [
+            (2, Access::Read),
+            (2, Access::Write),
+            (3, Access::Update),
+            (4, Access::Read)
+        ],
+        "a read and a write on one line are two sites"
+    );
+    let counts = |counts: SiteCounts| (counts.calls, counts.reads, counts.writes, counts.updates);
+    assert_eq!(counts(every.counts), (0, 2, 1, 1));
+    assert_eq!(
+        every.ambiguous, 1,
+        "a member on a value of no known type may be this field; one of a type outside the graph is not"
+    );
+    assert_eq!(
+        accesses(&writers.sites),
+        [(2, Access::Write), (3, Access::Update)]
+    );
+    assert_eq!(
+        (writers.total, counts(writers.counts)),
+        (2, (0, 2, 1, 1)),
+        "the counts count every site whatever access the query keeps"
+    );
+    assert_eq!(
+        (accesses(&readers.sites), readers.total),
+        (vec![(2, Access::Read)], 3),
+        "an update reads too, and the limit cuts what is listed"
+    );
 }
