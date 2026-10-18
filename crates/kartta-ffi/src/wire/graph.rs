@@ -95,11 +95,7 @@ mod label {
     }
 
     pub(super) fn access<S: Serializer>(access: &Access, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(match access {
-            Access::Read => "read",
-            Access::Write => "write",
-            Access::Update => "update",
-        })
+        serializer.serialize_str(access.label())
     }
 
     pub(super) fn nearness<S: Serializer>(
