@@ -52,7 +52,7 @@
 //! assert_eq!(raw.calls[0].callee, "stdlib");
 //! ```
 
-use kartta_lang::path::base;
+use kartta_lang::path::has_extension;
 use kartta_lang::{BlockComment, DocComments, Language, RawExtraction, Repository, Resolver};
 
 use crate::resolve::Manifests;
@@ -83,9 +83,7 @@ impl Language for Puppet {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path)
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("pp"))
+        has_extension(path, &["pp"])
     }
 
     fn fingerprint(&self) -> &[u8] {

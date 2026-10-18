@@ -55,7 +55,7 @@
 //! assert_eq!(raw.calls[0].callee, "rsync");
 //! ```
 
-use kartta_lang::path::base;
+use kartta_lang::path::has_extension;
 use kartta_lang::{DocComments, Language, RawExtraction, Repository, Resolver};
 
 use crate::resolve::Sources;
@@ -82,9 +82,7 @@ impl Language for Bash {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path).rsplit_once('.').is_some_and(|(_, extension)| {
-            extension.eq_ignore_ascii_case("sh") || extension.eq_ignore_ascii_case("bash")
-        })
+        has_extension(path, &["sh", "bash"])
     }
 
     fn fingerprint(&self) -> &[u8] {

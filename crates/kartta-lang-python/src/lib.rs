@@ -73,7 +73,7 @@
 //! assert_eq!(raw.calls[0].callee, "helper");
 //! ```
 
-use kartta_lang::path::base;
+use kartta_lang::path::has_extension;
 use kartta_lang::{
     Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver, ValueUses,
 };
@@ -104,9 +104,7 @@ impl Language for Python {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path)
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| is_python_extension(extension))
+        has_extension(path, &["py", "pyi"])
     }
 
     fn fingerprint(&self) -> &[u8] {

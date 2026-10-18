@@ -75,7 +75,7 @@
 //! assert_eq!(names, ["api.Serve"]);
 //! ```
 
-use kartta_lang::path::base;
+use kartta_lang::path::has_extension;
 use kartta_lang::{
     Conventions, DocComments, Language, MemberCalls, OwnMembers, RawExtraction, Receivers,
     Repository, Resolver, TypeUses,
@@ -105,9 +105,7 @@ impl Language for Go {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path)
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("go"))
+        has_extension(path, &["go"])
     }
 
     fn fingerprint(&self) -> &[u8] {

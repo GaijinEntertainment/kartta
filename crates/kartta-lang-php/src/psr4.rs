@@ -1,5 +1,5 @@
 use kartta_lang::Repository;
-use kartta_lang::path::dir;
+use kartta_lang::path::{child, dir};
 use serde_json::Value;
 
 const COMPOSER_JSON: &str = "composer.json";
@@ -100,17 +100,9 @@ fn collect(contents: &[u8], base: &str, prefixes: &mut Vec<(String, String)>) {
             for directory in directories.iter().filter_map(Value::as_str) {
                 prefixes.push((
                     prefix.to_owned(),
-                    rebased(base, directory.trim_end_matches('/')),
+                    child(base, directory.trim_end_matches('/')),
                 ));
             }
         }
-    }
-}
-
-fn rebased(base: &str, directory: &str) -> String {
-    match (base.is_empty(), directory.is_empty()) {
-        (true, _) => directory.to_owned(),
-        (false, true) => base.to_owned(),
-        (false, false) => format!("{base}/{directory}"),
     }
 }
