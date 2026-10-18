@@ -41,46 +41,40 @@ pub(crate) struct Family {
 /// What one [`Engine::build`] produced: the engine, and the failures the build collected.
 #[derive(Debug)]
 pub struct EngineOutcome {
-    engine: Engine,
-    errors: Vec<BuildError>,
-}
-
-impl EngineOutcome {
-    /// The engine the build produced.
-    #[must_use]
-    pub const fn engine(&self) -> &Engine {
-        &self.engine
-    }
-
-    /// Takes the engine, dropping the report.
-    ///
-    /// Check [`EngineOutcome::errors`] first: a graph built from an incomplete walk looks exactly like one built from a
-    /// complete walk.
-    #[must_use]
-    pub fn into_engine(self) -> Engine {
-        self.engine
-    }
-
+    /// The engine the build produced. Check [`EngineOutcome::errors`] before keeping it alone: a graph built from an
+    /// incomplete walk looks exactly like one built from a complete walk.
+    pub engine: Engine,
     /// The failures the build collected rather than returned, as [`kartta_fs::BuildOutcome::errors`] reports them,
     /// each costing only what it names. A source file listed as [`BuildError::Read`] is indexed, and no graph holds it.
-    #[must_use]
-    pub fn errors(&self) -> &[BuildError] {
-        &self.errors
-    }
+    pub errors: Vec<BuildError>,
 }
 
 /// What one [`Engine::refresh`] or [`Engine::refresh_paths`] did: what the index's refresh walked and found, and what
 /// the graphs took in, dropped and resolved again.
 #[derive(Debug)]
 pub struct EngineRefresh {
-    pub(crate) outcome: RefreshOutcome,
+    /// What the index's refresh reports: the parts it walked, the regular files it added and removed, and the ids it
+    /// retired.
+    pub index: RefreshOutcome,
     pub(crate) errors: Vec<BuildError>,
-    pub(crate) extracted: usize,
-    pub(crate) resolved_again: usize,
-    pub(crate) dropped: Option<usize>,
-    pub(crate) reconfigured: Vec<String>,
-    pub(crate) rebuilt: bool,
-    pub(crate) widened: Option<Widened>,
+    /// The files the walk read, new or changed, whose extraction went into a graph.
+    pub extracted: usize,
+    /// The files the walk carried over unchanged that were read and resolved again, because a question their
+    /// resolution asked of the tree has another answer now, or their language's configuration changed.
+    pub resolved_again: usize,
+    /// The files the graphs held and hold no more: gone, hidden by the ignore rules, no longer read as text, or not
+    /// read again where a change reached them. `None` when every graph was [rebuilt](EngineRefresh::rebuilt), which
+    /// keeps no list of the files held before; [`RefreshOutcome::removed`] still names the files the tree lost.
+    pub dropped: Option<usize>,
+    /// The languages whose resolver read another configuration than it read before, a `go.mod` or a `tsconfig.json`,
+    /// so that every file of theirs was resolved again, in the order the languages were given to [`Engine::build`].
+    pub reconfigured: Vec<String>,
+    /// Whether every graph was built again from every file, because the engine was built without
+    /// [`BuildOptions::stamps`] and kept nothing to find what a change reaches.
+    pub rebuilt: bool,
+    /// The paths an [`Engine::refresh_paths`] was named and the limit they passed, when it refreshed the whole tree
+    /// in their place; `None` from [`Engine::refresh`] and from a call that walked the paths it was named.
+    pub widened: Option<Widened>,
 }
 
 /// How an [`Engine::refresh_paths`] came to refresh the whole tree: it was named more paths than it walks apart.
@@ -93,59 +87,10 @@ pub struct Widened {
 }
 
 impl EngineRefresh {
-    /// What the index's refresh reports: the parts it walked, the regular files it added and removed, and the ids it
-    /// retired.
-    #[must_use]
-    pub const fn index(&self) -> &RefreshOutcome {
-        &self.outcome
-    }
-
     /// The failures the refresh collected rather than returned: those of the index's walk, then the files a graph
     /// could not read again, each listed as [`BuildError::Read`] and held by no graph.
     pub fn errors(&self) -> impl Iterator<Item = &BuildError> {
-        self.outcome.errors.iter().chain(&self.errors)
-    }
-
-    /// The files the walk read, new or changed, whose extraction went into a graph.
-    #[must_use]
-    pub const fn extracted(&self) -> usize {
-        self.extracted
-    }
-
-    /// The files the walk carried over unchanged that were read and resolved again, because a question their
-    /// resolution asked of the tree has another answer now, or their language's configuration changed.
-    #[must_use]
-    pub const fn resolved_again(&self) -> usize {
-        self.resolved_again
-    }
-
-    /// The files the graphs held and hold no more: gone, hidden by the ignore rules, no longer read as text, or not
-    /// read again where a change reached them. `None` when every graph was [rebuilt](EngineRefresh::rebuilt), which
-    /// keeps no list of the files held before; [`RefreshOutcome::removed`] still names the files the tree lost.
-    #[must_use]
-    pub const fn dropped(&self) -> Option<usize> {
-        self.dropped
-    }
-
-    /// The languages whose resolver read another configuration than it read before, a `go.mod` or a `tsconfig.json`,
-    /// so that every file of theirs was resolved again, in the order the languages were given to [`Engine::build`].
-    #[must_use]
-    pub fn reconfigured(&self) -> &[String] {
-        &self.reconfigured
-    }
-
-    /// Whether every graph was built again from every file, because the engine was built without
-    /// [`BuildOptions::stamps`] and kept nothing to find what a change reaches.
-    #[must_use]
-    pub const fn rebuilt(&self) -> bool {
-        self.rebuilt
-    }
-
-    /// The paths an [`Engine::refresh_paths`] was named and the limit they passed, when it refreshed the whole tree
-    /// in their place; `None` from [`Engine::refresh`] and from a call that walked the paths it was named.
-    #[must_use]
-    pub const fn widened(&self) -> Option<Widened> {
-        self.widened
+        self.index.errors.iter().chain(&self.errors)
     }
 }
 
@@ -363,7 +308,7 @@ impl Engine {
         release_freed_memory();
 
         Ok(EngineRefresh {
-            outcome,
+            index: outcome,
             errors: inserted.errors,
             extracted,
             resolved_again: 0,

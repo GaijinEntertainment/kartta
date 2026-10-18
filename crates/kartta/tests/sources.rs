@@ -78,7 +78,7 @@ fn tree(files: &[(&str, &str)]) -> (TempDir, Engine) {
         None,
     )
     .expect("build the engine")
-    .into_engine();
+    .engine;
     (dir, engine)
 }
 

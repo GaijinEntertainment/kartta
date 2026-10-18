@@ -230,12 +230,12 @@ fn tree(spec: &[(&str, &str)]) -> TempDir {
 fn build(root: &Path, options: &BuildOptions, languages: Vec<Box<dyn Language>>) -> Engine {
     let outcome = Engine::build(root, options, languages, None).expect("build the engine");
     assert!(
-        outcome.errors().is_empty(),
+        outcome.errors.is_empty(),
         "unexpected build errors: {:?}",
-        outcome.errors()
+        outcome.errors
     );
 
-    outcome.into_engine()
+    outcome.engine
 }
 
 fn cached(cache: &Path) -> BuildOptions {
@@ -603,7 +603,7 @@ fn a_build_cancelled_while_it_resolves_its_last_batch_completes() {
         Some(&cancel),
     );
 
-    let engine = outcome.expect("every batch was resolved").into_engine();
+    let engine = outcome.expect("every batch was resolved").engine;
     let graph = engine
         .graph_of("a.defs")
         .expect("the language claims the file");
