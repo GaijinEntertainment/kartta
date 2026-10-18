@@ -56,8 +56,6 @@ fn main() {
         counts[slot(EntryKind::Other)],
     );
 
-    report_sizes(&index);
-
     let Some(query) = query else {
         return;
     };
@@ -71,30 +69,6 @@ fn main() {
     for found in &ranked {
         println!("    {:>12}  {:?}", found.score, paths.get(found.position));
     }
-}
-
-/// Totals every file's size, timed and labelled apart from the build.
-///
-/// This is a `stat` for every file in the tree, serial and cold, because a fresh index has read none of them yet. It
-/// is reported as its own cost rather than folded into the build, which is precisely the point the lazy reads make:
-/// the work is real, and a caller that never asks for a size never pays it.
-fn report_sizes(index: &Index) {
-    let started = Instant::now();
-    let mut known_bytes = 0u64;
-    let mut unknown_sizes = 0usize;
-
-    for inspected in index.inspected() {
-        match inspected.size() {
-            Some(size) => known_bytes = known_bytes.saturating_add(size),
-            None if inspected.entry().kind() == EntryKind::File => unknown_sizes += 1,
-            None => {}
-        }
-    }
-
-    println!(
-        "  sizes read on demand in {:.2?}: {known_bytes} known bytes over {unknown_sizes} files of unknown size",
-        started.elapsed()
-    );
 }
 
 /// Where a kind's tally lives. A match rather than a cast, so a new kind fails to compile instead of miscounting.

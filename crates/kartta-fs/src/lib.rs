@@ -183,7 +183,7 @@ pub use crate::filter::{Filter, FilterError};
 pub use crate::fuzzy::{FuzzyMatch, FuzzyOptions};
 pub use crate::glob::GlobOptions;
 pub use crate::grep::GrepOptions;
-pub use crate::index::{BuildOutcome, Index, Inspected, Paths, RefreshOutcome};
+pub use crate::index::{BuildOutcome, Index, Paths, RefreshOutcome};
 pub use crate::list::{ListError, ListOptions, Listed, Listing};
 pub use crate::matches::{Cut, Failure, Line, LineKind, MatchedFile, Matches};
 pub use crate::patterns::{Case, PatternError, Patterns};

@@ -1662,11 +1662,15 @@ fn a_built_in_extension_a_set_of_the_caller_s_own_leaves_out_is_read_instead() {
 
     assert_eq!(index.is_binary("logo.png"), Some(false));
 
-    let swept: Vec<Option<bool>> = index.inspected().map(|found| found.is_binary()).collect();
+    let listed: Vec<Option<bool>> = list(&index, "")
+        .items()
+        .iter()
+        .map(Listed::is_binary)
+        .collect();
     assert_eq!(
-        swept,
+        listed,
         [Some(false)],
-        "the sweep classifies with the same set"
+        "a listing classifies with the same set"
     );
 }
 
@@ -1885,15 +1889,16 @@ fn path_search_options_default_to_no_limit_and_zero_lifts_it() {
 }
 
 #[test]
-fn a_sweep_answers_the_same_facts_as_the_keyed_lookups() {
+fn a_listing_answers_the_same_facts_as_the_keyed_lookups() {
     type Facts = (String, Option<u64>, Option<bool>);
 
     let dir = tree(&[("a.txt", "hello"), ("sub/b.bin", "x"), ("empty/", "")]);
     fs::write(dir.path().join("sub/blob.txt"), b"has\0a nul").expect("write a binary file");
     let index = default_index(dir.path());
 
-    let swept: Vec<Facts> = index
-        .inspected()
+    let listed: Vec<Facts> = list(&index, "")
+        .items()
+        .iter()
         .map(|found| {
             (
                 found.entry().path().to_owned(),
@@ -1914,29 +1919,25 @@ fn a_sweep_answers_the_same_facts_as_the_keyed_lookups() {
         .collect();
 
     assert_eq!(
-        swept, keyed,
+        listed, keyed,
         "one index, one set of answers, two routes to them"
     );
-    assert_eq!(swept.len(), index.len());
+    assert_eq!(listed.len(), index.len());
 }
 
 #[test]
-fn a_sweep_reads_nothing_for_an_entry_it_never_asks_about() {
+fn a_listing_reads_nothing_for_an_entry_it_never_asks_about() {
     let dir = tree(&[("gone.txt", "here for now")]);
     let index = default_index(dir.path());
 
-    let names: Vec<String> = index
-        .inspected()
-        .map(|found| found.entry().name().to_owned())
-        .collect();
-    assert_eq!(names, ["gone.txt"]);
+    assert_eq!(listed(&list(&index, "")), ["gone.txt"]);
 
     fs::remove_file(dir.path().join("gone.txt")).expect("remove the file");
 
     assert_eq!(
         index.size("gone.txt"),
         None,
-        "walking past an entry leaves its slot unread, so the first ask is still the first read"
+        "listing an entry leaves its slot unread, so the first ask is still the first read"
     );
 }
 
