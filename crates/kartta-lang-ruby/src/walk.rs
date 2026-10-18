@@ -145,11 +145,11 @@ impl Emitter<'_> {
         let owner = enclosing_type(node, self.source);
         let (kind, qualified) = owner.as_ref().map_or_else(
             || (SymbolKind::Function, name.clone()),
-            |owner| (SymbolKind::Method, owner.member("#", &name)),
+            |owner| (SymbolKind::Method, format!("{owner}#{name}")),
         );
 
         let mut symbol = declared(name, qualified.clone(), kind, node);
-        symbol.owner = owner.map(|owner| owner.qualified);
+        symbol.owner = owner;
         symbol.exported =
             wrapping_visibility(node, self.source).unwrap_or_else(|| self.exported_by_default());
         symbol.signature = signature(node, self.source).map(strip_endless_eq);
@@ -173,10 +173,10 @@ impl Emitter<'_> {
         };
         let qualified = owner
             .as_ref()
-            .map_or_else(|| name.clone(), |owner| owner.member(".", &name));
+            .map_or_else(|| name.clone(), |owner| format!("{owner}.{name}"));
 
         let mut symbol = declared(name, qualified.clone(), SymbolKind::Method, node);
-        symbol.owner = owner.map(|owner| owner.qualified);
+        symbol.owner = owner;
         symbol.exported = node.kind() == "singleton_method"
             || wrapping_visibility(node, self.source).unwrap_or_else(|| self.exported_by_default());
         symbol.signature = signature(node, self.source).map(strip_endless_eq);
