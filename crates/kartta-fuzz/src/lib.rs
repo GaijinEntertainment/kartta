@@ -50,12 +50,11 @@
 //! ```
 //! use std::num::NonZeroUsize;
 //!
-//! use kartta_fuzz::{Matcher, Ranked};
+//! use kartta_fuzz::{Ranked, Ranking};
 //!
 //! let paths = ["src/auth/handler.go", "src/api/handler.go", "src/main.rs"];
-//! let mut matcher = Matcher::new();
-//! let mut rank = |query: &str, limit: Option<NonZeroUsize>| -> Vec<Ranked> {
-//!     let mut ranking = matcher.ranking(query, limit);
+//! let rank = |query: &str, limit: Option<NonZeroUsize>| -> Vec<Ranked> {
+//!     let mut ranking = Ranking::new(query, limit);
 //!     for (position, path) in paths.iter().enumerate() {
 //!         ranking.offer(position, path);
 //!     }
@@ -68,7 +67,7 @@
 //! ```
 
 mod class;
-mod matcher;
+mod ranking;
 mod score;
 
-pub use crate::matcher::{Matcher, Ranked, Ranking};
+pub use crate::ranking::{Ranked, Ranking};
