@@ -98,40 +98,23 @@ fn rank(c: &mut Criterion) {
     let paths = corpus(CORPUS_LEN);
     let candidates: Vec<&str> = paths.iter().map(String::as_str).collect();
 
-    let mut group = c.benchmark_group("rank");
-    group.throughput(Throughput::Elements(CORPUS_LEN as u64));
+    for (name, limit) in [("rank", None), ("rank_limited", NonZeroUsize::new(100))] {
+        let mut group = c.benchmark_group(name);
+        group.throughput(Throughput::Elements(CORPUS_LEN as u64));
 
-    for &query in QUERIES {
-        let survivors = ranked(&candidates, query, None).len();
+        for &query in QUERIES {
+            let id = match limit {
+                None => format!("{query} ({})", ranked(&candidates, query, None).len()),
+                Some(_) => query.to_owned(),
+            };
+            group.bench_with_input(BenchmarkId::from_parameter(id), &query, |b, &query| {
+                b.iter(|| black_box(ranked(black_box(&candidates), black_box(query), limit)));
+            });
+        }
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(format!("{query} ({survivors})")),
-            &query,
-            |b, &query| {
-                b.iter(|| black_box(ranked(black_box(&candidates), black_box(query), None)));
-            },
-        );
+        group.finish();
     }
-
-    group.finish();
 }
 
-fn rank_limited(c: &mut Criterion) {
-    let paths = corpus(CORPUS_LEN);
-    let candidates: Vec<&str> = paths.iter().map(String::as_str).collect();
-    let limit = NonZeroUsize::new(100);
-
-    let mut group = c.benchmark_group("rank_limited");
-    group.throughput(Throughput::Elements(CORPUS_LEN as u64));
-
-    for &query in QUERIES {
-        group.bench_with_input(BenchmarkId::from_parameter(query), &query, |b, &query| {
-            b.iter(|| black_box(ranked(black_box(&candidates), black_box(query), limit)));
-        });
-    }
-
-    group.finish();
-}
-
-criterion_group!(benches, rank, rank_limited);
+criterion_group!(benches, rank);
 criterion_main!(benches);
