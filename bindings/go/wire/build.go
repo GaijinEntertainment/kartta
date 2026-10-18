@@ -20,6 +20,8 @@ type BuildOptions struct {
 	ContentIndex *ContentIndex `json:"content_index,omitempty"`
 	// ContentCache is a directory per-file data is shared through across builds.
 	ContentCache string `json:"content_cache,omitempty"`
+	// ContentCacheTTLSecs is the seconds after the build that computed it began that a cache entry expires; 0 is a week.
+	ContentCacheTTLSecs uint64 `json:"content_cache_ttl_secs,omitempty"`
 }
 
 // Ignore names which ignore rules a build applies.
