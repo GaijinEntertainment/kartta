@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::{Index, NO_POSITION, node_sized};
+use super::{Index, NO_POSITION};
 use crate::content::ContentId;
 use crate::stamp::{self, Seen, Stamp};
 
@@ -112,27 +112,15 @@ impl<'a> Previous<'a> {
     }
 
     pub(super) fn retired(&self) -> Vec<Range<u32>> {
-        let mut retired: Vec<Range<u32>> = Vec::new();
-        for (local, (slot, &at)) in (self.index.first_content_id..)
+        let slots = (self.index.first_content_id..)
             .zip(&self.index.content_positions)
             .enumerate()
-        {
-            let carried =
-                self.carried[local / 64].load(Ordering::Relaxed) & (1 << (local % 64)) != 0;
-            if at == NO_POSITION || carried {
-                continue;
-            }
-            match retired.last_mut() {
-                Some(run) if run.end == slot => run.end += 1,
-                _ => retired.push(slot..slot + 1),
-            }
-        }
-        let held = self.index.first_content_id + node_sized(self.index.content_positions.len());
-        let handed_by_stopped_refreshes = held..self.index.next_content_id;
-        if !handed_by_stopped_refreshes.is_empty() {
-            retired.push(handed_by_stopped_refreshes);
-        }
-        retired
+            .filter(|&(local, (_, &at))| {
+                at != NO_POSITION
+                    && self.carried[local / 64].load(Ordering::Relaxed) & (1 << (local % 64)) == 0
+            })
+            .map(|(_, (slot, _))| slot);
+        self.index.retiring(slots)
     }
 }
 
