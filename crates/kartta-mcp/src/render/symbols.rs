@@ -51,10 +51,7 @@ pub(crate) fn hits(
             .optional("role", role(definition.flags))
             .attr("kind", kind(definition.kind))
             .attr("lang", family)
-            .attr(
-                "loc",
-                span(definition.file, definition.line, definition.end_line),
-            )
+            .attr("loc", span(definition))
             .optional("sig", definition.signature.map(flat))
             .close()
     }))
@@ -133,10 +130,7 @@ fn definition(read: &Read<'_>) -> String {
         .optional("owner", definition.owner)
         .attr("kind", kind(definition.kind))
         .attr("lang", read.family)
-        .attr(
-            "loc",
-            span(definition.file, definition.line, definition.end_line),
-        )
+        .attr("loc", span(definition))
         .attr("scope", scope(read.nearness, definition))
         .optional("role", role(definition.flags));
     let source = match &read.source {

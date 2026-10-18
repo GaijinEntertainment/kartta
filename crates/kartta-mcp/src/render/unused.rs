@@ -84,10 +84,7 @@ fn symbol(family: &str, dead: &Dead<'_>) -> String {
     named("symbol", definition)
         .attr("kind", kind(definition.kind))
         .attr("lang", family)
-        .attr(
-            "loc",
-            span(definition.file, definition.line, definition.end_line),
-        )
+        .attr("loc", span(definition))
         .flag("name_used_elsewhere", dead.spelled)
         .close()
 }
