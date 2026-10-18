@@ -127,7 +127,7 @@ fn mount_name(name: &str) -> Option<&str> {
 // which lies below an ancestor of the stating file, so a directory that climbs out of it names the rest below some
 // ancestor, and one that does not climb lies inside it and names no repository directory
 fn below_working_dir(path: &str) -> MountDir {
-    let path = path.replace('\\', "/");
+    let path = forward_slashes(path);
     if is_outside(&path) {
         return MountDir::Outside;
     }
@@ -151,7 +151,7 @@ fn below_working_dir(path: &str) -> MountDir {
 
 // constraint: an AOT compiler reads a mount parameter relative to the directory of its `--config` file
 fn relative_to(stating_dir: &str, path: &str) -> MountDir {
-    let path = path.replace('\\', "/");
+    let path = forward_slashes(path);
     if is_outside(&path) {
         return MountDir::Outside;
     }

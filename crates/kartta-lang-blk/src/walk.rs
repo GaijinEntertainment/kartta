@@ -1,4 +1,4 @@
-use kartta_lang::tree::preorder;
+use kartta_lang::tree::{self, preorder};
 use kartta_lang::{RawDirective, RawExtraction};
 use tree_sitter::{Node, Tree};
 
@@ -103,7 +103,7 @@ fn string_value(parameter: Node<'_>, source: &[u8]) -> Option<String> {
 }
 
 fn line(node: Node<'_>) -> u32 {
-    u32::try_from(node.start_position().row).map_or(u32::MAX, |row| row.saturating_add(1))
+    tree::line(node.start_position().row)
 }
 
 fn record_include(file: Node<'_>, source: &[u8], line: u32) -> Option<RawDirective> {
