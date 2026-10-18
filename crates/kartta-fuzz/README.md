@@ -46,7 +46,8 @@ U+212A KELVIN SIGN does not match `k`, while a pair of non-ASCII characters comp
 repository path. `-`, `_` and a space separate words.
 
 The weights are fixed: fzy's, scaled by 1000, plus a basename bonus per matched character. Match bonuses dwarf the gap
-penalties, so alignment quality decides the rank and gaps only break near-ties. The tests pin the orderings they
+penalties, so alignment quality decides the rank and gaps only break near-ties. A skipped character costs less before
+the first match or after the last than between two, so a file extension costs a candidate little. The tests pin the orderings they
 produce — a contiguous run beating a gapped one, a filename hit beating a directory hit — not the values. Nothing is
 configurable: no caller needed another point in that space, and ADR 1.2 records what keeping it open cost.
 
@@ -76,7 +77,10 @@ over the candidate's raw bytes, and the crate's one dependency, `memchr`, is the
 non-ASCII character has no byte form and takes a scalar scan over decoded characters instead.
 
 Repository paths are ASCII-dominant, so a candidate is likewise prepared as normalized bytes whenever it and the
-query both are, and as characters otherwise; the alignment is written once, generic over the two.
+query both are, and as characters otherwise; the alignment is written once, generic over the two. A candidate is
+prepared once and every term of the query scores against that preparation. A one-symbol term — the most permissive
+non-empty query — is scored by a running maximum without the rows, and a longer term only over the span from the first match of
+its first symbol to the last match of its last, charging the positions outside it as gaps.
 
 A `Ranking` owns the buffers the alignment reuses, so ranking a list allocates once rather than once per candidate. Results are positions, so a ranking allocates one `Vec` and copies no
 path. Passing a `limit` also bounds memory: the best matches are kept in a heap of that size rather than
