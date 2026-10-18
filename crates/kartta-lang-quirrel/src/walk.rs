@@ -50,7 +50,6 @@ struct Emitter<'a> {
     scopes: Vec<Scope>,
     containers: Vec<SlotContainer>,
     flags: SymbolFlags,
-    symbol_count: u32,
     raw: RawExtraction,
 }
 
@@ -61,7 +60,6 @@ impl<'a> Emitter<'a> {
             scopes: Vec::new(),
             containers: Vec::new(),
             flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
-            symbol_count: 0,
             raw: RawExtraction::default(),
         }
     }
@@ -377,14 +375,13 @@ impl<'a> Emitter<'a> {
     }
 
     fn push_symbol(&mut self, symbol: Symbol) -> SymbolId {
-        let id = SymbolId(self.symbol_count);
-        self.symbol_count += 1;
+        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
         self.raw.symbols.push(symbol);
         id
     }
 
     fn push_call(&mut self, callee: String, receiver: Option<String>, node: Node<'_>) {
-        if callee.is_empty() || self.symbol_count == 0 {
+        if callee.is_empty() || self.raw.symbols.is_empty() {
             return;
         }
 
