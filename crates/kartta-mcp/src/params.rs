@@ -118,10 +118,10 @@ pub(crate) struct FindFilesParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindCallersParams {
-    /// The symbol whose callers to trace. A qualified name from a find_symbols hit (e.g. "pkg.New") resolves
-    /// unambiguously; a name qualified by its owner ("Service.Greet") picks the callable it names; a bare name ("New")
-    /// picks the unique match, or the most-called candidate when several share it, and the answer counts the others
-    /// in passed_over.
+    /// The symbol whose callers to trace. A qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol
+    /// of that name; a name qualified by its owner ("Service.Greet") picks the callable it names; a bare name ("New")
+    /// picks the unique match. Where several share the name - a bare name, or overloads of one qualified name - the
+    /// most-called candidate is picked, and the answer counts the others in passed_over; check the match's loc.
     pub(crate) name: String,
     /// Optional language filter (multiselect). Omit to trace in every indexed language - a name resolving in several
     /// graphs yields one match per language; narrow to the language the symbol is defined in when you know it, e.g.

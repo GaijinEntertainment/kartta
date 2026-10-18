@@ -1051,8 +1051,8 @@ impl Server {
                        counts its callers per role in consumers, tests, entries, and generated; weakly resolved edges \
                        are marked confidence=likely (module-structure inference) or confidence=guess (name-only \
                        match) - unmarked means certain. A <match> also counts what the walk left out, each only when \
-                       it is not zero: passed_over= the other symbols the name selects (qualify the name to pick one), \
-                       unexpanded= the callers at the hops limit whose own callers were not followed, \
+                       it is not zero: passed_over= the other symbols the name selects, unexpanded= the callers whose \
+                       own callers were not followed, at the hops limit or left when the node cap stopped the walk, \
                        below_confidence= the callers the floor dropped, and turned_away= with truncated=true when the \
                        node cap (500) stopped the walk. A match without callers states why: entry point, dead code, \
                        or dynamic dispatch for a function, a method, or a macro. For a field or an enum variant, it \
