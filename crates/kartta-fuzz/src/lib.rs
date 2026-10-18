@@ -44,35 +44,31 @@
 //!
 //! # Examples
 //!
-//! ```
-//! use kartta_fuzz::Matcher;
+//! A ranking takes candidates one at a time with their positions and answers with positions. A query splits on
+//! whitespace into terms and every term must match, so a query narrows as it grows:
 //!
-//! let paths = ["src/lib.rs", "src/main.rs", "main/mod.rs"];
+//! ```
+//! use std::num::NonZeroUsize;
+//!
+//! use kartta_fuzz::{Matcher, Ranked};
+//!
+//! let paths = ["src/auth/handler.go", "src/api/handler.go", "src/main.rs"];
 //! let mut matcher = Matcher::new();
+//! let mut rank = |query: &str, limit: Option<NonZeroUsize>| -> Vec<Ranked> {
+//!     let mut ranking = matcher.ranking(query, limit);
+//!     for (position, path) in paths.iter().enumerate() {
+//!         ranking.offer(position, path);
+//!     }
+//!     ranking.finish()
+//! };
 //!
-//! let ranked = matcher.rank(paths, "main", None);
-//! let names: Vec<&str> = ranked.iter().map(|m| m.candidate).collect();
-//!
-//! // `src/lib.rs` has no `main`; the filename hit outranks the directory hit.
-//! assert_eq!(names, ["src/main.rs", "main/mod.rs"]);
-//! ```
-//!
-//! A query splits on whitespace into terms and every term must match, so a query narrows as it grows:
-//!
-//! ```
-//! use kartta_fuzz::Matcher;
-//! # use std::num::NonZeroUsize;
-//!
-//! let paths = ["src/auth/handler.go", "src/api/handler.go"];
-//! let mut matcher = Matcher::new();
-//!
-//! assert_eq!(matcher.rank(paths, "handler", None).len(), 2);
-//! assert_eq!(matcher.rank(paths, "handler auth", None).len(), 1);
-//! assert_eq!(matcher.rank(paths, "handler", NonZeroUsize::new(1)).len(), 1);
+//! assert_eq!(rank("handler", None).len(), 2);
+//! assert_eq!(rank("handler auth", None).len(), 1);
+//! assert_eq!(rank("handler", NonZeroUsize::new(1)).len(), 1);
 //! ```
 
 mod class;
 mod matcher;
 mod score;
 
-pub use crate::matcher::{Match, Matcher, Ranked, Ranking};
+pub use crate::matcher::{Matcher, Ranked, Ranking};

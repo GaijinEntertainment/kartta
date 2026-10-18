@@ -50,13 +50,23 @@ penalties, so alignment quality decides the rank and gaps only break near-ties. 
 produce — a contiguous run beating a gapped one, a filename hit beating a directory hit — not the values. Nothing is
 configurable: no caller needed another point in that space, and ADR 1.2 records what keeping it open cost.
 
+A ranking takes candidates one at a time with their positions, so they need never be alive together, and answers with
+positions:
+
 ```rust
 use kartta_fuzz::Matcher;
 
+let paths = ["main/lib.rs", "src/main.rs"];
 let mut matcher = Matcher::new();
-let ranked = matcher.rank(["src/main.rs", "main/lib.rs"], "main", None);
-assert_eq!(ranked[0].candidate, "src/main.rs");
+let mut ranking = matcher.ranking("main", None);
+for (position, path) in paths.iter().enumerate() {
+    ranking.offer(position, path);
+}
+assert_eq!(paths[ranking.finish()[0].position], "src/main.rs");
 ```
+
+Rankings of consecutive slices of one list, each built with the same query and limit, merge into the ranking of the
+whole list with `Matcher::merge_ranked`, which is how a long list is ranked on several threads.
 
 ## Cost
 
@@ -70,8 +80,8 @@ Repository paths are ASCII-dominant, so a candidate is likewise prepared as norm
 query both are, and as characters otherwise; the alignment is written once, generic over the two.
 
 A `Matcher` owns the buffers the alignment reuses. Build one per query and rank a whole list with it; building one per
-candidate defeats the reuse it exists for. Results borrow from the input, so a ranking allocates one `Vec` and
-copies no path. Passing a `limit` also bounds memory: the best matches are kept in a heap of that size rather than
+candidate defeats the reuse it exists for. Results are positions, so a ranking allocates one `Vec` and copies no
+path. Passing a `limit` also bounds memory: the best matches are kept in a heap of that size rather than
 collected and sorted, which matters when a permissive query over millions of paths would otherwise materialize a
 result per survivor.
 
