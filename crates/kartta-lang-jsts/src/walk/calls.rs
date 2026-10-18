@@ -130,10 +130,13 @@ impl Emitter<'_> {
             .filter(|function| function.kind() == "member_expression")
             .and_then(|function| function.child_by_field_name("object"))
             .is_some_and(|object| object.kind() == "this");
-        if !on_this {
-            return None;
-        }
+        if on_this { self.this_class() } else { None }
+    }
 
+    // constraint: `this` is the instance of the class around the member whose body holds the use, an arrow function
+    // keeping the `this` of the scope it is written in; a function expression or a function outside a class gives a
+    // `this` of no known type
+    pub(super) fn this_class(&self) -> Option<String> {
         let this_of = self.scopes.last()?.this_of?;
         self.raw.symbols.get(this_of.0 as usize)?.owner.clone()
     }

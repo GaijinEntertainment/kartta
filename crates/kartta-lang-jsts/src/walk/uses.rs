@@ -36,11 +36,7 @@ impl Emitter<'_> {
         if caller == NO_CALLER_ID || is_callee(identifier) || declares(identifier) {
             return;
         }
-        let name = &self.source[identifier.byte_range()];
-        let binding = self
-            .bindings
-            .get(name)
-            .or_else(|| self.module_bindings.get(name));
+        let binding = self.binding(&self.source[identifier.byte_range()]);
         if !matches!(binding, Some(Binding::Module(_) | Binding::Imported)) {
             return;
         }
@@ -79,19 +75,11 @@ impl Emitter<'_> {
         }
     }
 
-    // constraint: `this` is the instance of the class around the member whose body holds the use, an arrow function
-    // keeping the `this` of the scope it is written in; a function expression or a function outside a class gives a
-    // `this` of no known type
     fn this_receiver(&self) -> Receiver {
-        let Some(scope) = self.scopes.last() else {
-            return Receiver::Path(String::new());
-        };
-        let owner = scope
-            .this_of
-            .and_then(|this_of| self.raw.symbols.get(this_of.0 as usize))
-            .and_then(|symbol| symbol.owner.clone());
-        match owner {
-            Some(_) if scope.this_of == Some(scope.id) => Receiver::Own,
+        let in_its_own_member =
+            (self.scopes.last()).is_some_and(|scope| scope.this_of == Some(scope.id));
+        match self.this_class() {
+            Some(_) if in_its_own_member => Receiver::Own,
             Some(owner) => Receiver::Path(owner),
             None => Receiver::Path(String::new()),
         }
@@ -101,11 +89,7 @@ impl Emitter<'_> {
     // an import or a global, keeps its name, as a call's receiver does
     fn named_owner(&self, object: Node<'_>) -> String {
         let name = &self.source[object.byte_range()];
-        match self
-            .bindings
-            .get(name)
-            .or_else(|| self.module_bindings.get(name))
-        {
+        match self.binding(name) {
             Some(Binding::Value(typed) | Binding::Module(typed)) => {
                 typed.map_or_else(String::new, |span| self.spelled(span))
             }
@@ -113,6 +97,12 @@ impl Emitter<'_> {
                 String::from_utf8_lossy(name).into_owned()
             }
         }
+    }
+
+    fn binding(&self, name: &[u8]) -> Option<&Binding> {
+        self.bindings
+            .get(name)
+            .or_else(|| self.module_bindings.get(name))
     }
 
     fn spelled(&self, (start, end): Span) -> String {
