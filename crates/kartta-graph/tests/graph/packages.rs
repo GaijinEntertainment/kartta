@@ -1,15 +1,10 @@
 //! The package rules of a language whose package is a directory: which package a call sees.
-#![expect(
-    clippy::expect_used,
-    reason = "clippy's allow-expect-in-tests covers #[test] functions and #[cfg(test)] modules, and the query helpers \
-              of an integration test crate are neither; a name that selects nothing is the failure"
-)]
 
-use kartta_graph::{Graph, Limits};
-use kartta_lang::{
-    CallRef, Conventions, Extraction, ImportBinding, MemberCalls, OwnMembers, Symbol, SymbolFlags,
-    SymbolId, SymbolKind,
-};
+use kartta_graph::Graph;
+use kartta_lang::{CallRef, Conventions, Extraction, MemberCalls, OwnMembers, SymbolFlags};
+
+use crate::go_code::{callees_of, file, function, importing};
+use crate::{call, graph_of, member_call};
 
 fn go() -> Conventions {
     let mut conventions = Conventions::default();
@@ -19,48 +14,8 @@ fn go() -> Conventions {
     conventions
 }
 
-fn function(package: &str, name: &str, line: u32) -> Symbol {
-    let mut symbol = Symbol::new(name, SymbolKind::Function, line, line + 1);
-    symbol.qualified_name = format!("{package}.{name}");
-    symbol.exported = true;
-    symbol
-}
-
-fn member_call(receiver: &str, callee: &str, line: u32) -> CallRef {
-    CallRef {
-        caller_id: SymbolId(0),
-        callee: callee.to_owned(),
-        receiver: Some(receiver.to_owned()),
-        line,
-    }
-}
-
 fn bare_call(callee: &str, line: u32) -> CallRef {
-    CallRef {
-        receiver: None,
-        ..member_call("", callee, line)
-    }
-}
-
-fn file(path: &str, package: &str, symbols: Vec<Symbol>, calls: Vec<CallRef>) -> Extraction {
-    let mut extraction = Extraction::default();
-    path.clone_into(&mut extraction.file);
-    extraction.package = Some(package.to_owned());
-    extraction.symbols = symbols;
-    extraction.calls = calls;
-    extraction
-}
-
-fn importing(mut extraction: Extraction, imports: &[(&str, Option<&str>)]) -> Extraction {
-    extraction.bindings = imports
-        .iter()
-        .map(|&(name, target_dir)| ImportBinding {
-            alias: None,
-            target_dir: target_dir.map(str::to_owned),
-            last_segment: name.to_owned(),
-        })
-        .collect();
-    extraction
+    call(0, callee, line)
 }
 
 fn test_file(mut extraction: Extraction) -> Extraction {
@@ -71,26 +26,7 @@ fn test_file(mut extraction: Extraction) -> Extraction {
 }
 
 fn graph(files: &[Extraction]) -> Graph {
-    let mut graph = Graph::new(go());
-    for extraction in files {
-        graph.insert(extraction);
-    }
-    graph
-}
-
-fn callees_of(graph: &Graph, name: &str) -> Vec<(String, u8)> {
-    let walk = graph
-        .callees(name, Limits::new(1))
-        .expect("the caller is held");
-    walk.reached
-        .iter()
-        .map(|reached| {
-            (
-                format!("{}:{}", reached.symbol.file, reached.symbol.qualified_name),
-                reached.confidence,
-            )
-        })
-        .collect()
+    graph_of(go(), files)
 }
 
 #[test]

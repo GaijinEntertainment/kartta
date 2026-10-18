@@ -1,9 +1,4 @@
 //! Call resolution through the public queries: each tier of the cascade, and what each query answers and leaves out.
-#![expect(
-    clippy::expect_used,
-    reason = "clippy's allow-expect-in-tests covers #[test] functions and #[cfg(test)] modules, and the query helpers \
-              of an integration test crate are neither; a name that selects nothing is the failure"
-)]
 
 use kartta_graph::{Graph, Limits, SiteQuery, Walk};
 use kartta_lang::{
@@ -12,9 +7,7 @@ use kartta_lang::{
     Receiver, RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
 
-fn function(name: &str, line: u32) -> Symbol {
-    Symbol::new(name, SymbolKind::Function, line, line + 1)
-}
+use crate::{call, function, graph, graph_of};
 
 fn member(owner: &str, name: &str, kind: SymbolKind, line: u32) -> Symbol {
     let mut symbol = Symbol::new(name, kind, line, line + 1);
@@ -28,15 +21,6 @@ const fn exported(mut symbol: Symbol) -> Symbol {
     symbol
 }
 
-fn call(from: u32, callee: &str, line: u32) -> CallRef {
-    CallRef {
-        caller_id: SymbolId(from),
-        callee: callee.to_owned(),
-        receiver: None,
-        line,
-    }
-}
-
 fn member_call(from: u32, receiver: &str, callee: &str, line: u32) -> CallRef {
     CallRef {
         receiver: Some(receiver.to_owned()),
@@ -45,23 +29,9 @@ fn member_call(from: u32, receiver: &str, callee: &str, line: u32) -> CallRef {
 }
 
 fn file(path: &str, symbols: Vec<Symbol>, calls: Vec<CallRef>) -> Extraction {
-    let mut extraction = Extraction::default();
-    path.clone_into(&mut extraction.file);
-    extraction.symbols = symbols;
+    let mut extraction = crate::file(path, symbols);
     extraction.calls = calls;
     extraction
-}
-
-fn graph_of(conventions: Conventions, files: &[Extraction]) -> Graph {
-    let mut graph = Graph::new(conventions);
-    for extraction in files {
-        graph.insert(extraction);
-    }
-    graph
-}
-
-fn graph(files: &[Extraction]) -> Graph {
-    graph_of(Conventions::default(), files)
 }
 
 fn go() -> Conventions {
