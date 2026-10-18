@@ -7,30 +7,18 @@
               is the assertion"
 )]
 
+mod common;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
 
+use common::tree;
 use kartta_fs::{
     BuildError, BuildOptions, BuildOutcome, CancelToken, Content, ContentId, ContentVisitor, Index,
     PrunedNames,
 };
-use tempfile::TempDir;
-
-fn tree(spec: &[(&str, &[u8])]) -> TempDir {
-    let dir = tempfile::tempdir().expect("create temp dir");
-
-    for (path, content) in spec {
-        let full = dir.path().join(path);
-        if let Some(parent) = full.parent() {
-            fs::create_dir_all(parent).expect("create parent directory");
-        }
-        fs::write(&full, content).expect("write file");
-    }
-
-    dir
-}
 
 type Seen = BTreeMap<String, (ContentId, Vec<u8>)>;
 
@@ -90,11 +78,8 @@ const fn everything(_path: &str) -> bool {
 
 #[test]
 fn a_wanted_text_file_is_handed_over_whole_under_an_id_that_finds_its_position() {
-    let large = vec![b'x'; 200 * 1024];
-    let dir = tree(&[
-        ("src/main.rs", b"fn main() {}\n"),
-        ("src/large.txt", &large),
-    ]);
+    let large = "x".repeat(200 * 1024);
+    let dir = tree(&[("src/main.rs", "fn main() {}\n"), ("src/large.txt", &large)]);
     let visitor = Recorder::new(everything);
 
     let outcome = build_with(dir.path(), &visitor);
@@ -124,7 +109,7 @@ fn a_wanted_text_file_is_handed_over_whole_under_an_id_that_finds_its_position()
 
 #[test]
 fn only_wanted_files_are_read_and_their_facts_are_kept() {
-    let dir = tree(&[("read.rs", b"fn read() {}\n"), ("skipped.md", b"skipped\n")]);
+    let dir = tree(&[("read.rs", "fn read() {}\n"), ("skipped.md", "skipped\n")]);
     let visitor = Recorder::new(|path| path == "read.rs");
 
     let index = build_with(dir.path(), &visitor).index;
@@ -154,7 +139,7 @@ fn only_wanted_files_are_read_and_their_facts_are_kept() {
 
 #[test]
 fn a_wanted_ignore_file_is_handed_over_from_the_read_its_rules_came_from() {
-    let dir = tree(&[("sub/.gitignore", b"*.log\n"), ("sub/kept.rs", b"x")]);
+    let dir = tree(&[("sub/.gitignore", "*.log\n"), ("sub/kept.rs", "x")]);
     let visitor = Recorder::new(everything);
 
     let index = build_with(dir.path(), &visitor).index;
@@ -170,10 +155,10 @@ fn a_wanted_ignore_file_is_handed_over_from_the_read_its_rules_came_from() {
 #[test]
 fn an_ignored_ignore_file_still_applies_its_rules_and_is_never_offered() {
     let dir = tree(&[
-        (".gitignore", b"sub/.gitignore\n"),
-        ("sub/.gitignore", b"*.log\n"),
-        ("sub/debug.log", b"x"),
-        ("sub/kept.rs", b"x"),
+        (".gitignore", "sub/.gitignore\n"),
+        ("sub/.gitignore", "*.log\n"),
+        ("sub/debug.log", "x"),
+        ("sub/kept.rs", "x"),
     ]);
     let visitor = Recorder::new(everything);
 
@@ -191,10 +176,10 @@ fn an_ignored_ignore_file_still_applies_its_rules_and_is_never_offered() {
 #[test]
 fn a_pruned_ignore_file_still_applies_its_rules_and_is_never_offered() {
     let dir = tree(&[
-        (".gitignore", b"*.log\n"),
-        (".vscode/settings.json", b"{}"),
-        ("debug.log", b"x"),
-        ("kept.rs", b"x"),
+        (".gitignore", "*.log\n"),
+        (".vscode/settings.json", "{}"),
+        ("debug.log", "x"),
+        ("kept.rs", "x"),
     ]);
     let mut options = BuildOptions::default();
     options.pruned_names =
@@ -216,10 +201,10 @@ fn a_pruned_ignore_file_still_applies_its_rules_and_is_never_offered() {
 #[test]
 fn ignored_files_and_directories_are_never_offered() {
     let dir = tree(&[
-        (".gitignore", b"target/\n*.log\n"),
-        ("kept.rs", b"x"),
-        ("debug.log", b"x"),
-        ("target/out.rs", b"x"),
+        (".gitignore", "target/\n*.log\n"),
+        ("kept.rs", "x"),
+        ("debug.log", "x"),
+        ("target/out.rs", "x"),
     ]);
     let visitor = Recorder::new(everything);
 
@@ -231,9 +216,9 @@ fn ignored_files_and_directories_are_never_offered() {
 #[test]
 fn binary_content_is_never_visited_and_a_binary_extension_is_never_opened() {
     let dir = tree(&[
-        ("blob.dat", b"\0binary"),
-        ("image.png", b"looks like text"),
-        ("text.txt", b"text"),
+        ("blob.dat", "\0binary"),
+        ("image.png", "looks like text"),
+        ("text.txt", "text"),
     ]);
     let visitor = Recorder::new(everything);
 
@@ -266,7 +251,7 @@ fn binary_content_is_never_visited_and_a_binary_extension_is_never_opened() {
 fn a_wanted_file_that_will_not_read_is_reported_and_still_indexed() {
     use std::os::unix::fs::PermissionsExt;
 
-    let dir = tree(&[("locked.rs", b"x"), ("open.rs", b"y")]);
+    let dir = tree(&[("locked.rs", "x"), ("open.rs", "y")]);
     let locked = dir.path().join("locked.rs");
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("lock");
     if fs::read(&locked).is_ok() {
@@ -297,7 +282,7 @@ fn a_wanted_file_that_will_not_read_is_reported_and_still_indexed() {
 fn a_gitignore_that_will_not_read_for_its_rules_is_still_offered_to_the_visitor() {
     use std::os::unix::fs::PermissionsExt;
 
-    let dir = tree(&[(".gitignore", b"*.log\n"), ("main.rs", b"x")]);
+    let dir = tree(&[(".gitignore", "*.log\n"), ("main.rs", "x")]);
     let locked = dir.path().join(".gitignore");
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("lock");
     if fs::read(&locked).is_ok() {
@@ -333,7 +318,7 @@ fn the_visitor_runs_on_the_threads_the_build_was_given() {
         }
     }
 
-    let dir = tree(&[("a.rs", b"a"), ("b.rs", b"b")]);
+    let dir = tree(&[("a.rs", "a"), ("b.rs", "b")]);
     let threads = Threads(Mutex::new(Vec::new()));
     let mut options = BuildOptions::default();
     options.threads = std::num::NonZeroUsize::new(2);
@@ -373,7 +358,7 @@ fn a_binary_file_too_large_to_hold_is_classified_without_reserving_room_for_it()
 
 #[test]
 fn a_build_without_a_visitor_reads_no_file() {
-    let dir = tree(&[("main.rs", b"fn main() {}\n")]);
+    let dir = tree(&[("main.rs", "fn main() {}\n")]);
 
     let index = Index::build(dir.path(), &BuildOptions::default())
         .expect("build")
@@ -385,7 +370,7 @@ fn a_build_without_a_visitor_reads_no_file() {
 
 #[test]
 fn a_cancelled_build_returns_no_index() {
-    let dir = tree(&[("a.rs", b"a"), ("b.rs", b"b"), ("c.rs", b"c")]);
+    let dir = tree(&[("a.rs", "a"), ("b.rs", "b"), ("c.rs", "c")]);
     let cancel = CancelToken::new();
     let mut visitor = Recorder::new(everything);
     visitor.cancel_after_first = Some(cancel.clone());
@@ -404,7 +389,7 @@ fn a_cancelled_build_returns_no_index() {
 
 #[test]
 fn a_build_without_a_visitor_can_still_be_cancelled() {
-    let dir = tree(&[("a.rs", b"a"), ("b.rs", b"b")]);
+    let dir = tree(&[("a.rs", "a"), ("b.rs", "b")]);
     let cancel = CancelToken::new();
 
     let quiet = Index::build_with(dir.path(), &BuildOptions::default(), None, Some(&cancel))

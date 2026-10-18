@@ -8,36 +8,18 @@
               here, where a failed expectation is the assertion"
 )]
 
+mod common;
+
 use std::fs;
 use std::num::NonZeroUsize;
 use std::path::Path;
 
+use common::tree;
 use kartta_fs::{
     BinaryExtensions, BuildError, BuildOptions, BuildOutcome, Entry, EntryKind, Filter,
     FuzzyOptions, GlobOptions, IgnoreSources, Index, ListError, ListOptions, Listed, Listing,
     PrunedNames,
 };
-use tempfile::TempDir;
-
-fn tree(spec: &[(&str, &str)]) -> TempDir {
-    let dir = tempfile::tempdir().expect("create temp dir");
-    let root = dir.path();
-
-    for (path, content) in spec {
-        if let Some(name) = path.strip_suffix('/') {
-            fs::create_dir_all(root.join(name)).expect("create directory");
-            continue;
-        }
-
-        let full = root.join(path);
-        if let Some(parent) = full.parent() {
-            fs::create_dir_all(parent).expect("create parent directory");
-        }
-        fs::write(&full, content).expect("write file");
-    }
-
-    dir
-}
 
 fn index(root: &Path, options: &BuildOptions) -> Index {
     let outcome = Index::build(root, options).expect("build the index");

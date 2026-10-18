@@ -7,33 +7,18 @@
               is the assertion"
 )]
 
+mod common;
+
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
 
+use common::{tree, write};
 use kartta_fs::{
     BuildError, BuildOptions, BuildOutcome, CancelToken, Case, Content, ContentIndexStorage,
     ContentVisitor, Cut, Filter, GrepOptions, Index, LineKind, Matches, Patterns,
 };
 use tempfile::TempDir;
-
-fn tree(spec: &[(&str, &str)]) -> TempDir {
-    let dir = tempfile::tempdir().expect("create temp dir");
-
-    for (path, content) in spec {
-        write(dir.path(), path, content.as_bytes());
-    }
-
-    dir
-}
-
-fn write(root: &Path, path: &str, content: &[u8]) {
-    let full = root.join(path);
-    if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent).expect("create parent directory");
-    }
-    fs::write(&full, content).expect("write file");
-}
 
 fn index(root: &Path) -> Index {
     let outcome = Index::build(root, &BuildOptions::default()).expect("build the index");
