@@ -30,7 +30,20 @@ pub enum ReachBand {
 }
 
 impl ReachBand {
-    pub(crate) fn of(reach: usize, kind: SymbolKind, exported: bool) -> Self {
+    /// The band of a symbol of `kind`, visible outside its module when `exported`, whose change reaches `reach`
+    /// callers: the band [`Blast::band`] grades, for a caller that counted the callers of a walk of its own, as over
+    /// [`Graph::callers`].
+    ///
+    /// ```
+    /// use kartta_graph::ReachBand;
+    /// use kartta_lang::SymbolKind;
+    ///
+    /// assert_eq!(ReachBand::of(19, SymbolKind::Function, true), ReachBand::Medium);
+    /// assert_eq!(ReachBand::of(20, SymbolKind::Function, true), ReachBand::High);
+    /// assert_eq!(ReachBand::of(50, SymbolKind::Interface, false).label(), "critical");
+    /// ```
+    #[must_use]
+    pub fn of(reach: usize, kind: SymbolKind, exported: bool) -> Self {
         if reach >= 200 || (kind == SymbolKind::Interface && reach >= 50) {
             Self::Critical
         } else if reach >= 50 || (exported && reach >= 20) {
@@ -39,6 +52,17 @@ impl ReachBand {
             Self::Medium
         } else {
             Self::Low
+        }
+    }
+
+    /// The band's name, as answers print it: `low`, `medium`, `high` or `critical`.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Critical => "critical",
         }
     }
 }
