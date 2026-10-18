@@ -62,8 +62,8 @@
 //! tree, which [`WalkOutcome::is_cancelled`] marks as a truncated answer rather than an error. There is deliberately no
 //! cap on entries recorded — [`WalkOptions`] explains why.
 //!
-//! [`WalkOptions::threads`] fixes how many threads walk the tree, for a caller that does not own the machine. Left
-//! `None`, the walk uses the ambient rayon pool.
+//! The walk runs on the rayon pool it is called from. A caller that does not own the machine bounds its threads by
+//! installing a pool of the size it may use around the call.
 //!
 //! [`WalkOptions::listed_stats`] lists each directory with its regular files' lengths and change times where the
 //! platform's listing carries them, for a policy that compares files with what it saw before and would otherwise stat
@@ -71,10 +71,10 @@
 //!
 //! # Errors
 //!
-//! Two failures are fatal: a root that cannot be listed, and a thread pool that cannot be started. Everything deeper —
-//! a directory that cannot be read, an entry that cannot be read, an entry whose file type cannot be read — is
-//! collected into [`WalkOutcome::errors`] and the walk continues, so one unreadable subdirectory costs its subtree
-//! rather than the whole answer.
+//! Two failures are fatal: a root that cannot be listed, and a [`WalkOptions::subtree`] that may lead outside the root.
+//! Everything deeper — a directory that cannot be read, an entry that cannot be read, an entry whose file type cannot
+//! be read — is collected into [`WalkOutcome::errors`] and the walk continues, so one unreadable subdirectory costs its
+//! subtree rather than the whole answer.
 //!
 //! # Scope
 //!

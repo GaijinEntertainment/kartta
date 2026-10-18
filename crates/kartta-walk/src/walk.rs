@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 use std::fs;
 use std::io;
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -13,7 +12,7 @@ use crate::policy::{Dir, Entry, EntryKind, ListedEntry, Origin, Policy, Visit};
 use crate::tree::{Slot, Tree};
 
 /// Settings for one walk. Every field defaults to `None` or `false`; construct with functional-update syntax
-/// (`WalkOptions { threads, ..Default::default() }`) — further fields may be added over time.
+/// (`WalkOptions { listed_stats, ..Default::default() }`) — further fields may be added over time.
 ///
 /// There is deliberately no cap on entries recorded. Truncating a walk hands back an arbitrary subset — which entries
 /// survive depends on scheduling — that a consumer cannot tell from a complete tree without asking, so a guard against
@@ -23,17 +22,6 @@ use crate::tree::{Slot, Tree};
 pub struct WalkOptions {
     /// An outside stop signal, checked before each directory and before each entry. `None` never cancels.
     pub cancel_token: Option<CancelToken>,
-    /// How many threads may walk the tree, for a caller that does not own the machine — a container with a CPU quota, a
-    /// process under a thread limit. `None` uses the ambient rayon pool.
-    ///
-    /// The count is exact rather than a ceiling: the walk gets its own pool of this size and nothing else, so `Some(1)`
-    /// walks sequentially. [`NonZeroUsize`] keeps a stray zero from meaning "use the default", which is how rayon reads
-    /// `num_threads(0)`.
-    ///
-    /// Each walk builds and drops its own pool, so a caller making many small walks should install one pool itself and
-    /// leave this `None`. A pool that cannot be started is [`WalkError::ThreadPool`], not a silent fall back to some
-    /// other parallelism.
-    pub threads: Option<NonZeroUsize>,
     /// The forward-slash path, relative to the walk root, of the one directory to walk. `None`, or an empty path, walks
     /// the whole root. Empty and `.` components are dropped, so `/dir//./nested/` walks `dir/nested`; a `..` component
     /// fails the walk with [`WalkError::Subtree`], since what it names may lie outside the root.
@@ -56,14 +44,14 @@ pub struct WalkOptions {
 /// Walks the tree rooted at `root`, recording every entry `policy` does not skip.
 ///
 /// `initial` is the state the root directory inherits — the seed [`Policy::enter`] extends for the root's entries.
-/// Parallelism comes from [`WalkOptions::threads`], or from the ambient rayon pool when that is `None`.
+/// The walk runs on the rayon pool it is called from, so a caller that does not own the machine bounds its threads by
+/// installing a pool of the size it may use around the call.
 ///
 /// # Errors
 ///
 /// Returns [`WalkError::ReadDir`] if `root` itself cannot be listed — or the directory [`WalkOptions::subtree`] names,
-/// when it names one — [`WalkError::Subtree`] if that path has a `..` component, or [`WalkError::ThreadPool`] if the
-/// requested thread count cannot be started. Every deeper failure is collected into [`WalkOutcome::errors`] instead,
-/// leaving a partial tree.
+/// when it names one — or [`WalkError::Subtree`] if that path has a `..` component. Every deeper failure is collected
+/// into [`WalkOutcome::errors`] instead, leaving a partial tree.
 ///
 /// # Examples
 ///
@@ -141,10 +129,7 @@ pub fn walk<P: Policy>(
         parent_state: initial,
     };
 
-    let subtree = match options.threads {
-        Some(threads) => pool(threads)?.install(|| walker.walk_dir(&frame, listing)),
-        None => walker.walk_dir(&frame, listing),
-    };
+    let subtree = walker.walk_dir(&frame, listing);
 
     let counted = (subtree.node_count, subtree.name_bytes);
     let mut tree = Tree {
@@ -511,17 +496,6 @@ struct Recorded<V> {
 struct Listing {
     entries: Vec<ListedEntry>,
     errors: Vec<WalkError>,
-}
-
-fn pool(threads: NonZeroUsize) -> Result<rayon::ThreadPool, WalkError> {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(threads.get())
-        .thread_name(|index| format!("kartta-walk-{index}"))
-        .build()
-        .map_err(|source| WalkError::ThreadPool {
-            threads,
-            source: Box::new(source),
-        })
 }
 
 #[cfg(target_os = "macos")]

@@ -8,7 +8,7 @@ use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 use std::{io, iter};
 
-use kartta_walk::{CancelToken, Children, EntryKind, Tree, WalkError, WalkOptions, walk};
+use kartta_walk::{CancelToken, Children, EntryKind, Tree, WalkOptions, walk};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::binary::BinaryExtensions;
@@ -1048,11 +1048,9 @@ fn thread_pool(threads: NonZeroUsize) -> Result<Arc<ThreadPool>, BuildError> {
         .thread_name(|index| format!("kartta-fs-{index}"))
         .build()
         .map(Arc::new)
-        .map_err(|source| {
-            BuildError::Walk(WalkError::ThreadPool {
-                threads,
-                source: Box::new(source),
-            })
+        .map_err(|source| BuildError::ThreadPool {
+            threads,
+            source: Box::new(source),
         })
 }
 
