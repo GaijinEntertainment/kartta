@@ -7,7 +7,7 @@ mod unused;
 
 use std::time::Duration;
 
-use kartta::{Definition, Hit, SymbolFlags, SymbolKind};
+use kartta::{Definition, Hit, Resolution, SymbolFlags, SymbolKind};
 
 pub(crate) use self::calls::{
     CallersAsk, PathAsk, call_path, callees, callers, change, impact, references,
@@ -148,9 +148,9 @@ fn unresolved(element: Element, languages: &str, suggestions: &[Suggestion<'_>])
     element.wrap(&lines.join("\n"))
 }
 
-/// The `index_repo` and `index_stats` answer: the index's shape, one `<language/>` per graph that holds a file, and the
-/// failures the build collected.
-pub(crate) fn index(indexed: &Indexed) -> String {
+/// The `index_repo` and `index_stats` answer: the index's shape, one `<language/>` per graph that holds a file, how
+/// the calls of each of those graphs bind when `coverage` holds its resolution, and the failures the build collected.
+pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> String {
     let element = Element::new("index")
         .attr("root", &indexed.root)
         .attr("files", indexed.files)
@@ -200,7 +200,46 @@ pub(crate) fn index(indexed: &Indexed) -> String {
             .attr("count", indexed.errors.len())
             .wrap(&listed.join("\n"))
     });
-    element.children(languages.chain(errors))
+    element.children(
+        languages
+            .chain(
+                coverage
+                    .iter()
+                    .filter(|(family, _)| indexed.graphs.iter().any(|row| row.family == *family))
+                    .map(|(family, resolution)| bound(family, resolution)),
+            )
+            .chain(errors),
+    )
+}
+
+/// How one graph's call sites bind: the sites bound, by the bands an answer marks a call with, the caller and callee
+/// pairs they make, and why the others bound none.
+fn bound(family: &str, resolution: &Resolution<'_>) -> String {
+    let mut bands = [0_usize; 3];
+    for &(confidence, sites) in &resolution.bound {
+        let band = match self::confidence(confidence) {
+            None => 0,
+            Some("likely") => 1,
+            Some(_) => 2,
+        };
+        bands[band] += sites;
+    }
+    let misses = &resolution.misses;
+    Element::new("coverage")
+        .attr("lang", family)
+        .attr("sites", resolution.sites)
+        .attr("bound", bands.iter().sum::<usize>())
+        .count("certain", bands[0])
+        .count("likely", bands[1])
+        .count("guess", bands[2])
+        .attr("edges", resolution.edges)
+        .count("external_import", misses.external_import)
+        .count("not_exported", misses.not_exported)
+        .count("undefined", misses.undefined)
+        .count("not_admitted", misses.not_admitted)
+        .count("ambiguous", misses.ambiguous)
+        .count("through_receiver", misses.through_a_receiver)
+        .close()
 }
 
 /// The `index_stats` answer while a build runs.
