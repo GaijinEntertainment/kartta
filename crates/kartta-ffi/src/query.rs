@@ -1,5 +1,3 @@
-//! The methods that ask a finished build, one function each: decode the params, ask the engine, answer the view.
-
 use kartta::{Region, SourceOptions};
 
 use crate::built::Built;
@@ -17,7 +15,6 @@ use crate::wire::{self, NoParams, StatsAnswer};
 
 type Query = fn(&Built, &[u8]) -> Result<Vec<u8>, Error>;
 
-/// Every method that asks a finished build, by name.
 pub(crate) const QUERIES: &[(&str, Query)] = &[
     ("analyze_change", analyze_change),
     ("analyze_segment", analyze_segment),

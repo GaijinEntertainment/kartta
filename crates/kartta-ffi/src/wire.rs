@@ -1,6 +1,3 @@
-//! The JSON the dispatch reads and writes: each method's params, decoded with unknown fields refused, and each
-//! answer, a borrowing view over what the engine answered, so encoding copies no string twice.
-
 mod build;
 pub(crate) mod files;
 pub(crate) mod graph;
@@ -14,7 +11,6 @@ use serde::{Deserialize, Serialize};
 pub(crate) use self::build::{BuildParams, CancelAnswer, CancelParams, StatsAnswer, StoredErrors};
 use crate::error::{Error, ErrorCode, INTERNAL_ENCODE_FAILURE};
 
-/// Decodes `params` as the method's params, empty bytes and `null` reading as `{}`.
 pub(crate) fn params<P: DeserializeOwned>(params: &[u8]) -> Result<P, Error> {
     let text = std::str::from_utf8(params)
         .map_err(|error| {
@@ -24,6 +20,7 @@ pub(crate) fn params<P: DeserializeOwned>(params: &[u8]) -> Result<P, Error> {
             )
         })?
         .trim();
+    // constraint: the Go binding sends the params of a method it calls with none, stats and version, as null
     let text = if text.is_empty() || text == "null" {
         "{}"
     } else {
@@ -39,7 +36,6 @@ pub(crate) fn params<P: DeserializeOwned>(params: &[u8]) -> Result<P, Error> {
     })
 }
 
-/// The wire's `{"ok": ...}` answer for `answer`.
 pub(crate) fn ok(answer: &impl Serialize) -> Result<Vec<u8>, Error> {
     #[derive(Serialize)]
     struct Answered<'a, T> {
@@ -54,7 +50,6 @@ pub(crate) fn ok(answer: &impl Serialize) -> Result<Vec<u8>, Error> {
     })
 }
 
-/// The wire's `{"err": ...}` answer for `error`.
 pub(crate) fn err(error: &Error) -> Vec<u8> {
     #[derive(Serialize)]
     struct Failed<'a> {
@@ -65,12 +60,10 @@ pub(crate) fn err(error: &Error) -> Vec<u8> {
         .unwrap_or_else(|_| [&br#"{"err":"#[..], INTERNAL_ENCODE_FAILURE, b"}"].concat())
 }
 
-/// The params of a method that takes none: `{}`, or nothing.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct NoParams {}
 
-/// The params of `open`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct OpenParams {

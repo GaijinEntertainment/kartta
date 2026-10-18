@@ -11,18 +11,12 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use crate::error::{Error, ErrorCode};
 
-/// How many of a build's collected failures the handle keeps to answer; the rest are counted.
 const ERRORS_LISTED: usize = 20;
 
-/// The params of `build`: every field may be left out.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct BuildParams {
-    /// The caller's name for this build, which `cancel` can name before the build starts. An id names one build of
-    /// the handle: a cancel that arrives once its build has finished is remembered for a build that never comes, and
-    /// stops a later build that reuses the id.
     pub(crate) id: Option<u64>,
-    /// The languages to build graphs of, by the names `kartta_languages::NAMES` spells; every one when left out.
     languages: Option<Vec<String>>,
     threads: Option<NonZeroUsize>,
     ignore: Ignore,
@@ -30,7 +24,6 @@ pub(crate) struct BuildParams {
     binary_extensions: Option<SetChange>,
     content_index: Option<ContentIndex>,
     content_cache: Option<PathBuf>,
-    /// Seconds after the build that computed it began that an entry of the cache expires; left out or 0 is a week.
     content_cache_ttl_secs: u64,
 }
 
@@ -115,26 +108,17 @@ fn invalid(error: impl Display) -> Error {
     Error::new(ErrorCode::InvalidParams, error.to_string())
 }
 
-/// The params of `cancel`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct CancelParams {
-    /// The build to stop, by the id it was or will be started with. Left out, every build in flight stops, the running
-    /// one and those waiting their turn. A named build that has not entered the library is remembered, with no bound,
-    /// and starts stopped.
     pub(crate) build: Option<u64>,
 }
 
-/// The answer of `cancel`.
 #[derive(Debug, Serialize)]
 pub(crate) struct CancelAnswer {
-    /// Whether the cancel stopped a build in flight, running or waiting its turn. A named build that has not entered
-    /// the library starts stopped, if it starts.
     pub(crate) stopped: bool,
 }
 
-/// The failures a build collected rather than returned, as the handle keeps them: the first [`ERRORS_LISTED`], and
-/// how many there were.
 #[derive(Debug, Default, Serialize)]
 pub(crate) struct StoredErrors {
     total: usize,
@@ -168,7 +152,6 @@ impl StoredErrors {
     }
 }
 
-/// The wire's name for a build failure's kind.
 pub(crate) const fn kind_of(error: &BuildError) -> &'static str {
     match error {
         BuildError::Walk(_) => "walk",
@@ -182,8 +165,6 @@ pub(crate) const fn kind_of(error: &BuildError) -> &'static str {
     }
 }
 
-/// The answer of `build` and of `stats`: what the index holds, what the build made of each language's files, what
-/// each graph holds, and what the build failed on along the way.
 #[derive(Debug, Serialize)]
 pub(crate) struct StatsAnswer<'e> {
     entries: usize,
