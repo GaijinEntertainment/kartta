@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use kartta_fs::{Content, ContentId, ContentVisitor, Namespace};
-use kartta_lang::{Language, RawExtraction};
+use kartta_lang::Language;
 
 pub(crate) struct Extracted {
     pub(crate) id: ContentId,
@@ -44,12 +44,7 @@ impl<'l> Extracting<'l> {
         let namespaces = languages
             .iter()
             .map(|language| {
-                let fingerprint = [
-                    language.fingerprint(),
-                    &kartta_lang::FINGERPRINT,
-                    RawExtraction::CODEC,
-                ]
-                .concat();
+                let fingerprint = [language.fingerprint(), &kartta_lang::FINGERPRINT].concat();
                 Namespace::new(&format!("graph/{}", language.name()), &fingerprint)
             })
             .collect();
