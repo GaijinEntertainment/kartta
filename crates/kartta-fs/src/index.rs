@@ -16,8 +16,8 @@ use crate::build::{BuildError, BuildOptions, IgnoreSources};
 use crate::cache::SharedCache;
 use crate::content::{ContentId, ContentVisitor};
 use crate::content_index::{
-    Collector, ContentIndexStats, ContentIndexStorage, ContentIndexes, IdPositions, NO_POSITION,
-    Narrowed, Target, Unfinished,
+    Collector, ContentIndex, ContentIndexStats, ContentIndexStorage, ContentIndexes, IdPositions,
+    NO_POSITION, Narrowed, Target, Unfinished,
 };
 use crate::entry::Entry;
 use crate::filter::Filter;
@@ -370,37 +370,23 @@ impl Index {
         reads: ReadIds<'_>,
         cancel: Option<&CancelToken>,
     ) -> Result<ContentIndexes, BuildError> {
-        let Collected {
-            collector,
-            pairs,
-            unindexed,
-        } = content;
         let ReadIds {
             first,
             count,
             carried_text,
             previous,
         } = reads;
-        let storage = collector.storage().clone();
-        let unfinished = |unfinished| unfinished_error(&storage, unfinished);
-        let finished = self
-            .on_threads(|| collector.finish(pairs, count, cancel))
-            .map_err(unfinished)?;
+        let (Finished { segment, storage }, unindexed) =
+            self.finished(content, first..first + count, cancel)?;
         let unindexed = unindexed
             .iter()
             .filter_map(|path| self.position(path))
             .map(node_sized)
             .collect();
-
-        let mut segments = match previous {
+        let held = match previous {
             Some(previous) if carried_text > 0 => previous.index().content.segments.clone(),
             _ => Vec::new(),
         };
-        let read = finished.with_first_id(first);
-        let files = carried_text + read.files();
-        if segments.is_empty() || read.files() > 0 {
-            segments.push(Arc::new(read));
-        }
 
         let ids = IdPositions {
             first: self.first_content_id,
@@ -411,13 +397,36 @@ impl Index {
             cancel,
         };
         self.on_threads(|| {
-            ContentIndexes::new(segments, unindexed, files).compacted_when_due(
+            ContentIndexes::joined(held, carried_text, segment, unindexed).compacted_when_due(
                 ids,
                 &self.inspection,
                 target,
             )
         })
-        .map_err(unfinished)
+        .map_err(|unfinished| unfinished_error(&storage, unfinished))
+    }
+
+    fn finished(
+        &self,
+        collected: Collected,
+        reads: Range<u32>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(Finished, Vec<Box<str>>), BuildError> {
+        let Collected {
+            collector,
+            pairs,
+            unindexed,
+        } = collected;
+        let storage = collector.storage().clone();
+        let segment = self
+            .on_threads(|| collector.finish(pairs, reads.end - reads.start, cancel))
+            .map_err(|unfinished| unfinished_error(&storage, unfinished))?;
+        let finished = Finished {
+            segment: segment.with_first_id(reads.start),
+            storage,
+        };
+
+        Ok((finished, unindexed))
     }
 
     fn from_tree(base: Base, tree: Tree<Payload>, placing: Placing<'_>) -> (Self, usize) {
@@ -980,6 +989,11 @@ struct Walking<'a> {
     handed: Option<&'a AtomicU32>,
     pool: Option<Arc<ThreadPool>>,
     previous: Option<&'a Previous<'a>>,
+}
+
+struct Finished {
+    segment: ContentIndex,
+    storage: ContentIndexStorage,
 }
 
 #[derive(Clone, Copy)]
