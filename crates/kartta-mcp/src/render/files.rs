@@ -2,18 +2,18 @@ use std::fmt::Write;
 
 use kartta_fs::{EntryKind, Failure, Line, LineKind, Listing, Matches, Paths};
 
-use crate::llmxml::{Element, List, lines};
+use crate::llmxml::{Element, List};
 
 /// How many unreadable files a `grep` answer lists before it counts the rest.
 const LISTED_FAILURES: usize = 5;
 
 /// The `find_files` answer: the paths one per line, best first. A ranked answer needs no mark of a cap, since its order
 /// says the paths it left out rank lower.
-pub(crate) fn paths(pattern: &str, paths: &[String]) -> String {
-    if paths.is_empty() {
+pub(crate) fn paths(pattern: &str, paths: List) -> String {
+    if paths.len() == 0 {
         return format!("no files match {pattern:?}");
     }
-    lines(paths)
+    paths.into_text()
 }
 
 /// How much of what a glob matched a `glob_files` answer lists.

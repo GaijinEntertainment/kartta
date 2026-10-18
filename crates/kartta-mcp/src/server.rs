@@ -15,6 +15,7 @@ use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use crate::config::Config;
 use crate::diff::{self, Changed};
 use crate::languages::{CATALOG, echo};
+use crate::llmxml::List;
 use crate::params::{
     CallerRole, FileParams, FindCallPathParams, FindCalleesParams, FindCallersParams,
     FindFilesParams, FindImplementationsParams, FindReferencesParams, FindSymbolsParams,
@@ -345,24 +346,21 @@ impl Server {
             if excludes.is_none() {
                 options = options.limit(p.max_results);
             }
-            let ranked = index.fuzzy(&p.pattern, &options);
             let mut paths = index.paths();
-            let wanted = if p.max_results == 0 {
-                usize::MAX
-            } else {
-                p.max_results
-            };
-            let found: Vec<String> = ranked
-                .iter()
-                .map(|found| paths.get(found.position).to_owned())
-                .filter(|path| {
-                    excludes
-                        .as_ref()
-                        .is_none_or(|excludes| !excludes.matches(path))
-                })
-                .take(wanted)
-                .collect();
-            Ok(render::paths(&p.pattern, &found))
+            let mut listed = List::default();
+            for found in &index.fuzzy(&p.pattern, &options) {
+                if p.max_results != 0 && listed.len() == p.max_results {
+                    break;
+                }
+                let path = paths.get(found.position);
+                if excludes
+                    .as_ref()
+                    .is_none_or(|excludes| !excludes.matches(path))
+                {
+                    listed.push(path);
+                }
+            }
+            Ok(render::paths(&p.pattern, listed))
         })
         .await
     }
@@ -393,7 +391,7 @@ impl Server {
             let limit = if excludes.is_some() { 0 } else { p.max_results };
             let found = index.glob(&filter, &GlobOptions::default().limit(limit));
             let mut paths = index.paths();
-            let mut listed = crate::llmxml::List::default();
+            let mut listed = List::default();
             let mut matched = 0;
             for &position in found.items() {
                 let path = paths.get(position);

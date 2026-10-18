@@ -12,15 +12,6 @@ pub(crate) fn line(text: &str) -> Cow<'_, str> {
     }
 }
 
-/// The plain list of `texts`, a [`line`] each.
-pub(crate) fn lines(texts: &[String]) -> String {
-    let mut list = List::default();
-    for text in texts {
-        list.push(text);
-    }
-    list.into_text()
-}
-
 /// A plain list written a record at a time, each as [`line`] writes it, into one buffer.
 #[derive(Debug, Default)]
 pub(crate) struct List {
@@ -128,20 +119,23 @@ impl Element {
 
 #[cfg(test)]
 mod tests {
-    use super::{Element, lines};
+    use super::{Element, List};
 
     #[test]
     fn a_record_with_a_line_break_or_an_opening_quote_is_quoted_on_its_line() {
-        let records = [
-            "src/main.rs".to_owned(),
-            "src/two\nlines.rs".to_owned(),
-            "src/tab\there.rs".to_owned(),
-            r#""quoted".rs"#.to_owned(),
-            r"src\back.rs".to_owned(),
-        ];
+        let mut list = List::default();
+        for record in [
+            "src/main.rs",
+            "src/two\nlines.rs",
+            "src/tab\there.rs",
+            r#""quoted".rs"#,
+            r"src\back.rs",
+        ] {
+            list.push(record);
+        }
 
         assert_eq!(
-            lines(&records),
+            list.into_text(),
             [
                 "src/main.rs",
                 r#""src/two\nlines.rs""#,
