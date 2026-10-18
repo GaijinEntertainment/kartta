@@ -137,7 +137,6 @@ mod label {
     }
 }
 
-/// A definition as every answer spells it. The flags appear only when one is set.
 #[derive(Serialize)]
 #[serde(remote = "Definition")]
 struct DefinitionDef<'g> {
@@ -160,7 +159,6 @@ struct DefinitionDef<'g> {
     flags: SymbolFlags,
 }
 
-/// A symbol a walk over calls reached, and the call that reached it.
 #[derive(Serialize)]
 #[serde(remote = "Reached")]
 struct ReachedDef<'g> {
@@ -171,7 +169,6 @@ struct ReachedDef<'g> {
     line: u32,
 }
 
-/// The answer of `callers` and `callees` in one graph.
 #[derive(Serialize)]
 #[serde(remote = "Walk")]
 struct WalkDef<'g> {
@@ -187,7 +184,6 @@ struct WalkDef<'g> {
     unresolved: usize,
 }
 
-/// The answer of `call_path` in one graph.
 #[derive(Serialize)]
 #[serde(remote = "CallPath")]
 struct CallPathDef<'g> {
@@ -219,7 +215,6 @@ fn passed_over<S: Serializer>(
     PassedOver { from, to }.serialize(serializer)
 }
 
-/// The answer of `references` in one graph.
 #[derive(Serialize)]
 #[serde(remote = "References")]
 struct ReferencesDef<'g> {
@@ -256,7 +251,6 @@ struct SiteCountsDef {
     updates: usize,
 }
 
-/// The answer of `definitions`, and with each definition's text, of `sources`, in one graph.
 #[derive(Serialize)]
 pub(crate) struct DefinitionsView<'g> {
     total: usize,
@@ -295,7 +289,6 @@ struct CutLineDef {
 }
 
 impl<'g> DefinitionsView<'g> {
-    /// The view of `found`, each definition with the text `sources` holds for it, when one is given.
     pub(crate) fn new(found: &Definitions<'g>, sources: Option<Vec<io::Result<Source>>>) -> Self {
         let mut sources = sources.map(Vec::into_iter);
         Self {
@@ -321,7 +314,6 @@ impl<'g> DefinitionsView<'g> {
     }
 }
 
-/// The answer of `search` in one graph.
 #[derive(Serialize)]
 #[serde(remote = "Search")]
 struct SearchDef<'g> {
@@ -345,7 +337,6 @@ struct HitDef<'g> {
     fuzzy: bool,
 }
 
-/// The answer of `implementations` in one graph.
 #[derive(Serialize)]
 #[serde(remote = "Implementations")]
 struct ImplementationsDef<'g> {
@@ -366,7 +357,6 @@ struct ImplementorDef<'g> {
     depth: u32,
 }
 
-/// The answer of a query about one file: the graph that holds it, if any, and what that graph answered.
 #[derive(Debug, Serialize)]
 pub(crate) struct FileView<'a, T> {
     file: &'a str,
@@ -388,14 +378,12 @@ impl<'a, T> FileView<'a, T> {
     }
 }
 
-/// The definitions of one file, as `outline` answers them.
 #[derive(Serialize)]
 pub(crate) struct OutlineView<'g> {
     #[serde(serialize_with = "each")]
     pub(crate) symbols: Vec<Definition<'g>>,
 }
 
-/// The files that include a file, as `dependents` answers them.
 #[derive(Serialize)]
 #[serde(remote = "Dependents")]
 struct DependentsDef<'g> {
@@ -413,7 +401,6 @@ struct DependentDef<'g> {
     depth: u32,
 }
 
-/// What a change to a range of a file's lines reaches, as `analyze_segment` answers it.
 #[derive(Serialize)]
 #[serde(remote = "Segment")]
 struct SegmentDef<'g> {
@@ -476,7 +463,6 @@ struct BlastDef {
     below_confidence: usize,
 }
 
-/// What a change to regions across files reaches, as `analyze_change` answers it.
 #[derive(Serialize)]
 #[serde(remote = "Change")]
 struct ChangeDef<'g> {
@@ -531,7 +517,6 @@ struct DirCountDef<'g> {
     count: usize,
 }
 
-/// The answer of `dead_code` in one graph.
 #[derive(Serialize)]
 #[serde(remote = "DeadCode")]
 struct DeadCodeDef<'g> {
@@ -564,7 +549,6 @@ struct ExcludedDef {
     dispatched: usize,
 }
 
-/// The answer of `resolution` in one graph.
 #[derive(Serialize)]
 #[serde(remote = "Resolution")]
 struct ResolutionDef<'g> {

@@ -30,8 +30,6 @@ pub struct Kartta {
     one_build_at_a_time: Mutex<()>,
 }
 
-/// The builds that entered the library and have not finished, waiting their turn or running, and the ids cancels
-/// named before their builds entered.
 #[derive(Debug, Default)]
 struct Builds {
     entered: u64,
@@ -197,7 +195,6 @@ impl Kartta {
     }
 }
 
-/// Every method, in name order.
 fn methods() -> Vec<&'static str> {
     let mut methods: Vec<&'static str> = ["build", "cancel", "version"]
         .into_iter()
