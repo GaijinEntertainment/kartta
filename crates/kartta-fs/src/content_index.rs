@@ -30,9 +30,9 @@ const BUCKET_BYTES: usize = 12;
 /// private to the process and leaves nothing behind however the process ends. On Linux it is created with no name, where
 /// the filesystem under `dir` allows that; elsewhere on unix it is removed from `dir` the moment it is created, which
 /// leaves that one moment for a process of the same user to open it; on Windows it is opened with no sharing and deleted
-/// on close. While it builds the index, a
-/// build also spills what it has collected so far to a scratch file there rather than holding it in memory, so `dir`
-/// needs room for about twice the index while the build runs and once the index is done.
+/// on close. While it builds the index, a build also spills what it has collected so far to a scratch file there rather
+/// than holding it in memory, so `dir` needs room for about twice the index while the build runs and once the index is
+/// done.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ContentIndexStorage {
@@ -618,8 +618,7 @@ mod tests {
         }
     }
 
-    // Trigrams across many parts and buckets, each file holding its own subset.
-    fn files(count: u32) -> Vec<Vec<Trigram>> {
+    fn subsets_across_parts(count: u32) -> Vec<Vec<Trigram>> {
         let trigrams: Vec<Trigram> = (0..300)
             .map(|at: Trigram| ((at % 7 * 37) << 16) | ((at % 11 * 23) << 8) | (at * 13 % 256))
             .collect();
@@ -645,7 +644,7 @@ mod tests {
 
     #[test]
     fn each_trigram_lists_the_files_holding_it() {
-        let files = files(400);
+        let files = subsets_across_parts(400);
         let index = index_of(&files, RUN_PAIRS_FOR_TESTS);
 
         let mut trigrams: Vec<Trigram> = files.iter().flatten().copied().collect();
@@ -668,7 +667,7 @@ mod tests {
 
     #[test]
     fn many_small_runs_merge_into_the_index_one_run_builds() {
-        let files = files(400);
+        let files = subsets_across_parts(400);
 
         let pairs: usize = files.iter().map(Vec::len).sum();
         let whole = index_of(&files, pairs + 1);
@@ -684,9 +683,9 @@ mod tests {
     #[test]
     fn merging_segments_keeps_the_files_still_answered_for_and_only_those() {
         let only_gone_files_hold: Trigram = 0x00_0001;
-        let mut earlier = files(40);
+        let mut earlier = subsets_across_parts(40);
         earlier[3].push(only_gone_files_hold);
-        let later = files(60).split_off(40);
+        let later = subsets_across_parts(60).split_off(40);
         let segments = vec![
             Arc::new(index_of(&earlier, RUN_PAIRS_FOR_TESTS)),
             Arc::new(index_of(&later, RUN_PAIRS_FOR_TESTS).with_first_id(40)),
@@ -746,28 +745,32 @@ mod tests {
             storage: &ContentIndexStorage::Memory,
             cancel: None,
         };
-        let segments_after = |count: u32, gone: u32| {
-            let positions: Vec<u32> = (0..count * 4)
-                .map(|id| if id < gone { NO_POSITION } else { id })
-                .collect();
-            let ids = IdPositions {
-                first: 0,
-                positions: &positions,
+        let segments_after =
+            |count: u32, gone: u32| {
+                let positions: Vec<u32> = (0..count * 4)
+                    .map(|id| if id < gone { NO_POSITION } else { id })
+                    .collect();
+                let ids = IdPositions {
+                    first: 0,
+                    positions: &positions,
+                };
+                let segments = (0..count)
+                    .map(|at| {
+                        Arc::new(
+                            index_of(&subsets_across_parts(4), RUN_PAIRS_FOR_TESTS)
+                                .with_first_id(at * 4),
+                        )
+                    })
+                    .collect();
+                let live = (count * 4 - gone) as usize;
+                let inspection = text_at(positions.len());
+                let Ok(indexes) = ContentIndexes::new(segments, Vec::new(), live)
+                    .compacted_when_due(ids, &inspection, target)
+                else {
+                    panic!("merge the segments");
+                };
+                indexes.segments.len()
             };
-            let segments = (0..count)
-                .map(|at| Arc::new(index_of(&files(4), RUN_PAIRS_FOR_TESTS).with_first_id(at * 4)))
-                .collect();
-            let live = (count * 4 - gone) as usize;
-            let inspection = text_at(positions.len());
-            let Ok(indexes) = ContentIndexes::new(segments, Vec::new(), live).compacted_when_due(
-                ids,
-                &inspection,
-                target,
-            ) else {
-                panic!("merge the segments");
-            };
-            indexes.segments.len()
-        };
 
         assert_eq!(segments_after(8, 0), 8, "eight segments stay apart");
         assert_eq!(segments_after(9, 0), 2, "a ninth merges all but the first");
@@ -782,8 +785,8 @@ mod tests {
 
     #[test]
     fn a_merge_after_the_first_segment_keeps_it_whole_and_counts_the_files_the_rest_still_list() {
-        let base = Arc::new(index_of(&files(40), RUN_PAIRS_FOR_TESTS));
-        let later: Vec<Vec<Vec<Trigram>>> = (0..8).map(|_| files(4)).collect();
+        let base = Arc::new(index_of(&subsets_across_parts(40), RUN_PAIRS_FOR_TESTS));
+        let later: Vec<Vec<Vec<Trigram>>> = (0..8).map(|_| subsets_across_parts(4)).collect();
         let mut segments = vec![Arc::clone(&base)];
         segments.extend((0..).zip(&later).map(|(at, files)| {
             Arc::new(index_of(files, RUN_PAIRS_FOR_TESTS).with_first_id(40 + at * 4))
@@ -841,7 +844,7 @@ mod tests {
 
     #[test]
     fn the_files_left_unindexed_count_toward_the_bytes_the_index_takes() {
-        let index = index_of(&files(10), RUN_PAIRS_FOR_TESTS);
+        let index = index_of(&subsets_across_parts(10), RUN_PAIRS_FOR_TESTS);
         let lists = index.stats().bytes();
 
         let indexes = ContentIndexes::new(vec![Arc::new(index)], vec![7, 3, 7], 10);
@@ -856,7 +859,7 @@ mod tests {
     #[test]
     fn every_storage_holds_the_index_memory_holds() {
         let dir = tempfile::tempdir().expect("create temp dir");
-        let files = files(400);
+        let files = subsets_across_parts(400);
         let in_memory = index_of(&files, 97);
 
         for storage in [
@@ -889,7 +892,7 @@ mod tests {
             dir: dir.path().to_path_buf(),
         };
 
-        let index = stored_in(&storage, &files(50), 97);
+        let index = stored_in(&storage, &subsets_across_parts(50), 97);
 
         assert_eq!(
             std::fs::read_dir(dir.path()).expect("list").count(),

@@ -1,5 +1,3 @@
-//! The glob path search over a built [`Index`] — [`Index::glob`].
-
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
