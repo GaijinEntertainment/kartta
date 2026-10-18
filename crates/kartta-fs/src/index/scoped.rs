@@ -8,8 +8,8 @@ use kartta_walk::{CancelToken, EntryKind, Tree, WalkError, WalkOptions, walk};
 
 use super::splice::{Fresh, Pending, Replacement};
 use super::{
-    Index, Previous, RefreshOutcome, depth_first_below, indexing, node_sized, order_errors,
-    tree_order, unfinished_error,
+    ChangedFiles, Held, Index, Previous, RefreshOutcome, depth_first_below, indexing, node_sized,
+    order_errors, tree_order, unfinished_error,
 };
 use crate::build::{BuildError, IgnoreSources};
 use crate::content::{ContentId, ContentVisitor};
@@ -69,6 +69,7 @@ impl Index {
                 errors: Vec::new(),
                 retired: Vec::new(),
                 walked: scopes,
+                changed: ChangedFiles::default(),
             });
         }
         if scopes[0].is_empty() {
@@ -76,8 +77,11 @@ impl Index {
         }
 
         let asked = Asked { visitor, cancel };
-        let Planned { pending, errors } =
-            self.counting_handed(|index, handed| index.plan(&scopes, asked, handed))?;
+        let Planned {
+            pending,
+            errors,
+            changed,
+        } = self.counting_handed(|index, handed| index.plan(&scopes, asked, handed))?;
         let retired = match pending {
             Some((pending, content)) => {
                 if let Some(content) = content {
@@ -92,6 +96,7 @@ impl Index {
             errors,
             retired,
             walked: scopes,
+            changed,
         })
     }
 
@@ -230,6 +235,7 @@ impl Index {
             return Ok(Planned {
                 pending: None,
                 errors,
+                changed: ChangedFiles::default(),
             });
         }
 
@@ -250,6 +256,13 @@ impl Index {
             unindexed: &unindexed,
         };
         let replacements = facts.replacements(scopes, ranges, &found);
+        let mut changed = ChangedFiles::default();
+        for replacement in &replacements {
+            changed.add_between(
+                Held::within(self, replacement.range.clone()),
+                replacement.entries.as_slice(),
+            );
+        }
         let mut pending = self.spliced(&replacements, node_sized(learned.len()));
         let content = finished
             .map(|finished| self.content_after(finished, &mut pending, asked.cancel))
@@ -258,6 +271,7 @@ impl Index {
         Ok(Planned {
             pending: Some((pending, content)),
             errors,
+            changed,
         })
     }
 
@@ -331,6 +345,7 @@ struct Asked<'a> {
 struct Planned {
     pending: Option<(Pending, Option<ContentIndexes>)>,
     errors: Vec<BuildError>,
+    changed: ChangedFiles,
 }
 
 struct Finished {
