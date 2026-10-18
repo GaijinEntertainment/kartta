@@ -119,6 +119,9 @@
   time](./adr/3.31-parse-a-c-or-c-plus-plus-table-without-its-numbers.md) — initiative `03-code-graph`, 2026-10-18
 - [3.32 Hand an engine every shipped language from one crate, and select them by
   name](./adr/3.32-hand-an-engine-every-shipped-language-from-one-crate.md) — initiative `03-code-graph`, 2026-10-18
+- [4.1 Answer agents through an MCP server with the tools their prompts already
+  name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md) — initiative
+  `04-consumer-surfaces`, 2026-10-18
 
 ## Deprecated
 
