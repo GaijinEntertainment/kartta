@@ -104,11 +104,7 @@ impl Published {
     }
 
     pub(crate) fn rounded_up(time: SystemTime) -> Self {
-        let fraction = time
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since| since.subsec_nanos());
-
-        Self::at(time + Duration::from_secs(u64::from(fraction > 0)))
+        Self::at(time + Duration::from_nanos(999_999_999))
     }
 }
 

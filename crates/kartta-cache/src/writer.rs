@@ -97,12 +97,14 @@ impl PackWriter {
             namespace: *namespace,
             record,
         };
-        Writing::append_to(
-            &mut self.state.lock().unwrap_or_else(PoisonError::into_inner),
-            &self.dir,
-            entry,
-            payload,
-        )
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+
+        match &mut *state {
+            Some(writing) => writing.append(entry, payload),
+            None => state
+                .insert(Writing::start(&self.dir)?)
+                .append(entry, payload),
+        }
     }
 
     pub(crate) fn entry_count(&self) -> usize {
@@ -124,13 +126,13 @@ impl PackWriter {
     ///
     /// Returns the error of writing, syncing or linking the pack, or the failure of an earlier insert. The temporary
     /// file is removed either way.
-    pub fn publish(self) -> io::Result<Option<PathBuf>> {
-        let writing = self
+    pub fn publish(mut self) -> io::Result<Option<PathBuf>> {
+        let Some(writing) = self
             .state
-            .lock()
+            .get_mut()
             .unwrap_or_else(PoisonError::into_inner)
-            .take();
-        let Some(writing) = writing else {
+            .take()
+        else {
             return Ok(None);
         };
         let temp = writing.temp.clone();
@@ -184,22 +186,6 @@ impl Writing {
         })
     }
 
-    fn append_to(
-        state: &mut Option<Self>,
-        dir: &Path,
-        entry: Pending,
-        payload: &[u8],
-    ) -> io::Result<()> {
-        if state.is_none() {
-            *state = Some(Self::start(dir)?);
-        }
-        let Some(writing) = state.as_mut() else {
-            return Ok(());
-        };
-
-        writing.append(entry, payload)
-    }
-
     fn append(&mut self, mut entry: Pending, payload: &[u8]) -> io::Result<()> {
         if self.failed {
             return Err(failed_earlier());
@@ -234,7 +220,8 @@ impl Writing {
                 _ => namespaces.push((entry.namespace, at, at + 1)),
             }
         }
-        let namespaces_offset = index_offset + self.entry_bytes();
+        let namespaces_offset = index_offset
+            + u64::try_from(self.entries.len() * pack::ENTRY_RECORD_LEN).unwrap_or(u64::MAX);
         for (namespace, start, end) in &namespaces {
             let record = pack::namespace_record(namespace, *start..*end);
             self.file.write_all(&record)?;
@@ -256,10 +243,6 @@ impl Writing {
             &self.temp,
             &dir.join(format!("{}.{}", name.finalize().to_hex(), pack::EXTENSION)),
         )
-    }
-
-    fn entry_bytes(&self) -> u64 {
-        u64::try_from(self.entries.len() * pack::ENTRY_RECORD_LEN).unwrap_or(u64::MAX)
     }
 }
 
