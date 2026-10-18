@@ -58,7 +58,7 @@
 //! assert_eq!(names, ["Hud", "Hud.draw"]);
 //! ```
 
-use kartta_lang::path::base;
+use kartta_lang::path::has_extension;
 use kartta_lang::{
     BlockComment, Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository,
     Resolver,
@@ -93,9 +93,7 @@ impl Language for Quirrel {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path)
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("nut"))
+        has_extension(path, &["nut"])
     }
 
     fn fingerprint(&self) -> &[u8] {

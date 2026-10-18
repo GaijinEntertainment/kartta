@@ -165,13 +165,7 @@ impl Language for Cpp {
     }
 
     fn claims(&self, path: &str) -> bool {
-        kartta_lang::path::base(path)
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| {
-                EXTENSIONS
-                    .iter()
-                    .any(|known| extension.eq_ignore_ascii_case(known))
-            })
+        kartta_lang::path::has_extension(path, &EXTENSIONS)
     }
 
     fn fingerprint(&self) -> &[u8] {

@@ -58,7 +58,7 @@
 //! assert_eq!(raw.calls[0].receiver.as_deref(), Some("Service"));
 //! ```
 
-use kartta_lang::path::base;
+use kartta_lang::path::has_extension;
 use kartta_lang::{
     Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
 };
@@ -88,9 +88,7 @@ impl Language for Rust {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path)
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("rs"))
+        has_extension(path, &["rs"])
     }
 
     fn fingerprint(&self) -> &[u8] {
