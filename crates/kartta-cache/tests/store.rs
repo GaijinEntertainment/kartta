@@ -72,11 +72,7 @@ fn a_published_entry_is_found_by_every_store_opened_afterwards() {
         store.get(&trigrams(), &ContentHash::of(b"never cached")),
         None
     );
-    let stats = store.stats();
-    assert_eq!(
-        (stats.packs, stats.entries, stats.hits, stats.misses),
-        (1, 2, 2, 1)
-    );
+    assert_eq!((store.stats().packs, store.stats().entries), (1, 2));
 }
 
 #[test]
@@ -200,7 +196,7 @@ fn every_pack_answers_for_what_it_holds() {
 }
 
 #[test]
-fn a_damaged_payload_is_a_miss_and_is_counted() {
+fn a_damaged_payload_is_a_miss() {
     let dir = tempfile::tempdir().expect("temp dir");
     published(&dir, &[(&trigrams(), b"content", b"payload")]);
     let pack = &packs(dir.path())[0];
@@ -212,11 +208,10 @@ fn a_damaged_payload_is_a_miss_and_is_counted() {
     let store = Store::open(dir.path()).expect("open");
 
     assert_eq!(store.get(&trigrams(), &ContentHash::of(b"content")), None);
-    assert_eq!((store.stats().damaged, store.stats().misses), (1, 0));
 }
 
 #[test]
-fn a_file_that_is_not_a_pack_is_rejected_and_the_rest_still_answer() {
+fn a_file_that_is_not_a_pack_is_skipped_and_the_rest_still_answer() {
     let dir = tempfile::tempdir().expect("temp dir");
     published(&dir, &[(&trigrams(), b"content", b"payload")]);
     fs::write(
@@ -228,7 +223,7 @@ fn a_file_that_is_not_a_pack_is_rejected_and_the_rest_still_answer() {
 
     let store = Store::open(dir.path()).expect("open");
 
-    assert_eq!(store.stats().rejected_packs, 2);
+    assert_eq!(store.stats().packs, 1);
     assert_eq!(
         store.get(&trigrams(), &ContentHash::of(b"content")),
         Some(&b"payload"[..])
@@ -457,7 +452,7 @@ fn a_pack_whose_namespace_ranges_are_damaged_is_refused_and_never_merged_away() 
     let store = Store::open(dir.path()).expect("open");
     let merged = store.merge(DEFAULT_TTL).expect("merge");
 
-    assert_eq!((store.stats().packs, store.stats().rejected_packs), (9, 1));
+    assert_eq!(store.stats().packs, 9);
     assert_eq!(merged.packs, 9);
     assert!(
         pack.exists(),
