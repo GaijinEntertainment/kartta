@@ -105,9 +105,7 @@ impl PackWriter {
         )
     }
 
-    /// How many distinct keys the writer holds.
-    #[must_use]
-    pub fn entry_count(&self) -> usize {
+    pub(crate) fn entry_count(&self) -> usize {
         self.state
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
