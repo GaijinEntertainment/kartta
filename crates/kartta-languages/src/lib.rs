@@ -158,14 +158,6 @@ pub struct UnknownLanguages {
     names: Vec<String>,
 }
 
-impl UnknownLanguages {
-    /// Each unknown name, once, in the order it was first given.
-    #[must_use]
-    pub fn names(&self) -> &[String] {
-        &self.names
-    }
-}
-
 impl fmt::Display for UnknownLanguages {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let noun = if self.names.len() == 1 {
