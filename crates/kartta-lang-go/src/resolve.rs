@@ -182,19 +182,28 @@ impl Resolver for GoResolver<'_> {
 // constraint: a module's major version suffix, `/v2` or gopkg.in's `.v3`, is no part of its package's name, which the
 // go command's convention takes from the element before it
 fn package_name(spec: &str) -> &str {
-    let is_version = |tail: &str| {
-        tail.len() > 1 && tail.starts_with('v') && tail[1..].bytes().all(|b| b.is_ascii_digit())
-    };
+    let (_, element) = package_segments(spec);
+    match element.rsplit_once('.') {
+        Some((head, tail)) if !head.is_empty() && is_major_version(tail) => head,
+        _ => element,
+    }
+}
+
+// constraint: the first is the last segment of `spec`, the second the element its package is named from
+pub(crate) fn package_segments(spec: &str) -> (&str, &str) {
     let mut segments = spec.rsplit('/');
     let last = segments.next().unwrap_or(spec);
     let element = match segments.next() {
-        Some(previous) if is_version(last) => previous,
+        Some(previous) if is_major_version(last) => previous,
         _ => last,
     };
-    match element.rsplit_once('.') {
-        Some((head, tail)) if !head.is_empty() && is_version(tail) => head,
-        _ => element,
-    }
+    (last, element)
+}
+
+pub(crate) fn is_major_version(segment: &str) -> bool {
+    segment.len() > 1
+        && segment.starts_with('v')
+        && segment[1..].bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn join_dir(dir: &str, rest: &str) -> String {

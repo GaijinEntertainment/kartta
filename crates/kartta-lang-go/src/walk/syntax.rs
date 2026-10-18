@@ -1,6 +1,8 @@
 use kartta_lang::tree::{children, named_children, text};
 use tree_sitter::Node;
 
+use crate::resolve::{is_major_version, package_segments};
+
 pub(super) const PREDECLARED: &[&str] = &[
     "any",
     "bool",
@@ -84,21 +86,11 @@ pub(super) fn trim_quotes(mut spec: String) -> String {
 // constraint: the graph's import table decides which name a package binds, so an unaliased import offers every usual
 // spelling of its package name; a spelling outside this set loses the file's selector uses of that package
 pub(super) fn default_name_candidates(path: &str) -> Vec<String> {
-    let mut segments = path.rsplit('/');
-    let last = segments.next().unwrap_or(path);
-    let is_major = |segment: &str| {
-        segment.len() > 1
-            && segment.starts_with('v')
-            && segment[1..].bytes().all(|b| b.is_ascii_digit())
-    };
-    let base = match segments.next() {
-        Some(previous) if is_major(last) => previous,
-        _ => last,
-    };
+    let (last, base) = package_segments(path);
 
     let mut names = vec![last.to_owned()];
-    let versionless = match base.rsplit_once(".v") {
-        Some((head, tail)) if !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()) => head,
+    let versionless = match base.rsplit_once('.') {
+        Some((head, tail)) if is_major_version(tail) => head,
         _ => base,
     };
     let trimmed = (versionless.strip_prefix("go-"))
