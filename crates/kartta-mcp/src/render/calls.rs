@@ -380,6 +380,68 @@ fn caller(reached: &Reached<'_>) -> String {
         .close()
 }
 
+/// The `find_callees` answer: one `<match>` per family graph the name selects a symbol in, or the alternatives to a
+/// name none does.
+pub(crate) fn callees(
+    ask: &CallersAsk<'_>,
+    walks: &[(&str, Walk<'_>)],
+    suggestions: &[Suggestion<'_>],
+) -> String {
+    let mut element = Element::new("callees").attr("of", ask.name);
+    if !ask.languages.is_empty() {
+        element = element.attr("languages", ask.languages);
+    }
+    element = element.attr("matches", walks.len());
+    if walks.is_empty() {
+        return unresolved(element, ask.languages, suggestions);
+    }
+    element.children(
+        walks
+            .iter()
+            .map(|(family, walk)| callee_match(ask.floored, family, walk)),
+    )
+}
+
+/// One graph's walk: the symbol, how many callees it reached, what the walk left out, and a flat `<ref>` per callee,
+/// nearest first.
+fn callee_match(floored: bool, family: &str, walk: &Walk<'_>) -> String {
+    let root = &walk.root;
+    let mut element = Element::new("match")
+        .attr("lang", family)
+        .attr("of", root.name);
+    if root.qualified_name != root.name {
+        element = element.attr("qn", root.qualified_name);
+    }
+    element = element
+        .attr("loc", loc(root.file, root.line))
+        .attr("count", walk.reached.len())
+        .flag("truncated", walk.truncated)
+        .count("turned_away", walk.turned_away)
+        .count("unexpanded", walk.unexpanded)
+        .count("below_confidence", walk.below_confidence)
+        .count("unresolved", walk.unresolved)
+        .count("passed_over", walk.passed_over);
+    if walk.reached.is_empty() {
+        let floor = if floored {
+            " at this confidence floor"
+        } else {
+            ""
+        };
+        return element.inline(&format!(
+            "no callees - no call in its body binds a definition the graph holds{floor}; a call into a library or a \
+             builtin, through a function value, or by dynamic dispatch binds none"
+        ));
+    }
+    element.children(walk.reached.iter().map(|reached| {
+        let record = edge("ref", reached).attr("hops", reached.depth);
+        if reached.depth == 1 {
+            record.attr("at", loc(root.file, reached.line)).close()
+        } else {
+            record.close()
+        }
+    }))
+}
+
 /// Why a symbol may have no callers, by what it is.
 fn no_callers(of: SymbolKind, floored: bool) -> String {
     let label = of.label();

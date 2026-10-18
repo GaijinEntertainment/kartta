@@ -30,6 +30,7 @@ fn the_server_lists_its_tools() {
         [
             "file_outline",
             "find_call_path",
+            "find_callees",
             "find_callers",
             "find_files",
             "find_implementations",

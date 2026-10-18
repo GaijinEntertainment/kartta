@@ -388,6 +388,121 @@ fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
 }
 
 #[test]
+fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
+    let answers = answers(&[
+        ("find_callees", json!({"name": "main"})),
+        ("find_callees", json!({"name": "main", "hops": 2})),
+        ("find_callees", json!({"name": "Greet"})),
+        ("find_callees", json!({"name": "Gret"})),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<callees of="main" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="main" qn="main.main" loc="cmd/app/main.go:5" count="2" "#,
+                    r#"unexpanded="2">"#,
+                ),
+                concat!(
+                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" hops="1" "#,
+                    r#"at="cmd/app/main.go:7"/>"#,
+                ),
+                concat!(
+                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7" role="consumer" hops="1" "#,
+                    r#"at="cmd/app/main.go:6"/>"#,
+                ),
+                "</match>",
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<callees of="main" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="main" qn="main.main" loc="cmd/app/main.go:5" count="3" "#,
+                    r#"unexpanded="1">"#,
+                ),
+                concat!(
+                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" hops="1" "#,
+                    r#"at="cmd/app/main.go:7"/>"#,
+                ),
+                concat!(
+                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7" role="consumer" hops="1" "#,
+                    r#"at="cmd/app/main.go:6"/>"#,
+                ),
+                r#"<ref name="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12" role="consumer" hops="2"/>"#,
+                "</match>",
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<callees of="Greet" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12" count="0">"#,
+                    "no callees - no call in its body binds a definition the graph holds; a call into a library or a ",
+                    "builtin, through a function value, or by dynamic dispatch binds none</match>",
+                ),
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<callees of="Gret" matches="0">"#,
+                "no symbol matches - did you mean:",
+                r#"<suggestion name="Greet" qn="pkg.Service.Greet" kind="method" lang="go" loc="pkg/service.go:12"/>"#,
+                "</callees>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn find_callees_counts_the_calls_that_bound_nothing_and_the_callees_below_the_floor() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/lib\n\ngo 1.22\n"),
+        (
+            "run.go",
+            "package lib\n\nimport \"fmt\"\n\nfunc Run() {\n\tfmt.Println(\"x\")\n\thelper()\n}\n",
+        ),
+        ("helper.go", "package lib\n\nfunc helper() {}\n"),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        [
+            client.answer("find_callees", &json!({"name": "Run"})),
+            client.answer(
+                "find_callees",
+                &json!({"name": "Run", "min_confidence": "certain"})
+            ),
+        ],
+        [
+            lines(&[
+                r#"<callees of="Run" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Run" qn="lib.Run" loc="run.go:5" count="1" unexpanded="1" "#,
+                    r#"unresolved="1">"#,
+                ),
+                concat!(
+                    r#"<ref name="helper" qn="lib.helper" loc="helper.go:3" role="consumer" confidence="likely" "#,
+                    r#"hops="1" at="run.go:7"/>"#,
+                ),
+                "</match>",
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<callees of="Run" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Run" qn="lib.Run" loc="run.go:5" count="0" below_confidence="1" "#,
+                    r#"unresolved="1">no callees - no call in its body binds a definition the graph holds at this "#,
+                    "confidence floor; a call into a library or a builtin, through a function value, or by dynamic ",
+                    "dispatch binds none</match>",
+                ),
+                "</callees>",
+            ]),
+        ]
+    );
+}
+
+#[test]
 fn a_wrong_call_answers_a_tool_error() {
     let tree = go_module();
     let mut client = Client::start(&[]);
@@ -396,6 +511,7 @@ fn a_wrong_call_answers_a_tool_error() {
     for (tool, arguments) in [
         ("read_definitions", json!({"names": []})),
         ("read_definitions", json!({"names": [""]})),
+        ("find_callees", json!({"name": "main", "hops": 0})),
         (
             "impact_of_edit",
             json!({"file": "pkg/service.go", "start_line": 0}),
