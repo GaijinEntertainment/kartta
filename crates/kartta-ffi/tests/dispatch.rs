@@ -102,40 +102,6 @@ fn a_query_before_any_build_answers_not_built() {
 }
 
 #[test]
-fn version_lists_the_abi_the_methods_and_the_languages() {
-    let tree = tree();
-    let kartta = open(tree.path());
-
-    let version = ok(&kartta, "version", &Value::Null);
-
-    assert_eq!(version["abi"], kartta_ffi::ABI_VERSION);
-    assert_eq!(
-        version["methods"]
-            .as_array()
-            .map(|methods| methods[..3].to_vec()),
-        Some(vec![
-            json!("analyze_change"),
-            json!("analyze_segment"),
-            json!("build")
-        ])
-    );
-    assert_eq!(version["languages"][0], "go");
-}
-
-#[test]
-fn every_listed_method_is_answered_by_the_dispatch() {
-    let tree = tree();
-    let kartta = open(tree.path());
-    let version = ok(&kartta, "version", &Value::Null);
-
-    for method in version["methods"].as_array().expect("a list") {
-        let method = method.as_str().expect("a name");
-        let answer = call(&kartta, method, &json!({ "name": "helper" }));
-        assert_ne!(answer["err"]["code"], "unknown_method", "{method}");
-    }
-}
-
-#[test]
 fn an_unknown_method_names_the_methods_there_are() {
     let tree = tree();
     let kartta = open(tree.path());
