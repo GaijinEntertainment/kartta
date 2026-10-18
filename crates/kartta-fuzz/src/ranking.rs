@@ -129,12 +129,10 @@ impl Ranking {
     #[must_use]
     pub fn new(query: &str, limit: Option<NonZeroUsize>) -> Self {
         let terms: Vec<Term> = query.split_whitespace().map(Term::new).collect();
-        let mut scorer = Scorer::default();
         let longest = terms.iter().map(|term| term.chars.len()).max();
-        scorer.begin(Representation::of(&terms), longest.unwrap_or(0));
 
         Self {
-            scorer,
+            scorer: Scorer::new(Representation::of(&terms), longest.unwrap_or(0)),
             terms,
             limit,
             heap: BinaryHeap::new(),
@@ -227,9 +225,6 @@ impl Ranking {
     ///
     /// Requires a non-empty term list, which [`Ranking::offer`] has already established.
     fn score_terms(&mut self, candidate: &str) -> Option<i32> {
-        if self.terms.is_empty() {
-            return None;
-        }
         // Cheap reject, streamed over the raw candidate. Every term is checked here rather than only the first,
         // because a candidate that fails any of them is dropped — and proving that before preparation keeps the
         // boundary pass and the alignment off candidates a later term would have rejected anyway.
