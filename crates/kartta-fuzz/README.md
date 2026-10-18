@@ -81,6 +81,8 @@ query both are, and as characters otherwise; the alignment is written once, gene
 prepared once and every term of the query scores against that preparation. A one-symbol term — the most permissive
 non-empty query — is scored by a running maximum without the rows, and a longer term only over the span from the first match of
 its first symbol to the last match of its last, charging the positions outside it as gaps.
+A candidate past the 1024-position bound is never prepared, and its length is counted only as far as the bound needs,
+so neither the buffers nor the scan grow with a length the caller chose.
 
 A `Ranking` owns the buffers the alignment reuses, so ranking a list allocates once rather than once per candidate. Results are positions, so a ranking allocates one `Vec` and copies no
 path. Passing a `limit` also bounds memory: the best matches are kept in a heap of that size rather than
