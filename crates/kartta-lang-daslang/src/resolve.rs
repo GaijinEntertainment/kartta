@@ -6,14 +6,10 @@ use kartta_lang::{
 };
 
 pub(crate) struct DaslangResolver<'r> {
-    repository: &'r dyn Repository,
+    pub(crate) repository: &'r dyn Repository,
 }
 
-impl<'r> DaslangResolver<'r> {
-    pub(crate) const fn new(repository: &'r dyn Repository) -> Self {
-        Self { repository }
-    }
-
+impl DaslangResolver<'_> {
     // constraint: the compiler binds a `require` to the module a file declares by name, matching letter case, and the
     // module path it searches is a compiler input no repository holds; a module almost always declares its own file
     // stem, so the file names stand in for the module index

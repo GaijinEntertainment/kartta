@@ -9,14 +9,10 @@ use crate::walk::REQUIRE_RELATIVE_FORM;
 const LOAD_ROOTS: [&str; 5] = ["lib", "", "test", "spec", "app"];
 
 pub(crate) struct Requires<'r> {
-    repository: &'r dyn Repository,
+    pub(crate) repository: &'r dyn Repository,
 }
 
-impl<'r> Requires<'r> {
-    pub(crate) const fn new(repository: &'r dyn Repository) -> Self {
-        Self { repository }
-    }
-
+impl Requires<'_> {
     // constraint: `require_relative` names a path from the requiring file's directory; a bare `require` names one
     // under the first conventional load root that holds it. Either may leave out the `.rb`.
     fn required_file(&self, directive: &RawDirective, path: &str) -> Option<String> {

@@ -4,14 +4,10 @@ use kartta_lang::{Extraction, IncludeRef, RawExtraction, Repository, Resolver, S
 const SOURCE_EXTENSIONS: [&str; 3] = ["", ".sh", ".bash"];
 
 pub(crate) struct Sources<'r> {
-    repository: &'r dyn Repository,
+    pub(crate) repository: &'r dyn Repository,
 }
 
-impl<'r> Sources<'r> {
-    pub(crate) const fn new(repository: &'r dyn Repository) -> Self {
-        Self { repository }
-    }
-
+impl Sources<'_> {
     // constraint: a relative specifier resolves against the sourcing file's directory; any other resolves from the
     // root, and failing that to the one file whose path ends in it at a segment, counted across every extension
     // probed, so an ambiguous name stays unresolved
