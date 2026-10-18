@@ -264,10 +264,7 @@ fn macro_invocation_len(line: &[u8]) -> Option<usize> {
         return None;
     }
 
-    let name_len = head
-        .iter()
-        .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'_')
-        .count();
+    let name_len = word_len(head);
     if !is_macro_name(&head[..name_len]) {
         return None;
     }

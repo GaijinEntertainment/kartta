@@ -4,12 +4,9 @@ use kartta_lang::{
     SymbolKind,
 };
 
-use crate::QUOTED_INCLUDE;
+use crate::{EXTENSIONS, QUOTED_INCLUDE};
 
 const HEADER_EXTENSIONS: [&str; 6] = ["", ".h", ".hpp", ".c", ".cpp", ".cc"];
-const SOURCE_EXTENSIONS: [&str; 10] = [
-    ".cpp", ".cxx", ".hpp", ".hxx", ".cc", ".hh", ".c", ".h", ".inl", ".inc",
-];
 
 pub(crate) struct Includes<'r> {
     repository: &'r dyn Repository,
@@ -165,10 +162,9 @@ fn name_marks_generated(name: &str) -> bool {
         return true;
     }
 
-    SOURCE_EXTENSIONS
-        .iter()
-        .find_map(|extension| name.strip_suffix(extension))
-        .unwrap_or(name)
+    name.rsplit_once('.')
+        .filter(|(_, extension)| EXTENSIONS.contains(extension))
+        .map_or(name, |(stem, _)| stem)
         .ends_with(".pb")
 }
 
