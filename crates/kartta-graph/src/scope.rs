@@ -172,7 +172,7 @@ impl Cascade<'_> {
         if call.receiver.is_some() || call.written_from_root {
             return None;
         }
-        let named = candidates.named();
+        let named = candidates.named;
         let caller = call.caller_at();
         let own = self
             .graph
@@ -853,7 +853,7 @@ impl Cascade<'_> {
             return Some(at);
         }
         let separator = self.conventions.owner_chain_separator?;
-        let mut ending = candidates.targets().iter().copied().filter(|&at| {
+        let mut ending = candidates.targets.iter().copied().filter(|&at| {
             self.owner(at)
                 .is_some_and(|owner| self.chain_ends_in(owner, receiver, separator))
         });

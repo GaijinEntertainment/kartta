@@ -347,9 +347,8 @@ impl Graph {
         }
     }
 
-    fn demoted(&self, at: SymbolAt, score: f64) -> f64 {
+    fn demoted(&self, at: SymbolAt, mut score: f64) -> f64 {
         let flags = self.sym(at).flags;
-        let mut score = score;
         if flags.is_generated() {
             score *= GENERATED_DEMOTION;
         }
