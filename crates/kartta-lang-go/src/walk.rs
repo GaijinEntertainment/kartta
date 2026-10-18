@@ -81,6 +81,7 @@ struct Emitter<'a> {
     blocks: Vec<Block>,
     spec_owners: VecDeque<(usize, SymbolId)>,
     named_by_call: Option<usize>,
+    literal_key: Option<usize>,
     import_names: Vec<String>,
     pending_parents: Vec<(String, String)>,
     file_is_generated: bool,
@@ -104,6 +105,7 @@ impl<'a> Emitter<'a> {
             blocks: Vec::new(),
             spec_owners: VecDeque::new(),
             named_by_call: None,
+            literal_key: None,
             import_names: Vec::new(),
             pending_parents: Vec::new(),
             file_is_generated: is_generated_source(source),
@@ -170,6 +172,8 @@ impl<'a> Emitter<'a> {
                 let owner = self.use_owner();
                 return self.record_use(node, owner);
             }
+            "identifier" => self.record_identifier(node, self.use_owner()),
+            "keyed_element" => self.record_literal_key(node, self.use_owner()),
             "import_declaration" => {
                 self.import_declaration(node);
                 return false;

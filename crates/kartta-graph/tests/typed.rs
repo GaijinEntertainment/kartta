@@ -7,8 +7,8 @@
 
 use kartta_graph::{Graph, Limits, Miss};
 use kartta_lang::{
-    CallRef, Conventions, Extraction, ImportBinding, MemberCalls, OwnMembers, Receivers, Symbol,
-    SymbolFlags, SymbolId, SymbolKind,
+    Access, CallRef, Conventions, Extraction, ImportBinding, MemberCalls, OwnMembers, Receiver,
+    Receivers, RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
 
 fn go() -> Conventions {
@@ -466,4 +466,138 @@ fn a_type_local_to_a_body_gives_its_fields() {
         callees_of(&graph, "main.Run"),
         [("srv/server.go:srv.Server.Close".to_owned(), 85)]
     );
+}
+
+fn accessing(name: &str, path: &str, access: Access, line: u32) -> RefSite {
+    RefSite {
+        site_of: SymbolId(0),
+        name: name.to_owned(),
+        receiver: Receiver::Path(path.to_owned()),
+        access,
+        line,
+    }
+}
+
+fn config_package() -> Extraction {
+    file(
+        "cfg/config.go",
+        "cfg",
+        vec![
+            typed("cfg", "Config", SymbolKind::Struct, 1),
+            member("cfg.Config", "Timeout", SymbolKind::Field, 2),
+            member("cfg.Config", "Reset", SymbolKind::Method, 4),
+        ],
+        Vec::new(),
+    )
+}
+
+fn sites_of(graph: &Graph, name: &str) -> Vec<(String, u32, u8)> {
+    let references = graph
+        .references(name, 0, usize::MAX)
+        .expect("the name selects a symbol");
+    references
+        .sites
+        .iter()
+        .map(|site| {
+            (
+                site.site_of.qualified_name.to_owned(),
+                site.line,
+                site.confidence,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_member_on_a_value_binds_the_field_or_method_its_type_path_reaches() {
+    let mut caller = file(
+        "app/main.go",
+        "main",
+        vec![function("main", "Run", 1)],
+        Vec::new(),
+    );
+    caller.references = vec![
+        accessing("Timeout", "cfg.Config", Access::Write, 2),
+        accessing("Timeout", "cfg.Config", Access::Read, 3),
+        accessing("Reset", "cfg.Config", Access::Read, 4),
+    ];
+    let caller = importing(caller, &[("cfg", Some("cfg"))]);
+
+    let graph = graph(&[config_package(), caller]);
+
+    assert_eq!(
+        sites_of(&graph, "Config.Timeout"),
+        [
+            ("main.Run".to_owned(), 2, 85),
+            ("main.Run".to_owned(), 3, 85)
+        ],
+        "a field is a referent, and each line of a body that touches it is a site"
+    );
+    assert_eq!(
+        sites_of(&graph, "cfg.Config.Reset"),
+        [("main.Run".to_owned(), 4, 85)],
+        "a method taken as a value is a use of it"
+    );
+}
+
+#[test]
+fn a_member_whose_type_the_path_cannot_reach_binds_only_the_one_field_of_its_file() {
+    let mut caller = file(
+        "cfg/load.go",
+        "cfg",
+        vec![
+            function("cfg", "Load", 1),
+            typed("cfg", "Local", SymbolKind::Struct, 5),
+            member("cfg.Local", "Limit", SymbolKind::Field, 6),
+            function("cfg", "Other", 8),
+            typed("cfg", "entry", SymbolKind::Struct, 9),
+            member("cfg.entry", "consumer", SymbolKind::Field, 10),
+        ],
+        Vec::new(),
+    );
+    caller.local_symbols = vec![SymbolId(4), SymbolId(5)];
+    caller.references = vec![
+        accessing("Limit", "", Access::Read, 2),
+        accessing("Timeout", "", Access::Read, 3),
+        accessing("consumer", "", Access::Read, 4),
+    ];
+
+    let graph = graph(&[config_package(), caller]);
+
+    assert_eq!(
+        sites_of(&graph, "Local.Limit"),
+        [("cfg.Load".to_owned(), 2, 80)]
+    );
+    assert_eq!(
+        sites_of(&graph, "Config.Timeout"),
+        [],
+        "the one field of the name in the package is not taken: a namesake is as likely"
+    );
+    assert_eq!(
+        sites_of(&graph, "entry.consumer"),
+        [],
+        "a field of a type another body declares is out of the use's reach"
+    );
+}
+
+#[test]
+fn a_member_of_a_type_outside_the_graph_or_of_one_without_it_binds_nothing() {
+    let mut caller = file(
+        "app/main.go",
+        "main",
+        vec![
+            function("main", "Run", 1),
+            typed("main", "Plain", SymbolKind::Struct, 5),
+        ],
+        Vec::new(),
+    );
+    caller.references = vec![
+        accessing("Timeout", "http.Client", Access::Read, 2),
+        accessing("Timeout", "Plain", Access::Read, 3),
+    ];
+    let caller = importing(caller, &[("http", None)]);
+
+    let graph = graph(&[config_package(), caller]);
+
+    assert_eq!(sites_of(&graph, "Config.Timeout"), []);
 }

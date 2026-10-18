@@ -156,6 +156,10 @@ pub(super) fn is_container_type(node: Node<'_>) -> bool {
     )
 }
 
+pub(super) fn is_container_path(path: &str) -> bool {
+    path.starts_with(CONTAINER)
+}
+
 pub(super) fn element_of(path: &str) -> Option<String> {
     path.strip_prefix(CONTAINER).map_or_else(
         || bounded(format!("{path}{CONTAINER}")),

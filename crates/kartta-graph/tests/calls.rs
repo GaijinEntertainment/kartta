@@ -2164,14 +2164,21 @@ fn a_file_inserted_again_answers_with_its_new_uses() {
 }
 
 #[test]
-fn a_name_only_fields_define_selects_no_symbol_to_reference() {
+fn a_name_only_a_field_defines_selects_the_field_and_one_a_variant_defines_selects_nothing() {
     let graph = graph(&[file(
         "a.go",
-        vec![member("Config", "limit", SymbolKind::Field, 2)],
+        vec![
+            member("Config", "limit", SymbolKind::Field, 2),
+            member("Kind", "Red", SymbolKind::EnumVariant, 4),
+        ],
         Vec::new(),
     )]);
 
-    assert!(graph.references("limit", 0, usize::MAX).is_none());
+    let field = graph
+        .references("limit", 0, usize::MAX)
+        .map(|references| references.symbol.kind);
+    assert_eq!(field, Some(SymbolKind::Field));
+    assert!(graph.references("Red", 0, usize::MAX).is_none());
 }
 
 #[test]

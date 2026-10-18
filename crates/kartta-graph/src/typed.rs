@@ -13,7 +13,7 @@ pub(crate) enum Typed {
     Imported,
     /// A name that nothing the graph holds declares, a builtin type among them.
     Undeclared,
-    /// A type the graph holds, with no method of the name.
+    /// A type the graph holds, with no member of the name the site can bind: a method for a call, any member for a use.
     NoMethod,
     /// A path the graph cannot follow, which leaves the call to the tiers that read no type.
     Unknown,
@@ -69,6 +69,23 @@ impl<'g> Cascade<'g> {
     pub(crate) fn typed_member(&self, call: &Call, receiver: Str) -> Typed {
         match self.receiver_type(call.file, receiver) {
             Value::Type(ty) => self.method_of(ty, call.callee),
+            Value::Imported => Typed::Imported,
+            Value::Undeclared => Typed::Undeclared,
+            Value::Package(_) | Value::Callable(_) | Value::Container { .. } | Value::Unknown => {
+                Typed::Unknown
+            }
+        }
+    }
+
+    // constraint: a member taken without a call is a field or a method value, so every member kind binds
+    pub(crate) fn typed_use(&self, file: u32, path: Str, name: Str) -> Typed {
+        match self.receiver_type(file, path) {
+            Value::Type(ty) => match self.member(ty, name, 0) {
+                Found::Member(at) => Typed::Member(at),
+                Found::Nothing => Typed::NoMethod,
+                Found::Outside => Typed::Imported,
+                Found::Unknown => Typed::Unknown,
+            },
             Value::Imported => Typed::Imported,
             Value::Undeclared => Typed::Undeclared,
             Value::Package(_) | Value::Callable(_) | Value::Container { .. } | Value::Unknown => {
