@@ -8,14 +8,10 @@ use crate::walk::REQUIRE_FORM;
 const MODULE_FILES: [&str; 2] = [".lua", "/init.lua"];
 
 pub(crate) struct Loaders<'r> {
-    repository: &'r dyn Repository,
+    pub(crate) repository: &'r dyn Repository,
 }
 
-impl<'r> Loaders<'r> {
-    pub(crate) const fn new(repository: &'r dyn Repository) -> Self {
-        Self { repository }
-    }
-
+impl Loaders<'_> {
     // constraint: `require` takes a dotted module, `a.b` for `a/b.lua` or the package `a/b/init.lua`, from the root
     // and then from the requiring file's directory; `dofile` and `loadfile` take a path, whose dots are no separators,
     // from the file's directory and then from the root. An empty name loads nothing.

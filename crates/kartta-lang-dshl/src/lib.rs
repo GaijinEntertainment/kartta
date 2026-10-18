@@ -124,7 +124,7 @@ impl Language for Dshl {
     }
 
     fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(Includes::new(repository))
+        Box::new(Includes { repository })
     }
 }
 

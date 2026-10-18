@@ -112,7 +112,7 @@ impl Language for Puppet {
     }
 
     fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(Manifests::new(repository))
+        Box::new(Manifests { repository })
     }
 }
 

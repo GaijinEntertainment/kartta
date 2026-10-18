@@ -111,7 +111,7 @@ impl Language for Bash {
     }
 
     fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(Sources::new(repository))
+        Box::new(Sources { repository })
     }
 }
 

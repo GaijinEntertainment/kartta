@@ -4,14 +4,10 @@ use crate::class::manifest;
 use crate::walk::CLASS_FORM;
 
 pub(crate) struct Manifests<'r> {
-    repository: &'r dyn Repository,
+    pub(crate) repository: &'r dyn Repository,
 }
 
-impl<'r> Manifests<'r> {
-    pub(crate) const fn new(repository: &'r dyn Repository) -> Self {
-        Self { repository }
-    }
-
+impl Manifests<'_> {
     // constraint: a `spec`, `tests`, `test` or `examples` directory is test code only at a module's root, beside
     // `manifests/`; under `manifests/` the same name is a code namespace, `mymod::test::foo`, a directory that holds
     // `manifests/` itself is a module of that name, and one with no `manifests/` beside it holds modules, as an
