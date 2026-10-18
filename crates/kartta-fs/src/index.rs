@@ -203,6 +203,25 @@ impl Index {
         ran.unwrap_or_else(|panicked| panic::resume_unwind(panicked))
     }
 
+    fn stopped_refresh_ids(&self) -> Range<u32> {
+        self.first_content_id + node_sized(self.content_positions.len())..self.next_content_id
+    }
+
+    fn retiring(&self, rising_slots: impl IntoIterator<Item = u32>) -> Vec<Range<u32>> {
+        let mut runs: Vec<Range<u32>> = Vec::new();
+        for slot in rising_slots {
+            match runs.last_mut() {
+                Some(run) if run.end == slot => run.end += 1,
+                _ => runs.push(slot..slot + 1),
+            }
+        }
+        let stopped = self.stopped_refresh_ids();
+        if !stopped.is_empty() {
+            runs.push(stopped);
+        }
+        runs
+    }
+
     fn rebuild_options(&self) -> BuildOptions {
         BuildOptions {
             ignore_sources: self.ignore_sources,
