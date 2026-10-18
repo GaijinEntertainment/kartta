@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use kartta_walk::EntryKind;
 
-use super::{Found, WatchError};
+use super::{Found, WatchError, start_error};
 use crate::index::Index;
 use crate::policy::pruned;
 use crate::pruned::PrunedNames;
@@ -295,11 +295,4 @@ fn prunes(name: &OsStr, pruned_names: &PrunedNames) -> bool {
 
 fn gone(error: &io::Error) -> bool {
     matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR))
-}
-
-fn start_error(path: &Path, source: io::Error) -> WatchError {
-    WatchError::Start {
-        native_path: path.to_path_buf(),
-        source: Box::new(source),
-    }
 }
