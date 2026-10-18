@@ -130,5 +130,5 @@ mod walk;
 pub use crate::cancel::CancelToken;
 pub use crate::error::WalkError;
 pub use crate::policy::{Dir, Entry, EntryKind, ListedStat, Policy, Visit};
-pub use crate::tree::{Children, Node, NodeId, Tree};
+pub use crate::tree::{Children, Node, Tree};
 pub use crate::walk::{WalkOptions, WalkOutcome, walk};
