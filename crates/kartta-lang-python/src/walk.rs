@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ops::Range;
 
 use kartta_lang::tree::{children, named_children, preorder, signature, text};
@@ -22,6 +23,9 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter {
         source,
         frames: Vec::new(),
+        receivers: Vec::new(),
+        attributes: Vec::new(),
+        members: HashSet::new(),
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
         raw: RawExtraction::default(),
     };
@@ -89,9 +93,37 @@ impl Frame<'_> {
     }
 }
 
+// constraint: a method reaches its instance through its first parameter, whatever its name, and a function nested in it
+// through the same name
+struct OwnReceiver<'a> {
+    end: usize,
+    name: &'a [u8],
+    owner: String,
+    class: Range<usize>,
+    frames: usize,
+}
+
+impl OwnReceiver<'_> {
+    fn is_parameter(&self, bound: &[u8]) -> bool {
+        std::ptr::eq(bound, self.name)
+    }
+}
+
+struct Attribute {
+    class: Range<usize>,
+    owner: String,
+    name: String,
+    lines: [u32; 2],
+}
+
 struct Emitter<'a> {
     source: &'a [u8],
     frames: Vec<Frame<'a>>,
+    receivers: Vec<OwnReceiver<'a>>,
+    attributes: Vec<Attribute>,
+    /// Each member a class declares, by where the class starts and the member's name, since two classes local to two
+    /// functions can share a qualified name.
+    members: HashSet<(usize, String)>,
     flags: SymbolFlags,
     raw: RawExtraction,
 }
@@ -109,6 +141,7 @@ impl<'a> Emitter<'a> {
                 if let Some(id) = self.function(node) {
                     self.define(node, id);
                     self.open(node, id, FrameKind::Function);
+                    self.open_receiver(node, id);
                 }
             }
             CLASS_DEFINITION => {
@@ -117,7 +150,10 @@ impl<'a> Emitter<'a> {
                 }
                 self.open(node, caller, FrameKind::Class);
             }
-            "lambda" => self.open(node, caller, FrameKind::Function),
+            "lambda" => {
+                self.open(node, caller, FrameKind::Function);
+                self.shadow_receiver(node);
+            }
             "list_comprehension"
             | "set_comprehension"
             | "dictionary_comprehension"
@@ -173,6 +209,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn close_frames(&mut self, before: usize) {
+        while self
+            .receivers
+            .pop_if(|receiver| receiver.end <= before)
+            .is_some()
+        {}
         while let Some(frame) = self.frames.pop_if(|frame| frame.end <= before) {
             self.close(frame);
         }
@@ -184,12 +225,17 @@ impl<'a> Emitter<'a> {
     fn close(
         &mut self,
         Frame {
+            end,
             caller,
+            kind,
             bindings,
             calls,
             ..
         }: Frame<'a>,
     ) {
+        if kind == FrameKind::Class {
+            self.declare_attributes(end);
+        }
         for call in calls {
             let binding = bindings
                 .iter()
@@ -358,6 +404,9 @@ impl<'a> Emitter<'a> {
             SymbolKind::Function
         };
         let qualified_name = owner.as_ref().map(|owner| format!("{owner}.{name}"));
+        if let Some(class) = class_around(node) {
+            self.members.insert((class.start_byte(), name.clone()));
+        }
         let mut symbol = symbol(name, qualified_name, kind, decorated_lines(node));
         symbol.owner = owner;
         symbol.signature = signature(node, self.source);
@@ -369,6 +418,9 @@ impl<'a> Emitter<'a> {
         let name = text(node.child_by_field_name("name")?, self.source);
         let qualified_name =
             enclosing_classes(node, self.source).map(|chain| format!("{chain}.{name}"));
+        if let Some(class) = class_around(node) {
+            self.members.insert((class.start_byte(), name.clone()));
+        }
 
         let mut symbol = symbol(
             name,
@@ -381,13 +433,14 @@ impl<'a> Emitter<'a> {
     }
 
     // constraint: only a bare identifier on the left is a symbol, so `a = b = 1` defines `a` alone and `a, b = 1, 2`
-    // defines nothing; at module level it is a variable, and directly in a class body it is a field only when
-    // annotated, the surface a dataclass or a pydantic model declares, because an unannotated one is commonly
-    // implementation state
+    // defines nothing; at module level it is a variable, and directly in a class body a field
     fn assignment(&mut self, node: Node<'_>) {
-        let left = node
-            .child_by_field_name("left")
-            .filter(|left| left.kind() == IDENTIFIER);
+        let left = node.child_by_field_name("left");
+        if let Some(attribute) = left.filter(|left| left.kind() == "attribute") {
+            self.attribute_assignment(attribute, node);
+            return;
+        }
+        let left = left.filter(|left| left.kind() == IDENTIFIER);
         let (Some(left), Some(parent)) = (left, statement_parent(node)) else {
             return;
         };
@@ -406,17 +459,137 @@ impl<'a> Emitter<'a> {
             && parent
                 .parent()
                 .is_some_and(|class| class.kind() == CLASS_DEFINITION);
-        if !in_class_body || node.child_by_field_name("type").is_none() {
+        if !in_class_body {
             return;
         }
         let Some(owner) = enclosing_classes(node, self.source) else {
             return;
         };
         let name = text(left, self.source);
+        let class_start = parent.parent().map_or(0, |class| class.start_byte());
+        if !self.members.insert((class_start, name.clone())) {
+            return;
+        }
         let qualified_name = format!("{owner}.{name}");
         let mut symbol = symbol(name, Some(qualified_name), SymbolKind::Field, lines(node));
         symbol.owner = Some(owner);
         self.push_symbol(symbol);
+    }
+
+    fn open_receiver(&mut self, function: Node<'_>, id: SymbolId) {
+        if let Some(receiver) = self.method_receiver(function, id) {
+            self.receivers.push(receiver);
+        } else {
+            self.shadow_receiver(function);
+        }
+    }
+
+    fn method_receiver(&self, function: Node<'_>, id: SymbolId) -> Option<OwnReceiver<'a>> {
+        let owner = self.raw.symbols[id.0 as usize].owner.clone()?;
+        let class = decorated(function)
+            .parent()
+            .and_then(|block| block.parent())
+            .filter(|class| class.kind() == CLASS_DEFINITION)?;
+        if is_static(function, self.source) {
+            return None;
+        }
+        let name = function
+            .child_by_field_name("parameters")?
+            .named_child(0)
+            .and_then(parameter_name)?;
+        Some(OwnReceiver {
+            end: function.end_byte(),
+            name: &self.source[name.byte_range()],
+            owner,
+            class: class.byte_range(),
+            frames: self.frames.len().saturating_sub(1),
+        })
+    }
+
+    // constraint: a function or a lambda nested in a method reaches the method's receiver, unless a parameter of its
+    // own takes the receiver's name
+    fn shadow_receiver(&mut self, function: Node<'_>) {
+        let Some(outer) = self.receivers.last() else {
+            return;
+        };
+        let Some(parameters) = function.child_by_field_name("parameters") else {
+            return;
+        };
+        let shadows = named_children(parameters)
+            .filter_map(|at| parameters.named_child(at))
+            .filter_map(parameter_name)
+            .any(|name| &self.source[name.byte_range()] == outer.name);
+        if shadows {
+            self.receivers.push(OwnReceiver {
+                end: function.end_byte(),
+                name: &[],
+                owner: String::new(),
+                class: 0..0,
+                frames: 0,
+            });
+        }
+    }
+
+    // constraint: the method, or a scope opened inside it, that binds the receiver's name again before the use hides
+    // the receiver
+    fn own_receiver(&self, object: Node<'_>) -> Option<&OwnReceiver<'a>> {
+        let receiver = self.receivers.last()?;
+        let name = &self.source[object.byte_range()];
+        if object.kind() != IDENTIFIER || name != receiver.name {
+            return None;
+        }
+        let rebound = self.frames[receiver.frames.min(self.frames.len())..]
+            .iter()
+            .flat_map(|frame| &frame.bindings)
+            .any(|&(bound, binding)| {
+                bound == name
+                    && !receiver.is_parameter(bound)
+                    && !matches!(binding, Binding::Enclosing)
+            });
+        (!rebound).then_some(receiver)
+    }
+
+    // constraint: an attribute an instance is given in any of its class's methods is a field of the class, declared
+    // where it is first assigned, once the class body has declared its own members
+    fn attribute_assignment(&mut self, attribute: Node<'_>, assignment: Node<'_>) {
+        let (Some(object), Some(name)) = (
+            attribute.child_by_field_name("object"),
+            attribute.child_by_field_name("attribute"),
+        ) else {
+            return;
+        };
+        let Some(receiver) = self.own_receiver(object) else {
+            return;
+        };
+        let attribute = Attribute {
+            class: receiver.class.clone(),
+            owner: receiver.owner.clone(),
+            name: text(name, self.source),
+            lines: lines(assignment),
+        };
+        self.attributes.push(attribute);
+    }
+
+    fn declare_attributes(&mut self, class_end: usize) {
+        let declared: Vec<Attribute> = self
+            .attributes
+            .extract_if(.., |attribute| attribute.class.end == class_end)
+            .collect();
+        for Attribute {
+            class,
+            owner,
+            name,
+            lines,
+        } in declared
+        {
+            if !self.members.insert((class.start, name.clone())) {
+                continue;
+            }
+            let qualified_name = format!("{owner}.{name}");
+            let mut symbol = symbol(name, Some(qualified_name), SymbolKind::Field, lines);
+            symbol.owner = Some(owner);
+            self.push_symbol(symbol);
+        }
     }
 
     fn call(&mut self, node: Node<'_>, caller_id: SymbolId) {
@@ -593,6 +766,30 @@ fn is_property(function: Node<'_>, name: &str, source: &[u8]) -> bool {
         })
 }
 
+fn is_static(function: Node<'_>, source: &[u8]) -> bool {
+    let holder = decorated(function);
+    named_children(holder)
+        .filter_map(|i| holder.named_child(i))
+        .filter(|decorator| decorator.kind() == "decorator")
+        .filter_map(|decorator| decorator.named_child(0))
+        .any(|written| {
+            let written = text(written, source);
+            written.rsplit('.').next() == Some("staticmethod")
+        })
+}
+
+fn parameter_name(parameter: Node<'_>) -> Option<Node<'_>> {
+    let name = match parameter.kind() {
+        IDENTIFIER => Some(parameter),
+        "default_parameter" | "typed_default_parameter" => parameter.child_by_field_name("name"),
+        "typed_parameter" | "list_splat_pattern" | "dictionary_splat_pattern" => {
+            parameter.named_child(0)
+        }
+        _ => None,
+    };
+    name.filter(|name| name.kind() == IDENTIFIER)
+}
+
 fn is_exported(name: &str) -> bool {
     !name.starts_with('_')
 }
@@ -601,6 +798,18 @@ fn is_module_level(node: Node<'_>) -> bool {
     decorated(node)
         .parent()
         .is_some_and(|parent| parent.kind() == MODULE)
+}
+
+fn class_around(node: Node<'_>) -> Option<Node<'_>> {
+    let mut ancestor = node.parent();
+    while let Some(parent) = ancestor {
+        match parent.kind() {
+            CLASS_DEFINITION => return Some(parent),
+            FUNCTION_DEFINITION => return None,
+            _ => ancestor = parent.parent(),
+        }
+    }
+    None
 }
 
 // constraint: the chain stops at the nearest function, so a definition nested in a function is never a member of a

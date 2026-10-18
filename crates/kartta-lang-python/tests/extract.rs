@@ -144,7 +144,7 @@ fn an_annotated_class_attribute_is_a_field_and_a_method_local_is_nothing() {
 }
 
 #[test]
-fn only_the_first_name_of_a_chained_assignment_and_no_tuple_or_unannotated_attribute_is_a_symbol() {
+fn only_the_first_name_of_a_chained_assignment_and_no_tuple_is_a_symbol() {
     let raw = extract(b"a = b = 1\nc, d = 1, 2\nclass K:\n    state = 0\n    typed: int = 0\n");
     let names: Vec<&str> = raw
         .symbols
@@ -152,7 +152,132 @@ fn only_the_first_name_of_a_chained_assignment_and_no_tuple_or_unannotated_attri
         .map(|symbol| symbol.qualified_name.as_str())
         .collect();
 
-    assert_eq!(names, ["a", "K", "K.typed"]);
+    assert_eq!(names, ["a", "K", "K.state", "K.typed"]);
+    assert_eq!(qualified(&raw, "K.state").kind, SymbolKind::Field);
+}
+
+#[test]
+fn an_attribute_a_method_gives_its_instance_is_a_field_declared_once_after_the_class_members() {
+    let raw = extract(
+        b"class Pool:\n    size: int = 0\n\n    def __init__(this, size):\n        this.size = size\n        \
+          this.free = []\n\n        def reset():\n            this.free = []\n            this.dirty = False\n\n\
+          \x20   @staticmethod\n    def make(other):\n        other.made = True\n\n    def grow(self):\n        \
+          self.free.append(1)\n        self.peak = 2\n        self.label = ''\n\n    @property\n    def label(self):\n\
+          \x20       return ''\n\nTAIL = 1\n",
+    );
+    let names: Vec<&str> = raw
+        .symbols
+        .iter()
+        .map(|symbol| symbol.qualified_name.as_str())
+        .collect();
+
+    assert_eq!(
+        names,
+        [
+            "Pool",
+            "Pool.size",
+            "Pool.__init__",
+            "reset",
+            "Pool.make",
+            "Pool.grow",
+            "Pool.label",
+            "Pool.free",
+            "Pool.dirty",
+            "Pool.peak",
+            "TAIL",
+        ]
+    );
+    let free = qualified(&raw, "Pool.free");
+    assert_eq!(
+        (free.kind, free.owner.as_deref(), free.line),
+        (SymbolKind::Field, Some("Pool"), 6)
+    );
+    assert_eq!(qualified(&raw, "Pool.label").kind, SymbolKind::Method);
+    assert_eq!(raw.local_symbols, [id_of(&raw, "reset")]);
+    assert_eq!(
+        raw.calls,
+        [CallRef {
+            caller_id: id_of(&raw, "grow"),
+            callee: "append".to_owned(),
+            receiver: Some(String::new()),
+            line: 17,
+        }]
+    );
+}
+
+#[test]
+fn a_method_that_binds_its_receiver_s_name_again_declares_no_field_after_it() {
+    let raw = extract(
+        b"class K:\n    def f(self):\n        self.early = 1\n        self = other\n        self.extra = 1\n\n    \
+          def g(self):\n        for self in items:\n            self.looped = 1\n",
+    );
+    let fields: Vec<&str> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Field)
+        .map(|symbol| symbol.qualified_name.as_str())
+        .collect();
+
+    assert_eq!(fields, ["K.early"]);
+}
+
+#[test]
+fn a_parameter_of_a_nested_function_that_takes_the_receiver_s_name_is_no_receiver() {
+    let raw = extract(
+        b"class K:\n    def f(self=None):\n        self.kept = 1\n        def g(self):\n            \
+          self.temp = 1\n        def h():\n            self = other\n            self.gone = 1\n        \
+          apply(lambda self: setattr(self, 'x', 1))\n        self.after = 2\n        def shared():\n            \
+          nonlocal self\n            self.shared = 3\n\n    @builtins.staticmethod\n    \
+          def make(obj):\n        obj.made = True\n",
+    );
+    let fields: Vec<&str> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Field)
+        .map(|symbol| symbol.qualified_name.as_str())
+        .collect();
+
+    assert_eq!(fields, ["K.kept", "K.after", "K.shared"]);
+}
+
+#[test]
+fn the_attributes_of_a_class_local_to_a_function_are_local_too() {
+    let raw = extract(
+        b"def build():\n    class Node:\n        def __init__(self):\n            self.next = None\n    \
+          return Node\n",
+    );
+    let locals: Vec<&str> = raw
+        .local_symbols
+        .iter()
+        .map(|id| raw.symbols[id.0 as usize].qualified_name.as_str())
+        .collect();
+
+    assert_eq!(locals, ["Node", "Node.__init__", "Node.next"]);
+}
+
+#[test]
+fn two_classes_of_one_name_local_to_two_functions_each_keep_their_fields() {
+    let raw = extract(
+        b"def first():\n    class Node:\n        size = 0\n        def __init__(self):\n            self.value = 1\n\
+          \ndef second():\n    class Node:\n        size = 0\n        def __init__(self):\n            \
+          self.value = 2\n",
+    );
+    let fields: Vec<(&str, u32)> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Field)
+        .map(|symbol| (symbol.qualified_name.as_str(), symbol.line))
+        .collect();
+
+    assert_eq!(
+        fields,
+        [
+            ("Node.size", 3),
+            ("Node.value", 5),
+            ("Node.size", 9),
+            ("Node.value", 11)
+        ]
+    );
 }
 
 #[test]
