@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::iter;
 
 use kartta::{
-    Access, CallPath, Change, Definition, DirectCalls, Hotspot, ReachBand, Reached, Reference,
-    References, Seed, Segment, SymbolKind, Walk,
+    CallPath, Change, Definition, DirectCalls, Hotspot, ReachBand, Reached, Reference, References,
+    Seed, Segment, SymbolKind, Walk,
 };
 
 use super::{
@@ -238,9 +238,7 @@ const fn site_kind(of: SymbolKind, site: &Reference<'_>) -> &'static str {
     match site.access {
         _ if site.call => "call",
         _ if is_type(of) => "type",
-        Access::Read => "read",
-        Access::Write => "write",
-        Access::Update => "update",
+        access => access.label(),
     }
 }
 
