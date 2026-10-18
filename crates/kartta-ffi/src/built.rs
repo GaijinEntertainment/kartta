@@ -44,13 +44,6 @@ impl Built {
         })
     }
 
-    pub(crate) fn graph_of(&self, file: &str) -> Option<(&str, &Graph)> {
-        let claiming = self.engine.graph_of(file)?;
-        self.engine
-            .graphs()
-            .find(|(_, graph)| std::ptr::eq(*graph, claiming))
-    }
-
     fn family_named(&self, lang: &str) -> Result<&str, Error> {
         self.engine
             .languages()
