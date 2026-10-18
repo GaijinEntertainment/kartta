@@ -36,12 +36,12 @@ fn write(root: &Path, path: &str, content: &[u8]) {
 fn index(root: &Path) -> Index {
     let outcome = Index::build(root, &BuildOptions::default()).expect("build the index");
     assert!(
-        outcome.errors().is_empty(),
+        outcome.errors.is_empty(),
         "unexpected build errors: {:?}",
-        outcome.errors()
+        outcome.errors
     );
 
-    outcome.into_index()
+    outcome.index
 }
 
 fn patterns(patterns: &[&str]) -> Patterns {

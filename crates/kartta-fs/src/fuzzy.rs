@@ -27,7 +27,7 @@ const RANK_CHUNK_LEN: usize = 16 * 1024;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let dir = tempfile::tempdir()?;
 /// let ranked = {
-///     let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
+///     let index = Index::build(dir.path(), &BuildOptions::default())?.index;
 ///     index.fuzzy("main", &FuzzyOptions::default())
 /// };
 /// # drop(ranked);
@@ -125,7 +125,7 @@ impl Index {
     /// std::fs::write(dir.path().join("src/main.rs"), "")?;
     /// std::fs::write(dir.path().join("main/lib.rs"), "")?;
     ///
-    /// let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
+    /// let index = Index::build(dir.path(), &BuildOptions::default())?.index;
     ///
     /// let ranked = index.fuzzy("main", &FuzzyOptions::default());
     /// let mut paths = index.paths();

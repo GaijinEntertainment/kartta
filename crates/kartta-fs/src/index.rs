@@ -65,9 +65,9 @@ pub(crate) use refresh::Previous;
 /// std::fs::write(dir.path().join("ignored.txt"), "x")?;
 ///
 /// let outcome = Index::build(dir.path(), &BuildOptions::default())?;
-/// assert!(outcome.errors().is_empty(), "a complete answer");
+/// assert!(outcome.errors.is_empty(), "a complete answer");
 ///
-/// let index = outcome.into_index();
+/// let index = outcome.index;
 /// assert_eq!(index.size("main.rs"), Some(12));
 /// assert!(index.entry("ignored.txt").is_none(), "the .gitignore applied");
 /// # Ok(())
@@ -185,12 +185,12 @@ impl Index {
         *self = index;
         release_freed_memory();
 
-        Ok(RefreshOutcome {
+        Ok(RefreshOutcome::new(
             errors,
             retired,
-            walked: vec![String::new()],
+            vec![String::new()],
             changed,
-        })
+        ))
     }
 
     fn counting_handed<R>(&mut self, operation: impl FnOnce(&Self, &AtomicU32) -> R) -> R {
@@ -1321,35 +1321,12 @@ fn depth_first_below(
 /// What one build produced: the index, and what the build could not read.
 ///
 /// The index is the part worth keeping; the errors are a report about this particular build, which a consumer surfaces
-/// or logs and then drops. [`BuildOutcome::into_index`] takes the snapshot and leaves the report behind.
+/// or logs and then drops.
 #[derive(Debug)]
 pub struct BuildOutcome {
-    index: Index,
-    errors: Vec<BuildError>,
-}
-
-impl BuildOutcome {
-    /// The index the build produced.
-    #[must_use]
-    pub const fn index(&self) -> &Index {
-        &self.index
-    }
-
-    /// Takes the index, dropping the report.
-    ///
-    /// Check [`BuildOutcome::errors`] first: an index built from an incomplete walk looks exactly like one built from
-    /// a complete walk.
-    #[must_use]
-    pub fn into_index(self) -> Index {
-        self.index
-    }
-
-    /// Takes the index and the report both, for a consumer that keeps the index and hands the report on.
-    #[must_use]
-    pub fn into_parts(self) -> (Index, Vec<BuildError>) {
-        (self.index, self.errors)
-    }
-
+    /// The index the build produced. Check [`BuildOutcome::errors`] before keeping it alone: an index built from an
+    /// incomplete walk looks exactly like one built from a complete walk.
+    pub index: Index,
     /// What the build could not read, ordered by path so two builds of one tree report identically.
     ///
     /// A non-empty list means the index is wrong in a way it cannot detect, and each kind is wrong differently:
@@ -1360,54 +1337,48 @@ impl BuildOutcome {
     /// - [`BuildError::Name`] — the entry is missing, and a directory takes its subtree with it.
     /// - [`BuildError::Read`] — the entry is indexed, and neither the [`ContentVisitor`] nor the content index holds
     ///   its content.
-    #[must_use]
-    pub fn errors(&self) -> &[BuildError] {
-        &self.errors
-    }
+    pub errors: Vec<BuildError>,
 }
 
 /// What one [`Index::refresh`] or [`Index::refresh_paths`] reports: what it walked, what its walks could not read,
 /// which regular files it added and removed, and which ids the index stopped answering for.
 #[derive(Debug)]
 pub struct RefreshOutcome {
-    errors: Vec<BuildError>,
-    retired: Vec<Range<u32>>,
-    walked: Vec<String>,
-    changed: ChangedFiles,
-}
-
-impl RefreshOutcome {
     /// What the refresh could not read, as [`BuildOutcome::errors`] reports it for a build.
-    #[must_use]
-    pub fn errors(&self) -> &[BuildError] {
-        &self.errors
-    }
-
+    pub errors: Vec<BuildError>,
     /// The root-relative paths the refresh walked again, in [`Index::entries`] order, none below another: the empty
     /// path when it walked the whole tree.
     ///
     /// [`Index::refresh_paths`] widens a path it cannot refresh alone to the nearest directory it can, so this is where
     /// to see that a few changed paths cost a walk of a large directory, or of the whole tree.
-    #[must_use]
-    pub fn walked(&self) -> &[String] {
-        &self.walked
-    }
-
+    pub walked: Vec<String>,
     /// The regular files the index holds now and did not hold before, in [`Index::entries`] order: files created,
     /// and paths that held another kind of entry or that the ignore rules hid. Only the walked parts are compared, so
     /// a [`Index::refresh`] pays one pass over the paths before and after it, and a [`Index::refresh_paths`] a pass
     /// over the parts it walked.
-    #[must_use]
-    pub fn added(&self) -> &[String] {
-        &self.changed.added
-    }
-
+    pub added: Vec<String>,
     /// The regular files the index held before and does not hold now, in the order the index held them: files
     /// deleted, replaced by another kind of entry, or hidden by the ignore rules. A file whose content changed is in
     /// neither list; [`RefreshOutcome::retired`] names its old id.
-    #[must_use]
-    pub fn removed(&self) -> &[String] {
-        &self.changed.removed
+    pub removed: Vec<String>,
+    retired: Vec<Range<u32>>,
+}
+
+impl RefreshOutcome {
+    fn new(
+        errors: Vec<BuildError>,
+        retired: Vec<Range<u32>>,
+        walked: Vec<String>,
+        changed: ChangedFiles,
+    ) -> Self {
+        let ChangedFiles { added, removed } = changed;
+        Self {
+            errors,
+            walked,
+            added,
+            removed,
+            retired,
+        }
     }
 
     /// The ids the index handed out before this refresh, including those of a refresh that returned an error or that a
@@ -1618,9 +1589,7 @@ mod tests {
             content_index: Some(ContentIndexStorage::Memory),
             ..BuildOptions::default()
         };
-        let mut index = Index::build(dir.path(), &options)
-            .expect("build")
-            .into_index();
+        let mut index = Index::build(dir.path(), &options).expect("build").index;
         index.next_content_id = u32::MAX - left;
         (dir, index)
     }

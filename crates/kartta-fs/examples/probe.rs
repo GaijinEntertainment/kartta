@@ -39,7 +39,7 @@ fn main() {
     let elapsed = started.elapsed();
 
     report_errors(&outcome);
-    let index = outcome.into_index();
+    let index = outcome.index;
 
     let mut counts = [0usize; 4];
     for entry in index.entries() {
@@ -82,7 +82,7 @@ const fn slot(kind: EntryKind) -> usize {
 }
 
 fn report_errors(outcome: &kartta_fs::BuildOutcome) {
-    let errors = outcome.errors();
+    let errors = &outcome.errors;
     if errors.is_empty() {
         return;
     }

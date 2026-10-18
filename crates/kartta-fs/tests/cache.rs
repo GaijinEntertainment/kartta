@@ -43,7 +43,7 @@ fn cached(cache: &Path) -> BuildOptions {
 
 fn build(root: &Path, options: &BuildOptions) -> BuildOutcome {
     let outcome = Index::build(root, options).expect("build the index");
-    assert_eq!(outcome.errors().len(), 0, "{:?}", outcome.errors());
+    assert_eq!(outcome.errors.len(), 0, "{:?}", outcome.errors);
     outcome
 }
 
@@ -78,7 +78,7 @@ fn a_build_adds_only_the_contents_the_store_lacks_wherever_they_sit() {
     ]);
 
     build(first.path(), &cached(cache.path()));
-    let index = build(second.path(), &cached(cache.path())).into_index();
+    let index = build(second.path(), &cached(cache.path())).index;
 
     assert_eq!(
         packs_and_entries(cache.path()),
@@ -100,7 +100,7 @@ fn a_file_past_one_read_chunk_is_shared_as_a_small_one_is() {
     ]);
 
     build(first.path(), &cached(cache.path()));
-    let index = build(second.path(), &cached(cache.path())).into_index();
+    let index = build(second.path(), &cached(cache.path())).index;
 
     assert!(large.len() > 64 * 1024, "{} bytes", large.len());
     assert_eq!(
@@ -156,12 +156,12 @@ fn a_refresh_shares_the_files_it_reads_through_the_same_store() {
     let root = tree(&[("a.txt", b"alpha\n"), ("b.txt", b"beta\n")]);
     let mut options = cached(cache.path());
     options.stamps = true;
-    let mut index = build(root.path(), &options).into_index();
+    let mut index = build(root.path(), &options).index;
     fs::write(root.path().join("b.txt"), "gamma, longer\n").expect("rewrite");
 
     let refreshed = index.refresh(None, None).expect("refresh");
 
-    assert_eq!(refreshed.errors().len(), 0, "{:?}", refreshed.errors());
+    assert_eq!(refreshed.errors.len(), 0, "{:?}", refreshed.errors);
     assert_eq!(packs_and_entries(cache.path()), (2, 3));
     assert_eq!(found(&index, "gamma"), ["b.txt"]);
 }
@@ -175,11 +175,11 @@ fn a_cache_that_cannot_be_opened_costs_only_the_sharing() {
     let outcome = Index::build(root.path(), &options).expect("build the index");
 
     assert!(
-        matches!(outcome.errors(), [BuildError::Cache { native_path, .. }] if native_path == not_a_directory.path()),
+        matches!(outcome.errors.as_slice(), [BuildError::Cache { native_path, .. }] if native_path == not_a_directory.path()),
         "{:?}",
-        outcome.errors()
+        outcome.errors
     );
-    let index = outcome.into_index();
+    let index = outcome.index;
     assert_eq!(
         index.content_index_stats().map(|stats| stats.files()),
         Some(2)
@@ -232,7 +232,7 @@ impl ContentVisitor for Lengths {
 
 fn build_visited(root: &Path, options: &BuildOptions, visitor: &Lengths) {
     let outcome = Index::build_with(root, options, Some(visitor), None).expect("build the index");
-    assert_eq!(outcome.errors().len(), 0, "{:?}", outcome.errors());
+    assert_eq!(outcome.errors.len(), 0, "{:?}", outcome.errors);
 }
 
 #[test]
@@ -307,12 +307,12 @@ fn a_refresh_removes_what_is_older_than_the_build_s_time_to_live() {
     let cache = tempfile::tempdir().expect("cache dir");
     let mut options = cached(cache.path());
     options.content_cache_ttl = DAY;
-    let mut index = build(root.path(), &options).into_index();
+    let mut index = build(root.path(), &options).index;
     let pack = plant_unreadable_pack(cache.path(), "two days old", 2 * DAY);
 
     let refreshed = index.refresh(None, None).expect("refresh");
 
-    assert_eq!(refreshed.errors().len(), 0, "{:?}", refreshed.errors());
+    assert_eq!(refreshed.errors.len(), 0, "{:?}", refreshed.errors);
     assert!(!pack.exists());
 }
 

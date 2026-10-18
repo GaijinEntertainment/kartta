@@ -37,8 +37,8 @@ fn build(root: &Path) -> Index {
 
 fn build_with(root: &Path, options: &BuildOptions) -> Index {
     let outcome = Index::build(root, options).expect("build the index");
-    assert!(outcome.errors().is_empty(), "{:?}", outcome.errors());
-    outcome.into_index()
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    outcome.index
 }
 
 fn shown(index: &Index) -> Vec<(String, EntryKind)> {
@@ -55,7 +55,7 @@ fn wait_for(watcher: &mut Watcher, wanted: &str) -> Vec<String> {
     let mut seen = Vec::new();
     while Instant::now() < deadline {
         let changes = watcher.wait(Duration::from_millis(500)).expect("wait");
-        seen.extend(changes.paths().map(str::to_owned));
+        seen.extend(changes.iter().map(String::as_str).map(str::to_owned));
         if seen.iter().any(|path| path == wanted) {
             return seen;
         }
@@ -70,9 +70,9 @@ fn follow(watcher: &mut Watcher, index: &mut Index) {
             return;
         }
         let outcome = index
-            .refresh_paths(changes.paths(), None, None)
+            .refresh_paths(changes.iter().map(String::as_str), None, None)
             .expect("refresh the changed paths");
-        assert!(outcome.errors().is_empty(), "{:?}", outcome.errors());
+        assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
     }
 }
 
@@ -151,7 +151,7 @@ fn a_watcher_covers_every_directory_the_index_held_at_its_start() {
     assert!(
         covered.is_empty(),
         "{:?}",
-        covered.paths().collect::<Vec<_>>()
+        covered.iter().map(String::as_str).collect::<Vec<_>>()
     );
 }
 
@@ -167,11 +167,14 @@ fn a_directory_a_refresh_took_in_after_the_start_is_watched_once_covered() {
 
     let covered = watcher.cover(&index).expect("cover the index");
     index
-        .refresh_paths(covered.paths(), None, None)
+        .refresh_paths(covered.iter().map(String::as_str), None, None)
         .expect("refresh what was covered");
     write(dir.path(), "early/deep/b.rs", "changed");
 
-    assert_eq!(covered.paths().collect::<Vec<_>>(), ["early"]);
+    assert_eq!(
+        covered.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["early"]
+    );
     assert!(index.entry("early/c.rs").is_some());
     let seen = wait_for(&mut watcher, "early/deep/b.rs");
     assert!(
@@ -238,22 +241,22 @@ fn a_tree_nobody_touches_hands_over_nothing_a_refresh_would_change() {
 
     let changes = watcher.wait(Duration::from_millis(300)).expect("wait");
     let outcome = index
-        .refresh_paths(changes.paths(), None, None)
+        .refresh_paths(changes.iter().map(String::as_str), None, None)
         .expect("refresh what was handed over");
 
     if cfg!(target_os = "linux") {
         assert!(
             changes.is_empty(),
             "{:?}",
-            changes.paths().collect::<Vec<_>>()
+            changes.iter().map(String::as_str).collect::<Vec<_>>()
         );
     }
     assert!(
-        outcome.added().is_empty() && outcome.removed().is_empty(),
+        outcome.added.is_empty() && outcome.removed.is_empty(),
         "{:?} added {:?} removed {:?}",
-        changes.paths().collect::<Vec<_>>(),
-        outcome.added(),
-        outcome.removed()
+        changes.iter().map(String::as_str).collect::<Vec<_>>(),
+        outcome.added,
+        outcome.removed
     );
 }
 

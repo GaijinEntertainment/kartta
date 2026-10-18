@@ -39,11 +39,11 @@ fn main() {
     let outcome = Index::build(&request.root, &BuildOptions::default()).expect("build the index");
     println!(
         "{} entries indexed in {:.2?}, {} build failures",
-        outcome.index().len(),
+        outcome.index.len(),
         started.elapsed(),
-        outcome.errors().len()
+        outcome.errors.len()
     );
-    let index = outcome.into_index();
+    let index = outcome.index;
 
     let patterns = Patterns::new([&request.pattern], Case::Sensitive).expect("compile the pattern");
     let filter = request

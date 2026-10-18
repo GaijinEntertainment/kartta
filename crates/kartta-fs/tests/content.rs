@@ -98,8 +98,8 @@ fn a_wanted_text_file_is_handed_over_whole_under_an_id_that_finds_its_position()
     let visitor = Recorder::new(everything);
 
     let outcome = build_with(dir.path(), &visitor);
-    assert!(outcome.errors().is_empty(), "{:?}", outcome.errors());
-    let index = outcome.into_index();
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    let index = outcome.index;
 
     let seen = visitor.seen();
     assert_eq!(
@@ -127,7 +127,7 @@ fn only_wanted_files_are_read_and_their_facts_are_kept() {
     let dir = tree(&[("read.rs", b"fn read() {}\n"), ("skipped.md", b"skipped\n")]);
     let visitor = Recorder::new(|path| path == "read.rs");
 
-    let index = build_with(dir.path(), &visitor).into_index();
+    let index = build_with(dir.path(), &visitor).index;
     fs::remove_file(dir.path().join("read.rs")).expect("remove");
     fs::remove_file(dir.path().join("skipped.md")).expect("remove");
 
@@ -157,7 +157,7 @@ fn a_wanted_ignore_file_is_handed_over_from_the_read_its_rules_came_from() {
     let dir = tree(&[("sub/.gitignore", b"*.log\n"), ("sub/kept.rs", b"x")]);
     let visitor = Recorder::new(everything);
 
-    let index = build_with(dir.path(), &visitor).into_index();
+    let index = build_with(dir.path(), &visitor).index;
 
     let seen = visitor.seen();
     let (id, bytes) = &seen["sub/.gitignore"];
@@ -177,7 +177,7 @@ fn an_ignored_ignore_file_still_applies_its_rules_and_is_never_offered() {
     ]);
     let visitor = Recorder::new(everything);
 
-    let index = build_with(dir.path(), &visitor).into_index();
+    let index = build_with(dir.path(), &visitor).index;
 
     assert!(index.entry("sub/.gitignore").is_none());
     assert!(
@@ -202,7 +202,7 @@ fn a_pruned_ignore_file_still_applies_its_rules_and_is_never_offered() {
     let visitor = Recorder::new(everything);
 
     let outcome = Index::build_with(dir.path(), &options, Some(&visitor), None).expect("build");
-    let index = outcome.into_index();
+    let index = outcome.index;
 
     assert!(index.entry(".gitignore").is_none());
     assert!(
@@ -237,7 +237,7 @@ fn binary_content_is_never_visited_and_a_binary_extension_is_never_opened() {
     ]);
     let visitor = Recorder::new(everything);
 
-    let index = build_with(dir.path(), &visitor).into_index();
+    let index = build_with(dir.path(), &visitor).index;
     fs::remove_file(dir.path().join("blob.dat")).expect("remove");
     fs::remove_file(dir.path().join("image.png")).expect("remove");
 
@@ -277,11 +277,11 @@ fn a_wanted_file_that_will_not_read_is_reported_and_still_indexed() {
     let outcome = build_with(dir.path(), &visitor);
 
     assert!(
-        matches!(outcome.errors(), [BuildError::Read { native_path, .. }] if native_path.ends_with("locked.rs")),
+        matches!(outcome.errors.as_slice(), [BuildError::Read { native_path, .. }] if native_path.ends_with("locked.rs")),
         "{:?}",
-        outcome.errors()
+        outcome.errors
     );
-    assert!(outcome.index().entry("locked.rs").is_some());
+    assert!(outcome.index.entry("locked.rs").is_some());
     assert_eq!(
         visitor
             .seen()
@@ -310,11 +310,11 @@ fn a_gitignore_that_will_not_read_for_its_rules_is_still_offered_to_the_visitor(
     assert_eq!(visitor.asked(), [".gitignore", "main.rs"]);
     assert!(
         matches!(
-            outcome.errors(),
+            outcome.errors.as_slice(),
             [BuildError::Ignore { .. }, BuildError::Read { .. }]
         ),
         "the rules and the content each report the failed read: {:?}",
-        outcome.errors()
+        outcome.errors
     );
 }
 
@@ -340,7 +340,7 @@ fn the_visitor_runs_on_the_threads_the_build_was_given() {
 
     let index = Index::build_with(dir.path(), &options, Some(&threads), None)
         .expect("build")
-        .into_index();
+        .index;
 
     let names = threads.0.into_inner().expect("lock");
     assert_eq!(names.len(), 2);
@@ -365,10 +365,10 @@ fn a_binary_file_too_large_to_hold_is_classified_without_reserving_room_for_it()
 
     let outcome = build_with(dir.path(), &visitor);
 
-    assert!(outcome.errors().is_empty(), "{:?}", outcome.errors());
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
     assert!(visitor.seen().is_empty());
-    assert_eq!(outcome.index().is_binary("huge.blob"), Some(true));
-    assert_eq!(outcome.index().size("huge.blob"), Some(1 << 40));
+    assert_eq!(outcome.index.is_binary("huge.blob"), Some(true));
+    assert_eq!(outcome.index.size("huge.blob"), Some(1 << 40));
 }
 
 #[test]
@@ -377,7 +377,7 @@ fn a_build_without_a_visitor_reads_no_file() {
 
     let index = Index::build(dir.path(), &BuildOptions::default())
         .expect("build")
-        .into_index();
+        .index;
     fs::remove_file(dir.path().join("main.rs")).expect("remove");
 
     assert_eq!(index.size("main.rs"), None, "nothing was read at the walk");
@@ -412,6 +412,6 @@ fn a_build_without_a_visitor_can_still_be_cancelled() {
     cancel.cancel();
     let stopped = Index::build_with(dir.path(), &BuildOptions::default(), None, Some(&cancel));
 
-    assert_eq!(quiet.index().len(), 2);
+    assert_eq!(quiet.index.len(), 2);
     assert!(matches!(stopped, Err(BuildError::Cancelled)));
 }
