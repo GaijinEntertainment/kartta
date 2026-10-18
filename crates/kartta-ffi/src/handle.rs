@@ -22,7 +22,7 @@ const LIFECYCLE: [&str; 3] = ["build", "cancel", "version"];
 /// [`Kartta::open`] only names the tree. The `build` method walks it and builds the file index and every graph in one
 /// pass, and every other method that queries asks the engine that build left. Queries run concurrently with each other
 /// and with `cancel`; builds run one at a time, and a build drops the engine the handle held before it walks, so the
-/// handle never holds two and a query during the walk answers [`ErrorCode::Building`]. A query that was already
+/// handle never holds two and a query during the walk answers the code `building`. A query that was already
 /// running keeps the engine it asked until it returns. A build that fails or is cancelled leaves the handle without an
 /// engine, the file index included.
 #[derive(Debug)]
@@ -63,8 +63,8 @@ impl Kartta {
     ///
     /// # Errors
     ///
-    /// [`ErrorCode::InvalidRequest`] or [`ErrorCode::InvalidParams`] when `params` is not that object, and
-    /// [`ErrorCode::InvalidRoot`] when the root is not a directory this process can read the metadata of.
+    /// The code `invalid_request` or `invalid_params` when `params` is not that object, and `invalid_root` when the
+    /// root is not a directory this process can read the metadata of.
     pub fn open(params: &[u8]) -> Result<Self, Error> {
         let OpenParams { root } = wire::params(params)?;
         let invalid_root = |reason: &dyn std::fmt::Display| {
@@ -88,9 +88,9 @@ impl Kartta {
 
     /// Answers `method` with `params`, a JSON object or nothing, as the JSON `{"ok": <answer>}` or
     /// `{"err": {"code": <code>, "message": <message>}}`. The methods and their params are the wire the crate
-    /// documents; an unknown method answers [`ErrorCode::UnknownMethod`], listing the known ones.
+    /// documents; an unknown method answers the code `unknown_method`, listing the known ones.
     ///
-    /// A panic answers [`ErrorCode::Internal`] and never unwinds out of the call, so a caller on a thread of its own or
+    /// A panic answers the code `internal` and never unwinds out of the call, so a caller on a thread of its own or
     /// behind a C boundary needs no guard, and the handle stays usable.
     #[must_use]
     pub fn call(&self, method: &str, params: &[u8]) -> Vec<u8> {
