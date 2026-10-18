@@ -1,8 +1,15 @@
+use std::rc::Rc;
+
 use foldhash::fast::FixedState;
 use hashbrown::HashSet;
+use kartta_lang::SymbolKind;
 
+use crate::candidates::{Candidates, INDEXED_FROM};
 use crate::confidence;
-use crate::resolve::{Bound, Cascade, UseMiss, derives};
+use crate::resolve::{
+    Bound, Call, Cascade, THROUGH_INCLUDES_MAX_DEFINITIONS, UseMiss, derives, is_type_kind,
+};
+use crate::scope::Shape;
 use crate::stored::SymbolAt;
 use crate::strings::Str;
 
@@ -14,25 +21,78 @@ enum Inherited {
     Unknown,
 }
 
-impl Cascade<'_> {
+/// The definitions of one name a data site can bind: the fields, and the values a namespace or the file scope holds.
+#[derive(Debug)]
+pub(crate) struct DataNamed<'g> {
+    fields: Candidates<'g>,
+    values: Vec<SymbolAt>,
+}
+
+impl<'g> Cascade<'g> {
+    pub(crate) fn data_named(&self, name: Str) -> Rc<DataNamed<'g>> {
+        if let Some(held) = self.data_named.borrow().get(&name) {
+            return Rc::clone(held);
+        }
+        let named = self.named(name);
+        let (fields, values): (Vec<SymbolAt>, Vec<SymbolAt>) = named
+            .iter()
+            .copied()
+            .filter(|&at| {
+                let symbol = self.graph.sym(at);
+                symbol.kind == SymbolKind::Field
+                    || (matches!(symbol.kind, SymbolKind::Variable | SymbolKind::Constant)
+                        && symbol.owner.is_none()
+                        && self.holder(at).is_none())
+            })
+            .partition(|&at| self.graph.sym(at).kind == SymbolKind::Field);
+        let fields = if named.len() < INDEXED_FROM {
+            Candidates::scanned(named, fields)
+        } else {
+            Candidates::indexed(self.graph, named, fields, Vec::new())
+        };
+        let held = Rc::new(DataNamed { fields, values });
+        self.data_named.borrow_mut().insert(name, Rc::clone(&held));
+        held
+    }
+
     // constraint: `this` and `self` reach the members the class around the use declares, and failing those the ones
     // a base declares, where every base searched before is found without a guess; a use in a function local to a
-    // method reaches the method's class
+    // method reaches the method's class; where a bare name in a member reads the class first, the own receiver reaches
+    // the field that lookup finds and nothing else
     pub(crate) fn own_member(&self, site: SymbolAt, name: Str) -> Result<Bound, UseMiss> {
-        let owner = self
-            .graph
-            .sym(site)
-            .owner
-            .or_else(|| {
-                self.holder(site)
-                    .and_then(|holder| self.graph.sym(holder).owner)
-            })
-            .ok_or(UseMiss::Ambiguous)?;
+        let owner = self.receiver_owner(site);
+        if self.implicit_receiver() {
+            return owner
+                .and_then(|own| self.class_member(site, own, name))
+                .unwrap_or(Err(UseMiss::Elsewhere));
+        }
+        let owner = owner.ok_or(UseMiss::Ambiguous)?;
         if let Some(at) = self.member_in(site.file, owner, name) {
             return Ok((at, confidence::RECEIVER));
         }
         let class = self.class_around(site, owner).ok_or(UseMiss::Ambiguous)?;
         self.inherited_member(class, name)
+    }
+
+    /// A bare name, looked up as C++ looks one up inside a member, where a bare name in a member reads the class
+    /// first: the field of the enclosing member's class or of a base, and `None` where neither may hold the name.
+    pub(crate) fn class_scope_use(
+        &self,
+        site: SymbolAt,
+        name: Str,
+    ) -> Option<Result<Bound, UseMiss>> {
+        if !self.implicit_receiver() {
+            return None;
+        }
+        self.receiver_owner(site)
+            .and_then(|own| self.class_member(site, own, name))
+    }
+
+    fn receiver_owner(&self, site: SymbolAt) -> Option<Str> {
+        self.graph.sym(site).owner.or_else(|| {
+            self.holder(site)
+                .and_then(|holder| self.graph.sym(holder).owner)
+        })
     }
 
     // constraint: a receiver path names the owner of the member, as a call's receiver names one, declared in the
@@ -72,6 +132,209 @@ impl Cascade<'_> {
             return Ok((at, confidence::RECEIVER));
         }
         self.inherited_member(ty, name)
+    }
+
+    // constraint: where includes paste text in place, an owner names a class by its bare name, which several classes
+    // can share, and a name the graph holds no type of names a class outside it, whose namesake fields are not meant;
+    // a class without the field binds the field of the one base that declares it, and a type the graph holds that
+    // neither does, an alias most often, leaves the field to the tiers that read no type
+    pub(crate) fn included_owner_member(
+        &self,
+        file: u32,
+        owner: Str,
+        name: Str,
+    ) -> Option<Result<Bound, UseMiss>> {
+        let named = self.data_named(name);
+        let declared = named.fields.with_owner(self.graph, owner);
+        if let Some(found) = self.reached_owner(file, &declared) {
+            return Some(found);
+        }
+        let types: Vec<SymbolAt> = self
+            .named(owner)
+            .iter()
+            .copied()
+            .filter(|&at| is_type_kind(self.graph.sym(at).kind))
+            .collect();
+        let Some(ty) = self.nearest_to(file, &types) else {
+            return Some(Err(UseMiss::Elsewhere));
+        };
+        self.inherited_by(file, ty, &named)
+    }
+
+    // constraint: past the use's own file a field binds only where it is the one field of its name in the files the
+    // file includes, then in those it reaches, for a name few fields share; a guess across the family binds a field
+    // whose real namesake the graph never extracted
+    pub(crate) fn included_field(&self, file: u32, name: Str) -> Result<Bound, UseMiss> {
+        let named = self.data_named(name);
+        let fields = named.fields.targets();
+        let one = |found: &[SymbolAt]| match found {
+            [at] => Ok((*at, confidence::INCLUDE)),
+            _ => Err(UseMiss::Ambiguous),
+        };
+        let included: Vec<SymbolAt> = self
+            .includes(file)
+            .iter()
+            .flat_map(|&included| self.graph.in_file(fields, included))
+            .copied()
+            .collect();
+        if !included.is_empty() || fields.len() > THROUGH_INCLUDES_MAX_DEFINITIONS {
+            return one(&included);
+        }
+        let closure = self.closure(file);
+        let reached: Vec<SymbolAt> = fields
+            .iter()
+            .copied()
+            .filter(|at| at.file != file && closure.binary_search(&at.file).is_ok())
+            .collect();
+        one(&reached)
+    }
+
+    // constraint: a value binds where its file declares the name, else where the files it includes do, else, for a
+    // name few values share, where the files those reach do; several values of the name in the first tier that holds
+    // one bind none, and a declaration in a header and its definition share the qualified name and count once
+    pub(crate) fn included_value(&self, file: u32, name: Str) -> Option<Bound> {
+        let named = self.data_named(name);
+        let values = named.values.as_slice();
+        if values.is_empty() {
+            return None;
+        }
+        let in_file = self.graph.in_file(values, file);
+        if !in_file.is_empty() {
+            return self
+                .one_value(in_file)
+                .map(|at| (at, confidence::SAME_FILE));
+        }
+        let included: Vec<SymbolAt> = self
+            .includes(file)
+            .iter()
+            .flat_map(|&included| self.graph.in_file(values, included))
+            .copied()
+            .collect();
+        if !included.is_empty() {
+            return self
+                .one_value(&included)
+                .map(|at| (at, confidence::INCLUDE));
+        }
+        if values.len() > THROUGH_INCLUDES_MAX_DEFINITIONS {
+            return None;
+        }
+        let closure = self.closure(file);
+        let reached: Vec<SymbolAt> = values
+            .iter()
+            .copied()
+            .filter(|at| closure.binary_search(&at.file).is_ok())
+            .collect();
+        self.one_value(&reached).map(|at| (at, confidence::INCLUDE))
+    }
+
+    // constraint: the class scope binds the own class's field, else a base's field only where the lookup a bare call
+    // makes certainly finds that base's, as one where a free definition of the name may be meant binds the wrong
+    // namesake most often
+    fn class_member(&self, site: SymbolAt, own: Str, name: Str) -> Option<Result<Bound, UseMiss>> {
+        let named = self.data_named(name);
+        let fields = named.fields.targets();
+        if fields.is_empty() {
+            return None;
+        }
+        if let Some(found) =
+            self.reached_owner(site.file, &named.fields.with_owner(self.graph, own))
+        {
+            return Some(found);
+        }
+        let call = Call {
+            file: site.file,
+            caller: site.index,
+            callee: name,
+            receiver: None,
+            written_from_root: false,
+            names_a_runtime_method: false,
+            local: None,
+            line: 0,
+        };
+        let reach = self.reach(&call, &named.fields)?;
+        let targets = fields.iter().copied();
+        match self.shape(&call, &targets, Some(&reach)) {
+            Shape::Inherited(reach) => {
+                let inherited = Shape::Inherited(reach);
+                let admitted: Vec<SymbolAt> =
+                    targets.filter(|&at| self.admits(&inherited, at)).collect();
+                let owner = self.graph.sym(*admitted.first()?).owner;
+                if admitted.iter().all(|&at| self.graph.sym(at).owner == owner) {
+                    self.reached_owner(site.file, &admitted)
+                } else {
+                    Some(Err(UseMiss::Ambiguous))
+                }
+            }
+            Shape::FreeOrInherited(_) => Some(Err(UseMiss::Ambiguous)),
+            _ => None,
+        }
+    }
+
+    fn inherited_by(
+        &self,
+        file: u32,
+        ty: SymbolAt,
+        named: &DataNamed<'_>,
+    ) -> Option<Result<Bound, UseMiss>> {
+        let inherited: Vec<SymbolAt> = named
+            .fields
+            .targets()
+            .iter()
+            .copied()
+            .filter(|&at| {
+                self.graph
+                    .sym(at)
+                    .owner
+                    .is_some_and(|owner| self.has_ancestor(ty, owner))
+            })
+            .collect();
+        let owner = self.graph.sym(*inherited.first()?).owner;
+        if !inherited
+            .iter()
+            .all(|&at| self.graph.sym(at).owner == owner)
+        {
+            return Some(Err(UseMiss::Ambiguous));
+        }
+        self.reached_owner(file, &inherited)
+    }
+
+    fn one_value(&self, values: &[SymbolAt]) -> Option<SymbolAt> {
+        let (&first, others) = values.split_first()?;
+        let qualified = self.graph.sym(first).qualified_name;
+        others
+            .iter()
+            .all(|&at| self.graph.sym(at).qualified_name == qualified)
+            .then_some(first)
+    }
+
+    /// The field of `owned` the file reaches at the receiver's confidence, an ambiguous use where it reaches none, and
+    /// `None` where `owned` is empty.
+    fn reached_owner(&self, file: u32, owned: &[SymbolAt]) -> Option<Result<Bound, UseMiss>> {
+        if owned.is_empty() {
+            return None;
+        }
+        Some(
+            self.nearest_to(file, owned)
+                .map(|at| (at, confidence::RECEIVER))
+                .ok_or(UseMiss::Ambiguous),
+        )
+    }
+
+    // constraint: owners of one bare name in several places, a vendored copy of a class beside another, are told apart
+    // by what the file sees: its own definitions and its includes', then those its includes reach; one it reaches
+    // neither way is another class of the name half the time, its namesake in a copy of the library or an SDK's
+    fn nearest_to(&self, file: u32, owned: &[SymbolAt]) -> Option<SymbolAt> {
+        if let Some(&seen) = owned.iter().find(|&&at| self.sees(file, at)) {
+            return Some(seen);
+        }
+        if owned.is_empty() {
+            return None;
+        }
+        let closure = self.closure(file);
+        owned
+            .iter()
+            .copied()
+            .find(|at| closure.binary_search(&at.file).is_ok())
     }
 
     fn inherited_member(&self, ty: SymbolAt, name: Str) -> Result<Bound, UseMiss> {

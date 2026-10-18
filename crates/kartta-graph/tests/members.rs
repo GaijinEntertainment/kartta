@@ -1,4 +1,6 @@
-//! Uses on a script language's own receiver, on a receiver that names an owner, and of a value a file imports.
+//! Uses on a script language's own receiver, on a receiver that names an owner, and of a value a file imports; and the
+//! tiers a C++ data site binds through: the own class, a base the lookup certainly finds, the type a declaration
+//! spells, the file, its includes and the files those reach, for fields and for namespace values.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests covers #[test] functions and #[cfg(test)] modules, and the query helpers \
@@ -7,8 +9,9 @@
 
 use kartta_graph::{Graph, SiteQuery};
 use kartta_lang::{
-    Access, Conventions, Extraction, IncludeRef, OwnMembers, ReExport, Receiver, RefSite, Symbol,
-    SymbolId, SymbolKind, UntypedMembers, ValueUses,
+    Access, CallsOnValues, Conventions, Extraction, IncludeReach, IncludeRef, InheritedMembers,
+    OwnMembers, ReExport, Receiver, RefSite, Symbol, SymbolId, SymbolKind, UntypedMembers,
+    ValueUses,
 };
 
 fn script() -> Conventions {
@@ -369,4 +372,421 @@ fn an_imported_value_binds_an_export_or_a_re_export_before_an_unexported_namesak
         sites_of(&graph, "LIMIT"),
         (vec![("go".to_owned(), 3, 70), ("run".to_owned(), 2, 65)], 0)
     );
+}
+
+fn cpp() -> Conventions {
+    let mut conventions = Conventions::default();
+    conventions.own_members = OwnMembers::First;
+    conventions.inherited_members = InheritedMembers::Found;
+    conventions.values_are_call_targets = false;
+    conventions.scope_separator = Some("::");
+    conventions.include_reach = IncludeReach::Transitive;
+    conventions.calls_on_values = CallsOnValues::NoNearestGuess;
+    conventions.value_uses = ValueUses::Included;
+    conventions.untyped_members = UntypedMembers::IncludedField;
+    conventions
+}
+
+fn cpp_member(owner: &str, name: &str, kind: SymbolKind, line: u32) -> Symbol {
+    let mut symbol = Symbol::new(name, kind, line, line);
+    symbol.qualified_name = format!("{owner}::{name}");
+    symbol.owner = Some(owner.to_owned());
+    symbol
+}
+
+fn field(owner: &str, name: &str, line: u32) -> Symbol {
+    cpp_member(owner, name, SymbolKind::Field, line)
+}
+
+fn value(name: &str, line: u32) -> Symbol {
+    Symbol::new(name, SymbolKind::Variable, line, line)
+}
+
+fn with_uses(
+    mut extraction: Extraction,
+    site_of: u32,
+    sites: &[(&str, Receiver, u32)],
+) -> Extraction {
+    extraction.references = sites
+        .iter()
+        .map(|(name, receiver, line)| using(site_of, name, receiver.clone(), *line))
+        .collect();
+    extraction
+}
+
+fn path(owner: &str) -> Receiver {
+    Receiver::Path(owner.to_owned())
+}
+
+fn lines_of(graph: &Graph, name: &str) -> Vec<(u32, u8)> {
+    lines_in(graph, name).1
+}
+
+fn lines_in<'g>(graph: &'g Graph, name: &str) -> (&'g str, Vec<(u32, u8)>) {
+    let references = graph
+        .references(name, SiteQuery::new(usize::MAX))
+        .expect("the name selects a symbol");
+    let sites = references
+        .sites
+        .iter()
+        .map(|site| (site.line, site.confidence))
+        .collect();
+    (references.symbol.file, sites)
+}
+
+fn ambiguous(graph: &Graph, name: &str) -> usize {
+    graph
+        .references(name, SiteQuery::new(usize::MAX))
+        .expect("the name selects a symbol")
+        .ambiguous
+}
+
+#[test]
+fn a_member_of_the_own_receiver_binds_the_own_class_s_field_the_file_sees() {
+    let widget = file(
+        "inc/widget.h",
+        vec![class("Widget", [1, 5], &[]), field("Widget", "width", 2)],
+        &[],
+    );
+    let copy = file(
+        "vendor/widget.h",
+        vec![class("Widget", [1, 5], &[]), field("Widget", "width", 2)],
+        &[],
+    );
+    let user = with_uses(
+        file(
+            "src/widget.cpp",
+            vec![
+                cpp_member("Widget", "draw", SymbolKind::Method, 1),
+                field("Other", "width", 9),
+            ],
+            &["inc/widget.h"],
+        ),
+        0,
+        &[("width", Receiver::Own, 2), ("width", Receiver::Bare, 3)],
+    );
+
+    let graph = graph(cpp(), &[copy, widget, user]);
+
+    assert_eq!(
+        lines_in(&graph, "Widget::width"),
+        ("inc/widget.h", vec![(2, 85), (3, 85)])
+    );
+    assert_eq!(lines_of(&graph, "Other::width"), []);
+}
+
+#[test]
+fn a_class_the_file_neither_includes_nor_reaches_binds_none_of_its_fields() {
+    let user = with_uses(
+        file(
+            "src/user.cpp",
+            vec![cpp_member("Widget", "draw", SymbolKind::Method, 1)],
+            &[],
+        ),
+        0,
+        &[("width", Receiver::Bare, 2), ("limit", path("Config"), 3)],
+    );
+    let vendor = file(
+        "vendor/widget.h",
+        vec![
+            class("Widget", [1, 5], &[]),
+            field("Widget", "width", 2),
+            class("Config", [6, 8], &[]),
+            field("Config", "limit", 7),
+        ],
+        &[],
+    );
+
+    let graph = graph(cpp(), &[user, vendor]);
+
+    assert_eq!(lines_of(&graph, "Widget::width"), []);
+    assert_eq!(ambiguous(&graph, "Widget::width"), 1);
+    assert_eq!(lines_of(&graph, "Config::limit"), []);
+    assert_eq!(ambiguous(&graph, "Config::limit"), 1);
+}
+
+fn hierarchy(bases: &[&str]) -> Vec<Symbol> {
+    let mut symbols = Vec::new();
+    for (at, base) in (0u32..).zip(bases) {
+        symbols.push(class(base, [at * 10 + 1, at * 10 + 5], &[]));
+        symbols.push(field(base, "count", at * 10 + 2));
+    }
+    symbols.push(class("Child", [50, 60], bases));
+    symbols.push(cpp_member("Child", "run", SymbolKind::Method, 51));
+    symbols
+}
+
+#[test]
+fn a_member_its_class_lacks_binds_the_field_of_the_one_base_that_declares_it() {
+    let symbols = hierarchy(&["Base"]);
+    let run = u32::try_from(symbols.len() - 1).expect("few symbols");
+    let child = with_uses(
+        file("src/child.h", symbols, &[]),
+        run,
+        &[("count", Receiver::Bare, 52), ("count", Receiver::Own, 53)],
+    );
+
+    let graph = graph(cpp(), &[child]);
+
+    assert_eq!(lines_of(&graph, "Base::count"), [(52, 85), (53, 85)]);
+}
+
+#[test]
+fn a_member_two_bases_declare_binds_neither_and_counts_as_ambiguous() {
+    let symbols = hierarchy(&["Left", "Right"]);
+    let run = u32::try_from(symbols.len() - 1).expect("few symbols");
+    let child = with_uses(
+        file("src/child.h", symbols, &[]),
+        run,
+        &[("count", Receiver::Bare, 52)],
+    );
+
+    let graph = graph(cpp(), &[child]);
+
+    assert_eq!(lines_of(&graph, "Left::count"), []);
+    assert_eq!(ambiguous(&graph, "Left::count"), 1);
+}
+
+#[test]
+fn a_bare_name_reads_the_value_its_file_then_its_includes_then_their_includes_declare() {
+    let user = with_uses(
+        file(
+            "src/user.cpp",
+            vec![
+                Symbol::new("run", SymbolKind::Function, 1, 9),
+                value("local_limit", 10),
+            ],
+            &["inc/config.h"],
+        ),
+        0,
+        &[
+            ("local_limit", Receiver::Bare, 2),
+            ("limit", Receiver::Bare, 3),
+            ("deep", Receiver::Bare, 4),
+            ("clash", Receiver::Bare, 5),
+        ],
+    );
+    let config = file(
+        "inc/config.h",
+        vec![value("limit", 1), value("clash", 2)],
+        &["inc/core.h"],
+    );
+    let mut other_clash = value("clash", 1);
+    other_clash.qualified_name = "ns::clash".to_owned();
+    let core = file("inc/core.h", vec![value("deep", 1), value("limit", 2)], &[]);
+    let elsewhere = file("lib/other.h", vec![value("deep", 1), other_clash], &[]);
+
+    let graph = graph(cpp(), &[user, config, core, elsewhere]);
+
+    assert_eq!(lines_of(&graph, "local_limit"), [(2, 80)]);
+    assert_eq!(
+        lines_in(&graph, "limit"),
+        ("inc/config.h", vec![(3, 70)]),
+        "the direct includes bind before the files they reach"
+    );
+    assert_eq!(lines_in(&graph, "deep"), ("inc/core.h", vec![(4, 70)]));
+    assert_eq!(lines_in(&graph, "clash"), ("inc/config.h", vec![(5, 70)]));
+}
+
+#[test]
+fn two_values_of_a_name_in_one_tier_bind_neither() {
+    let user = with_uses(
+        file(
+            "src/user.cpp",
+            vec![Symbol::new("run", SymbolKind::Function, 1, 9)],
+            &["inc/a.h", "inc/b.h"],
+        ),
+        0,
+        &[("limit", Receiver::Bare, 2)],
+    );
+    let mut namespaced = value("limit", 1);
+    namespaced.qualified_name = "ns::limit".to_owned();
+    let graph = graph(
+        cpp(),
+        &[
+            user,
+            file("inc/a.h", vec![value("limit", 1)], &[]),
+            file("inc/b.h", vec![namespaced], &[]),
+        ],
+    );
+
+    assert_eq!(lines_of(&graph, "limit"), []);
+    assert_eq!(lines_of(&graph, "ns::limit"), []);
+}
+
+#[test]
+fn a_declaration_and_a_definition_of_one_value_in_one_tier_count_once() {
+    let user = with_uses(
+        file(
+            "src/user.cpp",
+            vec![Symbol::new("run", SymbolKind::Function, 1, 9)],
+            &["inc/config.h", "inc/config_impl.h"],
+        ),
+        0,
+        &[("limit", Receiver::Bare, 2)],
+    );
+    let graph = graph(
+        cpp(),
+        &[
+            user,
+            file("inc/config.h", vec![value("limit", 1)], &[]),
+            file("inc/config_impl.h", vec![value("limit", 3)], &[]),
+        ],
+    );
+
+    assert_eq!(lines_of(&graph, "limit"), [(2, 70)]);
+}
+
+#[test]
+fn a_member_on_a_declared_value_binds_the_field_of_the_class_its_declaration_names() {
+    let user = with_uses(
+        file(
+            "src/user.cpp",
+            vec![
+                Symbol::new("run", SymbolKind::Function, 1, 9),
+                field("Local", "first", 10),
+                Symbol::new("Alias", SymbolKind::TypeAlias, 11, 11),
+                field("Other", "size", 12),
+            ],
+            &["inc/config.h"],
+        ),
+        0,
+        &[
+            ("limit", path("Config"), 2),
+            ("first", path("pair"), 3),
+            ("first", path("Alias"), 4),
+            ("size", path(""), 5),
+        ],
+    );
+    let config = file(
+        "inc/config.h",
+        vec![
+            class("Config", [1, 3], &[]),
+            field("Config", "limit", 2),
+            field("Limits", "limit", 5),
+        ],
+        &[],
+    );
+
+    let graph = graph(cpp(), &[user, config]);
+
+    assert_eq!(lines_of(&graph, "Config::limit"), [(2, 85)]);
+    assert_eq!(
+        lines_of(&graph, "Local::first"),
+        [(4, 80)],
+        "a class outside the graph binds no namesake, and a type the graph holds without the field leaves it to \
+         the file"
+    );
+    assert_eq!(lines_of(&graph, "Other::size"), [(5, 80)]);
+}
+
+#[test]
+fn a_member_its_declared_class_lacks_binds_the_field_of_the_one_base_that_declares_it() {
+    let user = with_uses(
+        file(
+            "src/user.cpp",
+            vec![
+                Symbol::new("run", SymbolKind::Function, 1, 9),
+                field("Local", "at", 10),
+            ],
+            &["inc/ast.h"],
+        ),
+        0,
+        &[("at", path("ExprFor"), 2), ("size", path("ExprFor"), 3)],
+    );
+    let ast = file(
+        "inc/ast.h",
+        vec![
+            class("Expression", [1, 3], &[]),
+            field("Expression", "at", 2),
+            class("ExprFor", [5, 7], &["Expression"]),
+            field("Visitor", "size", 9),
+        ],
+        &[],
+    );
+
+    let graph = graph(cpp(), &[user, ast]);
+
+    assert_eq!(
+        lines_of(&graph, "Expression::at"),
+        [(2, 85)],
+        "a base's field binds before the one field of the name in the file"
+    );
+    assert_eq!(
+        lines_of(&graph, "Visitor::size"),
+        [(3, 70)],
+        "a class whose bases hold no field of the name leaves it to the include tiers"
+    );
+}
+
+fn reached_through_includes(fields: usize) -> Graph {
+    let user = with_uses(
+        file(
+            "src/user.cpp",
+            vec![Symbol::new("run", SymbolKind::Function, 1, 9)],
+            &["inc/a.h"],
+        ),
+        0,
+        &[("deep", path(""), 2)],
+    );
+    let mut files = vec![
+        user,
+        file("inc/a.h", Vec::new(), &["inc/core.h"]),
+        file("inc/core.h", vec![field("Node", "deep", 1)], &[]),
+    ];
+    files.extend((1..fields).map(|at| {
+        file(
+            &format!("lib/other{at}.h"),
+            vec![field("Pane", "deep", 1)],
+            &[],
+        )
+    }));
+    graph(cpp(), &files)
+}
+
+#[test]
+fn a_field_beyond_the_direct_includes_binds_only_for_a_name_at_most_32_fields_share() {
+    assert_eq!(
+        lines_in(&reached_through_includes(32), "Node::deep"),
+        ("inc/core.h", vec![(2, 70)])
+    );
+    let graph = reached_through_includes(33);
+    assert_eq!(lines_of(&graph, "Node::deep"), []);
+    assert_eq!(ambiguous(&graph, "Node::deep"), 1);
+}
+
+#[test]
+fn a_member_on_an_unnamed_value_binds_the_one_field_its_includes_or_their_includes_hold() {
+    let user = with_uses(
+        file(
+            "src/user.cpp",
+            vec![Symbol::new("run", SymbolKind::Function, 1, 9)],
+            &["inc/a.h", "inc/b.h"],
+        ),
+        0,
+        &[
+            ("left", path(""), 2),
+            ("deep", path(""), 3),
+            ("both", path(""), 4),
+        ],
+    );
+    let graph = graph(
+        cpp(),
+        &[
+            user,
+            file(
+                "inc/a.h",
+                vec![field("Rect", "left", 1), field("Rect", "both", 2)],
+                &["inc/core.h"],
+            ),
+            file("inc/b.h", vec![field("Box", "both", 1)], &[]),
+            file("inc/core.h", vec![field("Node", "deep", 1)], &[]),
+            file("lib/other.h", vec![field("Pane", "left", 1)], &[]),
+        ],
+    );
+
+    assert_eq!(lines_of(&graph, "Rect::left"), [(2, 70)]);
+    assert_eq!(lines_of(&graph, "Node::deep"), [(3, 70)]);
+    assert_eq!(lines_of(&graph, "Rect::both"), []);
+    assert_eq!(ambiguous(&graph, "Rect::both"), 1);
 }

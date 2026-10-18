@@ -31,9 +31,15 @@ spells, or of the owner a path names in its own file or in one included file, or
 the one included module whose name the path ends, where a qualified name starts with its module; else, where the
 language allows it, only the one field of the name its own file declares outside other bodies; a guess by package,
 import or family binds a namesake too often to be taken. A member of `this` or `self` binds the member of the class
-around the use, else one of a base that every base searched before it was found for. Each tier's confidence is a
-constant of `kartta_graph::confidence`. No edge is stored, so nothing a file holds goes stale when another file
-changes.
+around the use, else one of a base that every base searched before it was found for. Where includes are transitive and
+a bare name in a member reads the class first, as in C++, the tiers follow the includes instead: a member of the own
+receiver, and a bare name in a member, binds the own class's field, else the field of the one base the class-scope
+lookup of a bare call certainly finds; a member on a value binds the field of the class its declaration names or of the
+one base of it that declares the name, else the one field of the name in the file, then in its includes, then, for a
+name at most 32 fields share, in the files those reach; a bare name past the class binds the one namespace value of the
+name its file, else its includes, else, for a name at most 32 values share, the files those reach declare. Each tier's
+confidence is a constant of `kartta_graph::confidence`. No edge is stored, so nothing a file holds goes stale when
+another file changes.
 
 ## Answers
 

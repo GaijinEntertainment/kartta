@@ -215,8 +215,9 @@ pub struct References<'g> {
     /// The sites that pass the confidence floor, of each kind, whatever access the query keeps.
     pub counts: SiteCounts,
     /// The uses that take a member of the symbol's name on a value and bind no definition, because the graph could
-    /// not follow the value's type and no other tier picked one of the members of the name: any of them, this one
-    /// included, may be meant. Counted for a member only, and 0 for any other symbol.
+    /// not follow the value's type and no other tier picked one of the members of the name, and those of the own
+    /// receiver that several bases may hold: any of them, this one included, may be meant. Counted for a member only,
+    /// and 0 for any other symbol.
     pub ambiguous: usize,
 }
 
@@ -317,9 +318,11 @@ impl Graph {
     /// name shared by several of them selects the one with the most sites.
     ///
     /// The uses are those the language records. A member taken on a value binds through the type the language spells
-    /// for the value, else the one field of the name in the use's own file, and a member of `this` or `self` binds
-    /// the member of the class around the use or of a base the graph finds. Every site of the name is resolved before
-    /// the query's limit applies, so the limit bounds the answer, not the work, and `total` counts them all.
+    /// for the value, else the one field of the name in the use's own file, and where the language says so, in the
+    /// files it includes or reaches. A member of `this` or `self` binds the member of the class around the use or of a
+    /// base the graph finds, and where a bare name in a member reads the class first, the field of the own class or
+    /// of the one base that lookup finds. Every site of the name is resolved before the query's limit applies, so the
+    /// limit bounds the answer, not the work, and `total` counts them all.
     #[must_use]
     pub fn references(&self, name: &str, query: SiteQuery) -> Option<References<'_>> {
         let mut calls = Calls::wanting(self, Wanted::Referents);
