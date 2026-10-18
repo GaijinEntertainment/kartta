@@ -1,6 +1,7 @@
-use kartta_lang::tree::{children, signature, text};
+use kartta_lang::tree::{signature, text};
 use tree_sitter::Node;
 
+use super::child_nodes;
 use super::name::type_base_name;
 
 const DATA_SIGNATURE_MAX: usize = 160;
@@ -14,8 +15,7 @@ pub(super) fn has_qualifier(node: Node<'_>, qualifier: &str, source: &[u8]) -> b
 }
 
 fn has_child_spelled(node: Node<'_>, kind: &str, spelling: &str, source: &[u8]) -> bool {
-    children(node)
-        .filter_map(|index| node.child(index))
+    child_nodes(node)
         .any(|child| child.kind() == kind && &source[child.byte_range()] == spelling.as_bytes())
 }
 
