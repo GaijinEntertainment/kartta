@@ -1,5 +1,18 @@
 //! Root-relative, forward-slash paths, as a [`Repository`](crate::Repository) names files.
 
+use std::borrow::Cow;
+
+/// `path` with each `\` turned into `/`, as a loader that reads a backslash as a separator spells it; `path` itself,
+/// borrowed, when it holds none.
+#[must_use]
+pub fn forward_slashes(path: &str) -> Cow<'_, str> {
+    if path.contains('\\') {
+        Cow::Owned(path.replace('\\', "/"))
+    } else {
+        Cow::Borrowed(path)
+    }
+}
+
 /// The directory of `path`: `src/a` for `src/a/b.go`, and `.` for a file at the root.
 #[must_use]
 pub fn dir(path: &str) -> &str {
@@ -57,6 +70,15 @@ mod tests {
         assert_eq!(join(".", "./util/b").as_deref(), Some("util/b"));
         assert_eq!(join("", "./b").as_deref(), Some("b"));
         assert_eq!(join("a", "..").as_deref(), Some(""));
+    }
+
+    #[test]
+    fn a_backslash_reads_as_a_separator() {
+        assert_eq!(forward_slashes(r"ui\hud\main.nut"), "ui/hud/main.nut");
+        assert!(matches!(
+            forward_slashes("ui/hud.nut"),
+            Cow::Borrowed("ui/hud.nut")
+        ));
     }
 
     #[test]
