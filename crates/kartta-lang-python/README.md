@@ -7,9 +7,11 @@ whose extension is `py` or `pyi`, in any case.
 
 ## What a file extracts to
 
-Every function, method and class is a symbol, and so is a variable assigned to a bare name at module level and an
-annotated attribute in a class body, which is a field of its class. A symbol is qualified by the module its path names
-and by the classes around it: `pkg.service.Service.greet` for a method of `Service` in `pkg/service.py`, and
+Every function, method and class is a symbol, and so is a variable assigned to a bare name at module level. A bare
+name assigned in a class body is a field of its class, and so is an attribute a method assigns on its first parameter,
+`self.size = size`, declared once where it is first assigned unless the class body declares a member of its name; a
+static method has no such parameter. A symbol is qualified by the module its path names and by the classes around it:
+`pkg.service.Service.greet` for a method of `Service` in `pkg/service.py`, and
 `pkg.Service` for a class in `pkg/__init__.py`. A decorated definition starts at its first decorator, and a name that
 starts with `_` is not exported.
 
