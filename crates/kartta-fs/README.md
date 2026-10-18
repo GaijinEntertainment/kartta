@@ -10,8 +10,8 @@ virtual-filesystem abstraction to mock.
 
 ```rust
 let outcome = Index::build(root, &BuildOptions::default())?;
-report(outcome.errors()); // a partial index looks exactly like a complete one
-let index = outcome.into_index();
+report(&outcome.errors); // a partial index looks exactly like a complete one
+let index = outcome.index;
 
 let ranked = index.fuzzy("main", &FuzzyOptions::default());
 assert_eq!(index.paths().get(ranked[0].position), "src/main.rs");
@@ -114,7 +114,7 @@ whichever entries its threads reached. Each surviving kind costs something diffe
 A build without a visitor never reads a file's size, so nothing here reports a failure to. A size or a binary verdict
 that cannot be read answers `None` at the point of the ask instead, where the caller can act on it.
 
-The report is ordered by path, so two builds of one tree report identically, and `into_index` hands over the snapshot.
+The report is ordered by path, so two builds of one tree report identically.
 
 Checking it is not optional. An index missing a subtree, or holding the files an unread `.gitignore` would have hidden,
 is indistinguishable from a correct one — and the second case is the dangerous one, because a missing subtree is a

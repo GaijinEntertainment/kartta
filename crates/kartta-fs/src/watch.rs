@@ -57,16 +57,16 @@ const LONGEST: Duration = Duration::from_millis(500);
 /// use kartta_fs::{BuildOptions, Index, Watcher};
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let mut index = Index::build("project", &BuildOptions::default())?.into_index();
+/// let mut index = Index::build("project", &BuildOptions::default())?.index;
 /// let mut watcher = Watcher::new(&index)?;
 /// index.refresh(None, None)?;
 /// let covered = watcher.cover(&index)?;
-/// index.refresh_paths(covered.paths(), None, None)?;
+/// index.refresh_paths(covered.iter().map(String::as_str), None, None)?;
 /// loop {
 ///     let changes = watcher.wait(Duration::from_secs(1))?;
 ///     if !changes.is_empty() {
-///         let outcome = index.refresh_paths(changes.paths(), None, None)?;
-///         eprintln!("walked again: {:?}", outcome.walked());
+///         let outcome = index.refresh_paths(changes.iter().map(String::as_str), None, None)?;
+///         eprintln!("walked again: {:?}", outcome.walked);
 ///     }
 /// }
 /// # }
@@ -97,6 +97,14 @@ impl Watcher {
     /// 20 ms, or for 500 ms at most, and returns them. Empty when nothing changed within `timeout`, but on macOS and
     /// Windows a wait can also hand over a change made moments before the watcher started, as the [`Watcher`] docs say.
     ///
+    /// The changes are root-relative forward-slash paths, each once, for [`Index::refresh_paths`]. A path is named as
+    /// the operating system reported it, so it may be ignored, pruned, inside `.git`, or gone again;
+    /// [`Index::refresh_paths`] skips or widens each as it does any path. A name that is not valid UTF-8 is named by the
+    /// directory that holds it. The batch is the empty path alone, the whole tree, when changes were dropped before
+    /// they could be handed over: an inotify queue that overflowed, an `FSEvents` stream that dropped events with no
+    /// directory to scan, a `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that piled up while
+    /// the caller was not waiting.
+    ///
     /// On Linux a wait also watches each directory made since the start as it reads of it, together with every
     /// directory already inside it, so a large tree moved in or unpacked lengthens the wait that meets it by a watch
     /// call a directory.
@@ -113,10 +121,10 @@ impl Watcher {
             reason = "Linux's backend adds watches as it reads, so a wait takes the watcher mutably everywhere"
         )
     )]
-    pub fn wait(&mut self, timeout: Duration) -> Result<Changes, WatchError> {
+    pub fn wait(&mut self, timeout: Duration) -> Result<Vec<String>, WatchError> {
         let mut found = Found::default();
         if !self.backend.poll(timeout, &mut found)? {
-            return Ok(Changes::default());
+            return Ok(Vec::new());
         }
         let started = Instant::now();
         loop {
@@ -152,17 +160,15 @@ impl Watcher {
             reason = "Linux's backend adds watches, so covering takes the watcher mutably everywhere"
         )
     )]
-    pub fn cover(&mut self, index: &Index) -> Result<Changes, WatchError> {
+    pub fn cover(&mut self, index: &Index) -> Result<Vec<String>, WatchError> {
         let mut found = Found::default();
         self.backend.cover(index, &mut found)?;
         Ok(self.changes(found))
     }
 
-    fn changes(&self, found: Found) -> Changes {
+    fn changes(&self, found: Found) -> Vec<String> {
         if found.lost {
-            return Changes {
-                paths: vec![String::new()],
-            };
+            return vec![String::new()];
         }
         let paths: BTreeSet<String> = found
             .paths
@@ -170,37 +176,7 @@ impl Watcher {
             .filter_map(|path| relative(&path, &self.prefixes))
             .collect();
 
-        Changes {
-            paths: paths.into_iter().collect(),
-        }
-    }
-}
-
-/// What changed in one batch a [`Watcher`] handed over.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Changes {
-    paths: Vec<String>,
-}
-
-impl Changes {
-    /// The root-relative forward-slash paths that changed, each once, for [`Index::refresh_paths`].
-    ///
-    /// A path is named as the operating system reported it, so it may be ignored, pruned, inside `.git`, or gone again;
-    /// [`Index::refresh_paths`] skips or widens each as it does any path. A name that is not valid UTF-8 is named by the
-    /// directory that holds it.
-    ///
-    /// The batch is the empty path alone, the whole tree, when changes were dropped before they could be handed over:
-    /// an inotify queue that overflowed, an `FSEvents` stream that dropped events with no directory to scan, a
-    /// `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that piled up while the caller was not
-    /// waiting.
-    pub fn paths(&self) -> impl ExactSizeIterator<Item = &str> + Clone {
-        self.paths.iter().map(String::as_str)
-    }
-
-    /// Whether nothing changed.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.paths.is_empty()
+        paths.into_iter().collect()
     }
 }
 

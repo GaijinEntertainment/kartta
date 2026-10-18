@@ -65,12 +65,12 @@ impl Index {
     ) -> Result<RefreshOutcome, BuildError> {
         let scopes = self.scopes(paths)?;
         if scopes.is_empty() {
-            return Ok(RefreshOutcome {
-                errors: Vec::new(),
-                retired: Vec::new(),
-                walked: scopes,
-                changed: ChangedFiles::default(),
-            });
+            return Ok(RefreshOutcome::new(
+                Vec::new(),
+                Vec::new(),
+                scopes,
+                ChangedFiles::default(),
+            ));
         }
         if scopes[0].is_empty() {
             return self.refresh(visitor, cancel);
@@ -92,12 +92,7 @@ impl Index {
             None => Vec::new(),
         };
 
-        Ok(RefreshOutcome {
-            errors,
-            retired,
-            walked: scopes,
-            changed,
-        })
+        Ok(RefreshOutcome::new(errors, retired, scopes, changed))
     }
 
     fn scopes<'p>(

@@ -13,8 +13,9 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 
 use kartta_fs::{
-    BinaryExtensions, BuildError, BuildOptions, Entry, EntryKind, Filter, FuzzyOptions,
-    GlobOptions, IgnoreSources, Index, ListError, ListOptions, Listed, Listing, PrunedNames,
+    BinaryExtensions, BuildError, BuildOptions, BuildOutcome, Entry, EntryKind, Filter,
+    FuzzyOptions, GlobOptions, IgnoreSources, Index, ListError, ListOptions, Listed, Listing,
+    PrunedNames,
 };
 use tempfile::TempDir;
 
@@ -41,12 +42,12 @@ fn tree(spec: &[(&str, &str)]) -> TempDir {
 fn index(root: &Path, options: &BuildOptions) -> Index {
     let outcome = Index::build(root, options).expect("build the index");
     assert!(
-        outcome.errors().is_empty(),
+        outcome.errors.is_empty(),
         "unexpected build errors: {:?}",
-        outcome.errors()
+        outcome.errors
     );
 
-    outcome.into_index()
+    outcome.index
 }
 
 fn default_index(root: &Path) -> Index {
@@ -526,14 +527,14 @@ fn an_unreadable_gitignore_is_reported_and_its_rules_do_not_apply() {
 
     let outcome = Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
     let reported: Vec<&Path> = outcome
-        .errors()
+        .errors
         .iter()
         .filter(|error| matches!(error, BuildError::Ignore { .. }))
         .filter_map(BuildError::native_path)
         .collect();
 
     assert_eq!(reported, [dir.path().join(".gitignore").as_path()]);
-    assert_eq!(paths(&outcome.into_index()), [".gitignore", "build.log"]);
+    assert_eq!(paths(&outcome.index), [".gitignore", "build.log"]);
 }
 
 #[test]
@@ -605,9 +606,8 @@ fn a_build_outcome_hands_over_its_index_and_its_report_together() {
     let gitignore_that_is_a_directory = (".gitignore/", "");
     let dir = tree(&[gitignore_that_is_a_directory, ("main.rs", "code")]);
 
-    let (index, errors) = Index::build(dir.path(), &BuildOptions::default())
-        .expect("build the index")
-        .into_parts();
+    let BuildOutcome { index, errors } =
+        Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
 
     assert!(index.entry("main.rs").is_some());
     assert!(matches!(errors.as_slice(), [BuildError::Ignore { .. }]));
@@ -810,13 +810,13 @@ fn a_gitignore_that_is_a_fifo_does_not_block_the_build() {
     let root = dir.path().to_path_buf();
     let (report, errors) = within_deadline(move || {
         let outcome = Index::build(&root, &BuildOptions::default()).expect("build the index");
-        let errors = format!("{:?}", outcome.errors());
+        let errors = format!("{:?}", outcome.errors);
         let carries_ignore = outcome
-            .errors()
+            .errors
             .iter()
             .any(|error| matches!(error, BuildError::Ignore { .. }));
 
-        let index = outcome.into_index();
+        let index = outcome.index;
         let listed = paths(&index);
 
         (
@@ -881,14 +881,14 @@ fn a_gitignore_symlinked_out_of_the_tree_is_refused_and_reported() {
 
     assert!(
         outcome
-            .errors()
+            .errors
             .iter()
             .any(|error| matches!(error, BuildError::Ignore { .. })),
         "the refusal is reported: {:?}",
-        outcome.errors()
+        outcome.errors
     );
     assert_eq!(
-        paths(&outcome.into_index()),
+        paths(&outcome.index),
         [".gitignore", "build.log"],
         "the outside rules never applied"
     );
@@ -921,13 +921,13 @@ fn a_dangling_gitignore_symlink_is_reported_and_its_rules_do_not_apply() {
 
     assert!(
         outcome
-            .errors()
+            .errors
             .iter()
             .any(|error| matches!(error, BuildError::Ignore { .. })),
         "the rules could not be read, so the build says so: {:?}",
-        outcome.errors()
+        outcome.errors
     );
-    assert_eq!(paths(&outcome.into_index()), [".gitignore", "build.log"]);
+    assert_eq!(paths(&outcome.index), [".gitignore", "build.log"]);
 }
 
 #[cfg(target_os = "linux")]
@@ -943,18 +943,13 @@ fn an_entry_whose_name_is_not_utf8_is_reported_rather_than_indexed() {
 
     let outcome = Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
     let reported = outcome
-        .errors()
+        .errors
         .iter()
         .filter(|error| matches!(error, BuildError::Name { .. }))
         .count();
 
-    assert_eq!(
-        reported,
-        2,
-        "both names are reported: {:?}",
-        outcome.errors()
-    );
-    assert_eq!(paths(&outcome.into_index()), ["plain.txt"]);
+    assert_eq!(reported, 2, "both names are reported: {:?}", outcome.errors);
+    assert_eq!(paths(&outcome.index), ["plain.txt"]);
 }
 
 #[cfg(unix)]
@@ -1054,13 +1049,13 @@ fn a_dangling_symlink_reports_the_target_that_resolves_to_nothing() {
     let outcome = Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
 
     assert!(
-        outcome.errors().is_empty(),
+        outcome.errors.is_empty(),
         "a view onto nothing is what the tree holds, not a build failure: {:?}",
-        outcome.errors()
+        outcome.errors
     );
     assert_eq!(
         outcome
-            .index()
+            .index
             .entry("dangling")
             .and_then(|entry| entry.target()),
         Some("nowhere")
@@ -1098,12 +1093,12 @@ fn a_symlink_whose_target_is_not_utf8_reports_no_target_and_no_error() {
     let outcome = Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
 
     assert!(
-        outcome.errors().is_empty(),
+        outcome.errors.is_empty(),
         "an unresolvable view is a property of the link, never a gap in the index: {:?}",
-        outcome.errors()
+        outcome.errors
     );
 
-    let index = outcome.into_index();
+    let index = outcome.index;
     assert_eq!(kind_of(&index, "link"), EntryKind::Symlink, "still indexed");
     assert_eq!(
         index.entry("link").and_then(|entry| entry.target()),

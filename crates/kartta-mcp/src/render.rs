@@ -233,7 +233,7 @@ fn failures(count: usize, failed: impl Iterator<Item = impl Display>) -> Option<
 pub(crate) fn refresh(refreshed: &Refreshed) -> String {
     let refresh = &refreshed.refresh;
     let outcome = refresh.index();
-    let walked = outcome.walked();
+    let walked = &outcome.walked;
     let mut element = Element::new("refresh");
     element = if walked.iter().any(String::is_empty) {
         element.attr("walked", "tree")
@@ -241,8 +241,8 @@ pub(crate) fn refresh(refreshed: &Refreshed) -> String {
         element.attr("walked", walked.len())
     };
     element = element
-        .count("added", outcome.added().len())
-        .count("removed", outcome.removed().len())
+        .count("added", outcome.added.len())
+        .count("removed", outcome.removed.len())
         .count("extracted", refresh.extracted())
         .count("resolved_again", refresh.resolved_again())
         .count("dropped", refresh.dropped().unwrap_or(0))
@@ -259,8 +259,8 @@ pub(crate) fn refresh(refreshed: &Refreshed) -> String {
     if let Some(errors) = failures(refresh.errors().count(), refresh.errors()) {
         return element.wrap(&errors);
     }
-    let changed = outcome.added().len()
-        + outcome.removed().len()
+    let changed = outcome.added.len()
+        + outcome.removed.len()
         + refresh.extracted()
         + refresh.resolved_again()
         + refresh.dropped().unwrap_or(0);

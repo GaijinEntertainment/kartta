@@ -17,8 +17,8 @@
 //! std::fs::write(dir.path().join("build.log"), "noise")?;
 //!
 //! let outcome = Index::build(dir.path(), &BuildOptions::default())?;
-//! assert!(outcome.errors().is_empty(), "a complete answer");
-//! let index = outcome.into_index();
+//! assert!(outcome.errors.is_empty(), "a complete answer");
+//! let index = outcome.index;
 //!
 //! let ranked = index.fuzzy("main", &FuzzyOptions::default());
 //! assert_eq!(index.paths().get(ranked[0].position), "src/main.rs");
@@ -189,4 +189,4 @@ pub use crate::matches::{Cut, Failure, Line, LineKind, MatchedFile, Matches};
 pub use crate::patterns::{Case, PatternError, Patterns};
 pub use crate::pruned::{PrunedNames, PrunedNamesError};
 #[cfg(feature = "watch")]
-pub use crate::watch::{Changes, WatchError, Watcher};
+pub use crate::watch::{WatchError, Watcher};

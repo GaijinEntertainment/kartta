@@ -18,7 +18,7 @@ pub(crate) fn start(served: &Served) -> Result<Watcher, String> {
     served.refresh(std::iter::empty())?;
     let covered = served.cover(&mut watcher)?;
     if !covered.is_empty() {
-        served.refresh(covered.paths())?;
+        served.refresh(covered.iter().map(String::as_str))?;
     }
     Ok(watcher)
 }
@@ -49,7 +49,7 @@ fn run(index: &Weak<Served>, mut watcher: Watcher) {
         match changes {
             Ok(changes) if changes.is_empty() => {}
             Ok(changes) => {
-                if let Err(error) = served.refresh(changes.paths()) {
+                if let Err(error) = served.refresh(changes.iter().map(String::as_str)) {
                     stop(&served, format!("a refresh failed: {error}"));
                     return;
                 }

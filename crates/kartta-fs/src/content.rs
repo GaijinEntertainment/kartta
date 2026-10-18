@@ -52,7 +52,7 @@ use crate::cache::SharedCache;
 ///
 /// let counted = RustBytes(AtomicUsize::new(0));
 /// let outcome = Index::build_with(dir.path(), &BuildOptions::default(), Some(&counted), None)?;
-/// assert!(outcome.errors().is_empty());
+/// assert!(outcome.errors.is_empty());
 /// assert_eq!(counted.0.into_inner(), 12);
 /// # Ok(())
 /// # }
@@ -136,7 +136,7 @@ impl<'a> Content<'a> {
     ///
     /// let lines = Lines(Namespace::new("lines", b"newline count, little-endian usize, 1"));
     /// let outcome = Index::build_with(tree.path(), &options, Some(&lines), None)?;
-    /// assert!(outcome.errors().is_empty());
+    /// assert!(outcome.errors.is_empty());
     /// # Ok(())
     /// # }
     /// ```

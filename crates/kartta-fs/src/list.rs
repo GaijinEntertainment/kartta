@@ -273,7 +273,7 @@ impl Index {
     /// std::fs::write(dir.path().join("src/main.rs"), "")?;
     /// std::fs::write(dir.path().join("src/net/tcp.rs"), "")?;
     ///
-    /// let index = Index::build(dir.path(), &BuildOptions::default())?.into_index();
+    /// let index = Index::build(dir.path(), &BuildOptions::default())?.index;
     ///
     /// let listed = index.list("src", &ListOptions::default())?;
     /// let mut paths = index.paths();

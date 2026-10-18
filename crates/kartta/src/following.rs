@@ -171,7 +171,7 @@ impl Following {
         for (language, configuration) in self.configurations.iter().enumerate() {
             wanted[language] |= configuration
                 .as_ref()
-                .is_some_and(|configuration| reaches(configuration, reached, outcome.walked()));
+                .is_some_and(|configuration| reaches(configuration, reached, &outcome.walked));
         }
 
         let mut resolvers = resolving.resolvers(repository, &wanted);
@@ -243,12 +243,12 @@ fn count(
     (outcome, counts, stale): (&RefreshOutcome, &[FileCounts], &[Followed]),
     inserted: &[usize],
 ) {
-    for path in outcome.added() {
+    for path in &outcome.added {
         if let Some(language) = claimant(languages, path) {
             file_counts[language].claimed += 1;
         }
     }
-    for path in outcome.removed() {
+    for path in &outcome.removed {
         if let Some(language) = claimant(languages, path) {
             file_counts[language].claimed = file_counts[language].claimed.saturating_sub(1);
         }
@@ -269,7 +269,7 @@ fn count(
 /// what each file it read again holds.
 fn reached(index: &Index, outcome: &RefreshOutcome, handed: &[ToResolve]) -> Keys {
     let mut reached = HashSet::with_hasher(FixedState::default());
-    for path in outcome.added().iter().chain(outcome.removed()) {
+    for path in outcome.added.iter().chain(&outcome.removed) {
         reached.extend(reached_by_presence(path));
     }
     let mut paths = index.paths();
