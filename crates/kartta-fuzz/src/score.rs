@@ -4,20 +4,42 @@
 //! both ASCII, and as characters otherwise. The alignment itself is written once, generic over the symbol type and
 //! the comparison, so the two representations cannot drift apart.
 
-use crate::class::{Class, Classes};
-use crate::config::Scoring;
+use crate::class::{Class, Classes, MAX_BOUNDARY};
+
+const CONSECUTIVE: i32 = 1_000;
+const BASENAME: i32 = 150;
+const GAP_LEADING: i32 = -5;
+const GAP_INNER: i32 = -10;
+const GAP_TRAILING: i32 = -5;
 
 /// A candidate with more positions than this is over-long: it skips the `O(n*m)` alignment and takes [`MATCH_FLOOR`].
 /// Real paths are far shorter; the bound exists so a pathological input cannot make one query quadratic in a value the
 /// caller controls.
 pub(crate) const MAX_ALIGNED_POSITIONS: usize = 1024;
 
-/// "No alignment ends here" sentinel. Nothing the recurrence adds can lift it: a gap reaches the recurrence clamped to
-/// a penalty by [`Scoring::clamp_gaps`], and a bonus goes through [`add_bonus`].
+/// The score a term takes against a candidate it matches in full: one more than the sum of the largest bonus each
+/// position can earn over the longest candidate the alignment runs on, so no alignment reaches it.
+pub(crate) const FULL_MATCH_SCORE: i32 = {
+    let largest_step = if CONSECUTIVE > MAX_BOUNDARY {
+        CONSECUTIVE
+    } else {
+        MAX_BOUNDARY
+    };
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        reason = "MAX_ALIGNED_POSITIONS is a 1024 literal, far inside i32"
+    )]
+    let positions = MAX_ALIGNED_POSITIONS as i32;
+    positions * (largest_step + BASENAME) + 1
+};
+
+/// "No alignment ends here" sentinel. Nothing the recurrence adds can lift it: every gap is a penalty, and a bonus
+/// goes through [`add_bonus`].
 pub(crate) const NO_ALIGNMENT: i32 = i32::MIN;
 
-/// The lowest score an alignment may take, one clear of [`MATCH_FLOOR`] and two clear of the sentinel. [`add_bonus`]
-/// never moves a state below it, so no bonus can saturate a real alignment onto a value that reads as no alignment.
+/// The lowest score an aggregate of aligned terms may take, one clear of [`MATCH_FLOOR`], so a sum of many poor
+/// alignments never reads as a floored candidate.
 pub(crate) const ALIGNED_MIN: i32 = NO_ALIGNMENT + 2;
 
 /// Score for a match on a candidate too long to align.
@@ -194,8 +216,6 @@ struct Alignment<'a, T, E> {
     trailing: usize,
     /// First position of the basename, in whole-candidate terms.
     basename_start: usize,
-    /// Owned rather than borrowed because the gaps are clamped to penalties before the recurrence sees them.
-    scoring: Scoring,
     eq: E,
 }
 
@@ -245,7 +265,7 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
 
         // Every alignment ends inside the window, so the gaps over the skipped suffix are the same constant for all of
         // them and are charged once here rather than walked one position at a time.
-        best.saturating_add(to_score(self.trailing).saturating_mul(self.scoring.gap_trailing))
+        best.saturating_add(to_score(self.trailing).saturating_mul(GAP_TRAILING))
     }
 
     /// Scores a single-symbol term, which needs no rows at all.
@@ -255,7 +275,7 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
     /// same arithmetic as [`Alignment::fill_first_row`] with every array write removed — and a one-character query is
     /// both the most permissive case and the first keystroke of any interactive one.
     fn run_single(&self, symbol: T) -> i32 {
-        let mut leading = to_score(self.offset).saturating_mul(self.scoring.gap_leading);
+        let mut leading = to_score(self.offset).saturating_mul(GAP_LEADING);
         let mut best = NO_ALIGNMENT;
 
         for (j, (&c, &bonus)) in self.candidate.iter().zip(self.bonus.iter()).enumerate() {
@@ -263,14 +283,12 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
                 leading
                     .saturating_add(bonus)
                     .saturating_add(self.basename_bonus(j))
-                    .saturating_add(self.candidate_start_bonus(j))
-                    .max(ALIGNED_MIN)
             } else {
                 NO_ALIGNMENT
             };
 
-            best = d.max(best.saturating_add(self.scoring.gap_trailing));
-            leading = leading.saturating_add(self.scoring.gap_leading);
+            best = d.max(best.saturating_add(GAP_TRAILING));
+            leading = leading.saturating_add(GAP_LEADING);
         }
 
         best
@@ -283,13 +301,7 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
         let last = term.len() - 1;
         // The trailing gap is cheaper than an inner gap, so the last term symbol tolerates a long unmatched suffix —
         // a file extension — without paying inner-gap rates for it.
-        let gap_of = |i: usize| {
-            if i == last {
-                self.scoring.gap_trailing
-            } else {
-                self.scoring.gap_inner
-            }
-        };
+        let gap_of = |i: usize| if i == last { GAP_TRAILING } else { GAP_INNER };
 
         self.fill_first_row(term[0], rows, gap_of(0));
         for (i, &symbol) in term.iter().enumerate().skip(1) {
@@ -307,7 +319,7 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
     /// that proof instead.
     fn fill_first_row(&self, symbol: T, rows: &mut Rows, gap: i32) {
         // The window skipped `offset` positions, each of which the first symbol pays a leading gap for.
-        let mut leading = to_score(self.offset).saturating_mul(self.scoring.gap_leading);
+        let mut leading = to_score(self.offset).saturating_mul(GAP_LEADING);
         let mut left_m = NO_ALIGNMENT;
 
         let len = rows.len;
@@ -321,8 +333,6 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
                 leading
                     .saturating_add(bonus)
                     .saturating_add(self.basename_bonus(j))
-                    .saturating_add(self.candidate_start_bonus(j))
-                    .max(ALIGNED_MIN)
             } else {
                 NO_ALIGNMENT
             };
@@ -331,7 +341,7 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
             *cell_d = d;
             *cell_m = m_here;
             left_m = m_here;
-            leading = leading.saturating_add(self.scoring.gap_leading);
+            leading = leading.saturating_add(GAP_LEADING);
         }
 
         rows.swap();
@@ -361,7 +371,7 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
             cells.zip(inputs).zip(carried).enumerate()
         {
             let d = if (self.eq)(symbol, c) {
-                let consecutive = add_bonus(prev_d, self.scoring.consecutive);
+                let consecutive = add_bonus(prev_d, CONSECUTIVE);
                 let after_gap = add_bonus(prev_m, bonus);
                 add_bonus(consecutive.max(after_gap), self.basename_bonus(j + 1))
             } else {
@@ -381,16 +391,7 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
     /// filename outranks one hitting a directory.
     const fn basename_bonus(&self, j: usize) -> i32 {
         if j + self.offset >= self.basename_start {
-            self.scoring.basename
-        } else {
-            0
-        }
-    }
-
-    /// The one-time bonus for an alignment that begins at the very start of the whole candidate.
-    const fn candidate_start_bonus(&self, j: usize) -> i32 {
-        if j + self.offset == 0 {
-            self.scoring.candidate_start
+            BASENAME
         } else {
             0
         }
@@ -399,20 +400,15 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
 
 /// Adds a bonus to an alignment state, leaving the "no alignment" sentinel where it is.
 ///
-/// A bonus is the only weight that can be positive, and adding a positive one to [`NO_ALIGNMENT`] would turn "nothing
-/// ends here" into a state that competes with real alignments — leaving the recurrence free to select an alignment
-/// that does not exist. A gap needs no such guard, and pays for none: [`Scoring::clamp_gaps`] clamps every gap
-/// weight to at most zero before the recurrence sees it, so a gap added to the sentinel saturates back onto it.
-///
-/// [`ALIGNED_MIN`] holds the other end. A bonus can also be negative, and one large enough to saturate a real state
-/// would otherwise land it *on* the sentinel, where it reads as nothing. A gap gets no such clamp, so a penalty steep
-/// enough to saturate a state carried along a row does erase it — a state lost, not a state invented, and only under
-/// weights that have already driven every score down to [`ALIGNED_MIN`].
-fn add_bonus(state: i32, bonus: i32) -> i32 {
+/// A bonus is the only weight that is positive, and adding one to [`NO_ALIGNMENT`] would turn "nothing ends here" into
+/// a state that competes with real alignments — leaving the recurrence free to select an alignment that does not
+/// exist. A gap needs no such guard, and pays for none: every gap weight is a penalty, so a gap added to the sentinel
+/// saturates back onto it.
+const fn add_bonus(state: i32, bonus: i32) -> i32 {
     if state == NO_ALIGNMENT {
         NO_ALIGNMENT
     } else {
-        state.saturating_add(bonus).max(ALIGNED_MIN)
+        state.saturating_add(bonus)
     }
 }
 
@@ -469,7 +465,7 @@ impl Scorer {
     /// Records each position's boundary bonus and the basename start in one pass, reusing the buffers across
     /// candidates.
     ///
-    /// Position 0 always earns [`Scoring::after_segment`]: the start of a candidate is the start of a segment, which
+    /// Position 0 always earns the segment bonus: the start of a candidate is the start of a segment, which
     /// is why the virtual predecessor of position 0 is [`Class::SegmentSeparator`].
     pub(crate) fn prepare(&mut self, candidate: &str, classes: &Classes) {
         // An over-long candidate is scored from its length alone, so nothing here is sized to it and
@@ -552,32 +548,19 @@ impl Scorer {
     }
 
     /// The score of a `term` already known to be a non-empty subsequence of the prepared candidate.
-    pub(crate) fn score_matched(
-        &mut self,
-        term: &Term,
-        scoring: &Scoring,
-        full_match_score: i32,
-    ) -> i32 {
+    pub(crate) fn score_matched(&mut self, term: &Term) -> i32 {
         // Equal length plus subsequence means every symbol matched in order: a full match, up to case.
         if term.chars.len() == self.positions {
-            return full_match_score;
+            return FULL_MATCH_SCORE;
         }
         if self.positions > MAX_ALIGNED_POSITIONS {
             return MATCH_FLOOR;
         }
-
-        // An alignment occupies the range strictly between the two reserved scores, and both ends need holding.
-        // Above: the full-match score is derived from the weights, which puts it over any alignment only while the
-        // arithmetic has room -- weights large enough to saturate drive both to `i32::MAX`. Below: `MATCH_FLOOR`
-        // sits one above the sentinel, and a weight like `basename = i32::MIN` saturates an alignment down onto
-        // the sentinel itself, ranking a candidate that was never aligned above one that was. No constant can sit
-        // under every alignment for every configuration, so the alignment is held at `ALIGNED_MIN` instead.
-        self.align(term, scoring)
-            .clamp(ALIGNED_MIN, full_match_score.saturating_sub(1))
+        self.align(term)
     }
 
     /// Dispatches to the alignment in whichever representation the candidate was prepared in.
-    fn align(&mut self, term: &Term, scoring: &Scoring) -> i32 {
+    fn align(&mut self, term: &Term) -> i32 {
         let basename_start = self.basename_start;
         debug_assert!(
             !self.prepared_as_bytes || term.bytes.is_some(),
@@ -591,7 +574,6 @@ impl Scorer {
                 offset: 0,
                 trailing: 0,
                 basename_start,
-                scoring: *scoring,
                 eq: |a: u8, b: u8| a == b,
             }
             .narrow(bytes)
@@ -602,7 +584,6 @@ impl Scorer {
                 offset: 0,
                 trailing: 0,
                 basename_start,
-                scoring: *scoring,
                 eq: fold_eq,
             }
             .narrow(&term.chars)
@@ -621,8 +602,7 @@ mod tests {
     /// The ASCII fast path exists only to be faster, so the two representations must return the same score for input
     /// both can handle. Nothing else in the suite would notice them drifting apart.
     fn both_representations(candidate: &str, term: &str) -> (i32, i32) {
-        let config = Config::DEFAULT;
-        let classes = Classes::new(&config);
+        let classes = Classes::new(&Config::DEFAULT);
         let term = Term::new(term);
 
         let mut as_bytes = Scorer::default();
@@ -633,18 +613,7 @@ mod tests {
         as_chars.begin(Representation::Chars, term.chars.len());
         as_chars.prepare(candidate, &classes);
 
-        (
-            as_bytes.score_matched(
-                &term,
-                &config.scoring.clamp_gaps(),
-                config.full_match_score(),
-            ),
-            as_chars.score_matched(
-                &term,
-                &config.scoring.clamp_gaps(),
-                config.full_match_score(),
-            ),
-        )
+        (as_bytes.score_matched(&term), as_chars.score_matched(&term))
     }
 
     #[test]
@@ -676,9 +645,9 @@ mod tests {
         }
     }
 
-    /// Scores `term` against a prepared candidate with and without the window, under `scoring`.
-    fn narrowed_and_unnarrowed(candidate: &str, term: &str, config: &Config) -> (i32, i32, bool) {
-        let classes = Classes::new(config);
+    /// Scores `term` against a prepared candidate with and without the window.
+    fn narrowed_and_unnarrowed(candidate: &str, term: &str) -> (i32, i32, bool) {
+        let classes = Classes::new(&Config::DEFAULT);
         let term = Term::new(term);
         let bytes = term.bytes.as_deref().unwrap_or_default();
 
@@ -692,7 +661,6 @@ mod tests {
             offset: 0,
             trailing: 0,
             basename_start: scorer.basename_start,
-            scoring: config.scoring.clamp_gaps(),
             eq: |a: u8, b: u8| a == b,
         };
 
@@ -773,21 +741,6 @@ mod tests {
 
     #[test]
     fn narrowing_the_window_never_changes_a_score() {
-        let mut configs = vec![Config::DEFAULT];
-
-        let mut aggressive = Config::DEFAULT;
-        aggressive.scoring.gap_inner = -400;
-        aggressive.scoring.gap_leading = -300;
-        aggressive.scoring.gap_trailing = -200;
-        configs.push(aggressive);
-
-        let mut flat = Config::DEFAULT;
-        flat.scoring.gap_inner = 0;
-        flat.scoring.gap_leading = 0;
-        flat.scoring.gap_trailing = 0;
-        flat.scoring.candidate_start = 5_000;
-        configs.push(flat);
-
         let cases = generated_cases();
         assert!(
             cases.len() > 1000,
@@ -796,17 +749,15 @@ mod tests {
         );
 
         let mut engaged = 0;
-        for config in &configs {
-            for (candidate, term) in &cases {
-                let (narrowed, unnarrowed, narrowing_applied) =
-                    narrowed_and_unnarrowed(candidate, term, config);
-                assert_eq!(narrowed, unnarrowed, "{term:?} against {candidate:?}");
-                engaged += usize::from(narrowing_applied);
-            }
+        for (candidate, term) in &cases {
+            let (narrowed, unnarrowed, narrowing_applied) =
+                narrowed_and_unnarrowed(candidate, term);
+            assert_eq!(narrowed, unnarrowed, "{term:?} against {candidate:?}");
+            engaged += usize::from(narrowing_applied);
         }
 
         // Without this the differential could pass by never narrowing anything.
-        let total = cases.len() * configs.len();
+        let total = cases.len();
         assert!(
             engaged * 4 > total,
             "narrowing engaged on only {engaged} of {total} cases, so the differential proves little"
@@ -847,11 +798,9 @@ mod tests {
     fn assert_only_reachable_cells_carry_a_score(
         candidate: &str,
         term: &str,
-        config: &Config,
         rows: &mut Rows,
     ) -> usize {
-        let classes = Classes::new(config);
-        let scoring = config.scoring.clamp_gaps();
+        let classes = Classes::new(&Config::DEFAULT);
         let term = Term::new(term);
         let Some(symbols) = term.bytes.as_deref().filter(|b| b.len() >= 2) else {
             return 0;
@@ -870,7 +819,6 @@ mod tests {
             offset: 0,
             trailing: 0,
             basename_start: scorer.basename_start,
-            scoring,
             eq: |a: u8, b: u8| a == b,
         };
         let expected = reachable(symbols, &scorer.bytes);
@@ -878,11 +826,7 @@ mod tests {
         rows.ensure(scorer.bytes.len());
 
         for (i, &symbol) in symbols.iter().enumerate() {
-            let gap = if i == last {
-                scoring.gap_trailing
-            } else {
-                scoring.gap_inner
-            };
+            let gap = if i == last { GAP_TRAILING } else { GAP_INNER };
             if i == 0 {
                 alignment.fill_first_row(symbol, rows, gap);
             } else {
@@ -906,27 +850,12 @@ mod tests {
     #[test]
     fn no_cell_ever_holds_a_state_no_alignment_reaches() {
         // Every bonus is added to whatever the row above left behind, so a sentinel that moves becomes a state no
-        // alignment produced, competing on the same scale as the ones that did. It wins only once real scores have
-        // fallen to `ALIGNED_MIN`, which is why the invariant is checked cell by cell rather than through a score.
-        //
-        // The weights below are large enough that a moved sentinel is unmistakable and small enough that nothing
-        // saturates: a saturating penalty drops a carried alignment onto the sentinel, which is a state lost rather
-        // than a state invented, and would blur what this asserts.
-        let mut aggressive = Config::DEFAULT;
-        aggressive.scoring.gap_leading = -300;
-        aggressive.scoring.gap_inner = -400;
-        aggressive.scoring.basename = 100_000;
-        aggressive.scoring.consecutive = 500_000;
-
-        let cases = generated_cases();
+        // alignment produced, competing on the same scale as the ones that did. A moved sentinel stays far below every
+        // real score, which is why the invariant is checked cell by cell rather than through a score.
         let mut rows = Rows::default();
         let mut checked = 0;
-
-        for config in [Config::DEFAULT, aggressive] {
-            for (candidate, term) in &cases {
-                checked +=
-                    assert_only_reachable_cells_carry_a_score(candidate, term, &config, &mut rows);
-            }
+        for (candidate, term) in &generated_cases() {
+            checked += assert_only_reachable_cells_carry_a_score(candidate, term, &mut rows);
         }
 
         assert!(
@@ -959,7 +888,6 @@ mod tests {
                 offset: 0,
                 trailing: 0,
                 basename_start: scorer.basename_start,
-                scoring: config.scoring.clamp_gaps(),
                 eq: |a: u8, b: u8| a == b,
             };
 

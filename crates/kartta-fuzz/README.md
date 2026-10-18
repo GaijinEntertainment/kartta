@@ -5,16 +5,14 @@ Path-aware fuzzy scorer that ranks repository paths against a query by optimal a
 For every candidate containing each term of the query as a subsequence, a dynamic program finds the highest-scoring
 alignment. It rewards matches at path boundaries — segment starts, word separators, camelCase humps, the basename — and
 charges for the gaps between matched characters. Scores are integers, so ranking is deterministic across platforms and
-free of NaN-ordering hazards, and every arithmetic operation on a score saturates, so no configuration makes one
-overflow.
+free of NaN-ordering hazards.
 
 A candidate longer than 1024 positions is the one exception, and no repository path reaches it: aligning it would mean
 running an `O(n*m)` recurrence over a length the caller chose. It still counts as a match, so the file stays findable,
 but takes a floor score that ranks it below every candidate that was actually scored.
 
 A full match escapes that bound, because it is settled by comparing lengths rather than by aligning: an over-long
-candidate a term matches in full still ranks first, since that ordering is one of the guarantees below and the floor
-is not.
+candidate a term matches in full still ranks first.
 
 ## What makes it path-aware
 
@@ -42,33 +40,26 @@ whitespace separates its terms and is not content a candidate has to contain. Qu
 both terms match in full, above `a a`.
 
 Matching ignores case, so a full match is equality up to case. Folding is ASCII-first rather than full Unicode folding:
-U+212A KELVIN SIGN does not match `k`, while a pair of non-ASCII characters compares by Unicode lowercase. The full-match
-guarantee survives reconfiguration because the score it takes is derived from the active weights rather than declared as
-a constant, and each component of that derivation is clamped to zero or above, so no set of weights — including one that
-is entirely negative — inverts the two.
+U+212A KELVIN SIGN does not match `k`, while a pair of non-ASCII characters compares by Unicode lowercase.
 
-Three guarantees hold for every configuration, and only these three: a candidate every term matches in full ranks first,
-a candidate missing a term never matches, and no weight makes a score overflow. Everything else the model produces — a
-contiguous run beating a gapped one, a filename hit beating a directory hit — is a property of the shipped weights,
-which the tests pin, and not of any point in the space.
+The weights are fixed: fzy's, scaled by 1000, plus a basename bonus per matched character. Match bonuses dwarf the gap
+penalties, so alignment quality decides the rank and gaps only break near-ties. The tests pin the orderings they
+produce — a contiguous run beating a gapped one, a filename hit beating a directory hit — not the values.
 
 ## Configuration
 
-Every weight and every policy is a field of `Config`. Start from `Config::DEFAULT` and adjust what you need:
+`Config` decides what a segment and a word are, and whether length breaks a tie. Start from `Config::DEFAULT` and adjust
+what you need:
 
 ```rust
 use kartta_fuzz::{Config, Matcher};
 
 let mut config = Config::DEFAULT;
-config.scoring.candidate_start = 500;     // reward matches at the very start
+config.segment_separators = &['/'];       // a backslash is part of a name
 
 let mut matcher = Matcher::new(config);
 let ranked = matcher.rank(["src/main.rs", "main/lib.rs"], "main", None);
 ```
-
-`Config::DEFAULT` is the tuned point in that space and the one the behaviour tests pin. Every other point is guaranteed
-only by the invariants that hold across all of them — the full-match rule above, the requirement that a candidate
-missing a term never matches, and freedom from overflow.
 
 `segment_separators` is the field that decides what the scorer scores. It fixes both which positions earn the segment
 bonus and where the basename starts, so replacing it with `['.', ':']` makes the same model rank symbols instead of
