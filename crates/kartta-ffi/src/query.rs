@@ -7,11 +7,7 @@ use crate::error::Error;
 use crate::wire::files::{
     FuzzyParams, FuzzyView, GlobParams, GlobView, GrepParams, GrepView, ListParams, ListView,
 };
-use crate::wire::graph::{
-    CallPathView, ChangeView, DeadCodeView, DefinitionsView, DependentsView, FileView,
-    ImplementationsView, OutlineView, ReferencesView, ResolutionView, SearchView, SegmentView,
-    WalkView,
-};
+use crate::wire::graph::{DefinitionsView, FileView, OutlineView, Wired};
 use crate::wire::params::{
     CALLEES_DEPTH, CALLERS_DEPTH, CallPathParams, ChangeParams, DeadCodeParams, DefinitionsParams,
     DependentsParams, ImplementationsParams, OutlineParams, ReferencesParams, ResolutionParams,
@@ -53,7 +49,7 @@ fn callers(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: WalkParams = wire::params(params)?;
     let limits = params.limits(CALLERS_DEPTH);
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        graph.callers(&params.name, limits).map(WalkView::from)
+        graph.callers(&params.name, limits).map(Wired)
     })?)
 }
 
@@ -61,7 +57,7 @@ fn callees(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: WalkParams = wire::params(params)?;
     let limits = params.limits(CALLEES_DEPTH);
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        graph.callees(&params.name, limits).map(WalkView::from)
+        graph.callees(&params.name, limits).map(Wired)
     })?)
 }
 
@@ -69,18 +65,14 @@ fn call_path(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: CallPathParams = wire::params(params)?;
     let limits = params.limits();
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        graph
-            .call_path(&params.from, &params.to, limits)
-            .map(CallPathView::from)
+        graph.call_path(&params.from, &params.to, limits).map(Wired)
     })?)
 }
 
 fn references(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: ReferencesParams = wire::params(params)?;
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        graph
-            .references(&params.name, params.query())
-            .map(ReferencesView::from)
+        graph.references(&params.name, params.query()).map(Wired)
     })?)
 }
 
@@ -89,7 +81,7 @@ fn implementations(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
         graph
             .implementations(&params.name, params.depth(), params.limit())
-            .map(ImplementationsView::from)
+            .map(Wired)
     })?)
 }
 
@@ -121,7 +113,7 @@ fn search(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: SearchParams = wire::params(params)?;
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
         let found = graph.search(&params.query, params.limit());
-        (found.total > 0).then(|| SearchView::from(found))
+        (found.total > 0).then_some(Wired(found))
     })?)
 }
 
@@ -129,7 +121,7 @@ fn dead_code(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: DeadCodeParams = wire::params(params)?;
     let kinds = params.kinds()?;
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        Some(DeadCodeView::from(graph.dead_code(
+        Some(Wired(graph.dead_code(
             &kinds,
             params.path_prefix.as_deref(),
             params.limit(),
@@ -141,9 +133,7 @@ fn resolution(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: ResolutionParams = wire::params(params)?;
     let index = built.engine.index();
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        Some(ResolutionView::from(
-            index.on_threads(|| graph.resolution(params.limit())),
-        ))
+        Some(Wired(index.on_threads(|| graph.resolution(params.limit()))))
     })?)
 }
 
@@ -154,7 +144,7 @@ fn outline(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     wire::ok(&FileView::new(
         &params.file,
         graph.map(|(name, _)| name),
-        outline.map(OutlineView::from),
+        outline.map(|symbols| OutlineView { symbols }),
     ))
 }
 
@@ -166,7 +156,7 @@ fn dependents(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     wire::ok(&FileView::new(
         &params.file,
         graph.map(|(name, _)| name),
-        found.map(DependentsView::from),
+        found.map(Wired),
     ))
 }
 
@@ -179,7 +169,7 @@ fn analyze_segment(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     wire::ok(&FileView::new(
         &params.file,
         graph.map(|(name, _)| name),
-        segment.map(SegmentView::from),
+        segment.map(Wired),
     ))
 }
 
@@ -190,7 +180,7 @@ fn analyze_change(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         .iter()
         .map(|region| Region::new(&region.file, region.lines()))
         .collect();
-    wire::ok(&ChangeView::from(
+    wire::ok(&Wired(
         built.engine.analyze_change(&regions, params.limits()),
     ))
 }
