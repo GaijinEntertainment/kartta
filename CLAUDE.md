@@ -38,6 +38,8 @@ so cost per entry is the design pressure on every surface.
   and queries belong to the consumer, through the caller's `Policy`.
 - `crates/kartta-fs` — the repository file index: ignore rules, the snapshot, and every query answered from it.
 - `crates/kartta-fuzz` — the path scorer.
+- `crates/kartta-languages` — every language kartta ships, as one set and as a selection by name. A new language crate
+  joins it.
 - `crates/kartta` — the engine's entry point. It carries no API.
 - `design-docs/adr/` — one decision per file, indexed in `design-docs/ADR.md`. Read the ADR that covers an area before
   changing how that area behaves.

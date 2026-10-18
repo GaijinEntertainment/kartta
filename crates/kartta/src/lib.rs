@@ -10,6 +10,7 @@
 //!
 //! The engine names no language of its own. [`Engine::build`] is handed the languages to build with, each a value
 //! implementing [`Language`], so a language kartta does not ship plugs in as one more crate implementing that trait.
+//! The `kartta-languages` crate gives every language kartta ships, or the ones a list of names selects.
 //!
 //! # Examples
 //!
