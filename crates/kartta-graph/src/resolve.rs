@@ -35,10 +35,7 @@ pub(crate) struct Call {
 
 impl Call {
     pub(crate) const fn caller_at(&self) -> SymbolAt {
-        SymbolAt {
-            file: self.file,
-            index: self.caller,
-        }
+        SymbolAt::new(self.file, self.caller)
     }
 }
 
@@ -181,10 +178,7 @@ impl<'g> Cascade<'g> {
         self.graph
             .file(at.file)
             .holder(at.index)
-            .map(|index| SymbolAt {
-                file: at.file,
-                index,
-            })
+            .map(|index| SymbolAt::new(at.file, index))
     }
 
     pub(crate) fn qualified(&self, qualified: Str) -> Option<SymbolAt> {
@@ -221,11 +215,7 @@ impl<'g> Cascade<'g> {
         self.is_call_target(symbol.kind)
             && (file.locals.is_empty()
                 || file.holder(at.index).is_none_or(|holder| {
-                    symbol.owner.is_some()
-                        && SymbolAt {
-                            file: at.file,
-                            index: holder,
-                        } == scope
+                    symbol.owner.is_some() && SymbolAt::new(at.file, holder) == scope
                 }))
     }
 
@@ -306,7 +296,7 @@ impl<'g> Cascade<'g> {
 
     pub(crate) fn closure(&self, file: u32) -> Rc<[u32]> {
         derived(&self.closures, file, || {
-            let mut visited: HashSet<u32, FixedState> = HashSet::with_hasher(FixedState::default());
+            let mut visited: HashSet<u32, FixedState> = HashSet::default();
             visited.insert(file);
             let mut pending = vec![file];
             while let Some(current) = pending.pop() {
@@ -481,10 +471,7 @@ impl<'g> Cascade<'g> {
         let caller = call.caller_at();
 
         if let Some(local) = call.local {
-            let at = SymbolAt {
-                file: call.file,
-                index: local,
-            };
+            let at = SymbolAt::new(call.file, local);
             return self
                 .is_call_target(self.graph.sym(at).kind)
                 .then_some((at, confidence::SAME_FILE))
@@ -782,7 +769,7 @@ impl<'g> Cascade<'g> {
         let mut walk = ReExportWalk {
             cascade: self,
             caller: call.caller_at(),
-            visited: HashSet::with_hasher(FixedState::default()),
+            visited: HashSet::default(),
         };
         self.includes(call.file)
             .iter()
@@ -889,10 +876,7 @@ impl<'g> Cascade<'g> {
 
     pub(crate) fn resolve_use(&self, file: u32, index: u32) -> Result<Bound, UseMiss> {
         let site = self.graph.file(file).uses[index as usize];
-        let at = SymbolAt {
-            file,
-            index: site.site_of(),
-        };
+        let at = SymbolAt::new(file, site.site_of());
         match site.receiver() {
             UseReceiver::Bare => self
                 .class_scope_use(at, site.name)
@@ -940,7 +924,7 @@ impl<'g> Cascade<'g> {
         let mut walk = ReExportWalk {
             cascade: self,
             caller: site,
-            visited: HashSet::with_hasher(FixedState::default()),
+            visited: HashSet::default(),
         };
         let mut renamed = includes
             .iter()

@@ -240,10 +240,7 @@ impl Graph {
             .peekable();
         let mut spelling = 0;
         for (index, symbol) in file.symbols.iter().enumerate() {
-            let at = SymbolAt {
-                file: slot,
-                index: narrow(index),
-            };
+            let at = SymbolAt::new(slot, narrow(index));
             if matched.next_if_eq(&at.index).is_some() {
                 continue;
             }
@@ -335,10 +332,7 @@ impl Graph {
             let counts = own.joined(from_path);
             if counts.held.iter().any(|&count| count > 0) {
                 found.push(WordMatch {
-                    at: SymbolAt {
-                        file: slot,
-                        index: narrow(index),
-                    },
+                    at: SymbolAt::new(slot, narrow(index)),
                     counts,
                     named: own.held.iter().any(|&count| count > 0),
                     phrase: own.phrase,
@@ -464,7 +458,7 @@ fn word_set<'s>(
         return WordSet::default();
     }
     let mut runs = Runs {
-        counted: HashMap::with_hasher(FixedState::default()),
+        counted: HashMap::default(),
         word: String::new(),
         held: Vec::new(),
     };
@@ -572,7 +566,7 @@ struct Asked {
 impl Asked {
     fn new(query: &str) -> Self {
         let mut asked: Vec<String> = Vec::new();
-        let mut dropped: HashSet<String, FixedState> = HashSet::with_hasher(FixedState::default());
+        let mut dropped: HashSet<String, FixedState> = HashSet::default();
         words(query, &mut String::new(), &mut |word| {
             if asked.iter().any(|held| held == word) || dropped.contains(word) {
                 return;

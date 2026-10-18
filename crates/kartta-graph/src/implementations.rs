@@ -68,8 +68,7 @@ impl Graph {
     ) -> Option<Implementations<'_>> {
         let types = Types::new(self);
         let (root, mut direct) = types.select(name)?;
-        let mut visited: HashSet<SymbolAt, FixedState> =
-            HashSet::with_hasher(FixedState::default());
+        let mut visited: HashSet<SymbolAt, FixedState> = HashSet::default();
         visited.insert(root);
         let mut level = vec![root];
         let mut found: Vec<Implementor<'_>> = Vec::new();
@@ -204,13 +203,7 @@ impl Types<'_> {
             .file(slot)
             .parents
             .iter()
-            .map(|parent| {
-                let child = SymbolAt {
-                    file: slot,
-                    index: parent.symbol,
-                };
-                (child, parent)
-            })
+            .map(|parent| (SymbolAt::new(slot, parent.symbol), parent))
             .filter(|&(child, parent)| {
                 child != ty
                     && is_implementor_kind(self.graph.sym(child).kind)
