@@ -743,9 +743,10 @@ const fn line(row: usize) -> u32 {
 #[cfg(test)]
 mod tests {
     use kartta_lang::Language;
+    use kartta_lang::tree::parse;
 
     use super::*;
-    use crate::{Cpp, cpp_parser};
+    use crate::{Cpp, grammar};
 
     const SAMPLE: &[u8] = br#"
 #include "core/util.h"
@@ -1864,7 +1865,7 @@ TEST(Suite, Case) { int in_macro = 0; }
     #[test]
     fn a_declaration_holding_a_parse_error_emits_no_data() {
         const SOURCE: &[u8] = b"namespace n {\nMACRO_BEGIN int x = 1;\n}\n";
-        let tree = cpp_parser().parse(SOURCE, None).expect("parse");
+        let tree = parse(&grammar(), SOURCE).expect("parse");
         assert!(tree.root_node().has_error());
 
         let raw = extract(SOURCE);
@@ -1904,7 +1905,7 @@ typedef struct { int x; } TD, TD2;
 void g() { int local = 0; struct Local { int y; }; }
 template<> struct Traits<int> { int size; };
 ";
-        let tree = cpp_parser().parse(SOURCE, None).expect("parse");
+        let tree = parse(&grammar(), SOURCE).expect("parse");
         assert!(tree.root_node().has_error());
 
         let raw = extract(SOURCE);

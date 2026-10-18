@@ -52,12 +52,10 @@
 //! assert_eq!(paths, ["common.blk", "#/develop/gun.blk"]);
 //! ```
 
-use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use kartta_lang::path::base;
 use kartta_lang::{Language, RawExtraction, Repository, Resolver};
-use tree_sitter::{Parser, Tree};
 
 use crate::resolve::BlkResolver;
 use crate::text::source_text;
@@ -118,24 +116,10 @@ fn raw_extraction(source: &[u8]) -> RawExtraction {
         return RawExtraction::default();
     }
 
-    parse(text).map_or_else(RawExtraction::default, |tree| walk::raw_walk(&tree, text))
+    kartta_lang::tree::parse(&grammar(), text)
+        .map_or_else(RawExtraction::default, |tree| walk::raw_walk(&tree, text))
 }
 
 fn grammar() -> tree_sitter::Language {
     tree_sitter_blk::LANGUAGE.into()
-}
-
-fn parse(source: &[u8]) -> Option<Tree> {
-    thread_local! {
-        static PARSER: RefCell<Option<Parser>> = const { RefCell::new(None) };
-    }
-
-    PARSER.with_borrow_mut(|parser| {
-        if parser.is_none() {
-            let mut fresh = Parser::new();
-            fresh.set_language(&grammar()).ok()?;
-            *parser = Some(fresh);
-        }
-        parser.as_mut()?.parse(source, None)
-    })
 }

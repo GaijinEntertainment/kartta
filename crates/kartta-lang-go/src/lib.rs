@@ -75,7 +75,6 @@
 //! assert_eq!(names, ["api.Serve"]);
 //! ```
 
-use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use kartta_lang::path::base;
@@ -83,7 +82,6 @@ use kartta_lang::{
     Conventions, DocComments, Language, MemberCalls, OwnMembers, RawExtraction, Receivers,
     Repository, Resolver, TypeUses,
 };
-use tree_sitter::{Parser, Tree};
 
 use crate::resolve::GoResolver;
 
@@ -142,7 +140,8 @@ impl Language for Go {
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {
-        parse(source).map_or_else(RawExtraction::default, |tree| walk::raw_walk(&tree, source))
+        kartta_lang::tree::parse(&grammar(), source)
+            .map_or_else(RawExtraction::default, |tree| walk::raw_walk(&tree, source))
     }
 
     fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
@@ -152,19 +151,4 @@ impl Language for Go {
 
 fn grammar() -> tree_sitter::Language {
     tree_sitter_golang::LANGUAGE.into()
-}
-
-fn parse(source: &[u8]) -> Option<Tree> {
-    thread_local! {
-        static PARSER: RefCell<Option<Parser>> = const { RefCell::new(None) };
-    }
-
-    PARSER.with_borrow_mut(|parser| {
-        if parser.is_none() {
-            let mut fresh = Parser::new();
-            fresh.set_language(&grammar()).ok()?;
-            *parser = Some(fresh);
-        }
-        parser.as_mut()?.parse(source, None)
-    })
 }
