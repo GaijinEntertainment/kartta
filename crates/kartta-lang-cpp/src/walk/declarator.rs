@@ -1,9 +1,9 @@
-use kartta_lang::tree::{children, signature, text};
+use kartta_lang::tree::{signature, text};
 use kartta_lang::{Symbol, SymbolKind};
 use tree_sitter::Node;
 
-use super::exported_symbol;
 use super::name::{function_base_name, is_simple_identifier, sanitize_name, type_base_name};
+use super::{child_nodes, exported_symbol};
 use crate::repair::is_macro_name;
 
 struct DeclaredName {
@@ -42,11 +42,9 @@ fn conversion_operator(node: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
     let mut abstract_declarator = cast.child_by_field_name("declarator")?;
     while abstract_declarator.kind() != "abstract_function_declarator" {
         let outer = abstract_declarator;
-        abstract_declarator = outer.child_by_field_name("declarator").or_else(|| {
-            children(outer)
-                .filter_map(|index| outer.child(index))
-                .find(|child| child.kind().starts_with("abstract_"))
-        })?;
+        abstract_declarator = outer
+            .child_by_field_name("declarator")
+            .or_else(|| child_nodes(outer).find(|child| child.kind().starts_with("abstract_")))?;
     }
     let parameters = abstract_declarator.child_by_field_name("parameters")?;
     let written = String::from_utf8_lossy(&source[cast.start_byte()..parameters.start_byte()]);
@@ -107,8 +105,7 @@ fn misparse_real_declarator<'t>(node: Node<'t>, source: &[u8]) -> Option<Node<'t
     if leads_with_a_macro(node, field, source) {
         return None;
     }
-    let evicted = children(node)
-        .filter_map(|index| node.child(index))
+    let evicted = child_nodes(node)
         .filter(|child| child.is_error() && child.end_byte() <= field.start_byte())
         .find_map(declarator_in_error);
     if let Some(inner) = evicted {
@@ -143,14 +140,12 @@ fn leads_with_a_macro(node: Node<'_>, field: Node<'_>, source: &[u8]) -> bool {
 }
 
 fn declarator_in_error(error: Node<'_>) -> Option<Node<'_>> {
-    children(error)
-        .filter_map(|index| error.child(index))
-        .rfind(|inner| {
-            matches!(
-                inner.kind(),
-                "function_declarator" | "init_declarator" | "identifier" | "field_identifier"
-            )
-        })
+    child_nodes(error).rfind(|inner| {
+        matches!(
+            inner.kind(),
+            "function_declarator" | "init_declarator" | "identifier" | "field_identifier"
+        )
+    })
 }
 
 fn first_of_declarator_run(last: Node<'_>) -> Node<'_> {
@@ -176,23 +171,19 @@ fn unwrap_to_function_declarator(mut node: Node<'_>) -> Option<Node<'_>> {
 
 fn inner_declarator(node: Node<'_>) -> Option<Node<'_>> {
     node.child_by_field_name("declarator").or_else(|| {
-        children(node)
-            .filter_map(|index| node.child(index))
-            .find(|child| {
-                matches!(
-                    child.kind(),
-                    "function_declarator" | "pointer_declarator" | "reference_declarator"
-                )
-            })
+        child_nodes(node).find(|child| {
+            matches!(
+                child.kind(),
+                "function_declarator" | "pointer_declarator" | "reference_declarator"
+            )
+        })
     })
 }
 
 // constraint: a macro between the return type and the name, `XMMATRIX XM_CALLCONV XMMatrixRotationZ()`, parses as a
 // scope that the parser joins to the name with a `::` the source does not hold
 pub(super) fn joins_a_macro_as_scope(qualified: Node<'_>) -> bool {
-    children(qualified)
-        .filter_map(|index| qualified.child(index))
-        .any(|child| child.is_missing())
+    child_nodes(qualified).any(|child| child.is_missing())
 }
 
 pub(super) fn qualified_terminal(qualified: Node<'_>) -> (Option<Node<'_>>, Option<Node<'_>>) {

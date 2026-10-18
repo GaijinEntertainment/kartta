@@ -132,14 +132,12 @@ impl<'s, 't> Replayer<'s, 't> {
         match node.kind() {
             "namespace_definition" => self.open_namespace(node),
             "using_declaration" if is_using_namespace(node) => {
-                let used = children(node)
-                    .filter_map(|index| node.child(index))
-                    .rfind(|child| {
-                        matches!(
-                            child.kind(),
-                            "identifier" | "qualified_identifier" | "namespace_identifier"
-                        )
-                    });
+                let used = child_nodes(node).rfind(|child| {
+                    matches!(
+                        child.kind(),
+                        "identifier" | "qualified_identifier" | "namespace_identifier"
+                    )
+                });
                 if let Some(name) = used.map(|name| text(name, self.source)) {
                     self.note_namespace(&name);
                     let at = self.namespaces.last().and_then(|scope| scope.path);
@@ -705,9 +703,11 @@ fn lies_in(path: &str, outer: &str) -> bool {
 }
 
 fn is_using_namespace(node: Node<'_>) -> bool {
-    children(node)
-        .filter_map(|index| node.child(index))
-        .any(|child| child.kind() == "namespace")
+    child_nodes(node).any(|child| child.kind() == "namespace")
+}
+
+fn child_nodes(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> {
+    children(node).filter_map(move |index| node.child(index))
 }
 
 fn is_entry_point(symbol: &Symbol) -> bool {
