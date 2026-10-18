@@ -233,6 +233,16 @@ pub enum Access {
 }
 
 impl Access {
+    /// The word for the access in an answer: `read`, `write` or `update`.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Write => "write",
+            Self::Update => "update",
+        }
+    }
+
     /// Whether the use reads the value: a read or an update.
     #[must_use]
     pub const fn reads(self) -> bool {
