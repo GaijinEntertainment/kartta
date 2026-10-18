@@ -126,12 +126,12 @@ impl Graph {
         query: &str,
         asked: &Asked,
     ) -> (Vec<(SymbolAt, Scored)>, [usize; MAX_ASKED_WORDS]) {
-        let (candidates, word_count) = self.candidates(asked);
-        debug_assert!(candidates.is_sorted_by_key(|candidate| candidate.at));
+        let (word_matches, word_count) = self.word_matches(asked);
+        debug_assert!(word_matches.is_sorted_by_key(|word_match| word_match.at));
 
         let mut holders = [0_usize; MAX_ASKED_WORDS];
-        for candidate in &candidates {
-            for (holder, &count) in holders.iter_mut().zip(&candidate.counts.held) {
+        for word_match in &word_matches {
+            for (holder, &count) in holders.iter_mut().zip(&word_match.counts.held) {
                 *holder += usize::from(count > 0);
             }
         }
@@ -146,11 +146,11 @@ impl Graph {
         });
 
         let held_anywhere = real(holders.iter().filter(|&&holders| holders > 0).count());
-        let mut scored: Vec<(SymbolAt, Scored)> = candidates
+        let mut scored: Vec<(SymbolAt, Scored)> = word_matches
             .iter()
-            .map(|candidate| {
-                let words = f64::from(candidate.counts.words);
-                let held = candidate
+            .map(|word_match| {
+                let words = f64::from(word_match.counts.words);
+                let held = word_match
                     .counts
                     .held
                     .iter()
@@ -163,14 +163,14 @@ impl Graph {
                             held + 1,
                         )
                     });
-                let phrased = if candidate.phrase { PHRASE_LEAD } else { 1.0 };
+                let phrased = if word_match.phrase { PHRASE_LEAD } else { 1.0 };
                 let coordinated = score * real(held) / held_anywhere * phrased;
                 let held = Scored {
-                    score: self.demoted(candidate.at, coordinated.min(MAX_WORD_SCORE)),
-                    named: candidate.named,
+                    score: self.demoted(word_match.at, coordinated.min(MAX_WORD_SCORE)),
+                    named: word_match.named,
                     ..Scored::default()
                 };
-                (candidate.at, held)
+                (word_match.at, held)
             })
             .collect();
         if let Some(name) = self.strings.get(query) {
@@ -267,9 +267,9 @@ impl Graph {
     }
 
     // constraint: every file's word set is read, so the scan also sums the words of every definition, the mean a
-    // definition's length is weighed against; the reduce keeps the order of the slots, so the candidates come sorted
-    // by place
-    fn candidates(&self, asked: &Asked) -> (Vec<Candidate>, usize) {
+    // definition's length is weighed against; the reduce keeps the order of the slots, so the matches come sorted by
+    // place
+    fn word_matches(&self, asked: &Asked) -> (Vec<WordMatch>, usize) {
         if asked.words.is_empty() {
             return (Vec::new(), 0);
         }
@@ -277,7 +277,7 @@ impl Graph {
             .into_par_iter()
             .with_min_len(FILES_PER_TASK)
             .fold(Scan::default, |mut scan, slot| {
-                self.file_candidates(narrow(slot), asked, &mut scan);
+                self.file_word_matches(narrow(slot), asked, &mut scan);
                 scan
             })
             .map(|scan| (scan.found, scan.words))
@@ -304,7 +304,7 @@ impl Graph {
         })
     }
 
-    fn file_candidates(&self, slot: u32, asked: &Asked, scan: &mut Scan) {
+    fn file_word_matches(&self, slot: u32, asked: &Asked, scan: &mut Scan) {
         let Some(file) = &self.files[slot as usize] else {
             return;
         };
@@ -334,7 +334,7 @@ impl Graph {
                 .get_or_insert_with(|| asked.count(|emit| path_words(path, word, emit)));
             let counts = own.joined(from_path);
             if counts.held.iter().any(|&count| count > 0) {
-                found.push(Candidate {
+                found.push(WordMatch {
                     at: SymbolAt {
                         file: slot,
                         index: narrow(index),
@@ -451,7 +451,7 @@ pub(crate) struct WordSet {
     count: u32,
 }
 
-// constraint: a definition's words are counted as `file_candidates` counts them, its qualified name's then its name's,
+// constraint: a definition's words are counted as `file_word_matches` counts them, its qualified name's then its name's,
 // so the mean the length of every definition is weighed against is taken over the same lengths; a file with no
 // definition holds no word, since no hit can come from it; a run of letters and digits splits into the same words
 // wherever it stands, so each run a file spells is split and hashed once, and an owner its members repeat costs a
@@ -527,13 +527,13 @@ impl<'s> Runs<'s> {
 
 #[derive(Debug, Default)]
 struct Scan {
-    found: Vec<Candidate>,
+    found: Vec<WordMatch>,
     word: String,
     words: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Candidate {
+struct WordMatch {
     at: SymbolAt,
     counts: Counts,
     named: bool,

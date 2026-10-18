@@ -887,8 +887,8 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    pub(crate) fn resolve_reference(&self, file: u32, index: u32) -> Result<Bound, UseMiss> {
-        let site = self.graph.file(file).references[index as usize];
+    pub(crate) fn resolve_use(&self, file: u32, index: u32) -> Result<Bound, UseMiss> {
+        let site = self.graph.file(file).uses[index as usize];
         let at = SymbolAt {
             file,
             index: site.site_of(),
