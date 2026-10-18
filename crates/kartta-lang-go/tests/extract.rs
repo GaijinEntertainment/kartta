@@ -6,7 +6,8 @@
 )]
 
 use kartta_lang::{
-    Language, MemberCalls, OwnMembers, RawExtraction, Symbol, SymbolId, SymbolKind, TypeUses,
+    Language, MemberCalls, OwnMembers, RawExtraction, Receiver, RefSite, Symbol, SymbolId,
+    SymbolKind, TypeUses,
 };
 use kartta_lang_go::Go;
 
@@ -76,17 +77,19 @@ fn symbol(raw: &RawExtraction, id: SymbolId) -> &Symbol {
     &raw.symbols[id.0 as usize]
 }
 
+fn qualifier(site: &RefSite) -> Option<&str> {
+    match &site.receiver {
+        Receiver::Qualifier(qualifier) => Some(qualifier),
+        _ => None,
+    }
+}
+
 fn uses(raw: &RawExtraction) -> Vec<(&str, Option<&str>, &str, u32)> {
     raw.references
         .iter()
         .map(|site| {
             let owner = symbol(raw, site.site_of).name.as_str();
-            (
-                site.name.as_str(),
-                site.qualifier.as_deref(),
-                owner,
-                site.line,
-            )
+            (site.name.as_str(), qualifier(site), owner, site.line)
         })
         .collect()
 }
@@ -405,7 +408,7 @@ func adapt() *pkg.Logger {
     let uses: Vec<(&str, Option<&str>, u32)> = raw
         .references
         .iter()
-        .map(|site| (site.name.as_str(), site.qualifier.as_deref(), site.line))
+        .map(|site| (site.name.as_str(), qualifier(site), site.line))
         .collect();
     assert_eq!(
         uses,
@@ -1162,7 +1165,7 @@ func Signature(T T) {}
     let uses: Vec<(&str, Option<&str>, u32)> = raw
         .references
         .iter()
-        .map(|site| (site.name.as_str(), site.qualifier.as_deref(), site.line))
+        .map(|site| (site.name.as_str(), qualifier(site), site.line))
         .collect();
     assert_eq!(
         uses,

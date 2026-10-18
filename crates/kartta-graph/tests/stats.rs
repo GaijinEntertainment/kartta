@@ -2,8 +2,8 @@
 
 use kartta_graph::Graph;
 use kartta_lang::{
-    CallRef, Conventions, Extraction, IncludeRef, LocalCall, NO_CALLER_ID, RefSite, Symbol,
-    SymbolId, SymbolKind,
+    Access, CallRef, Conventions, Extraction, IncludeRef, LocalCall, NO_CALLER_ID, Receiver,
+    RefSite, Symbol, SymbolId, SymbolKind,
 };
 
 fn call(from: u32, callee: &str, line: u32) -> CallRef {
@@ -35,12 +35,19 @@ fn library() -> Extraction {
         local: SymbolId(1),
         line: 6,
     }];
-    extraction.references = vec![RefSite {
+    let point = |access, line| RefSite {
         site_of: SymbolId(0),
         name: "Point".to_owned(),
-        qualifier: None,
-        line: 7,
-    }];
+        receiver: Receiver::Bare,
+        access,
+        line,
+    };
+    extraction.references = vec![
+        point(Access::Read, 7),
+        point(Access::Write, 8),
+        point(Access::Update, 8),
+        point(Access::Write, 9),
+    ];
     extraction.includes = vec![
         IncludeRef {
             target: "src/lib.h".to_owned(),
@@ -75,7 +82,12 @@ fn the_counts_cover_every_file_definition_site_and_include_the_graph_holds() {
     );
     assert_eq!(stats.calls, 2, "the call at file scope is no site");
     assert_eq!(stats.local_calls, 1);
-    assert_eq!(stats.uses, 1);
+    assert_eq!(stats.uses, 4);
+    assert_eq!(
+        (stats.reads, stats.writes, stats.updates),
+        (1, 2, 1),
+        "each use counts once, by its access"
+    );
     assert_eq!(
         stats.includes, 2,
         "an include the graph does not hold counts"

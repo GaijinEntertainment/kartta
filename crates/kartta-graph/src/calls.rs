@@ -635,7 +635,7 @@ impl<'g> Calls<'g> {
             let reference = self.graph.file(site.file).references[site.index as usize];
             let at = SymbolAt {
                 file: site.file,
-                index: reference.site_of,
+                index: reference.site_of(),
             };
             let key = (self.cascade.canonical(used), at, reference.line);
             let held = best.entry(key).or_insert(confidence);
