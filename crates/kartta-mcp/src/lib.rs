@@ -1,0 +1,31 @@
+//! An MCP server over the kartta engine: one repository's file index and code graph, answered to an agent as tools.
+//!
+//! The server speaks MCP over stdio and offers tools alone, no resources and no prompts. `index_repo` builds the
+//! engine over a repository root, and every other tool answers from it: the file tools search paths, list directories
+//! and grep content, and the graph tools find definitions, callers, references, call paths, implementors, importers
+//! and what an edit reaches. One repository is indexed per process, and indexing another replaces it.
+//!
+//! An answer is an XML-like envelope written for a model rather than a parser: one root element named for the
+//! question, counts as attributes, one record per line. An attribute that marks the unusual, `truncated="true"` or
+//! `confidence="guess"`, appears only where it applies, and an answer a cap, a depth bound or a filter cut says how
+//! much it left out wherever the engine counts it. A call made wrong answers an MCP tool error naming the fix; a valid
+//! call over an empty reality answers a successful envelope with a count of zero and a hint naming the next tool.
+//!
+//! [`Server::with_config`] takes the build's options from a [`Config`], and [`Config::from_env`] reads them from the
+//! environment the `kartta-mcp` binary runs in. [`Server::index_at_launch`] starts a build without waiting for an
+//! `index_repo` call, and until it finishes every query answers that the index is still building.
+#![expect(
+    clippy::multiple_crate_versions,
+    reason = "the MCP SDK's macros build on syn 3 while serde's derive and the grammars' builds are on syn 2"
+)]
+
+mod config;
+mod languages;
+mod llmxml;
+mod params;
+mod render;
+mod server;
+mod state;
+
+pub use crate::config::Config;
+pub use crate::server::Server;
