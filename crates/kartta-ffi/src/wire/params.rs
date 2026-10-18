@@ -21,25 +21,6 @@ pub(crate) const SEGMENT_DEPTH: u32 = 3;
 pub(crate) const DEAD_CODE: usize = 100;
 pub(crate) const UNBOUND: usize = 20;
 
-/// The kinds a dead-code query can ask for, by their labels.
-const KINDS: [SymbolKind; 15] = [
-    SymbolKind::Function,
-    SymbolKind::Method,
-    SymbolKind::Class,
-    SymbolKind::Struct,
-    SymbolKind::Namespace,
-    SymbolKind::Interface,
-    SymbolKind::Variable,
-    SymbolKind::Constant,
-    SymbolKind::Enum,
-    SymbolKind::TypeAlias,
-    SymbolKind::Trait,
-    SymbolKind::Macro,
-    SymbolKind::Field,
-    SymbolKind::EnumVariant,
-    SymbolKind::DefinedType,
-];
-
 fn limits(
     depth: Option<u32>,
     min_confidence: u8,
@@ -346,11 +327,11 @@ impl DeadCodeParams {
 }
 
 fn kind_labelled(label: &str) -> Result<SymbolKind, Error> {
-    KINDS
+    SymbolKind::ALL
         .into_iter()
         .find(|kind| kind.label() == label)
         .ok_or_else(|| {
-            let known: Vec<&str> = KINDS.iter().map(|kind| kind.label()).collect();
+            let known: Vec<&str> = SymbolKind::ALL.iter().map(|kind| kind.label()).collect();
             Error::new(
                 ErrorCode::InvalidParams,
                 format!(

@@ -53,6 +53,25 @@ pub enum SymbolKind {
 }
 
 impl SymbolKind {
+    /// Every kind, in the order the enum declares them.
+    pub const ALL: [Self; 15] = [
+        Self::Function,
+        Self::Method,
+        Self::Class,
+        Self::Struct,
+        Self::Namespace,
+        Self::Interface,
+        Self::Variable,
+        Self::Constant,
+        Self::Enum,
+        Self::TypeAlias,
+        Self::Trait,
+        Self::Macro,
+        Self::Field,
+        Self::EnumVariant,
+        Self::DefinedType,
+    ];
+
     /// A short label for the kind, as answers print it: `func`, `iface`, `variant`.
     #[must_use]
     pub const fn label(self) -> &'static str {
