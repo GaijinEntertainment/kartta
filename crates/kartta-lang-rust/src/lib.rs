@@ -58,8 +58,6 @@
 //! assert_eq!(raw.calls[0].receiver.as_deref(), Some("Service"));
 //! ```
 
-use std::sync::OnceLock;
-
 use kartta_lang::path::base;
 use kartta_lang::{
     Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
@@ -96,15 +94,7 @@ impl Language for Rust {
     }
 
     fn fingerprint(&self) -> &[u8] {
-        static FINGERPRINT: OnceLock<Vec<u8>> = OnceLock::new();
-
-        FINGERPRINT.get_or_init(|| {
-            kartta_lang::tree::fingerprint(
-                env!("SOURCE_ID"),
-                &grammar(),
-                tree_sitter_rust::NODE_TYPES,
-            )
-        })
+        kartta_lang::tree_sitter_fingerprint!(grammar(), tree_sitter_rust::NODE_TYPES)
     }
 
     fn doc_comments(&self) -> DocComments {
@@ -121,8 +111,7 @@ impl Language for Rust {
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {
-        kartta_lang::tree::parse(&grammar(), source)
-            .map_or_else(RawExtraction::default, |tree| walk::raw_walk(&tree, source))
+        kartta_lang::tree::extract(&grammar(), source, walk::raw_walk)
     }
 
     fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {

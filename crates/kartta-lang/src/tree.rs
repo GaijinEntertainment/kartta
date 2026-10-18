@@ -4,6 +4,7 @@ use std::cell::RefCell;
 
 use tree_sitter::{Language, Node, Parser, Tree};
 
+use crate::RawExtraction;
 use crate::fingerprint::{OFFSET, fnv};
 
 /// The tree of `source` in `grammar`, or `None` when this tree-sitter cannot load the grammar.
@@ -32,6 +33,31 @@ pub fn parse(grammar: &Language, source: &[u8]) -> Option<Tree> {
         };
         parsers[at].parse(source, None)
     })
+}
+
+/// What `walk` extracts from the tree of `source` in `grammar`, or nothing when this tree-sitter cannot load the
+/// grammar.
+pub fn extract(
+    grammar: &Language,
+    source: &[u8],
+    walk: impl FnOnce(&Tree, &[u8]) -> RawExtraction,
+) -> RawExtraction {
+    parse(grammar, source).map_or_else(RawExtraction::default, |tree| walk(&tree, source))
+}
+
+/// The [fingerprint](crate::Language::fingerprint) of the calling language crate, built once per process.
+///
+/// It is [`tree::fingerprint`](crate::tree::fingerprint) over the crate's `SOURCE_ID`, the grammar `$grammar` and the
+/// node types `$node_types`. The crate's build script sets `SOURCE_ID` through
+/// [`set_source_id`](crate::fingerprint::set_source_id).
+#[macro_export]
+macro_rules! tree_sitter_fingerprint {
+    ($grammar:expr, $node_types:expr) => {{
+        static FINGERPRINT: ::std::sync::OnceLock<::std::vec::Vec<u8>> =
+            ::std::sync::OnceLock::new();
+        FINGERPRINT
+            .get_or_init(|| $crate::tree::fingerprint(env!("SOURCE_ID"), &$grammar, $node_types))
+    }};
 }
 
 /// The [fingerprint](crate::Language::fingerprint) of a language that extracts through `grammar`.
