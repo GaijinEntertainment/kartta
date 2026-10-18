@@ -172,7 +172,7 @@ impl Writer<'_> {
         if symbol.exported {
             marks |= EXPORTED;
         }
-        self.0.push(kind_code(symbol.kind));
+        self.0.push(symbol.kind as u8);
         self.0.push(marks);
         self.text(&symbol.name);
         if !qualified_as_name {
@@ -312,7 +312,9 @@ impl<'a> Reader<'a> {
     }
 
     fn symbol(&mut self) -> Read<Symbol> {
-        let kind = *KINDS.get(usize::from(self.byte()?)).ok_or(Malformed)?;
+        let kind = *SymbolKind::ALL
+            .get(usize::from(self.byte()?))
+            .ok_or(Malformed)?;
         let marks = self.byte()?;
         if marks & !(SymbolFlags::ALL | QUALIFIED_AS_NAME | EXPORTED) != 0 {
             return Err(Malformed);
@@ -415,30 +417,6 @@ impl<'a> Reader<'a> {
         })
     }
 }
-
-fn kind_code(kind: SymbolKind) -> u8 {
-    let code = KINDS.iter().position(|&known| known == kind).unwrap_or(0);
-    u8::try_from(code).unwrap_or(0)
-}
-
-// constraint: a kind's position here is its byte in an encoding, so a new kind goes at the end and none moves
-const KINDS: [SymbolKind; 15] = [
-    SymbolKind::Function,
-    SymbolKind::Method,
-    SymbolKind::Class,
-    SymbolKind::Struct,
-    SymbolKind::Namespace,
-    SymbolKind::Interface,
-    SymbolKind::Variable,
-    SymbolKind::Constant,
-    SymbolKind::Enum,
-    SymbolKind::TypeAlias,
-    SymbolKind::Trait,
-    SymbolKind::Macro,
-    SymbolKind::Field,
-    SymbolKind::EnumVariant,
-    SymbolKind::DefinedType,
-];
 
 #[cfg(test)]
 mod tests {
@@ -644,9 +622,14 @@ mod tests {
     }
 
     #[test]
-    fn every_kind_has_its_own_byte() {
-        for (at, &kind) in KINDS.iter().enumerate() {
-            assert_eq!(usize::from(kind_code(kind)), at, "{kind:?}");
-        }
+    fn every_kind_decodes_to_itself() {
+        let raw = RawExtraction {
+            symbols: (SymbolKind::ALL.into_iter())
+                .map(|kind| Symbol::new("f", kind, 1, 1))
+                .collect(),
+            ..RawExtraction::default()
+        };
+
+        assert_eq!(RawExtraction::decode(&encoded(&raw)), Some(raw));
     }
 }
