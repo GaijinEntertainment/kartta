@@ -16,7 +16,7 @@
 - [1.6 Read a file's own facts on demand](./adr/1.6-read-a-file-s-own-facts-on-demand.md) — initiative
   `01-kartta-fs-port`, 2026-08-24, revised 2026-10-14
 - [1.7 Let a caller compose the binary extension set](./adr/1.7-let-a-caller-compose-the-binary-extension-set.md) —
-  initiative `01-kartta-fs-port`, 2026-10-13
+  initiative `01-kartta-fs-port`, 2026-10-13, revised 2026-10-18
 - [1.8 Count what a listing leaves out](./adr/1.8-count-what-a-listing-leaves-out.md) — initiative `01-kartta-fs-port`,
   2026-10-13
 - [1.9 Front-code the stored paths](./adr/1.9-front-code-the-stored-paths.md) — initiative `01-kartta-fs-port`,
@@ -42,7 +42,8 @@
 - [1.18 Return the memory a build freed to the system](./adr/1.18-return-the-memory-a-build-freed-to-the-system.md) —
   initiative `01-kartta-fs-port`, 2026-10-17, revised 2026-10-18
 - [1.19 Prune editor and OS clutter by name during the
-  walk](./adr/1.19-prune-editor-and-os-clutter-by-name-during-the-walk.md) — initiative `01-kartta-fs-port`, 2026-10-17
+  walk](./adr/1.19-prune-editor-and-os-clutter-by-name-during-the-walk.md) — initiative `01-kartta-fs-port`, 2026-10-17,
+  revised 2026-10-18
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-18
