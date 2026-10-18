@@ -5,8 +5,7 @@ use serde::Serialize;
 
 /// What kind of failure an [`Error`] reports, spelled on the wire as [`ErrorCode::as_str`] gives it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum ErrorCode {
+pub(crate) enum ErrorCode {
     /// The request could not be read: a null pointer, bytes that are not UTF-8, or params that are not JSON.
     InvalidRequest,
     /// The params are JSON but not the method's: a missing or unknown field, a value of the wrong type, or a name no
@@ -39,8 +38,7 @@ pub enum ErrorCode {
 
 impl ErrorCode {
     /// The code as the wire spells it, such as `not_built`.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidRequest => "invalid_request",
             Self::InvalidParams => "invalid_params",
@@ -91,18 +89,6 @@ impl Error {
             ErrorCode::Internal,
             format!("the engine panicked: {reason}"),
         )
-    }
-
-    /// What kind of failure this is.
-    #[must_use]
-    pub const fn code(&self) -> ErrorCode {
-        self.code
-    }
-
-    /// What failed, for a reader.
-    #[must_use]
-    pub fn message(&self) -> &str {
-        &self.message
     }
 
     /// The error as the wire's `{"code": ..., "message": ...}` object.
