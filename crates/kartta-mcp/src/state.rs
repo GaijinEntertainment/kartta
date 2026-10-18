@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 
 use kartta::{BuildError, BuildOptions, CancelToken, Engine, EngineRefresh};
-use kartta_fs::{EntryKind, Watcher};
+use kartta_fs::EntryKind;
 use tokio::sync::watch;
 
 /// How long a rebuild waits between looks at whether a query still holds the engine it replaces.
@@ -80,8 +80,33 @@ impl Indexed {
             .count()
     }
 
+    /// A row for each family whose graph holds a file, or whose languages claimed one.
     pub(crate) fn graphs(&self) -> Vec<GraphRow> {
-        graph_rows(&self.engine)
+        let stats = self.engine.stats();
+        stats
+            .families
+            .iter()
+            .map(|(family, graph)| {
+                let (claimed, held) = stats
+                    .languages
+                    .iter()
+                    .filter(|language| language.family == *family)
+                    .fold((0, 0), |(claimed, held), language| {
+                        (claimed + language.claimed, held + language.held)
+                    });
+                GraphRow {
+                    family: (*family).to_owned(),
+                    files: graph.files,
+                    files_without_symbols: graph.files_without_symbols,
+                    symbols: graph.symbols,
+                    calls: graph.calls + graph.local_calls,
+                    uses: graph.uses,
+                    includes: graph.includes,
+                    unheld: claimed.saturating_sub(held),
+                }
+            })
+            .filter(|row| row.files > 0 || row.unheld > 0)
+            .collect()
     }
 }
 
@@ -135,18 +160,6 @@ impl Served {
             refresh,
             elapsed: started.elapsed(),
         })
-    }
-
-    /// Starts following the index's tree.
-    pub(crate) fn watcher(&self) -> Result<Watcher, String> {
-        Watcher::new(self.read()?.engine.index()).map_err(|error| error.to_string())
-    }
-
-    /// Watches through `watcher` each directory the index holds that it does not watch yet, and names them.
-    pub(crate) fn cover(&self, watcher: &mut Watcher) -> Result<Vec<String>, String> {
-        watcher
-            .cover(self.read()?.engine.index())
-            .map_err(|error| error.to_string())
     }
 
     /// Records that the index no longer follows its tree, and why.
@@ -248,15 +261,6 @@ struct Build {
     outcome: watch::Receiver<Option<Outcome>>,
 }
 
-/// The slot as one answer sees it.
-#[derive(Debug)]
-pub(crate) enum Status {
-    Empty,
-    Building { root: String, elapsed: Duration },
-    Ready(Arc<Served>),
-    Failed { root: String, error: String },
-}
-
 impl Slot {
     /// A slot with nothing indexed, whose every built index follows its tree when `watch` is set.
     pub(crate) fn new(watch: bool) -> Self {
@@ -348,33 +352,30 @@ impl Slot {
 
     /// The engine to answer a query from, or the error that says why there is none.
     pub(crate) fn current(&self) -> Result<Arc<Served>, String> {
-        match self.status() {
-            Status::Ready(served) => Ok(served),
-            Status::Empty => Err("no repository indexed: call index_repo first".to_owned()),
-            Status::Building { root, elapsed } => Err(format!(
-                "the index of {root} is still building ({}s so far) - index_stats answers once it is ready, and \
+        match &*self.lock() {
+            State::Ready(served) => Ok(Arc::clone(served)),
+            State::Empty => Err("no repository indexed: call index_repo first".to_owned()),
+            State::Building(build) => Err(format!(
+                "the index of {} is still building ({}s so far) - index_stats answers once it is ready, and \
                  index_repo with the same root waits for it",
-                elapsed.as_secs()
+                build.request.root.display(),
+                build.started.elapsed().as_secs()
             )),
-            Status::Failed { root, error } => Err(format!(
+            State::Failed { root, error } => Err(format!(
                 "indexing {root} failed: {error} - call index_repo again"
             )),
         }
     }
 
-    pub(crate) fn status(&self) -> Status {
-        match &*self.lock() {
-            State::Empty => Status::Empty,
-            State::Building(build) => Status::Building {
-                root: build.request.root.display().to_string(),
-                elapsed: build.started.elapsed(),
-            },
-            State::Ready(served) => Status::Ready(Arc::clone(served)),
-            State::Failed { root, error } => Status::Failed {
-                root: root.clone(),
-                error: error.clone(),
-            },
-        }
+    /// The root a build under way indexes and how long it has run, or `None` when no build runs.
+    pub(crate) fn building(&self) -> Option<(String, Duration)> {
+        let State::Building(build) = &*self.lock() else {
+            return None;
+        };
+        Some((
+            build.request.root.display().to_string(),
+            build.started.elapsed(),
+        ))
     }
 
     /// Settles the slot on the outcome of build `id`, unless a later build replaced it, and answers whether it did.
@@ -441,35 +442,6 @@ fn build(
         }),
         cancel: cancel.clone(),
     })
-}
-
-/// A row for each family whose graph holds a file, or whose languages claimed one.
-fn graph_rows(engine: &Engine) -> Vec<GraphRow> {
-    let stats = engine.stats();
-    stats
-        .families
-        .iter()
-        .map(|(family, graph)| {
-            let (claimed, held) = stats
-                .languages
-                .iter()
-                .filter(|language| language.family == *family)
-                .fold((0, 0), |(claimed, held), language| {
-                    (claimed + language.claimed, held + language.held)
-                });
-            GraphRow {
-                family: (*family).to_owned(),
-                files: graph.files,
-                files_without_symbols: graph.files_without_symbols,
-                symbols: graph.symbols,
-                calls: graph.calls + graph.local_calls,
-                uses: graph.uses,
-                includes: graph.includes,
-                unheld: claimed.saturating_sub(held),
-            }
-        })
-        .filter(|row| row.files > 0 || row.unheld > 0)
-        .collect()
 }
 
 #[cfg(test)]
