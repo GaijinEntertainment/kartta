@@ -2,38 +2,23 @@ use kartta_lang::tree::text;
 use tree_sitter::Node;
 
 // constraint: an owner is the whole `::` chain of its type from the outermost one, `Geo::Shape`, so two types of one
-// name keep two owners
-pub(crate) struct EnclosingType {
-    pub(crate) qualified: String,
-}
-
-impl EnclosingType {
-    pub(crate) fn member(&self, separator: &str, name: &str) -> String {
-        format!("{}{separator}{name}", self.qualified)
-    }
-}
-
-// constraint: a `class << self` block is transparent, and a method ends the walk, so a type a method holds is no
-// member of the type around the method
-pub(crate) fn enclosing_type(node: Node<'_>, source: &[u8]) -> Option<EnclosingType> {
+// name keep two owners; a `class << self` block is transparent, and a method ends the walk, so a type a method holds
+// is no member of the type around the method
+pub(crate) fn enclosing_type(node: Node<'_>, source: &[u8]) -> Option<String> {
     let chain = type_chain(node, source);
     chain.first().filter(|name| !name.is_empty())?;
 
-    Some(EnclosingType {
-        qualified: chain_qualified(&chain),
-    })
+    Some(chain_qualified(&chain))
 }
 
 // constraint: the `Const` of `def Const.x` names the nearest enclosing type of that name, as Ruby's lexical constant
 // lookup finds it; a constant that names no enclosing type keeps its spelling
-pub(crate) fn constant_type(node: Node<'_>, constant: String, source: &[u8]) -> EnclosingType {
+pub(crate) fn constant_type(node: Node<'_>, constant: String, source: &[u8]) -> String {
     let chain = type_chain(node, source);
-    let qualified = chain
+    chain
         .iter()
         .position(|name| *name == constant)
-        .map_or(constant, |at| chain_qualified(&chain[at..]));
-
-    EnclosingType { qualified }
+        .map_or(constant, |at| chain_qualified(&chain[at..]))
 }
 
 pub(crate) fn type_qualification(
@@ -44,8 +29,8 @@ pub(crate) fn type_qualification(
     enclosing_type(node, source).map_or_else(
         || (None, name.to_owned()),
         |enclosing| {
-            let qualified = enclosing.member("::", name);
-            (Some(enclosing.qualified), qualified)
+            let qualified = format!("{enclosing}::{name}");
+            (Some(enclosing), qualified)
         },
     )
 }
