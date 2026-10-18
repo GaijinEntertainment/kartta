@@ -3,7 +3,7 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use kartta::{Graph, Hit, Limits, Region, Search, SourceOptions};
+use kartta::{Graph, Hit, Limits, Region, Search, SiteQuery, SourceOptions};
 use kartta_fs::{
     Case, Filter, FuzzyOptions, GlobOptions, GrepOptions, ListError, ListOptions, Patterns,
 };
@@ -923,7 +923,8 @@ impl Server {
             let found: Vec<_> = searched
                 .iter()
                 .filter_map(|&(family, graph)| {
-                    Some((family, graph.references(&p.name, floor, REFERENCES)?))
+                    let query = SiteQuery::new(REFERENCES).with_min_confidence(floor);
+                    Some((family, graph.references(&p.name, query)?))
                 })
                 .collect();
             let families: Vec<&str> = searched.iter().map(|&(family, _)| family).collect();

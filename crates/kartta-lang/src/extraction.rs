@@ -225,6 +225,20 @@ pub enum Access {
     Update,
 }
 
+impl Access {
+    /// Whether the use reads the value: a read or an update.
+    #[must_use]
+    pub const fn reads(self) -> bool {
+        matches!(self, Self::Read | Self::Update)
+    }
+
+    /// Whether the use assigns the value: a write or an update.
+    #[must_use]
+    pub const fn writes(self) -> bool {
+        matches!(self, Self::Write | Self::Update)
+    }
+}
+
 /// A file this file includes: its root-relative path, resolved by the language. A target outside the graph's files
 /// adds no edge.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -41,6 +41,15 @@ impl Call {
 
 pub(crate) type Bound = (SymbolAt, u8);
 
+/// Why a use binds no definition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UseMiss {
+    /// What it names lies outside the graph, or nothing the graph holds can stand for it.
+    Elsewhere,
+    /// Definitions of the name may be meant, and no tier picks one.
+    Ambiguous,
+}
+
 #[derive(Debug, Default)]
 struct Bindings {
     named: Vec<(Str, Option<Str>)>,
@@ -851,13 +860,15 @@ impl<'g> Cascade<'g> {
     // constraint: a member of a value binds through the type its path spells, else the one field of the name its own
     // file declares outside other bodies; the package, the imports and the family bind a namesake too often, where a
     // test table or an anonymous struct holds the value
-    fn member_use(&self, site: SymbolAt, name: Str, path: Option<Str>) -> Option<Bound> {
+    fn member_use(&self, site: SymbolAt, name: Str, path: Option<Str>) -> Result<Bound, UseMiss> {
         if let Some(path) = path
             && self.reads_type_paths()
         {
             match self.typed_use(site.file, path, name) {
-                Typed::Member(at) => return Some((at, confidence::RECEIVER)),
-                Typed::Imported | Typed::Undeclared | Typed::NoMethod => return None,
+                Typed::Member(at) => return Ok((at, confidence::RECEIVER)),
+                Typed::Imported | Typed::Undeclared | Typed::NoMethod => {
+                    return Err(UseMiss::Elsewhere);
+                }
                 Typed::Unknown => {}
             }
         }
@@ -871,37 +882,38 @@ impl<'g> Cascade<'g> {
                 self.graph.sym(at).kind == SymbolKind::Field
                     && self.holder(at).is_none_or(|holder| holder == body)
             });
-        let field = fields.next()?;
-        fields
-            .next()
-            .is_none()
-            .then_some((field, confidence::SAME_FILE))
+        match (fields.next(), fields.next()) {
+            (Some(field), None) => Ok((field, confidence::SAME_FILE)),
+            _ => Err(UseMiss::Ambiguous),
+        }
     }
 
-    pub(crate) fn resolve_reference(&self, file: u32, index: u32) -> Option<Bound> {
-        let stored = self.graph.file(file);
-        let site = stored.references[index as usize];
-
+    // constraint: no tier binds a member of the enclosing member's own receiver yet, so such a use may name any member
+    pub(crate) fn resolve_reference(&self, file: u32, index: u32) -> Result<Bound, UseMiss> {
+        let site = self.graph.file(file).references[index as usize];
         match site.receiver() {
-            UseReceiver::Bare => {}
-            UseReceiver::Qualifier(qualifier) => {
-                let target = self.binding(file, qualifier)?;
-                return self.imported(
-                    &self.referenceable(site.name),
-                    (file, target),
-                    Pick::PackageLevel,
-                );
-            }
-            UseReceiver::Own => return None,
+            UseReceiver::Bare => self.bare_use(file, site.name).ok_or(UseMiss::Elsewhere),
+            UseReceiver::Qualifier(qualifier) => self
+                .binding(file, qualifier)
+                .and_then(|target| {
+                    let candidates = self.referenceable(site.name);
+                    self.imported(&candidates, (file, target), Pick::PackageLevel)
+                })
+                .ok_or(UseMiss::Elsewhere),
+            UseReceiver::Own => Err(UseMiss::Ambiguous),
             UseReceiver::Path(path) => {
                 let at = SymbolAt {
                     file,
                     index: site.site_of(),
                 };
-                return self.member_use(at, site.name, path);
+                self.member_use(at, site.name, path)
             }
         }
-        let named = self.named(site.name);
+    }
+
+    fn bare_use(&self, file: u32, name: Str) -> Option<Bound> {
+        let stored = self.graph.file(file);
+        let named = self.named(name);
         if let Some(at) = self.pick(
             Pick::PackageLevel,
             self.graph.in_file(named, file).iter().copied(),
@@ -909,8 +921,7 @@ impl<'g> Cascade<'g> {
             return Some((at, confidence::SAME_FILE));
         }
         if !self.bindings(file).dot_dirs.is_empty()
-            && let Some(at) =
-                self.dot_imported(&self.referenceable(site.name), file, Pick::PackageLevel)
+            && let Some(at) = self.dot_imported(&self.referenceable(name), file, Pick::PackageLevel)
         {
             return Some((at, confidence::IMPORT));
         }

@@ -1,6 +1,6 @@
 //! The methods that ask a finished build, one function each: decode the params, ask the engine, answer the view.
 
-use kartta::{Region, SourceOptions};
+use kartta::{Region, SiteQuery, SourceOptions};
 
 use crate::built::Built;
 use crate::error::Error;
@@ -78,8 +78,9 @@ fn call_path(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
 fn references(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: ReferencesParams = wire::params(params)?;
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
+        let query = SiteQuery::new(params.limit()).with_min_confidence(params.min_confidence);
         graph
-            .references(&params.name, params.min_confidence, params.limit())
+            .references(&params.name, query)
             .map(ReferencesView::from)
     })?)
 }
