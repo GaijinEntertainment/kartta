@@ -55,7 +55,7 @@ impl<'r> BlkResolver<'r> {
 
     fn sole_candidate(&self, root_relative: &str) -> Option<String> {
         let suffix = join(".", root_relative).filter(|suffix| !suffix.is_empty())?;
-        let mut matches = self
+        let candidates = self
             .repository
             .files_named(base(&suffix))
             .filter(|candidate| {
@@ -63,9 +63,7 @@ impl<'r> BlkResolver<'r> {
                     .strip_suffix(suffix.as_str())
                     .is_some_and(|root| root.is_empty() || root.ends_with('/'))
             });
-        let only = matches.next()?;
-
-        matches.next().is_none().then_some(only)
+        sole(candidates)
     }
 }
 
@@ -98,8 +96,10 @@ pub(crate) fn indexed(path: String, repository: &dyn Repository) -> Option<Strin
     if repository.contains(&path) {
         return Some(path);
     }
-    let mut matches = repository.files_ignoring_case(&path);
-    let only = matches.next()?;
+    sole(repository.files_ignoring_case(&path))
+}
 
-    matches.next().is_none().then_some(only)
+pub(crate) fn sole(mut found: impl Iterator<Item = String>) -> Option<String> {
+    let only = found.next()?;
+    found.next().is_none().then_some(only)
 }
