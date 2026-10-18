@@ -108,8 +108,8 @@
 //! # Binary content
 //!
 //! [`Index::is_binary`] settles a file two ways, in order. An extension in [`BuildOptions::binary_extensions`] answers
-//! with nothing opened — which carries most of the weight on a real tree, because the default set, every
-//! [`BinaryGroup`], covers the archives, media, disk images and model weights. Everything else is answered by whether a
+//! with nothing opened — which carries most of the weight on a real tree, because the default set,
+//! [`BinaryExtensions::builtin`], covers the archives, media, disk images and model weights. Everything else is answered by whether a
 //! NUL appears in the file's first 64 KiB, which is git's and ripgrep's rule and the size ripgrep reads at a time.
 //!
 //! Both halves are deliberately one-sided about what a *name* may claim. The extension set says "binary, do not
@@ -173,7 +173,7 @@ mod watch;
 pub use kartta_cache::{ContentHash, Namespace};
 pub use kartta_walk::CancelToken;
 
-pub use crate::binary::{BinaryExtensions, BinaryExtensionsError, BinaryGroup};
+pub use crate::binary::{BinaryExtensions, BinaryExtensionsError};
 pub use crate::build::{BuildError, BuildOptions, IgnoreSources};
 pub use crate::capped::Capped;
 pub use crate::content::{Content, ContentId, ContentVisitor};

@@ -470,15 +470,24 @@ fn a_caller_composes_the_names_it_prunes() {
         ("a.rs", ""),
     ]);
     let mut composed = BuildOptions::default();
-    composed.pruned_names = PrunedNames::builtin()
-        .difference(&PrunedNames::new([".vscode"]).expect("a name"))
-        .union(&PrunedNames::new(["node_modules"]).expect("a name"));
+    composed.pruned_names =
+        PrunedNames::builtin().union(&PrunedNames::new(["node_modules"]).expect("a name"));
+    let mut stated = BuildOptions::default();
+    stated.pruned_names = PrunedNames::new([".idea"]).expect("a name");
     let mut none = BuildOptions::default();
-    none.pruned_names = PrunedNames::none();
+    none.pruned_names = PrunedNames::new([""; 0]).expect("an empty set");
 
+    assert_eq!(paths(&index(dir.path(), &composed)), ["a.rs"]);
     assert_eq!(
-        paths(&index(dir.path(), &composed)),
-        [".vscode", ".vscode/settings.json", "a.rs"]
+        paths(&index(dir.path(), &stated)),
+        [
+            ".vscode",
+            ".vscode/settings.json",
+            "a.rs",
+            "node_modules",
+            "node_modules/left-pad",
+            "node_modules/left-pad/index.js"
+        ]
     );
     assert_eq!(
         paths(&index(dir.path(), &none)),
@@ -1646,13 +1655,10 @@ fn an_extension_the_caller_adds_settles_its_files_without_them_being_read() {
 }
 
 #[test]
-fn a_built_in_extension_the_caller_takes_out_is_read_instead() {
+fn a_built_in_extension_a_set_of_the_caller_s_own_leaves_out_is_read_instead() {
     let dir = tree(&[("logo.png", "not really a png, and now the contents decide")]);
-    let taken_out = BinaryExtensions::new(["png"]).expect("an extension");
-    let index = index_with_binary_extensions(
-        dir.path(),
-        BinaryExtensions::builtin().difference(&taken_out),
-    );
+    let own = BinaryExtensions::new(["vromfs"]).expect("an extension");
+    let index = index_with_binary_extensions(dir.path(), own);
 
     assert_eq!(index.is_binary("logo.png"), Some(false));
 
@@ -1661,28 +1667,6 @@ fn a_built_in_extension_the_caller_takes_out_is_read_instead() {
         swept,
         [Some(false)],
         "the sweep classifies with the same set"
-    );
-}
-
-#[test]
-fn binary_extension_counts_show_an_extension_no_file_carries() {
-    let dir = tree(&[
-        ("a.png", ""),
-        ("b.PNG", ""),
-        ("pack.vromfs", ""),
-        ("notes.txt", ""),
-        ("shots.png/", ""),
-    ]);
-    let own = BinaryExtensions::new(["vromfs", "vromsf"]).expect("two extensions");
-    let index = index_with_binary_extensions(
-        dir.path(),
-        own.union(&BinaryExtensions::new(["png"]).expect("an extension")),
-    );
-
-    assert_eq!(
-        index.binary_extension_counts(),
-        [("png", 2), ("vromfs", 1), ("vromsf", 0)],
-        "a directory named like a file is not a file, and a misspelled extension matches nothing"
     );
 }
 
