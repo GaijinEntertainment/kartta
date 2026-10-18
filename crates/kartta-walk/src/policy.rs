@@ -307,27 +307,10 @@ impl<'a> Entry<'a> {
 /// the file compares field for field.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ListedStat {
-    pub(crate) size: u64,
-    pub(crate) ctime: i64,
-    pub(crate) ctime_nsec: i64,
-}
-
-impl ListedStat {
     /// The file's length in bytes.
-    #[must_use]
-    pub const fn size(&self) -> u64 {
-        self.size
-    }
-
+    pub size: u64,
     /// When the file's inode last changed, in whole seconds since the Unix epoch.
-    #[must_use]
-    pub const fn ctime(&self) -> i64 {
-        self.ctime
-    }
-
+    pub ctime: i64,
     /// The nanoseconds past [`ListedStat::ctime`].
-    #[must_use]
-    pub const fn ctime_nsec(&self) -> i64 {
-        self.ctime_nsec
-    }
+    pub ctime_nsec: i64,
 }

@@ -76,7 +76,8 @@ fn main() {
 
 /// Prints what the tree holds and how much of it could be read.
 fn report_shape(root: &Path) {
-    let outcome = walk(root, &Sizes, &(), &WalkOptions::default()).expect("walk the tree");
+    let WalkOutcome { tree, errors, .. } =
+        walk(root, &Sizes, &(), &WalkOptions::default()).expect("walk the tree");
 
     let mut dirs = 0_usize;
     let mut files = 0_usize;
@@ -85,7 +86,7 @@ fn report_shape(root: &Path) {
     let mut unsized_files = 0_usize;
     let mut bytes = 0_u64;
 
-    for node in outcome.tree().nodes() {
+    for node in tree.nodes() {
         let record = *node.value();
 
         match record.kind {
@@ -104,14 +105,14 @@ fn report_shape(root: &Path) {
 
     println!(
         "  {} entries: {dirs} directories, {files} files, {symlinks} symlinks, {others} other, {bytes} bytes",
-        outcome.tree().len()
+        tree.len()
     );
     println!(
         "  {} unreadable paths, {unsized_files} files whose size could not be read",
-        outcome.errors().len()
+        errors.len()
     );
 
-    if let Some(first) = outcome.errors().first() {
+    if let Some(first) = errors.first() {
         println!("  first unreadable: {first}");
     }
 }
@@ -121,7 +122,7 @@ fn walk_once(root: &Path) -> usize {
     let outcome: WalkOutcome<Record> =
         walk(root, &Sizes, &(), &WalkOptions::default()).expect("walk the tree");
 
-    outcome.tree().len()
+    outcome.tree.len()
 }
 
 /// The fastest of `runs` attempts. A real tree is shared with the rest of the machine, so the minimum is the honest

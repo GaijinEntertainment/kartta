@@ -60,8 +60,8 @@ impl Seen {
     // constraint: only macOS lists stats, and there the stamp is the change time a listed stat carries
     pub(crate) fn listed(stat: ListedStat) -> Self {
         Self {
-            size: stat.size(),
-            changed: since_epoch(stat.ctime(), stat.ctime_nsec()),
+            size: stat.size,
+            changed: since_epoch(stat.ctime, stat.ctime_nsec),
         }
     }
 }

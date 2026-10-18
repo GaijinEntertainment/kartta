@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::{fs, io};
 
-use kartta_walk::{CancelToken, EntryKind, Tree, WalkError, WalkOptions, walk};
+use kartta_walk::{CancelToken, EntryKind, Tree, WalkError, WalkOptions, WalkOutcome, walk};
 
 use super::splice::{Fresh, Pending, Replacement};
 use super::{
@@ -449,8 +449,11 @@ impl Rewalk<'_, '_> {
             .on_threads(|| walk(&self.index.root, &self.policy, state, &options));
 
         match walked {
-            Ok(outcome) => {
-                let (tree, errors, cancelled) = outcome.into_parts();
+            Ok(WalkOutcome {
+                tree,
+                errors,
+                cancelled,
+            }) => {
                 if cancelled {
                     return Err(BuildError::Cancelled);
                 }

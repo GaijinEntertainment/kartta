@@ -4,9 +4,8 @@ use std::fmt;
 
 /// The tree a walk discovered: an arena of nodes, each directory's children name-sorted.
 ///
-/// This is the structure a consumer keeps. It carries no report about the run that produced it — for that, see
-/// [`WalkOutcome`](crate::WalkOutcome), which hands this out via
-/// [`into_tree`](crate::WalkOutcome::into_tree).
+/// This is the structure a consumer keeps. It carries no report about the run that produced it — for that, see the
+/// [`WalkOutcome`](crate::WalkOutcome) this came in.
 #[derive(Clone, Debug)]
 pub struct Tree<V> {
     /// Every node's name, end to end in node order.
