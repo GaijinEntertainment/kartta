@@ -5,11 +5,9 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use std::io;
-
-use kartta_lang::path::{base, dir};
 use kartta_lang::{
-    CallRef, Extraction, Language, NO_CALLER_ID, RawExtraction, Repository, SymbolId, SymbolKind,
+    CallRef, Extraction, Language, MemoryRepository, NO_CALLER_ID, RawExtraction, SymbolId,
+    SymbolKind,
 };
 use kartta_lang_puppet::Puppet;
 
@@ -54,45 +52,13 @@ class webserver::tools {
 }
 ";
 
-struct Files(Vec<String>);
-
-impl Repository for Files {
-    fn contains(&self, path: &str) -> bool {
-        self.0.iter().any(|file| file == path)
-    }
-
-    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let in_dir = in_dir.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| dir(file) == in_dir)
-                .cloned(),
-        )
-    }
-
-    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let name = name.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| base(file) == name)
-                .cloned(),
-        )
-    }
-
-    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
-        Err(io::Error::new(io::ErrorKind::NotFound, path.to_owned()))
-    }
-}
-
 fn extract(source: &[u8]) -> RawExtraction {
     Puppet::new().extract(source)
 }
 
 fn resolve(source: &[u8], path: &str, files: &[&str]) -> Extraction {
     let puppet = Puppet::new();
-    let repository = Files(files.iter().map(|file| (*file).to_owned()).collect());
+    let repository = MemoryRepository::of_paths(files);
     let resolver = puppet.resolver(&repository);
     resolver.resolve(puppet.extract(source), path)
 }

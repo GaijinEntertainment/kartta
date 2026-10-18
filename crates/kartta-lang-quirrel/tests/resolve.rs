@@ -1,68 +1,23 @@
 //! How a Quirrel extraction resolves against its file's path and the repository: the `.sqconfig` that governs a
 //! script, the file an import names, and the flags a path gives a file's symbols.
 
-use std::io;
-
-use kartta_lang::path::{base, dir};
-use kartta_lang::{Extraction, Language, Repository, SymbolFlags};
+use kartta_lang::{Extraction, Language, MemoryRepository, SymbolFlags};
 use kartta_lang_quirrel::Quirrel;
 
 const NOTHING: [&str; 0] = [];
 
 const UNREADABLE: &str = "\0unreadable";
 
-struct Files<'a>(&'a [(&'a str, &'a str)]);
-
-impl Repository for Files<'_> {
-    fn contains(&self, path: &str) -> bool {
-        self.0.iter().any(|&(file, _)| file == path)
-    }
-
-    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let in_dir = in_dir.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .map(|&(file, _)| file)
-                .filter(move |file| dir(file) == in_dir)
-                .map(str::to_owned),
-        )
-    }
-
-    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let name = name.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .map(|&(file, _)| file)
-                .filter(move |file| base(file) == name)
-                .map(str::to_owned),
-        )
-    }
-
-    fn files_ignoring_case<'a>(&'a self, path: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let path = path.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .map(|&(file, _)| file)
-                .filter(move |file| file.eq_ignore_ascii_case(&path))
-                .map(str::to_owned),
-        )
-    }
-
-    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
-        self.0
-            .iter()
-            .find(|&&(file, contents)| file == path && contents != UNREADABLE)
-            .map(|&(_, contents)| contents.as_bytes().to_vec())
-            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
-    }
-}
-
 fn resolve(files: &[(&str, &str)], source: &str, path: &str) -> Extraction {
     let quirrel = Quirrel::new();
-    let repository = Files(files);
+    let readable = files
+        .iter()
+        .filter(|&&(_, contents)| contents != UNREADABLE);
+    let unreadable = files
+        .iter()
+        .filter(|&&(_, contents)| contents == UNREADABLE);
+    let repository =
+        MemoryRepository::new(readable.copied()).with_paths(unreadable.map(|&(path, _)| path));
     let resolver = quirrel.resolver(&repository);
 
     resolver.resolve(quirrel.extract(source.as_bytes()), path)

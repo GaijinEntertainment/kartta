@@ -1,47 +1,12 @@
 //! How a Rust extraction resolves against its file's path and the repository: the files its `mod` declarations pull
 //! in, the crate roots and integration tests that the packages of the repository lay out, and generated file names.
 
-use std::io;
-
-use kartta_lang::path::{base, dir};
-use kartta_lang::{Extraction, Language, Repository};
+use kartta_lang::{Extraction, Language, MemoryRepository};
 use kartta_lang_rust::Rust;
-
-struct Files(&'static [&'static str]);
-
-impl Repository for Files {
-    fn contains(&self, path: &str) -> bool {
-        self.0.contains(&path)
-    }
-
-    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let in_dir = in_dir.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| dir(file) == in_dir)
-                .map(|file| (*file).to_owned()),
-        )
-    }
-
-    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let name = name.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| base(file) == name)
-                .map(|file| (*file).to_owned()),
-        )
-    }
-
-    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
-        Err(io::Error::new(io::ErrorKind::NotFound, path.to_owned()))
-    }
-}
 
 fn resolve(files: &'static [&'static str], source: &[u8], path: &str) -> Extraction {
     let rust = Rust::new();
-    let repository = Files(files);
+    let repository = MemoryRepository::of_paths(files);
     let resolver = rust.resolver(&repository);
 
     resolver.resolve(rust.extract(source), path)
@@ -390,7 +355,7 @@ fn a_generated_name_marks_every_symbol_generated() {
 #[test]
 fn one_extraction_resolved_at_two_paths_differs_only_by_what_the_paths_show() {
     let rust = Rust::new();
-    let files = Files(&["Cargo.toml", "src/util.rs", "src/bin/util.rs"]);
+    let files = MemoryRepository::of_paths(["Cargo.toml", "src/util.rs", "src/bin/util.rs"]);
     let resolver = rust.resolver(&files);
     let raw = rust.extract(b"mod util;\nfn main() {}\n");
 

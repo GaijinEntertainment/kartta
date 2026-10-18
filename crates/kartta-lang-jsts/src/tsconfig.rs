@@ -192,10 +192,10 @@ fn closes_after(bytes: &[u8], mut at: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::Files;
+    use kartta_lang::MemoryRepository;
 
     fn compiled(files: &[(&str, &str)]) -> Vec<(String, Aliases)> {
-        (alias_configs(&Files::new(files)).into_iter())
+        (alias_configs(&MemoryRepository::new(files.iter().copied())).into_iter())
             .map(|compiled| (compiled.dir, compiled.aliases))
             .collect()
     }

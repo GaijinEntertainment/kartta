@@ -6,67 +6,28 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use std::io;
-
-use kartta_lang::path::{base, dir};
-use kartta_lang::{Extraction, Language, Repository, Symbol};
+use kartta_lang::{Extraction, Language, MemoryRepository, Symbol};
 use kartta_lang_go::Go;
 
-struct Files(&'static [(&'static str, &'static str)]);
-
-impl Repository for Files {
-    fn contains(&self, path: &str) -> bool {
-        self.0.iter().any(|&(file, _)| file == path)
-    }
-
-    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let in_dir = in_dir.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .map(|&(file, _)| file)
-                .filter(move |file| dir(file) == in_dir)
-                .map(str::to_owned),
-        )
-    }
-
-    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let name = name.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .map(|&(file, _)| file)
-                .filter(move |file| base(file) == name)
-                .map(str::to_owned),
-        )
-    }
-
-    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
-        self.0
-            .iter()
-            .find(|&&(file, _)| file == path)
-            .map(|&(_, contents)| contents.as_bytes().to_vec())
-            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
-    }
+fn app() -> MemoryRepository {
+    MemoryRepository::new([
+        ("go.mod", "module example.com/app\n\ngo 1.26\n"),
+        ("main.go", ""),
+        ("lib/cache/cache.go", ""),
+        ("lib/cache/keys.go", ""),
+        ("ext/go-openai/client.go", ""),
+        ("vendor/github.com/pkg/errors/errors.go", ""),
+    ])
 }
 
-const APP: Files = Files(&[
-    ("go.mod", "module example.com/app\n\ngo 1.26\n"),
-    ("main.go", ""),
-    ("lib/cache/cache.go", ""),
-    ("lib/cache/keys.go", ""),
-    ("ext/go-openai/client.go", ""),
-    ("vendor/github.com/pkg/errors/errors.go", ""),
-]);
-
-fn resolve(files: &Files, source: &[u8], path: &str) -> Extraction {
+fn resolve(files: &MemoryRepository, source: &[u8], path: &str) -> Extraction {
     let go = Go::new();
     let resolver = go.resolver(files);
 
     resolver.resolve(go.extract(source), path)
 }
 
-fn package_dir(files: &Files, spec: &str) -> Option<String> {
+fn package_dir(files: &MemoryRepository, spec: &str) -> Option<String> {
     let source = format!("package main\n\nimport \"{spec}\"\n");
     let mut extraction = resolve(files, source.as_bytes(), "main.go");
 
@@ -85,15 +46,15 @@ fn qualified<'a>(extraction: &'a Extraction, qualified_name: &str) -> &'a Symbol
 #[test]
 fn an_import_under_the_module_path_names_the_package_directory() {
     assert_eq!(
-        package_dir(&APP, "example.com/app/lib/cache").as_deref(),
+        package_dir(&app(), "example.com/app/lib/cache").as_deref(),
         Some("lib/cache")
     );
-    assert_eq!(package_dir(&APP, "example.com/app").as_deref(), Some("."));
+    assert_eq!(package_dir(&app(), "example.com/app").as_deref(), Some("."));
 }
 
 #[test]
 fn an_import_of_a_module_path_two_modules_declare_names_the_importer_s_own_module() {
-    let files = Files(&[
+    let files = MemoryRepository::new([
         (".copies/old/go.mod", "module example.com/app\n"),
         (".copies/old/lib/cache/cache.go", ""),
         ("go.mod", "module example.com/app\n"),
@@ -113,7 +74,7 @@ fn an_import_of_a_module_path_two_modules_declare_names_the_importer_s_own_modul
 
 #[test]
 fn a_comment_after_the_module_path_is_not_part_of_it() {
-    let files = Files(&[
+    let files = MemoryRepository::new([
         ("go.mod", "module example.com/app // toolchain note\n"),
         ("lib/cache/cache.go", ""),
     ]);
@@ -127,14 +88,14 @@ fn a_comment_after_the_module_path_is_not_part_of_it() {
 #[test]
 fn the_vendored_copy_of_a_package_wins() {
     assert_eq!(
-        package_dir(&APP, "github.com/pkg/errors").as_deref(),
+        package_dir(&app(), "github.com/pkg/errors").as_deref(),
         Some("vendor/github.com/pkg/errors")
     );
 }
 
 #[test]
 fn a_replace_onto_a_local_directory_names_that_directory() {
-    let files = Files(&[
+    let files = MemoryRepository::new([
         (
             "go.mod",
             "module example.com/app\n\nreplace (\n\tgithub.com/x/openai => ./ext/go-openai\n)\n",
@@ -150,7 +111,7 @@ fn a_replace_onto_a_local_directory_names_that_directory() {
 
 #[test]
 fn a_file_of_a_nested_module_takes_its_module_s_vendored_copy() {
-    let files = Files(&[
+    let files = MemoryRepository::new([
         ("go.mod", "module example.com/app\n"),
         ("tools/go.mod", "module example.com/tools\n"),
         ("tools/vendor/github.com/pkg/errors/errors.go", ""),
@@ -170,7 +131,7 @@ fn a_file_of_a_nested_module_takes_its_module_s_vendored_copy() {
 
 #[test]
 fn a_replaced_module_without_a_vendor_directory_is_built_by_the_module_that_replaces_it() {
-    let files = Files(&[
+    let files = MemoryRepository::new([
         (
             "go.mod",
             "module example.com/app\n\nreplace (\n\texample.com/lib => ./lib\n\
@@ -209,7 +170,7 @@ fn a_replaced_module_without_a_vendor_directory_is_built_by_the_module_that_repl
 
 #[test]
 fn a_replaced_module_with_its_own_vendor_directory_keeps_it() {
-    let files = Files(&[
+    let files = MemoryRepository::new([
         (
             "go.mod",
             "module example.com/app\n\nreplace example.com/lib => ./lib\n",
@@ -232,7 +193,7 @@ fn a_replaced_module_with_its_own_vendor_directory_keeps_it() {
 
 #[test]
 fn a_file_sees_the_replaces_of_its_own_module_only() {
-    let files = Files(&[
+    let files = MemoryRepository::new([
         (
             "go.mod",
             "module example.com/app\n\nreplace github.com/x/openai => ./ext/app-openai\n",
@@ -262,7 +223,7 @@ fn a_file_sees_the_replaces_of_its_own_module_only() {
 
 #[test]
 fn a_replace_onto_a_directory_above_the_root_names_nothing() {
-    let files = Files(&[(
+    let files = MemoryRepository::new([(
         "go.mod",
         "module example.com/app\n\nreplace github.com/x/openai => ../openai\n",
     )]);
@@ -272,7 +233,7 @@ fn a_replace_onto_a_directory_above_the_root_names_nothing() {
 
 #[test]
 fn a_nested_module_wins_by_the_longest_prefix() {
-    let files = Files(&[
+    let files = MemoryRepository::new([
         ("go.mod", "module example.com/app\n"),
         ("ext/go-openai/go.mod", "module github.com/x/openai\n"),
         ("ext/go-openai/client.go", ""),
@@ -286,7 +247,7 @@ fn a_nested_module_wins_by_the_longest_prefix() {
 
 #[test]
 fn a_go_mod_under_vendor_declares_no_module() {
-    let files = Files(&[
+    let files = MemoryRepository::new([
         ("go.mod", "module example.com/app\n"),
         ("vendor/modules/go.mod", "module other.com/lib\n"),
         ("vendor/modules/lib.go", ""),
@@ -297,15 +258,15 @@ fn a_go_mod_under_vendor_declares_no_module() {
 
 #[test]
 fn an_external_or_empty_package_stays_unresolved() {
-    assert_eq!(package_dir(&APP, "fmt"), None);
-    assert_eq!(package_dir(&APP, "golang.org/x/net/http2"), None);
-    assert_eq!(package_dir(&APP, "example.com/app/lib/missing"), None);
-    assert_eq!(package_dir(&APP, "example.com/application"), None);
+    assert_eq!(package_dir(&app(), "fmt"), None);
+    assert_eq!(package_dir(&app(), "golang.org/x/net/http2"), None);
+    assert_eq!(package_dir(&app(), "example.com/app/lib/missing"), None);
+    assert_eq!(package_dir(&app(), "example.com/application"), None);
 }
 
 #[test]
 fn imports_become_bindings_and_package_includes() {
-    let files = Files(&[
+    let files = MemoryRepository::new([
         ("go.mod", "module example.com/app\n"),
         ("lib/cache/cache.go", ""),
         ("lib/cache/keys.go", ""),
@@ -372,7 +333,7 @@ func main() {}
 
 #[test]
 fn an_import_with_a_major_version_suffix_binds_the_element_before_it() {
-    let files = Files(&[("go.mod", "module example.com/app\n"), ("main.go", "")]);
+    let files = MemoryRepository::new([("go.mod", "module example.com/app\n"), ("main.go", "")]);
     let source = br#"
 package main
 
@@ -398,7 +359,7 @@ func main() {}
 
 #[test]
 fn an_importing_file_does_not_include_itself() {
-    let files = Files(&[("go.mod", "module m\n"), ("a/a.go", ""), ("a/b.go", "")]);
+    let files = MemoryRepository::new([("go.mod", "module m\n"), ("a/a.go", ""), ("a/b.go", "")]);
 
     let extraction = resolve(&files, b"\npackage a\n\nimport \"m/a\"\n", "a/a.go");
 
@@ -414,8 +375,8 @@ fn an_importing_file_does_not_include_itself() {
 fn a_test_file_marks_every_symbol_as_test() {
     let source = b"\npackage sample\n\nfunc Helper() {}\n\nfunc TestThing(t *T) {}\n";
 
-    let test = resolve(&APP, source, "sample_test.go");
-    let ordinary = resolve(&APP, source, "sample.go");
+    let test = resolve(&app(), source, "sample_test.go");
+    let ordinary = resolve(&app(), source, "sample.go");
 
     assert!(qualified(&test, "sample.Helper").flags.is_test());
     assert!(qualified(&test, "sample.TestThing").flags.is_test());
@@ -427,13 +388,13 @@ fn a_file_under_a_vendor_directory_marks_every_symbol_as_vendored() {
     let source = b"\npackage sample\n\nfunc Helper() {}\n\nfunc Other() {}\n";
 
     for path in ["vendor/x/sample.go", "app/vendor/x/sample.go"] {
-        let vendored = resolve(&APP, source, path);
+        let vendored = resolve(&app(), source, path);
         for name in ["sample.Helper", "sample.Other"] {
             assert!(qualified(&vendored, name).flags.is_vendored(), "{path}");
         }
     }
     for path in ["sample.go", "vendors/sample.go", "app/myvendor/sample.go"] {
-        let ordinary = resolve(&APP, source, path);
+        let ordinary = resolve(&app(), source, path);
         assert!(
             !qualified(&ordinary, "sample.Helper").flags.is_vendored(),
             "{path}"
@@ -445,8 +406,8 @@ fn a_file_under_a_vendor_directory_marks_every_symbol_as_vendored() {
 fn a_pb_go_file_is_generated_without_the_banner() {
     let source = b"\npackage sample\n\nfunc FromProto() {}\n";
 
-    let protobuf = resolve(&APP, source, "sample.pb.go");
-    let ordinary = resolve(&APP, source, "sample.go");
+    let protobuf = resolve(&app(), source, "sample.pb.go");
+    let ordinary = resolve(&app(), source, "sample.go");
 
     assert!(
         qualified(&protobuf, "sample.FromProto")
@@ -463,7 +424,8 @@ fn a_pb_go_file_is_generated_without_the_banner() {
 #[test]
 fn one_extraction_resolved_at_two_paths_differs_only_by_what_the_paths_show() {
     let go = Go::new();
-    let resolver = go.resolver(&APP);
+    let app = app();
+    let resolver = go.resolver(&app);
     let raw =
         go.extract(b"package app\n\nimport \"example.com/app/lib/cache\"\n\nfunc Handle() {}\n");
 

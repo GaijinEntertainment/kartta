@@ -5,12 +5,9 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use std::io;
-
-use kartta_lang::path::{base, dir};
 use kartta_lang::{
-    CallRef, Extraction, InheritedMembers, Language, OwnMembers, RawExtraction, Repository, Symbol,
-    SymbolId, SymbolKind,
+    CallRef, Extraction, InheritedMembers, Language, MemoryRepository, OwnMembers, RawExtraction,
+    Symbol, SymbolId, SymbolKind,
 };
 use kartta_lang_php::Php;
 
@@ -59,43 +56,6 @@ const WIDGET: &[u8] =
 
 const APP_SRC: &str = r#"{ "autoload": { "psr-4": { "App\\": "src/" } } }"#;
 
-struct Files {
-    paths: Vec<String>,
-    configs: Vec<(String, String)>,
-}
-
-impl Files {
-    fn all(&self) -> impl Iterator<Item = &String> {
-        self.paths
-            .iter()
-            .chain(self.configs.iter().map(|(path, _)| path))
-    }
-}
-
-impl Repository for Files {
-    fn contains(&self, path: &str) -> bool {
-        self.all().any(|file| file == path)
-    }
-
-    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let in_dir = in_dir.to_owned();
-        Box::new(self.all().filter(move |file| dir(file) == in_dir).cloned())
-    }
-
-    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let name = name.to_owned();
-        Box::new(self.all().filter(move |file| base(file) == name).cloned())
-    }
-
-    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
-        self.configs
-            .iter()
-            .find(|(config, _)| config == path)
-            .map(|(_, contents)| contents.clone().into_bytes())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, path.to_owned()))
-    }
-}
-
 fn extract(source: &[u8]) -> RawExtraction {
     Php::new().extract(source)
 }
@@ -106,13 +66,7 @@ fn resolve(source: &[u8], path: &str, files: &[&str]) -> Extraction {
 
 fn resolve_with(source: &[u8], path: &str, files: &[&str], configs: &[(&str, &str)]) -> Extraction {
     let php = Php::new();
-    let repository = Files {
-        paths: files.iter().map(|file| (*file).to_owned()).collect(),
-        configs: configs
-            .iter()
-            .map(|(path, contents)| ((*path).to_owned(), (*contents).to_owned()))
-            .collect(),
-    };
+    let repository = MemoryRepository::new(configs.iter().copied()).with_paths(files);
     let resolver = php.resolver(&repository);
     resolver.resolve(php.extract(source), path)
 }

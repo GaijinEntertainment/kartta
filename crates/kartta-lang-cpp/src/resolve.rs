@@ -174,50 +174,14 @@ fn name_marks_generated(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
-
-    use kartta_lang::Language;
+    use kartta_lang::{Language, MemoryRepository};
 
     use super::*;
     use crate::Cpp;
 
-    struct Files(Vec<&'static str>);
-
-    impl Repository for Files {
-        fn contains(&self, path: &str) -> bool {
-            self.0.contains(&path)
-        }
-
-        fn files_in_dir<'a>(&'a self, dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-            let dir = dir.to_owned();
-            Box::new(
-                self.0
-                    .iter()
-                    .copied()
-                    .filter(move |path| kartta_lang::path::dir(path) == dir)
-                    .map(str::to_owned),
-            )
-        }
-
-        fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-            let name = name.to_owned();
-            Box::new(
-                self.0
-                    .iter()
-                    .copied()
-                    .filter(move |path| base(path) == name)
-                    .map(str::to_owned),
-            )
-        }
-
-        fn read(&self, path: &str) -> io::Result<Vec<u8>> {
-            Err(io::Error::new(io::ErrorKind::NotFound, path.to_owned()))
-        }
-    }
-
     fn resolved(source: &[u8], path: &str, files: &[&'static str]) -> Extraction {
         let cpp = Cpp::new();
-        let repository = Files(files.to_vec());
+        let repository = MemoryRepository::of_paths(files);
         cpp.resolver(&repository).resolve(cpp.extract(source), path)
     }
 
