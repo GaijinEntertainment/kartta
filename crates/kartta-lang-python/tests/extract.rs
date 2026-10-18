@@ -6,7 +6,9 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{CallRef, Language, LocalCall, RawExtraction, Symbol, SymbolId, SymbolKind};
+use kartta_lang::{
+    Access, CallRef, Language, LocalCall, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind,
+};
 use kartta_lang_python::Python;
 
 const SAMPLE: &[u8] = br#"
@@ -830,4 +832,57 @@ fn the_fingerprint_names_the_crate_and_stays_put() {
 
     assert!(first.starts_with(b"kartta-lang-python\0"));
     assert_eq!(Python::new().fingerprint(), first.as_slice());
+}
+
+#[test]
+fn a_use_names_its_receiver_s_class_and_reads_a_module_value_the_file_binds() {
+    let raw = extract(
+        b"from consts import LIMIT\nimport helpers\nVERSION = 1\n\nclass Pool(Base):\n    def grow(self, other):\n\
+          \x20       self.size += 1\n        other.size = LIMIT\n        total = VERSION + helpers.STEP\n        \
+          Config.DEBUG = True\n        def inner():\n            return self.free\n        \
+          return self.items.append(1)\n\ndef bump():\n    global VERSION\n    VERSION += 1\n    VERSION = LATER\n\
+          \x20   Config.inner.flag = VERSION\n\nLATER = 2\n\ndef shadow():\n    \
+          print(VERSION, item.field, LATER.real, Pool, bump)\n    VERSION = item = 3\n",
+    );
+    let mut uses: Vec<(&str, &str, Receiver, Access, u32)> = raw
+        .references
+        .iter()
+        .map(|site| {
+            (
+                raw.symbols[site.site_of.0 as usize].name.as_str(),
+                site.name.as_str(),
+                site.receiver.clone(),
+                site.access,
+                site.line,
+            )
+        })
+        .collect();
+    uses.sort_by_key(|&(_, name, _, _, line)| (line, name));
+    let path = |written: &str| Receiver::Path(written.to_owned());
+
+    assert_eq!(
+        uses,
+        [
+            ("grow", "size", Receiver::Own, Access::Update, 7),
+            ("grow", "LIMIT", Receiver::Bare, Access::Read, 8),
+            ("grow", "size", path(""), Access::Write, 8),
+            ("grow", "STEP", path("helpers"), Access::Read, 9),
+            ("grow", "VERSION", Receiver::Bare, Access::Read, 9),
+            ("grow", "DEBUG", path("Config"), Access::Write, 10),
+            ("inner", "free", Receiver::Own, Access::Read, 12),
+            ("grow", "items", Receiver::Own, Access::Read, 13),
+            ("bump", "VERSION", Receiver::Bare, Access::Update, 17),
+            ("bump", "LATER", Receiver::Bare, Access::Read, 18),
+            ("bump", "VERSION", Receiver::Bare, Access::Write, 18),
+            ("bump", "VERSION", Receiver::Bare, Access::Read, 19),
+            ("bump", "flag", path(""), Access::Write, 19),
+            ("bump", "inner", path("Config"), Access::Read, 19),
+            ("shadow", "LATER", Receiver::Bare, Access::Read, 24),
+            ("shadow", "Pool", Receiver::Bare, Access::Read, 24),
+            ("shadow", "bump", Receiver::Bare, Access::Read, 24),
+            ("shadow", "field", path(""), Access::Read, 24),
+            ("shadow", "real", path(""), Access::Read, 24),
+        ],
+        "a name the function binds later is its own, and a module value owns no attribute"
+    );
 }
