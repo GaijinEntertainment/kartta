@@ -48,11 +48,7 @@ impl Resolver for Requires<'_> {
         let path_flags = SymbolFlags::empty()
             .with_test(is_test_file(path))
             .with_generated(base(path).ends_with("_pb.rb"));
-        if path_flags != SymbolFlags::empty() {
-            for symbol in &mut extraction.symbols {
-                symbol.flags = symbol.flags.union(path_flags);
-            }
-        }
+        extraction.flag_symbols(path_flags);
         // constraint: the graph joins callables of one key across files, so the path keeps a key inside its file
         for callable in &mut extraction.callables {
             callable.key = format!("{path}#{}", callable.key);

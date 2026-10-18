@@ -124,11 +124,7 @@ impl Resolver for QuirrelResolver<'_> {
         let path_flags = SymbolFlags::empty()
             .with_test(is_test_path(path))
             .with_generated(is_generated_name(base(path)));
-        if path_flags != SymbolFlags::empty() {
-            for symbol in &mut extraction.symbols {
-                symbol.flags = symbol.flags.union(path_flags);
-            }
-        }
+        extraction.flag_symbols(path_flags);
 
         let config = self.nearest(path);
         for directive in directives {

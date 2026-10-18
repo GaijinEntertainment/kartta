@@ -27,9 +27,7 @@ impl Resolver for JstsResolver<'_> {
             .with_test(is_test_file(path))
             .with_generated(name_marks_generated(base(path)))
             .with_vendored(is_vendored(path));
-        for symbol in &mut extraction.symbols {
-            symbol.flags = symbol.flags.union(path_flags);
-        }
+        extraction.flag_symbols(path_flags);
         for callable in &mut extraction.callables {
             callable.key = format!("{path}#{}", callable.key);
         }

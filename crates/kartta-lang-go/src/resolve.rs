@@ -155,11 +155,7 @@ impl Resolver for GoResolver<'_> {
             .with_test(path.ends_with("_test.go"))
             .with_generated(path.ends_with(".pb.go"))
             .with_vendored(is_vendored(path));
-        if path_flags != SymbolFlags::empty() {
-            for symbol in &mut extraction.symbols {
-                symbol.flags = symbol.flags.union(path_flags);
-            }
-        }
+        extraction.flag_symbols(path_flags);
 
         let owner = self.main_module(self.owner(path));
         for directive in directives {
