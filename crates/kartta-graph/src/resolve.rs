@@ -848,6 +848,36 @@ impl<'g> Cascade<'g> {
         referenceable
     }
 
+    // constraint: a member of a value binds through the type its path spells, else the one field of the name its own
+    // file declares outside other bodies; the package, the imports and the family bind a namesake too often, where a
+    // test table or an anonymous struct holds the value
+    fn member_use(&self, site: SymbolAt, name: Str, path: Option<Str>) -> Option<Bound> {
+        if let Some(path) = path
+            && self.reads_type_paths()
+        {
+            match self.typed_use(site.file, path, name) {
+                Typed::Member(at) => return Some((at, confidence::RECEIVER)),
+                Typed::Imported | Typed::Undeclared | Typed::NoMethod => return None,
+                Typed::Unknown => {}
+            }
+        }
+        let body = self.holder(site).unwrap_or(site);
+        let mut fields = self
+            .graph
+            .in_file(self.named(name), site.file)
+            .iter()
+            .copied()
+            .filter(|&at| {
+                self.graph.sym(at).kind == SymbolKind::Field
+                    && self.holder(at).is_none_or(|holder| holder == body)
+            });
+        let field = fields.next()?;
+        fields
+            .next()
+            .is_none()
+            .then_some((field, confidence::SAME_FILE))
+    }
+
     pub(crate) fn resolve_reference(&self, file: u32, index: u32) -> Option<Bound> {
         let stored = self.graph.file(file);
         let site = stored.references[index as usize];
@@ -862,7 +892,14 @@ impl<'g> Cascade<'g> {
                     Pick::PackageLevel,
                 );
             }
-            UseReceiver::Own | UseReceiver::Path(_) => return None,
+            UseReceiver::Own => return None,
+            UseReceiver::Path(path) => {
+                let at = SymbolAt {
+                    file,
+                    index: site.site_of(),
+                };
+                return self.member_use(at, site.name, path);
+            }
         }
         let named = self.named(site.name);
         if let Some(at) = self.pick(
