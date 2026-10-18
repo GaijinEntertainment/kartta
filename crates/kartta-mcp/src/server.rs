@@ -907,11 +907,11 @@ impl Server {
                        write, or update for += and ++), at= for file:line or file:line,line,... where it touches the \
                        symbol on several lines, and a confidence=likely / guess mark on a weakly resolved site. A \
                        caller is one site, at one of its calls; every other use is one site per line and kind. Field \
-                       accesses and value reads are recorded only for Go, TypeScript, JavaScript and Python so far; \
-                       ambiguous= counts the uses of a member's name on a value whose type the graph could not follow, \
-                       which may be this member and are not listed. A method's calls through a value of its owner's \
-                       type resolve only where the graph can name that type, so a missing site does not show an \
-                       unused symbol. A match lists at \
+                       accesses and value reads are recorded only for Go, C/C++, TypeScript, JavaScript and Python so \
+                       far; ambiguous= counts the uses of a member's name on a value whose type the graph could not \
+                       follow, which may be this member and are not listed. A method's calls through a value of its \
+                       owner's type resolve only where the graph can name that type, so a missing site does not show \
+                       an unused symbol. A match lists at \
                        most 500 sites and then carries shown=; below_confidence= counts the sites the floor dropped \
                        and passed_over= the other symbols the name selects. An unknown name answers with up to 5 close \
                        alternatives (did you mean). Requires index_repo first."

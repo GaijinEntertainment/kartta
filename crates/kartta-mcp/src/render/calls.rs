@@ -24,11 +24,16 @@ const FIELD_NOTE: &str = "this language's extraction records no access to a fiel
                           from this answer";
 
 /// The families whose extraction records field accesses and reads of package-level values.
-const RECORDS_DATA_ACCESS: &[&str] = &["go", "jsts", "python"];
+const RECORDS_DATA_ACCESS: &[&str] = &["cpp", "go", "jsts", "python"];
 
 /// What a field's sites leave out in a family that records field accesses, where it leaves out more than the
 /// `ambiguous` count says.
 const PARTIAL_DATA_ACCESS: &[(&str, &str)] = &[
+    (
+        "cpp",
+        "a member access on a value whose type the graph cannot name binds only where one field of the name is in the \
+         file or the files it includes; ambiguous counts the rest",
+    ),
     (
         "jsts",
         "a member access on a value whose declaration spells no one type binds nothing; ambiguous counts those",
