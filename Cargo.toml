@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/kartta",
     "crates/kartta-cache",
+    "crates/kartta-ffi",
     "crates/kartta-fs",
     "crates/kartta-fuzz",
     "crates/kartta-graph",
