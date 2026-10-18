@@ -251,10 +251,10 @@ impl Index {
         options: &GrepOptions<'_>,
         narrowed: Option<&Narrowed>,
     ) -> (Vec<Vec<u32>>, Tally) {
-        let planned: Vec<(Vec<u32>, Tally)> = (0..self.len().div_ceil(PLAN_CHUNK_LEN))
+        let planned: Vec<(Vec<u32>, Tally)> = (0..self.len())
             .into_par_iter()
-            .map(|chunk| {
-                let start = chunk * PLAN_CHUNK_LEN;
+            .step_by(PLAN_CHUNK_LEN)
+            .map(|start| {
                 let positions = start..self.len().min(start + PLAN_CHUNK_LEN);
                 self.plan_chunk(positions, options, narrowed)
             })
