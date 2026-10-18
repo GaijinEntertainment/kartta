@@ -1,4 +1,4 @@
-use kartta_lang::tree::{line, named_children, preorder, text};
+use kartta_lang::tree::{line, named_child_nodes, preorder, text};
 use kartta_lang::{
     Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -194,7 +194,7 @@ fn literal_specifier(argument: Node<'_>, source: &[u8]) -> Option<String> {
     }
     let mut tail = Tail::default();
     if argument.kind() == "concatenation" {
-        for part in named_children(argument).filter_map(|at| argument.named_child(at)) {
+        for part in named_child_nodes(argument) {
             argument_part(part, source, &mut tail)?;
         }
     } else {
@@ -211,7 +211,7 @@ fn argument_part(part: Node<'_>, source: &[u8], tail: &mut Tail) -> Option<()> {
             tail.literal(unquoted.strip_suffix(b"'").unwrap_or(unquoted));
         }
         "string" => {
-            for inner in named_children(part).filter_map(|at| part.named_child(at)) {
+            for inner in named_child_nodes(part) {
                 match inner.kind() {
                     "string_content" => tail.literal(&source[inner.byte_range()]),
                     kind if EXPANSIONS.contains(&kind) => tail.expansion()?,

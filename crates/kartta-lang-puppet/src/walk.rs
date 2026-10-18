@@ -1,4 +1,4 @@
-use kartta_lang::tree::{children, line, preorder, text};
+use kartta_lang::tree::{child_nodes, line, preorder, text};
 use kartta_lang::{
     Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -145,8 +145,7 @@ impl Emitter<'_> {
 
     fn routed_arguments(&mut self, node: Node<'_>, keyword: Node<'_>) -> bool {
         let mut routed = false;
-        let after_keyword = children(node)
-            .filter_map(|index| node.child(index))
+        let after_keyword = child_nodes(node)
             .skip_while(|child| *child != keyword)
             .skip(1);
         for child in after_keyword {
@@ -159,7 +158,7 @@ impl Emitter<'_> {
     }
 
     fn class_ref_statement(&mut self, node: Node<'_>) {
-        for child in children(node).filter_map(|index| node.child(index)) {
+        for child in child_nodes(node) {
             if let Some(name) = self.class_ref_name(child) {
                 self.push_class_ref(name, child);
             }
@@ -197,10 +196,7 @@ impl Emitter<'_> {
     }
 
     fn member_call(&mut self, field: Node<'_>, call: Node<'_>) {
-        let Some(trailing) = children(field)
-            .filter_map(|index| field.child(index))
-            .rfind(|child| NAMES.contains(&child.kind()))
-        else {
+        let Some(trailing) = child_nodes(field).rfind(|child| NAMES.contains(&child.kind())) else {
             return;
         };
         let receiver = field
@@ -239,7 +235,5 @@ impl Emitter<'_> {
 }
 
 fn child_of_kind<'t>(node: Node<'t>, kinds: &[&str]) -> Option<Node<'t>> {
-    children(node)
-        .filter_map(|index| node.child(index))
-        .find(|child| kinds.contains(&child.kind()))
+    child_nodes(node).find(|child| kinds.contains(&child.kind()))
 }

@@ -1,5 +1,6 @@
 use kartta_lang::SymbolKind;
-use kartta_lang::tree::{children, line, named_children, text};
+pub(crate) use kartta_lang::tree::{child_nodes, named_child_nodes};
+use kartta_lang::tree::{line, text};
 use tree_sitter::Node;
 
 const FUNCTION_KINDS: [&str; 4] = [
@@ -19,14 +20,6 @@ const HOC_WRAPPERS: [&str; 6] = [
 ];
 
 const QUOTES: [char; 3] = ['"', '\'', '`'];
-
-pub(crate) fn child_nodes(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
-    children(node).filter_map(move |index| node.child(index))
-}
-
-pub(crate) fn named_child_nodes(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
-    named_children(node).filter_map(move |index| node.named_child(index))
-}
 
 pub(crate) fn start_line(node: Node<'_>) -> u32 {
     line(node.start_position().row)

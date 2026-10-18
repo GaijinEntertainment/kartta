@@ -1,4 +1,4 @@
-use kartta_lang::tree::{named_children, text};
+use kartta_lang::tree::{named_child_nodes, text};
 use tree_sitter::Node;
 
 use super::Emitter;
@@ -96,7 +96,7 @@ impl Emitter<'_> {
             return self.type_path(result).into_iter().collect();
         }
         let mut paths = Vec::new();
-        for declaration in named_children(result).filter_map(|i| result.named_child(i)) {
+        for declaration in named_child_nodes(result) {
             let path = declaration
                 .child_by_field_name("type")
                 .and_then(|written| self.type_path(written))

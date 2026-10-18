@@ -1,5 +1,5 @@
 use kartta_lang::tree::{
-    children, line, named_children, preorder, signature, signature_from, text,
+    child_nodes, line, named_child_nodes, preorder, signature, signature_from, text,
 };
 use kartta_lang::{
     CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
@@ -90,9 +90,7 @@ impl Emitter<'_> {
             line(node.start_position().row),
             line(node.end_position().row),
         );
-        symbol.exported = !children(node)
-            .filter_map(|index| node.child(index))
-            .any(|child| child.kind() == "local");
+        symbol.exported = !child_nodes(node).any(|child| child.kind() == "local");
         symbol.signature = signature(node, self.source);
         let id = self.push(symbol);
         self.scopes.push(Scope {
@@ -115,7 +113,7 @@ impl Emitter<'_> {
             .is_none_or(|parent| parent.kind() != "variable_declaration");
 
         let held = self.pending_scopes.len();
-        for (variable, value) in bound_variables(variables).zip(named(values)) {
+        for (variable, value) in bound_variables(variables).zip(named_child_nodes(values)) {
             if value.kind() != FUNCTION_DEFINITION {
                 continue;
             }
@@ -297,20 +295,16 @@ fn table_binding(field: Node<'_>, source: &[u8]) -> Option<String> {
         .parent()
         .filter(|node| node.kind() == "assignment_statement")?;
 
-    let place = named(values).position(|value| value.id() == constructor.id())?;
+    let place = named_child_nodes(values).position(|value| value.id() == constructor.id())?;
     let variable = bound_variables(named_child_of_kind(assignment, "variable_list")?).nth(place)?;
     matches!(variable.kind(), IDENTIFIER | "dot_index_expression").then(|| text(variable, source))
 }
 
 // constraint: the `<const>` of `local a <const>, b = ...` is a named child between the variables
 fn bound_variables(variables: Node<'_>) -> impl Iterator<Item = Node<'_>> {
-    named(variables).filter(|variable| variable.kind() != "attribute")
-}
-
-fn named(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
-    named_children(node).filter_map(move |index| node.named_child(index))
+    named_child_nodes(variables).filter(|variable| variable.kind() != "attribute")
 }
 
 fn named_child_of_kind<'t>(node: Node<'t>, kind: &str) -> Option<Node<'t>> {
-    named(node).find(|child| child.kind() == kind)
+    named_child_nodes(node).find(|child| child.kind() == kind)
 }

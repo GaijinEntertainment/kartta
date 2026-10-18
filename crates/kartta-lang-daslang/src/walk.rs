@@ -1,4 +1,4 @@
-use kartta_lang::tree::{children, line, preorder, signature, text};
+use kartta_lang::tree::{child_nodes, line, preorder, signature, text};
 use kartta_lang::{
     Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -66,9 +66,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
 // from passing a first-generation file, whose tree would be errors
 fn opts_into_gen2(root: Node<'_>, source: &[u8]) -> bool {
     let mut opted_in = false;
-    let options = children(root)
-        .filter_map(|i| root.child(i))
-        .filter(|node| node.kind() == "options_declaration");
+    let options = child_nodes(root).filter(|node| node.kind() == "options_declaration");
     for declaration in options {
         match gen2_verdict(declaration, source) {
             Some(false) => return false,
@@ -82,9 +80,8 @@ fn opts_into_gen2(root: Node<'_>, source: &[u8]) -> bool {
 
 fn gen2_verdict(declaration: Node<'_>, source: &[u8]) -> Option<bool> {
     let mut verdict = None;
-    let arguments = children(declaration)
-        .filter_map(|i| declaration.child(i))
-        .filter(|argument| argument.kind() == "annotation_argument");
+    let arguments =
+        child_nodes(declaration).filter(|argument| argument.kind() == "annotation_argument");
     for argument in arguments {
         let names_gen2 = argument
             .child_by_field_name("name")
@@ -542,9 +539,7 @@ fn is_member(node: Node<'_>) -> bool {
 }
 
 fn has_child_token(node: Node<'_>, token: &str) -> bool {
-    children(node)
-        .filter_map(|i| node.child(i))
-        .any(|child| child.kind() == token)
+    child_nodes(node).any(|child| child.kind() == token)
 }
 
 fn is_private(node: Node<'_>) -> bool {
@@ -555,8 +550,7 @@ fn is_registered(function: Node<'_>, source: &[u8]) -> bool {
     function
         .child_by_field_name("annotations")
         .is_some_and(|list| {
-            children(list)
-                .filter_map(|i| list.child(i))
+            child_nodes(list)
                 .filter(|annotation| annotation.kind() == "annotation_declaration")
                 .filter_map(|annotation| annotation.child_by_field_name("name"))
                 .any(|name| {

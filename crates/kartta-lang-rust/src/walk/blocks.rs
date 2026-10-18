@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use kartta_lang::tree::{named_children, text};
+use kartta_lang::tree::{named_child_nodes, text};
 use kartta_lang::{LocalCall, SymbolId, SymbolKind};
 use tree_sitter::Node;
 
@@ -130,7 +130,7 @@ impl Emitter<'_> {
             return;
         };
         let mut names = Vec::new();
-        for parameter in named_children(parameters).filter_map(|at| parameters.named_child(at)) {
+        for parameter in named_child_nodes(parameters) {
             if let Some(pattern) = parameter.child_by_field_name("pattern") {
                 pattern_names(pattern, self.source, &mut names);
             }
@@ -293,9 +293,7 @@ fn use_names(node: Node<'_>, source: &[u8], names: &mut Vec<String>) {
         "scoped_use_list" => field("list")
             .into_iter()
             .for_each(|list| use_names(list, source, names)),
-        "use_list" => named_children(node)
-            .filter_map(|at| node.named_child(at))
-            .for_each(|item| use_names(item, source, names)),
+        "use_list" => named_child_nodes(node).for_each(|item| use_names(item, source, names)),
         _ => {}
     }
 }
@@ -321,8 +319,7 @@ fn pattern_names(node: Node<'_>, source: &[u8], names: &mut Vec<String>) {
         | "struct_pattern"
         | "tuple_struct_pattern" => {
             let named_type = node.child_by_field_name("type");
-            named_children(node)
-                .filter_map(|at| node.named_child(at))
+            named_child_nodes(node)
                 .filter(|inner| Some(*inner) != named_type)
                 .for_each(|inner| pattern_names(inner, source, names));
         }

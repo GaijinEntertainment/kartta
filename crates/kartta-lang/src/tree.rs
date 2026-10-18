@@ -1,7 +1,6 @@
 //! Parsing and walking a tree-sitter tree, for a language that extracts through tree-sitter.
 
 use std::cell::RefCell;
-use std::ops::Range;
 
 use tree_sitter::{Language, Node, Parser, Tree};
 
@@ -125,18 +124,16 @@ pub fn signature_from(start: usize, node: Node<'_>, source: &[u8]) -> Option<Str
     (!text.is_empty()).then(|| text.to_owned())
 }
 
-/// The indices of `node`'s children, in the type [`Node::child`] takes.
-#[must_use]
-pub fn children(node: Node<'_>) -> Range<u32> {
-    0..node.child_count()
+/// `node`'s children, in order.
+pub fn child_nodes(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> {
+    (0..node.child_count()).filter_map(move |index| node.child(index))
 }
 
-/// The indices of `node`'s named children, in the type [`Node::named_child`] takes.
-#[must_use]
+/// `node`'s named children, in order.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "tree-sitter counts a node's children in a uint32_t, which the binding only widens to usize"
 )]
-pub fn named_children(node: Node<'_>) -> Range<u32> {
-    0..node.named_child_count() as u32
+pub fn named_child_nodes(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> {
+    (0..node.named_child_count() as u32).filter_map(move |index| node.named_child(index))
 }

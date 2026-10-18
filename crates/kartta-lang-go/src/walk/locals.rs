@@ -1,5 +1,5 @@
 use kartta_lang::SymbolId;
-use kartta_lang::tree::{named_children, text};
+use kartta_lang::tree::{named_child_nodes, text};
 use tree_sitter::Node;
 
 use super::Emitter;
@@ -48,10 +48,7 @@ impl Emitter<'_> {
         let body = function.child_by_field_name("body");
         let from = body.map_or_else(|| function.start_byte(), |body| body.start_byte());
         let block = Block::of(body.unwrap_or(function));
-        for i in named_children(list) {
-            let Some(param) = list.named_child(i) else {
-                continue;
-            };
+        for param in named_child_nodes(list) {
             let type_path = param
                 .child_by_field_name("type")
                 .and_then(|written| self.type_path(written));
@@ -74,8 +71,7 @@ impl Emitter<'_> {
         (from, block): (usize, Block),
         type_paths: &mut dyn FnMut(usize) -> Option<String>,
     ) {
-        let names = named_children(left)
-            .filter_map(|i| left.named_child(i))
+        let names = named_child_nodes(left)
             .enumerate()
             .filter(|(_, name)| name.kind() == "identifier");
         for (position, name) in names {
@@ -114,10 +110,7 @@ impl Emitter<'_> {
         let Some(list) = list else {
             return;
         };
-        for i in named_children(list) {
-            let Some(declaration) = list.named_child(i) else {
-                continue;
-            };
+        for declaration in named_child_nodes(list) {
             let mut cursor = declaration.walk();
             for name in declaration.children_by_field_name("name", &mut cursor) {
                 self.type_params.push((end, text(name, self.source)));
@@ -140,10 +133,8 @@ impl Emitter<'_> {
     }
 
     fn push_type_arguments(&mut self, arguments: Node<'_>, end: usize) {
-        for i in named_children(arguments) {
-            if let Some(argument) = arguments.named_child(i)
-                && argument.kind() == "type_identifier"
-            {
+        for argument in named_child_nodes(arguments) {
+            if argument.kind() == "type_identifier" {
                 self.type_params.push((end, text(argument, self.source)));
             }
         }

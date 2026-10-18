@@ -1,4 +1,4 @@
-use kartta_lang::tree::{line, named_children, preorder, signature_from, text};
+use kartta_lang::tree::{line, named_child_nodes, preorder, signature_from, text};
 use kartta_lang::{
     Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -194,7 +194,7 @@ impl<'a> Emitter<'a> {
         let symbol = self.declared(SymbolKind::Enum, node, (None, name.clone()));
         self.push_symbol(symbol);
 
-        let members = named_children(node).filter_map(|i| node.named_child(i));
+        let members = named_child_nodes(node);
         for member in members {
             if let Some(member_name) = field_text(member, "name", self.source) {
                 let owner = Some(name.clone());
@@ -341,8 +341,7 @@ impl<'a> Emitter<'a> {
             return;
         }
 
-        let names = named_children(node)
-            .filter_map(|i| node.named_child(i))
+        let names = named_child_nodes(node)
             .filter(|child| child.kind() == "import_slot")
             .filter_map(|slot| field_text(slot, "name", self.source))
             .collect();
