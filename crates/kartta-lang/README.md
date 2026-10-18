@@ -17,7 +17,9 @@ test — is recorded as a directive and applied by the `Resolver` the language b
 The fingerprint must change whenever what `extract` computes from the same bytes can change: the grammar, the walk,
 the shape of the result. A cache keys an extraction by the hash of the bytes, the language's `fingerprint` and this
 crate's `FINGERPRINT` — the code of the helpers and of the encoding the extraction is stored in — so a new version of a
-language or of this crate never reads an old one's.
+language or of this crate never reads an old one's. A language crate's build script calls
+`kartta_lang::fingerprint::set_source_id`, which hands the crate its name, version and a digest of its source as
+`SOURCE_ID`, so the fingerprint follows the crate's code with no version kept by hand.
 
 ## Call conventions
 
@@ -41,7 +43,8 @@ banner.
 
 ## Walking tree-sitter trees
 
-The `tree-sitter` feature adds `kartta_lang::tree`: a pre-order walk and the text and signature helpers a language
-extracting through tree-sitter needs. The contract itself names no parser.
+The `tree-sitter` feature adds `kartta_lang::tree`: a pre-order walk, the text and signature helpers a language
+extracting through tree-sitter needs, and the fingerprint of such a language from its `SOURCE_ID` and its grammar. The
+contract itself names no parser.
 
 Status: the API is new and is not published yet.

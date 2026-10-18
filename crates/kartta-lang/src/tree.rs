@@ -2,7 +2,41 @@
 
 use std::ops::Range;
 
-use tree_sitter::{Node, Tree};
+use tree_sitter::{Language, Node, Tree};
+
+use crate::fingerprint::{OFFSET, fnv};
+
+/// The [fingerprint](crate::Language::fingerprint) of a language that extracts through `grammar`.
+///
+/// It holds `source_id`, the identity of the language crate's own code that
+/// [`set_source_id`](crate::fingerprint::set_source_id) hands its build, then the grammar's version, a digest of its
+/// `node_types` and its counts of ABI version, node kinds, parse states and fields. It cannot see a grammar built from
+/// changed sources that keeps all of those, nor a change to the tree-sitter runtime that keeps its version: a crate
+/// that updates either bumps its own version, which `source_id` holds.
+#[must_use]
+pub fn fingerprint(source_id: &str, grammar: &Language, node_types: &str) -> Vec<u8> {
+    let version = grammar.metadata().map_or([0; 3], |version| {
+        [
+            version.major_version,
+            version.minor_version,
+            version.patch_version,
+        ]
+    });
+    let counts = [
+        grammar.abi_version(),
+        grammar.node_kind_count(),
+        grammar.parse_state_count(),
+        grammar.field_count(),
+    ];
+
+    let mut fingerprint = source_id.as_bytes().to_vec();
+    fingerprint.extend_from_slice(&version);
+    fingerprint.extend_from_slice(&fnv(OFFSET, node_types.as_bytes()).to_le_bytes());
+    for count in counts {
+        fingerprint.extend_from_slice(&u64::try_from(count).unwrap_or(u64::MAX).to_le_bytes());
+    }
+    fingerprint
+}
 
 /// Calls `visit` with every node of `tree` in pre-order, and descends into a node's children only when `visit`
 /// returns `true` for it.

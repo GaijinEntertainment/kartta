@@ -44,7 +44,7 @@ impl<'l> Extracting<'l> {
         let namespaces = languages
             .iter()
             .map(|language| {
-                let fingerprint = [language.fingerprint(), &kartta_lang::FINGERPRINT].concat();
+                let fingerprint = [language.fingerprint(), kartta_lang::FINGERPRINT].concat();
                 Namespace::new(&format!("graph/{}", language.name()), &fingerprint)
             })
             .collect();

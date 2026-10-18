@@ -502,7 +502,7 @@ fn every_family_s_call_sites_resolve_on_the_index_s_threads() {
 fn an_extraction_the_cache_holds_malformed_is_extracted_again_from_the_file() {
     let tree = tree(&[("a.defs", "def parse\n")]);
     let cache = tempfile::tempdir().expect("create cache dir");
-    let fingerprint = [&b"defs 1"[..], &kartta_lang::FINGERPRINT].concat();
+    let fingerprint = [&b"defs 1"[..], kartta_lang::FINGERPRINT].concat();
     let namespace = Namespace::new("graph/defs", &fingerprint);
     Index::build_with(
         tree.path(),

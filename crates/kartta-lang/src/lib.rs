@@ -67,6 +67,7 @@ mod banner;
 mod codec;
 mod doc;
 mod extraction;
+pub mod fingerprint;
 mod language;
 pub mod path;
 mod symbol;
@@ -86,11 +87,9 @@ pub use crate::language::{
 };
 pub use crate::symbol::{NO_CALLER_ID, Symbol, SymbolFlags, SymbolId, SymbolKind};
 
-include!(concat!(env!("OUT_DIR"), "/source_digest.rs"));
-
-/// Identifies this crate's code: a digest of its source.
+/// Identifies this crate's code: its name, its version and a digest of its source.
 ///
 /// The `tree` helpers a language extracts with and the encoding of a [`RawExtraction`] both shape what a cache holds
 /// for the same bytes, and neither shows in a language's [`fingerprint`](Language::fingerprint). A cache keys an
 /// extraction by both, so a language's fingerprint covers its own code and grammar only.
-pub const FINGERPRINT: [u8; 8] = SOURCE_DIGEST;
+pub const FINGERPRINT: &[u8] = env!("SOURCE_ID").as_bytes();
