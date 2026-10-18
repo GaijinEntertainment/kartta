@@ -24,10 +24,16 @@
 //! have: they award boundary bonuses uniformly per delimiter, which scores a directory hit and a filename hit alike.
 //! The bonus lives inside the alignment recurrence, where it costs nothing.
 //!
-//! # Configuration
+//! `/` ends a segment, so the basename is everything after the last one; a `\` is a character of a name, as it is in a
+//! repository path. `-`, `_` and a space separate words.
 //!
-//! [`Config`] decides what a segment and a word are, and whether length breaks a tie. Replacing
-//! [`Config::segment_separators`] is what turns the scorer into something other than a path matcher.
+//! # Ties
+//!
+//! Equal scores rank the shorter candidate first, then the earlier one. Length is UTF-8 byte length, not a character
+//! count: the tiebreak is a proxy for "less path to read", the byte length is already at hand, and a character count
+//! would cost a decode per candidate to settle a tie. The two differ only for a non-ASCII candidate, where `ééa` counts
+//! as longer than `aaaa`. Lengths compare up to 4 GiB, which keeps every ranked entry two words; longer candidates tie
+//! on length and keep their input order.
 //!
 //! # Case
 //!
@@ -39,10 +45,10 @@
 //! # Examples
 //!
 //! ```
-//! use kartta_fuzz::{Config, Matcher};
+//! use kartta_fuzz::Matcher;
 //!
 //! let paths = ["src/lib.rs", "src/main.rs", "main/mod.rs"];
-//! let mut matcher = Matcher::new(Config::DEFAULT);
+//! let mut matcher = Matcher::new();
 //!
 //! let ranked = matcher.rank(paths, "main", None);
 //! let names: Vec<&str> = ranked.iter().map(|m| m.candidate).collect();
@@ -54,11 +60,11 @@
 //! A query splits on whitespace into terms and every term must match, so a query narrows as it grows:
 //!
 //! ```
-//! use kartta_fuzz::{Config, Matcher};
+//! use kartta_fuzz::Matcher;
 //! # use std::num::NonZeroUsize;
 //!
 //! let paths = ["src/auth/handler.go", "src/api/handler.go"];
-//! let mut matcher = Matcher::new(Config::DEFAULT);
+//! let mut matcher = Matcher::new();
 //!
 //! assert_eq!(matcher.rank(paths, "handler", None).len(), 2);
 //! assert_eq!(matcher.rank(paths, "handler auth", None).len(), 1);
@@ -66,9 +72,7 @@
 //! ```
 
 mod class;
-mod config;
 mod matcher;
 mod score;
 
-pub use crate::config::Config;
 pub use crate::matcher::{Match, Matcher, Ranked, Ranking};

@@ -1,22 +1,13 @@
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
-use kartta_fuzz::{Config, Matcher, Ranked};
+use kartta_fuzz::{Matcher, Ranked};
 use rayon::prelude::*;
 
 use crate::filter::Filter;
 use crate::index::Index;
 
-// constraint: the scorer splits segments at `\` too by default, and in an indexed path `\` is a character of a name —
-// left in, `main\x.rs` hands its basename bonus to `x.rs`
-const RANKING: Config = ranking();
 const RANK_CHUNK_LEN: usize = 16 * 1024;
-
-const fn ranking() -> Config {
-    let mut ranking = Config::DEFAULT;
-    ranking.segment_separators = &['/'];
-    ranking
-}
 
 /// One ranked entry and the score its path earned.
 ///
@@ -159,7 +150,7 @@ impl Index {
                 .map(|chunk| {
                     let start = chunk * RANK_CHUNK_LEN;
                     let positions = start..self.len().min(start + RANK_CHUNK_LEN);
-                    let mut matcher = Matcher::new(RANKING);
+                    let mut matcher = Matcher::new();
                     let mut ranking = matcher.ranking(query, limit);
                     self.candidates(positions, filter, |at, path| ranking.offer(at, path));
                     ranking.finish()

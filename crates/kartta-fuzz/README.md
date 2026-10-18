@@ -42,28 +42,21 @@ both terms match in full, above `a a`.
 Matching ignores case, so a full match is equality up to case. Folding is ASCII-first rather than full Unicode folding:
 U+212A KELVIN SIGN does not match `k`, while a pair of non-ASCII characters compares by Unicode lowercase.
 
+`/` ends a segment, so the basename is everything after the last one; a `\` is a character of a name, as it is in a
+repository path. `-`, `_` and a space separate words.
+
 The weights are fixed: fzy's, scaled by 1000, plus a basename bonus per matched character. Match bonuses dwarf the gap
 penalties, so alignment quality decides the rank and gaps only break near-ties. The tests pin the orderings they
-produce — a contiguous run beating a gapped one, a filename hit beating a directory hit — not the values.
-
-## Configuration
-
-`Config` decides what a segment and a word are, and whether length breaks a tie. Start from `Config::DEFAULT` and adjust
-what you need:
+produce — a contiguous run beating a gapped one, a filename hit beating a directory hit — not the values. Nothing is
+configurable: no caller needed another point in that space, and ADR 1.2 records what keeping it open cost.
 
 ```rust
-use kartta_fuzz::{Config, Matcher};
+use kartta_fuzz::Matcher;
 
-let mut config = Config::DEFAULT;
-config.segment_separators = &['/'];       // a backslash is part of a name
-
-let mut matcher = Matcher::new(config);
+let mut matcher = Matcher::new();
 let ranked = matcher.rank(["src/main.rs", "main/lib.rs"], "main", None);
+assert_eq!(ranked[0].candidate, "src/main.rs");
 ```
-
-`segment_separators` is the field that decides what the scorer scores. It fixes both which positions earn the segment
-bonus and where the basename starts, so replacing it with `['.', ':']` makes the same model rank symbols instead of
-paths.
 
 ## Cost
 
