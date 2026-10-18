@@ -225,14 +225,25 @@ struct Found {
     lost: bool,
 }
 
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", target_os = "windows")),
+    expect(
+        dead_code,
+        reason = "a platform with no notifications starts no watch to fail"
+    )
+)]
+fn start_error(native_path: &Path, source: impl Error + Send + Sync + 'static) -> WatchError {
+    WatchError::Start {
+        native_path: native_path.to_path_buf(),
+        source: Box::new(source),
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn event_prefixes(root: &Path) -> Result<Vec<(PathBuf, String)>, WatchError> {
     // constraint: FSEvents names a change on the data volume by its firmlinked path, `/Users/...` rather than
     // `/System/Volumes/Data/Users/...`, so a stream on the data-volume spelling of a root hears nothing
-    let canonical = std::fs::canonicalize(root).map_err(|source| WatchError::Start {
-        native_path: root.to_path_buf(),
-        source: Box::new(source),
-    })?;
+    let canonical = std::fs::canonicalize(root).map_err(|source| start_error(root, source))?;
     let firmlinks = std::fs::read_to_string("/usr/share/firmlinks").unwrap_or_default();
     let mut prefixes = through_firmlinks(&canonical, &firmlinks);
     // constraint: the list names firmlinks a machine may not have, such as `/AppleInternal`, and FSEvents refuses a
