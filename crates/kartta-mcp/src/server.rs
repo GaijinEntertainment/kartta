@@ -25,7 +25,7 @@ use crate::render::{
     self, CallersAsk, Found, Globbed, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion,
     UnusedAsk,
 };
-use crate::state::{GraphRow, Indexed, Request, Slot, Status};
+use crate::state::{GraphRow, Indexed, Request, Served, Slot, Status};
 
 /// How many matching lines `grep` answers when the call names no cap.
 const GREP_MATCHES: usize = 100;
@@ -149,11 +149,21 @@ impl Server {
     where
         F: FnOnce(&Indexed) -> Result<String, String> + Send + 'static,
     {
-        let indexed = self.slot.current()?;
-        tokio::task::spawn_blocking(move || indexed.engine.index().on_threads(|| answer(&indexed)))
-            .await
-            .map_err(|error| format!("the query stopped before it answered: {error}"))?
+        answer_from(self.slot.current()?, answer).await
     }
+}
+
+/// Answers a query from `served` on a blocking thread, and on the index's own threads.
+async fn answer_from<F>(served: Arc<Served>, answer: F) -> Result<String, String>
+where
+    F: FnOnce(&Indexed) -> Result<String, String> + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let indexed = served.read();
+        indexed.engine.index().on_threads(|| answer(&indexed))
+    })
+    .await
+    .map_err(|error| format!("the query stopped before it answered: {error}"))?
 }
 
 /// A definition a name selects in one family's graph, and how near it sits.
@@ -238,8 +248,8 @@ impl Server {
             .await
             .map_err(|_| "the build stopped before it answered".to_owned())?
             .clone();
-        let indexed = built.ok_or_else(|| "the build answered nothing".to_owned())??;
-        Ok(render::index(&indexed, &[]))
+        let served = built.ok_or_else(|| "the build answered nothing".to_owned())??;
+        answer_from(served, |indexed| Ok(render::index(indexed, &[]))).await
     }
 
     #[tool(
@@ -265,18 +275,18 @@ impl Server {
         &self,
         Parameters(p): Parameters<IndexStatsParams>,
     ) -> Result<String, String> {
-        match self.slot.status() {
-            Status::Building { root, elapsed } => Ok(render::building(&root, elapsed)),
-            Status::Ready(indexed) if !p.coverage => Ok(render::index(&indexed, &[])),
-            Status::Ready(_) => {
-                self.answer(|indexed| Ok(render::index(indexed, &indexed.engine.resolution(0))))
-                    .await
-            }
-            Status::Empty | Status::Failed { .. } => self
-                .slot
-                .current()
-                .map(|indexed| render::index(&indexed, &[])),
+        if let Status::Building { root, elapsed } = self.slot.status() {
+            return Ok(render::building(&root, elapsed));
         }
+        self.answer(move |indexed| {
+            let coverage = if p.coverage {
+                indexed.engine.resolution(0)
+            } else {
+                Vec::new()
+            };
+            Ok(render::index(indexed, &coverage))
+        })
+        .await
     }
 
     #[tool(
@@ -596,16 +606,16 @@ impl Server {
                     .then_with(|| right.1.score.total_cmp(&left.1.score))
             });
             hits.truncate(limit);
-            let coverage: Vec<&GraphRow> = if hits.is_empty() {
-                indexed
-                    .graphs
-                    .iter()
-                    .filter(|row| row.files_without_symbols > 0)
-                    .filter(|row| searched.iter().any(|(family, _)| *family == row.family))
-                    .collect()
+            let rows = if hits.is_empty() {
+                indexed.graphs()
             } else {
                 Vec::new()
             };
+            let coverage: Vec<&GraphRow> = rows
+                .iter()
+                .filter(|row| row.files_without_symbols > 0)
+                .filter(|row| searched.iter().any(|(family, _)| *family == row.family))
+                .collect();
             let found = Found {
                 hits,
                 matched,

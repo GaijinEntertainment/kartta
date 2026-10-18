@@ -151,9 +151,10 @@ fn unresolved(element: Element, languages: &str, suggestions: &[Suggestion<'_>])
 /// The `index_repo` and `index_stats` answer: the index's shape, one `<language/>` per graph that holds a file, how
 /// the calls of each of those graphs bind when `coverage` holds its resolution, and the failures the build collected.
 pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> String {
+    let graphs = indexed.graphs();
     let element = Element::new("index")
         .attr("root", &indexed.root)
-        .attr("files", indexed.files)
+        .attr("files", indexed.files())
         .attr(
             "gitignore",
             if indexed.gitignore {
@@ -164,17 +165,14 @@ pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> S
         )
         .attr(
             "symbols",
-            indexed.graphs.iter().map(|row| row.symbols).sum::<usize>(),
+            graphs.iter().map(|row| row.symbols).sum::<usize>(),
         )
-        .attr(
-            "calls",
-            indexed.graphs.iter().map(|row| row.calls).sum::<usize>(),
-        );
-    if indexed.graphs.is_empty() && indexed.errors.is_empty() {
+        .attr("calls", graphs.iter().map(|row| row.calls).sum::<usize>());
+    if graphs.is_empty() && indexed.errors.is_empty() {
         return element.inline("the code graph is empty");
     }
 
-    let languages = indexed.graphs.iter().map(|row| {
+    let languages = graphs.iter().map(|row| {
         Element::new("language")
             .attr("name", &row.family)
             .attr("files", row.files)
@@ -205,7 +203,7 @@ pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> S
             .chain(
                 coverage
                     .iter()
-                    .filter(|(family, _)| indexed.graphs.iter().any(|row| row.family == *family))
+                    .filter(|(family, _)| graphs.iter().any(|row| row.family == *family))
                     .map(|(family, resolution)| bound(family, resolution)),
             )
             .chain(errors),
