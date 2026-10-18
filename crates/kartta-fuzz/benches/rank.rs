@@ -11,7 +11,7 @@ use std::hint::black_box;
 use std::num::NonZeroUsize;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use kartta_fuzz::{Config, Matcher};
+use kartta_fuzz::Matcher;
 
 /// Corpus size. Large enough that per-candidate costs dominate setup and that the profile resembles a real repository,
 /// small enough that the whole suite runs in well under a minute.
@@ -115,7 +115,7 @@ fn rank(c: &mut Criterion) {
     group.throughput(Throughput::Elements(CORPUS_LEN as u64));
 
     for &query in QUERIES {
-        let survivors = Matcher::new(Config::DEFAULT)
+        let survivors = Matcher::new()
             .rank(candidates.iter().copied(), query, None)
             .len();
 
@@ -124,7 +124,7 @@ fn rank(c: &mut Criterion) {
             &query,
             |b, &query| {
                 b.iter(|| {
-                    let mut matcher = Matcher::new(Config::DEFAULT);
+                    let mut matcher = Matcher::new();
                     black_box(matcher.rank(
                         black_box(candidates.iter().copied()),
                         black_box(query),
@@ -153,7 +153,7 @@ fn rank_limited(c: &mut Criterion) {
     for &query in QUERIES {
         group.bench_with_input(BenchmarkId::from_parameter(query), &query, |b, &query| {
             b.iter(|| {
-                let mut matcher = Matcher::new(Config::DEFAULT);
+                let mut matcher = Matcher::new();
                 black_box(matcher.rank(
                     black_box(candidates.iter().copied()),
                     black_box(query),

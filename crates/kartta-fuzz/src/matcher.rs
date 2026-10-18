@@ -1,18 +1,15 @@
-//! The configured ranking engine and the result it produces.
+//! The ranking engine and the result it produces.
 
-use std::cmp::{Ordering, Reverse};
+use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::num::NonZeroUsize;
 
-use crate::class::Classes;
-use crate::config::Config;
 use crate::score::{ALIGNED_MIN, FULL_MATCH_SCORE, MATCH_FLOOR, Representation, Scorer, Term};
 
 /// One ranked candidate and the score it earned.
 ///
-/// The candidate is borrowed from the input, so a ranking allocates one `Vec` and copies no path. The score is
-/// meaningful only against other scores from the same [`Config`] — it is a ranking key, not a similarity measure, and
-/// nothing about its magnitude is stable across configurations.
+/// The candidate is borrowed from the input, so a ranking allocates one `Vec` and copies no path. The score is a
+/// ranking key, not a similarity measure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Match<'a> {
     /// The matched candidate, borrowed from the input.
@@ -68,9 +65,8 @@ impl Band {
 
 /// A scored candidate inside the bounded heap, ordered so the **worst** compares greatest and pops first.
 ///
-/// `tiebreak` is the candidate's length when [`Config::length_tiebreak`] is on, and zero for every entry when it is
-/// off, so one ordering serves both without a branch per comparison. `index` is the input position, which makes
-/// the order total and reproduces the stable sort's "equal candidates keep their input order".
+/// `tiebreak` is the candidate's length. `index` is the input position, which makes the order total and reproduces
+/// the stable sort's "equal candidates keep their input order".
 #[derive(Debug, PartialEq, Eq)]
 struct HeapEntry<T> {
     item: T,
@@ -107,7 +103,7 @@ pub struct Ranked {
     pub position: usize,
     /// Its rank key: higher is better.
     pub score: i32,
-    /// The candidate's length when [`Config::length_tiebreak`] is on, zero when it is off.
+    /// The candidate's length, zero for an empty query.
     tiebreak: u32,
 }
 
@@ -142,11 +138,7 @@ impl Ranking<'_> {
         let Some(score) = self.matcher.score_terms(candidate) else {
             return true;
         };
-        let tiebreak = if self.matcher.config.length_tiebreak {
-            length_key(candidate)
-        } else {
-            0
-        };
+        let tiebreak = length_key(candidate);
 
         let Some(limit) = self.limit else {
             self.all.push(Ranked {
@@ -199,8 +191,7 @@ impl Ranking<'_> {
     }
 }
 
-/// Orders by descending score, then by the tiebreak, which is zero for every entry when the length tiebreak is off.
-/// Stable, so entries equal on both keep their position order.
+/// Orders by descending score, then by the tiebreak. Stable, so entries equal on both keep their position order.
 fn sort_ranked(ranked: &mut [Ranked]) {
     ranked.sort_by(|a, b| {
         b.score
@@ -209,7 +200,7 @@ fn sort_ranked(ranked: &mut [Ranked]) {
     });
 }
 
-/// A configured scorer that ranks candidates against a query.
+/// A scorer that ranks candidates against a query.
 ///
 /// The matcher owns the scratch buffers the alignment reuses, so ranking a list allocates once rather than once per
 /// candidate. Build one per query and rank a whole list with it; building one per candidate defeats the reuse it
@@ -221,61 +212,38 @@ fn sort_ranked(ranked: &mut [Ranked]) {
 /// # Examples
 ///
 /// ```
-/// use kartta_fuzz::{Config, Matcher};
+/// use kartta_fuzz::Matcher;
 ///
-/// let mut matcher = Matcher::new(Config::DEFAULT);
+/// let mut matcher = Matcher::new();
 /// let ranked = matcher.rank(["main/lib.rs", "src/main.rs"], "main", None);
 ///
 /// // The filename hit outranks the directory hit.
 /// assert_eq!(ranked[0].candidate, "src/main.rs");
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Matcher {
-    config: Config,
-    classes: Classes,
     scorer: Scorer,
     terms: Vec<Term>,
 }
 
-impl Default for Matcher {
-    fn default() -> Self {
-        Self::new(Config::DEFAULT)
-    }
-}
-
 impl Matcher {
-    /// Builds a matcher with the given configuration.
-    ///
-    /// The configuration is resolved into lookup tables here, so this is the one place that pays for it — another
-    /// reason to build a matcher per query rather than per candidate.
+    /// Builds a matcher.
     #[must_use]
-    pub fn new(config: Config) -> Self {
-        Self {
-            classes: Classes::new(&config),
-            config,
-            scorer: Scorer::default(),
-            terms: Vec::new(),
-        }
-    }
-
-    /// The configuration in force.
-    #[must_use]
-    pub const fn config(&self) -> &Config {
-        &self.config
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Ranks `candidates` against `query`, best first, keeping only those that match every term.
     ///
-    /// Equal scores break by shorter candidate when [`Config::length_tiebreak`] is set, and then always by input
-    /// order — the sort is stable, so an unchanged input ranks identically every time. `limit` caps the returned
-    /// list; `None` returns every match.
+    /// Equal scores break by shorter candidate, and then by input order — the sort is stable, so an unchanged input
+    /// ranks identically every time. `limit` caps the returned list; `None` returns every match.
     ///
     /// # Examples
     ///
     /// ```
-    /// use kartta_fuzz::{Config, Matcher};
+    /// use kartta_fuzz::Matcher;
     ///
-    /// let mut matcher = Matcher::new(Config::DEFAULT);
+    /// let mut matcher = Matcher::new();
     /// let paths = ["src/auth/handler.go", "src/api/handler.go"];
     ///
     /// // Both terms must match, so only the auth path survives.
@@ -316,7 +284,7 @@ impl Matcher {
                     .map(|score| Match { candidate, score })
             })
             .collect();
-        self.sort(&mut scored);
+        Self::sort(&mut scored);
         scored
     }
 
@@ -324,18 +292,18 @@ impl Matcher {
     /// whole list.
     ///
     /// `rankings` holds one [`Matcher::rank`] result per slice, in the order the slices occur in the list, each ranked
-    /// with this configuration, this `query` and this `limit`. That is what lets a long list be ranked slice by slice
-    /// on several threads: ties break by input order, and the slices arrive in it.
+    /// with this `query` and this `limit`. That is what lets a long list be ranked slice by slice on several threads:
+    /// ties break by input order, and the slices arrive in it.
     ///
     /// # Examples
     ///
     /// ```
-    /// use kartta_fuzz::{Config, Matcher};
+    /// use kartta_fuzz::Matcher;
     /// # use std::num::NonZeroUsize;
     ///
     /// let paths = ["main/lib.rs", "src/main.rs", "docs/main.md", "src/lib.rs"];
     /// let limit = NonZeroUsize::new(2);
-    /// let mut matcher = Matcher::new(Config::DEFAULT);
+    /// let mut matcher = Matcher::new();
     ///
     /// let whole = matcher.rank(paths, "main", limit);
     /// let halves = [
@@ -343,11 +311,10 @@ impl Matcher {
     ///     matcher.rank(paths[2..].iter().copied(), "main", limit),
     /// ];
     ///
-    /// assert_eq!(matcher.merge(halves, "main", limit), whole);
+    /// assert_eq!(Matcher::merge(halves, "main", limit), whole);
     /// ```
     #[must_use]
     pub fn merge<'a>(
-        &self,
         rankings: impl IntoIterator<Item = Vec<Match<'a>>>,
         query: &str,
         limit: Option<NonZeroUsize>,
@@ -356,7 +323,7 @@ impl Matcher {
 
         let ranked_by_score = query.split_whitespace().next().is_some();
         if ranked_by_score {
-            self.sort(&mut merged);
+            Self::sort(&mut merged);
         }
 
         if let Some(limit) = limit {
@@ -376,7 +343,6 @@ impl Matcher {
         limit: NonZeroUsize,
     ) -> Vec<Match<'a>> {
         let limit = limit.get();
-        let length_tiebreak = self.config.length_tiebreak;
         let candidates = candidates.into_iter();
 
         // A limit is a cap on what comes back, not a promise that much exists. Reserving against it alone lets a
@@ -392,11 +358,7 @@ impl Matcher {
             let entry = HeapEntry {
                 item: candidate,
                 score,
-                tiebreak: if length_tiebreak {
-                    length_key(candidate)
-                } else {
-                    0
-                },
+                tiebreak: length_key(candidate),
                 index,
             };
 
@@ -435,9 +397,9 @@ impl Matcher {
 
     /// [`Matcher::merge`] for rankings built with [`Matcher::ranking`], over consecutive slices of one candidate list.
     ///
-    /// `rankings` holds one ranking per slice, in the order the slices occur in the list, each built by a matcher of one
-    /// configuration with this `query` and this `limit`. Nothing here can check that: a ranking built otherwise merges
-    /// into an order no single ranking of the list would give.
+    /// `rankings` holds one ranking per slice, in the order the slices occur in the list, each built with this `query`
+    /// and this `limit`. Nothing here can check that: a ranking built otherwise merges into an order no single ranking
+    /// of the list would give.
     ///
     /// Merging is associative: a merge of consecutive rankings is itself a ranking of their slices put together, so
     /// rankings can be merged in any grouping that keeps their order — pairwise as parallel tasks finish, say — and
@@ -468,9 +430,9 @@ impl Matcher {
     /// # Examples
     ///
     /// ```
-    /// use kartta_fuzz::{Config, Matcher};
+    /// use kartta_fuzz::Matcher;
     ///
-    /// let mut matcher = Matcher::new(Config::DEFAULT);
+    /// let mut matcher = Matcher::new();
     /// assert!(matcher.score("src/main.rs", "main").is_some());
     /// assert_eq!(matcher.score("src/lib.rs", "main"), None);
     /// ```
@@ -512,7 +474,7 @@ impl Matcher {
             return None;
         }
 
-        self.scorer.prepare(candidate, &self.classes);
+        self.scorer.prepare(candidate);
 
         // Every term is a known subsequence; the prefilter just proved it.
         //
@@ -532,18 +494,14 @@ impl Matcher {
         Some(band.confine(total))
     }
 
-    /// Orders by descending score, then by the configured tiebreak. `sort_by` is stable, so candidates equal on every
-    /// key keep their input position.
-    fn sort(&self, matches: &mut [Match<'_>]) {
-        if self.config.length_tiebreak {
-            matches.sort_by(|a, b| {
-                b.score
-                    .cmp(&a.score)
-                    .then_with(|| a.candidate.len().cmp(&b.candidate.len()))
-            });
-        } else {
-            matches.sort_by_key(|m| Reverse(m.score));
-        }
+    /// Orders by descending score, then by length. `sort_by` is stable, so candidates equal on every key keep their
+    /// input position.
+    fn sort(matches: &mut [Match<'_>]) {
+        matches.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| a.candidate.len().cmp(&b.candidate.len()))
+        });
     }
 }
 

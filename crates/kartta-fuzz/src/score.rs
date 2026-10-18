@@ -4,7 +4,7 @@
 //! both ASCII, and as characters otherwise. The alignment itself is written once, generic over the symbol type and
 //! the comparison, so the two representations cannot drift apart.
 
-use crate::class::{Class, Classes, MAX_BOUNDARY};
+use crate::class::{Class, MAX_BOUNDARY, boundary_bonus, class_of};
 
 const CONSECUTIVE: i32 = 1_000;
 const BASENAME: i32 = 150;
@@ -467,7 +467,7 @@ impl Scorer {
     ///
     /// Position 0 always earns the segment bonus: the start of a candidate is the start of a segment, which
     /// is why the virtual predecessor of position 0 is [`Class::SegmentSeparator`].
-    pub(crate) fn prepare(&mut self, candidate: &str, classes: &Classes) {
+    pub(crate) fn prepare(&mut self, candidate: &str) {
         // An over-long candidate is scored from its length alone, so nothing here is sized to it and
         // nothing reads more of it than that answer needs. Byte length bounds character length for free, so only a
         // candidate long in bytes is scanned at all, and that scan stops once the answer is fixed — otherwise one
@@ -491,9 +491,9 @@ impl Scorer {
         };
 
         self.basename_start = if self.prepared_as_bytes {
-            self.prepare_bytes(candidate, classes)
+            self.prepare_bytes(candidate)
         } else {
-            self.prepare_chars(candidate, classes)
+            self.prepare_chars(candidate)
         };
     }
 
@@ -501,7 +501,7 @@ impl Scorer {
     ///
     /// The buffers are sized once and then written through zipped iterators. Pushing instead would re-check capacity
     /// on every byte, and the loop carries a dependency on the previous class, so nothing else recovers that.
-    fn prepare_bytes(&mut self, candidate: &str, classes: &Classes) -> usize {
+    fn prepare_bytes(&mut self, candidate: &str) -> usize {
         let source = candidate.as_bytes();
         self.bonus.resize(source.len(), 0);
         self.bytes.resize(source.len(), 0);
@@ -511,8 +511,8 @@ impl Scorer {
 
         let cells = self.bonus.iter_mut().zip(self.bytes.iter_mut());
         for (j, ((bonus, out), &byte)) in cells.zip(source.iter()).enumerate() {
-            let class = classes.class_of(char::from(byte));
-            *bonus = classes.bonus(prev, class);
+            let class = class_of(char::from(byte));
+            *bonus = boundary_bonus(prev, class);
             *out = byte.to_ascii_lowercase();
             if class == Class::SegmentSeparator {
                 basename_start = j + 1;
@@ -527,7 +527,7 @@ impl Scorer {
     ///
     /// The character count is not known without a pass of its own, so this path pushes. It is the rare one — a
     /// candidate or query holding a non-ASCII character.
-    fn prepare_chars(&mut self, candidate: &str, classes: &Classes) -> usize {
+    fn prepare_chars(&mut self, candidate: &str) -> usize {
         self.bonus.clear();
         self.chars.clear();
 
@@ -535,8 +535,8 @@ impl Scorer {
         let mut basename_start = 0;
 
         for (j, c) in candidate.chars().enumerate() {
-            let class = classes.class_of(c);
-            self.bonus.push(classes.bonus(prev, class));
+            let class = class_of(c);
+            self.bonus.push(boundary_bonus(prev, class));
             self.chars.push(c);
             if class == Class::SegmentSeparator {
                 basename_start = j + 1;
@@ -595,23 +595,21 @@ impl Scorer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
 
-    /// Scores `term` against `candidate` twice — once as bytes, once as characters — under the default weights.
+    /// Scores `term` against `candidate` twice — once as bytes, once as characters.
     ///
     /// The ASCII fast path exists only to be faster, so the two representations must return the same score for input
     /// both can handle. Nothing else in the suite would notice them drifting apart.
     fn both_representations(candidate: &str, term: &str) -> (i32, i32) {
-        let classes = Classes::new(&Config::DEFAULT);
         let term = Term::new(term);
 
         let mut as_bytes = Scorer::default();
         as_bytes.begin(Representation::Bytes, term.chars.len());
-        as_bytes.prepare(candidate, &classes);
+        as_bytes.prepare(candidate);
 
         let mut as_chars = Scorer::default();
         as_chars.begin(Representation::Chars, term.chars.len());
-        as_chars.prepare(candidate, &classes);
+        as_chars.prepare(candidate);
 
         (as_bytes.score_matched(&term), as_chars.score_matched(&term))
     }
@@ -647,13 +645,12 @@ mod tests {
 
     /// Scores `term` against a prepared candidate with and without the window.
     fn narrowed_and_unnarrowed(candidate: &str, term: &str) -> (i32, i32, bool) {
-        let classes = Classes::new(&Config::DEFAULT);
         let term = Term::new(term);
         let bytes = term.bytes.as_deref().unwrap_or_default();
 
         let mut scorer = Scorer::default();
         scorer.begin(Representation::Bytes, term.chars.len());
-        scorer.prepare(candidate, &classes);
+        scorer.prepare(candidate);
 
         let build = || Alignment {
             candidate: &scorer.bytes,
@@ -800,7 +797,6 @@ mod tests {
         term: &str,
         rows: &mut Rows,
     ) -> usize {
-        let classes = Classes::new(&Config::DEFAULT);
         let term = Term::new(term);
         let Some(symbols) = term.bytes.as_deref().filter(|b| b.len() >= 2) else {
             return 0;
@@ -808,7 +804,7 @@ mod tests {
 
         let mut scorer = Scorer::default();
         scorer.begin(Representation::Bytes, symbols.len());
-        scorer.prepare(candidate, &classes);
+        scorer.prepare(candidate);
         if scorer.bytes.len() <= symbols.len() {
             return 0;
         }
@@ -868,8 +864,6 @@ mod tests {
     fn the_single_symbol_path_agrees_with_the_row_machinery() {
         // `run_rows` handles one symbol perfectly well; `run_single` only exists to do it without the arrays, so the
         // two must not disagree.
-        let config = Config::DEFAULT;
-        let classes = Classes::new(&config);
         let mut rows = Rows::default();
 
         for (candidate, term) in generated_cases() {
@@ -880,7 +874,7 @@ mod tests {
 
             let mut scorer = Scorer::default();
             scorer.begin(Representation::Bytes, term.len());
-            scorer.prepare(&candidate, &classes);
+            scorer.prepare(&candidate);
 
             let build = || Alignment {
                 candidate: &scorer.bytes,
