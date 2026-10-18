@@ -7,7 +7,7 @@ use std::{io, iter};
 
 use notify::{Config, EventKindMask, RecommendedWatcher, RecursiveMode, Watcher as _};
 
-use super::{Found, WatchError};
+use super::{Found, WatchError, start_error};
 use crate::index::Index;
 
 // constraint: notifications wait here while the caller refreshes, so they are bounded; past this many the batch is lost,
@@ -93,12 +93,5 @@ impl Backend {
     )]
     pub(super) const fn cover(&self, _index: &Index, _found: &mut Found) -> Result<(), WatchError> {
         Ok(())
-    }
-}
-
-fn start_error(path: &Path, error: notify::Error) -> WatchError {
-    WatchError::Start {
-        native_path: path.to_path_buf(),
-        source: Box::new(error),
     }
 }
