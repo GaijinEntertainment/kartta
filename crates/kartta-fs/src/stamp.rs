@@ -1,5 +1,3 @@
-//! What a refresh compares to tell a file it can carry over from one it must read again.
-
 use std::fs::Metadata;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
