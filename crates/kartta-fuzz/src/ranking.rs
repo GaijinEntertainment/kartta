@@ -55,12 +55,18 @@ pub struct Ranked {
     tiebreak: u32,
 }
 
-impl Ord for Ranked {
-    fn cmp(&self, other: &Self) -> Ordering {
+impl Ranked {
+    fn cmp_ignoring_position(&self, other: &Self) -> Ordering {
         other
             .score
             .cmp(&self.score)
             .then_with(|| self.tiebreak.cmp(&other.tiebreak))
+    }
+}
+
+impl Ord for Ranked {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.cmp_ignoring_position(other)
             .then_with(|| self.position.cmp(&other.position))
     }
 }
@@ -170,7 +176,9 @@ impl Ranking {
         }
 
         let mut all = self.all;
-        all.sort();
+        // constraint: positions rise in offer order, so a stable sort that skips them orders as the full key does, with
+        // fewer comparisons on the ties an unbounded ranking is full of
+        all.sort_by(Ranked::cmp_ignoring_position);
         all
     }
 
@@ -193,7 +201,7 @@ impl Ranking {
         let mut merged: Vec<Ranked> = rankings.into_iter().flatten().collect();
 
         if query.split_whitespace().next().is_some() {
-            merged.sort();
+            merged.sort_by(Ranked::cmp_ignoring_position);
         }
 
         if let Some(limit) = limit {
