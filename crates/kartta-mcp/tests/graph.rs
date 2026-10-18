@@ -15,7 +15,7 @@ use std::fmt::Write;
 
 use serde_json::{Value, json};
 
-use common::{Client, go_module, tree};
+use common::{Client, go_module, rooted, tree};
 
 const NOT_HELD: &str = "not in a code graph - an unrecognized extension, a language not indexed, or a path the \
                         index does not hold: pass a repo-relative path as printed by find_files";
@@ -687,6 +687,45 @@ fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
                 "searches no graph; omit languages to search every indexed language</unused>",
             )
             .to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn index_stats_counts_how_the_calls_bind_when_asked_for_coverage() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/lib\n\ngo 1.22\n"),
+        (
+            "run.go",
+            "package lib\n\nimport \"fmt\"\n\nfunc Run() {\n\tfmt.Println(\"x\")\n\thelper()\n\tmissing()\n}\n",
+        ),
+        ("helper.go", "package lib\n\nfunc helper() {}\n"),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let root = tree.path();
+    let index = r#"<index root="<root>" files="3" gitignore="respected" symbols="2" calls="3">"#;
+    let language = r#"<language name="go" files="2" symbols="2" calls="3" uses="0" includes="0"/>"#;
+    assert_eq!(
+        [
+            rooted(&client.answer("index_stats", &json!({})), root),
+            rooted(
+                &client.answer("index_stats", &json!({"coverage": true})),
+                root
+            ),
+        ],
+        [
+            lines(&[index, language, "</index>"]),
+            lines(&[
+                index,
+                language,
+                concat!(
+                    r#"<coverage lang="go" sites="3" bound="1" likely="1" edges="1" external_import="1" "#,
+                    r#"undefined="1"/>"#,
+                ),
+                "</index>",
+            ]),
         ]
     );
 }

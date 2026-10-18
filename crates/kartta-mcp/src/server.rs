@@ -19,7 +19,7 @@ use crate::params::{
     CallerRole, FileParams, FindCallPathParams, FindCalleesParams, FindCallersParams,
     FindFilesParams, FindImplementationsParams, FindReferencesParams, FindSymbolsParams,
     FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams, ImpactOfEditParams,
-    IndexRepoParams, ListDirParams, ReadDefinitionsParams,
+    IndexRepoParams, IndexStatsParams, ListDirParams, ReadDefinitionsParams,
 };
 use crate::render::{
     self, CallersAsk, Found, Globbed, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion,
@@ -239,7 +239,7 @@ impl Server {
             .map_err(|_| "the build stopped before it answered".to_owned())?
             .clone();
         let indexed = built.ok_or_else(|| "the build answered nothing".to_owned())??;
-        Ok(render::index(&indexed))
+        Ok(render::index(&indexed, &[]))
     }
 
     #[tool(
@@ -250,16 +250,32 @@ impl Server {
                        languages are present (the valid 'languages' values for the symbol tools), to gauge how much \
                        code each language has, to tell a genuinely empty answer from missing coverage, or to check \
                        whether a repository is indexed at all. While a build runs it answers status=\"building\" \
-                       with the seconds so far. Returns the same <index> envelope index_repo produced. Takes no \
-                       arguments."
+                       with the seconds so far. Returns the same <index> envelope index_repo produced. With \
+                       coverage=true it also resolves every call site and adds one <coverage/> record per language: \
+                       sites, bound (split into certain / likely / guess, the confidence marks of the call tools), \
+                       edges (distinct caller-callee pairs), and why the other sites bound no definition, each only \
+                       when it is not zero - external_import (through an import of a module outside the repository), \
+                       not_exported, undefined (a builtin or code outside the graph), not_admitted, ambiguous (several \
+                       candidates, none nearer), and through_receiver (of the undefined and not admitted, calls on a \
+                       value of a type the graph does not define). Use it to tell \"no callers\" from a language whose \
+                       calls the graph binds poorly. coverage resolves every call in the repository, about half a \
+                       second on a large one, each time it is asked."
     )]
-    async fn index_stats(&self) -> Result<String, String> {
+    async fn index_stats(
+        &self,
+        Parameters(p): Parameters<IndexStatsParams>,
+    ) -> Result<String, String> {
         match self.slot.status() {
             Status::Building { root, elapsed } => Ok(render::building(&root, elapsed)),
-            Status::Ready(indexed) => Ok(render::index(&indexed)),
-            Status::Empty | Status::Failed { .. } => {
-                self.slot.current().map(|indexed| render::index(&indexed))
+            Status::Ready(indexed) if !p.coverage => Ok(render::index(&indexed, &[])),
+            Status::Ready(_) => {
+                self.answer(|indexed| Ok(render::index(indexed, &indexed.engine.resolution(0))))
+                    .await
             }
+            Status::Empty | Status::Failed { .. } => self
+                .slot
+                .current()
+                .map(|indexed| render::index(&indexed, &[])),
         }
     }
 
