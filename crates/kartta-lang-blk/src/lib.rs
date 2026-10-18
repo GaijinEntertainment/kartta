@@ -52,8 +52,6 @@
 //! assert_eq!(paths, ["common.blk", "#/develop/gun.blk"]);
 //! ```
 
-use std::sync::OnceLock;
-
 use kartta_lang::path::base;
 use kartta_lang::{Language, RawExtraction, Repository, Resolver};
 
@@ -90,15 +88,7 @@ impl Language for Blk {
     }
 
     fn fingerprint(&self) -> &[u8] {
-        static FINGERPRINT: OnceLock<Vec<u8>> = OnceLock::new();
-
-        FINGERPRINT.get_or_init(|| {
-            kartta_lang::tree::fingerprint(
-                env!("SOURCE_ID"),
-                &grammar(),
-                tree_sitter_blk::NODE_TYPES,
-            )
-        })
+        kartta_lang::tree_sitter_fingerprint!(grammar(), tree_sitter_blk::NODE_TYPES)
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {
