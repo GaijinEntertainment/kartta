@@ -3,7 +3,7 @@ use hashbrown::HashSet;
 
 use kartta_lang::SymbolKind;
 
-use crate::graph::{Definition, Graph, QUALIFIER_SEPARATORS};
+use crate::graph::{Definition, Graph, QUALIFIER_SEPARATORS, distinct, last_segment};
 use crate::resolve::{Cascade, is_type_kind};
 use crate::scope::is_type;
 use crate::stored::{Parent, SymbolAt};
@@ -169,15 +169,9 @@ impl Types<'_> {
         if others.is_empty() {
             return Some((first, None));
         }
-        let distinct = |ty: SymbolAt| {
-            let mut implementors = self.implementors_of(ty);
-            implementors.sort_unstable();
-            implementors.dedup();
-            implementors
-        };
-        let mut best = (first, distinct(first));
+        let mut best = (first, distinct(self.implementors_of(first)));
         for &at in others {
-            let implementors = distinct(at);
+            let implementors = distinct(self.implementors_of(at));
             if implementors.len() > best.1.len() {
                 best = (at, implementors);
             }
@@ -186,14 +180,11 @@ impl Types<'_> {
     }
 
     fn passed_over(&self, name: &str, chosen: SymbolAt) -> usize {
-        let mut others: Vec<SymbolAt> = self
+        let others = self
             .graph
             .selected(name)
-            .filter(|&at| at != chosen && self.is_type_at(at))
-            .collect();
-        others.sort_unstable();
-        others.dedup();
-        others.len()
+            .filter(|&at| at != chosen && self.is_type_at(at));
+        distinct(others).len()
     }
 
     fn implementors_of(&self, ty: SymbolAt) -> Vec<SymbolAt> {
@@ -273,14 +264,15 @@ impl Types<'_> {
         let Some(separator) = self.cascade.conventions.scope_separator else {
             return nearest_spelled();
         };
-        let strings = &self.graph.strings;
-        let symbol = self.graph.sym(child);
-        let enclosing = strings
-            .resolve(symbol.qualified_name)
-            .strip_suffix(strings.resolve(symbol.name))
-            .and_then(|chain| chain.strip_suffix(separator))
+        let enclosing = self
+            .graph
+            .enclosing_scope(child, separator)
             .unwrap_or_default();
-        let qualified = |at: SymbolAt| strings.resolve(self.graph.sym(at).qualified_name);
+        let qualified = |at: SymbolAt| {
+            self.graph
+                .strings
+                .resolve(self.graph.sym(at).qualified_name)
+        };
         let depth = |at: SymbolAt| lookup_depth(qualified(at), enclosing, written, separator);
         let reached = self
             .graph
@@ -317,11 +309,9 @@ impl Types<'_> {
             .strings
             .resolve(type_name)
             .trim_start_matches(QUALIFIER_SEPARATORS);
-        let last = written
-            .rsplit(QUALIFIER_SEPARATORS)
-            .next()
-            .unwrap_or(written);
-        let named = self.graph.named(self.graph.strings.get(last)?);
+        let named = self
+            .graph
+            .named(self.graph.strings.get(last_segment(written))?);
         let mut types = named.iter().copied().filter(|&at| {
             is_type_kind(self.graph.sym(at).kind) && self.file_names(file, type_name, at)
         });
@@ -350,25 +340,13 @@ impl Types<'_> {
         if ty.file == file {
             return true;
         }
-        let closure = self.cascade.closure(file);
-        let dir = self.graph.file(file).dir;
-        let scope = |at: SymbolAt| {
-            if at.file == file {
-                0
-            } else if closure.binary_search(&at.file).is_ok() {
-                1
-            } else if self.graph.file(at.file).dir == dir {
-                2
-            } else {
-                3
-            }
-        };
-        let reach = scope(ty);
+        let distance = self.cascade.distance_from(file);
+        let reach = distance(ty);
         !self
             .graph
             .named(self.graph.sym(ty).name)
             .iter()
-            .any(|&at| self.is_type_at(at) && scope(at) < reach && self.is_spelled(at, spelling))
+            .any(|&at| self.is_type_at(at) && distance(at) < reach && self.is_spelled(at, spelling))
     }
 
     fn is_spelled(&self, at: SymbolAt, spelling: Spelling<'_>) -> bool {

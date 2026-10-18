@@ -1,12 +1,10 @@
-use std::hash::Hash;
-
 use foldhash::fast::FixedState;
 use hashbrown::HashMap;
 use kartta_lang::{CallableRole, SymbolKind, TypeUses};
 
 use crate::calls::Calls;
 use crate::confidence;
-use crate::graph::{Definition, Graph, narrow};
+use crate::graph::{Definition, Graph, agree, narrow};
 use crate::implementations::Types;
 use crate::resolve::is_type_kind;
 use crate::stored::SymbolAt;
@@ -162,13 +160,13 @@ impl Alternatives {
         for &(far, confidence) in edges {
             match confidence {
                 confidence::QUALIFIED | confidence::QUALIFIED_TAIL | confidence::RECEIVER => {
-                    reach(&mut self.anywhere, qualified, far);
+                    agree(&mut self.anywhere, qualified, Some(far));
                 }
                 confidence::IMPORT | confidence::PACKAGE => {
-                    reach(&mut self.in_dir, (qualified, dir), far);
+                    agree(&mut self.in_dir, (qualified, dir), Some(far));
                 }
                 confidence::SAME_FILE | confidence::INCLUDE | confidence::RE_EXPORT => {
-                    reach(&mut self.in_file, (qualified, file), far);
+                    agree(&mut self.in_file, (qualified, file), Some(far));
                 }
                 _ => {}
             }
@@ -186,17 +184,6 @@ fn is_own(graph: &Graph, at: SymbolAt, far: SymbolAt) -> bool {
                 .sym(far)
                 .owner
                 .is_some_and(|owner| owner == symbol.name || owner == symbol.qualified_name))
-}
-
-fn reach<K: Eq + Hash>(reached: &mut HashMap<K, Caller, FixedState>, key: K, far: SymbolAt) {
-    reached
-        .entry(key)
-        .and_modify(|held| {
-            if *held != Some(far) {
-                *held = None;
-            }
-        })
-        .or_insert(Some(far));
 }
 
 impl Judge<'_, '_> {

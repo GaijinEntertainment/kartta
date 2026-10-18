@@ -1,7 +1,7 @@
 use foldhash::fast::FixedState;
 use hashbrown::HashSet;
 
-use crate::graph::Graph;
+use crate::graph::{Graph, keep_first};
 
 /// A file that includes another, directly or through files that include it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -62,7 +62,11 @@ impl Graph {
                 0 => usize::MAX,
                 cap => cap - dependents.found.len(),
             };
-            self.keep_nearest(&mut next, room);
+            let by_path = |&slot: &u32| self.path_rank(slot);
+            keep_first(&mut next, room, |left, right| {
+                by_path(left).cmp(&by_path(right))
+            });
+            next.sort_unstable_by_key(by_path);
             dependents.found.extend(next.iter().map(|&slot| Dependent {
                 file: self.strings.resolve(self.file(slot).path),
                 depth: at_depth,
@@ -77,16 +81,5 @@ impl Graph {
         }
         dependents.unexpanded = level.len();
         Some(dependents)
-    }
-
-    fn keep_nearest(&self, slots: &mut Vec<u32>, room: usize) {
-        let by_path = |&slot: &u32| self.path_rank(slot);
-        if room < slots.len() {
-            if let Some(last) = room.checked_sub(1) {
-                slots.select_nth_unstable_by_key(last, by_path);
-            }
-            slots.truncate(room);
-        }
-        slots.sort_unstable_by_key(by_path);
     }
 }

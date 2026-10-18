@@ -11,7 +11,7 @@ use kartta_lang::{
 
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
 use crate::confidence;
-use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind};
+use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind, last_segment};
 use crate::members::DataNamed;
 use crate::resolution::Miss;
 use crate::scope::{Ancestors, Reach, Scoped, is_value};
@@ -197,11 +197,7 @@ impl<'g> Cascade<'g> {
     }
 
     pub(crate) fn qualified_as(&self, qualified: Str) -> impl Iterator<Item = SymbolAt> + '_ {
-        let written = self.graph.strings.resolve(qualified);
-        let last = written
-            .rsplit(QUALIFIER_SEPARATORS)
-            .next()
-            .unwrap_or(written);
+        let last = last_segment(self.graph.strings.resolve(qualified));
         let tail = self
             .graph
             .strings
@@ -513,7 +509,8 @@ impl<'g> Cascade<'g> {
             && let Some(receiver) = call.receiver
             && !self.graph.strings.resolve(receiver).is_empty()
         {
-            return match self.typed_member(call, receiver) {
+            let binds = |kind| self.is_call_target(kind);
+            return match self.typed_member((call.file, receiver), call.callee, binds) {
                 Typed::Member(at) => Ok((at, confidence::RECEIVER)),
                 Typed::Imported => Err(Miss::ExternalImport),
                 Typed::Undeclared => Err(Miss::Undefined),
@@ -850,7 +847,8 @@ impl<'g> Cascade<'g> {
         if let Some(path) = path
             && self.reads_type_paths()
         {
-            match self.typed_use(site.file, path, name) {
+            // constraint: a member taken without a call is a field or a method value, so every member kind binds
+            match self.typed_member((site.file, path), name, |_| true) {
                 Typed::Member(at) => return Ok((at, confidence::RECEIVER)),
                 Typed::Imported | Typed::Undeclared | Typed::NoMethod => {
                     return Err(UseMiss::Elsewhere);
