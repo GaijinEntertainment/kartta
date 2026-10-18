@@ -14,6 +14,13 @@
 //! by the module alone, is no member of a class around that function, and is local to the function's body. A decorated
 //! definition starts at its first decorator. A name that starts with `_` is not exported.
 //!
+//! Inside a definition, each read, write (`=`) and update (`+=`) of an attribute or a module-level value is a data
+//! site. An attribute on a method's first parameter is a member of the class around the method; on a name no function
+//! around it binds, a class or a module, a member of that owner; on anything else a member of a value of no known
+//! type. A name that no function around it binds, or that a `global` declaration gives the module, uses the module's
+//! name wherever the module binds it, by an import, an assignment, a `def` or a `class`, since a body runs once the
+//! module has bound its names.
+//!
 //! A call records its callee and, for a member call, its receiver: `self.greet()` records `greet` on `self`, and a
 //! member call on anything but a name, `items[0].close()`, records the empty receiver. A call is attributed to the
 //! function around it, one in a class body included. A call before the first definition of the file is dropped.
@@ -71,7 +78,7 @@ use std::sync::OnceLock;
 
 use kartta_lang::path::base;
 use kartta_lang::{
-    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
+    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver, ValueUses,
 };
 use tree_sitter::{Parser, Tree};
 
@@ -127,6 +134,7 @@ impl Language for Python {
         conventions.own_members = OwnMembers::Unreached;
         conventions.owner_chain_separator = Some(".");
         conventions.runtime_methods = runtime::METHODS;
+        conventions.value_uses = ValueUses::Imported;
 
         conventions
     }

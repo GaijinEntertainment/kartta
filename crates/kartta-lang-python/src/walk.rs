@@ -1,6 +1,9 @@
-use std::collections::HashSet;
+mod uses;
+
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
+use self::uses::NameUse;
 use kartta_lang::tree::{children, named_children, preorder, signature, text};
 use kartta_lang::{
     CallRef, LocalCall, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
@@ -26,6 +29,8 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         receivers: Vec::new(),
         attributes: Vec::new(),
         members: HashSet::new(),
+        module_names: HashMap::new(),
+        module_uses: Vec::new(),
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
         raw: RawExtraction::default(),
     };
@@ -37,6 +42,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         true
     });
     emitter.close_frames(usize::MAX);
+    emitter.record_module_uses();
 
     emitter.raw
 }
@@ -51,6 +57,7 @@ enum FrameKind {
 #[derive(Clone, Copy)]
 enum Binding {
     Module,
+    Imported,
     Enclosing,
     Definition(SymbolId),
     Value,
@@ -61,7 +68,7 @@ impl Binding {
     // binding of the name there
     const fn strength(self) -> u8 {
         match self {
-            Self::Module => 3,
+            Self::Module | Self::Imported => 3,
             Self::Enclosing => 2,
             Self::Definition(_) => 1,
             Self::Value => 0,
@@ -85,6 +92,7 @@ struct Frame<'a> {
     outside: Range<usize>,
     bindings: Vec<(&'a [u8], Binding)>,
     calls: Vec<BareCall<'a>>,
+    uses: Vec<NameUse<'a>>,
 }
 
 impl Frame<'_> {
@@ -124,6 +132,9 @@ struct Emitter<'a> {
     /// Each member a class declares, by where the class starts and the member's name, since two classes local to two
     /// functions can share a qualified name.
     members: HashSet<(usize, String)>,
+    /// The names the module binds, each with what binds it.
+    module_names: HashMap<&'a [u8], Binding>,
+    module_uses: Vec<NameUse<'a>>,
     flags: SymbolFlags,
     raw: RawExtraction,
 }
@@ -170,6 +181,8 @@ impl<'a> Emitter<'a> {
             "global_statement" => self.bind(node, Binding::Module),
             "nonlocal_statement" => self.bind(node, Binding::Enclosing),
             "call" => self.call(node, caller),
+            "attribute" => self.attribute_use(node, caller),
+            IDENTIFIER => self.name_use(node, caller),
             "assignment" => {
                 self.bind_field(node, "left");
                 self.assignment(node);
@@ -205,6 +218,7 @@ impl<'a> Emitter<'a> {
             outside,
             bindings: Vec::new(),
             calls: Vec::new(),
+            uses: Vec::new(),
         });
     }
 
@@ -230,12 +244,14 @@ impl<'a> Emitter<'a> {
             kind,
             bindings,
             calls,
+            uses,
             ..
         }: Frame<'a>,
     ) {
         if kind == FrameKind::Class {
             self.declare_attributes(end);
         }
+        self.settle_uses(&bindings, uses);
         for call in calls {
             let binding = bindings
                 .iter()
@@ -250,7 +266,9 @@ impl<'a> Emitter<'a> {
                         line: call.line,
                     });
                 }
-                Some(Binding::Definition(_) | Binding::Module) => self.push_call(&call),
+                Some(Binding::Definition(_) | Binding::Module | Binding::Imported) => {
+                    self.push_call(&call);
+                }
                 Some(Binding::Value) => {}
                 Some(Binding::Enclosing) | None => match self.scope_frame(call.at) {
                     Some(outer) => outer.calls.push(call),
@@ -329,7 +347,7 @@ impl<'a> Emitter<'a> {
                 _ => None,
             };
             if let Some(bound) = bound {
-                self.bind(bound, Binding::Module);
+                self.bind(bound, Binding::Imported);
             }
         }
     }
@@ -338,10 +356,11 @@ impl<'a> Emitter<'a> {
     fn bind(&mut self, target: Node<'_>, binding: Binding) {
         match target.kind() {
             IDENTIFIER => {
+                let name = &self.source[target.byte_range()];
                 if let Some(frame) = self.frames.last_mut() {
-                    frame
-                        .bindings
-                        .push((&self.source[target.byte_range()], binding));
+                    frame.bindings.push((name, binding));
+                } else {
+                    self.module_names.insert(name, binding);
                 }
             }
             "default_parameter" | "typed_default_parameter" => {
