@@ -1,8 +1,7 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::iter;
 
-use kartta_lang::path::{base, dir, join};
+use kartta_lang::path::{base, dir, forward_slashes, join};
 use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
@@ -165,14 +164,6 @@ impl Resolver for QuirrelResolver<'_> {
         }
 
         extraction
-    }
-}
-
-fn forward_slashes(spec: &str) -> Cow<'_, str> {
-    if spec.contains('\\') {
-        Cow::Owned(spec.replace('\\', "/"))
-    } else {
-        Cow::Borrowed(spec)
     }
 }
 
