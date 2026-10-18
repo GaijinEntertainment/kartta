@@ -336,9 +336,7 @@ impl<'a> Indexing<'a> {
 
         Payload {
             kind,
-            target: (kind == EntryKind::Symlink)
-                .then(|| link_target(native_path))
-                .flatten(),
+            target: symlink_target(kind, || native_path),
             content,
         }
     }
@@ -753,16 +751,15 @@ fn feed_rest(
     Ok(())
 }
 
-fn read_target(entry: &Entry<'_>, kind: EntryKind) -> Option<Box<str>> {
+fn symlink_target<P: AsRef<Path>>(
+    kind: EntryKind,
+    native_path: impl FnOnce() -> P,
+) -> Option<Box<str>> {
     if kind != EntryKind::Symlink {
         return None;
     }
 
-    link_target(&entry.native_path())
-}
-
-fn link_target(native_path: &Path) -> Option<Box<str>> {
-    fs::read_link(native_path)
+    fs::read_link(native_path())
         .ok()?
         .into_os_string()
         .into_string()
@@ -878,7 +875,7 @@ impl Policy for Indexing<'_> {
 
         Visit::Keep(Payload {
             kind,
-            target: read_target(entry, kind),
+            target: symlink_target(kind, || entry.native_path()),
             content,
         })
     }
