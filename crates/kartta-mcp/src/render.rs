@@ -40,9 +40,10 @@ fn loc(file: &str, line: u32) -> String {
 }
 
 /// A definition's span, `file:start-end`, or `file:line` for one on a single line.
-fn span(file: &str, line: u32, end_line: u32) -> String {
-    if end_line > line {
-        format!("{file}:{line}-{end_line}")
+fn span(definition: &Definition<'_>) -> String {
+    let (file, line) = (definition.file, definition.line);
+    if definition.end_line > line {
+        format!("{file}:{line}-{}", definition.end_line)
     } else {
         loc(file, line)
     }
