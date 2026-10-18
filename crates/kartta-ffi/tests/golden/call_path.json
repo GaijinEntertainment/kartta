@@ -1,0 +1,84 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "at_depth_bound": 0,
+          "below_confidence": 0,
+          "found": true,
+          "from": {
+            "end_line": 5,
+            "exported": false,
+            "file": "go/main.go",
+            "flags": [
+              "entry"
+            ],
+            "kind": "func",
+            "line": 3,
+            "name": "main",
+            "qualified_name": "main.main",
+            "signature": "func main()"
+          },
+          "graph": "go",
+          "hops": [
+            {
+              "confidence": 75,
+              "depth": 0,
+              "line": 4,
+              "symbol": {
+                "end_line": 5,
+                "exported": false,
+                "file": "go/main.go",
+                "flags": [
+                  "entry"
+                ],
+                "kind": "func",
+                "line": 3,
+                "name": "main",
+                "qualified_name": "main.main",
+                "signature": "func main()"
+              }
+            },
+            {
+              "confidence": 80,
+              "depth": 1,
+              "line": 5,
+              "symbol": {
+                "end_line": 6,
+                "exported": false,
+                "file": "go/run.go",
+                "kind": "func",
+                "line": 4,
+                "name": "run",
+                "qualified_name": "main.run",
+                "signature": "func run()"
+              }
+            }
+          ],
+          "passed_over": {
+            "from": 0,
+            "to": 0
+          },
+          "to": {
+            "end_line": 8,
+            "exported": false,
+            "file": "go/run.go",
+            "kind": "func",
+            "line": 8,
+            "name": "helper",
+            "qualified_name": "main.helper",
+            "signature": "func helper()"
+          },
+          "truncated": false,
+          "turned_away": 0
+        }
+      ]
+    }
+  },
+  "method": "call_path",
+  "params": {
+    "from": "main",
+    "lang": "go",
+    "to": "helper"
+  }
+}

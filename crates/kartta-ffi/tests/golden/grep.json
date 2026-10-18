@@ -1,0 +1,80 @@
+{
+  "answer": {
+    "ok": {
+      "binary": 0,
+      "cancelled": false,
+      "candidates": 6,
+      "excluded": 0,
+      "failures": [],
+      "files": [
+        {
+          "lines": [
+            {
+              "kind": "context",
+              "number": 4,
+              "text": "func run() {"
+            },
+            {
+              "kind": "match",
+              "number": 5,
+              "text": "\thelper()"
+            },
+            {
+              "kind": "context",
+              "number": 6,
+              "text": "}"
+            },
+            {
+              "kind": "context",
+              "number": 7,
+              "text": ""
+            },
+            {
+              "kind": "match",
+              "number": 8,
+              "text": "func helper() {}"
+            },
+            {
+              "kind": "context",
+              "number": 9,
+              "text": ""
+            }
+          ],
+          "path": "go/run.go"
+        },
+        {
+          "lines": [
+            {
+              "kind": "context",
+              "number": 1,
+              "text": "The fixture tree the wire goldens ask about."
+            },
+            {
+              "kind": "match",
+              "number": 2,
+              "text": "A helper in go/run.go calls nothing."
+            }
+          ],
+          "path": "notes.txt"
+        }
+      ],
+      "lines": 3,
+      "oversized": 0,
+      "ruled_out": 4,
+      "searched": 2,
+      "symlinks": 0,
+      "total_files": 2,
+      "total_lines": 3,
+      "truncated": false,
+      "unsearched": 0
+    }
+  },
+  "method": "grep",
+  "params": {
+    "context": 1,
+    "count_all": true,
+    "patterns": [
+      "helper"
+    ]
+  }
+}

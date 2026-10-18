@@ -1,0 +1,47 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "below_confidence": 0,
+          "graph": "cpp",
+          "passed_over": 1,
+          "sites": [
+            {
+              "call": true,
+              "confidence": 80,
+              "line": 8,
+              "site_of": {
+                "end_line": 9,
+                "exported": true,
+                "file": "cpp/circle.cpp",
+                "kind": "func",
+                "line": 7,
+                "name": "total",
+                "qualified_name": "total",
+                "signature": "double total(const Circle &circle)"
+              }
+            }
+          ],
+          "symbol": {
+            "end_line": 5,
+            "exported": true,
+            "file": "cpp/circle.cpp",
+            "kind": "method",
+            "line": 3,
+            "name": "area",
+            "owner": "Circle",
+            "qualified_name": "Circle::area",
+            "signature": "double Circle::area() const"
+          },
+          "total": 1
+        }
+      ]
+    }
+  },
+  "method": "references",
+  "params": {
+    "lang": "cpp",
+    "name": "area"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "answer": {
+    "ok": {
+      "stopped": false
+    }
+  },
+  "method": "cancel",
+  "params": {}
+}

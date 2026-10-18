@@ -1,0 +1,17 @@
+{
+  "answer": {
+    "ok": {
+      "paths": [
+        "cpp/circle.h"
+      ],
+      "truncated": true
+    }
+  },
+  "method": "glob",
+  "params": {
+    "globs": [
+      "**/*.h"
+    ],
+    "limit": 1
+  }
+}

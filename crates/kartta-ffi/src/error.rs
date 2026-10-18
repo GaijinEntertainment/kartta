@@ -25,6 +25,14 @@ pub enum ErrorCode {
     BuildFailed,
     /// A cancel stopped the build, which leaves no index.
     BuildCancelled,
+    /// A glob the params gave does not parse; the message names it.
+    InvalidGlob,
+    /// A content search pattern does not compile; the message names it.
+    InvalidPattern,
+    /// Nothing is indexed at the path the params name, or a name on the way is one the build prunes.
+    NotFound,
+    /// The path the params name is indexed as something other than a directory.
+    NotADirectory,
     /// The engine panicked. The handle stays usable, and the message carries the panic's.
     Internal,
 }
@@ -42,6 +50,10 @@ impl ErrorCode {
             Self::Building => "building",
             Self::BuildFailed => "build_failed",
             Self::BuildCancelled => "build_cancelled",
+            Self::InvalidGlob => "invalid_glob",
+            Self::InvalidPattern => "invalid_pattern",
+            Self::NotFound => "not_found",
+            Self::NotADirectory => "not_a_directory",
             Self::Internal => "internal",
         }
     }

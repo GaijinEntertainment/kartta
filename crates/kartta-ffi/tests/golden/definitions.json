@@ -1,0 +1,61 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "found": [
+            {
+              "definition": {
+                "end_line": 5,
+                "exported": true,
+                "file": "cpp/circle.cpp",
+                "kind": "method",
+                "line": 3,
+                "name": "area",
+                "owner": "Circle",
+                "qualified_name": "Circle::area",
+                "signature": "double Circle::area() const"
+              },
+              "nearness": "same_directory"
+            },
+            {
+              "definition": {
+                "end_line": 7,
+                "exported": true,
+                "file": "cpp/circle.h",
+                "kind": "method",
+                "line": 7,
+                "name": "area",
+                "owner": "Circle",
+                "qualified_name": "Circle::area",
+                "signature": "double area() const override"
+              },
+              "nearness": "same_directory"
+            },
+            {
+              "definition": {
+                "end_line": 5,
+                "exported": true,
+                "file": "cpp/shape.h",
+                "kind": "method",
+                "line": 5,
+                "name": "area",
+                "owner": "Shape",
+                "qualified_name": "Shape::area",
+                "signature": "virtual double area() const = 0"
+              },
+              "nearness": "same_directory"
+            }
+          ],
+          "graph": "cpp",
+          "total": 3
+        }
+      ]
+    }
+  },
+  "method": "definitions",
+  "params": {
+    "from": "cpp/circle.cpp",
+    "name": "area"
+  }
+}

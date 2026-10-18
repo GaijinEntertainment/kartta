@@ -1,0 +1,67 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "below_confidence": 0,
+          "graph": "go",
+          "passed_over": 0,
+          "reached": [
+            {
+              "confidence": 75,
+              "depth": 1,
+              "line": 4,
+              "symbol": {
+                "end_line": 6,
+                "exported": false,
+                "file": "go/run.go",
+                "kind": "func",
+                "line": 4,
+                "name": "run",
+                "qualified_name": "main.run",
+                "signature": "func run()"
+              }
+            },
+            {
+              "confidence": 80,
+              "depth": 2,
+              "line": 5,
+              "symbol": {
+                "end_line": 8,
+                "exported": false,
+                "file": "go/run.go",
+                "kind": "func",
+                "line": 8,
+                "name": "helper",
+                "qualified_name": "main.helper",
+                "signature": "func helper()"
+              }
+            }
+          ],
+          "root": {
+            "end_line": 5,
+            "exported": false,
+            "file": "go/main.go",
+            "flags": [
+              "entry"
+            ],
+            "kind": "func",
+            "line": 3,
+            "name": "main",
+            "qualified_name": "main.main",
+            "signature": "func main()"
+          },
+          "truncated": false,
+          "turned_away": 0,
+          "unexpanded": 1,
+          "unresolved": 0
+        }
+      ]
+    }
+  },
+  "method": "callees",
+  "params": {
+    "depth": 2,
+    "name": "main"
+  }
+}

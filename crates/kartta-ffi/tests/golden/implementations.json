@@ -1,0 +1,41 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "found": [
+            {
+              "depth": 1,
+              "symbol": {
+                "end_line": 8,
+                "exported": true,
+                "file": "cpp/circle.h",
+                "kind": "class",
+                "line": 5,
+                "name": "Circle",
+                "qualified_name": "Circle"
+              }
+            }
+          ],
+          "graph": "cpp",
+          "passed_over": 0,
+          "root": {
+            "end_line": 6,
+            "exported": true,
+            "file": "cpp/shape.h",
+            "kind": "class",
+            "line": 3,
+            "name": "Shape",
+            "qualified_name": "Shape"
+          },
+          "total": 1,
+          "unexpanded": 0
+        }
+      ]
+    }
+  },
+  "method": "implementations",
+  "params": {
+    "name": "Shape"
+  }
+}

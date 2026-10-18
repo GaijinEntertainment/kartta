@@ -6,7 +6,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::{ptr, slice};
 
 use crate::error::{Error, ErrorCode};
-use crate::handle::answer_error;
+use crate::wire::err as answer_error;
 use crate::{ABI_VERSION, Kartta};
 
 #[repr(C)]

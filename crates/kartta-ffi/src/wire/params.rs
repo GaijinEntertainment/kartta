@@ -1,0 +1,381 @@
+//! The params of each query method, one type a method, each refusing a field the method does not take. A bound left
+//! out or 0 takes the method's default, the constants below, except where a field says 0 sets no cap.
+
+use std::ops::RangeInclusive;
+
+use kartta::{Limits, SymbolKind};
+use serde::Deserialize;
+
+use crate::error::{Error, ErrorCode};
+
+pub(crate) const CALLERS_DEPTH: u32 = 3;
+pub(crate) const CALLEES_DEPTH: u32 = 1;
+pub(crate) const WALK_MAX_SYMBOLS: usize = 500;
+pub(crate) const CALL_PATH_DEPTH: u32 = 8;
+pub(crate) const CALL_PATH_MAX_SYMBOLS: usize = 20_000;
+pub(crate) const REFERENCES: usize = 500;
+pub(crate) const DEFINITIONS: usize = 10;
+pub(crate) const SEARCH: usize = 20;
+pub(crate) const IMPLEMENTATIONS_DEPTH: u32 = 3;
+pub(crate) const IMPLEMENTATIONS: usize = 100;
+pub(crate) const DEPENDENTS_DEPTH: u32 = 3;
+pub(crate) const DEPENDENTS: usize = 100;
+pub(crate) const SEGMENT_DEPTH: u32 = 3;
+pub(crate) const DEAD_CODE: usize = 100;
+pub(crate) const UNBOUND: usize = 20;
+
+/// The kinds a dead-code query can ask for, by their labels.
+const KINDS: [SymbolKind; 15] = [
+    SymbolKind::Function,
+    SymbolKind::Method,
+    SymbolKind::Class,
+    SymbolKind::Struct,
+    SymbolKind::Namespace,
+    SymbolKind::Interface,
+    SymbolKind::Variable,
+    SymbolKind::Constant,
+    SymbolKind::Enum,
+    SymbolKind::TypeAlias,
+    SymbolKind::Trait,
+    SymbolKind::Macro,
+    SymbolKind::Field,
+    SymbolKind::EnumVariant,
+    SymbolKind::DefinedType,
+];
+
+fn limits(
+    depth: Option<u32>,
+    min_confidence: u8,
+    max_symbols: Option<usize>,
+    defaults: (u32, usize),
+) -> Limits {
+    Limits::new(bound(depth, defaults.0))
+        .with_min_confidence(min_confidence)
+        .with_max_symbols(bound(max_symbols, defaults.1))
+}
+
+/// `value`, or `default` when it is left out or 0.
+pub(crate) fn bound<T: Copy + Default + PartialEq>(value: Option<T>, default: T) -> T {
+    value
+        .filter(|&value| value != T::default())
+        .unwrap_or(default)
+}
+
+fn lines(start_line: Option<u32>, end_line: u32) -> RangeInclusive<u32> {
+    let end = if end_line == 0 { u32::MAX } else { end_line };
+    bound(start_line, 1)..=end
+}
+
+/// The params of `callers` and `callees`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WalkParams {
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) lang: Option<String>,
+    #[serde(default)]
+    depth: Option<u32>,
+    #[serde(default)]
+    min_confidence: u8,
+    #[serde(default)]
+    max_symbols: Option<usize>,
+}
+
+impl WalkParams {
+    pub(crate) fn limits(&self, depth: u32) -> Limits {
+        limits(
+            self.depth,
+            self.min_confidence,
+            self.max_symbols,
+            (depth, WALK_MAX_SYMBOLS),
+        )
+    }
+}
+
+/// The params of `call_path`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CallPathParams {
+    pub(crate) from: String,
+    pub(crate) to: String,
+    #[serde(default)]
+    pub(crate) lang: Option<String>,
+    #[serde(default)]
+    depth: Option<u32>,
+    #[serde(default)]
+    min_confidence: u8,
+    #[serde(default)]
+    max_symbols: Option<usize>,
+}
+
+impl CallPathParams {
+    pub(crate) fn limits(&self) -> Limits {
+        limits(
+            self.depth,
+            self.min_confidence,
+            self.max_symbols,
+            (CALL_PATH_DEPTH, CALL_PATH_MAX_SYMBOLS),
+        )
+    }
+}
+
+/// The params of `references`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReferencesParams {
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) lang: Option<String>,
+    #[serde(default)]
+    pub(crate) min_confidence: u8,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+impl ReferencesParams {
+    pub(crate) fn limit(&self) -> usize {
+        bound(self.limit, REFERENCES)
+    }
+}
+
+/// The params of `implementations`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ImplementationsParams {
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) lang: Option<String>,
+    #[serde(default)]
+    depth: Option<u32>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+impl ImplementationsParams {
+    pub(crate) fn depth(&self) -> u32 {
+        bound(self.depth, IMPLEMENTATIONS_DEPTH)
+    }
+
+    pub(crate) fn limit(&self) -> usize {
+        bound(self.limit, IMPLEMENTATIONS)
+    }
+}
+
+/// The params of `definitions`, and with the caps on each definition's text, of `sources`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DefinitionsParams {
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) lang: Option<String>,
+    /// The file the lookup asks from: definitions in its directory rank first.
+    #[serde(default)]
+    pub(crate) from: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+impl DefinitionsParams {
+    pub(crate) fn limit(&self) -> usize {
+        bound(self.limit, DEFINITIONS)
+    }
+}
+
+/// The params of `sources`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SourcesParams {
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) lang: Option<String>,
+    #[serde(default)]
+    pub(crate) from: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+    /// How many lines of each definition to answer, its doc comment included; 0 or left out answers every line.
+    #[serde(default)]
+    pub(crate) max_lines: usize,
+    /// How many bytes of each line to answer; 0 or left out answers lines whole.
+    #[serde(default)]
+    pub(crate) max_line_bytes: usize,
+}
+
+impl SourcesParams {
+    pub(crate) fn limit(&self) -> usize {
+        bound(self.limit, DEFINITIONS)
+    }
+}
+
+/// The params of `search`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SearchParams {
+    pub(crate) query: String,
+    #[serde(default)]
+    pub(crate) lang: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+impl SearchParams {
+    pub(crate) fn limit(&self) -> usize {
+        bound(self.limit, SEARCH)
+    }
+}
+
+/// The params of `outline`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct OutlineParams {
+    pub(crate) file: String,
+}
+
+/// The params of `dependents`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DependentsParams {
+    pub(crate) file: String,
+    #[serde(default)]
+    depth: Option<u32>,
+    /// How many files to answer at most; 0 sets no cap.
+    #[serde(default)]
+    max_files: Option<usize>,
+}
+
+impl DependentsParams {
+    pub(crate) fn depth(&self) -> u32 {
+        bound(self.depth, DEPENDENTS_DEPTH)
+    }
+
+    pub(crate) fn max_files(&self) -> usize {
+        self.max_files.unwrap_or(DEPENDENTS)
+    }
+}
+
+/// The params of `analyze_segment`: a file's lines, `end_line` 0 or left out reaching the end of the file.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SegmentParams {
+    pub(crate) file: String,
+    #[serde(default)]
+    start_line: Option<u32>,
+    #[serde(default)]
+    end_line: u32,
+    #[serde(default)]
+    depth: Option<u32>,
+    #[serde(default)]
+    min_confidence: u8,
+    #[serde(default)]
+    max_symbols: Option<usize>,
+}
+
+impl SegmentParams {
+    pub(crate) fn lines(&self) -> RangeInclusive<u32> {
+        lines(self.start_line, self.end_line)
+    }
+
+    pub(crate) fn limits(&self) -> Limits {
+        limits(
+            self.depth,
+            self.min_confidence,
+            self.max_symbols,
+            (SEGMENT_DEPTH, WALK_MAX_SYMBOLS),
+        )
+    }
+}
+
+/// The params of `analyze_change`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChangeParams {
+    pub(crate) regions: Vec<RegionParams>,
+    #[serde(default)]
+    depth: Option<u32>,
+    #[serde(default)]
+    min_confidence: u8,
+    #[serde(default)]
+    max_symbols: Option<usize>,
+}
+
+impl ChangeParams {
+    pub(crate) fn limits(&self) -> Limits {
+        limits(
+            self.depth,
+            self.min_confidence,
+            self.max_symbols,
+            (SEGMENT_DEPTH, WALK_MAX_SYMBOLS),
+        )
+    }
+}
+
+/// A changed range of a file's lines, `end_line` 0 or left out reaching the end of the file.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RegionParams {
+    pub(crate) file: String,
+    #[serde(default)]
+    start_line: Option<u32>,
+    #[serde(default)]
+    end_line: u32,
+}
+
+impl RegionParams {
+    pub(crate) fn lines(&self) -> RangeInclusive<u32> {
+        lines(self.start_line, self.end_line)
+    }
+}
+
+/// The params of `dead_code`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub(crate) struct DeadCodeParams {
+    pub(crate) lang: Option<String>,
+    /// The kinds to judge, by their labels; every kind when empty.
+    kinds: Vec<String>,
+    pub(crate) path_prefix: Option<String>,
+    limit: Option<usize>,
+}
+
+impl DeadCodeParams {
+    pub(crate) fn kinds(&self) -> Result<Vec<SymbolKind>, Error> {
+        self.kinds
+            .iter()
+            .map(|label| kind_labelled(label))
+            .collect()
+    }
+
+    pub(crate) fn limit(&self) -> usize {
+        bound(self.limit, DEAD_CODE)
+    }
+}
+
+fn kind_labelled(label: &str) -> Result<SymbolKind, Error> {
+    KINDS
+        .into_iter()
+        .find(|kind| kind.label() == label)
+        .ok_or_else(|| {
+            let known: Vec<&str> = KINDS.iter().map(|kind| kind.label()).collect();
+            Error::new(
+                ErrorCode::InvalidParams,
+                format!(
+                    "no symbol kind {label:?}; the kinds are {}",
+                    known.join(", ")
+                ),
+            )
+        })
+}
+
+/// The params of `resolution`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub(crate) struct ResolutionParams {
+    pub(crate) lang: Option<String>,
+    /// How many unbound call sites of each graph to list.
+    limit: Option<usize>,
+}
+
+impl ResolutionParams {
+    pub(crate) fn limit(&self) -> usize {
+        bound(self.limit, UNBOUND)
+    }
+}

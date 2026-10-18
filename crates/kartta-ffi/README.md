@@ -7,6 +7,9 @@ a JSON object of params, and every answer is `{"ok": <answer>}` or `{"err": {"co
 so a binding translates JSON and decides nothing. The Go binding in `bindings/go` links the static library; a Rust shell
 builds on the `Kartta` type of the rlib.
 
+Each method's contract is a file in [`tests/golden`](tests/golden): a request on the fixture tree beside it, and the
+answer it gets.
+
 ```c
 KarttaString error;
 KarttaHandle *handle = kartta_open((const uint8_t *)"{\"root\":\".\"}", 12, &error);

@@ -1,0 +1,41 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "found": [
+            {
+              "definition": {
+                "end_line": 6,
+                "exported": false,
+                "file": "go/run.go",
+                "kind": "func",
+                "line": 4,
+                "name": "run",
+                "qualified_name": "main.run",
+                "signature": "func run()"
+              },
+              "nearness": "elsewhere",
+              "source": {
+                "cut_lines": [],
+                "doc_line": 3,
+                "first_line": 3,
+                "lines": 3,
+                "resized": false,
+                "text": "// run parses the input and reports it.\nfunc run() {\n\thelper()"
+              }
+            }
+          ],
+          "graph": "go",
+          "total": 1
+        }
+      ]
+    }
+  },
+  "method": "sources",
+  "params": {
+    "lang": "go",
+    "max_lines": 3,
+    "name": "run"
+  }
+}

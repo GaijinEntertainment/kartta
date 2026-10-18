@@ -3,18 +3,19 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 
-use kartta::{BuildError, CancelToken, Engine, Graph, Limits, Walk};
+use kartta::{BuildError, CancelToken, Engine};
 use serde::Serialize;
 
 use crate::ABI_VERSION;
-use crate::error::{Error, ErrorCode, INTERNAL_ENCODE_FAILURE};
+use crate::built::Built;
+use crate::error::{Error, ErrorCode};
+use crate::query::QUERIES;
 use crate::wire::{
     self, BuildParams, CancelAnswer, CancelParams, NoParams, OpenParams, StatsAnswer, StoredErrors,
-    WalkParams, Walks,
 };
 
-/// Every method [`Kartta::call`] answers, as `version` lists them.
-const METHODS: &[&str] = &["build", "callers", "cancel", "stats", "version"];
+/// The methods [`Kartta::call`] answers without asking a build.
+const LIFECYCLE: [&str; 3] = ["build", "cancel", "version"];
 
 /// One tree, and the engine its last finished build made of it: what a C handle points to.
 ///
@@ -30,13 +31,6 @@ pub struct Kartta {
     built: RwLock<Option<Arc<Built>>>,
     builds: Mutex<Builds>,
     one_build_at_a_time: Mutex<()>,
-}
-
-#[derive(Debug)]
-struct Built {
-    engine: Engine,
-    family_of_language: Vec<(String, String)>,
-    errors: StoredErrors,
 }
 
 /// The builds that entered the library and have not finished, waiting their turn or running, and the ids cancels
@@ -59,7 +53,7 @@ struct InFlight {
 struct About {
     abi: u32,
     version: &'static str,
-    methods: &'static [&'static str],
+    methods: Vec<&'static str>,
     languages: &'static [&'static str],
 }
 
@@ -98,35 +92,34 @@ impl Kartta {
     #[must_use]
     pub fn call(&self, method: &str, params: &[u8]) -> Vec<u8> {
         self.answer(method, params)
-            .unwrap_or_else(|error| answer_error(&error))
+            .unwrap_or_else(|error| wire::err(&error))
     }
 
     fn answer(&self, method: &str, params: &[u8]) -> Result<Vec<u8>, Error> {
         match method {
             "build" => self.build(&wire::params(params)?),
-            "callers" => self.walk(&wire::params(params)?, Graph::callers),
-            "cancel" => answer(&self.cancel(&wire::params(params)?)),
-            "stats" => {
-                let NoParams {} = wire::params(params)?;
-                let built = self.built()?;
-                answer(&StatsAnswer::new(&built.engine, &built.errors))
-            }
+            "cancel" => wire::ok(&self.cancel(&wire::params(params)?)),
             "version" => {
                 let NoParams {} = wire::params(params)?;
-                answer(&About {
+                wire::ok(&About {
                     abi: ABI_VERSION,
                     version: env!("CARGO_PKG_VERSION"),
-                    methods: METHODS,
+                    methods: methods(),
                     languages: kartta_languages::NAMES,
                 })
             }
-            _ => Err(Error::new(
-                ErrorCode::UnknownMethod,
-                format!(
-                    "no method {method:?}; the methods are {}",
-                    METHODS.join(", ")
-                ),
-            )),
+            _ => {
+                let Some(&(_, query)) = QUERIES.iter().find(|(name, _)| *name == method) else {
+                    return Err(Error::new(
+                        ErrorCode::UnknownMethod,
+                        format!(
+                            "no method {method:?}; the methods are {}",
+                            methods().join(", ")
+                        ),
+                    ));
+                };
+                query(self.built()?.as_ref(), params)
+            }
         }
     }
 
@@ -162,28 +155,13 @@ impl Kartta {
         }?;
         *self.built.write().unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(&built));
         drop(builds);
-        answer(&StatsAnswer::new(&built.engine, &built.errors))
+        wire::ok(&StatsAnswer::new(&built.engine, &built.errors))
     }
 
     fn cancel(&self, params: &CancelParams) -> CancelAnswer {
         CancelAnswer {
             stopped: lock(&self.builds).cancel(params.build),
         }
-    }
-
-    fn walk(
-        &self,
-        params: &WalkParams,
-        walk: for<'g> fn(&'g Graph, &str, Limits) -> Option<Walk<'g>>,
-    ) -> Result<Vec<u8>, Error> {
-        let built = self.built()?;
-        let mut walks = Walks::default();
-        for (name, graph) in built.graphs(params.lang.as_deref())? {
-            if let Some(found) = walk(graph, &params.name, params.limits()) {
-                walks.push(name, &found);
-            }
-        }
-        answer(&walks)
     }
 
     fn built(&self) -> Result<Arc<Built>, Error> {
@@ -218,38 +196,14 @@ impl Kartta {
     }
 }
 
-impl Built {
-    fn graphs(&self, lang: Option<&str>) -> Result<impl Iterator<Item = (&str, &Graph)>, Error> {
-        let family = match lang {
-            None => None,
-            Some(lang) => Some(self.family_named(lang)?),
-        };
-        Ok(self
-            .engine
-            .graphs()
-            .filter(move |(name, _)| family.is_none_or(|family| family == *name)))
-    }
-
-    fn family_named(&self, lang: &str) -> Result<&str, Error> {
-        self.family_of_language
-            .iter()
-            .find(|(language, family)| language == lang || family == lang)
-            .map(|(_, family)| family.as_str())
-            .ok_or_else(|| {
-                let held: Vec<&str> = self
-                    .family_of_language
-                    .iter()
-                    .map(|(language, _)| language.as_str())
-                    .collect();
-                Error::new(
-                    ErrorCode::InvalidParams,
-                    format!(
-                        "the build holds no graph for {lang:?}; it built the languages {}",
-                        held.join(", ")
-                    ),
-                )
-            })
-    }
+/// Every method, in name order.
+fn methods() -> Vec<&'static str> {
+    let mut methods: Vec<&'static str> = LIFECYCLE
+        .into_iter()
+        .chain(QUERIES.iter().map(|&(name, _)| name))
+        .collect();
+    methods.sort_unstable();
+    methods
 }
 
 impl Builds {
@@ -294,31 +248,6 @@ impl Builds {
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-fn answer(answer: &impl Serialize) -> Result<Vec<u8>, Error> {
-    #[derive(Serialize)]
-    struct Answered<'a, T> {
-        ok: &'a T,
-    }
-
-    serde_json::to_vec(&Answered { ok: answer }).map_err(|error| {
-        Error::new(
-            ErrorCode::Internal,
-            format!("the answer could not be encoded as JSON: {error}"),
-        )
-    })
-}
-
-/// The wire's `{"err": ...}` answer for `error`.
-pub(crate) fn answer_error(error: &Error) -> Vec<u8> {
-    #[derive(Serialize)]
-    struct Failed<'a> {
-        err: &'a Error,
-    }
-
-    serde_json::to_vec(&Failed { err: error })
-        .unwrap_or_else(|_| [&br#"{"err":"#[..], INTERNAL_ENCODE_FAILURE, b"}"].concat())
 }
 
 #[cfg(test)]
