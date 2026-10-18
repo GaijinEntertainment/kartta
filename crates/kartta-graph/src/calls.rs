@@ -5,6 +5,7 @@ use std::hash::Hash;
 
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
+use kartta_lang::SymbolKind;
 
 use crate::confidence;
 use crate::graph::{Definition, Graph, QUALIFIER_SEPARATORS, is_call_target_kind, narrow};
@@ -227,12 +228,12 @@ impl Graph {
 
     /// The sites that call or use the symbol `name` selects, at least `min_confidence` sure on the 0 to 100 scale of
     /// [`confidence`](crate::confidence), 0 taking every site, at most `limit` of them, or `None` when it selects none.
-    /// A name selects among every symbol a use can name, a value included where calls target no values, and a bare
-    /// name shared by several of them selects the one with the most sites.
+    /// A name selects among every symbol a use can name, a value and a field included where calls target neither, and
+    /// a bare name shared by several of them selects the one with the most sites.
     ///
-    /// The uses are those the language records: a use through a value of the owner's type is not one. Every site of
-    /// the name is resolved before `limit` applies, so the limit bounds the answer, not the work, and `total` counts
-    /// them all.
+    /// The uses are those the language records. A member taken on a value binds through the type the language spells
+    /// for the value, else the one field of the name in the use's own file. Every site of the name is resolved before
+    /// `limit` applies, so the limit bounds the answer, not the work, and `total` counts them all.
     #[must_use]
     pub fn references(
         &self,
@@ -453,7 +454,7 @@ impl<'g> Calls<'g> {
             let kind = self.graph.sym(at).kind;
             match self.wanted {
                 Wanted::Callables => self.cascade.is_call_target(kind),
-                Wanted::Referents => is_call_target_kind(kind),
+                Wanted::Referents => is_call_target_kind(kind) || kind == SymbolKind::Field,
             }
         };
         if self.wanted == Wanted::Referents || candidates.iter().any(|&at| is_wanted(at)) {

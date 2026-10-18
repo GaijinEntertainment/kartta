@@ -6,7 +6,7 @@
 )]
 
 use kartta_lang::{
-    Language, MemberCalls, OwnMembers, RawExtraction, Receiver, RefSite, Symbol, SymbolId,
+    Access, Language, MemberCalls, OwnMembers, RawExtraction, Receiver, RefSite, Symbol, SymbolId,
     SymbolKind, TypeUses,
 };
 use kartta_lang_go::Go;
@@ -84,9 +84,14 @@ fn qualifier(site: &RefSite) -> Option<&str> {
     }
 }
 
+const fn names_no_member(site: &RefSite) -> bool {
+    matches!(site.receiver, Receiver::Bare | Receiver::Qualifier(_))
+}
+
 fn uses(raw: &RawExtraction) -> Vec<(&str, Option<&str>, &str, u32)> {
     raw.references
         .iter()
+        .filter(|site| names_no_member(site))
         .map(|site| {
             let owner = symbol(raw, site.site_of).name.as_str();
             (site.name.as_str(), qualifier(site), owner, site.line)
@@ -362,11 +367,13 @@ func sizes(n int, local Item, req Item) {
             ("Buffer", None, "sizes", 28),
             ("Item", None, "sizes", 29),
             ("Item", Some("pkg"), "sizes", 29),
+            ("convert", None, "sizes", 30),
+            ("Item", None, "sizes", 30),
             ("Item", Some("pkg"), "sizes", 30),
         ],
-        "the type operand of make and new, a parenthesized conversion type and its type argument, and a type \
-         argument are uses, a qualified one under any import spelling; a predeclared constant, a local value, a \
-         selector on a local value, and a generic function used as a value are not"
+        "the type operand of make and new, a parenthesized conversion type and its type argument, a type argument, \
+         and a generic function used as a value are uses, a qualified one under any import spelling; a predeclared \
+         constant and a local value are not, and a selector on a local value uses a member"
     );
 }
 
@@ -1162,6 +1169,7 @@ func Signature(T T) {}
     let uses: Vec<(&str, Option<&str>, u32)> = raw
         .references
         .iter()
+        .filter(|site| names_no_member(site))
         .map(|site| (site.name.as_str(), qualifier(site), site.line))
         .collect();
     assert_eq!(
@@ -1450,6 +1458,7 @@ func Block() {
     let uses: Vec<(&str, u32)> = raw
         .references
         .iter()
+        .filter(|site| names_no_member(site))
         .map(|site| (site.name.as_str(), site.line))
         .collect();
     assert_eq!(
@@ -1495,8 +1504,10 @@ func Run(local Options) {
             ("Options", None, "Run", 7),
             ("Limit", Some("thing"), "Run", 8),
             ("Limit", Some("renamed"), "Run", 9),
+            ("settings", None, "Run", 10),
         ],
-        "a package clause need not be the import's last element, and the graph binds a qualifier only to an import"
+        "a package clause need not be the import's last element, and the graph binds a qualifier only to an import; \
+         a package-level value is read by name"
     );
 }
 
@@ -1546,4 +1557,129 @@ func (l *List[T]) Push(v T) {}
         .find(|call| call.callee == "New")
         .map(|call| call.receiver.as_deref());
     assert_eq!(call, Some(Some("a")), "the call stays a call");
+}
+
+const ACCESSES: &[u8] = br#"package svc
+
+import "example.com/a"
+
+type Config struct {
+	Timeout int
+	Retries int
+}
+
+var limit = 3
+const ratio = 2
+
+func Load(c *Config) {
+	c.Timeout = limit
+	c.Retries += ratio
+	c.Retries++
+	_ = c.Timeout
+	x := Config{Timeout: 1}
+	_ = []Config{{Retries: 2}}
+	_ = map[string]Config{"k": {Timeout: 3}}
+	_ = map[int]int{limit: ratio}
+	_ = []struct{ name string }{{name: "t"}}
+	_ = a.Options{Debug: true}
+	limit = x.Timeout
+	c.Reset()
+	f := c.Reset
+	n := len(f)
+	n++
+}
+"#;
+
+fn members(raw: &RawExtraction) -> Vec<(&str, &str, Access, u32)> {
+    raw.references
+        .iter()
+        .filter_map(|site| match &site.receiver {
+            Receiver::Path(path) => {
+                Some((site.name.as_str(), path.as_str(), site.access, site.line))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_member_taken_on_a_value_is_a_use_spelled_with_its_type_and_how_it_is_touched() {
+    let raw = extract(ACCESSES);
+
+    assert_eq!(
+        members(&raw),
+        [
+            ("Timeout", "Config", Access::Write, 14),
+            ("Retries", "Config", Access::Update, 15),
+            ("Retries", "Config", Access::Update, 16),
+            ("Timeout", "Config", Access::Read, 17),
+            ("Timeout", "Config", Access::Write, 18),
+            ("Retries", "Config", Access::Write, 19),
+            ("Timeout", "Config", Access::Write, 20),
+            ("Debug", "a.Options", Access::Write, 23),
+            ("Timeout", "Config", Access::Read, 24),
+            ("Reset", "Config", Access::Read, 26),
+        ],
+        "a key of a struct literal writes its field, an element's type comes from its slice or map; a method value \
+         is a use and a called method is not; an anonymous struct's keys name no field"
+    );
+    assert!(
+        !raw.references
+            .iter()
+            .any(|site| site.receiver == Receiver::Bare
+                && matches!(site.name.as_str(), "Timeout" | "Retries" | "Reset" | "name")),
+        "a member's name is no bare use"
+    );
+}
+
+fn values(raw: &RawExtraction) -> Vec<(&str, Access, u32)> {
+    raw.references
+        .iter()
+        .filter(|site| site.receiver == Receiver::Bare && site.name.starts_with(char::is_lowercase))
+        .map(|site| (site.name.as_str(), site.access, site.line))
+        .collect()
+}
+
+#[test]
+fn a_range_or_a_receive_that_assigns_writes_the_names_on_its_left() {
+    let raw = extract(
+        b"package svc
+
+var last, cursor int
+
+func Drain(ch chan int, items []int) {
+	for cursor, last = range items {
+	}
+	select {
+	case last = <-ch:
+	}
+}
+",
+    );
+
+    assert_eq!(
+        values(&raw),
+        [
+            ("cursor", Access::Write, 6),
+            ("last", Access::Write, 6),
+            ("last", Access::Write, 9),
+        ]
+    );
+}
+
+#[test]
+fn a_name_no_local_binds_is_a_read_or_a_write_of_what_the_package_declares() {
+    let raw = extract(ACCESSES);
+
+    assert_eq!(
+        values(&raw),
+        [
+            ("limit", Access::Read, 14),
+            ("ratio", Access::Read, 15),
+            ("limit", Access::Read, 21),
+            ("ratio", Access::Read, 21),
+            ("limit", Access::Write, 24),
+        ],
+        "a map literal's keys are values; a declared local, a parameter and a builtin are no use"
+    );
 }

@@ -4,7 +4,7 @@
 use kartta_graph::{DeadCode, Graph};
 use kartta_lang::{
     Access, CallRef, Callable, CallableRole, Conventions, Extraction, IncludeRef, NO_CALLER_ID,
-    OwnMembers, Receiver, RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind, TypeUses,
+    OwnMembers, Receiver, Receivers, RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind, TypeUses,
 };
 
 fn function(name: &str, line: u32) -> Symbol {
@@ -339,6 +339,34 @@ fn fields_values_and_types_are_unobservable_where_uses_name_no_type() {
 
     assert_eq!(names(&dead), ["name"]);
     assert_eq!(dead.excluded.unobservable, 3);
+}
+
+#[test]
+fn a_method_taken_only_as_a_value_is_live() {
+    let mut user = file("pkg/user.go", vec![function("Run", 1)], Vec::new());
+    user.references.push(RefSite {
+        site_of: SymbolId(0),
+        name: "handle".to_owned(),
+        receiver: Receiver::Path("Server".to_owned()),
+        access: Access::Read,
+        line: 2,
+    });
+    let mut conventions = go();
+    conventions.receivers = Receivers::TypePaths;
+    let server = file(
+        "pkg/server.go",
+        vec![
+            Symbol::new("Server", SymbolKind::Struct, 1, 3),
+            member("Server", "handle", 4),
+            member("Server", "unused", 6),
+        ],
+        Vec::new(),
+    );
+    let graph = graph_of(conventions, &[user, server]);
+
+    let dead = graph.dead_code(&[SymbolKind::Method], None, 10);
+
+    assert_eq!(names(&dead), ["unused"]);
 }
 
 #[test]

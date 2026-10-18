@@ -16,7 +16,11 @@ A call records its callee and, for a member call, its receiver as a type path: t
 as the file's declarations spell it. `s.client.Do()` in `func f(s *Server)` records `Server.client`, and `w.draw()` in
 `func (w *Widget) run()` records `Widget`; the graph follows the path through the value types each definition records,
 a field's type or a function's results, to the method the call reaches. A name outside a call — a
-type in a signature, a field, a conversion — is a use of what it names, unless a local binding covers it.
+type in a signature, a field, a conversion, a package-level value or function — is a use of what it names, unless a
+local binding covers it. A member taken on a value without a call, `s.client` or the method value `w.draw`, is a use
+whose receiver is the same type path, and so is each key of a struct literal, `Config{Timeout: 5}`; a literal of an
+anonymous struct keeps none. Each use is marked a read, a write — the left side of `=`, a literal's key — or an update,
+`+=` or `++`.
 
 ## Resolution
 
