@@ -3,41 +3,24 @@ use std::fmt;
 
 use serde::Serialize;
 
-/// What kind of failure an [`Error`] reports, spelled on the wire as [`ErrorCode::as_str`] gives it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ErrorCode {
-    /// The request could not be read: a null pointer, bytes that are not UTF-8, or params that are not JSON.
     InvalidRequest,
-    /// The params are JSON but not the method's: a missing or unknown field, a value of the wrong type, or a name no
-    /// language or option carries.
     InvalidParams,
-    /// No method has the name asked for.
     UnknownMethod,
-    /// The root `open` was given is not a directory that can be read.
     InvalidRoot,
-    /// The method needs a build, and the handle holds none: no build has finished, or the last one failed or was
-    /// cancelled.
     NotBuilt,
-    /// The method needs a build, and the handle holds none because a build is running.
     Building,
-    /// The build stopped on a failure that leaves no index, such as a root that can no longer be listed.
     BuildFailed,
-    /// A cancel stopped the build, which leaves no index.
     BuildCancelled,
-    /// A glob the params gave does not parse; the message names it.
     InvalidGlob,
-    /// A content search pattern does not compile; the message names it.
     InvalidPattern,
-    /// Nothing is indexed at the path the params name, or a name on the way is one the build prunes.
     NotFound,
-    /// The path the params name is indexed as something other than a directory.
     NotADirectory,
-    /// The engine panicked. The handle stays usable, and the message carries the panic's.
     Internal,
 }
 
 impl ErrorCode {
-    /// The code as the wire spells it, such as `not_built`.
     const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidRequest => "invalid_request",

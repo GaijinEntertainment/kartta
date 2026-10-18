@@ -1,5 +1,3 @@
-//! The C functions `include/kartta.h` declares, which states the contract each one keeps and asks of its caller.
-
 use std::any::Any;
 use std::ffi::{CStr, c_char};
 use std::panic::{self, AssertUnwindSafe};
@@ -121,7 +119,6 @@ unsafe extern "C" fn kartta_free(handle: *mut Kartta) {
     );
 }
 
-/// Runs `body`, answering `recover` of the panic's payload instead of letting a panic unwind into C.
 fn guard<T>(body: impl FnOnce() -> T, recover: impl FnOnce(&(dyn Any + Send)) -> T) -> T {
     // An entry point's state is the caller's pointers and a handle whose builds keep their own state consistent across
     // a panic, so nothing a panic interrupts is observed half-changed afterwards.

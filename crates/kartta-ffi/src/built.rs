@@ -4,7 +4,6 @@ use serde::Serialize;
 use crate::error::{Error, ErrorCode};
 use crate::wire::StoredErrors;
 
-/// What a finished build left: the engine, which language each graph's family holds, and what the build failed on.
 #[derive(Debug)]
 pub(crate) struct Built {
     pub(crate) engine: Engine,
@@ -12,7 +11,6 @@ pub(crate) struct Built {
     pub(crate) errors: StoredErrors,
 }
 
-/// One graph's part of an answer that asks every graph, or the one a `lang` names.
 #[derive(Debug, Serialize)]
 pub(crate) struct Graphed<'b, T> {
     graph: &'b str,
@@ -20,15 +18,12 @@ pub(crate) struct Graphed<'b, T> {
     answer: T,
 }
 
-/// An answer of one part for each graph that answered, in the order of the engine's graphs.
 #[derive(Debug, Serialize)]
 pub(crate) struct Matches<'b, T> {
     matches: Vec<Graphed<'b, T>>,
 }
 
 impl Built {
-    /// The answer of `ask` from every graph, or from the one `lang` names by a language or a family, leaving out the
-    /// graphs that answer `None`.
     pub(crate) fn each_graph<'b, T>(
         &'b self,
         lang: Option<&str>,
@@ -50,7 +45,6 @@ impl Built {
         })
     }
 
-    /// The name and graph of the family whose language claims `file`, or `None` when no language does.
     pub(crate) fn graph_of(&self, file: &str) -> Option<(&str, &Graph)> {
         let claiming = self.engine.graph_of(file)?;
         self.engine
