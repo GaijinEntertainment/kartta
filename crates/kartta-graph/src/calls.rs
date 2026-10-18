@@ -317,7 +317,8 @@ impl Graph {
     /// name shared by several of them selects the one with the most sites.
     ///
     /// The uses are those the language records. A member taken on a value binds through the type the language spells
-    /// for the value, else the one field of the name in the use's own file. Every site of the name is resolved before
+    /// for the value, else the one field of the name in the use's own file, and a member of `this` or `self` binds
+    /// the member of the class around the use or of a base the graph finds. Every site of the name is resolved before
     /// the query's limit applies, so the limit bounds the answer, not the work, and `total` counts them all.
     #[must_use]
     pub fn references(&self, name: &str, query: SiteQuery) -> Option<References<'_>> {
@@ -589,7 +590,7 @@ impl<'g> Calls<'g> {
         others.len()
     }
 
-    fn sites_of_name(&self, name: Str) -> Vec<Site> {
+    fn renamings(&self, name: Str) -> Vec<Str> {
         let mut names = vec![name];
         let mut seen: HashSet<Str, FixedState> = HashSet::with_hasher(FixedState::default());
         seen.insert(name);
@@ -603,7 +604,12 @@ impl<'g> Calls<'g> {
                     .filter(|&local| seen.insert(local)),
             );
         }
-        let mut keys: Vec<Str> = names
+        names
+    }
+
+    fn sites_of_name(&self, name: Str) -> Vec<Site> {
+        let mut keys: Vec<Str> = self
+            .renamings(name)
             .into_iter()
             .filter_map(|name| self.graph.site_key(name))
             .collect();
@@ -727,7 +733,8 @@ impl<'g> Calls<'g> {
         let mut best: HashMap<(SymbolAt, SymbolAt, u32, Access), u8, FixedState> =
             HashMap::with_hasher(FixedState::default());
         let mut ambiguous = 0;
-        for site in self.graph.uses(name) {
+        let renamings = self.renamings(name);
+        for site in renamings.iter().flat_map(|&alias| self.graph.uses(alias)) {
             let (used, confidence) = match self.cascade.resolve_reference(site.file, site.index) {
                 Ok(bound) => bound,
                 Err(UseMiss::Ambiguous) => {

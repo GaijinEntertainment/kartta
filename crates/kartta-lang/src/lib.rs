@@ -80,7 +80,7 @@ pub use crate::extraction::{
 };
 pub use crate::language::{
     CallsOnValues, Conventions, IncludeReach, InheritedMembers, Language, MemberCalls, OwnMembers,
-    Receivers, Repository, Resolver, TypeUses,
+    Receivers, Repository, Resolver, TypeUses, UntypedMembers, ValueUses,
 };
 pub use crate::symbol::{NO_CALLER_ID, Symbol, SymbolFlags, SymbolId, SymbolKind};
 
