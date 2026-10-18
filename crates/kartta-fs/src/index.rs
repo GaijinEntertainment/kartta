@@ -1069,10 +1069,6 @@ impl<'a> Placed<'a> {
         }
     }
 
-    #[expect(
-        clippy::expect_used,
-        reason = "positions are the walk's node ids, which it keeps in a u32 and cannot run past"
-    )]
     fn place(&mut self, inspection: &Inspection, id: ContentId, at: usize) {
         let slot = id.slot() - self.floor as usize;
         let read = id.slot().checked_sub(self.placing.first_read as usize);
@@ -1097,7 +1093,7 @@ impl<'a> Placed<'a> {
             }
             (None, None) => return,
         };
-        self.positions[slot] = u32::try_from(at).expect("a position fits the walk's u32 node ids");
+        self.positions[slot] = node_sized(at);
         if let Some(stamps) = &mut self.stamps {
             stamps[slot] = stamp;
         }
@@ -1244,7 +1240,7 @@ fn indexing<'a>(
     clippy::expect_used,
     reason = "positions and read ids are node-sized, and the walk keeps its node ids in a u32"
 )]
-fn node_sized(count: usize) -> u32 {
+pub(crate) fn node_sized(count: usize) -> u32 {
     u32::try_from(count).expect("a walk records fewer nodes than a u32 counts")
 }
 
