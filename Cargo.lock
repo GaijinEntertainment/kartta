@@ -759,6 +759,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "kartta-languages"
+version = "0.0.0"
+dependencies = [
+ "kartta",
+ "kartta-lang",
+ "kartta-lang-bash",
+ "kartta-lang-blk",
+ "kartta-lang-cpp",
+ "kartta-lang-daslang",
+ "kartta-lang-dshl",
+ "kartta-lang-go",
+ "kartta-lang-jsts",
+ "kartta-lang-lua",
+ "kartta-lang-php",
+ "kartta-lang-puppet",
+ "kartta-lang-python",
+ "kartta-lang-quirrel",
+ "kartta-lang-ruby",
+ "kartta-lang-rust",
+ "tempfile",
+]
+
+[[package]]
 name = "kartta-walk"
 version = "0.0.0"
 dependencies = [
