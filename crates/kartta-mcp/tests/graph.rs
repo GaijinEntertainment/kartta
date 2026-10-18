@@ -398,6 +398,134 @@ fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_o
 }
 
 #[test]
+fn find_references_lists_a_typescript_field_s_sites_and_says_what_an_untyped_access_leaves_out() {
+    let module = tree(&[
+        (
+            "src/config.ts",
+            "export class Config {\n  timeout = 0;\n  grow(by: number) {\n    this.timeout += by;\n  }\n}\n",
+        ),
+        (
+            "src/main.ts",
+            "import { Config } from './config';\nimport { LIMIT } from './index';\n\
+             export function run(cfg: Config, raw: any) {\n  cfg.timeout = 5;\n  return cfg.timeout + raw.timeout;\n}\n\
+             export const cap = () => LIMIT;\n",
+        ),
+        ("src/index.ts", "export { LIMIT } from './limits';\n"),
+        ("src/limits.ts", "export const LIMIT = 5;\n"),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(module.path());
+
+    let answer = client.answer("find_references", &json!({"name": "Config.timeout"}));
+    let limit = client.answer("find_references", &json!({"name": "LIMIT"}));
+
+    assert_eq!(
+        answer,
+        lines(&[
+            r#"<references of="Config.timeout" matches="1">"#,
+            concat!(
+                r#"<match lang="jsts" of="timeout" qn="Config.timeout" loc="src/config.ts:2" kind="field" "#,
+                r#"count="3" reads="1" writes="1" updates="1" ambiguous="1">"#,
+            ),
+            concat!(
+                "<note>a member access on a value whose declaration spells no one type binds nothing; ambiguous ",
+                "counts those</note>",
+            ),
+            concat!(
+                r#"<ref name="grow" qn="Config.grow" loc="src/config.ts:3" role="consumer" site="update" "#,
+                r#"at="src/config.ts:4"/>"#,
+            ),
+            r#"<ref name="run" loc="src/main.ts:3" role="consumer" site="write" at="src/main.ts:4"/>"#,
+            r#"<ref name="run" loc="src/main.ts:3" role="consumer" site="read" at="src/main.ts:5"/>"#,
+            "</match>",
+            "</references>",
+        ]),
+        "this and an annotated parameter bind the field; a member of an untyped value does not"
+    );
+    assert_eq!(
+        limit,
+        lines(&[
+            r#"<references of="LIMIT" matches="1">"#,
+            concat!(
+                r#"<match lang="jsts" of="LIMIT" loc="src/limits.ts:1" kind="constant" count="1" "#,
+                r#"reads="1">"#,
+            ),
+            concat!(
+                r#"<ref name="cap" loc="src/main.ts:7" role="consumer" site="read" at="src/main.ts:7" "#,
+                r#"confidence="likely"/>"#,
+            ),
+            "</match>",
+            "</references>",
+        ]),
+        "an imported value binds through the barrel that re-exports it"
+    );
+}
+
+#[test]
+fn find_references_lists_a_python_attribute_s_sites_and_a_module_value_read_through_its_module() {
+    let module = tree(&[
+        (
+            "pkg/config.py",
+            "LIMIT = 3\n\n\nclass Config:\n    def __init__(self):\n        self.timeout = 0\n\n    \
+             def grow(self, by):\n        self.timeout += by\n",
+        ),
+        (
+            "main.py",
+            "from pkg import config\n\n\ndef run(cfg, other):\n    cfg.timeout = 5\n    \
+             return config.LIMIT + other.timeout\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(module.path());
+
+    let field = client.answer(
+        "find_references",
+        &json!({"name": "pkg.config.Config.timeout"}),
+    );
+    let value = client.answer("find_references", &json!({"name": "pkg.config.LIMIT"}));
+
+    assert_eq!(
+        field,
+        lines(&[
+            r#"<references of="pkg.config.Config.timeout" matches="1">"#,
+            concat!(
+                r#"<match lang="python" of="timeout" qn="pkg.config.Config.timeout" loc="pkg/config.py:6" "#,
+                r#"kind="field" count="2" writes="1" updates="1" ambiguous="2">"#,
+            ),
+            concat!(
+                "<note>an attribute of a value whose class the extraction cannot name binds only where one field ",
+                "of the name is in its own file; ambiguous counts the rest</note>",
+            ),
+            concat!(
+                r#"<ref name="__init__" qn="pkg.config.Config.__init__" loc="pkg/config.py:5" role="entry" "#,
+                r#"site="write" at="pkg/config.py:6"/>"#,
+            ),
+            concat!(
+                r#"<ref name="grow" qn="pkg.config.Config.grow" loc="pkg/config.py:8" role="consumer" "#,
+                r#"site="update" at="pkg/config.py:9"/>"#,
+            ),
+            "</match>",
+            "</references>",
+        ]),
+        "the attribute a method assigns is a field its methods set; an attribute of a parameter does not bind"
+    );
+    assert_eq!(
+        value,
+        lines(&[
+            r#"<references of="pkg.config.LIMIT" matches="1">"#,
+            concat!(
+                r#"<match lang="python" of="LIMIT" qn="pkg.config.LIMIT" loc="pkg/config.py:1" kind="variable" "#,
+                r#"count="1" reads="1">"#,
+            ),
+            r#"<ref name="run" qn="main.run" loc="main.py:4" role="consumer" site="read" at="main.py:6"/>"#,
+            "</match>",
+            "</references>",
+        ]),
+        "a module the file imports names its own value"
+    );
+}
+
+#[test]
 fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
     let answers = answers(&[
         (
