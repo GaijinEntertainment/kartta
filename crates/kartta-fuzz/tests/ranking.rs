@@ -1,35 +1,25 @@
-//! The ranking specification: what the scorer guarantees under [`Config::DEFAULT`].
+//! The ranking specification: what the scorer guarantees.
 //!
 //! Every test here states a behaviour a caller can rely on, not an implementation detail. Weight values are never
-//! asserted — only the orderings they exist to produce — so retuning the default is free as long as it keeps its
+//! asserted — only the orderings they exist to produce — so retuning the weights is free as long as they keep their
 //! promises.
 
 use std::num::NonZeroUsize;
 
-use kartta_fuzz::{Config, Matcher};
+use kartta_fuzz::Matcher;
 
 /// The ranked candidates for `query`, best first.
 fn ranked(candidates: &[&str], query: &str) -> Vec<String> {
-    ranked_with(Config::DEFAULT, candidates, query)
-}
-
-/// The ranked candidates for `query` under a specific configuration.
-fn ranked_with(config: Config, candidates: &[&str], query: &str) -> Vec<String> {
-    Matcher::new(config)
+    Matcher::new()
         .rank(candidates.iter().copied(), query, None)
         .iter()
         .map(|m| m.candidate.to_owned())
         .collect()
 }
 
-/// The score of one candidate under the default configuration.
+/// The score of one candidate.
 fn score(candidate: &str, query: &str) -> Option<i32> {
-    score_with(Config::DEFAULT, candidate, query)
-}
-
-/// The score of one candidate under a specific configuration.
-fn score_with(config: Config, candidate: &str, query: &str) -> Option<i32> {
-    Matcher::new(config).score(candidate, query)
+    Matcher::new().score(candidate, query)
 }
 
 #[test]
@@ -111,25 +101,12 @@ fn equal_scores_keep_input_order() {
 }
 
 #[test]
-fn shorter_candidate_wins_a_tie_when_configured() {
+fn shorter_candidate_wins_a_tie() {
     // Gaps are charged per character, so two candidates tie only at the same character count: here one of them spends
     // two bytes on its first character.
     let candidates = ["\u{e9}a", "xa"];
     assert_eq!(score(candidates[0], "a"), score(candidates[1], "a"));
-
-    let mut config = Config::DEFAULT;
-    assert_eq!(
-        ranked_with(config, &candidates, "a")[0],
-        "xa",
-        "the length tiebreak reorders"
-    );
-
-    config.length_tiebreak = false;
-    assert_eq!(
-        ranked_with(config, &candidates, "a")[0],
-        "\u{e9}a",
-        "without it, input order stands"
-    );
+    assert_eq!(ranked(&candidates, "a"), ["xa", "\u{e9}a"]);
 }
 
 #[test]
@@ -147,7 +124,7 @@ fn empty_query_returns_every_candidate_in_input_order() {
 #[test]
 fn limit_truncates_after_ranking() {
     let candidates = ["main/lib.rs", "src/main.rs"];
-    let limited = Matcher::new(Config::DEFAULT).rank(candidates, "main", NonZeroUsize::new(1));
+    let limited = Matcher::new().rank(candidates, "main", NonZeroUsize::new(1));
 
     assert_eq!(limited.len(), 1);
     assert_eq!(
@@ -214,23 +191,12 @@ fn an_over_long_candidate_matches_but_ranks_last() {
 }
 
 #[test]
-fn segment_separators_decide_the_basename() {
-    // With `.` as the separator, the basename of `pkg.mod.Symbol` is `Symbol`.
-    let mut config = Config::DEFAULT;
-    config.segment_separators = &['.'];
-
-    let ranked = ranked_with(config, &["sym.other.Thing", "pkg.mod.Symbol"], "sym");
+fn a_backslash_is_part_of_a_name() {
+    // A repository path separates segments with `/` alone, so `\` neither starts a segment nor moves the basename: each
+    // candidate is one segment, and the match at its start leads.
     assert_eq!(
-        ranked[0], "pkg.mod.Symbol",
-        "the last dot-segment is the basename"
-    );
-}
-
-#[test]
-fn backslash_separates_segments_like_a_slash() {
-    assert_eq!(
-        ranked(&[r"main\lib.rs", r"src\main.rs"], "main"),
-        [r"src\main.rs", r"main\lib.rs"]
+        ranked(&[r"src\main.rs", r"main\lib.rs"], "main"),
+        [r"main\lib.rs", r"src\main.rs"]
     );
 }
 
@@ -244,40 +210,15 @@ fn a_limit_returns_exactly_the_prefix_of_the_unlimited_ranking() {
     let borrowed: Vec<&str> = candidates.iter().map(String::as_str).collect();
 
     for query in ["r", "render", "pkg mod", "pass rs"] {
-        let mut matcher = Matcher::new(Config::DEFAULT);
+        let mut matcher = Matcher::new();
         let unlimited = matcher.rank(borrowed.iter().copied(), query, None);
 
         for limit in [1usize, 2, 7, 50, 499, 500, 501] {
-            let limited = Matcher::new(Config::DEFAULT).rank(
-                borrowed.iter().copied(),
-                query,
-                NonZeroUsize::new(limit),
-            );
+            let limited =
+                Matcher::new().rank(borrowed.iter().copied(), query, NonZeroUsize::new(limit));
             let expected = &unlimited[..limit.min(unlimited.len())];
             assert_eq!(limited, expected, "query {query:?} at limit {limit}");
         }
-    }
-}
-
-#[test]
-fn a_limit_agrees_without_the_length_tiebreak_too() {
-    let mut config = Config::DEFAULT;
-    config.length_tiebreak = false;
-
-    let candidates = ["aa/x", "bb/x", "c/xxxxxx", "dd/x", "e/x"];
-    let unlimited = ranked_with(config, &candidates, "x");
-
-    for limit in [1usize, 3, 5] {
-        let limited: Vec<String> = Matcher::new(config)
-            .rank(candidates, "x", NonZeroUsize::new(limit))
-            .iter()
-            .map(|m| m.candidate.to_owned())
-            .collect();
-        assert_eq!(
-            limited,
-            unlimited[..limit.min(unlimited.len())],
-            "limit {limit}"
-        );
     }
 }
 
@@ -295,7 +236,7 @@ fn an_over_long_candidate_is_scored_without_being_prepared() {
     let huge = "z".repeat(4 * 1024 * 1024);
     let normal = ["src/main.rs", "main/lib.rs"];
 
-    let mut matcher = Matcher::new(Config::DEFAULT);
+    let mut matcher = Matcher::new();
     assert!(
         matcher.score(&huge, "z").is_some(),
         "an over-long candidate still matches"
@@ -317,7 +258,7 @@ fn an_over_long_candidate_is_scored_without_being_prepared() {
 fn a_limit_far_larger_than_the_input_costs_nothing_up_front() {
     // A limit caps the result; it is not a claim that many candidates exist. Reserving against it alone would let
     // `NonZeroUsize::MAX` demand an allocation before a candidate is read.
-    let ranked = Matcher::new(Config::DEFAULT).rank(
+    let ranked = Matcher::new().rank(
         ["src/main.rs", "main/lib.rs"],
         "main",
         NonZeroUsize::new(usize::MAX),
@@ -325,44 +266,6 @@ fn a_limit_far_larger_than_the_input_costs_nothing_up_front() {
 
     assert_eq!(ranked.len(), 2);
     assert_eq!(ranked[0].candidate, "src/main.rs");
-}
-
-#[test]
-fn a_candidate_with_no_segments_is_all_basename() {
-    // An empty separator set is reachable through the public field. Nothing then ends a segment, so the candidate is
-    // one segment and every matched character sits inside the basename -- the coherent reading, and the one the
-    // recurrence already produces, but nothing pinned it.
-    let mut config = Config::DEFAULT;
-    config.segment_separators = &[];
-
-    let ranked = ranked_with(config, &["zzz/main.rs", "main.rs"], "main");
-    assert_eq!(
-        ranked[0], "main.rs",
-        "the earlier match leads once nothing ends a segment"
-    );
-
-    // With `/` no longer a separator it is an ordinary character, so it neither starts a segment nor moves the
-    // basename, and a query may match straight through it.
-    assert!(
-        score_with(config, "z/main.rs", "zm").is_some(),
-        "a separator that is not configured is just a character"
-    );
-}
-
-#[test]
-fn an_empty_word_separator_set_only_drops_the_word_bonus() {
-    // Asserting that the candidate still matches would prove nothing: it matches whether or not `_` separates words.
-    // The observable difference is the boundary bonus at `p`, so the two settings are scored and compared.
-    let mut config = Config::DEFAULT;
-    let with_separators = score_with(config, "render_pass.rs", "rp").expect("matches");
-
-    config.word_separators = &[];
-    let without = score_with(config, "render_pass.rs", "rp").expect("still matches");
-
-    assert!(
-        with_separators > without,
-        "emptying the set drops the word bonus at `p`"
-    );
 }
 
 #[test]
@@ -386,7 +289,7 @@ fn an_over_long_non_ascii_candidate_matches_and_ranks_last() {
     let huge: String = std::iter::repeat_n('é', 2 * 1024 * 1024).collect();
     let scored = "é/main.rs";
 
-    let mut matcher = Matcher::new(Config::DEFAULT);
+    let mut matcher = Matcher::new();
     assert!(
         matcher.score(&huge, "é").is_some(),
         "an over-long non-ASCII candidate still matches"
@@ -438,25 +341,12 @@ fn an_over_long_candidate_matched_in_full_still_ranks_first() {
 fn the_score_bands_survive_aggregation() {
     // A floored term's score sits just above `i32::MIN` and the terms beside it add to it. The bands are applied once
     // after the sum, so a floored aggregate stays below every aligned one whatever the other terms add.
-    let mut config = Config::DEFAULT;
-    config.length_tiebreak = false;
-
     let over_long = "a".repeat(2000);
-    let aligned = score_with(config, "xaxa", "a a").expect("an aligned aggregate");
-    let floored = score_with(config, &over_long, "a a").expect("a floored aggregate");
+    let aligned = score("xaxa", "a a").expect("an aligned aggregate");
+    let floored = score(&over_long, "a a").expect("a floored aggregate");
     assert!(
         floored < aligned,
         "a floored aggregate must stay below an aligned one, got {floored} against {aligned}"
-    );
-
-    // Both orders of the same pair, since a tie would otherwise be settled by input order and hide the defect.
-    assert_eq!(
-        ranked_with(config, &[over_long.as_str(), "xaxa"], "a a")[0],
-        "xaxa"
-    );
-    assert_eq!(
-        ranked_with(config, &["xaxa", over_long.as_str()], "a a")[0],
-        "xaxa"
     );
 }
 
@@ -493,7 +383,7 @@ fn merging_the_rankings_of_slices_reproduces_the_ranking_of_the_whole_list() {
         "lib.rs",
         "d/main.rs",
     ];
-    let mut matcher = Matcher::new(Config::DEFAULT);
+    let mut matcher = Matcher::new();
 
     for query in ["main", "", "rs"] {
         for limit in [None, NonZeroUsize::new(1), NonZeroUsize::new(3)] {
@@ -507,7 +397,7 @@ fn merging_the_rankings_of_slices_reproduces_the_ranking_of_the_whole_list() {
                 ];
 
                 assert_eq!(
-                    matcher.merge(halves, query, limit),
+                    Matcher::merge(halves, query, limit),
                     whole,
                     "query {query:?}, limit {limit:?}, split at {split}"
                 );
@@ -529,54 +419,49 @@ fn a_ranking_fed_by_position_agrees_with_rank_whole_and_merged() {
         "lib.rs",
         "d/main.rs",
     ];
-    let mut without_length_tiebreak = Config::DEFAULT;
-    without_length_tiebreak.length_tiebreak = false;
     let queries = ["main", "", "rs", "zz"];
     let limits = [None, NonZeroUsize::new(1), NonZeroUsize::new(3)];
 
-    for config in [Config::DEFAULT, without_length_tiebreak] {
-        let mut matcher = Matcher::new(config);
-        for (query, limit) in queries
+    let mut matcher = Matcher::new();
+    for (query, limit) in queries
+        .iter()
+        .flat_map(|&query| limits.map(|limit| (query, limit)))
+    {
+        let expected: Vec<(&str, i32)> = matcher
+            .rank(paths, query, limit)
             .iter()
-            .flat_map(|&query| limits.map(|limit| (query, limit)))
-        {
-            let expected: Vec<(&str, i32)> = matcher
-                .rank(paths, query, limit)
+            .map(|found| (found.candidate, found.score))
+            .collect();
+        let as_pairs = |ranked: Vec<kartta_fuzz::Ranked>| -> Vec<(&str, i32)> {
+            ranked
                 .iter()
-                .map(|found| (found.candidate, found.score))
-                .collect();
-            let as_pairs = |ranked: Vec<kartta_fuzz::Ranked>| -> Vec<(&str, i32)> {
-                ranked
-                    .iter()
-                    .map(|found| (paths[found.position], found.score))
-                    .collect()
-            };
+                .map(|found| (paths[found.position], found.score))
+                .collect()
+        };
 
-            // The ranking of `paths[range]`, built one offer at a time.
-            let mut offered = |range: std::ops::Range<usize>| {
-                let mut ranking = matcher.ranking(query, limit);
-                // `all` stops at the first offer the ranking turns away, as a caller feeding it would.
-                let _ = range
-                    .into_iter()
-                    .all(|position| ranking.offer(position, paths[position]));
-                ranking.finish()
-            };
+        // The ranking of `paths[range]`, built one offer at a time.
+        let mut offered = |range: std::ops::Range<usize>| {
+            let mut ranking = matcher.ranking(query, limit);
+            // `all` stops at the first offer the ranking turns away, as a caller feeding it would.
+            let _ = range
+                .into_iter()
+                .all(|position| ranking.offer(position, paths[position]));
+            ranking.finish()
+        };
 
-            let tiebreak = config.length_tiebreak;
+        assert_eq!(
+            as_pairs(offered(0..paths.len())),
+            expected,
+            "query {query:?}, limit {limit:?}"
+        );
+
+        for split in 0..=paths.len() {
+            let halves = [offered(0..split), offered(split..paths.len())];
             assert_eq!(
-                as_pairs(offered(0..paths.len())),
+                as_pairs(Matcher::merge_ranked(halves, query, limit)),
                 expected,
-                "query {query:?}, limit {limit:?}, length tiebreak {tiebreak}"
+                "query {query:?}, limit {limit:?}, split at {split}"
             );
-
-            for split in 0..=paths.len() {
-                let halves = [offered(0..split), offered(split..paths.len())];
-                assert_eq!(
-                    as_pairs(Matcher::merge_ranked(halves, query, limit)),
-                    expected,
-                    "query {query:?}, limit {limit:?}, length tiebreak {tiebreak}, split at {split}"
-                );
-            }
         }
     }
 }
@@ -593,46 +478,42 @@ fn rankings_merge_in_any_grouping_that_keeps_their_order() {
         "lib.rs",
         "d/main.rs",
     ];
-    let mut without_length_tiebreak = Config::DEFAULT;
-    without_length_tiebreak.length_tiebreak = false;
     let queries = ["main", "", "rs"];
     let limits = [None, NonZeroUsize::new(1), NonZeroUsize::new(3)];
     let splits: Vec<(usize, usize)> = (0..=paths.len())
         .flat_map(|first| (first..=paths.len()).map(move |second| (first, second)))
         .collect();
 
-    for config in [Config::DEFAULT, without_length_tiebreak] {
-        let mut matcher = Matcher::new(config);
-        for (query, limit) in queries
-            .iter()
-            .flat_map(|&query| limits.map(|limit| (query, limit)))
-        {
-            let mut offered = |range: std::ops::Range<usize>| {
-                let mut ranking = matcher.ranking(query, limit);
-                let _ = range
-                    .into_iter()
-                    .all(|position| ranking.offer(position, paths[position]));
-                ranking.finish()
-            };
-            let whole = offered(0..paths.len());
+    let mut matcher = Matcher::new();
+    for (query, limit) in queries
+        .iter()
+        .flat_map(|&query| limits.map(|limit| (query, limit)))
+    {
+        let mut offered = |range: std::ops::Range<usize>| {
+            let mut ranking = matcher.ranking(query, limit);
+            let _ = range
+                .into_iter()
+                .all(|position| ranking.offer(position, paths[position]));
+            ranking.finish()
+        };
+        let whole = offered(0..paths.len());
 
-            for &(first, second) in &splits {
-                let [a, b, c] = [
-                    offered(0..first),
-                    offered(first..second),
-                    offered(second..paths.len()),
-                ];
-                let merge = |left, right| Matcher::merge_ranked([left, right], query, limit);
-                let context =
-                    format!("query {query:?}, limit {limit:?}, slices at {first} and {second}");
+        for &(first, second) in &splits {
+            let [a, b, c] = [
+                offered(0..first),
+                offered(first..second),
+                offered(second..paths.len()),
+            ];
+            let merge = |left, right| Matcher::merge_ranked([left, right], query, limit);
+            let context =
+                format!("query {query:?}, limit {limit:?}, slices at {first} and {second}");
 
-                assert_eq!(
-                    merge(merge(a.clone(), b.clone()), c.clone()),
-                    whole,
-                    "left first, {context}"
-                );
-                assert_eq!(merge(a, merge(b, c)), whole, "right first, {context}");
-            }
+            assert_eq!(
+                merge(merge(a.clone(), b.clone()), c.clone()),
+                whole,
+                "left first, {context}"
+            );
+            assert_eq!(merge(a, merge(b, c)), whole, "right first, {context}");
         }
     }
 }
