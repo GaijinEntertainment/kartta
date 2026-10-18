@@ -341,10 +341,12 @@ pub(crate) struct FindSymbolsParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindCallPathParams {
     /// The symbol the chain starts at: the first caller. A qualified name from a find_symbols hit (e.g. "pkg.Serve")
-    /// resolves unambiguously; a name qualified by its owner ("Service.Greet") picks the callable it names; a bare
-    /// name picks the unique match, or the most-called candidate when several share it.
+    /// picks the symbol of that name; a name qualified by its owner ("Service.Greet") picks the callable it names; a
+    /// bare name picks the unique match. Where several share the name - a bare name, or overloads of one qualified
+    /// name - the most-called candidate is picked, and the answer counts the others in passed_over_from.
     pub(crate) from: String,
-    /// The symbol the chain ends at: the last callee, named the same way as from.
+    /// The symbol the chain ends at: the last callee, named and picked the same way as from, the others that share
+    /// its name counted in passed_over_to.
     pub(crate) to: String,
     /// Optional language filter (multiselect). Omit to search every indexed language - a pair resolving in several
     /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
@@ -368,9 +370,10 @@ pub(crate) struct FindCallPathParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindReferencesParams {
-    /// The symbol whose uses to list. A qualified name from a find_symbols hit (e.g. "pkg.Config") resolves
-    /// unambiguously; a name qualified by its owner ("Service.Greet") picks the symbol it names; a bare name picks the
-    /// unique match, or the candidate with the most recorded sites when several share it.
+    /// The symbol whose uses to list. A qualified name from a find_symbols hit (e.g. "pkg.Config") picks the symbol of
+    /// that name; a name qualified by its owner ("Service.Greet") picks the symbol it names; a bare name picks the
+    /// unique match. Where several share the name - a bare name, or overloads of one qualified name - the candidate
+    /// with the most recorded sites is picked, and the answer counts the others in passed_over.
     pub(crate) name: String,
     /// Optional language filter (multiselect). Omit to search every indexed language - a name resolving in several
     /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
