@@ -2,13 +2,17 @@
 
 mod calls;
 mod files;
+mod symbols;
 
 use std::time::Duration;
 
 use kartta::{Definition, Hit, SymbolFlags, SymbolKind};
 
-pub(crate) use self::calls::{CallersAsk, callers};
+pub(crate) use self::calls::{CallersAsk, PathAsk, call_path, callers, impact, references};
 pub(crate) use self::files::{Globbed, dir, globbed, grep, paths};
+pub(crate) use self::symbols::{
+    Found, NameDefinitions, Read, definitions, hits, implementations, importers, outline,
+};
 use crate::llmxml::Element;
 use crate::state::Indexed;
 
@@ -21,8 +25,26 @@ pub(crate) const SUGGESTIONS: usize = 5;
 /// How many of the build's errors the index answer lists before it counts the rest.
 const LISTED_ERRORS: usize = 5;
 
+/// A signature on one line, so a multi-line declaration does not leak `\n` escapes into its attribute.
+fn flat(signature: &str) -> String {
+    signature.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn loc(file: &str, line: u32) -> String {
     format!("{file}:{line}")
+}
+
+/// A definition's span, `file:start-end`, or `file:line` for one on a single line.
+fn span(file: &str, line: u32, end_line: u32) -> String {
+    if end_line > line {
+        format!("{file}:{line}-{end_line}")
+    } else {
+        loc(file, line)
+    }
+}
+
+fn file_element(path: &str) -> String {
+    Element::new("file").attr("path", path).close()
 }
 
 /// The kind as answers spell it, its short label written out: `func` is `function`, `iface` is `interface`.
