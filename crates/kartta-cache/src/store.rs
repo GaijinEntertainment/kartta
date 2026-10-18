@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::key::{ContentHash, Namespace};
-use crate::pack::{self, Aging, Pack, Published};
+use crate::pack::{self, Expired, Pack, Published};
 use crate::writer::{PackWriter, TEMP_PREFIX};
 
 /// A cache directory: every pack published into it, mapped read-only, answering lookups by key.
@@ -157,13 +157,13 @@ impl Store {
     fn merge_at(&self, ttl: Duration, now: SystemTime) -> io::Result<Merged> {
         let mut merged = self.sweep(ttl, now)?;
         let cutoff = Published::rounded_up(now.checked_sub(ttl).unwrap_or(UNIX_EPOCH));
-        let aged: Vec<Aging> = self
+        let expired: Vec<Expired> = self
             .packs
             .iter()
-            .map(|pack| pack.aged_before(cutoff))
+            .map(|pack| pack.expired_before(cutoff))
             .collect();
-        merged.expired_kept = aged.iter().map(|aged| aged.entries).sum();
-        let inputs = self.merge_inputs(&aged);
+        merged.expired_kept = expired.iter().map(|expired| expired.entries).sum();
+        let inputs = self.merge_inputs(&expired);
         if inputs.is_empty() {
             return Ok(merged);
         }
@@ -177,15 +177,15 @@ impl Store {
         merged.entries = u64::try_from(writer.entry_count()).unwrap_or(u64::MAX);
         merged.published = writer.publish()?;
 
-        for (pack, aged) in inputs {
+        for (pack, expired) in inputs {
             if merged.published.as_deref() == Some(pack.path()) {
                 continue;
             }
             match fs::remove_file(pack.path()) {
                 Err(error) if error.kind() != io::ErrorKind::NotFound => merged.left_in_place += 1,
                 _ => {
-                    merged.expired += aged.entries;
-                    merged.expired_kept -= aged.entries;
+                    merged.expired += expired.entries;
+                    merged.expired_kept -= expired.entries;
                 }
             }
         }
@@ -193,7 +193,7 @@ impl Store {
         Ok(merged)
     }
 
-    fn merge_inputs<'s>(&'s self, aged: &'s [Aging]) -> Vec<(&'s Pack, &'s Aging)> {
+    fn merge_inputs<'s>(&'s self, expired: &'s [Expired]) -> Vec<(&'s Pack, &'s Expired)> {
         let largest = self.packs.first().map_or(0, Pack::entry_count);
         let rest: usize = self.packs.iter().skip(1).map(Pack::entry_count).sum();
         let first_merged = if self.packs.len() <= MERGE_PAST {
@@ -204,10 +204,11 @@ impl Store {
 
         self.packs
             .iter()
-            .zip(aged)
+            .zip(expired)
             .enumerate()
-            .filter(|(at, (pack, aged))| {
-                *at >= first_merged || (aged.entries > 0 && aged.bytes * 2 >= pack.payload_bytes())
+            .filter(|(at, (pack, expired))| {
+                *at >= first_merged
+                    || (expired.entries > 0 && expired.bytes * 2 >= pack.payload_bytes())
             })
             .map(|(_, inputs)| inputs)
             .collect()
