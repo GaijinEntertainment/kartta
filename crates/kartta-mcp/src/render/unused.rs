@@ -6,7 +6,7 @@ use crate::llmxml::Element;
 /// What a `find_unused` call asked, as its answer echoes it.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct UnusedAsk<'a> {
-    pub(crate) languages: &'a str,
+    pub(crate) languages: Option<&'a str>,
     pub(crate) path_prefix: Option<&'a str>,
     pub(crate) limit: usize,
 }
@@ -23,18 +23,14 @@ pub(crate) fn unused(ask: &UnusedAsk<'_>, judged: &[(&str, DeadCode<'_>)]) -> St
     found.sort_by_key(|(_, dead)| (dead.definition.file, dead.definition.line));
     found.truncate(ask.limit);
 
-    let mut element = Element::new("unused");
-    if !ask.languages.is_empty() {
-        element = element.attr("languages", ask.languages);
-    }
-    if let Some(prefix) = ask.path_prefix {
-        element = element.attr("path_prefix", prefix);
-    }
-    element = element.attr("count", found.len());
-    if total > found.len() {
-        element = element.attr("total", total).flag("truncated", true);
-    }
-    element = element.attr("live", live);
+    let truncated = total > found.len();
+    let element = Element::new("unused")
+        .optional("languages", ask.languages)
+        .optional("path_prefix", ask.path_prefix)
+        .attr("count", found.len())
+        .optional("total", truncated.then_some(total))
+        .flag("truncated", truncated)
+        .attr("live", live);
     let excluded = excluded(judged.iter().map(|(_, dead)| &dead.excluded));
     if !found.is_empty() {
         return element.children(

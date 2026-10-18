@@ -656,7 +656,7 @@ impl Server {
             };
             Ok(render::hits(
                 &p.query,
-                &echo(p.languages.as_deref()),
+                p.languages.as_deref().map(echo).as_deref(),
                 &found,
                 &coverage,
             ))
@@ -747,7 +747,10 @@ impl Server {
                         .collect(),
                 })
                 .collect();
-            Ok(render::definitions(&echo(p.languages.as_deref()), &answers))
+            Ok(render::definitions(
+                p.languages.as_deref().map(echo).as_deref(),
+                &answers,
+            ))
         })
         .await
     }
@@ -793,7 +796,7 @@ impl Server {
             };
             Ok(render::implementations(
                 &p.name,
-                &echo(p.languages.as_deref()),
+                p.languages.as_deref().map(echo).as_deref(),
                 &found,
                 &suggestions,
             ))
@@ -880,11 +883,11 @@ impl Server {
                     Some((family, graph.call_path(&p.from, &p.to, limits)?))
                 })
                 .collect();
-            let languages = echo(p.languages.as_deref());
+            let languages = p.languages.as_deref().map(echo);
             let ask = PathAsk {
                 from: &p.from,
                 to: &p.to,
-                languages: &languages,
+                languages: languages.as_deref(),
                 hops,
                 min_confidence: floor,
             };
@@ -941,10 +944,10 @@ impl Server {
             } else {
                 Vec::new()
             };
-            let languages = echo(p.languages.as_deref());
+            let languages = p.languages.as_deref().map(echo);
             let ask = CallersAsk {
                 name: &p.name,
-                languages: &languages,
+                languages: languages.as_deref(),
                 role: None,
                 floored: floor != 0,
             };
@@ -1077,9 +1080,9 @@ impl Server {
                 .into_iter()
                 .map(|(family, graph)| (family, graph.dead_code(&[], path_prefix, limit)))
                 .collect();
-            let languages = echo(p.languages.as_deref());
+            let languages = p.languages.as_deref().map(echo);
             let ask = UnusedAsk {
-                languages: &languages,
+                languages: languages.as_deref(),
                 path_prefix,
                 limit,
             };
@@ -1139,10 +1142,10 @@ impl Server {
             } else {
                 Vec::new()
             };
-            let languages = echo(p.languages.as_deref());
+            let languages = p.languages.as_deref().map(echo);
             let ask = CallersAsk {
                 name: &p.name,
-                languages: &languages,
+                languages: languages.as_deref(),
                 role: p.role.map(CallerRole::as_str),
                 floored: p.min_confidence.floor() != 0,
             };
@@ -1196,10 +1199,10 @@ impl Server {
             } else {
                 Vec::new()
             };
-            let languages = echo(p.languages.as_deref());
+            let languages = p.languages.as_deref().map(echo);
             let ask = CallersAsk {
                 name: &p.name,
-                languages: &languages,
+                languages: languages.as_deref(),
                 role: None,
                 floored: floor != 0,
             };

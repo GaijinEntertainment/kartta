@@ -101,12 +101,14 @@ const fn edge_role(flags: SymbolFlags) -> &'static str {
 
 /// Starts an element naming a definition: `name`, and `qn` when the qualified name says more.
 fn named(tag: &'static str, definition: &Definition<'_>) -> Element {
-    let element = Element::new(tag).attr("name", definition.name);
-    if definition.qualified_name == definition.name {
-        element
-    } else {
-        element.attr("qn", definition.qualified_name)
-    }
+    Element::new(tag)
+        .attr("name", definition.name)
+        .optional("qn", qn(definition))
+}
+
+/// A definition's qualified name, when it says more than its name.
+fn qn<'g>(definition: &Definition<'g>) -> Option<&'g str> {
+    (definition.qualified_name != definition.name).then_some(definition.qualified_name)
 }
 
 /// A close alternative to a name nothing selects, found by a search of one family's graph.
@@ -118,26 +120,23 @@ pub(crate) struct Suggestion<'g> {
 
 fn suggestion(suggestion: &Suggestion<'_>) -> String {
     let definition = &suggestion.hit.definition;
-    let mut element = named("suggestion", definition);
-    if let Some(role) = role(definition.flags) {
-        element = element.attr("role", role);
-    }
-    element
+    named("suggestion", definition)
+        .optional("role", role(definition.flags))
         .attr("kind", kind(definition.kind))
         .attr("lang", suggestion.family)
         .attr("loc", loc(definition.file, definition.line))
         .close()
 }
 
-fn empty_languages_note(languages: &str) -> Option<&'static str> {
-    (languages == EMPTY_LANGUAGES).then_some(
+fn empty_languages_note(languages: Option<&str>) -> Option<&'static str> {
+    (languages == Some(EMPTY_LANGUAGES)).then_some(
         "no language selected - an empty languages list searches no graph; omit languages to search every indexed \
          language",
     )
 }
 
 /// The body of an answer whose name selected nothing: the empty filter's note, or the alternatives a search found.
-fn unresolved(element: Element, languages: &str, suggestions: &[Suggestion<'_>]) -> String {
+fn unresolved(element: Element, languages: Option<&str>, suggestions: &[Suggestion<'_>]) -> String {
     if let Some(note) = empty_languages_note(languages) {
         return element.inline(note);
     }
@@ -246,16 +245,14 @@ pub(crate) fn refresh(refreshed: &Refreshed) -> String {
         .count("extracted", refresh.extracted)
         .count("resolved_again", refresh.resolved_again)
         .count("dropped", refresh.dropped.unwrap_or(0))
-        .flag("rebuilt", refresh.rebuilt);
-    if !refresh.reconfigured.is_empty() {
-        element = element.attr("reconfigured", refresh.reconfigured.join(", "));
-    }
-    if let Some(widened) = refresh.widened {
-        element = element
-            .attr("widened", widened.named)
-            .attr("limit", widened.limit);
-    }
-    element = element.attr("elapsed_ms", refreshed.elapsed.as_millis());
+        .flag("rebuilt", refresh.rebuilt)
+        .optional(
+            "reconfigured",
+            (!refresh.reconfigured.is_empty()).then(|| refresh.reconfigured.join(", ")),
+        )
+        .optional("widened", refresh.widened.map(|widened| widened.named))
+        .optional("limit", refresh.widened.map(|widened| widened.limit))
+        .attr("elapsed_ms", refreshed.elapsed.as_millis());
     if let Some(errors) = failures(refresh.errors().count(), refresh.errors()) {
         return element.wrap(&errors);
     }
