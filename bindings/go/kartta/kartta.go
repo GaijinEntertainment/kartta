@@ -160,29 +160,89 @@ func (k *Kartta) untrack(id uint64) {
 
 // Stats answers what the last build indexed, what it made of each language's files, and what each graph holds.
 func (k *Kartta) Stats() (*wire.Stats, error) {
-	var stats wire.Stats
-	if err := k.Call("stats", nil, &stats); err != nil {
-		return nil, err
-	}
-	return &stats, nil
-}
-
-// Callers answers the callers of the symbol params name, transitively, in each graph that holds one.
-func (k *Kartta) Callers(params wire.WalkParams) (*wire.Walks, error) {
-	var walks wire.Walks
-	if err := k.Call("callers", params, &walks); err != nil {
-		return nil, err
-	}
-	return &walks, nil
+	return ask[wire.Stats](k, "stats", nil)
 }
 
 // Version answers the library's ABI version, its crate version, the methods it answers and the languages it ships.
 func (k *Kartta) Version() (*wire.Version, error) {
-	var version wire.Version
-	if err := k.Call("version", nil, &version); err != nil {
-		return nil, err
-	}
-	return &version, nil
+	return ask[wire.Version](k, "version", nil)
+}
+
+// Callers answers the callers of the symbol params name, transitively, in each graph that holds one.
+func (k *Kartta) Callers(params wire.WalkParams) (*wire.Matches[wire.Walk], error) {
+	return ask[wire.Matches[wire.Walk]](k, "callers", params)
+}
+
+// CallPath answers a chain of calls from one symbol to another, in each graph that holds both.
+func (k *Kartta) CallPath(params wire.CallPathParams) (*wire.Matches[wire.CallPath], error) {
+	return ask[wire.Matches[wire.CallPath]](k, "call_path", params)
+}
+
+// References answers the sites that call or use the symbol params name, in each graph that holds one.
+func (k *Kartta) References(params wire.ReferencesParams) (*wire.Matches[wire.References], error) {
+	return ask[wire.Matches[wire.References]](k, "references", params)
+}
+
+// Definitions answers the definitions the name params give selects, in each graph that holds one.
+func (k *Kartta) Definitions(params wire.DefinitionsParams) (*wire.Matches[wire.Definitions], error) {
+	return ask[wire.Matches[wire.Definitions]](k, "definitions", params)
+}
+
+// Sources answers the definitions the name params give selects, each with its text as its file holds it now.
+func (k *Kartta) Sources(params wire.SourcesParams) (*wire.Matches[wire.Definitions], error) {
+	return ask[wire.Matches[wire.Definitions]](k, "sources", params)
+}
+
+// Search answers the definitions that best match the words of a query, in each graph.
+func (k *Kartta) Search(params wire.SearchParams) (*wire.Matches[wire.Search], error) {
+	return ask[wire.Matches[wire.Search]](k, "search", params)
+}
+
+// Implementations answers the types that implement or extend the type params name, in each graph that holds one.
+func (k *Kartta) Implementations(params wire.ImplementationsParams) (*wire.Matches[wire.Implementations], error) {
+	return ask[wire.Matches[wire.Implementations]](k, "implementations", params)
+}
+
+// Outline answers the definitions of one file.
+func (k *Kartta) Outline(params wire.OutlineParams) (*wire.Outline, error) {
+	return ask[wire.Outline](k, "outline", params)
+}
+
+// Dependents answers the files that include a file, directly or through others.
+func (k *Kartta) Dependents(params wire.DependentsParams) (*wire.Dependents, error) {
+	return ask[wire.Dependents](k, "dependents", params)
+}
+
+// AnalyzeSegment answers what a change to a range of a file's lines reaches.
+func (k *Kartta) AnalyzeSegment(params wire.SegmentParams) (*wire.Segment, error) {
+	return ask[wire.Segment](k, "analyze_segment", params)
+}
+
+// AnalyzeChange answers what a change to regions across files reaches.
+func (k *Kartta) AnalyzeChange(params wire.ChangeParams) (*wire.Change, error) {
+	return ask[wire.Change](k, "analyze_change", params)
+}
+
+// List answers the entries under a directory of the index. A path the index does not hold answers wire.NotFound,
+// and one that is not a directory wire.NotADirectory.
+func (k *Kartta) List(params wire.ListParams) (*wire.Listing, error) {
+	return ask[wire.Listing](k, "list", params)
+}
+
+// Glob answers the paths of the index the globs match. A glob that does not compile answers wire.InvalidGlob.
+func (k *Kartta) Glob(params wire.GlobParams) (*wire.Glob, error) {
+	return ask[wire.Glob](k, "glob", params)
+}
+
+// Fuzzy answers the paths of the index that best match a query.
+func (k *Kartta) Fuzzy(params wire.FuzzyParams) (*wire.Fuzzy, error) {
+	return ask[wire.Fuzzy](k, "fuzzy", params)
+}
+
+// Grep answers the lines of the indexed files the patterns match. A pattern that does not compile answers
+// wire.InvalidPattern, and a glob wire.InvalidGlob.
+func (k *Kartta) Grep(params wire.GrepParams) (*wire.Grep, error) {
+	return ask[wire.Grep](k, "grep", params)
 }
 
 // Call answers method with params, encoded as JSON, decoding the answer into answer, a pointer, or discarding it when
@@ -223,6 +283,14 @@ func call(handle *C.KarttaHandle, method string, params, answer any) error {
 		return envelope.Err
 	}
 	return nil
+}
+
+func ask[A any](k *Kartta, method string, params any) (*A, error) {
+	var answer A
+	if err := k.Call(method, params, &answer); err != nil {
+		return nil, err
+	}
+	return &answer, nil
 }
 
 func bytesOf(b []byte) *C.uint8_t {

@@ -1,0 +1,74 @@
+{
+  "answer": {
+    "ok": {
+      "content_index": {
+        "bytes": 787368,
+        "files": 6,
+        "trigrams": 308
+      },
+      "entries": 8,
+      "errors": {
+        "listed": [],
+        "total": 0
+      },
+      "graphs": [
+        {
+          "calls": 2,
+          "files": 2,
+          "files_without_symbols": 0,
+          "includes": 0,
+          "kinds": {
+            "func": 4
+          },
+          "local_calls": 0,
+          "name": "go",
+          "symbols": 4,
+          "uses": 0
+        },
+        {
+          "calls": 1,
+          "files": 3,
+          "files_without_symbols": 0,
+          "includes": 2,
+          "kinds": {
+            "class": 2,
+            "func": 1,
+            "method": 3
+          },
+          "local_calls": 0,
+          "name": "cpp",
+          "symbols": 6,
+          "uses": 0
+        }
+      ],
+      "languages": [
+        {
+          "cached": 0,
+          "claimed": 2,
+          "family": "go",
+          "held": 2,
+          "name": "go",
+          "read": 2
+        },
+        {
+          "cached": 0,
+          "claimed": 3,
+          "family": "cpp",
+          "held": 3,
+          "name": "cpp",
+          "read": 3
+        }
+      ]
+    }
+  },
+  "method": "build",
+  "params": {
+    "content_index": {
+      "storage": "memory"
+    },
+    "languages": [
+      "go",
+      "cpp"
+    ]
+  }
+}

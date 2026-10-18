@@ -1,0 +1,2 @@
+The fixture tree the wire goldens ask about.
+A helper in go/run.go calls nothing.

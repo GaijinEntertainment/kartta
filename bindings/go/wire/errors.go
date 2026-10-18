@@ -23,6 +23,14 @@ const (
 	BuildFailed Code = "build_failed"
 	// BuildCancelled: a cancel stopped the build, which leaves no index.
 	BuildCancelled Code = "build_cancelled"
+	// InvalidGlob: a glob the params name does not compile.
+	InvalidGlob Code = "invalid_glob"
+	// InvalidPattern: a grep pattern does not compile.
+	InvalidPattern Code = "invalid_pattern"
+	// NotFound: list names a path the index does not hold.
+	NotFound Code = "not_found"
+	// NotADirectory: list names a path that is not a directory.
+	NotADirectory Code = "not_a_directory"
 	// Internal: the engine panicked; the handle stays usable.
 	Internal Code = "internal"
 )

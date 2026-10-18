@@ -1,0 +1,73 @@
+{
+  "answer": {
+    "ok": {
+      "end_line": 8,
+      "file": "go/run.go",
+      "graph": "go",
+      "held": true,
+      "included_by": [],
+      "includes": [],
+      "start_line": 8,
+      "symbols": [
+        {
+          "blast": {
+            "affected_files": 1,
+            "band": "low",
+            "below_confidence": 0,
+            "by_depth": [
+              1,
+              1
+            ],
+            "reach": 2,
+            "truncated": false,
+            "turned_away": 0,
+            "unexpanded": 0
+          },
+          "callees": {
+            "below_confidence": 0,
+            "listed": [],
+            "total": 0
+          },
+          "callers": {
+            "below_confidence": 0,
+            "listed": [
+              {
+                "confidence": 80,
+                "depth": 1,
+                "line": 5,
+                "symbol": {
+                  "end_line": 6,
+                  "exported": false,
+                  "file": "go/run.go",
+                  "kind": "func",
+                  "line": 4,
+                  "name": "run",
+                  "qualified_name": "main.run",
+                  "signature": "func run()"
+                }
+              }
+            ],
+            "total": 1
+          },
+          "definition": {
+            "end_line": 8,
+            "exported": false,
+            "file": "go/run.go",
+            "kind": "func",
+            "line": 8,
+            "name": "helper",
+            "qualified_name": "main.helper",
+            "signature": "func helper()"
+          },
+          "unresolved": 0
+        }
+      ]
+    }
+  },
+  "method": "analyze_segment",
+  "params": {
+    "end_line": 8,
+    "file": "go/run.go",
+    "start_line": 8
+  }
+}

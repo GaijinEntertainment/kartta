@@ -1,0 +1,364 @@
+use kartta::{
+    Capped, Case, EntryKind, Filter, FuzzyMatch, FuzzyOptions, GlobOptions, GrepOptions, Index,
+    LineKind, ListError, ListOptions, Listing, Matches, Patterns,
+};
+use serde::{Deserialize, Serialize};
+
+use crate::error::{Error, ErrorCode};
+use crate::wire::params::bound;
+
+const LIST_DEPTH: usize = 1;
+const LIST_LIMIT: usize = 1000;
+const FUZZY_LIMIT: usize = 50;
+const GREP_LIMIT: usize = 100;
+const GREP_MAX_LINE_BYTES: usize = 1024;
+const GREP_MAX_FILE_BYTES: u64 = 4 << 20;
+
+/// Compiles `globs` as one filter, or none when there are none.
+fn filter(globs: Option<&[String]>) -> Result<Option<Filter>, Error> {
+    globs
+        .map(|globs| {
+            Filter::new(globs)
+                .map_err(|error| Error::new(ErrorCode::InvalidGlob, error.to_string()))
+        })
+        .transpose()
+}
+
+/// The params of `list`: the directory, `""` for the root, and how much of its subtree to answer.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub(crate) struct ListParams {
+    path: String,
+    /// How many levels to descend; 0 takes the whole subtree, and left out, the directory's children alone.
+    depth: Option<usize>,
+    /// How many entries to answer at most; 0 sets no cap.
+    limit: Option<usize>,
+    collapse: Option<Vec<String>>,
+    exclude: Option<Vec<String>>,
+}
+
+/// The params of `glob`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GlobParams {
+    globs: Vec<String>,
+    /// How many paths to answer at most; 0 or left out sets no cap.
+    #[serde(default)]
+    limit: usize,
+}
+
+/// The params of `fuzzy`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FuzzyParams {
+    query: String,
+    #[serde(default)]
+    globs: Option<Vec<String>>,
+    /// How many matches to answer at most; 0 or left out takes the default.
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// The params of `grep`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GrepParams {
+    patterns: Vec<String>,
+    #[serde(default)]
+    case_insensitive: bool,
+    #[serde(default)]
+    globs: Option<Vec<String>>,
+    #[serde(default)]
+    exclude: Option<Vec<String>>,
+    #[serde(default)]
+    context: usize,
+    /// How many matching lines to answer at most; 0 sets no cap.
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    count_all: bool,
+    #[serde(default)]
+    max_line_bytes: Option<usize>,
+    #[serde(default)]
+    max_file_bytes: Option<u64>,
+}
+
+/// The answer of `list`.
+#[derive(Debug, Serialize)]
+pub(crate) struct ListView<'a> {
+    path: &'a str,
+    entries: Vec<ListedView<'a>>,
+    truncated: bool,
+    excluded: usize,
+    total: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ListedView<'a> {
+    path: String,
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    binary: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unlisted: Option<usize>,
+}
+
+const fn kind(kind: EntryKind) -> &'static str {
+    match kind {
+        EntryKind::File => "file",
+        EntryKind::Dir => "dir",
+        EntryKind::Symlink => "symlink",
+        EntryKind::Other => "other",
+    }
+}
+
+impl<'a> ListView<'a> {
+    pub(crate) fn new(index: &'a Index, params: &'a ListParams) -> Result<Self, Error> {
+        let collapse = filter(params.collapse.as_deref())?;
+        let exclude = filter(params.exclude.as_deref())?;
+        let mut options = ListOptions::default()
+            .depth(params.depth.unwrap_or(LIST_DEPTH))
+            .limit(params.limit.unwrap_or(LIST_LIMIT));
+        if let Some(collapse) = &collapse {
+            options = options.collapse(collapse);
+        }
+        if let Some(exclude) = &exclude {
+            options = options.exclude(exclude);
+        }
+        let listing = index
+            .list(&params.path, &options)
+            .map_err(|error| list_error(&error))?;
+        Ok(Self::of(&params.path, &listing))
+    }
+
+    fn of(path: &'a str, listing: &Listing<'a>) -> Self {
+        Self {
+            path,
+            entries: listing
+                .items()
+                .iter()
+                .map(|listed| {
+                    let entry = listed.entry();
+                    ListedView {
+                        path: entry.path().to_owned(),
+                        kind: kind(entry.kind()),
+                        size: listed.size(),
+                        binary: listed.is_binary(),
+                        target: entry.target(),
+                        unlisted: listed.unlisted(),
+                    }
+                })
+                .collect(),
+            truncated: listing.truncated(),
+            excluded: listing.excluded(),
+            total: listing.total(),
+        }
+    }
+}
+
+fn list_error(error: &ListError) -> Error {
+    let code = match error {
+        ListError::NotADirectory { .. } => ErrorCode::NotADirectory,
+        _ => ErrorCode::NotFound,
+    };
+    Error::new(code, error.to_string())
+}
+
+/// The answer of `glob`: the matching paths in index order.
+#[derive(Debug, Serialize)]
+pub(crate) struct GlobView {
+    paths: Vec<String>,
+    truncated: bool,
+}
+
+impl GlobView {
+    pub(crate) fn new(index: &Index, params: &GlobParams) -> Result<Self, Error> {
+        let filter = Filter::new(&params.globs)
+            .map_err(|error| Error::new(ErrorCode::InvalidGlob, error.to_string()))?;
+        let found: Capped<'_, usize> =
+            index.glob(&filter, &GlobOptions::default().limit(params.limit));
+        let mut paths = index.paths();
+        Ok(Self {
+            paths: found
+                .items()
+                .iter()
+                .map(|&at| paths.get(at).to_owned())
+                .collect(),
+            truncated: found.truncated(),
+        })
+    }
+}
+
+/// The answer of `fuzzy`: the best-ranked paths, best first.
+#[derive(Debug, Serialize)]
+pub(crate) struct FuzzyView {
+    matches: Vec<FuzzyMatchView>,
+    truncated: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct FuzzyMatchView {
+    path: String,
+    score: i32,
+}
+
+impl FuzzyView {
+    pub(crate) fn new(index: &Index, params: &FuzzyParams) -> Result<Self, Error> {
+        let filter = filter(params.globs.as_deref())?;
+        let limit = bound(params.limit, FUZZY_LIMIT);
+        let mut options = FuzzyOptions::default().limit(limit.saturating_add(1));
+        if let Some(filter) = &filter {
+            options = options.filter(filter);
+        }
+        let mut ranked: Vec<FuzzyMatch<'_>> = index.fuzzy(&params.query, &options);
+        let truncated = limit > 0 && ranked.len() > limit;
+        if truncated {
+            ranked.truncate(limit);
+        }
+        let mut paths = index.paths();
+        Ok(Self {
+            matches: ranked
+                .iter()
+                .map(|found| FuzzyMatchView {
+                    path: paths.get(found.position).to_owned(),
+                    score: found.score,
+                })
+                .collect(),
+            truncated,
+        })
+    }
+}
+
+/// The answer of `grep`: the files holding a match with their lines, and the account of every candidate.
+#[derive(Debug, Serialize)]
+pub(crate) struct GrepView<'a> {
+    files: Vec<GrepFileView<'a>>,
+    lines: usize,
+    truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_lines: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_files: Option<usize>,
+    cancelled: bool,
+    candidates: usize,
+    excluded: usize,
+    symlinks: usize,
+    searched: usize,
+    binary: usize,
+    oversized: usize,
+    ruled_out: usize,
+    unsearched: usize,
+    failures: Vec<GrepFailureView>,
+}
+
+#[derive(Debug, Serialize)]
+struct GrepFileView<'a> {
+    path: String,
+    lines: Vec<GrepLineView<'a>>,
+}
+
+#[derive(Debug, Serialize)]
+struct GrepLineView<'a> {
+    number: u64,
+    kind: &'static str,
+    text: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cut: Option<CutView>,
+}
+
+#[derive(Debug, Serialize)]
+struct CutView {
+    before: usize,
+    after: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct GrepFailureView {
+    path: String,
+    message: String,
+}
+
+impl GrepParams {
+    pub(crate) fn search<'i>(&self, index: &'i Index) -> Result<Matches<'i>, Error> {
+        let case = if self.case_insensitive {
+            Case::Insensitive
+        } else {
+            Case::Sensitive
+        };
+        let patterns = Patterns::new(&self.patterns, case)
+            .map_err(|error| Error::new(ErrorCode::InvalidPattern, error.to_string()))?;
+        let globs = filter(self.globs.as_deref())?;
+        let exclude = filter(self.exclude.as_deref())?;
+        let mut options = GrepOptions::default()
+            .context(self.context)
+            .limit(self.limit.unwrap_or(GREP_LIMIT))
+            .max_line_bytes(bound(self.max_line_bytes, GREP_MAX_LINE_BYTES))
+            .max_file_bytes(bound(self.max_file_bytes, GREP_MAX_FILE_BYTES));
+        if self.count_all {
+            options = options.count_all();
+        }
+        if let Some(globs) = &globs {
+            options = options.filter(globs);
+        }
+        if let Some(exclude) = &exclude {
+            options = options.exclude(exclude);
+        }
+        Ok(index.grep(&patterns, &options))
+    }
+}
+
+impl<'a> GrepView<'a> {
+    pub(crate) fn new(index: &Index, matches: &'a Matches<'_>) -> Self {
+        let mut paths = index.paths();
+        Self {
+            files: matches
+                .files()
+                .iter()
+                .map(|file| GrepFileView {
+                    path: paths.get(file.position()).to_owned(),
+                    lines: file
+                        .lines()
+                        .iter()
+                        .map(|line| GrepLineView {
+                            number: line.number(),
+                            kind: match line.kind() {
+                                LineKind::Match => "match",
+                                LineKind::Context => "context",
+                            },
+                            text: line.text(),
+                            cut: line.cut().map(|cut| CutView {
+                                before: cut.before,
+                                after: cut.after,
+                            }),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            lines: matches.lines(),
+            truncated: matches.truncated(),
+            total_lines: matches.total_lines(),
+            total_files: matches.total_files(),
+            cancelled: matches.cancelled(),
+            candidates: matches.candidates(),
+            excluded: matches.excluded(),
+            symlinks: matches.symlinks(),
+            searched: matches.searched(),
+            binary: matches.binary(),
+            oversized: matches.oversized(),
+            ruled_out: matches.ruled_out(),
+            unsearched: matches.unsearched(),
+            failures: matches
+                .failures()
+                .iter()
+                .map(|failure| GrepFailureView {
+                    path: paths.get(failure.position()).to_owned(),
+                    message: failure.error().to_string(),
+                })
+                .collect(),
+        }
+    }
+}

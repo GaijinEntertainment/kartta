@@ -110,8 +110,14 @@ fn version_lists_the_abi_the_methods_and_the_languages() {
 
     assert_eq!(version["abi"], kartta_ffi::ABI_VERSION);
     assert_eq!(
-        version["methods"],
-        json!(["build", "callers", "cancel", "stats", "version"])
+        version["methods"]
+            .as_array()
+            .map(|methods| methods[..3].to_vec()),
+        Some(vec![
+            json!("analyze_change"),
+            json!("analyze_segment"),
+            json!("build")
+        ])
     );
     assert_eq!(version["languages"][0], "go");
 }
@@ -142,6 +148,46 @@ fn an_unknown_method_names_the_methods_there_are() {
 }
 
 #[test]
+fn a_file_query_refuses_what_it_cannot_take_with_its_own_code() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    assert_eq!(
+        code(&kartta, "glob", &json!({ "globs": ["[a"] })),
+        "invalid_glob"
+    );
+    assert_eq!(
+        code(&kartta, "grep", &json!({ "patterns": ["("] })),
+        "invalid_pattern"
+    );
+    assert_eq!(
+        code(&kartta, "list", &json!({ "path": "gone" })),
+        "not_found"
+    );
+    assert_eq!(
+        code(&kartta, "list", &json!({ "path": "main.go" })),
+        "not_a_directory"
+    );
+}
+
+#[test]
+fn a_fuzzy_limit_of_0_takes_the_default() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let found = ok(&kartta, "fuzzy", &json!({ "query": "go", "limit": 0 }));
+
+    assert_eq!(
+        found["matches"].as_array().map(Vec::len),
+        Some(2),
+        "{found}"
+    );
+    assert_eq!(found["truncated"], false);
+}
+
+#[test]
 fn params_that_are_not_the_method_s_answer_invalid_params() {
     let tree = tree();
     let kartta = open(tree.path());
@@ -158,7 +204,7 @@ fn params_that_are_not_the_method_s_answer_invalid_params() {
         code(&kartta, "cancel", &json!({ "build": "first" })),
         "invalid_params"
     );
-    let not_json: Value = serde_json::from_slice(&kartta.call("stats", b"{")).expect("JSON");
+    let not_json: Value = serde_json::from_slice(&kartta.call("version", b"{")).expect("JSON");
     assert_eq!(not_json["err"]["code"], "invalid_request");
     assert_eq!(
         code(&kartta, "version", &json!({ "verbose": true })),
@@ -193,6 +239,42 @@ fn a_build_answers_what_it_indexed_and_what_each_graph_holds() {
     assert_eq!(built["content_index"]["files"], 2);
     assert_eq!(built["errors"], json!({ "total": 0, "listed": [] }));
     assert_eq!(ok(&kartta, "stats", &Value::Null), built);
+}
+
+#[test]
+fn a_bound_of_0_takes_the_method_s_default() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+    let zeros = json!({ "name": "helper", "depth": 0, "max_symbols": 0 });
+
+    let callers = ok(&kartta, "callers", &zeros);
+    let definitions = ok(
+        &kartta,
+        "definitions",
+        &json!({ "name": "helper", "limit": 0 }),
+    );
+    let search = ok(&kartta, "search", &json!({ "query": "helper", "limit": 0 }));
+    let segment = ok(
+        &kartta,
+        "analyze_segment",
+        &json!({ "file": "run.go", "start_line": 0 }),
+    );
+
+    assert_eq!(
+        callers["matches"][0]["reached"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        definitions["matches"][0]["found"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert!(
+        search["matches"][0]["hits"]
+            .as_array()
+            .is_some_and(|hits| !hits.is_empty())
+    );
+    assert_eq!(segment["start_line"], 1);
 }
 
 #[test]

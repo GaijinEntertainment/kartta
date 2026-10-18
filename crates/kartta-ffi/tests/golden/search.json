@@ -1,0 +1,70 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "dropped_words": 0,
+          "graph": "cpp",
+          "hits": [
+            {
+              "definition": {
+                "end_line": 5,
+                "exported": true,
+                "file": "cpp/circle.cpp",
+                "kind": "method",
+                "line": 3,
+                "name": "area",
+                "owner": "Circle",
+                "qualified_name": "Circle::area",
+                "signature": "double Circle::area() const"
+              },
+              "exact": false,
+              "fuzzy": false,
+              "score": 3.0266131542372916
+            },
+            {
+              "definition": {
+                "end_line": 7,
+                "exported": true,
+                "file": "cpp/circle.h",
+                "kind": "method",
+                "line": 7,
+                "name": "area",
+                "owner": "Circle",
+                "qualified_name": "Circle::area",
+                "signature": "double area() const override"
+              },
+              "exact": false,
+              "fuzzy": false,
+              "score": 3.0266131542372916
+            },
+            {
+              "definition": {
+                "end_line": 5,
+                "exported": true,
+                "file": "cpp/shape.h",
+                "kind": "method",
+                "line": 5,
+                "name": "area",
+                "owner": "Shape",
+                "qualified_name": "Shape::area",
+                "signature": "virtual double area() const = 0"
+              },
+              "exact": false,
+              "fuzzy": false,
+              "score": 0.46209812037329684
+            }
+          ],
+          "named": 4,
+          "total": 5,
+          "unmatched_words": []
+        }
+      ]
+    }
+  },
+  "method": "search",
+  "params": {
+    "limit": 3,
+    "query": "circle area"
+  }
+}

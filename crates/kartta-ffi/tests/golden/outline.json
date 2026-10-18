@@ -1,0 +1,35 @@
+{
+  "answer": {
+    "ok": {
+      "file": "cpp/circle.h",
+      "graph": "cpp",
+      "held": true,
+      "symbols": [
+        {
+          "end_line": 8,
+          "exported": true,
+          "file": "cpp/circle.h",
+          "kind": "class",
+          "line": 5,
+          "name": "Circle",
+          "qualified_name": "Circle"
+        },
+        {
+          "end_line": 7,
+          "exported": true,
+          "file": "cpp/circle.h",
+          "kind": "method",
+          "line": 7,
+          "name": "area",
+          "owner": "Circle",
+          "qualified_name": "Circle::area",
+          "signature": "double area() const override"
+        }
+      ]
+    }
+  },
+  "method": "outline",
+  "params": {
+    "file": "cpp/circle.h"
+  }
+}

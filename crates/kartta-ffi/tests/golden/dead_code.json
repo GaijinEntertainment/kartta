@@ -1,0 +1,45 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "excluded": {
+            "dispatched": 0,
+            "entry": 1,
+            "generated": 0,
+            "kind": 0,
+            "test": 0,
+            "uncertain": 0,
+            "unobservable": 0,
+            "vendored": 0
+          },
+          "found": [
+            {
+              "definition": {
+                "end_line": 10,
+                "exported": false,
+                "file": "go/run.go",
+                "kind": "func",
+                "line": 10,
+                "name": "unused",
+                "qualified_name": "main.unused",
+                "signature": "func unused()"
+              },
+              "spelled": false
+            }
+          ],
+          "graph": "go",
+          "live": 2,
+          "total": 1
+        }
+      ]
+    }
+  },
+  "method": "dead_code",
+  "params": {
+    "kinds": [
+      "func"
+    ],
+    "lang": "go"
+  }
+}
