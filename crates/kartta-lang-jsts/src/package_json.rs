@@ -4,17 +4,11 @@ use kartta_lang::Repository;
 use kartta_lang::path::join;
 use serde_json::{Map, Value};
 
-use crate::config::{self, config_dir};
-use crate::tsconfig::Aliases;
+use crate::config::{self, Aliases, ScopedAliases, config_dir};
 
 const CONDITIONS: [&str; 7] = [
     "source", "import", "module", "default", "require", "node", "types",
 ];
-
-pub(crate) struct PkgImports {
-    pub(crate) dir: String,
-    pub(crate) patterns: Aliases,
-}
 
 pub(crate) struct PkgExports {
     pub(crate) name: String,
@@ -23,7 +17,7 @@ pub(crate) struct PkgExports {
     pub(crate) main: Vec<String>,
 }
 
-pub(crate) fn compile(repository: &dyn Repository) -> (Vec<PkgImports>, Vec<PkgExports>) {
+pub(crate) fn compile(repository: &dyn Repository) -> (Vec<ScopedAliases>, Vec<PkgExports>) {
     let mut imports = Vec::new();
     let mut packages = Vec::new();
 
@@ -35,14 +29,14 @@ pub(crate) fn compile(repository: &dyn Repository) -> (Vec<PkgImports>, Vec<PkgE
 
         // constraint: a `#` specifier resolves against the nearest package alone, so a package with no `imports` keeps
         // an empty entry that stops the lookup at it
-        let patterns = value
+        let aliases = value
             .get("imports")
             .and_then(Value::as_object)
             .map(|map| compile_map(map, dir))
             .unwrap_or_default();
-        imports.push(PkgImports {
+        imports.push(ScopedAliases {
             dir: dir.to_owned(),
-            patterns,
+            aliases,
         });
         packages.extend(package(&value, dir));
     }
@@ -154,7 +148,7 @@ mod tests {
         let (imports, packages) = compile(&files);
 
         let imports: Vec<_> = (imports.iter())
-            .map(|imports| (imports.dir.as_str(), &imports.patterns))
+            .map(|imports| (imports.dir.as_str(), &imports.aliases))
             .collect();
         assert_eq!(
             imports,

@@ -1,8 +1,9 @@
 use kartta_lang::Repository;
 use kartta_lang::path::{dir, join};
 
-use crate::package_json::{self, PkgExports, PkgImports};
-use crate::tsconfig::{self, TsAliasConfig};
+use crate::config::ScopedAliases;
+use crate::package_json::{self, PkgExports};
+use crate::tsconfig;
 
 const PROBE_SUFFIXES: [&str; 19] = [
     "",
@@ -30,8 +31,8 @@ const ESM_EXTENSIONS: [&str; 4] = [".js", ".mjs", ".cjs", ".jsx"];
 
 pub(crate) struct Modules<'r> {
     repository: &'r dyn Repository,
-    ts_aliases: Vec<TsAliasConfig>,
-    pkg_imports: Vec<PkgImports>,
+    ts_aliases: Vec<ScopedAliases>,
+    pkg_imports: Vec<ScopedAliases>,
     packages: Vec<PkgExports>,
 }
 
@@ -63,23 +64,19 @@ impl<'r> Modules<'r> {
             return self.probe(&join(dir(importer), specifier)?);
         }
         if specifier.starts_with('#') {
-            return self.resolve_package_import(specifier, importer);
+            return self.resolve_alias(&self.pkg_imports, specifier, importer);
         }
-        (self.resolve_alias(specifier, importer))
+        (self.resolve_alias(&self.ts_aliases, specifier, importer))
             .or_else(|| self.resolve_package(specifier, importer))
     }
 
-    fn resolve_package_import(&self, specifier: &str, importer: &str) -> Option<String> {
-        let governing = self
-            .pkg_imports
-            .iter()
-            .find(|imports| governs(&imports.dir, importer))?;
-        self.probe_patterns(&governing.patterns, specifier)
-    }
-
-    fn resolve_alias(&self, specifier: &str, importer: &str) -> Option<String> {
-        let governing = self
-            .ts_aliases
+    fn resolve_alias(
+        &self,
+        configs: &[ScopedAliases],
+        specifier: &str,
+        importer: &str,
+    ) -> Option<String> {
+        let governing = configs
             .iter()
             .find(|config| governs(&config.dir, importer))?;
         self.probe_patterns(&governing.aliases, specifier)
