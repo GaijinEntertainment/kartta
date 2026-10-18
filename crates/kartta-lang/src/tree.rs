@@ -8,8 +8,9 @@ use tree_sitter::{Node, Tree};
 /// returns `true` for it.
 ///
 /// A cursor yields nodes already in pre-order, which is the order a walk that keeps a stack of enclosing scopes
-/// needs: a scope is open while the nodes visited start before its end.
-pub fn preorder(tree: &Tree, mut visit: impl FnMut(Node<'_>) -> bool) {
+/// needs: a scope is open while the nodes visited start before its end. A node lives as long as the tree, so such a
+/// stack can hold the enclosing nodes themselves.
+pub fn preorder<'t>(tree: &'t Tree, mut visit: impl FnMut(Node<'t>) -> bool) {
     let mut cursor = tree.walk();
 
     loop {
