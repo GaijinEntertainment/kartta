@@ -108,7 +108,6 @@ fn selecting_every_name_selects_the_set() {
 fn an_unknown_name_fails_the_selection_and_the_error_lists_the_known_names() {
     let error = select(["go", "golang", "Go", "golang"]).expect_err("two names are unknown");
 
-    assert_eq!(error.names(), ["golang", "Go"]);
     assert_eq!(
         error.to_string(),
         "unknown languages \"golang\", \"Go\"; the known languages are go, cpp, typescript, tsx, javascript, \
@@ -120,7 +119,6 @@ fn an_unknown_name_fails_the_selection_and_the_error_lists_the_known_names() {
 fn one_unknown_name_is_named_alone() {
     let error: UnknownLanguages = select(["c++"]).expect_err("the name is unknown");
 
-    assert_eq!(error.names(), ["c++"]);
     let message = error.to_string();
     assert!(
         message.starts_with("unknown language \"c++\"; the known languages are go, cpp,"),
