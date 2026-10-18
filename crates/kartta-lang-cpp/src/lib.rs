@@ -130,8 +130,6 @@ mod repair;
 mod resolve;
 mod walk;
 
-use std::sync::OnceLock;
-
 use kartta_lang::tree::parse;
 use kartta_lang::{
     CallsOnValues, Conventions, DocComments, IncludeReach, InheritedMembers, Language, OwnMembers,
@@ -177,15 +175,7 @@ impl Language for Cpp {
     }
 
     fn fingerprint(&self) -> &[u8] {
-        static FINGERPRINT: OnceLock<Vec<u8>> = OnceLock::new();
-
-        FINGERPRINT.get_or_init(|| {
-            kartta_lang::tree::fingerprint(
-                env!("SOURCE_ID"),
-                &grammar(),
-                tree_sitter_cpp::NODE_TYPES,
-            )
-        })
+        kartta_lang::tree_sitter_fingerprint!(grammar(), tree_sitter_cpp::NODE_TYPES)
     }
 
     fn conventions(&self) -> Conventions {
