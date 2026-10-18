@@ -55,6 +55,16 @@ impl Cascade<'_> {
             (Some(_), Some(_)) => return Err(UseMiss::Ambiguous),
             (None, _) => {}
         }
+        let mut in_module = includes
+            .iter()
+            .flat_map(|&included| self.graph.in_file(self.named(name), included))
+            .copied()
+            .filter(|&at| self.is_module_member(at, owner));
+        match (in_module.next(), in_module.next()) {
+            (Some(at), None) => return Ok((at, confidence::RECEIVER)),
+            (Some(_), Some(_)) => return Err(UseMiss::Ambiguous),
+            (None, _) => {}
+        }
         let ty = self
             .type_seen_from(site.file, owner)
             .ok_or(UseMiss::Elsewhere)?;
@@ -123,6 +133,21 @@ impl Cascade<'_> {
                         .owner
                         .is_some_and(|owner| self.ends_chain(qualified, owner))
             })
+    }
+
+    // constraint: where a qualified name starts with the module that declares it, a receiver that ends that module's
+    // name names the module, as `mod.LIMIT` names `pkg.mod.LIMIT` after `import mod`
+    fn is_module_member(&self, at: SymbolAt, owner: Str) -> bool {
+        let symbol = self.graph.sym(at);
+        let separator = self.conventions.owner_chain_separator.unwrap_or(".");
+        let qualified = self.graph.strings.resolve(symbol.qualified_name);
+        let name = self.graph.strings.resolve(symbol.name);
+        symbol.owner.is_none()
+            && self.holder(at).is_none()
+            && qualified
+                .strip_suffix(name)
+                .and_then(|module| module.strip_suffix(separator))
+                .is_some_and(|module| self.ends_chain(module, owner))
     }
 
     fn ends_chain(&self, qualified: &str, owner: Str) -> bool {
