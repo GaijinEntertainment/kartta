@@ -7,7 +7,7 @@ use super::Replayer;
 use super::declarator::{joins_a_macro_as_scope, qualified_terminal, real_function_declarator};
 use super::name::is_simple_identifier;
 
-impl Replayer<'_> {
+impl Replayer<'_, '_> {
     pub(super) fn callable_key(&self, node: Node<'_>) -> Option<String> {
         if !self.functions.is_empty() || has_unkeyed_ancestor(node) {
             return None;

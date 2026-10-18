@@ -2,6 +2,7 @@ mod data;
 mod declarator;
 mod identity;
 mod name;
+mod sites;
 
 use std::collections::{HashMap, HashSet};
 
@@ -23,6 +24,7 @@ use self::name::{
     call_target, class_symbol, head_scope, include_spec, is_simple_identifier, template_parameters,
     type_base_name,
 };
+use self::sites::{Locals, body_start};
 
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut replayer = Replayer::new(source);
@@ -42,6 +44,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
 struct FunctionScope {
     end: usize,
     id: SymbolId,
+    body: usize,
 }
 
 struct ClassScope {
@@ -71,8 +74,10 @@ struct WrittenScope {
     namespace: Option<usize>,
 }
 
-struct Replayer<'s> {
+struct Replayer<'s, 't> {
     source: &'s [u8],
+    ancestors: Vec<Node<'t>>,
+    locals: Locals<'s>,
     functions: Vec<FunctionScope>,
     classes: Vec<ClassScope>,
     namespaces: Vec<NamespaceScope>,
@@ -89,10 +94,12 @@ struct Replayer<'s> {
     raw: RawExtraction,
 }
 
-impl<'s> Replayer<'s> {
+impl<'s, 't> Replayer<'s, 't> {
     fn new(source: &'s [u8]) -> Self {
         Self {
             source,
+            ancestors: Vec::new(),
+            locals: Locals::default(),
             functions: Vec::new(),
             classes: Vec::new(),
             namespaces: Vec::new(),
@@ -110,9 +117,16 @@ impl<'s> Replayer<'s> {
         }
     }
 
-    fn handle(&mut self, node: Node<'_>) {
+    fn handle(&mut self, node: Node<'t>) {
         self.close_scopes(node.start_byte());
+        self.handle_declaration(node);
+        if !self.functions.is_empty() {
+            self.handle_in_body(node);
+        }
+        self.ancestors.push(node);
+    }
 
+    fn handle_declaration(&mut self, node: Node<'_>) {
         match node.kind() {
             "namespace_definition" => self.open_namespace(node),
             "using_declaration" if is_using_namespace(node) => {
@@ -182,6 +196,12 @@ impl<'s> Replayer<'s> {
     }
 
     fn close_scopes(&mut self, start: usize) {
+        while self
+            .ancestors
+            .pop_if(|ancestor| ancestor.end_byte() <= start)
+            .is_some()
+        {}
+        self.locals.close(start);
         while self
             .functions
             .last()
@@ -254,6 +274,7 @@ impl<'s> Replayer<'s> {
         self.functions.push(FunctionScope {
             end: node.end_byte(),
             id,
+            body: body_start(node),
         });
     }
 

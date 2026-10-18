@@ -59,6 +59,18 @@
 //! type keyword, a call or a `new` of a parameter of an enclosing template, `Compare()` in a template over `Compare`,
 //! and a call before the first symbol of the file are not recorded.
 //!
+//! # Uses
+//!
+//! Only a function's initializer list and body yield uses. `x.f` and `x->f` outside a call's callee use `f` on
+//! [`Receiver::Path`](kartta_lang::Receiver::Path): the class's bare name where `x` is a local or a parameter declared
+//! as a value of it or a reference to it for `.`, or a pointer to it for `->`, else empty. `this->f` and a member a
+//! constructor's initializer list sets use `f` on [`Receiver::Own`](kartta_lang::Receiver::Own), a designated
+//! initializer `.f = v` on the path of the type its declaration or compound literal spells. A bare name that no local,
+//! parameter, capture or enclosing template parameter declares before it is [`Receiver::Bare`](kartta_lang::Receiver),
+//! a member of the enclosing class or a namespace's value alike, an enumerator or a macro included. A qualified name, a
+//! callee and a label are no use. The left side of `=` writes, of a compound assignment, `++` or `--` updates, and an
+//! initializer list or a designator writes; `a.b` in `a.b.c = v` reads.
+//!
 //! # Includes
 //!
 //! The [`Resolver`] resolves each `#include` to a file of the repository, matching letter
