@@ -1,10 +1,12 @@
 use std::fmt;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use kartta::Limits;
-use kartta_fs::{Filter, FuzzyOptions};
+use kartta_fs::{
+    Case, Filter, FuzzyOptions, GlobOptions, GrepOptions, ListError, ListOptions, Patterns,
+};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
@@ -12,9 +14,33 @@ use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 
 use crate::config::Config;
 use crate::languages::{Catalog, echo};
-use crate::params::{CallerRole, FindCallersParams, FindFilesParams, IndexRepoParams};
-use crate::render::{self, CallersAsk, SUGGESTIONS, Suggestion};
+use crate::params::{
+    CallerRole, FindCallersParams, FindFilesParams, GlobFilesParams, GrepParams, IndexRepoParams,
+    ListDirParams,
+};
+use crate::render::{self, CallersAsk, Globbed, SUGGESTIONS, Suggestion};
 use crate::state::{Indexed, Request, Slot, Status};
+
+/// How many matching lines `grep` answers when the call names no cap.
+const GREP_MATCHES: usize = 100;
+
+/// How many bytes of a line `grep` answers: minified code puts a whole file on one line.
+const GREP_LINE_BYTES: usize = 1024;
+
+/// The largest file `grep` reads.
+const GREP_FILE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// What an unscoped `grep` leaves out when the call names no excludes: vendored and generated trees.
+const GREP_EXCLUDES: [&str; 4] = ["**/vendor", "**/node_modules", "**/dist", "**/__pycache__"];
+
+/// How deep `list_dir` lists when the call names no depth.
+const LIST_DEPTH: usize = 1;
+
+/// How many entries `list_dir` lists when the call names no cap.
+const LIST_ENTRIES: usize = 1000;
+
+/// The directories `list_dir` does not enter when the call names none: vendored and generated trees.
+const LIST_COLLAPSED: [&str; 5] = ["vendor", "node_modules", "dist", "build", "__pycache__"];
 
 /// How many hops `find_callers` walks when the call names none.
 const CALLER_HOPS: u32 = 3;
@@ -225,6 +251,195 @@ impl Server {
     }
 
     #[tool(
+        description = "List indexed files matching glob patterns - pure enumeration: every .go file, everything \
+                       under src/, the tree minus vendored code. Use it when the SET of files is the answer \
+                       (inventory, scoping a sweep); when you are hunting ONE file by name, use find_files. Returns \
+                       matching repo-relative paths, one per line, in sorted path order, quoted as find_files quotes \
+                       them; a list max_results cut ends with a (truncated: ...) line saying how many matched when \
+                       the search counted them, and an (excludes removed: N) line counts the matches the excludes \
+                       dropped. Requires index_repo first."
+    )]
+    async fn glob_files(
+        &self,
+        Parameters(p): Parameters<GlobFilesParams>,
+    ) -> Result<String, String> {
+        if p.globs.is_empty() {
+            return Err(
+                "globs is required and must be non-empty - pass [\"**\"] to list the whole tree"
+                    .to_owned(),
+            );
+        }
+        let filter = Filter::new(&p.globs).map_err(|error| error.to_string())?;
+        let excludes = globs(&p.excludes)?;
+        self.answer(move |indexed| {
+            let index = indexed.engine.index();
+            let limit = if excludes.is_some() { 0 } else { p.max_results };
+            let found = index.glob(&filter, &GlobOptions::default().limit(limit));
+            let mut paths = index.paths();
+            let mut listed = crate::llmxml::List::default();
+            let mut matched = 0;
+            for &position in found.items() {
+                let path = paths.get(position);
+                if excludes
+                    .as_ref()
+                    .is_some_and(|excludes| excludes.matches(path))
+                {
+                    continue;
+                }
+                matched += 1;
+                if p.max_results == 0 || listed.len() < p.max_results {
+                    listed.push(path);
+                }
+            }
+            let globbed = if found.truncated() {
+                Globbed::Cut { matched: None }
+            } else if matched > listed.len() {
+                Globbed::Cut {
+                    matched: Some(matched),
+                }
+            } else {
+                Globbed::Whole
+            };
+            let excluded = found.items().len() - matched;
+            Ok(render::globbed(
+                &p.globs.join(", "),
+                listed,
+                globbed,
+                excluded,
+            ))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Search file contents line by line with regular expressions - the evidence tool: pull the \
+                       exact lines that prove how code behaves, find every textual occurrence of an identifier, \
+                       string, or pattern. Several patterns search as one pass (a line matching any of them is \
+                       returned). Covers the indexed files; unscoped searches use the default exclusions documented \
+                       by 'excludes'. A search scoped with non-empty 'includes' and omitted 'excludes' covers exactly \
+                       what it includes. Returns a <grep> envelope: one <file path=..> block per matched file with \
+                       'NUMBER:text' match lines (and 'NUMBER-text' context when context_lines is set), capped at \
+                       max_results match lines (default 100) spent in file-path order. A line longer than 1024 \
+                       bytes is cut around its match and marked \
+                       [... omitted N bytes]. Binary files and files over 4 MiB are skipped and counted in binary= \
+                       and oversized=; unreadable files are listed in <failures>; unsearched= counts the files the \
+                       search did not reach once the cap filled, excluded= the files the excludes dropped, \
+                       ruled_out= the files the content index, built from their content as index_repo read it, \
+                       shows hold no match, and symlinks= the links \
+                       selected, which are never read through. The \
+                       answer reads each file as it is now, but the set of files is the checkout as index_repo saw \
+                       it: a file added since is missing from it until index_repo runs again. For symbol definitions \
+                       use find_symbols, for call sites find_callers - grep finds text, not structure. Requires \
+                       index_repo first."
+    )]
+    async fn grep(&self, Parameters(p): Parameters<GrepParams>) -> Result<String, String> {
+        if p.patterns.iter().all(|pattern| pattern.trim().is_empty()) {
+            return Err("patterns needs at least one non-blank pattern".to_owned());
+        }
+        let case = if p.case_insensitive.unwrap_or(false) {
+            Case::Insensitive
+        } else {
+            Case::Sensitive
+        };
+        let patterns = Patterns::new(&p.patterns, case).map_err(|error| error.to_string())?;
+        let includes = globs(&p.includes)?;
+        let excludes = match &p.excludes {
+            Some(excludes) => globs(excludes)?,
+            None if p.includes.is_empty() => {
+                Some(Filter::new(GREP_EXCLUDES).map_err(|error| error.to_string())?)
+            }
+            None => None,
+        };
+        self.answer(move |indexed| {
+            let index = indexed.engine.index();
+            let mut options = GrepOptions::default()
+                .context(p.context_lines)
+                .limit(p.max_results.map_or(GREP_MATCHES, NonZeroUsize::get))
+                .max_line_bytes(GREP_LINE_BYTES)
+                .max_file_bytes(GREP_FILE_BYTES);
+            if let Some(includes) = &includes {
+                options = options.filter(includes);
+            }
+            if let Some(excludes) = &excludes {
+                options = options.exclude(excludes);
+            }
+            let matches = index.grep(&patterns, &options);
+            Ok(render::grep(&p.patterns, &matches, &mut index.paths()))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "List a directory's entries from the index: subdirectories, files with their byte sizes \
+                       (size=\"unknown\" when the file could not be read - distinct from size=\"0\", an empty file; \
+                       directories and symlinks carry no size), and symlinks (marked explicitly, with their target). \
+                       Use it when the SET of entries under one directory is the answer - what a package contains, \
+                       whether a test or companion file exists beside a module. find_files hunts ONE file by name; \
+                       glob_files enumerates by pattern across the whole tree. path \".\" (or omitted) lists the \
+                       repository root; max_depth 1 (the default) shows immediate children only. Descent into \
+                       vendored and generated trees (vendor, node_modules, dist, build, __pycache__) is suppressed by \
+                       default - the directory entry itself still appears, and listing it by path shows its \
+                       contents. Returns a <dir> envelope with one <entry/> record per entry in name-sorted order, a \
+                       directory immediately preceding its children; a directory the listing did not enter (below \
+                       max_depth or suppressed) carries unlisted= with the count of entries beneath it. Capped at \
+                       max_entries (default 1000), truncated=\"true\" when the cap cut it; total= on <dir> counts \
+                       every entry the index holds under the path when the listing shows fewer, and excluded= the \
+                       entries skip_dotfiles dropped. An empty directory is a successful empty answer, not an error. \
+                       The entries are the indexed universe - what the walk saw, not the live filesystem - while a \
+                       file's size is read from the filesystem when the file is first listed. Requires index_repo \
+                       first."
+    )]
+    async fn list_dir(&self, Parameters(p): Parameters<ListDirParams>) -> Result<String, String> {
+        let names = p
+            .excludes
+            .unwrap_or_else(|| LIST_COLLAPSED.map(str::to_owned).to_vec());
+        let collapse = globs(
+            &names
+                .iter()
+                .map(|name| format!("**/{}", escape_glob(name)))
+                .collect::<Vec<_>>(),
+        )?;
+        let dotfiles = if p.skip_dotfiles.unwrap_or(false) {
+            Some(Filter::new(["**/.*"]).map_err(|error| error.to_string())?)
+        } else {
+            None
+        };
+        if p.path.starts_with('/') {
+            return Err(format!(
+                "{:?} is absolute - pass a repo-relative directory path as printed by find_files; \".\" lists the root",
+                p.path
+            ));
+        }
+        let dir = match p.path.trim_end_matches('/') {
+            "." => String::new(),
+            path => path.to_owned(),
+        };
+        self.answer(move |indexed| {
+            let mut options = ListOptions::default()
+                .depth(p.max_depth.map_or(LIST_DEPTH, NonZeroUsize::get))
+                .limit(p.max_entries.map_or(LIST_ENTRIES, NonZeroUsize::get));
+            if let Some(collapse) = &collapse {
+                options = options.collapse(collapse);
+            }
+            if let Some(dotfiles) = &dotfiles {
+                options = options.exclude(dotfiles);
+            }
+            let listing = indexed
+                .engine
+                .index()
+                .list(&dir, &options)
+                .map_err(|error| match error {
+                    ListError::NotADirectory { .. } => format!("{error} - list its parent directory instead"),
+                    error => format!(
+                        "{error} - pass a repo-relative directory path as printed by find_files; \".\" lists the root"
+                    ),
+                })?;
+            Ok(render::dir(&dir, &listing))
+        })
+        .await
+    }
+
+    #[tool(
         description = "Trace who calls a symbol, transitively: walks the call graph in reverse from the named \
                        function or method, hop by hop. Answers \"what is affected if I change this function?\" before \
                        an edit, rename, or removal. Searches every indexed language unless narrowed with 'languages'; \
@@ -318,5 +533,30 @@ impl ServerHandler for Server {
         );
         info.server_info = Implementation::new("kartta-mcp", env!("CARGO_PKG_VERSION"));
         info
+    }
+}
+
+/// `name` as a glob that matches it literally: each character the glob dialect gives a meaning to is escaped.
+fn escape_glob(name: &str) -> String {
+    let mut escaped = String::with_capacity(name.len());
+    for character in name.chars() {
+        if matches!(character, '*' | '?' | '[' | ']' | '{' | '}' | '\\' | '!') {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_escaped_name_matches_only_itself() {
+        let filter = Filter::new([format!("**/{}", escape_glob("a[1]{b}*"))]).unwrap();
+
+        assert!(filter.matches("x/a[1]{b}*"));
+        assert!(!filter.matches("x/a1b"));
     }
 }

@@ -14,14 +14,39 @@ pub(crate) fn line(text: &str) -> Cow<'_, str> {
 
 /// The plain list of `texts`, a [`line`] each.
 pub(crate) fn lines(texts: &[String]) -> String {
-    let mut list = String::new();
-    for (at, text) in texts.iter().enumerate() {
-        if at > 0 {
-            list.push('\n');
-        }
-        list.push_str(&line(text));
+    let mut list = List::default();
+    for text in texts {
+        list.push(text);
     }
-    list
+    list.into_text()
+}
+
+/// A plain list written a record at a time, each as [`line`] writes it, into one buffer.
+#[derive(Debug, Default)]
+pub(crate) struct List {
+    text: String,
+    len: usize,
+}
+
+impl List {
+    /// Appends `record` on a line of its own.
+    pub(crate) fn push(&mut self, record: &str) {
+        if self.len > 0 {
+            self.text.push('\n');
+        }
+        self.text.push_str(&line(record));
+        self.len += 1;
+    }
+
+    /// How many records the list holds.
+    pub(crate) const fn len(&self) -> usize {
+        self.len
+    }
+
+    /// The records, one a line.
+    pub(crate) fn into_text(self) -> String {
+        self.text
+    }
 }
 
 /// One element of an XML-like answer, rendered straight to a string: the opening tag gathers attributes, and one
