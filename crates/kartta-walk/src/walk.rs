@@ -509,7 +509,7 @@ impl Listing {
     }
 }
 
-// shortcut: serial, so it bounds how much the parallel traversal can win — reserve each subtree's id range from its
+// shortcut: serial, so it bounds how much the parallel traversal can win — reserve each subtree's slot range from its
 // node count and fill the ranges in parallel once this shows up as the bottleneck on a large tree
 fn flatten<V>(subtree: Subtree<V>, tree: &mut Tree<V>, errors: &mut Vec<WalkError>) {
     let Subtree {
