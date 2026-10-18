@@ -106,7 +106,7 @@ impl<'a> Emitter<'a> {
         if let Some(name) = class_name(node, self.source) {
             let mut symbol = self.declared(SymbolKind::Class, node, (None, name));
             symbol.parents = field_text(node, "base", self.source).into_iter().collect();
-            self.push_symbol(symbol);
+            self.raw.push_symbol(symbol);
         }
     }
 
@@ -133,7 +133,7 @@ impl<'a> Emitter<'a> {
         symbol.signature = is_simple_value(value)
             .then(|| signature_from(slot.start_byte(), value, self.source))
             .flatten();
-        self.push_symbol(symbol);
+        self.raw.push_symbol(symbol);
     }
 
     fn local_declaration(&mut self, node: Node<'_>) {
@@ -149,7 +149,7 @@ impl<'a> Emitter<'a> {
             self.declared_function(node);
         } else if let Some(name) = field_text(node, "name", self.source) {
             let symbol = self.declared(SymbolKind::Constant, node, (None, name));
-            self.push_symbol(symbol);
+            self.raw.push_symbol(symbol);
         }
     }
 
@@ -192,14 +192,14 @@ impl<'a> Emitter<'a> {
         };
 
         let symbol = self.declared(SymbolKind::Enum, node, (None, name.clone()));
-        self.push_symbol(symbol);
+        self.raw.push_symbol(symbol);
 
         let members = named_child_nodes(node);
         for member in members {
             if let Some(member_name) = field_text(member, "name", self.source) {
                 let owner = Some(name.clone());
                 let symbol = self.declared(SymbolKind::EnumVariant, member, (owner, member_name));
-                self.push_symbol(symbol);
+                self.raw.push_symbol(symbol);
             }
         }
     }
@@ -218,7 +218,7 @@ impl<'a> Emitter<'a> {
 
         let mut symbol = self.declared(kind, node, (owner, name));
         symbol.signature = signature_from(header_start, node, self.source);
-        self.push_symbol(symbol)
+        self.raw.push_symbol(symbol)
     }
 
     fn open_scope(&mut self, callable: Node<'_>, id: SymbolId) {
@@ -371,12 +371,6 @@ impl<'a> Emitter<'a> {
         symbol.exported = true;
         symbol.flags = self.flags;
         symbol
-    }
-
-    fn push_symbol(&mut self, symbol: Symbol) -> SymbolId {
-        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
-        self.raw.symbols.push(symbol);
-        id
     }
 
     fn push_call(&mut self, callee: String, receiver: Option<String>, node: Node<'_>) {

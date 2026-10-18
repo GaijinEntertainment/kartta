@@ -391,7 +391,7 @@ impl<'a> Emitter<'a> {
     // constraint: a definition inside a function body, a class and its members included, is local to that body
     fn push_symbol(&mut self, mut symbol: Symbol) -> SymbolId {
         symbol.flags = symbol.flags.union(self.flags);
-        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
+        let id = self.raw.push_symbol(symbol);
         if self
             .frames
             .iter()
@@ -399,7 +399,6 @@ impl<'a> Emitter<'a> {
         {
             self.raw.local_symbols.push(id);
         }
-        self.raw.symbols.push(symbol);
         id
     }
 

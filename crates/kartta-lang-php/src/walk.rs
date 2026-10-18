@@ -111,10 +111,8 @@ impl Emitter<'_> {
     }
 
     fn push(&mut self, mut symbol: Symbol) -> SymbolId {
-        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
         symbol.flags = self.flags;
-        self.raw.symbols.push(symbol);
-        id
+        self.raw.push_symbol(symbol)
     }
 
     fn open_scope(&mut self, symbol: Symbol, end: usize) {
