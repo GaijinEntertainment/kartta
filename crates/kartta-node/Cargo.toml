@@ -1,0 +1,27 @@
+[package]
+name = "kartta-node"
+description = "Node.js addon of the kartta code graph engine: kartta-ffi's JSON dispatch, called off the event loop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["code-graph", "nodejs", "napi", "bindings"]
+categories = ["development-tools", "external-ffi-bindings"]
+# npm is the channel: the addon ships inside the package in bindings/node, never as a crate.
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+kartta-ffi = { version = "0.0.0", path = "../kartta-ffi" }
+napi = { version = "3.14.2", default-features = false, features = ["napi4"] }
+napi-derive = "3.6.12"
+
+[build-dependencies]
+napi-build = "2.6.0"
