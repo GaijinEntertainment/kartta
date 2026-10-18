@@ -857,7 +857,7 @@ impl Policy for Indexing<'_> {
     }
 }
 
-fn child_path(dir: &str, name: &str) -> String {
+pub(crate) fn child_path(dir: &str, name: &str) -> String {
     if dir.is_empty() {
         name.to_owned()
     } else {
