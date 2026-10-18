@@ -26,7 +26,9 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let package = package_name(tree, source);
     let mut emitter = Emitter::new(source, package, package_values(tree, source));
 
-    preorder(tree, |node| !node.is_named() || emitter.handle(node));
+    preorder(tree.root_node(), |node| {
+        !node.is_named() || emitter.handle(node)
+    });
 
     emitter.apply_pending_parents();
     emitter.raw

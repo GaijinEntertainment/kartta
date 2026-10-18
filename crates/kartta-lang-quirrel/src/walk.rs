@@ -13,7 +13,7 @@ const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT", "Code generate
 
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter::new(source);
-    preorder(tree, |node| {
+    preorder(tree.root_node(), |node| {
         if node.is_named() {
             emitter.handle(node);
         }

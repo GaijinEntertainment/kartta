@@ -1,10 +1,10 @@
-use kartta_lang::tree::{line, text};
+use kartta_lang::tree::{line, preorder, text};
 use kartta_lang::{Access, NO_CALLER_ID, Receiver, RefSite, SymbolId};
 use tree_sitter::Node;
 
 use super::Emitter;
 use super::locals::declares_left;
-use super::syntax::{PREDECLARED, first_operand, is_pointer_indirection, preorder_within};
+use super::syntax::{PREDECLARED, first_operand, is_pointer_indirection};
 use super::types::{element_of, is_container_path, is_container_type};
 
 impl<'a> Emitter<'a> {
@@ -231,7 +231,7 @@ impl<'a> Emitter<'a> {
     }
 
     pub(super) fn record_uses_in(&mut self, node: Node<'_>, owner: SymbolId) {
-        preorder_within(node, |current| {
+        preorder(node, |current| {
             !current.is_named() || self.record_use(current, owner)
         });
     }
