@@ -5,6 +5,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
+use std::time::Duration;
 use std::{io, iter};
 
 use kartta_walk::{CancelToken, Children, EntryKind, Tree, WalkError, WalkOptions, walk};
@@ -92,6 +93,7 @@ pub struct Index {
     content_stamps: Option<Box<[Stamp]>>,
     content_storage: Option<ContentIndexStorage>,
     content_cache: Option<PathBuf>,
+    content_cache_ttl: Duration,
     content: ContentIndexes,
     pool: Option<Arc<ThreadPool>>,
 }
@@ -209,6 +211,7 @@ impl Index {
             binary_extensions: self.binary_extensions.clone(),
             content_index: self.content_storage.clone(),
             content_cache: self.content_cache.clone(),
+            content_cache_ttl: self.content_cache_ttl,
             stamps: self.content_stamps.is_some(),
         }
     }
@@ -313,6 +316,7 @@ impl Index {
             binary_extensions: options.binary_extensions.clone(),
             content_storage: options.content_index.clone(),
             content_cache: options.content_cache.clone(),
+            content_cache_ttl: options.content_cache_ttl,
             pool,
         };
         let placing = Placing {
@@ -402,6 +406,7 @@ impl Index {
             binary_extensions,
             content_storage,
             content_cache,
+            content_cache_ttl,
             pool,
         } = base;
         let mut suffixes_len = 0;
@@ -461,6 +466,7 @@ impl Index {
             content_stamps: placed.stamps,
             content_storage,
             content_cache,
+            content_cache_ttl,
             content: ContentIndexes::default(),
             pool,
         };
@@ -996,6 +1002,7 @@ struct Base {
     binary_extensions: BinaryExtensions,
     content_storage: Option<ContentIndexStorage>,
     content_cache: Option<PathBuf>,
+    content_cache_ttl: Duration,
     pool: Option<Arc<ThreadPool>>,
 }
 
@@ -1237,7 +1244,7 @@ fn indexing<'a>(
         .content_cache
         .as_deref()
         .filter(|_| reads)
-        .map(SharedCache::open)
+        .map(|dir| SharedCache::open(dir, options.content_cache_ttl))
         .transpose();
     let (cache, unopened) = match opened {
         Ok(cache) => (cache, None),
@@ -1547,6 +1554,7 @@ mod tests {
             content_stamps: None,
             content_storage: None,
             content_cache: None,
+            content_cache_ttl: Duration::ZERO,
             content: ContentIndexes::default(),
             pool: None,
         }

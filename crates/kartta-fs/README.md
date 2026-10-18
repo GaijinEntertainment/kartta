@@ -160,7 +160,9 @@ A build given `BuildOptions::content_index` also records each text file's trigra
 then rules out, before opening it, every indexed file missing a trigram its patterns need; a file the index holds no
 trigrams for, such as one the build could not read, stays a candidate. Builds of nearly identical trees can share that
 work through `BuildOptions::content_cache`, a `kartta-cache` directory keyed by each file's content: a file whose
-trigrams another build already computed is hashed and looked up rather than scanned.
+trigrams another build already computed is hashed and looked up rather than scanned. Each build ends with a merge that
+expires the entries older than `BuildOptions::content_cache_ttl`, a week when left at zero, and rewrites a pack without
+them once they hold half of its payload bytes.
 
 `examples/probe.rs` indexes a real tree and reports what survived, how long the build took, and what a path search costs
 — a synthetic fixture cannot tell you magnitude, because a repository's `.gitignore` files are what decide how much of
