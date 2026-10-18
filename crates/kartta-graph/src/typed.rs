@@ -1,6 +1,6 @@
 use kartta_lang::{Receivers, SymbolKind};
 
-use crate::resolve::{Call, Cascade, is_type_kind};
+use crate::resolve::{Call, Cascade, derived, is_type_kind};
 use crate::stored::{SymbolAt, VALUE_TYPE_SEPARATOR};
 use crate::strings::Str;
 
@@ -95,14 +95,9 @@ impl<'g> Cascade<'g> {
     }
 
     fn receiver_type(&self, file: u32, receiver: Str) -> Value<'g> {
-        if let Some(&held) = self.receiver_types.borrow().get(&(file, receiver)) {
-            return held;
-        }
-        let value = self.evaluate(file, self.graph.strings.resolve(receiver), 0);
-        self.receiver_types
-            .borrow_mut()
-            .insert((file, receiver), value);
-        value
+        derived(&self.receiver_types, (file, receiver), || {
+            self.evaluate(file, self.graph.strings.resolve(receiver), 0)
+        })
     }
 
     fn evaluate(&self, file: u32, path: &'g str, depth: u8) -> Value<'g> {
