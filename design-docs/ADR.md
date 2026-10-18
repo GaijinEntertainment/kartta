@@ -124,6 +124,9 @@
   `04-consumer-surfaces`, 2026-10-18
 - [4.2 Reach the engine through one JSON call over a small C
   ABI](./adr/4.2-reach-the-engine-through-one-json-call.md) — initiative `04-consumer-surfaces`, 2026-10-18
+- [4.3 Reach the engine from Node through an addon over the same
+  dispatch](./adr/4.3-reach-the-engine-from-node-through-an-addon-over-the-same-dispatch.md) — initiative
+  `04-consumer-surfaces`, 2026-10-18
 
 ## Deprecated
 
