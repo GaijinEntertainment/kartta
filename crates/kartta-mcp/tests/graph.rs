@@ -1,0 +1,411 @@
+//! The graph tools over a small Go module, their answers pinned in full.
+#![expect(
+    clippy::expect_used,
+    reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and an integration test crate is built \
+              without cfg(test), so the client's helpers fail the test by a failed expectation"
+)]
+
+#[expect(
+    dead_code,
+    reason = "the helpers serve every test crate, and this one calls some of them"
+)]
+mod common;
+
+use std::fmt::Write;
+
+use serde_json::{Value, json};
+
+use common::{Client, go_module, tree};
+
+const NOT_HELD: &str = "not in a code graph - an unrecognized extension, a language not indexed, or a path the \
+                        index does not hold: pass a repo-relative path as printed by find_files";
+
+fn answers(calls: &[(&str, Value)]) -> Vec<String> {
+    let tree = go_module();
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+    calls
+        .iter()
+        .map(|(tool, arguments)| client.answer(tool, arguments))
+        .collect()
+}
+
+fn lines(lines: &[&str]) -> String {
+    lines.join("\n")
+}
+
+#[test]
+fn find_symbols_ranks_the_named_symbol_first_and_counts_what_the_limit_cut() {
+    let answers = answers(&[
+        ("find_symbols", json!({"query": "Greet"})),
+        ("find_symbols", json!({"query": "service", "limit": 1})),
+        ("find_symbols", json!({"query": "nothing here"})),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<symbols of="Greet" count="1">"#,
+                concat!(
+                    r#"<hit name="Greet" qn="pkg.Service.Greet" owner="Service" kind="method" lang="go" "#,
+                    r#"loc="pkg/service.go:12-14" sig="func (s *Service) Greet(name string) string"/>"#,
+                ),
+                "</symbols>",
+            ]),
+            lines(&[
+                r#"<symbols of="service" count="1" total="3" truncated="true">"#,
+                r#"<hit name="Service" qn="pkg.Service" kind="struct" lang="go" loc="pkg/service.go:4"/>"#,
+                "</symbols>",
+            ]),
+            lines(&[concat!(
+                r#"<symbols of="nothing here" count="0" unmatched="nothing, here">no match - if the language is "#,
+                "absent from the index, index_stats lists what is indexed</symbols>",
+            )]),
+        ]
+    );
+}
+
+#[test]
+fn read_definitions_answers_each_body_with_its_doc_comment() {
+    let answers = answers(&[
+        (
+            "read_definitions",
+            json!({"names": ["Greet", "Missing"], "from": "pkg/service.go"}),
+        ),
+        ("read_definitions", json!({"names": ["New"], "limit": 1})),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<definitions count="2">"#,
+                r#"<name of="Greet" total="1">"#,
+                concat!(
+                    r#"<definition name="Greet" qn="pkg.Service.Greet" owner="Service" kind="method" lang="go" "#,
+                    r#"loc="pkg/service.go:12-14" scope="same-directory">"#,
+                ),
+                "    11\t// Greet greets name.",
+                "    12\tfunc (s *Service) Greet(name string) string {",
+                "    13\t\treturn \"hi \" + name",
+                "    14\t}",
+                "</definition>",
+                "</name>",
+                r#"<name of="Missing" total="0">no definition matches - find_symbols can locate the name</name>"#,
+                "</definitions>",
+            ]),
+            lines(&[
+                r#"<definitions count="1">"#,
+                r#"<name of="New" total="1">"#,
+                concat!(
+                    r#"<definition name="New" qn="pkg.New" kind="function" lang="go" loc="pkg/service.go:7-9" "#,
+                    r#"scope="other">"#,
+                ),
+                "     6\t// New builds a Service.",
+                "     7\tfunc New() *Service {",
+                "     8\t\treturn &Service{}",
+                "     9\t}",
+                "</definition>",
+                "</name>",
+                "</definitions>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn file_outline_find_importers_and_find_implementations_answer_for_the_module() {
+    let answers = answers(&[
+        ("file_outline", json!({"file": "pkg/service.go"})),
+        ("file_outline", json!({"file": "README.md"})),
+        ("find_importers", json!({"file": "pkg/service.go"})),
+        ("find_importers", json!({"file": "README.md"})),
+        ("find_implementations", json!({"name": "Service"})),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<outline of="pkg/service.go" symbols="3">"#,
+                r#"<symbol name="Service" qn="pkg.Service" kind="struct" lines="4-4"/>"#,
+                r#"<symbol name="New" qn="pkg.New" kind="function" lines="7-9" sig="func New() *Service"/>"#,
+                concat!(
+                    r#"<symbol name="Greet" qn="pkg.Service.Greet" owner="Service" kind="method" lines="12-14" "#,
+                    r#"sig="func (s *Service) Greet(name string) string"/>"#,
+                ),
+                "</outline>",
+            ]),
+            format!(r#"<outline of="README.md" symbols="0">{NOT_HELD}, or read or grep the file</outline>"#),
+            lines(&[
+                r#"<importers of="pkg/service.go" count="1">"#,
+                r#"<file path="cmd/app/main.go"/>"#,
+                "</importers>",
+            ]),
+            concat!(
+                r#"<importers of="README.md" count="0">not in a code graph (an unrecognized extension, a "#,
+                "language not indexed, or a path the index does not hold) - pass a repo-relative path as printed by \
+                 find_files</importers>",
+            )
+            .to_owned(),
+            concat!(
+                r#"<implementations of="Service" count="0">the symbol is indexed but nothing implements or "#,
+                "extends it</implementations>",
+            )
+            .to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn find_symbols_tops_up_with_fuzzy_hits_only_when_every_graph_underfills_the_limit() {
+    let tree = go_module();
+    std::fs::write(tree.path().join("x.py"), "def sxerxvice():\n    pass\n")
+        .expect("the file is written");
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("find_symbols", &json!({"query": "service", "limit": 1})),
+        lines(&[
+            r#"<symbols of="service" count="1" total="3" truncated="true">"#,
+            r#"<hit name="Service" qn="pkg.Service" kind="struct" lang="go" loc="pkg/service.go:4"/>"#,
+            "</symbols>",
+        ])
+    );
+    let topped_up = client.answer("find_symbols", &json!({"query": "service", "limit": 5}));
+    assert!(
+        topped_up
+            .lines()
+            .any(|line| line.contains(r#"name="sxerxvice""#) && line.contains(r#"fuzzy="true""#)),
+        "{topped_up}"
+    );
+}
+
+#[test]
+fn find_implementations_lists_at_most_500_across_every_graph() {
+    let mut python = String::from("class Base:\n    pass\n");
+    let mut typescript = String::from("class Base {}\n");
+    for at in 0..300 {
+        let _ = writeln!(python, "class P{at}(Base):\n    pass");
+        let _ = writeln!(typescript, "class T{at} extends Base {{}}");
+    }
+    let tree = tree(&[("base.py", &python), ("base.ts", &typescript)]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_implementations", &json!({"name": "Base"}));
+
+    assert_eq!(
+        answer.lines().next(),
+        Some(r#"<implementations of="Base" count="500" total="600">"#)
+    );
+    assert_eq!(
+        answer
+            .lines()
+            .filter(|line| line.starts_with("<type "))
+            .count(),
+        500
+    );
+}
+
+#[test]
+fn find_importers_counts_the_importers_it_did_not_follow_past_three_hops() {
+    let chain = tree(&[
+        ("go.mod", "module example.com/chain\n\ngo 1.22\n"),
+        ("a/a.go", "package a\n\nfunc A() {}\n"),
+        (
+            "b/b.go",
+            "package b\n\nimport \"example.com/chain/a\"\n\nfunc B() { a.A() }\n",
+        ),
+        (
+            "c/c.go",
+            "package c\n\nimport \"example.com/chain/b\"\n\nfunc C() { b.B() }\n",
+        ),
+        (
+            "d/d.go",
+            "package d\n\nimport \"example.com/chain/c\"\n\nfunc D() { c.C() }\n",
+        ),
+        (
+            "e/e.go",
+            "package e\n\nimport \"example.com/chain/d\"\n\nfunc E() { d.D() }\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(chain.path());
+
+    assert_eq!(
+        client.answer("find_importers", &json!({"file": "a/a.go"})),
+        lines(&[
+            r#"<importers of="a/a.go" count="3" unexpanded="1">"#,
+            r#"<file path="b/b.go"/>"#,
+            r#"<file path="c/c.go" depth="2"/>"#,
+            r#"<file path="d/d.go" depth="3"/>"#,
+            "</importers>",
+        ])
+    );
+}
+
+#[test]
+fn find_call_path_and_find_references_follow_the_calls() {
+    let answers = answers(&[
+        ("find_call_path", json!({"from": "main", "to": "Greet"})),
+        (
+            "find_call_path",
+            json!({"from": "main", "to": "Greet", "hops": 1}),
+        ),
+        ("find_references", json!({"name": "Service"})),
+        (
+            "find_references",
+            json!({"name": "Greet", "min_confidence": "certain"}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<call_path from="main" to="Greet" matches="1">"#,
+                r#"<match lang="go" from="main.main" to="pkg.Service.Greet" hops="2" max_hops="8">"#,
+                r#"<ref name="main" qn="main.main" loc="cmd/app/main.go:5" role="entry" call="cmd/app/main.go:7"/>"#,
+                concat!(
+                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" "#,
+                    r#"call="cmd/app/main.go:11"/>"#,
+                ),
+                "</match>",
+                "</call_path>",
+            ]),
+            lines(&[
+                r#"<call_path from="main" to="Greet" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" from="main.main" to="pkg.Service.Greet" hops="0" max_hops="1" "#,
+                    r#"at_depth_bound="1" found="false">no call chain within 1 calls - the graph misses dynamic "#,
+                    "and unresolved calls, so this does not show that the code holds none</match>",
+                ),
+                "</call_path>",
+            ]),
+            lines(&[
+                r#"<references of="Service" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Service" qn="pkg.Service" loc="pkg/service.go:4" kind="struct" "#,
+                    r#"count="4">"#,
+                ),
+                concat!(
+                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" site="use" "#,
+                    r#"at="cmd/app/main.go:10"/>"#,
+                ),
+                concat!(
+                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7" role="consumer" site="use" "#,
+                    r#"at="pkg/service.go:7"/>"#,
+                ),
+                concat!(
+                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7" role="consumer" site="use" "#,
+                    r#"at="pkg/service.go:8"/>"#,
+                ),
+                concat!(
+                    r#"<ref name="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12" role="consumer" "#,
+                    r#"site="use" at="pkg/service.go:12"/>"#,
+                ),
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="Greet" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12" kind="method" "#,
+                    r#"count="1">"#,
+                ),
+                concat!(
+                    "<note>a call through a value of the owner's type resolves only where the graph can name ",
+                    "that type, so some of those calls can be missing</note>",
+                ),
+                concat!(
+                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" site="call" "#,
+                    r#"at="cmd/app/main.go:11"/>"#,
+                ),
+                "</match>",
+                "</references>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
+    let answers = answers(&[
+        (
+            "impact_of_edit",
+            json!({"file": "pkg/service.go", "start_line": 12}),
+        ),
+        (
+            "impact_of_edit",
+            json!({"file": "pkg/service.go", "start_line": 1, "end_line": 2}),
+        ),
+        (
+            "impact_of_edit",
+            json!({"file": "README.md", "start_line": 1}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<impact of="pkg/service.go" start_line="12" end_line="end" symbols="1">"#,
+                concat!(
+                    r#"<symbol name="Greet" qn="pkg.Service.Greet" kind="method" lines="12-14" callers="1" "#,
+                    r#"callees="0" reach="2" reach_files="1" reach_band="low" "#,
+                    r#"sig="func (s *Service) Greet(name string) string">"#,
+                ),
+                r#"<callers shown="1" of="1">"#,
+                r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" at="cmd/app/main.go:11"/>"#,
+                "</callers>",
+                "</symbol>",
+                r#"<includes count="0"/>"#,
+                r#"<included-by count="1">"#,
+                r#"<file path="cmd/app/main.go"/>"#,
+                "</included-by>",
+                "</impact>",
+            ]),
+            lines(&[
+                r#"<impact of="pkg/service.go" start_line="1" end_line="2" symbols="0">"#,
+                concat!(
+                    "no symbols defined in this range - it may cover only file-scope code (imports, comments); ",
+                    "zero symbols is not proof the edit is safe",
+                ),
+                r#"<includes count="0"/>"#,
+                r#"<included-by count="1">"#,
+                r#"<file path="cmd/app/main.go"/>"#,
+                "</included-by>",
+                "</impact>",
+            ]),
+            format!(
+                r#"<impact of="README.md" start_line="1" end_line="end" symbols="0">{NOT_HELD}</impact>"#
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_wrong_call_answers_a_tool_error() {
+    let tree = go_module();
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    for (tool, arguments) in [
+        ("read_definitions", json!({"names": []})),
+        ("read_definitions", json!({"names": [""]})),
+        (
+            "impact_of_edit",
+            json!({"file": "pkg/service.go", "start_line": 0}),
+        ),
+        (
+            "impact_of_edit",
+            json!({"file": "pkg/service.go", "start_line": 5, "end_line": 2}),
+        ),
+        ("find_symbols", json!({"query": "x", "languages": ["nut"]})),
+    ] {
+        assert!(client.call(tool, &arguments).is_error, "{tool} {arguments}");
+    }
+}
