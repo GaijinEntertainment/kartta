@@ -1,4 +1,6 @@
-const MARKERS: [&[u8]; 2] = [b"@generated", b"DO NOT EDIT"];
+use kartta_lang::Banner;
+
+const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT"]);
 const BYTE_ORDER_MARK: &[u8] = b"\xEF\xBB\xBF";
 
 enum HeaderLine {
@@ -18,7 +20,7 @@ pub(crate) fn is_generated_source(source: &[u8]) -> bool {
         let mut line = line.trim_ascii();
         if let Some(level) = open_level {
             let (comment, after) = comment_and_code_after_close(line, level);
-            if announces_generated(comment) {
+            if BANNER.marks(comment) {
                 return true;
             }
             let Some(after) = after else {
@@ -54,7 +56,7 @@ fn header_line(mut line: &[u8]) -> HeaderLine {
             return marked(line, HeaderLine::OpensLongComment { level });
         };
 
-        if announces_generated(&body[..end]) {
+        if BANNER.marks(&body[..end]) {
             return HeaderLine::Generated;
         }
         line = body[end + level + 2..].trim_ascii();
@@ -62,7 +64,7 @@ fn header_line(mut line: &[u8]) -> HeaderLine {
 }
 
 fn marked(comment: &[u8], unmarked: HeaderLine) -> HeaderLine {
-    if announces_generated(comment) {
+    if BANNER.marks(comment) {
         HeaderLine::Generated
     } else {
         unmarked
@@ -89,20 +91,6 @@ fn long_comment_end(text: &[u8], level: usize) -> Option<usize> {
             && window[level + 1] == b']'
             && window[1..=level].iter().all(|&byte| byte == b'=')
     })
-}
-
-// constraint: a marker inside a backtick span documents the convention rather than claiming this file follows it
-fn announces_generated(line: &[u8]) -> bool {
-    let mut outside_span = true;
-    for (at, &byte) in line.iter().enumerate() {
-        if byte == b'`' {
-            outside_span = !outside_span;
-        } else if outside_span && MARKERS.iter().any(|marker| line[at..].starts_with(marker)) {
-            return true;
-        }
-    }
-
-    false
 }
 
 #[cfg(test)]
