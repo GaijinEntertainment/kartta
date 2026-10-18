@@ -50,7 +50,8 @@
 //!
 //! A `_test.go` file is test code, and a file named `*.pb.go` or carrying the `// Code generated ... DO NOT EDIT.`
 //! banner is generated code. A file under a `vendor` directory is vendored code. A free `func main` in `package main`
-//! is the program's entry point.
+//! is the program's entry point, and so is a free `func init()` in any package, which the runtime calls and no code
+//! can name.
 //!
 //! # Fingerprint
 //!
