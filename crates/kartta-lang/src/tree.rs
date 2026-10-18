@@ -1,10 +1,39 @@
-//! Walking a tree-sitter tree, for a language that extracts through tree-sitter.
+//! Parsing and walking a tree-sitter tree, for a language that extracts through tree-sitter.
 
+use std::cell::RefCell;
 use std::ops::Range;
 
-use tree_sitter::{Language, Node, Tree};
+use tree_sitter::{Language, Node, Parser, Tree};
 
 use crate::fingerprint::{OFFSET, fnv};
+
+/// The tree of `source` in `grammar`, or `None` when this tree-sitter cannot load the grammar.
+///
+/// The parse runs on the parser this thread keeps for the grammar, which the thread makes the first time it parses
+/// with it.
+#[must_use]
+pub fn parse(grammar: &Language, source: &[u8]) -> Option<Tree> {
+    thread_local! {
+        static PARSERS: RefCell<Vec<Parser>> = const { RefCell::new(Vec::new()) };
+    }
+
+    PARSERS.with_borrow_mut(|parsers| {
+        let kept = parsers.iter().position(|parser| {
+            parser
+                .language()
+                .is_some_and(|language| *language == *grammar)
+        });
+        let at = if let Some(at) = kept {
+            at
+        } else {
+            let mut parser = Parser::new();
+            parser.set_language(grammar).ok()?;
+            parsers.push(parser);
+            parsers.len() - 1
+        };
+        parsers[at].parse(source, None)
+    })
+}
 
 /// The [fingerprint](crate::Language::fingerprint) of a language that extracts through `grammar`.
 ///
