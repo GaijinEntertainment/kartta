@@ -157,8 +157,12 @@ impl Emitter<'_> {
             "macro_definition" => {
                 self.item(node, SymbolKind::Macro);
             }
-            "const_item" => self.value(node, SymbolKind::Constant),
-            "static_item" => self.value(node, SymbolKind::Variable),
+            "const_item" => {
+                self.item(node, SymbolKind::Constant);
+            }
+            "static_item" => {
+                self.item(node, SymbolKind::Variable);
+            }
             "use_declaration" => self.use_declaration(node),
             "let_declaration" => self.let_declaration(node),
             "call_expression" => self.call(node, caller),
@@ -363,7 +367,7 @@ impl Emitter<'_> {
 
     // constraint: a `macro_rules!` keeps its bare name and has no owner, because it is in scope textually rather
     // than by path
-    fn item(&mut self, node: Node<'_>, kind: SymbolKind) -> Option<String> {
+    fn item(&mut self, node: Node<'_>, kind: SymbolKind) -> Option<SymbolId> {
         let name = text(node.child_by_field_name("name")?, self.source);
         let exported = is_exported(node, self.source) || self.exported_by_scope();
         let (owner, qualified_name) = if kind == SymbolKind::Macro {
@@ -372,57 +376,67 @@ impl Emitter<'_> {
             self.qualify(&name)
         };
 
-        let mut item = symbol(name, qualified_name.clone(), kind, node);
+        let mut item = symbol(name, qualified_name, kind, node);
         item.owner = owner;
         item.exported = exported;
         let id = self.push_symbol(item);
         self.record_block_item(node, id);
-        Some(qualified_name)
+        Some(id)
     }
 
-    fn value(&mut self, node: Node<'_>, kind: SymbolKind) {
-        let Some(name) = node.child_by_field_name("name") else {
-            return;
-        };
-        let name = text(name, self.source);
-        let exported = is_exported(node, self.source) || self.exported_by_scope();
-        let (owner, qualified_name) = self.qualify(&name);
-
-        let mut value = symbol(name, qualified_name, kind, node);
-        value.owner = owner;
-        value.exported = exported;
-        let id = self.push_symbol(value);
-        self.record_block_item(node, id);
+    fn qualified_name(&self, id: SymbolId) -> String {
+        self.raw.symbols[id.0 as usize].qualified_name.clone()
     }
 
     // constraint: a union is struct-shaped and the shared kinds have no union, so it is a struct
     fn structure(&mut self, node: Node<'_>) {
-        let Some(owner) = self.item(node, SymbolKind::Struct) else {
+        let Some(id) = self.item(node, SymbolKind::Struct) else {
             return;
         };
         let Some(body) = named_child_of_kind(node, "field_declaration_list") else {
             return;
         };
 
+        let owner = self.qualified_name(id);
         let fields = named_children(body)
             .filter_map(|at| body.named_child(at))
             .filter(|field| field.kind() == "field_declaration");
         for field in fields {
-            let Some(name) = field.child_by_field_name("name") else {
-                continue;
-            };
-            let name = text(name, self.source);
-            let qualified_name = format!("{owner}::{name}");
-            let mut member = symbol(name, qualified_name, SymbolKind::Field, field);
-            member.owner = Some(owner.clone());
-            member.exported = is_exported(field, self.source);
-            self.push_member(member, field);
+            let exported = is_exported(field, self.source);
+            self.member(&owner, field, (SymbolKind::Field, exported));
+        }
+    }
+
+    // constraint: a variant has no visibility of its own and is as visible as its enum
+    fn enumeration(&mut self, node: Node<'_>) {
+        let exported = is_exported(node, self.source);
+        let Some(id) = self.item(node, SymbolKind::Enum) else {
+            return;
+        };
+        let Some(body) = named_child_of_kind(node, "enum_variant_list") else {
+            return;
+        };
+
+        let owner = self.qualified_name(id);
+        let variants = named_children(body)
+            .filter_map(|at| body.named_child(at))
+            .filter(|variant| variant.kind() == "enum_variant");
+        for variant in variants {
+            self.member(&owner, variant, (SymbolKind::EnumVariant, exported));
         }
     }
 
     // constraint: a field or a variant can carry a test gate of its own, which the walk reaches only after the item
     // around it emitted the member, so the member reads its attributes here
-    fn push_member(&mut self, member: Symbol, node: Node<'_>) {
+    fn member(&mut self, owner: &str, node: Node<'_>, (kind, exported): (SymbolKind, bool)) {
+        let Some(name) = node.child_by_field_name("name") else {
+            return;
+        };
+        let name = text(name, self.source);
+        let qualified_name = format!("{owner}::{name}");
+        let mut member = symbol(name, qualified_name, kind, node);
+        member.owner = Some(owner.to_owned());
+        member.exported = exported;
         let id = self.push_symbol(member);
         if opens_test_scope(node, self.source) {
             let flags = &mut self.raw.symbols[id.0 as usize].flags;
@@ -430,39 +444,13 @@ impl Emitter<'_> {
         }
     }
 
-    // constraint: a variant has no visibility of its own and is as visible as its enum
-    fn enumeration(&mut self, node: Node<'_>) {
-        let exported = is_exported(node, self.source);
-        let Some(owner) = self.item(node, SymbolKind::Enum) else {
-            return;
-        };
-        let Some(body) = named_child_of_kind(node, "enum_variant_list") else {
-            return;
-        };
-
-        let variants = named_children(body)
-            .filter_map(|at| body.named_child(at))
-            .filter(|variant| variant.kind() == "enum_variant");
-        for variant in variants {
-            let Some(name) = variant.child_by_field_name("name") else {
-                continue;
-            };
-            let name = text(name, self.source);
-            let qualified_name = format!("{owner}::{name}");
-            let mut member = symbol(name, qualified_name, SymbolKind::EnumVariant, variant);
-            member.owner = Some(owner.clone());
-            member.exported = exported;
-            self.push_member(member, variant);
-        }
-    }
-
     // constraint: a trait is an implementable contract, which the shared kinds call an interface
     fn trait_definition(&mut self, node: Node<'_>) {
         let exported = is_exported(node, self.source);
-        if let Some(name) = self.item(node, SymbolKind::Interface) {
+        if let Some(id) = self.item(node, SymbolKind::Interface) {
             self.types.push(TypeScope {
                 end: node.end_byte(),
-                name,
+                name: self.qualified_name(id),
                 exported_default: exported,
                 impl_owner: None,
             });
@@ -470,7 +458,9 @@ impl Emitter<'_> {
     }
 
     fn module(&mut self, node: Node<'_>) {
-        let chain = self.item(node, SymbolKind::Namespace);
+        let chain = self
+            .item(node, SymbolKind::Namespace)
+            .map(|id| self.qualified_name(id));
         let body = node.child_by_field_name("body");
         if let Some(chain) = chain
             && body.is_some()
