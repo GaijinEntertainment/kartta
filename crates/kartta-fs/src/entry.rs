@@ -1,5 +1,3 @@
-//! [`Entry`] — one indexed filesystem entry.
-
 pub use kartta_walk::EntryKind;
 
 /// One entry of the index: where it is, what it is, and where a symlink points.
