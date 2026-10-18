@@ -265,7 +265,7 @@ fn a_claimed_file_is_in_its_family_graph_and_an_unclaimed_one_in_none() {
         vec![Box::new(Defs::new("defs", "defs", ".defs"))],
     );
 
-    let graph = engine.graph_of("src/a.defs").expect("defs claims the file");
+    let (_, graph) = engine.graph_of("src/a.defs").expect("defs claims the file");
     assert_eq!(
         places(&graph.definitions("parse", None, 10)),
         ["src/a.defs:2"]
@@ -381,7 +381,7 @@ fn a_second_build_takes_each_extraction_from_the_shared_cache() {
 
     assert_eq!(first_extracted.load(Ordering::Relaxed), 2);
     assert_eq!(second_extracted.load(Ordering::Relaxed), 0);
-    let graph = engine.graph_of("a.defs").expect("defs claims the file");
+    let (_, graph) = engine.graph_of("a.defs").expect("defs claims the file");
     assert_eq!(places(&graph.definitions("render", None, 10)), ["b.defs:1"]);
 }
 
@@ -405,7 +405,7 @@ fn files_extracted_one_after_another_on_one_thread_are_each_extracted_and_cached
 
     assert_eq!(cold_extracted.load(Ordering::Relaxed), 3);
     assert_eq!(warm_extracted.load(Ordering::Relaxed), 0);
-    let graph = engine.graph_of("c.defs").expect("defs claims the file");
+    let (_, graph) = engine.graph_of("c.defs").expect("defs claims the file");
     assert_eq!(places(&graph.definitions("main", None, 10)), ["c.defs:1"]);
 }
 
@@ -517,7 +517,7 @@ fn an_extraction_the_cache_holds_malformed_is_extracted_again_from_the_file() {
     let engine = build(tree.path(), &cached(cache.path()), vec![Box::new(defs)]);
 
     assert_eq!(extracted.load(Ordering::Relaxed), 1);
-    let graph = engine.graph_of("a.defs").expect("defs claims the file");
+    let (_, graph) = engine.graph_of("a.defs").expect("defs claims the file");
     assert_eq!(places(&graph.definitions("parse", None, 10)), ["a.defs:1"]);
 }
 
@@ -604,7 +604,7 @@ fn a_build_cancelled_while_it_resolves_its_last_batch_completes() {
     );
 
     let engine = outcome.expect("every batch was resolved").engine;
-    let graph = engine
+    let (_, graph) = engine
         .graph_of("a.defs")
         .expect("the language claims the file");
     assert_eq!(graph.stats().files, 1);
@@ -627,6 +627,6 @@ fn a_tree_of_more_files_than_one_batch_resolves_whole() {
         vec![Box::new(Defs::new("defs", "defs", ".defs"))],
     );
 
-    let graph = engine.graph_of("f0.defs").expect("defs claims the file");
+    let (_, graph) = engine.graph_of("f0.defs").expect("defs claims the file");
     assert_eq!((graph.stats().files, graph.stats().symbols), (4100, 4100));
 }

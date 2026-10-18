@@ -136,7 +136,7 @@ fn resolution(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
 
 fn outline(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: OutlineParams = wire::params(params)?;
-    let graph = built.graph_of(&params.file);
+    let graph = built.engine.graph_of(&params.file);
     let outline = graph.and_then(|(_, graph)| graph.outline(&params.file));
     wire::ok(&FileView::new(
         &params.file,
@@ -147,7 +147,7 @@ fn outline(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
 
 fn dependents(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: DependentsParams = wire::params(params)?;
-    let graph = built.graph_of(&params.file);
+    let graph = built.engine.graph_of(&params.file);
     let found = graph
         .and_then(|(_, graph)| graph.dependents(&params.file, params.depth(), params.max_files()));
     wire::ok(&FileView::new(
@@ -159,7 +159,7 @@ fn dependents(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
 
 fn analyze_segment(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: SegmentParams = wire::params(params)?;
-    let graph = built.graph_of(&params.file);
+    let graph = built.engine.graph_of(&params.file);
     let segment = graph.and_then(|(_, graph)| {
         graph.analyze_segment(&params.file, params.lines(), params.limits())
     });
