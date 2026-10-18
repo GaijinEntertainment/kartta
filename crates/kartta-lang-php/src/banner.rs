@@ -1,4 +1,6 @@
-const MARKERS: [&[u8]; 2] = [b"@generated", b"DO NOT EDIT"];
+use kartta_lang::Banner;
+
+const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT"]);
 const BYTE_ORDER_MARK: &[u8] = b"\xEF\xBB\xBF";
 
 enum Run {
@@ -19,7 +21,7 @@ pub(crate) fn is_generated_source(source: &[u8]) -> bool {
         let mut line = line.trim_ascii();
         if in_block {
             let end = find(line, b"*/");
-            if announces_generated(&line[..end.unwrap_or(line.len())]) {
+            if BANNER.marks(&line[..end.unwrap_or(line.len())]) {
                 return true;
             }
             let Some(end) = end else {
@@ -51,7 +53,7 @@ fn leading_comments(mut line: &[u8]) -> Run {
             return Run::Continues;
         }
         if line.starts_with(b"//") || (line.starts_with(b"#") && !line.starts_with(b"#[")) {
-            return if announces_generated(line) {
+            return if BANNER.marks(line) {
                 Run::Announced
             } else {
                 Run::Continues
@@ -61,31 +63,17 @@ fn leading_comments(mut line: &[u8]) -> Run {
             return Run::Ends;
         };
         let Some(end) = find(comment, b"*/") else {
-            return if announces_generated(line) {
+            return if BANNER.marks(line) {
                 Run::Announced
             } else {
                 Run::OpensBlock
             };
         };
-        if announces_generated(&comment[..end]) {
+        if BANNER.marks(&comment[..end]) {
             return Run::Announced;
         }
         line = comment[end + 2..].trim_ascii();
     }
-}
-
-// constraint: a marker inside a backtick span documents the convention rather than claiming this file follows it
-fn announces_generated(line: &[u8]) -> bool {
-    let mut outside_span = true;
-    for (at, &byte) in line.iter().enumerate() {
-        if byte == b'`' {
-            outside_span = !outside_span;
-        } else if outside_span && MARKERS.iter().any(|marker| line[at..].starts_with(marker)) {
-            return true;
-        }
-    }
-
-    false
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
