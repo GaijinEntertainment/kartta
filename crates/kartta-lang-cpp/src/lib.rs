@@ -130,24 +130,19 @@ mod repair;
 mod resolve;
 mod walk;
 
-use std::cell::RefCell;
 use std::sync::OnceLock;
 
+use kartta_lang::tree::parse;
 use kartta_lang::{
     CallsOnValues, Conventions, DocComments, IncludeReach, InheritedMembers, Language, OwnMembers,
     RawExtraction, Repository, Resolver, UntypedMembers, ValueUses,
 };
-use tree_sitter::Parser;
 
 const EXTENSIONS: [&str; 10] = [
     "cpp", "cc", "cxx", "h", "hpp", "hxx", "hh", "c", "inl", "inc",
 ];
 const BRACKET_INCLUDE: u32 = 0;
 const QUOTED_INCLUDE: u32 = 1;
-
-thread_local! {
-    static PARSER: RefCell<Parser> = RefCell::new(cpp_parser());
-}
 
 /// C and C++, as one language of the code graph.
 ///
@@ -187,7 +182,7 @@ impl Language for Cpp {
         FINGERPRINT.get_or_init(|| {
             kartta_lang::tree::fingerprint(
                 env!("SOURCE_ID"),
-                &tree_sitter_cpp::LANGUAGE.into(),
+                &grammar(),
                 tree_sitter_cpp::NODE_TYPES,
             )
         })
@@ -211,7 +206,7 @@ impl Language for Cpp {
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {
-        PARSER.with_borrow_mut(|parser| extract(parser, source))
+        extract(source)
     }
 
     fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
@@ -219,23 +214,15 @@ impl Language for Cpp {
     }
 }
 
-#[expect(
-    clippy::expect_used,
-    reason = "the C++ grammar's ABI is fixed at build time by the pinned crates; a tree-sitter that cannot load it \
-              fails every extraction alike, which is a build defect"
-)]
-fn cpp_parser() -> Parser {
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_cpp::LANGUAGE.into())
-        .expect("the pinned C++ grammar has an ABI this tree-sitter loads");
-    parser
+fn grammar() -> tree_sitter::Language {
+    tree_sitter_cpp::LANGUAGE.into()
 }
 
-fn extract(parser: &mut Parser, source: &[u8]) -> RawExtraction {
+fn extract(source: &[u8]) -> RawExtraction {
+    let grammar = grammar();
     let repaired = repair::for_parse(source);
     let parsed = repaired.as_deref().unwrap_or(source);
-    let Some(tree) = parser.parse(parsed, None) else {
+    let Some(tree) = parse(&grammar, parsed) else {
         return RawExtraction::default();
     };
 
@@ -243,9 +230,8 @@ fn extract(parser: &mut Parser, source: &[u8]) -> RawExtraction {
         return walk::raw_walk(&tree, source);
     };
     drop(tree);
-    parser
-        .parse(&second, None)
-        .or_else(|| parser.parse(parsed, None))
+    parse(&grammar, &second)
+        .or_else(|| parse(&grammar, parsed))
         .map_or_else(RawExtraction::default, |tree| walk::raw_walk(&tree, source))
 }
 

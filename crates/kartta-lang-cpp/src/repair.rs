@@ -304,9 +304,10 @@ mod tests {
     use std::fmt::Write as _;
 
     use kartta_lang::Language;
+    use kartta_lang::tree::parse;
 
     use super::*;
-    use crate::{Cpp, cpp_parser};
+    use crate::{Cpp, grammar};
 
     const EMPTY_ARGUMENT_SRC: &[u8] = br"
 void run(int idx)
@@ -377,7 +378,7 @@ public:
   void close() { done(); }
 };
 ";
-        let tree = cpp_parser().parse(SOURCE, None).expect("parse");
+        let tree = parse(&grammar(), SOURCE).expect("parse");
 
         assert!(tree.root_node().has_error());
         assert_eq!(after_recovery(&tree, SOURCE), None);
@@ -409,7 +410,7 @@ public:
 
 void free_fn() {}
 ";
-        let tree = cpp_parser().parse(SOURCE, None).expect("parse");
+        let tree = parse(&grammar(), SOURCE).expect("parse");
 
         let repaired = after_recovery(&tree, SOURCE).expect("a spilled error holding a macro");
 
