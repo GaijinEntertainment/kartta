@@ -169,6 +169,19 @@ impl ContentIndexes {
         }
     }
 
+    pub(crate) fn joined(
+        mut held: Vec<Arc<ContentIndex>>,
+        held_files: usize,
+        read: ContentIndex,
+        unindexed: Vec<u32>,
+    ) -> Self {
+        let files = held_files + read.files();
+        if held.is_empty() || read.files() > 0 {
+            held.push(Arc::new(read));
+        }
+        Self::new(held, unindexed, files)
+    }
+
     pub(crate) fn stats(&self) -> ContentIndexStats {
         let segments = self.segments.iter().map(|segment| segment.stats);
         ContentIndexStats {
