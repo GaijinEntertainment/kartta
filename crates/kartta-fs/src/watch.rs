@@ -42,7 +42,9 @@ const LONGEST: Duration = Duration::from_millis(500);
 /// pruned parts included; a refresh of an ignored or pruned path changes nothing and costs no pass over the index,
 /// except that a changed `.gitignore` under a pruned name re-walks the directory whose rules it holds.
 ///
-/// A change made before the watcher starts is not reported, so a caller that builds and then watches refreshes once
+/// A change made before the watcher starts is not reported, but on macOS and Windows one made moments before can
+/// still arrive; refreshing its path changes nothing when the index already holds the change, as for one made before
+/// the build, and takes it in when it does not. A caller that builds and then watches refreshes once
 /// more, for what changed in between, then calls [`Watcher::cover`] and refreshes the paths it names: on Linux a
 /// directory that refresh added is watched only from that call. When the operating system drops changes it could not
 /// deliver, [`Changes::lost`] says so and the batch names the whole tree.
@@ -92,7 +94,8 @@ impl Watcher {
     }
 
     /// Waits up to `timeout` for the tree to change, then gathers the changes that follow until it has been quiet for
-    /// 20 ms, or for 500 ms at most, and returns them. Empty when nothing changed within `timeout`.
+    /// 20 ms, or for 500 ms at most, and returns them. Empty when nothing changed within `timeout`, but on macOS and
+    /// Windows a wait can also hand over a change made moments before the watcher started, as the [`Watcher`] docs say.
     ///
     /// On Linux a wait also watches each directory made since the start as it reads of it, together with every
     /// directory already inside it, so a large tree moved in or unpacked lengthens the wait that meets it by a watch

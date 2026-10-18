@@ -231,19 +231,31 @@ fn a_watched_directory_renamed_to_a_pruned_name_is_no_longer_watched() {
 }
 
 #[test]
-fn a_tree_nobody_touches_hands_over_nothing() {
+fn a_tree_nobody_touches_hands_over_nothing_a_refresh_would_change() {
     let dir = tree(&[("a.rs", "a"), ("src/b.rs", "b")]);
-    let index = build(dir.path());
+    let mut index = build(dir.path());
     let mut watcher = Watcher::new(&index).expect("start watching");
 
     let changes = watcher.wait(Duration::from_millis(300)).expect("wait");
+    let outcome = index
+        .refresh_paths(changes.paths(), None, None)
+        .expect("refresh what was handed over");
 
-    assert!(
-        changes.is_empty(),
-        "{:?}",
-        changes.paths().collect::<Vec<_>>()
-    );
+    if cfg!(target_os = "linux") {
+        assert!(
+            changes.is_empty(),
+            "{:?}",
+            changes.paths().collect::<Vec<_>>()
+        );
+    }
     assert!(!changes.lost());
+    assert!(
+        outcome.added().is_empty() && outcome.removed().is_empty(),
+        "{:?} added {:?} removed {:?}",
+        changes.paths().collect::<Vec<_>>(),
+        outcome.added(),
+        outcome.removed()
+    );
 }
 
 #[cfg(target_os = "macos")]
