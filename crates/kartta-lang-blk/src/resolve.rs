@@ -1,6 +1,4 @@
-use std::borrow::Cow;
-
-use kartta_lang::path::{base, dir, join};
+use kartta_lang::path::{base, dir, forward_slashes, join};
 use kartta_lang::{Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver};
 
 use crate::mounts::MountTable;
@@ -91,14 +89,6 @@ impl Resolver for BlkResolver<'_> {
         }
 
         extraction
-    }
-}
-
-pub(crate) fn forward_slashes(path: &str) -> Cow<'_, str> {
-    if path.contains('\\') {
-        Cow::Owned(path.replace('\\', "/"))
-    } else {
-        Cow::Borrowed(path)
     }
 }
 
