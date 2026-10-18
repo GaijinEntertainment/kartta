@@ -192,9 +192,7 @@ fn anchor_join(anchor: &str, piece: &str) -> String {
 // matches in any case, as the claim does
 fn stem(name: &str) -> &str {
     name.rsplit_once('.')
-        .filter(|(_, extension)| {
-            extension.eq_ignore_ascii_case("py") || extension.eq_ignore_ascii_case("pyi")
-        })
+        .filter(|(_, extension)| crate::is_python_extension(extension))
         .map_or(name, |(stem, _)| stem)
 }
 

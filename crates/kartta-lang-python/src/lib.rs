@@ -106,9 +106,9 @@ impl Language for Python {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path).rsplit_once('.').is_some_and(|(_, extension)| {
-            extension.eq_ignore_ascii_case("py") || extension.eq_ignore_ascii_case("pyi")
-        })
+        base(path)
+            .rsplit_once('.')
+            .is_some_and(|(_, extension)| is_python_extension(extension))
     }
 
     fn fingerprint(&self) -> &[u8] {
@@ -149,4 +149,8 @@ impl Language for Python {
 
 fn grammar() -> tree_sitter::Language {
     tree_sitter_python::LANGUAGE.into()
+}
+
+const fn is_python_extension(extension: &str) -> bool {
+    extension.eq_ignore_ascii_case("py") || extension.eq_ignore_ascii_case("pyi")
 }
