@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use kartta::{
     BinaryExtensions, BuildError, BuildOptions, ContentIndexStorage, Engine, IgnoreSources,
@@ -29,6 +30,8 @@ pub(crate) struct BuildParams {
     binary_extensions: Option<SetChange>,
     content_index: Option<ContentIndex>,
     content_cache: Option<PathBuf>,
+    /// Seconds after the build that computed it began that an entry of the cache expires; left out or 0 is a week.
+    content_cache_ttl_secs: u64,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -89,6 +92,7 @@ impl BuildParams {
             ContentIndex::Mapped { dir } => ContentIndexStorage::Mapped { dir: dir.clone() },
         });
         options.content_cache.clone_from(&self.content_cache);
+        options.content_cache_ttl = Duration::from_secs(self.content_cache_ttl_secs);
         Ok(options)
     }
 }
@@ -267,5 +271,26 @@ impl<'e> StatsAnswer<'e> {
                 }),
             errors,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options(params: &str) -> BuildOptions {
+        serde_json::from_str::<BuildParams>(params)
+            .expect("the params read")
+            .options()
+            .expect("the options build")
+    }
+
+    #[test]
+    fn a_cache_time_to_live_is_read_in_seconds_and_left_out_is_zero() {
+        assert_eq!(
+            options(r#"{ "content_cache_ttl_secs": 3600 }"#).content_cache_ttl,
+            Duration::from_hours(1)
+        );
+        assert_eq!(options("{}").content_cache_ttl, Duration::ZERO);
     }
 }
