@@ -121,27 +121,7 @@ impl Default for Scoring {
     }
 }
 
-/// How a query character compares against a candidate character.
-///
-/// Case folding is deliberately ASCII-first and not full Unicode folding: a non-ASCII character whose fold maps onto
-/// ASCII (U+212A KELVIN SIGN against `k`, U+017F LATIN SMALL LETTER LONG S against `s`) compares unequal to its ASCII
-/// counterpart. Repository paths are ASCII-dominant and the comparison sits in the per-candidate hot scan, so the
-/// trade is deliberate. A pair of non-ASCII characters does fall back to Unicode lowercase comparison.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CaseMatching {
-    /// Case never matters between two characters this crate considers comparable — which, per the note above, means
-    /// ASCII case and a pair of non-ASCII characters, not a fold that crosses between the two. U+212A still compares
-    /// unequal to `k` here.
-    #[default]
-    Ignore,
-    /// Case matters only when the query contains an uppercase character — a lowercase query matches anything, and
-    /// typing a capital narrows it.
-    Smart,
-    /// Case always matters. The fastest of the three, since it skips folding entirely.
-    Respect,
-}
-
-/// Weights plus the policy that decides what a segment, a word and a case difference are.
+/// Weights plus the policy that decides what a segment and a word are.
 ///
 /// Construct from [`Config::DEFAULT`] and adjust the fields you need; the type is `#[non_exhaustive]`, so it gains
 /// fields without breaking callers, and it is `Copy`, so passing one costs nothing.
@@ -149,10 +129,9 @@ pub enum CaseMatching {
 /// # Examples
 ///
 /// ```
-/// use kartta_fuzz::{CaseMatching, Config};
+/// use kartta_fuzz::Config;
 ///
 /// let mut config = Config::DEFAULT;
-/// config.case = CaseMatching::Smart;
 /// config.scoring.candidate_start = 500;
 /// ```
 #[non_exhaustive]
@@ -160,8 +139,6 @@ pub enum CaseMatching {
 pub struct Config {
     /// The alignment weights.
     pub scoring: Scoring,
-    /// How query and candidate characters compare.
-    pub case: CaseMatching,
     /// Characters that end a path segment. They decide two things at once: which positions earn
     /// [`Scoring::after_segment`], and where the basename starts — it is everything after the last one. Replace them
     /// to score something other than paths; `['.', ':']` turns the scorer into a symbol matcher.
@@ -181,14 +158,13 @@ pub struct Config {
 }
 
 impl Config {
-    /// The default policy: forward and backward slash end a segment, `-`, `_` and space separate words, case is
-    /// ignored, and shorter candidates win ties.
+    /// The default policy: forward and backward slash end a segment, `-`, `_` and space separate words, and shorter
+    /// candidates win ties.
     ///
     /// Both slashes are segment separators regardless of platform, so a candidate carrying either separator scores the
     /// same way on every target.
     pub const DEFAULT: Self = Self {
         scoring: Scoring::DEFAULT,
-        case: CaseMatching::Ignore,
         segment_separators: &['/', '\\'],
         word_separators: &['-', '_', ' '],
         length_tiebreak: true,

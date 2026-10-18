@@ -5,7 +5,7 @@
 //! the comparison, so the two representations cannot drift apart.
 
 use crate::class::{Class, Classes};
-use crate::config::{CaseMatching, Scoring};
+use crate::config::Scoring;
 
 /// A candidate with more positions than this is over-long: it skips the `O(n*m)` alignment and takes [`MATCH_FLOOR`].
 /// Real paths are far shorter; the bound exists so a pathological input cannot make one query quadratic in a value the
@@ -28,49 +28,17 @@ pub(crate) const ALIGNED_MIN: i32 = NO_ALIGNMENT + 2;
 /// above any match whose leading gaps outweighed its bonuses.
 pub(crate) const MATCH_FLOOR: i32 = NO_ALIGNMENT + 1;
 
-/// Whether character comparison folds case. Resolved from [`CaseMatching`] and the query once, so
-/// [`CaseMatching::Smart`] costs one scan of the query rather than a branch per character.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum CaseSensitivity {
-    /// Compare characters up to case: the default, matching [`CaseMatching::Ignore`].
-    #[default]
-    Insensitive,
-    /// Compare characters exactly.
-    Sensitive,
-}
-
-impl CaseSensitivity {
-    /// Resolves the policy against the query that will be matched with it.
-    pub(crate) fn resolve(case: CaseMatching, query: &str) -> Self {
-        match case {
-            CaseMatching::Respect => Self::Sensitive,
-            CaseMatching::Smart if query.chars().any(char::is_uppercase) => Self::Sensitive,
-            CaseMatching::Ignore | CaseMatching::Smart => Self::Insensitive,
-        }
-    }
-
-    /// Compares two characters under this policy.
-    ///
-    /// The insensitive path takes an ASCII fast path whenever either side is ASCII and falls back to Unicode lowercase
-    /// comparison only for a pair of non-ASCII characters. See [`CaseMatching`] for why that is not full Unicode
-    /// folding.
-    pub(crate) fn chars_eq(self, a: char, b: char) -> bool {
-        if a == b {
-            return true;
-        }
-        match self {
-            Self::Sensitive => false,
-            Self::Insensitive if a.is_ascii() || b.is_ascii() => a.eq_ignore_ascii_case(&b),
-            Self::Insensitive => a.to_lowercase().eq(b.to_lowercase()),
-        }
-    }
-
-    /// Normalizes one ASCII byte so that two normalized bytes compare with `==`.
-    const fn normalize_byte(self, b: u8) -> u8 {
-        match self {
-            Self::Insensitive => b.to_ascii_lowercase(),
-            Self::Sensitive => b,
-        }
+/// Whether two characters are equal up to case.
+///
+/// Takes an ASCII fast path whenever either side is ASCII and falls back to Unicode lowercase comparison only for a
+/// pair of non-ASCII characters. The crate documentation says why that is not full Unicode folding.
+pub(crate) fn fold_eq(a: char, b: char) -> bool {
+    if a == b {
+        true
+    } else if a.is_ascii() || b.is_ascii() {
+        a.eq_ignore_ascii_case(&b)
+    } else {
+        a.to_lowercase().eq(b.to_lowercase())
     }
 }
 
@@ -79,38 +47,31 @@ impl CaseSensitivity {
 pub(crate) struct Term {
     /// The term as characters.
     pub(crate) chars: Vec<char>,
-    /// The term as normalized bytes when it is all-ASCII, so both the prefilter and the alignment can work on bytes.
+    /// The term as lowercased bytes when it is all-ASCII, so both the prefilter and the alignment can work on bytes.
     /// `None` for a term holding a non-ASCII character.
     pub(crate) bytes: Option<Vec<u8>>,
-    /// The policy `bytes` was normalized under. Carried here so a comparison cannot be run under a different one than
-    /// the normalization assumed, which would silently miss matches rather than fail.
-    sensitivity: CaseSensitivity,
 }
 
 impl Term {
-    /// Prepares `text` under `sensitivity`, normalizing its bytes once here rather than once per candidate.
-    pub(crate) fn new(text: &str, sensitivity: CaseSensitivity) -> Self {
+    /// Prepares `text`, lowercasing its bytes once here rather than once per candidate.
+    pub(crate) fn new(text: &str) -> Self {
         Self {
             chars: text.chars().collect(),
-            bytes: text.is_ascii().then(|| {
-                text.bytes()
-                    .map(|b| sensitivity.normalize_byte(b))
-                    .collect()
-            }),
-            sensitivity,
+            bytes: text
+                .is_ascii()
+                .then(|| text.bytes().map(|b| b.to_ascii_lowercase()).collect()),
         }
     }
 
     /// Whether `candidate` contains this term as an ordered subsequence.
     ///
-    /// The only entry point to the prefilter, so the normalized bytes are always compared under the policy that
-    /// normalized them. Scanning bytes is exactly equivalent to scanning characters for an ASCII term: every byte of a
-    /// multi-byte character is `>= 0x80`, so it can never equal an ASCII term byte, which is the answer the
-    /// character comparison reaches through its own ASCII fast path.
+    /// Scanning bytes is exactly equivalent to scanning characters for an ASCII term: every byte of a multi-byte
+    /// character is `>= 0x80`, so it can never equal an ASCII term byte, which is the answer the character comparison
+    /// reaches through its own ASCII fast path.
     pub(crate) fn present_in(&self, candidate: &str) -> bool {
         self.bytes.as_ref().map_or_else(
-            || is_subsequence_chars(&self.chars, candidate.chars(), self.sensitivity),
-            |bytes| is_subsequence_bytes(bytes, candidate.as_bytes(), self.sensitivity),
+            || is_subsequence_chars(&self.chars, candidate.chars()),
+            |bytes| is_subsequence_bytes(bytes, candidate.as_bytes()),
         )
     }
 }
@@ -136,17 +97,13 @@ impl Representation {
     }
 }
 
-/// Whether `term` occurs in `candidate` as an ordered subsequence under `sensitivity`.
+/// Whether `term` occurs in `candidate` as an ordered subsequence, up to case.
 ///
 /// Allocates nothing. Used when either side holds a non-ASCII character.
-pub(crate) fn is_subsequence_chars(
-    term: &[char],
-    candidate: impl Iterator<Item = char>,
-    sensitivity: CaseSensitivity,
-) -> bool {
+pub(crate) fn is_subsequence_chars(term: &[char], candidate: impl Iterator<Item = char>) -> bool {
     let mut next = 0;
     for c in candidate {
-        if next < term.len() && sensitivity.chars_eq(c, term[next]) {
+        if next < term.len() && fold_eq(c, term[next]) {
             next += 1;
             if next == term.len() {
                 return true;
@@ -156,21 +113,13 @@ pub(crate) fn is_subsequence_chars(
     next == term.len()
 }
 
-/// Whether an already-normalized ASCII `term` occurs in raw `candidate` bytes as an ordered subsequence.
-///
-/// Private to this module: reaching it requires a [`Term`], which is the only thing that normalizes a term, so the
-/// normalization and the comparison cannot disagree.
-fn is_subsequence_bytes(term: &[u8], candidate: &[u8], sensitivity: CaseSensitivity) -> bool {
+/// Whether an already-lowercased ASCII `term` occurs in raw `candidate` bytes as an ordered subsequence, up to case.
+fn is_subsequence_bytes(term: &[u8], candidate: &[u8]) -> bool {
     let mut at = 0;
     for &wanted in term {
         // Searching for each term byte in turn is the same greedy leftmost match the scalar scan performs, but the
         // search itself is vectorized — which is what the overwhelmingly common non-matching candidate pays for.
-        let found = match sensitivity {
-            CaseSensitivity::Sensitive => memchr::memchr(wanted, &candidate[at..]),
-            CaseSensitivity::Insensitive => {
-                memchr::memchr2(wanted, wanted.to_ascii_uppercase(), &candidate[at..])
-            }
-        };
+        let found = memchr::memchr2(wanted, wanted.to_ascii_uppercase(), &candidate[at..]);
         match found {
             Some(offset) => at += offset + 1,
             None => return false,
@@ -497,25 +446,17 @@ pub(crate) struct Scorer {
     scan_bound: usize,
     /// Whether the prepared candidate is in `bytes` rather than `chars`.
     prepared_as_bytes: bool,
-    /// The case policy for the current query.
-    sensitivity: CaseSensitivity,
     /// The representation the current query's terms allow.
     representation: Representation,
     rows: Rows,
 }
 
 impl Scorer {
-    /// Fixes the case policy, representation, and scan bound for the query about to run.
+    /// Fixes the representation and scan bound for the query about to run.
     ///
     /// `longest_term` bounds how far a candidate is ever counted: for an over-long candidate the only thing its length
     /// still decides is whether some term equals it, and a candidate longer than every term cannot.
-    pub(crate) const fn begin(
-        &mut self,
-        sensitivity: CaseSensitivity,
-        representation: Representation,
-        longest_term: usize,
-    ) {
-        self.sensitivity = sensitivity;
+    pub(crate) const fn begin(&mut self, representation: Representation, longest_term: usize) {
         self.representation = representation;
         self.scan_bound = if longest_term > MAX_ALIGNED_POSITIONS {
             longest_term
@@ -560,13 +501,12 @@ impl Scorer {
         };
     }
 
-    /// Prepares an all-ASCII candidate as normalized bytes, returning where its basename starts.
+    /// Prepares an all-ASCII candidate as lowercased bytes, returning where its basename starts.
     ///
     /// The buffers are sized once and then written through zipped iterators. Pushing instead would re-check capacity
     /// on every byte, and the loop carries a dependency on the previous class, so nothing else recovers that.
     fn prepare_bytes(&mut self, candidate: &str, classes: &Classes) -> usize {
         let source = candidate.as_bytes();
-        let sensitivity = self.sensitivity;
         self.bonus.resize(source.len(), 0);
         self.bytes.resize(source.len(), 0);
 
@@ -577,7 +517,7 @@ impl Scorer {
         for (j, ((bonus, out), &byte)) in cells.zip(source.iter()).enumerate() {
             let class = classes.class_of(char::from(byte));
             *bonus = classes.bonus(prev, class);
-            *out = sensitivity.normalize_byte(byte);
+            *out = byte.to_ascii_lowercase();
             if class == Class::SegmentSeparator {
                 basename_start = j + 1;
             }
@@ -618,8 +558,7 @@ impl Scorer {
         scoring: &Scoring,
         full_match_score: i32,
     ) -> i32 {
-        // Equal length plus subsequence means every symbol matched in order: a full match, under whatever
-        // comparison the case policy selected.
+        // Equal length plus subsequence means every symbol matched in order: a full match, up to case.
         if term.chars.len() == self.positions {
             return full_match_score;
         }
@@ -639,7 +578,7 @@ impl Scorer {
 
     /// Dispatches to the alignment in whichever representation the candidate was prepared in.
     fn align(&mut self, term: &Term, scoring: &Scoring) -> i32 {
-        let (basename_start, sensitivity) = (self.basename_start, self.sensitivity);
+        let basename_start = self.basename_start;
         debug_assert!(
             !self.prepared_as_bytes || term.bytes.is_some(),
             "a byte-prepared candidate implies every term is ASCII, since Representation::of decided both"
@@ -664,7 +603,7 @@ impl Scorer {
                 trailing: 0,
                 basename_start,
                 scoring: *scoring,
-                eq: |a: char, b: char| sensitivity.chars_eq(a, b),
+                eq: fold_eq,
             }
             .narrow(&term.chars)
             .run(&term.chars, &mut self.rows),
@@ -684,22 +623,14 @@ mod tests {
     fn both_representations(candidate: &str, term: &str) -> (i32, i32) {
         let config = Config::DEFAULT;
         let classes = Classes::new(&config);
-        let term = Term::new(term, CaseSensitivity::Insensitive);
+        let term = Term::new(term);
 
         let mut as_bytes = Scorer::default();
-        as_bytes.begin(
-            CaseSensitivity::Insensitive,
-            Representation::Bytes,
-            term.chars.len(),
-        );
+        as_bytes.begin(Representation::Bytes, term.chars.len());
         as_bytes.prepare(candidate, &classes);
 
         let mut as_chars = Scorer::default();
-        as_chars.begin(
-            CaseSensitivity::Insensitive,
-            Representation::Chars,
-            term.chars.len(),
-        );
+        as_chars.begin(Representation::Chars, term.chars.len());
         as_chars.prepare(candidate, &classes);
 
         (
@@ -748,15 +679,11 @@ mod tests {
     /// Scores `term` against a prepared candidate with and without the window, under `scoring`.
     fn narrowed_and_unnarrowed(candidate: &str, term: &str, config: &Config) -> (i32, i32, bool) {
         let classes = Classes::new(config);
-        let term = Term::new(term, CaseSensitivity::Insensitive);
+        let term = Term::new(term);
         let bytes = term.bytes.as_deref().unwrap_or_default();
 
         let mut scorer = Scorer::default();
-        scorer.begin(
-            CaseSensitivity::Insensitive,
-            Representation::Bytes,
-            term.chars.len(),
-        );
+        scorer.begin(Representation::Bytes, term.chars.len());
         scorer.prepare(candidate, &classes);
 
         let build = || Alignment {
@@ -925,17 +852,13 @@ mod tests {
     ) -> usize {
         let classes = Classes::new(config);
         let scoring = config.scoring.clamp_gaps();
-        let term = Term::new(term, CaseSensitivity::Insensitive);
+        let term = Term::new(term);
         let Some(symbols) = term.bytes.as_deref().filter(|b| b.len() >= 2) else {
             return 0;
         };
 
         let mut scorer = Scorer::default();
-        scorer.begin(
-            CaseSensitivity::Insensitive,
-            Representation::Bytes,
-            symbols.len(),
-        );
+        scorer.begin(Representation::Bytes, symbols.len());
         scorer.prepare(candidate, &classes);
         if scorer.bytes.len() <= symbols.len() {
             return 0;
@@ -1027,11 +950,7 @@ mod tests {
             let term = [symbol.to_ascii_lowercase()];
 
             let mut scorer = Scorer::default();
-            scorer.begin(
-                CaseSensitivity::Insensitive,
-                Representation::Bytes,
-                term.len(),
-            );
+            scorer.begin(Representation::Bytes, term.len());
             scorer.prepare(&candidate, &classes);
 
             let build = || Alignment {
@@ -1055,11 +974,8 @@ mod tests {
 
     #[test]
     fn a_non_ascii_term_forces_the_character_representation() {
-        let ascii = [Term::new("main", CaseSensitivity::Insensitive)];
-        let mixed = [
-            Term::new("main", CaseSensitivity::Insensitive),
-            Term::new("café", CaseSensitivity::Insensitive),
-        ];
+        let ascii = [Term::new("main")];
+        let mixed = [Term::new("main"), Term::new("café")];
 
         assert_eq!(Representation::of(&ascii), Representation::Bytes);
         assert_eq!(Representation::of(&mixed), Representation::Chars);

@@ -6,7 +6,7 @@
 
 use std::num::NonZeroUsize;
 
-use kartta_fuzz::{CaseMatching, Config, Matcher};
+use kartta_fuzz::{Config, Matcher};
 
 /// The ranked candidates for `query`, best first.
 fn ranked(candidates: &[&str], query: &str) -> Vec<String> {
@@ -211,45 +211,6 @@ fn an_over_long_candidate_matches_but_ranks_last() {
         ranked(&[long.as_str(), deep.as_str()], "z"),
         [deep, long],
         "and the ranking follows"
-    );
-}
-
-#[test]
-fn smart_case_narrows_only_when_the_query_has_uppercase() {
-    let mut config = Config::DEFAULT;
-    config.case = CaseMatching::Smart;
-    let candidates = ["readme.md", "README.md"];
-
-    assert_eq!(
-        ranked_with(config, &candidates, "readme").len(),
-        2,
-        "a lowercase query matches both"
-    );
-    assert_eq!(
-        ranked_with(config, &candidates, "README"),
-        ["README.md"],
-        "an uppercase one narrows"
-    );
-
-    // The uppercase test is char::is_uppercase, not an ASCII range, so a non-ASCII capital narrows the same way.
-    assert_eq!(
-        score_with(config, "\u{e9}", "\u{c9}"),
-        None,
-        "capital E-acute is uppercase"
-    );
-    assert!(
-        score_with(config, "\u{c9}", "\u{e9}").is_some(),
-        "and a lowercase query still folds onto it"
-    );
-}
-
-#[test]
-fn respect_case_never_folds() {
-    let mut config = Config::DEFAULT;
-    config.case = CaseMatching::Respect;
-    assert_eq!(
-        ranked_with(config, &["README.md"], "readme"),
-        [] as [&str; 0]
     );
 }
 
@@ -647,9 +608,9 @@ fn the_score_bands_survive_aggregation() {
 }
 
 #[test]
-fn ignore_case_does_not_fold_across_the_ascii_boundary() {
-    // The variant is documented as ASCII-first rather than as full Unicode folding, and this is the case that parts
-    // the two: U+212A KELVIN SIGN folds to `k` under Unicode rules and does not here.
+fn case_folding_does_not_cross_the_ascii_boundary() {
+    // Folding is documented as ASCII-first rather than as full Unicode folding, and this is the case that parts the
+    // two: U+212A KELVIN SIGN folds to `k` under Unicode rules and does not here.
     assert_eq!(
         score("\u{212a}", "k"),
         None,
@@ -658,7 +619,7 @@ fn ignore_case_does_not_fold_across_the_ascii_boundary() {
     assert!(score("Kk", "k").is_some(), "an ASCII K still folds");
 
     // The other side of the same rule: neither character is ASCII, so the Unicode lowercase comparison decides, and
-    // it folds. Without this the variant would read as "ASCII only" rather than "not across the boundary".
+    // it folds. Without this the folding would read as "ASCII only" rather than "not across the boundary".
     assert!(
         score("\u{c9}", "\u{e9}").is_some(),
         "a pair of non-ASCII characters folds"
