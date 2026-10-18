@@ -89,9 +89,13 @@ impl Kartta {
     /// Answers `method` with `params`, a JSON object or nothing, as the JSON `{"ok": <answer>}` or
     /// `{"err": {"code": <code>, "message": <message>}}`. The methods and their params are the wire the crate
     /// documents; an unknown method answers [`ErrorCode::UnknownMethod`], listing the known ones.
+    ///
+    /// A panic answers [`ErrorCode::Internal`] and never unwinds out of the call, so a caller on a thread of its own or
+    /// behind a C boundary needs no guard, and the handle stays usable.
     #[must_use]
     pub fn call(&self, method: &str, params: &[u8]) -> Vec<u8> {
-        self.answer(method, params)
+        panic::catch_unwind(AssertUnwindSafe(|| self.answer(method, params)))
+            .unwrap_or_else(|payload| Err(Error::panicked(payload.as_ref())))
             .unwrap_or_else(|error| wire::err(&error))
     }
 
