@@ -562,7 +562,7 @@ impl<'g> Cascade<'g> {
         let caller = call.caller_at();
         let scope = self.holder(caller).unwrap_or(caller);
         if shared
-            .locals()
+            .locals
             .iter()
             .any(|&local| local.file == call.file && self.is_candidate_in(scope, local))
         {
@@ -587,7 +587,7 @@ impl<'g> Cascade<'g> {
         if let Some(at) = self.member_of_the_receiver_s_owner(call, &candidates) {
             return Ok((at, confidence::RECEIVER));
         }
-        let targets = candidates.targets().iter().copied();
+        let targets = candidates.targets.iter().copied();
         let reach = self.reach(call, &candidates);
         let reach = reach.as_ref();
 
@@ -743,7 +743,7 @@ impl<'g> Cascade<'g> {
         let named_receiver = call
             .receiver
             .is_some_and(|receiver| !self.graph.strings.resolve(receiver).is_empty());
-        let named = candidates.named();
+        let named = candidates.named;
         if named_receiver || named.len() > THROUGH_INCLUDES_MAX_DEFINITIONS {
             return None;
         }
