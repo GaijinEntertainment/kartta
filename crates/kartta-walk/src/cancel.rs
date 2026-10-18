@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// A shared cancellation flag: one handle given to a walk, any number of clones held by whatever may stop it.
 ///
 /// Cloning shares the flag rather than copying it, so cancelling any clone stops every walk holding one. A cancelled
-/// walk returns the tree it built so far, and [`WalkOutcome::is_cancelled`](crate::WalkOutcome::is_cancelled) says so —
+/// walk returns the tree it built so far, and [`WalkOutcome::cancelled`](crate::WalkOutcome::cancelled) says so —
 /// cancellation truncates an answer, it does not fail one.
 ///
 /// What that partial tree holds depends on scheduling, so it is something to report or discard rather than build on.

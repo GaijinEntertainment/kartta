@@ -80,7 +80,7 @@ fn records_the_tree_depth_first_with_children_name_sorted() {
     let outcome = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
 
     assert_eq!(
-        render(outcome.tree()),
+        render(&outcome.tree),
         [
             "a.txt File",
             "dir Dir",
@@ -91,8 +91,8 @@ fn records_the_tree_depth_first_with_children_name_sorted() {
             "z.txt File",
         ]
     );
-    assert!(outcome.errors().is_empty());
-    assert!(!outcome.is_cancelled());
+    assert!(outcome.errors.is_empty());
+    assert!(!outcome.cancelled);
 }
 
 #[derive(Default)]
@@ -136,7 +136,7 @@ fn a_subtree_walk_shows_the_policy_the_paths_the_whole_walk_would() {
     let outcome = walk(dir.path(), &seen, &(), &options).expect("walk");
 
     assert_eq!(
-        render(outcome.tree()),
+        render(&outcome.tree),
         ["b.txt File", "nested Dir", "nested/c.txt File"],
         "the tree holds the directory's contents"
     );
@@ -158,7 +158,7 @@ fn a_nested_subtree_spelled_loosely_walks_as_the_whole_walk_sees_it() {
 
     let outcome = walk(dir.path(), &seen, &(), &options).expect("walk");
 
-    assert_eq!(render(outcome.tree()), ["c.txt File"]);
+    assert_eq!(render(&outcome.tree), ["c.txt File"]);
     assert_eq!(sorted(&seen.dirs), ["dir/nested"]);
     assert_eq!(sorted(&seen.entries), ["dir/nested/c.txt"]);
 }
@@ -202,7 +202,7 @@ fn nodes_are_stored_in_the_order_a_descent_reports_them() {
 
     let outcome = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
 
-    let flat: Vec<&str> = outcome.tree().nodes().map(Node::name).collect();
+    let flat: Vec<&str> = outcome.tree.nodes().map(Node::name).collect();
     assert_eq!(
         flat,
         ["a.txt", "dir", "b.txt", "nested", "c.txt", "empty", "z.txt"]
@@ -220,7 +220,7 @@ fn the_tree_is_identical_however_many_threads_walk_it() {
         walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk")
     });
 
-    assert_eq!(render(one.tree()), render(many.tree()));
+    assert_eq!(render(&one.tree), render(&many.tree));
 }
 
 #[test]
@@ -230,7 +230,7 @@ fn an_empty_directory_is_a_node_without_children() {
     let outcome = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
 
     let empty = outcome
-        .tree()
+        .tree
         .children()
         .find(|node| node.name() == "empty")
         .expect("empty is listed");
@@ -238,7 +238,7 @@ fn an_empty_directory_is_a_node_without_children() {
     assert_eq!(*empty.value(), EntryKind::Dir);
     assert_eq!(empty.children().count(), 0);
     assert!(
-        outcome.errors().is_empty(),
+        outcome.errors.is_empty(),
         "an empty directory is not a failure"
     );
 }
@@ -249,7 +249,7 @@ fn the_walk_root_is_not_itself_a_node() {
 
     let outcome = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
 
-    let children: Vec<&str> = outcome.tree().children().map(Node::name).collect();
+    let children: Vec<&str> = outcome.tree.children().map(Node::name).collect();
     assert_eq!(children, ["a.txt", "dir", "empty", "z.txt"]);
 }
 
@@ -277,7 +277,7 @@ fn a_pruned_directory_is_listed_with_no_children() {
     let outcome = walk(dir.path(), &PruneDir("dir"), &(), &WalkOptions::default()).expect("walk");
 
     assert_eq!(
-        render(outcome.tree()),
+        render(&outcome.tree),
         ["a.txt File", "dir Dir", "empty Dir", "z.txt File"]
     );
 }
@@ -306,7 +306,7 @@ fn a_skipped_directory_leaves_no_trace() {
     let outcome = walk(dir.path(), &SkipPrefix("dir"), &(), &WalkOptions::default()).expect("walk");
 
     assert_eq!(
-        render(outcome.tree()),
+        render(&outcome.tree),
         ["a.txt File", "empty Dir", "z.txt File"]
     );
 }
@@ -338,7 +338,7 @@ fn state_is_inherited_down_the_tree_and_not_across_it() {
     let outcome = walk(dir.path(), &Trail, &Vec::new(), &WalkOptions::default()).expect("walk");
 
     assert_eq!(
-        render(outcome.tree()),
+        render(&outcome.tree),
         [
             r#"a.txt "[]""#,
             r#"dir "[]""#,
@@ -387,14 +387,14 @@ fn enter_sees_the_whole_listing_before_any_entry_is_classified() {
     .expect("walk");
 
     let root_state = outcome
-        .tree()
+        .tree
         .nodes()
         .find(|n| n.name() == "plain")
         .expect("plain");
     assert_eq!(root_state.value(), "marker=false count=2");
 
     let sub_state = outcome
-        .tree()
+        .tree
         .nodes()
         .find(|n| n.name() == ".marker")
         .expect(".marker");
@@ -425,13 +425,13 @@ fn paths_are_forward_slash_on_every_platform() {
     let outcome = walk(dir.path(), &Paths, &(), &WalkOptions::default()).expect("walk");
 
     let deepest = outcome
-        .tree()
+        .tree
         .nodes()
         .find(|node| node.name() == "c.txt")
         .expect("c.txt is recorded");
     assert_eq!(deepest.value(), "dir/nested/c.txt");
 
-    for node in outcome.tree().nodes() {
+    for node in outcome.tree.nodes() {
         assert!(
             !node.value().contains('\\'),
             "path {:?} carries a native separator rather than the forward slash every host reports",
@@ -444,7 +444,7 @@ fn paths_are_forward_slash_on_every_platform() {
         );
     }
 
-    let joined: Vec<String> = render(outcome.tree())
+    let joined: Vec<String> = render(&outcome.tree)
         .iter()
         .map(|line| {
             line.split_once(' ')
@@ -454,7 +454,7 @@ fn paths_are_forward_slash_on_every_platform() {
         })
         .collect();
     let reported: Vec<String> = outcome
-        .tree()
+        .tree
         .nodes()
         .map(|node| node.value().clone())
         .collect();
@@ -488,7 +488,7 @@ fn native_paths_stay_on_the_io_side() {
     let outcome = walk(dir.path(), &Native, &(), &WalkOptions::default()).expect("walk");
 
     assert!(
-        outcome.tree().nodes().all(|node| *node.value()),
+        outcome.tree.nodes().all(|node| *node.value()),
         "every reported entry is reachable through its native path"
     );
 }
@@ -520,12 +520,12 @@ fn with_and_without_listed_stats(root: &Path) -> [RenderedWithErrors; 2] {
         };
         let outcome = walk(root, &Facts, &(), &options).expect("walk");
         let errors = outcome
-            .errors()
+            .errors
             .iter()
             .map(|error| error.native_path().map(Path::to_path_buf))
             .collect();
 
-        (render(outcome.tree()), errors)
+        (render(&outcome.tree), errors)
     })
 }
 
@@ -551,7 +551,7 @@ impl Policy for Stats {
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<Self::Value> {
         let stat = entry
             .listed_stat()
-            .map(|stat| (stat.size(), stat.ctime(), stat.ctime_nsec()));
+            .map(|stat| (stat.size, stat.ctime, stat.ctime_nsec));
 
         Visit::Keep((entry.path().to_owned(), stat))
     }
@@ -568,7 +568,7 @@ fn a_walk_not_asked_for_listed_stats_hands_none() {
     let outcome = walk(dir.path(), &Stats, &(), &WalkOptions::default()).expect("walk");
 
     assert_eq!(
-        stated(outcome.tree()),
+        stated(&outcome.tree),
         0,
         "only a walk that asks lists stats"
     );
@@ -586,7 +586,7 @@ fn a_listing_that_carries_no_stats_hands_none_when_asked() {
     let outcome = walk(dir.path(), &Stats, &(), &options).expect("walk");
 
     assert_eq!(
-        stated(outcome.tree()),
+        stated(&outcome.tree),
         0,
         "only macOS lists stats with the names"
     );
@@ -607,7 +607,7 @@ fn listed_stats_give_each_regular_file_what_a_stat_of_it_gives() {
 
     let outcome = walk(dir.path(), &Stats, &(), &options).expect("walk");
 
-    for node in outcome.tree().nodes() {
+    for node in outcome.tree.nodes() {
         let (path, stat) = node.value();
         let metadata = fs::symlink_metadata(dir.path().join(path)).expect("stat the entry");
         let stated = metadata
@@ -615,7 +615,7 @@ fn listed_stats_give_each_regular_file_what_a_stat_of_it_gives() {
             .then(|| (metadata.size(), metadata.ctime(), metadata.ctime_nsec()));
         assert_eq!(*stat, stated, "{path} lists what a stat of it reports");
     }
-    assert_eq!(stated(outcome.tree()), 4, "every regular file has its stat");
+    assert_eq!(stated(&outcome.tree), 4, "every regular file has its stat");
 }
 
 struct CancelAfter {
@@ -657,14 +657,14 @@ fn cancellation_truncates_the_walk_and_reports_it() {
         walk(dir.path(), &policy, &(), &options).expect("walk")
     });
 
-    assert!(outcome.is_cancelled());
+    assert!(outcome.cancelled);
     assert!(
-        outcome.tree().len() < 7,
+        outcome.tree.len() < 7,
         "the walk stopped short: {} of 7",
-        outcome.tree().len()
+        outcome.tree.len()
     );
     assert!(
-        !outcome.tree().is_empty(),
+        !outcome.tree.is_empty(),
         "what was classified before the stop is recorded"
     );
 }
@@ -691,9 +691,9 @@ fn a_token_cancelled_after_the_last_entry_leaves_a_complete_walk_reported_comple
         token.is_cancelled(),
         "the seventh and last entry cancelled it"
     );
-    assert_eq!(outcome.tree().len(), 7, "every entry was recorded");
+    assert_eq!(outcome.tree.len(), 7, "every entry was recorded");
     assert!(
-        !outcome.is_cancelled(),
+        !outcome.cancelled,
         "no check turned anything away, so the tree is complete and says so"
     );
 }
@@ -710,8 +710,8 @@ fn a_token_cancelled_up_front_records_nothing() {
 
     let outcome = walk(dir.path(), &Everything, &(), &options).expect("walk");
 
-    assert!(outcome.tree().is_empty());
-    assert!(outcome.is_cancelled());
+    assert!(outcome.tree.is_empty());
+    assert!(outcome.cancelled);
 }
 
 #[test]
@@ -763,13 +763,13 @@ fn the_pool_a_walk_is_called_from_bounds_how_many_workers_traverse() {
         });
 
         let distinct: std::collections::HashSet<_> =
-            outcome.tree().nodes().map(Node::value).collect();
+            outcome.tree.nodes().map(Node::value).collect();
         assert!(
             distinct.len() <= limit,
             "a pool of {limit} admitted {} workers",
             distinct.len()
         );
-        assert_eq!(outcome.tree().len(), 32, "every entry is still recorded");
+        assert_eq!(outcome.tree.len(), 32, "every entry is still recorded");
     }
 }
 
@@ -835,12 +835,12 @@ fn a_directory_large_enough_to_classify_in_parallel_walks_to_the_same_tree_and_s
             .collect::<Vec<_>>()
     };
     assert_eq!(
-        names(single.tree()),
-        names(many.tree()),
+        names(&single.tree),
+        names(&many.tree),
         "listing order, whatever ran where"
     );
-    assert_eq!(many.tree().len(), 500);
-    let classifiers: std::collections::HashSet<_> = many.tree().nodes().map(Node::value).collect();
+    assert_eq!(many.tree.len(), 500);
+    let classifiers: std::collections::HashSet<_> = many.tree.nodes().map(Node::value).collect();
     assert!(
         classifiers.len() > 1,
         "one flat directory's entries were classified on more than one thread"
@@ -866,7 +866,7 @@ mod unix {
         let outcome = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
 
         let node = outcome
-            .tree()
+            .tree
             .nodes()
             .find(|node| node.name() == "pipe")
             .expect("the fifo is recorded");
@@ -893,7 +893,7 @@ mod unix {
 
         for name in ["to_dir", "to_file", "dangling"] {
             let node = outcome
-                .tree()
+                .tree
                 .nodes()
                 .find(|node| node.name() == name)
                 .unwrap_or_else(|| panic!("{name} is recorded"));
@@ -955,24 +955,21 @@ mod unix {
         // constraint: a directory left unreadable cannot be removed, so the mode is restored before any assertion fails
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).expect("restore mode");
 
-        if outcome.errors().is_empty() {
+        if outcome.errors.is_empty() {
             // Running as root ignores the permission bits; there is nothing to assert.
             return;
         }
 
-        assert_eq!(outcome.errors().len(), 1);
-        assert_eq!(outcome.errors()[0].native_path(), Some(locked.as_path()));
+        assert_eq!(outcome.errors.len(), 1);
+        assert_eq!(outcome.errors[0].native_path(), Some(locked.as_path()));
 
-        let names: Vec<&str> = outcome.tree().nodes().map(Node::name).collect();
+        let names: Vec<&str> = outcome.tree.nodes().map(Node::name).collect();
         assert!(
             names.contains(&"locked"),
             "the directory itself is still listed"
         );
         assert!(!names.contains(&"hidden.txt"), "its contents are missing");
         assert!(names.contains(&"z.txt"), "the rest of the tree survived");
-        assert!(
-            !outcome.is_cancelled(),
-            "a read failure is not a cancellation"
-        );
+        assert!(!outcome.cancelled, "a read failure is not a cancellation");
     }
 }

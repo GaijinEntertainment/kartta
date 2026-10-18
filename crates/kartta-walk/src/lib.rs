@@ -7,8 +7,8 @@
 //! # Using it
 //!
 //! Implement [`Policy`] to say what to record and where to descend, then call [`walk`]. It returns a [`WalkOutcome`]:
-//! read [`errors`](WalkOutcome::errors) and [`is_cancelled`](WalkOutcome::is_cancelled) to learn whether the answer is
-//! complete, then take [`into_tree`](WalkOutcome::into_tree) and descend from [`Tree::children`], following
+//! read its [`errors`](WalkOutcome::errors) and [`cancelled`](WalkOutcome::cancelled) to learn whether the answer is
+//! complete, then take its [`tree`](WalkOutcome::tree) and descend from [`Tree::children`], following
 //! [`Node::children`] down. See the example at the end.
 //!
 //! # The policy
@@ -59,7 +59,7 @@
 //! # Controls
 //!
 //! [`WalkOptions::cancel_token`] is the only way to end a walk before it runs out of entries; the result is the partial
-//! tree, which [`WalkOutcome::is_cancelled`] marks as a truncated answer rather than an error. There is deliberately no
+//! tree, which [`WalkOutcome::cancelled`] marks as a truncated answer rather than an error. There is deliberately no
 //! cap on entries recorded — [`WalkOptions`] explains why.
 //!
 //! The walk runs on the rayon pool it is called from. A caller that does not own the machine bounds its threads by
@@ -111,9 +111,10 @@
 //! let dir = tempfile::tempdir()?;
 //! std::fs::write(dir.path().join("a.txt"), "hello")?;
 //!
-//! // The report is checked, then the tree is what gets kept.
-//! let tree = walk(dir.path(), &All, &(), &WalkOptions::default())?.into_tree();
-//! let names: Vec<&str> = tree.children().map(Node::name).collect();
+//! let outcome = walk(dir.path(), &All, &(), &WalkOptions::default())?;
+//! assert!(outcome.errors.is_empty() && !outcome.cancelled, "a complete answer");
+//!
+//! let names: Vec<&str> = outcome.tree.children().map(Node::name).collect();
 //! assert_eq!(names, ["a.txt"]);
 //! # Ok(())
 //! # }
