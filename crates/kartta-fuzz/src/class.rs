@@ -5,7 +5,16 @@
 //! computed once here: an ASCII lookup table for the class of a character, and a class-pair table for the bonus. What
 //! remains in the hot loop is one indexed load per character.
 
-use crate::config::{Config, Scoring};
+use crate::config::Config;
+
+const AFTER_SEGMENT: i32 = 900;
+const AFTER_WORD: i32 = 800;
+const DIGIT_BOUNDARY: i32 = 800;
+const CAMEL_HUMP: i32 = 700;
+const AFTER_DOT: i32 = 600;
+
+/// The largest bonus a boundary earns.
+pub(crate) const MAX_BOUNDARY: i32 = AFTER_SEGMENT;
 
 /// What a character is, for the purpose of deciding whether the character *after* it starts something worth a bonus.
 ///
@@ -62,7 +71,7 @@ impl Classes {
         let mut bonus = [[0; CLASS_COUNT]; CLASS_COUNT];
         for (prev, row) in bonus.iter_mut().enumerate() {
             for (curr, slot) in row.iter_mut().enumerate() {
-                *slot = boundary_bonus(CLASSES[prev], CLASSES[curr], &config.scoring);
+                *slot = boundary_bonus(CLASSES[prev], CLASSES[curr]);
             }
         }
 
@@ -122,14 +131,14 @@ fn classify(c: char, segment_separators: &[char], word_separators: &[char]) -> C
 
 /// The boundary bonus for a class pair. Separator classes decide it outright; otherwise a camelCase hump ranks above a
 /// digit boundary, and a match mid-token earns nothing.
-fn boundary_bonus(prev: Class, curr: Class, scoring: &Scoring) -> i32 {
+fn boundary_bonus(prev: Class, curr: Class) -> i32 {
     match prev {
-        Class::SegmentSeparator => scoring.after_segment,
-        Class::WordSeparator => scoring.after_word,
-        Class::Dot => scoring.after_dot,
-        Class::Lower if curr == Class::Upper => scoring.camel_hump,
+        Class::SegmentSeparator => AFTER_SEGMENT,
+        Class::WordSeparator => AFTER_WORD,
+        Class::Dot => AFTER_DOT,
+        Class::Lower if curr == Class::Upper => CAMEL_HUMP,
         Class::Digit => 0,
-        _ if curr == Class::Digit => scoring.digit_boundary,
+        _ if curr == Class::Digit => DIGIT_BOUNDARY,
         _ => 0,
     }
 }
@@ -142,27 +151,34 @@ mod tests {
     /// than only as a ranking change.
     #[test]
     fn boundary_bonuses_match_the_documented_precedence() {
-        let config = Config::DEFAULT;
-        let classes = Classes::new(&config);
+        let classes = Classes::new(&Config::DEFAULT);
         let bonus =
             |prev: char, curr: char| classes.bonus(classes.class_of(prev), classes.class_of(curr));
-        let scoring = config.scoring;
 
-        assert_eq!(bonus('/', 'a'), scoring.after_segment);
-        assert_eq!(bonus('\\', 'a'), scoring.after_segment);
+        assert_eq!(bonus('/', 'a'), AFTER_SEGMENT);
+        assert_eq!(bonus('\\', 'a'), AFTER_SEGMENT);
         for separator in ['-', '_', ' '] {
-            assert_eq!(
-                bonus(separator, 'a'),
-                scoring.after_word,
-                "separator {separator:?}"
-            );
+            assert_eq!(bonus(separator, 'a'), AFTER_WORD, "separator {separator:?}");
         }
-        assert_eq!(bonus('.', 'a'), scoring.after_dot);
-        assert_eq!(bonus('o', 'B'), scoring.camel_hump, "camelCase hump");
-        assert_eq!(bonus('v', '2'), scoring.digit_boundary, "digit boundary");
+        assert_eq!(bonus('.', 'a'), AFTER_DOT);
+        assert_eq!(bonus('o', 'B'), CAMEL_HUMP, "camelCase hump");
+        assert_eq!(bonus('v', '2'), DIGIT_BOUNDARY, "digit boundary");
         assert_eq!(bonus('2', '3'), 0, "a digit does not start a digit run");
         assert_eq!(bonus('a', 'b'), 0, "mid-token earns nothing");
         assert_eq!(bonus('A', 'B'), 0, "an uppercase run is not a hump");
+    }
+
+    #[test]
+    fn no_boundary_earns_more_than_the_largest_boundary_bonus() {
+        let classes = Classes::new(&Config::DEFAULT);
+        for prev in CLASSES {
+            for curr in CLASSES {
+                assert!(
+                    classes.bonus(prev, curr) <= MAX_BOUNDARY,
+                    "{prev:?} then {curr:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -174,7 +190,7 @@ mod tests {
         assert_eq!(classes.class_of('.'), Class::SegmentSeparator);
         assert_eq!(
             classes.bonus(Class::SegmentSeparator, Class::Lower),
-            config.scoring.after_segment
+            AFTER_SEGMENT
         );
     }
 
@@ -187,7 +203,7 @@ mod tests {
         assert_eq!(classes.class_of('中'), Class::Other);
         assert_eq!(
             classes.bonus(classes.class_of('é'), classes.class_of('É')),
-            Config::DEFAULT.scoring.camel_hump,
+            CAMEL_HUMP,
             "a hump is a hump outside ASCII too"
         );
     }

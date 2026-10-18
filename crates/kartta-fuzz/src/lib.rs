@@ -3,8 +3,10 @@
 //! For every candidate containing each term of the query as a subsequence, a dynamic program finds the highest-scoring
 //! alignment, rewarding matches at path boundaries — segment starts, word separators, camelCase humps, the basename —
 //! and charging for the gaps between matched characters. Scores are integers, so ranking is deterministic across
-//! platforms and free of NaN-ordering hazards, and all score arithmetic saturates, so no configuration can make one
-//! overflow.
+//! platforms and free of NaN-ordering hazards. The weights are fixed, and the tests pin the orderings they produce.
+//!
+//! A candidate every term matches in full always ranks first. "In full" is per term, not against the whole query:
+//! query `a a` ranks `a`, which both terms match in full, above `a a`.
 //!
 //! One candidate is not aligned: a candidate longer than 1024 positions, which no repository path reaches. Running an
 //! `O(n*m)` alignment over a length the caller chose is what that bound exists to prevent, so such a candidate is
@@ -13,8 +15,7 @@
 //! that were.
 //!
 //! A full match is the exception to the exception: it is settled by comparing lengths, never by aligning, so the
-//! bound does not reach it and an over-long candidate a term matches in full still ranks first. That ordering is one
-//! of the guarantees below, and it outranks the floor rather than yielding to it.
+//! bound does not reach it and an over-long candidate a term matches in full still ranks first.
 //!
 //! # What makes it path-aware
 //!
@@ -25,10 +26,7 @@
 //!
 //! # Configuration
 //!
-//! Every weight and every policy is a field of [`Config`]. The shipped [`Config::DEFAULT`] is the tuned point in that
-//! space and the one the behaviour tests pin; other points are guaranteed only by the invariants that hold across all
-//! of them, and only those — a candidate every term matches in full always ranks first ("in full" is per term, not
-//! against the whole query), a candidate missing a term never matches, and no weight overflows a score. Replacing
+//! [`Config`] decides what a segment and a word are, and whether length breaks a tie. Replacing
 //! [`Config::segment_separators`] is what turns the scorer into something other than a path matcher.
 //!
 //! # Case
@@ -72,5 +70,5 @@ mod config;
 mod matcher;
 mod score;
 
-pub use crate::config::{Config, Scoring};
+pub use crate::config::Config;
 pub use crate::matcher::{Match, Matcher, Ranked, Ranking};

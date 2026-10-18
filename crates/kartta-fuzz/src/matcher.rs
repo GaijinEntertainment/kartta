@@ -5,8 +5,8 @@ use std::collections::BinaryHeap;
 use std::num::NonZeroUsize;
 
 use crate::class::Classes;
-use crate::config::{Config, Scoring};
-use crate::score::{ALIGNED_MIN, MATCH_FLOOR, Representation, Scorer, Term};
+use crate::config::Config;
+use crate::score::{ALIGNED_MIN, FULL_MATCH_SCORE, MATCH_FLOOR, Representation, Scorer, Term};
 
 /// One ranked candidate and the score it earned.
 ///
@@ -38,12 +38,12 @@ enum Band {
 }
 
 impl Band {
-    /// Which band one term's score falls in. Each is reachable only by its own kind of match: an alignment is clamped
-    /// clear of the floor below and of the full-match score above.
-    const fn of(score: i32, full_match_score: i32) -> Self {
+    /// Which band one term's score falls in. Each is reachable only by its own kind of match: an alignment lies
+    /// strictly between the floor and the full-match score.
+    const fn of(score: i32) -> Self {
         if score == MATCH_FLOOR {
             Self::Floored
-        } else if score == full_match_score {
+        } else if score == FULL_MATCH_SCORE {
             Self::Full
         } else {
             Self::Aligned
@@ -52,10 +52,9 @@ impl Band {
 
     /// Maps a summed aggregate into this band's range.
     ///
-    /// Clamping here rather than at each addition is what makes the ranges hold for weights that would otherwise
-    /// saturate the sum: a saturated total carries no trace of what it was built from, so a floored aggregate and an
-    /// aligned one, or a partial and a full one, land on the same value and the order falls to whichever tiebreak is
-    /// configured.
+    /// Clamping here rather than at each addition is what makes the ranges hold for a query of enough terms to saturate
+    /// the sum: a saturated total carries no trace of what it was built from, so a floored aggregate and an aligned
+    /// one, or a partial and a full one, would land on the same value and the order fall to the tiebreak.
     fn confine(self, total: i64) -> i32 {
         let ceiling = match self {
             Self::Floored => return MATCH_FLOOR,
@@ -233,10 +232,6 @@ fn sort_ranked(ranked: &mut [Ranked]) {
 #[derive(Debug)]
 pub struct Matcher {
     config: Config,
-    /// The weights the recurrence runs on: the configured ones with the gaps clamped to penalties.
-    clamped_scoring: Scoring,
-    /// The score a full match takes, derived from the configured weights once.
-    full_match_score: i32,
     classes: Classes,
     scorer: Scorer,
     terms: Vec<Term>,
@@ -257,8 +252,6 @@ impl Matcher {
     pub fn new(config: Config) -> Self {
         Self {
             classes: Classes::new(&config),
-            clamped_scoring: config.scoring.clamp_gaps(),
-            full_match_score: config.full_match_score(),
             config,
             scorer: Scorer::default(),
             terms: Vec::new(),
@@ -525,20 +518,15 @@ impl Matcher {
         //
         // The sum is taken in `i64` because saturating it in `i32` is what repeatedly cost the ordering: a saturated
         // aggregate carries no information about what it was built from, so a full aggregate and a partial one, or an
-        // aligned one and a floored one, collapse onto the same value and the order falls to whichever tiebreak
-        // happens to be configured. Summing exactly and banding once afterwards keeps each kind in its own range,
-        // whatever the weights.
+        // aligned one and a floored one, collapse onto the same value and the order falls to the tiebreak. Summing
+        // exactly and banding once afterwards keeps each kind in its own range, whatever the term count; an `i64`
+        // holds the sum of more terms than a query string can.
         let mut total: i64 = 0;
         let mut band = Band::Full;
         for term in &self.terms {
-            let score =
-                self.scorer
-                    .score_matched(term, &self.clamped_scoring, self.full_match_score);
-            band = band.min(Band::of(score, self.full_match_score));
-            // Saturating, because the term count is the caller's: enough full terms at ceiling weights overflow even
-            // an i64, which panics in debug and wraps in release. Saturating costs the ordering nothing that matters,
-            // since the band is the primary key and a total that large is already past any meaningful comparison.
-            total = total.saturating_add(i64::from(score));
+            let score = self.scorer.score_matched(term);
+            band = band.min(Band::of(score));
+            total += i64::from(score);
         }
 
         Some(band.confine(total))
