@@ -42,10 +42,7 @@ impl Resolver for Manifests<'_> {
         let (mut extraction, directives) = raw.into_extraction(path);
 
         if self.is_test_file(path) {
-            let test = SymbolFlags::empty().with_test(true);
-            for symbol in &mut extraction.symbols {
-                symbol.flags = symbol.flags.union(test);
-            }
+            extraction.flag_symbols(SymbolFlags::empty().with_test(true));
         }
 
         let manifests = directives

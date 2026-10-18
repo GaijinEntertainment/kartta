@@ -112,9 +112,7 @@ impl Resolver for Crates<'_> {
         let flags = SymbolFlags::empty()
             .with_test(role.test)
             .with_generated(is_generated_path(path));
-        for symbol in &mut extraction.symbols {
-            symbol.flags = symbol.flags.union(flags);
-        }
+        extraction.flag_symbols(flags);
         for id in entry_candidates.into_iter().filter(|_| role.entry) {
             if let Some(symbol) = extraction.symbols.get_mut(id.0 as usize) {
                 symbol.flags = symbol.flags.with_entry(true);

@@ -43,10 +43,7 @@ impl Resolver for Sources<'_> {
         let (mut extraction, directives) = raw.into_extraction(path);
 
         if is_test_file(path) {
-            let test = SymbolFlags::empty().with_test(true);
-            for symbol in &mut extraction.symbols {
-                symbol.flags = symbol.flags.union(test);
-            }
+            extraction.flag_symbols(SymbolFlags::empty().with_test(true));
         }
 
         for directive in directives {

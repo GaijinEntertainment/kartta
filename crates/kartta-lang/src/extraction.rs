@@ -1,4 +1,4 @@
-use crate::symbol::{Symbol, SymbolId};
+use crate::symbol::{Symbol, SymbolFlags, SymbolId};
 
 /// What a language extracts from one file's bytes alone, before the file's path and the repository are applied.
 ///
@@ -157,6 +157,18 @@ pub struct Extraction {
     /// it, when every file that includes it lists it here or is such a file itself; one that a production file
     /// includes is not.
     pub test_includes: Vec<String>,
+}
+
+impl Extraction {
+    /// Adds `flags` to the flags of every symbol, as a resolver does with what the file's path shows.
+    pub fn flag_symbols(&mut self, flags: SymbolFlags) {
+        if flags == SymbolFlags::empty() {
+            return;
+        }
+        for symbol in &mut self.symbols {
+            symbol.flags = symbol.flags.union(flags);
+        }
+    }
 }
 
 /// A call, unresolved.

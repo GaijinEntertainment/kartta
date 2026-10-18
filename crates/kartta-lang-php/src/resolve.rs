@@ -66,11 +66,7 @@ impl Resolver for Autoload<'_> {
         let path_flags = SymbolFlags::empty()
             .with_test(is_test_file(path))
             .with_generated(is_generated_file(path));
-        if path_flags != SymbolFlags::empty() {
-            for symbol in &mut extraction.symbols {
-                symbol.flags = symbol.flags.union(path_flags);
-            }
-        }
+        extraction.flag_symbols(path_flags);
 
         for directive in directives {
             if directive.form != INCLUDE_FORM {
