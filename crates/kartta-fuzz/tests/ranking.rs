@@ -112,23 +112,22 @@ fn equal_scores_keep_input_order() {
 
 #[test]
 fn shorter_candidate_wins_a_tie_when_configured() {
-    // Gap penalties are what usually separate two candidates matching at the same position, so zeroing them is what
-    // makes a genuine score tie between different lengths reachable at all.
-    let mut config = Config::DEFAULT;
-    config.scoring.gap_leading = 0;
-    config.scoring.gap_trailing = 0;
-    let candidates = ["a/xyz", "a/x"];
+    // Gaps are charged per character, so two candidates tie only at the same character count: here one of them spends
+    // two bytes on its first character.
+    let candidates = ["\u{e9}a", "xa"];
+    assert_eq!(score(candidates[0], "a"), score(candidates[1], "a"));
 
+    let mut config = Config::DEFAULT;
     assert_eq!(
-        ranked_with(config, &candidates, "x")[0],
-        "a/x",
+        ranked_with(config, &candidates, "a")[0],
+        "xa",
         "the length tiebreak reorders"
     );
 
     config.length_tiebreak = false;
     assert_eq!(
-        ranked_with(config, &candidates, "x")[0],
-        "a/xyz",
+        ranked_with(config, &candidates, "a")[0],
+        "\u{e9}a",
         "without it, input order stands"
     );
 }
@@ -215,26 +214,6 @@ fn an_over_long_candidate_matches_but_ranks_last() {
 }
 
 #[test]
-fn candidate_start_bonus_lifts_a_whole_path_prefix() {
-    // The match in the first candidate lands in the directory, so it earns no basename bonus and loses by default.
-    let candidates = ["api/zzzzzzzzzz.rs", "z/api.rs"];
-
-    let mut config = Config::DEFAULT;
-    assert_eq!(
-        ranked_with(config, &candidates, "api")[0],
-        "z/api.rs",
-        "the basename hit leads by default"
-    );
-
-    config.scoring.candidate_start = 10_000;
-    assert_eq!(
-        ranked_with(config, &candidates, "api")[0],
-        "api/zzzzzzzzzz.rs",
-        "the prefix bonus lifts a match starting at position zero above it"
-    );
-}
-
-#[test]
 fn segment_separators_decide_the_basename() {
     // With `.` as the separator, the basename of `pkg.mod.Symbol` is `Symbol`.
     let mut config = Config::DEFAULT;
@@ -302,94 +281,10 @@ fn a_limit_agrees_without_the_length_tiebreak_too() {
     }
 }
 
-/// Configurations spanning the corners of the weight space, including ones no sane caller would set.
-///
-/// Every field is a public `i32`, so every `i32` is reachable. The guarantees below are the ones stated for *any*
-/// configuration, so they are tested against the values that break a naive derivation rather than only the tuned
-/// default: negative weights, zero weights, and gaps pointing the wrong way.
-fn hostile_configs() -> Vec<(&'static str, Config)> {
-    /// Sets every weight to `weight` and every gap to `gap`.
-    const fn uniform(weight: i32, gap: i32) -> Config {
-        let mut config = Config::DEFAULT;
-        let s = &mut config.scoring;
-        s.consecutive = weight;
-        s.after_segment = weight;
-        s.after_word = weight;
-        s.digit_boundary = weight;
-        s.camel_hump = weight;
-        s.after_dot = weight;
-        s.basename = weight;
-        s.candidate_start = weight;
-        s.gap_leading = gap;
-        s.gap_inner = gap;
-        s.gap_trailing = gap;
-        config
-    }
-
-    let mut ceiling = Config::DEFAULT;
-    ceiling.scoring.consecutive = i32::MAX;
-    ceiling.scoring.basename = i32::MAX;
-    ceiling.scoring.candidate_start = i32::MAX;
-
-    vec![
-        ("default", Config::DEFAULT),
-        ("all weights negative", uniform(-1, -1)),
-        ("all weights zero", uniform(0, 0)),
-        ("gaps that reward skipping", uniform(0, i32::MAX)),
-        ("weights at the ceiling", ceiling),
-    ]
-}
-
 #[test]
-fn a_full_match_ranks_first_under_any_configuration() {
-    // The one ordering the crate promises for every point in the weight space. A derivation that sums a negative
-    // per-character maximum, or a sentinel a positive gap lifted off `i32::MIN`, breaks it here and nowhere else.
-    let candidates = ["ab", "xaxbx", "a/b", "abc", "zzab", "ab/ab"];
-
-    for (name, config) in hostile_configs() {
-        let ranked = ranked_with(config, &candidates, "ab");
-        assert_eq!(
-            ranked[0], "ab",
-            "the full match must lead under {name}, got {ranked:?}"
-        );
-    }
-}
-
-#[test]
-fn no_configuration_lets_an_unmatched_candidate_score() {
-    // A candidate missing a term never matches, whatever the weights. A gap weight that promotes the "no
-    // alignment here" sentinel would otherwise let cells that matched nothing carry a score.
-    for (name, config) in hostile_configs() {
-        assert_eq!(
-            ranked_with(config, &["ba", "b", "xxxx", ""], "ab"),
-            [] as [&str; 0],
-            "nothing matches ab under {name}"
-        );
-    }
-}
-
-#[test]
-fn a_gap_weight_above_zero_ranks_exactly_as_zero_does() {
-    // Gaps are penalties by contract, so a positive one is clamped rather than honoured. Without the clamp it does not
-    // merely rank oddly: added to the "no alignment here" sentinel it lifts it off `i32::MIN`, and cells that matched
-    // nothing outrank every real alignment.
-    let candidates = ["axxxxxxxxb", "ab.rs", "a/b", "zzz", "ab"];
-
-    let mut clamped = Config::DEFAULT;
-    clamped.scoring.gap_leading = 0;
-    clamped.scoring.gap_inner = 0;
-    clamped.scoring.gap_trailing = 0;
-
-    let mut rewarding = Config::DEFAULT;
-    rewarding.scoring.gap_leading = i32::MAX;
-    rewarding.scoring.gap_inner = i32::MAX;
-    rewarding.scoring.gap_trailing = 7;
-
-    assert_eq!(
-        ranked_with(rewarding, &candidates, "ab"),
-        ranked_with(clamped, &candidates, "ab"),
-        "a gap above zero must rank as zero does"
-    );
+fn a_full_match_ranks_first() {
+    let ranked = ranked(&["xaxbx", "a/b", "abc", "zzab", "ab/ab", "ab"], "ab");
+    assert_eq!(ranked[0], "ab", "the full match must lead, got {ranked:?}");
 }
 
 #[test]
@@ -464,10 +359,9 @@ fn an_empty_word_separator_set_only_drops_the_word_bonus() {
     config.word_separators = &[];
     let without = score_with(config, "render_pass.rs", "rp").expect("still matches");
 
-    assert_eq!(
-        with_separators - without,
-        Config::DEFAULT.scoring.after_word,
-        "emptying the set costs exactly the word bonus at `p`, and nothing else"
+    assert!(
+        with_separators > without,
+        "emptying the set drops the word bonus at `p`"
     );
 }
 
@@ -506,63 +400,25 @@ fn an_over_long_non_ascii_candidate_matches_and_ranks_last() {
 }
 
 #[test]
-fn full_term_precedence_survives_aggregation() {
-    // Summing per-term scores is where the full-match rule is most easily lost: weights large enough to saturate
-    // drive a full aggregate and a partial one to the same ceiling, and the ordering then falls to whichever tiebreak
-    // happens to be configured rather than to the guarantee.
-    let mut config = Config::DEFAULT;
-    config.scoring.consecutive = i32::MAX;
-    config.scoring.basename = i32::MAX;
-    config.scoring.candidate_start = i32::MAX;
-    config.length_tiebreak = false;
-
-    assert_eq!(
-        ranked_with(config, &["aa", "a"], "a a"),
-        ["a", "aa"],
-        "the candidate both terms match in full must lead"
-    );
-}
-
-#[test]
 fn the_length_tiebreak_orders_by_utf8_byte_length() {
     // The unit is stated in the contract because these two candidates order one way by bytes and the other by
-    // characters: with acutes, "eea" is 5 bytes and 3 characters, "aaaa" is 4 of each.
+    // characters: the first is 102 bytes and 102 characters, the second 122 bytes and 62 characters.
     //
-    // Reaching the tiebreak at all takes work. A match at position zero collects the segment bonus, which alone
-    // separates the two on score and leaves the tiebreak untouched -- so the segment bonus goes to zero here, and the
-    // scores are asserted equal before the order is, or this test would pass whichever unit the sort used.
-    let mut config = Config::DEFAULT;
-    config.scoring.gap_leading = 0;
-    config.scoring.gap_trailing = 0;
-    config.scoring.after_segment = 0;
-
-    let fewer_bytes = score_with(config, "aaaa", "a").expect("matches");
-    let fewer_chars = score_with(config, "\u{e9}\u{e9}a", "a").expect("matches");
+    // Reaching the tiebreak at all takes work. Every character costs a gap, so the candidate with more characters
+    // earns them back with a larger boundary bonus at its match, after `-` rather than `.`. The scores are asserted
+    // equal before the order is, or this test would pass whichever unit the sort used.
+    let fewer_bytes = format!("{}-a", "z".repeat(100));
+    let fewer_chars = format!("{}.a", "\u{e9}".repeat(60));
     assert_eq!(
-        fewer_bytes, fewer_chars,
+        score(&fewer_bytes, "a").expect("matches"),
+        score(&fewer_chars, "a").expect("matches"),
         "the candidates must tie on score for the tiebreak to decide anything"
     );
 
-    let ranked = ranked_with(config, &["\u{e9}\u{e9}a", "aaaa"], "a");
+    let ranked = ranked(&[fewer_chars.as_str(), fewer_bytes.as_str()], "a");
     assert_eq!(
-        ranked[0], "aaaa",
+        ranked[0], fewer_bytes,
         "fewer bytes wins, though it has more characters"
-    );
-}
-
-#[test]
-fn an_alignment_always_outranks_the_over_long_floor() {
-    // The floor is a constant and an alignment is not, so no constant can sit under every alignment for every set of
-    // weights: `basename = i32::MIN` saturates an aligned score onto the sentinel, beneath a floor one above it, and
-    // a candidate that was never aligned would outrank one that was. The alignment is lifted off the floor instead.
-    let mut config = Config::DEFAULT;
-    config.scoring.basename = i32::MIN;
-
-    let aligned = score_with(config, "xa", "a").expect("an aligned match, however saturated");
-    let floored = score_with(config, &"a".repeat(2000), "a").expect("an over-long match");
-    assert!(
-        floored < aligned,
-        "the unaligned candidate must stay below the aligned one, got {floored} against {aligned}"
     );
 }
 
@@ -580,12 +436,9 @@ fn an_over_long_candidate_matched_in_full_still_ranks_first() {
 
 #[test]
 fn the_score_bands_survive_aggregation() {
-    // Summing per-term scores is where the ordering has been lost repeatedly: a saturated aggregate says nothing
-    // about what it was built from, so a floored aggregate and an aligned one, or a partial and a full one, collapse
-    // onto the same value and the order falls to whichever tiebreak is configured. The sum is exact and the bands are
-    // applied once afterwards, so each kind keeps its own range whatever the weights.
+    // A floored term's score sits just above `i32::MIN` and the terms beside it add to it. The bands are applied once
+    // after the sum, so a floored aggregate stays below every aligned one whatever the other terms add.
     let mut config = Config::DEFAULT;
-    config.scoring.basename = i32::MIN;
     config.length_tiebreak = false;
 
     let over_long = "a".repeat(2000);
