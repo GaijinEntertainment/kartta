@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use std::io;
 use std::mem;
 use std::ops::Range;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Mutex;
 
 use kartta_walk::CancelToken;
 use rayon::prelude::*;
@@ -15,6 +15,7 @@ use super::{
 };
 use crate::postings::{self, Shape, Writer};
 use crate::trigram::{Trigram, Trigrams};
+use crate::{into_inner, lock};
 
 const RUN_PAIRS: usize = 1 << 20;
 const PART_BUCKET_BYTES: usize = BUCKETS_PER_PART * BUCKET_BYTES;
@@ -72,10 +73,6 @@ impl Part {
             Stored::Spilled(range) => spilled.get(range.clone()).unwrap_or_default(),
         }
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Collector {
@@ -193,18 +190,13 @@ impl Collector {
                 pairs: pairs.buffer,
             });
         }
-        if let Some(error) = self
-            .failure
-            .into_inner()
-            .unwrap_or_else(PoisonError::into_inner)
-        {
+        if let Some(error) = into_inner(self.failure) {
             return Err(Unfinished::Failed(error));
         }
 
-        let spill = self
+        let mapped = self
             .spill
-            .map(|spill| spill.into_inner().unwrap_or_else(PoisonError::into_inner));
-        let mapped = spill
+            .map(into_inner)
             .map(Spill::into_map)
             .transpose()
             .map_err(Unfinished::Failed)?;
@@ -212,11 +204,7 @@ impl Collector {
             .as_ref()
             .and_then(Option::as_deref)
             .unwrap_or_default();
-        let parts = by_part(
-            self.runs
-                .into_inner()
-                .unwrap_or_else(PoisonError::into_inner),
-        );
+        let parts = by_part(into_inner(self.runs));
 
         let parts: Vec<(Sizes, Vec<Part>)> = parts
             .into_par_iter()
