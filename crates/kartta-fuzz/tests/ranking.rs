@@ -6,16 +6,11 @@
 
 use std::num::NonZeroUsize;
 
-use kartta_fuzz::{Matcher, Ranked};
+use kartta_fuzz::{Ranked, Ranking};
 
 /// The ranking of `candidates` for `query`, offered in order, stopping where the ranking turns candidates away.
-fn rank(
-    matcher: &mut Matcher,
-    candidates: &[&str],
-    query: &str,
-    limit: Option<NonZeroUsize>,
-) -> Vec<Ranked> {
-    let mut ranking = matcher.ranking(query, limit);
+fn rank(candidates: &[&str], query: &str, limit: Option<NonZeroUsize>) -> Vec<Ranked> {
+    let mut ranking = Ranking::new(query, limit);
     for (position, candidate) in candidates.iter().enumerate() {
         if !ranking.offer(position, candidate) {
             break;
@@ -26,7 +21,7 @@ fn rank(
 
 /// The ranked candidates for `query`, best first.
 fn ranked(candidates: &[&str], query: &str) -> Vec<String> {
-    rank(&mut Matcher::new(), candidates, query, None)
+    rank(candidates, query, None)
         .iter()
         .map(|found| candidates[found.position].to_owned())
         .collect()
@@ -34,7 +29,7 @@ fn ranked(candidates: &[&str], query: &str) -> Vec<String> {
 
 /// The score of one candidate, or `None` when it does not match.
 fn score(candidate: &str, query: &str) -> Option<i32> {
-    rank(&mut Matcher::new(), &[candidate], query, None)
+    rank(&[candidate], query, None)
         .first()
         .map(|found| found.score)
 }
@@ -141,12 +136,7 @@ fn empty_query_returns_every_candidate_in_input_order() {
 #[test]
 fn limit_truncates_after_ranking() {
     let candidates = ["main/lib.rs", "src/main.rs"];
-    let limited = rank(
-        &mut Matcher::new(),
-        &candidates,
-        "main",
-        NonZeroUsize::new(1),
-    );
+    let limited = rank(&candidates, "main", NonZeroUsize::new(1));
 
     assert_eq!(limited.len(), 1);
     assert_eq!(
@@ -231,12 +221,11 @@ fn a_limit_returns_exactly_the_prefix_of_the_unlimited_ranking() {
         .collect();
     let borrowed: Vec<&str> = candidates.iter().map(String::as_str).collect();
 
-    let mut matcher = Matcher::new();
     for query in ["r", "render", "pkg mod", "pass rs"] {
-        let unlimited = rank(&mut matcher, &borrowed, query, None);
+        let unlimited = rank(&borrowed, query, None);
 
         for limit in [1usize, 2, 7, 50, 499, 500, 501] {
-            let limited = rank(&mut matcher, &borrowed, query, NonZeroUsize::new(limit));
+            let limited = rank(&borrowed, query, NonZeroUsize::new(limit));
             let expected = &unlimited[..limit.min(unlimited.len())];
             assert_eq!(limited, expected, "query {query:?} at limit {limit}");
         }
@@ -252,26 +241,14 @@ fn a_full_match_ranks_first() {
 #[test]
 fn an_over_long_candidate_is_scored_without_being_prepared() {
     // Sizing the per-candidate buffers to a candidate that is never aligned would let one caller-supplied length hold
-    // an allocation for the rest of the query, for work immediately thrown away. Reusing one matcher across a huge
-    // candidate and then a normal one proves the huge one left nothing behind that changes the normal one's answer.
+    // an allocation for the rest of the query, for work immediately thrown away. Offering a huge candidate before
+    // normal ones in one ranking proves the huge one left nothing behind that changes their answer.
     let huge = "z".repeat(4 * 1024 * 1024);
-    let normal = ["src/main.rs", "main/lib.rs"];
 
-    let mut matcher = Matcher::new();
     assert_eq!(
-        rank(&mut matcher, &[huge.as_str()], "z", None).len(),
-        1,
-        "an over-long candidate still matches"
-    );
-
-    let after: Vec<&str> = rank(&mut matcher, &normal, "main", None)
-        .iter()
-        .map(|found| normal[found.position])
-        .collect();
-    assert_eq!(
-        after,
-        ["src/main.rs", "main/lib.rs"],
-        "and leaves no residue"
+        ranked(&[huge.as_str(), "src/z.rs", "z/lib.rs"], "z"),
+        ["src/z.rs", "z/lib.rs", huge.as_str()],
+        "an over-long candidate still matches, ranks last and leaves no residue"
     );
 }
 
@@ -280,12 +257,7 @@ fn a_limit_far_larger_than_the_input_costs_nothing_up_front() {
     // A limit caps the result; it is not a claim that many candidates exist. Reserving against it alone would let
     // `NonZeroUsize::MAX` demand an allocation before a candidate is read.
     let candidates = ["src/main.rs", "main/lib.rs"];
-    let ranked = rank(
-        &mut Matcher::new(),
-        &candidates,
-        "main",
-        NonZeroUsize::new(usize::MAX),
-    );
+    let ranked = rank(&candidates, "main", NonZeroUsize::new(usize::MAX));
 
     assert_eq!(ranked.len(), 2);
     assert_eq!(candidates[ranked[0].position], "src/main.rs");
@@ -411,14 +383,13 @@ fn rankings_merge_in_any_grouping_that_keeps_their_order() {
         .flat_map(|first| (first..=paths.len()).map(move |second| (first, second)))
         .collect();
 
-    let mut matcher = Matcher::new();
     for (query, limit) in queries
         .iter()
         .flat_map(|&query| limits.map(|limit| (query, limit)))
     {
         // The ranking of `paths[range]`, offered one at a time and stopped at the first offer turned away.
-        let mut offered = |range: std::ops::Range<usize>| {
-            let mut ranking = matcher.ranking(query, limit);
+        let offered = |range: std::ops::Range<usize>| {
+            let mut ranking = Ranking::new(query, limit);
             let _ = range
                 .into_iter()
                 .all(|position| ranking.offer(position, paths[position]));
@@ -432,7 +403,7 @@ fn rankings_merge_in_any_grouping_that_keeps_their_order() {
                 offered(first..second),
                 offered(second..paths.len()),
             ];
-            let merge = |left, right| Matcher::merge_ranked([left, right], query, limit);
+            let merge = |left, right| Ranking::merge([left, right], query, limit);
             let context =
                 format!("query {query:?}, limit {limit:?}, slices at {first} and {second}");
 

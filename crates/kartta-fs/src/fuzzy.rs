@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
-use kartta_fuzz::{Matcher, Ranked};
+use kartta_fuzz::{Ranked, Ranking};
 use rayon::prelude::*;
 
 use crate::filter::Filter;
@@ -150,13 +150,12 @@ impl Index {
                 .map(|chunk| {
                     let start = chunk * RANK_CHUNK_LEN;
                     let positions = start..self.len().min(start + RANK_CHUNK_LEN);
-                    let mut matcher = Matcher::new();
-                    let mut ranking = matcher.ranking(query, limit);
+                    let mut ranking = Ranking::new(query, limit);
                     self.candidates(positions, filter, |at, path| ranking.offer(at, path));
                     ranking.finish()
                 })
                 .reduce(Vec::new, |left, right| {
-                    Matcher::merge_ranked([left, right], query, limit)
+                    Ranking::merge([left, right], query, limit)
                 })
         });
 

@@ -89,19 +89,23 @@ impl PartialOrd for Ranked {
     }
 }
 
-/// A ranking fed one candidate at a time, so its candidates need never be alive together — a path rebuilt into one
-/// reused buffer, say. [`Matcher::ranking`] starts one.
+/// A ranking of candidates against one query, fed one candidate at a time, so its candidates need never be alive
+/// together — a path rebuilt into one reused buffer, say.
 ///
-/// Positions must rise in the order candidates are offered, because they break ties the way input order does.
+/// A query splits on whitespace into terms, and a candidate must match **every** term — the rank is the sum of the
+/// per-term scores. An empty or whitespace-only query matches everything, in input order, at score zero.
+///
+/// The ranking owns the scratch buffers the alignment reuses, so ranking a list allocates once rather than once per
+/// candidate. Positions must rise in the order candidates are offered, because they break ties the way input order
+/// does.
 ///
 /// # Examples
 ///
 /// ```
-/// use kartta_fuzz::Matcher;
+/// use kartta_fuzz::Ranking;
 ///
 /// let paths = ["main/lib.rs", "src/main.rs", "src/lib.rs"];
-/// let mut matcher = Matcher::new();
-/// let mut ranking = matcher.ranking("main", None);
+/// let mut ranking = Ranking::new("main", None);
 /// for (position, path) in paths.iter().enumerate() {
 ///     ranking.offer(position, path);
 /// }
@@ -111,21 +115,39 @@ impl PartialOrd for Ranked {
 /// assert_eq!(ranked, ["src/main.rs", "main/lib.rs"]);
 /// ```
 #[derive(Debug)]
-pub struct Ranking<'m> {
-    matcher: &'m mut Matcher,
+pub struct Ranking {
+    scorer: Scorer,
+    terms: Vec<Term>,
     limit: Option<NonZeroUsize>,
     /// The `limit` best entries so far. The worst of them orders greatest, so it is the one a better entry displaces.
     heap: BinaryHeap<Ranked>,
     all: Vec<Ranked>,
 }
 
-impl Ranking<'_> {
+impl Ranking {
+    /// Starts a ranking against `query`. `limit` caps the ranking; `None` keeps every match.
+    #[must_use]
+    pub fn new(query: &str, limit: Option<NonZeroUsize>) -> Self {
+        let terms: Vec<Term> = query.split_whitespace().map(Term::new).collect();
+        let mut scorer = Scorer::default();
+        let longest = terms.iter().map(|term| term.chars.len()).max();
+        scorer.begin(Representation::of(&terms), longest.unwrap_or(0));
+
+        Self {
+            scorer,
+            terms,
+            limit,
+            heap: BinaryHeap::new(),
+            all: Vec::new(),
+        }
+    }
+
     /// Offers one candidate, and answers whether a later candidate can still enter the ranking.
     ///
     /// Only an empty query ever answers `false`: everything matches it in input order, so once the limit is reached
     /// the rest is turned away unscored.
     pub fn offer(&mut self, position: usize, candidate: &str) -> bool {
-        if self.matcher.terms.is_empty() {
+        if self.terms.is_empty() {
             self.all.push(Ranked {
                 position,
                 score: 0,
@@ -134,7 +156,7 @@ impl Ranking<'_> {
             return self.limit.is_none_or(|limit| self.all.len() < limit.get());
         }
 
-        let Some(score) = self.matcher.score_terms(candidate) else {
+        let Some(score) = self.score_terms(candidate) else {
             return true;
         };
         let entry = Ranked {
@@ -160,7 +182,7 @@ impl Ranking<'_> {
     /// The ranking, best first, keeping only the candidates that match every term.
     #[must_use]
     pub fn finish(self) -> Vec<Ranked> {
-        if self.matcher.terms.is_empty() {
+        if self.terms.is_empty() {
             return self.all;
         }
 
@@ -171,41 +193,6 @@ impl Ranking<'_> {
         let mut all = self.all;
         all.sort();
         all
-    }
-}
-
-/// A scorer that ranks candidates against a query.
-///
-/// The matcher owns the scratch buffers the alignment reuses, so ranking a list allocates once rather than once per
-/// candidate. Build one per query and rank a whole list with it; building one per candidate defeats the reuse it
-/// exists for.
-///
-/// A query splits on whitespace into terms, and a candidate must match **every** term — the rank is the sum of the
-/// per-term scores. An empty or whitespace-only query matches everything, in input order, at score zero.
-#[derive(Debug, Default)]
-pub struct Matcher {
-    scorer: Scorer,
-    terms: Vec<Term>,
-}
-
-impl Matcher {
-    /// Builds a matcher.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Starts a ranking against `query` that is fed one candidate at a time through [`Ranking::offer`]. `limit` caps
-    /// the ranking; `None` keeps every match.
-    pub fn ranking(&mut self, query: &str, limit: Option<NonZeroUsize>) -> Ranking<'_> {
-        self.begin(query);
-
-        Ranking {
-            matcher: self,
-            limit,
-            heap: BinaryHeap::new(),
-            all: Vec::new(),
-        }
     }
 
     /// Merges the rankings of consecutive slices of one candidate list into the ranking of the whole list.
@@ -219,7 +206,7 @@ impl Matcher {
     /// rankings can be merged in any grouping that keeps their order — pairwise as parallel tasks finish, say — and
     /// answer as one merge of them all.
     #[must_use]
-    pub fn merge_ranked(
+    pub fn merge(
         rankings: impl IntoIterator<Item = Vec<Ranked>>,
         query: &str,
         limit: Option<NonZeroUsize>,
@@ -236,19 +223,9 @@ impl Matcher {
         merged
     }
 
-    /// Splits `query` into terms, settling the byte form of each once rather than per candidate.
-    fn begin(&mut self, query: &str) {
-        self.terms.clear();
-        self.terms.extend(query.split_whitespace().map(Term::new));
-
-        let longest = self.terms.iter().map(|term| term.chars.len()).max();
-        self.scorer
-            .begin(Representation::of(&self.terms), longest.unwrap_or(0));
-    }
-
     /// The summed score of every term against `candidate`, or `None` as soon as one term does not match.
     ///
-    /// Requires a non-empty term list, which [`Matcher::begin`] has already established.
+    /// Requires a non-empty term list, which [`Ranking::offer`] has already established.
     fn score_terms(&mut self, candidate: &str) -> Option<i32> {
         if self.terms.is_empty() {
             return None;
