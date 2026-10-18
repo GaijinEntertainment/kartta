@@ -28,7 +28,18 @@ The store's directory must allow hard links. Each publish of entries adds a pack
 place, and `Store::merge` keeps their number bounded: past eight it merges every pack but the largest while the largest
 holds more entries than all of them together, every pack otherwise, and removes what it merged; a store that mapped a
 removed pack keeps answering from it, and one that opens during a merge lists the directory again when a listed pack
-has gone. The caller decides when to merge. Nothing removes an entry by age yet.
+has gone. The caller decides when to merge.
+
+## Expiry
+
+Every entry carries the time it was published, and `Store::merge` removes the entries older than the time to live it
+is given — `DEFAULT_TTL`, a week, unless the caller picks another. A lookup does not renew an entry, so one that every
+build finds expires once per time to live and the next build computes it again, and no lookup ever writes. A pack is
+rewritten without its expired entries once they hold half of its payload bytes, or when the merge takes it anyway;
+until then they are still found, which serves nothing wrong. The merge also removes the temporary files of writers that
+never published, an hour after their last write, and the packs of another format version once they are older than both
+the time to live and an hour. `Merged` counts what it removed by age, and what is past its time to live but still in
+place.
 
 `design-docs/adr/2.1-share-per-file-data-through-content-addressed-packs.md` records what was measured and why the
 alternatives were rejected.
