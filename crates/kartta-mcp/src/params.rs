@@ -6,7 +6,7 @@
     reason = "the field docs are JSON schema descriptions an agent reads, not rustdoc"
 )]
 
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroUsize};
 
 use kartta::confidence;
 use serde::Deserialize;
@@ -139,4 +139,81 @@ pub(crate) struct FindCallersParams {
     /// callers beyond it. Omitted or null keeps every caller.
     #[serde(default)]
     pub(crate) role: Option<CallerRole>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GlobFilesParams {
+    /// Glob patterns; a path matching ANY of them is listed, e.g. ["**/*.go", "src/**/*.ts"]. A glob without "/"
+    /// matches across directories ("*.go" matches at any depth). REQUIRED and non-empty - to enumerate the whole tree,
+    /// pass ["**"]. To hunt ONE file by name, use find_files instead.
+    pub(crate) globs: Vec<String>,
+    /// Glob patterns; a path matching ANY of them is dropped, e.g. ["**/vendor/**"]. Omit to exclude nothing.
+    #[serde(default)]
+    pub(crate) excludes: Vec<String>,
+    /// Maximum number of paths to return; 0 or omitted returns every match. Null is rejected; omit the argument for
+    /// every match. A list the cap cut ends with a line saying so.
+    #[serde(default)]
+    pub(crate) max_results: usize,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GrepParams {
+    /// Rust regular expressions, each matched against single lines; a line is returned when ANY pattern matches
+    /// (union) - pass naming variants in one call, e.g. ["FooBar", "foo_bar"]. No lookarounds or backreferences;
+    /// matching never crosses lines. Literal braces need escaping: "interface\\{\\}". At least one non-blank pattern
+    /// is required.
+    pub(crate) patterns: Vec<String>,
+    /// Glob patterns; a path matching ANY of them stays in the candidate set. Scope to a subtree with "dir/**" or to a
+    /// single file with its exact path; "*.go" (no slash) matches at any depth. Omit to search every indexed file.
+    #[serde(default)]
+    pub(crate) includes: Vec<String>,
+    /// Glob patterns; a matching path is dropped, and a matching directory with everything beneath it. OMITTED on an
+    /// UNSCOPED search (no includes) defaults to vendored and generated trees (**/vendor, **/node_modules, **/dist,
+    /// **/__pycache__); when 'includes' is set, omitted means no excludes - the scope is searched exactly as given.
+    /// Pass [] to search everything on a broad sweep, or your own list to replace the default. excluded= on the answer
+    /// counts the files the excludes dropped.
+    #[serde(default)]
+    pub(crate) excludes: Option<Vec<String>>,
+    /// Fold case when true. Omitted = false (exact case).
+    #[serde(default)]
+    pub(crate) case_insensitive: Option<bool>,
+    /// Lines of context around each match, like grep -C. Omitted = 0 (matches only). Context lines do not count
+    /// toward max_results. Null is rejected; omit the argument for matches only.
+    #[serde(default)]
+    pub(crate) context_lines: usize,
+    /// Positive cap on match lines across all files, spent in file-path order. Omitted or null = 100. Zero and
+    /// negatives are rejected. The answer carries truncated="true" when the cap cut it, and unsearched= counts the
+    /// files the search did not reach once the cap filled.
+    #[serde(default)]
+    pub(crate) max_results: Option<NonZeroUsize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ListDirParams {
+    /// Repo-relative directory path with forward slashes, e.g. "src/web" - the directory part of any path returned by
+    /// find_files or glob_files. "" or "." (or omitting it) lists the repository root.
+    #[serde(default)]
+    pub(crate) path: String,
+    /// Positive number of directory levels to list. Omitted or null = 1: immediate children only. 2 adds their
+    /// children. Zero and negatives are rejected. A directory the listing did not enter carries unlisted= with the
+    /// count of entries beneath it.
+    #[serde(default)]
+    pub(crate) max_depth: Option<NonZeroUsize>,
+    /// Positive cap on entries across all levels, spent in listing order. Omitted or null = 1000. Zero and negatives
+    /// are rejected. The answer carries truncated="true" when the cap cut it.
+    #[serde(default)]
+    pub(crate) max_entries: Option<NonZeroUsize>,
+    /// Directory NAMES (bare names like "vendor" - not paths) whose contents are not descended into; the directory
+    /// entry itself still appears, with unlisted= counting what it holds. OMITTED defaults to vendored and generated
+    /// trees (vendor, node_modules, dist, build, __pycache__). Pass [] to descend everywhere, or your own list to
+    /// replace the default. The directory named in 'path' is always listed in full.
+    #[serde(default)]
+    pub(crate) excludes: Option<Vec<String>>,
+    /// When true, entries whose name starts with "." are omitted entirely, and excluded= counts them. Omitted = false
+    /// (dot entries are shown).
+    #[serde(default)]
+    pub(crate) skip_dotfiles: Option<bool>,
 }

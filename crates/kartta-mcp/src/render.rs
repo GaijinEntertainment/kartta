@@ -8,7 +8,7 @@ use std::time::Duration;
 use kartta::{Definition, Hit, SymbolFlags, SymbolKind};
 
 pub(crate) use self::calls::{CallersAsk, callers};
-pub(crate) use self::files::paths;
+pub(crate) use self::files::{Globbed, dir, globbed, grep, paths};
 use crate::llmxml::Element;
 use crate::state::Indexed;
 

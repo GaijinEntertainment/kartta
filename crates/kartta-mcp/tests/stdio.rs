@@ -27,7 +27,195 @@ fn the_server_lists_its_tools() {
 
     assert_eq!(
         names,
-        ["find_callers", "find_files", "index_repo", "index_stats"]
+        [
+            "find_callers",
+            "find_files",
+            "glob_files",
+            "grep",
+            "index_repo",
+            "index_stats",
+            "list_dir"
+        ]
+    );
+}
+
+#[test]
+fn glob_files_lists_in_path_order_and_says_when_the_cap_cut_it() {
+    let tree = go_module();
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": ["*.go"]})),
+        "cmd/app/main.go\npkg/service.go"
+    );
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": ["**"], "max_results": 2})),
+        "README.md\ncmd/app/main.go\n(truncated: the first 2 matching paths in path order; more match)"
+    );
+    assert_eq!(
+        client.answer(
+            "glob_files",
+            &json!({"globs": ["**"], "excludes": ["*.md"], "max_results": 1})
+        ),
+        "cmd/app/main.go\n(truncated: 1 of 3 matching paths, in path order)\n(excludes removed: 1)"
+    );
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": ["*.rs"]})),
+        "no files match *.rs"
+    );
+    assert_eq!(
+        client.answer(
+            "glob_files",
+            &json!({"globs": ["*.md"], "excludes": ["README.md"]})
+        ),
+        "no files match *.md outside the excludes (excludes removed: 1)"
+    );
+    assert!(client.call("glob_files", &json!({"globs": []})).is_error);
+}
+
+#[test]
+fn grep_answers_lines_with_context_and_counts_what_it_did_not_cover() {
+    let tree = go_module();
+    std::fs::create_dir_all(tree.path().join("vendor/lib")).expect("the directory is created");
+    std::fs::write(
+        tree.path().join("vendor/lib/lib.go"),
+        "package lib // Greet\n",
+    )
+    .expect("the file is written");
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("grep", &json!({"patterns": ["Greet"]})),
+        "<grep patterns=\"Greet\" candidates=\"4\" files=\"2\" matches=\"3\" excluded=\"1\">\n\
+         <file path=\"cmd/app/main.go\" matches=\"1\">\n\
+         11:\ts.Greet(\"x\")\n\
+         </file>\n\
+         <file path=\"pkg/service.go\" matches=\"2\">\n\
+         11:// Greet greets name.\n\
+         12:func (s *Service) Greet(name string) string {\n\
+         </file>\n\
+         </grep>"
+    );
+    assert_eq!(
+        client.answer(
+            "grep",
+            &json!({
+                "patterns": ["greet"],
+                "case_insensitive": true,
+                "includes": ["pkg/**"],
+                "context_lines": 1,
+                "max_results": 1
+            })
+        ),
+        "<grep patterns=\"greet\" candidates=\"1\" files=\"1\" matches=\"1\" truncated=\"true\">\n\
+         <file path=\"pkg/service.go\" matches=\"1\">\n\
+         2-\n\
+         3:// Service greets.\n\
+         4-type Service struct{}\n\
+         </file>\n\
+         </grep>"
+    );
+    assert_eq!(
+        client.answer(
+            "grep",
+            &json!({"patterns": ["Greet.*World"], "excludes": []})
+        ),
+        "<grep patterns=\"Greet.*World\" candidates=\"5\" files=\"0\" matches=\"0\">no line matches - matching is \
+         per-line: \".*\"/\".+\" cannot cross line breaks; search the most distinctive part alone</grep>"
+    );
+    assert_eq!(
+        client.answer("grep", &json!({"patterns": ["x"], "includes": ["*.rs"]})),
+        "<grep patterns=\"x\" candidates=\"0\" files=\"0\" matches=\"0\">the include/exclude globs selected no files \
+         - glob_files shows what they match</grep>"
+    );
+    assert!(client.call("grep", &json!({"patterns": ["("]})).is_error);
+    assert!(client.call("grep", &json!({"patterns": [" "]})).is_error);
+}
+
+#[test]
+fn list_dir_counts_what_it_did_not_enter() {
+    let tree = go_module();
+    std::fs::create_dir_all(tree.path().join("vendor/lib")).expect("the directory is created");
+    std::fs::write(tree.path().join("vendor/lib/lib.go"), "package lib\n")
+        .expect("the file is written");
+    std::fs::write(tree.path().join(".env"), "A=1\n").expect("the file is written");
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("list_dir", &json!({})),
+        "<dir path=\".\" entries=\"6\" total=\"11\">\n\
+         <entry path=\".env\" kind=\"file\" size=\"4\"/>\n\
+         <entry path=\"README.md\" kind=\"file\" size=\"6\"/>\n\
+         <entry path=\"cmd\" kind=\"dir\" unlisted=\"2\"/>\n\
+         <entry path=\"go.mod\" kind=\"file\" size=\"32\"/>\n\
+         <entry path=\"pkg\" kind=\"dir\" unlisted=\"1\"/>\n\
+         <entry path=\"vendor\" kind=\"dir\" unlisted=\"2\"/>\n\
+         </dir>"
+    );
+    assert_eq!(
+        client.answer(
+            "list_dir",
+            &json!({"path": ".", "max_depth": 3, "max_entries": 4, "skip_dotfiles": true})
+        ),
+        "<dir path=\".\" entries=\"4\" total=\"11\" excluded=\"1\" truncated=\"true\">\n\
+         <entry path=\"README.md\" kind=\"file\" size=\"6\"/>\n\
+         <entry path=\"cmd\" kind=\"dir\"/>\n\
+         <entry path=\"cmd/app\" kind=\"dir\"/>\n\
+         <entry path=\"cmd/app/main.go\" kind=\"file\" size=\"128\"/>\n\
+         </dir>"
+    );
+    assert_eq!(
+        client.answer("list_dir", &json!({"path": "vendor", "excludes": []})),
+        "<dir path=\"vendor\" entries=\"1\" total=\"2\">\n\
+         <entry path=\"vendor/lib\" kind=\"dir\" unlisted=\"1\"/>\n\
+         </dir>"
+    );
+    assert!(
+        client
+            .call("list_dir", &json!({"path": "nowhere"}))
+            .is_error
+    );
+    assert!(client.call("list_dir", &json!({"path": "go.mod"})).is_error);
+    assert!(client.call("list_dir", &json!({"path": "/"})).is_error);
+}
+
+#[test]
+fn grep_and_list_dir_say_why_they_show_nothing() {
+    let tree = common::tree(&[("blob.bin", "Greet\0\0"), ("conf/.env", "A=1\n")]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer(
+            "grep",
+            &json!({"patterns": ["Greet"], "includes": ["*.bin"]})
+        ),
+        "<grep patterns=\"Greet\" candidates=\"1\" files=\"0\" matches=\"0\" binary=\"1\">no line matches in the files \
+         read - binary and oversized files are skipped unread</grep>"
+    );
+    assert_eq!(
+        client.answer("list_dir", &json!({"path": "conf", "skip_dotfiles": true})),
+        "<dir path=\"conf\" entries=\"0\" total=\"1\" excluded=\"1\">no entry shown - skip_dotfiles excluded every \
+         entry</dir>"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn grep_says_when_its_globs_selected_symlinks_alone() {
+    let tree = go_module();
+    std::os::unix::fs::symlink("pkg/service.go", tree.path().join("link.go"))
+        .expect("the symlink is created");
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("grep", &json!({"patterns": ["x"], "includes": ["link.go"]})),
+        "<grep patterns=\"x\" candidates=\"0\" files=\"0\" matches=\"0\" symlinks=\"1\">the include/exclude globs \
+         selected symlinks alone, which are never read through - include their targets</grep>"
     );
 }
 
