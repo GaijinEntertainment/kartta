@@ -58,9 +58,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         true
     });
 
-    let mut raw = emitter.raw;
-    raw.package = emitter.module;
-    raw
+    emitter.raw
 }
 
 // constraint: the grammar reads only the second-generation syntax, which a file opts into with a top-level
@@ -119,11 +117,9 @@ struct TypeScope {
 
 struct Emitter<'a> {
     source: &'a [u8],
-    module: Option<String>,
     scopes: Vec<Scope>,
     types: Vec<TypeScope>,
     flags: SymbolFlags,
-    symbol_count: u32,
     raw: RawExtraction,
 }
 
@@ -131,11 +127,9 @@ impl<'a> Emitter<'a> {
     fn new(source: &'a [u8]) -> Self {
         Self {
             source,
-            module: None,
             scopes: Vec::new(),
             types: Vec::new(),
             flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
-            symbol_count: 0,
             raw: RawExtraction::default(),
         }
     }
@@ -198,7 +192,7 @@ impl<'a> Emitter<'a> {
         );
         symbol.exported = true;
         symbol.flags = self.flags;
-        self.module = Some(name);
+        self.raw.package = Some(name);
         self.push_symbol(symbol);
     }
 
@@ -465,14 +459,13 @@ impl<'a> Emitter<'a> {
     }
 
     fn push_symbol(&mut self, symbol: Symbol) -> SymbolId {
-        let id = SymbolId(self.symbol_count);
-        self.symbol_count += 1;
+        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
         self.raw.symbols.push(symbol);
         id
     }
 
     fn push_call(&mut self, callee: String, receiver: Option<String>, node: Node<'_>) {
-        if callee.is_empty() || self.symbol_count == 0 {
+        if callee.is_empty() || self.raw.symbols.is_empty() {
             return;
         }
 
@@ -486,7 +479,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn qualify(&self, owner: Option<&str>, name: &str) -> String {
-        match (&self.module, owner) {
+        match (&self.raw.package, owner) {
             (Some(module), Some(owner)) => format!("{module}.{owner}.{name}"),
             (Some(module), None) => format!("{module}.{name}"),
             (None, Some(owner)) => format!("{owner}.{name}"),
