@@ -502,6 +502,122 @@ fn find_callees_counts_the_calls_that_bound_nothing_and_the_callees_below_the_fl
     );
 }
 
+const GREET_SEED: [&str; 5] = [
+    concat!(
+        r#"<seed name="Greet" qn="pkg.Service.Greet" kind="method" loc="pkg/service.go:12-14" callers="1" "#,
+        r#"reach="2" reach_band="low">"#,
+    ),
+    r#"<callers shown="1" of="1">"#,
+    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" at="cmd/app/main.go:11"/>"#,
+    "</callers>",
+    "</seed>",
+];
+
+const MAIN_HOTSPOT: [&str; 3] = [
+    r#"<hotspots shown="1" of="1">"#,
+    concat!(
+        r#"<hotspot name="main" qn="main.main" kind="function" loc="cmd/app/main.go:5" role="entry" "#,
+        r#"reached_by="2" hops="1"/>"#,
+    ),
+    "</hotspots>",
+];
+
+#[test]
+fn impact_of_change_lists_the_changed_symbols_and_where_their_reaches_meet() {
+    let answers = answers(&[(
+        "impact_of_change",
+        json!({"regions": [{"file": "pkg/service.go", "start_line": 7, "end_line": 14}]}),
+    )]);
+
+    let new_seed = [
+        concat!(
+            r#"<seed name="New" qn="pkg.New" kind="function" loc="pkg/service.go:7-9" callers="1" "#,
+            r#"reach="1" reach_band="low">"#,
+        ),
+        r#"<callers shown="1" of="1">"#,
+        r#"<ref name="main" qn="main.main" loc="cmd/app/main.go:5" role="entry" at="cmd/app/main.go:6"/>"#,
+        "</callers>",
+        "</seed>",
+    ];
+    assert_eq!(
+        answers,
+        [lines(
+            &[
+                &[
+                    concat!(
+                        r#"<change regions="1" changed_symbols="2" changed_files="1" footprint="2" "#,
+                        r#"footprint_files="1">"#,
+                    ),
+                    r#"<seeds shown="2" of="2">"#,
+                ][..],
+                &GREET_SEED,
+                &new_seed,
+                &["</seeds>"],
+                &MAIN_HOTSPOT,
+                &["</change>"],
+            ]
+            .concat()
+        )]
+    );
+}
+
+#[test]
+fn impact_of_change_reads_a_diff_and_counts_the_regions_no_symbol_holds() {
+    let diff = "\
+diff --git a/pkg/service.go b/pkg/service.go
+--- a/pkg/service.go
++++ b/pkg/service.go
+@@ -8 +8 @@ func New() *Service {
+-\treturn nil
++\treturn &Service{}
+@@ -13 +13 @@ func (s *Service) Greet(name string) string {
+-\treturn name
++\treturn \"hi \" + name
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1 +1 @@
+-# old
++# app
+";
+    let answers = answers(&[
+        ("impact_of_change", json!({"diff": diff, "limit": 1})),
+        (
+            "impact_of_change",
+            json!({"regions": [{"file": "README.md"}]}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(
+                &[
+                    &[
+                        concat!(
+                            r#"<change regions="3" changed_symbols="2" changed_files="1" footprint="2" "#,
+                            r#"footprint_files="1" unheld_regions="1">"#,
+                        ),
+                        r#"<seeds shown="1" of="2">"#,
+                    ][..],
+                    &GREET_SEED,
+                    &["</seeds>"],
+                    &MAIN_HOTSPOT,
+                    &["</change>"],
+                ]
+                .concat()
+            ),
+            concat!(
+                r#"<change regions="1" changed_symbols="0" changed_files="0" footprint="0" footprint_files="0" "#,
+                r#"unheld_regions="1">no symbols in these regions - they cover only file-scope code (imports, "#,
+                "comments) or files no code graph holds (counted in unheld_regions); zero symbols is not proof the ",
+                "change is safe, and find_importers lists the files that include a changed file</change>",
+            )
+            .to_owned(),
+        ]
+    );
+}
+
 #[test]
 fn a_wrong_call_answers_a_tool_error() {
     let tree = go_module();
@@ -521,6 +637,16 @@ fn a_wrong_call_answers_a_tool_error() {
             json!({"file": "pkg/service.go", "start_line": 5, "end_line": 2}),
         ),
         ("find_symbols", json!({"query": "x", "languages": ["nut"]})),
+        ("impact_of_change", json!({})),
+        (
+            "impact_of_change",
+            json!({"regions": [{"file": "pkg/service.go", "start_line": 5, "end_line": 2}]}),
+        ),
+        ("impact_of_change", json!({"diff": "not a diff"})),
+        (
+            "impact_of_change",
+            json!({"diff": "+++ b/x\n@@ -1 +x @@\n"}),
+        ),
     ] {
         assert!(client.call(tool, &arguments).is_error, "{tool} {arguments}");
     }

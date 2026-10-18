@@ -39,6 +39,7 @@ fn the_server_lists_its_tools() {
             "find_symbols",
             "glob_files",
             "grep",
+            "impact_of_change",
             "impact_of_edit",
             "index_repo",
             "index_stats",
