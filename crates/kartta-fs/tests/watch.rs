@@ -140,6 +140,46 @@ fn what_the_watcher_hands_over_from_a_pruned_directory_stays_out_of_the_index() 
     assert_eq!(shown(&index), shown(&build(dir.path())));
 }
 
+#[test]
+fn a_watcher_covers_every_directory_the_index_held_at_its_start() {
+    let dir = tree(&[("a.rs", "a"), ("src/deep/b.rs", "b")]);
+    let index = build(dir.path());
+    let mut watcher = Watcher::new(&index).expect("start watching");
+
+    let covered = watcher.cover(&index).expect("cover the index");
+
+    assert!(
+        covered.is_empty(),
+        "{:?}",
+        covered.paths().collect::<Vec<_>>()
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_directory_a_refresh_took_in_after_the_start_is_watched_once_covered() {
+    let dir = tree(&[("a.rs", "a")]);
+    let mut index = build(dir.path());
+    write(dir.path(), "early/deep/b.rs", "b");
+    let mut watcher = Watcher::new(&index).expect("start watching");
+    index.refresh(None, None).expect("refresh the tree");
+    write(dir.path(), "early/c.rs", "c");
+
+    let covered = watcher.cover(&index).expect("cover the index");
+    index
+        .refresh_paths(covered.paths(), None, None)
+        .expect("refresh what was covered");
+    write(dir.path(), "early/deep/b.rs", "changed");
+
+    assert_eq!(covered.paths().collect::<Vec<_>>(), ["early"]);
+    assert!(index.entry("early/c.rs").is_some());
+    let seen = wait_for(&mut watcher, "early/deep/b.rs");
+    assert!(
+        seen.iter().any(|path| path == "early/deep/b.rs"),
+        "{seen:?}"
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn a_directory_made_after_the_start_under_a_pruned_name_is_not_watched() {

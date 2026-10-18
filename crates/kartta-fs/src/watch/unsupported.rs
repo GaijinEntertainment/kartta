@@ -17,4 +17,8 @@ impl Backend {
     pub(super) fn poll(&self, _timeout: Duration, _found: &mut Found) -> Result<bool, WatchError> {
         match *self {}
     }
+
+    pub(super) fn cover(&self, _index: &Index, _found: &mut Found) -> Result<(), WatchError> {
+        match *self {}
+    }
 }
