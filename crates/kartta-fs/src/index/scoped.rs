@@ -226,7 +226,7 @@ impl Index {
             .iter()
             .zip(&found)
             .all(|(range, found)| range.is_empty() && found.scope.is_none());
-        if changes_nothing && !self.holds_unreported_ids() {
+        if changes_nothing && self.stopped_refresh_ids().is_empty() {
             return Ok(Planned {
                 pending: None,
                 errors,
@@ -268,10 +268,6 @@ impl Index {
             errors,
             changed,
         })
-    }
-
-    fn holds_unreported_ids(&self) -> bool {
-        self.first_content_id + node_sized(self.content_positions.len()) < self.next_content_id
     }
 
     fn finished(

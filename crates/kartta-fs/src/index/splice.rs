@@ -231,24 +231,17 @@ impl Index {
             }
         }
 
-        let mut retired: Vec<Range<u32>> = Vec::new();
         let mut retired_text = 0;
-        for (local, old) in removed {
-            if placement.positions[local] != NO_POSITION {
-                continue;
-            }
-            retired_text += usize::from(self.content.holds_list(&self.inspection, node_sized(old)));
-            let slot = self.first_content_id + node_sized(local);
-            match retired.last_mut() {
-                Some(run) if run.end == slot => run.end += 1,
-                _ => retired.push(slot..slot + 1),
-            }
-        }
-        let held = self.first_content_id + node_sized(self.content_positions.len());
-        let handed_by_stopped_refreshes = held..self.next_content_id;
-        if !handed_by_stopped_refreshes.is_empty() {
-            retired.push(handed_by_stopped_refreshes);
-        }
+        let retired = self.retiring(
+            removed
+                .into_iter()
+                .filter(|&(local, _)| placement.positions[local] == NO_POSITION)
+                .map(|(local, old)| {
+                    retired_text +=
+                        usize::from(self.content.holds_list(&self.inspection, node_sized(old)));
+                    self.first_content_id + node_sized(local)
+                }),
+        );
 
         (
             placement,
