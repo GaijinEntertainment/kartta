@@ -50,9 +50,9 @@ entries survive depends on scheduling — and a consumer cannot tell that from a
 resource guard becomes a source of quietly wrong answers. A bound worth having would fail the walk instead. Cancellation
 escapes the objection only because the caller who cancelled is the one discarding the result.
 
-`threads` bounds the parallelism itself, for a caller that does not own the machine — a container with a CPU quota, a
-process under a thread limit. The count is exact, so `Some(1)` walks sequentially, and a pool that cannot be started is
-a returned error rather than a silent fall back to some other parallelism. Only that and an unreadable root are fatal.
+The walk runs on the rayon pool it is called from, so a caller that does not own the machine — a container with a CPU
+quota, a process under a thread limit — bounds its parallelism by installing a pool of the size it may use around the
+call. Only an unreadable root and a subtree that may lead outside it are fatal.
 
 `listed_stats` lists each directory with its regular files' lengths and inode change times where the platform's listing
 carries them — macOS, through `getattrlistbulk` — so a policy that compares files with what it saw before pays no stat

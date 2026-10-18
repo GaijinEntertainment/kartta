@@ -29,7 +29,7 @@
 - [1.12 Read each wanted file once, during the walk](./adr/1.12-read-each-wanted-file-once-during-the-walk.md) —
   initiative `01-kartta-fs-port`, 2026-10-14, revised 2026-10-14
 - [1.13 Let the caller bound the index's threads](./adr/1.13-let-the-caller-bound-the-index-s-threads.md) — initiative
-  `01-kartta-fs-port`, 2026-10-14
+  `01-kartta-fs-port`, 2026-10-14, revised 2026-10-18
 - [1.14 Narrow content search with a trigram index built from the walk's
   reads](./adr/1.14-narrow-content-search-with-a-trigram-index.md) — initiative `01-kartta-fs-port`, 2026-10-14,
   revised 2026-10-15

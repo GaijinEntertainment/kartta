@@ -8,7 +8,6 @@
 )]
 
 use std::fs;
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
@@ -750,23 +749,6 @@ fn a_token_cancelled_up_front_records_nothing() {
 }
 
 #[test]
-fn cancellation_composes_with_a_thread_limit() {
-    let dir = fixture();
-    let token = CancelToken::new();
-    token.cancel();
-    let options = WalkOptions {
-        cancel_token: Some(token),
-        threads: NonZeroUsize::new(2),
-        ..WalkOptions::default()
-    };
-
-    let outcome = walk(dir.path(), &Everything, &(), &options).expect("walk");
-
-    assert!(outcome.tree().is_empty());
-    assert!(outcome.is_cancelled());
-}
-
-#[test]
 fn an_unreadable_root_fails_the_whole_walk() {
     let missing = Path::new("./no-such-directory-b7f3a1");
 
@@ -806,45 +788,23 @@ impl Policy for Threads {
 }
 
 #[test]
-fn threads_bounds_how_many_workers_traverse() {
+fn the_pool_a_walk_is_called_from_bounds_how_many_workers_traverse() {
     let dir = wide_fixture(16);
 
     for limit in [1_usize, 2, 3] {
-        let options = WalkOptions {
-            threads: NonZeroUsize::new(limit),
-            ..Default::default()
-        };
-
-        let outcome = walk(dir.path(), &Threads, &(), &options).expect("walk");
+        let outcome = on_threads(limit, || {
+            walk(dir.path(), &Threads, &(), &WalkOptions::default()).expect("walk")
+        });
 
         let distinct: std::collections::HashSet<_> =
             outcome.tree().nodes().map(Node::value).collect();
         assert!(
             distinct.len() <= limit,
-            "threads = {limit} admitted {} workers",
+            "a pool of {limit} admitted {} workers",
             distinct.len()
         );
         assert_eq!(outcome.tree().len(), 32, "every entry is still recorded");
     }
-}
-
-#[test]
-fn one_thread_walks_the_same_tree_as_many() {
-    let dir = fixture();
-
-    let single = walk(
-        dir.path(),
-        &Everything,
-        &(),
-        &WalkOptions {
-            threads: NonZeroUsize::new(1),
-            ..Default::default()
-        },
-    )
-    .expect("walk");
-    let ambient = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
-
-    assert_eq!(render(single.tree()), render(ambient.tree()));
 }
 
 // constraint: a pool gives no thread a reason to steal from a classifier that finishes trivial entries before the
@@ -919,25 +879,6 @@ fn a_directory_large_enough_to_classify_in_parallel_walks_to_the_same_tree_and_s
         classifiers.len() > 1,
         "one flat directory's entries were classified on more than one thread"
     );
-}
-
-#[test]
-fn a_thread_limit_records_the_whole_tree() {
-    let dir = wide_fixture(8);
-    let options = WalkOptions {
-        threads: NonZeroUsize::new(2),
-        ..WalkOptions::default()
-    };
-
-    let outcome = walk(dir.path(), &Everything, &(), &options).expect("walk");
-
-    assert_eq!(
-        outcome.tree().len(),
-        16,
-        "bounding the threads bounds the workers, never the answer"
-    );
-    assert!(!outcome.is_cancelled());
-    assert!(outcome.errors().is_empty());
 }
 
 #[cfg(unix)]

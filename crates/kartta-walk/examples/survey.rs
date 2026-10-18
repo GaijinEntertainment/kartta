@@ -16,7 +16,6 @@
               to report"
 )]
 
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -61,13 +60,16 @@ fn main() {
     println!("  --- time to a name-sorted arena tree, best of 3 ---");
 
     for threads in [None, Some(1), Some(2), Some(4), Some(8), Some(16)] {
-        let options = WalkOptions {
-            threads: threads.and_then(NonZeroUsize::new),
-            ..Default::default()
-        };
         let label = threads.map_or_else(|| "ambient".to_owned(), |n| format!("{n:>2}"));
+        let timed = || best_of(3, || walk_once(&root));
 
-        let elapsed = best_of(3, || walk_once(&root, &options));
+        let elapsed = threads.map_or_else(timed, |threads| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .expect("start the thread pool")
+                .install(timed)
+        });
         println!("  {label} threads: {elapsed:.2?}");
     }
 }
@@ -115,8 +117,9 @@ fn report_shape(root: &Path) {
 }
 
 /// One walk, reduced to the entry count so the tree is built and then observed.
-fn walk_once(root: &Path, options: &WalkOptions) -> usize {
-    let outcome: WalkOutcome<Record> = walk(root, &Sizes, &(), options).expect("walk the tree");
+fn walk_once(root: &Path) -> usize {
+    let outcome: WalkOutcome<Record> =
+        walk(root, &Sizes, &(), &WalkOptions::default()).expect("walk the tree");
 
     outcome.tree().len()
 }

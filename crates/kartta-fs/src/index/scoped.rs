@@ -443,7 +443,6 @@ impl Rewalk<'_, '_> {
             cancel_token: self.cancel.cloned(),
             subtree: Some(dir.to_owned()),
             listed_stats: self.policy.may_carry(),
-            ..WalkOptions::default()
         };
         let walked = self
             .index
