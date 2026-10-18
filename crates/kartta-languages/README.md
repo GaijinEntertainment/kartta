@@ -37,8 +37,8 @@ languages in, and that a consumer's own language put after them gets only the fi
 ## Selection
 
 `select` takes the names as `NAMES` spells them, exactly, and gives their languages in the order of `NAMES`, each once
-however often it is named. A name that is not one of `NAMES` fails the whole selection with `UnknownLanguages`, which
-lists every such name and whose message lists `NAMES`. No name selects no language, which builds an engine that indexes
+however often it is named. A name that is not one of `NAMES` fails the whole selection with `UnknownLanguages`, whose
+message names every such name and lists `NAMES`. No name selects no language, which builds an engine that indexes
 the tree and holds no graph.
 
 TypeScript, TSX and JavaScript are three languages of one family, `jsts`, and each is selected by its own name. Naming
