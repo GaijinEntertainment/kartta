@@ -150,7 +150,6 @@ pub enum Visit<V> {
 pub struct Dir<'a> {
     native_path: &'a Path,
     path: &'a str,
-    depth: usize,
     listing: &'a [ListedEntry],
 }
 
@@ -158,13 +157,11 @@ impl<'a> Dir<'a> {
     pub(crate) const fn new(
         native_path: &'a Path,
         path: &'a str,
-        depth: usize,
         listing: &'a [ListedEntry],
     ) -> Self {
         Dir {
             native_path,
             path,
-            depth,
             listing,
         }
     }
@@ -185,12 +182,6 @@ impl<'a> Dir<'a> {
         self.path
     }
 
-    /// How far below the walk root this directory sits. `0` for the root itself.
-    #[must_use]
-    pub const fn depth(&self) -> usize {
-        self.depth
-    }
-
     /// The directory's entry names, sorted. Free to read: the walk has already listed the directory.
     pub fn names(&self) -> impl Iterator<Item = &'a str> {
         self.listing.iter().map(|item| item.name.as_ref())
@@ -209,6 +200,13 @@ impl<'a> Dir<'a> {
 #[derive(Debug)]
 pub struct Entry<'a> {
     listed: &'a ListedEntry,
+    #[cfg_attr(
+        not(target_os = "macos"),
+        expect(
+            dead_code,
+            reason = "only an entry macOS listed with its stats has no `DirEntry` that knows its own path"
+        )
+    )]
     dir: &'a Dir<'a>,
     path: &'a str,
     kind: EntryKind,
@@ -260,12 +258,6 @@ impl<'a> Entry<'a> {
                     .unwrap_or_else(|| OsStr::new(self.name())),
             ),
         }
-    }
-
-    /// How far below the walk root this entry sits. `1` for an entry of the root directory.
-    #[must_use]
-    pub const fn depth(&self) -> usize {
-        self.dir.depth() + 1
     }
 
     /// What the entry is, read without following symlinks.
