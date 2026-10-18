@@ -117,6 +117,8 @@
   `03-code-graph`, 2026-10-17
 - [3.31 Parse a C or C++ table without its numbers, and hold one tree at a
   time](./adr/3.31-parse-a-c-or-c-plus-plus-table-without-its-numbers.md) — initiative `03-code-graph`, 2026-10-18
+- [3.32 Hand an engine every shipped language from one crate, and select them by
+  name](./adr/3.32-hand-an-engine-every-shipped-language-from-one-crate.md) — initiative `03-code-graph`, 2026-10-18
 
 ## Deprecated
 
