@@ -1,6 +1,7 @@
 mod uses;
 
 use std::collections::{HashMap, HashSet};
+use std::iter;
 use std::ops::Range;
 
 use self::uses::NameUse;
@@ -423,7 +424,7 @@ impl<'a> Emitter<'a> {
             SymbolKind::Function
         };
         let qualified_name = owner.as_ref().map(|owner| format!("{owner}.{name}"));
-        if let Some(class) = class_around(node) {
+        if let Some(class) = classes_around(node).next() {
             self.members.insert((class.start_byte(), name.clone()));
         }
         let mut symbol = symbol(name, qualified_name, kind, decorated_lines(node));
@@ -437,7 +438,7 @@ impl<'a> Emitter<'a> {
         let name = text(node.child_by_field_name("name")?, self.source);
         let qualified_name =
             enclosing_classes(node, self.source).map(|chain| format!("{chain}.{name}"));
-        if let Some(class) = class_around(node) {
+        if let Some(class) = classes_around(node).next() {
             self.members.insert((class.start_byte(), name.clone()));
         }
 
@@ -768,29 +769,25 @@ fn is_special(name: &str) -> bool {
 
 // constraint: an accessor is written `@size.setter` over a `def size`, naming the property it extends
 fn is_property(function: Node<'_>, name: &str, source: &[u8]) -> bool {
-    let holder = decorated(function);
-    named_children(holder)
-        .filter_map(|i| holder.named_child(i))
-        .filter(|decorator| decorator.kind() == "decorator")
-        .filter_map(|decorator| decorator.named_child(0))
-        .any(|written| {
-            let written = text(written, source);
-            let (object, last) = written.rsplit_once('.').unwrap_or(("", &written));
-            matches!(last, "property" | "cached_property")
-                || (matches!(last, "getter" | "setter" | "deleter") && object == name)
-        })
+    decorators(function).any(|written| {
+        let written = text(written, source);
+        let (object, last) = written.rsplit_once('.').unwrap_or(("", &written));
+        matches!(last, "property" | "cached_property")
+            || (matches!(last, "getter" | "setter" | "deleter") && object == name)
+    })
 }
 
 fn is_static(function: Node<'_>, source: &[u8]) -> bool {
+    decorators(function)
+        .any(|written| text(written, source).rsplit('.').next() == Some("staticmethod"))
+}
+
+fn decorators(function: Node<'_>) -> impl Iterator<Item = Node<'_>> {
     let holder = decorated(function);
     named_children(holder)
-        .filter_map(|i| holder.named_child(i))
+        .filter_map(move |i| holder.named_child(i))
         .filter(|decorator| decorator.kind() == "decorator")
         .filter_map(|decorator| decorator.named_child(0))
-        .any(|written| {
-            let written = text(written, source);
-            written.rsplit('.').next() == Some("staticmethod")
-        })
 }
 
 fn parameter_name(parameter: Node<'_>) -> Option<Node<'_>> {
@@ -815,31 +812,18 @@ fn is_module_level(node: Node<'_>) -> bool {
         .is_some_and(|parent| parent.kind() == MODULE)
 }
 
-fn class_around(node: Node<'_>) -> Option<Node<'_>> {
-    let mut ancestor = node.parent();
-    while let Some(parent) = ancestor {
-        match parent.kind() {
-            CLASS_DEFINITION => return Some(parent),
-            FUNCTION_DEFINITION => return None,
-            _ => ancestor = parent.parent(),
-        }
-    }
-    None
-}
-
 // constraint: the chain stops at the nearest function, so a definition nested in a function is never a member of a
 // class around that function
+fn classes_around(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
+    iter::successors(node.parent(), Node::parent)
+        .take_while(|ancestor| ancestor.kind() != FUNCTION_DEFINITION)
+        .filter(|ancestor| ancestor.kind() == CLASS_DEFINITION)
+}
+
 fn enclosing_classes(node: Node<'_>, source: &[u8]) -> Option<String> {
-    let mut names = Vec::new();
-    let mut ancestor = node.parent();
-    while let Some(parent) = ancestor {
-        match parent.kind() {
-            CLASS_DEFINITION => names.push(text(parent.child_by_field_name("name")?, source)),
-            FUNCTION_DEFINITION => break,
-            _ => {}
-        }
-        ancestor = parent.parent();
-    }
+    let mut names = classes_around(node)
+        .map(|class| Some(text(class.child_by_field_name("name")?, source)))
+        .collect::<Option<Vec<_>>>()?;
     if names.is_empty() {
         return None;
     }
