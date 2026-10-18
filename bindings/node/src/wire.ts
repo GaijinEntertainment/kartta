@@ -75,6 +75,8 @@ export interface BuildParams {
   content_index?: ContentIndex;
   /** A directory per-file data is shared through across builds. */
   content_cache?: string;
+  /** Seconds after the build that computed it began that a cache entry expires; absent or 0 is a week. */
+  content_cache_ttl_secs?: number;
 }
 
 /** The options of {@link Kartta.build}: the params of `build` but the id the binding gives each build. */
