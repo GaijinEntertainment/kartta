@@ -751,6 +751,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kartta-ffi"
+version = "0.0.0"
+dependencies = [
+ "kartta",
+ "kartta-languages",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "kartta-fs"
 version = "0.0.0"
 dependencies = [

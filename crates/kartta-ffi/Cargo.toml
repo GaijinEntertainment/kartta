@@ -1,0 +1,28 @@
+[package]
+name = "kartta-ffi"
+description = "C ABI of the kartta code graph engine: one JSON call per query, for the Go and Node bindings"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["code-graph", "ffi", "c-abi", "json", "bindings"]
+categories = ["development-tools", "external-ffi-bindings"]
+
+[lib]
+# The static archive is what cgo links; the rlib is what a Rust shell, such as a Node addon, builds on.
+crate-type = ["staticlib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+kartta = { version = "0.0.0", path = "../kartta" }
+kartta-languages = { version = "0.0.0", path = "../kartta-languages" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[dev-dependencies]
+tempfile = "3.27.0"
