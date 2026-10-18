@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use std::{fs, io, iter};
 
 use foldhash::fast::{FixedState, FoldHasher};
-use kartta_fs::{EntryKind, Index, ListOptions};
+use kartta_fs::{Entry, EntryKind, Index, ListOptions};
 use kartta_lang::{Repository, path};
 
 pub(crate) struct IndexRepository<'i> {
@@ -158,19 +158,7 @@ const MAX_BUCKET_BITS: u32 = 16;
 
 impl FoldedPaths {
     fn new(index: &Index) -> Self {
-        let mut by_hash: Vec<HashedAt> = index
-            .entries()
-            .enumerate()
-            .filter(|(_, entry)| entry.kind() == EntryKind::File)
-            .filter_map(|(position, entry)| {
-                Some(HashedAt {
-                    hash: folded_hash(entry.path()),
-                    position: u32::try_from(position).ok()?,
-                })
-            })
-            .collect();
-        by_hash.sort_unstable();
-
+        let by_hash = hashed_files(index, |entry| folded_hash(entry.path()));
         let bits = by_hash
             .len()
             .bit_width()
@@ -238,22 +226,8 @@ impl<'i> IndexRepository<'i> {
     }
 
     fn by_name(&self) -> &[HashedAt] {
-        self.by_name.get_or_init(|| {
-            let mut by_name: Vec<HashedAt> = self
-                .index
-                .entries()
-                .enumerate()
-                .filter(|(_, entry)| entry.kind() == EntryKind::File)
-                .filter_map(|(position, entry)| {
-                    Some(HashedAt {
-                        hash: name_hash(entry.name()),
-                        position: u32::try_from(position).ok()?,
-                    })
-                })
-                .collect();
-            by_name.sort_unstable();
-            by_name.into_boxed_slice()
-        })
+        self.by_name
+            .get_or_init(|| hashed_files(self.index, |entry| name_hash(entry.name())).into())
     }
 }
 
@@ -345,6 +319,23 @@ impl IndexRepository<'_> {
 )]
 fn bucket(hash: u32, shift: u32) -> usize {
     (u64::from(hash) >> shift) as usize
+}
+
+/// Each regular file `index` holds, at its position under the hash `hash` gives it, in hash order.
+fn hashed_files(index: &Index, hash: impl Fn(&Entry<'_>) -> u32) -> Vec<HashedAt> {
+    let mut hashed: Vec<HashedAt> = index
+        .entries()
+        .enumerate()
+        .filter(|(_, entry)| entry.kind() == EntryKind::File)
+        .filter_map(|(position, entry)| {
+            Some(HashedAt {
+                hash: hash(&entry),
+                position: u32::try_from(position).ok()?,
+            })
+        })
+        .collect();
+    hashed.sort_unstable();
+    hashed
 }
 
 fn hashed(table: &[HashedAt], hash: u32) -> &[HashedAt] {

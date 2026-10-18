@@ -7,7 +7,7 @@ use kartta_fs::{
 use kartta_graph::{Change, Definition, Graph, Limits, Region, Resolution};
 use kartta_lang::{DocComments, Language};
 
-use crate::extracting::{Extracting, FileCounts};
+use crate::extracting::{Extracting, FileCounts, claimant};
 use crate::following::{Following, Refreshing, Walked};
 use crate::resolving::{Graphs, Resolving};
 use crate::source::{FileLines, Source, SourceOptions};
@@ -452,18 +452,13 @@ impl Engine {
     }
 
     fn doc_comments_of(&self, path: &str) -> DocComments {
-        self.languages
-            .iter()
-            .find(|language| language.claims(path))
-            .map_or(DocComments::NONE, |language| language.doc_comments())
+        claimant(&self.languages, path).map_or(DocComments::NONE, |language| {
+            self.languages[language].doc_comments()
+        })
     }
 
     fn family_claiming(&self, path: &str) -> Option<usize> {
-        let language = self
-            .languages
-            .iter()
-            .position(|language| language.claims(path))?;
-        Some(self.family_of[language])
+        claimant(&self.languages, path).map(|language| self.family_of[language])
     }
 }
 

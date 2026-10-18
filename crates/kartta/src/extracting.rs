@@ -76,10 +76,6 @@ impl<'l> Extracting<'l> {
         (extracted, counts)
     }
 
-    fn claimant(&self, path: &str) -> Option<usize> {
-        claimant(self.languages, path)
-    }
-
     // constraint: on glibc, encodings grown in place and shrunk to fit raised a large tree's resident peak by a quarter
     // (ADR 1.18), so each is written into a buffer the walk's threads reuse and kept as an exact-size copy
     fn extract(&self, language: usize, content: &Content<'_>) -> Box<[u8]> {
@@ -105,7 +101,7 @@ impl<'l> Extracting<'l> {
 
 impl ContentVisitor for Extracting<'_> {
     fn wants(&self, path: &str) -> bool {
-        let Some(language) = self.claimant(path) else {
+        let Some(language) = claimant(self.languages, path) else {
             return false;
         };
         self.counters[language]
@@ -115,7 +111,7 @@ impl ContentVisitor for Extracting<'_> {
     }
 
     fn visit(&self, content: Content<'_>) {
-        let Some(language) = self.claimant(content.path()) else {
+        let Some(language) = claimant(self.languages, content.path()) else {
             return;
         };
         let counters = &self.counters[language];
