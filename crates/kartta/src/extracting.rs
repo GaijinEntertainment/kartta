@@ -7,15 +7,21 @@ use kartta_lang::{Language, RawExtraction};
 pub(crate) struct Extracted {
     pub(crate) id: ContentId,
     pub(crate) language: usize,
+    pub(crate) cached: bool,
     pub(crate) encoded: Box<[u8]>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct FileCounts {
     pub(crate) claimed: usize,
     pub(crate) read: usize,
     pub(crate) cached: usize,
     pub(crate) held: usize,
+}
+
+/// The first of `languages` that claims the file at `path`.
+pub(crate) fn claimant(languages: &[Box<dyn Language>], path: &str) -> Option<usize> {
+    languages.iter().position(|language| language.claims(path))
 }
 
 #[derive(Default)]
@@ -76,9 +82,7 @@ impl<'l> Extracting<'l> {
     }
 
     fn claimant(&self, path: &str) -> Option<usize> {
-        self.languages
-            .iter()
-            .position(|language| language.claims(path))
+        claimant(self.languages, path)
     }
 
     // constraint: on glibc, encodings grown in place and shrunk to fit raised a large tree's resident peak by a quarter
@@ -121,13 +125,11 @@ impl ContentVisitor for Extracting<'_> {
         };
         let counters = &self.counters[language];
         counters.read.fetch_add(1, Ordering::Relaxed);
-        let encoded = content.cached(&self.namespaces[language]).map_or_else(
-            || self.extract(language, &content),
-            |cached| {
-                counters.cached.fetch_add(1, Ordering::Relaxed);
-                Box::from(cached)
-            },
-        );
+        let cached = content.cached(&self.namespaces[language]);
+        if cached.is_some() {
+            counters.cached.fetch_add(1, Ordering::Relaxed);
+        }
+        let encoded = cached.map_or_else(|| self.extract(language, &content), Box::from);
 
         self.extracted
             .lock()
@@ -135,6 +137,7 @@ impl ContentVisitor for Extracting<'_> {
             .push(Extracted {
                 id: content.id(),
                 language,
+                cached: cached.is_some(),
                 encoded,
             });
     }

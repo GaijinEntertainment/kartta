@@ -56,6 +56,13 @@ pub trait Language: Send + Sync + fmt::Debug {
 }
 
 /// Applies a file's path and the repository to what its language extracted from the bytes.
+///
+/// An engine that follows a changing tree resolves a file again when an answer the repository gave its resolution
+/// changes, and it learns which answers those were by watching the repository while [`Resolver::resolve`] runs. So
+/// `resolve` asks the repository on the thread that called it, and asks again for each file what it needs rather than
+/// answering one file from what it asked for another. It reads no file's content: the engine learns that a file's
+/// content changed only when it reads that file itself. Configuration is read by [`Language::resolver`] as it builds
+/// the resolver, which the engine watches apart, resolving every file of the language again when it changed.
 pub trait Resolver: Send + Sync {
     /// The extraction of the file at `path`, from `raw`: its imports and includes resolved, its symbols' flags
     /// completed by what the path shows.
