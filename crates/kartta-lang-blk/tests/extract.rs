@@ -31,7 +31,7 @@ fn the_fingerprint_stays_put_and_names_the_crate() {
     let blk = Blk::new();
     let fingerprint = blk.fingerprint();
 
-    assert!(fingerprint.starts_with(b"kartta-lang-blk\0"));
+    assert!(fingerprint.starts_with(b"kartta-lang-blk "));
     assert_eq!(Blk::new().fingerprint(), fingerprint);
 }
 

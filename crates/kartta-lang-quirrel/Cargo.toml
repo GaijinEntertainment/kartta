@@ -18,3 +18,6 @@ workspace = true
 kartta-lang = { version = "0.0.0", path = "../kartta-lang", features = ["tree-sitter"] }
 tree-sitter = "0.27.1"
 tree-sitter-quirrel = "4.43.3"
+
+[build-dependencies]
+kartta-lang = { version = "0.0.0", path = "../kartta-lang" }

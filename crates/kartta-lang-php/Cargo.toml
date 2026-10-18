@@ -19,3 +19,6 @@ kartta-lang = { version = "0.0.0", path = "../kartta-lang", features = ["tree-si
 serde_json = "1.0.154"
 tree-sitter = "0.27.1"
 tree-sitter-php = "0.25.1"
+
+[build-dependencies]
+kartta-lang = { version = "0.0.0", path = "../kartta-lang" }

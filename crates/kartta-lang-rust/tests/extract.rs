@@ -717,6 +717,6 @@ fn rust_claims_its_extension_in_any_case() {
 fn the_fingerprint_names_the_crate_and_stays_put() {
     let first = Rust::new().fingerprint().to_vec();
 
-    assert!(first.starts_with(b"kartta-lang-rust\0"));
+    assert!(first.starts_with(b"kartta-lang-rust "));
     assert_eq!(Rust::new().fingerprint(), first.as_slice());
 }

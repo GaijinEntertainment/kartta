@@ -69,8 +69,8 @@
 //!
 //! # Fingerprint
 //!
-//! Each language's fingerprint digests this crate's name, version and sources, the language's name, and its
-//! grammar's declared version, node types, ABI version and counts of node kinds, parse states and fields. A change in
+//! Each language's fingerprint holds this crate's name, version and a digest of its sources, and its grammar's
+//! declared version, node types, ABI version and counts of node kinds, parse states and fields. A change in
 //! `kartta-lang` is covered by `kartta_lang::FINGERPRINT`, which a cache keys beside it. It cannot see a change in the
 //! tree-sitter runtime, or in a grammar that keeps all of those equal.
 //!
@@ -89,7 +89,6 @@
 
 mod config;
 mod flavor;
-mod fnv;
 mod generated;
 mod modules;
 mod package_json;

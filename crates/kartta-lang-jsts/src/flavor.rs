@@ -5,9 +5,7 @@ use kartta_lang::RawExtraction;
 use kartta_lang::path::base;
 use tree_sitter::{Language, Parser, Tree};
 
-use crate::{fnv, walk};
-
-include!(concat!(env!("OUT_DIR"), "/source_digest.rs"));
+use crate::walk;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Flavor {
@@ -58,9 +56,11 @@ impl Flavor {
     }
 
     pub(crate) fn fingerprint(self) -> &'static [u8] {
-        static FINGERPRINTS: [OnceLock<[u8; 8]>; 3] = [const { OnceLock::new() }; 3];
+        static FINGERPRINTS: [OnceLock<Vec<u8>>; 3] = [const { OnceLock::new() }; 3];
 
-        FINGERPRINTS[self as usize].get_or_init(|| self.digest())
+        FINGERPRINTS[self as usize].get_or_init(|| {
+            kartta_lang::tree::fingerprint(env!("SOURCE_ID"), &self.grammar(), self.node_types())
+        })
     }
 
     fn parser(self) -> Option<Parser> {
@@ -83,38 +83,5 @@ impl Flavor {
             Self::Tsx => tree_sitter_typescript::TSX_NODE_TYPES,
             Self::JavaScript => tree_sitter_javascript::NODE_TYPES,
         }
-    }
-
-    fn digest(self) -> [u8; 8] {
-        let grammar = self.grammar();
-        let identity: [&[u8]; 5] = [
-            env!("CARGO_PKG_NAME").as_bytes(),
-            env!("CARGO_PKG_VERSION").as_bytes(),
-            self.name().as_bytes(),
-            &SOURCE_DIGEST.to_le_bytes(),
-            self.node_types().as_bytes(),
-        ];
-        let shape = [
-            grammar.abi_version(),
-            grammar.node_kind_count(),
-            grammar.parse_state_count(),
-            grammar.field_count(),
-        ];
-        let version = grammar.metadata().map_or([0; 3], |version| {
-            [
-                version.major_version,
-                version.minor_version,
-                version.patch_version,
-            ]
-        });
-
-        let digest = identity
-            .iter()
-            .fold(fnv::OFFSET, |digest, field| fnv::field(digest, field));
-        let digest = fnv::field(digest, &version);
-        let digest = (shape.iter()).fold(digest, |digest, count| {
-            fnv::field(digest, &count.to_le_bytes())
-        });
-        digest.to_le_bytes()
     }
 }
