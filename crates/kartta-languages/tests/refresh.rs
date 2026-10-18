@@ -126,7 +126,7 @@ fn answers(engine: &Engine) -> String {
         ("web/app.ts", "button"),
         ("web/app.ts", "render"),
     ] {
-        let graph = engine
+        let (_, graph) = engine
             .graph_of(anchor)
             .expect("a language claims the anchor");
         writeln!(
@@ -143,7 +143,7 @@ fn answers(engine: &Engine) -> String {
         "lib/lib.go",
         "lib/extra.go",
     ] {
-        let graph = engine.graph_of(path).expect("a language claims the path");
+        let (_, graph) = engine.graph_of(path).expect("a language claims the path");
         writeln!(
             answers,
             "dependents of {path}: {:#?}",

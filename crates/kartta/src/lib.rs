@@ -65,7 +65,7 @@
 //! assert!(outcome.errors.is_empty());
 //! let engine = outcome.engine;
 //!
-//! let graph = engine.graph_of("main.defs").ok_or("defs claims the file")?;
+//! let (_, graph) = engine.graph_of("main.defs").ok_or("defs claims the file")?;
 //! assert_eq!(graph.definitions("parse", None, 10).total, 1);
 //! # Ok(())
 //! # }

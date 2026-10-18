@@ -341,12 +341,13 @@ impl Engine {
             .map(|family| (family.name.as_str(), &family.graph))
     }
 
-    /// The graph of the family whose language claims the file at `path`, or `None` when no language does.
+    /// The name and graph of the family whose language claims the file at `path`, or `None` when no language does.
     ///
     /// The graph answers for the file only if the build read it; a claimed path the tree does not hold is in no graph.
     #[must_use]
-    pub fn graph_of(&self, path: &str) -> Option<&Graph> {
-        Some(&self.families[self.family_claiming(path)?].graph)
+    pub fn graph_of(&self, path: &str) -> Option<(&str, &Graph)> {
+        let family = &self.families[self.family_claiming(path)?];
+        Some((&family.name, &family.graph))
     }
 
     /// What a change to the lines of `regions` reaches, across the families whose languages claim their files: each

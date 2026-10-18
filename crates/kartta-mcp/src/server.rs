@@ -818,7 +818,7 @@ impl Server {
             let dependents = indexed
                 .engine
                 .graph_of(&p.file)
-                .and_then(|graph| graph.dependents(&p.file, IMPORTER_DEPTH, 0));
+                .and_then(|(_, graph)| graph.dependents(&p.file, IMPORTER_DEPTH, 0));
             Ok(render::importers(&p.file, dependents.as_ref()))
         })
         .await
@@ -840,7 +840,7 @@ impl Server {
             let outline = indexed
                 .engine
                 .graph_of(&p.file)
-                .and_then(|graph| graph.outline(&p.file));
+                .and_then(|(_, graph)| graph.outline(&p.file));
             Ok(render::outline(&p.file, outline.as_deref()))
         })
         .await
@@ -989,10 +989,9 @@ impl Server {
                 p.end_line
             };
             let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
-            let segment = indexed
-                .engine
-                .graph_of(&p.file)
-                .and_then(|graph| graph.analyze_segment(&p.file, p.start_line..=end_line, limits));
+            let segment = indexed.engine.graph_of(&p.file).and_then(|(_, graph)| {
+                graph.analyze_segment(&p.file, p.start_line..=end_line, limits)
+            });
             Ok(render::impact(
                 &p.file,
                 (p.start_line, end_line),
