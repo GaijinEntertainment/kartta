@@ -37,7 +37,7 @@
 - [1.16 Refresh the parts of a tree a caller names](./adr/1.16-refresh-the-parts-of-a-tree-a-caller-names.md) —
   initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-15
 - [1.17 Follow a tree through its change notifications](./adr/1.17-follow-a-tree-through-its-change-notifications.md) —
-  initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-15
+  initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-18
 - [1.18 Return the memory a build freed to the system](./adr/1.18-return-the-memory-a-build-freed-to-the-system.md) —
   initiative `01-kartta-fs-port`, 2026-10-17, revised 2026-10-18
 - [1.19 Prune editor and OS clutter by name during the
@@ -131,6 +131,9 @@
 - [4.3 Reach the engine from Node through an addon over the same
   dispatch](./adr/4.3-reach-the-engine-from-node-through-an-addon-over-the-same-dispatch.md) — initiative
   `04-consumer-surfaces`, 2026-10-18
+- [4.4 Follow the indexed tree, and refresh it on
+  request](./adr/4.4-follow-the-indexed-tree-and-refresh-it-on-request.md) — initiative `04-consumer-surfaces`,
+  2026-10-18
 
 ## Deprecated
 
