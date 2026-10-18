@@ -1,0 +1,97 @@
+use kartta::{Dead, DeadCode, Excluded};
+
+use super::{empty_languages_note, kind, named, span};
+use crate::llmxml::Element;
+
+/// What a `find_unused` call asked, as its answer echoes it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct UnusedAsk<'a> {
+    pub(crate) languages: &'a str,
+    pub(crate) path_prefix: Option<&'a str>,
+    pub(crate) limit: usize,
+}
+
+/// The `find_unused` answer: the dead definitions of every graph judged, in path order and cut to the limit, with
+/// what was judged live and, by reason, what was not judged.
+pub(crate) fn unused(ask: &UnusedAsk<'_>, judged: &[(&str, DeadCode<'_>)]) -> String {
+    let total: usize = judged.iter().map(|(_, dead)| dead.total).sum();
+    let live: usize = judged.iter().map(|(_, dead)| dead.live).sum();
+    let mut found: Vec<(&str, &Dead<'_>)> = judged
+        .iter()
+        .flat_map(|(family, dead)| dead.found.iter().map(move |found| (*family, found)))
+        .collect();
+    found.sort_by_key(|(_, dead)| (dead.definition.file, dead.definition.line));
+    found.truncate(ask.limit);
+
+    let mut element = Element::new("unused");
+    if !ask.languages.is_empty() {
+        element = element.attr("languages", ask.languages);
+    }
+    if let Some(prefix) = ask.path_prefix {
+        element = element.attr("path_prefix", prefix);
+    }
+    element = element.attr("count", found.len());
+    if total > found.len() {
+        element = element.attr("total", total).flag("truncated", true);
+    }
+    element = element.attr("live", live);
+    let excluded = excluded(judged.iter().map(|(_, dead)| &dead.excluded));
+    if !found.is_empty() {
+        return element.children(
+            excluded
+                .into_iter()
+                .chain(found.iter().map(|&(family, dead)| symbol(family, dead))),
+        );
+    }
+    let note = empty_languages_note(ask.languages).unwrap_or_else(|| match (&excluded, live) {
+        (None, 0) if ask.path_prefix.is_some() => {
+            "no definition in a code graph lies under path_prefix - pass a repo-relative prefix as find_files prints \
+             paths"
+        }
+        (None, 0) => "no code graph holds a definition",
+        _ => "no unused definition among those judged - what was not judged is counted in <excluded>",
+    });
+    match excluded {
+        Some(excluded) => element.wrap(&format!("{excluded}\n{note}")),
+        None => element.inline(note),
+    }
+}
+
+/// The `<excluded/>` record: what the graphs did not judge, summed by reason, or `None` when they judged everything.
+fn excluded<'e>(each: impl Iterator<Item = &'e Excluded>) -> Option<String> {
+    let mut sum = Excluded::default();
+    for excluded in each {
+        sum.test += excluded.test;
+        sum.generated += excluded.generated;
+        sum.entry += excluded.entry;
+        sum.vendored += excluded.vendored;
+        sum.unobservable += excluded.unobservable;
+        sum.uncertain += excluded.uncertain;
+        sum.dispatched += excluded.dispatched;
+    }
+    (sum != Excluded::default()).then(|| {
+        Element::new("excluded")
+            .count("test", sum.test)
+            .count("generated", sum.generated)
+            .count("entry", sum.entry)
+            .count("vendored", sum.vendored)
+            .count("unobservable", sum.unobservable)
+            .count("uncertain", sum.uncertain)
+            .count("dispatched", sum.dispatched)
+            .close()
+    })
+}
+
+/// One dead definition, marked when calls or uses spell its name and bind elsewhere.
+fn symbol(family: &str, dead: &Dead<'_>) -> String {
+    let definition = &dead.definition;
+    named("symbol", definition)
+        .attr("kind", kind(definition.kind))
+        .attr("lang", family)
+        .attr(
+            "loc",
+            span(definition.file, definition.line, definition.end_line),
+        )
+        .flag("name_used_elsewhere", dead.spelled)
+        .close()
+}

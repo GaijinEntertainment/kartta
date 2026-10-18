@@ -18,11 +18,12 @@ use crate::languages::{Catalog, echo};
 use crate::params::{
     CallerRole, FileParams, FindCallPathParams, FindCalleesParams, FindCallersParams,
     FindFilesParams, FindImplementationsParams, FindReferencesParams, FindSymbolsParams,
-    GlobFilesParams, GrepParams, ImpactOfChangeParams, ImpactOfEditParams, IndexRepoParams,
-    ListDirParams, ReadDefinitionsParams,
+    FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams, ImpactOfEditParams,
+    IndexRepoParams, ListDirParams, ReadDefinitionsParams,
 };
 use crate::render::{
     self, CallersAsk, Found, Globbed, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion,
+    UnusedAsk,
 };
 use crate::state::{GraphRow, Indexed, Request, Slot, Status};
 
@@ -85,6 +86,9 @@ const IMPACT_MAX_SYMBOLS: usize = 500;
 
 /// How many changed symbols, and how many hotspots, `impact_of_change` lists when the call names no limit.
 const CHANGE_LISTED: usize = 20;
+
+/// How many unused definitions `find_unused` lists when the call names no limit.
+const UNUSED: usize = 50;
 
 /// How many hops `find_callers` walks when the call names none.
 const CALLER_HOPS: u32 = 3;
@@ -976,6 +980,49 @@ impl Server {
     }
 
     #[tool(
+        description = "Find definitions nothing in the repository calls or uses - candidates for deletion in a \
+                       clean-up. Judges only what the graph can see used: functions, methods and macros through their \
+                       calls, and Go types through their uses. Judges every indexed language unless narrowed with \
+                       'languages'; path_prefix narrows it to a subtree, and on a large repository an unscoped call \
+                       takes seconds, so scope it to the code you are cleaning. Returns an <unused> envelope: count= \
+                       the definitions listed, total= with truncated=true when 'limit' (default 50) cut the list, \
+                       live= the definitions judged and found used, then an <excluded/> record counting what was not \
+                       judged, each only when it is not zero - test, generated, entry (main, registered handlers, \
+                       constructors, operators), vendored, unobservable (fields, values, locals, and types outside \
+                       Go), uncertain (a call of the name bound nothing certain, so it may reach this one), and \
+                       dispatched (a method an interface, a trait or a parent can route a call to). Then one \
+                       <symbol/> record per unused definition in path order: name, qn, kind, lang, loc \
+                       (file:start-end), and name_used_elsewhere=true when calls or uses spell its name but bind to \
+                       other definitions. A definition listed is a candidate, not a proof: a call through a function \
+                       value or a callback, a caller outside the repository (another service, a script, reflection, \
+                       a runtime calling by name) and dynamic dispatch are unseen - grep its name across the tree and \
+                       check how it is registered or exported before deleting it. Requires index_repo first."
+    )]
+    async fn find_unused(
+        &self,
+        Parameters(p): Parameters<FindUnusedParams>,
+    ) -> Result<String, String> {
+        self.catalog.check(p.languages.as_deref())?;
+        let catalog = Arc::clone(&self.catalog);
+        self.answer(move |indexed| {
+            let limit = p.limit.map_or(UNUSED, NonZeroUsize::get);
+            let path_prefix = p.path_prefix.as_deref();
+            let judged: Vec<_> = selected(indexed, &catalog, p.languages.as_deref())
+                .into_iter()
+                .map(|(family, graph)| (family, graph.dead_code(&[], path_prefix, limit)))
+                .collect();
+            let languages = echo(p.languages.as_deref());
+            let ask = UnusedAsk {
+                languages: &languages,
+                path_prefix,
+                limit,
+            };
+            Ok(render::unused(&ask, &judged))
+        })
+        .await
+    }
+
+    #[tool(
         description = "Trace who calls a symbol, transitively: walks the call graph in reverse from the named \
                        function or method, hop by hop. Answers \"what is affected if I change this function?\" before \
                        an edit, rename, or removal. Searches every indexed language unless narrowed with 'languages'; \
@@ -1110,7 +1157,8 @@ impl ServerHandler for Server {
              index in seconds and every other tool errors until then (a root given to the server at launch is \
              already building, and index_stats says when it is ready); one repository is indexed at a time. The \
              index holds a separate code graph per language; the symbol tools (find_symbols, read_definitions, \
-             find_callers, find_callees, find_references, find_call_path, find_implementations) search every \
+             find_callers, find_callees, find_references, find_call_path, find_implementations, find_unused) \
+             search every \
              indexed language by default and \
              take an optional 'languages' multiselect to narrow - the names are in the index_repo / index_stats \
              answer - and cross-language links (e.g. FFI) are not traced. The file tools (find_files, glob_files, \
@@ -1123,7 +1171,8 @@ impl ServerHandler for Server {
              is X -> file_outline; read the source of X, Y, Z -> read_definitions; who calls X / what breaks if I \
              change it -> find_callers; what does X call -> find_callees; where is X used -> find_references; does \
              X reach Y through calls -> \
-             find_call_path; what implements X -> find_implementations; which files import this file -> \
+             find_call_path; what implements X -> find_implementations; what code does nothing call -> \
+             find_unused; which files import this file -> \
              find_importers; how risky is this diff hunk or edit -> impact_of_edit; what does a whole diff of \
              several hunks reach -> impact_of_change; what languages and how much \
              code -> index_stats.",
