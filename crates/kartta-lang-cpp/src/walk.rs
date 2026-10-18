@@ -92,7 +92,6 @@ struct Replayer<'s, 't> {
     used_namespaces: Vec<(Option<usize>, String)>,
     written_scopes: HashMap<usize, WrittenScope>,
     generated: bool,
-    symbol_count: u32,
     raw: RawExtraction,
 }
 
@@ -114,7 +113,6 @@ impl<'s, 't> Replayer<'s, 't> {
             used_namespaces: Vec::new(),
             written_scopes: HashMap::new(),
             generated: BANNER.opens(source),
-            symbol_count: 0,
             raw: RawExtraction::default(),
         }
     }
@@ -412,7 +410,7 @@ impl<'s, 't> Replayer<'s, 't> {
     }
 
     fn record_call(&mut self, node: Node<'_>) {
-        if self.symbol_count == 0 {
+        if self.raw.symbols.is_empty() {
             return;
         }
         let Some((callee, receiver)) = call_target(node, self.source) else {
@@ -431,7 +429,7 @@ impl<'s, 't> Replayer<'s, 't> {
     }
 
     fn record_construction(&mut self, node: Node<'_>) {
-        if self.symbol_count == 0 {
+        if self.raw.symbols.is_empty() {
             return;
         }
         let Some(type_node) = node.child_by_field_name("type") else {
@@ -495,8 +493,7 @@ impl<'s, 't> Replayer<'s, 't> {
     fn push_symbol(&mut self, mut symbol: Symbol) -> SymbolId {
         self.apply_namespace(&mut symbol);
 
-        let id = SymbolId(self.symbol_count);
-        self.symbol_count += 1;
+        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
         self.raw.symbols.push(symbol);
         id
     }
