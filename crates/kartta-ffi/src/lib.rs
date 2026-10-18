@@ -20,11 +20,11 @@ mod handle;
 mod query;
 mod wire;
 
-pub use crate::error::{Error, ErrorCode};
+pub use crate::error::Error;
 pub use crate::handle::Kartta;
 
 /// The version of the C functions' signatures and ownership rules, as `kartta_abi_version` returns it.
 ///
 /// It changes only when a binding built against an older header would misuse the library; a new method or a new answer
 /// field leaves it as it is.
-pub const ABI_VERSION: u32 = 1;
+const ABI_VERSION: u32 = 1;

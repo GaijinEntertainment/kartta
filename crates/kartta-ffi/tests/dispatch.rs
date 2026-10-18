@@ -13,7 +13,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
-use kartta_ffi::{ErrorCode, Kartta};
+use kartta_ffi::Kartta;
 use serde_json::{Value, json};
 
 fn tree() -> tempfile::TempDir {
@@ -56,37 +56,40 @@ fn code(kartta: &Kartta, method: &str, params: &Value) -> String {
         .to_owned()
 }
 
+fn refused(params: &[u8]) -> Value {
+    let error = Kartta::open(params).expect_err("open refuses the params");
+    serde_json::from_slice(&error.to_json()).expect("the error is JSON")
+}
+
+fn mentions(error: &Value, word: &str) -> bool {
+    error["message"]
+        .as_str()
+        .is_some_and(|message| message.contains(word))
+}
+
 #[test]
 fn open_refuses_a_root_that_is_not_a_directory_with_a_structured_error() {
     let tree = tree();
     let file = tree.path().join("main.go");
 
-    let not_a_directory =
-        Kartta::open(json!({ "root": file }).to_string().as_bytes()).expect_err("a file");
-    let missing = Kartta::open(
+    let not_a_directory = refused(json!({ "root": file }).to_string().as_bytes());
+    let missing = refused(
         json!({ "root": tree.path().join("gone") })
             .to_string()
             .as_bytes(),
-    )
-    .expect_err("none");
-    let unknown_field =
-        Kartta::open(br#"{"root": "/", "gitignore": true}"#).expect_err("unknown field");
-    let not_json = Kartta::open(b"{").expect_err("not JSON");
+    );
+    let unknown_field = refused(br#"{"root": "/", "gitignore": true}"#);
+    let not_json = refused(b"{");
 
-    assert_eq!(not_a_directory.code(), ErrorCode::InvalidRoot);
+    assert_eq!(not_a_directory["code"], "invalid_root");
     assert!(
-        not_a_directory.message().contains("not a directory"),
+        mentions(&not_a_directory, "not a directory"),
         "{not_a_directory}"
     );
-    assert_eq!(missing.code(), ErrorCode::InvalidRoot);
-    assert_eq!(unknown_field.code(), ErrorCode::InvalidParams);
-    assert!(
-        unknown_field.message().contains("gitignore"),
-        "{unknown_field}"
-    );
-    assert_eq!(not_json.code(), ErrorCode::InvalidRequest);
-    let wire: Value = serde_json::from_slice(&missing.to_json()).expect("JSON");
-    assert_eq!(wire["code"], "invalid_root");
+    assert_eq!(missing["code"], "invalid_root");
+    assert_eq!(unknown_field["code"], "invalid_params");
+    assert!(mentions(&unknown_field, "gitignore"), "{unknown_field}");
+    assert_eq!(not_json["code"], "invalid_request");
 }
 
 #[test]
