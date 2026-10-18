@@ -6,31 +6,19 @@
               is the assertion"
 )]
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
+use common::tree;
 use kartta_cache::Store;
 use kartta_fs::{
     BuildError, BuildOptions, BuildOutcome, Case, Content, ContentHash, ContentIndexStorage,
     ContentVisitor, GrepOptions, Index, Namespace, Patterns,
 };
-use tempfile::TempDir;
-
-fn tree(spec: &[(&str, &[u8])]) -> TempDir {
-    let dir = tempfile::tempdir().expect("create temp dir");
-
-    for (path, content) in spec {
-        let full = dir.path().join(path);
-        if let Some(parent) = full.parent() {
-            fs::create_dir_all(parent).expect("create parent directory");
-        }
-        fs::write(&full, content).expect("write file");
-    }
-
-    dir
-}
 
 const DAY: Duration = Duration::from_hours(24);
 
@@ -68,13 +56,13 @@ fn found(index: &Index, pattern: &str) -> Vec<String> {
 fn a_build_adds_only_the_contents_the_store_lacks_wherever_they_sit() {
     let cache = tempfile::tempdir().expect("cache dir");
     let first = tree(&[
-        ("src/run.rs", b"pub fn run() {}\n"),
-        ("notes.md", b"run it\n"),
+        ("src/run.rs", "pub fn run() {}\n"),
+        ("notes.md", "run it\n"),
     ]);
     let second = tree(&[
-        ("lib/run.rs", b"pub fn run() {}\n"),
-        ("docs/notes.md", b"run it\n"),
-        ("new.txt", b"gamma\n"),
+        ("lib/run.rs", "pub fn run() {}\n"),
+        ("docs/notes.md", "run it\n"),
+        ("new.txt", "gamma\n"),
     ]);
 
     build(first.path(), &cached(cache.path()));
@@ -93,11 +81,8 @@ fn a_build_adds_only_the_contents_the_store_lacks_wherever_they_sit() {
 fn a_file_past_one_read_chunk_is_shared_as_a_small_one_is() {
     let cache = tempfile::tempdir().expect("cache dir");
     let large = "needle in a haystack\n".repeat(10_000);
-    let first = tree(&[("large.txt", large.as_bytes())]);
-    let second = tree(&[
-        ("moved/large.txt", large.as_bytes()),
-        ("new.txt", b"gamma\n"),
-    ]);
+    let first = tree(&[("large.txt", &large)]);
+    let second = tree(&[("moved/large.txt", &large), ("new.txt", "gamma\n")]);
 
     build(first.path(), &cached(cache.path()));
     let index = build(second.path(), &cached(cache.path())).index;
@@ -119,7 +104,7 @@ fn the_build_that_publishes_a_ninth_pack_merges_the_store() {
 
     for at in 0..builds {
         let content = format!("content of build {at}\n");
-        let root = tree(&[("file.txt", content.as_bytes())]);
+        let root = tree(&[("file.txt", &content)]);
         build(root.path(), &cached(cache.path()));
     }
 
@@ -153,7 +138,7 @@ fn a_build_that_publishes_nothing_still_merges_a_store_past_eight_packs() {
 #[test]
 fn a_refresh_shares_the_files_it_reads_through_the_same_store() {
     let cache = tempfile::tempdir().expect("cache dir");
-    let root = tree(&[("a.txt", b"alpha\n"), ("b.txt", b"beta\n")]);
+    let root = tree(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")]);
     let mut options = cached(cache.path());
     options.stamps = true;
     let mut index = build(root.path(), &options).index;
@@ -168,7 +153,7 @@ fn a_refresh_shares_the_files_it_reads_through_the_same_store() {
 
 #[test]
 fn a_cache_that_cannot_be_opened_costs_only_the_sharing() {
-    let root = tree(&[("a.txt", b"alpha\n"), ("b.txt", b"beta\n")]);
+    let root = tree(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")]);
     let not_a_directory = tempfile::NamedTempFile::new().expect("temp file");
     let options = cached(not_a_directory.path());
 
@@ -238,7 +223,7 @@ fn build_visited(root: &Path, options: &BuildOptions, visitor: &Lengths) {
 #[test]
 fn a_visitor_finds_what_a_build_of_another_tree_cached_for_the_same_content() {
     let cache = tempfile::tempdir().expect("cache dir");
-    let content = b"alpha\n";
+    let content = "alpha\n";
     let first = tree(&[("a.txt", content)]);
     let moved = tree(&[("moved/a.txt", content)]);
     let before = Lengths::new();
@@ -271,7 +256,7 @@ fn a_visitor_finds_what_a_build_of_another_tree_cached_for_the_same_content() {
 #[test]
 fn a_visitor_without_a_content_index_still_shares_through_the_cache() {
     let cache = tempfile::tempdir().expect("cache dir");
-    let root = tree(&[("a.txt", b"alpha\n"), ("b.txt", b"beta\n")]);
+    let root = tree(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")]);
     let mut options = BuildOptions::default();
     options.content_cache = Some(cache.path().to_path_buf());
 
@@ -290,7 +275,7 @@ fn plant_unreadable_pack(cache: &Path, name: &str, age: Duration) -> PathBuf {
 
 #[test]
 fn a_build_removes_what_is_older_than_the_time_to_live_it_names() {
-    let root = tree(&[("a.txt", b"alpha\n")]);
+    let root = tree(&[("a.txt", "alpha\n")]);
     let cache = tempfile::tempdir().expect("cache dir");
     let pack = plant_unreadable_pack(cache.path(), "two days old", 2 * DAY);
     let mut options = cached(cache.path());
@@ -303,7 +288,7 @@ fn a_build_removes_what_is_older_than_the_time_to_live_it_names() {
 
 #[test]
 fn a_refresh_removes_what_is_older_than_the_build_s_time_to_live() {
-    let root = tree(&[("a.txt", b"alpha\n")]);
+    let root = tree(&[("a.txt", "alpha\n")]);
     let cache = tempfile::tempdir().expect("cache dir");
     let mut options = cached(cache.path());
     options.content_cache_ttl = DAY;
@@ -318,7 +303,7 @@ fn a_refresh_removes_what_is_older_than_the_build_s_time_to_live() {
 
 #[test]
 fn a_time_to_live_of_zero_is_a_week_and_never_empties_the_store() {
-    let root = tree(&[("a.txt", b"alpha\n")]);
+    let root = tree(&[("a.txt", "alpha\n")]);
     let cache = tempfile::tempdir().expect("cache dir");
     let kept = plant_unreadable_pack(cache.path(), "two days old", 2 * DAY);
     let expired = plant_unreadable_pack(cache.path(), "eight days old", 8 * DAY);
@@ -333,7 +318,7 @@ fn a_time_to_live_of_zero_is_a_week_and_never_empties_the_store() {
 
 #[test]
 fn a_build_without_a_cache_hands_the_visitor_no_entry() {
-    let root = tree(&[("a.txt", b"alpha\n")]);
+    let root = tree(&[("a.txt", "alpha\n")]);
     let lengths = Lengths::new();
 
     build_visited(root.path(), &BuildOptions::default(), &lengths);

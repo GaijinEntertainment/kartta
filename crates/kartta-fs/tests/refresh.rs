@@ -7,6 +7,8 @@
               is the assertion"
 )]
 
+mod common;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::num::NonZeroUsize;
@@ -15,27 +17,12 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use common::{tree, write};
 use kartta_fs::{
     BuildError, BuildOptions, CancelToken, Case, Content, ContentId, ContentIndexStorage,
     ContentVisitor, EntryKind, GrepOptions, IgnoreSources, Index, Patterns, PrunedNames,
 };
 use tempfile::TempDir;
-
-fn tree(spec: &[(&str, &str)]) -> TempDir {
-    let dir = tempfile::tempdir().expect("create temp dir");
-    for (path, content) in spec {
-        write(dir.path(), path, content);
-    }
-    dir
-}
-
-fn write(root: &Path, path: &str, content: &str) {
-    let full = root.join(path);
-    if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent).expect("create parent directory");
-    }
-    fs::write(&full, content).expect("write file");
-}
 
 // constraint: a stamp is trusted only when its file last changed over two seconds before the walk began, and nothing
 // sets a change time back, so a tree whose files a refresh is to carry over waits that out before it is built
@@ -509,7 +496,7 @@ fn a_refresh_that_leaves_too_many_files_gone_from_the_lists_merges_them_into_one
     let mut index = build(dir.path(), &options, None);
 
     for name in &names[..5] {
-        write(dir.path(), name, &format!("changed {name}\n"));
+        write(dir.path(), name, format!("changed {name}\n"));
     }
     index.refresh(None, None).expect("refresh");
 
@@ -1012,7 +999,7 @@ fn many_refreshes_of_single_files_keep_searches_and_counts_a_build_would_give() 
     let mut index = build(dir.path(), &options, None);
 
     for name in &names[..10] {
-        write(dir.path(), name, &format!("changed {name}\n"));
+        write(dir.path(), name, format!("changed {name}\n"));
         refresh_paths(&mut index, [name.as_str()]);
     }
 
