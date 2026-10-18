@@ -83,6 +83,7 @@
 mod engine;
 mod extracting;
 mod repository;
+mod resolving;
 mod source;
 mod stats;
 
