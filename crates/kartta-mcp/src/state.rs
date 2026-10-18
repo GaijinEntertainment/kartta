@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 
 use kartta::{BuildError, BuildOptions, CancelToken, Engine, EngineRefresh};
-use kartta_fs::EntryKind;
+use kartta_fs::{Changes, EntryKind, Watcher};
 use tokio::sync::watch;
 
 /// How long a rebuild waits between looks at whether a query still holds the engine it replaces.
@@ -26,6 +26,15 @@ pub(crate) struct Indexed {
     pub(crate) gitignore: bool,
     pub(crate) engine: Engine,
     pub(crate) errors: Vec<Failure>,
+    pub(crate) watch: Watch,
+}
+
+/// Whether an index follows its tree by itself, which decides whether an answer can be older than the tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Watch {
+    Following,
+    /// The index takes a change in only through the `refresh` tool, for the reason given.
+    Off(String),
 }
 
 /// One failure the tree gave the index: its text, and the root-relative path it names when that path is in the tree.
@@ -127,6 +136,31 @@ impl Served {
             elapsed: started.elapsed(),
         })
     }
+
+    /// Starts following the index's tree.
+    pub(crate) fn watcher(&self) -> Result<Watcher, String> {
+        Watcher::new(self.read()?.engine.index()).map_err(|error| error.to_string())
+    }
+
+    /// Watches through `watcher` each directory the index holds that it does not watch yet, and names them.
+    pub(crate) fn cover(&self, watcher: &mut Watcher) -> Result<Changes, String> {
+        watcher
+            .cover(self.read()?.engine.index())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Records that the index no longer follows its tree, and why.
+    pub(crate) fn unwatch(&self, reason: String) {
+        self.indexed
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .watch = Watch::Off(reason);
+    }
+
+    /// Whether an `index_repo` replaced this index, so nothing refreshes it again.
+    pub(crate) fn is_replaced(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
 }
 
 /// The error a query answers once a refresh panicked while it held the index.
@@ -186,10 +220,11 @@ pub(crate) struct GraphRow {
 pub(crate) type Outcome = Result<Arc<Served>, String>;
 
 /// Where the server keeps its one repository: nothing yet, a build under way, the engine it built, or why it failed.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Slot {
     state: Mutex<State>,
     builds: AtomicU64,
+    watch: bool,
 }
 
 #[derive(Debug, Default)]
@@ -223,6 +258,15 @@ pub(crate) enum Status {
 }
 
 impl Slot {
+    /// A slot with nothing indexed, whose every built index follows its tree when `watch` is set.
+    pub(crate) fn new(watch: bool) -> Self {
+        Self {
+            state: Mutex::default(),
+            builds: AtomicU64::default(),
+            watch,
+        }
+    }
+
     /// Starts building `request` on a blocking thread and returns where its outcome arrives.
     ///
     /// A build of the same request already under way is joined rather than started again. A build of another one is
@@ -274,8 +318,29 @@ impl Slot {
             if let Some(replaced) = replaced {
                 release(replaced);
             }
-            let built = build(&request, &options, &cancel).map(Arc::new);
-            slot.finish(id, &request, &built);
+            let watch = if slot.watch {
+                Watch::Following
+            } else {
+                Watch::Off("turned off in the server configuration".to_owned())
+            };
+            let built = build(&request, &options, &cancel, watch).map(Arc::new);
+            let watcher = built
+                .as_ref()
+                .ok()
+                .filter(|_| slot.watch)
+                .and_then(|served| {
+                    crate::watch::start(served)
+                        .map_err(|reason| served.unwatch(reason))
+                        .ok()
+                });
+            let ready = slot.finish(id, &request, &built);
+            match (&built, watcher) {
+                (Ok(served), _) if !ready => {
+                    served.unwatch("a later index_repo replaced this index".to_owned());
+                }
+                (Ok(served), Some(watcher)) => crate::watch::follow(served, watcher),
+                _ => {}
+            }
             sender.send_replace(Some(built));
         });
         outcome
@@ -312,10 +377,11 @@ impl Slot {
         }
     }
 
-    fn finish(&self, id: u64, request: &Request, outcome: &Outcome) {
+    /// Settles the slot on the outcome of build `id`, unless a later build replaced it, and answers whether it did.
+    fn finish(&self, id: u64, request: &Request, outcome: &Outcome) -> bool {
         let mut state = self.lock();
         if !matches!(&*state, State::Building(running) if running.id == id) {
-            return;
+            return false;
         }
         *state = match outcome {
             Ok(served) => State::Ready(Arc::clone(served)),
@@ -324,6 +390,7 @@ impl Slot {
                 error: error.clone(),
             },
         };
+        true
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -346,6 +413,7 @@ fn build(
     request: &Request,
     options: &BuildOptions,
     cancel: &CancelToken,
+    watch: Watch,
 ) -> Result<Served, String> {
     let languages =
         kartta_languages::select(&request.languages).map_err(|error| error.to_string())?;
@@ -369,6 +437,7 @@ fn build(
             gitignore: !request.index_ignored,
             engine: outcome.into_engine(),
             errors,
+            watch,
         }),
         cancel: cancel.clone(),
     })
@@ -466,6 +535,73 @@ mod tests {
         );
 
         assert_eq!(texts(&failures), ["b unread"]);
+    }
+
+    #[test]
+    fn a_rebuild_releases_the_watched_index_before_it_builds_its_own() {
+        let first = tempfile::tempdir().unwrap();
+        std::fs::write(first.path().join("a.go"), "package a\n\nfunc A() {}\n").unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let _entered = runtime.enter();
+        let slot = Arc::new(Slot::new(true));
+        let options = crate::Config::default().build_options(false);
+        let request = |root: &Path| Request {
+            root: root.to_owned(),
+            languages: vec!["go"],
+            index_ignored: false,
+        };
+
+        let mut built = slot.start(request(first.path()), options.clone());
+        let watched = Arc::downgrade(
+            &runtime
+                .block_on(built.wait_for(Option::is_some))
+                .unwrap()
+                .clone()
+                .unwrap()
+                .unwrap(),
+        );
+        drop(built);
+        std::fs::write(first.path().join("b.go"), "package a\n\nfunc B() {}\n").unwrap();
+        let mut rebuilt = slot.start(request(second.path()), options);
+        drop(runtime.block_on(rebuilt.wait_for(Option::is_some)).unwrap());
+
+        assert!(
+            watched.upgrade().is_none(),
+            "the first index outlived the rebuild"
+        );
+    }
+
+    #[test]
+    fn the_watch_follows_a_directory_made_between_the_build_and_its_start() {
+        let tree = tempfile::tempdir().unwrap();
+        std::fs::write(tree.path().join("a.go"), "package a\n\nfunc A() {}\n").unwrap();
+        let request = Request {
+            root: tree.path().to_owned(),
+            languages: vec!["go"],
+            index_ignored: false,
+        };
+        let options = crate::Config::default().build_options(false);
+        let served = build(&request, &options, &CancelToken::new(), Watch::Following).unwrap();
+        std::fs::create_dir(tree.path().join("late")).unwrap();
+        std::fs::write(tree.path().join("late/b.go"), "package late\n").unwrap();
+
+        let mut watcher = crate::watch::start(&served).unwrap();
+        std::fs::write(
+            tree.path().join("late/b.go"),
+            "package late\n\nfunc B() {}\n",
+        )
+        .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut seen = Vec::new();
+        while Instant::now() < deadline && !seen.iter().any(|path| path == "late/b.go") {
+            let changes = watcher.wait(Duration::from_millis(500)).unwrap();
+            seen.extend(changes.paths().map(str::to_owned));
+        }
+        assert!(seen.iter().any(|path| path == "late/b.go"), "{seen:?}");
     }
 
     #[test]

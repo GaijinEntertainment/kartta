@@ -123,7 +123,7 @@ impl Server {
     #[must_use]
     pub fn with_config(config: Config) -> Self {
         Self {
-            slot: Arc::default(),
+            slot: Arc::new(Slot::new(config.watch)),
             config: Arc::new(config),
             catalog: Arc::new(Catalog::new()),
             tool_router: Self::tool_router(),
@@ -259,8 +259,10 @@ impl Server {
                        claimed files are binary or unreadable - each absent when it is zero. Use it to recall which \
                        languages are present (the valid 'languages' values for the symbol tools), to gauge how much \
                        code each language has, to tell a genuinely empty answer from missing coverage, or to check \
-                       whether a repository is indexed at all. While a build runs it answers status=\"building\" \
-                       with the seconds so far. Returns the same <index> envelope index_repo produced. With \
+                       whether a repository is indexed at all. watch=\"following\" means the index takes in by itself \
+                       each edit the operating system reports; watch=\"off: <reason>\" means answers stay as the index \
+                       last read the tree until refresh runs. While a build runs it answers status=\"building\" with \
+                       the seconds so far. Returns the same <index> envelope index_repo produced. With \
                        coverage=true it also resolves every call site and adds one <coverage/> record per language: \
                        sites, bound (split into certain / likely / guess, the confidence marks of the call tools), \
                        edges (distinct caller-callee pairs), and why the other sites bound no definition, each only \
@@ -290,15 +292,16 @@ impl Server {
     }
 
     #[tool(
-        description = "Bring the index up to date after files changed on disk - every other tool answers from the \
-                       tree as the index last read it. Pass the repo-relative 'paths' that changed, or omit them to \
-                       check the whole tree. Returns a <refresh> envelope: walked= the parts walked again (\"tree\" \
-                       for all), then each only when it is not zero - added and removed files, extracted (files \
-                       parsed again), resolved_again (other files whose calls or includes bind anew), dropped (files \
-                       no graph holds now), reconfigured (languages whose go.mod or tsconfig.json changed), \
-                       rebuilt=true, and widened= with limit= when more paths were named than it walks apart, so it \
-                       walked the tree; elapsed_ms; and <errors> for what it could not read. Requires index_repo \
-                       first."
+        description = "Bring the index up to date after files changed on disk. While index_stats shows \
+                       watch=\"following\" the index does this by itself; call refresh when it shows watch off, or \
+                       after a change made where notifications do not reach, such as a network mount or a container \
+                       bind mount. Pass the repo-relative 'paths' that changed, or omit them to check the whole tree. \
+                       Returns a <refresh> envelope: walked= the parts walked again (\"tree\" for all), then each \
+                       only when it is not zero - added and removed files, extracted (files parsed again), \
+                       resolved_again (other files whose calls or includes bind anew), dropped (files no graph holds \
+                       now), reconfigured (languages whose go.mod or tsconfig.json changed), rebuilt=true, and \
+                       widened= with limit= when more paths were named than it walks apart, so it walked the tree; \
+                       elapsed_ms; and <errors> for what it could not read. Requires index_repo first."
     )]
     async fn refresh(&self, Parameters(p): Parameters<RefreshParams>) -> Result<String, String> {
         if let Some(path) = p.paths.iter().find(|path| path.starts_with('/')) {
@@ -1230,7 +1233,7 @@ impl ServerHandler for Server {
              find_unused; which files import this file -> \
              find_importers; how risky is this diff hunk or edit -> impact_of_edit; what does a whole diff of \
              several hunks reach -> impact_of_change; what languages and how much \
-             code -> index_stats; files changed since the index read them -> refresh.",
+             code -> index_stats; files changed while index_stats shows watch off -> refresh.",
         );
         info.server_info = Implementation::new("kartta-mcp", env!("CARGO_PKG_VERSION"));
         info

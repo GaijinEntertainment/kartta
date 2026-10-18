@@ -11,9 +11,13 @@ kartta-mcp [ROOT]
 `KARTTA_ROOT`, starts that build at launch; until it finishes, `index_stats` answers that it is building and every other
 query answers an error saying so. One repository is indexed per process, and indexing another replaces it.
 
-`refresh` brings the index up to the tree after files changed, at the paths it is given or across the whole tree, and
-reads again only what changed: every build keeps the change time of each file it read. A query waits for a refresh
-under way.
+A built index follows its tree through the operating system's change notifications, refreshes itself from each change,
+and refreshes the whole tree once when it starts, for the changes made while it was built. `index_stats` says
+`watch="following"`, or `watch="off: <reason>"` when `KARTTA_WATCH` turned it off, the inotify watch limit is too low
+for the tree's directories, the notifications stopped, or the platform has none. `refresh` brings the index up to the
+tree at the paths it is given or across the whole tree, for a watch that is off or a change made where notifications
+do not reach, such as a network mount or a container bind mount. Either reads again only what changed: every build
+keeps the change time of each file it read. A query waits for a refresh under way.
 
 An answer is an XML-like envelope written for a model: one root element named for the question, counts as attributes,
 one record per line, and an attribute such as `truncated="true"` only where it applies. The path searches answer plain
@@ -27,5 +31,6 @@ attribute value is. An answer that a cap, a depth limit or a filter cut says how
 | `KARTTA_GREP_INDEX` | `memory`, `file` or `mmap`: build a trigram index that narrows `grep` |
 | `KARTTA_GREP_INDEX_DIR` | where a `file` or `mmap` trigram index lives; the temporary directory by default |
 | `KARTTA_THREADS` | how many threads builds and queries run on; every core by default |
+| `KARTTA_WATCH` | `off`, `0`, `false` or `no`: take in edits only through `refresh`; the tree is followed by default |
 
 stdout carries protocol frames alone, and every diagnostic goes to stderr.

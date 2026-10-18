@@ -1,4 +1,5 @@
-//! The index following edits to its tree: the `refresh` tool, over the whole tree and at named paths.
+//! The index following edits to its tree: the watch that takes each edit in by itself, and the `refresh` tool, over
+//! the whole tree and at named paths.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and an integration test crate is built \
@@ -14,10 +15,15 @@ mod common;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use common::{Client, go_module};
+use common::{Client, go_module, rooted, tree};
+
+/// How long a test waits for the watch to take an edit in, or for a rebuild to answer.
+const PATIENCE: Duration = Duration::from_secs(20);
 
 /// Appends a function named `name` to the Go file at `path` under `root`.
 fn add_function(root: &Path, path: &str, name: &str) {
@@ -35,12 +41,36 @@ fn defines(client: &mut Client, name: &str) -> bool {
 }
 
 #[test]
-fn a_refresh_of_the_tree_takes_in_an_edit_and_counts_it() {
+fn a_watched_index_takes_in_an_edit_by_itself() {
     let tree = go_module();
     let mut client = Client::start(&[]);
-    client.index(tree.path());
+    let indexed = client.index(tree.path());
+
+    for name in ["Added", "AddedOnceTheWatchRuns"] {
+        add_function(tree.path(), "pkg/service.go", name);
+        let deadline = Instant::now() + PATIENCE;
+        while !defines(&mut client, name) {
+            assert!(
+                Instant::now() < deadline,
+                "the watch did not take {name} in"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    assert!(indexed.contains(" watch=\"following\" "), "{indexed}");
+}
+
+#[test]
+fn an_unwatched_index_takes_in_an_edit_only_through_a_refresh_of_the_tree() {
+    let tree = go_module();
+    let mut client = Client::unwatched(&[]);
+    let indexed = client.index(tree.path());
     add_function(tree.path(), "pkg/service.go", "Added");
 
+    assert!(
+        indexed.contains(" watch=\"off: turned off in the server configuration\" "),
+        "{indexed}"
+    );
     assert!(
         !defines(&mut client, "Added"),
         "an edit is not seen before a refresh"
@@ -55,7 +85,7 @@ fn a_refresh_of_the_tree_takes_in_an_edit_and_counts_it() {
 #[test]
 fn a_refresh_of_named_paths_walks_those_alone() {
     let tree = go_module();
-    let mut client = Client::start(&[]);
+    let mut client = Client::unwatched(&[]);
     client.index(tree.path());
     add_function(tree.path(), "pkg/service.go", "Added");
 
@@ -74,7 +104,7 @@ fn a_refresh_of_named_paths_walks_those_alone() {
 #[test]
 fn a_refresh_that_finds_no_change_says_so() {
     let tree = go_module();
-    let mut client = Client::start(&[]);
+    let mut client = Client::unwatched(&[]);
     client.index(tree.path());
 
     let answer = client.answer("refresh", &json!({"paths": ["README.md"]}));
@@ -88,7 +118,7 @@ fn a_refresh_that_finds_no_change_says_so() {
 #[test]
 fn a_refresh_names_the_fix_for_an_absolute_path_and_a_missing_index() {
     let tree = go_module();
-    let mut client = Client::start(&[]);
+    let mut client = Client::unwatched(&[]);
 
     let unindexed = client.call("refresh", &json!({}));
     client.index(tree.path());
@@ -102,4 +132,32 @@ fn a_refresh_names_the_fix_for_an_absolute_path_and_a_missing_index() {
         absolute.is_error && absolute.text.contains("relative to the repository root"),
         "{absolute:?}"
     );
+}
+
+#[test]
+fn indexing_another_root_while_the_first_is_watched_answers_for_the_second() {
+    let first = go_module();
+    let second = tree(&[("lib/only.go", "package lib\n\nfunc Only() {}\n")]);
+    let mut client = Client::start(&[]);
+    client.index(first.path());
+    for at in 0..20 {
+        add_function(first.path(), "pkg/service.go", &format!("Edit{at}"));
+    }
+
+    let (answered, answer) = mpsc::channel();
+    let root = second.path().to_owned();
+    std::thread::spawn(move || {
+        let indexed = client.index(&root);
+        let found = client.answer("find_files", &json!({"pattern": "go"}));
+        let _ = answered.send((indexed, found));
+    });
+    let (indexed, found) = answer
+        .recv_timeout(PATIENCE)
+        .expect("the rebuild answers while the first index is watched");
+
+    assert!(
+        rooted(&indexed, second.path()).starts_with("<index root=\"<root>\" files=\"1\""),
+        "{indexed}"
+    );
+    assert_eq!(found, "lib/only.go");
 }

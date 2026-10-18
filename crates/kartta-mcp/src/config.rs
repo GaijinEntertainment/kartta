@@ -4,10 +4,12 @@ use std::path::PathBuf;
 use kartta::BuildOptions;
 use kartta_fs::{ContentIndexStorage, IgnoreSources};
 
-/// What every build the server runs takes besides its root and its languages.
+/// What every build the server runs takes besides its root and its languages, and whether the server follows the tree
+/// it built.
 ///
-/// Each field defaults to the engine's own default: no shared cache, no content index, and the ambient thread pool.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Each build field defaults to the engine's own default: no shared cache, no content index, and the ambient thread
+/// pool. [`Config::watch`] defaults to following the tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Config {
     /// The [`kartta_cache`](https://crates.io/crates/kartta-cache) directory builds share per-file data through, as
@@ -18,6 +20,21 @@ pub struct Config {
     pub content_index: Option<ContentIndexStorage>,
     /// How many threads a build and every query run on, as [`BuildOptions::threads`] takes it.
     pub threads: Option<NonZeroUsize>,
+    /// Whether a built index follows its tree through the operating system's change notifications, as a
+    /// [`kartta_fs::Watcher`] reports them, and refreshes itself from each change. Without it, the `refresh` tool
+    /// alone takes a change in.
+    pub watch: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            content_cache: None,
+            content_index: None,
+            threads: None,
+            watch: true,
+        }
+    }
 }
 
 impl Config {
@@ -30,6 +47,7 @@ impl Config {
     /// | `KARTTA_GREP_INDEX` | [`Config::content_index`]: `memory`, `file` or `mmap`, in any case; empty builds none |
     /// | `KARTTA_GREP_INDEX_DIR` | where a `file` or `mmap` index lives; empty or unset is the temporary directory |
     /// | `KARTTA_THREADS` | [`Config::threads`]: a positive count |
+    /// | `KARTTA_WATCH` | [`Config::watch`]: `off`, `0`, `false` or `no`, in any case, turns it off |
     #[must_use]
     pub fn from_env() -> (Self, Vec<String>) {
         Self::from_vars(|name| std::env::var(name).ok())
@@ -69,10 +87,23 @@ impl Config {
             }
             count
         });
+        let watch = var("KARTTA_WATCH").is_none_or(|raw| {
+            match raw.trim().to_ascii_lowercase().as_str() {
+                "off" | "0" | "false" | "no" => false,
+                "" | "on" | "1" | "true" | "yes" => true,
+                _ => {
+                    warnings.push(format!(
+                        "KARTTA_WATCH={raw:?} is none of off, 0, false, no, on, 1, true and yes; following the tree"
+                    ));
+                    true
+                }
+            }
+        });
         let config = Self {
             content_cache,
             content_index,
             threads,
+            watch,
         };
         (config, warnings)
     }
@@ -141,6 +172,39 @@ mod tests {
         assert_eq!(warnings.len(), 2, "{warnings:?}");
         assert!(warnings[0].contains("KARTTA_GREP_INDEX=\"disk\""));
         assert!(warnings[1].contains("KARTTA_THREADS=\"0\""));
+    }
+
+    #[test]
+    fn kartta_watch_turns_the_watch_off_by_any_of_its_four_words() {
+        for off in ["off", "0", "FALSE", " No "] {
+            assert_eq!(
+                read(&[("KARTTA_WATCH", off)]),
+                (
+                    Config {
+                        watch: false,
+                        ..Config::default()
+                    },
+                    Vec::new()
+                ),
+                "{off:?}"
+            );
+        }
+        for on in ["on", "1", "True", "yes", ""] {
+            assert_eq!(
+                read(&[("KARTTA_WATCH", on)]),
+                (Config::default(), Vec::new()),
+                "{on:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_kartta_watch_warns_and_follows_the_tree() {
+        let (config, warnings) = read(&[("KARTTA_WATCH", "sometimes")]);
+
+        assert!(config.watch);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("KARTTA_WATCH=\"sometimes\""));
     }
 
     #[test]
