@@ -125,7 +125,7 @@ test("close right after a build through call cancels it too", async (t: TestCont
 });
 
 test("a build through call takes an id of the handle's, so an abort stops another", async (t: TestContext) => {
-  const kartta = open(t);
+  const kartta = open(t, 3000);
   const controller = new AbortController();
 
   const untyped = kartta.call("build", { id: 2 });
@@ -133,7 +133,7 @@ test("a build through call takes an id of the handle's, so an abort stops anothe
   controller.abort();
 
   await t.assert.rejects(typed, { name: "KarttaError", code: "build_cancelled" });
-  t.assert.partialDeepStrictEqual(await untyped, { entries: 1 });
+  t.assert.partialDeepStrictEqual(await untyped, { entries: 3000 });
 });
 
 test("cancel with no id stops the build in flight", async (t: TestContext) => {
