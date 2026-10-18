@@ -83,7 +83,7 @@ impl<'g> Cascade<'g> {
     pub(crate) fn new(graph: &'g Graph) -> Self {
         Self {
             graph,
-            conventions: graph.conventions(),
+            conventions: graph.conventions,
             star: graph.strings.get("*"),
             bindings: RefCell::default(),
             candidates: RefCell::default(),

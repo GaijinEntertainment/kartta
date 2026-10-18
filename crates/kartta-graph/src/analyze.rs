@@ -124,8 +124,6 @@ pub struct SegmentSymbol<'g> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Segment<'g> {
-    /// The root-relative path of the file.
-    pub file: &'g str,
     /// The one-based lines asked about.
     pub lines: RangeInclusive<u32>,
     /// The symbols whose lines overlap them, ordered by the line each starts on, one that encloses others before them.
@@ -173,7 +171,6 @@ impl Graph {
             .collect();
         let mut sources: Vec<u32> = self.includers_of(slot).collect();
         Some(Segment {
-            file: self.strings.resolve(file.path),
             lines,
             symbols,
             includes: self.paths_in_order(&mut targets),
