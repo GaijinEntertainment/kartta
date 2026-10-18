@@ -41,12 +41,11 @@ stays a property of each term against the candidate rather than of the candidate
 whitespace separates its terms and is not content a candidate has to contain. Query `a a` therefore ranks `a`, which
 both terms match in full, above `a a`.
 
-What counts as a full match follows `Config::case`: under `Ignore` it is equality up to case, under `Respect` only
-character-for-character equality, and under `Smart` it is whichever of those the query selects — case-insensitive while
-the query is all lowercase, case-sensitive once it carries a capital. That guarantee survives reconfiguration because
-the score it takes is derived from the active weights rather than declared as a constant, and each component of that
-derivation is clamped to zero or above, so no set of weights — including one that is entirely negative — inverts the
-two.
+Matching ignores case, so a full match is equality up to case. Folding is ASCII-first rather than full Unicode folding:
+U+212A KELVIN SIGN does not match `k`, while a pair of non-ASCII characters compares by Unicode lowercase. The full-match
+guarantee survives reconfiguration because the score it takes is derived from the active weights rather than declared as
+a constant, and each component of that derivation is clamped to zero or above, so no set of weights — including one that
+is entirely negative — inverts the two.
 
 Three guarantees hold for every configuration, and only these three: a candidate every term matches in full ranks first,
 a candidate missing a term never matches, and no weight makes a score overflow. Everything else the model produces — a
@@ -58,10 +57,9 @@ which the tests pin, and not of any point in the space.
 Every weight and every policy is a field of `Config`. Start from `Config::DEFAULT` and adjust what you need:
 
 ```rust
-use kartta_fuzz::{CaseMatching, Config, Matcher};
+use kartta_fuzz::{Config, Matcher};
 
 let mut config = Config::DEFAULT;
-config.case = CaseMatching::Smart;        // a capital in the query narrows it
 config.scoring.candidate_start = 500;     // reward matches at the very start
 
 let mut matcher = Matcher::new(config);

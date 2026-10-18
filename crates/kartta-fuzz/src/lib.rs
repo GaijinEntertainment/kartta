@@ -27,10 +27,16 @@
 //!
 //! Every weight and every policy is a field of [`Config`]. The shipped [`Config::DEFAULT`] is the tuned point in that
 //! space and the one the behaviour tests pin; other points are guaranteed only by the invariants that hold across all
-//! of them, and only those — a candidate every term matches in full always ranks first (what counts as full follows
-//! [`Config::case`], and "in full" is per term, not against the whole query), a candidate missing a term never
-//! matches, and no weight overflows a score. Replacing
+//! of them, and only those — a candidate every term matches in full always ranks first ("in full" is per term, not
+//! against the whole query), a candidate missing a term never matches, and no weight overflows a score. Replacing
 //! [`Config::segment_separators`] is what turns the scorer into something other than a path matcher.
+//!
+//! # Case
+//!
+//! Matching ignores case, and so does a full match. Folding is ASCII-first, not full Unicode folding: a non-ASCII
+//! character whose fold lands on ASCII (U+212A KELVIN SIGN against `k`, U+017F LATIN SMALL LETTER LONG S against `s`)
+//! compares unequal to its ASCII counterpart, while a pair of non-ASCII characters compares by Unicode lowercase.
+//! Repository paths are ASCII-dominant and the comparison sits in the per-candidate scan, so the trade is deliberate.
 //!
 //! # Examples
 //!
@@ -66,5 +72,5 @@ mod config;
 mod matcher;
 mod score;
 
-pub use crate::config::{CaseMatching, Config, Scoring};
+pub use crate::config::{Config, Scoring};
 pub use crate::matcher::{Match, Matcher, Ranked, Ranking};
