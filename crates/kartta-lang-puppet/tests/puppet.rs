@@ -1,4 +1,5 @@
-//! What a Puppet manifest extracts to, and how its class references resolve against the repository.
+//! What a Puppet manifest extracts to, how its class references resolve against the repository, and where the doc
+//! comment above a definition starts.
 #![expect(
     clippy::panic,
     reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
@@ -561,4 +562,29 @@ fn the_fingerprint_names_the_crate_and_is_computed_once() {
 
     assert!(one.fingerprint().starts_with(b"kartta-lang-puppet "));
     assert!(std::ptr::eq(one.fingerprint(), other.fingerprint()));
+}
+
+const DOCUMENTED: &str = "# Installs nginx.
+# Twice.
+class nginx {
+}
+
+/*
+ * Configures a site.
+ */
+define nginx::site() {
+}
+";
+
+fn doc_line(name: &str) -> u32 {
+    let lines: Vec<&[u8]> = DOCUMENTED.lines().map(str::as_bytes).collect();
+    let raw = extract(DOCUMENTED.as_bytes());
+    let line = raw.symbols[id_of(&raw, name).0 as usize].line;
+    Puppet::new().doc_comments().first_line(&lines, line)
+}
+
+#[test]
+fn hash_and_block_comments_above_a_class_or_a_define_document_it() {
+    assert_eq!(doc_line("nginx"), 1);
+    assert_eq!(doc_line("nginx::site"), 6);
 }

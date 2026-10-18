@@ -1,4 +1,4 @@
-//! What one daslang file extracts to from its bytes alone.
+//! What one daslang file extracts to from its bytes alone, and where the doc comment above a definition starts.
 #![expect(
     clippy::panic,
     reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
@@ -762,4 +762,31 @@ fn a_def_an_annotation_registers_is_an_entry_point_and_a_compile_hint_registers_
     let entries = ["on_update", "tuned", "plain"].map(|name| named(&raw, name).flags.is_entry());
 
     assert_eq!(entries, [true, false, false]);
+}
+
+const DOCUMENTED: &str = "options gen2
+
+// Parses.
+// Fails on nothing.
+[export]
+def parse() {
+  return
+}
+
+/* Renders. */
+def render() {
+  return
+}
+";
+
+fn doc_line(name: &str) -> u32 {
+    let lines: Vec<&[u8]> = DOCUMENTED.lines().map(str::as_bytes).collect();
+    let line = named(&extract(DOCUMENTED), name).line;
+    Daslang::new().doc_comments().first_line(&lines, line)
+}
+
+#[test]
+fn the_comments_above_a_function_and_its_annotation_document_it() {
+    assert_eq!(doc_line("parse"), 3);
+    assert_eq!(doc_line("render"), 10);
 }

@@ -1,5 +1,5 @@
 //! What a Bash file extracts to from its bytes alone: its symbols, the calls its functions make, and the directives
-//! its `source` commands leave for the resolver.
+//! its `source` commands leave for the resolver; and where the doc comment above a definition starts.
 #![expect(
     clippy::panic,
     reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
@@ -307,4 +307,27 @@ fn the_fingerprint_names_the_crate_and_stays_put() {
 
     assert!(first.starts_with(b"kartta-lang-bash "));
     assert_eq!(Bash::new().fingerprint(), first.as_slice());
+}
+
+const DOCUMENTED: &str = "set -e
+
+# Parses.
+# Fails on nothing.
+parse() {
+  :
+}
+echo done
+after() { :; }
+";
+
+fn doc_line(name: &str) -> u32 {
+    let lines: Vec<&[u8]> = DOCUMENTED.lines().map(str::as_bytes).collect();
+    let line = named(&extract(DOCUMENTED.as_bytes()), name).line;
+    Bash::new().doc_comments().first_line(&lines, line)
+}
+
+#[test]
+fn hash_comments_directly_above_a_function_document_it() {
+    assert_eq!(doc_line("parse"), 3);
+    assert_eq!(doc_line("after"), 9);
 }
