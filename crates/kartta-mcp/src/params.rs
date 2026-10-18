@@ -143,6 +143,37 @@ pub(crate) struct FindCallersParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct FindCalleesParams {
+    /// The symbol whose callees to trace. A qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol
+    /// of that name; a name qualified by its owner ("Service.Greet") picks the callable it names; a bare name ("New")
+    /// picks the unique match. Where several share the name - a bare name, or overloads of one qualified name - the
+    /// most-called candidate is picked, and the answer counts the others in passed_over; check the match's loc.
+    pub(crate) name: String,
+    /// Optional language filter (multiselect). Omit to trace in every indexed language - a name resolving in several
+    /// graphs yields one match per language; narrow to the language the symbol is defined in when you know it, e.g.
+    /// ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
+    /// listing the accepted set. A valid name absent from this repo contributes no match. An empty list selects no
+    /// language, so the answer is empty. Null is equivalent to omission.
+    #[serde(default)]
+    pub(crate) languages: Option<Vec<String>>,
+    /// Callee-hop limit from 1 through 4294967295: 1 = direct callees only. Omitted or null uses the default 1. Each
+    /// hop multiplies the answer, so raise it only to follow a short chain. unexpanded= on a match counts the callees
+    /// at the limit whose own callees were not followed.
+    #[serde(default)]
+    #[schemars(range(max = u32::MAX))]
+    pub(crate) hops: Option<NonZeroU32>,
+    /// Drop call edges the resolver is less sure about than this floor. "any" (the default) keeps every edge
+    /// including name-only guesses. Null is rejected; omit the argument to use "any". "likely" keeps edges backed by
+    /// module structure (same package, include, unique name, same directory) and better; "certain" keeps only
+    /// structurally resolved edges (qualified, receiver, import, or same-file matches). Weak edges in answers are
+    /// marked with the same vocabulary (confidence="likely"/"guess" on <ref/> records), and below_confidence= on a
+    /// match counts the callees the floor dropped.
+    #[serde(default)]
+    pub(crate) min_confidence: ConfidenceFloor,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct GlobFilesParams {
     /// Glob patterns; a path matching ANY of them is listed, e.g. ["**/*.go", "src/**/*.ts"]. A glob without "/"
     /// matches across directories ("*.go" matches at any depth). REQUIRED and non-empty - to enumerate the whole tree,

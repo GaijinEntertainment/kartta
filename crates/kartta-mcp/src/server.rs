@@ -15,9 +15,10 @@ use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use crate::config::Config;
 use crate::languages::{Catalog, echo};
 use crate::params::{
-    CallerRole, FileParams, FindCallPathParams, FindCallersParams, FindFilesParams,
-    FindImplementationsParams, FindReferencesParams, FindSymbolsParams, GlobFilesParams,
-    GrepParams, ImpactOfEditParams, IndexRepoParams, ListDirParams, ReadDefinitionsParams,
+    CallerRole, FileParams, FindCallPathParams, FindCalleesParams, FindCallersParams,
+    FindFilesParams, FindImplementationsParams, FindReferencesParams, FindSymbolsParams,
+    GlobFilesParams, GrepParams, ImpactOfEditParams, IndexRepoParams, ListDirParams,
+    ReadDefinitionsParams,
 };
 use crate::render::{
     self, CallersAsk, Found, Globbed, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion,
@@ -84,8 +85,11 @@ const IMPACT_MAX_SYMBOLS: usize = 500;
 /// How many hops `find_callers` walks when the call names none.
 const CALLER_HOPS: u32 = 3;
 
-/// How many symbols a walk over callers reaches before it stops, the symbol it starts from included.
+/// How many symbols a walk over callers or callees reaches before it stops, the symbol it starts from included.
 const CALLERS_MAX_SYMBOLS: usize = 500;
+
+/// How many hops `find_callees` walks when the call names none: a body's callees fan out at every hop.
+const CALLEE_HOPS: u32 = 1;
 
 /// The MCP server: the tools, over the one repository it indexes.
 #[derive(Clone)]
@@ -985,6 +989,63 @@ impl Server {
         })
         .await
     }
+
+    #[tool(
+        description = "Trace what a symbol calls: walks the call graph forward from the named function or method, the \
+                       forward half of find_callers. Answers \"what does X depend on, what runs when it runs?\" \
+                       without reading its body and every body it calls. Searches every indexed language unless \
+                       narrowed with 'languages'; a name resolving in several languages yields one match per language. \
+                       Returns a \
+                       <callees> envelope of <match lang=..> records: each the resolved symbol with its loc and the \
+                       callee count within the hops limit (default 1, direct callees only), and flat <ref hops=N> \
+                       records nearest first carrying the callee's loc, an explicit role= (\"consumer\", or \
+                       test/entry/generated), confidence=likely / guess on a weakly resolved call, and, on a direct \
+                       callee, at= for the line of the call. A <match> also counts what the walk left out, each only \
+                       when it is not zero: unresolved= the calls in the bodies walked that bound no definition the \
+                       graph holds (a library, a builtin, or a name the resolver could not tell apart - read the body \
+                       for those), passed_over= the other symbols the name selects, unexpanded= the callees whose own \
+                       callees were not followed, at the hops limit or left when the node cap stopped the walk, \
+                       below_confidence= the callees the floor dropped, and turned_away= with truncated=true when the \
+                       node cap (500) stopped the walk. A call \
+                       through a function value, an interface or a virtual method binds only where the graph can name \
+                       its target, so a callee missing here can still run. An unknown name answers with up to 5 close \
+                       alternatives (did you mean). Requires index_repo first."
+    )]
+    async fn find_callees(
+        &self,
+        Parameters(p): Parameters<FindCalleesParams>,
+    ) -> Result<String, String> {
+        self.catalog.check(p.languages.as_deref())?;
+        let catalog = Arc::clone(&self.catalog);
+        self.answer(move |indexed| {
+            let floor = p.min_confidence.floor();
+            let limits = Limits::new(p.hops.map_or(CALLEE_HOPS, NonZeroU32::get))
+                .with_min_confidence(floor)
+                .with_max_symbols(CALLERS_MAX_SYMBOLS);
+            let searched = selected(indexed, &catalog, p.languages.as_deref());
+            let walks: Vec<_> = searched
+                .iter()
+                .filter_map(|&(family, graph)| {
+                    graph.callees(&p.name, limits).map(|walk| (family, walk))
+                })
+                .collect();
+            let suggestions = if walks.is_empty() {
+                let families: Vec<&str> = searched.iter().map(|&(family, _)| family).collect();
+                suggestions(indexed, &families, &p.name)
+            } else {
+                Vec::new()
+            };
+            let languages = echo(p.languages.as_deref());
+            let ask = CallersAsk {
+                name: &p.name,
+                languages: &languages,
+                role: None,
+                floored: floor != 0,
+            };
+            Ok(render::callees(&ask, &walks, &suggestions))
+        })
+        .await
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -996,12 +1057,13 @@ impl ServerHandler for Server {
     fn get_info(&self) -> ServerConfig {
         let mut info = ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
             "kartta answers structural questions about a code repository: where symbols are defined, who calls \
-             them, where they are used, what implements an interface, which files import a file, and what an edit \
-             would break. Call index_repo with the absolute repository root FIRST - it builds the index in seconds \
-             and every other tool errors until then (a root given to the server at launch is already building, and \
-             index_stats says when it is ready); one repository is indexed at a time. The index holds a separate \
-             code graph per language; the symbol tools (find_symbols, read_definitions, find_callers, \
-             find_references, find_call_path, find_implementations) search every indexed language by default and \
+             them and what they call, where they are used, what implements an interface, which files import a file, \
+             and what an edit would break. Call index_repo with the absolute repository root FIRST - it builds the \
+             index in seconds and every other tool errors until then (a root given to the server at launch is \
+             already building, and index_stats says when it is ready); one repository is indexed at a time. The \
+             index holds a separate code graph per language; the symbol tools (find_symbols, read_definitions, \
+             find_callers, find_callees, find_references, find_call_path, find_implementations) search every \
+             indexed language by default and \
              take an optional 'languages' multiselect to narrow - the names are in the index_repo / index_stats \
              answer - and cross-language links (e.g. FFI) are not traced. The file tools (find_files, glob_files, \
              grep, list_dir, find_importers, file_outline, impact_of_edit) span all languages and take \
@@ -1010,7 +1072,8 @@ impl ServerHandler for Server {
              files matching a glob -> glob_files; see what one directory contains -> list_dir; find lines of text \
              by regex / quote the exact code -> grep; where is X defined -> find_symbols; where in this known file \
              is X -> file_outline; read the source of X, Y, Z -> read_definitions; who calls X / what breaks if I \
-             change it -> find_callers; where is X used -> find_references; does X reach Y through calls -> \
+             change it -> find_callers; what does X call -> find_callees; where is X used -> find_references; does \
+             X reach Y through calls -> \
              find_call_path; what implements X -> find_implementations; which files import this file -> \
              find_importers; how risky is this diff hunk or edit -> impact_of_edit; what languages and how much \
              code -> index_stats.",
