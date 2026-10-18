@@ -174,6 +174,44 @@ pub(crate) struct FindCalleesParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct ChangedRegion {
+    /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
+    /// "pkg/service.go") - not absolute, not a bare filename.
+    pub(crate) file: String,
+    /// First changed line, 1-based inclusive - e.g. the first line of a diff hunk's + side. Omitted or null = 1.
+    #[serde(default)]
+    pub(crate) start_line: Option<NonZeroU32>,
+    /// Last changed line, 1-based inclusive. Omitted or null = the end of the file; a value before start_line is a
+    /// tool error.
+    #[serde(default)]
+    pub(crate) end_line: Option<NonZeroU32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ImpactOfChangeParams {
+    /// The changed line ranges, one per diff hunk, e.g. [{"file": "pkg/a.go", "start_line": 10, "end_line": 24},
+    /// {"file": "pkg/b.go"}]. A region naming only its file covers the whole file - a file the change adds or
+    /// rewrites. A symbol counts as changed when its definition overlaps a region at all. Pass regions, diff, or both.
+    #[serde(default)]
+    pub(crate) regions: Vec<ChangedRegion>,
+    /// A unified diff exactly as git diff prints it (git diff -U0 keeps it short), hunk bodies included: each hunk's
+    /// lines on its + side become a region of the file its +++ b/ header names, a hunk that only deletes covers the
+    /// line on each side of the deletion, and a deleted file (+++ /dev/null) is a whole-file region of its --- a/ path.
+    /// The + side is the tree with the change applied, so index that tree; a deleted file answers only while the index
+    /// still holds it. A path git writes quoted (a control or non-ASCII character) is not decoded and counts in
+    /// unheld_regions - pass that file as a region. A diff holding no hunk is a tool error, and so is a hunk that does
+    /// not read, the error naming its line.
+    #[serde(default)]
+    pub(crate) diff: Option<String>,
+    /// Positive cap on the changed symbols listed and, separately, on the hotspots listed. Omitted or null = 20. Zero
+    /// and negatives are rejected. The counts on the answer cover every one of them.
+    #[serde(default)]
+    pub(crate) limit: Option<NonZeroUsize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct GlobFilesParams {
     /// Glob patterns; a path matching ANY of them is listed, e.g. ["**/*.go", "src/**/*.ts"]. A glob without "/"
     /// matches across directories ("*.go" matches at any depth). REQUIRED and non-empty - to enumerate the whole tree,

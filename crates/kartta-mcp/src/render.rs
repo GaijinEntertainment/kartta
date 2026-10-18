@@ -9,7 +9,7 @@ use std::time::Duration;
 use kartta::{Definition, Hit, SymbolFlags, SymbolKind};
 
 pub(crate) use self::calls::{
-    CallersAsk, PathAsk, call_path, callees, callers, impact, references,
+    CallersAsk, PathAsk, call_path, callees, callers, change, impact, references,
 };
 pub(crate) use self::files::{Globbed, dir, globbed, grep, paths};
 pub(crate) use self::symbols::{
