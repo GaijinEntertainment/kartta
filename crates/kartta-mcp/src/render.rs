@@ -3,6 +3,7 @@
 mod calls;
 mod files;
 mod symbols;
+mod unused;
 
 use std::time::Duration;
 
@@ -15,6 +16,7 @@ pub(crate) use self::files::{Globbed, dir, globbed, grep, paths};
 pub(crate) use self::symbols::{
     Found, NameDefinitions, Read, definitions, hits, implementations, importers, outline,
 };
+pub(crate) use self::unused::{UnusedAsk, unused};
 use crate::llmxml::Element;
 use crate::state::Indexed;
 

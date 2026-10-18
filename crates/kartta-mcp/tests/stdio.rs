@@ -37,6 +37,7 @@ fn the_server_lists_its_tools() {
             "find_importers",
             "find_references",
             "find_symbols",
+            "find_unused",
             "glob_files",
             "grep",
             "impact_of_change",
