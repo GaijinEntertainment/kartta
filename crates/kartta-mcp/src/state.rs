@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 
 use kartta::{BuildError, BuildOptions, CancelToken, Engine};
@@ -24,9 +24,35 @@ pub(crate) struct Indexed {
     pub(crate) root: String,
     pub(crate) gitignore: bool,
     pub(crate) engine: Engine,
-    pub(crate) files: usize,
-    pub(crate) graphs: Vec<GraphRow>,
     pub(crate) errors: Vec<String>,
+}
+
+impl Indexed {
+    /// How many entries of the index are not directories.
+    pub(crate) fn files(&self) -> usize {
+        self.engine
+            .index()
+            .entries()
+            .filter(|entry| entry.kind() != EntryKind::Dir)
+            .count()
+    }
+
+    pub(crate) fn graphs(&self) -> Vec<GraphRow> {
+        graph_rows(&self.engine)
+    }
+}
+
+/// A built index as the server shares it: every query reads it under one lock.
+#[derive(Debug)]
+pub(crate) struct Served {
+    indexed: RwLock<Indexed>,
+}
+
+impl Served {
+    /// The index to answer from.
+    pub(crate) fn read(&self) -> RwLockReadGuard<'_, Indexed> {
+        self.indexed.read().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 /// What one family's graph holds, and how many of the files its languages claimed it does not hold.
@@ -42,7 +68,7 @@ pub(crate) struct GraphRow {
     pub(crate) unheld: usize,
 }
 
-pub(crate) type Outcome = Result<Arc<Indexed>, String>;
+pub(crate) type Outcome = Result<Arc<Served>, String>;
 
 /// Where the server keeps its one repository: nothing yet, a build under way, the engine it built, or why it failed.
 #[derive(Debug, Default)]
@@ -56,7 +82,7 @@ enum State {
     #[default]
     Empty,
     Building(Build),
-    Ready(Arc<Indexed>),
+    Ready(Arc<Served>),
     Failed {
         root: String,
         error: String,
@@ -77,7 +103,7 @@ struct Build {
 pub(crate) enum Status {
     Empty,
     Building { root: String, elapsed: Duration },
-    Ready(Arc<Indexed>),
+    Ready(Arc<Served>),
     Failed { root: String, error: String },
 }
 
@@ -123,7 +149,7 @@ impl Slot {
                     .ok()
                     .and_then(|outcome| outcome.clone())
                     .and_then(Result::ok),
-                State::Ready(indexed) => Some(indexed),
+                State::Ready(served) => Some(served),
                 State::Empty | State::Failed { .. } => None,
             };
             if let Some(replaced) = replaced {
@@ -137,9 +163,9 @@ impl Slot {
     }
 
     /// The engine to answer a query from, or the error that says why there is none.
-    pub(crate) fn current(&self) -> Result<Arc<Indexed>, String> {
+    pub(crate) fn current(&self) -> Result<Arc<Served>, String> {
         match self.status() {
-            Status::Ready(indexed) => Ok(indexed),
+            Status::Ready(served) => Ok(served),
             Status::Empty => Err("no repository indexed: call index_repo first".to_owned()),
             Status::Building { root, elapsed } => Err(format!(
                 "the index of {root} is still building ({}s so far) - index_stats answers once it is ready, and \
@@ -159,7 +185,7 @@ impl Slot {
                 root: build.request.root.display().to_string(),
                 elapsed: build.started.elapsed(),
             },
-            State::Ready(indexed) => Status::Ready(Arc::clone(indexed)),
+            State::Ready(served) => Status::Ready(Arc::clone(served)),
             State::Failed { root, error } => Status::Failed {
                 root: root.clone(),
                 error: error.clone(),
@@ -173,7 +199,7 @@ impl Slot {
             return;
         }
         *state = match outcome {
-            Ok(indexed) => State::Ready(Arc::clone(indexed)),
+            Ok(served) => State::Ready(Arc::clone(served)),
             Err(error) => State::Failed {
                 root: request.root.display().to_string(),
                 error: error.clone(),
@@ -186,12 +212,12 @@ impl Slot {
     }
 }
 
-/// Waits until nothing else holds `indexed`, then drops it: a query answering from it keeps it until it answers.
-fn release(mut indexed: Arc<Indexed>) {
+/// Waits until nothing else holds `served`, then drops it: a query answering from it keeps it until it answers.
+fn release(mut served: Arc<Served>) {
     loop {
-        match Arc::try_unwrap(indexed) {
+        match Arc::try_unwrap(served) {
             Ok(unshared) => return drop(unshared),
-            Err(shared) => indexed = shared,
+            Err(shared) => served = shared,
         }
         std::thread::sleep(RELEASE_POLL);
     }
@@ -201,7 +227,7 @@ fn build(
     request: &Request,
     options: &BuildOptions,
     cancel: &CancelToken,
-) -> Result<Indexed, String> {
+) -> Result<Served, String> {
     let languages =
         kartta_languages::select(&request.languages).map_err(|error| error.to_string())?;
     let outcome = Engine::build(&request.root, options, languages, Some(cancel)).map_err(
@@ -213,20 +239,13 @@ fn build(
         },
     )?;
     let errors = outcome.errors().iter().map(ToString::to_string).collect();
-    let engine = outcome.into_engine();
-    let files = engine
-        .index()
-        .entries()
-        .filter(|entry| entry.kind() != EntryKind::Dir)
-        .count();
-    let graphs = graph_rows(&engine);
-    Ok(Indexed {
-        root: request.root.display().to_string(),
-        gitignore: !request.index_ignored,
-        engine,
-        files,
-        graphs,
-        errors,
+    Ok(Served {
+        indexed: RwLock::new(Indexed {
+            root: request.root.display().to_string(),
+            gitignore: !request.index_ignored,
+            engine: outcome.into_engine(),
+            errors,
+        }),
     })
 }
 
