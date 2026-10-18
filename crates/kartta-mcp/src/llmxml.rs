@@ -75,19 +75,23 @@ impl Element {
         self
     }
 
+    /// Appends `key="value"` when there is a value.
+    pub(crate) fn optional(self, key: &str, value: Option<impl Display>) -> Self {
+        match value {
+            Some(value) => self.attr(key, value),
+            None => self,
+        }
+    }
+
     /// Appends `key="value"` when `value` is not zero: a count of what an answer left out is shown only when it left
     /// something out.
     pub(crate) fn count(self, key: &str, value: usize) -> Self {
-        if value == 0 {
-            self
-        } else {
-            self.attr(key, value)
-        }
+        self.optional(key, (value != 0).then_some(value))
     }
 
     /// Appends `key="true"` when `set`.
     pub(crate) fn flag(self, key: &str, set: bool) -> Self {
-        if set { self.attr(key, true) } else { self }
+        self.optional(key, set.then_some(true))
     }
 
     /// Renders `<tag attrs/>`.
@@ -165,15 +169,17 @@ mod tests {
     }
 
     #[test]
-    fn a_zero_count_and_an_unset_flag_render_nothing() {
+    fn a_zero_count_an_unset_flag_and_no_value_render_nothing() {
         let rendered = Element::new("x")
             .count("left", 0)
             .count("cut", 3)
             .flag("truncated", false)
             .flag("fuzzy", true)
+            .optional("owner", None::<&str>)
+            .optional("role", Some("test"))
             .close();
 
-        assert_eq!(rendered, r#"<x cut="3" fuzzy="true"/>"#);
+        assert_eq!(rendered, r#"<x cut="3" fuzzy="true" role="test"/>"#);
     }
 
     #[test]
