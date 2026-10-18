@@ -1,4 +1,5 @@
-//! What a Lua file extracts to, and how its module loads resolve against the repository.
+//! What a Lua file extracts to, how its module loads resolve against the repository, and where the doc comment above
+//! a definition starts.
 #![expect(
     clippy::panic,
     reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
@@ -656,4 +657,47 @@ fn the_fingerprint_names_the_crate_and_is_computed_once() {
 
     assert!(one.fingerprint().starts_with(b"kartta-lang-lua "));
     assert!(std::ptr::eq(one.fingerprint(), other.fingerprint()));
+}
+
+const DOCUMENTED: &str = "local t = {}
+
+--- Parses.
+-- Fails on nothing.
+function parse() end
+
+--[[
+Renders.
+]]
+function render() end
+local v = t[t[1]]
+function after() end
+
+--[==[
+Leveled, so ]] may stand inside.
+]==]
+function leveled() end
+
+--[===[
+The highest level read.
+]===]
+function highest() end
+";
+
+fn doc_line(name: &str) -> u32 {
+    let lines: Vec<&[u8]> = DOCUMENTED.lines().map(str::as_bytes).collect();
+    let line = symbol(&extract(DOCUMENTED.as_bytes()).symbols, name).line;
+    Lua::new().doc_comments().first_line(&lines, line)
+}
+
+#[test]
+fn line_comments_and_a_long_comment_above_a_function_document_it() {
+    assert_eq!(doc_line("parse"), 3);
+    assert_eq!(doc_line("render"), 7);
+    assert_eq!(doc_line("leveled"), 14);
+    assert_eq!(doc_line("highest"), 19);
+}
+
+#[test]
+fn code_that_ends_with_the_long_comment_s_closer_documents_nothing() {
+    assert_eq!(doc_line("after"), 12);
 }

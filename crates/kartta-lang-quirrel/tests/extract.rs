@@ -1,4 +1,4 @@
-//! What one Quirrel file extracts to from its bytes alone.
+//! What one Quirrel file extracts to from its bytes alone, and where the doc comment above a definition starts.
 #![expect(
     clippy::panic,
     reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
@@ -882,4 +882,25 @@ fn a_lambda_binds_in_every_function_value_context() {
         [("C", SymbolKind::Class), ("C.m", SymbolKind::Method)]
     );
     assert_eq!(caller_of(&class, "act"), id_of(&class, "C.m"));
+}
+
+const DOCUMENTED: &str = "let x = 1
+// Parses.
+# Fails on nothing.
+function parse() {}
+
+/* Renders. */
+function render() {}
+";
+
+fn doc_line(name: &str) -> u32 {
+    let lines: Vec<&[u8]> = DOCUMENTED.lines().map(str::as_bytes).collect();
+    let line = named(&extract(DOCUMENTED), name).line;
+    Quirrel::new().doc_comments().first_line(&lines, line)
+}
+
+#[test]
+fn every_comment_form_above_a_function_documents_it() {
+    assert_eq!(doc_line("parse"), 2);
+    assert_eq!(doc_line("render"), 6);
 }

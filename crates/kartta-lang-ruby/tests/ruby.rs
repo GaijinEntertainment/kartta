@@ -1,4 +1,5 @@
-//! What a Ruby file extracts to, and how its requires resolve against the repository.
+//! What a Ruby file extracts to, how its requires resolve against the repository, and where the doc comment above a
+//! definition starts.
 #![expect(
     clippy::panic,
     reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
@@ -884,4 +885,30 @@ fn the_fingerprint_names_the_crate_and_is_computed_once() {
 
     assert!(one.fingerprint().starts_with(b"kartta-lang-ruby "));
     assert!(std::ptr::eq(one.fingerprint(), other.fingerprint()));
+}
+
+const DOCUMENTED: &str = "require 'json'
+
+# Parses.
+def parse
+end
+
+=begin
+Renders.
+#=end
+=end
+def render
+end
+";
+
+fn doc_line(name: &str) -> u32 {
+    let lines: Vec<&[u8]> = DOCUMENTED.lines().map(str::as_bytes).collect();
+    let line = symbol(&extract(DOCUMENTED.as_bytes()).symbols, name).line;
+    Ruby::new().doc_comments().first_line(&lines, line)
+}
+
+#[test]
+fn hash_comments_and_an_embedded_document_above_a_method_document_it() {
+    assert_eq!(doc_line("parse"), 3);
+    assert_eq!(doc_line("render"), 7);
 }
