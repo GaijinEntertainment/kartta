@@ -1,9 +1,9 @@
-use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use kartta_lang::RawExtraction;
 use kartta_lang::path::base;
-use tree_sitter::{Language, Parser, Tree};
+use kartta_lang::tree::parse;
+use tree_sitter::Language;
 
 use crate::walk;
 
@@ -38,21 +38,8 @@ impl Flavor {
     }
 
     pub(crate) fn extract(self, source: &[u8]) -> RawExtraction {
-        (self.parse(source)).map_or_else(RawExtraction::default, |tree| walk::walk(&tree, source))
-    }
-
-    fn parse(self, source: &[u8]) -> Option<Tree> {
-        thread_local! {
-            static PARSERS: RefCell<[Option<Parser>; 3]> = const { RefCell::new([None, None, None]) };
-        }
-
-        PARSERS.with_borrow_mut(|parsers| {
-            let slot = &mut parsers[self as usize];
-            if slot.is_none() {
-                *slot = self.parser();
-            }
-            slot.as_mut()?.parse(source, None)
-        })
+        parse(&self.grammar(), source)
+            .map_or_else(RawExtraction::default, |tree| walk::walk(&tree, source))
     }
 
     pub(crate) fn fingerprint(self) -> &'static [u8] {
@@ -61,12 +48,6 @@ impl Flavor {
         FINGERPRINTS[self as usize].get_or_init(|| {
             kartta_lang::tree::fingerprint(env!("SOURCE_ID"), &self.grammar(), self.node_types())
         })
-    }
-
-    fn parser(self) -> Option<Parser> {
-        let mut parser = Parser::new();
-        parser.set_language(&self.grammar()).ok()?;
-        Some(parser)
     }
 
     fn grammar(self) -> Language {
