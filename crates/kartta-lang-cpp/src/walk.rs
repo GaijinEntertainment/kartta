@@ -179,8 +179,7 @@ impl<'s, 't> Replayer<'s, 't> {
                     });
                 }
             }
-            "call_expression" => self.record_call(node),
-            "new_expression" => self.record_construction(node),
+            "call_expression" | "new_expression" => self.record_call(node),
             "preproc_include" => {
                 if let Some((spec, form)) = include_spec(node, self.source) {
                     let line = line(node.start_position().row);
@@ -413,7 +412,14 @@ impl<'s, 't> Replayer<'s, 't> {
         if self.raw.symbols.is_empty() {
             return;
         }
-        let Some((callee, receiver)) = call_target(node, self.source) else {
+        let target = if node.kind() == "new_expression" {
+            node.child_by_field_name("type")
+                .map(|constructed| (type_base_name(constructed, self.source), None))
+                .filter(|(callee, _)| is_simple_identifier(callee))
+        } else {
+            call_target(node, self.source)
+        };
+        let Some((callee, receiver)) = target else {
             return;
         };
         if receiver.is_none() && self.is_template_parameter(&callee) {
@@ -424,26 +430,6 @@ impl<'s, 't> Replayer<'s, 't> {
             caller_id: self.caller(),
             callee,
             receiver,
-            line: line(node.start_position().row),
-        });
-    }
-
-    fn record_construction(&mut self, node: Node<'_>) {
-        if self.raw.symbols.is_empty() {
-            return;
-        }
-        let Some(type_node) = node.child_by_field_name("type") else {
-            return;
-        };
-        let callee = type_base_name(type_node, self.source);
-        if !is_simple_identifier(&callee) || self.is_template_parameter(&callee) {
-            return;
-        }
-
-        self.raw.calls.push(CallRef {
-            caller_id: self.caller(),
-            callee,
-            receiver: None,
             line: line(node.start_position().row),
         });
     }
