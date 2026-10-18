@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::hash::Hash;
 use std::sync::OnceLock;
 
 use foldhash::fast::FixedState;
@@ -229,10 +230,9 @@ impl Graph {
             .enumerate()
             .collect();
         let total = found.len();
-        if limit < total {
-            found.select_nth_unstable_by_key(limit, rank_key);
-            found.truncate(limit);
-        }
+        keep_first(&mut found, limit, |left, right| {
+            rank_key(left).cmp(&rank_key(right))
+        });
         found.sort_unstable_by_key(rank_key);
 
         Definitions {
@@ -242,7 +242,7 @@ impl Graph {
     }
 
     pub(crate) fn selected<'a>(&'a self, name: &'a str) -> impl Iterator<Item = SymbolAt> + 'a {
-        let last = name.rsplit(QUALIFIER_SEPARATORS).next().unwrap_or(name);
+        let last = last_segment(name);
         let qualified = last != name;
         let at_separator =
             |head: Option<&str>| head.is_some_and(|head| head.ends_with(QUALIFIER_SEPARATORS));
@@ -267,7 +267,7 @@ impl Graph {
     }
 
     pub(crate) fn named(&self, name: Str) -> &[SymbolAt] {
-        self.by_name.get(&name).map_or(&[], Vec::as_slice)
+        listed(&self.by_name, &name)
     }
 
     pub(crate) fn in_file<'a>(&self, named: &'a [SymbolAt], slot: u32) -> &'a [SymbolAt] {
@@ -302,11 +302,7 @@ impl Graph {
     }
 
     pub(crate) fn site_key(&self, name: Str) -> Option<Str> {
-        let written = self.strings.resolve(name);
-        match written.rsplit(QUALIFIER_SEPARATORS).next() {
-            Some(last) if !last.is_empty() && last.len() < written.len() => self.strings.get(last),
-            _ => Some(name),
-        }
+        qualified_tail(self.strings.resolve(name)).map_or(Some(name), |last| self.strings.get(last))
     }
 
     pub(crate) fn uses(&self, name: Str) -> impl Iterator<Item = UseAt> + '_ {
@@ -326,17 +322,15 @@ impl Graph {
     }
 
     pub(crate) fn occurrences(&self, key: Str) -> &[Occurrence] {
-        self.callables.get(&key).map_or(&[], Vec::as_slice)
+        listed(&self.callables, &key)
     }
 
     pub(crate) fn package_files(&self, dir: Str) -> &[u32] {
-        self.package_files.get(&dir).map_or(&[], Vec::as_slice)
+        listed(&self.package_files, &dir)
     }
 
     pub(crate) fn renamed_from(&self, source_name: Str) -> &[Rename] {
-        self.renamed_from
-            .get(&source_name)
-            .map_or(&[], Vec::as_slice)
+        listed(&self.renamed_from, &source_name)
     }
 
     pub(crate) fn slot_of(&self, path: Str) -> Option<u32> {
@@ -344,7 +338,7 @@ impl Graph {
     }
 
     pub(crate) fn parenting_files(&self, name: Str) -> &[u32] {
-        self.parented.get(&name).map_or(&[], Vec::as_slice)
+        listed(&self.parented, &name)
     }
 
     pub(crate) fn is_spelled(&self, name: Str) -> bool {
@@ -356,9 +350,7 @@ impl Graph {
     }
 
     pub(crate) fn named_at_file_scope(&self, key: Str) -> &[u32] {
-        self.named_at_file_scope
-            .get(&key)
-            .map_or(&[], Vec::as_slice)
+        listed(&self.named_at_file_scope, &key)
     }
 
     pub(crate) fn file_slots(&self) -> impl Iterator<Item = u32> + '_ {
@@ -386,6 +378,17 @@ impl Graph {
 
     pub(crate) fn sym(&self, at: SymbolAt) -> &StoredSymbol {
         &self.file(at.file).symbols[at.index as usize]
+    }
+
+    pub(crate) fn qualifier(&self, at: SymbolAt) -> Option<&str> {
+        let symbol = self.sym(at);
+        self.strings
+            .resolve(symbol.qualified_name)
+            .strip_suffix(self.strings.resolve(symbol.name))
+    }
+
+    pub(crate) fn enclosing_scope(&self, at: SymbolAt, separator: &str) -> Option<&str> {
+        self.qualifier(at)?.strip_suffix(separator)
     }
 
     pub(crate) fn path_rank(&self, slot: u32) -> u64 {
@@ -433,10 +436,7 @@ impl Graph {
             let Some(includers) = self.included_by.get(&path) else {
                 continue;
             };
-            let test_includers = self
-                .test_included_by
-                .get(&path)
-                .map_or(&[][..], Vec::as_slice);
+            let test_includers = listed(&self.test_included_by, &path);
             let in_tests_only = includers
                 .iter()
                 .all(|includer| test_includers.contains(includer) || modules.contains(includer));
@@ -635,9 +635,7 @@ impl Graph {
                 keys.push(self.strings.intern(&site.name));
             }
         }
-        keys.sort_unstable();
-        keys.dedup();
-        keys.into_boxed_slice()
+        distinct(keys).into_boxed_slice()
     }
 
     // constraint: a stored use keeps its site in the bits its marks leave, so a use inside a definition past the
@@ -667,15 +665,12 @@ impl Graph {
     }
 
     fn store_includes(&mut self, path: Str, extraction: &Extraction) -> Box<[Str]> {
-        let mut includes: Vec<Str> = extraction
+        let includes = extraction
             .includes
             .iter()
             .map(|include| self.strings.intern(&include.target))
-            .filter(|&target| target != path)
-            .collect();
-        includes.sort_unstable();
-        includes.dedup();
-        includes.into_boxed_slice()
+            .filter(|&target| target != path);
+        distinct(includes).into_boxed_slice()
     }
 
     fn store_re_exports(&mut self, extraction: &Extraction) -> Box<[StoredReExport]> {
@@ -761,15 +756,7 @@ impl Graph {
         for (key, occurrence) in callables {
             self.callables.entry(key).or_default().push(occurrence);
         }
-        let mut used: Vec<Str> = self
-            .file(slot)
-            .references
-            .iter()
-            .map(|site| site.name)
-            .collect();
-        used.sort_unstable();
-        used.dedup();
-        for name in used {
+        for name in distinct(self.file(slot).references.iter().map(|site| site.name)) {
             self.uses.entry(name).or_default().push(slot);
         }
         for (source_name, rename) in renames {
@@ -803,25 +790,14 @@ impl Graph {
 
     fn site_keys_of(&mut self, slot: u32) -> Vec<Str> {
         let file = self.file(slot);
-        let mut callees: Vec<Str> = file
-            .calls
-            .iter()
-            .map(|call| call.callee)
-            .chain(
+        let callees = distinct(
+            file.calls.iter().map(|call| call.callee).chain(
                 file.local_calls
                     .iter()
                     .map(|call| file.symbols[call.local as usize].name),
-            )
-            .collect();
-        callees.sort_unstable();
-        callees.dedup();
-        let mut keys: Vec<Str> = callees
-            .into_iter()
-            .map(|callee| self.listing_key(callee))
-            .collect();
-        keys.sort_unstable();
-        keys.dedup();
-        keys
+            ),
+        );
+        distinct(callees.into_iter().map(|callee| self.listing_key(callee)))
     }
 
     fn parent_keys_of(&mut self, slot: u32) -> Vec<Str> {
@@ -838,16 +814,12 @@ impl Graph {
             let iface = self.file(slot).assertions[at].iface;
             keys.push(self.listing_key(iface));
         }
-        keys.sort_unstable();
-        keys.dedup();
-        keys
+        distinct(keys)
     }
 
     fn listing_key(&mut self, written: Str) -> Str {
-        let text = self.strings.resolve(written);
-        let last = match text.rsplit(QUALIFIER_SEPARATORS).next() {
-            Some(last) if !last.is_empty() && last.len() < text.len() => last,
-            _ => return written,
+        let Some(last) = qualified_tail(self.strings.resolve(written)) else {
+            return written;
         };
         if let Some(key) = self.strings.get(last) {
             return key;
@@ -892,19 +864,13 @@ impl Graph {
             unlist(&mut self.parented, key, |&held| held != slot);
         }
 
-        let mut names: Vec<Str> = file.symbols.iter().map(|symbol| symbol.name).collect();
-        names.sort_unstable();
-        names.dedup();
-        for name in names {
+        for name in distinct(file.symbols.iter().map(|symbol| symbol.name)) {
             unlist(&mut self.by_name, name, |at| at.file != slot);
         }
         for key in site_keys {
             unlist(&mut self.sites, key, |&held| held != slot);
         }
-        let mut used: Vec<Str> = file.references.iter().map(|site| site.name).collect();
-        used.sort_unstable();
-        used.dedup();
-        for name in used {
+        for name in distinct(file.references.iter().map(|site| site.name)) {
             unlist(&mut self.uses, name, |&held| held != slot);
         }
         for callable in &file.callables {
@@ -927,6 +893,59 @@ impl Graph {
         }
         self.symbols -= file.symbols.len();
     }
+}
+
+pub(crate) fn listed<'a, K: Eq + Hash, T>(
+    index: &'a HashMap<K, Vec<T>, FixedState>,
+    key: &K,
+) -> &'a [T] {
+    index.get(key).map_or(&[], Vec::as_slice)
+}
+
+pub(crate) fn distinct<T: Ord>(items: impl IntoIterator<Item = T>) -> Vec<T> {
+    let mut items: Vec<T> = items.into_iter().collect();
+    items.sort_unstable();
+    items.dedup();
+    items
+}
+
+pub(crate) fn agree<K: Eq + Hash, V: PartialEq>(
+    held: &mut HashMap<K, Option<V>, FixedState>,
+    key: K,
+    value: Option<V>,
+) {
+    held.entry(key)
+        .and_modify(|one| {
+            if *one != value {
+                *one = None;
+            }
+        })
+        .or_insert(value);
+}
+
+pub(crate) fn keep_first<T>(
+    items: &mut Vec<T>,
+    limit: usize,
+    mut order: impl FnMut(&T, &T) -> Ordering,
+) {
+    if limit < items.len() {
+        if let Some(last) = limit.checked_sub(1) {
+            items.select_nth_unstable_by(last, &mut order);
+        }
+        items.truncate(limit);
+    }
+}
+
+pub(crate) fn last_segment(written: &str) -> &str {
+    written
+        .rsplit(QUALIFIER_SEPARATORS)
+        .next()
+        .unwrap_or(written)
+}
+
+fn qualified_tail(written: &str) -> Option<&str> {
+    let last = last_segment(written);
+    (!last.is_empty() && last.len() < written.len()).then_some(last)
 }
 
 fn unlist<T>(index: &mut HashMap<Str, Vec<T>, FixedState>, key: Str, keep: impl FnMut(&T) -> bool) {

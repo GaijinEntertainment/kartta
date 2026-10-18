@@ -1,6 +1,6 @@
 use kartta_lang::{Receivers, SymbolKind};
 
-use crate::resolve::{Call, Cascade, derived, is_type_kind};
+use crate::resolve::{Cascade, derived, is_type_kind};
 use crate::stored::{SymbolAt, VALUE_TYPE_SEPARATOR};
 use crate::strings::Str;
 
@@ -66,23 +66,16 @@ impl<'g> Cascade<'g> {
         self.conventions.receivers == Receivers::TypePaths
     }
 
-    pub(crate) fn typed_member(&self, call: &Call, receiver: Str) -> Typed {
-        match self.receiver_type(call.file, receiver) {
-            Value::Type(ty) => self.method_of(ty, call.callee),
-            Value::Imported => Typed::Imported,
-            Value::Undeclared => Typed::Undeclared,
-            Value::Package(_) | Value::Callable(_) | Value::Container { .. } | Value::Unknown => {
-                Typed::Unknown
-            }
-        }
-    }
-
-    // constraint: a member taken without a call is a field or a method value, so every member kind binds
-    pub(crate) fn typed_use(&self, file: u32, path: Str, name: Str) -> Typed {
+    pub(crate) fn typed_member(
+        &self,
+        (file, path): (u32, Str),
+        name: Str,
+        binds: impl Fn(SymbolKind) -> bool,
+    ) -> Typed {
         match self.receiver_type(file, path) {
             Value::Type(ty) => match self.member(ty, name, 0) {
-                Found::Member(at) => Typed::Member(at),
-                Found::Nothing => Typed::NoMethod,
+                Found::Member(at) if binds(self.graph.sym(at).kind) => Typed::Member(at),
+                Found::Member(_) | Found::Nothing => Typed::NoMethod,
                 Found::Outside => Typed::Imported,
                 Found::Unknown => Typed::Unknown,
             },
@@ -292,15 +285,6 @@ impl<'g> Cascade<'g> {
             self.embed(&mut walk, next, depth);
         }
         Value::Unknown
-    }
-
-    fn method_of(&self, ty: SymbolAt, name: Str) -> Typed {
-        match self.member(ty, name, 0) {
-            Found::Member(at) if self.is_call_target(self.graph.sym(at).kind) => Typed::Member(at),
-            Found::Member(_) | Found::Nothing => Typed::NoMethod,
-            Found::Outside => Typed::Imported,
-            Found::Unknown => Typed::Unknown,
-        }
     }
 
     // constraint: an embedded type's members are promoted, the shallowest first, and a member of a type that the graph

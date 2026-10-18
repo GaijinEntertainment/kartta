@@ -6,7 +6,7 @@ use kartta_lang::{CallsOnValues, InheritedMembers, MemberCalls, SymbolKind};
 
 use crate::candidates::Candidates;
 use crate::confidence;
-use crate::graph::QUALIFIER_SEPARATORS;
+use crate::graph::{agree, distinct, last_segment};
 use crate::resolve::{Bound, Call, Cascade, derived, derives};
 use crate::stored::SymbolAt;
 use crate::strings::Str;
@@ -63,17 +63,6 @@ impl Ancestors {
             pending.extend(ups.filter(|&up| walked.insert(up)));
         }
         false
-    }
-
-    fn reach_qualified(&mut self, base: Str, qualified: Option<Str>) {
-        self.qualified_per_base
-            .entry(base)
-            .and_modify(|one| {
-                if *one != qualified {
-                    *one = None;
-                }
-            })
-            .or_insert(qualified);
     }
 }
 
@@ -249,13 +238,12 @@ impl Cascade<'_> {
         {
             return None;
         }
-        let mut declaring: Vec<Str> = named
-            .iter()
-            .filter(|&&at| self.declares_inherited(up, at))
-            .filter_map(|&at| self.owner(at))
-            .collect();
-        declaring.sort_unstable();
-        declaring.dedup();
+        let declaring = distinct(
+            named
+                .iter()
+                .filter(|&&at| self.declares_inherited(up, at))
+                .filter_map(|&at| self.owner(at)),
+        );
         let mut nearest = declaring.iter().copied().filter(|&owner| {
             declaring
                 .iter()
@@ -348,12 +336,8 @@ impl Cascade<'_> {
     }
 
     fn member_separator(&self, at: SymbolAt) -> Option<&str> {
-        let symbol = self.graph.sym(at);
-        let strings = &self.graph.strings;
-        strings
-            .resolve(symbol.qualified_name)
-            .strip_suffix(strings.resolve(symbol.name))?
-            .strip_prefix(strings.resolve(symbol.owner?))
+        let owner = self.graph.strings.resolve(self.owner(at)?);
+        self.graph.qualifier(at)?.strip_prefix(owner)
     }
 
     fn declares_inherited(&self, up: &Ancestors, at: SymbolAt) -> bool {
@@ -430,17 +414,9 @@ impl Cascade<'_> {
 
     pub(crate) fn base_owner(&self, child: SymbolAt, written: &str) -> Option<Str> {
         let Some(separator) = self.conventions.owner_chain_separator else {
-            return self
-                .graph
-                .strings
-                .get(written.rsplit(QUALIFIER_SEPARATORS).next()?);
+            return self.graph.strings.get(last_segment(written));
         };
-        let symbol = self.graph.sym(child);
-        let strings = &self.graph.strings;
-        let enclosing = strings
-            .resolve(symbol.qualified_name)
-            .strip_suffix(strings.resolve(symbol.name))
-            .and_then(|chain| chain.strip_suffix(separator));
+        let enclosing = self.graph.enclosing_scope(child, separator);
         let (mut scope, name) = written
             .strip_prefix(separator)
             .map_or((enclosing, written), |rooted| (None, rooted));
@@ -477,9 +453,18 @@ impl Cascade<'_> {
         if types.is_empty() {
             return types;
         }
+        let distance = self.distance_from(file);
+        let nearest = types.iter().map(|&at| distance(at)).min();
+        types
+            .into_iter()
+            .filter(|&at| Some(distance(at)) == nearest)
+            .collect()
+    }
+
+    pub(crate) fn distance_from(&self, file: u32) -> impl Fn(SymbolAt) -> u8 + '_ {
         let included = self.closure(file);
         let dir = self.graph.file(file).dir;
-        let scope = |at: SymbolAt| {
+        move |at| {
             if at.file == file {
                 0
             } else if included.binary_search(&at.file).is_ok() {
@@ -489,12 +474,7 @@ impl Cascade<'_> {
             } else {
                 3
             }
-        };
-        let nearest = types.iter().map(|&at| scope(at)).min();
-        types
-            .into_iter()
-            .filter(|&at| Some(scope(at)) == nearest)
-            .collect()
+        }
     }
 
     fn located_base_types(&self, base: DeclaredBase, child: SymbolAt) -> Vec<SymbolAt> {
@@ -515,11 +495,7 @@ impl Cascade<'_> {
         let Some(separator) = self.conventions.scope_separator else {
             return self.located_types(base.owner, child.file, |_| true);
         };
-        let symbol = self.graph.sym(child);
-        let mut scope = strings
-            .resolve(symbol.qualified_name)
-            .strip_suffix(strings.resolve(symbol.name))
-            .and_then(|chain| chain.strip_suffix(separator));
+        let mut scope = self.graph.enclosing_scope(child, separator);
         while let Some(at) = scope {
             let found = qualified_as(&format!("{at}{separator}{written}"));
             if !found.is_empty() {
@@ -611,7 +587,11 @@ impl Cascade<'_> {
                 .insert(base.owner);
             for &at in &located_others {
                 walk.found.homes.insert((base.owner, self.home(at)));
-                walk.found.reach_qualified(base.owner, Some(qualified(at)));
+                agree(
+                    &mut walk.found.qualified_per_base,
+                    base.owner,
+                    Some(qualified(at)),
+                );
             }
         }
         let walked = &mut walk.walked;
@@ -639,7 +619,7 @@ impl Cascade<'_> {
             union.owners.extend(&up.owners);
             union.homes.extend(&up.homes);
             for (&base, &qualified) in &up.qualified_per_base {
-                union.reach_qualified(base, qualified);
+                agree(&mut union.qualified_per_base, base, qualified);
             }
         }
         union
