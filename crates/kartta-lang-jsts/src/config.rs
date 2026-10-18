@@ -3,6 +3,13 @@ use std::cmp::Reverse;
 use kartta_lang::Repository;
 use kartta_lang::path::{base, dir};
 
+pub(crate) type Aliases = Vec<(String, Vec<String>)>;
+
+pub(crate) struct ScopedAliases {
+    pub(crate) dir: String,
+    pub(crate) aliases: Aliases,
+}
+
 // constraint: Node's `exports` and `imports` and TypeScript's `paths` all take an exact key before a pattern, and of
 // two patterns the one with the longer prefix before its `*`, so patterns are tried in that order
 pub(crate) fn by_specificity(patterns: &mut [(String, Vec<String>)]) {
