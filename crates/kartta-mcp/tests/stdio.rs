@@ -45,7 +45,8 @@ fn the_server_lists_its_tools() {
             "index_repo",
             "index_stats",
             "list_dir",
-            "read_definitions"
+            "read_definitions",
+            "refresh"
         ]
     );
 }

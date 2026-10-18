@@ -19,7 +19,7 @@ use crate::params::{
     CallerRole, FileParams, FindCallPathParams, FindCalleesParams, FindCallersParams,
     FindFilesParams, FindImplementationsParams, FindReferencesParams, FindSymbolsParams,
     FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams, ImpactOfEditParams,
-    IndexRepoParams, IndexStatsParams, ListDirParams, ReadDefinitionsParams,
+    IndexRepoParams, IndexStatsParams, ListDirParams, ReadDefinitionsParams, RefreshParams,
 };
 use crate::render::{
     self, CallersAsk, Found, Globbed, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion,
@@ -159,7 +159,7 @@ where
     F: FnOnce(&Indexed) -> Result<String, String> + Send + 'static,
 {
     tokio::task::spawn_blocking(move || {
-        let indexed = served.read();
+        let indexed = served.read()?;
         indexed.engine.index().on_threads(|| answer(&indexed))
     })
     .await
@@ -287,6 +287,35 @@ impl Server {
             Ok(render::index(indexed, &coverage))
         })
         .await
+    }
+
+    #[tool(
+        description = "Bring the index up to date after files changed on disk - every other tool answers from the \
+                       tree as the index last read it. Pass the repo-relative 'paths' that changed, or omit them to \
+                       check the whole tree. Returns a <refresh> envelope: walked= the parts walked again (\"tree\" \
+                       for all), then each only when it is not zero - added and removed files, extracted (files \
+                       parsed again), resolved_again (other files whose calls or includes bind anew), dropped (files \
+                       no graph holds now), reconfigured (languages whose go.mod or tsconfig.json changed), \
+                       rebuilt=true, and widened= with limit= when more paths were named than it walks apart, so it \
+                       walked the tree; elapsed_ms; and <errors> for what it could not read. Requires index_repo \
+                       first."
+    )]
+    async fn refresh(&self, Parameters(p): Parameters<RefreshParams>) -> Result<String, String> {
+        if let Some(path) = p.paths.iter().find(|path| path.starts_with('/')) {
+            return Err(format!(
+                "{path:?} is absolute - pass paths relative to the repository root, as find_files prints them"
+            ));
+        }
+        let served = self.slot.current()?;
+        tokio::task::spawn_blocking(move || {
+            served
+                .refresh(p.paths.iter().map(String::as_str))
+                .map(|refreshed| render::refresh(&refreshed))
+        })
+        .await
+        .map_err(|error| {
+            format!("the refresh stopped before it answered: {error} - call index_repo to build the index again")
+        })?
     }
 
     #[tool(
@@ -420,8 +449,8 @@ impl Server {
                        ruled_out= the files the content index, built from their content as index_repo read it, \
                        shows hold no match, and symlinks= the links \
                        selected, which are never read through. The \
-                       answer reads each file as it is now, but the set of files is the checkout as index_repo saw \
-                       it: a file added since is missing from it until index_repo runs again. For symbol definitions \
+                       answer reads each file as it is now, but the set of files is the tree as the index last read \
+                       it: a file added since is missing from it until a refresh. For symbol definitions \
                        use find_symbols, for call sites find_callers - grep finds text, not structure. Requires \
                        index_repo first."
     )]
@@ -642,8 +671,8 @@ impl Server {
                        or generated code. scope is same-directory (beside 'from'), vendored, or other; it ranks by \
                        location and does not resolve which definition a given call binds to. The body is the file \
                        text from the doc block directly above the definition through its last line, each line \
-                       numbered, at most 500 lines with each line cut at 1024 bytes. loc is the span at index_repo \
-                       time and the body is read at call time, so a file edited since answers its new text at the \
+                       numbered, at most 500 lines with each line cut at 1024 bytes. loc is the span the index last \
+                       read and the body is read at call time, so a file edited since answers its new text at the \
                        old span, and resized=true marks a file whose size changed since. truncated=true marks a body \
                        cut before the span ends, or missing because the file no longer reaches the span; a definition \
                        whose file could not be read has no body, carries error= with the reason and its sig when one \
@@ -1201,7 +1230,7 @@ impl ServerHandler for Server {
              find_unused; which files import this file -> \
              find_importers; how risky is this diff hunk or edit -> impact_of_edit; what does a whole diff of \
              several hunks reach -> impact_of_change; what languages and how much \
-             code -> index_stats.",
+             code -> index_stats; files changed since the index read them -> refresh.",
         );
         info.server_info = Implementation::new("kartta-mcp", env!("CARGO_PKG_VERSION"));
         info

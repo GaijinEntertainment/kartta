@@ -11,6 +11,10 @@ kartta-mcp [ROOT]
 `KARTTA_ROOT`, starts that build at launch; until it finishes, `index_stats` answers that it is building and every other
 query answers an error saying so. One repository is indexed per process, and indexing another replaces it.
 
+`refresh` brings the index up to the tree after files changed, at the paths it is given or across the whole tree, and
+reads again only what changed: every build keeps the change time of each file it read. A query waits for a refresh
+under way.
+
 An answer is an XML-like envelope written for a model: one root element named for the question, counts as attributes,
 one record per line, and an attribute such as `truncated="true"` only where it applies. The path searches answer plain
 paths instead, one per line; a path holding a control character, or opening with a quote, is quoted and escaped as an

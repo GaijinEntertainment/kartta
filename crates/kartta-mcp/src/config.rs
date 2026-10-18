@@ -79,6 +79,7 @@ impl Config {
 
     pub(crate) fn build_options(&self, index_ignored: bool) -> BuildOptions {
         let mut options = BuildOptions::default();
+        options.stamps = true;
         options.ignore_sources = if index_ignored {
             IgnoreSources::None
         } else {
@@ -140,6 +141,11 @@ mod tests {
         assert_eq!(warnings.len(), 2, "{warnings:?}");
         assert!(warnings[0].contains("KARTTA_GREP_INDEX=\"disk\""));
         assert!(warnings[1].contains("KARTTA_THREADS=\"0\""));
+    }
+
+    #[test]
+    fn every_build_keeps_what_a_refresh_reads_only_the_changes_by() {
+        assert!(Config::default().build_options(false).stamps);
     }
 
     #[test]

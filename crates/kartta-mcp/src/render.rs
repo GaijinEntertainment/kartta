@@ -5,6 +5,7 @@ mod files;
 mod symbols;
 mod unused;
 
+use std::fmt::Display;
 use std::time::Duration;
 
 use kartta::{Definition, Hit, Resolution, SymbolFlags, SymbolKind};
@@ -18,7 +19,7 @@ pub(crate) use self::symbols::{
 };
 pub(crate) use self::unused::{UnusedAsk, unused};
 use crate::llmxml::Element;
-use crate::state::Indexed;
+use crate::state::{Indexed, Refreshed};
 
 /// How an answer echoes an empty `languages` filter.
 pub(crate) const EMPTY_LANGUAGES: &str = "[]";
@@ -184,20 +185,10 @@ pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> S
             .count("unheld", row.unheld)
             .close()
     });
-    let errors = (!indexed.errors.is_empty()).then(|| {
-        let mut listed: Vec<String> = indexed
-            .errors
-            .iter()
-            .take(LISTED_ERRORS)
-            .map(|error| crate::llmxml::line(error).into_owned())
-            .collect();
-        if indexed.errors.len() > LISTED_ERRORS {
-            listed.push(format!("(+{} more)", indexed.errors.len() - LISTED_ERRORS));
-        }
-        Element::new("errors")
-            .attr("count", indexed.errors.len())
-            .wrap(&listed.join("\n"))
-    });
+    let errors = failures(
+        indexed.errors.len(),
+        indexed.errors.iter().map(|failure| &failure.text),
+    );
     element.children(
         languages
             .chain(
@@ -208,6 +199,69 @@ pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> S
             )
             .chain(errors),
     )
+}
+
+/// The `<errors>` block of `count` failures: the first few `failed` yields, and a count of the rest, or `None` when
+/// there are none.
+fn failures(count: usize, failed: impl Iterator<Item = impl Display>) -> Option<String> {
+    if count == 0 {
+        return None;
+    }
+    let mut listed: Vec<String> = failed
+        .take(LISTED_ERRORS)
+        .map(|failure| crate::llmxml::line(&failure.to_string()).into_owned())
+        .collect();
+    if count > LISTED_ERRORS {
+        listed.push(format!("(+{} more)", count - LISTED_ERRORS));
+    }
+    Some(
+        Element::new("errors")
+            .attr("count", count)
+            .wrap(&listed.join("\n")),
+    )
+}
+
+/// The `refresh` answer: what the refresh walked again, then each count of what changed that is not zero, how long it
+/// took, and the failures it collected.
+pub(crate) fn refresh(refreshed: &Refreshed) -> String {
+    let refresh = &refreshed.refresh;
+    let outcome = refresh.index();
+    let walked = outcome.walked();
+    let mut element = Element::new("refresh");
+    element = if walked.iter().any(String::is_empty) {
+        element.attr("walked", "tree")
+    } else {
+        element.attr("walked", walked.len())
+    };
+    element = element
+        .count("added", outcome.added().len())
+        .count("removed", outcome.removed().len())
+        .count("extracted", refresh.extracted())
+        .count("resolved_again", refresh.resolved_again())
+        .count("dropped", refresh.dropped().unwrap_or(0))
+        .flag("rebuilt", refresh.rebuilt());
+    if !refresh.reconfigured().is_empty() {
+        element = element.attr("reconfigured", refresh.reconfigured().join(", "));
+    }
+    if let Some(widened) = refresh.widened() {
+        element = element
+            .attr("widened", widened.named)
+            .attr("limit", widened.limit);
+    }
+    element = element.attr("elapsed_ms", refreshed.elapsed.as_millis());
+    if let Some(errors) = failures(refresh.errors().count(), refresh.errors()) {
+        return element.wrap(&errors);
+    }
+    let changed = outcome.added().len()
+        + outcome.removed().len()
+        + refresh.extracted()
+        + refresh.resolved_again()
+        + refresh.dropped().unwrap_or(0);
+    if changed == 0 && !refresh.rebuilt() && refresh.reconfigured().is_empty() {
+        element.inline("nothing changed - the index already matched the tree")
+    } else {
+        element.close()
+    }
 }
 
 /// How one graph's call sites bind: the sites bound, by the bands an answer marks a call with, the caller and callee
