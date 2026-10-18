@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::ops::Range;
-use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::{fs, io};
 
@@ -8,18 +7,14 @@ use kartta_walk::{CancelToken, EntryKind, Tree, WalkError, WalkOptions, WalkOutc
 
 use super::splice::{Fresh, Pending, Replacement};
 use super::{
-    ChangedFiles, Held, Index, Previous, RefreshOutcome, depth_first_below, indexing, node_sized,
-    order_errors, tree_order, unfinished_error,
+    ChangedFiles, Finished, Held, Index, Previous, RefreshOutcome, depth_first_below, indexing,
+    node_sized, order_errors, tree_order, unfinished_error,
 };
 use crate::build::{BuildError, IgnoreSources};
 use crate::content::{ContentId, ContentVisitor};
-use crate::content_index::{
-    ContentIndex, ContentIndexStorage, ContentIndexes, IdPositions, Target,
-};
+use crate::content_index::{ContentIndexes, IdPositions, Target};
 use crate::inspection::Inspection;
-use crate::policy::{
-    Collected, DirState, Indexing, Learned, Numbering, Payload, Report, names_match,
-};
+use crate::policy::{DirState, Indexing, Learned, Numbering, Payload, Report, names_match};
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 use crate::stamp::{Stamp, Stamping, UNTRUSTED};
 
@@ -234,10 +229,10 @@ impl Index {
             });
         }
 
+        let reads = self.next_content_id..self.next_content_id + node_sized(learned.len());
         let (finished, mut unindexed) = match content {
             Some(collected) => {
-                let (finished, unindexed) =
-                    self.finished(collected, node_sized(learned.len()), asked.cancel)?;
+                let (finished, unindexed) = self.finished(collected, reads, asked.cancel)?;
                 (Some(finished), unindexed)
             }
             None => (None, Vec::new()),
@@ -270,29 +265,6 @@ impl Index {
         })
     }
 
-    fn finished(
-        &self,
-        collected: Collected,
-        reads: u32,
-        cancel: Option<&CancelToken>,
-    ) -> Result<(Finished, Vec<Box<str>>), BuildError> {
-        let Collected {
-            collector,
-            pairs,
-            unindexed,
-        } = collected;
-        let storage = collector.storage().clone();
-        let segment = self
-            .on_threads(|| collector.finish(pairs, reads, cancel))
-            .map_err(|unfinished| unfinished_error(&storage, unfinished))?;
-        let finished = Finished {
-            segment: segment.with_first_id(self.next_content_id),
-            storage,
-        };
-
-        Ok((finished, unindexed))
-    }
-
     fn content_after(
         &self,
         finished: Finished,
@@ -300,12 +272,7 @@ impl Index {
         cancel: Option<&CancelToken>,
     ) -> Result<ContentIndexes, BuildError> {
         let Finished { segment, storage } = finished;
-        let read = segment.files();
-        let files = self.content.files().saturating_sub(pending.retired_text()) + read;
-        let mut segments = self.content.segments.clone();
-        if segments.is_empty() || read > 0 {
-            segments.push(Arc::new(segment));
-        }
+        let held_files = self.content.files().saturating_sub(pending.retired_text());
         let unindexed = std::mem::take(&mut pending.unindexed);
         let ids = IdPositions {
             first: self.first_content_id,
@@ -317,7 +284,8 @@ impl Index {
         };
 
         self.on_threads(|| {
-            ContentIndexes::new(segments, unindexed, files).compacted_when_due(
+            let held = self.content.segments.clone();
+            ContentIndexes::joined(held, held_files, segment, unindexed).compacted_when_due(
                 ids,
                 pending.inspection(),
                 target,
@@ -337,11 +305,6 @@ struct Planned {
     pending: Option<(Pending, Option<ContentIndexes>)>,
     errors: Vec<BuildError>,
     changed: ChangedFiles,
-}
-
-struct Finished {
-    segment: ContentIndex,
-    storage: ContentIndexStorage,
 }
 
 struct Found {
