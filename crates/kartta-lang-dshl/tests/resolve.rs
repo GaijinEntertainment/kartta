@@ -1,45 +1,10 @@
 //! How a DSHL extraction resolves against the repository: the file each `include` names, by the nearest path that
 //! ends in its spelling, and an import where none does.
 
-use std::io;
-
-use kartta_lang::path::{base, dir};
-use kartta_lang::{Extraction, Language, Repository};
+use kartta_lang::{Extraction, Language, MemoryRepository};
 use kartta_lang_dshl::Dshl;
 
-struct Files(&'static [&'static str]);
-
-impl Repository for Files {
-    fn contains(&self, path: &str) -> bool {
-        self.0.contains(&path)
-    }
-
-    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let in_dir = in_dir.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| dir(file) == in_dir)
-                .map(|file| (*file).to_owned()),
-        )
-    }
-
-    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let name = name.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| base(file) == name)
-                .map(|file| (*file).to_owned()),
-        )
-    }
-
-    fn read(&self, _path: &str) -> io::Result<Vec<u8>> {
-        Err(io::Error::from(io::ErrorKind::NotFound))
-    }
-}
-
-const TREE: Files = Files(&[
+const TREE: [&str; 10] = [
     "game/shaders/shader_global.dshl",
     "game/shaders/water.dshl",
     "tool/shaders/shader_global.dshl",
@@ -50,11 +15,12 @@ const TREE: Files = Files(&[
     "libs/render/shaders/fog.dshl",
     "other/a/shader_global.dshl",
     "shader_global.dshl",
-]);
+];
 
 fn resolve(source: &str, path: &str) -> Extraction {
     let dshl = Dshl::new();
-    let resolver = dshl.resolver(&TREE);
+    let tree = MemoryRepository::of_paths(TREE);
+    let resolver = dshl.resolver(&tree);
 
     resolver.resolve(dshl.extract(source.as_bytes()), path)
 }

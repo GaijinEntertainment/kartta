@@ -1,6 +1,6 @@
-use kartta_lang::Extraction;
+use kartta_lang::{Extraction, MemoryRepository};
 
-use super::{Files, SAMPLE_TS, imports, includes, resolved};
+use super::{SAMPLE_TS, imports, includes, resolved};
 
 const APP_ALIASES: &str =
     r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./src/*"] } } }"#;
@@ -28,7 +28,7 @@ fn re_export_files(extraction: &Extraction) -> Vec<(&str, Option<&str>)> {
 
 #[test]
 fn a_hash_specifier_stops_at_the_nearest_package_even_without_imports() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         (
             "package.json",
             r##"{ "name": "root", "imports": { "#lib": "./lib/index.ts" } }"##,
@@ -49,7 +49,7 @@ fn a_hash_specifier_stops_at_the_nearest_package_even_without_imports() {
 
 #[test]
 fn the_most_specific_pattern_wins_whatever_order_the_config_lists() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         (
             "tsconfig.json",
             r#"{ "compilerOptions": { "baseUrl": ".",
@@ -79,7 +79,7 @@ fn the_most_specific_pattern_wins_whatever_order_the_config_lists() {
 
 #[test]
 fn a_types_only_export_names_the_declaration_file() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         (
             "packages/api/package.json",
             r#"{ "name": "@x/api", "exports": { ".": { "types": "./types/index.d.ts" } } }"#,
@@ -95,7 +95,7 @@ fn a_types_only_export_names_the_declaration_file() {
 
 #[test]
 fn a_package_with_no_entry_fields_still_takes_its_subpaths() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("packages/util/package.json", r#"{ "name": "@x/util" }"#),
         ("packages/util/strings.ts", ""),
         ("app.ts", ""),
@@ -108,7 +108,7 @@ fn a_package_with_no_entry_fields_still_takes_its_subpaths() {
 
 #[test]
 fn a_nearer_tsconfig_without_aliases_stops_the_lookup() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("tsconfig.json", APP_ALIASES),
         ("web/tsconfig.json", "{}"),
         ("src/util.ts", ""),
@@ -126,7 +126,7 @@ fn a_nearer_tsconfig_without_aliases_stops_the_lookup() {
 
 #[test]
 fn root_conditions_of_an_exports_object_are_the_package_entry() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         (
             "packages/common/package.json",
             r#"{ "name": "@x/common", "exports": { "import": "./src/index.ts", "default": "./dist/index.js" } }"#,
@@ -142,7 +142,7 @@ fn root_conditions_of_an_exports_object_are_the_package_entry() {
 
 #[test]
 fn a_directory_import_reaches_an_mts_or_cts_index() {
-    let files = Files::paths(&[
+    let files = MemoryRepository::of_paths([
         "src/app.ts",
         "src/esm/index.mts",
         "src/cjs/index.cts",
@@ -171,7 +171,7 @@ fn a_directory_import_reaches_an_mts_or_cts_index() {
 
 #[test]
 fn an_extensionless_import_reaches_a_declaration_file() {
-    let files = Files::paths(&["src/app.ts", "src/types.d.ts"]);
+    let files = MemoryRepository::of_paths(["src/app.ts", "src/types.d.ts"]);
 
     let extraction = resolved(
         "src/app.ts",
@@ -184,7 +184,7 @@ fn an_extensionless_import_reaches_a_declaration_file() {
 
 #[test]
 fn a_root_package_subpath_names_a_file_at_the_root() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("package.json", r#"{ "name": "app", "main": "./index.ts" }"#),
         ("index.ts", ""),
         ("util.ts", ""),
@@ -198,7 +198,7 @@ fn a_root_package_subpath_names_a_file_at_the_root() {
 
 #[test]
 fn an_inherited_base_url_is_rooted_at_the_config_that_declares_it() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         (
             "tsconfig.base.json",
             r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./src/*"] } } }"#,
@@ -223,7 +223,7 @@ fn an_inherited_base_url_is_rooted_at_the_config_that_declares_it() {
 
 #[test]
 fn imports_resolve_against_the_file_index() {
-    let files = Files::paths(&["src/app.ts", "src/util.ts", "src/more/index.ts"]);
+    let files = MemoryRepository::of_paths(["src/app.ts", "src/util.ts", "src/more/index.ts"]);
 
     let extraction = resolved("src/app.ts", SAMPLE_TS, &files);
 
@@ -233,7 +233,7 @@ fn imports_resolve_against_the_file_index() {
 
 #[test]
 fn external_import_is_recorded_as_an_importref() {
-    let files = Files::paths(&["src/app.ts", "src/util.ts"]);
+    let files = MemoryRepository::of_paths(["src/app.ts", "src/util.ts"]);
     let source = "import { useState } from \"react\";\nimport { helper } from \"./util\";\n";
 
     let extraction = resolved("src/app.ts", source, &files);
@@ -250,7 +250,7 @@ fn external_import_is_recorded_as_an_importref() {
 
 #[test]
 fn require_and_dynamic_import_resolve_includes() {
-    let files = Files::paths(&["src/app.ts", "src/util.ts", "src/lazy.ts"]);
+    let files = MemoryRepository::of_paths(["src/app.ts", "src/util.ts", "src/lazy.ts"]);
     let source = "function load() {\n    const u = require(\"./util\");\n    return import(\"./lazy\");\n}\n";
 
     let extraction = resolved("src/app.ts", source, &files);
@@ -260,7 +260,7 @@ fn require_and_dynamic_import_resolve_includes() {
 
 #[test]
 fn js_extension_specifiers_rewrite_to_ts_sources() {
-    let files = Files::paths(&["src/app.ts", "src/util.ts"]);
+    let files = MemoryRepository::of_paths(["src/app.ts", "src/util.ts"]);
 
     let extraction = resolved(
         "src/app.ts",
@@ -273,7 +273,7 @@ fn js_extension_specifiers_rewrite_to_ts_sources() {
 
 #[test]
 fn a_relative_specifier_above_the_root_names_nothing() {
-    let files = Files::paths(&["app.ts", "util.ts"]);
+    let files = MemoryRepository::of_paths(["app.ts", "util.ts"]);
 
     let extraction = resolved("app.ts", "import { helper } from \"../util\";", &files);
 
@@ -283,7 +283,7 @@ fn a_relative_specifier_above_the_root_names_nothing() {
 
 #[test]
 fn vite_query_suffixed_specifiers_resolve_to_the_named_file() {
-    let files = Files::paths(&[
+    let files = MemoryRepository::of_paths([
         "src/app.ts",
         "src/icon.svg",
         "src/shader.glsl",
@@ -317,7 +317,7 @@ import gone from "./absent.svg?react";
 
 #[test]
 fn sibling_reference_aliases_fall_through_on_a_shared_pattern() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("web/app.ts", ""),
         ("web/src/shared.ts", ""),
         ("web/tools/shared.ts", ""),
@@ -347,7 +347,7 @@ fn sibling_reference_aliases_fall_through_on_a_shared_pattern() {
 
 #[test]
 fn tsconfig_aliases_resolve_governed_imports() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("web/app.ts", ""),
         ("web/src/util.ts", ""),
         ("other/app.ts", ""),
@@ -364,7 +364,7 @@ fn tsconfig_aliases_resolve_governed_imports() {
 
 #[test]
 fn the_nearest_tsconfig_governs_alone() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         (
             "tsconfig.json",
             r#"{ "compilerOptions": { "paths": { "~/*": ["./shared/*"] } } }"#,
@@ -382,7 +382,7 @@ fn the_nearest_tsconfig_governs_alone() {
 
 #[test]
 fn hash_imports_resolve_via_the_nearest_package_json() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("packages/common/app.ts", ""),
         ("packages/common/src/internal/db.ts", ""),
         ("elsewhere/app.ts", ""),
@@ -402,7 +402,7 @@ fn hash_imports_resolve_via_the_nearest_package_json() {
 
 #[test]
 fn a_duplicate_package_name_resolves_within_the_importing_project() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("web/panel/src/app.ts", ""),
         ("web/panel/pkg/src/index.ts", ""),
         ("admin/panel/src/app.ts", ""),
@@ -426,7 +426,7 @@ fn a_duplicate_package_name_resolves_within_the_importing_project() {
 
 #[test]
 fn equally_distant_duplicate_packages_abstain() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("app.ts", ""),
         ("web/pkg/src/index.ts", ""),
         ("admin/pkg/src/index.ts", ""),
@@ -442,7 +442,7 @@ fn equally_distant_duplicate_packages_abstain() {
 
 #[test]
 fn workspace_package_specifiers_resolve_via_exports() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("apps/admin/app.ts", ""),
         ("packages/common/src/index.ts", ""),
         ("packages/common/src/utils.ts", ""),
@@ -471,7 +471,7 @@ import lodash from "lodash";
 
 #[test]
 fn a_package_without_a_dot_export_falls_back_to_its_main() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("app.ts", ""),
         ("lib/entry.ts", ""),
         (
@@ -487,7 +487,7 @@ fn a_package_without_a_dot_export_falls_back_to_its_main() {
 
 #[test]
 fn a_vendored_package_is_not_read() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("app.ts", ""),
         ("node_modules/left-pad/index.ts", ""),
         (
@@ -504,7 +504,7 @@ fn a_vendored_package_is_not_read() {
 
 #[test]
 fn bare_package_imports_stay_unresolved() {
-    let files = Files::paths(&["src/app.ts", "src/lodash.ts"]);
+    let files = MemoryRepository::of_paths(["src/app.ts", "src/lodash.ts"]);
 
     let extraction = resolved("src/app.ts", "import _ from \"lodash\";", &files);
 
@@ -513,7 +513,8 @@ fn bare_package_imports_stay_unresolved() {
 
 #[test]
 fn a_re_export_names_the_file_its_specifier_resolves_to() {
-    let files = Files::paths(&["src/app.ts", "src/more/index.ts", "src/everything.tsx"]);
+    let files =
+        MemoryRepository::of_paths(["src/app.ts", "src/more/index.ts", "src/everything.tsx"]);
 
     let extraction = resolved("src/app.ts", SAMPLE_TS, &files);
 
@@ -529,7 +530,7 @@ fn a_re_export_names_the_file_its_specifier_resolves_to() {
 
 #[test]
 fn a_re_export_of_a_module_outside_the_repository_names_no_file() {
-    let files = Files::paths(&["src/app.ts", "src/util.ts"]);
+    let files = MemoryRepository::of_paths(["src/app.ts", "src/util.ts"]);
 
     let extraction = resolved("src/app.ts", SAMPLE_TS, &files);
 
@@ -541,7 +542,7 @@ fn a_re_export_of_a_module_outside_the_repository_names_no_file() {
 
 #[test]
 fn a_re_export_resolves_by_every_module_rule() {
-    let files = Files::new(&[
+    let files = MemoryRepository::new([
         ("web/index.ts", ""),
         ("web/src/button.tsx", ""),
         ("web/src/icon.svg", ""),

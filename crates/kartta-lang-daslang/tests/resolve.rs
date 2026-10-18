@@ -1,49 +1,14 @@
 //! How a daslang extraction resolves against its file's path and the repository: the file a `require` or an `include`
 //! names, and the flags a path gives a file's symbols.
 
-use std::io;
-
-use kartta_lang::path::{base, dir};
-use kartta_lang::{Extraction, Language, Repository, SymbolFlags};
+use kartta_lang::{Extraction, Language, MemoryRepository, SymbolFlags};
 use kartta_lang_daslang::Daslang;
 
 const NOTHING: [&str; 0] = [];
 
-struct Files<'a>(&'a [&'a str]);
-
-impl Repository for Files<'_> {
-    fn contains(&self, path: &str) -> bool {
-        self.0.contains(&path)
-    }
-
-    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let in_dir = in_dir.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| dir(file) == in_dir)
-                .map(|file| (*file).to_owned()),
-        )
-    }
-
-    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let name = name.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| base(file) == name)
-                .map(|file| (*file).to_owned()),
-        )
-    }
-
-    fn read(&self, _path: &str) -> io::Result<Vec<u8>> {
-        Err(io::Error::from(io::ErrorKind::Unsupported))
-    }
-}
-
 fn resolve(files: &[&str], source: &str, path: &str) -> Extraction {
     let daslang = Daslang::new();
-    let repository = Files(files);
+    let repository = MemoryRepository::of_paths(files);
     let resolver = daslang.resolver(&repository);
 
     resolver.resolve(daslang.extract(source.as_bytes()), path)

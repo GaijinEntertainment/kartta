@@ -130,11 +130,11 @@ fn collect_targets<'v>(value: &'v Value, targets: &mut Vec<&'v str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::Files;
+    use kartta_lang::MemoryRepository;
 
     #[test]
     fn imports_exports_and_main_compile_onto_the_package_directory() {
-        let files = Files::new(&[
+        let files = MemoryRepository::new([
             (
                 "packages/common/package.json",
                 r##"{

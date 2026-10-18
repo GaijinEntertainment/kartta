@@ -1,45 +1,10 @@
 //! How a Bash extraction resolves against its file's path and the repository: the files its `source` commands name,
 //! and the test code a path marks.
 
-use std::io;
-
-use kartta_lang::path::{base, dir};
-use kartta_lang::{Extraction, Language, Repository};
+use kartta_lang::{Extraction, Language, MemoryRepository};
 use kartta_lang_bash::Bash;
 
-struct Files(&'static [&'static str]);
-
-impl Repository for Files {
-    fn contains(&self, path: &str) -> bool {
-        self.0.contains(&path)
-    }
-
-    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let in_dir = in_dir.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| dir(file) == in_dir)
-                .map(|file| (*file).to_owned()),
-        )
-    }
-
-    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let name = name.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| base(file) == name)
-                .map(|file| (*file).to_owned()),
-        )
-    }
-
-    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
-        Err(io::Error::new(io::ErrorKind::NotFound, path.to_owned()))
-    }
-}
-
-fn resolve(files: &Files, source: &[u8], path: &str) -> Extraction {
+fn resolve(files: &MemoryRepository, source: &[u8], path: &str) -> Extraction {
     let bash = Bash::new();
     let resolver = bash.resolver(files);
 
@@ -56,7 +21,7 @@ fn includes(extraction: &Extraction) -> Vec<&str> {
 
 #[test]
 fn a_relative_source_resolves_from_the_sourcing_script_with_or_without_its_extension() {
-    let files = Files(&["scripts/lib/helpers.sh", "shared/env.sh"]);
+    let files = MemoryRepository::of_paths(["scripts/lib/helpers.sh", "shared/env.sh"]);
 
     let extraction = resolve(
         &files,
@@ -72,7 +37,7 @@ fn a_relative_source_resolves_from_the_sourcing_script_with_or_without_its_exten
 
 #[test]
 fn a_root_relative_source_resolves_as_written_then_by_a_segment_suffix() {
-    let files = Files(&["lib/util.sh", "vendor/common/colors.bash"]);
+    let files = MemoryRepository::of_paths(["lib/util.sh", "vendor/common/colors.bash"]);
 
     let extraction = resolve(
         &files,
@@ -88,7 +53,7 @@ fn a_root_relative_source_resolves_as_written_then_by_a_segment_suffix() {
 
 #[test]
 fn a_salvaged_tail_resolves_like_a_written_path() {
-    let files = Files(&["lib/x.sh", "lib/y.sh", "lib/raw.sh"]);
+    let files = MemoryRepository::of_paths(["lib/x.sh", "lib/y.sh", "lib/raw.sh"]);
 
     let extraction = resolve(
         &files,
@@ -104,7 +69,7 @@ fn a_salvaged_tail_resolves_like_a_written_path() {
 
 #[test]
 fn a_source_before_any_definition_still_resolves() {
-    let files = Files(&["lib/util.sh", "run.sh"]);
+    let files = MemoryRepository::of_paths(["lib/util.sh", "run.sh"]);
 
     let extraction = resolve(&files, b"source lib/util.sh\n", "run.sh");
 
@@ -113,7 +78,7 @@ fn a_source_before_any_definition_still_resolves() {
 
 #[test]
 fn a_path_outside_the_repository_or_an_ambiguous_suffix_adds_no_include() {
-    let files = Files(&["a/util.sh", "b/util.sh", "lib/x.sh"]);
+    let files = MemoryRepository::of_paths(["a/util.sh", "b/util.sh", "lib/x.sh"]);
 
     let extraction = resolve(
         &files,
@@ -126,7 +91,7 @@ fn a_path_outside_the_repository_or_an_ambiguous_suffix_adds_no_include() {
 
 #[test]
 fn a_suffix_ambiguous_under_one_extension_stays_ambiguous_under_another() {
-    let files = Files(&["a/lib.sh", "b/lib.sh", "c/lib.bash", "d/only.bash"]);
+    let files = MemoryRepository::of_paths(["a/lib.sh", "b/lib.sh", "c/lib.bash", "d/only.bash"]);
 
     let extraction = resolve(
         &files,
@@ -139,7 +104,7 @@ fn a_suffix_ambiguous_under_one_extension_stays_ambiguous_under_another() {
 
 #[test]
 fn a_segment_suffix_never_matches_inside_a_path_segment() {
-    let files = Files(&["pkg/xlib/x.sh"]);
+    let files = MemoryRepository::of_paths(["pkg/xlib/x.sh"]);
 
     let extraction = resolve(&files, b"anchor() { :; }\nsource lib/x.sh\n", "top.sh");
 
@@ -149,7 +114,7 @@ fn a_segment_suffix_never_matches_inside_a_path_segment() {
 #[test]
 fn a_test_path_marks_every_symbol_as_test_code() {
     let source = b"run() {\n    :\n}\n";
-    let files = Files(&[]);
+    let files = MemoryRepository::default();
 
     for path in [
         "foo_test.sh",
@@ -180,7 +145,7 @@ fn a_test_path_marks_every_symbol_as_test_code() {
 
 #[test]
 fn a_test_path_keeps_the_flags_the_bytes_gave() {
-    let files = Files(&[]);
+    let files = MemoryRepository::default();
 
     let extraction = resolve(&files, b"# @generated\nrun() {\n    :\n}\n", "tests/gen.sh");
 
@@ -191,7 +156,7 @@ fn a_test_path_keeps_the_flags_the_bytes_gave() {
 #[test]
 fn one_extraction_resolved_at_two_paths_differs_only_by_what_the_paths_show() {
     let bash = Bash::new();
-    let files = Files(&["lib/util.sh"]);
+    let files = MemoryRepository::of_paths(["lib/util.sh"]);
     let resolver = bash.resolver(&files);
     let raw = bash.extract(b"run() {\n    :\n}\nsource lib/util.sh\n");
 

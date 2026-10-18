@@ -1,45 +1,10 @@
 //! How a Python extraction resolves against its file's path and the repository: the module that qualifies its
 //! symbols, the files its imports include, and the test and generated code a path marks.
 
-use std::io;
-
-use kartta_lang::path::{base, dir};
-use kartta_lang::{Extraction, Language, Repository};
+use kartta_lang::{Extraction, Language, MemoryRepository};
 use kartta_lang_python::Python;
 
-struct Files(&'static [&'static str]);
-
-impl Repository for Files {
-    fn contains(&self, path: &str) -> bool {
-        self.0.contains(&path)
-    }
-
-    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let in_dir = in_dir.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| dir(file) == in_dir)
-                .map(|file| (*file).to_owned()),
-        )
-    }
-
-    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let name = name.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .filter(move |file| base(file) == name)
-                .map(|file| (*file).to_owned()),
-        )
-    }
-
-    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
-        Err(io::Error::new(io::ErrorKind::NotFound, path.to_owned()))
-    }
-}
-
-fn resolve(files: &Files, source: &[u8], path: &str) -> Extraction {
+fn resolve(files: &MemoryRepository, source: &[u8], path: &str) -> Extraction {
     let python = Python::new();
     let resolver = python.resolver(files);
 
@@ -47,7 +12,7 @@ fn resolve(files: &Files, source: &[u8], path: &str) -> Extraction {
 }
 
 fn includes(files: &'static [&'static str], source: &[u8], path: &str) -> Vec<String> {
-    resolve(&Files(files), source, path)
+    resolve(&MemoryRepository::of_paths(files), source, path)
         .includes
         .into_iter()
         .map(|include| include.target)
@@ -59,7 +24,7 @@ const DEFINITION: &[u8] = b"def anchor():\n    pass\n";
 #[test]
 fn every_symbol_is_qualified_by_the_module_its_path_names() {
     let extraction = resolve(
-        &Files(&[]),
+        &MemoryRepository::default(),
         b"VERSION = 1\nclass Service:\n    def greet(self):\n        pass\n",
         "pkg/service.py",
     );
@@ -82,7 +47,7 @@ fn every_symbol_is_qualified_by_the_module_its_path_names() {
 
 #[test]
 fn a_stub_names_the_module_of_its_source() {
-    let extraction = resolve(&Files(&[]), DEFINITION, "pkg/api.pyi");
+    let extraction = resolve(&MemoryRepository::default(), DEFINITION, "pkg/api.pyi");
 
     assert_eq!(extraction.symbols[0].qualified_name, "pkg.api.anchor");
 }
@@ -90,7 +55,7 @@ fn a_stub_names_the_module_of_its_source() {
 #[test]
 fn a_claimed_extension_in_any_case_is_no_part_of_the_module_name() {
     for path in ["pkg/stub.PYI", "pkg/stub.Py"] {
-        let extraction = resolve(&Files(&[]), DEFINITION, path);
+        let extraction = resolve(&MemoryRepository::default(), DEFINITION, path);
 
         assert_eq!(
             extraction.symbols[0].qualified_name, "pkg.stub.anchor",
@@ -101,9 +66,17 @@ fn a_claimed_extension_in_any_case_is_no_part_of_the_module_name() {
 
 #[test]
 fn a_package_initializer_names_the_module_of_its_directory() {
-    let package = resolve(&Files(&[]), DEFINITION, "pkg/sub/__init__.py");
-    let root = resolve(&Files(&[]), DEFINITION, "__init__.pyi");
-    let lookalike = resolve(&Files(&[]), DEFINITION, "pkg/my__init__.py");
+    let package = resolve(
+        &MemoryRepository::default(),
+        DEFINITION,
+        "pkg/sub/__init__.py",
+    );
+    let root = resolve(&MemoryRepository::default(), DEFINITION, "__init__.pyi");
+    let lookalike = resolve(
+        &MemoryRepository::default(),
+        DEFINITION,
+        "pkg/my__init__.py",
+    );
 
     assert_eq!(package.symbols[0].qualified_name, "pkg.sub.anchor");
     assert_eq!(root.symbols[0].qualified_name, "anchor");
@@ -113,7 +86,7 @@ fn a_package_initializer_names_the_module_of_its_directory() {
 #[test]
 fn an_import_that_names_a_file_is_an_include_and_any_other_is_kept_as_written() {
     let extraction = resolve(
-        &Files(&[
+        &MemoryRepository::of_paths([
             "pkg/service.py",
             "pkg/name.py",
             "pkg/sibling.py",
@@ -146,7 +119,7 @@ fn an_import_that_names_a_file_is_an_include_and_any_other_is_kept_as_written() 
 #[test]
 fn a_future_import_is_recorded_and_never_probes_the_repository() {
     let extraction = resolve(
-        &Files(&["__future__.py", "pkg/api.py"]),
+        &MemoryRepository::of_paths(["__future__.py", "pkg/api.py"]),
         b"from __future__ import annotations\n\ndef anchor():\n    pass\n",
         "pkg/api.py",
     );
@@ -373,7 +346,7 @@ fn a_test_path_marks_every_symbol_as_test_code() {
         "svc/test/run.py",
         "pkg/api_test.pyi",
     ] {
-        let extraction = resolve(&Files(&[]), source, path);
+        let extraction = resolve(&MemoryRepository::default(), source, path);
 
         assert_eq!(extraction.symbols.len(), 2, "{path}");
         assert!(
@@ -384,7 +357,7 @@ fn a_test_path_marks_every_symbol_as_test_code() {
             "{path}"
         );
     }
-    let ordinary = resolve(&Files(&[]), source, "pkg/foo.py");
+    let ordinary = resolve(&MemoryRepository::default(), source, "pkg/foo.py");
     assert!(
         ordinary
             .symbols
@@ -400,12 +373,12 @@ fn a_protobuf_module_or_its_stub_is_generated_code() {
         "pkg/foo_pb2_grpc.py",
         "gen/schema_pb2.pyi",
     ] {
-        let extraction = resolve(&Files(&[]), DEFINITION, path);
+        let extraction = resolve(&MemoryRepository::default(), DEFINITION, path);
 
         assert!(extraction.symbols[0].flags.is_generated(), "{path}");
     }
     assert!(
-        !resolve(&Files(&[]), DEFINITION, "pkg/foo.py").symbols[0]
+        !resolve(&MemoryRepository::default(), DEFINITION, "pkg/foo.py").symbols[0]
             .flags
             .is_generated()
     );
@@ -414,7 +387,7 @@ fn a_protobuf_module_or_its_stub_is_generated_code() {
 #[test]
 fn a_test_path_keeps_the_flags_the_bytes_gave() {
     let extraction = resolve(
-        &Files(&[]),
+        &MemoryRepository::default(),
         b"# @generated\ndef main():\n    pass\n",
         "tests/gen.py",
     );
@@ -426,7 +399,7 @@ fn a_test_path_keeps_the_flags_the_bytes_gave() {
 #[test]
 fn one_extraction_resolved_at_two_paths_differs_only_by_what_the_paths_show() {
     let python = Python::new();
-    let files = Files(&["pkg/util.py", "tests/util.py"]);
+    let files = MemoryRepository::of_paths(["pkg/util.py", "tests/util.py"]);
     let resolver = python.resolver(&files);
     let raw = python.extract(b"from . import util\ndef run():\n    pass\n");
 
