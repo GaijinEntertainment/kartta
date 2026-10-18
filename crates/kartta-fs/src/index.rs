@@ -856,10 +856,6 @@ impl<'a> Inspected<'a> {
         self.index.entry_at(self.at)
     }
 
-    pub(crate) const fn position(&self) -> usize {
-        self.at
-    }
-
     pub(crate) fn size(&self) -> Option<u64> {
         if self.index.kind_at(self.at) != EntryKind::File {
             return None;

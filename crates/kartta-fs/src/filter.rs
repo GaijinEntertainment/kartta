@@ -97,11 +97,6 @@ impl Filter {
         })
     }
 
-    /// The patterns the filter was compiled from, in the order they were given.
-    pub fn patterns(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.patterns.iter().map(AsRef::as_ref)
-    }
-
     /// Whether any pattern matches `path`, which is a root-relative forward-slash path as the index spells one.
     ///
     /// A `\` in `path` is an ordinary character of a name on unix, where a filename may hold one, and cannot occur at
@@ -240,13 +235,6 @@ mod tests {
     fn a_backslash_in_a_name_is_an_ordinary_character_and_not_a_separator() {
         assert!(!filter(&["a/*.rs"]).matches("a\\b.rs"));
         assert!(filter(&["*.rs"]).matches("a\\b.rs"));
-    }
-
-    #[test]
-    fn the_patterns_read_back_in_the_order_they_were_given() {
-        let filter = filter(&["*.toml", "*.rs"]);
-
-        assert_eq!(filter.patterns().collect::<Vec<_>>(), ["*.toml", "*.rs"]);
     }
 
     #[test]

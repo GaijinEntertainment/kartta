@@ -60,26 +60,6 @@ impl<T> Capped<'_, T> {
         &self.items
     }
 
-    /// Takes the items, dropping the flag.
-    ///
-    /// Check [`Capped::truncated`] first: an answer that was cut short looks exactly like a whole one.
-    #[must_use]
-    pub fn into_items(self) -> Vec<T> {
-        self.items
-    }
-
-    /// How many items the answer holds.
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    /// Whether the answer holds no items.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-
     /// Whether the limit turned an item away, so more exist than the answer shows.
     ///
     /// Settled by an actual rejection rather than inferred from a count, so an answer holding exactly the limit

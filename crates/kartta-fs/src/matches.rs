@@ -1,7 +1,7 @@
 use std::io;
+use std::marker::PhantomData;
 
-use crate::entry::Entry;
-use crate::index::Inspected;
+use crate::index::Index;
 
 /// What [`Index::grep`](crate::Index::grep) found: the matched files in index order, and where every other candidate
 /// went.
@@ -39,15 +39,6 @@ impl<'a> Matches<'a> {
     #[must_use]
     pub fn files(&self) -> &[MatchedFile<'a>] {
         &self.files
-    }
-
-    /// Takes the matched files, dropping the account of the rest.
-    ///
-    /// Check [`Matches::truncated`], [`Matches::unsearched`] and [`Matches::failures`] first: an answer the limit cut
-    /// short, or one missing a file that would not read, looks exactly like a whole one.
-    #[must_use]
-    pub fn into_files(self) -> Vec<MatchedFile<'a>> {
-        self.files
     }
 
     /// How many matching lines the answer holds, context lines not counted.
@@ -163,26 +154,20 @@ impl<'a> Matches<'a> {
     }
 }
 
-/// One file of [`Matches`], with its lines and the late reads reachable without looking the file up again.
+/// One file of [`Matches`] and its lines.
 #[derive(Debug, Clone)]
 pub struct MatchedFile<'a> {
-    pub(crate) inspected: Inspected<'a>,
+    pub(crate) position: usize,
     pub(crate) lines: Vec<Line>,
+    pub(crate) index: PhantomData<&'a Index>,
 }
 
-impl<'a> MatchedFile<'a> {
-    /// The file itself, its path decoded.
-    #[must_use]
-    pub fn entry(&self) -> Entry<'a> {
-        self.inspected.entry()
-    }
-
-    /// Where the file sits in [`Index::entries`](crate::Index::entries), for reading its path through
-    /// [`Index::paths`](crate::Index::paths). The files of one answer rise in position, so reading their paths in order
-    /// costs a few bytes each.
+impl MatchedFile<'_> {
+    /// Where the file sits in [`Index::entries`], for reading its path through [`Index::paths`]. The files of one
+    /// answer rise in position, so reading their paths in order costs a few bytes each.
     #[must_use]
     pub const fn position(&self) -> usize {
-        self.inspected.position()
+        self.position
     }
 
     /// The matching lines and the context around them, in file order.

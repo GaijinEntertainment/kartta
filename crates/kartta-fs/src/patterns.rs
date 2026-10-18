@@ -37,7 +37,6 @@ pub enum Case {
 /// use kartta_fs::{Case, PatternError, Patterns};
 ///
 /// let patterns = Patterns::new(["fn main", r"impl\s+Drop"], Case::Sensitive)?;
-/// assert_eq!(patterns.patterns().collect::<Vec<_>>(), ["fn main", r"impl\s+Drop"]);
 ///
 /// assert!(matches!(Patterns::new(["main("], Case::Sensitive), Err(PatternError::Pattern { .. })));
 /// # Ok::<(), PatternError>(())
@@ -91,17 +90,6 @@ impl Patterns {
             case,
             matcher,
         })
-    }
-
-    /// The patterns the set was compiled from, in the order they were given.
-    pub fn patterns(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.given.iter().map(AsRef::as_ref)
-    }
-
-    /// Whether the set tells letters of different case apart.
-    #[must_use]
-    pub const fn case(&self) -> Case {
-        self.case
     }
 
     pub(crate) const fn matcher(&self) -> &RegexMatcher {
@@ -226,13 +214,5 @@ mod tests {
             Patterns::new([r"a\nb"], Case::Sensitive),
             Err(PatternError::Pattern { .. })
         ));
-    }
-
-    #[test]
-    fn the_patterns_and_the_case_read_back_as_given() {
-        let patterns = Patterns::new(["b", "a"], Case::Insensitive).expect("compile");
-
-        assert_eq!(patterns.patterns().collect::<Vec<_>>(), ["b", "a"]);
-        assert_eq!(patterns.case(), Case::Insensitive);
     }
 }
