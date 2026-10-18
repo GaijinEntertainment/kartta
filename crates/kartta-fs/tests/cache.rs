@@ -7,8 +7,9 @@
 )]
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime};
 
 use kartta_cache::Store;
 use kartta_fs::{
@@ -30,6 +31,8 @@ fn tree(spec: &[(&str, &[u8])]) -> TempDir {
 
     dir
 }
+
+const DAY: Duration = Duration::from_hours(24);
 
 fn cached(cache: &Path) -> BuildOptions {
     let mut options = BuildOptions::default();
@@ -280,6 +283,57 @@ fn a_visitor_without_a_content_index_still_shares_through_the_cache() {
     build_visited(root.path(), &options, &Lengths::new());
 
     assert_eq!(packs_and_entries(cache.path()), (1, 2));
+}
+
+fn plant_unreadable_pack(cache: &Path, name: &str, age: Duration) -> PathBuf {
+    let pack = cache.join(format!("{name}.pack"));
+    fs::File::create(&pack)
+        .and_then(|file| file.set_modified(SystemTime::now() - age))
+        .expect("plant a pack of another format");
+    pack
+}
+
+#[test]
+fn a_build_removes_what_is_older_than_the_time_to_live_it_names() {
+    let root = tree(&[("a.txt", b"alpha\n")]);
+    let cache = tempfile::tempdir().expect("cache dir");
+    let pack = plant_unreadable_pack(cache.path(), "two days old", 2 * DAY);
+    let mut options = cached(cache.path());
+    options.content_cache_ttl = DAY;
+
+    build(root.path(), &options);
+
+    assert!(!pack.exists());
+}
+
+#[test]
+fn a_refresh_removes_what_is_older_than_the_build_s_time_to_live() {
+    let root = tree(&[("a.txt", b"alpha\n")]);
+    let cache = tempfile::tempdir().expect("cache dir");
+    let mut options = cached(cache.path());
+    options.content_cache_ttl = DAY;
+    let mut index = build(root.path(), &options).into_index();
+    let pack = plant_unreadable_pack(cache.path(), "two days old", 2 * DAY);
+
+    let refreshed = index.refresh(None, None).expect("refresh");
+
+    assert_eq!(refreshed.errors().len(), 0, "{:?}", refreshed.errors());
+    assert!(!pack.exists());
+}
+
+#[test]
+fn a_time_to_live_of_zero_is_a_week_and_never_empties_the_store() {
+    let root = tree(&[("a.txt", b"alpha\n")]);
+    let cache = tempfile::tempdir().expect("cache dir");
+    let kept = plant_unreadable_pack(cache.path(), "two days old", 2 * DAY);
+    let expired = plant_unreadable_pack(cache.path(), "eight days old", 8 * DAY);
+    let options = cached(cache.path());
+
+    build(root.path(), &options);
+
+    assert_eq!(options.content_cache_ttl, Duration::ZERO);
+    assert!(kept.exists() && !expired.exists());
+    assert_eq!(packs_and_entries(cache.path()), (1, 1));
 }
 
 #[test]
