@@ -12,7 +12,8 @@ crate implementing the same trait — registered with the engine, never added to
 `Language::extract` reads only the bytes. Its `RawExtraction` is the same for every file with the same content,
 wherever it sits, so a cache keyed by the content's hash and the language's `fingerprint` computes it once for every
 tree on a machine. Whatever depends on the path or the repository — which file an import names, whether the file is a
-test — is recorded as a directive and applied by the `Resolver` the language builds over a read-only `Repository`.
+test — is recorded as a directive and applied by the `Resolver` the language builds over a read-only `Repository`. A
+`MemoryRepository` holds one in memory, for a test of a resolver.
 
 The fingerprint must change whenever what `extract` computes from the same bytes can change: the grammar, the walk,
 the shape of the result. A cache keys an extraction by the hash of the bytes, the language's `fingerprint` and this

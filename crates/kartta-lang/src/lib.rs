@@ -69,6 +69,7 @@ mod doc;
 mod extraction;
 pub mod fingerprint;
 mod language;
+mod memory;
 pub mod path;
 mod symbol;
 #[cfg(feature = "tree-sitter")]
@@ -85,6 +86,7 @@ pub use crate::language::{
     CallsOnValues, Conventions, IncludeReach, InheritedMembers, Language, MemberCalls, OwnMembers,
     Receivers, Repository, Resolver, TypeUses, UntypedMembers, ValueUses,
 };
+pub use crate::memory::MemoryRepository;
 pub use crate::symbol::{NO_CALLER_ID, Symbol, SymbolFlags, SymbolId, SymbolKind};
 
 /// Identifies this crate's code: its name, its version and a digest of its source.
