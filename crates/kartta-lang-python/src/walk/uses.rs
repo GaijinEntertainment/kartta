@@ -1,4 +1,3 @@
-use kartta_lang::tree::text;
 use kartta_lang::{Access, NO_CALLER_ID, Receiver, RefSite, SymbolId};
 use tree_sitter::Node;
 
@@ -29,29 +28,23 @@ impl<'a> Emitter<'a> {
             return;
         };
         let source = self.source;
-        let receiver = if self.own_receiver(object).is_some() {
-            Receiver::Own
-        } else if object.kind() == IDENTIFIER {
-            self.defer(NameUse {
-                caller,
-                name: &source[object.byte_range()],
-                attribute: Some(&source[name.byte_range()]),
-                access: access_of(attribute),
-                line: line(name.start_position().row),
-                at: object.start_byte(),
-                attribute_object: false,
-            });
-            return;
-        } else {
-            Receiver::Path(String::new())
-        };
-        self.raw.references.push(RefSite {
-            site_of: caller,
-            name: text(name, source),
-            receiver,
+        let attribute_name = &source[name.byte_range()];
+        let used = NameUse {
+            caller,
+            name: &source[object.byte_range()],
+            attribute: Some(attribute_name),
             access: access_of(attribute),
             line: line(name.start_position().row),
-        });
+            at: object.start_byte(),
+            attribute_object: false,
+        };
+        if self.own_receiver(object).is_some() {
+            self.push_site(&used, attribute_name, Receiver::Own);
+        } else if object.kind() == IDENTIFIER {
+            self.defer(used);
+        } else {
+            self.push_site(&used, attribute_name, Receiver::Path(String::new()));
+        }
     }
 
     pub(super) fn name_use(&mut self, identifier: Node<'_>, caller: SymbolId) {
