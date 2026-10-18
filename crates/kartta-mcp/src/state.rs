@@ -1,9 +1,10 @@
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 
-use kartta::{BuildError, BuildOptions, CancelToken, Engine};
+use kartta::{BuildError, BuildOptions, CancelToken, Engine, EngineRefresh};
 use kartta_fs::EntryKind;
 use tokio::sync::watch;
 
@@ -24,7 +25,40 @@ pub(crate) struct Indexed {
     pub(crate) root: String,
     pub(crate) gitignore: bool,
     pub(crate) engine: Engine,
-    pub(crate) errors: Vec<String>,
+    pub(crate) errors: Vec<Failure>,
+}
+
+/// One failure the tree gave the index: its text, and the root-relative path it names when that path is in the tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Failure {
+    path: Option<String>,
+    pub(crate) text: String,
+}
+
+impl Failure {
+    fn new(error: &BuildError, root: &Path) -> Self {
+        let path = error
+            .native_path()
+            .and_then(|path| path.strip_prefix(root).ok())
+            .map(|relative| {
+                relative
+                    .iter()
+                    .map(|part| part.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/")
+            });
+        Self {
+            path,
+            text: error.to_string(),
+        }
+    }
+}
+
+/// What one refresh did, and how long it took once it held the index.
+#[derive(Debug)]
+pub(crate) struct Refreshed {
+    pub(crate) refresh: EngineRefresh,
+    pub(crate) elapsed: Duration,
 }
 
 impl Indexed {
@@ -42,17 +76,98 @@ impl Indexed {
     }
 }
 
-/// A built index as the server shares it: every query reads it under one lock.
+/// A built index as the server shares it: every query reads it under one lock, and a refresh writes it under that
+/// lock, so a query waits for a refresh under way.
 #[derive(Debug)]
 pub(crate) struct Served {
     indexed: RwLock<Indexed>,
+    cancel: CancelToken,
 }
 
 impl Served {
-    /// The index to answer from.
-    pub(crate) fn read(&self) -> RwLockReadGuard<'_, Indexed> {
-        self.indexed.read().unwrap_or_else(PoisonError::into_inner)
+    /// The index to answer from, or the error that names the fix when a refresh panicked partway through it.
+    pub(crate) fn read(&self) -> Result<RwLockReadGuard<'_, Indexed>, String> {
+        self.indexed
+            .read()
+            .map_err(|poisoned| broken(&poisoned.into_inner()))
     }
+
+    /// Brings the index up to the tree at `paths`, or across the whole tree when there are none, until an
+    /// `index_repo` that replaces the index cancels it.
+    pub(crate) fn refresh<'p>(
+        &self,
+        paths: impl ExactSizeIterator<Item = &'p str>,
+    ) -> Result<Refreshed, String> {
+        let mut indexed = self
+            .indexed
+            .write()
+            .map_err(|poisoned| broken(&poisoned.into_inner()))?;
+        let started = Instant::now();
+        let cancel = Some(&self.cancel);
+        let refreshed = if paths.len() == 0 {
+            indexed.engine.refresh(cancel)
+        } else {
+            indexed.engine.refresh_paths(paths, cancel)
+        };
+        let refresh = refreshed.map_err(|error| match error {
+            BuildError::Cancelled => {
+                "a later index_repo replaced this index before the refresh finished".to_owned()
+            }
+            error => format!("cannot refresh {}: {error}", indexed.root),
+        })?;
+        let root = indexed.engine.index().root();
+        let failed = refresh
+            .errors()
+            .map(|error| Failure::new(error, root))
+            .collect();
+        replace_failures(&mut indexed.errors, refresh.index().walked(), failed);
+        drop(indexed);
+        Ok(Refreshed {
+            refresh,
+            elapsed: started.elapsed(),
+        })
+    }
+}
+
+/// The error a query answers once a refresh panicked while it held the index.
+fn broken(indexed: &Indexed) -> String {
+    format!(
+        "a refresh of {} panicked partway, so the index may hold half of it - call index_repo to build it again",
+        indexed.root
+    )
+}
+
+/// Takes the failures of a refresh that `walked` the parts at those paths into `failures`, so they list what the tree
+/// fails now, each once: a failure under a part walked again, or one the refresh met again, gives way to the
+/// refresh's. A failure that names no path in the tree, such as an unwritable cache, stays until a refresh of the
+/// whole tree.
+fn replace_failures(failures: &mut Vec<Failure>, walked: &[String], failed: Vec<Failure>) {
+    let walked: HashSet<&str> = walked.iter().map(String::as_str).collect();
+    let failed_paths: HashSet<&str> = failed
+        .iter()
+        .filter_map(|failure| failure.path.as_deref())
+        .collect();
+    let failed_pathless: HashSet<&str> = failed
+        .iter()
+        .filter(|failure| failure.path.is_none())
+        .map(|failure| failure.text.as_str())
+        .collect();
+    failures.retain(|failure| {
+        failure.path.as_deref().map_or_else(
+            || !walked.contains("") && !failed_pathless.contains(failure.text.as_str()),
+            |path| {
+                !failed_paths.contains(path) && !ancestors(path).any(|part| walked.contains(part))
+            },
+        )
+    });
+    failures.extend(failed);
+}
+
+/// The root-relative path `path`, and every directory above it up to the root, the empty path.
+fn ancestors(path: &str) -> impl Iterator<Item = &str> {
+    std::iter::once("")
+        .chain(path.match_indices('/').filter_map(|(at, _)| path.get(..at)))
+        .chain(std::iter::once(path))
 }
 
 /// What one family's graph holds, and how many of the files its languages claimed it does not hold.
@@ -111,8 +226,9 @@ impl Slot {
     /// Starts building `request` on a blocking thread and returns where its outcome arrives.
     ///
     /// A build of the same request already under way is joined rather than started again. A build of another one is
-    /// cancelled. The new build starts once the engine it replaces is gone, the cancelled build's included, and once
-    /// every query that was answering from it has answered, so a rebuild never holds two engines.
+    /// cancelled, and so is a refresh of the engine this one replaces. The new build starts once the engine it replaces
+    /// is gone, the cancelled build's included, and once every query that was answering from it has answered, so a
+    /// rebuild never holds two engines.
     pub(crate) fn start(
         self: &Arc<Self>,
         request: Request,
@@ -139,6 +255,9 @@ impl Slot {
             }),
         );
         drop(state);
+        if let State::Ready(served) = &replaced {
+            served.cancel.cancel();
+        }
 
         let slot = Arc::clone(self);
         let runtime = tokio::runtime::Handle::current();
@@ -238,7 +357,12 @@ fn build(
             error => format!("cannot index {}: {error}", request.root.display()),
         },
     )?;
-    let errors = outcome.errors().iter().map(ToString::to_string).collect();
+    let root = outcome.engine().index().root();
+    let errors = outcome
+        .errors()
+        .iter()
+        .map(|error| Failure::new(error, root))
+        .collect();
     Ok(Served {
         indexed: RwLock::new(Indexed {
             root: request.root.display().to_string(),
@@ -246,6 +370,7 @@ fn build(
             engine: outcome.into_engine(),
             errors,
         }),
+        cancel: cancel.clone(),
     })
 }
 
@@ -276,4 +401,86 @@ fn graph_rows(engine: &Engine) -> Vec<GraphRow> {
         })
         .filter(|row| row.files > 0 || row.unheld > 0)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn failure(path: Option<&str>, text: &str) -> Failure {
+        Failure {
+            path: path.map(str::to_owned),
+            text: text.to_owned(),
+        }
+    }
+
+    fn texts(failures: &[Failure]) -> Vec<&str> {
+        failures
+            .iter()
+            .map(|failure| failure.text.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn a_refresh_replaces_the_failures_under_what_it_walked_and_those_it_met_again() {
+        let mut failures = vec![
+            failure(Some("src/a.rs"), "a unread"),
+            failure(Some("src/deep/b.rs"), "b unread"),
+            failure(Some("srcs/c.rs"), "c unread"),
+            failure(Some("lib/d.rs"), "d unread"),
+            failure(None, "cache unwritable"),
+            failure(None, "cache unmergeable"),
+        ];
+
+        replace_failures(
+            &mut failures,
+            &["src".to_owned()],
+            vec![
+                failure(Some("lib/d.rs"), "d unread again"),
+                failure(None, "cache unmergeable"),
+            ],
+        );
+
+        assert_eq!(
+            texts(&failures),
+            [
+                "c unread",
+                "cache unwritable",
+                "d unread again",
+                "cache unmergeable"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_refresh_of_the_tree_replaces_every_failure() {
+        let mut failures = vec![
+            failure(Some("a.rs"), "a unread"),
+            failure(None, "cache unwritable"),
+        ];
+
+        replace_failures(
+            &mut failures,
+            &[String::new()],
+            vec![failure(Some("b.rs"), "b unread")],
+        );
+
+        assert_eq!(texts(&failures), ["b unread"]);
+    }
+
+    #[test]
+    fn a_failure_names_its_path_from_the_root() {
+        let root = Path::new("/repo");
+        let read = BuildError::Read {
+            native_path: root.join("src").join("a.rs"),
+            source: std::io::Error::other("denied"),
+        };
+        let cache = BuildError::Cache {
+            native_path: PathBuf::from("/cache"),
+            source: std::io::Error::other("full"),
+        };
+
+        assert_eq!(Failure::new(&read, root).path.as_deref(), Some("src/a.rs"));
+        assert_eq!(Failure::new(&cache, root).path, None);
+    }
 }
