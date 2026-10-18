@@ -619,6 +619,79 @@ diff --git a/README.md b/README.md
 }
 
 #[test]
+fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "main.go",
+            "package main\n\nfunc main() {\n\tused()\n\tHelper()\n}\n\nfunc used() {}\n\nfunc unused() {}\n\n\
+             func Helper() {}\n",
+        ),
+        ("pkg/pkg.go", "package pkg\n\nfunc Helper() {}\n"),
+        (
+            "pkg/pkg_test.go",
+            "package pkg\n\nimport \"testing\"\n\nfunc TestHelper(t *testing.T) {}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        [
+            client.answer("find_unused", &json!({})),
+            client.answer("find_unused", &json!({"limit": 1})),
+            client.answer("find_unused", &json!({"path_prefix": "pkg/"})),
+            client.answer("find_unused", &json!({"path_prefix": "pkg/pkg_test.go"})),
+            client.answer("find_unused", &json!({"path_prefix": "cmd/"})),
+            client.answer("find_unused", &json!({"languages": []})),
+        ],
+        [
+            lines(&[
+                r#"<unused count="2" live="2">"#,
+                r#"<excluded test="1" entry="1"/>"#,
+                r#"<symbol name="unused" qn="main.unused" kind="function" lang="go" loc="main.go:10"/>"#,
+                concat!(
+                    r#"<symbol name="Helper" qn="pkg.Helper" kind="function" lang="go" loc="pkg/pkg.go:3" "#,
+                    r#"name_used_elsewhere="true"/>"#,
+                ),
+                "</unused>",
+            ]),
+            lines(&[
+                r#"<unused count="1" total="2" truncated="true" live="2">"#,
+                r#"<excluded test="1" entry="1"/>"#,
+                r#"<symbol name="unused" qn="main.unused" kind="function" lang="go" loc="main.go:10"/>"#,
+                "</unused>",
+            ]),
+            lines(&[
+                r#"<unused path_prefix="pkg/" count="1" live="0">"#,
+                r#"<excluded test="1"/>"#,
+                concat!(
+                    r#"<symbol name="Helper" qn="pkg.Helper" kind="function" lang="go" loc="pkg/pkg.go:3" "#,
+                    r#"name_used_elsewhere="true"/>"#,
+                ),
+                "</unused>",
+            ]),
+            lines(&[
+                r#"<unused path_prefix="pkg/pkg_test.go" count="0" live="0">"#,
+                r#"<excluded test="1"/>"#,
+                "no unused definition among those judged - what was not judged is counted in <excluded>",
+                "</unused>",
+            ]),
+            concat!(
+                r#"<unused path_prefix="cmd/" count="0" live="0">no definition in a code graph lies under "#,
+                "path_prefix - pass a repo-relative prefix as find_files prints paths</unused>",
+            )
+            .to_owned(),
+            concat!(
+                r#"<unused languages="[]" count="0" live="0">no language selected - an empty languages list "#,
+                "searches no graph; omit languages to search every indexed language</unused>",
+            )
+            .to_owned(),
+        ]
+    );
+}
+
+#[test]
 fn a_wrong_call_answers_a_tool_error() {
     let tree = go_module();
     let mut client = Client::start(&[]);

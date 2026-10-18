@@ -212,6 +212,26 @@ pub(crate) struct ImpactOfChangeParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct FindUnusedParams {
+    /// Optional language filter (multiselect). Omit to judge every indexed language; narrow when you clean up one,
+    /// e.g. ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
+    /// listing the accepted set. A valid name absent from this repo contributes nothing. An empty list selects no
+    /// language, so the answer is empty. Null is equivalent to omission.
+    #[serde(default)]
+    pub(crate) languages: Option<Vec<String>>,
+    /// Repo-relative path prefix with forward slashes: only definitions in files whose path starts with it are judged
+    /// and counted, e.g. "pkg/billing/" (end it with "/" to take that directory alone) or one file's path. Omitted
+    /// judges the whole repository, which takes seconds on a large one.
+    #[serde(default)]
+    pub(crate) path_prefix: Option<String>,
+    /// Positive cap on the definitions listed. Omitted or null = 50. Zero and negatives are rejected. total= counts
+    /// every unused definition found whatever the cap.
+    #[serde(default)]
+    pub(crate) limit: Option<NonZeroUsize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct GlobFilesParams {
     /// Glob patterns; a path matching ANY of them is listed, e.g. ["**/*.go", "src/**/*.ts"]. A glob without "/"
     /// matches across directories ("*.go" matches at any depth). REQUIRED and non-empty - to enumerate the whole tree,
