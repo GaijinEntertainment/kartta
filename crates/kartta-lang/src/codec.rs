@@ -1,17 +1,28 @@
+use std::collections::HashMap;
+
 use crate::extraction::{
-    CallRef, Callable, CallableRole, FoldedDeclaration, ImplementsAssertion, LocalCall,
-    RawDirective, RawExtraction, RawReExport, RefSite,
+    Access, CallRef, Callable, CallableRole, FoldedDeclaration, ImplementsAssertion, LocalCall,
+    RawDirective, RawExtraction, RawReExport, Receiver, RefSite,
 };
 use crate::symbol::{Symbol, SymbolFlags, SymbolId, SymbolKind};
 
 const QUALIFIED_AS_NAME: u8 = 1 << 6;
 const EXPORTED: u8 = 1 << 7;
 
+const FORM: u8 = 0b11;
+const BARE: u8 = 0;
+const QUALIFIER: u8 = 1;
+const OWN: u8 = 2;
+const PATH: u8 = 3;
+const READ: u8 = 0;
+const WRITE: u8 = 1 << 2;
+const UPDATE: u8 = 2 << 2;
+
 impl RawExtraction {
     /// The identity of the bytes [`RawExtraction::encode`] writes: a cache keys an encoded extraction by it as well as
     /// by its language's fingerprint, so an entry in another layout is never decoded.
     // constraint: names the layout `encode` writes, so it changes with any change to it
-    pub const CODEC: &'static [u8] = b"kartta-lang raw extraction 3";
+    pub const CODEC: &'static [u8] = b"kartta-lang raw extraction 4";
 
     /// Appends this extraction to `out` in a compact binary form that [`RawExtraction::decode`] reads back.
     pub fn encode(&self, out: &mut Vec<u8>) {
@@ -28,7 +39,10 @@ impl RawExtraction {
             writer.id(call.local);
             writer.uint(call.line);
         });
-        writer.seq(&self.references, Writer::reference);
+        let mut spelled = HashMap::new();
+        writer.seq(&self.references, |writer, reference| {
+            writer.reference(reference, &mut spelled);
+        });
         writer.seq(&self.local_symbols, |writer, &id| writer.id(id));
         writer.seq(&self.re_exports, Writer::re_export);
         writer.optional(self.package.as_deref());
@@ -68,7 +82,10 @@ impl RawExtraction {
                     line: reader.uint()?,
                 })
             })?,
-            references: reader.seq(Reader::reference)?,
+            references: {
+                let mut spelled = Vec::new();
+                reader.seq(|reader| reader.reference(&mut spelled))?
+            },
             local_symbols: reader.seq(Reader::id)?,
             re_exports: reader.seq(Reader::re_export)?,
             package: reader.optional()?,
@@ -116,6 +133,24 @@ impl Writer<'_> {
         self.0.extend_from_slice(kept.as_bytes());
     }
 
+    // constraint: the low bit of the first number tells a new text, its length above it, from the index of a text
+    // spelled before, so a new text past `u32::MAX >> 1` bytes is cut there, at a char boundary
+    fn spelled<'t>(&mut self, text: &'t str, spelled: &mut HashMap<&'t str, u32>) {
+        if let Some(&index) = spelled.get(text) {
+            self.uint(index << 1 | 1);
+            return;
+        }
+        let limit = usize::try_from(u32::MAX >> 1).unwrap_or(usize::MAX);
+        let kept = &text[..text.floor_char_boundary(limit)];
+        self.uint(u32::try_from(kept.len()).unwrap_or(u32::MAX >> 1) << 1);
+        self.0.extend_from_slice(kept.as_bytes());
+        if let Ok(index) = u32::try_from(spelled.len())
+            && index <= u32::MAX >> 1
+        {
+            spelled.insert(text, index);
+        }
+    }
+
     fn optional(&mut self, text: Option<&str>) {
         match text {
             Some(text) => {
@@ -126,7 +161,7 @@ impl Writer<'_> {
         }
     }
 
-    fn seq<T>(&mut self, items: &[T], mut each: impl FnMut(&mut Self, &T)) {
+    fn seq<'i, T>(&mut self, items: &'i [T], mut each: impl FnMut(&mut Self, &'i T)) {
         let written = self.len(items.len());
         for item in &items[..written] {
             each(self, item);
@@ -172,10 +207,24 @@ impl Writer<'_> {
         self.uint(call.line);
     }
 
-    fn reference(&mut self, reference: &RefSite) {
+    fn reference<'t>(&mut self, reference: &'t RefSite, spelled: &mut HashMap<&'t str, u32>) {
         self.id(reference.site_of);
-        self.text(&reference.name);
-        self.optional(reference.qualifier.as_deref());
+        self.spelled(&reference.name, spelled);
+        let (form, written) = match &reference.receiver {
+            Receiver::Bare => (BARE, None),
+            Receiver::Qualifier(qualifier) => (QUALIFIER, Some(qualifier)),
+            Receiver::Own => (OWN, None),
+            Receiver::Path(path) => (PATH, Some(path)),
+        };
+        let access = match reference.access {
+            Access::Read => READ,
+            Access::Write => WRITE,
+            Access::Update => UPDATE,
+        };
+        self.0.push(form | access);
+        if let Some(written) = written {
+            self.spelled(written, spelled);
+        }
         self.uint(reference.line);
     }
 
@@ -202,7 +251,7 @@ struct Reader<'a> {
     at: usize,
 }
 
-impl Reader<'_> {
+impl<'a> Reader<'a> {
     fn byte(&mut self) -> Read<u8> {
         let byte = *self.bytes.get(self.at).ok_or(Malformed)?;
         self.at += 1;
@@ -236,13 +285,17 @@ impl Reader<'_> {
         Ok(SymbolId(self.uint()?.wrapping_sub(1)))
     }
 
-    fn text(&mut self) -> Read<String> {
-        let len = self.len()?;
+    fn str(&mut self, len: usize) -> Read<&'a str> {
         let end = self.at.checked_add(len).ok_or(Malformed)?;
         let bytes = self.bytes.get(self.at..end).ok_or(Malformed)?;
         let text = std::str::from_utf8(bytes).map_err(|_| Malformed)?;
         self.at = end;
-        Ok(text.to_owned())
+        Ok(text)
+    }
+
+    fn text(&mut self) -> Read<String> {
+        let len = self.len()?;
+        Ok(self.str(len)?.to_owned())
     }
 
     fn optional(&mut self) -> Read<Option<String>> {
@@ -313,11 +366,39 @@ impl Reader<'_> {
         })
     }
 
-    fn reference(&mut self) -> Read<RefSite> {
+    fn spelled(&mut self, spelled: &mut Vec<&'a str>) -> Read<String> {
+        let first = self.uint()?;
+        let index_or_len = usize::try_from(first >> 1).map_err(|_| Malformed)?;
+        if first & 1 == 1 {
+            let text = spelled.get(index_or_len).ok_or(Malformed)?;
+            return Ok((*text).to_owned());
+        }
+        let text = self.str(index_or_len)?;
+        spelled.push(text);
+        Ok(text.to_owned())
+    }
+
+    fn reference(&mut self, spelled: &mut Vec<&'a str>) -> Read<RefSite> {
+        let site_of = self.id()?;
+        let name = self.spelled(spelled)?;
+        let marks = self.byte()?;
+        let receiver = match marks & FORM {
+            BARE => Receiver::Bare,
+            QUALIFIER => Receiver::Qualifier(self.spelled(spelled)?),
+            OWN => Receiver::Own,
+            _ => Receiver::Path(self.spelled(spelled)?),
+        };
+        let access = match marks & !FORM {
+            READ => Access::Read,
+            WRITE => Access::Write,
+            UPDATE => Access::Update,
+            _ => return Err(Malformed),
+        };
         Ok(RefSite {
-            site_of: self.id()?,
-            name: self.text()?,
-            qualifier: self.optional()?,
+            site_of,
+            name,
+            receiver,
+            access,
             line: self.uint()?,
         })
     }
@@ -413,12 +494,7 @@ mod tests {
                 local: SymbolId(1),
                 line: 5,
             }],
-            references: vec![RefSite {
-                site_of: SymbolId(1),
-                name: "Config".to_owned(),
-                qualifier: Some("cfg".to_owned()),
-                line: 7,
-            }],
+            references: every_receiver_and_access(),
             local_symbols: vec![SymbolId(1)],
             re_exports: vec![RawReExport {
                 local_name: "*".to_owned(),
@@ -438,6 +514,31 @@ mod tests {
             }],
             entry_candidates: vec![SymbolId(0)],
         }
+    }
+
+    fn every_receiver_and_access() -> Vec<RefSite> {
+        let site = |name: &str, receiver, access| RefSite {
+            site_of: SymbolId(0),
+            name: name.to_owned(),
+            receiver,
+            access,
+            line: 7,
+        };
+        vec![
+            site(
+                "Config",
+                Receiver::Qualifier("cfg".to_owned()),
+                Access::Read,
+            ),
+            site("count", Receiver::Bare, Access::Update),
+            site("size", Receiver::Own, Access::Write),
+            site(
+                "timeout",
+                Receiver::Path("Parser.options".to_owned()),
+                Access::Read,
+            ),
+            site("timeout", Receiver::Path(String::new()), Access::Write),
+        ]
     }
 
     fn encoded(raw: &RawExtraction) -> Vec<u8> {
@@ -472,16 +573,64 @@ mod tests {
         let mut unknown_mark = unknown_kind.clone();
         unknown_kind[1] = 200;
         unknown_mark[2] |= 1 << 5;
+        let one_use = encoded(&RawExtraction {
+            references: vec![RefSite {
+                site_of: SymbolId(0),
+                name: "f".to_owned(),
+                receiver: Receiver::Bare,
+                access: Access::Read,
+                line: 1,
+            }],
+            ..RawExtraction::default()
+        });
+        let name_then_marks = [1 << 1, b'f', BARE | READ];
+        let name = one_use
+            .windows(name_then_marks.len())
+            .position(|window| window == name_then_marks)
+            .expect("the reference's marks follow its name");
+        let mut unknown_access = one_use.clone();
+        unknown_access[name + 2] = UPDATE + WRITE;
+        let name_spelled_before_any = [&one_use[..name], &[1], &one_use[name + 2..]].concat();
 
         for bytes in [
             truncated,
             &trailing,
             &unknown_kind,
             &unknown_mark,
+            &unknown_access,
+            &name_spelled_before_any,
             &[0xFF; 9],
         ] {
             assert_eq!(RawExtraction::decode(bytes), None, "{bytes:?}");
         }
+    }
+
+    #[test]
+    fn a_text_the_uses_spelled_before_is_written_once() {
+        let raw = RawExtraction {
+            references: every_receiver_and_access()
+                .into_iter()
+                .chain(every_receiver_and_access())
+                .collect(),
+            ..RawExtraction::default()
+        };
+        let bytes = encoded(&raw);
+        let spelled = |text: &[u8]| {
+            bytes
+                .windows(text.len())
+                .filter(|window| *window == text)
+                .count()
+        };
+
+        assert_eq!(
+            (
+                spelled(b"timeout"),
+                spelled(b"Parser.options"),
+                spelled(b"cfg")
+            ),
+            (1, 1, 1)
+        );
+        assert_eq!(RawExtraction::decode(&bytes), Some(raw));
     }
 
     #[test]

@@ -12,7 +12,7 @@ use crate::confidence;
 use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind};
 use crate::resolution::Miss;
 use crate::scope::{Ancestors, Reach, Scoped, is_value};
-use crate::stored::{Entry, Site, SymbolAt};
+use crate::stored::{Entry, Site, SymbolAt, UseReceiver};
 use crate::strings::Str;
 use crate::typed::{Typed, Value};
 
@@ -852,13 +852,17 @@ impl<'g> Cascade<'g> {
         let stored = self.graph.file(file);
         let site = stored.references[index as usize];
 
-        if let Some(qualifier) = site.qualifier {
-            let target = self.binding(file, qualifier)?;
-            return self.imported(
-                &self.referenceable(site.name),
-                (file, target),
-                Pick::PackageLevel,
-            );
+        match site.receiver() {
+            UseReceiver::Bare => {}
+            UseReceiver::Qualifier(qualifier) => {
+                let target = self.binding(file, qualifier)?;
+                return self.imported(
+                    &self.referenceable(site.name),
+                    (file, target),
+                    Pick::PackageLevel,
+                );
+            }
+            UseReceiver::Own | UseReceiver::Path(_) => return None,
         }
         let named = self.named(site.name);
         if let Some(at) = self.pick(

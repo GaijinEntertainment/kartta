@@ -3,8 +3,8 @@
 
 use kartta_graph::{DeadCode, Graph};
 use kartta_lang::{
-    CallRef, Callable, CallableRole, Conventions, Extraction, IncludeRef, NO_CALLER_ID, OwnMembers,
-    RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind, TypeUses,
+    Access, CallRef, Callable, CallableRole, Conventions, Extraction, IncludeRef, NO_CALLER_ID,
+    OwnMembers, Receiver, RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind, TypeUses,
 };
 
 fn function(name: &str, line: u32) -> Symbol {
@@ -347,7 +347,8 @@ fn a_type_is_judged_where_uses_name_every_type() {
     user.references.push(RefSite {
         site_of: SymbolId(0),
         name: "Request".to_owned(),
-        qualifier: None,
+        receiver: Receiver::Bare,
+        access: Access::Read,
         line: 2,
     });
     let graph = graph_of(
@@ -400,7 +401,8 @@ fn a_use_at_file_scope_reaches_the_types_its_package_defines() {
     assertion.references.push(RefSite {
         site_of: NO_CALLER_ID,
         name: "Checked".to_owned(),
-        qualifier: None,
+        receiver: Receiver::Bare,
+        access: Access::Read,
         line: 3,
     });
     let graph = graph_of(
@@ -444,7 +446,8 @@ fn a_type_only_its_own_members_name_is_dead() {
         types.references.push(RefSite {
             site_of: SymbolId(site_of),
             name: name.to_owned(),
-            qualifier: None,
+            receiver: Receiver::Bare,
+            access: Access::Read,
             line,
         });
     }

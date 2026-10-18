@@ -3,13 +3,15 @@ use std::sync::OnceLock;
 
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
-use kartta_lang::{Conventions, Extraction, Symbol, SymbolFlags, SymbolId, SymbolKind, path};
+use kartta_lang::{
+    Conventions, Extraction, Receiver, Symbol, SymbolFlags, SymbolId, SymbolKind, path,
+};
 
 use crate::order::PathOrder;
 use crate::stored::{
     Entry, Folded, Local, Occurrence, Parent, Site, StoredAssertion, StoredBinding, StoredCall,
     StoredCallable, StoredFile, StoredLocalCall, StoredReExport, StoredReference, StoredSymbol,
-    SymbolAt, UseAt, VALUE_TYPE_SEPARATOR, ValueTypes,
+    SymbolAt, UseAt, UseReceiver, VALUE_TYPE_SEPARATOR, ValueTypes,
 };
 use crate::strings::{Str, Strings};
 
@@ -656,19 +658,28 @@ impl Graph {
         keys.into_boxed_slice()
     }
 
+    // constraint: a stored use keeps its site in the bits its marks leave, so a use inside a definition past the
+    // `StoredReference::SITES`th of its file is not kept
     fn store_references(&mut self, extraction: &Extraction) -> Box<[StoredReference]> {
         extraction
             .references
             .iter()
-            .filter(|site| holds(extraction, site.site_of))
-            .map(|site| StoredReference {
-                site_of: site.site_of.0,
-                name: self.strings.intern(&site.name),
-                qualifier: site
-                    .qualifier
-                    .as_deref()
-                    .map(|qualifier| self.strings.intern(qualifier)),
-                line: site.line,
+            .filter(|site| {
+                holds(extraction, site.site_of) && site.site_of.0 < StoredReference::SITES
+            })
+            .map(|site| {
+                let receiver = match &site.receiver {
+                    Receiver::Bare => UseReceiver::Bare,
+                    Receiver::Qualifier(qualifier) => {
+                        UseReceiver::Qualifier(self.strings.intern(qualifier))
+                    }
+                    Receiver::Own => UseReceiver::Own,
+                    Receiver::Path(path) => {
+                        UseReceiver::Path((!path.is_empty()).then(|| self.strings.intern(path)))
+                    }
+                };
+                let name = self.strings.intern(&site.name);
+                StoredReference::new(site.site_of.0, (name, receiver), site.access, site.line)
             })
             .collect()
     }

@@ -1,4 +1,4 @@
-use kartta_lang::SymbolKind;
+use kartta_lang::{Access, SymbolKind};
 
 use crate::graph::Graph;
 
@@ -18,8 +18,14 @@ pub struct Stats {
     pub calls: usize,
     /// The calls of a definition local to the caller's body, which bind it without a lookup.
     pub local_calls: usize,
-    /// The uses of a name outside a call inside a definition.
+    /// The uses of a name outside a call inside a definition: the reads, writes and updates together.
     pub uses: usize,
+    /// The uses that read the value their name binds, or name it as a type.
+    pub reads: usize,
+    /// The uses that assign the value without reading it.
+    pub writes: usize,
+    /// The uses that read and assign the value.
+    pub updates: usize,
     /// The files the held files include, once for each file and each file it includes, whether the graph holds the
     /// included file or not.
     pub includes: usize,
@@ -43,6 +49,13 @@ impl Graph {
             stats.calls += file.calls.len();
             stats.local_calls += file.local_calls.len();
             stats.uses += file.references.len();
+            for reference in &file.references {
+                match reference.access() {
+                    Access::Read => stats.reads += 1,
+                    Access::Write => stats.writes += 1,
+                    Access::Update => stats.updates += 1,
+                }
+            }
             stats.includes += file.includes.len();
             for symbol in &file.symbols {
                 count_kind(&mut stats.kinds, symbol.kind);

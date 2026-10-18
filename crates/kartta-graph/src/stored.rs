@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::sync::OnceLock;
 
-use kartta_lang::{CallableRole, SymbolFlags, SymbolKind};
+use kartta_lang::{Access, CallableRole, SymbolFlags, SymbolKind};
 
 use crate::search::WordSet;
 use crate::strings::Str;
@@ -243,12 +243,78 @@ pub(crate) struct StoredLocalCall {
     pub(crate) line: u32,
 }
 
+// constraint: 16 bytes a site, as a call: the receiver's form and the access ride in the top bits of `site_of`, and the
+// qualifier or the path in `written`
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct StoredReference {
-    pub(crate) site_of: u32,
+    site_of: u32,
     pub(crate) name: Str,
-    pub(crate) qualifier: Option<Str>,
+    written: Option<Str>,
     pub(crate) line: u32,
+}
+
+/// What a stored use's name is written on, as [`kartta_lang::Receiver`] says, its text interned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UseReceiver {
+    Bare,
+    Qualifier(Str),
+    Own,
+    Path(Option<Str>),
+}
+
+impl StoredReference {
+    pub(crate) const SITES: u32 = 1 << 28;
+    const FORM_SHIFT: u32 = 30;
+    const ACCESS_SHIFT: u32 = 28;
+
+    pub(crate) const fn new(
+        site_of: u32,
+        (name, receiver): (Str, UseReceiver),
+        access: Access,
+        line: u32,
+    ) -> Self {
+        let (form, written) = match receiver {
+            UseReceiver::Bare => (0, None),
+            UseReceiver::Qualifier(qualifier) => (1, Some(qualifier)),
+            UseReceiver::Own => (2, None),
+            UseReceiver::Path(path) => (3, path),
+        };
+        let access = match access {
+            Access::Read => 0,
+            Access::Write => 1,
+            Access::Update => 2,
+        };
+        Self {
+            site_of: site_of | form << Self::FORM_SHIFT | access << Self::ACCESS_SHIFT,
+            name,
+            written,
+            line,
+        }
+    }
+
+    pub(crate) const fn site_of(self) -> u32 {
+        self.site_of & (Self::SITES - 1)
+    }
+
+    pub(crate) const fn receiver(self) -> UseReceiver {
+        match self.site_of >> Self::FORM_SHIFT {
+            0 => UseReceiver::Bare,
+            1 => match self.written {
+                Some(qualifier) => UseReceiver::Qualifier(qualifier),
+                None => UseReceiver::Bare,
+            },
+            2 => UseReceiver::Own,
+            _ => UseReceiver::Path(self.written),
+        }
+    }
+
+    pub(crate) const fn access(self) -> Access {
+        match (self.site_of >> Self::ACCESS_SHIFT) & 0b11 {
+            0 => Access::Read,
+            1 => Access::Write,
+            _ => Access::Update,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -307,5 +373,31 @@ mod tests {
         assert_eq!(marked.caller(), 5);
         assert!(marked.is_written_from_root() && marked.is_qualified());
         assert!(!call.is_written_from_root() && !call.is_qualified());
+    }
+
+    #[test]
+    fn a_use_keeps_its_site_apart_from_its_receiver_and_its_access() {
+        let mut strings = Strings::default();
+        let (name, path) = (strings.intern("timeout"), strings.intern("Server.options"));
+        let last = StoredReference::SITES - 1;
+        let receivers = [
+            UseReceiver::Bare,
+            UseReceiver::Qualifier(path),
+            UseReceiver::Own,
+            UseReceiver::Path(Some(path)),
+            UseReceiver::Path(None),
+        ];
+
+        for receiver in receivers {
+            for access in [Access::Read, Access::Write, Access::Update] {
+                let stored = StoredReference::new(last, (name, receiver), access, 9);
+
+                assert_eq!(
+                    (stored.site_of(), stored.receiver(), stored.access()),
+                    (last, receiver, access)
+                );
+            }
+        }
+        assert_eq!(size_of::<StoredReference>(), 16);
     }
 }

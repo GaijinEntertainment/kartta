@@ -178,22 +178,51 @@ pub struct LocalCall {
     pub line: u32,
 }
 
-/// A use of a name outside a call, unresolved: a type in a declaration, a read of a package's value.
+/// A use of a name outside a call, unresolved: a type in a declaration, a read or a write of a value, a member of a
+/// value taken without a call.
 ///
-/// A use with a qualifier resolves only through the file's imports, and one without only to a symbol of the same
-/// file, the same package or a dot-imported package: a guess would be worse than no reference. A use binds no field,
-/// no enum variant and no local symbol, and a language records no use that a local binding of the name covers.
+/// Its [`Receiver`] decides where the name is looked up. A bare or qualified name binds no field, no enum variant and
+/// no local symbol, and a language records no use that a local binding of the name covers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RefSite {
     /// The innermost symbol declared around the use, or [`NO_CALLER_ID`](crate::NO_CALLER_ID) at file scope, where
     /// the use binds no edge and the graph keeps only the name it spells.
     pub site_of: SymbolId,
-    /// The name as written, without its qualifier.
+    /// The name as written, without what it is written on.
     pub name: String,
-    /// The qualifier as written: `pkg` in `pkg.Name`.
-    pub qualifier: Option<String>,
+    /// What the name is written on.
+    pub receiver: Receiver,
+    /// How the use touches the value the name binds; a type in a declaration reads it.
+    pub access: Access,
     /// The one-based line of the use.
     pub line: u32,
+}
+
+/// What a use's name is written on, which decides where the graph looks the name up: a guess would be worse than no
+/// reference.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Receiver {
+    /// Nothing: a bare name, which binds a symbol of the same file, the same package or a dot-imported package.
+    Bare,
+    /// A qualifier as written, `pkg` in `pkg.Name`, which binds only through the file's imports.
+    Qualifier(String),
+    /// The enclosing member's own receiver: `this`, `self`, or none written where the language reads a bare name as a
+    /// member of it. The name binds a member of the enclosing member's owner.
+    Own,
+    /// A value of the type the path spells, as the language's [`Receivers`](crate::Receivers) convention says, or
+    /// empty where the language cannot name that type. The name binds a member: a field, or a method taken as a value.
+    Path(String),
+}
+
+/// How a use touches the value its name binds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Access {
+    /// Reads it, or names it as a type.
+    Read,
+    /// Assigns it without reading it: the left side of `=`, a key of a literal that builds its owner.
+    Write,
+    /// Reads and assigns it, as `+=` and `++` do.
+    Update,
 }
 
 /// A file this file includes: its root-relative path, resolved by the language. A target outside the graph's files
