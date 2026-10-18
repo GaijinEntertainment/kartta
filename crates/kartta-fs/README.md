@@ -46,8 +46,9 @@ minutes. Two such answers may therefore describe two different moments, and none
 A consumer that needs file content anyway — a parser, a content index — builds with `Index::build_with` and a
 `ContentVisitor` instead. The build then reads each file the visitor wants once, while the walk is in its directory,
 hands a text file's whole content to the visitor, and keeps the size and binary verdict that read learned, so the
-consumer never opens the tree a second time after the walk. A build given `BuildOptions::content_cache` also hands the
-visitor each file's hash and the shared store, so what the consumer computes per file is computed once across builds.
+consumer never opens the tree a second time after the walk. A build given `BuildOptions::content_cache` also lends the
+visitor the shared store, keyed by each file's content through `Content::cached` and `Content::cache`, so what the
+consumer computes per file is computed once across builds.
 
 `Index::is_binary` settles a file by extension where the name names a format that is binary by construction, and by
 whether a NUL appears in the first 64 KiB otherwise. The extension set only ever says "binary": listing a text format
