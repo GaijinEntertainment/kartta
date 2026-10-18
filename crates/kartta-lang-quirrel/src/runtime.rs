@@ -1,5 +1,5 @@
-/// The methods of Quirrel's built-in types and delegates, a table's, an array's, a string's, a function's, a class's,
-/// a generator's, a thread's and a weak reference's, in ascending order.
+// constraint: the methods Quirrel's runtime defines on its built-in types and their delegates, a table's, an array's, a
+// string's, a function's, a class's, a generator's, a thread's and a weak reference's
 pub(crate) const METHODS: &[&str] = &[
     "__merge",
     "__update",
