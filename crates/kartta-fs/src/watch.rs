@@ -43,8 +43,9 @@ const LONGEST: Duration = Duration::from_millis(500);
 /// except that a changed `.gitignore` under a pruned name re-walks the directory whose rules it holds.
 ///
 /// A change made before the watcher starts is not reported, so a caller that builds and then watches refreshes once
-/// more if the tree may have changed in between. When the operating system drops changes it could not deliver,
-/// [`Changes::lost`] says so and the batch names the whole tree.
+/// more, for what changed in between, then calls [`Watcher::cover`] and refreshes the paths it names: on Linux a
+/// directory that refresh added is watched only from that call. When the operating system drops changes it could not
+/// deliver, [`Changes::lost`] says so and the batch names the whole tree.
 ///
 /// # Examples
 ///
@@ -56,6 +57,9 @@ const LONGEST: Duration = Duration::from_millis(500);
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut index = Index::build("project", &BuildOptions::default())?.into_index();
 /// let mut watcher = Watcher::new(&index)?;
+/// index.refresh(None, None)?;
+/// let covered = watcher.cover(&index)?;
+/// index.refresh_paths(covered.paths(), None, None)?;
 /// loop {
 ///     let changes = watcher.wait(Duration::from_secs(1))?;
 ///     if !changes.is_empty() {
@@ -119,6 +123,35 @@ impl Watcher {
             }
         }
 
+        Ok(self.changes(found))
+    }
+
+    /// Watches each directory `index` holds that this watcher does not watch yet, together with every directory inside
+    /// each, and returns those directories for [`Index::refresh_paths`], since a change made in one before its watch
+    /// went on raised no event.
+    ///
+    /// On Linux [`Watcher::new`] watches the directories the index holds when it starts, so a directory that a later
+    /// refresh adds, made before the watcher started, is watched only from this call; it makes one watch call for each
+    /// directory the index holds, as [`Watcher::new`] does, and a listing for each directory it starts to watch. A
+    /// directory found inside one that the operating system refuses to watch is skipped, as [`Watcher::wait`] skips
+    /// it: refused for permission, it is one the walk cannot list either. On macOS and Windows the watcher covers the
+    /// whole tree from its start, so this returns nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`WatchError::Limit`] when Linux's inotify watch limit runs out before every such directory is watched, and
+    /// [`WatchError::Start`] when the operating system refuses to watch one that is still there, so changes inside it
+    /// would go unseen. The watcher then no longer covers the tree, and a new one has to be started.
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(
+            clippy::needless_pass_by_ref_mut,
+            reason = "Linux's backend adds watches, so covering takes the watcher mutably everywhere"
+        )
+    )]
+    pub fn cover(&mut self, index: &Index) -> Result<Changes, WatchError> {
+        let mut found = Found::default();
+        self.backend.cover(index, &mut found)?;
         Ok(self.changes(found))
     }
 

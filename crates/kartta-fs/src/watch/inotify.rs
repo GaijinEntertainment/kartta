@@ -73,7 +73,7 @@ impl Backend {
         unwatched: impl FnOnce() -> usize,
     ) -> Result<(), WatchError> {
         match self.add(dir) {
-            Ok(()) => Ok(()),
+            Ok(_) => Ok(()),
             Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => Err(WatchError::Limit {
                 watched: self.dirs.len(),
                 wanted: self.dirs.len() + unwatched(),
@@ -116,10 +116,31 @@ impl Backend {
         };
         let mut made = Vec::new();
         self.take(read, found, &mut made);
-        for dir in made {
-            self.follow(dir)?;
-        }
+        self.follow(made)?;
         Ok(read > 0)
+    }
+
+    pub(super) fn cover(&mut self, index: &Index, found: &mut Found) -> Result<(), WatchError> {
+        let mut paths = index.paths();
+        for at in (0..index.len()).filter(|&at| index.kind_at(at) == EntryKind::Dir) {
+            let dir = self.root.join(paths.get(at));
+            let within_limit = match self.add(&dir) {
+                Ok(true) => self
+                    .follow(subdirs(&dir, &self.pruned_names).collect())
+                    .is_ok(),
+                Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => false,
+                Err(error) if !gone(&error) => return Err(start_error(&dir, error)),
+                Ok(false) | Err(_) => continue,
+            };
+            if !within_limit {
+                return Err(WatchError::Limit {
+                    watched: self.dirs.len(),
+                    wanted: 1 + dirs_from(index, 0),
+                });
+            }
+            found.paths.push(dir);
+        }
+        Ok(())
     }
 
     fn read_once(&mut self) -> io::Result<usize> {
@@ -223,11 +244,10 @@ impl Backend {
 
     // constraint: whatever is made in a new directory before its watch is added raises no event, so the watch goes on
     // before the refresh that names the directory walks it, and every directory already inside it is watched alike
-    fn follow(&mut self, dir: PathBuf) -> Result<(), WatchError> {
-        let mut pending = vec![dir];
+    fn follow(&mut self, mut pending: Vec<PathBuf>) -> Result<(), WatchError> {
         while let Some(dir) = pending.pop() {
             match self.add(&dir) {
-                Ok(()) => pending.extend(subdirs(&dir, &self.pruned_names)),
+                Ok(_) => pending.extend(subdirs(&dir, &self.pruned_names)),
                 Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => {
                     return Err(WatchError::Limit {
                         watched: self.dirs.len(),
@@ -240,15 +260,16 @@ impl Backend {
         Ok(())
     }
 
-    fn add(&mut self, dir: &Path) -> io::Result<()> {
+    // constraint: inotify_add_watch hands back the descriptor a directory already has, so a descriptor this backend
+    // holds is a directory it watches, re-pointed here to the path it has now
+    fn add(&mut self, dir: &Path) -> io::Result<bool> {
         let native = CString::new(dir.as_os_str().as_bytes())?;
         // SAFETY: `native` is NUL-terminated and outlives the call, and the descriptor is this backend's own.
         let wd = unsafe { libc::inotify_add_watch(self.fd.as_raw_fd(), native.as_ptr(), MASK) };
         if wd < 0 {
             return Err(io::Error::last_os_error());
         }
-        self.dirs.insert(wd, dir.to_path_buf());
-        Ok(())
+        Ok(self.dirs.insert(wd, dir.to_path_buf()).is_none())
     }
 }
 

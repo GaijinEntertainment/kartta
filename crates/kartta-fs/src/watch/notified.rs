@@ -84,6 +84,16 @@ impl Backend {
         found.lost |= self.overflowed.swap(false, Ordering::Relaxed);
         Ok(true)
     }
+
+    #[expect(
+        clippy::unnecessary_wraps,
+        clippy::unused_self,
+        reason = "one signature for every platform, and the stream covers the whole tree from its start, so nothing \
+                  is left to watch"
+    )]
+    pub(super) const fn cover(&self, _index: &Index, _found: &mut Found) -> Result<(), WatchError> {
+        Ok(())
+    }
 }
 
 fn start_error(path: &Path, error: notify::Error) -> WatchError {
