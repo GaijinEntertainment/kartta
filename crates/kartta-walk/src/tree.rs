@@ -1,21 +1,6 @@
-//! The structure a walk discovered: an arena of recorded nodes, keyed by [`NodeId`].
+//! The structure a walk discovered: an arena of recorded nodes in depth-first order.
 
 use std::fmt;
-
-/// Identifies one node of a [`Tree`] arena. Only valid for the tree that produced it.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct NodeId(pub(crate) u32);
-
-impl NodeId {
-    /// The id as an index, for a caller keeping its own array alongside the arena.
-    ///
-    /// Ids are assigned densely from zero in the order [`Tree::nodes`] reports, so a `Vec` of the same length indexes
-    /// one-to-one with the tree.
-    #[must_use]
-    pub const fn index(self) -> usize {
-        self.0 as usize
-    }
-}
 
 /// The tree a walk discovered: an arena of nodes, each directory's children name-sorted.
 ///
@@ -26,7 +11,7 @@ impl NodeId {
 pub struct Tree<V> {
     /// Every node's name, end to end in node order.
     pub(crate) names: String,
-    /// Every node in depth-first order, which is id order.
+    /// Every node in depth-first order.
     pub(crate) slots: Vec<Slot<V>>,
 }
 
@@ -35,7 +20,7 @@ pub struct Tree<V> {
 pub(crate) struct Slot<V> {
     /// Where the node's name begins in [`Tree::names`]. It ends where the next node's begins.
     pub(crate) name_start: u32,
-    /// One past the last node of this node's subtree, which is the id of its next sibling when it has one.
+    /// One past the last node of this node's subtree, which is its next sibling's slot when it has one.
     pub(crate) subtree_end: u32,
     pub(crate) value: V,
 }
@@ -54,36 +39,11 @@ impl<V> Tree<V> {
         }
     }
 
-    /// The node this id identifies.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the id did not come from this tree. Use [`Tree::get`] to handle a foreign id instead.
-    #[must_use]
-    pub fn node(&self, id: NodeId) -> Node<'_, V> {
-        assert!(
-            id.index() < self.slots.len(),
-            "{id:?} is not a node of this tree of {} nodes",
-            self.slots.len()
-        );
-
-        Node { tree: self, id }
-    }
-
-    /// The node this id identifies, or `None` if the id is not this tree's.
-    #[must_use]
-    pub fn get(&self, id: NodeId) -> Option<Node<'_, V>> {
-        (id.index() < self.slots.len()).then_some(Node { tree: self, id })
-    }
-
     /// Every node in depth-first order: a directory is immediately followed by its subtree.
     ///
-    /// The order matches a recursive descent from [`Tree::children`], and it is id order.
+    /// The order matches a recursive descent from [`Tree::children`].
     pub fn nodes(&self) -> impl ExactSizeIterator<Item = Node<'_, V>> {
-        (0..self.end()).map(|id| Node {
-            tree: self,
-            id: NodeId(id),
-        })
+        (0..self.end()).map(|at| Node { tree: self, at })
     }
 
     /// How many nodes the tree holds.
@@ -98,7 +58,7 @@ impl<V> Tree<V> {
         self.slots.is_empty()
     }
 
-    /// One past the last node id.
+    /// One past the last node's slot.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "the walk stores every subtree end as a u32, and the last root's subtree end is the node count"
@@ -113,21 +73,15 @@ impl<V> Tree<V> {
 /// A borrowed view into its [`Tree`], cheap to copy.
 pub struct Node<'t, V> {
     tree: &'t Tree<V>,
-    id: NodeId,
+    at: u32,
 }
 
 impl<'t, V> Node<'t, V> {
-    /// The node's id in its tree.
-    #[must_use]
-    pub const fn id(self) -> NodeId {
-        self.id
-    }
-
     /// The entry's own name, without any directory prefix. Lossily decoded, as during the walk.
     #[must_use]
     pub fn name(self) -> &'t str {
         let Tree { names, slots } = self.tree;
-        let at = self.id.index();
+        let at = self.at as usize;
         let end = slots
             .get(at + 1)
             .map_or(names.len(), |next| next.name_start as usize);
@@ -149,13 +103,13 @@ impl<'t, V> Node<'t, V> {
     pub fn children(self) -> Children<'t, V> {
         Children {
             tree: self.tree,
-            next: self.id.0 + 1,
+            next: self.at + 1,
             end: self.slot().subtree_end,
         }
     }
 
     fn slot(self) -> &'t Slot<V> {
-        &self.tree.slots[self.id.index()]
+        &self.tree.slots[self.at as usize]
     }
 }
 
@@ -170,7 +124,6 @@ impl<V> Copy for Node<'_, V> {}
 impl<V: fmt::Debug> fmt::Debug for Node<'_, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Node")
-            .field("id", &self.id)
             .field("name", &self.name())
             .field("value", self.value())
             .finish()
@@ -194,7 +147,7 @@ impl<'t, V> Iterator for Children<'t, V> {
 
         let node = Node {
             tree: self.tree,
-            id: NodeId(self.next),
+            at: self.next,
         };
         self.next = node.slot().subtree_end;
 

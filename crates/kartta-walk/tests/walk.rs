@@ -210,30 +210,6 @@ fn nodes_are_stored_in_the_order_a_descent_reports_them() {
 }
 
 #[test]
-fn an_id_resolves_to_its_node_in_its_own_tree_only() {
-    let dir = fixture();
-    let whole = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
-    let pruned = walk(dir.path(), &PruneDir("dir"), &(), &WalkOptions::default()).expect("walk");
-
-    for (index, node) in whole.tree().nodes().enumerate() {
-        assert_eq!(node.id().index(), index, "ids are dense in node order");
-        assert_eq!(whole.tree().node(node.id()).name(), node.name());
-    }
-
-    let last = whole
-        .tree()
-        .nodes()
-        .last()
-        .expect("the fixture is not empty");
-    assert!(
-        pruned.tree().get(last.id()).is_none(),
-        "{:?} lies past the end of a tree of {} nodes",
-        last.id(),
-        pruned.tree().len()
-    );
-}
-
-#[test]
 fn the_tree_is_identical_however_many_threads_walk_it() {
     let dir = fixture();
 
