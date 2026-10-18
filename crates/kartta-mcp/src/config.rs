@@ -1,5 +1,6 @@
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use kartta::BuildOptions;
 use kartta_fs::{ContentIndexStorage, IgnoreSources};
@@ -15,6 +16,9 @@ pub struct Config {
     /// The [`kartta_cache`](https://crates.io/crates/kartta-cache) directory builds share per-file data through, as
     /// [`BuildOptions::content_cache`] takes it.
     pub content_cache: Option<PathBuf>,
+    /// The age past which an entry of [`Config::content_cache`] expires, counted from when the build that computed it
+    /// began, as [`BuildOptions::content_cache_ttl`] takes it; zero is a week.
+    pub content_cache_ttl: Duration,
     /// Where a build keeps the trigram index that narrows `grep`, as [`BuildOptions::content_index`] takes it; `None`
     /// builds none, and `grep` then reads every candidate.
     pub content_index: Option<ContentIndexStorage>,
@@ -30,6 +34,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             content_cache: None,
+            content_cache_ttl: Duration::ZERO,
             content_index: None,
             threads: None,
             watch: true,
@@ -44,6 +49,8 @@ impl Config {
     /// | Variable | Field |
     /// | --- | --- |
     /// | `KARTTA_CACHE_DIR` | [`Config::content_cache`], when not empty |
+    /// | `KARTTA_CACHE_ENTRY_TTL_SECS` | [`Config::content_cache_ttl`]: a count of seconds; empty or `0` is a week |
+    /// | `KARTTA_CACHE_SWEEP` | nothing: every build expires entries, so a value only warns that it does not apply |
     /// | `KARTTA_GREP_INDEX` | [`Config::content_index`]: `memory`, `file` or `mmap`, in any case; empty builds none |
     /// | `KARTTA_GREP_INDEX_DIR` | where a `file` or `mmap` index lives; empty or unset is the temporary directory |
     /// | `KARTTA_THREADS` | [`Config::threads`]: a positive count |
@@ -58,6 +65,14 @@ impl Config {
         let content_cache = var("KARTTA_CACHE_DIR")
             .filter(|dir| !dir.is_empty())
             .map(PathBuf::from);
+        let content_cache_ttl = cache_ttl(var("KARTTA_CACHE_ENTRY_TTL_SECS"), &mut warnings);
+        if var("KARTTA_CACHE_SWEEP").is_some_and(|raw| !raw.is_empty()) {
+            warnings.push(
+                "KARTTA_CACHE_SWEEP does not apply: every build's merge expires the cache entries older than \
+                 KARTTA_CACHE_ENTRY_TTL_SECS, a week unless it says otherwise"
+                    .to_owned(),
+            );
+        }
         let index_dir = || {
             var("KARTTA_GREP_INDEX_DIR")
                 .filter(|dir| !dir.is_empty())
@@ -101,6 +116,7 @@ impl Config {
         });
         let config = Self {
             content_cache,
+            content_cache_ttl,
             content_index,
             threads,
             watch,
@@ -117,10 +133,26 @@ impl Config {
             IgnoreSources::InTree
         };
         options.content_cache.clone_from(&self.content_cache);
+        options.content_cache_ttl = self.content_cache_ttl;
         options.content_index.clone_from(&self.content_index);
         options.threads = self.threads;
         options
     }
+}
+
+fn cache_ttl(raw: Option<String>, warnings: &mut Vec<String>) -> Duration {
+    let Some(raw) = raw.filter(|raw| !raw.trim().is_empty()) else {
+        return Duration::ZERO;
+    };
+    raw.trim().parse().map_or_else(
+        |_| {
+            warnings.push(format!(
+                "KARTTA_CACHE_ENTRY_TTL_SECS={raw:?} is not a count of seconds; keeping cache entries a week"
+            ));
+            Duration::ZERO
+        },
+        Duration::from_secs,
+    )
 }
 
 #[cfg(test)]
@@ -144,6 +176,7 @@ mod tests {
     fn each_variable_sets_its_field() {
         let (config, warnings) = read(&[
             ("KARTTA_CACHE_DIR", "/cache"),
+            ("KARTTA_CACHE_ENTRY_TTL_SECS", " 3600 "),
             ("KARTTA_GREP_INDEX", " MMAP "),
             ("KARTTA_GREP_INDEX_DIR", "/scratch"),
             ("KARTTA_THREADS", "4"),
@@ -151,6 +184,11 @@ mod tests {
 
         assert_eq!(warnings, Vec::<String>::new());
         assert_eq!(config.content_cache, Some(PathBuf::from("/cache")));
+        assert_eq!(config.content_cache_ttl, Duration::from_hours(1));
+        assert_eq!(
+            config.build_options(false).content_cache_ttl,
+            Duration::from_hours(1)
+        );
         assert_eq!(
             config.content_index,
             Some(ContentIndexStorage::Mapped {
@@ -166,12 +204,31 @@ mod tests {
             ("KARTTA_GREP_INDEX", "disk"),
             ("KARTTA_THREADS", "0"),
             ("KARTTA_CACHE_DIR", ""),
+            ("KARTTA_CACHE_ENTRY_TTL_SECS", "a week"),
         ]);
 
         assert_eq!(config, Config::default());
-        assert_eq!(warnings.len(), 2, "{warnings:?}");
-        assert!(warnings[0].contains("KARTTA_GREP_INDEX=\"disk\""));
-        assert!(warnings[1].contains("KARTTA_THREADS=\"0\""));
+        assert_eq!(warnings.len(), 3, "{warnings:?}");
+        assert!(warnings[0].contains("KARTTA_CACHE_ENTRY_TTL_SECS=\"a week\""));
+        assert!(warnings[1].contains("KARTTA_GREP_INDEX=\"disk\""));
+        assert!(warnings[2].contains("KARTTA_THREADS=\"0\""));
+    }
+
+    #[test]
+    fn a_cache_time_to_live_of_zero_is_the_default_week() {
+        assert_eq!(
+            read(&[("KARTTA_CACHE_ENTRY_TTL_SECS", "0")]),
+            (Config::default(), Vec::new())
+        );
+    }
+
+    #[test]
+    fn a_cache_sweep_setting_warns_that_it_does_not_apply() {
+        let (config, warnings) = read(&[("KARTTA_CACHE_SWEEP", "1")]);
+
+        assert_eq!(config, Config::default());
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].starts_with("KARTTA_CACHE_SWEEP does not apply"));
     }
 
     #[test]
