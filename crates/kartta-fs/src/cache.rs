@@ -1,12 +1,13 @@
 use std::io;
 use std::path::Path;
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use kartta_cache::{ContentHash, DEFAULT_TTL, Namespace, PackWriter, Store};
 
 use crate::build::BuildError;
 use crate::trigram::{self, Trigrams};
+use crate::{into_inner, lock};
 
 #[derive(Debug)]
 pub(crate) struct SharedCache {
@@ -36,10 +37,7 @@ impl SharedCache {
 
     pub(crate) fn insert(&self, namespace: &Namespace, content: &ContentHash, payload: &[u8]) {
         if let Err(error) = self.writer.insert(namespace, content, payload) {
-            self.failure
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .get_or_insert(error);
+            lock(&self.failure).get_or_insert(error);
         }
     }
 
@@ -76,7 +74,7 @@ impl SharedCache {
         } = self;
         let dir = store.dir().to_path_buf();
         drop(store);
-        if let Some(source) = failure.into_inner().unwrap_or_else(PoisonError::into_inner) {
+        if let Some(source) = into_inner(failure) {
             return Some(cache_error(&dir, source));
         }
 

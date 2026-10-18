@@ -1,7 +1,7 @@
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Mutex, PoisonError};
 use std::{fs, io};
 
 use kartta_cache::{ContentHash, ContentHasher};
@@ -19,6 +19,7 @@ use crate::pruned::PrunedNames;
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 use crate::stamp::{Seen, Stamp, Stamping, UNTRUSTED};
 use crate::trigram::{self, Trigram, Trigrams};
+use crate::{into_inner, lock};
 
 #[derive(Debug)]
 pub(crate) struct Payload {
@@ -179,10 +180,7 @@ impl<'a> Indexing<'a> {
     }
 
     pub(crate) fn into_report(self) -> Report {
-        let mut errors = self
-            .errors
-            .into_inner()
-            .unwrap_or_else(PoisonError::into_inner);
+        let mut errors = into_inner(self.errors);
         let Some(reading) = self.reading else {
             return Report {
                 errors,
@@ -199,10 +197,7 @@ impl<'a> Indexing<'a> {
             pairs,
             ran_out,
             ..
-        } = reading
-            .kept
-            .into_inner()
-            .unwrap_or_else(PoisonError::into_inner);
+        } = into_inner(reading.kept);
         errors.extend(reading.cache.and_then(SharedCache::publish));
         let content = reading
             .collector
@@ -210,10 +205,7 @@ impl<'a> Indexing<'a> {
             .map(|(collector, pairs)| Collected {
                 collector,
                 pairs,
-                unindexed: reading
-                    .unindexed
-                    .into_inner()
-                    .unwrap_or_else(PoisonError::into_inner),
+                unindexed: into_inner(reading.unindexed),
             });
 
         Report {
@@ -226,10 +218,7 @@ impl<'a> Indexing<'a> {
     }
 
     pub(crate) fn record(&self, error: BuildError) {
-        self.errors
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(error);
+        lock(&self.errors).push(error);
     }
 
     fn read_ignore_file(&self, native_path: &Path) -> io::Result<IgnoreFile> {
@@ -533,10 +522,7 @@ impl Reading<'_> {
     // constraint: only the index wants this file, and the index needs its trigrams rather than its bytes, so the read
     // streams through one chunk however large the file is
     fn read_for_index(&self, collector: &Collector, native_path: &Path) -> ReadOutcome {
-        let mut chunk = self
-            .chunks
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        let mut chunk = lock(&self.chunks)
             .pop()
             .unwrap_or_else(|| vec![0; PROBE].into_boxed_slice());
         let mut extractor = collector.extractor();
@@ -558,20 +544,13 @@ impl Reading<'_> {
         };
 
         collector.recycle(extractor);
-        self.chunks
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(chunk);
+        lock(&self.chunks).push(chunk);
         outcome
     }
 
     fn keep(&self, observed: Observed, trigrams: Option<&[Trigram]>) -> Option<ContentId> {
         let collector = self.collector.as_ref();
-        let (slot, full) = self
-            .kept
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .keep(observed, trigrams.zip(collector))?;
+        let (slot, full) = lock(&self.kept).keep(observed, trigrams.zip(collector))?;
         if let Some(handed) = self.numbering.handed {
             handed.fetch_max(slot + 1, Ordering::Relaxed);
         }
@@ -618,10 +597,7 @@ impl Reading<'_> {
 
     fn leave_unindexed(&self, path: &str) {
         if self.collector.is_some() {
-            self.unindexed
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push(path.into());
+            lock(&self.unindexed).push(path.into());
         }
     }
 }

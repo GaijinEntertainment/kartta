@@ -169,6 +169,8 @@ mod trigram;
 #[cfg(feature = "watch")]
 mod watch;
 
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
 pub use kartta_cache::{ContentHash, Namespace};
 pub use kartta_walk::CancelToken;
 
@@ -188,3 +190,11 @@ pub use crate::patterns::{Case, PatternError, Patterns};
 pub use crate::pruned::{PrunedNames, PrunedNamesError};
 #[cfg(feature = "watch")]
 pub use crate::watch::{WatchError, Watcher};
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn into_inner<T>(mutex: Mutex<T>) -> T {
+    mutex.into_inner().unwrap_or_else(PoisonError::into_inner)
+}
