@@ -163,7 +163,7 @@ impl<'g> Cascade<'g> {
     // whose real namesake the graph never extracted
     pub(crate) fn included_field(&self, file: u32, name: Str) -> Result<Bound, UseMiss> {
         let named = self.data_named(name);
-        let fields = named.fields.targets();
+        let fields = named.fields.targets.as_slice();
         let one = |found: &[SymbolAt]| match found {
             [at] => Ok((*at, confidence::INCLUDE)),
             _ => Err(UseMiss::Ambiguous),
@@ -229,7 +229,7 @@ impl<'g> Cascade<'g> {
     // namesake most often
     fn class_member(&self, site: SymbolAt, own: Str, name: Str) -> Option<Result<Bound, UseMiss>> {
         let named = self.data_named(name);
-        let fields = named.fields.targets();
+        let fields = named.fields.targets.as_slice();
         if fields.is_empty() {
             return None;
         }
@@ -275,7 +275,7 @@ impl<'g> Cascade<'g> {
     ) -> Option<Result<Bound, UseMiss>> {
         let inherited: Vec<SymbolAt> = named
             .fields
-            .targets()
+            .targets
             .iter()
             .copied()
             .filter(|&at| {

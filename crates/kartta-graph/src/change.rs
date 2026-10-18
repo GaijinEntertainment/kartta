@@ -1,4 +1,4 @@
-use std::cmp::{self, Ordering, Reverse};
+use std::cmp::{self, Reverse};
 use std::ops::RangeInclusive;
 
 use foldhash::fast::FixedState;
@@ -140,9 +140,9 @@ impl Change<'_> {
     }
 
     fn ranked(mut self) -> Self {
-        self.hotspots.sort_by(by_convergence);
+        self.hotspots.sort_by_key(convergence);
         self.hotspots.truncate(LISTED_HOTSPOTS);
-        self.seeds.sort_by(by_fan_out);
+        self.seeds.sort_by_key(fan_out);
         self.seeds.truncate(LISTED_SEEDS);
         self
     }
@@ -152,36 +152,18 @@ const fn is_reach_artifact(definition: &Definition<'_>) -> bool {
     definition.flags.is_test() || definition.flags.is_generated() || definition.flags.is_entry()
 }
 
-fn by_definition(left: &Definition<'_>, right: &Definition<'_>) -> Ordering {
-    (left.qualified_name, left.file, left.line).cmp(&(right.qualified_name, right.file, right.line))
+fn convergence<'g>(hotspot: &Hotspot<'g>) -> impl Ord + use<'g> {
+    let symbol = hotspot.symbol;
+    let place = (symbol.qualified_name, symbol.file, symbol.line);
+    let rank = (Reverse(hotspot.hit_count), hotspot.min_depth);
+    (is_reach_artifact(&symbol), rank, place)
 }
 
-fn by_convergence(left: &Hotspot<'_>, right: &Hotspot<'_>) -> Ordering {
-    (
-        is_reach_artifact(&left.symbol),
-        Reverse(left.hit_count),
-        left.min_depth,
-    )
-        .cmp(&(
-            is_reach_artifact(&right.symbol),
-            Reverse(right.hit_count),
-            right.min_depth,
-        ))
-        .then_with(|| by_definition(&left.symbol, &right.symbol))
-}
-
-fn by_fan_out(left: &Seed<'_>, right: &Seed<'_>) -> Ordering {
-    (
-        is_reach_artifact(&left.symbol),
-        Reverse(left.reach),
-        Reverse(left.caller_count),
-    )
-        .cmp(&(
-            is_reach_artifact(&right.symbol),
-            Reverse(right.reach),
-            Reverse(right.caller_count),
-        ))
-        .then_with(|| by_definition(&left.symbol, &right.symbol))
+fn fan_out<'g>(seed: &Seed<'g>) -> impl Ord + use<'g> {
+    let symbol = seed.symbol;
+    let place = (symbol.qualified_name, symbol.file, symbol.line);
+    let rank = (Reverse(seed.reach), Reverse(seed.caller_count));
+    (is_reach_artifact(&symbol), rank, place)
 }
 
 impl Graph {
@@ -225,6 +207,7 @@ impl Graph {
 
         let mut hits: HashMap<SymbolAt, (usize, u32), FixedState> =
             HashMap::with_hasher(FixedState::default());
+        let by_fan_out = |left: &Seed<'_>, right: &Seed<'_>| fan_out(left).cmp(&fan_out(right));
         for (&canonical, &at) in &changed {
             let seed = analysis.seed(canonical, at, &mut hits);
             change.transitive_sum += seed.reach;

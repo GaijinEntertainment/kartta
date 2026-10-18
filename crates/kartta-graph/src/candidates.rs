@@ -11,9 +11,9 @@ use crate::strings::Str;
 
 #[derive(Debug)]
 pub(crate) struct Candidates<'g> {
-    named: &'g [SymbolAt],
-    targets: Vec<SymbolAt>,
-    locals: Vec<SymbolAt>,
+    pub(crate) named: &'g [SymbolAt],
+    pub(crate) targets: Vec<SymbolAt>,
+    pub(crate) locals: Vec<SymbolAt>,
     index: Option<Index>,
 }
 
@@ -81,18 +81,6 @@ impl<'g> Candidates<'g> {
                 first_party,
             }),
         }
-    }
-
-    pub(crate) const fn named(&self) -> &'g [SymbolAt] {
-        self.named
-    }
-
-    pub(crate) fn targets(&self) -> &[SymbolAt] {
-        &self.targets
-    }
-
-    pub(crate) fn locals(&self) -> &[SymbolAt] {
-        &self.locals
     }
 
     pub(crate) fn in_file(&self, graph: &Graph, slot: u32) -> &'g [SymbolAt] {

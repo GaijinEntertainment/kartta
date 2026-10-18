@@ -171,9 +171,15 @@ impl Graph {
 
     /// Forgets the file at `path`, and answers whether the graph held it.
     pub fn remove(&mut self, path: &str) -> bool {
-        self.strings
-            .get(path)
-            .is_some_and(|path| self.remove_at(path))
+        let Some(slot) = (self.strings.get(path)).and_then(|path| self.by_path.remove(&path))
+        else {
+            return false;
+        };
+        self.test_modules.take();
+        self.forget(slot);
+        self.order.remove(slot);
+        self.vacant.push(slot);
+        true
     }
 
     /// The definitions in the file at `path`, ordered by the line each starts on, one that encloses others before
@@ -707,43 +713,9 @@ impl Graph {
     }
 
     fn index(&mut self, slot: u32) {
-        let file = self.file(slot);
-        let names: Vec<Str> = file.symbols.iter().map(|symbol| symbol.name).collect();
-        let callables: Vec<(Str, Occurrence)> = file
-            .callables
-            .iter()
-            .map(|callable| {
-                let at = SymbolAt {
-                    file: slot,
-                    index: callable.symbol,
-                };
-                (
-                    callable.key,
-                    Occurrence {
-                        at,
-                        role: callable.role,
-                    },
-                )
-            })
-            .collect();
-        let renames: Vec<(Str, Rename)> = file
-            .re_exports
-            .iter()
-            .filter(|re_export| re_export.local_name != re_export.source_name)
-            .map(|re_export| {
-                let rename = Rename {
-                    file: slot,
-                    local_name: re_export.local_name,
-                };
-                (re_export.source_name, rename)
-            })
-            .collect();
-
-        for (index, name) in names.into_iter().enumerate() {
-            let at = SymbolAt {
-                file: slot,
-                index: narrow(index),
-            };
+        for index in 0..narrow(self.file(slot).symbols.len()) {
+            let at = SymbolAt { file: slot, index };
+            let name = self.sym(at).name;
             let key = self.order_of(at);
             let position = self.by_name.get(&name).map_or(0, |held| match held.last() {
                 Some(&last) if self.order_of(last) > key => {
@@ -753,17 +725,34 @@ impl Graph {
             });
             self.by_name.entry(name).or_default().insert(position, at);
         }
-        for (key, occurrence) in callables {
-            self.callables.entry(key).or_default().push(occurrence);
+        for at in 0..self.file(slot).callables.len() {
+            let callable = self.file(slot).callables[at];
+            let at = SymbolAt {
+                file: slot,
+                index: callable.symbol,
+            };
+            let occurrence = Occurrence {
+                at,
+                role: callable.role,
+            };
+            self.callables
+                .entry(callable.key)
+                .or_default()
+                .push(occurrence);
         }
         for name in distinct(self.file(slot).references.iter().map(|site| site.name)) {
             self.uses.entry(name).or_default().push(slot);
         }
-        for (source_name, rename) in renames {
-            self.renamed_from
-                .entry(source_name)
-                .or_default()
-                .push(rename);
+        for at in 0..self.file(slot).re_exports.len() {
+            let re_export = self.file(slot).re_exports[at];
+            if re_export.local_name != re_export.source_name {
+                let rename = Rename {
+                    file: slot,
+                    local_name: re_export.local_name,
+                };
+                let renames = self.renamed_from.entry(re_export.source_name).or_default();
+                renames.push(rename);
+            }
         }
         self.index_sites(slot);
         for key in self.parent_keys_of(slot) {
@@ -801,16 +790,12 @@ impl Graph {
     }
 
     fn parent_keys_of(&mut self, slot: u32) -> Vec<Str> {
-        let (parents, assertions) = {
-            let file = self.file(slot);
-            (file.parents.len(), file.assertions.len())
-        };
-        let mut keys = Vec::with_capacity(parents + assertions);
-        for at in 0..parents {
+        let mut keys = Vec::new();
+        for at in 0..self.file(slot).parents.len() {
             let written = self.file(slot).parents[at].written;
             keys.push(self.listing_key(written));
         }
-        for at in 0..assertions {
+        for at in 0..self.file(slot).assertions.len() {
             let iface = self.file(slot).assertions[at].iface;
             keys.push(self.listing_key(iface));
         }
@@ -840,21 +825,7 @@ impl Graph {
             .insert(position, slot);
     }
 
-    fn remove_at(&mut self, path: Str) -> bool {
-        let Some(slot) = self.by_path.remove(&path) else {
-            return false;
-        };
-        self.test_modules.take();
-        self.forget(slot);
-        self.order.remove(slot);
-        self.vacant.push(slot);
-        true
-    }
-
     fn forget(&mut self, slot: u32) {
-        if self.files[slot as usize].is_none() {
-            return;
-        }
         let site_keys = self.site_keys_of(slot);
         let parent_keys = self.parent_keys_of(slot);
         let Some(file) = self.files[slot as usize].take() else {
