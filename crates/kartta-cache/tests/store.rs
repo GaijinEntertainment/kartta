@@ -34,6 +34,13 @@ fn files(dir: &Path) -> usize {
     fs::read_dir(dir).expect("list the store").count()
 }
 
+fn damage(pack: &Path, change: impl FnOnce(&mut [u8])) {
+    let mut bytes = fs::read(pack).expect("read the pack");
+    change(&mut bytes);
+    fs::remove_file(pack).expect("remove the pack");
+    fs::write(pack, &bytes).expect("write the damaged pack");
+}
+
 type Entry<'a> = (&'a Namespace, &'a [u8], &'a [u8]);
 
 fn published(dir: &TempDir, entries: &[Entry<'_>]) -> Store {
@@ -199,11 +206,7 @@ fn every_pack_answers_for_what_it_holds() {
 fn a_damaged_payload_is_a_miss() {
     let dir = tempfile::tempdir().expect("temp dir");
     published(&dir, &[(&trigrams(), b"content", b"payload")]);
-    let pack = &packs(dir.path())[0];
-    let mut bytes = fs::read(pack).expect("read the pack");
-    bytes[0] ^= 0xff;
-    fs::remove_file(pack).expect("remove the pack");
-    fs::write(pack, &bytes).expect("write the damaged pack");
+    damage(&packs(dir.path())[0], |bytes| bytes[0] ^= 0xff);
 
     let store = Store::open(dir.path()).expect("open");
 
@@ -316,15 +319,19 @@ fn answers(store: &Store, content: &str) -> bool {
     store.get(&trigrams(), &ContentHash::of(content.as_bytes())) == Some(content.as_bytes())
 }
 
+fn merge(dir: &TempDir) -> Merged {
+    Store::open(dir.path())
+        .expect("open")
+        .merge(DEFAULT_TTL)
+        .expect("merge")
+}
+
 #[test]
 fn a_store_of_eight_packs_is_left_as_it_is() {
     let dir = tempfile::tempdir().expect("temp dir");
     publish_each(&dir, (0..8).map(|at| format!("file {at}")));
 
-    let merged = Store::open(dir.path())
-        .expect("open")
-        .merge(DEFAULT_TTL)
-        .expect("merge");
+    let merged = merge(&dir);
 
     assert_eq!(merged, Merged::default());
     assert_eq!(packs(dir.path()).len(), 8);
@@ -335,10 +342,7 @@ fn nine_packs_of_one_size_merge_into_one_that_answers_for_all() {
     let dir = tempfile::tempdir().expect("temp dir");
     publish_each(&dir, (0..9).map(|at| format!("file {at}")));
 
-    let merged = Store::open(dir.path())
-        .expect("open")
-        .merge(DEFAULT_TTL)
-        .expect("merge");
+    let merged = merge(&dir);
 
     assert_eq!(
         (merged.packs, merged.entries, merged.left_in_place),
@@ -365,10 +369,7 @@ fn the_largest_pack_stays_while_the_ones_added_since_merge() {
     let base_pack = packs(dir.path()).remove(0);
     publish_each(&dir, (0..8).map(|at| format!("added {at}")));
 
-    let merged = Store::open(dir.path())
-        .expect("open")
-        .merge(DEFAULT_TTL)
-        .expect("merge");
+    let merged = merge(&dir);
 
     assert_eq!((merged.packs, merged.entries), (8, 8));
     assert!(base_pack.exists(), "the largest pack was not rewritten");
@@ -384,10 +385,7 @@ fn a_store_that_mapped_the_merged_packs_keeps_answering() {
     publish_each(&dir, (0..9).map(|at| format!("file {at}")));
     let reader = Store::open(dir.path()).expect("open");
 
-    Store::open(dir.path())
-        .expect("open")
-        .merge(DEFAULT_TTL)
-        .expect("merge");
+    merge(&dir);
 
     assert!((0..9).all(|at| answers(&reader, &format!("file {at}"))));
 }
@@ -407,10 +405,7 @@ fn a_key_several_packs_hold_is_merged_once() {
         );
     }
 
-    let merged = Store::open(dir.path())
-        .expect("open")
-        .merge(DEFAULT_TTL)
-        .expect("merge");
+    let merged = merge(&dir);
 
     assert_eq!(
         (merged.packs, merged.entries),
@@ -423,16 +418,9 @@ fn a_key_several_packs_hold_is_merged_once() {
 fn a_merge_drops_the_entries_that_fail_their_check() {
     let dir = tempfile::tempdir().expect("temp dir");
     publish_each(&dir, (0..9).map(|at| format!("file {at}")));
-    let pack = &packs(dir.path())[0];
-    let mut bytes = fs::read(pack).expect("read the pack");
-    bytes[0] ^= 0xff;
-    fs::remove_file(pack).expect("remove the pack");
-    fs::write(pack, &bytes).expect("write the damaged pack");
+    damage(&packs(dir.path())[0], |bytes| bytes[0] ^= 0xff);
 
-    let merged = Store::open(dir.path())
-        .expect("open")
-        .merge(DEFAULT_TTL)
-        .expect("merge");
+    let merged = merge(&dir);
 
     assert_eq!((merged.packs, merged.entries), (9, 8));
 }
@@ -442,12 +430,11 @@ fn a_pack_whose_namespace_ranges_are_damaged_is_refused_and_never_merged_away() 
     let dir = tempfile::tempdir().expect("temp dir");
     publish_each(&dir, (0..10).map(|at| format!("file {at}")));
     let pack = packs(dir.path()).remove(0);
-    let mut bytes = fs::read(&pack).expect("read the pack");
-    let (footer_len, namespace_record_len, range_start_in_record) = (40, 48, 32);
-    let range_start = bytes.len() - footer_len - namespace_record_len + range_start_in_record;
-    bytes[range_start] = 1;
-    fs::remove_file(&pack).expect("remove the pack");
-    fs::write(&pack, &bytes).expect("write the damaged pack");
+    damage(&pack, |bytes| {
+        let (footer_len, namespace_record_len, range_start_in_record) = (40, 48, 32);
+        let range_start = bytes.len() - footer_len - namespace_record_len + range_start_in_record;
+        bytes[range_start] = 1;
+    });
 
     let store = Store::open(dir.path()).expect("open");
     let merged = store.merge(DEFAULT_TTL).expect("merge");
