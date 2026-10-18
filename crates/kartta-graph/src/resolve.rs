@@ -11,13 +11,14 @@ use kartta_lang::{
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
 use crate::confidence;
 use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind};
+use crate::members::DataNamed;
 use crate::resolution::Miss;
 use crate::scope::{Ancestors, Reach, Scoped, is_value};
 use crate::stored::{Entry, Site, SymbolAt, UseReceiver};
 use crate::strings::Str;
 use crate::typed::{Typed, Value};
 
-const THROUGH_INCLUDES_MAX_DEFINITIONS: usize = 32;
+pub(crate) const THROUGH_INCLUDES_MAX_DEFINITIONS: usize = 32;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Call {
@@ -66,6 +67,7 @@ pub(crate) struct Cascade<'g> {
     bindings: Derived<u32, Rc<Bindings>>,
     candidates: Derived<Str, Rc<Candidates<'g>>>,
     referenceable: Derived<Str, Rc<Candidates<'g>>>,
+    pub(crate) data_named: Derived<Str, Rc<DataNamed<'g>>>,
     includes: Derived<u32, Rc<[u32]>>,
     closures: Derived<u32, Rc<[u32]>>,
     canonical: Derived<SymbolAt, SymbolAt>,
@@ -86,6 +88,7 @@ impl<'g> Cascade<'g> {
             bindings: RefCell::default(),
             candidates: RefCell::default(),
             referenceable: RefCell::default(),
+            data_named: RefCell::default(),
             includes: RefCell::default(),
             closures: RefCell::default(),
             canonical: RefCell::default(),
@@ -859,8 +862,9 @@ impl<'g> Cascade<'g> {
     }
 
     // constraint: a member of a value binds through the type its path spells, or of the owner it names where receivers
-    // name owners, else the one field of the name its own file declares outside other bodies; the package, the imports
-    // and the family bind a namesake too often, where a test table or an anonymous struct holds the value
+    // name owners, else the one field of the name its own file declares outside other bodies, or where the language
+    // says so, its includes' then theirs; the package, an import and the family bind a namesake too often, where a
+    // test table or an anonymous struct holds the value
     fn member_use(&self, site: SymbolAt, name: Str, path: Option<Str>) -> Result<Bound, UseMiss> {
         if let Some(path) = path
             && self.reads_type_paths()
@@ -875,7 +879,12 @@ impl<'g> Cascade<'g> {
         } else if let Some(owner) =
             path.filter(|&path| !self.graph.strings.resolve(path).is_empty())
         {
-            return self.owner_member(site, owner, name);
+            if self.conventions.include_reach != IncludeReach::Transitive {
+                return self.owner_member(site, owner, name);
+            }
+            if let Some(found) = self.included_owner_member(site.file, owner, name) {
+                return found;
+            }
         }
         if self.conventions.untyped_members == UntypedMembers::Unbound {
             return Err(UseMiss::Ambiguous);
@@ -892,6 +901,9 @@ impl<'g> Cascade<'g> {
             });
         match (fields.next(), fields.next()) {
             (Some(field), None) => Ok((field, confidence::SAME_FILE)),
+            (None, _) if self.conventions.untyped_members == UntypedMembers::IncludedField => {
+                self.included_field(site.file, name)
+            }
             _ => Err(UseMiss::Ambiguous),
         }
     }
@@ -904,9 +916,8 @@ impl<'g> Cascade<'g> {
         };
         match site.receiver() {
             UseReceiver::Bare => self
-                .bare_use(file, site.name)
-                .or_else(|| self.imported_value(at, site.name))
-                .ok_or(UseMiss::Elsewhere),
+                .class_scope_use(at, site.name)
+                .unwrap_or_else(|| self.value_use(at, site.name).ok_or(UseMiss::Elsewhere)),
             UseReceiver::Qualifier(qualifier) => self
                 .binding(file, qualifier)
                 .and_then(|target| {
@@ -919,12 +930,19 @@ impl<'g> Cascade<'g> {
         }
     }
 
+    fn value_use(&self, site: SymbolAt, name: Str) -> Option<Bound> {
+        match self.conventions.value_uses {
+            ValueUses::Declared => self.bare_use(site.file, name),
+            ValueUses::Imported => self
+                .bare_use(site.file, name)
+                .or_else(|| self.imported_value(site, name)),
+            ValueUses::Included => self.included_value(site.file, name),
+        }
+    }
+
     // constraint: a module imports a name its source exports, so an included file's unexported namesake binds only
     // where no export and no re-export offers the name, as Python imports a name whatever its underscore says
     fn imported_value(&self, site: SymbolAt, name: Str) -> Option<Bound> {
-        if self.conventions.value_uses != ValueUses::Imported {
-            return None;
-        }
         let named = self.named(name);
         let includes = self.includes(site.file);
         let declaring = |exported: bool| {

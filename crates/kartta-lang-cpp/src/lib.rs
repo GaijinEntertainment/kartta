@@ -69,7 +69,8 @@
 //! parameter, capture or enclosing template parameter declares before it is [`Receiver::Bare`](kartta_lang::Receiver),
 //! a member of the enclosing class or a namespace's value alike, an enumerator or a macro included. A qualified name, a
 //! callee and a label are no use. The left side of `=` writes, of a compound assignment, `++` or `--` updates, and an
-//! initializer list or a designator writes; `a.b` in `a.b.c = v` reads.
+//! initializer list or a designator writes; `a.b` in `a.b.c = v` reads. Past the class, a bare name binds as
+//! [`ValueUses::Included`] says and a member on the empty path as [`UntypedMembers::IncludedField`] says.
 //!
 //! # Includes
 //!
@@ -136,7 +137,7 @@ use std::cell::RefCell;
 
 use kartta_lang::{
     CallsOnValues, Conventions, DocComments, IncludeReach, InheritedMembers, Language, OwnMembers,
-    RawExtraction, Repository, Resolver,
+    RawExtraction, Repository, Resolver, UntypedMembers, ValueUses,
 };
 use tree_sitter::Parser;
 
@@ -194,6 +195,8 @@ impl Language for Cpp {
         conventions.scope_separator = Some("::");
         conventions.include_reach = IncludeReach::Transitive;
         conventions.calls_on_values = CallsOnValues::NoNearestGuess;
+        conventions.value_uses = ValueUses::Included;
+        conventions.untyped_members = UntypedMembers::IncludedField;
         conventions
     }
 
@@ -298,6 +301,14 @@ mod tests {
         assert!(!conventions.directory_packages);
         assert_eq!(conventions.include_reach, IncludeReach::Transitive);
         assert_eq!(conventions.calls_on_values, CallsOnValues::NoNearestGuess);
+    }
+
+    #[test]
+    fn uses_past_the_class_bind_through_the_includes() {
+        let conventions = Cpp::new().conventions();
+
+        assert_eq!(conventions.value_uses, ValueUses::Included);
+        assert_eq!(conventions.untyped_members, UntypedMembers::IncludedField);
     }
 
     #[test]
