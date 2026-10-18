@@ -96,8 +96,8 @@ impl<'t, V> Node<'t, V> {
 
     /// The recorded children, name-sorted.
     ///
-    /// Yields nothing for a file, for a directory the policy pruned, and for a directory whose every entry was skipped
-    /// — the three are indistinguishable here by design, since only the policy knows which it meant.
+    /// Yields nothing for a file, for a directory the policy kept opaque, and for a directory whose every entry was
+    /// skipped — the three are indistinguishable here by design, since only the policy knows which it meant.
     #[must_use]
     pub fn children(self) -> Children<'t, V> {
         Children {

@@ -253,9 +253,9 @@ fn the_walk_root_is_not_itself_a_node() {
     assert_eq!(children, ["a.txt", "dir", "empty", "z.txt"]);
 }
 
-struct PruneDir(&'static str);
+struct OpaqueDir(&'static str);
 
-impl Policy for PruneDir {
+impl Policy for OpaqueDir {
     type State = ();
     type Value = EntryKind;
 
@@ -263,7 +263,7 @@ impl Policy for PruneDir {
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<EntryKind> {
         if entry.kind() == EntryKind::Dir && entry.name() == self.0 {
-            return Visit::Prune(entry.kind());
+            return Visit::Opaque(entry.kind());
         }
 
         Visit::Keep(entry.kind())
@@ -271,10 +271,10 @@ impl Policy for PruneDir {
 }
 
 #[test]
-fn a_pruned_directory_is_listed_with_no_children() {
+fn an_opaque_directory_is_listed_with_no_children() {
     let dir = fixture();
 
-    let outcome = walk(dir.path(), &PruneDir("dir"), &(), &WalkOptions::default()).expect("walk");
+    let outcome = walk(dir.path(), &OpaqueDir("dir"), &(), &WalkOptions::default()).expect("walk");
 
     assert_eq!(
         render(&outcome.tree),

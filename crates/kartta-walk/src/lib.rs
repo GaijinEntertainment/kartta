@@ -16,7 +16,7 @@
 //! [`Policy`] answers two questions. [`Policy::enter`] derives the state that applies to one directory's entries from
 //! its parent's state — this is where an inherited rule set (a `.gitignore` stack, a depth budget, an allow-list)
 //! accumulates on the way down. [`Policy::visit`] then classifies each entry: record it and descend
-//! ([`Visit::Keep`]), record it but treat it as opaque ([`Visit::Prune`]), or drop it ([`Visit::Skip`]).
+//! ([`Visit::Keep`]), record it but treat it as opaque ([`Visit::Opaque`]), or drop it ([`Visit::Skip`]).
 //!
 //! The walk itself knows nothing about ignore files, hidden entries or name conventions. It reads directories, keeps
 //! the answers ordered, and stops when told to.
