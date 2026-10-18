@@ -3,7 +3,7 @@
 
 use std::ops::RangeInclusive;
 
-use kartta::{Limits, SymbolKind};
+use kartta::{Access, Limits, SiteQuery, SymbolKind};
 use serde::Deserialize;
 
 use crate::error::{Error, ErrorCode};
@@ -129,13 +129,30 @@ pub(crate) struct ReferencesParams {
     #[serde(default)]
     pub(crate) min_confidence: u8,
     #[serde(default)]
+    access: Option<AccessParam>,
+    #[serde(default)]
     limit: Option<usize>,
 }
 
 impl ReferencesParams {
-    pub(crate) fn limit(&self) -> usize {
-        bound(self.limit, REFERENCES)
+    pub(crate) fn query(&self) -> SiteQuery {
+        let query =
+            SiteQuery::new(bound(self.limit, REFERENCES)).with_min_confidence(self.min_confidence);
+        match self.access {
+            Some(AccessParam::Read) => query.with_access(Access::Read),
+            Some(AccessParam::Write) => query.with_access(Access::Write),
+            Some(AccessParam::Update) => query.with_access(Access::Update),
+            None => query,
+        }
     }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum AccessParam {
+    Read,
+    Write,
+    Update,
 }
 
 /// The params of `implementations`.

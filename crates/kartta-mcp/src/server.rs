@@ -894,22 +894,26 @@ impl Server {
     }
 
     #[tool(
-        description = "List every site where a symbol is used: its calls, and its uses as a type or as a \
-                       package-qualified value. Answers \"where is this type, constant, or function used?\" in one \
-                       call, without a text search that also matches strings, comments, and same-named symbols. \
-                       Searches every indexed language unless narrowed with 'languages'; a name resolving in several \
-                       languages yields one match per language. Returns a <references> envelope of <match lang=..> \
-                       records: each the resolved symbol with its loc, kind, and site count, and one <ref> per site in \
-                       file and line order, carrying the enclosing symbol's name, qn and loc, the enclosing symbol's \
-                       explicit role= (\"consumer\", or test/entry/generated), site=call or site=use, at= for the \
-                       site's file:line, and a confidence=likely / guess mark on a weakly resolved site. A caller is \
-                       one site, at one of its calls; every other use is one site per line. Uses other than calls are \
-                       recorded only for some languages, a method's calls through a value of its owner's type resolve \
-                       only where the graph can name that type, and no access to a field is recorded, so a missing \
-                       site does not show an unused symbol. A match lists at most 500 sites and then carries shown=; \
-                       below_confidence= counts the sites the floor dropped and passed_over= the other symbols the \
-                       name selects. An unknown name answers with up to 5 close alternatives (did you mean). Requires \
-                       index_repo first."
+        description = "List every site where a symbol is used: its calls, its uses as a type, and every read and \
+                       write of a field, a constant or a variable. Answers \"where is this type, field, constant, or \
+                       function used?\" and \"who sets Config.Timeout?\" (access=\"write\") in one call, without a \
+                       text search that also matches strings, comments, and same-named symbols. Searches every \
+                       indexed language unless narrowed with 'languages'; a name resolving in several languages \
+                       yields one match per language. Returns a <references> envelope of <match lang=..> records: each \
+                       the resolved symbol with its loc, kind, and count= of the sites it keeps, calls= reads= writes= \
+                       updates= (types= for a type) counting every site whatever access keeps, and one <ref> per \
+                       enclosing symbol and site kind in file and line order, carrying the enclosing symbol's name, qn \
+                       and loc, its explicit role= (\"consumer\", or test/entry/generated), site= (call, type, read, \
+                       write, or update for += and ++), at= for file:line or file:line,line,... where it touches the \
+                       symbol on several lines, and a confidence=likely / guess mark on a weakly resolved site. A \
+                       caller is one site, at one of its calls; every other use is one site per line and kind. Field \
+                       accesses and value reads are recorded only for Go so far; ambiguous= counts the uses of a \
+                       member's name on a value whose type the graph could not follow, which may be this member and \
+                       are not listed. A method's calls through a value of its owner's type resolve only where the \
+                       graph can name that type, so a missing site does not show an unused symbol. A match lists at \
+                       most 500 sites and then carries shown=; below_confidence= counts the sites the floor dropped \
+                       and passed_over= the other symbols the name selects. An unknown name answers with up to 5 close \
+                       alternatives (did you mean). Requires index_repo first."
     )]
     async fn find_references(
         &self,
@@ -924,6 +928,9 @@ impl Server {
                 .iter()
                 .filter_map(|&(family, graph)| {
                     let query = SiteQuery::new(REFERENCES).with_min_confidence(floor);
+                    let query = p
+                        .access
+                        .map_or(query, |access| query.with_access(access.access()));
                     Some((family, graph.references(&p.name, query)?))
                 })
                 .collect();
