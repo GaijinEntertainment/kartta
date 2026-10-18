@@ -84,6 +84,17 @@ pub(crate) struct IndexRepoParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct IndexStatsParams {
+    /// When true, also resolve every call site of each language's graph and add a <coverage/> record per language:
+    /// how many sites bound a definition and how surely, and why the rest bound none. It resolves every call in the
+    /// repository, about half a second on a large one, each time it is asked. Omitted or false answers at once
+    /// without it.
+    #[serde(default)]
+    pub(crate) coverage: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct FindFilesParams {
     /// Fuzzy pattern matched against repo-relative paths: characters must appear in order but gaps are fine, and
     /// filename matches rank above directory matches - "serv" finds pkg/service.go, "cfgyaml" finds
