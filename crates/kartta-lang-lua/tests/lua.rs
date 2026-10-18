@@ -689,6 +689,6 @@ fn a_file_is_claimed_by_its_extension_in_any_case() {
 fn the_fingerprint_names_the_crate_and_is_computed_once() {
     let (one, other) = (Lua::new(), Lua::new());
 
-    assert!(one.fingerprint().starts_with(b"kartta-lang-lua\0"));
+    assert!(one.fingerprint().starts_with(b"kartta-lang-lua "));
     assert!(std::ptr::eq(one.fingerprint(), other.fingerprint()));
 }

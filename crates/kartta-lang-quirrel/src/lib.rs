@@ -68,18 +68,12 @@ use kartta_lang::{
 };
 use tree_sitter::{Parser, Tree};
 
-use crate::fnv::{FNV_OFFSET, fnv};
 use crate::resolve::QuirrelResolver;
 
-mod fnv;
 mod resolve;
 mod runtime;
 mod sqconfig;
 mod walk;
-
-include!(concat!(env!("OUT_DIR"), "/source_digest.rs"));
-
-const NODE_TYPES_DIGEST: u64 = fnv(FNV_OFFSET, tree_sitter_quirrel::NODE_TYPES.as_bytes());
 
 /// The Quirrel language.
 #[derive(Debug, Clone, Copy, Default)]
@@ -111,7 +105,13 @@ impl Language for Quirrel {
     fn fingerprint(&self) -> &[u8] {
         static FINGERPRINT: OnceLock<Vec<u8>> = OnceLock::new();
 
-        FINGERPRINT.get_or_init(fingerprint)
+        FINGERPRINT.get_or_init(|| {
+            kartta_lang::tree::fingerprint(
+                env!("SOURCE_ID"),
+                &grammar(),
+                tree_sitter_quirrel::NODE_TYPES,
+            )
+        })
     }
 
     fn doc_comments(&self) -> DocComments {
@@ -152,35 +152,4 @@ fn parse(source: &[u8]) -> Option<Tree> {
         }
         parser.as_mut()?.parse(source, None)
     })
-}
-
-fn fingerprint() -> Vec<u8> {
-    let grammar = grammar();
-    let version = grammar.metadata().map_or([0; 3], |version| {
-        [
-            version.major_version,
-            version.minor_version,
-            version.patch_version,
-        ]
-    });
-    let counts = [
-        grammar.abi_version(),
-        grammar.node_kind_count(),
-        grammar.parse_state_count(),
-        grammar.field_count(),
-    ];
-
-    let mut bytes = Vec::new();
-    for part in [env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")] {
-        bytes.extend_from_slice(part.as_bytes());
-        bytes.push(0);
-    }
-    bytes.extend_from_slice(&SOURCE_DIGEST);
-    bytes.extend_from_slice(&NODE_TYPES_DIGEST.to_le_bytes());
-    bytes.extend_from_slice(&version);
-    for count in counts {
-        bytes.extend_from_slice(&u64::try_from(count).unwrap_or(u64::MAX).to_le_bytes());
-    }
-
-    bytes
 }

@@ -107,8 +107,8 @@
 //!
 //! # Fingerprint
 //!
-//! The fingerprint covers the crate's name and version, a digest of its own sources, and the grammar's version where
-//! it declares one, its node types, ABI version and counts of node kinds, parse states and fields. It cannot see a
+//! The fingerprint covers the crate's name and version, a digest of its own sources, and the grammar's version, its
+//! node types, ABI version and counts of node kinds, parse states and fields. It cannot see a
 //! change to the grammar's parse tables or external scanner that keeps those, nor a tree-sitter release that recovers
 //! from errors differently.
 //!
@@ -126,13 +126,12 @@
 //! assert_eq!(keys, ["gfx::area(int,int)"]);
 //! ```
 
-mod fingerprint;
-mod fnv;
 mod repair;
 mod resolve;
 mod walk;
 
 use std::cell::RefCell;
+use std::sync::OnceLock;
 
 use kartta_lang::{
     CallsOnValues, Conventions, DocComments, IncludeReach, InheritedMembers, Language, OwnMembers,
@@ -183,7 +182,15 @@ impl Language for Cpp {
     }
 
     fn fingerprint(&self) -> &[u8] {
-        fingerprint::fingerprint()
+        static FINGERPRINT: OnceLock<Vec<u8>> = OnceLock::new();
+
+        FINGERPRINT.get_or_init(|| {
+            kartta_lang::tree::fingerprint(
+                env!("SOURCE_ID"),
+                &tree_sitter_cpp::LANGUAGE.into(),
+                tree_sitter_cpp::NODE_TYPES,
+            )
+        })
     }
 
     fn conventions(&self) -> Conventions {
@@ -324,11 +331,7 @@ mod tests {
         let first = one.fingerprint();
         let second = other.fingerprint();
 
-        assert!(first.starts_with(b"kartta-lang-cpp\0"));
-        assert_eq!(
-            first.len(),
-            "kartta-lang-cpp\0".len() + env!("CARGO_PKG_VERSION").len() + 1 + 8 + 5 * 8
-        );
+        assert!(first.starts_with(b"kartta-lang-cpp "));
         assert!(std::ptr::eq(first, second));
     }
 

@@ -305,6 +305,6 @@ fn bash_claims_its_extensions_in_any_case() {
 fn the_fingerprint_names_the_crate_and_stays_put() {
     let first = Bash::new().fingerprint().to_vec();
 
-    assert!(first.starts_with(b"kartta-lang-bash\0"));
+    assert!(first.starts_with(b"kartta-lang-bash "));
     assert_eq!(Bash::new().fingerprint(), first.as_slice());
 }

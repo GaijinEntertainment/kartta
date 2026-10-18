@@ -152,7 +152,7 @@ fn the_fingerprint_stays_put_and_names_the_crate() {
     let daslang = Daslang::new();
     let fingerprint = daslang.fingerprint();
 
-    assert!(fingerprint.starts_with(b"kartta-lang-daslang\0"));
+    assert!(fingerprint.starts_with(b"kartta-lang-daslang "));
     assert_eq!(Daslang::new().fingerprint(), fingerprint);
 }
 

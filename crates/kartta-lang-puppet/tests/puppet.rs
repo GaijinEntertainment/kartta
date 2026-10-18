@@ -593,6 +593,6 @@ fn a_manifest_is_claimed_by_its_extension_in_any_case() {
 fn the_fingerprint_names_the_crate_and_is_computed_once() {
     let (one, other) = (Puppet::new(), Puppet::new());
 
-    assert!(one.fingerprint().starts_with(b"kartta-lang-puppet\0"));
+    assert!(one.fingerprint().starts_with(b"kartta-lang-puppet "));
     assert!(std::ptr::eq(one.fingerprint(), other.fingerprint()));
 }
