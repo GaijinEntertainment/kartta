@@ -178,10 +178,8 @@ impl Graph {
     #[must_use]
     pub fn analyze_change(&self, regions: &[Region<'_>], limits: Limits) -> Change<'_> {
         let mut change = Change::default();
-        let mut changed: HashMap<SymbolAt, SymbolAt, FixedState> =
-            HashMap::with_hasher(FixedState::default());
-        let mut changed_files: HashSet<u32, FixedState> =
-            HashSet::with_hasher(FixedState::default());
+        let mut changed: HashMap<SymbolAt, SymbolAt, FixedState> = HashMap::default();
+        let mut changed_files: HashSet<u32, FixedState> = HashSet::default();
         let mut analysis = Analysis::new(self, limits);
 
         for region in regions {
@@ -205,8 +203,7 @@ impl Graph {
             }
         }
 
-        let mut hits: HashMap<SymbolAt, (usize, u32), FixedState> =
-            HashMap::with_hasher(FixedState::default());
+        let mut hits: HashMap<SymbolAt, (usize, u32), FixedState> = HashMap::default();
         let by_fan_out = |left: &Seed<'_>, right: &Seed<'_>| fan_out(left).cmp(&fan_out(right));
         for (&canonical, &at) in &changed {
             let seed = analysis.seed(canonical, at, &mut hits);
@@ -292,8 +289,7 @@ fn consumers<'g>(graph: &'g Graph, direct: &[Edge], floor: u8) -> Vec<Reached<'g
 }
 
 fn consumer_dirs<'g>(graph: &'g Graph, direct: &[Edge], floor: u8) -> Vec<DirCount<'g>> {
-    let mut counts: HashMap<&'g str, usize, FixedState> =
-        HashMap::with_hasher(FixedState::default());
+    let mut counts: HashMap<&'g str, usize, FixedState> = HashMap::default();
     for edge in direct.iter().filter(|edge| edge.confidence >= floor) {
         let dir = graph.strings.resolve(graph.file(edge.far.file).dir);
         *counts.entry(dir).or_insert(0) += 1;

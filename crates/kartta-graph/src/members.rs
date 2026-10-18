@@ -335,7 +335,7 @@ impl<'g> Cascade<'g> {
     }
 
     fn inherited_member(&self, ty: SymbolAt, name: Str) -> Result<Bound, UseMiss> {
-        let mut searched = HashSet::with_hasher(FixedState::default());
+        let mut searched = HashSet::default();
         searched.insert(ty);
         match self.inherited(ty, name, &mut searched) {
             Inherited::Member(at) => Ok((at, confidence::SAME_FILE)),

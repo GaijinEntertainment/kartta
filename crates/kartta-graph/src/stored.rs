@@ -12,6 +12,12 @@ pub(crate) struct SymbolAt {
     pub(crate) index: u32,
 }
 
+impl SymbolAt {
+    pub(crate) const fn new(file: u32, index: u32) -> Self {
+        Self { file, index }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct Site {
     pub(crate) file: u32,

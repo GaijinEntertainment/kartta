@@ -44,7 +44,7 @@ impl Graph {
             turned_away: 0,
             unexpanded: 0,
         };
-        let mut visited: HashSet<u32, FixedState> = HashSet::with_hasher(FixedState::default());
+        let mut visited: HashSet<u32, FixedState> = HashSet::default();
         visited.insert(start);
         let mut level = vec![start];
 

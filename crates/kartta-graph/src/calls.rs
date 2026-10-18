@@ -508,12 +508,12 @@ impl<'g> Calls<'g> {
             cascade: Cascade::new(graph),
             wanted,
             unresolved: 0,
-            callers: HashMap::with_hasher(FixedState::default()),
-            called_names: HashSet::with_hasher(FixedState::default()),
-            uncertain: HashMap::with_hasher(FixedState::default()),
-            uses: HashMap::with_hasher(FixedState::default()),
-            used_names: HashSet::with_hasher(FixedState::default()),
-            ambiguous: HashMap::with_hasher(FixedState::default()),
+            callers: HashMap::default(),
+            called_names: HashSet::default(),
+            uncertain: HashMap::default(),
+            uses: HashMap::default(),
+            used_names: HashSet::default(),
+            ambiguous: HashMap::default(),
         }
     }
 
@@ -582,7 +582,7 @@ impl<'g> Calls<'g> {
 
     fn renamings(&self, name: Str) -> Vec<Str> {
         let mut names = vec![name];
-        let mut seen: HashSet<Str, FixedState> = HashSet::with_hasher(FixedState::default());
+        let mut seen: HashSet<Str, FixedState> = HashSet::default();
         seen.insert(name);
         let mut next = 0;
         while let Some(&source) = names.get(next) {
@@ -629,8 +629,7 @@ impl<'g> Calls<'g> {
         if !self.called_names.insert(name) {
             return;
         }
-        let mut strongest: HashMap<(SymbolAt, SymbolAt), Edge, FixedState> =
-            HashMap::with_hasher(FixedState::default());
+        let mut strongest: HashMap<(SymbolAt, SymbolAt), Edge, FixedState> = HashMap::default();
         for site in self.sites_of_name(name) {
             let call = self.cascade.call(site);
             let resolved = self.cascade.resolve_call(&call).ok();
@@ -660,8 +659,7 @@ impl<'g> Calls<'g> {
                 },
             );
         }
-        let mut by_callable: HashMap<SymbolAt, Vec<Edge>, FixedState> =
-            HashMap::with_hasher(FixedState::default());
+        let mut by_callable: HashMap<SymbolAt, Vec<Edge>, FixedState> = HashMap::default();
         for ((callable, _), edge) in strongest {
             by_callable.entry(callable).or_default().push(edge);
         }
@@ -681,8 +679,7 @@ impl<'g> Calls<'g> {
                     .map(|index| Site::new(body.file, Entry::LocalCall(narrow(index)))),
             );
 
-        let mut strongest: HashMap<SymbolAt, Edge, FixedState> =
-            HashMap::with_hasher(FixedState::default());
+        let mut strongest: HashMap<SymbolAt, Edge, FixedState> = HashMap::default();
         for site in sites {
             let call = self.cascade.call(site);
             let Ok((callee, confidence)) = self.cascade.resolve_call(&call) else {
@@ -717,7 +714,7 @@ impl<'g> Calls<'g> {
             return;
         }
         let mut best: HashMap<(SymbolAt, SymbolAt, u32, Access), u8, FixedState> =
-            HashMap::with_hasher(FixedState::default());
+            HashMap::default();
         let mut ambiguous = 0;
         let renamings = self.renamings(name);
         for site in renamings.iter().flat_map(|&alias| self.graph.uses(alias)) {
@@ -730,10 +727,7 @@ impl<'g> Calls<'g> {
                 Err(UseMiss::Elsewhere) => continue,
             };
             let stored = self.graph.file(site.file).uses[site.index as usize];
-            let at = SymbolAt {
-                file: site.file,
-                index: stored.site_of(),
-            };
+            let at = SymbolAt::new(site.file, stored.site_of());
             let key = (
                 self.cascade.canonical(used),
                 at,
@@ -804,7 +798,7 @@ impl<'g> Calls<'g> {
         let mut search = PathSearch {
             start,
             limits,
-            toward: HashMap::with_hasher(FixedState::default()),
+            toward: HashMap::default(),
             queue: VecDeque::new(),
             turned_away: 0,
             at_depth_bound: 0,
@@ -852,7 +846,7 @@ pub(crate) struct WalkState {
 
 impl WalkState {
     pub(crate) fn new(root: SymbolAt, limits: Limits) -> Self {
-        let mut visited = HashMap::with_hasher(FixedState::default());
+        let mut visited = HashMap::default();
         visited.insert(root, 0);
         Self {
             limits,
