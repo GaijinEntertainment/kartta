@@ -29,8 +29,8 @@ fn build(tree: &TempDir, names: &[&str]) -> Engine {
     let languages = kartta_languages::select(names).expect("every name is known");
     let outcome = Engine::build(tree.path(), &BuildOptions::default(), languages, None)
         .expect("the tree builds");
-    assert!(outcome.errors().is_empty());
-    outcome.into_engine()
+    assert!(outcome.errors.is_empty());
+    outcome.engine
 }
 
 fn callees_of_render(engine: &Engine) -> (Vec<(&str, &str)>, usize) {

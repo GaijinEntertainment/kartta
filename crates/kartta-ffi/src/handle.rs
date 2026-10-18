@@ -145,8 +145,8 @@ impl Kartta {
                 "a cancel stopped the build; the handle holds no index until a build finishes",
             )),
             Ok(Ok(outcome)) => Ok(Arc::new(Built {
-                errors: StoredErrors::new(outcome.errors()),
-                engine: outcome.into_engine(),
+                errors: StoredErrors::new(&outcome.errors),
+                engine: outcome.engine,
                 family_of_language,
             })),
             Ok(Err(error)) => Err(Error::new(ErrorCode::BuildFailed, error.to_string())),

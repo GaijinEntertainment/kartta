@@ -43,11 +43,10 @@
 //! std::fs::write(tree.path().join("main.go"), "package main\n\nfunc main() {}\n")?;
 //! std::fs::write(tree.path().join("build.sh"), "make all\n")?;
 //!
-//! let engine = Engine::build(tree.path(), &BuildOptions::default(), kartta_languages::all(), None)?.into_engine();
+//! let engine = Engine::build(tree.path(), &BuildOptions::default(), kartta_languages::all(), None)?.engine;
 //! assert!(engine.graph_of("main.go").is_some() && engine.graph_of("build.sh").is_some());
 //!
-//! let engine = Engine::build(tree.path(), &BuildOptions::default(), kartta_languages::select(["go"])?, None)?
-//!     .into_engine();
+//! let engine = Engine::build(tree.path(), &BuildOptions::default(), kartta_languages::select(["go"])?, None)?.engine;
 //! assert!(engine.graph_of("main.go").is_some() && engine.graph_of("build.sh").is_none());
 //! # Ok(())
 //! # }
