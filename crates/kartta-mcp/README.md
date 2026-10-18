@@ -28,6 +28,8 @@ attribute value is. An answer that a cap, a depth limit or a filter cut says how
 | --- | --- |
 | `KARTTA_ROOT` | the repository to index at launch, when no `ROOT` is given |
 | `KARTTA_CACHE_DIR` | a directory builds share per-file data through |
+| `KARTTA_CACHE_ENTRY_TTL_SECS` | the age in seconds past which a cache entry expires; a week when empty or `0` |
+| `KARTTA_CACHE_SWEEP` | no effect: every build's merge expires cache entries by age, so a value warns |
 | `KARTTA_GREP_INDEX` | `memory`, `file` or `mmap`: build a trigram index that narrows `grep` |
 | `KARTTA_GREP_INDEX_DIR` | where a `file` or `mmap` trigram index lives; the temporary directory by default |
 | `KARTTA_THREADS` | how many threads builds and queries run on; every core by default |
