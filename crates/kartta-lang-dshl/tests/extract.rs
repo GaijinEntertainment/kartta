@@ -1,5 +1,5 @@
 //! What a DSHL file extracts to from its bytes alone: its declarations, the macro invocations it makes, the names it
-//! reads and the files it includes.
+//! reads and the files it includes; and where the doc comment above a definition starts.
 #![expect(
     clippy::panic,
     reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
@@ -290,4 +290,27 @@ fn the_fingerprint_names_the_crate_and_is_computed_once() {
 
     assert!(first.starts_with(b"kartta-lang-dshl "));
     assert!(std::ptr::eq(first, second));
+}
+
+const DOCUMENTED: &str = "include \"shader_global.dshl\"
+
+// The fog texture.
+texture fog_tex;
+
+/* Draws the fog. */
+shader fog_shader
+{
+}
+";
+
+fn doc_line(name: &str) -> u32 {
+    let lines: Vec<&[u8]> = DOCUMENTED.lines().map(str::as_bytes).collect();
+    let line = symbol(&extract(DOCUMENTED), name).line;
+    Dshl::new().doc_comments().first_line(&lines, line)
+}
+
+#[test]
+fn line_and_block_comments_above_a_definition_document_it() {
+    assert_eq!(doc_line("fog_tex"), 3);
+    assert_eq!(doc_line("fog_shader"), 6);
 }
