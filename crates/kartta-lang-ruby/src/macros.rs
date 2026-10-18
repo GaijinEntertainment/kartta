@@ -1,10 +1,10 @@
 use kartta_lang::SymbolKind;
-use kartta_lang::tree::text;
+use kartta_lang::tree::{named_child_nodes, text};
 use tree_sitter::Node;
 
 use crate::bindings::MethodKind;
 use crate::owner::{enclosing_type, in_singleton_class};
-use crate::walk::{Emitter, declared, named, visibility_exports};
+use crate::walk::{Emitter, declared, visibility_exports};
 
 struct Accessors {
     owner: String,
@@ -51,7 +51,7 @@ impl Emitter<'_> {
             return;
         };
 
-        for module in named(arguments)
+        for module in named_child_nodes(arguments)
             .filter(|argument| matches!(argument.kind(), "constant" | "scope_resolution"))
         {
             let module = text(module, self.source);
@@ -79,7 +79,9 @@ impl Emitter<'_> {
         };
         let (reads, writes) = (callee != "attr_writer", callee != "attr_reader");
 
-        for argument in named(arguments).filter(|argument| argument.kind() == "simple_symbol") {
+        for argument in
+            named_child_nodes(arguments).filter(|argument| argument.kind() == "simple_symbol")
+        {
             let name = text(argument, self.source)
                 .trim_start_matches(':')
                 .to_owned();
@@ -140,7 +142,9 @@ impl Emitter<'_> {
             MethodKind::Singleton => ".",
         };
 
-        for argument in named(arguments).filter(|argument| argument.kind() == "simple_symbol") {
+        for argument in
+            named_child_nodes(arguments).filter(|argument| argument.kind() == "simple_symbol")
+        {
             let name = text(argument, self.source);
             let name = self.name_key(
                 kind,
@@ -173,7 +177,7 @@ impl Emitter<'_> {
             return;
         };
         let source = self.source;
-        let mut names = named(arguments)
+        let mut names = named_child_nodes(arguments)
             .filter(|argument| matches!(argument.kind(), "simple_symbol" | "string"))
             .map(|argument| method_name(argument, source));
         let Some(name) = names.next() else {

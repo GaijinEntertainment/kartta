@@ -1,5 +1,5 @@
 use kartta_lang::tree::{
-    children, line, named_children, preorder, signature, signature_from, text,
+    child_nodes, line, named_child_nodes, preorder, signature, signature_from, text,
 };
 use kartta_lang::{
     CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
@@ -194,7 +194,7 @@ impl Emitter<'_> {
             exported: !is_private(node, self.source),
         };
 
-        for element in named(node).filter(|element| element.kind() == element_kind) {
+        for element in named_child_nodes(node).filter(|element| element.kind() == element_kind) {
             let name = if kind == SymbolKind::Field {
                 element
                     .child_by_field_name("name")
@@ -266,7 +266,7 @@ impl Emitter<'_> {
             return;
         };
 
-        for name in named(node).filter(|child| NAMES.contains(&child.kind())) {
+        for name in named_child_nodes(node).filter(|child| NAMES.contains(&child.kind())) {
             let name = text(name, self.source);
             if !definition.parents.contains(&name) {
                 definition.parents.push(name);
@@ -276,7 +276,7 @@ impl Emitter<'_> {
 
     // constraint: a grouped `use A\{B, C\D}` writes the shared prefix once, as the declaration's `namespace_name`
     fn namespace_use(&mut self, node: Node<'_>) {
-        for child in named(node) {
+        for child in named_child_nodes(node) {
             match child.kind() {
                 "namespace_use_clause" => self.use_clause(node, child, ""),
                 "namespace_use_group" => self.use_group(node, child),
@@ -288,7 +288,9 @@ impl Emitter<'_> {
     fn use_group(&mut self, declaration: Node<'_>, group: Node<'_>) {
         let prefix =
             first_named_text(declaration, "namespace_name", self.source).unwrap_or_default();
-        for clause in named(group).filter(|clause| clause.kind() == "namespace_use_clause") {
+        for clause in
+            named_child_nodes(group).filter(|clause| clause.kind() == "namespace_use_clause")
+        {
             self.use_clause(declaration, clause, &prefix);
         }
     }
@@ -296,7 +298,8 @@ impl Emitter<'_> {
     // constraint: `use function` and `use const` write their kind once for the whole declaration, or on each clause
     // of a mixed group, `use A\{B, function c}`
     fn use_clause(&mut self, declaration: Node<'_>, clause: Node<'_>, prefix: &str) {
-        let Some(name) = named(clause).find(|child| NAMES.contains(&child.kind())) else {
+        let Some(name) = named_child_nodes(clause).find(|child| NAMES.contains(&child.kind()))
+        else {
             return;
         };
         let form = if [declaration, clause]
@@ -371,7 +374,7 @@ impl Emitter<'_> {
 
     // constraint: `new self`, `new static` and `new parent` name no class; the grammar parses `static` as a plain name
     fn object_creation(&mut self, node: Node<'_>) {
-        let class = named(node).find_map(|child| match child.kind() {
+        let class = named_child_nodes(node).find_map(|child| match child.kind() {
             "name" => {
                 let name = text(child, self.source);
                 (!matches!(name.as_str(), "self" | "static" | "parent")).then_some(name)
@@ -496,16 +499,16 @@ fn enclosing_type(node: Node<'_>, source: &[u8], callables: Callables) -> Option
 // constraint: a class takes its `extends` and `implements` names as parents, and an interface its `extends` names,
 // which the grammar writes in the same clause
 fn parents(node: Node<'_>, source: &[u8]) -> Vec<String> {
-    all(node)
+    child_nodes(node)
         .filter(|clause| matches!(clause.kind(), "base_clause" | "class_interface_clause"))
-        .flat_map(|clause| all(clause).filter(|name| NAMES.contains(&name.kind())))
+        .flat_map(|clause| child_nodes(clause).filter(|name| NAMES.contains(&name.kind())))
         .map(|name| text(name, source))
         .collect()
 }
 
 // constraint: `private` is the one modifier that hides a member; `protected`, `public`, `var` and none export it
 fn is_private(node: Node<'_>, source: &[u8]) -> bool {
-    all(node).any(|child| {
+    child_nodes(node).any(|child| {
         child.kind() == "visibility_modifier" && &source[child.byte_range()] == b"private"
     })
 }
@@ -524,21 +527,13 @@ fn promoted_identifier(node: Node<'_>, source: &[u8]) -> Option<String> {
 }
 
 fn last_segment(name: Node<'_>, source: &[u8]) -> Option<String> {
-    named(name)
+    named_child_nodes(name)
         .rfind(|segment| segment.kind() == "name")
         .map(|segment| text(segment, source))
 }
 
 fn first_named_text(node: Node<'_>, kind: &str, source: &[u8]) -> Option<String> {
-    named(node)
+    named_child_nodes(node)
         .find(|child| child.kind() == kind)
         .map(|child| text(child, source))
-}
-
-fn named(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> {
-    named_children(node).filter_map(move |index| node.named_child(index))
-}
-
-fn all(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
-    children(node).filter_map(move |index| node.child(index))
 }

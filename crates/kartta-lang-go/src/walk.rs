@@ -1,6 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 
-use kartta_lang::tree::{children, line, named_children, preorder, signature, text};
+use kartta_lang::tree::{child_nodes, line, named_child_nodes, preorder, signature, text};
 use kartta_lang::{
     ImplementsAssertion, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -35,8 +35,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
 fn package_name(tree: &Tree, source: &[u8]) -> String {
     let root = tree.root_node();
 
-    children(root)
-        .filter_map(|i| root.child(i))
+    child_nodes(root)
         .find(|child| child.kind() == "package_clause")
         .and_then(|clause| clause.child_by_field_name("name"))
         .map(|name| text(name, source))
@@ -48,10 +47,9 @@ fn package_name(tree: &Tree, source: &[u8]) -> String {
 fn package_values<'a>(tree: &Tree, source: &'a [u8]) -> HashSet<&'a str> {
     let mut names = HashSet::new();
     let root = tree.root_node();
-    let specs = children(root)
-        .filter_map(|i| root.child(i))
+    let specs = child_nodes(root)
         .filter(|declaration| matches!(declaration.kind(), "var_declaration" | "const_declaration"))
-        .flat_map(|declaration| children(declaration).filter_map(move |j| declaration.child(j)));
+        .flat_map(child_nodes);
     for spec in specs {
         let mut cursor = spec.walk();
         let spec_names = spec
@@ -279,7 +277,7 @@ impl<'a> Emitter<'a> {
 
     // constraint: a range yields an index or a key first, which no path names, and an element second
     fn declared_paths(&self, node: Node<'_>, left: Node<'_>) -> Vec<Option<String>> {
-        let names = named_children(left).len();
+        let names = left.named_child_count();
         let right = node.child_by_field_name("right");
         if node.kind() == "range_clause" {
             let element = right
@@ -288,9 +286,7 @@ impl<'a> Emitter<'a> {
             return vec![None, element];
         }
         let values: Vec<Node<'_>> = match right {
-            Some(list) if list.kind() == "expression_list" => named_children(list)
-                .filter_map(|i| list.named_child(i))
-                .collect(),
+            Some(list) if list.kind() == "expression_list" => named_child_nodes(list).collect(),
             Some(value) => vec![value],
             None => Vec::new(),
         };
@@ -324,13 +320,13 @@ impl<'a> Emitter<'a> {
         };
         let mut cursor = spec.walk();
         let names = spec.children_by_field_name("name", &mut cursor).count();
-        if names < 2 || names != named_children(list).len() {
+        if names < 2 || names != list.named_child_count() {
             return;
         }
         let stacked = self.callers.len();
         let mut next = first.0;
         let names = spec.children_by_field_name("name", &mut cursor);
-        for (name, i) in names.zip(named_children(list)) {
+        for (name, value) in names.zip(named_child_nodes(list)) {
             let id = if name.utf8_text(self.source) == Ok("_") {
                 first
             } else {
@@ -338,12 +334,10 @@ impl<'a> Emitter<'a> {
                 next += 1;
                 id
             };
-            if let Some(value) = list.named_child(i) {
-                self.callers.push(Scope {
-                    end: value.end_byte(),
-                    id,
-                });
-            }
+            self.callers.push(Scope {
+                end: value.end_byte(),
+                id,
+            });
         }
         if let Some(values) = self.callers.get_mut(stacked..) {
             values.reverse();
@@ -351,7 +345,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn import_declaration(&mut self, node: Node<'_>) {
-        for spec in named_children(node).filter_map(|i| node.named_child(i)) {
+        for spec in named_child_nodes(node) {
             if spec.kind() == "import_spec" {
                 self.import_spec(spec);
             }
@@ -457,8 +451,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn type_declaration(&mut self, node: Node<'_>) {
-        let specs = children(node)
-            .filter_map(|i| node.child(i))
+        let specs = child_nodes(node)
             .filter(|spec| matches!(spec.kind(), "type_definition" | "alias_declaration"));
         for spec in specs {
             let start = spec.start_byte();
@@ -534,7 +527,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn interface_methods(&mut self, interface_type: Node<'_>, owner: &str, type_id: SymbolId) {
-        for element in children(interface_type).filter_map(|i| interface_type.child(i)) {
+        for element in child_nodes(interface_type) {
             if element.kind() != "method_elem" {
                 self.record_uses_in(element, type_id);
                 continue;
@@ -554,9 +547,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn struct_fields(&mut self, struct_type: Node<'_>, owner: &str, type_id: SymbolId) {
-        let fields = children(struct_type)
-            .filter_map(|i| struct_type.child(i))
-            .filter(|field| field.kind() == "field_declaration");
+        let fields = child_nodes(struct_type).filter(|field| field.kind() == "field_declaration");
         for field in fields {
             let first_field = SymbolId(self.symbol_count);
             self.field_names(field, owner);
@@ -594,7 +585,7 @@ impl<'a> Emitter<'a> {
             SymbolKind::Variable
         };
 
-        for spec in children(node).filter_map(|i| node.child(i)) {
+        for spec in child_nodes(node) {
             if matches!(spec.kind(), "const_spec" | "var_spec") {
                 self.spec_names(spec, kind);
             }
@@ -606,9 +597,7 @@ impl<'a> Emitter<'a> {
         let names: Vec<Node<'_>> = spec.children_by_field_name("name", &mut cursor).collect();
         let written = spec.child_by_field_name("type");
         let values: Vec<Node<'_>> = match spec.child_by_field_name("value") {
-            Some(list) if written.is_none() => named_children(list)
-                .filter_map(|i| list.named_child(i))
-                .collect(),
+            Some(list) if written.is_none() => named_child_nodes(list).collect(),
             _ => Vec::new(),
         };
         for (position, &name_node) in names.iter().enumerate() {
@@ -664,9 +653,8 @@ impl<'a> Emitter<'a> {
         let Some(value) = spec.child_by_field_name("value") else {
             return;
         };
-        let Some(type_name) = children(value)
-            .filter_map(|i| value.child(i))
-            .find_map(|expression| assertion_value_type(expression, self.source))
+        let Some(type_name) =
+            child_nodes(value).find_map(|expression| assertion_value_type(expression, self.source))
         else {
             return;
         };

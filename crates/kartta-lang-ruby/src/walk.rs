@@ -1,4 +1,4 @@
-use kartta_lang::tree::{line, named_children, preorder, signature, text};
+use kartta_lang::tree::{line, named_child_nodes, preorder, signature, text};
 use kartta_lang::{
     Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -314,8 +314,8 @@ fn require_form(callee: &str) -> Option<u32> {
 // spells it apart from its value, so a string holding either names nothing
 fn first_string_argument(call: Node<'_>, source: &[u8]) -> Option<String> {
     let arguments = call.child_by_field_name("arguments")?;
-    let string = named(arguments).find(|argument| argument.kind() == "string")?;
-    let mut parts = named(string);
+    let string = named_child_nodes(arguments).find(|argument| argument.kind() == "string")?;
+    let mut parts = named_child_nodes(string);
     let content = parts
         .next()
         .filter(|content| content.kind() == "string_content")?;
@@ -368,8 +368,4 @@ pub(crate) const fn visibility_exports(modifier: &[u8]) -> Option<bool> {
         b"protected" | b"public" => Some(true),
         _ => None,
     }
-}
-
-pub(crate) fn named(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
-    named_children(node).filter_map(move |index| node.named_child(index))
 }

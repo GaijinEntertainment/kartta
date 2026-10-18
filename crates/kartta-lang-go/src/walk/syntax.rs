@@ -1,4 +1,4 @@
-use kartta_lang::tree::{children, named_children, text};
+use kartta_lang::tree::{child_nodes, named_child_nodes, text};
 use tree_sitter::Node;
 
 use crate::resolve::{is_major_version, package_segments};
@@ -115,9 +115,7 @@ pub(super) fn is_pointer_indirection(node: Node<'_>) -> bool {
 }
 
 pub(super) fn first_operand(node: Node<'_>) -> Option<Node<'_>> {
-    named_children(node)
-        .filter_map(|i| node.named_child(i))
-        .find(|child| child.kind() != "comment")
+    named_child_nodes(node).find(|child| child.kind() != "comment")
 }
 
 pub(super) fn parents_of(type_node: Node<'_>, source: &[u8]) -> Vec<String> {
@@ -129,8 +127,7 @@ pub(super) fn parents_of(type_node: Node<'_>, source: &[u8]) -> Vec<String> {
 }
 
 fn embedded_fields(struct_type: Node<'_>, source: &[u8]) -> Vec<String> {
-    children(struct_type)
-        .filter_map(|i| struct_type.child(i))
+    child_nodes(struct_type)
         .filter(|field| {
             field.kind() == "field_declaration" && field.child_by_field_name("name").is_none()
         })
@@ -143,14 +140,9 @@ fn embedded_fields(struct_type: Node<'_>, source: &[u8]) -> Vec<String> {
 
 fn embedded_interfaces(interface_type: Node<'_>, source: &[u8]) -> Vec<String> {
     let mut parents = Vec::new();
-    for i in children(interface_type) {
-        let Some(mut child) = interface_type.child(i) else {
-            continue;
-        };
+    for mut child in child_nodes(interface_type) {
         if child.kind() == "type_elem"
-            && let Some(inner) = children(child)
-                .filter_map(|j| child.child(j))
-                .find(Node::is_named)
+            && let Some(inner) = child_nodes(child).find(Node::is_named)
         {
             child = inner;
         }
@@ -163,8 +155,7 @@ fn embedded_interfaces(interface_type: Node<'_>, source: &[u8]) -> Vec<String> {
 }
 
 pub(super) fn receiver_type(receiver: Node<'_>, source: &[u8]) -> String {
-    children(receiver)
-        .filter_map(|i| receiver.child(i))
+    child_nodes(receiver)
         .filter(|child| child.kind() == "parameter_declaration")
         .find_map(|child| {
             child
@@ -226,9 +217,7 @@ fn unwrap_pointer(node: Node<'_>) -> Option<Node<'_>> {
         return Some(node);
     }
 
-    children(node)
-        .filter_map(|i| node.child(i))
-        .find(Node::is_named)
+    child_nodes(node).find(Node::is_named)
 }
 
 // constraint: a receiver is spelled the way Go spells owners, a bare type name, so only an identifier operand names

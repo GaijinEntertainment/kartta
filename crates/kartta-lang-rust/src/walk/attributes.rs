@@ -1,4 +1,4 @@
-use kartta_lang::tree::{named_children, text};
+use kartta_lang::tree::{named_child_nodes, text};
 use tree_sitter::Node;
 
 use super::syntax::{last_segment, named_child_of_kind};
@@ -210,9 +210,7 @@ fn path_attribute_value(item: Node<'_>, source: &[u8]) -> Option<String> {
     if value.kind() != "string_literal" {
         return None;
     }
-    let name = named_children(attribute)
-        .filter_map(|at| attribute.named_child(at))
-        .find(|child| child.kind() == "identifier")?;
+    let name = named_child_nodes(attribute).find(|child| child.kind() == "identifier")?;
     if text(name, source) != "path" {
         return None;
     }
