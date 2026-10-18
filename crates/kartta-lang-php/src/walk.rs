@@ -1,4 +1,6 @@
-use kartta_lang::tree::{children, named_children, preorder, signature, signature_from, text};
+use kartta_lang::tree::{
+    children, line, named_children, preorder, signature, signature_from, text,
+};
 use kartta_lang::{
     CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
@@ -540,8 +542,4 @@ fn named(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> {
 
 fn all(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
     children(node).filter_map(move |index| node.child(index))
-}
-
-fn line(row: usize) -> u32 {
-    u32::try_from(row).map_or(u32::MAX, |row| row.saturating_add(1))
 }

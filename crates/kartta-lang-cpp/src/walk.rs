@@ -6,7 +6,7 @@ mod sites;
 
 use std::collections::{HashMap, HashSet};
 
-use kartta_lang::tree::{children, preorder, signature, text};
+use kartta_lang::tree::{children, line, preorder, signature, text};
 use kartta_lang::{
     Banner, CallRef, Callable, CallableRole, FoldedDeclaration, NO_CALLER_ID, RawDirective,
     RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
@@ -730,14 +730,6 @@ fn is_implicitly_called(symbol: &Symbol) -> bool {
         && (is_operator
             || symbol.name.starts_with('~')
             || symbol.owner.as_deref() == Some(symbol.name.as_str()))
-}
-
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "tree-sitter counts rows in a uint32_t, which the binding only widens to usize"
-)]
-const fn line(row: usize) -> u32 {
-    row as u32 + 1
 }
 
 #[cfg(test)]

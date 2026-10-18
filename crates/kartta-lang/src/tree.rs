@@ -92,6 +92,12 @@ pub fn preorder<'t>(tree: &'t Tree, mut visit: impl FnMut(Node<'t>) -> bool) {
     }
 }
 
+/// The one-based line of `row`, a zero-based row of a tree-sitter point, and `u32::MAX` for a row past it.
+#[must_use]
+pub fn line(row: usize) -> u32 {
+    u32::try_from(row).map_or(u32::MAX, |row| row.saturating_add(1))
+}
+
 /// The text of `node` in `source`, decoded lossily where it is not UTF-8, so a name with a stray byte keeps its
 /// symbol rather than losing it.
 #[must_use]

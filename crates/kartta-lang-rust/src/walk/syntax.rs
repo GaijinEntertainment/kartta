@@ -1,10 +1,6 @@
-use kartta_lang::tree::{children, named_children, text};
+use kartta_lang::tree::{children, line, named_children, text};
 use kartta_lang::{Symbol, SymbolKind};
 use tree_sitter::Node;
-
-pub(super) fn line(row: usize) -> u32 {
-    u32::try_from(row).map_or(u32::MAX, |row| row.saturating_add(1))
-}
 
 // constraint: `Symbol::new` copies its name into the qualified name, so the symbol starts unnamed, which allocates
 // nothing, and then takes both names

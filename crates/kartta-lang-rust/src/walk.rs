@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use kartta_lang::tree::{named_children, preorder, signature, text};
+use kartta_lang::tree::{line, named_children, preorder, signature, text};
 use kartta_lang::{
     Banner, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
@@ -11,7 +11,7 @@ use self::attributes::{
 };
 use self::blocks::{BlockCall, BlockItem};
 use self::syntax::{
-    impl_type_name, is_attributable_item, is_exported, line, named_child_of_kind, symbol, type_base,
+    impl_type_name, is_attributable_item, is_exported, named_child_of_kind, symbol, type_base,
 };
 
 const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT"])

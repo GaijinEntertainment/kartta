@@ -1,4 +1,4 @@
-use kartta_lang::tree::{children, preorder, text};
+use kartta_lang::tree::{children, line, preorder, text};
 use kartta_lang::{
     Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -242,8 +242,4 @@ fn child_of_kind<'t>(node: Node<'t>, kinds: &[&str]) -> Option<Node<'t>> {
     children(node)
         .filter_map(|index| node.child(index))
         .find(|child| kinds.contains(&child.kind()))
-}
-
-fn line(row: usize) -> u32 {
-    u32::try_from(row).map_or(u32::MAX, |row| row.saturating_add(1))
 }
