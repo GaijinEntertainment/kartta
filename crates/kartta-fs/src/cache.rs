@@ -1,6 +1,7 @@
 use std::io;
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
+use std::time::Duration;
 
 use kartta_cache::{ContentHash, DEFAULT_TTL, Namespace, PackWriter, Store};
 
@@ -11,17 +12,19 @@ use crate::trigram::{self, Trigrams};
 pub(crate) struct SharedCache {
     store: Store,
     writer: PackWriter,
+    ttl: Duration,
     trigrams: Namespace,
     failure: Mutex<Option<io::Error>>,
 }
 
 impl SharedCache {
-    pub(crate) fn open(dir: &Path) -> Result<Self, BuildError> {
+    pub(crate) fn open(dir: &Path, ttl: Duration) -> Result<Self, BuildError> {
         let store = Store::open(dir).map_err(|source| cache_error(dir, source))?;
 
         Ok(Self {
             writer: store.writer(),
             store,
+            ttl: if ttl.is_zero() { DEFAULT_TTL } else { ttl },
             trigrams: trigram_namespace(),
             failure: Mutex::new(None),
         })
@@ -67,6 +70,7 @@ impl SharedCache {
         let Self {
             store,
             writer,
+            ttl,
             failure,
             ..
         } = self;
@@ -78,7 +82,7 @@ impl SharedCache {
 
         writer
             .publish()
-            .and_then(|_| Store::open(&dir)?.merge(DEFAULT_TTL))
+            .and_then(|_| Store::open(&dir)?.merge(ttl))
             .err()
             .map(|source| cache_error(&dir, source))
     }

@@ -1,6 +1,7 @@
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use kartta_walk::WalkError;
 
@@ -107,8 +108,8 @@ pub struct BuildOptions {
     /// its path, so checkouts a few files apart share every other file's entry, and a version of this crate, or of a
     /// visitor, that computes differently keeps entries of its own. A file whose trigrams the store holds is not
     /// scanned. The build computes the rest and publishes them, with what the visitor cached, into the directory as one
-    /// pack once its walk is done, then merges the directory's packs when they pass eight; a refresh does the same for
-    /// the files it reads.
+    /// pack once its walk is done, then merges the directory's packs when they pass eight and removes the entries older
+    /// than [`BuildOptions::content_cache_ttl`]; a refresh does the same for the files it reads.
     ///
     /// The cache is a trade. Each file the build reads for the content index or a visitor is hashed, and a file only
     /// the content index reads that runs past one 64 KiB chunk is read twice when the store lacks it — once to hash it,
@@ -120,6 +121,18 @@ pub struct BuildOptions {
     /// A failure to open, write or publish to the directory costs only the sharing: the build computes what it could
     /// not take from the store, and reports the failure as [`BuildError::Cache`].
     pub content_cache: Option<PathBuf>,
+    /// The age past which an entry of [`BuildOptions::content_cache`] expires, counted from when the build that
+    /// computed it began. Zero, the default, is [`kartta_cache::DEFAULT_TTL`], a week, and never "expire everything":
+    /// zero is what an unset number decodes to, and that reading would empty a cache other builds share.
+    ///
+    /// The merge every build ends with expires what is older. A build that finds an entry does not renew it, so an
+    /// entry every build finds is computed again at most once per time to live; a shorter one holds the directory
+    /// closer to what the trees sharing it contain, and recomputes more often. A pack that holds expired entries is
+    /// rewritten without them once they make up half of its payload bytes, and until then they are still found. The
+    /// same merge removes the temporary files of builds killed before they published, an hour after their last write,
+    /// and the packs of another cache format once both the time to live and an hour have passed since their last
+    /// write.
+    pub content_cache_ttl: Duration,
     /// Whether the index keeps a stamp of each file the build reads — the time it last changed, eight bytes a file — so
     /// that [`Index::refresh`](crate::Index::refresh) reads again only the files that changed since. `false`, the
     /// default, keeps none, and a refresh then reads every wanted file again, as the build did.
