@@ -6,7 +6,7 @@ mod sites;
 
 use std::collections::{HashMap, HashSet};
 
-use kartta_lang::tree::{children, line, preorder, signature, text};
+use kartta_lang::tree::{child_nodes, line, preorder, signature, text};
 use kartta_lang::{
     Banner, CallRef, Callable, CallableRole, FoldedDeclaration, NO_CALLER_ID, RawDirective,
     RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
@@ -687,10 +687,6 @@ fn lies_in(path: &str, outer: &str) -> bool {
 
 fn is_using_namespace(node: Node<'_>) -> bool {
     child_nodes(node).any(|child| child.kind() == "namespace")
-}
-
-fn child_nodes(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> {
-    children(node).filter_map(move |index| node.child(index))
 }
 
 fn is_entry_point(symbol: &Symbol) -> bool {

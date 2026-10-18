@@ -5,7 +5,7 @@ use std::iter;
 use std::ops::Range;
 
 use self::uses::NameUse;
-use kartta_lang::tree::{children, line, named_children, preorder, signature, text};
+use kartta_lang::tree::{child_nodes, line, named_child_nodes, preorder, signature, text};
 use kartta_lang::{
     CallRef, LocalCall, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -204,8 +204,7 @@ impl<'a> Emitter<'a> {
     // constraint: a comprehension evaluates its first iterable in the scope around it
     fn open(&mut self, node: Node<'_>, caller: SymbolId, kind: FrameKind) {
         let outside = if kind == FrameKind::Comprehension {
-            named_children(node)
-                .filter_map(|at| node.named_child(at))
+            named_child_nodes(node)
                 .find(|child| child.kind() == "for_in_clause")
                 .and_then(|clause| clause.child_by_field_name("right"))
                 .map_or(0..0, |iterable| iterable.byte_range())
@@ -317,9 +316,8 @@ impl<'a> Emitter<'a> {
     // as its last child
     fn bind_alias(&mut self, node: Node<'_>) {
         let alias = node.child_by_field_name("alias").or_else(|| {
-            named_children(node)
-                .last()
-                .and_then(|at| node.named_child(at))
+            named_child_nodes(node)
+                .next_back()
                 .filter(|last| last.kind() == IDENTIFIER)
         });
         if let Some(alias) = alias {
@@ -330,8 +328,7 @@ impl<'a> Emitter<'a> {
     // constraint: a `case` pattern captures a bare name and compares against a dotted one, and a keyword pattern's own
     // keyword is no capture
     fn bind_capture(&mut self, node: Node<'_>) {
-        let captured = named_children(node)
-            .filter_map(|at| node.named_child(at))
+        let captured = named_child_nodes(node)
             .filter(|child| child.kind() == "dotted_name" && child.named_child_count() == 1)
             .filter_map(|name| name.named_child(0));
         for name in captured {
@@ -383,7 +380,7 @@ impl<'a> Emitter<'a> {
             | "list"
             | "global_statement"
             | "nonlocal_statement" => {
-                for child in named_children(target).filter_map(|at| target.named_child(at)) {
+                for child in named_child_nodes(target) {
                     self.bind(child, binding);
                 }
             }
@@ -535,8 +532,7 @@ impl<'a> Emitter<'a> {
         let Some(parameters) = function.child_by_field_name("parameters") else {
             return;
         };
-        let shadows = named_children(parameters)
-            .filter_map(|at| parameters.named_child(at))
+        let shadows = named_child_nodes(parameters)
             .filter_map(parameter_name)
             .any(|name| &self.source[name.byte_range()] == outer.name);
         if shadows {
@@ -654,7 +650,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn import(&mut self, node: Node<'_>) {
-        for child in named_children(node).filter_map(|at| node.named_child(at)) {
+        for child in named_child_nodes(node) {
             let Some(module) = imported_name(child, self.source) else {
                 continue;
             };
@@ -783,9 +779,7 @@ fn is_static(function: Node<'_>, source: &[u8]) -> bool {
 }
 
 fn decorators(function: Node<'_>) -> impl Iterator<Item = Node<'_>> {
-    let holder = decorated(function);
-    named_children(holder)
-        .filter_map(move |i| holder.named_child(i))
+    named_child_nodes(decorated(function))
         .filter(|decorator| decorator.kind() == "decorator")
         .filter_map(|decorator| decorator.named_child(0))
 }
@@ -837,8 +831,7 @@ fn superclasses(node: Node<'_>, source: &[u8]) -> Vec<String> {
         return Vec::new();
     };
 
-    children(arguments)
-        .filter_map(|at| arguments.child(at))
+    child_nodes(arguments)
         .filter(|child| matches!(child.kind(), IDENTIFIER | "attribute"))
         .map(|child| text(child, source))
         .collect()

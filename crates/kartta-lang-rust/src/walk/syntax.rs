@@ -1,4 +1,4 @@
-use kartta_lang::tree::{children, line, named_children, text};
+use kartta_lang::tree::{child_nodes, line, named_child_nodes, text};
 use kartta_lang::{Symbol, SymbolKind};
 use tree_sitter::Node;
 
@@ -22,8 +22,7 @@ pub(super) fn symbol(
 }
 
 pub(super) fn is_exported(node: Node<'_>, source: &[u8]) -> bool {
-    children(node)
-        .filter_map(|at| node.child(at))
+    child_nodes(node)
         .find(|child| child.kind() == "visibility_modifier")
         .is_some_and(|visibility| {
             text(visibility, source)
@@ -46,9 +45,7 @@ fn is_own_module(scope: &str) -> bool {
 }
 
 pub(super) fn named_child_of_kind<'t>(node: Node<'t>, kind: &str) -> Option<Node<'t>> {
-    named_children(node)
-        .filter_map(|at| node.named_child(at))
-        .find(|child| child.kind() == kind)
+    named_child_nodes(node).find(|child| child.kind() == kind)
 }
 
 // constraint: the item kinds that carry the outer attributes gating test code, which bounds the scan for them

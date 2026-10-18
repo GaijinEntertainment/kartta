@@ -1,5 +1,5 @@
 use kartta_lang::path::dir;
-use kartta_lang::tree::{named_children, text};
+use kartta_lang::tree::{named_child_nodes, text};
 use tree_sitter::Node;
 
 // constraint: `__DIR__` and `__FILE__` depend on the path, which the bytes do not know, so the fold writes them as
@@ -75,7 +75,7 @@ pub(crate) fn substitute_markers(spec: &str, path: &str) -> String {
 
 fn string_literal(node: Node<'_>, source: &[u8]) -> Option<String> {
     let mut content = String::new();
-    for part in named_children(node).filter_map(|index| node.named_child(index)) {
+    for part in named_child_nodes(node) {
         if part.kind() != "string_content" {
             return None;
         }
@@ -94,12 +94,8 @@ fn dirname(call: Node<'_>, source: &[u8]) -> Option<String> {
         return None;
     }
     let arguments = call.child_by_field_name("arguments")?;
-    let argument = named_children(arguments)
-        .filter_map(|index| arguments.named_child(index))
-        .find(|argument| argument.kind() == "argument")?;
-    let value = named_children(argument)
-        .filter_map(|index| argument.named_child(index))
-        .next_back()?;
+    let argument = named_child_nodes(arguments).find(|argument| argument.kind() == "argument")?;
+    let value = named_child_nodes(argument).next_back()?;
 
     let folded = fold(value, source)?;
     let trimmed = folded.trim_end_matches('/');

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use kartta_lang::tree::{line, named_children, preorder, signature, text};
+use kartta_lang::tree::{line, named_child_nodes, preorder, signature, text};
 use kartta_lang::{
     Banner, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
@@ -398,9 +398,7 @@ impl Emitter<'_> {
         };
 
         let owner = self.qualified_name(id);
-        let fields = named_children(body)
-            .filter_map(|at| body.named_child(at))
-            .filter(|field| field.kind() == "field_declaration");
+        let fields = named_child_nodes(body).filter(|field| field.kind() == "field_declaration");
         for field in fields {
             let exported = is_exported(field, self.source);
             self.member(&owner, field, (SymbolKind::Field, exported));
@@ -418,9 +416,7 @@ impl Emitter<'_> {
         };
 
         let owner = self.qualified_name(id);
-        let variants = named_children(body)
-            .filter_map(|at| body.named_child(at))
-            .filter(|variant| variant.kind() == "enum_variant");
+        let variants = named_child_nodes(body).filter(|variant| variant.kind() == "enum_variant");
         for variant in variants {
             self.member(&owner, variant, (SymbolKind::EnumVariant, exported));
         }
