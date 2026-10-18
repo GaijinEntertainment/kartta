@@ -125,10 +125,6 @@ impl Kartta {
     fn build(&self, params: &BuildParams) -> Result<Vec<u8>, Error> {
         let languages = params.languages()?;
         let options = params.options()?;
-        let family_of_language = languages
-            .iter()
-            .map(|language| (language.name().to_owned(), language.family().to_owned()))
-            .collect();
 
         let (ticket, token) = lock(&self.builds).enter(params.id);
         let _one_build = lock(&self.one_build_at_a_time);
@@ -147,7 +143,6 @@ impl Kartta {
             Ok(Ok(outcome)) => Ok(Arc::new(Built {
                 errors: StoredErrors::new(&outcome.errors),
                 engine: outcome.engine,
-                family_of_language,
             })),
             Ok(Err(error)) => Err(Error::new(ErrorCode::BuildFailed, error.to_string())),
             Err(payload) => Err(Error::panicked(payload.as_ref())),
