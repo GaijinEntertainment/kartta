@@ -24,11 +24,11 @@
 //! packs it mapped for as long as it is open, and sees a pack published after it opened only when it opens again.
 //!
 //! Each entry carries a 64-bit check over its key and payload, verified on every lookup, so a changed payload byte, or
-//! an index entry that points at the wrong bytes, escapes it only with a chance of 2^-64: the entry is passed over,
-//! another pack's sound copy answers instead, or the lookup misses and is counted in [`Stats::damaged`]. A changed byte
-//! in an entry's key makes the entry look absent, so its lookup misses and counts as a miss. Either way no wrong data
-//! is served, and a cache that served wrong data would turn into wrong answers downstream. The check guards against
-//! damage, not against a writer: a process that can write the directory can publish any pack it likes.
+//! an index entry that points at the wrong bytes, escapes it only with a chance of 2^-64: the entry is passed over, and
+//! another pack's sound copy answers instead or the lookup misses. A changed byte in an entry's key makes the entry look
+//! absent, so its lookup misses too. Either way no wrong data is served, and a cache that served wrong data would turn
+//! into wrong answers downstream. The check guards against damage, not against a writer: a process that can write the
+//! directory can publish any pack it likes.
 //!
 //! Each publish of entries adds a pack, unless the same pack is already in place, and [`Store::merge`] keeps their
 //! number bounded: past eight it merges every pack but the largest into one while the largest holds more entries than

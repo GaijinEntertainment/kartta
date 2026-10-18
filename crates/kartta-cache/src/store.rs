@@ -3,11 +3,10 @@ use std::ffi::OsStr;
 use std::fs::{self, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::key::{ContentHash, Namespace};
-use crate::pack::{self, Aging, Lookup, Pack, Published};
+use crate::pack::{self, Aging, Pack, Published};
 use crate::writer::{PackWriter, TEMP_PREFIX};
 
 /// A cache directory: every pack published into it, mapped read-only, answering lookups by key.
@@ -21,15 +20,6 @@ use crate::writer::{PackWriter, TEMP_PREFIX};
 pub struct Store {
     dir: PathBuf,
     packs: Vec<Pack>,
-    rejected: u64,
-    counters: Counters,
-}
-
-#[derive(Debug, Default)]
-struct Counters {
-    hits: AtomicU64,
-    misses: AtomicU64,
-    damaged: AtomicU64,
 }
 
 const MERGE_PAST: usize = 8;
@@ -69,7 +59,7 @@ pub struct Merged {
     pub unreadable_left: u64,
 }
 
-/// What a [`Store`] holds and what its lookups have found so far.
+/// What a [`Store`] holds.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[non_exhaustive]
 pub struct Stats {
@@ -77,16 +67,6 @@ pub struct Stats {
     pub packs: u64,
     /// Entries across those packs.
     pub entries: u64,
-    /// Files with the pack extension that were not packs this store can read — truncated, foreign, or of another
-    /// format version — and so answer nothing.
-    pub rejected_packs: u64,
-    /// Lookups that found their entry.
-    pub hits: u64,
-    /// Lookups that found no entry.
-    pub misses: u64,
-    /// Lookups that found their key only with payloads that failed their check, and so were answered as misses. A
-    /// changed byte in a key makes its entry look absent, and its lookups count in [`Stats::misses`].
-    pub damaged: u64,
 }
 
 impl Store {
@@ -95,12 +75,13 @@ impl Store {
     /// A pack that vanishes between the listing and its opening was removed by another process's merge, which
     /// publishes the merged pack before it removes anything, so the store lists the directory again and maps what it
     /// finds there, up to four listings. Only a merge finishing between every two of them leaves a pack the store does
-    /// not hold, and that pack is counted as rejected.
+    /// not hold.
     ///
     /// # Errors
     ///
-    /// Returns the error of creating or listing the directory. A pack that cannot be opened or read is not an error:
-    /// it is left in place and counted in [`Stats::rejected_packs`], and so is one still vanishing after four listings.
+    /// Returns the error of creating or listing the directory. A file with the pack extension that cannot be opened or
+    /// read as a pack — truncated, foreign, or of another format version — is not an error: it is left in place and
+    /// answers nothing.
     pub fn open(dir: impl Into<PathBuf>) -> io::Result<Self> {
         let dir = dir.into();
         fs::create_dir_all(&dir)?;
@@ -114,54 +95,25 @@ impl Store {
         mut list: impl FnMut() -> io::Result<Vec<PathBuf>>,
     ) -> io::Result<Self> {
         let mut opening = Opening::default();
-        for listing in 1..=LISTINGS {
-            let vanished = opening.open_all(list()?);
-            if vanished == 0 {
+        for _ in 0..LISTINGS {
+            if !opening.open_all(list()?) {
                 break;
             }
-            if listing == LISTINGS {
-                opening.rejected += vanished;
-            }
         }
-        let Opening {
-            mut packs,
-            rejected,
-            ..
-        } = opening;
+        let mut packs = opening.packs;
         // constraint: the largest pack answers first, so a hit in a store whose packs a merge keeps few and uneven
         // costs one search rather than one per pack
         packs.sort_by_key(|pack| std::cmp::Reverse(pack.entry_count()));
 
-        Ok(Self {
-            dir,
-            packs,
-            rejected,
-            counters: Counters::default(),
-        })
+        Ok(Self { dir, packs })
     }
 
     /// The payload cached under (`namespace`, `content`), borrowed from the mapped pack that holds it.
     #[must_use]
     pub fn get(&self, namespace: &Namespace, content: &ContentHash) -> Option<&[u8]> {
-        let mut damaged = false;
-        for pack in &self.packs {
-            match pack.get(namespace, content) {
-                Lookup::Found(payload) => {
-                    self.counters.hits.fetch_add(1, Ordering::Relaxed);
-                    return Some(payload);
-                }
-                Lookup::Damaged => damaged = true,
-                Lookup::Absent => {}
-            }
-        }
-        let counter = if damaged {
-            &self.counters.damaged
-        } else {
-            &self.counters.misses
-        };
-        counter.fetch_add(1, Ordering::Relaxed);
-
-        None
+        self.packs
+            .iter()
+            .find_map(|pack| pack.get(namespace, content))
     }
 
     /// Removes the entries published longer ago than `ttl`, merges this store's packs into fewer when it holds more
@@ -306,7 +258,7 @@ impl Store {
         &self.dir
     }
 
-    /// What the store holds and what its lookups have found since it opened.
+    /// What the store holds.
     #[must_use]
     pub fn stats(&self) -> Stats {
         Stats {
@@ -316,10 +268,6 @@ impl Store {
                 .iter()
                 .map(|pack| u64::try_from(pack.entry_count()).unwrap_or(u64::MAX))
                 .sum(),
-            rejected_packs: self.rejected,
-            hits: self.counters.hits.load(Ordering::Relaxed),
-            misses: self.counters.misses.load(Ordering::Relaxed),
-            damaged: self.counters.damaged.load(Ordering::Relaxed),
         }
     }
 }
@@ -328,23 +276,22 @@ impl Store {
 struct Opening {
     packs: Vec<Pack>,
     opened: HashSet<PathBuf>,
-    rejected: u64,
 }
 
 impl Opening {
-    fn open_all(&mut self, paths: Vec<PathBuf>) -> u64 {
-        let mut vanished = 0;
+    fn open_all(&mut self, paths: Vec<PathBuf>) -> bool {
+        let mut vanished = false;
         for path in paths {
             if self.opened.contains(&path) {
                 continue;
             }
             match Pack::open(&path) {
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                    vanished += 1;
+                    vanished = true;
                     continue;
                 }
                 Ok(Some(pack)) => self.packs.push(pack),
-                Ok(None) | Err(_) => self.rejected += 1,
+                Ok(None) | Err(_) => {}
             }
             self.opened.insert(path);
         }
@@ -416,11 +363,11 @@ mod tests {
 
         assert_eq!(listings, 2);
         assert!(holds(&store, b"kept") && holds(&store, b"merged"));
-        assert_eq!((store.stats().packs, store.stats().rejected_packs), (2, 0));
+        assert_eq!(store.stats().packs, 2);
     }
 
     #[test]
-    fn a_pack_that_keeps_vanishing_is_counted_after_the_last_listing() {
+    fn a_pack_that_keeps_vanishing_is_given_up_after_the_last_listing() {
         let dir = tempfile::tempdir().expect("temp dir");
         let mut listings = 0;
 
@@ -431,7 +378,7 @@ mod tests {
         .expect("open");
 
         assert_eq!(listings, LISTINGS);
-        assert_eq!((store.stats().packs, store.stats().rejected_packs), (0, 1));
+        assert_eq!(store.stats().packs, 0);
     }
 
     const DAY: Duration = Duration::from_hours(24);
