@@ -1,64 +1,12 @@
 //! How a BLK extraction resolves against its file's path and the repository: the file an include names, relative to
 //! the including file, to a root, or through the mount table the repository's `mountPoints` blocks state.
 
-use std::io;
-
-use kartta_lang::path::{base, dir};
-use kartta_lang::{Extraction, Language, Repository};
+use kartta_lang::{Extraction, Language, MemoryRepository};
 use kartta_lang_blk::Blk;
-
-struct Files<'a>(&'a [(&'a str, &'a str)]);
-
-impl Repository for Files<'_> {
-    fn contains(&self, path: &str) -> bool {
-        self.0.iter().any(|&(file, _)| file == path)
-    }
-
-    fn files_in_dir<'a>(&'a self, in_dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let in_dir = in_dir.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .map(|&(file, _)| file)
-                .filter(move |file| dir(file) == in_dir)
-                .map(str::to_owned),
-        )
-    }
-
-    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let name = name.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .map(|&(file, _)| file)
-                .filter(move |file| base(file) == name)
-                .map(str::to_owned),
-        )
-    }
-
-    fn files_ignoring_case<'a>(&'a self, path: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let path = path.to_owned();
-        Box::new(
-            self.0
-                .iter()
-                .map(|&(file, _)| file)
-                .filter(move |file| file.eq_ignore_ascii_case(&path))
-                .map(str::to_owned),
-        )
-    }
-
-    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
-        self.0
-            .iter()
-            .find(|&&(file, _)| file == path)
-            .map(|&(_, contents)| contents.as_bytes().to_vec())
-            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
-    }
-}
 
 fn resolve(files: &[(&str, &str)], source: &[u8], path: &str) -> Extraction {
     let blk = Blk::new();
-    let repository = Files(files);
+    let repository = MemoryRepository::new(files.iter().copied());
     let resolver = blk.resolver(&repository);
 
     resolver.resolve(blk.extract(source), path)

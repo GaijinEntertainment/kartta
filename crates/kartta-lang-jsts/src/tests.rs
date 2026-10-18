@@ -3,68 +3,9 @@ mod identity;
 mod resolution;
 mod uses;
 
-use std::io;
-
-use kartta_lang::path::{base, dir};
-use kartta_lang::{Extraction, Language, Repository, Symbol};
+use kartta_lang::{Extraction, Language, MemoryRepository, Symbol};
 
 use crate::{JavaScript, Tsx, TypeScript};
-
-pub(crate) struct Files {
-    files: Vec<(String, Vec<u8>)>,
-}
-
-impl Files {
-    pub(crate) fn new(files: &[(&str, &str)]) -> Self {
-        Self {
-            files: (files.iter())
-                .map(|(path, contents)| ((*path).to_owned(), contents.as_bytes().to_vec()))
-                .collect(),
-        }
-    }
-
-    pub(crate) fn paths(paths: &[&str]) -> Self {
-        Self {
-            files: paths
-                .iter()
-                .map(|path| ((*path).to_owned(), Vec::new()))
-                .collect(),
-        }
-    }
-}
-
-impl Repository for Files {
-    fn contains(&self, path: &str) -> bool {
-        self.files.iter().any(|(file, _)| file == path)
-    }
-
-    fn files_in_dir<'a>(&'a self, wanted: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let wanted = wanted.to_owned();
-        Box::new(
-            (self.files.iter())
-                .map(|(file, _)| file.as_str())
-                .filter(move |file| dir(file) == wanted)
-                .map(str::to_owned),
-        )
-    }
-
-    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let name = name.to_owned();
-        Box::new(
-            (self.files.iter())
-                .map(|(file, _)| file.as_str())
-                .filter(move |file| base(file) == name)
-                .map(str::to_owned),
-        )
-    }
-
-    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
-        (self.files.iter())
-            .find(|(file, _)| file == path)
-            .map(|(_, contents)| contents.clone())
-            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
-    }
-}
 
 pub(crate) const LANGUAGES: [&dyn Language; 3] =
     [&TypeScript::new(), &Tsx::new(), &JavaScript::new()];
@@ -75,7 +16,7 @@ pub(crate) fn language_of(path: &str) -> &'static dyn Language {
         .unwrap_or_else(|| panic!("no language claims {path}"))
 }
 
-pub(crate) fn resolved(path: &str, source: &str, files: &Files) -> Extraction {
+pub(crate) fn resolved(path: &str, source: &str, files: &MemoryRepository) -> Extraction {
     let language = language_of(path);
     language
         .resolver(files)
@@ -83,7 +24,7 @@ pub(crate) fn resolved(path: &str, source: &str, files: &Files) -> Extraction {
 }
 
 pub(crate) fn extracted(path: &str, source: &str) -> Extraction {
-    resolved(path, source, &Files::paths(&[path]))
+    resolved(path, source, &MemoryRepository::of_paths([path]))
 }
 
 pub(crate) fn symbol<'e>(extraction: &'e Extraction, name: &str) -> &'e Symbol {

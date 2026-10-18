@@ -1,6 +1,6 @@
-use kartta_lang::{CallableRole, Extraction, Language};
+use kartta_lang::{CallableRole, Extraction, Language, MemoryRepository};
 
-use super::{Files, extracted};
+use super::extracted;
 use crate::TypeScript;
 
 fn identities(source: &str) -> Vec<(String, Option<String>)> {
@@ -216,7 +216,7 @@ class Local extends Base { run(x: number) { return x; } }\n",
 #[test]
 fn a_key_names_the_implementation_and_the_resolver_adds_the_file() {
     let language = TypeScript::new();
-    let files = Files::paths(&["a/api.ts", "b/api.ts"]);
+    let files = MemoryRepository::of_paths(["a/api.ts", "b/api.ts"]);
     let resolver = language.resolver(&files);
     let raw = language.extract(OVERLOADED.as_bytes());
 
