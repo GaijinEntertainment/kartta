@@ -1,6 +1,3 @@
-//! [`BinaryExtensions`] — the name-based half of binary classification: the extensions that decide without opening
-//! anything.
-
 use std::borrow::Cow;
 
 /// The file extensions that settle a file as binary without the file being read.
@@ -19,10 +16,11 @@ use std::borrow::Cow;
 ///
 /// # Composing a set
 ///
-/// [`BinaryExtensions::builtin`] is every [`BinaryGroup`] and is the [`Default`]. A set is built from the built-in
-/// groups and the caller's own extensions with [`union`](Self::union) and [`difference`](Self::difference), so taking
-/// a whole group out and taking one extension out are the same operation. An extension no file in a tree carries is
-/// not an error: most of the built-in set is absent from any one tree.
+/// [`BinaryExtensions::builtin`] is the [`Default`]: images, audio, video, geometry, build artifacts, archives,
+/// fonts, office documents, disk images, model weights, game engine assets, compiled shaders, Unreal packages, sound
+/// banks and Dagor Engine assets. A caller adds its own extensions to it with [`union`](Self::union), or states a whole
+/// set of its own with [`BinaryExtensions::new`]. An extension no file in a tree carries is not an error: most of the
+/// built-in set is absent from any one tree.
 ///
 /// Extensions compare without regard to ASCII case, and only the last extension of a name is compared — `gz` settles
 /// `archive.tar.gz`. A name whose only dot leads it, such as `.gitignore`, carries no extension.
@@ -30,16 +28,14 @@ use std::borrow::Cow;
 /// # Examples
 ///
 /// ```
-/// use kartta_fs::{BinaryExtensions, BinaryGroup};
+/// use kartta_fs::BinaryExtensions;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let binary = BinaryExtensions::builtin()
-///     .difference(&BinaryExtensions::group(BinaryGroup::Dagor))
-///     .union(&BinaryExtensions::new(["vromfs", ".DDSX"])?);
+/// let binary = BinaryExtensions::builtin().union(&BinaryExtensions::new(["vromfs", ".PACKED"])?);
 ///
 /// assert!(binary.matches("content/pack.vromfs"));
-/// assert!(binary.matches("textures/hull.ddsx"));
-/// assert!(!binary.matches("models/tank.dag"));
+/// assert!(binary.matches("textures/hull.packed"));
+/// assert!(binary.matches("models/tank.dag"));
 /// assert!(!binary.matches("src/main.rs"));
 /// # Ok(())
 /// # }
@@ -50,16 +46,16 @@ pub struct BinaryExtensions {
 }
 
 impl BinaryExtensions {
-    /// Every built-in [`BinaryGroup`].
+    /// The built-in set, every format the [type docs](Self) list.
     #[must_use]
     pub fn builtin() -> Self {
-        Self::of_groups(BinaryGroup::ALL)
-    }
+        let extensions = BUILTIN
+            .iter()
+            .flat_map(|group| group.iter())
+            .map(|&extension| Cow::Borrowed(extension))
+            .collect();
 
-    /// The extensions of one built-in group.
-    #[must_use]
-    pub fn group(group: BinaryGroup) -> Self {
-        Self::of_groups(&[group])
+        Self::normalized(extensions)
     }
 
     /// A set of the caller's own extensions.
@@ -92,50 +88,20 @@ impl BinaryExtensions {
         Self::normalized(self.extensions)
     }
 
-    /// This set with every extension of `other` taken out.
-    #[must_use]
-    pub fn difference(mut self, other: &Self) -> Self {
-        self.extensions
-            .retain(|extension| other.extensions.binary_search(extension).is_err());
-
-        self
-    }
-
-    /// The extensions in the set, lowercase and in byte order.
-    pub fn extensions(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.extensions.iter().map(AsRef::as_ref)
-    }
-
     /// Whether the name at the end of `path` carries an extension in the set.
     ///
     /// `false` means the name settled nothing, never that the file is text.
     #[must_use]
     pub fn matches(&self, path: &str) -> bool {
-        self.position(path).is_some()
-    }
-
-    /// Where the extension the name at the end of `path` carries sits in [`BinaryExtensions::extensions`], or `None`
-    /// when the set does not hold it.
-    pub(crate) fn position(&self, path: &str) -> Option<usize> {
-        let extension = extension(path)?;
-
-        self.extensions
-            .binary_search_by(|known| {
-                known
-                    .bytes()
-                    .cmp(extension.bytes().map(|byte| byte.to_ascii_lowercase()))
-            })
-            .ok()
-    }
-
-    fn of_groups(groups: &[BinaryGroup]) -> Self {
-        let extensions = groups
-            .iter()
-            .flat_map(|group| group.extensions())
-            .map(|&extension| Cow::Borrowed(extension))
-            .collect();
-
-        Self::normalized(extensions)
+        extension(path).is_some_and(|extension| {
+            self.extensions
+                .binary_search_by(|known| {
+                    known
+                        .bytes()
+                        .cmp(extension.bytes().map(|byte| byte.to_ascii_lowercase()))
+                })
+                .is_ok()
+        })
     }
 
     fn normalized(mut extensions: Vec<Cow<'static, str>>) -> Self {
@@ -184,87 +150,24 @@ pub enum BinaryExtensionsError {
     },
 }
 
-/// A built-in group of binary extensions, named for where its formats come from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[non_exhaustive]
-pub enum BinaryGroup {
-    /// Raster images, texture containers, and `svg`.
-    Images,
-    /// Encoded audio.
-    Audio,
-    /// Encoded video.
-    Video,
-    /// 3D scene and mesh formats.
-    Geometry,
-    /// What a compiler, a linker or a packager emits.
-    Artifacts,
-    /// Compressed archives.
-    Archives,
-    /// Font files.
-    Fonts,
-    /// Office documents and database files.
-    Documents,
-    /// Disk and virtual machine images.
-    DiskImages,
-    /// Machine learning weights and columnar data.
-    ModelWeights,
-    /// Generic game engine asset containers.
-    GameAssets,
-    /// Compiled GPU shaders.
-    Shaders,
-    /// Unreal Engine packages.
-    Unreal,
-    /// FMOD, Wwise, CRI and XACT sound banks and encoded audio.
-    AudioMiddleware,
-    /// Dagor Engine geometry, compressed textures, game resource packs and animation data.
-    ///
-    /// `dag` also names the workflow files of the Condor job scheduler, which are text, so a tree that holds those and
-    /// no Dagor assets takes this group out.
-    Dagor,
-}
+const BUILTIN: [&[&str]; 15] = [
+    IMAGES,
+    AUDIO,
+    VIDEO,
+    GEOMETRY,
+    ARTIFACTS,
+    ARCHIVES,
+    FONTS,
+    DOCUMENTS,
+    DISK_IMAGES,
+    MODEL_WEIGHTS,
+    GAME_ASSETS,
+    SHADERS,
+    UNREAL,
+    AUDIO_MIDDLEWARE,
+    DAGOR,
+];
 
-impl BinaryGroup {
-    /// Every built-in group.
-    pub const ALL: &[Self] = &[
-        Self::Images,
-        Self::Audio,
-        Self::Video,
-        Self::Geometry,
-        Self::Artifacts,
-        Self::Archives,
-        Self::Fonts,
-        Self::Documents,
-        Self::DiskImages,
-        Self::ModelWeights,
-        Self::GameAssets,
-        Self::Shaders,
-        Self::Unreal,
-        Self::AudioMiddleware,
-        Self::Dagor,
-    ];
-
-    const fn extensions(self) -> &'static [&'static str] {
-        match self {
-            Self::Images => IMAGES,
-            Self::Audio => AUDIO,
-            Self::Video => VIDEO,
-            Self::Geometry => GEOMETRY,
-            Self::Artifacts => ARTIFACTS,
-            Self::Archives => ARCHIVES,
-            Self::Fonts => FONTS,
-            Self::Documents => DOCUMENTS,
-            Self::DiskImages => DISK_IMAGES,
-            Self::ModelWeights => MODEL_WEIGHTS,
-            Self::GameAssets => GAME_ASSETS,
-            Self::Shaders => SHADERS,
-            Self::Unreal => UNREAL,
-            Self::AudioMiddleware => AUDIO_MIDDLEWARE,
-            Self::Dagor => DAGOR,
-        }
-    }
-}
-
-/// The extension `given` names, lowercase and without its leading dot.
 fn parse(given: &str) -> Result<String, BinaryExtensionsError> {
     let bare = given.strip_prefix('.').unwrap_or(given);
     let extension = || given.to_owned();
@@ -290,9 +193,6 @@ fn parse(given: &str) -> Result<String, BinaryExtensionsError> {
     }
 }
 
-/// `svg` is the one deliberate exception to "binary by construction": it is XML, so listing it does make a text format
-/// unsearchable here. It earns that because in practice it is machine-emitted path data whose lines are of no use to a
-/// reader — the expensive mistake made knowingly, rather than a case the rule missed.
 const IMAGES: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "webp", "tiff", "tif", "psd", "dds", "tga",
     "exr", "ktx", "ktx2", "astc", "pvr", "basis", "avif", "heic", "heif", "jxl", "jp2", "icns",
@@ -313,7 +213,6 @@ const GEOMETRY: &[&str] = &[
     "glb", "blend", "3ds", "usdc", "usdz", "3dm", "max", "mb", "c4d", "skp", "vdb", "dwg",
 ];
 
-/// What a compiler, a linker or a packager emits.
 const ARTIFACTS: &[&str] = &[
     "exe", "dll", "so", "dylib", "o", "a", "wasm", "class", "jar", "pyc", "pyo", "node", "rlib",
     "rmeta", "pyd", "beam", "dex", "gch", "ilk", "idb", "apk", "aab", "ipa", "whl", "nupkg", "war",
@@ -369,12 +268,10 @@ const UNREAL: &[&str] = &["uasset", "umap", "ubulk", "upk", "uexp", "ucas", "uto
 
 const AUDIO_MIDDLEWARE: &[&str] = &["fsb", "fev", "bnk", "bank", "wem", "acb", "awb", "xwb"];
 
+// constraint: `dag` also names the workflow files of the Condor job scheduler, which are text, so a tree that holds
+// those states a set of its own
 const DAGOR: &[&str] = &["dag", "ddsx", "grp", "a2d"];
 
-/// The extension of the last segment of `path`, or `None` when it has none.
-///
-/// A leading dot names a hidden file rather than an extension, so `.gitignore` has none — which is what keeps a
-/// dotfile off a list its bare suffix would otherwise land it on.
 fn extension(path: &str) -> Option<&str> {
     let name = path.rsplit('/').next()?;
     let (stem, extension) = name.rsplit_once('.')?;
@@ -420,63 +317,12 @@ mod tests {
     }
 
     #[test]
-    fn the_builtin_set_is_every_group_and_the_default() {
-        let every_group = BinaryGroup::ALL.iter().fold(
-            BinaryExtensions::new([""; 0]).expect("an empty set"),
-            |set, &group| set.union(&BinaryExtensions::group(group)),
-        );
+    fn the_builtin_set_is_every_listed_extension_and_the_default() {
+        let listed = BinaryExtensions::new(BUILTIN.iter().flat_map(|group| group.iter()))
+            .expect("every listed extension is one a caller could give");
 
-        assert_eq!(BinaryExtensions::builtin(), every_group);
-        assert_eq!(BinaryExtensions::default(), every_group);
-    }
-
-    #[test]
-    fn all_holds_every_group_once() {
-        let every = [
-            BinaryGroup::Images,
-            BinaryGroup::Audio,
-            BinaryGroup::Video,
-            BinaryGroup::Geometry,
-            BinaryGroup::Artifacts,
-            BinaryGroup::Archives,
-            BinaryGroup::Fonts,
-            BinaryGroup::Documents,
-            BinaryGroup::DiskImages,
-            BinaryGroup::ModelWeights,
-            BinaryGroup::GameAssets,
-            BinaryGroup::Shaders,
-            BinaryGroup::Unreal,
-            BinaryGroup::AudioMiddleware,
-            BinaryGroup::Dagor,
-        ];
-
-        for group in every {
-            match group {
-                BinaryGroup::Images
-                | BinaryGroup::Audio
-                | BinaryGroup::Video
-                | BinaryGroup::Geometry
-                | BinaryGroup::Artifacts
-                | BinaryGroup::Archives
-                | BinaryGroup::Fonts
-                | BinaryGroup::Documents
-                | BinaryGroup::DiskImages
-                | BinaryGroup::ModelWeights
-                | BinaryGroup::GameAssets
-                | BinaryGroup::Shaders
-                | BinaryGroup::Unreal
-                | BinaryGroup::AudioMiddleware
-                | BinaryGroup::Dagor => assert!(
-                    BinaryGroup::ALL.contains(&group),
-                    "{group:?} is missing from ALL"
-                ),
-            }
-        }
-        assert_eq!(
-            BinaryGroup::ALL.len(),
-            every.len(),
-            "ALL lists a group twice"
-        );
+        assert_eq!(BinaryExtensions::builtin(), listed);
+        assert_eq!(BinaryExtensions::default(), listed);
     }
 
     #[test]
@@ -485,7 +331,7 @@ mod tests {
             .expect("every given string is an extension");
 
         assert_eq!(
-            given.extensions().collect::<Vec<_>>(),
+            given.extensions,
             ["nosuchformat", "vromfs"],
             "one extension however it is spelled, and an extension no tree holds is still one"
         );
@@ -546,30 +392,24 @@ mod tests {
     }
 
     #[test]
-    fn union_adds_and_difference_takes_out() {
-        let custom = BinaryExtensions::new(["vromfs"]).expect("an extension");
+    fn union_adds_to_a_set() {
         let binary = BinaryExtensions::builtin()
-            .difference(&BinaryExtensions::group(BinaryGroup::Dagor))
-            .difference(&BinaryExtensions::new(["svg"]).expect("an extension"))
-            .union(&custom);
+            .union(&BinaryExtensions::new(["vromfs"]).expect("an extension"));
 
         assert!(binary.matches("pack.vromfs"));
-        assert!(binary.matches("logo.png"), "the rest of a group stays");
-        assert!(!binary.matches("logo.svg"), "one extension came out");
-        assert!(!binary.matches("tank.dag"), "and so did a whole group");
+        assert!(binary.matches("logo.png"), "the built-in set stays");
     }
 
     #[test]
     fn a_set_holds_each_extension_once_in_byte_order() {
-        let images = BinaryExtensions::group(BinaryGroup::Images);
-        let twice = images.clone().union(&images);
+        let builtin = BinaryExtensions::builtin();
+        let twice = builtin.clone().union(&builtin);
 
-        assert_eq!(twice, images);
+        assert_eq!(twice, builtin);
 
-        let extensions: Vec<&str> = twice.extensions().collect();
-        let mut ordered = extensions.clone();
+        let mut ordered = twice.extensions.clone();
         ordered.sort_unstable();
-        assert_eq!(extensions, ordered);
+        assert_eq!(twice.extensions, ordered);
     }
 
     #[test]
@@ -590,9 +430,9 @@ mod tests {
 
     #[test]
     fn no_extension_is_listed_twice() {
-        let mut all: Vec<&str> = BinaryGroup::ALL
+        let mut all: Vec<&str> = BUILTIN
             .iter()
-            .flat_map(|group| group.extensions().iter().copied())
+            .flat_map(|group| group.iter().copied())
             .collect();
         all.sort_unstable();
 
@@ -604,7 +444,7 @@ mod tests {
 
     #[test]
     fn every_listed_extension_is_lowercase_and_bare() {
-        for extension in BinaryGroup::ALL.iter().flat_map(|group| group.extensions()) {
+        for extension in BUILTIN.iter().flat_map(|group| group.iter()) {
             assert_eq!(
                 *extension,
                 extension.to_ascii_lowercase(),

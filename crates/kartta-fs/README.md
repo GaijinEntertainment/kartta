@@ -55,11 +55,9 @@ wrongly would make it unfindable, where omitting a binary one costs a single rea
 is the one built-in name that is not binary by construction — it is XML, listed because in practice it holds
 machine-emitted path data — so an SVG reports binary without being read.
 
-`BuildOptions::binary_extensions` sets which extensions decide. The default is every built-in group; a caller composes
-its own set from those groups and its own extensions by union and difference, so a project can add its asset formats,
-drop one built-in it disputes, or drop a whole group. An extension no file carries is not an error, because most of the
-built-in set is absent from any one tree; `Index::binary_extension_counts` reports how many files each extension
-settled, so one that matched nothing — a misspelling in a caller's own set — is visible.
+`BuildOptions::binary_extensions` sets which extensions decide. The default is the built-in set; a caller adds its own
+asset formats to it by union, or states a whole set of its own. An extension no file carries is not an error, because
+most of the built-in set is absent from any one tree.
 
 ## Ignore rules
 
@@ -69,9 +67,9 @@ git's own rules stop at a repository boundary — its contents are still indexed
 tree rather than a git index.
 
 `BuildOptions::pruned_names` names what else is never indexed and never descended: the clutter an editor or the
-operating system leaves in a tree. The default is `.idea`, `.vscode`, `.fleet` and `.DS_Store`; a caller composes its
-own `PrunedNames` from that set and its own names by union and difference, or prunes nothing beyond `.git` with
-`PrunedNames::none`. An entry so named is pruned at any depth and whatever its kind, before any ignore rule is
+operating system leaves in a tree. The default is `.idea`, `.vscode`, `.fleet` and `.DS_Store`; a caller adds its own
+names to that set by union, or states a `PrunedNames` of its own, which prunes nothing beyond `.git` when empty. An
+entry so named is pruned at any depth and whatever its kind, before any ignore rule is
 consulted, so no negation brings it back and `IgnoreSources::None` keeps it out too. While ignore rules apply,
 a pruned `.gitignore` still applies its rules, as an ignored one does, so changing it refreshes its directory; a
 refresh prunes the names the build was given, and the Linux watcher watches no directory they name. `.git` is not in

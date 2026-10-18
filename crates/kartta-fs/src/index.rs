@@ -826,28 +826,6 @@ impl Index {
         )
     }
 
-    /// How many indexed regular files carry each extension of [`BuildOptions::binary_extensions`], in the order
-    /// [`BinaryExtensions::extensions`] yields them.
-    ///
-    /// Only names are read, never a file. A count of zero is an extension no file in this tree carries — true of most
-    /// of the built-in set on any one tree, and of a misspelled extension in a caller's own set, which is the case this
-    /// exists to show.
-    #[must_use]
-    pub fn binary_extension_counts(&self) -> Vec<(&str, usize)> {
-        let mut counts = vec![0; self.binary_extensions.extensions().len()];
-
-        self.candidates(0..self.len(), None, |at, path| {
-            if self.kind_at(at) == EntryKind::File
-                && let Some(found) = self.binary_extensions.position(path)
-            {
-                counts[found] += 1;
-            }
-            true
-        });
-
-        self.binary_extensions.extensions().zip(counts).collect()
-    }
-
     /// Every indexed entry paired with the facts read on demand, in depth-first order.
     ///
     /// This is the surface for a pass over the whole index — totalling sizes, tallying what is binary. Reaching the

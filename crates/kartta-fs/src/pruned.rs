@@ -1,5 +1,3 @@
-//! [`PrunedNames`] — the entry names a build neither indexes nor descends.
-
 use std::borrow::Cow;
 
 /// The entry names a build neither indexes nor descends: what an editor or the operating system leaves in a tree, as
@@ -15,10 +13,10 @@ use std::borrow::Cow;
 ///
 /// # Composing a set
 ///
-/// [`PrunedNames::builtin`] is the [`Default`]: `.DS_Store`, `.fleet`, `.idea` and `.vscode`. A set is built from it
-/// and the caller's own names with [`union`](Self::union) and [`difference`](Self::difference), and
-/// [`PrunedNames::none`] prunes nothing beyond `.git`. A name no entry in a tree carries is not an error, and a name a
-/// caller meant and misspelled shows itself: the entries it was meant to prune are in the index.
+/// [`PrunedNames::builtin`] is the [`Default`]: `.DS_Store`, `.fleet`, `.idea` and `.vscode`. A caller adds its own
+/// names to it with [`union`](Self::union), or states a whole set of its own with [`PrunedNames::new`]; an empty one
+/// prunes nothing beyond `.git`. A name no entry in a tree carries is not an error, and a name a caller meant and
+/// misspelled shows itself: the entries it was meant to prune are in the index.
 ///
 /// # Examples
 ///
@@ -26,13 +24,10 @@ use std::borrow::Cow;
 /// use kartta_fs::PrunedNames;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let pruned = PrunedNames::builtin()
-///     .difference(&PrunedNames::new([".vscode"])?)
-///     .union(&PrunedNames::new(["node_modules"])?);
+/// let pruned = PrunedNames::builtin().union(&PrunedNames::new(["node_modules"])?);
 ///
 /// assert!(pruned.matches("node_modules"));
 /// assert!(pruned.matches(".idea"));
-/// assert!(!pruned.matches(".vscode"));
 /// assert!(!pruned.matches(".IDEA"), "case is compared");
 /// # Ok(())
 /// # }
@@ -47,12 +42,6 @@ impl PrunedNames {
     #[must_use]
     pub fn builtin() -> Self {
         Self::normalized(BUILTIN.iter().map(|&name| Cow::Borrowed(name)).collect())
-    }
-
-    /// A set that prunes nothing beyond `.git`.
-    #[must_use]
-    pub const fn none() -> Self {
-        Self { names: Vec::new() }
     }
 
     /// A set of the caller's own names.
@@ -80,20 +69,6 @@ impl PrunedNames {
         self.names.extend(other.names.iter().cloned());
 
         Self::normalized(self.names)
-    }
-
-    /// This set with every name of `other` taken out.
-    #[must_use]
-    pub fn difference(mut self, other: &Self) -> Self {
-        self.names
-            .retain(|name| other.names.binary_search(name).is_err());
-
-        self
-    }
-
-    /// The names in the set, in byte order.
-    pub fn names(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.names.iter().map(AsRef::as_ref)
     }
 
     /// Whether an entry named `name` is pruned by this set. `.git` is pruned whatever this answers.
@@ -172,10 +147,7 @@ mod tests {
     fn the_builtin_set_is_editor_and_os_clutter_and_the_default() {
         let builtin = PrunedNames::builtin();
 
-        assert_eq!(
-            builtin.names().collect::<Vec<_>>(),
-            [".DS_Store", ".fleet", ".idea", ".vscode"]
-        );
+        assert_eq!(builtin.names, [".DS_Store", ".fleet", ".idea", ".vscode"]);
         assert_eq!(PrunedNames::default(), builtin);
     }
 
@@ -196,28 +168,20 @@ mod tests {
     }
 
     #[test]
-    fn none_prunes_nothing() {
-        let none = PrunedNames::none();
+    fn an_empty_set_prunes_nothing() {
+        let none = PrunedNames::new([""; 0]).expect("an empty set");
 
-        assert_eq!(none.names().len(), 0);
         assert!(!none.matches(".idea"));
-        assert_eq!(
-            PrunedNames::new([""; 0]).expect("an empty set"),
-            none,
-            "an empty set compares by its members"
-        );
     }
 
     #[test]
-    fn union_adds_and_difference_takes_out() {
+    fn union_adds_each_name_once_in_byte_order() {
         let pruned = PrunedNames::builtin()
-            .difference(&PrunedNames::new([".vscode", "absent"]).expect("names"))
             .union(&PrunedNames::new(["node_modules", ".idea"]).expect("names"));
 
         assert_eq!(
-            pruned.names().collect::<Vec<_>>(),
-            [".DS_Store", ".fleet", ".idea", "node_modules"],
-            "each name once, in byte order, and taking out a name the set lacks changes nothing"
+            pruned.names,
+            [".DS_Store", ".fleet", ".idea", ".vscode", "node_modules"]
         );
     }
 
