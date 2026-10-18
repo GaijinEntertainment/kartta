@@ -14,9 +14,6 @@ use crate::wire::{
     self, BuildParams, CancelAnswer, CancelParams, NoParams, OpenParams, StatsAnswer, StoredErrors,
 };
 
-/// The methods [`Kartta::call`] answers without asking a build.
-const LIFECYCLE: [&str; 3] = ["build", "cancel", "version"];
-
 /// One tree, and the engine its last finished build made of it: what a C handle points to.
 ///
 /// [`Kartta::open`] only names the tree. The `build` method walks it and builds the file index and every graph in one
@@ -202,7 +199,7 @@ impl Kartta {
 
 /// Every method, in name order.
 fn methods() -> Vec<&'static str> {
-    let mut methods: Vec<&'static str> = LIFECYCLE
+    let mut methods: Vec<&'static str> = ["build", "cancel", "version"]
         .into_iter()
         .chain(QUERIES.iter().map(|&(name, _)| name))
         .collect();
