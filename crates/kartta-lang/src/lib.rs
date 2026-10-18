@@ -74,9 +74,9 @@ pub mod tree;
 
 pub use crate::doc::{BlockComment, DocComments};
 pub use crate::extraction::{
-    CallRef, Callable, CallableRole, Extraction, FoldedDeclaration, ImplementsAssertion,
+    Access, CallRef, Callable, CallableRole, Extraction, FoldedDeclaration, ImplementsAssertion,
     ImportBinding, ImportRef, IncludeRef, LocalCall, RawDirective, RawExtraction, RawReExport,
-    ReExport, RefSite,
+    ReExport, Receiver, RefSite,
 };
 pub use crate::language::{
     CallsOnValues, Conventions, IncludeReach, InheritedMembers, Language, MemberCalls, OwnMembers,

@@ -1,5 +1,5 @@
 use kartta_lang::tree::text;
-use kartta_lang::{NO_CALLER_ID, RefSite, SymbolId};
+use kartta_lang::{Access, NO_CALLER_ID, Receiver, RefSite, SymbolId};
 use tree_sitter::Node;
 
 use super::Emitter;
@@ -92,7 +92,10 @@ impl<'a> Emitter<'a> {
         self.raw.references.push(RefSite {
             site_of: owner,
             name: text(name, self.source),
-            qualifier: qualifier.map(|qualifier| text(qualifier, self.source)),
+            receiver: qualifier.map_or(Receiver::Bare, |qualifier| {
+                Receiver::Qualifier(text(qualifier, self.source))
+            }),
+            access: Access::Read,
             line: line(site.start_position().row),
         });
     }

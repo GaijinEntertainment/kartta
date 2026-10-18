@@ -7,9 +7,9 @@
 
 use kartta_graph::{Graph, Limits, Walk};
 use kartta_lang::{
-    CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, ImportBinding,
+    Access, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, ImportBinding,
     IncludeReach, IncludeRef, InheritedMembers, LocalCall, MemberCalls, OwnMembers, ReExport,
-    RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Receiver, RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
 
 fn function(name: &str, line: u32) -> Symbol {
@@ -1910,7 +1910,10 @@ fn using(name: &str, qualifier: Option<&str>) -> RefSite {
     RefSite {
         site_of: SymbolId(0),
         name: name.to_owned(),
-        qualifier: qualifier.map(str::to_owned),
+        receiver: qualifier.map_or(Receiver::Bare, |qualifier| {
+            Receiver::Qualifier(qualifier.to_owned())
+        }),
+        access: Access::Read,
         line: 3,
     }
 }
