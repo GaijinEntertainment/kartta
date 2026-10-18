@@ -85,18 +85,17 @@ impl Store {
     pub fn open(dir: impl Into<PathBuf>) -> io::Result<Self> {
         let dir = dir.into();
         fs::create_dir_all(&dir)?;
-        let listed = dir.clone();
 
-        Self::open_listed(dir, || pack_paths(&listed))
+        Self::open_listed(dir, pack_paths)
     }
 
     fn open_listed(
         dir: PathBuf,
-        mut list: impl FnMut() -> io::Result<Vec<PathBuf>>,
+        mut list: impl FnMut(&Path) -> io::Result<Vec<PathBuf>>,
     ) -> io::Result<Self> {
         let mut opening = Opening::default();
         for _ in 0..LISTINGS {
-            if !opening.open_all(list()?) {
+            if !opening.open_all(list(&dir)?) {
                 break;
             }
         }
@@ -352,7 +351,7 @@ mod tests {
         let removed = dir.path().join("removed by a merge.pack");
         let mut listings = 0;
 
-        let store = Store::open_listed(dir.path().to_path_buf(), || {
+        let store = Store::open_listed(dir.path().to_path_buf(), |_| {
             listings += 1;
             Ok(if listings == 1 {
                 vec![kept.clone(), removed.clone()]
@@ -372,9 +371,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let mut listings = 0;
 
-        let store = Store::open_listed(dir.path().to_path_buf(), || {
+        let store = Store::open_listed(dir.path().to_path_buf(), |listed| {
             listings += 1;
-            Ok(vec![dir.path().join("never there.pack")])
+            Ok(vec![listed.join("never there.pack")])
         })
         .expect("open");
 
