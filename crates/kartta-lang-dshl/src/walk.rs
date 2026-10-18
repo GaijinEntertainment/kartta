@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use kartta_lang::tree::{signature, text};
+use kartta_lang::tree::{self, signature, text};
 use kartta_lang::{
     Access, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Receiver, RefSite, Symbol,
     SymbolId, SymbolKind,
@@ -52,11 +52,11 @@ fn next_in_preorder(cursor: &mut TreeCursor<'_>) -> bool {
 }
 
 fn line(node: Node<'_>) -> u32 {
-    u32::try_from(node.start_position().row).map_or(u32::MAX, |row| row.saturating_add(1))
+    tree::line(node.start_position().row)
 }
 
 fn end_line(node: Node<'_>) -> u32 {
-    u32::try_from(node.end_position().row).map_or(u32::MAX, |row| row.saturating_add(1))
+    tree::line(node.end_position().row)
 }
 
 impl Walker<'_> {
