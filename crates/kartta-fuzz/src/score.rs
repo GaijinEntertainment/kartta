@@ -1,24 +1,15 @@
-//! The alignment dynamic program and the scratch it reuses.
-//!
-//! Repository paths are ASCII-dominant, so a candidate is prepared as folded bytes whenever it and the query are
-//! both ASCII, and as characters otherwise. The alignment itself is written once, generic over the symbol type and
-//! the comparison, so the two representations cannot drift apart.
-
 use crate::class::{Class, MAX_BOUNDARY, boundary_bonus, class_of};
 
 const CONSECUTIVE: i32 = 1_000;
 const BASENAME: i32 = 150;
+// constraint: every gap is negative, so a gap added to NO_ALIGNMENT saturates back onto it and only a bonus needs
+// add_bonus's guard
 const GAP_LEADING: i32 = -5;
 const GAP_INNER: i32 = -10;
 const GAP_TRAILING: i32 = -5;
 
-/// A candidate with more positions than this is over-long: it skips the `O(n*m)` alignment and takes [`MATCH_FLOOR`].
-/// Real paths are far shorter; the bound exists so a pathological input cannot make one query quadratic in a value the
-/// caller controls.
 pub(crate) const MAX_ALIGNED_POSITIONS: usize = 1024;
 
-/// The score a term takes against a candidate it matches in full: one more than the sum of the largest bonus each
-/// position can earn over the longest candidate the alignment runs on, so no alignment reaches it.
 pub(crate) const FULL_MATCH_SCORE: i32 = {
     let largest_step = if CONSECUTIVE > MAX_BOUNDARY {
         CONSECUTIVE
@@ -34,26 +25,10 @@ pub(crate) const FULL_MATCH_SCORE: i32 = {
     positions * (largest_step + BASENAME) + 1
 };
 
-/// "No alignment ends here" sentinel. Nothing the recurrence adds can lift it: every gap is a penalty, and a bonus
-/// goes through [`add_bonus`].
 pub(crate) const NO_ALIGNMENT: i32 = i32::MIN;
-
-/// The lowest score an aggregate of aligned terms may take, one clear of [`MATCH_FLOOR`], so a sum of many poor
-/// alignments never reads as a floored candidate.
 pub(crate) const ALIGNED_MIN: i32 = NO_ALIGNMENT + 2;
-
-/// Score for a match on a candidate too long to align.
-///
-/// One above the sentinel, so such a candidate still ranks as a match rather than disappearing, but below every
-/// candidate the alignment actually scored. A candidate that could not be scored cannot be ordered against ones that
-/// were, and ranking it last is the only choice that never inverts a real comparison — a positive floor would put it
-/// above any match whose leading gaps outweighed its bonuses.
 pub(crate) const MATCH_FLOOR: i32 = NO_ALIGNMENT + 1;
 
-/// Whether two characters are equal up to case.
-///
-/// Takes an ASCII fast path whenever either side is ASCII and falls back to Unicode lowercase comparison only for a
-/// pair of non-ASCII characters. The crate documentation says why that is not full Unicode folding.
 fn fold_eq(a: char, b: char) -> bool {
     if a == b {
         true
@@ -64,54 +39,42 @@ fn fold_eq(a: char, b: char) -> bool {
     }
 }
 
-/// One whitespace-separated term of a query, in the forms the scorer needs.
 #[derive(Debug)]
 pub(crate) struct Term {
-    /// The term as characters.
     pub(crate) chars: Vec<char>,
-    /// The term as lowercased bytes when it is all-ASCII, so both the prefilter and the alignment can work on bytes.
-    /// `None` for a term holding a non-ASCII character.
-    pub(crate) bytes: Option<Vec<u8>>,
+    pub(crate) lowercase_ascii: Option<Vec<u8>>,
 }
 
 impl Term {
-    /// Prepares `text`, lowercasing its bytes once here rather than once per candidate.
     pub(crate) fn new(text: &str) -> Self {
         Self {
             chars: text.chars().collect(),
-            bytes: text
+            lowercase_ascii: text
                 .is_ascii()
                 .then(|| text.bytes().map(|b| b.to_ascii_lowercase()).collect()),
         }
     }
 
-    /// Whether `candidate` contains this term as an ordered subsequence.
-    ///
-    /// Scanning bytes is exactly equivalent to scanning characters for an ASCII term: every byte of a multi-byte
-    /// character is `>= 0x80`, so it can never equal an ASCII term byte, which is the answer the character comparison
-    /// reaches through its own ASCII fast path.
     pub(crate) fn present_in(&self, candidate: &str) -> bool {
-        self.bytes.as_ref().map_or_else(
+        // constraint: no byte of a multi-byte UTF-8 character is ASCII, so scanning the bytes of an ASCII term finds
+        // exactly what scanning characters would
+        self.lowercase_ascii.as_ref().map_or_else(
             || is_subsequence_chars(&self.chars, candidate),
             |bytes| is_subsequence_bytes(bytes, candidate.as_bytes()),
         )
     }
 }
 
-/// Which representation a whole query can use, decided from its terms once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Representation {
-    /// Every term is ASCII, so an ASCII candidate is scored as bytes.
     #[default]
     Bytes,
-    /// Some term holds a non-ASCII character, so every candidate is scored as characters.
     Chars,
 }
 
 impl Representation {
-    /// The representation `terms` allow.
     pub(crate) fn of(terms: &[Term]) -> Self {
-        if terms.iter().all(|term| term.bytes.is_some()) {
+        if terms.iter().all(|term| term.lowercase_ascii.is_some()) {
             Self::Bytes
         } else {
             Self::Chars
@@ -119,9 +82,6 @@ impl Representation {
     }
 }
 
-/// Whether `term` occurs in `candidate` as an ordered subsequence, up to case.
-///
-/// Allocates nothing. Used when either side holds a non-ASCII character.
 fn is_subsequence_chars(term: &[char], candidate: &str) -> bool {
     let mut next = 0;
     for c in candidate.chars() {
@@ -135,12 +95,9 @@ fn is_subsequence_chars(term: &[char], candidate: &str) -> bool {
     next == term.len()
 }
 
-/// Whether an already-lowercased ASCII `term` occurs in raw `candidate` bytes as an ordered subsequence, up to case.
 fn is_subsequence_bytes(term: &[u8], candidate: &[u8]) -> bool {
     let mut at = 0;
     for &wanted in term {
-        // Searching for each term byte in turn is the same greedy leftmost match the scalar scan performs, but the
-        // search itself is vectorized — which is what the overwhelmingly common non-matching candidate pays for.
         let found = memchr::memchr2(wanted, wanted.to_ascii_uppercase(), &candidate[at..]);
         match found {
             Some(offset) => at += offset + 1,
@@ -150,35 +107,25 @@ fn is_subsequence_bytes(term: &[u8], candidate: &[u8]) -> bool {
     true
 }
 
-/// The two dynamic-program rows, reused across candidates.
-///
-/// `D[j]` is the best score of an alignment whose last matched symbol sits at position `j`; `M[j]` is the best over
-/// all alignments using positions `0..=j`.
 #[derive(Debug, Default)]
 struct Rows {
-    prev_d: Vec<i32>,
-    prev_m: Vec<i32>,
-    curr_d: Vec<i32>,
-    curr_m: Vec<i32>,
-    /// How many leading cells of each row the current alignment uses. The buffers themselves stay at the high-water
-    /// mark of every candidate seen.
+    prev_ending: Vec<i32>,
+    prev_best: Vec<i32>,
+    curr_ending: Vec<i32>,
+    curr_best: Vec<i32>,
     len: usize,
 }
 
 impl Rows {
-    /// Makes room for `len` cells per row, growing only when a candidate is longer than any before it.
-    ///
-    /// The cells are deliberately left holding whatever the last candidate wrote. Every cell of a row is written
-    /// before anything reads it — the first row reads nothing from the previous one, and later rows read only cells
-    /// the row before them filled — so initializing them was pure waste, and at millions of candidates it was the
-    /// largest single waste in the alignment.
     fn ensure(&mut self, len: usize) {
         self.len = len;
+        // constraint: cells keep what the last candidate wrote, because every cell is written before it is read: the
+        // first row reads nothing of the previous one, and a later row reads only cells the row before it filled
         for row in [
-            &mut self.prev_d,
-            &mut self.prev_m,
-            &mut self.curr_d,
-            &mut self.curr_m,
+            &mut self.prev_ending,
+            &mut self.prev_best,
+            &mut self.curr_ending,
+            &mut self.curr_best,
         ] {
             if row.len() < len {
                 row.resize(len, NO_ALIGNMENT);
@@ -186,55 +133,36 @@ impl Rows {
         }
     }
 
-    /// Makes the row just filled the previous row.
     const fn swap(&mut self) {
-        std::mem::swap(&mut self.prev_d, &mut self.curr_d);
-        std::mem::swap(&mut self.prev_m, &mut self.curr_m);
+        std::mem::swap(&mut self.prev_ending, &mut self.curr_ending);
+        std::mem::swap(&mut self.prev_best, &mut self.curr_best);
     }
 
-    /// The whole-candidate best, which after the final swap is the last used column of `prev_m`.
     fn best(&self) -> i32 {
         self.len
             .checked_sub(1)
-            .and_then(|last| self.prev_m.get(last))
+            .and_then(|last| self.prev_best.get(last))
             .copied()
             .unwrap_or(NO_ALIGNMENT)
     }
 }
 
-/// Everything the alignment reads about one prepared candidate, plus how two symbols compare.
-///
-/// Written once and instantiated for `u8` and for `char`, so the ASCII fast path and the Unicode path cannot diverge.
 struct Alignment<'a, T, E> {
-    /// The window of the candidate the alignment runs over.
-    candidate: &'a [T],
-    /// Boundary bonuses for that same window.
+    window: &'a [T],
     bonus: &'a [i32],
-    /// Where the window starts in the whole candidate, so absolute positions stay recoverable.
-    offset: usize,
-    /// How many candidate positions follow the window, each of which costs one trailing gap.
-    trailing: usize,
-    /// First position of the basename, in whole-candidate terms.
+    window_start: usize,
+    after_window: usize,
     basename_start: usize,
     eq: E,
 }
 
 impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
-    /// Builds an alignment over the narrowest window that can hold a match of `term`.
-    ///
-    /// No alignment can start before the first position matching the term's first symbol, or end after the last
-    /// position matching its last, so the rows outside that span carry nothing. Narrowing is exact rather than
-    /// approximate: the skipped prefix costs `offset` leading gaps, which the first row starts from, and the skipped
-    /// suffix costs `trailing` trailing gaps, which [`Alignment::run`] adds back.
-    ///
-    /// The span is only worth locating for a term of two or more symbols — for a single symbol the two scans cost
-    /// more than the one row they would shorten.
     fn narrow(self, term: &[T]) -> Self {
         let &[first, .., last] = term else {
             return self;
         };
-        let start = self.candidate.iter().position(|&c| (self.eq)(first, c));
-        let end = self.candidate.iter().rposition(|&c| (self.eq)(last, c));
+        let start = self.window.iter().position(|&c| (self.eq)(first, c));
+        let end = self.window.iter().rposition(|&c| (self.eq)(last, c));
         let (Some(start), Some(end)) = (start, end) else {
             return self;
         };
@@ -243,39 +171,28 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
         }
 
         Self {
-            candidate: &self.candidate[start..=end],
+            window: &self.window[start..=end],
             bonus: &self.bonus[start..=end],
-            offset: start,
-            trailing: self.candidate.len() - 1 - end,
+            window_start: start,
+            after_window: self.window.len() - 1 - end,
             ..self
         }
     }
 
-    /// Runs the whole alignment of `term` and returns the score of its best arrangement. Requires
-    /// `0 < term.len() < candidate.len()`.
     fn run(&self, term: &[T], rows: &mut Rows) -> i32 {
         let best = match term {
             [only] => self.run_single(*only),
             _ => self.run_rows(term, rows),
         };
-
-        // Every alignment ends inside the window, so the gaps over the skipped suffix are the same constant for all of
-        // them and are charged once here rather than walked one position at a time.
-        best.saturating_add(to_score(self.trailing).saturating_mul(GAP_TRAILING))
+        best.saturating_add(to_score(self.after_window).saturating_mul(GAP_TRAILING))
     }
 
-    /// Scores a single-symbol term, which needs no rows at all.
-    ///
-    /// With one symbol there is no previous row to carry, so the recurrence collapses to a running maximum: the best
-    /// alignment is the best position to match at, less the trailing gaps from there to the end. That makes this the
-    /// same arithmetic as [`Alignment::fill_first_row`] with every array write removed — and a one-character query is
-    /// both the most permissive case and the first keystroke of any interactive one.
     fn run_single(&self, symbol: T) -> i32 {
-        let mut leading = to_score(self.offset).saturating_mul(GAP_LEADING);
+        let mut leading = to_score(self.window_start).saturating_mul(GAP_LEADING);
         let mut best = NO_ALIGNMENT;
 
-        for (j, (&c, &bonus)) in self.candidate.iter().zip(self.bonus.iter()).enumerate() {
-            let d = if (self.eq)(symbol, c) {
+        for (j, (&c, &bonus)) in self.window.iter().zip(self.bonus.iter()).enumerate() {
+            let ending = if (self.eq)(symbol, c) {
                 leading
                     .saturating_add(bonus)
                     .saturating_add(self.basename_bonus(j))
@@ -283,20 +200,17 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
                 NO_ALIGNMENT
             };
 
-            best = d.max(best.saturating_add(GAP_TRAILING));
+            best = ending.max(best.saturating_add(GAP_TRAILING));
             leading = leading.saturating_add(GAP_LEADING);
         }
 
         best
     }
 
-    /// Scores a term of two or more symbols by filling one row per symbol.
     fn run_rows(&self, term: &[T], rows: &mut Rows) -> i32 {
-        rows.ensure(self.candidate.len());
+        rows.ensure(self.window.len());
 
         let last = term.len() - 1;
-        // The trailing gap is cheaper than an inner gap, so the last term symbol tolerates a long unmatched suffix —
-        // a file extension — without paying inner-gap rates for it.
         let gap_of = |i: usize| if i == last { GAP_TRAILING } else { GAP_INNER };
 
         self.fill_first_row(term[0], rows, gap_of(0));
@@ -307,25 +221,20 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
         rows.best()
     }
 
-    /// Fills the row for the term's first symbol, which pays a leading gap for every symbol it skips and is the only
-    /// row that can align at position 0.
-    ///
-    /// The row is walked by zipping the buffers rather than indexing them: the compiler cannot see that they are all
-    /// the length of the candidate when it indexes, so it emits a bounds check per access, and zipped iterators carry
-    /// that proof instead.
     fn fill_first_row(&self, symbol: T, rows: &mut Rows, gap: i32) {
-        // The window skipped `offset` positions, each of which the first symbol pays a leading gap for.
-        let mut leading = to_score(self.offset).saturating_mul(GAP_LEADING);
-        let mut left_m = NO_ALIGNMENT;
+        let mut leading = to_score(self.window_start).saturating_mul(GAP_LEADING);
+        let mut left_best = NO_ALIGNMENT;
 
+        // constraint: the rows are zipped rather than indexed, because the compiler cannot see that they share the
+        // window's length and would check bounds on every access of the hot loop
         let len = rows.len;
-        let cells = rows.curr_d[..len]
+        let cells = rows.curr_ending[..len]
             .iter_mut()
-            .zip(rows.curr_m[..len].iter_mut());
-        let inputs = self.candidate.iter().zip(self.bonus.iter());
+            .zip(rows.curr_best[..len].iter_mut());
+        let inputs = self.window.iter().zip(self.bonus.iter());
 
-        for (j, ((cell_d, cell_m), (&c, &bonus))) in cells.zip(inputs).enumerate() {
-            let d = if (self.eq)(symbol, c) {
+        for (j, ((cell_ending, cell_best), (&c, &bonus))) in cells.zip(inputs).enumerate() {
+            let ending = if (self.eq)(symbol, c) {
                 leading
                     .saturating_add(bonus)
                     .saturating_add(self.basename_bonus(j))
@@ -333,60 +242,54 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
                 NO_ALIGNMENT
             };
 
-            let m_here = d.max(left_m.saturating_add(gap));
-            *cell_d = d;
-            *cell_m = m_here;
-            left_m = m_here;
+            let best = ending.max(left_best.saturating_add(gap));
+            *cell_ending = ending;
+            *cell_best = best;
+            left_best = best;
             leading = leading.saturating_add(GAP_LEADING);
         }
 
         rows.swap();
     }
 
-    /// Fills the row for any term symbol after the first: it either continues the previous match consecutively or
-    /// lands after a gap, whichever scores higher.
-    ///
-    /// Position 0 is settled before the loop, so the body reads the previous row at `j - 1` by zipping slices that are
-    /// already offset by one.
     fn fill_row(&self, symbol: T, rows: &mut Rows, gap: i32) {
-        let last = self.candidate.len() - 1;
+        let last = self.window.len() - 1;
 
-        // A later term symbol cannot align at position 0 — there is no room for what must precede it.
-        rows.curr_d[0] = NO_ALIGNMENT;
-        rows.curr_m[0] = NO_ALIGNMENT;
-        let mut left_m = NO_ALIGNMENT;
+        rows.curr_ending[0] = NO_ALIGNMENT;
+        rows.curr_best[0] = NO_ALIGNMENT;
+        let mut left_best = NO_ALIGNMENT;
 
         let len = rows.len;
-        let cells = rows.curr_d[1..len]
+        let cells = rows.curr_ending[1..len]
             .iter_mut()
-            .zip(rows.curr_m[1..len].iter_mut());
-        let inputs = self.candidate[1..].iter().zip(self.bonus[1..].iter());
-        let carried = rows.prev_d[..last].iter().zip(rows.prev_m[..last].iter());
+            .zip(rows.curr_best[1..len].iter_mut());
+        let inputs = self.window[1..].iter().zip(self.bonus[1..].iter());
+        let carried = rows.prev_ending[..last]
+            .iter()
+            .zip(rows.prev_best[..last].iter());
 
-        for (j, (((cell_d, cell_m), (&c, &bonus)), (&prev_d, &prev_m))) in
+        for (j, (((cell_ending, cell_best), (&c, &bonus)), (&prev_ending, &prev_best))) in
             cells.zip(inputs).zip(carried).enumerate()
         {
-            let d = if (self.eq)(symbol, c) {
-                let consecutive = add_bonus(prev_d, CONSECUTIVE);
-                let after_gap = add_bonus(prev_m, bonus);
+            let ending = if (self.eq)(symbol, c) {
+                let consecutive = add_bonus(prev_ending, CONSECUTIVE);
+                let after_gap = add_bonus(prev_best, bonus);
                 add_bonus(consecutive.max(after_gap), self.basename_bonus(j + 1))
             } else {
                 NO_ALIGNMENT
             };
 
-            let m_here = d.max(left_m.saturating_add(gap));
-            *cell_d = d;
-            *cell_m = m_here;
-            left_m = m_here;
+            let best = ending.max(left_best.saturating_add(gap));
+            *cell_ending = ending;
+            *cell_best = best;
+            left_best = best;
         }
 
         rows.swap();
     }
 
-    /// The basename bonus for a match at position `j`: awarded only inside the last segment, so a query hitting the
-    /// filename outranks one hitting a directory.
     const fn basename_bonus(&self, j: usize) -> i32 {
-        if j + self.offset >= self.basename_start {
+        if j + self.window_start >= self.basename_start {
             BASENAME
         } else {
             0
@@ -394,12 +297,6 @@ impl<T: Copy, E: Fn(T, T) -> bool> Alignment<'_, T, E> {
     }
 }
 
-/// Adds a bonus to an alignment state, leaving the "no alignment" sentinel where it is.
-///
-/// A bonus is the only weight that is positive, and adding one to [`NO_ALIGNMENT`] would turn "nothing ends here" into
-/// a state that competes with real alignments — leaving the recurrence free to select an alignment that does not
-/// exist. A gap needs no such guard, and pays for none: every gap weight is a penalty, so a gap added to the sentinel
-/// saturates back onto it.
 const fn add_bonus(state: i32, bonus: i32) -> i32 {
     if state == NO_ALIGNMENT {
         NO_ALIGNMENT
@@ -408,46 +305,27 @@ const fn add_bonus(state: i32, bonus: i32) -> i32 {
     }
 }
 
-/// A position count as a score, for multiplying by a gap weight.
-///
-/// A count above [`MAX_ALIGNED_POSITIONS`] cannot occur, since the alignment never runs on a longer candidate, but a
-/// saturating conversion keeps that an assumption the arithmetic does not depend on.
 fn to_score(positions: usize) -> i32 {
     i32::try_from(positions).unwrap_or(i32::MAX)
 }
 
-/// Scores one term against one candidate, reusing its buffers across every candidate in a query.
-///
-/// The candidate is prepared once by [`Scorer::prepare`]; every term of a multi-term query then scores against that
-/// same preparation.
 #[derive(Debug, Default)]
 pub(crate) struct Scorer {
-    /// The prepared candidate as normalized bytes, when [`Scorer::prepared_as_bytes`] holds.
     bytes: Vec<u8>,
-    /// The prepared candidate as characters, when it does not.
     chars: Vec<char>,
-    /// Per-position boundary bonus for a match landing there.
     bonus: Vec<i32>,
-    /// First position of the candidate's basename — just past the last segment separator.
     basename_start: usize,
-    /// How many positions the prepared candidate occupies. For an over-long candidate this is a lower bound: the scan
-    /// stops at [`Scorer::scan_bound`], which is far enough to decide every question still open. Recorded rather than
-    /// read off a buffer, because an over-long candidate never fills one.
+    // constraint: a lower bound for an over-long candidate, counted only as far as scan_bound
     positions: usize,
-    /// How far a candidate is ever counted.
+    // constraint: past every term and past MAX_ALIGNED_POSITIONS, because all an over-long candidate's length still
+    // decides is whether some term equals it
     scan_bound: usize,
-    /// Whether the prepared candidate is in `bytes` rather than `chars`.
     prepared_as_bytes: bool,
-    /// The representation the query's terms allow.
     representation: Representation,
     rows: Rows,
 }
 
 impl Scorer {
-    /// A scorer for a query whose terms allow `representation` and whose longest term has `longest_term` symbols.
-    ///
-    /// `longest_term` bounds how far a candidate is ever counted: for an over-long candidate the only thing its length
-    /// still decides is whether some term equals it, and a candidate longer than every term cannot.
     pub(crate) fn new(representation: Representation, longest_term: usize) -> Self {
         Self {
             representation,
@@ -456,16 +334,7 @@ impl Scorer {
         }
     }
 
-    /// Records each position's boundary bonus and the basename start in one pass, reusing the buffers across
-    /// candidates.
-    ///
-    /// Position 0 always earns the segment bonus: the start of a candidate is the start of a segment, which
-    /// is why the virtual predecessor of position 0 is [`Class::SegmentSeparator`].
     pub(crate) fn prepare(&mut self, candidate: &str) {
-        // An over-long candidate is scored from its length alone, so nothing here is sized to it and
-        // nothing reads more of it than that answer needs. Byte length bounds character length for free, so only a
-        // candidate long in bytes is scanned at all, and that scan stops once the answer is fixed — otherwise one
-        // over-long candidate would cost a full pass to establish a length that is already known to be too large.
         if candidate.len() > MAX_ALIGNED_POSITIONS {
             let counted = candidate.chars().take(self.scan_bound).count();
             if counted > MAX_ALIGNED_POSITIONS {
@@ -491,10 +360,6 @@ impl Scorer {
         };
     }
 
-    /// Prepares an all-ASCII candidate as lowercased bytes, returning where its basename starts.
-    ///
-    /// The buffers are sized once and then written through zipped iterators. Pushing instead would re-check capacity
-    /// on every byte, and the loop carries a dependency on the previous class, so nothing else recovers that.
     fn prepare_bytes(&mut self, candidate: &str) -> usize {
         let source = candidate.as_bytes();
         self.bonus.resize(source.len(), 0);
@@ -517,10 +382,6 @@ impl Scorer {
         basename_start
     }
 
-    /// Prepares a candidate as characters, returning where its basename starts.
-    ///
-    /// The character count is not known without a pass of its own, so this path pushes. It is the rare one — a
-    /// candidate or query holding a non-ASCII character.
     fn prepare_chars(&mut self, candidate: &str) -> usize {
         self.bonus.clear();
         self.chars.clear();
@@ -541,9 +402,7 @@ impl Scorer {
         basename_start
     }
 
-    /// The score of a `term` already known to be a non-empty subsequence of the prepared candidate.
     pub(crate) fn score_matched(&mut self, term: &Term) -> i32 {
-        // Equal length plus subsequence means every symbol matched in order: a full match, up to case.
         if term.chars.len() == self.positions {
             return FULL_MATCH_SCORE;
         }
@@ -553,30 +412,29 @@ impl Scorer {
         self.align(term)
     }
 
-    /// Dispatches to the alignment in whichever representation the candidate was prepared in.
     fn align(&mut self, term: &Term) -> i32 {
         let basename_start = self.basename_start;
         debug_assert!(
-            !self.prepared_as_bytes || term.bytes.is_some(),
+            !self.prepared_as_bytes || term.lowercase_ascii.is_some(),
             "a byte-prepared candidate implies every term is ASCII, since Representation::of decided both"
         );
 
-        match (self.prepared_as_bytes, &term.bytes) {
+        match (self.prepared_as_bytes, &term.lowercase_ascii) {
             (true, Some(bytes)) => Alignment {
-                candidate: &self.bytes,
+                window: &self.bytes,
                 bonus: &self.bonus,
-                offset: 0,
-                trailing: 0,
+                window_start: 0,
+                after_window: 0,
                 basename_start,
                 eq: |a: u8, b: u8| a == b,
             }
             .narrow(bytes)
             .run(bytes, &mut self.rows),
             _ => Alignment {
-                candidate: &self.chars,
+                window: &self.chars,
                 bonus: &self.bonus,
-                offset: 0,
-                trailing: 0,
+                window_start: 0,
+                after_window: 0,
                 basename_start,
                 eq: fold_eq,
             }
@@ -590,10 +448,6 @@ impl Scorer {
 mod tests {
     use super::*;
 
-    /// Scores `term` against `candidate` twice — once as bytes, once as characters.
-    ///
-    /// The ASCII fast path exists only to be faster, so the two representations must return the same score for input
-    /// both can handle. Nothing else in the suite would notice them drifting apart.
     fn both_representations(candidate: &str, term: &str) -> (i32, i32) {
         let term = Term::new(term);
 
@@ -635,19 +489,18 @@ mod tests {
         }
     }
 
-    /// Scores `term` against a prepared candidate with and without the window.
     fn narrowed_and_unnarrowed(candidate: &str, term: &str) -> (i32, i32, bool) {
         let term = Term::new(term);
-        let bytes = term.bytes.as_deref().unwrap_or_default();
+        let bytes = term.lowercase_ascii.as_deref().unwrap_or_default();
 
         let mut scorer = Scorer::new(Representation::Bytes, term.chars.len());
         scorer.prepare(candidate);
 
         let build = || Alignment {
-            candidate: &scorer.bytes,
+            window: &scorer.bytes,
             bonus: &scorer.bonus,
-            offset: 0,
-            trailing: 0,
+            window_start: 0,
+            after_window: 0,
             basename_start: scorer.basename_start,
             eq: |a: u8, b: u8| a == b,
         };
@@ -655,12 +508,11 @@ mod tests {
         let mut rows = Rows::default();
         let unnarrowed = build().run(bytes, &mut rows);
         let window = build().narrow(bytes);
-        let engaged = window.candidate.len() < scorer.bytes.len();
+        let engaged = window.window.len() < scorer.bytes.len();
         let narrowed = window.run(bytes, &mut rows);
         (narrowed, unnarrowed, engaged)
     }
 
-    /// A path built from `PARTS`, two to five segments deep.
     fn build_candidate(next: &mut impl FnMut(usize) -> usize) -> String {
         const PARTS: &[&str] = &[
             "src",
@@ -687,8 +539,7 @@ mod tests {
         candidate
     }
 
-    /// A term drawn as a subsequence of `candidate`, so the alignment actually runs rather than rejecting.
-    fn draw_term(candidate: &str, next: &mut impl FnMut(usize) -> usize) -> String {
+    fn draw_subsequence(candidate: &str, next: &mut impl FnMut(usize) -> usize) -> String {
         let chars: Vec<char> = candidate.chars().collect();
         let take = 1 + next(4);
         let mut term = String::new();
@@ -708,7 +559,6 @@ mod tests {
         term
     }
 
-    /// Deterministic pseudo-random candidate and term pairs, covering far more shapes than a hand-written table.
     fn generated_cases() -> Vec<(String, String)> {
         let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
         let mut next = move |bound: usize| {
@@ -721,7 +571,7 @@ mod tests {
         (0..4000)
             .filter_map(|_| {
                 let candidate = build_candidate(&mut next);
-                let term = draw_term(&candidate, &mut next);
+                let term = draw_subsequence(&candidate, &mut next);
                 (!term.is_empty() && term.len() < candidate.len()).then_some((candidate, term))
             })
             .collect()
@@ -744,7 +594,6 @@ mod tests {
             engaged += usize::from(narrowing_applied);
         }
 
-        // Without this the differential could pass by never narrowing anything.
         let total = cases.len();
         assert!(
             engaged * 4 > total,
@@ -752,8 +601,7 @@ mod tests {
         );
     }
 
-    /// Which cells of each row a real alignment can end in: `reachable[i][j]` holds when `term[..=i]` matches as a
-    /// subsequence with its last symbol at `j`.
+    /// `reachable[i][j]` holds when `term[..=i]` matches `candidate` as a subsequence with its last symbol at `j`.
     fn reachable(term: &[u8], candidate: &[u8]) -> Vec<Vec<bool>> {
         let Some((&head, tail)) = term.split_first() else {
             return Vec::new();
@@ -763,15 +611,14 @@ mod tests {
         let mut rows = vec![head_row];
 
         for &symbol in tail {
-            // Whether the row above is reachable strictly left of the cell being decided.
-            let mut left = false;
+            let mut reached_to_the_left = false;
             let above = rows.last().expect("the head row is pushed before the loop");
             let row = candidate
                 .iter()
                 .zip(above)
                 .map(|(&c, &reached_above)| {
-                    let here = left && symbol == c;
-                    left |= reached_above;
+                    let here = reached_to_the_left && symbol == c;
+                    reached_to_the_left |= reached_above;
                     here
                 })
                 .collect();
@@ -781,15 +628,13 @@ mod tests {
         rows
     }
 
-    /// Fills every row for `term` against `candidate`, asserting that a cell carries a score exactly where an
-    /// alignment can end and the sentinel everywhere else. Returns how many cells it checked.
     fn assert_only_reachable_cells_carry_a_score(
         candidate: &str,
         term: &str,
         rows: &mut Rows,
     ) -> usize {
         let term = Term::new(term);
-        let Some(symbols) = term.bytes.as_deref().filter(|b| b.len() >= 2) else {
+        let Some(symbols) = term.lowercase_ascii.as_deref().filter(|b| b.len() >= 2) else {
             return 0;
         };
 
@@ -800,10 +645,10 @@ mod tests {
         }
 
         let alignment = Alignment {
-            candidate: &scorer.bytes,
+            window: &scorer.bytes,
             bonus: &scorer.bonus,
-            offset: 0,
-            trailing: 0,
+            window_start: 0,
+            after_window: 0,
             basename_start: scorer.basename_start,
             eq: |a: u8, b: u8| a == b,
         };
@@ -819,13 +664,12 @@ mod tests {
                 alignment.fill_row(symbol, rows, gap);
             }
 
-            // The row just filled became the previous one on the swap that ended the fill.
-            let filled = rows.prev_d[..rows.len].iter().zip(&expected[i]);
-            for (j, (&d, &reached)) in filled.enumerate() {
+            let just_filled = rows.prev_ending[..rows.len].iter().zip(&expected[i]);
+            for (j, (&ending, &reached)) in just_filled.enumerate() {
                 assert_eq!(
-                    d != NO_ALIGNMENT,
+                    ending != NO_ALIGNMENT,
                     reached,
-                    "row {i} cell {j} of {term:?} against {candidate:?} holds {d}"
+                    "row {i} cell {j} of {term:?} against {candidate:?} holds {ending}"
                 );
             }
         }
@@ -835,9 +679,7 @@ mod tests {
 
     #[test]
     fn no_cell_ever_holds_a_state_no_alignment_reaches() {
-        // Every bonus is added to whatever the row above left behind, so a sentinel that moves becomes a state no
-        // alignment produced, competing on the same scale as the ones that did. A moved sentinel stays far below every
-        // real score, which is why the invariant is checked cell by cell rather than through a score.
+        // constraint: a moved sentinel stays far below every real score, so only a cell-by-cell check sees one
         let mut rows = Rows::default();
         let mut checked = 0;
         for (candidate, term) in &generated_cases() {
@@ -852,8 +694,6 @@ mod tests {
 
     #[test]
     fn the_single_symbol_path_agrees_with_the_row_machinery() {
-        // `run_rows` handles one symbol perfectly well; `run_single` only exists to do it without the arrays, so the
-        // two must not disagree.
         let mut rows = Rows::default();
 
         for (candidate, term) in generated_cases() {
@@ -866,10 +706,10 @@ mod tests {
             scorer.prepare(&candidate);
 
             let build = || Alignment {
-                candidate: &scorer.bytes,
+                window: &scorer.bytes,
                 bonus: &scorer.bonus,
-                offset: 0,
-                trailing: 0,
+                window_start: 0,
+                after_window: 0,
                 basename_start: scorer.basename_start,
                 eq: |a: u8, b: u8| a == b,
             };

@@ -1,30 +1,19 @@
-//! The ranking engine and the result it produces.
-
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::num::NonZeroUsize;
 
 use crate::score::{ALIGNED_MIN, FULL_MATCH_SCORE, MATCH_FLOOR, Representation, Scorer, Term};
 
-/// What an aggregate was built from, which decides the range it may occupy.
-///
-/// The three ranges do not overlap, so no arithmetic on the scores inside one can move a candidate into another.
-///
-/// The variants are ordered worst-first, so folding an aggregate's bands with `min` gives the one it belongs to: any
-/// floored term floors the whole aggregate, and one term short of full makes it aligned.
+// constraint: the variants run worst first, so `min` over a candidate's terms gives its band: one floored term floors
+// it, and one term short of full makes it aligned
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Band {
-    /// Some term was too long to align, so nothing about the candidate was actually scored.
     Floored,
-    /// At least one term was aligned, and none was floored.
     Aligned,
-    /// Every term matched the candidate in full.
     Full,
 }
 
 impl Band {
-    /// Which band one term's score falls in. Each is reachable only by its own kind of match: an alignment lies
-    /// strictly between the floor and the full-match score.
     const fn of(score: i32) -> Self {
         if score == MATCH_FLOOR {
             Self::Floored
@@ -35,11 +24,6 @@ impl Band {
         }
     }
 
-    /// Maps a summed aggregate into this band's range.
-    ///
-    /// Clamping here rather than at each addition is what makes the ranges hold for a query of enough terms to saturate
-    /// the sum: a saturated total carries no trace of what it was built from, so a floored aggregate and an aligned
-    /// one, or a partial and a full one, would land on the same value and the order fall to the tiebreak.
     fn confine(self, total: i64) -> i32 {
         let ceiling = match self {
             Self::Floored => return MATCH_FLOOR,
@@ -51,7 +35,6 @@ impl Band {
     }
 }
 
-/// A candidate's length as the length tiebreak orders it, saturated at what a `u32` holds.
 fn length_key(candidate: &str) -> u32 {
     u32::try_from(candidate.len()).unwrap_or(u32::MAX)
 }
@@ -69,7 +52,6 @@ pub struct Ranked {
     pub position: usize,
     /// Its rank key: higher is better.
     pub score: i32,
-    /// The candidate's length, zero for an empty query.
     tiebreak: u32,
 }
 
@@ -119,7 +101,6 @@ pub struct Ranking {
     scorer: Scorer,
     terms: Vec<Term>,
     limit: Option<NonZeroUsize>,
-    /// The `limit` best entries so far. The worst of them orders greatest, so it is the one a better entry displaces.
     heap: BinaryHeap<Ranked>,
     all: Vec<Ranked>,
 }
@@ -221,13 +202,7 @@ impl Ranking {
         merged
     }
 
-    /// The summed score of every term against `candidate`, or `None` as soon as one term does not match.
-    ///
-    /// Requires a non-empty term list, which [`Ranking::offer`] has already established.
     fn score_terms(&mut self, candidate: &str) -> Option<i32> {
-        // Cheap reject, streamed over the raw candidate. Every term is checked here rather than only the first,
-        // because a candidate that fails any of them is dropped — and proving that before preparation keeps the
-        // boundary pass and the alignment off candidates a later term would have rejected anyway.
         let all_present = match self.terms.as_slice() {
             [only] => only.present_in(candidate),
             terms => terms.iter().all(|term| term.present_in(candidate)),
@@ -238,13 +213,8 @@ impl Ranking {
 
         self.scorer.prepare(candidate);
 
-        // Every term is a known subsequence; the prefilter just proved it.
-        //
-        // The sum is taken in `i64` because saturating it in `i32` is what repeatedly cost the ordering: a saturated
-        // aggregate carries no information about what it was built from, so a full aggregate and a partial one, or an
-        // aligned one and a floored one, collapse onto the same value and the order falls to the tiebreak. Summing
-        // exactly and banding once afterwards keeps each kind in its own range, whatever the term count; an `i64`
-        // holds the sum of more terms than a query string can.
+        // constraint: summed exactly in `i64` and banded once after — an `i32` sum saturates on enough terms and then
+        // no longer says which band it came from
         let mut total: i64 = 0;
         let mut band = Band::Full;
         for term in &self.terms {

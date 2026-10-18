@@ -1,41 +1,24 @@
-//! Character classification and the boundary bonuses it decides.
-//!
-//! Both tables are built at compile time, so what remains in the hot loop is one indexed load per character: the
-//! class of an ASCII character, and the bonus of a class pair.
-
 const AFTER_SEGMENT: i32 = 900;
 const AFTER_WORD: i32 = 800;
 const DIGIT_BOUNDARY: i32 = 800;
 const CAMEL_HUMP: i32 = 700;
 const AFTER_DOT: i32 = 600;
 
-/// The largest bonus a boundary earns.
 pub(crate) const MAX_BOUNDARY: i32 = AFTER_SEGMENT;
 
-/// What a character is, for the purpose of deciding whether the character *after* it starts something worth a bonus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Class {
-    /// `/`, which ends a path segment and therefore also decides where the basename starts. A `\` is a character of
-    /// a name.
     SegmentSeparator,
-    /// `-`, `_` or a space, which separate words inside a segment.
     WordSeparator,
-    /// A literal `.`, which starts an extension or a qualifier.
     Dot,
-    /// An ASCII digit.
     Digit,
-    /// An uppercase letter — the top of a camelCase hump.
     Upper,
-    /// A lowercase letter.
     Lower,
-    /// Everything else.
     Other,
 }
 
-/// How many variants [`Class`] has, and therefore the side length of the bonus table.
 const CLASS_COUNT: usize = 7;
 
-/// Every [`Class`] in variant order, so the bonus table can be built by index.
 const CLASSES: [Class; CLASS_COUNT] = [
     Class::SegmentSeparator,
     Class::WordSeparator,
@@ -46,7 +29,6 @@ const CLASSES: [Class; CLASS_COUNT] = [
     Class::Other,
 ];
 
-/// The class of every ASCII character.
 const ASCII: [Class; 128] = {
     let mut table = [Class::Other; 128];
     let mut code: u8 = 0;
@@ -65,7 +47,6 @@ const ASCII: [Class; 128] = {
     table
 };
 
-/// Bonus for a character of class `curr` preceded by one of class `prev`, indexed `[prev][curr]`.
 const BONUS: [[i32; CLASS_COUNT]; CLASS_COUNT] = {
     let mut table = [[0; CLASS_COUNT]; CLASS_COUNT];
     let mut prev = 0;
@@ -80,9 +61,8 @@ const BONUS: [[i32; CLASS_COUNT]; CLASS_COUNT] = {
     table
 };
 
-/// The class of `c`: one indexed load for ASCII. No separator lies outside ASCII, so a non-ASCII character is a
-/// letter or nothing.
 pub(crate) fn class_of(c: char) -> Class {
+    // constraint: every separator is ASCII, so a character past the table is a letter or nothing
     match ASCII.get(u32::from(c) as usize) {
         Some(&class) => class,
         None if c.is_uppercase() => Class::Upper,
@@ -91,13 +71,10 @@ pub(crate) fn class_of(c: char) -> Class {
     }
 }
 
-/// The bonus for a character of class `curr` whose predecessor was of class `prev`.
 pub(crate) const fn boundary_bonus(prev: Class, curr: Class) -> i32 {
     BONUS[prev as usize][curr as usize]
 }
 
-/// The boundary bonus for a class pair. Separator classes decide it outright; otherwise a camelCase hump ranks above a
-/// digit boundary, and a match mid-token earns nothing.
 const fn bonus_rule(prev: Class, curr: Class) -> i32 {
     match prev {
         Class::SegmentSeparator => AFTER_SEGMENT,
@@ -114,8 +91,6 @@ const fn bonus_rule(prev: Class, curr: Class) -> i32 {
 mod tests {
     use super::*;
 
-    /// The boundary rules, stated over characters rather than classes, so a table built wrong is visible here rather
-    /// than only as a ranking change.
     #[test]
     fn boundary_bonuses_match_the_documented_precedence() {
         let between = |prev: char, curr: char| boundary_bonus(class_of(prev), class_of(curr));
