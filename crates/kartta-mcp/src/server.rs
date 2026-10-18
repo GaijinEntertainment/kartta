@@ -3,7 +3,7 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use kartta::{Graph, Hit, Limits, Search, SourceOptions};
+use kartta::{Graph, Hit, Limits, Region, Search, SourceOptions};
 use kartta_fs::{
     Case, Filter, FuzzyOptions, GlobOptions, GrepOptions, ListError, ListOptions, Patterns,
 };
@@ -13,12 +13,13 @@ use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 
 use crate::config::Config;
+use crate::diff::{self, Changed};
 use crate::languages::{Catalog, echo};
 use crate::params::{
     CallerRole, FileParams, FindCallPathParams, FindCalleesParams, FindCallersParams,
     FindFilesParams, FindImplementationsParams, FindReferencesParams, FindSymbolsParams,
-    GlobFilesParams, GrepParams, ImpactOfEditParams, IndexRepoParams, ListDirParams,
-    ReadDefinitionsParams,
+    GlobFilesParams, GrepParams, ImpactOfChangeParams, ImpactOfEditParams, IndexRepoParams,
+    ListDirParams, ReadDefinitionsParams,
 };
 use crate::render::{
     self, CallersAsk, Found, Globbed, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion,
@@ -81,6 +82,9 @@ const IMPACT_DEPTH: u32 = 3;
 
 /// How many symbols the walk over a changed symbol's callers reaches before it stops.
 const IMPACT_MAX_SYMBOLS: usize = 500;
+
+/// How many changed symbols, and how many hotspots, `impact_of_change` lists when the call names no limit.
+const CHANGE_LISTED: usize = 20;
 
 /// How many hops `find_callers` walks when the call names none.
 const CALLER_HOPS: u32 = 3;
@@ -928,6 +932,50 @@ impl Server {
     }
 
     #[tool(
+        description = "Assess what a whole change reaches - a diff of several hunks across files and languages in one \
+                       call: the symbols it touches, how far a change to each spreads through its callers, and where \
+                       those spreads meet. Use it to review a diff or plan a multi-file edit; for one span of one file \
+                       with its callees and includes, use impact_of_edit. Pass the change as regions (file plus line \
+                       range) or as the text of a unified diff, whose + side lines it takes (for a hunk that only \
+                       deletes, the line on each side of the deletion). Returns a <change> \
+                       envelope: changed_symbols and changed_files, the footprint (every symbol the changed symbols' \
+                       callers reach within 3 hops, each once) and footprint_files; a <seeds> list of the changed \
+                       symbols, widest reach first and test/entry/generated code last, each <seed> with its loc span, \
+                       direct callers count, reach and reach_band, its direct callers as <ref/> records with at= the \
+                       line of the call (at most 10, in <callers shown= of=>), or past 30 callers their directories \
+                       as <dir path callers/> (in <caller_dirs shown= of=>); and, when two or more changed symbols \
+                       reach one, a <hotspots> list of those symbols, reached_by= how many and hops= how near, \
+                       changed=true on one the change touches itself. Each list shows at most 'limit' (default 20) \
+                       with shown= of=. A change that overlaps no symbol answers changed_symbols=0 with a note in \
+                       place of the lists. Each \
+                       count of what was left out appears only when it is not zero: unheld_regions= the regions in \
+                       files no code graph holds, regions_outside_symbols= those overlapping no symbol, \
+                       truncated_walks= the changed symbols whose walk the 500-symbol cap stopped (truncated=true and \
+                       turned_away= on the seed), and unexpanded= on a seed the callers whose own callers its walk \
+                       did not follow, at the 3-hop bound or left by the cap, so its reach counts none beyond them. \
+                       Callers through dynamic dispatch, function values and code outside \
+                       the repository are not seen, so a small footprint is not proof the change is safe. Requires \
+                       index_repo first."
+    )]
+    async fn impact_of_change(
+        &self,
+        Parameters(p): Parameters<ImpactOfChangeParams>,
+    ) -> Result<String, String> {
+        let limit = p.limit.map_or(CHANGE_LISTED, NonZeroUsize::get);
+        let changed = changed_regions(p.regions, p.diff.as_deref())?;
+        self.answer(move |indexed| {
+            let regions: Vec<Region<'_>> = changed
+                .iter()
+                .map(|changed| Region::new(&changed.path, changed.lines.clone()))
+                .collect();
+            let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
+            let change = indexed.engine.analyze_change(&regions, limits);
+            Ok(render::change(regions.len(), &change, limit))
+        })
+        .await
+    }
+
+    #[tool(
         description = "Trace who calls a symbol, transitively: walks the call graph in reverse from the named \
                        function or method, hop by hop. Answers \"what is affected if I change this function?\" before \
                        an edit, rename, or removal. Searches every indexed language unless narrowed with 'languages'; \
@@ -1066,7 +1114,8 @@ impl ServerHandler for Server {
              indexed language by default and \
              take an optional 'languages' multiselect to narrow - the names are in the index_repo / index_stats \
              answer - and cross-language links (e.g. FFI) are not traced. The file tools (find_files, glob_files, \
-             grep, list_dir, find_importers, file_outline, impact_of_edit) span all languages and take \
+             grep, list_dir, find_importers, file_outline, impact_of_edit, impact_of_change) span all languages \
+             and take \
              repo-relative paths as returned by find_files / glob_files. An answer a cap, a depth limit or a filter \
              cut says how much it left out in its attributes. Intent map: locate a file by name -> find_files; list \
              files matching a glob -> glob_files; see what one directory contains -> list_dir; find lines of text \
@@ -1075,12 +1124,48 @@ impl ServerHandler for Server {
              change it -> find_callers; what does X call -> find_callees; where is X used -> find_references; does \
              X reach Y through calls -> \
              find_call_path; what implements X -> find_implementations; which files import this file -> \
-             find_importers; how risky is this diff hunk or edit -> impact_of_edit; what languages and how much \
+             find_importers; how risky is this diff hunk or edit -> impact_of_edit; what does a whole diff of \
+             several hunks reach -> impact_of_change; what languages and how much \
              code -> index_stats.",
         );
         info.server_info = Implementation::new("kartta-mcp", env!("CARGO_PKG_VERSION"));
         info
     }
+}
+
+/// The regions of an `impact_of_change` call: `regions` in order, then the hunks of `diff`.
+fn changed_regions(
+    regions: Vec<crate::params::ChangedRegion>,
+    diff: Option<&str>,
+) -> Result<Vec<Changed>, String> {
+    let mut changed = Vec::with_capacity(regions.len());
+    for (at, region) in regions.into_iter().enumerate() {
+        let start = region.start_line.map_or(1, NonZeroU32::get);
+        let end = region.end_line.map_or(u32::MAX, NonZeroU32::get);
+        if end < start {
+            return Err(format!(
+                "regions[{at}]: end_line {end} is before start_line {start}"
+            ));
+        }
+        changed.push(Changed {
+            path: region.file,
+            lines: start..=end,
+        });
+    }
+    if let Some(diff) = diff {
+        let regions = changed.len();
+        diff::regions(diff, &mut changed)?;
+        if changed.len() == regions {
+            return Err(
+                "diff holds no hunk under a +++ file header - pass git diff output unedited, hunk bodies included"
+                    .to_owned(),
+            );
+        }
+    }
+    if changed.is_empty() {
+        return Err("pass at least one region, or a diff".to_owned());
+    }
+    Ok(changed)
 }
 
 /// `name` as a glob that matches it literally: each character the glob dialect gives a meaning to is escaped.

@@ -20,6 +20,7 @@
 )]
 
 mod config;
+mod diff;
 mod languages;
 mod llmxml;
 mod params;

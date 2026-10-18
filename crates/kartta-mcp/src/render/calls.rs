@@ -1,10 +1,18 @@
-use kartta::{CallPath, DirectCalls, ReachBand, Reached, References, Segment, SymbolKind, Walk};
+use std::iter;
+
+use kartta::{
+    CallPath, Change, DirectCalls, Hotspot, ReachBand, Reached, References, Seed, Segment,
+    SymbolKind, Walk,
+};
 
 use super::{
     Suggestion, confidence, edge_role, empty_languages_note, file_element, flat, kind, loc, named,
-    unresolved,
+    role, span, unresolved,
 };
 use crate::llmxml::Element;
+
+/// How many of a changed symbol's direct callers, or of their directories, an `impact_of_change` answer lists.
+const SEED_CALLERS: usize = 10;
 
 /// The blind spot of a method's sites.
 const METHOD_NOTE: &str = "a call through a value of the owner's type resolves only where the graph can name that \
@@ -248,6 +256,92 @@ pub(crate) fn impact(file: &str, lines: (u32, u32), segment: Option<&Segment<'_>
             .children(segment.included_by.iter().map(|path| file_element(path))),
     );
     element.children(parts)
+}
+
+/// The `impact_of_change` answer: what the change reaches in all, then the changed symbols, widest reach first, and
+/// the symbols where their reaches meet, each list cut to `limit` and saying so as `shown` of `of`.
+pub(crate) fn change(regions: usize, change: &Change<'_>, limit: usize) -> String {
+    let element = Element::new("change")
+        .attr("regions", regions)
+        .attr("changed_symbols", change.changed_symbols)
+        .attr("changed_files", change.changed_files)
+        .attr("footprint", change.footprint)
+        .attr("footprint_files", change.footprint_files)
+        .count("truncated_walks", change.truncated_seeds)
+        .count("unheld_regions", change.unheld_regions)
+        .count("regions_outside_symbols", change.regions_outside_symbols);
+    if change.changed_symbols == 0 {
+        return element.inline(
+            "no symbols in these regions - they cover only file-scope code (imports, comments) or files no code graph \
+             holds (counted in unheld_regions); zero symbols is not proof the change is safe, and find_importers lists \
+             the files that include a changed file",
+        );
+    }
+    let seeds = Element::new("seeds")
+        .attr("shown", change.seeds.len().min(limit))
+        .attr("of", change.changed_symbols)
+        .children(change.seeds.iter().take(limit).map(seed));
+    let hotspots = (change.total_hotspots > 0).then(|| {
+        Element::new("hotspots")
+            .attr("shown", change.hotspots.len().min(limit))
+            .attr("of", change.total_hotspots)
+            .children(change.hotspots.iter().take(limit).map(hotspot))
+    });
+    element.children(iter::once(seeds).chain(hotspots))
+}
+
+/// A changed symbol: how far a change to it reaches, what its walk left out, and its direct callers, or their
+/// directories when there are many.
+fn seed(seed: &Seed<'_>) -> String {
+    let symbol = &seed.symbol;
+    let mut element = named("seed", symbol);
+    if let Some(role) = role(symbol.flags) {
+        element = element.attr("role", role);
+    }
+    element = element
+        .attr("kind", kind(symbol.kind))
+        .attr("loc", span(symbol.file, symbol.line, symbol.end_line))
+        .attr("callers", seed.caller_count)
+        .attr("reach", seed.reach)
+        .attr("reach_band", seed.band.label())
+        .flag("truncated", seed.truncated)
+        .count("turned_away", seed.turned_away)
+        .count("unexpanded", seed.unexpanded);
+    let callers = (!seed.consumers.is_empty()).then(|| {
+        Element::new("callers")
+            .attr("shown", seed.consumers.len().min(SEED_CALLERS))
+            .attr("of", seed.consumers.len())
+            .children(seed.consumers.iter().take(SEED_CALLERS).map(|reached| {
+                edge("ref", reached)
+                    .attr("at", loc(reached.symbol.file, reached.line))
+                    .close()
+            }))
+    });
+    let dirs = (!seed.consumer_dirs.is_empty()).then(|| {
+        Element::new("caller_dirs")
+            .attr("shown", seed.consumer_dirs.len().min(SEED_CALLERS))
+            .attr("of", seed.consumer_dirs.len())
+            .children(seed.consumer_dirs.iter().take(SEED_CALLERS).map(|dir| {
+                Element::new("dir")
+                    .attr("path", dir.dir)
+                    .attr("callers", dir.count)
+                    .close()
+            }))
+    });
+    element.children(callers.into_iter().chain(dirs))
+}
+
+/// A symbol two or more changed symbols reach: how many, and how near the nearest.
+fn hotspot(hotspot: &Hotspot<'_>) -> String {
+    let symbol = &hotspot.symbol;
+    named("hotspot", symbol)
+        .attr("kind", kind(symbol.kind))
+        .attr("loc", loc(symbol.file, symbol.line))
+        .attr("role", edge_role(symbol.flags))
+        .attr("reached_by", hotspot.hit_count)
+        .attr("hops", hotspot.min_depth)
+        .flag("changed", hotspot.also_changed)
+        .close()
 }
 
 /// One side of a symbol's direct calls, its listed refs disclosing the list's cap as `shown` of `of`. Each call is in
