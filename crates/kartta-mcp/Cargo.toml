@@ -1,0 +1,33 @@
+[package]
+name = "kartta-mcp"
+description = "MCP server over the kartta engine: file search, content search and graph queries as agent tools"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["mcp", "code-graph", "agent", "search", "static-analysis"]
+categories = ["development-tools", "command-line-utilities"]
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "kartta-mcp"
+path = "src/main.rs"
+
+[dependencies]
+kartta = { version = "0.0.0", path = "../kartta" }
+kartta-fs = { version = "0.0.0", path = "../kartta-fs" }
+kartta-languages = { version = "0.0.0", path = "../kartta-languages" }
+# The server speaks MCP over stdio alone, so no HTTP transport and no client side are built.
+rmcp = { version = "3.5.1", default-features = false, features = ["macros", "server", "transport-io"] }
+schemars = "1.2.3"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.53.3", features = ["macros", "rt", "sync"] }
+
+[dev-dependencies]
+serde_json = "1.0.154"
+tempfile = "3.27.0"

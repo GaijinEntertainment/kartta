@@ -22,6 +22,7 @@ members = [
     "crates/kartta-lang-ruby",
     "crates/kartta-lang-rust",
     "crates/kartta-languages",
+    "crates/kartta-mcp",
     "crates/kartta-walk",
 ]
 
