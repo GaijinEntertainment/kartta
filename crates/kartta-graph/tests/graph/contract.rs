@@ -1,27 +1,14 @@
 //! The graph's contract: what it answers about the files it holds, and how a file going in or out changes that.
 
 use kartta_graph::{Definitions, Graph, Nearness};
-use kartta_lang::{Conventions, Extraction, IncludeRef, Symbol, SymbolFlags, SymbolKind};
+use kartta_lang::{Extraction, IncludeRef, Symbol, SymbolFlags, SymbolKind};
+
+use crate::{file, graph};
 
 fn symbol(name: &str, qualified: &str, line: u32, end_line: u32) -> Symbol {
     let mut symbol = Symbol::new(name, SymbolKind::Function, line, end_line);
     qualified.clone_into(&mut symbol.qualified_name);
     symbol
-}
-
-fn file(path: &str, symbols: Vec<Symbol>) -> Extraction {
-    let mut extraction = Extraction::default();
-    path.clone_into(&mut extraction.file);
-    extraction.symbols = symbols;
-    extraction
-}
-
-fn graph(files: &[Extraction]) -> Graph {
-    let mut graph = Graph::new(Conventions::default());
-    for extraction in files {
-        graph.insert(extraction);
-    }
-    graph
 }
 
 fn places(definitions: &Definitions<'_>) -> Vec<String> {

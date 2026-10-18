@@ -2,18 +2,11 @@
 
 use kartta_graph::Graph;
 use kartta_lang::{
-    Access, CallRef, Conventions, Extraction, IncludeRef, LocalCall, NO_CALLER_ID, Receiver,
-    RefSite, Symbol, SymbolId, SymbolKind,
+    Access, Conventions, Extraction, IncludeRef, LocalCall, NO_CALLER_ID, Receiver, RefSite,
+    Symbol, SymbolId, SymbolKind,
 };
 
-fn call(from: u32, callee: &str, line: u32) -> CallRef {
-    CallRef {
-        caller_id: SymbolId(from),
-        callee: callee.to_owned(),
-        receiver: None,
-        line,
-    }
-}
+use crate::call;
 
 fn library() -> Extraction {
     let mut extraction = Extraction::default();

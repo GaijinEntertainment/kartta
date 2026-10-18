@@ -7,25 +7,19 @@ use kartta_lang::{
     SymbolKind,
 };
 
+use crate::function;
+
 fn call(from: u32, receiver: Option<&str>, callee: &str, line: u32) -> CallRef {
     CallRef {
-        caller_id: SymbolId(from),
-        callee: callee.to_owned(),
         receiver: receiver.map(str::to_owned),
-        line,
+        ..crate::call(from, callee, line)
     }
 }
 
 fn file(path: &str, symbols: Vec<Symbol>, calls: Vec<CallRef>) -> Extraction {
-    let mut extraction = Extraction::default();
-    path.clone_into(&mut extraction.file);
-    extraction.symbols = symbols;
+    let mut extraction = crate::file(path, symbols);
     extraction.calls = calls;
     extraction
-}
-
-fn function(name: &str, line: u32) -> Symbol {
-    Symbol::new(name, SymbolKind::Function, line, line + 1)
 }
 
 fn field(owner: &str, name: &str, line: u32) -> Symbol {

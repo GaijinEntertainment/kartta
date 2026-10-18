@@ -5,8 +5,7 @@ use std::ops::RangeInclusive;
 
 use kartta_graph::{Change, DirCount, DirectCalls, Graph, Limits, ReachBand, Region, Segment};
 use kartta_lang::{
-    CallRef, Callable, CallableRole, Conventions, Extraction, IncludeRef, Symbol, SymbolFlags,
-    SymbolId, SymbolKind,
+    Callable, CallableRole, Extraction, IncludeRef, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
 
 struct File {
@@ -15,9 +14,9 @@ struct File {
 
 impl File {
     fn new(path: &str) -> Self {
-        let mut extraction = Extraction::default();
-        path.clone_into(&mut extraction.file);
-        Self { extraction }
+        Self {
+            extraction: crate::file(path, Vec::new()),
+        }
     }
 
     fn function(mut self, name: &str, lines: (u32, u32)) -> Self {
@@ -28,12 +27,7 @@ impl File {
     }
 
     fn calls(mut self, from: u32, name: &str, line: u32) -> Self {
-        self.extraction.calls.push(CallRef {
-            caller_id: SymbolId(from),
-            callee: name.to_owned(),
-            receiver: None,
-            line,
-        });
+        self.extraction.calls.push(crate::call(from, name, line));
         self
     }
 
@@ -62,11 +56,8 @@ impl File {
 }
 
 fn graph(files: Vec<File>) -> Graph {
-    let mut graph = Graph::new(Conventions::default());
-    for file in files {
-        graph.insert(&file.extraction);
-    }
-    graph
+    let extractions: Vec<Extraction> = files.into_iter().map(|file| file.extraction).collect();
+    crate::graph(&extractions)
 }
 
 fn names<'g>(segment: &Segment<'g>) -> Vec<&'g str> {

@@ -1,7 +1,9 @@
 //! How a search finds definitions by the words of their names and paths, ranks them, and says what it left out.
 
-use kartta_graph::{Graph, Search};
-use kartta_lang::{Conventions, Extraction, Symbol, SymbolFlags, SymbolKind};
+use kartta_graph::Search;
+use kartta_lang::{Symbol, SymbolFlags, SymbolKind};
+
+use crate::{file, graph};
 
 fn symbol(name: &str, qualified: &str, line: u32) -> Symbol {
     let mut symbol = Symbol::new(name, SymbolKind::Function, line, line);
@@ -13,21 +15,6 @@ fn flagged(name: &str, flags: SymbolFlags) -> Symbol {
     let mut symbol = symbol(name, name, 1);
     symbol.flags = flags;
     symbol
-}
-
-fn file(path: &str, symbols: Vec<Symbol>) -> Extraction {
-    let mut extraction = Extraction::default();
-    path.clone_into(&mut extraction.file);
-    extraction.symbols = symbols;
-    extraction
-}
-
-fn graph(files: &[Extraction]) -> Graph {
-    let mut graph = Graph::new(Conventions::default());
-    for extraction in files {
-        graph.insert(extraction);
-    }
-    graph
 }
 
 fn places(search: &Search<'_>) -> Vec<String> {

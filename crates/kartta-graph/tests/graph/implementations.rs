@@ -2,38 +2,15 @@
 //! depth bound and the limit left out.
 
 use kartta_graph::{Graph, Implementations};
-use kartta_lang::{Conventions, Extraction, ImportBinding, IncludeRef, Symbol, SymbolKind};
+use kartta_lang::{Conventions, ImportBinding, Symbol, SymbolKind};
+
+use crate::{file, graph_of as graph, including};
 
 fn ty(name: &str, qualified: &str, line: u32, parents: &[&str]) -> Symbol {
     let mut symbol = Symbol::new(name, SymbolKind::Class, line, line + 5);
     qualified.clone_into(&mut symbol.qualified_name);
     symbol.parents = parents.iter().map(|&parent| parent.to_owned()).collect();
     symbol
-}
-
-fn file(path: &str, symbols: Vec<Symbol>) -> Extraction {
-    let mut extraction = Extraction::default();
-    path.clone_into(&mut extraction.file);
-    extraction.symbols = symbols;
-    extraction
-}
-
-fn including(mut extraction: Extraction, targets: &[&str]) -> Extraction {
-    extraction.includes = targets
-        .iter()
-        .map(|&target| IncludeRef {
-            target: target.to_owned(),
-        })
-        .collect();
-    extraction
-}
-
-fn graph(conventions: Conventions, files: &[Extraction]) -> Graph {
-    let mut graph = Graph::new(conventions);
-    for extraction in files {
-        graph.insert(extraction);
-    }
-    graph
 }
 
 fn found(implementations: &Implementations<'_>) -> Vec<(String, u32)> {

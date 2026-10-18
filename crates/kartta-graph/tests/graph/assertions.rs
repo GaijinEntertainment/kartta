@@ -6,17 +6,12 @@ use kartta_lang::{
     Conventions, Extraction, ImplementsAssertion, ImportBinding, Symbol, SymbolKind,
 };
 
+use crate::{file, graph_of};
+
 fn ty(name: &str, qualified: &str, kind: SymbolKind) -> Symbol {
     let mut symbol = Symbol::new(name, kind, 1, 5);
     qualified.clone_into(&mut symbol.qualified_name);
     symbol
-}
-
-fn file(path: &str, symbols: Vec<Symbol>) -> Extraction {
-    let mut extraction = Extraction::default();
-    path.clone_into(&mut extraction.file);
-    extraction.symbols = symbols;
-    extraction
 }
 
 fn asserting(path: &str, assertions: &[(&str, &str)], imports: &[(&str, &str)]) -> Extraction {
@@ -42,11 +37,7 @@ fn asserting(path: &str, assertions: &[(&str, &str)], imports: &[(&str, &str)]) 
 fn graph(files: &[Extraction]) -> Graph {
     let mut conventions = Conventions::default();
     conventions.directory_packages = true;
-    let mut graph = Graph::new(conventions);
-    for extraction in files {
-        graph.insert(extraction);
-    }
-    graph
+    graph_of(conventions, files)
 }
 
 fn found(implementations: &Implementations<'_>) -> Vec<String> {
