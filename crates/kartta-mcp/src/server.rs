@@ -3,7 +3,7 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use kartta::Limits;
+use kartta::{Graph, Hit, Limits, Search, SourceOptions};
 use kartta_fs::{
     Case, Filter, FuzzyOptions, GlobOptions, GrepOptions, ListError, ListOptions, Patterns,
 };
@@ -15,11 +15,14 @@ use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use crate::config::Config;
 use crate::languages::{Catalog, echo};
 use crate::params::{
-    CallerRole, FindCallersParams, FindFilesParams, GlobFilesParams, GrepParams, IndexRepoParams,
-    ListDirParams,
+    CallerRole, FileParams, FindCallPathParams, FindCallersParams, FindFilesParams,
+    FindImplementationsParams, FindReferencesParams, FindSymbolsParams, GlobFilesParams,
+    GrepParams, ImpactOfEditParams, IndexRepoParams, ListDirParams, ReadDefinitionsParams,
 };
-use crate::render::{self, CallersAsk, Globbed, SUGGESTIONS, Suggestion};
-use crate::state::{Indexed, Request, Slot, Status};
+use crate::render::{
+    self, CallersAsk, Found, Globbed, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion,
+};
+use crate::state::{GraphRow, Indexed, Request, Slot, Status};
 
 /// How many matching lines `grep` answers when the call names no cap.
 const GREP_MATCHES: usize = 100;
@@ -41,6 +44,42 @@ const LIST_ENTRIES: usize = 1000;
 
 /// The directories `list_dir` does not enter when the call names none: vendored and generated trees.
 const LIST_COLLAPSED: [&str; 5] = ["vendor", "node_modules", "dist", "build", "__pycache__"];
+
+/// How many hits `find_symbols` answers when the call names no limit.
+const SYMBOLS: usize = 20;
+
+/// How many names one `read_definitions` call reads at most.
+const DEFINITION_NAMES: usize = 10;
+
+/// How many definitions `read_definitions` answers per name when the call names no limit.
+const DEFINITIONS: usize = 3;
+
+/// How many lines of one definition `read_definitions` answers.
+const SOURCE_LINES: usize = 500;
+
+/// How many bytes of a line `read_definitions` answers.
+const SOURCE_LINE_BYTES: usize = 1024;
+
+/// How many implementors `find_implementations` lists.
+const IMPLEMENTORS: usize = 500;
+
+/// How many includes away `find_importers` follows the files that include a file.
+const IMPORTER_DEPTH: u32 = 3;
+
+/// How many calls long a chain `find_call_path` looks for when the call names no bound.
+const PATH_HOPS: u32 = 8;
+
+/// How many symbols a call path search reaches before it stops.
+const PATH_MAX_SYMBOLS: usize = 20_000;
+
+/// How many sites `find_references` lists.
+const REFERENCES: usize = 500;
+
+/// How many calls away `impact_of_edit` walks the callers a change reaches, and the files that include the file.
+const IMPACT_DEPTH: u32 = 3;
+
+/// How many symbols the walk over a changed symbol's callers reaches before it stops.
+const IMPACT_MAX_SYMBOLS: usize = 500;
 
 /// How many hops `find_callers` walks when the call names none.
 const CALLER_HOPS: u32 = 3;
@@ -103,6 +142,22 @@ impl Server {
             .await
             .map_err(|error| format!("the query stopped before it answered: {error}"))?
     }
+}
+
+/// A definition a name selects in one family's graph, and how near it sits.
+type Nearest<'g> = (&'g str, kartta::Found<'g>);
+
+/// The family graphs a query filtered by `languages` searches, in the engine's order.
+fn selected<'g>(
+    indexed: &'g Indexed,
+    catalog: &Catalog,
+    languages: Option<&[String]>,
+) -> Vec<(&'g str, &'g Graph)> {
+    indexed
+        .engine
+        .graphs()
+        .filter(|(family, _)| catalog.selects(languages, family))
+        .collect()
 }
 
 /// Compiles a list of globs, or `None` for an empty one.
@@ -435,6 +490,435 @@ impl Server {
                     ),
                 })?;
             Ok(render::dir(&dir, &listing))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Find where symbols - functions, methods, types, constants, variables - are defined, by keyword \
+                       search over the words of symbol names and of their files' paths. The starting point for \
+                       \"where is X defined?\" and for pinning a symbol's exact name before find_callers / \
+                       find_implementations. Searches every indexed language unless narrowed with 'languages'. \
+                       Returns a <symbols> envelope, one ranked <hit/> record per match: name, optional qn (the \
+                       qualified name, when it says more), optional owner (the declaring type or namespace), kind, \
+                       lang, loc (file:start-end, the definition's full span, or file:line for one line), and a \
+                       one-line sig. A hit whose name is the query outranks every other. To read a definition's \
+                       source, pass its name to read_definitions. When keyword matches underfill the limit, fuzzy \
+                       name matches top the answer up - those records carry fuzzy=true and are not matches for the \
+                       query as requested. truncated=true with total= on <symbols> means the limit cut the answer: a \
+                       higher limit or a narrower query shows more; unmatched= names the query's words no definition \
+                       holds. A record carrying a 'role' attribute is a reach artifact rather than ordinary code - one \
+                       of test, entry or generated, in that precedence; an ordinary record carries none. Symbols in \
+                       GENERATED or vendored code rank below hand-written ones. An answer with NO hits says so, and \
+                       names any searched language holding files that yielded no symbols (an unsupported dialect or a \
+                       failed parse) - read that as missing coverage rather than as the symbol not existing, and call \
+                       index_stats for the per-language counts. Requires index_repo first."
+    )]
+    async fn find_symbols(
+        &self,
+        Parameters(p): Parameters<FindSymbolsParams>,
+    ) -> Result<String, String> {
+        self.catalog.check(p.languages.as_deref())?;
+        let catalog = Arc::clone(&self.catalog);
+        self.answer(move |indexed| {
+            let limit = p.limit.map_or(SYMBOLS, NonZeroUsize::get);
+            let searched = selected(indexed, &catalog, p.languages.as_deref());
+            let searches: Vec<(&str, Search<'_>)> = searched
+                .iter()
+                .map(|&(family, graph)| (family, graph.search(&p.query, limit)))
+                .collect();
+            let keyword: usize = searches.iter().map(|(_, search)| search.total).sum();
+            let fill_up = keyword < limit;
+            let matched = if fill_up {
+                keyword
+                    + searches
+                        .iter()
+                        .map(|(_, search)| search.fuzzy_total.unwrap_or(0))
+                        .sum::<usize>()
+            } else {
+                keyword
+            };
+            let dropped_words = searches
+                .iter()
+                .map(|(_, search)| search.dropped_words)
+                .max()
+                .unwrap_or(0);
+            let unmatched = searches
+                .split_first()
+                .map_or_else(Vec::new, |((_, first), rest)| {
+                    first
+                        .unmatched_words
+                        .iter()
+                        .filter(|word| {
+                            rest.iter()
+                                .all(|(_, search)| search.unmatched_words.contains(word))
+                        })
+                        .cloned()
+                        .collect()
+                });
+            let mut hits: Vec<(&str, Hit<'_>)> = searches
+                .into_iter()
+                .flat_map(|(family, search)| search.hits.into_iter().map(move |hit| (family, hit)))
+                .filter(|(_, hit)| fill_up || !hit.fuzzy)
+                .collect();
+            hits.sort_by(|left, right| {
+                left.1
+                    .fuzzy
+                    .cmp(&right.1.fuzzy)
+                    .then_with(|| right.1.score.total_cmp(&left.1.score))
+            });
+            hits.truncate(limit);
+            let coverage: Vec<&GraphRow> = if hits.is_empty() {
+                indexed
+                    .graphs
+                    .iter()
+                    .filter(|row| row.files_without_symbols > 0)
+                    .filter(|row| searched.iter().any(|(family, _)| *family == row.family))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let found = Found {
+                hits,
+                matched,
+                unmatched,
+                dropped_words,
+            };
+            Ok(render::hits(
+                &p.query,
+                &echo(p.languages.as_deref()),
+                &found,
+                &coverage,
+            ))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Read the source of named definitions - functions, methods, types - several names in one \
+                       call. Answers \"show me X\" without a search followed by a file read of a guessed range. \
+                       Searches every indexed language unless narrowed with 'languages'. Returns a <definitions> \
+                       envelope with one <name of=.. total=..> per requested name, in request order; each holds its \
+                       <definition> records nearest first, carrying name, optional qn, optional owner, kind, lang, loc \
+                       (file:start-end, the full span, or file:line for one line), scope, and a role for test, entry, \
+                       or generated code. scope is same-directory (beside 'from'), vendored, or other; it ranks by \
+                       location and does not resolve which definition a given call binds to. The body is the file \
+                       text from the doc block directly above the definition through its last line, each line \
+                       numbered, at most 500 lines with each line cut at 1024 bytes. loc is the span at index_repo \
+                       time and the body is read at call time, so a file edited since answers its new text at the \
+                       old span, and resized=true marks a file whose size changed since. truncated=true marks a body \
+                       cut before the span ends, or missing because the file no longer reaches the span; a definition \
+                       whose file could not be read has no body, carries error= with the reason and its sig when one \
+                       was captured. total on a <name> counts every definition the name selects; shown=N means the \
+                       limit cut the list to N. A name nothing defines answers total=0 with a find_symbols hint. \
+                       Requires index_repo first."
+    )]
+    async fn read_definitions(
+        &self,
+        Parameters(p): Parameters<ReadDefinitionsParams>,
+    ) -> Result<String, String> {
+        if p.names.is_empty() {
+            return Err("names is empty; pass at least one definition name".to_owned());
+        }
+        if p.names.len() > DEFINITION_NAMES {
+            return Err(format!(
+                "names must list at most {DEFINITION_NAMES} names (got {}); split the list",
+                p.names.len()
+            ));
+        }
+        if p.names.iter().any(String::is_empty) {
+            return Err("names must not contain an empty name".to_owned());
+        }
+        self.catalog.check(p.languages.as_deref())?;
+        let catalog = Arc::clone(&self.catalog);
+        self.answer(move |indexed| {
+            let limit = p.limit.map_or(DEFINITIONS, NonZeroUsize::get);
+            let searched = selected(indexed, &catalog, p.languages.as_deref());
+            let per_name: Vec<(usize, Vec<Nearest<'_>>)> = p
+                .names
+                .iter()
+                .map(|name| {
+                    let mut total = 0;
+                    let mut found = Vec::new();
+                    for &(family, graph) in &searched {
+                        let definitions = graph.definitions(name, p.from.as_deref(), limit);
+                        total += definitions.total;
+                        found.extend(definitions.found.into_iter().map(|found| (family, found)));
+                    }
+                    found.sort_by_key(|(_, found)| found.nearness);
+                    found.truncate(limit);
+                    (total, found)
+                })
+                .collect();
+            let wanted: Vec<_> = per_name
+                .iter()
+                .flat_map(|(_, found)| found.iter().map(|(_, found)| found.definition))
+                .collect();
+            let options = SourceOptions::default()
+                .max_lines(SOURCE_LINES)
+                .max_line_bytes(SOURCE_LINE_BYTES);
+            let mut sources = indexed.engine.sources(&wanted, options).into_iter();
+            let answers: Vec<NameDefinitions<'_>> = p
+                .names
+                .iter()
+                .zip(per_name)
+                .map(|(name, (total, found))| NameDefinitions {
+                    name,
+                    total,
+                    definitions: found
+                        .into_iter()
+                        .zip(&mut sources)
+                        .map(|((family, found), source)| Read {
+                            family,
+                            definition: found.definition,
+                            nearness: found.nearness,
+                            source,
+                        })
+                        .collect(),
+                })
+                .collect();
+            Ok(render::definitions(&echo(p.languages.as_deref()), &answers))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "List the types that implement or extend a named interface, base class, or trait, \
+                       transitively. Use it when a contract changes and you need everything bound to it, or to find \
+                       the real targets behind a dynamically-dispatched call site. Searches every indexed language \
+                       unless narrowed with 'languages'. Returns an <implementations> envelope, one <type/> record \
+                       per implementor with its lang and loc (file:line), nearest first; depth=N marks one that \
+                       implements the type through N-1 others. At most 500 are listed, and total= then counts them \
+                       all; passed_over= counts the other types the name selects. A type that implements an \
+                       interface without naming it, as Go's structural typing allows, is not found. An unknown name \
+                       answers with up to 5 close alternatives (did you mean). Requires index_repo first."
+    )]
+    async fn find_implementations(
+        &self,
+        Parameters(p): Parameters<FindImplementationsParams>,
+    ) -> Result<String, String> {
+        self.catalog.check(p.languages.as_deref())?;
+        let catalog = Arc::clone(&self.catalog);
+        self.answer(move |indexed| {
+            let searched = selected(indexed, &catalog, p.languages.as_deref());
+            let mut found: Vec<_> = searched
+                .iter()
+                .filter_map(|&(family, graph)| {
+                    Some((
+                        family,
+                        graph.implementations(&p.name, u32::MAX, IMPLEMENTORS)?,
+                    ))
+                })
+                .collect();
+            let mut room = IMPLEMENTORS;
+            for (_, implementations) in &mut found {
+                implementations.found.truncate(room);
+                room -= implementations.found.len();
+            }
+            let families: Vec<&str> = searched.iter().map(|&(family, _)| family).collect();
+            let suggestions = if found.is_empty() {
+                suggestions(indexed, &families, &p.name)
+            } else {
+                Vec::new()
+            };
+            Ok(render::implementations(
+                &p.name,
+                &echo(p.languages.as_deref()),
+                &found,
+                &suggestions,
+            ))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Find every file that imports or includes a given file, directly or through a chain of imports \
+                       (followed up to 3 hops) - the downstream files of a shared module, header, or type-definition \
+                       file. This is whole-file impact: for line-level impact use impact_of_edit, for a single \
+                       function use find_callers. Returns an <importers> envelope, one <file/> record per downstream \
+                       file, nearest first; depth=N marks one that reaches the file through N-1 others, and \
+                       unexpanded= counts the importers at the 3-hop limit whose own importers were not followed. A \
+                       Go file counts every importer of its package. Requires index_repo first."
+    )]
+    async fn find_importers(
+        &self,
+        Parameters(p): Parameters<FileParams>,
+    ) -> Result<String, String> {
+        self.answer(move |indexed| {
+            let dependents = indexed
+                .engine
+                .graph_of(&p.file)
+                .and_then(|graph| graph.dependents(&p.file, IMPORTER_DEPTH, 0));
+            Ok(render::importers(&p.file, dependents.as_ref()))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "List the definitions of one known file in source order - \"where in this file is X?\" when the \
+                       file is known but the place in it is not. Returns an <outline> envelope with one <symbol/> \
+                       record per definition: name; qn, the qualified name, omitted when it equals name; owner, the \
+                       declaring type or namespace, omitted on a top-level symbol; kind; lines=\"start-end\" (the \
+                       definition's full span, nested definitions inside their enclosing one's span); and sig, the \
+                       declaration, omitted when none was captured. Read the one span you need instead of the whole \
+                       file or a guessed window. A path no code graph holds and a held file with no recorded \
+                       definition both report symbols=\"0\", told apart by the note. For callers and reach of a range \
+                       use impact_of_edit. Requires index_repo first."
+    )]
+    async fn file_outline(&self, Parameters(p): Parameters<FileParams>) -> Result<String, String> {
+        self.answer(move |indexed| {
+            let outline = indexed
+                .engine
+                .graph_of(&p.file)
+                .and_then(|graph| graph.outline(&p.file));
+            Ok(render::outline(&p.file, outline.as_deref()))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Find the shortest chain of calls from one symbol to another: from calls a symbol, which calls \
+                       another, until one calls to. Answers \"does this entry point reach that function, and how?\" in \
+                       one call, where following the calls by hand takes a read per hop. Searches every indexed \
+                       language unless narrowed with 'languages'; a pair resolving in several languages yields one \
+                       match per language. Returns a <call_path> envelope of <match lang=..> records: each the \
+                       resolved from and to, the chain length in hops and the searched bound in max_hops, and one \
+                       <ref> per caller in call order - the last one calls to - each carrying loc= at the caller's \
+                       definition, call= at the line where it calls the next symbol, an explicit role= and a \
+                       confidence=likely / guess mark on a weakly resolved hop. A match without a chain carries \
+                       found=false and states that an absent chain in the graph does not show one absent in the code; \
+                       at_depth_bound= counts the callers at the hops limit a longer chain could pass through, and \
+                       below_confidence= the callers the floor dropped. A search the node cap (20000) stops carries \
+                       truncated=true. When from and to resolve to one symbol, the match has hops=0 and no ref. \
+                       Requires index_repo first."
+    )]
+    async fn find_call_path(
+        &self,
+        Parameters(p): Parameters<FindCallPathParams>,
+    ) -> Result<String, String> {
+        self.catalog.check(p.languages.as_deref())?;
+        let catalog = Arc::clone(&self.catalog);
+        self.answer(move |indexed| {
+            let hops = p.hops.map_or(PATH_HOPS, NonZeroU32::get);
+            let floor = p.min_confidence.floor();
+            let limits = Limits::new(hops)
+                .with_min_confidence(floor)
+                .with_max_symbols(PATH_MAX_SYMBOLS);
+            let paths: Vec<_> = selected(indexed, &catalog, p.languages.as_deref())
+                .into_iter()
+                .filter_map(|(family, graph)| {
+                    Some((family, graph.call_path(&p.from, &p.to, limits)?))
+                })
+                .collect();
+            let languages = echo(p.languages.as_deref());
+            let ask = PathAsk {
+                from: &p.from,
+                to: &p.to,
+                languages: &languages,
+                hops,
+                min_confidence: floor,
+            };
+            Ok(render::call_path(&ask, &paths))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "List every site where a symbol is used: its calls, and its uses as a type or as a \
+                       package-qualified value. Answers \"where is this type, constant, or function used?\" in one \
+                       call, without a text search that also matches strings, comments, and same-named symbols. \
+                       Searches every indexed language unless narrowed with 'languages'; a name resolving in several \
+                       languages yields one match per language. Returns a <references> envelope of <match lang=..> \
+                       records: each the resolved symbol with its loc, kind, and site count, and one <ref> per site in \
+                       file and line order, carrying the enclosing symbol's name, qn and loc, the enclosing symbol's \
+                       explicit role= (\"consumer\", or test/entry/generated), site=call or site=use, at= for the \
+                       site's file:line, and a confidence=likely / guess mark on a weakly resolved site. A caller is \
+                       one site, at one of its calls; every other use is one site per line. Uses other than calls are \
+                       recorded only for some languages, a method's calls through a value of its owner's type resolve \
+                       only where the graph can name that type, and no access to a field is recorded, so a missing \
+                       site does not show an unused symbol. A match lists at most 500 sites and then carries shown=; \
+                       below_confidence= counts the sites the floor dropped and passed_over= the other symbols the \
+                       name selects. An unknown name answers with up to 5 close alternatives (did you mean). Requires \
+                       index_repo first."
+    )]
+    async fn find_references(
+        &self,
+        Parameters(p): Parameters<FindReferencesParams>,
+    ) -> Result<String, String> {
+        self.catalog.check(p.languages.as_deref())?;
+        let catalog = Arc::clone(&self.catalog);
+        self.answer(move |indexed| {
+            let floor = p.min_confidence.floor();
+            let searched = selected(indexed, &catalog, p.languages.as_deref());
+            let found: Vec<_> = searched
+                .iter()
+                .filter_map(|&(family, graph)| {
+                    Some((family, graph.references(&p.name, floor, REFERENCES)?))
+                })
+                .collect();
+            let families: Vec<&str> = searched.iter().map(|&(family, _)| family).collect();
+            let suggestions = if found.is_empty() {
+                suggestions(indexed, &families, &p.name)
+            } else {
+                Vec::new()
+            };
+            let languages = echo(p.languages.as_deref());
+            let ask = CallersAsk {
+                name: &p.name,
+                languages: &languages,
+                role: None,
+                floored: floor != 0,
+            };
+            Ok(render::references(&ask, &found, &suggestions))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Assess the blast radius of editing a span of lines - \"what breaks if I touch these lines?\" \
+                       for a diff hunk under review or an edit you are about to make. Returns an <impact> envelope \
+                       with one <symbol> record per definition overlapping the range - caller and callee counts with \
+                       sampled <ref/> lists (each carrying an explicit role=, \"consumer\" for a real caller/callee or \
+                       test/entry/generated for a reach artifact, at= for the line of the call, and weakly resolved \
+                       edges marked confidence=likely/guess; a shown=/of= pair on the enclosing <callers>/<callees> \
+                       discloses the 50-ref sampling cap), unresolved= for the calls into code the graph does not \
+                       hold, and the reach (how many symbols across how many files transitively depend on it within 3 \
+                       hops, with a reach-band grade; truncated=true when the 500-symbol cap stopped the walk) - plus \
+                       <includes> and <included-by> file lists. A range covering only file-scope code (imports, \
+                       comments) reports zero symbols and still lists the file's includes and includers when it has \
+                       any; zero symbols means nothing is defined there, not that the edit is safe. For one named \
+                       function use find_callers; for whole-file impact use find_importers. Requires index_repo \
+                       first."
+    )]
+    async fn impact_of_edit(
+        &self,
+        Parameters(p): Parameters<ImpactOfEditParams>,
+    ) -> Result<String, String> {
+        if p.start_line == 0 {
+            return Err("start_line is 1-based - it must be >= 1".to_owned());
+        }
+        if p.end_line != 0 && p.end_line < p.start_line {
+            return Err(format!(
+                "end_line {} is before start_line {}",
+                p.end_line, p.start_line
+            ));
+        }
+        self.answer(move |indexed| {
+            let end_line = if p.end_line == 0 {
+                u32::MAX
+            } else {
+                p.end_line
+            };
+            let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
+            let segment = indexed
+                .engine
+                .graph_of(&p.file)
+                .and_then(|graph| graph.analyze_segment(&p.file, p.start_line..=end_line, limits));
+            Ok(render::impact(
+                &p.file,
+                (p.start_line, end_line),
+                segment.as_ref(),
+            ))
         })
         .await
     }

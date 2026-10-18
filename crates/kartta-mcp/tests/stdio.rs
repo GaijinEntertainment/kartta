@@ -28,13 +28,21 @@ fn the_server_lists_its_tools() {
     assert_eq!(
         names,
         [
+            "file_outline",
+            "find_call_path",
             "find_callers",
             "find_files",
+            "find_implementations",
+            "find_importers",
+            "find_references",
+            "find_symbols",
             "glob_files",
             "grep",
+            "impact_of_edit",
             "index_repo",
             "index_stats",
-            "list_dir"
+            "list_dir",
+            "read_definitions"
         ]
     );
 }

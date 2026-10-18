@@ -217,3 +217,132 @@ pub(crate) struct ListDirParams {
     #[serde(default)]
     pub(crate) skip_dotfiles: Option<bool>,
 }
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FindSymbolsParams {
+    /// Keyword(s) matched against the words of symbol names and of their files' paths, e.g. "BuildConfig" or "parse
+    /// config"; camelCase and snake_case split into words. A bare identifier works best; partial names match.
+    pub(crate) query: String,
+    /// Optional language filter (multiselect). Omit to search every indexed language; name one or more to narrow when
+    /// you know where the symbol lives, e.g. ["go"] or ["typescript", "tsx"]. Lowercase language names - the set
+    /// index_repo / index_stats report; anything else is a tool error listing the accepted set. A valid name absent
+    /// from this repo just contributes no hits. An empty list selects no language, so the answer is empty. Null is
+    /// equivalent to omission.
+    #[serde(default)]
+    pub(crate) languages: Option<Vec<String>>,
+    /// Positive maximum hits across all searched languages. Omitted or null uses the default 20. Zero and negatives
+    /// are rejected.
+    #[serde(default)]
+    pub(crate) limit: Option<NonZeroUsize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FindCallPathParams {
+    /// The symbol the chain starts at: the first caller. A qualified name from a find_symbols hit (e.g. "pkg.Serve")
+    /// resolves unambiguously; a name qualified by its owner ("Service.Greet") picks the callable it names; a bare
+    /// name picks the unique match, or the most-called candidate when several share it.
+    pub(crate) from: String,
+    /// The symbol the chain ends at: the last callee, named the same way as from.
+    pub(crate) to: String,
+    /// Optional language filter (multiselect). Omit to search every indexed language - a pair resolving in several
+    /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
+    /// anything else is a tool error listing the accepted set. A valid name absent from this repo contributes no
+    /// match. An empty list selects no language, so the answer is empty. Null is equivalent to omission.
+    #[serde(default)]
+    pub(crate) languages: Option<Vec<String>>,
+    /// Longest chain searched, in calls, from 1 through 4294967295: 1 finds only a direct call. Omitted or null uses
+    /// the default 8.
+    #[serde(default)]
+    #[schemars(range(max = u32::MAX))]
+    pub(crate) hops: Option<NonZeroU32>,
+    /// Drop call edges the resolver is less sure about than this floor, on every hop. "any" (the default) keeps every
+    /// edge including name-only guesses. Null is rejected; omit the argument to use "any". "likely" keeps edges backed
+    /// by module structure and better; "certain" keeps only structurally resolved edges. Weak hops in answers are
+    /// marked confidence="likely" / "guess".
+    #[serde(default)]
+    pub(crate) min_confidence: ConfidenceFloor,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FindReferencesParams {
+    /// The symbol whose uses to list. A qualified name from a find_symbols hit (e.g. "pkg.Config") resolves
+    /// unambiguously; a name qualified by its owner ("Service.Greet") picks the symbol it names; a bare name picks the
+    /// unique match, or the candidate with the most recorded sites when several share it.
+    pub(crate) name: String,
+    /// Optional language filter (multiselect). Omit to search every indexed language - a name resolving in several
+    /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
+    /// anything else is a tool error listing the accepted set. A valid name absent from this repo contributes no
+    /// match. An empty list selects no language, so the answer is empty. Null is equivalent to omission.
+    #[serde(default)]
+    pub(crate) languages: Option<Vec<String>>,
+    /// Drop sites the resolver is less sure about than this floor: "any" (the default) keeps every site, "likely"
+    /// keeps sites backed by module structure and better, "certain" keeps only structurally resolved sites. Null is
+    /// rejected; omit the argument to use "any". below_confidence= on a match counts the sites the floor dropped.
+    #[serde(default)]
+    pub(crate) min_confidence: ConfidenceFloor,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReadDefinitionsParams {
+    /// Symbol names to read, 1 to 10, each bare ("New") or qualified by its package or owner ("pkg.New",
+    /// "Service.Greet"). A qualified name selects every definition whose qualified name equals it or ends with it at a
+    /// separator, and every definition named by its last segment whose own qualified name the name ends with, so
+    /// "ns::Service::Greet" also selects "Service::Greet". An empty list or an empty name is a tool error.
+    #[schemars(length(min = 1, max = 10), inner(length(min = 1)))]
+    pub(crate) names: Vec<String>,
+    /// Repository-relative path of the file the names are read for, as returned by find_files. Definitions in its
+    /// directory rank first. Omitted, every definition ranks as other or vendored.
+    #[serde(default)]
+    pub(crate) from: Option<String>,
+    /// Optional language filter (multiselect). Omit to read from every indexed language. Lowercase language names -
+    /// the set index_repo / index_stats report; anything else is a tool error listing the accepted set. A valid name
+    /// absent from this repo contributes no definitions. An empty list selects no language, so every name answers no
+    /// definition. Null is equivalent to omission.
+    #[serde(default)]
+    pub(crate) languages: Option<Vec<String>>,
+    /// Positive maximum definitions per name. Omitted or null uses 3. Zero and negatives are rejected.
+    #[serde(default)]
+    pub(crate) limit: Option<NonZeroUsize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FindImplementationsParams {
+    /// The interface / base class / trait name, e.g. "Provider". Bare or qualified; take the exact name from a
+    /// find_symbols hit when unsure.
+    pub(crate) name: String,
+    /// Optional language filter (multiselect). Omit to query every indexed language; narrow when you know the
+    /// contract's language, e.g. ["go"]. Lowercase language names - the set index_repo / index_stats report; anything
+    /// else is a tool error listing the accepted set. A valid name absent from this repo contributes no results. An
+    /// empty list selects no language, so the answer is empty. Null is equivalent to omission.
+    #[serde(default)]
+    pub(crate) languages: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FileParams {
+    /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
+    /// "pkg/service.go") - not absolute, not a bare filename.
+    pub(crate) file: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ImpactOfEditParams {
+    /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
+    /// "pkg/service.go") - not absolute, not a bare filename.
+    pub(crate) file: String,
+    /// First line of the span, 1-based inclusive - e.g. the first changed line of a diff hunk. Must be >= 1.
+    #[schemars(range(min = 1))]
+    pub(crate) start_line: u32,
+    /// Last line of the span, 1-based inclusive. 0 or omitted means through the end of the file; a value before
+    /// start_line is a tool error. A symbol counts as in-span when its definition overlaps the range at all. Null is
+    /// rejected; omit the argument to include the rest of the file.
+    #[serde(default)]
+    pub(crate) end_line: u32,
+}
