@@ -468,7 +468,7 @@ impl<'s> Emitter<'s> {
         let mut symbol = self.member(type_name(name, self.source), kind, node);
         symbol.parents = parents;
         symbol.exported = self.is_export_target(node);
-        self.push_symbol(symbol);
+        self.raw.push_symbol(symbol);
     }
 
     fn declarator(&mut self, node: Node<'_>) {
@@ -498,7 +498,7 @@ impl<'s> Emitter<'s> {
         symbol.exported = exported;
         symbol.signature =
             function.and_then(|function| signature_from(node.start_byte(), function, self.source));
-        let id = self.push_symbol(symbol);
+        let id = self.raw.push_symbol(symbol);
 
         if let (Some(value), Some(function)) = (value, function) {
             let this_of = self.lexical_this(function);
@@ -528,7 +528,7 @@ impl<'s> Emitter<'s> {
 
         let mut symbol = self.unowned(name, SymbolKind::Function, node);
         symbol.signature = signature_from(node.start_byte(), function, self.source);
-        let id = self.push_symbol(symbol);
+        let id = self.raw.push_symbol(symbol);
         let this_of = self.lexical_this(function);
         self.scopes
             .push(Scope::spanning(value, function, id, this_of));
@@ -555,7 +555,7 @@ impl<'s> Emitter<'s> {
         symbol.exported = is_member_exported(node, self.source);
         symbol.signature =
             function.and_then(|function| signature_from(node.start_byte(), function, self.source));
-        let id = self.push_symbol(symbol);
+        let id = self.raw.push_symbol(symbol);
 
         if let (Some(value), Some(function)) = (value, function) {
             self.scopes
@@ -579,7 +579,7 @@ impl<'s> Emitter<'s> {
         let mut symbol = self.member(text(name, self.source), kind, node);
         symbol.exported = is_member_exported(node, self.source);
         symbol.signature = signature(node, self.source);
-        self.push_symbol(symbol);
+        self.raw.push_symbol(symbol);
     }
 
     fn named_symbol(
@@ -593,7 +593,7 @@ impl<'s> Emitter<'s> {
         let mut symbol = self.member(name, kind, node);
         symbol.exported = exported;
         symbol.signature = signature(node, self.source);
-        Some(self.push_symbol(symbol))
+        Some(self.raw.push_symbol(symbol))
     }
 
     fn overload_member(&mut self, node: Node<'_>, symbol: Option<SymbolId>, role: CallableRole) {
@@ -701,11 +701,5 @@ impl<'s> Emitter<'s> {
         let mut symbol = Symbol::new(name, kind, start_line(node), end_line(node));
         symbol.flags = SymbolFlags::empty().with_generated(self.file_is_generated);
         symbol
-    }
-
-    fn push_symbol(&mut self, symbol: Symbol) -> SymbolId {
-        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
-        self.raw.symbols.push(symbol);
-        id
     }
 }

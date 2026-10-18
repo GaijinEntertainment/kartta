@@ -156,7 +156,7 @@ impl Emitter<'_> {
 
         let mut symbol = self.unowned(name, SymbolKind::Function, node);
         symbol.signature = signature_from(node.start_byte(), body, self.source);
-        let id = self.push_symbol(symbol);
+        let id = self.raw.push_symbol(symbol);
         let this_of = self.lexical_this(body);
         self.scopes.push(Scope::spanning(body, body, id, this_of));
     }

@@ -479,9 +479,7 @@ impl<'s, 't> Replayer<'s, 't> {
     fn push_symbol(&mut self, mut symbol: Symbol) -> SymbolId {
         self.apply_namespace(&mut symbol);
 
-        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
-        self.raw.symbols.push(symbol);
-        id
+        self.raw.push_symbol(symbol)
     }
 
     fn apply_namespace(&self, symbol: &mut Symbol) {

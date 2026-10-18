@@ -190,7 +190,7 @@ impl<'a> Emitter<'a> {
         symbol.exported = true;
         symbol.flags = self.flags;
         self.raw.package = Some(name);
-        self.push_symbol(symbol);
+        self.raw.push_symbol(symbol);
     }
 
     // constraint: `require ?guard target` keeps its guard in its own field, so only `name` is the import
@@ -237,7 +237,7 @@ impl<'a> Emitter<'a> {
         symbol.exported = !is_private(node);
         symbol.signature = arrow_trimmed_signature(node, self.source);
         symbol.flags = symbol.flags.with_entry(is_registered(node, self.source));
-        let id = self.push_symbol(symbol);
+        let id = self.raw.push_symbol(symbol);
         self.scopes.push(Scope {
             end: node.end_byte(),
             id,
@@ -252,7 +252,7 @@ impl<'a> Emitter<'a> {
         let mut symbol = self.declared(kind, node, (None, name.clone()));
         symbol.parents = self.field_text(node, "parent").into_iter().collect();
         symbol.exported = !is_private(node);
-        self.push_symbol(symbol);
+        self.raw.push_symbol(symbol);
         self.types.push(TypeScope {
             end: node.end_byte(),
             name,
@@ -271,7 +271,7 @@ impl<'a> Emitter<'a> {
             let name = text(name, self.source);
             let mut symbol = self.declared(SymbolKind::Field, node, (owner.clone(), name));
             symbol.exported = exported;
-            self.push_symbol(symbol);
+            self.raw.push_symbol(symbol);
         }
     }
 
@@ -304,7 +304,7 @@ impl<'a> Emitter<'a> {
 
         let mut symbol = self.declared(kind, node, (None, name.clone()));
         symbol.exported = !is_private(node);
-        self.push_symbol(symbol);
+        self.raw.push_symbol(symbol);
         self.types.push(TypeScope {
             end: node.end_byte(),
             name,
@@ -336,7 +336,7 @@ impl<'a> Emitter<'a> {
                 let name = text(name, self.source);
                 let mut symbol = self.declared(kind, binding, (None, name));
                 symbol.exported = exported;
-                self.push_symbol(symbol);
+                self.raw.push_symbol(symbol);
             }
         }
     }
@@ -345,7 +345,7 @@ impl<'a> Emitter<'a> {
         if let Some(name) = self.field_text(node, "name") {
             let mut symbol = self.declared(SymbolKind::TypeAlias, node, (None, name));
             symbol.exported = !is_private(node);
-            self.push_symbol(symbol);
+            self.raw.push_symbol(symbol);
         }
     }
 
@@ -452,13 +452,7 @@ impl<'a> Emitter<'a> {
 
     fn push_exported(&mut self, mut symbol: Symbol) {
         symbol.exported = true;
-        self.push_symbol(symbol);
-    }
-
-    fn push_symbol(&mut self, symbol: Symbol) -> SymbolId {
-        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
-        self.raw.symbols.push(symbol);
-        id
+        self.raw.push_symbol(symbol);
     }
 
     fn push_call(&mut self, callee: String, receiver: Option<String>, node: Node<'_>) {

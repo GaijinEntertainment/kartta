@@ -124,10 +124,8 @@ impl Emitter<'_> {
     }
 
     pub(crate) fn push(&mut self, mut symbol: Symbol) -> SymbolId {
-        let id = SymbolId(u32::try_from(self.raw.symbols.len()).unwrap_or(u32::MAX));
         symbol.flags = self.flags;
-        self.raw.symbols.push(symbol);
-        id
+        self.raw.push_symbol(symbol)
     }
 
     pub(crate) fn name_key(&self, kind: MethodKind, qualified: String) -> NameKey {
