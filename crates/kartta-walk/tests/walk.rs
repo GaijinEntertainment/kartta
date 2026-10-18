@@ -955,8 +955,8 @@ mod unix {
         // constraint: a directory left unreadable cannot be removed, so the mode is restored before any assertion fails
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).expect("restore mode");
 
-        if outcome.errors.is_empty() {
-            // Running as root ignores the permission bits; there is nothing to assert.
+        let permission_bits_ignored_as_root = outcome.errors.is_empty();
+        if permission_bits_ignored_as_root {
             return;
         }
 

@@ -1,5 +1,3 @@
-//! The structure a walk discovered: an arena of recorded nodes in depth-first order.
-
 use std::fmt;
 
 /// The tree a walk discovered: an arena of nodes, each directory's children name-sorted.
@@ -8,18 +6,13 @@ use std::fmt;
 /// [`WalkOutcome`](crate::WalkOutcome) this came in.
 #[derive(Clone, Debug)]
 pub struct Tree<V> {
-    /// Every node's name, end to end in node order.
     pub(crate) names: String,
-    /// Every node in depth-first order.
     pub(crate) slots: Vec<Slot<V>>,
 }
 
-/// One node as the arena stores it.
 #[derive(Clone, Debug)]
 pub(crate) struct Slot<V> {
-    /// Where the node's name begins in [`Tree::names`]. It ends where the next node's begins.
     pub(crate) name_start: u32,
-    /// One past the last node of this node's subtree, which is its next sibling's slot when it has one.
     pub(crate) subtree_end: u32,
     pub(crate) value: V,
 }
@@ -57,7 +50,6 @@ impl<V> Tree<V> {
         self.slots.is_empty()
     }
 
-    /// One past the last node's slot.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "the walk stores every subtree end as a u32, and the last root's subtree end is the node count"

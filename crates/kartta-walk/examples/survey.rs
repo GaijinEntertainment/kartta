@@ -8,7 +8,8 @@
 //! ```
 //!
 //! Unreadable paths are reported rather than hidden, because a tree the walker cannot fully read produces timings that
-//! describe the permissions as much as the walk.
+//! describe the permissions as much as the walk. Each thread count reports the fastest of three walks: a real tree is
+//! shared with the rest of the machine, so the minimum is the honest figure and a mean measures whatever else ran.
 #![expect(
     clippy::expect_used,
     clippy::print_stdout,
@@ -21,7 +22,6 @@ use std::time::{Duration, Instant};
 
 use kartta_walk::{Dir, Entry, EntryKind, Policy, Visit, WalkOptions, WalkOutcome, walk};
 
-/// What a consumer records per entry: the kind, and a size for a regular file whose metadata could be read.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Record {
     kind: EntryKind,
@@ -38,7 +38,6 @@ impl Policy for Sizes {
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<Record> {
         let kind = entry.kind();
-        // Only a regular file is worth a stat, and only its size is kept.
         let size = if kind == EntryKind::File {
             entry.metadata().ok().map(|meta| meta.len())
         } else {
@@ -74,7 +73,6 @@ fn main() {
     }
 }
 
-/// Prints what the tree holds and how much of it could be read.
 fn report_shape(root: &Path) {
     let WalkOutcome { tree, errors, .. } =
         walk(root, &Sizes, &(), &WalkOptions::default()).expect("walk the tree");
@@ -117,7 +115,6 @@ fn report_shape(root: &Path) {
     }
 }
 
-/// One walk, reduced to the entry count so the tree is built and then observed.
 fn walk_once(root: &Path) -> usize {
     let outcome: WalkOutcome<Record> =
         walk(root, &Sizes, &(), &WalkOptions::default()).expect("walk the tree");
@@ -125,8 +122,6 @@ fn walk_once(root: &Path) -> usize {
     outcome.tree.len()
 }
 
-/// The fastest of `runs` attempts. A real tree is shared with the rest of the machine, so the minimum is the honest
-/// figure — the mean measures whatever else was running.
 fn best_of(runs: usize, mut once: impl FnMut() -> usize) -> Duration {
     let mut best = Duration::MAX;
 
