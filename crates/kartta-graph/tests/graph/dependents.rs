@@ -1,26 +1,12 @@
 //! The files that include a file: transitively, nearest first, and what the depth bound and the cap left out.
 
 use kartta_graph::{Dependents, Graph};
-use kartta_lang::{Conventions, Extraction, IncludeRef};
+use kartta_lang::Extraction;
+
+use crate::{graph, including};
 
 fn file(path: &str, includes: &[&str]) -> Extraction {
-    let mut extraction = Extraction::default();
-    path.clone_into(&mut extraction.file);
-    extraction.includes = includes
-        .iter()
-        .map(|&target| IncludeRef {
-            target: target.to_owned(),
-        })
-        .collect();
-    extraction
-}
-
-fn graph(files: &[Extraction]) -> Graph {
-    let mut graph = Graph::new(Conventions::default());
-    for extraction in files {
-        graph.insert(extraction);
-    }
-    graph
+    including(crate::file(path, Vec::new()), includes)
 }
 
 fn found(dependents: &Dependents<'_>) -> Vec<(String, u32)> {

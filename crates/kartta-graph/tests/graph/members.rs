@@ -1,18 +1,14 @@
 //! Uses on a script language's own receiver, on a receiver that names an owner, and of a value a file imports; and the
 //! tiers a C++ data site binds through: the own class, a base the lookup certainly finds, the type a declaration
 //! spells, the file, its includes and the files those reach, for fields and for namespace values.
-#![expect(
-    clippy::expect_used,
-    reason = "clippy's allow-expect-in-tests covers #[test] functions and #[cfg(test)] modules, and the query helpers \
-              of an integration test crate are neither; a name that selects nothing is the failure"
-)]
 
 use kartta_graph::{Graph, SiteQuery};
 use kartta_lang::{
-    Access, CallsOnValues, Conventions, Extraction, IncludeReach, IncludeRef, InheritedMembers,
-    OwnMembers, ReExport, Receiver, RefSite, Symbol, SymbolId, SymbolKind, UntypedMembers,
-    ValueUses,
+    Access, CallsOnValues, Conventions, Extraction, IncludeReach, InheritedMembers, OwnMembers,
+    ReExport, Receiver, RefSite, Symbol, SymbolId, SymbolKind, UntypedMembers, ValueUses,
 };
+
+use crate::{graph_of as graph, including};
 
 fn script() -> Conventions {
     let mut conventions = Conventions::default();
@@ -50,24 +46,7 @@ fn using(site_of: u32, name: &str, receiver: Receiver, line: u32) -> RefSite {
 }
 
 fn file(path: &str, symbols: Vec<Symbol>, includes: &[&str]) -> Extraction {
-    let mut extraction = Extraction::default();
-    path.clone_into(&mut extraction.file);
-    extraction.symbols = symbols;
-    extraction.includes = includes
-        .iter()
-        .map(|&target| IncludeRef {
-            target: target.to_owned(),
-        })
-        .collect();
-    extraction
-}
-
-fn graph(conventions: Conventions, files: &[Extraction]) -> Graph {
-    let mut graph = Graph::new(conventions);
-    for extraction in files {
-        graph.insert(extraction);
-    }
-    graph
+    including(crate::file(path, symbols), includes)
 }
 
 fn sites_of(graph: &Graph, name: &str) -> (Vec<(String, u32, u8)>, usize) {
