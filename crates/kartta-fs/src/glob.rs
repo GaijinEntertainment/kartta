@@ -1,8 +1,8 @@
 //! The glob path search over a built [`Index`] — [`Index::glob`].
 
+use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
-use crate::capped::Capped;
 use crate::filter::Filter;
 use crate::index::Index;
 
@@ -30,6 +30,49 @@ impl GlobOptions {
     pub const fn limit(mut self, limit: usize) -> Self {
         self.limit = NonZeroUsize::new(limit);
         self
+    }
+}
+
+/// What [`Index::glob`] selected, and whether the limit turned another path away.
+///
+/// The answer borrows the index that gave it, because it names entries by position, and a position names an entry
+/// only in that index as it was when it answered. So it cannot outlive the index:
+///
+/// ```compile_fail,E0597
+/// use kartta_fs::{BuildOptions, Filter, GlobOptions, Index};
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let dir = tempfile::tempdir()?;
+/// let filter = Filter::new(["*"])?;
+/// let found = {
+///     let index = Index::build(dir.path(), &BuildOptions::default())?.index;
+///     index.glob(&filter, &GlobOptions::default())
+/// };
+/// # drop(found);
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Capped<'a> {
+    items: Vec<usize>,
+    truncated: bool,
+    index: PhantomData<&'a Index>,
+}
+
+impl Capped<'_> {
+    /// The positions of the selected paths, in index order.
+    #[must_use]
+    pub fn items(&self) -> &[usize] {
+        &self.items
+    }
+
+    /// Whether the limit turned a path away, so more match than the answer shows.
+    ///
+    /// Settled by an actual rejection rather than inferred from a count, so an answer holding exactly the limit
+    /// reports `false`. Inferring would get this wrong in the one case where a caller most needs it right.
+    #[must_use]
+    pub const fn truncated(&self) -> bool {
+        self.truncated
     }
 }
 
@@ -83,24 +126,24 @@ impl Index {
         reason = "every query takes its options by reference, as list and fuzzy do; GlobOptions is one word only until \
                   it grows a second bound"
     )]
-    pub fn glob(&self, filter: &Filter, options: &GlobOptions) -> Capped<'_, usize> {
+    pub fn glob(&self, filter: &Filter, options: &GlobOptions) -> Capped<'_> {
         let limit = options.limit.map_or(usize::MAX, NonZeroUsize::get);
-        let mut found = Vec::new();
+        let mut items = Vec::new();
         let mut truncated = false;
 
         self.candidates(0..self.len(), Some(filter), |at, _| {
-            if found.len() == limit {
+            if items.len() == limit {
                 truncated = true;
                 return false;
             }
-            found.push(at);
+            items.push(at);
             true
         });
 
-        if truncated {
-            Capped::cut(found)
-        } else {
-            Capped::whole(found)
+        Capped {
+            items,
+            truncated,
+            index: PhantomData,
         }
     }
 }

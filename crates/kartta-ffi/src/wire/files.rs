@@ -1,6 +1,6 @@
 use kartta::{
-    Capped, Case, EntryKind, Filter, FuzzyMatch, FuzzyOptions, GlobOptions, GrepOptions, Index,
-    LineKind, ListError, ListOptions, Listing, Matches, Patterns,
+    Case, EntryKind, Filter, FuzzyMatch, FuzzyOptions, GlobOptions, GrepOptions, Index, LineKind,
+    ListError, ListOptions, Listing, Matches, Patterns,
 };
 use serde::{Deserialize, Serialize};
 
@@ -179,8 +179,7 @@ impl GlobView {
     pub(crate) fn new(index: &Index, params: &GlobParams) -> Result<Self, Error> {
         let filter = Filter::new(&params.globs)
             .map_err(|error| Error::new(ErrorCode::InvalidGlob, error.to_string()))?;
-        let found: Capped<'_, usize> =
-            index.glob(&filter, &GlobOptions::default().limit(params.limit));
+        let found = index.glob(&filter, &GlobOptions::default().limit(params.limit));
         let mut paths = index.paths();
         Ok(Self {
             paths: found

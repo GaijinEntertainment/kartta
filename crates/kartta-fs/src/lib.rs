@@ -145,7 +145,6 @@
 mod binary;
 mod build;
 mod cache;
-mod capped;
 mod content;
 mod content_index;
 mod entry;
@@ -175,13 +174,12 @@ pub use kartta_walk::CancelToken;
 
 pub use crate::binary::{BinaryExtensions, BinaryExtensionsError};
 pub use crate::build::{BuildError, BuildOptions, IgnoreSources};
-pub use crate::capped::Capped;
 pub use crate::content::{Content, ContentId, ContentVisitor};
 pub use crate::content_index::{ContentIndexStats, ContentIndexStorage};
 pub use crate::entry::{Entry, EntryKind};
 pub use crate::filter::{Filter, FilterError};
 pub use crate::fuzzy::{FuzzyMatch, FuzzyOptions};
-pub use crate::glob::GlobOptions;
+pub use crate::glob::{Capped, GlobOptions};
 pub use crate::grep::GrepOptions;
 pub use crate::index::{BuildOutcome, Index, Paths, RefreshOutcome};
 pub use crate::list::{ListError, ListOptions, Listed, Listing};
