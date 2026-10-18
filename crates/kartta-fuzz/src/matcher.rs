@@ -51,43 +51,18 @@ impl Band {
     }
 }
 
-/// A scored candidate inside the bounded heap, ordered so the **worst** compares greatest and pops first.
-///
-/// `tiebreak` is the candidate's length. `index` is the input position, which makes the order total and reproduces
-/// the stable sort's "equal candidates keep their input order".
-#[derive(Debug, PartialEq, Eq)]
-struct HeapEntry<T> {
-    item: T,
-    score: i32,
-    tiebreak: u32,
-    index: usize,
-}
-
 /// A candidate's length as the length tiebreak orders it, saturated at what a `u32` holds.
 fn length_key(candidate: &str) -> u32 {
     u32::try_from(candidate.len()).unwrap_or(u32::MAX)
-}
-
-impl<T: Eq> Ord for HeapEntry<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .score
-            .cmp(&self.score)
-            .then_with(|| self.tiebreak.cmp(&other.tiebreak))
-            .then_with(|| self.index.cmp(&other.index))
-    }
-}
-
-impl<T: Eq> PartialOrd for HeapEntry<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
 }
 
 /// One ranked candidate, known by the position it was offered at.
 ///
 /// A ranking holds positions rather than borrows, so it allocates one `Vec` and copies no candidate. The score is a
 /// ranking key, not a similarity measure.
+///
+/// Entries order by rank, the better one first: the higher score, then the shorter candidate, then the earlier
+/// position. Sorting a list of them ranks it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ranked {
     /// The position the candidate was offered at.
@@ -96,6 +71,22 @@ pub struct Ranked {
     pub score: i32,
     /// The candidate's length, zero for an empty query.
     tiebreak: u32,
+}
+
+impl Ord for Ranked {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .score
+            .cmp(&self.score)
+            .then_with(|| self.tiebreak.cmp(&other.tiebreak))
+            .then_with(|| self.position.cmp(&other.position))
+    }
+}
+
+impl PartialOrd for Ranked {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// A ranking fed one candidate at a time, so its candidates need never be alive together — a path rebuilt into one
@@ -123,7 +114,8 @@ pub struct Ranked {
 pub struct Ranking<'m> {
     matcher: &'m mut Matcher,
     limit: Option<NonZeroUsize>,
-    heap: BinaryHeap<HeapEntry<()>>,
+    /// The `limit` best entries so far. The worst of them orders greatest, so it is the one a better entry displaces.
+    heap: BinaryHeap<Ranked>,
     all: Vec<Ranked>,
 }
 
@@ -145,23 +137,17 @@ impl Ranking<'_> {
         let Some(score) = self.matcher.score_terms(candidate) else {
             return true;
         };
-        let tiebreak = length_key(candidate);
+        let entry = Ranked {
+            position,
+            score,
+            tiebreak: length_key(candidate),
+        };
 
         let Some(limit) = self.limit else {
-            self.all.push(Ranked {
-                position,
-                score,
-                tiebreak,
-            });
+            self.all.push(entry);
             return true;
         };
 
-        let entry = HeapEntry {
-            item: (),
-            score,
-            tiebreak,
-            index: position,
-        };
         if self.heap.len() < limit.get() {
             self.heap.push(entry);
         } else if self.heap.peek().is_some_and(|worst| entry < *worst) {
@@ -179,32 +165,13 @@ impl Ranking<'_> {
         }
 
         if self.limit.is_some() {
-            // `HeapEntry` orders the worst greatest, so ascending order is best first.
-            return self
-                .heap
-                .into_sorted_vec()
-                .into_iter()
-                .map(|entry| Ranked {
-                    position: entry.index,
-                    score: entry.score,
-                    tiebreak: entry.tiebreak,
-                })
-                .collect();
+            return self.heap.into_sorted_vec();
         }
 
         let mut all = self.all;
-        sort_ranked(&mut all);
+        all.sort();
         all
     }
-}
-
-/// Orders by descending score, then by the tiebreak. Stable, so entries equal on both keep their position order.
-fn sort_ranked(ranked: &mut [Ranked]) {
-    ranked.sort_by(|a, b| {
-        b.score
-            .cmp(&a.score)
-            .then_with(|| a.tiebreak.cmp(&b.tiebreak))
-    });
 }
 
 /// A scorer that ranks candidates against a query.
@@ -260,7 +227,7 @@ impl Matcher {
         let mut merged: Vec<Ranked> = rankings.into_iter().flatten().collect();
 
         if query.split_whitespace().next().is_some() {
-            sort_ranked(&mut merged);
+            merged.sort();
         }
 
         if let Some(limit) = limit {
