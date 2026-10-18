@@ -153,11 +153,7 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
     } else {
         "reads"
     };
-    let element = Element::new("match")
-        .attr("lang", family)
-        .attr("of", symbol.name)
-        .optional("qn", qn(symbol))
-        .attr("loc", loc(symbol.file, symbol.line))
+    let element = match_of(family, symbol)
         .attr("kind", kind(symbol.kind))
         .attr("count", references.total)
         .optional(
@@ -181,14 +177,10 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
         _ => None,
     };
     if references.sites.is_empty() {
-        let floor = if floored {
-            " at this confidence floor"
-        } else {
-            ""
-        };
         let mut text = format!(
-            "no recorded site{floor} - resolved calls can omit dynamic or unresolved ones, and uses other than calls \
-             are recorded only where the graph records them, so this does not show that nothing uses the symbol"
+            "no recorded site{} - resolved calls can omit dynamic or unresolved ones, and uses other than calls are \
+             recorded only where the graph records them, so this does not show that nothing uses the symbol",
+            at_floor(floored)
         );
         if let Some(note) = member_note {
             text.push_str("; ");
@@ -378,7 +370,7 @@ fn seed(seed: &Seed<'_>) -> String {
     let element = named("seed", symbol)
         .optional("role", role(symbol.flags))
         .attr("kind", kind(symbol.kind))
-        .attr("loc", span(symbol.file, symbol.line, symbol.end_line))
+        .attr("loc", span(symbol))
         .attr("callers", seed.caller_count)
         .attr("reach", seed.reach)
         .attr("reach_band", seed.band.label())
@@ -490,11 +482,7 @@ pub(crate) fn callers(
 fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
     let root = &walk.root;
     let reached = walk.reached.len();
-    let mut element = Element::new("match")
-        .attr("lang", family)
-        .attr("of", root.name)
-        .optional("qn", qn(root))
-        .attr("loc", loc(root.file, root.line))
+    let mut element = match_of(family, root)
         .attr("count", reached)
         .attr(
             "reach_band",
@@ -527,20 +515,13 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
                 ask.role
                     .is_none_or(|role| edge_role(caller.symbol.flags) == role)
             })
-            .map(caller),
+            .map(|caller| {
+                edge("ref", caller)
+                    .attr("hops", caller.depth)
+                    .attr("at", loc(caller.symbol.file, caller.line))
+                    .close()
+            }),
     )
-}
-
-/// One caller: where it is defined, how far from the symbol, how surely its call binds, and the line of that call.
-fn caller(reached: &Reached<'_>) -> String {
-    let symbol = &reached.symbol;
-    named("ref", symbol)
-        .attr("loc", loc(symbol.file, symbol.line))
-        .attr("role", edge_role(symbol.flags))
-        .optional("confidence", confidence(reached.confidence))
-        .attr("hops", reached.depth)
-        .attr("at", loc(symbol.file, reached.line))
-        .close()
 }
 
 /// The `find_callees` answer: one `<match>` per family graph the name selects a symbol in, or the alternatives to a
@@ -568,11 +549,7 @@ pub(crate) fn callees(
 /// nearest first.
 fn callee_match(floored: bool, family: &str, walk: &Walk<'_>) -> String {
     let root = &walk.root;
-    let element = Element::new("match")
-        .attr("lang", family)
-        .attr("of", root.name)
-        .optional("qn", qn(root))
-        .attr("loc", loc(root.file, root.line))
+    let element = match_of(family, root)
         .attr("count", walk.reached.len())
         .flag("truncated", walk.truncated)
         .count("turned_away", walk.turned_away)
@@ -581,24 +558,39 @@ fn callee_match(floored: bool, family: &str, walk: &Walk<'_>) -> String {
         .count("unresolved", walk.unresolved)
         .count("passed_over", walk.passed_over);
     if walk.reached.is_empty() {
-        let floor = if floored {
-            " at this confidence floor"
-        } else {
-            ""
-        };
         return element.inline(&format!(
-            "no callees - no call in its body binds a definition the graph holds{floor}; a call into a library or a \
-             builtin, through a function value, or by dynamic dispatch binds none"
+            "no callees - no call in its body binds a definition the graph holds{}; a call into a library or a \
+             builtin, through a function value, or by dynamic dispatch binds none",
+            at_floor(floored)
         ));
     }
     element.children(walk.reached.iter().map(|reached| {
-        let record = edge("ref", reached).attr("hops", reached.depth);
-        if reached.depth == 1 {
-            record.attr("at", loc(root.file, reached.line)).close()
-        } else {
-            record.close()
-        }
+        edge("ref", reached)
+            .attr("hops", reached.depth)
+            .optional(
+                "at",
+                (reached.depth == 1).then(|| loc(root.file, reached.line)),
+            )
+            .close()
     }))
+}
+
+/// Starts a `<match>`: the family graph, and the symbol a name selected in it with its place.
+fn match_of(family: &str, symbol: &Definition<'_>) -> Element {
+    Element::new("match")
+        .attr("lang", family)
+        .attr("of", symbol.name)
+        .optional("qn", qn(symbol))
+        .attr("loc", loc(symbol.file, symbol.line))
+}
+
+/// How an answer with nothing to list names the confidence floor that may have left it empty.
+const fn at_floor(floored: bool) -> &'static str {
+    if floored {
+        " at this confidence floor"
+    } else {
+        ""
+    }
 }
 
 /// Why a symbol may have no callers, by what it is.
