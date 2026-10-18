@@ -1,7 +1,7 @@
 //! Surveys a real tree: how big it is, how much of it is readable, and how long it takes to walk at each thread count.
 //!
-//! `benches/walk.rs` catches regressions on a small generated fixture; this measures magnitude, which a small fixture
-//! cannot tell you. Run it before trusting any synthetic tree to stand in for real work:
+//! This measures magnitude, which a small generated fixture cannot tell you. Run it before trusting any synthetic tree
+//! to stand in for real work:
 //!
 //! ```text
 //! cargo run --release --example survey -- ~/some/tree
