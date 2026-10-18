@@ -63,11 +63,7 @@ impl Resolver for Includes<'_> {
         let path_flags = SymbolFlags::empty()
             .with_test(is_test_file(path))
             .with_generated(name_marks_generated(base(path)));
-        if path_flags != SymbolFlags::empty() {
-            for symbol in &mut extraction.symbols {
-                symbol.flags = symbol.flags.union(path_flags);
-            }
-        }
+        extraction.flag_symbols(path_flags);
         if is_c_source(path) {
             for symbol in &mut extraction.symbols {
                 symbol.exported |= has_c_external_linkage(symbol);
