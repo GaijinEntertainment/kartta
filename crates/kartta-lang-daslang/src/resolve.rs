@@ -1,3 +1,5 @@
+use std::iter;
+
 use kartta_lang::path::{base, dir, forward_slashes, join};
 use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
@@ -33,21 +35,15 @@ impl<'r> DaslangResolver<'r> {
     }
 
     fn nearest_ancestor(&self, module_path: &str, path: &str) -> Option<String> {
-        let mut ancestor = dir(path);
-        loop {
-            let candidate = if ancestor == "." {
-                module_path.to_owned()
-            } else {
-                format!("{ancestor}/{module_path}")
-            };
-            if let Some(found) = self.probe(&candidate) {
-                return Some(found);
-            }
+        let mut ancestors =
+            iter::successors(Some(dir(path)), |&above| (above != ".").then(|| dir(above)));
+        ancestors.find_map(|ancestor| {
             if ancestor == "." {
-                return None;
+                self.probe(module_path)
+            } else {
+                self.probe(&format!("{ancestor}/{module_path}"))
             }
-            ancestor = dir(ancestor);
-        }
+        })
     }
 
     #[expect(
