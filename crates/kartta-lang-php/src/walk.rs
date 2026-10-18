@@ -399,13 +399,16 @@ impl Emitter<'_> {
     }
 }
 
+// constraint: `Symbol::new` copies its name into the qualified name, so the symbol starts unnamed, which allocates
+// nothing, and then takes both names
 fn declared(name: String, qualified: String, kind: SymbolKind, node: Node<'_>) -> Symbol {
     let mut symbol = Symbol::new(
-        name,
+        String::new(),
         kind,
         line(node.start_position().row),
         line(node.end_position().row),
     );
+    symbol.name = name;
     symbol.qualified_name = qualified;
     symbol
 }
