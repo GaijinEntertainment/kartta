@@ -325,6 +325,15 @@ impl Engine {
         &self.index
     }
 
+    /// Each language's [name](Language::name) and the name of its family, in the order they were given to
+    /// [`Engine::build`].
+    pub fn languages(&self) -> impl ExactSizeIterator<Item = (&str, &str)> {
+        self.languages
+            .iter()
+            .zip(&self.family_of)
+            .map(|(language, &family)| (language.name(), self.families[family].name.as_str()))
+    }
+
     /// Each language family's name and graph, in the order their first languages were given to [`Engine::build`].
     pub fn graphs(&self) -> impl ExactSizeIterator<Item = (&str, &Graph)> {
         self.families
@@ -369,13 +378,11 @@ impl Engine {
     #[must_use]
     pub fn stats(&self) -> EngineStats<'_> {
         let languages = self
-            .languages
-            .iter()
+            .languages()
             .zip(&self.file_counts)
-            .zip(&self.family_of)
-            .map(|((language, counts), &family)| LanguageFiles {
-                name: language.name(),
-                family: &self.families[family].name,
+            .map(|((name, family), counts)| LanguageFiles {
+                name,
+                family,
                 claimed: counts.claimed,
                 read: counts.read,
                 cached: counts.cached,

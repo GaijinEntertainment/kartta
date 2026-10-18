@@ -7,7 +7,6 @@ use crate::wire::StoredErrors;
 #[derive(Debug)]
 pub(crate) struct Built {
     pub(crate) engine: Engine,
-    pub(crate) family_of_language: Vec<(String, String)>,
     pub(crate) errors: StoredErrors,
 }
 
@@ -53,15 +52,15 @@ impl Built {
     }
 
     fn family_named(&self, lang: &str) -> Result<&str, Error> {
-        self.family_of_language
-            .iter()
-            .find(|(language, family)| language == lang || family == lang)
-            .map(|(_, family)| family.as_str())
+        self.engine
+            .languages()
+            .find(|&(language, family)| language == lang || family == lang)
+            .map(|(_, family)| family)
             .ok_or_else(|| {
                 let held: Vec<&str> = self
-                    .family_of_language
-                    .iter()
-                    .map(|(language, _)| language.as_str())
+                    .engine
+                    .languages()
+                    .map(|(language, _)| language)
                     .collect();
                 Error::new(
                     ErrorCode::InvalidParams,
