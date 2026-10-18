@@ -7,7 +7,7 @@ use kartta_lang::SymbolKind;
 use crate::candidates::{Candidates, INDEXED_FROM};
 use crate::confidence;
 use crate::resolve::{
-    Bound, Call, Cascade, THROUGH_INCLUDES_MAX_DEFINITIONS, UseMiss, derives, is_type_kind,
+    Bound, Call, Cascade, THROUGH_INCLUDES_MAX_DEFINITIONS, UseMiss, derived, derives, is_type_kind,
 };
 use crate::scope::Shape;
 use crate::stored::SymbolAt;
@@ -30,29 +30,26 @@ pub(crate) struct DataNamed<'g> {
 
 impl<'g> Cascade<'g> {
     pub(crate) fn data_named(&self, name: Str) -> Rc<DataNamed<'g>> {
-        if let Some(held) = self.data_named.borrow().get(&name) {
-            return Rc::clone(held);
-        }
-        let named = self.named(name);
-        let (fields, values): (Vec<SymbolAt>, Vec<SymbolAt>) = named
-            .iter()
-            .copied()
-            .filter(|&at| {
-                let symbol = self.graph.sym(at);
-                symbol.kind == SymbolKind::Field
-                    || (matches!(symbol.kind, SymbolKind::Variable | SymbolKind::Constant)
-                        && symbol.owner.is_none()
-                        && self.holder(at).is_none())
-            })
-            .partition(|&at| self.graph.sym(at).kind == SymbolKind::Field);
-        let fields = if named.len() < INDEXED_FROM {
-            Candidates::scanned(named, fields)
-        } else {
-            Candidates::indexed(self.graph, named, fields, Vec::new())
-        };
-        let held = Rc::new(DataNamed { fields, values });
-        self.data_named.borrow_mut().insert(name, Rc::clone(&held));
-        held
+        derived(&self.data_named, name, || {
+            let named = self.named(name);
+            let (fields, values): (Vec<SymbolAt>, Vec<SymbolAt>) = named
+                .iter()
+                .copied()
+                .filter(|&at| {
+                    let symbol = self.graph.sym(at);
+                    symbol.kind == SymbolKind::Field
+                        || (matches!(symbol.kind, SymbolKind::Variable | SymbolKind::Constant)
+                            && symbol.owner.is_none()
+                            && self.holder(at).is_none())
+                })
+                .partition(|&at| self.graph.sym(at).kind == SymbolKind::Field);
+            let fields = if named.len() < INDEXED_FROM {
+                Candidates::scanned(named, fields)
+            } else {
+                Candidates::indexed(self.graph, named, fields, Vec::new())
+            };
+            Rc::new(DataNamed { fields, values })
+        })
     }
 
     // constraint: `this` and `self` reach the members the class around the use declares, and failing those the ones
