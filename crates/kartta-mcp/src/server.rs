@@ -25,7 +25,7 @@ use crate::render::{
     self, CallersAsk, Found, Globbed, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion,
     UnusedAsk,
 };
-use crate::state::{GraphRow, Indexed, Request, Served, Slot, Status};
+use crate::state::{GraphRow, Indexed, Request, Served, Slot};
 
 /// How many matching lines `grep` answers when the call names no cap.
 const GREP_MATCHES: usize = 100;
@@ -269,7 +269,7 @@ impl Server {
         &self,
         Parameters(p): Parameters<IndexStatsParams>,
     ) -> Result<String, String> {
-        if let Status::Building { root, elapsed } = self.slot.status() {
+        if let Some((root, elapsed)) = self.slot.building() {
             return Ok(render::building(&root, elapsed));
         }
         self.answer(move |indexed| {

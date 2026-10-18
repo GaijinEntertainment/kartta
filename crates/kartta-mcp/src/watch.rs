@@ -14,9 +14,12 @@ const WAKE: Duration = Duration::from_secs(1);
 /// started, while the index was built included, is not reported. The directories that refresh added are then watched
 /// too, and refreshed for what changed inside each before its watch went on.
 pub(crate) fn start(served: &Served) -> Result<Watcher, String> {
-    let mut watcher = served.watcher()?;
+    let mut watcher =
+        Watcher::new(served.read()?.engine.index()).map_err(|error| error.to_string())?;
     served.refresh(std::iter::empty())?;
-    let covered = served.cover(&mut watcher)?;
+    let covered = watcher
+        .cover(served.read()?.engine.index())
+        .map_err(|error| error.to_string())?;
     if !covered.is_empty() {
         served.refresh(covered.iter().map(String::as_str))?;
     }
