@@ -53,10 +53,8 @@ import type {
 
 export type * from "./wire.ts";
 
-/** The targets this package ships an addon for, as `<platform>-<arch>[-<libc>]`. */
 const TARGETS = ["darwin-arm64", "linux-x64-gnu", "linux-arm64-gnu"];
 
-/** The addon `crates/kartta-node` builds. Every string it takes and every buffer it answers is the wire's JSON. */
 interface Addon {
   open(params: string): Handle | Buffer;
 }
