@@ -3,11 +3,11 @@ use kartta_lang::tree::text;
 use tree_sitter::Node;
 
 use crate::bindings::MethodKind;
-use crate::owner::{EnclosingType, enclosing_type, in_singleton_class};
+use crate::owner::{enclosing_type, in_singleton_class};
 use crate::walk::{Emitter, declared, named, visibility_exports};
 
 struct Accessors {
-    owner: EnclosingType,
+    owner: String,
     kind: MethodKind,
     separator: &'static str,
     exported: bool,
@@ -96,9 +96,9 @@ impl Emitter<'_> {
     }
 
     fn accessor(&mut self, accessors: &Accessors, name: String, argument: Node<'_>) {
-        let qualified = accessors.owner.member(accessors.separator, &name);
+        let qualified = format!("{}{}{name}", accessors.owner, accessors.separator);
         let mut symbol = declared(name, qualified.clone(), SymbolKind::Method, argument);
-        symbol.owner = Some(accessors.owner.qualified.clone());
+        symbol.owner = Some(accessors.owner.clone());
         symbol.exported = accessors.exported;
         let id = self.push(symbol);
         let name = self.name_key(accessors.kind, qualified);
@@ -142,7 +142,10 @@ impl Emitter<'_> {
 
         for argument in named(arguments).filter(|argument| argument.kind() == "simple_symbol") {
             let name = text(argument, self.source);
-            let name = self.name_key(kind, owner.member(separator, name.trim_start_matches(':')));
+            let name = self.name_key(
+                kind,
+                format!("{owner}{separator}{}", name.trim_start_matches(':')),
+            );
             if let Some(symbol) = self
                 .bindings
                 .declaration(&name)
@@ -189,9 +192,10 @@ impl Emitter<'_> {
         let owner = enclosing_type(node, self.source);
         let (method_kind, separator) = method_kind(node);
         let qualify = |name: &str| {
-            owner
-                .as_ref()
-                .map_or_else(|| name.to_owned(), |owner| owner.member(separator, name))
+            owner.as_ref().map_or_else(
+                || name.to_owned(),
+                |owner| format!("{owner}{separator}{name}"),
+            )
         };
 
         let qualified = qualify(&name);
@@ -206,7 +210,7 @@ impl Emitter<'_> {
         };
 
         let mut symbol = declared(name, qualified.clone(), kind, node);
-        symbol.owner = owner.map(|owner| owner.qualified);
+        symbol.owner = owner;
         symbol.exported = self.exported_by_default();
         let id = self.push(symbol);
         let name = self.name_key(method_kind, qualified);
