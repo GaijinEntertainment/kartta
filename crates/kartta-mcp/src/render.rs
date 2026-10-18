@@ -19,7 +19,7 @@ pub(crate) use self::symbols::{
 };
 pub(crate) use self::unused::{UnusedAsk, unused};
 use crate::llmxml::Element;
-use crate::state::{Indexed, Refreshed};
+use crate::state::{Indexed, Refreshed, Watch};
 
 /// How an answer echoes an empty `languages` filter.
 pub(crate) const EMPTY_LANGUAGES: &str = "[]";
@@ -162,6 +162,13 @@ pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> S
                 "respected"
             } else {
                 "ignored"
+            },
+        )
+        .attr(
+            "watch",
+            match &indexed.watch {
+                Watch::Following => "following".to_owned(),
+                Watch::Off(reason) => format!("off: {reason}"),
             },
         )
         .attr(

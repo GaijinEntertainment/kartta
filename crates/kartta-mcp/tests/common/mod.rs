@@ -23,11 +23,21 @@ pub(crate) struct Answer {
 impl Client {
     /// Starts the server with `arguments`, and completes the MCP handshake.
     pub(crate) fn start(arguments: &[&Path]) -> Self {
+        Self::launch(arguments, "on")
+    }
+
+    /// Starts the server with `arguments` and `KARTTA_WATCH=off`, and completes the MCP handshake.
+    pub(crate) fn unwatched(arguments: &[&Path]) -> Self {
+        Self::launch(arguments, "off")
+    }
+
+    fn launch(arguments: &[&Path], watch: &str) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_kartta-mcp"))
             .args(arguments)
             .env_remove("KARTTA_ROOT")
             .env_remove("KARTTA_GREP_INDEX")
             .env_remove("KARTTA_CACHE_DIR")
+            .env("KARTTA_WATCH", watch)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

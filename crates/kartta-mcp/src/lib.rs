@@ -3,7 +3,9 @@
 //! The server speaks MCP over stdio and offers tools alone, no resources and no prompts. `index_repo` builds the
 //! engine over a repository root, and every other tool answers from it: the file tools search paths, list directories
 //! and grep content, and the graph tools find definitions, callers, references, call paths, implementors, importers
-//! and what an edit reaches. One repository is indexed per process, and indexing another replaces it.
+//! and what an edit reaches. One repository is indexed per process, and indexing another replaces it. A built index
+//! follows its tree through the operating system's change notifications and refreshes itself from each change, unless
+//! [`Config::watch`] is off; the `refresh` tool takes in a change the notifications do not report.
 //!
 //! An answer is an XML-like envelope written for a model rather than a parser: one root element named for the
 //! question, counts as attributes, one record per line. An attribute that marks the unusual, `truncated="true"` or
@@ -27,6 +29,7 @@ mod params;
 mod render;
 mod server;
 mod state;
+mod watch;
 
 pub use crate::config::Config;
 pub use crate::server::Server;

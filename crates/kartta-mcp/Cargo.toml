@@ -20,7 +20,8 @@ path = "src/main.rs"
 
 [dependencies]
 kartta = { version = "0.0.0", path = "../kartta" }
-kartta-fs = { version = "0.0.0", path = "../kartta-fs" }
+# The server follows the tree it indexed through the operating system's change notifications.
+kartta-fs = { version = "0.0.0", path = "../kartta-fs", features = ["watch"] }
 kartta-languages = { version = "0.0.0", path = "../kartta-languages" }
 # The server speaks MCP over stdio alone, so no HTTP transport and no client side are built.
 rmcp = { version = "3.5.1", default-features = false, features = ["macros", "server", "transport-io"] }
