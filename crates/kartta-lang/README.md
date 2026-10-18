@@ -32,6 +32,13 @@ carries there, a Rust attribute or a C++ template header. A language states thos
 `DocComments`, and a query that answers a definition's text reads its doc comment from the file when asked, so no
 extraction records it.
 
+## Generated-code banners
+
+A tool that generates a file says so in the comments that open it, with a marker such as `@generated` or `DO NOT EDIT`.
+A language states its markers and the comment forms of its header as a `Banner`, and flags the symbols of a file the
+banner opens as generated code. A marker inside a backtick span is a mention, and one below the first code is no
+banner.
+
 ## Walking tree-sitter trees
 
 The `tree-sitter` feature adds `kartta_lang::tree`: a pre-order walk and the text and signature helpers a language

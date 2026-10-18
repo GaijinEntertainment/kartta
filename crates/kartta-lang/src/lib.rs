@@ -63,6 +63,7 @@
 //! assert_eq!(names, ["parse", "render"]);
 //! ```
 
+mod banner;
 mod codec;
 mod doc;
 mod extraction;
@@ -72,6 +73,7 @@ mod symbol;
 #[cfg(feature = "tree-sitter")]
 pub mod tree;
 
+pub use crate::banner::Banner;
 pub use crate::doc::{BlockComment, DocComments};
 pub use crate::extraction::{
     Access, CallRef, Callable, CallableRole, Extraction, FoldedDeclaration, ImplementsAssertion,
