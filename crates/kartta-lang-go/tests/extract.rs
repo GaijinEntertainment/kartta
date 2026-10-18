@@ -1,4 +1,4 @@
-//! What one Go file extracts to from its bytes alone.
+//! What one Go file extracts to from its bytes alone, and where the doc comment of a definition starts.
 #![expect(
     clippy::panic,
     reason = "clippy's allow-panic-in-tests covers #[test] functions and #[cfg(test)] modules, and the lookup \
@@ -1682,4 +1682,32 @@ fn a_name_no_local_binds_is_a_read_or_a_write_of_what_the_package_declares() {
         ],
         "a map literal's keys are values; a declared local, a parameter and a builtin are no use"
     );
+}
+
+fn doc_line(source: &str, qualified_name: &str) -> u32 {
+    let line = qualified(&extract(source.as_bytes()), qualified_name).line;
+    let lines: Vec<&[u8]> = source.lines().map(str::as_bytes).collect();
+    Go::new().doc_comments().first_line(&lines, line)
+}
+
+#[test]
+fn line_and_block_comments_directly_above_a_definition_document_it() {
+    let source = "package a
+
+// Parse reads.
+// It fails on nothing.
+func Parse() {}
+
+/*
+Render draws.
+*/
+func Render() {}
+
+var x = 1
+func After() {}
+";
+
+    assert_eq!(doc_line(source, "a.Parse"), 3);
+    assert_eq!(doc_line(source, "a.Render"), 7);
+    assert_eq!(doc_line(source, "a.After"), 13);
 }
