@@ -6,6 +6,10 @@
               without cfg(test), so the client's helpers fail the test by a failed expectation"
 )]
 
+#[expect(
+    dead_code,
+    reason = "the helpers serve every test crate, and this one calls some of them"
+)]
 mod common;
 
 use serde_json::json;
@@ -250,7 +254,7 @@ fn index_repo_reports_each_graph() {
 
     assert_eq!(
         rooted(&answer, tree.path()),
-        "<index root=\"<root>\" files=\"4\" gitignore=\"respected\" symbols=\"5\" calls=\"3\">\n\
+        "<index root=\"<root>\" files=\"4\" gitignore=\"respected\" watch=\"following\" symbols=\"5\" calls=\"3\">\n\
          <language name=\"go\" files=\"2\" symbols=\"5\" calls=\"3\" uses=\"4\" includes=\"1\"/>\n\
          </index>"
     );

@@ -25,7 +25,8 @@ Environment:
   KARTTA_CACHE_DIR       a directory builds share per-file data through
   KARTTA_GREP_INDEX      memory, file or mmap: build a trigram index that narrows grep
   KARTTA_GREP_INDEX_DIR  where a file or mmap trigram index lives (default: the temporary directory)
-  KARTTA_THREADS         how many threads builds and queries run on (default: every core)";
+  KARTTA_THREADS         how many threads builds and queries run on (default: every core)
+  KARTTA_WATCH           off, 0, false or no: take in edits only through the refresh tool (default: follow the tree)";
 
 enum Launch {
     Serve(Option<PathBuf>),

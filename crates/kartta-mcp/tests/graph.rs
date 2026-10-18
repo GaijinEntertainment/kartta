@@ -705,7 +705,7 @@ fn index_stats_counts_how_the_calls_bind_when_asked_for_coverage() {
     client.index(tree.path());
 
     let root = tree.path();
-    let index = r#"<index root="<root>" files="3" gitignore="respected" symbols="2" calls="3">"#;
+    let index = r#"<index root="<root>" files="3" gitignore="respected" watch="following" symbols="2" calls="3">"#;
     let language = r#"<language name="go" files="2" symbols="2" calls="3" uses="0" includes="0"/>"#;
     assert_eq!(
         [
