@@ -126,7 +126,7 @@ fn the_fingerprint_stays_put_and_names_the_crate() {
     let quirrel = Quirrel::new();
     let fingerprint = quirrel.fingerprint();
 
-    assert!(fingerprint.starts_with(b"kartta-lang-quirrel\0"));
+    assert!(fingerprint.starts_with(b"kartta-lang-quirrel "));
     assert_eq!(Quirrel::new().fingerprint(), fingerprint);
 }
 

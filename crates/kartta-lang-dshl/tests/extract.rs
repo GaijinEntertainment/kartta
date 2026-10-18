@@ -288,6 +288,6 @@ fn the_fingerprint_names_the_crate_and_is_computed_once() {
     let first = one.fingerprint();
     let second = other.fingerprint();
 
-    assert!(first.starts_with(b"kartta-lang-dshl\0"));
+    assert!(first.starts_with(b"kartta-lang-dshl "));
     assert!(std::ptr::eq(first, second));
 }

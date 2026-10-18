@@ -200,7 +200,7 @@ fn a_bare_call_reaches_no_member_of_its_own_class() {
 fn the_fingerprint_names_the_crate() {
     let (php, other) = (Php::new(), Php::new());
 
-    assert!(php.fingerprint().starts_with(b"kartta-lang-php\0"));
+    assert!(php.fingerprint().starts_with(b"kartta-lang-php "));
     assert_eq!(php.fingerprint(), other.fingerprint());
 }
 
