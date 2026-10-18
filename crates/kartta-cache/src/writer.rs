@@ -7,7 +7,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::key::{self, ContentHash, Namespace};
-use crate::pack::{self, Footer};
+use crate::pack::{self, Footer, IndexEntry, Published};
 
 /// Gathers the entries one process computed and publishes them together as one immutable pack.
 ///
@@ -18,9 +18,13 @@ use crate::pack::{self, Footer};
 /// handed different bytes. A writer dropped without publishing removes its temporary file.
 ///
 /// A key inserted twice keeps its first payload.
+///
+/// Every entry is stamped with the time the writer was made, which is when its age starts:
+/// [`Store::merge`](crate::Store::merge) removes it once that age passes the time to live it is given.
 #[derive(Debug)]
 pub struct PackWriter {
     dir: PathBuf,
+    published: Published,
     state: Mutex<Option<Writing>>,
 }
 
@@ -37,19 +41,22 @@ struct Writing {
 #[derive(Debug)]
 struct Pending {
     namespace: Namespace,
-    content: ContentHash,
-    offset: u64,
-    len: u32,
-    check: u64,
+    record: IndexEntry,
 }
 
+pub(crate) const TEMP_PREFIX: &str = ".tmp-";
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const WRITE_BUFFER: usize = 1 << 20;
 
 impl PackWriter {
     pub(crate) fn new(dir: &Path) -> Self {
+        Self::published_at(dir, SystemTime::now())
+    }
+
+    pub(crate) fn published_at(dir: &Path, published: SystemTime) -> Self {
         Self {
             dir: dir.to_path_buf(),
+            published: Published::at(published),
             state: Mutex::new(None),
         }
     }
@@ -70,12 +77,25 @@ impl PackWriter {
         let len = u32::try_from(payload.len()).map_err(|_| {
             io::Error::new(io::ErrorKind::InvalidInput, "a payload of 4 GiB or more")
         })?;
-        let entry = Pending {
-            namespace: *namespace,
+        let record = IndexEntry {
             content: *content,
             offset: 0,
             len,
             check: key::check(namespace, content, payload),
+            published: self.published,
+        };
+        self.insert_record(namespace, record, payload)
+    }
+
+    pub(crate) fn insert_record(
+        &self,
+        namespace: &Namespace,
+        record: IndexEntry,
+        payload: &[u8],
+    ) -> io::Result<()> {
+        let entry = Pending {
+            namespace: *namespace,
+            record,
         };
         Writing::append_to(
             &mut self.state.lock().unwrap_or_else(PoisonError::into_inner),
@@ -98,8 +118,9 @@ impl PackWriter {
     /// Finishes the pack and links it into the store's directory, returning its path, or `None` when nothing was
     /// inserted.
     ///
-    /// A pack with the same name already in place holds the same index over the same payloads, so finding one counts
-    /// as published.
+    /// A pack's name is hashed over its index without the publication times, so a pack with the same name already in
+    /// place holds the same entries over the same payloads and finding one counts as published. The entries then age
+    /// from that pack's publication times, not from this writer's.
     ///
     /// # Errors
     ///
@@ -146,8 +167,14 @@ impl Writing {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |since| since.as_nanos());
         let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let temp = dir.join(format!(".tmp-{}-{nanos}-{sequence}", std::process::id()));
+        let temp = dir.join(format!(
+            "{TEMP_PREFIX}{}-{nanos}-{sequence}",
+            std::process::id()
+        ));
         let file = File::options().write(true).create_new(true).open(&temp)?;
+        // constraint: the lock is what tells a merge in another process that the file is still being written; on a
+        // filesystem without locks the file is unprotected once unwritten for an hour, which costs only this publish
+        let _ = file.try_lock();
 
         Ok(Self {
             temp,
@@ -179,15 +206,15 @@ impl Writing {
         if self.failed {
             return Err(failed_earlier());
         }
-        if !self.seen.insert((entry.namespace, entry.content)) {
+        if !self.seen.insert((entry.namespace, entry.record.content)) {
             return Ok(());
         }
         if let Err(error) = self.file.write_all(payload) {
             self.failed = true;
             return Err(error);
         }
-        entry.offset = self.written;
-        self.written += u64::from(entry.len);
+        entry.record.offset = self.written;
+        self.written += u64::from(entry.record.len);
         self.entries.push(entry);
 
         Ok(())
@@ -195,15 +222,15 @@ impl Writing {
 
     fn finish(mut self, dir: &Path) -> io::Result<PathBuf> {
         self.entries.sort_unstable_by(|left, right| {
-            (left.namespace, left.content).cmp(&(right.namespace, right.content))
+            (left.namespace, left.record.content).cmp(&(right.namespace, right.record.content))
         });
         let mut name = blake3::Hasher::new();
         let index_offset = self.written;
         let mut namespaces: Vec<(Namespace, u64, u64)> = Vec::new();
         for (at, entry) in (0_u64..).zip(&self.entries) {
-            let record = pack::entry_record(&entry.content, entry.offset, entry.len, entry.check);
+            let record = entry.record.encode();
             self.file.write_all(&record)?;
-            name.update(&record);
+            name.update(&record[..pack::NAMED_RECORD_LEN]);
             match namespaces.last_mut() {
                 Some((namespace, _, end)) if *namespace == entry.namespace => *end = at + 1,
                 _ => namespaces.push((entry.namespace, at, at + 1)),

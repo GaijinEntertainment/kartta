@@ -10,7 +10,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use kartta_cache::{ContentHash, ContentHasher, Merged, Namespace, PackWriter, Store};
+use kartta_cache::{ContentHash, ContentHasher, DEFAULT_TTL, Merged, Namespace, PackWriter, Store};
 use tempfile::TempDir;
 
 fn trigrams() -> Namespace {
@@ -328,7 +328,7 @@ fn a_store_of_eight_packs_is_left_as_it_is() {
 
     let merged = Store::open(dir.path())
         .expect("open")
-        .merge()
+        .merge(DEFAULT_TTL)
         .expect("merge");
 
     assert_eq!(merged, Merged::default());
@@ -342,7 +342,7 @@ fn nine_packs_of_one_size_merge_into_one_that_answers_for_all() {
 
     let merged = Store::open(dir.path())
         .expect("open")
-        .merge()
+        .merge(DEFAULT_TTL)
         .expect("merge");
 
     assert_eq!(
@@ -372,7 +372,7 @@ fn the_largest_pack_stays_while_the_ones_added_since_merge() {
 
     let merged = Store::open(dir.path())
         .expect("open")
-        .merge()
+        .merge(DEFAULT_TTL)
         .expect("merge");
 
     assert_eq!((merged.packs, merged.entries), (8, 8));
@@ -391,7 +391,7 @@ fn a_store_that_mapped_the_merged_packs_keeps_answering() {
 
     Store::open(dir.path())
         .expect("open")
-        .merge()
+        .merge(DEFAULT_TTL)
         .expect("merge");
 
     assert!((0..9).all(|at| answers(&reader, &format!("file {at}"))));
@@ -414,7 +414,7 @@ fn a_key_several_packs_hold_is_merged_once() {
 
     let merged = Store::open(dir.path())
         .expect("open")
-        .merge()
+        .merge(DEFAULT_TTL)
         .expect("merge");
 
     assert_eq!(
@@ -436,7 +436,7 @@ fn a_merge_drops_the_entries_that_fail_their_check() {
 
     let merged = Store::open(dir.path())
         .expect("open")
-        .merge()
+        .merge(DEFAULT_TTL)
         .expect("merge");
 
     assert_eq!((merged.packs, merged.entries), (9, 8));
@@ -455,7 +455,7 @@ fn a_pack_whose_namespace_ranges_are_damaged_is_refused_and_never_merged_away() 
     fs::write(&pack, &bytes).expect("write the damaged pack");
 
     let store = Store::open(dir.path()).expect("open");
-    let merged = store.merge().expect("merge");
+    let merged = store.merge(DEFAULT_TTL).expect("merge");
 
     assert_eq!((store.stats().packs, store.stats().rejected_packs), (9, 1));
     assert_eq!(merged.packs, 9);
