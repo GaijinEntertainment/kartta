@@ -103,6 +103,59 @@ fn a_refresh_shows_what_was_added_and_removed_since_the_build() {
 }
 
 #[test]
+fn a_refresh_lists_the_regular_files_it_added_and_removed_and_not_those_it_changed() {
+    let dir = tree(&[
+        ("edited.rs", "a"),
+        ("gone.rs", "b"),
+        ("became_dir", "c"),
+        ("became_file/inner.rs", "d"),
+        ("hidden.log", "e"),
+    ]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "edited.rs", "changed");
+    fs::remove_file(dir.path().join("gone.rs")).expect("remove");
+    fs::remove_file(dir.path().join("became_dir")).expect("remove");
+    write(dir.path(), "became_dir/inner.rs", "f");
+    fs::remove_dir_all(dir.path().join("became_file")).expect("remove");
+    write(dir.path(), "became_file", "g");
+    write(dir.path(), ".gitignore", "*.log\n");
+    let outcome = index.refresh(None, None).expect("refresh");
+
+    assert_eq!(
+        outcome.added(),
+        [".gitignore", "became_dir/inner.rs", "became_file"]
+    );
+    assert_eq!(
+        outcome.removed(),
+        [
+            "became_dir",
+            "became_file/inner.rs",
+            "gone.rs",
+            "hidden.log"
+        ]
+    );
+}
+
+#[test]
+fn refreshing_paths_lists_the_regular_files_added_and_removed_in_the_parts_it_walked() {
+    let dir = tree(&[("keep.rs", "a"), ("gone.rs", "b"), ("old/one.rs", "c")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    fs::remove_file(dir.path().join("gone.rs")).expect("remove");
+    fs::remove_dir_all(dir.path().join("old")).expect("remove");
+    write(dir.path(), "new/deep/two.rs", "d");
+    write(dir.path(), "unnamed.rs", "e");
+    let outcome = index
+        .refresh_paths(["gone.rs", "old", "new/deep/two.rs"], None, None)
+        .expect("refresh the paths");
+
+    assert_eq!(outcome.walked(), ["gone.rs", "new", "old"]);
+    assert_eq!(outcome.added(), ["new/deep/two.rs"]);
+    assert_eq!(outcome.removed(), ["gone.rs", "old/one.rs"]);
+}
+
+#[test]
 fn a_refresh_applies_ignore_rules_as_they_are_now() {
     let dir = tree(&[(".gitignore", "*.log\n"), ("a.log", ""), ("b.txt", "")]);
     let mut index = build(dir.path(), &BuildOptions::default(), None);

@@ -26,9 +26,12 @@ use crate::pruned::PrunedNames;
 use crate::requirement::Requirement;
 use crate::stamp::{Stamp, Stamping, UNTRUSTED};
 
+mod changed;
 mod refresh;
 mod scoped;
 mod splice;
+
+use changed::{ChangedFiles, Held};
 
 pub(crate) use refresh::Previous;
 
@@ -175,6 +178,8 @@ impl Index {
     ) -> Result<RefreshOutcome, BuildError> {
         let (BuildOutcome { index, errors }, retired) =
             self.counting_handed(|index, handed| index.walk_again(visitor, cancel, handed))?;
+        let mut changed = ChangedFiles::default();
+        changed.add_between(Held::all(self), Held::all(&index));
         *self = index;
         release_freed_memory();
 
@@ -182,6 +187,7 @@ impl Index {
             errors,
             retired,
             walked: vec![String::new()],
+            changed,
         })
     }
 
@@ -1403,13 +1409,14 @@ impl BuildOutcome {
     }
 }
 
-/// What one [`Index::refresh`] or [`Index::refresh_paths`] reports: what it walked, what its walks could not read, and
-/// which ids the index stopped answering for.
+/// What one [`Index::refresh`] or [`Index::refresh_paths`] reports: what it walked, what its walks could not read,
+/// which regular files it added and removed, and which ids the index stopped answering for.
 #[derive(Debug)]
 pub struct RefreshOutcome {
     errors: Vec<BuildError>,
     retired: Vec<Range<u32>>,
     walked: Vec<String>,
+    changed: ChangedFiles,
 }
 
 impl RefreshOutcome {
@@ -1427,6 +1434,23 @@ impl RefreshOutcome {
     #[must_use]
     pub fn walked(&self) -> &[String] {
         &self.walked
+    }
+
+    /// The regular files the index holds now and did not hold before, in [`Index::entries`] order: files created,
+    /// and paths that held another kind of entry or that the ignore rules hid. Only the walked parts are compared, so
+    /// a [`Index::refresh`] pays one pass over the paths before and after it, and a [`Index::refresh_paths`] a pass
+    /// over the parts it walked.
+    #[must_use]
+    pub fn added(&self) -> &[String] {
+        &self.changed.added
+    }
+
+    /// The regular files the index held before and does not hold now, in the order the index held them: files
+    /// deleted, replaced by another kind of entry, or hidden by the ignore rules. A file whose content changed is in
+    /// neither list; [`RefreshOutcome::retired`] names its old id.
+    #[must_use]
+    pub fn removed(&self) -> &[String] {
+        &self.changed.removed
     }
 
     /// The ids the index handed out before this refresh, including those of a refresh that returned an error or that a
