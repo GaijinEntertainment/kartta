@@ -8,28 +8,14 @@
               is the assertion"
 )]
 
+mod common;
+
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use common::{tree, write};
 use kartta_fs::{BuildOptions, EntryKind, Index, Watcher};
-use tempfile::TempDir;
-
-fn tree(spec: &[(&str, &str)]) -> TempDir {
-    let dir = tempfile::tempdir().expect("create temp dir");
-    for (path, content) in spec {
-        write(dir.path(), path, content);
-    }
-    dir
-}
-
-fn write(root: &Path, path: &str, content: &str) {
-    let full = root.join(path);
-    if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent).expect("create parent directory");
-    }
-    fs::write(&full, content).expect("write file");
-}
 
 fn build(root: &Path) -> Index {
     build_with(root, &BuildOptions::default())
