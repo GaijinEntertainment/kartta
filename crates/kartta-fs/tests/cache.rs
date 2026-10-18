@@ -191,7 +191,6 @@ fn a_cache_that_cannot_be_opened_costs_only_the_sharing() {
 struct Visited {
     path: String,
     cached: Option<Vec<u8>>,
-    hash: Option<ContentHash>,
 }
 
 struct Lengths {
@@ -227,7 +226,6 @@ impl ContentVisitor for Lengths {
         self.visited.lock().expect("lock").push(Visited {
             path: content.path().to_owned(),
             cached,
-            hash: content.hash(),
         });
     }
 }
@@ -249,13 +247,11 @@ fn a_visitor_finds_what_a_build_of_another_tree_cached_for_the_same_content() {
     build_visited(first.path(), &cached(cache.path()), &before);
     build_visited(moved.path(), &cached(cache.path()), &after);
 
-    let hash = Some(ContentHash::of(content));
     assert_eq!(
         before.visited(),
         [Visited {
             path: "a.txt".to_owned(),
             cached: None,
-            hash,
         }]
     );
     assert_eq!(
@@ -263,7 +259,6 @@ fn a_visitor_finds_what_a_build_of_another_tree_cached_for_the_same_content() {
         [Visited {
             path: "moved/a.txt".to_owned(),
             cached: Some(content.len().to_le_bytes().to_vec()),
-            hash,
         }]
     );
     assert_eq!(
@@ -337,7 +332,7 @@ fn a_time_to_live_of_zero_is_a_week_and_never_empties_the_store() {
 }
 
 #[test]
-fn a_build_without_a_cache_hands_the_visitor_no_hash_and_no_entry() {
+fn a_build_without_a_cache_hands_the_visitor_no_entry() {
     let root = tree(&[("a.txt", b"alpha\n")]);
     let lengths = Lengths::new();
 
@@ -348,7 +343,6 @@ fn a_build_without_a_cache_hands_the_visitor_no_hash_and_no_entry() {
         [Visited {
             path: "a.txt".to_owned(),
             cached: None,
-            hash: None,
         }]
     );
 }

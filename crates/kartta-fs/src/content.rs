@@ -12,8 +12,8 @@ use crate::cache::SharedCache;
 /// the file again after the walk, when the filesystem's caches of the tree have long moved on.
 ///
 /// A build given [`BuildOptions::content_cache`](crate::BuildOptions::content_cache) lends the visitor the same
-/// store and the same hash of each file: what the visitor computes per file it can take from
-/// [`Content::cached`] and share through [`Content::cache`], so builds of nearly identical trees compute it once.
+/// store, keyed by each file's content: what the visitor computes per file it can take from [`Content::cached`] and
+/// share through [`Content::cache`], so builds of nearly identical trees compute it once.
 ///
 /// Both methods run on the walk's threads, many at a time and in no particular order, which is why the visitor is
 /// [`Sync`]. [`Content::id`] names each file for the rest of the build, and
@@ -98,13 +98,6 @@ impl<'a> Content<'a> {
     #[must_use]
     pub const fn bytes(&self) -> &'a [u8] {
         self.bytes
-    }
-
-    /// The blake3 hash of [`Content::bytes`], or `None` when the build was given no
-    /// [`BuildOptions::content_cache`](crate::BuildOptions::content_cache), which is what has it hash each read.
-    #[must_use]
-    pub fn hash(&self) -> Option<ContentHash> {
-        self.cache.map(|(_, hash)| hash)
     }
 
     /// What a build sharing the cache stored under `namespace` for these bytes, borrowed from the store for the length

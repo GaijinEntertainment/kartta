@@ -48,7 +48,8 @@
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-18
 - [2.2 Take per-file data from the shared cache in the walk's
-  read](./adr/2.2-take-per-file-data-from-the-cache-in-the-walk-s-read.md) — initiative `02-shared-cache`, 2026-10-16
+  read](./adr/2.2-take-per-file-data-from-the-cache-in-the-walk-s-read.md) — initiative `02-shared-cache`, 2026-10-16,
+  revised 2026-10-18
 - [2.3 Expire cache entries by the time each was
   published](./adr/2.3-expire-cache-entries-by-the-time-each-was-published.md) — initiative `02-shared-cache`,
   2026-10-18
