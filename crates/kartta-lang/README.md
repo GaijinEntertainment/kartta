@@ -15,9 +15,9 @@ tree on a machine. Whatever depends on the path or the repository — which file
 test — is recorded as a directive and applied by the `Resolver` the language builds over a read-only `Repository`.
 
 The fingerprint must change whenever what `extract` computes from the same bytes can change: the grammar, the walk,
-the shape of the result. A cache keys an extraction by the hash of the bytes, the language's `fingerprint`, this
-crate's `FINGERPRINT` — the code of the helpers and the encoding — and `RawExtraction::CODEC`, the layout the
-extraction is stored in, so a new version of a language or of this crate never reads an old one's.
+the shape of the result. A cache keys an extraction by the hash of the bytes, the language's `fingerprint` and this
+crate's `FINGERPRINT` — the code of the helpers and of the encoding the extraction is stored in — so a new version of a
+language or of this crate never reads an old one's.
 
 ## Call conventions
 

@@ -19,11 +19,6 @@ const WRITE: u8 = 1 << 2;
 const UPDATE: u8 = 2 << 2;
 
 impl RawExtraction {
-    /// The identity of the bytes [`RawExtraction::encode`] writes: a cache keys an encoded extraction by it as well as
-    /// by its language's fingerprint, so an entry in another layout is never decoded.
-    // constraint: names the layout `encode` writes, so it changes with any change to it
-    pub const CODEC: &'static [u8] = b"kartta-lang raw extraction 4";
-
     /// Appends this extraction to `out` in a compact binary form that [`RawExtraction::decode`] reads back.
     pub fn encode(&self, out: &mut Vec<u8>) {
         let mut writer = Writer(out);

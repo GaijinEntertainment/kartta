@@ -163,10 +163,10 @@ impl Engine {
     /// With [`BuildOptions::content_cache`], an extraction is taken from the cache when an earlier build of the same
     /// bytes by the same [fingerprint](Language::fingerprint) put it there, and is put there otherwise. The cache keeps
     /// a language's extractions under the namespace whose kind is `graph/` followed by the language's
-    /// [name](Language::name), and whose fingerprint is the language's, followed by [`kartta_lang::FINGERPRINT`] and by
-    /// [`kartta_lang::RawExtraction::CODEC`], the form they are kept in. A build sees the cache as it was when the
-    /// build opened it, and publishes what it extracted once its walk is done, so builds that run at once over a cache
-    /// that lacks a file each extract that file.
+    /// [name](Language::name), and whose fingerprint is the language's, followed by [`kartta_lang::FINGERPRINT`], which
+    /// covers the form they are kept in. A build sees the cache as it was when the build opened it, and publishes what
+    /// it extracted once its walk is done, so builds that run at once over a cache that lacks a file each extract that
+    /// file.
     ///
     /// Until the walk is done, the build holds each extraction in that form. The extractions are then resolved on the
     /// index's [threads](kartta_fs::Index::on_threads) in batches, each batch inserted in path order before the next is
