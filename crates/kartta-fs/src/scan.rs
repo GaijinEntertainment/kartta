@@ -108,19 +108,16 @@ impl<'a> Scanner<'a> {
             filled
         };
 
-        let mut collector = Collector::new(self.matcher, self.options, budget);
+        let mut sink = LineSink::new(self.matcher, self.options, budget);
         let source = (&self.head[..probed]).chain(file);
-        match self
-            .searcher
-            .search_reader(self.matcher, source, &mut collector)
-        {
-            Ok(()) => Scanned::Searched(collector.into_found()),
+        match self.searcher.search_reader(self.matcher, source, &mut sink) {
+            Ok(()) => Scanned::Searched(sink.into_found()),
             Err(error) => Scanned::Failed(error),
         }
     }
 }
 
-struct Collector<'a> {
+struct LineSink<'a> {
     matcher: &'a RegexMatcher,
     budget: usize,
     context: u64,
@@ -132,7 +129,7 @@ struct Collector<'a> {
     last_kept: u64,
 }
 
-impl<'a> Collector<'a> {
+impl<'a> LineSink<'a> {
     const fn new(matcher: &'a RegexMatcher, options: &GrepOptions<'_>, budget: usize) -> Self {
         Self {
             matcher,
@@ -156,7 +153,7 @@ impl<'a> Collector<'a> {
     }
 }
 
-impl Sink for Collector<'_> {
+impl Sink for LineSink<'_> {
     type Error = io::Error;
 
     fn matched(&mut self, _searcher: &Searcher, found: &SinkMatch<'_>) -> Result<bool, io::Error> {
