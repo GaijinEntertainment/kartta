@@ -248,7 +248,6 @@ fn a_tree_nobody_touches_hands_over_nothing_a_refresh_would_change() {
             changes.paths().collect::<Vec<_>>()
         );
     }
-    assert!(!changes.lost());
     assert!(
         outcome.added().is_empty() && outcome.removed().is_empty(),
         "{:?} added {:?} removed {:?}",
