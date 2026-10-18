@@ -3,9 +3,7 @@ use std::io;
 
 use kartta::{Definition, Dependents, Hit, Implementations, Nearness, Source};
 
-use super::{
-    Suggestion, empty_languages_note, file_element, flat, kind, loc, named, role, span, unresolved,
-};
+use super::{Suggestion, empty_languages_note, flat, kind, loc, named, role, span, unresolved};
 use crate::llmxml::Element;
 use crate::state::GraphRow;
 
@@ -26,52 +24,43 @@ pub(crate) struct Found<'g> {
 /// yielded no symbol at all.
 pub(crate) fn hits(
     query: &str,
-    languages: &str,
+    languages: Option<&str>,
     found: &Found<'_>,
     coverage: &[&GraphRow],
 ) -> String {
-    let mut element = Element::new("symbols").attr("of", query);
-    if !languages.is_empty() {
-        element = element.attr("languages", languages);
-    }
-    element = element.attr("count", found.hits.len());
     let truncated = found.matched > found.hits.len();
-    if truncated {
-        element = element.attr("total", found.matched);
-    }
-    element = element.flag("truncated", truncated);
-    if !found.unmatched.is_empty() {
-        element = element.attr("unmatched", found.unmatched.join(", "));
-    }
-    element = element.count("dropped_words", found.dropped_words);
+    let element = Element::new("symbols")
+        .attr("of", query)
+        .optional("languages", languages)
+        .attr("count", found.hits.len())
+        .optional("total", truncated.then_some(found.matched))
+        .flag("truncated", truncated)
+        .optional(
+            "unmatched",
+            (!found.unmatched.is_empty()).then(|| found.unmatched.join(", ")),
+        )
+        .count("dropped_words", found.dropped_words);
     if found.hits.is_empty() {
         return element.inline(&no_hits(languages, coverage));
     }
     element.children(found.hits.iter().map(|(family, hit)| {
         let definition = &hit.definition;
-        let mut record = named("hit", definition);
-        if let Some(owner) = definition.owner {
-            record = record.attr("owner", owner);
-        }
-        record = record.flag("fuzzy", hit.fuzzy);
-        if let Some(role) = role(definition.flags) {
-            record = record.attr("role", role);
-        }
-        record = record
+        named("hit", definition)
+            .optional("owner", definition.owner)
+            .flag("fuzzy", hit.fuzzy)
+            .optional("role", role(definition.flags))
             .attr("kind", kind(definition.kind))
             .attr("lang", family)
             .attr(
                 "loc",
                 span(definition.file, definition.line, definition.end_line),
-            );
-        if let Some(signature) = definition.signature {
-            record = record.attr("sig", flat(signature));
-        }
-        record.close()
+            )
+            .optional("sig", definition.signature.map(flat))
+            .close()
     }))
 }
 
-fn no_hits(languages: &str, coverage: &[&GraphRow]) -> String {
+fn no_hits(languages: Option<&str>, coverage: &[&GraphRow]) -> String {
     if coverage.is_empty() {
         return empty_languages_note(languages)
             .unwrap_or("no match - if the language is absent from the index, index_stats lists what is indexed")
@@ -116,14 +105,12 @@ pub(crate) struct Read<'g> {
 
 /// The `read_definitions` answer: one `<name>` per requested name, in request order, each holding its definitions
 /// nearest first with their text numbered from its first line.
-pub(crate) fn definitions(languages: &str, answers: &[NameDefinitions<'_>]) -> String {
-    let mut element = Element::new("definitions");
-    if !languages.is_empty() {
-        element = element.attr("languages", languages);
-    }
-    element = element.attr("count", answers.len());
+pub(crate) fn definitions(languages: Option<&str>, answers: &[NameDefinitions<'_>]) -> String {
+    let element = Element::new("definitions")
+        .optional("languages", languages)
+        .attr("count", answers.len());
     element.children(answers.iter().map(|answer| {
-        let mut name = Element::new("name")
+        let name = Element::new("name")
             .attr("of", answer.name)
             .attr("total", answer.total);
         if answer.total == 0 {
@@ -132,52 +119,46 @@ pub(crate) fn definitions(languages: &str, answers: &[NameDefinitions<'_>]) -> S
                     .unwrap_or("no definition matches - find_symbols can locate the name"),
             );
         }
-        if answer.total > answer.definitions.len() {
-            name = name.attr("shown", answer.definitions.len());
-        }
-        name.children(answer.definitions.iter().map(definition))
+        name.optional(
+            "shown",
+            (answer.total > answer.definitions.len()).then_some(answer.definitions.len()),
+        )
+        .children(answer.definitions.iter().map(definition))
     }))
 }
 
 fn definition(read: &Read<'_>) -> String {
     let definition = &read.definition;
-    let mut element = named("definition", definition);
-    if let Some(owner) = definition.owner {
-        element = element.attr("owner", owner);
-    }
-    element = element
+    let element = named("definition", definition)
+        .optional("owner", definition.owner)
         .attr("kind", kind(definition.kind))
         .attr("lang", read.family)
         .attr(
             "loc",
             span(definition.file, definition.line, definition.end_line),
         )
-        .attr("scope", scope(read.nearness, definition));
-    if let Some(role) = role(definition.flags) {
-        element = element.attr("role", role);
-    }
+        .attr("scope", scope(read.nearness, definition))
+        .optional("role", role(definition.flags));
     let source = match &read.source {
         Ok(source) => source,
         Err(error) => {
-            element = element.attr("error", error);
-            if let Some(signature) = definition.signature {
-                element = element.attr("sig", flat(signature));
-            }
-            return element.close();
+            return element
+                .attr("error", error)
+                .optional("sig", definition.signature.map(flat))
+                .close();
         }
     };
     let answered_through = source.first_line + source.lines.saturating_sub(1);
-    element = element
+    let element = element
         .flag(
             "truncated",
             source.lines == 0 || answered_through < definition.end_line,
         )
         .flag("resized", source.resized);
     if source.text.is_empty() {
-        if let Some(signature) = definition.signature {
-            element = element.attr("sig", flat(signature));
-        }
-        return element.close();
+        return element
+            .optional("sig", definition.signature.map(flat))
+            .close();
     }
     let mut body = String::new();
     for (line, number) in source.text.lines().zip(source.first_line..) {
@@ -202,22 +183,19 @@ const fn scope(nearness: Nearness, definition: &Definition<'_>) -> &'static str 
 /// the type through another.
 pub(crate) fn implementations(
     name: &str,
-    languages: &str,
+    languages: Option<&str>,
     found: &[(&str, Implementations<'_>)],
     suggestions: &[Suggestion<'_>],
 ) -> String {
-    let mut element = Element::new("implementations").attr("of", name);
-    if !languages.is_empty() {
-        element = element.attr("languages", languages);
-    }
     let count: usize = found.iter().map(|(_, found)| found.found.len()).sum();
     let total: usize = found.iter().map(|(_, found)| found.total).sum();
-    element = element.attr("count", count);
-    if total > count {
-        element = element.attr("total", total);
-    }
     let passed_over: usize = found.iter().map(|(_, found)| found.passed_over).sum();
-    element = element.count("passed_over", passed_over);
+    let element = Element::new("implementations")
+        .attr("of", name)
+        .optional("languages", languages)
+        .attr("count", count)
+        .optional("total", (total > count).then_some(total))
+        .count("passed_over", passed_over);
     if found.is_empty() {
         return unresolved(element, languages, suggestions);
     }
@@ -227,14 +205,14 @@ pub(crate) fn implementations(
     element.children(found.iter().flat_map(|(family, found)| {
         found.found.iter().map(move |implementor| {
             let symbol = &implementor.symbol;
-            let record = named("type", symbol)
+            named("type", symbol)
                 .attr("lang", *family)
-                .attr("loc", loc(symbol.file, symbol.line));
-            if implementor.depth > 1 {
-                record.attr("depth", implementor.depth).close()
-            } else {
-                record.close()
-            }
+                .attr("loc", loc(symbol.file, symbol.line))
+                .optional(
+                    "depth",
+                    (implementor.depth > 1).then_some(implementor.depth),
+                )
+                .close()
         })
     }))
 }
@@ -254,14 +232,10 @@ pub(crate) fn importers(file: &str, dependents: Option<&Dependents<'_>>) -> Stri
         .flag("truncated", dependents.truncated)
         .count("unexpanded", dependents.unexpanded)
         .children(dependents.found.iter().map(|dependent| {
-            if dependent.depth > 1 {
-                Element::new("file")
-                    .attr("path", dependent.file)
-                    .attr("depth", dependent.depth)
-                    .close()
-            } else {
-                file_element(dependent.file)
-            }
+            Element::new("file")
+                .attr("path", dependent.file)
+                .optional("depth", (dependent.depth > 1).then_some(dependent.depth))
+                .close()
         }))
 }
 
@@ -280,17 +254,12 @@ pub(crate) fn outline(file: &str, outline: Option<&[Definition<'_>]>) -> String 
         Some(definitions) => element
             .attr("symbols", definitions.len())
             .children(definitions.iter().map(|definition| {
-                let mut record = named("symbol", definition);
-                if let Some(owner) = definition.owner {
-                    record = record.attr("owner", owner);
-                }
-                record = record
+                named("symbol", definition)
+                    .optional("owner", definition.owner)
                     .attr("kind", kind(definition.kind))
-                    .attr("lines", format!("{}-{}", definition.line, definition.end_line));
-                if let Some(signature) = definition.signature {
-                    record = record.attr("sig", flat(signature));
-                }
-                record.close()
+                    .attr("lines", format!("{}-{}", definition.line, definition.end_line))
+                    .optional("sig", definition.signature.map(flat))
+                    .close()
             })),
     }
 }

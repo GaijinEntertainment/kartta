@@ -68,12 +68,11 @@ impl Catalog {
     }
 }
 
-/// How an answer echoes the `languages` filter it was asked with: nothing when there was none, `[]` for an empty one.
-pub(crate) fn echo(requested: Option<&[String]>) -> String {
+/// How an answer echoes the `languages` filter it was asked with, `[]` for an empty one.
+pub(crate) fn echo(requested: &[String]) -> String {
     match requested {
-        None => String::new(),
-        Some([]) => crate::render::EMPTY_LANGUAGES.to_owned(),
-        Some(names) => names.join(", "),
+        [] => crate::render::EMPTY_LANGUAGES.to_owned(),
+        names => names.join(", "),
     }
 }
 
@@ -122,9 +121,8 @@ mod tests {
     }
 
     #[test]
-    fn the_echo_tells_an_empty_filter_from_none() {
-        assert_eq!(echo(None), "");
-        assert_eq!(echo(Some(&[])), "[]");
-        assert_eq!(echo(Some(&names(&["go", "cpp"]))), "go, cpp");
+    fn the_echo_writes_an_empty_filter_out() {
+        assert_eq!(echo(&[]), "[]");
+        assert_eq!(echo(&names(&["go", "cpp"])), "go, cpp");
     }
 }

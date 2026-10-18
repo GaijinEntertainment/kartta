@@ -8,7 +8,7 @@ use kartta::{
 
 use super::{
     Suggestion, confidence, edge_role, empty_languages_note, file_element, flat, kind, loc, named,
-    role, span, unresolved,
+    qn, role, span, unresolved,
 };
 use crate::llmxml::Element;
 
@@ -50,7 +50,7 @@ const PARTIAL_DATA_ACCESS: &[(&str, &str)] = &[
 pub(crate) struct PathAsk<'a> {
     pub(crate) from: &'a str,
     pub(crate) to: &'a str,
-    pub(crate) languages: &'a str,
+    pub(crate) languages: Option<&'a str>,
     pub(crate) hops: u32,
     pub(crate) min_confidence: u8,
 }
@@ -58,24 +58,19 @@ pub(crate) struct PathAsk<'a> {
 /// A caller, a callee or a hop: where the symbol is defined, its role, how surely its call binds.
 fn edge(tag: &'static str, reached: &Reached<'_>) -> Element {
     let symbol = &reached.symbol;
-    let element = named(tag, symbol)
+    named(tag, symbol)
         .attr("loc", loc(symbol.file, symbol.line))
-        .attr("role", edge_role(symbol.flags));
-    match confidence(reached.confidence) {
-        Some(band) => element.attr("confidence", band),
-        None => element,
-    }
+        .attr("role", edge_role(symbol.flags))
+        .optional("confidence", confidence(reached.confidence))
 }
 
 /// The `find_call_path` answer: one `<match>` per family graph both names select a symbol in.
 pub(crate) fn call_path(ask: &PathAsk<'_>, paths: &[(&str, CallPath<'_>)]) -> String {
-    let mut element = Element::new("call_path")
+    let element = Element::new("call_path")
         .attr("from", ask.from)
-        .attr("to", ask.to);
-    if !ask.languages.is_empty() {
-        element = element.attr("languages", ask.languages);
-    }
-    element = element.attr("matches", paths.len());
+        .attr("to", ask.to)
+        .optional("languages", ask.languages)
+        .attr("matches", paths.len());
     if paths.is_empty() {
         return element.inline(empty_languages_note(ask.languages).unwrap_or(
             "no symbol matches from or to in one graph - find_symbols can pin the exact names",
@@ -136,11 +131,10 @@ pub(crate) fn references(
     found: &[(&str, References<'_>)],
     suggestions: &[Suggestion<'_>],
 ) -> String {
-    let mut element = Element::new("references").attr("of", ask.name);
-    if !ask.languages.is_empty() {
-        element = element.attr("languages", ask.languages);
-    }
-    element = element.attr("matches", found.len());
+    let element = Element::new("references")
+        .attr("of", ask.name)
+        .optional("languages", ask.languages)
+        .attr("matches", found.len());
     if found.is_empty() {
         return unresolved(element, ask.languages, suggestions);
     }
@@ -153,26 +147,23 @@ pub(crate) fn references(
 
 fn reference_match(floored: bool, family: &str, references: &References<'_>) -> String {
     let symbol = &references.symbol;
-    let mut element = Element::new("match")
-        .attr("lang", family)
-        .attr("of", symbol.name);
-    if symbol.qualified_name != symbol.name {
-        element = element.attr("qn", symbol.qualified_name);
-    }
     let counts = &references.counts;
-    element = element
-        .attr("loc", loc(symbol.file, symbol.line))
-        .attr("kind", kind(symbol.kind))
-        .attr("count", references.total);
-    if references.total > references.sites.len() {
-        element = element.attr("shown", references.sites.len());
-    }
     let reads = if is_type(symbol.kind) {
         "types"
     } else {
         "reads"
     };
-    element = element
+    let element = Element::new("match")
+        .attr("lang", family)
+        .attr("of", symbol.name)
+        .optional("qn", qn(symbol))
+        .attr("loc", loc(symbol.file, symbol.line))
+        .attr("kind", kind(symbol.kind))
+        .attr("count", references.total)
+        .optional(
+            "shown",
+            (references.total > references.sites.len()).then_some(references.sites.len()),
+        )
         .count("calls", counts.calls)
         .count(reads, counts.reads)
         .count("writes", counts.writes)
@@ -210,16 +201,13 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
     element.children(note.into_iter().chain(records.iter().map(|record| {
         let enclosing = &record.enclosing;
         let lines: Vec<String> = record.lines.iter().map(u32::to_string).collect();
-        let element = named("ref", enclosing)
+        named("ref", enclosing)
             .attr("loc", loc(enclosing.file, enclosing.line))
             .attr("role", edge_role(enclosing.flags))
             .attr("site", record.site)
-            .attr("at", format!("{}:{}", enclosing.file, lines.join(",")));
-        match record.band {
-            Some(band) => element.attr("confidence", band),
-            None => element,
-        }
-        .close()
+            .attr("at", format!("{}:{}", enclosing.file, lines.join(",")))
+            .optional("confidence", record.band)
+            .close()
     })))
 }
 
@@ -312,7 +300,7 @@ pub(crate) fn impact(file: &str, lines: (u32, u32), segment: Option<&Segment<'_>
             .map(|symbol| {
                 let definition = &symbol.definition;
                 let blast = &symbol.blast;
-                let mut record = named("symbol", definition)
+                named("symbol", definition)
                     .attr("kind", kind(definition.kind))
                     .attr(
                         "lines",
@@ -325,18 +313,16 @@ pub(crate) fn impact(file: &str, lines: (u32, u32), segment: Option<&Segment<'_>
                     .attr("reach_band", blast.band.label())
                     .flag("truncated", blast.truncated)
                     .count("unexpanded", blast.unexpanded)
-                    .count("unresolved", symbol.unresolved);
-                if let Some(signature) = definition.signature {
-                    record = record.attr("sig", flat(signature));
-                }
-                record.children(
-                    [
-                        direct("callers", &symbol.callers, None),
-                        direct("callees", &symbol.callees, Some(definition.file)),
-                    ]
-                    .into_iter()
-                    .flatten(),
-                )
+                    .count("unresolved", symbol.unresolved)
+                    .optional("sig", definition.signature.map(flat))
+                    .children(
+                        [
+                            direct("callers", &symbol.callers, None),
+                            direct("callees", &symbol.callees, Some(definition.file)),
+                        ]
+                        .into_iter()
+                        .flatten(),
+                    )
             })
             .collect()
     };
@@ -389,11 +375,8 @@ pub(crate) fn change(regions: usize, change: &Change<'_>, limit: usize) -> Strin
 /// directories when there are many.
 fn seed(seed: &Seed<'_>) -> String {
     let symbol = &seed.symbol;
-    let mut element = named("seed", symbol);
-    if let Some(role) = role(symbol.flags) {
-        element = element.attr("role", role);
-    }
-    element = element
+    let element = named("seed", symbol)
+        .optional("role", role(symbol.flags))
         .attr("kind", kind(symbol.kind))
         .attr("loc", span(symbol.file, symbol.line, symbol.end_line))
         .attr("callers", seed.caller_count)
@@ -475,7 +458,7 @@ const ROLE_COUNTS: [(&str, &str); 4] = [
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CallersAsk<'a> {
     pub(crate) name: &'a str,
-    pub(crate) languages: &'a str,
+    pub(crate) languages: Option<&'a str>,
     pub(crate) role: Option<&'a str>,
     pub(crate) floored: bool,
 }
@@ -487,14 +470,11 @@ pub(crate) fn callers(
     walks: &[(&str, Walk<'_>)],
     suggestions: &[Suggestion<'_>],
 ) -> String {
-    let mut element = Element::new("callers").attr("of", ask.name);
-    if !ask.languages.is_empty() {
-        element = element.attr("languages", ask.languages);
-    }
-    if let Some(role) = ask.role {
-        element = element.attr("role", role);
-    }
-    element = element.attr("matches", walks.len());
+    let element = Element::new("callers")
+        .attr("of", ask.name)
+        .optional("languages", ask.languages)
+        .optional("role", ask.role)
+        .attr("matches", walks.len());
     if walks.is_empty() {
         return unresolved(element, ask.languages, suggestions);
     }
@@ -512,11 +492,8 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
     let reached = walk.reached.len();
     let mut element = Element::new("match")
         .attr("lang", family)
-        .attr("of", root.name);
-    if root.qualified_name != root.name {
-        element = element.attr("qn", root.qualified_name);
-    }
-    element = element
+        .attr("of", root.name)
+        .optional("qn", qn(root))
         .attr("loc", loc(root.file, root.line))
         .attr("count", reached)
         .attr(
@@ -557,13 +534,10 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
 /// One caller: where it is defined, how far from the symbol, how surely its call binds, and the line of that call.
 fn caller(reached: &Reached<'_>) -> String {
     let symbol = &reached.symbol;
-    let mut element = named("ref", symbol)
+    named("ref", symbol)
         .attr("loc", loc(symbol.file, symbol.line))
-        .attr("role", edge_role(symbol.flags));
-    if let Some(band) = confidence(reached.confidence) {
-        element = element.attr("confidence", band);
-    }
-    element
+        .attr("role", edge_role(symbol.flags))
+        .optional("confidence", confidence(reached.confidence))
         .attr("hops", reached.depth)
         .attr("at", loc(symbol.file, reached.line))
         .close()
@@ -576,11 +550,10 @@ pub(crate) fn callees(
     walks: &[(&str, Walk<'_>)],
     suggestions: &[Suggestion<'_>],
 ) -> String {
-    let mut element = Element::new("callees").attr("of", ask.name);
-    if !ask.languages.is_empty() {
-        element = element.attr("languages", ask.languages);
-    }
-    element = element.attr("matches", walks.len());
+    let element = Element::new("callees")
+        .attr("of", ask.name)
+        .optional("languages", ask.languages)
+        .attr("matches", walks.len());
     if walks.is_empty() {
         return unresolved(element, ask.languages, suggestions);
     }
@@ -595,13 +568,10 @@ pub(crate) fn callees(
 /// nearest first.
 fn callee_match(floored: bool, family: &str, walk: &Walk<'_>) -> String {
     let root = &walk.root;
-    let mut element = Element::new("match")
+    let element = Element::new("match")
         .attr("lang", family)
-        .attr("of", root.name);
-    if root.qualified_name != root.name {
-        element = element.attr("qn", root.qualified_name);
-    }
-    element = element
+        .attr("of", root.name)
+        .optional("qn", qn(root))
         .attr("loc", loc(root.file, root.line))
         .attr("count", walk.reached.len())
         .flag("truncated", walk.truncated)

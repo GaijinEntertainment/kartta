@@ -177,13 +177,13 @@ fn no_match_hint(patterns: &[String], matches: &Matches<'_>) -> String {
 /// and the counts of what the listing left out.
 pub(crate) fn dir(path: &str, listing: &Listing<'_>) -> String {
     let shown = if path.is_empty() { "." } else { path };
-    let mut element = Element::new("dir")
+    let element = Element::new("dir")
         .attr("path", shown)
-        .attr("entries", listing.len());
-    if listing.total() != listing.len() {
-        element = element.attr("total", listing.total());
-    }
-    element = element
+        .attr("entries", listing.len())
+        .optional(
+            "total",
+            (listing.total() != listing.len()).then(|| listing.total()),
+        )
         .count("excluded", listing.excluded())
         .flag("truncated", listing.truncated());
     if listing.is_empty() {
@@ -204,13 +204,10 @@ pub(crate) fn dir(path: &str, listing: &Listing<'_>) -> String {
                 None => record.attr("size", "unknown"),
             };
         }
-        if let Some(target) = entry.target() {
-            record = record.attr("target", target);
-        }
-        if let Some(unlisted) = listed.unlisted() {
-            record = record.attr("unlisted", unlisted);
-        }
-        record.close()
+        record
+            .optional("target", entry.target())
+            .optional("unlisted", listed.unlisted())
+            .close()
     }))
 }
 
