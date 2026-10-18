@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use kartta_lang::path::join;
+use kartta_lang::path::{forward_slashes, join};
 
 pub(crate) const SQCONFIG: &str = ".sqconfig";
 
@@ -89,7 +89,7 @@ fn is_absolute(path: &str) -> bool {
 }
 
 fn in_repository(config_dir: &str, path: &str) -> Option<String> {
-    join(config_dir, &path.replace('\\', "/"))
+    join(config_dir, &forward_slashes(path))
 }
 
 #[cfg(test)]
