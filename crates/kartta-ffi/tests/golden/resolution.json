@@ -1,0 +1,58 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "bound": [
+            {
+              "confidence": 80,
+              "sites": 1
+            },
+            {
+              "confidence": 75,
+              "sites": 1
+            }
+          ],
+          "edges": 2,
+          "graph": "go",
+          "misses": {
+            "ambiguous": 0,
+            "external_import": 0,
+            "not_admitted": 0,
+            "not_exported": 0,
+            "through_a_receiver": 0,
+            "undefined": 0
+          },
+          "sites": 2,
+          "unbound": [],
+          "unlisted": 0
+        },
+        {
+          "bound": [
+            {
+              "confidence": 80,
+              "sites": 1
+            }
+          ],
+          "edges": 1,
+          "graph": "cpp",
+          "misses": {
+            "ambiguous": 0,
+            "external_import": 0,
+            "not_admitted": 0,
+            "not_exported": 0,
+            "through_a_receiver": 0,
+            "undefined": 0
+          },
+          "sites": 1,
+          "unbound": [],
+          "unlisted": 0
+        }
+      ]
+    }
+  },
+  "method": "resolution",
+  "params": {
+    "limit": 2
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "answer": {
+    "ok": {
+      "entries": [
+        {
+          "kind": "dir",
+          "path": "cpp",
+          "unlisted": 3
+        },
+        {
+          "kind": "dir",
+          "path": "go",
+          "unlisted": 2
+        },
+        {
+          "binary": false,
+          "kind": "file",
+          "path": "notes.txt",
+          "size": 82
+        }
+      ],
+      "excluded": 0,
+      "path": "",
+      "total": 8,
+      "truncated": false
+    }
+  },
+  "method": "list",
+  "params": {
+    "depth": 1,
+    "limit": 3,
+    "path": ""
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "answer": {
+    "ok": {
+      "abi": 1,
+      "languages": [
+        "go",
+        "cpp",
+        "typescript",
+        "tsx",
+        "javascript",
+        "daslang",
+        "quirrel",
+        "blk",
+        "rust",
+        "python",
+        "bash",
+        "php",
+        "ruby",
+        "lua",
+        "puppet",
+        "dshl"
+      ],
+      "methods": [
+        "analyze_change",
+        "analyze_segment",
+        "build",
+        "call_path",
+        "callees",
+        "callers",
+        "cancel",
+        "dead_code",
+        "definitions",
+        "dependents",
+        "fuzzy",
+        "glob",
+        "grep",
+        "implementations",
+        "list",
+        "outline",
+        "references",
+        "resolution",
+        "search",
+        "sources",
+        "stats",
+        "version"
+      ],
+      "version": "0.0.0"
+    }
+  },
+  "method": "version",
+  "params": {}
+}

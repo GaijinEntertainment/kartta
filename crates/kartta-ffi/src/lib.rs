@@ -14,8 +14,10 @@
 //! floor left out.
 
 mod abi;
+mod built;
 mod error;
 mod handle;
+mod query;
 mod wire;
 
 pub use crate::error::{Error, ErrorCode};
