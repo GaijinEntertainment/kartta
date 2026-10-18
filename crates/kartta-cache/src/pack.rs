@@ -118,12 +118,6 @@ pub(crate) struct Aging {
     pub(crate) bytes: u64,
 }
 
-pub(crate) enum Lookup<'a> {
-    Absent,
-    Found(&'a [u8]),
-    Damaged,
-}
-
 #[derive(Debug)]
 pub(crate) struct Pack {
     path: PathBuf,
@@ -193,21 +187,14 @@ impl Pack {
         ))
     }
 
-    pub(crate) fn get(&self, namespace: &Namespace, content: &ContentHash) -> Lookup<'_> {
-        let Some(range) = self.namespace_range(namespace) else {
-            return Lookup::Absent;
-        };
-        let Some(entries) = self.entry_records().get(range) else {
-            return Lookup::Damaged;
-        };
-        let Ok(found) = entries.binary_search_by(|record| record[..32].cmp(content.as_bytes()))
-        else {
-            return Lookup::Absent;
-        };
+    pub(crate) fn get(&self, namespace: &Namespace, content: &ContentHash) -> Option<&[u8]> {
+        let entries = self.entry_records().get(self.namespace_range(namespace)?)?;
+        let found = entries
+            .binary_search_by(|record| record[..32].cmp(content.as_bytes()))
+            .ok()?;
 
         self.payload(&entries[found])
             .filter(|payload| key::check(namespace, content, payload) == check_of(&entries[found]))
-            .map_or(Lookup::Damaged, Lookup::Found)
     }
 
     fn namespace_range(&self, namespace: &Namespace) -> Option<Range<usize>> {
