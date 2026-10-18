@@ -84,6 +84,29 @@ jobs:
       - run: go test -race ./...
         working-directory: bindings/go
 
+  # The Node binding, loading the addon the same checkout builds. Its tests replay the golden files through every typed
+  # call and run builds that a signal or close cancels, and its type check holds the wire types to the golden answers.
+  node:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: bindings/node
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: bindings/node/.nvmrc
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+
   # Advisories, licences and sources, against the resolved graph rather than the manifests. The other jobs prove the
   # code we wrote is sound; this one is about the code we did not write, which is most of what ships.
   deny:
@@ -98,7 +121,7 @@ jobs:
   # when every triggered job passed or was skipped — so conditional jobs never need enumerating in rulesets.
   ci-ok:
     if: always()
-    needs: [fmt, clippy, docs, test, go, deny]
+    needs: [fmt, clippy, docs, test, go, node, deny]
     runs-on: ubuntu-24.04
     steps:
       - name: verify all jobs succeeded

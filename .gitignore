@@ -26,6 +26,7 @@ coverage.html
 # Node plane artifacts
 node_modules/
 *.tsbuildinfo
+/bindings/node/dist/
 
 # Linkable FFI output — the planes build it locally, it is never committed
 *.a

@@ -1,0 +1,42 @@
+{
+  "name": "kartta",
+  "version": "0.0.0",
+  "description": "Node.js binding of the kartta code graph engine: file search, content search and graph queries",
+  "keywords": [
+    "code-graph",
+    "static-analysis",
+    "call-graph",
+    "search",
+    "napi"
+  ],
+  "license": "MIT",
+  "author": "Gaijin Entertainment",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GaijinEntertainment/kartta.git",
+    "directory": "bindings/node"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/kartta.d.ts",
+      "default": "./dist/kartta.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "typecheck": "tsc",
+    "test": "node --test --test-reporter=spec \"test/*.test.ts\"",
+    "prepack": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3"
+  }
+}

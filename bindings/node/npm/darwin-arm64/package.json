@@ -1,0 +1,19 @@
+{
+  "name": "kartta-darwin-arm64",
+  "version": "0.0.0",
+  "description": "The addon of the kartta package for macOS on arm64",
+  "license": "MIT",
+  "author": "Gaijin Entertainment",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GaijinEntertainment/kartta.git",
+    "directory": "bindings/node/npm/darwin-arm64"
+  },
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "main": "kartta.darwin-arm64.node",
+  "files": ["kartta.darwin-arm64.node"],
+  "engines": {
+    "node": ">=24"
+  }
+}
