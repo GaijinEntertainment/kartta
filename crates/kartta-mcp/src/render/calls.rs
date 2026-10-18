@@ -24,7 +24,21 @@ const FIELD_NOTE: &str = "this language's extraction records no access to a fiel
                           from this answer";
 
 /// The families whose extraction records field accesses and reads of package-level values.
-const RECORDS_DATA_ACCESS: &[&str] = &["go"];
+const RECORDS_DATA_ACCESS: &[&str] = &["go", "jsts", "python"];
+
+/// What a field's sites leave out in a family that records field accesses, where it leaves out more than the
+/// `ambiguous` count says.
+const PARTIAL_DATA_ACCESS: &[(&str, &str)] = &[
+    (
+        "jsts",
+        "a member access on a value whose declaration spells no one type binds nothing; ambiguous counts those",
+    ),
+    (
+        "python",
+        "an attribute of a value whose class the extraction cannot name binds only where one field of the name is in \
+         its own file; ambiguous counts the rest",
+    ),
+];
 
 /// What a `find_call_path` call asked, as its answer echoes it.
 #[derive(Debug, Clone, Copy)]
@@ -164,6 +178,10 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
     let member_note = match symbol.kind.label() {
         "method" => Some(METHOD_NOTE),
         "field" if !RECORDS_DATA_ACCESS.contains(&family) => Some(FIELD_NOTE),
+        "field" => PARTIAL_DATA_ACCESS
+            .iter()
+            .find(|(partial, _)| *partial == family)
+            .map(|&(_, note)| note),
         _ => None,
     };
     if references.sites.is_empty() {
