@@ -268,9 +268,14 @@ export interface ReferencesParams {
   name: string;
   lang?: string;
   min_confidence?: number;
+  /** Keeps the uses that read, set or update the symbol, an update counting as both, and drops the calls. */
+  access?: Access;
   /** Caps the sites answered; 500 by default. */
   limit?: number;
 }
+
+/** How a site touches a symbol; a call, and a use as a type, read it. */
+export type Access = "read" | "write" | "update";
 
 /** The sites that call or use a symbol in one graph. */
 export interface References {
@@ -278,9 +283,21 @@ export interface References {
   symbol: Definition;
   passed_over: number;
   sites: Site[];
-  /** The sites that pass the confidence floor, before the limit. */
+  /** The sites that pass the confidence floor and the access kept, before the limit. */
   total: number;
   below_confidence: number;
+  /** The sites that pass the confidence floor, by kind, whatever access is kept. */
+  counts: SiteCounts;
+  /** The uses of a member's name on a value whose type the graph could not follow, which may take this symbol. */
+  ambiguous: number;
+}
+
+/** A symbol's sites, counted by kind. */
+export interface SiteCounts {
+  calls: number;
+  reads: number;
+  writes: number;
+  updates: number;
 }
 
 /** A call or a use of a symbol, and the definition it sits in. */
@@ -290,6 +307,8 @@ export interface Site {
   confidence: number;
   /** A call rather than a use. */
   call: boolean;
+  /** How the site touches the symbol: an `Access`, as `kind` is a `Definition`'s label. */
+  access: string;
 }
 
 /** The params of `definitions`. */

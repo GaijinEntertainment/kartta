@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::iter;
 
 use kartta::{
-    CallPath, Change, DirectCalls, Hotspot, ReachBand, Reached, References, Seed, Segment,
-    SymbolKind, Walk,
+    Access, CallPath, Change, Definition, DirectCalls, Hotspot, ReachBand, Reached, Reference,
+    References, Seed, Segment, SymbolKind, Walk,
 };
 
 use super::{
@@ -18,9 +19,12 @@ const SEED_CALLERS: usize = 10;
 const METHOD_NOTE: &str = "a call through a value of the owner's type resolves only where the graph can name that \
                            type, so some of those calls can be missing";
 
-/// The blind spot of a field's sites.
-const FIELD_NOTE: &str =
-    "the graph records no access to a field, so every use of it is missing from this answer";
+/// The blind spot of a field's sites in a language whose extraction records no access to a field.
+const FIELD_NOTE: &str = "this language's extraction records no access to a field yet, so every use of it is missing \
+                          from this answer";
+
+/// The families whose extraction records field accesses and reads of package-level values.
+const RECORDS_DATA_ACCESS: &[&str] = &["go"];
 
 /// What a `find_call_path` call asked, as its answer echoes it.
 #[derive(Debug, Clone, Copy)]
@@ -136,6 +140,7 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
     if symbol.qualified_name != symbol.name {
         element = element.attr("qn", symbol.qualified_name);
     }
+    let counts = &references.counts;
     element = element
         .attr("loc", loc(symbol.file, symbol.line))
         .attr("kind", kind(symbol.kind))
@@ -143,12 +148,22 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
     if references.total > references.sites.len() {
         element = element.attr("shown", references.sites.len());
     }
+    let reads = if is_type(symbol.kind) {
+        "types"
+    } else {
+        "reads"
+    };
     element = element
+        .count("calls", counts.calls)
+        .count(reads, counts.reads)
+        .count("writes", counts.writes)
+        .count("updates", counts.updates)
+        .count("ambiguous", references.ambiguous)
         .count("below_confidence", references.below_confidence)
         .count("passed_over", references.passed_over);
     let member_note = match symbol.kind.label() {
         "method" => Some(METHOD_NOTE),
-        "field" => Some(FIELD_NOTE),
+        "field" if !RECORDS_DATA_ACCESS.contains(&family) => Some(FIELD_NOTE),
         _ => None,
     };
     if references.sites.is_empty() {
@@ -168,18 +183,75 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
         return element.inline(&text);
     }
     let note = member_note.map(|note| Element::new("note").inline(note));
-    element.children(note.into_iter().chain(references.sites.iter().map(|site| {
-        let enclosing = &site.site_of;
-        let mut record = named("ref", enclosing)
+    let records = site_records(symbol.kind, &references.sites);
+    element.children(note.into_iter().chain(records.iter().map(|record| {
+        let enclosing = &record.enclosing;
+        let lines: Vec<String> = record.lines.iter().map(u32::to_string).collect();
+        let element = named("ref", enclosing)
             .attr("loc", loc(enclosing.file, enclosing.line))
             .attr("role", edge_role(enclosing.flags))
-            .attr("site", if site.call { "call" } else { "use" })
-            .attr("at", loc(enclosing.file, site.line));
-        if let Some(band) = confidence(site.confidence) {
-            record = record.attr("confidence", band);
+            .attr("site", record.site)
+            .attr("at", format!("{}:{}", enclosing.file, lines.join(",")));
+        match record.band {
+            Some(band) => element.attr("confidence", band),
+            None => element,
         }
-        record.close()
+        .close()
     })))
+}
+
+/// The sites one enclosing symbol holds of one kind and confidence band, on the lines they are on.
+struct SiteRecord<'g> {
+    enclosing: Definition<'g>,
+    site: &'static str,
+    band: Option<&'static str>,
+    lines: Vec<u32>,
+}
+
+fn site_records<'g>(of: SymbolKind, sites: &[Reference<'g>]) -> Vec<SiteRecord<'g>> {
+    let mut records: Vec<SiteRecord<'g>> = Vec::new();
+    let mut held: HashMap<(Definition<'g>, &'static str, Option<&'static str>), usize> =
+        HashMap::new();
+    for site in sites {
+        let kind = site_kind(of, site);
+        let band = confidence(site.confidence);
+        let key = (site.site_of, kind, band);
+        if let Some(&at) = held.get(&key) {
+            records[at].lines.push(site.line);
+            continue;
+        }
+        held.insert(key, records.len());
+        records.push(SiteRecord {
+            enclosing: site.site_of,
+            site: kind,
+            band,
+            lines: vec![site.line],
+        });
+    }
+    records
+}
+
+const fn site_kind(of: SymbolKind, site: &Reference<'_>) -> &'static str {
+    match site.access {
+        _ if site.call => "call",
+        _ if is_type(of) => "type",
+        Access::Read => "read",
+        Access::Write => "write",
+        Access::Update => "update",
+    }
+}
+
+const fn is_type(kind: SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::Class
+            | SymbolKind::Struct
+            | SymbolKind::Interface
+            | SymbolKind::Enum
+            | SymbolKind::TypeAlias
+            | SymbolKind::Trait
+            | SymbolKind::DefinedType
+    )
 }
 
 /// The `impact_of_edit` answer: a `<symbol>` per definition the lines overlap, with its direct callers and callees
@@ -544,7 +616,10 @@ fn no_callers(of: SymbolKind, floored: bool) -> String {
         "func" | "method" | "macro" => {
             "no callers - entry point, dead code, or dynamic dispatch".to_owned()
         }
-        "field" | "variant" => format!(
+        "field" => "no callers - a field is read and written, not called; find_references lists its reads and \
+                    writes"
+            .to_owned(),
+        "variant" => format!(
             "no callers - the graph records no call or other use of this {kind}; grep searches the text for its name"
         ),
         _ if floored => format!(

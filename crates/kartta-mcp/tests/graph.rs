@@ -289,23 +289,19 @@ fn find_call_path_and_find_references_follow_the_calls() {
                 r#"<references of="Service" matches="1">"#,
                 concat!(
                     r#"<match lang="go" of="Service" qn="pkg.Service" loc="pkg/service.go:4" kind="struct" "#,
-                    r#"count="4">"#,
+                    r#"count="4" types="4">"#,
                 ),
                 concat!(
-                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" site="use" "#,
+                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" site="type" "#,
                     r#"at="cmd/app/main.go:10"/>"#,
                 ),
                 concat!(
-                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7" role="consumer" site="use" "#,
-                    r#"at="pkg/service.go:7"/>"#,
-                ),
-                concat!(
-                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7" role="consumer" site="use" "#,
-                    r#"at="pkg/service.go:8"/>"#,
+                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7" role="consumer" site="type" "#,
+                    r#"at="pkg/service.go:7,8"/>"#,
                 ),
                 concat!(
                     r#"<ref name="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12" role="consumer" "#,
-                    r#"site="use" at="pkg/service.go:12"/>"#,
+                    r#"site="type" at="pkg/service.go:12"/>"#,
                 ),
                 "</match>",
                 "</references>",
@@ -314,7 +310,7 @@ fn find_call_path_and_find_references_follow_the_calls() {
                 r#"<references of="Greet" matches="1">"#,
                 concat!(
                     r#"<match lang="go" of="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12" kind="method" "#,
-                    r#"count="1">"#,
+                    r#"count="1" calls="1">"#,
                 ),
                 concat!(
                     "<note>a call through a value of the owner's type resolves only where the graph can name ",
@@ -328,6 +324,76 @@ fn find_call_path_and_find_references_follow_the_calls() {
                 "</references>",
             ]),
         ]
+    );
+}
+
+#[test]
+fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_on_request() {
+    let module = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "pkg/config.go",
+            "package pkg\n\ntype Config struct {\n\tTimeout int\n}\n\nfunc Load() Config {\n\
+             \tc := Config{Timeout: 5}\n\tc.Timeout += 1\n\treturn c\n}\n",
+        ),
+        (
+            "cmd/main.go",
+            "package main\n\nimport \"example.com/app/pkg\"\n\nfunc main() {\n\tc := pkg.Load()\n\
+             \tc.Timeout = 3\n\tprintln(c.Timeout)\n\tprintln(c.Timeout)\n}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(module.path());
+
+    let every = client.answer("find_references", &json!({"name": "pkg.Config.Timeout"}));
+    let writers = client.answer(
+        "find_references",
+        &json!({"name": "pkg.Config.Timeout", "access": "write"}),
+    );
+    let callers = client.answer("find_callers", &json!({"name": "pkg.Config.Timeout"}));
+
+    let open = concat!(
+        r#"<match lang="go" of="Timeout" qn="pkg.Config.Timeout" loc="pkg/config.go:4" kind="field" "#,
+        r#"count="{count}" reads="2" writes="2" updates="1">"#,
+    );
+    assert_eq!(
+        every,
+        lines(&[
+            r#"<references of="pkg.Config.Timeout" matches="1">"#,
+            &open.replace("{count}", "5"),
+            r#"<ref name="main" qn="main.main" loc="cmd/main.go:5" role="entry" site="write" at="cmd/main.go:7"/>"#,
+            r#"<ref name="main" qn="main.main" loc="cmd/main.go:5" role="entry" site="read" at="cmd/main.go:8,9"/>"#,
+            r#"<ref name="Load" qn="pkg.Load" loc="pkg/config.go:7" role="consumer" site="write" at="pkg/config.go:8"/>"#,
+            concat!(
+                r#"<ref name="Load" qn="pkg.Load" loc="pkg/config.go:7" role="consumer" site="update" "#,
+                r#"at="pkg/config.go:9"/>"#,
+            ),
+            "</match>",
+            "</references>",
+        ]),
+        "a site per enclosing symbol, kind and line, the lines of one kind joined"
+    );
+    assert_eq!(
+        writers,
+        lines(&[
+            r#"<references of="pkg.Config.Timeout" matches="1">"#,
+            &open.replace("{count}", "3"),
+            r#"<ref name="main" qn="main.main" loc="cmd/main.go:5" role="entry" site="write" at="cmd/main.go:7"/>"#,
+            r#"<ref name="Load" qn="pkg.Load" loc="pkg/config.go:7" role="consumer" site="write" at="pkg/config.go:8"/>"#,
+            concat!(
+                r#"<ref name="Load" qn="pkg.Load" loc="pkg/config.go:7" role="consumer" site="update" "#,
+                r#"at="pkg/config.go:9"/>"#,
+            ),
+            "</match>",
+            "</references>",
+        ]),
+        "an update sets the field too, and the counts still count every site"
+    );
+    assert!(
+        callers.contains(
+            "a field is read and written, not called; find_references lists its reads and writes"
+        ),
+        "{callers}"
     );
 }
 

@@ -103,6 +103,9 @@ type ReferencesParams struct {
 	Name          string `json:"name"`
 	Lang          string `json:"lang,omitempty"`
 	MinConfidence int    `json:"min_confidence,omitempty"`
+	// Access keeps the uses that read ("read"), that set ("write") or that update ("update") the symbol, an update
+	// counting as a read and a write, and drops the calls; empty keeps every site.
+	Access string `json:"access,omitempty"`
 	// Limit caps the sites answered; 0 takes the default, 500.
 	Limit int `json:"limit,omitempty"`
 }
@@ -113,9 +116,22 @@ type References struct {
 	Symbol     Definition `json:"symbol"`
 	PassedOver int        `json:"passed_over"`
 	Sites      []Site     `json:"sites"`
-	// Total counts the sites that pass the confidence floor, before the limit.
+	// Total counts the sites that pass the confidence floor and the access kept, before the limit.
 	Total           int `json:"total"`
 	BelowConfidence int `json:"below_confidence"`
+	// Counts counts the sites that pass the confidence floor by kind, whatever access is kept.
+	Counts SiteCounts `json:"counts"`
+	// Ambiguous counts the uses of a member's name on a value whose type the graph could not follow, which bound no
+	// definition and may take this one.
+	Ambiguous int `json:"ambiguous"`
+}
+
+// SiteCounts counts a symbol's sites by kind.
+type SiteCounts struct {
+	Calls   int `json:"calls"`
+	Reads   int `json:"reads"`
+	Writes  int `json:"writes"`
+	Updates int `json:"updates"`
 }
 
 // Site is a call or a use of a symbol, and the definition it sits in.
@@ -125,6 +141,8 @@ type Site struct {
 	Confidence int        `json:"confidence"`
 	// Call reports a call rather than a use.
 	Call bool `json:"call"`
+	// Access is how the site touches the symbol: "read", "write" or "update"; a call, and a use as a type, read it.
+	Access string `json:"access"`
 }
 
 // DefinitionsParams are the params of the definitions method.
