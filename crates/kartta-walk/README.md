@@ -12,8 +12,8 @@ returned, so the entry model — kinds, sizes, symlink targets — belongs to th
 projection of the tree, ignore-file semantics, and every query.
 
 `walk` returns a `WalkOutcome`: a `Tree` plus a report about the run (what could not be read, whether it was cancelled).
-The report is checked and dropped; `into_tree` hands over the structure, which is the only part worth keeping. A `Tree`
-carries no diagnostics precisely so it cannot be mistaken for a record of how it was obtained.
+The report is checked and dropped; the tree is the only part worth keeping. A `Tree` carries no diagnostics precisely so
+it cannot be mistaken for a record of how it was obtained.
 
 It exists to feed a repository file index. A tree is what this returns because a tree is what a traversal discovers, and
 reconstructing one costs a second owned copy of every path. What the consumer keeps is its own affair: the index this
@@ -41,7 +41,7 @@ Two properties it commits to:
 - **Symlinks are never followed.** A symlink is reported as one and never descended, so the walk stays inside the tree
   it was given and cycle detection is unnecessary.
 
-A `CancelToken` ends a walk early, returning the partial tree and saying so through `is_cancelled`; stopping is a
+A `CancelToken` ends a walk early, returning the partial tree and saying so through `cancelled`; stopping is a
 truncated answer, not an error. Likewise an unreadable subdirectory is collected into the result's error list rather
 than failing the walk.
 

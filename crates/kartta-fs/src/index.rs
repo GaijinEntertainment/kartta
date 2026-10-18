@@ -8,7 +8,7 @@ use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 use std::{io, iter};
 
-use kartta_walk::{CancelToken, Children, EntryKind, Tree, WalkOptions, walk};
+use kartta_walk::{CancelToken, Children, EntryKind, Tree, WalkOptions, WalkOutcome, walk};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::binary::BinaryExtensions;
@@ -288,10 +288,13 @@ impl Index {
             ..WalkOptions::default()
         };
 
-        let (tree, walk_errors, cancelled) = on_pool(pool.as_deref(), || {
+        let WalkOutcome {
+            tree,
+            errors: walk_errors,
+            cancelled,
+        } = on_pool(pool.as_deref(), || {
             walk(root, &policy, &DirState::default(), &walk_options)
-        })?
-        .into_parts();
+        })?;
         if cancelled {
             return Err(BuildError::Cancelled);
         }

@@ -56,7 +56,7 @@ pub struct WalkOptions {
 /// # Examples
 ///
 /// ```
-/// use kartta_walk::{Dir, Entry, Policy, Visit, WalkOptions, walk};
+/// use kartta_walk::{Dir, Entry, Policy, Visit, WalkOptions, WalkOutcome, walk};
 ///
 /// /// Records each entry's size, skipping anything hidden.
 /// struct Sizes;
@@ -81,10 +81,9 @@ pub struct WalkOptions {
 /// std::fs::write(dir.path().join("visible.txt"), "12345")?;
 /// std::fs::write(dir.path().join(".hidden"), "x")?;
 ///
-/// let outcome = walk(dir.path(), &Sizes, &(), &WalkOptions::default())?;
-/// assert!(outcome.errors().is_empty() && !outcome.is_cancelled(), "a complete answer");
+/// let WalkOutcome { tree, errors, cancelled } = walk(dir.path(), &Sizes, &(), &WalkOptions::default())?;
+/// assert!(errors.is_empty() && !cancelled, "a complete answer");
 ///
-/// let tree = outcome.into_tree();
 /// assert_eq!(tree.len(), 1, "the dotfile was skipped");
 /// let only = tree.children().next().ok_or("the walk root holds one entry")?;
 /// assert_eq!(only.name(), "visible.txt");
@@ -153,57 +152,22 @@ pub fn walk<P: Policy>(
 /// What one walk produced: the tree, what it could not read, and whether it was cancelled.
 ///
 /// The tree is the part worth keeping; the rest is a report about this particular run, which a consumer surfaces or
-/// logs and then drops. [`WalkOutcome::into_tree`] takes the structure and leaves the report behind.
+/// logs and then drops.
 #[derive(Debug)]
 pub struct WalkOutcome<V> {
-    tree: Tree<V>,
-    errors: Vec<WalkError>,
-    cancelled: bool,
-}
-
-impl<V> WalkOutcome<V> {
     /// The tree the walk discovered.
-    #[must_use]
-    pub const fn tree(&self) -> &Tree<V> {
-        &self.tree
-    }
-
-    /// Takes the tree, dropping the report.
     ///
-    /// Check [`WalkOutcome::errors`] and [`WalkOutcome::is_cancelled`] first: a tree taken out of an incomplete walk
-    /// looks exactly like a tree taken out of a complete one.
-    #[must_use]
-    pub fn into_tree(self) -> Tree<V> {
-        self.tree
-    }
-
+    /// Check [`WalkOutcome::errors`] and [`WalkOutcome::cancelled`] before building on it: a tree taken out of an
+    /// incomplete walk looks exactly like a tree taken out of a complete one.
+    pub tree: Tree<V>,
     /// What the walk could not read, in the depth-first order of where it failed. A non-empty list means the tree is
     /// missing those entries or subtrees.
-    #[must_use]
-    pub fn errors(&self) -> &[WalkError] {
-        &self.errors
-    }
-
+    pub errors: Vec<WalkError>,
     /// Whether the walk was cancelled before it saw every entry the policy allowed.
     ///
     /// A cancelled tree holds whichever entries the threads had reached, which depends on scheduling — so it is
     /// something to report or discard, never to build on. No errors and no cancellation is the only complete answer.
-    #[must_use]
-    pub const fn is_cancelled(&self) -> bool {
-        self.cancelled
-    }
-
-    /// Takes the tree *and* the report: the discovered tree, the collected failures, and whether the walk was
-    /// cancelled.
-    ///
-    /// [`WalkOutcome::into_tree`] is the common case, for a consumer that surfaces the report and drops it. This is for
-    /// one that has to keep it — an index that stores its build failures beside itself outlives the outcome, and a
-    /// [`WalkError`] wraps [`std::io::Error`], so it can be moved but not copied out through
-    /// [`errors`](WalkOutcome::errors).
-    #[must_use]
-    pub fn into_parts(self) -> (Tree<V>, Vec<WalkError>, bool) {
-        (self.tree, self.errors, self.cancelled)
-    }
+    pub cancelled: bool,
 }
 
 struct Frame<'a, P: Policy> {
