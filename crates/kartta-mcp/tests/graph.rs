@@ -526,6 +526,49 @@ fn find_references_lists_a_python_attribute_s_sites_and_a_module_value_read_thro
 }
 
 #[test]
+fn find_references_lists_a_cpp_field_s_sites_and_says_what_an_untyped_access_leaves_out() {
+    let module = tree(&[
+        (
+            "widget.h",
+            "struct Widget {\n  int width;\n  void grow();\n};\nstruct Pane {\n  int width;\n};\n",
+        ),
+        (
+            "widget.cpp",
+            "#include \"widget.h\"\n\nvoid Widget::grow() {\n  width += 1;\n}\n\n\
+             void paint(Widget &widget) {\n  widget.width = 3;\n  draw(widget.width);\n  draw(make().width);\n}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(module.path());
+
+    let answer = client.answer("find_references", &json!({"name": "Widget::width"}));
+
+    assert_eq!(
+        answer,
+        lines(&[
+            r#"<references of="Widget::width" matches="1">"#,
+            concat!(
+                r#"<match lang="cpp" of="width" qn="Widget::width" loc="widget.h:2" kind="field" count="3" "#,
+                r#"reads="1" writes="1" updates="1" ambiguous="1">"#,
+            ),
+            concat!(
+                "<note>a member access on a value whose type the graph cannot name binds only where one field of the ",
+                "name is in the file or the files it includes; ambiguous counts the rest</note>",
+            ),
+            concat!(
+                r#"<ref name="grow" qn="Widget::grow" loc="widget.cpp:3" role="consumer" site="update" "#,
+                r#"at="widget.cpp:4"/>"#,
+            ),
+            r#"<ref name="paint" loc="widget.cpp:7" role="consumer" site="write" at="widget.cpp:8"/>"#,
+            r#"<ref name="paint" loc="widget.cpp:7" role="consumer" site="read" at="widget.cpp:9"/>"#,
+            "</match>",
+            "</references>",
+        ]),
+        "the own class's field and one on a declared value bind; one on a returned value two structs offer does not"
+    );
+}
+
+#[test]
 fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
     let answers = answers(&[
         (
