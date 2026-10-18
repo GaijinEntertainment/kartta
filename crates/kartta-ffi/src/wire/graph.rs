@@ -1,9 +1,9 @@
 use std::io;
 
 use kartta::{
-    Blast, CallPath, Change, CutLine, DeadCode, Definition, Definitions, Dependents, DirectCalls,
-    Implementations, Miss, Nearness, ReachBand, Reached, References, Resolution, Search, Segment,
-    Source, SymbolFlags, Walk,
+    Access, Blast, CallPath, Change, CutLine, DeadCode, Definition, Definitions, Dependents,
+    DirectCalls, Implementations, Miss, Nearness, ReachBand, Reached, References, Resolution,
+    Search, Segment, Source, SymbolFlags, Walk,
 };
 use serde::{Serialize, Serializer};
 
@@ -174,6 +174,8 @@ pub(crate) struct ReferencesView<'g> {
     sites: Vec<SiteView<'g>>,
     total: usize,
     below_confidence: usize,
+    counts: CountsView,
+    ambiguous: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -182,6 +184,23 @@ struct SiteView<'g> {
     line: u32,
     confidence: u8,
     call: bool,
+    access: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct CountsView {
+    calls: usize,
+    reads: usize,
+    writes: usize,
+    updates: usize,
+}
+
+const fn access_label(access: Access) -> &'static str {
+    match access {
+        Access::Read => "read",
+        Access::Write => "write",
+        Access::Update => "update",
+    }
 }
 
 impl<'g> From<References<'g>> for ReferencesView<'g> {
@@ -197,10 +216,18 @@ impl<'g> From<References<'g>> for ReferencesView<'g> {
                     line: site.line,
                     confidence: site.confidence,
                     call: site.call,
+                    access: access_label(site.access),
                 })
                 .collect(),
             total: references.total,
             below_confidence: references.below_confidence,
+            counts: CountsView {
+                calls: references.counts.calls,
+                reads: references.counts.reads,
+                writes: references.counts.writes,
+                updates: references.counts.updates,
+            },
+            ambiguous: references.ambiguous,
         }
     }
 }

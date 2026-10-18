@@ -8,7 +8,7 @@
 
 use std::num::{NonZeroU32, NonZeroUsize};
 
-use kartta::confidence;
+use kartta::{Access, confidence};
 use serde::Deserialize;
 
 /// The least confidence a call needs to count, named for how the resolver bound it.
@@ -396,6 +396,30 @@ pub(crate) struct FindReferencesParams {
     /// rejected; omit the argument to use "any". below_confidence= on a match counts the sites the floor dropped.
     #[serde(default)]
     pub(crate) min_confidence: ConfidenceFloor,
+    /// Keep only the uses that read the symbol ("read") or that set it ("write"), e.g. "write" for "who sets
+    /// Config.Timeout?"; an update (+=, ++) is both, and calls are dropped. Omit to keep every site. The counts on the
+    /// match still count every site.
+    #[serde(default)]
+    pub(crate) access: Option<AccessFilter>,
+}
+
+/// Which uses a `find_references` answer keeps.
+#[derive(Debug, Clone, Copy, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum AccessFilter {
+    /// The uses that read the symbol: reads and updates.
+    Read,
+    /// The uses that set the symbol: writes and updates.
+    Write,
+}
+
+impl AccessFilter {
+    pub(crate) const fn access(self) -> Access {
+        match self {
+            Self::Read => Access::Read,
+            Self::Write => Access::Write,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
