@@ -557,6 +557,12 @@ impl Cascade<'_> {
         caller_type.map_or_else(|| self.owner_ancestors(own), |ty| self.type_ancestors(ty))
     }
 
+    /// Whether a base the type declares, or a base of one of those, is a class of the owner's name.
+    pub(crate) fn has_ancestor(&self, ty: SymbolAt, owner: Str) -> bool {
+        self.type_ancestors(ty)
+            .is_some_and(|up| up.owners.contains(&owner))
+    }
+
     fn type_ancestors(&self, ty: SymbolAt) -> Option<Rc<Ancestors>> {
         if let Some(ancestors) = self.type_ancestors.borrow().get(&ty) {
             return ancestors.clone();
