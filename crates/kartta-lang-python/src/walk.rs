@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use self::uses::NameUse;
-use kartta_lang::tree::{children, named_children, preorder, signature, text};
+use kartta_lang::tree::{children, line, named_children, preorder, signature, text};
 use kartta_lang::{
     CallRef, LocalCall, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -721,10 +721,6 @@ fn symbol(
     };
     symbol.exported = is_exported(&symbol.name);
     symbol
-}
-
-fn line(row: usize) -> u32 {
-    u32::try_from(row).map_or(u32::MAX, |row| row.saturating_add(1))
 }
 
 fn lines(node: Node<'_>) -> [u32; 2] {

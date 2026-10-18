@@ -1,5 +1,5 @@
 use kartta_lang::SymbolKind;
-use kartta_lang::tree::{children, named_children, text};
+use kartta_lang::tree::{children, line, named_children, text};
 use tree_sitter::Node;
 
 const FUNCTION_KINDS: [&str; 4] = [
@@ -34,10 +34,6 @@ pub(crate) fn start_line(node: Node<'_>) -> u32 {
 
 pub(crate) fn end_line(node: Node<'_>) -> u32 {
     line(node.end_position().row)
-}
-
-fn line(row: usize) -> u32 {
-    u32::try_from(row).map_or(u32::MAX, |row| row.saturating_add(1))
 }
 
 pub(crate) fn trim_quotes(literal: &str) -> &str {

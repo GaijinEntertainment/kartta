@@ -1,10 +1,10 @@
-use kartta_lang::tree::text;
+use kartta_lang::tree::{line, text};
 use kartta_lang::{Access, NO_CALLER_ID, Receiver, RefSite, SymbolId};
 use tree_sitter::Node;
 
 use super::Emitter;
 use super::locals::declares_left;
-use super::syntax::{PREDECLARED, first_operand, is_pointer_indirection, line, next_in_preorder};
+use super::syntax::{PREDECLARED, first_operand, is_pointer_indirection, next_in_preorder};
 use super::types::{element_of, is_container_path, is_container_type};
 
 impl<'a> Emitter<'a> {
