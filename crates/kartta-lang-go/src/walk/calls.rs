@@ -1,9 +1,10 @@
+use kartta_lang::tree::line;
 use kartta_lang::{CallRef, LocalCall, SymbolId};
 use tree_sitter::Node;
 
 use super::Emitter;
 use super::locals::LocalKind;
-use super::syntax::{TYPE_ONLY_KINDS, call_target, first_operand, is_pointer_indirection, line};
+use super::syntax::{TYPE_ONLY_KINDS, call_target, first_operand, is_pointer_indirection};
 
 impl Emitter<'_> {
     pub(super) fn call(&mut self, node: Node<'_>, caller_id: SymbolId) {

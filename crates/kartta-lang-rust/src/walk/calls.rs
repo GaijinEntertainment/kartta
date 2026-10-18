@@ -1,9 +1,9 @@
-use kartta_lang::tree::text;
+use kartta_lang::tree::{line, text};
 use kartta_lang::{CallRef, SymbolId};
 use tree_sitter::Node;
 
 use super::blocks::{CallForm, path_segments};
-use super::syntax::{last_segment, line, path_text, type_base};
+use super::syntax::{last_segment, path_text, type_base};
 use super::{Emitter, open_impls_over};
 
 struct Target {

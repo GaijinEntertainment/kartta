@@ -1,4 +1,4 @@
-use kartta_lang::tree::{named_children, preorder, text};
+use kartta_lang::tree::{line, named_children, preorder, text};
 use kartta_lang::{
     Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -174,10 +174,6 @@ fn start_line(node: Node<'_>) -> u32 {
 
 fn end_line(node: Node<'_>) -> u32 {
     line(node.end_position().row)
-}
-
-fn line(row: usize) -> u32 {
-    u32::try_from(row).map_or(u32::MAX, |row| row.saturating_add(1))
 }
 
 const EXPANSIONS: [&str; 4] = [

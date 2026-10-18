@@ -1,4 +1,4 @@
-use kartta_lang::tree::{named_children, preorder, signature, text};
+use kartta_lang::tree::{line, named_children, preorder, signature, text};
 use kartta_lang::{
     Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -372,8 +372,4 @@ pub(crate) const fn visibility_exports(modifier: &[u8]) -> Option<bool> {
 
 pub(crate) fn named(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
     named_children(node).filter_map(move |index| node.named_child(index))
-}
-
-pub(crate) fn line(row: usize) -> u32 {
-    u32::try_from(row).map_or(u32::MAX, |row| row.saturating_add(1))
 }

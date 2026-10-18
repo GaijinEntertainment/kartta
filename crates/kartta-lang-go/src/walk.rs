@@ -1,6 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 
-use kartta_lang::tree::{children, named_children, preorder, signature, text};
+use kartta_lang::tree::{children, line, named_children, preorder, signature, text};
 use kartta_lang::{
     ImplementsAssertion, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
@@ -9,8 +9,8 @@ use tree_sitter::{Node, Tree};
 
 use self::locals::{Block, Local, LocalKind, declares_left, header_statement};
 use self::syntax::{
-    assertion_value_type, default_name_candidates, is_exported, is_generated_source, line,
-    parents_of, receiver_type, trim_quotes,
+    assertion_value_type, default_name_candidates, is_exported, is_generated_source, parents_of,
+    receiver_type, trim_quotes,
 };
 use self::types::{element_of, is_container_type};
 

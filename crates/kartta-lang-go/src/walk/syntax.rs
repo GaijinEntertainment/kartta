@@ -46,10 +46,6 @@ pub(super) const TYPE_ONLY_KINDS: &[&str] = &[
     "type_identifier",
 ];
 
-pub(super) fn line(row: usize) -> u32 {
-    u32::try_from(row).map_or(u32::MAX, |row| row.saturating_add(1))
-}
-
 // constraint: Go exports a name whose first rune is a Unicode upper-case letter, so `Ä` exports; `char::is_uppercase`
 // agrees with Go's `unicode.IsUpper` on every rune that can start an identifier
 pub(super) fn is_exported(name: &str) -> bool {
