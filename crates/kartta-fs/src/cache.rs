@@ -2,7 +2,7 @@ use std::io;
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
-use kartta_cache::{ContentHash, Namespace, PackWriter, Store};
+use kartta_cache::{ContentHash, DEFAULT_TTL, Namespace, PackWriter, Store};
 
 use crate::build::BuildError;
 use crate::trigram::{self, Trigrams};
@@ -78,7 +78,7 @@ impl SharedCache {
 
         writer
             .publish()
-            .and_then(|_| Store::open(&dir)?.merge())
+            .and_then(|_| Store::open(&dir)?.merge(DEFAULT_TTL))
             .err()
             .map(|source| cache_error(&dir, source))
     }

@@ -2,18 +2,20 @@ use std::fs::File;
 use std::io;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use memmap2::Mmap;
 
 use crate::key::{self, ContentHash, Namespace};
 
 pub(crate) const MAGIC: [u8; 8] = *b"KARTPACK";
-pub(crate) const VERSION: u32 = 1;
+pub(crate) const VERSION: u32 = 2;
 pub(crate) const EXTENSION: &str = "pack";
 
 pub(crate) const FOOTER_LEN: usize = 40;
 pub(crate) const NAMESPACE_RECORD_LEN: usize = 48;
-pub(crate) const ENTRY_RECORD_LEN: usize = 52;
+pub(crate) const ENTRY_RECORD_LEN: usize = 56;
+pub(crate) const NAMED_RECORD_LEN: usize = 52;
 
 pub(crate) struct Footer {
     pub(crate) namespace_count: u32,
@@ -67,19 +69,53 @@ pub(crate) fn namespace_record(
     record
 }
 
-pub(crate) fn entry_record(
-    content: &ContentHash,
-    offset: u64,
-    len: u32,
-    check: u64,
-) -> [u8; ENTRY_RECORD_LEN] {
-    let mut record = [0; ENTRY_RECORD_LEN];
-    record[..32].copy_from_slice(content.as_bytes());
-    record[32..40].copy_from_slice(&offset.to_le_bytes());
-    record[40..44].copy_from_slice(&len.to_le_bytes());
-    record[44..52].copy_from_slice(&check.to_le_bytes());
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct IndexEntry {
+    pub(crate) content: ContentHash,
+    pub(crate) offset: u64,
+    pub(crate) len: u32,
+    pub(crate) check: u64,
+    pub(crate) published: Published,
+}
 
-    record
+impl IndexEntry {
+    pub(crate) fn encode(&self) -> [u8; ENTRY_RECORD_LEN] {
+        let mut record = [0; ENTRY_RECORD_LEN];
+        record[..32].copy_from_slice(self.content.as_bytes());
+        record[32..40].copy_from_slice(&self.offset.to_le_bytes());
+        record[40..44].copy_from_slice(&self.len.to_le_bytes());
+        record[44..52].copy_from_slice(&self.check.to_le_bytes());
+        record[52..56].copy_from_slice(&self.published.0.to_le_bytes());
+
+        record
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Published(u32);
+
+impl Published {
+    pub(crate) fn at(time: SystemTime) -> Self {
+        let seconds = time
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs());
+
+        Self(u32::try_from(seconds).unwrap_or(u32::MAX))
+    }
+
+    pub(crate) fn rounded_up(time: SystemTime) -> Self {
+        let fraction = time
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.subsec_nanos());
+
+        Self::at(time + Duration::from_secs(u64::from(fraction > 0)))
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Aging {
+    pub(crate) entries: u64,
+    pub(crate) bytes: u64,
 }
 
 pub(crate) enum Lookup<'a> {
@@ -183,7 +219,10 @@ impl Pack {
         entry_range(&records[found])
     }
 
-    pub(crate) fn entries(&self) -> impl Iterator<Item = (Namespace, ContentHash, &[u8])> {
+    pub(crate) fn entries_since(
+        &self,
+        since: Published,
+    ) -> impl Iterator<Item = (Namespace, IndexEntry, &[u8])> {
         self.namespace_records().iter().flat_map(move |record| {
             let namespace = record.first_chunk().copied().map(Namespace::from_bytes);
             let entries = entry_range(record)
@@ -191,6 +230,7 @@ impl Pack {
                 .unwrap_or_default();
             entries
                 .iter()
+                .filter(move |entry| published_of(entry) >= since)
                 .filter_map(move |entry| self.checked_entry(namespace?, entry))
         })
     }
@@ -199,12 +239,33 @@ impl Pack {
         &self,
         namespace: Namespace,
         entry: &[u8; ENTRY_RECORD_LEN],
-    ) -> Option<(Namespace, ContentHash, &[u8])> {
+    ) -> Option<(Namespace, IndexEntry, &[u8])> {
         let content = ContentHash::from_bytes(*entry.first_chunk()?);
         let payload = self.payload(entry)?;
+        let decoded = IndexEntry {
+            content,
+            offset: 0,
+            len: len_of(entry),
+            check: check_of(entry),
+            published: published_of(entry),
+        };
 
-        (key::check(&namespace, &content, payload) == check_of(entry))
-            .then_some((namespace, content, payload))
+        (key::check(&namespace, &content, payload) == decoded.check)
+            .then_some((namespace, decoded, payload))
+    }
+
+    pub(crate) fn aged_before(&self, cutoff: Published) -> Aging {
+        self.entry_records()
+            .iter()
+            .filter(|record| published_of(record) < cutoff)
+            .fold(Aging::default(), |aging, record| Aging {
+                entries: aging.entries + 1,
+                bytes: aging.bytes + u64::from(len_of(record)),
+            })
+    }
+
+    pub(crate) fn payload_bytes(&self) -> u64 {
+        u64::try_from(self.entries.start).unwrap_or(u64::MAX)
     }
 
     pub(crate) fn path(&self) -> &Path {
@@ -239,9 +300,21 @@ fn entry_range(record: &[u8; NAMESPACE_RECORD_LEN]) -> Option<Range<usize>> {
     Some(usize::try_from(start).ok()?..usize::try_from(end).ok()?)
 }
 
-const fn check_of(record: &[u8; ENTRY_RECORD_LEN]) -> u64 {
+fn len_of(record: &[u8; ENTRY_RECORD_LEN]) -> u32 {
+    record[40..]
+        .first_chunk()
+        .map_or(0, |len| u32::from_le_bytes(*len))
+}
+
+fn check_of(record: &[u8; ENTRY_RECORD_LEN]) -> u64 {
+    record[44..]
+        .first_chunk()
+        .map_or(0, |check| u64::from_le_bytes(*check))
+}
+
+const fn published_of(record: &[u8; ENTRY_RECORD_LEN]) -> Published {
     match record.last_chunk() {
-        Some(check) => u64::from_le_bytes(*check),
-        None => 0,
+        Some(published) => Published(u32::from_le_bytes(*published)),
+        None => Published(0),
     }
 }

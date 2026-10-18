@@ -33,8 +33,19 @@
 //! Each publish of entries adds a pack, unless the same pack is already in place, and [`Store::merge`] keeps their
 //! number bounded: past eight it merges every pack but the largest into one while the largest holds more entries than
 //! all of them together, every pack otherwise, and removes what it merged. The caller decides when to merge — after
-//! publishing is the natural moment — because only it knows how many processes share the directory. Nothing removes an
-//! entry by age yet.
+//! publishing is the natural moment — because only it knows how many processes share the directory.
+//!
+//! # Expiry
+//!
+//! Every entry carries the time it was published, and a merge removes the entries older than the time to live its
+//! caller gives — [`DEFAULT_TTL`], a week, unless the caller has reason to pick another — so entries for contents no
+//! tree holds any more, and every entry of a namespace no producer computes any more, leave the store. A lookup does
+//! not renew an entry: one every build finds expires once per time to live, and the next build computes it again,
+//! which keeps every lookup free of writes. A pack is rewritten without its expired entries once they hold half of
+//! its payload bytes, or when it is merged anyway; until then a lookup still finds them, which serves nothing wrong,
+//! since an entry's key names exactly what it was computed from. The merge also removes the temporary files of writers
+//! that never published, an hour after they were last written, and the packs of another format version once they are
+//! older than both the time to live and an hour.
 //!
 //! # Examples
 //!
@@ -66,5 +77,5 @@ mod store;
 mod writer;
 
 pub use crate::key::{ContentHash, ContentHasher, Namespace};
-pub use crate::store::{Merged, Stats, Store};
+pub use crate::store::{DEFAULT_TTL, Merged, Stats, Store};
 pub use crate::writer::PackWriter;
