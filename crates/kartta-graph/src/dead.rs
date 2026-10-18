@@ -346,7 +346,7 @@ impl Judge<'_, '_> {
     }
 
     fn is_named_at_file_scope(&self, at: SymbolAt) -> bool {
-        let Some(key) = self.graph.site_key(self.graph.sym(at).name) else {
+        let Some(key) = self.graph.listing_key(self.graph.sym(at).name) else {
             return false;
         };
         self.graph
@@ -417,7 +417,7 @@ impl Judge<'_, '_> {
     }
 
     fn types_named(&self, owner: Str) -> impl Iterator<Item = SymbolAt> + '_ {
-        let key = self.graph.site_key(owner);
+        let key = self.graph.listing_key(owner);
         key.into_iter()
             .flat_map(|key| self.graph.named(key).iter().copied())
             .filter(move |&ty| {
@@ -435,7 +435,7 @@ impl Judge<'_, '_> {
             .any(|parent| {
                 let mut bases = self
                     .graph
-                    .site_key(parent.written)
+                    .listing_key(parent.written)
                     .into_iter()
                     .flat_map(|key| self.graph.named(key).iter().copied())
                     .filter(|&base| is_type_kind(self.graph.sym(base).kind))
@@ -451,7 +451,7 @@ impl Judge<'_, '_> {
             symbol.kind == SymbolKind::Method
                 && symbol
                     .owner
-                    .is_some_and(|owner| self.graph.site_key(owner) == Some(type_name))
+                    .is_some_and(|owner| self.graph.listing_key(owner) == Some(type_name))
         })
     }
 }

@@ -11,8 +11,8 @@ use kartta_lang::{
 use crate::order::PathOrder;
 use crate::stored::{
     Entry, Folded, Local, Occurrence, Parent, Site, StoredAssertion, StoredBinding, StoredCall,
-    StoredCallable, StoredFile, StoredLocalCall, StoredReExport, StoredReference, StoredSymbol,
-    SymbolAt, UseAt, UseReceiver, VALUE_TYPE_SEPARATOR, ValueTypes,
+    StoredCallable, StoredFile, StoredLocalCall, StoredReExport, StoredSymbol, StoredUse, SymbolAt,
+    UseAt, UseReceiver, VALUE_TYPE_SEPARATOR, ValueTypes,
 };
 use crate::strings::{Str, Strings};
 
@@ -304,10 +304,10 @@ impl Graph {
     }
 
     fn is_listed_under(&self, callee: Str, key: Str) -> bool {
-        callee == key || self.site_key(callee) == Some(key)
+        callee == key || self.listing_key(callee) == Some(key)
     }
 
-    pub(crate) fn site_key(&self, name: Str) -> Option<Str> {
+    pub(crate) fn listing_key(&self, name: Str) -> Option<Str> {
         qualified_tail(self.strings.resolve(name)).map_or(Some(name), |last| self.strings.get(last))
     }
 
@@ -317,9 +317,8 @@ impl Graph {
             .into_iter()
             .flatten()
             .flat_map(move |&slot| {
-                let references = self.file(slot).references.iter().enumerate();
-                references
-                    .filter(move |(_, site)| site.name == name)
+                let uses = self.file(slot).uses.iter().enumerate();
+                uses.filter(move |(_, site)| site.name == name)
                     .map(move |(index, _)| UseAt {
                         file: slot,
                         index: narrow(index),
@@ -350,7 +349,7 @@ impl Graph {
     pub(crate) fn is_spelled(&self, name: Str) -> bool {
         self.uses.contains_key(&name)
             || self.renamed_from.contains_key(&name)
-            || self.site_key(name).is_some_and(|key| {
+            || self.listing_key(name).is_some_and(|key| {
                 self.sites.contains_key(&key) || self.named_at_file_scope.contains_key(&key)
             })
     }
@@ -504,7 +503,7 @@ impl Graph {
             calls: self.store_calls(extraction),
             file_scope_names: self.store_file_scope_names(extraction),
             local_calls: local_calls(extraction),
-            references: self.store_references(extraction),
+            uses: self.store_uses(extraction),
             includes: self.store_includes(path, extraction),
             re_exports: self.store_re_exports(extraction),
             bindings: self.store_bindings(extraction),
@@ -634,7 +633,7 @@ impl Graph {
             }
             let callee = self.written_from_root(&call.callee).unwrap_or(&call.callee);
             let callee = self.strings.intern(callee);
-            keys.push(self.listing_key(callee));
+            keys.push(self.intern_listing_key(callee));
         }
         for site in &extraction.references {
             if !holds(extraction, site.site_of) {
@@ -645,14 +644,12 @@ impl Graph {
     }
 
     // constraint: a stored use keeps its site in the bits its marks leave, so a use inside a definition past the
-    // `StoredReference::SITES`th of its file is not kept
-    fn store_references(&mut self, extraction: &Extraction) -> Box<[StoredReference]> {
+    // `StoredUse::SITES`th of its file is not kept
+    fn store_uses(&mut self, extraction: &Extraction) -> Box<[StoredUse]> {
         extraction
             .references
             .iter()
-            .filter(|site| {
-                holds(extraction, site.site_of) && site.site_of.0 < StoredReference::SITES
-            })
+            .filter(|site| holds(extraction, site.site_of) && site.site_of.0 < StoredUse::SITES)
             .map(|site| {
                 let receiver = match &site.receiver {
                     Receiver::Bare => UseReceiver::Bare,
@@ -665,7 +662,7 @@ impl Graph {
                     }
                 };
                 let name = self.strings.intern(&site.name);
-                StoredReference::new(site.site_of.0, (name, receiver), site.access, site.line)
+                StoredUse::new(site.site_of.0, (name, receiver), site.access, site.line)
             })
             .collect()
     }
@@ -740,7 +737,7 @@ impl Graph {
                 .or_default()
                 .push(occurrence);
         }
-        for name in distinct(self.file(slot).references.iter().map(|site| site.name)) {
+        for name in distinct(self.file(slot).uses.iter().map(|site| site.name)) {
             self.uses.entry(name).or_default().push(slot);
         }
         for at in 0..self.file(slot).re_exports.len() {
@@ -786,23 +783,27 @@ impl Graph {
                     .map(|call| file.symbols[call.local as usize].name),
             ),
         );
-        distinct(callees.into_iter().map(|callee| self.listing_key(callee)))
+        distinct(
+            callees
+                .into_iter()
+                .map(|callee| self.intern_listing_key(callee)),
+        )
     }
 
     fn parent_keys_of(&mut self, slot: u32) -> Vec<Str> {
         let mut keys = Vec::new();
         for at in 0..self.file(slot).parents.len() {
             let written = self.file(slot).parents[at].written;
-            keys.push(self.listing_key(written));
+            keys.push(self.intern_listing_key(written));
         }
         for at in 0..self.file(slot).assertions.len() {
             let iface = self.file(slot).assertions[at].iface;
-            keys.push(self.listing_key(iface));
+            keys.push(self.intern_listing_key(iface));
         }
         distinct(keys)
     }
 
-    fn listing_key(&mut self, written: Str) -> Str {
+    fn intern_listing_key(&mut self, written: Str) -> Str {
         let Some(last) = qualified_tail(self.strings.resolve(written)) else {
             return written;
         };
@@ -841,7 +842,7 @@ impl Graph {
         for key in site_keys {
             unlist(&mut self.sites, key, |&held| held != slot);
         }
-        for name in distinct(file.references.iter().map(|site| site.name)) {
+        for name in distinct(file.uses.iter().map(|site| site.name)) {
             unlist(&mut self.uses, name, |&held| held != slot);
         }
         for callable in &file.callables {

@@ -214,7 +214,7 @@ impl Types<'_> {
             .filter(|&(child, parent)| {
                 child != ty
                     && is_implementor_kind(self.graph.sym(child).kind)
-                    && self.graph.site_key(parent.written) == Some(key)
+                    && self.graph.listing_key(parent.written) == Some(key)
                     && self.names(child, parent, ty)
             })
             .map(|(child, _)| child);
@@ -229,7 +229,7 @@ impl Types<'_> {
             .assertions
             .iter()
             .filter(|assertion| {
-                self.graph.site_key(assertion.iface) == Some(key)
+                self.graph.listing_key(assertion.iface) == Some(key)
                     && self.file_names(slot, assertion.iface, ty)
             })
             .filter_map(|assertion| self.asserted_type(slot, assertion.type_name))
