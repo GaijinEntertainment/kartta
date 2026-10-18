@@ -1,14 +1,18 @@
+use std::sync::LazyLock;
+
 use kartta_languages::NAMES;
 
 /// The names a `languages` parameter takes: every language kartta ships, and each family key that names several of
 /// them at once, as `jsts` names TypeScript, TSX and JavaScript.
+pub(crate) static CATALOG: LazyLock<Catalog> = LazyLock::new(Catalog::new);
+
 #[derive(Debug)]
 pub(crate) struct Catalog {
     families: Vec<String>,
 }
 
 impl Catalog {
-    pub(crate) fn new() -> Self {
+    fn new() -> Self {
         Self {
             families: kartta_languages::all()
                 .iter()
