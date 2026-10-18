@@ -11,7 +11,7 @@ use std::hint::black_box;
 use std::num::NonZeroUsize;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use kartta_fuzz::{Matcher, Ranked};
+use kartta_fuzz::{Ranked, Ranking};
 
 /// Corpus size. Large enough that per-candidate costs dominate setup and that the profile resembles a real repository,
 /// small enough that the whole suite runs in well under a minute.
@@ -107,10 +107,9 @@ fn corpus(len: usize) -> Vec<String> {
         .collect()
 }
 
-/// Ranks `candidates` against `query` the way a caller does: a fresh matcher, every candidate offered by position.
+/// Ranks `candidates` against `query` the way a caller does: a fresh ranking, every candidate offered by position.
 fn ranked(candidates: &[&str], query: &str, limit: Option<NonZeroUsize>) -> Vec<Ranked> {
-    let mut matcher = Matcher::new();
-    let mut ranking = matcher.ranking(query, limit);
+    let mut ranking = Ranking::new(query, limit);
     for (position, candidate) in candidates.iter().enumerate() {
         if !ranking.offer(position, candidate) {
             break;

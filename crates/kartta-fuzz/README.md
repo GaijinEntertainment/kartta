@@ -54,11 +54,10 @@ A ranking takes candidates one at a time with their positions, so they need neve
 positions:
 
 ```rust
-use kartta_fuzz::Matcher;
+use kartta_fuzz::Ranking;
 
 let paths = ["main/lib.rs", "src/main.rs"];
-let mut matcher = Matcher::new();
-let mut ranking = matcher.ranking("main", None);
+let mut ranking = Ranking::new("main", None);
 for (position, path) in paths.iter().enumerate() {
     ranking.offer(position, path);
 }
@@ -66,7 +65,7 @@ assert_eq!(paths[ranking.finish()[0].position], "src/main.rs");
 ```
 
 Rankings of consecutive slices of one list, each built with the same query and limit, merge into the ranking of the
-whole list with `Matcher::merge_ranked`, which is how a long list is ranked on several threads.
+whole list with `Ranking::merge`, which is how a long list is ranked on several threads.
 
 ## Cost
 
@@ -79,8 +78,7 @@ non-ASCII character has no byte form and takes a scalar scan over decoded charac
 Repository paths are ASCII-dominant, so a candidate is likewise prepared as normalized bytes whenever it and the
 query both are, and as characters otherwise; the alignment is written once, generic over the two.
 
-A `Matcher` owns the buffers the alignment reuses. Build one per query and rank a whole list with it; building one per
-candidate defeats the reuse it exists for. Results are positions, so a ranking allocates one `Vec` and copies no
+A `Ranking` owns the buffers the alignment reuses, so ranking a list allocates once rather than once per candidate. Results are positions, so a ranking allocates one `Vec` and copies no
 path. Passing a `limit` also bounds memory: the best matches are kept in a heap of that size rather than
 collected and sorted, which matters when a permissive query over millions of paths would otherwise materialize a
 result per survivor.
