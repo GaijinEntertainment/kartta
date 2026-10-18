@@ -25,6 +25,26 @@ pub fn base(path: &str) -> &str {
     path.rsplit_once('/').map_or(path, |(_, base)| base)
 }
 
+/// Whether the last component of `path` ends in a dot and one of `extensions`, in any case.
+#[must_use]
+pub fn has_extension(path: &str, extensions: &[&str]) -> bool {
+    base(path).rsplit_once('.').is_some_and(|(_, extension)| {
+        extensions
+            .iter()
+            .any(|known| extension.eq_ignore_ascii_case(known))
+    })
+}
+
+/// `name` under the directory `dir`, where an empty `dir` is the root and an empty `name` is `dir` itself.
+#[must_use]
+pub fn child(dir: &str, name: &str) -> String {
+    match (dir.is_empty(), name.is_empty()) {
+        (true, _) => name.to_owned(),
+        (false, true) => dir.to_owned(),
+        (false, false) => format!("{dir}/{name}"),
+    }
+}
+
 /// The root-relative path that `relative`, such as `./util/b` or `../b`, names from the directory `from`, with its
 /// `.` and `..` components applied; `None` when it climbs above the root.
 ///
@@ -70,6 +90,22 @@ mod tests {
         assert_eq!(join(".", "./util/b").as_deref(), Some("util/b"));
         assert_eq!(join("", "./b").as_deref(), Some("b"));
         assert_eq!(join("a", "..").as_deref(), Some(""));
+    }
+
+    #[test]
+    fn an_extension_matches_in_any_case_after_the_last_dot_of_the_name() {
+        assert!(has_extension("src/Main.PY", &["py", "pyi"]));
+        assert!(has_extension("a.tar.gz", &["gz"]));
+        assert!(!has_extension("a.tar.gz", &["tar"]));
+        assert!(!has_extension("py/README", &["py"]));
+    }
+
+    #[test]
+    fn an_empty_side_of_a_join_drops_its_slash() {
+        assert_eq!(child("src", "a.py"), "src/a.py");
+        assert_eq!(child("", "a.py"), "a.py");
+        assert_eq!(child("src", ""), "src");
+        assert_eq!(child("", ""), "");
     }
 
     #[test]

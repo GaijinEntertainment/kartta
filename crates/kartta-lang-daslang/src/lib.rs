@@ -67,7 +67,7 @@
 //! assert_eq!(names, ["ui", "ui.draw"]);
 //! ```
 
-use kartta_lang::path::base;
+use kartta_lang::path::has_extension;
 use kartta_lang::{DocComments, Language, RawExtraction, Repository, Resolver};
 
 use crate::resolve::DaslangResolver;
@@ -94,9 +94,7 @@ impl Language for Daslang {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path)
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("das"))
+        has_extension(path, &["das"])
     }
 
     fn fingerprint(&self) -> &[u8] {

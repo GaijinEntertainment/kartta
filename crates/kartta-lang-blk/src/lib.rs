@@ -52,7 +52,7 @@
 //! assert_eq!(paths, ["common.blk", "#/develop/gun.blk"]);
 //! ```
 
-use kartta_lang::path::base;
+use kartta_lang::path::has_extension;
 use kartta_lang::{Language, RawExtraction, Repository, Resolver};
 
 use crate::resolve::BlkResolver;
@@ -82,9 +82,7 @@ impl Language for Blk {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path)
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("blk"))
+        has_extension(path, &["blk"])
     }
 
     fn fingerprint(&self) -> &[u8] {

@@ -58,7 +58,7 @@
 //! assert_eq!(raw.symbols[1].parents, ["global_frame"]);
 //! ```
 
-use kartta_lang::path::base;
+use kartta_lang::path::has_extension;
 use kartta_lang::{
     Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
 };
@@ -87,9 +87,7 @@ impl Language for Dshl {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path)
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("dshl"))
+        has_extension(path, &["dshl"])
     }
 
     fn fingerprint(&self) -> &[u8] {

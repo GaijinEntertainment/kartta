@@ -58,7 +58,7 @@
 //! assert_eq!(raw.calls[0].callee, "compute");
 //! ```
 
-use kartta_lang::path::base;
+use kartta_lang::path::has_extension;
 use kartta_lang::{
     BlockComment, Conventions, DocComments, InheritedMembers, Language, OwnMembers, RawExtraction,
     Repository, Resolver,
@@ -94,9 +94,7 @@ impl Language for Ruby {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path)
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("rb"))
+        has_extension(path, &["rb"])
     }
 
     fn fingerprint(&self) -> &[u8] {

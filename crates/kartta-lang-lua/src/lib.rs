@@ -53,7 +53,7 @@
 //! assert_eq!(raw.calls[0].callee, "helper");
 //! ```
 
-use kartta_lang::path::base;
+use kartta_lang::path::has_extension;
 use kartta_lang::{
     BlockComment, Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository,
     Resolver,
@@ -93,9 +93,7 @@ impl Language for Lua {
     }
 
     fn claims(&self, path: &str) -> bool {
-        base(path)
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("lua"))
+        has_extension(path, &["lua"])
     }
 
     fn fingerprint(&self) -> &[u8] {

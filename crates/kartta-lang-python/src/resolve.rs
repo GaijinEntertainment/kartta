@@ -1,6 +1,6 @@
 use std::iter;
 
-use kartta_lang::path::{base, dir, join};
+use kartta_lang::path::{base, child, dir, join};
 use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
@@ -86,7 +86,7 @@ impl Imports<'_> {
     // `import app.db` from under `src/` takes the root one
     fn absolute(&mut self, module: &str) -> Found {
         for anchor in anchors(self.path) {
-            if let Some((target, package)) = self.probe(&anchor_join(anchor, module)) {
+            if let Some((target, package)) = self.probe(&child(anchor, module)) {
                 self.includes.push(IncludeRef { target });
                 return package.map_or(Found::Module, Found::Package);
             }
@@ -103,7 +103,7 @@ impl Imports<'_> {
         }
         for anchor in anchors(self.path) {
             let found = self.includes.len();
-            self.submodules(&anchor_join(anchor, module), names);
+            self.submodules(&child(anchor, module), names);
             if self.includes.len() > found {
                 return;
             }
@@ -118,7 +118,7 @@ impl Imports<'_> {
         let Some(climbed) = join(dir(self.path), &"../".repeat(dots - 1)) else {
             return;
         };
-        let package = anchor_join(&climbed, &dotted_path(&spec[dots..]));
+        let package = child(&climbed, &dotted_path(&spec[dots..]));
 
         let mut plain_module = false;
         if let Some((target, as_package)) = self.probe(&package) {
@@ -133,7 +133,7 @@ impl Imports<'_> {
     // constraint: an imported name that is no file under the package is a symbol of it and adds no include
     fn submodules(&mut self, package: &str, names: &[String]) {
         for name in names {
-            if let Some((target, _)) = self.probe(&anchor_join(package, name)) {
+            if let Some((target, _)) = self.probe(&child(package, name)) {
                 self.includes.push(IncludeRef { target });
             }
         }
@@ -147,7 +147,7 @@ impl Imports<'_> {
             if self.repository.contains(&file) {
                 return Some((file, None));
             }
-            let init = anchor_join(module, initializer);
+            let init = child(module, initializer);
             if self.repository.contains(&init) {
                 return Some((init, Some(module.to_owned())));
             }
@@ -178,14 +178,6 @@ fn dotted_path(dotted: &str) -> String {
         path.push_str(segment);
     }
     path
-}
-
-fn anchor_join(anchor: &str, piece: &str) -> String {
-    match (anchor.is_empty(), piece.is_empty()) {
-        (true, _) => piece.to_owned(),
-        (false, true) => anchor.to_owned(),
-        (false, false) => format!("{anchor}/{piece}"),
-    }
 }
 
 // constraint: a `.pyi` stub takes the module name and the role of the `.py` source it describes; the extension
