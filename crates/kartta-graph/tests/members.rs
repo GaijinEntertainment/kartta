@@ -235,6 +235,38 @@ fn a_member_of_a_value_of_no_known_type_binds_the_file_s_one_field_only_where_th
 }
 
 #[test]
+fn a_receiver_that_ends_an_included_module_s_name_binds_that_module_s_own_definition() {
+    let mut limit = free("LIMIT", SymbolKind::Variable, [1, 1]);
+    limit.qualified_name = "lib.consts.LIMIT".to_owned();
+    let mut size = member("Box", "LIMIT", SymbolKind::Field, 4);
+    size.qualified_name = "lib.consts.Box.LIMIT".to_owned();
+    let consts = file("lib/consts.py", vec![limit, size], &[]);
+    let mut other = free("LIMIT", SymbolKind::Variable, [1, 1]);
+    other.qualified_name = "app.other.LIMIT".to_owned();
+    let other = file("app/other.py", vec![other], &[]);
+    let mut main = file(
+        "app/main.py",
+        vec![free("run", SymbolKind::Function, [1, 9])],
+        &["lib/consts.py", "app/other.py"],
+    );
+    main.references = vec![
+        using(0, "LIMIT", Receiver::Path("consts".to_owned()), 2),
+        using(0, "LIMIT", Receiver::Path("lib.consts".to_owned()), 3),
+        using(0, "LIMIT", Receiver::Path("c".to_owned()), 4),
+    ];
+    let graph = graph(script(), &[consts, other, main]);
+
+    assert_eq!(
+        sites_of(&graph, "lib.consts.LIMIT"),
+        (
+            vec![("run".to_owned(), 2, 85), ("run".to_owned(), 3, 85)],
+            0
+        ),
+        "a module named by an alias it does not end is no owner"
+    );
+}
+
+#[test]
 fn a_bare_use_binds_the_one_included_module_that_declares_the_name_or_a_re_export_of_it() {
     let constants = file(
         "src/constants.ts",
