@@ -98,20 +98,6 @@ impl ContentIndexStats {
     }
 }
 
-impl ContentIndexStats {
-    fn sum(segments: &[Arc<ContentIndex>], unindexed: &[u32], files: usize) -> Self {
-        Self {
-            files,
-            trigrams: segments.iter().map(|segment| segment.stats.trigrams).sum(),
-            bytes: size_of_val(unindexed) as u64
-                + segments
-                    .iter()
-                    .map(|segment| segment.stats.bytes)
-                    .sum::<u64>(),
-        }
-    }
-}
-
 pub(crate) struct ContentIndex {
     stats: ContentIndexStats,
     first_id: u32,
@@ -184,7 +170,13 @@ impl ContentIndexes {
     }
 
     pub(crate) fn stats(&self) -> ContentIndexStats {
-        ContentIndexStats::sum(&self.segments, &self.unindexed, self.files)
+        let segments = self.segments.iter().map(|segment| segment.stats);
+        ContentIndexStats {
+            files: self.files,
+            trigrams: segments.clone().map(|stats| stats.trigrams).sum(),
+            bytes: size_of_val(&*self.unindexed) as u64
+                + segments.map(|stats| stats.bytes).sum::<u64>(),
+        }
     }
 
     pub(crate) const fn files(&self) -> usize {
