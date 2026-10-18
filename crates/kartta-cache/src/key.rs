@@ -15,15 +15,11 @@ impl ContentHash {
         Self(*blake3::hash(bytes).as_bytes())
     }
 
-    /// Wraps a hash computed elsewhere, such as one a [`ContentHasher`] finished or one read back from storage.
-    #[must_use]
-    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 
-    /// The hash's 32 bytes.
-    #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; 32] {
+    pub(crate) const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 }
