@@ -184,28 +184,26 @@ impl Graph {
         }
         let file = self.file(slot);
         let (start, end) = (*lines.start(), *lines.end());
-        let mut overlapping: Vec<u32> = (0..narrow(file.symbols.len()))
+        let mut overlapping: Vec<SymbolAt> = (0..narrow(file.symbols.len()))
             .filter(|&index| {
                 let symbol = &file.symbols[index as usize];
                 symbol.line <= end && symbol.end_line.max(symbol.line) >= start
             })
+            .map(|index| SymbolAt::new(slot, index))
             .collect();
-        overlapping.sort_by_key(|&index| {
-            let symbol = &file.symbols[index as usize];
+        overlapping.sort_by_key(|at| {
+            let symbol = &file.symbols[at.index as usize];
             (
                 symbol.line,
                 Reverse(symbol.end_line.max(symbol.line)),
-                index,
+                at.index,
             )
         });
         overlapping
-            .into_iter()
-            .map(|index| SymbolAt { file: slot, index })
-            .collect()
     }
 
     fn includers_within(&self, slot: u32, depth: u32) -> HashSet<u32, FixedState> {
-        let mut found: HashSet<u32, FixedState> = HashSet::with_hasher(FixedState::default());
+        let mut found: HashSet<u32, FixedState> = HashSet::default();
         let mut level = vec![slot];
         for _ in 0..depth {
             level = level
@@ -273,8 +271,7 @@ impl<'g> Analysis<'g> {
         includers: &HashSet<u32, FixedState>,
     ) -> Blast {
         let mut by_depth: Vec<usize> = Vec::new();
-        let mut caller_files: HashSet<u32, FixedState> =
-            HashSet::with_hasher(FixedState::default());
+        let mut caller_files: HashSet<u32, FixedState> = HashSet::default();
         let walk = WalkState::new(root, self.limits);
         let left_out = self.calls.reach(walk, Calls::callers_of, |edge, depth| {
             let index = depth as usize - 1;

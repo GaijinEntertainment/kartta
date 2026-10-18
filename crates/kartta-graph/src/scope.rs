@@ -52,7 +52,7 @@ pub(crate) struct Ancestors {
 
 impl Ancestors {
     fn derives_from(&self, owner: Str, base: Str) -> bool {
-        let mut walked: HashSet<Str, FixedState> = HashSet::with_hasher(FixedState::default());
+        let mut walked: HashSet<Str, FixedState> = HashSet::default();
         walked.insert(owner);
         let mut pending = vec![owner];
         while let Some(next) = pending.pop() {
@@ -230,7 +230,7 @@ impl Cascade<'_> {
     }
 
     fn nearest_base(&self, named: &[SymbolAt], own: Str, up: &Ancestors) -> Option<Str> {
-        let mut reached: HashSet<Str, FixedState> = HashSet::with_hasher(FixedState::default());
+        let mut reached: HashSet<Str, FixedState> = HashSet::default();
         if self.conventions.inherited_members != InheritedMembers::Found
             || up.owners.len() < 2
             || up.owners.contains(&own)
@@ -553,7 +553,7 @@ impl Cascade<'_> {
             ty,
             own: self.member_owner(ty),
             found: Ancestors::default(),
-            walked: HashSet::with_hasher(FixedState::default()),
+            walked: HashSet::default(),
             pending: vec![ty],
         };
         walk.walked.insert(ty);

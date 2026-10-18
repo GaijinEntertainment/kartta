@@ -105,10 +105,10 @@ impl Graph {
                 live: 0,
                 excluded: Excluded::default(),
             },
-            alternatives: HashMap::with_hasher(FixedState::default()),
-            interface_owners: HashMap::with_hasher(FixedState::default()),
+            alternatives: HashMap::default(),
+            interface_owners: HashMap::default(),
             interface_methods: None,
-            dispatching: HashMap::with_hasher(FixedState::default()),
+            dispatching: HashMap::default(),
         };
         let mut slots: Vec<u32> = self
             .file_slots()
@@ -406,8 +406,7 @@ impl Judge<'_, '_> {
             .flat_map(|slot| graph.file(slot).symbols.iter())
             .filter(|symbol| symbol.kind == SymbolKind::Method)
             .filter_map(|symbol| Some((symbol.name, symbol.owner?)));
-        let mut methods: HashMap<Str, usize, FixedState> =
-            HashMap::with_hasher(FixedState::default());
+        let mut methods: HashMap<Str, usize, FixedState> = HashMap::default();
         for (name, owner) in members {
             if self.is_interface(owner) {
                 *methods.entry(name).or_default() += 1;

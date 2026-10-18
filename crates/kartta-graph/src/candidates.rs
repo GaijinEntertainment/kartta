@@ -44,18 +44,14 @@ impl<'g> Candidates<'g> {
         targets: Vec<SymbolAt>,
         locals: Vec<SymbolAt>,
     ) -> Self {
-        let mut in_file: HashMap<u32, (u32, u32), FixedState> =
-            HashMap::with_hasher(FixedState::default());
+        let mut in_file: HashMap<u32, (u32, u32), FixedState> = HashMap::default();
         for (position, at) in named.iter().enumerate() {
             let range = in_file.entry(at.file).or_insert((narrow(position), 0));
             range.1 += 1;
         }
-        let mut by_owner: HashMap<Str, Vec<SymbolAt>, FixedState> =
-            HashMap::with_hasher(FixedState::default());
-        let mut by_dir: HashMap<Str, Vec<SymbolAt>, FixedState> =
-            HashMap::with_hasher(FixedState::default());
-        let mut by_parent_dir: HashMap<Str, Vec<SymbolAt>, FixedState> =
-            HashMap::with_hasher(FixedState::default());
+        let mut by_owner: HashMap<Str, Vec<SymbolAt>, FixedState> = HashMap::default();
+        let mut by_dir: HashMap<Str, Vec<SymbolAt>, FixedState> = HashMap::default();
+        let mut by_parent_dir: HashMap<Str, Vec<SymbolAt>, FixedState> = HashMap::default();
         let mut first_party = Vec::new();
         for &at in &targets {
             let file = graph.file(at.file);

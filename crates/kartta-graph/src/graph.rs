@@ -24,7 +24,7 @@ pub(crate) const QUALIFIER_SEPARATORS: [char; 5] = ['.', ':', '\\', '#', '/'];
 /// the same path, and [`Graph::remove`] forgets it, so a graph follows a tree that changes a file at a time without
 /// being built again. The graph names no language; what differs between languages reaches it as the extractions and
 /// the [`Conventions`] it is built with.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Graph {
     pub(crate) conventions: Conventions,
     pub(crate) strings: Strings,
@@ -116,23 +116,7 @@ impl Graph {
     pub fn new(conventions: Conventions) -> Self {
         Self {
             conventions,
-            strings: Strings::default(),
-            files: Vec::new(),
-            vacant: Vec::new(),
-            by_path: HashMap::with_hasher(FixedState::default()),
-            by_name: HashMap::with_hasher(FixedState::default()),
-            order: PathOrder::default(),
-            sites: HashMap::with_hasher(FixedState::default()),
-            uses: HashMap::with_hasher(FixedState::default()),
-            callables: HashMap::with_hasher(FixedState::default()),
-            package_files: HashMap::with_hasher(FixedState::default()),
-            renamed_from: HashMap::with_hasher(FixedState::default()),
-            included_by: HashMap::with_hasher(FixedState::default()),
-            test_included_by: HashMap::with_hasher(FixedState::default()),
-            test_modules: OnceLock::new(),
-            parented: HashMap::with_hasher(FixedState::default()),
-            named_at_file_scope: HashMap::with_hasher(FixedState::default()),
-            symbols: 0,
+            ..Self::default()
         }
     }
 
@@ -187,20 +171,9 @@ impl Graph {
     /// empty outline: its language found none, or could not parse it.
     #[must_use]
     pub fn outline(&self, path: &str) -> Option<Vec<Definition<'_>>> {
-        let slot = *self.by_path.get(&self.strings.get(path)?)?;
-        let file = self.files[slot as usize].as_ref()?;
-
-        let mut outline: Vec<Definition<'_>> = file
-            .symbols
-            .iter()
-            .map(|symbol| self.definition(slot, symbol))
-            .collect();
-        outline.sort_by(|left, right| {
-            left.line
-                .cmp(&right.line)
-                .then(right.end_line.cmp(&left.end_line))
-        });
-        Some(outline)
+        let slot = self.slot_of(self.strings.get(path)?)?;
+        let whole = self.overlapping(slot, &(0..=u32::MAX));
+        Some(whole.into_iter().map(|at| self.definition_at(at)).collect())
     }
 
     /// The definitions `name` selects, nearest to the file `from` first, then those outside test code, then those
@@ -432,7 +405,7 @@ impl Graph {
     // constraint: a file is a test module when every file that includes it pulls it in as one or is a test module
     // itself, since a module that code outside the tests reaches is compiled outside them
     fn find_test_modules(&self) -> HashSet<u32, FixedState> {
-        let mut modules = HashSet::with_hasher(FixedState::default());
+        let mut modules = HashSet::default();
         let mut pending: Vec<Str> = self.test_included_by.keys().copied().collect();
         while let Some(path) = pending.pop() {
             let Some(slot) = self.slot_of(path) else {
@@ -724,10 +697,7 @@ impl Graph {
         }
         for at in 0..self.file(slot).callables.len() {
             let callable = self.file(slot).callables[at];
-            let at = SymbolAt {
-                file: slot,
-                index: callable.symbol,
-            };
+            let at = SymbolAt::new(slot, callable.symbol);
             let occurrence = Occurrence {
                 at,
                 role: callable.role,
