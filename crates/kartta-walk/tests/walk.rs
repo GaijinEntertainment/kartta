@@ -97,8 +97,8 @@ fn records_the_tree_depth_first_with_children_name_sorted() {
 
 #[derive(Default)]
 struct Seen {
-    dirs: Mutex<Vec<(String, usize)>>,
-    entries: Mutex<Vec<(String, usize)>>,
+    dirs: Mutex<Vec<String>>,
+    entries: Mutex<Vec<String>>,
 }
 
 impl Policy for Seen {
@@ -106,25 +106,26 @@ impl Policy for Seen {
     type Value = EntryKind;
 
     fn enter(&self, dir: &Dir<'_>, _parent_state: &()) {
-        let seen = (dir.path().to_owned(), dir.depth());
-        self.dirs.lock().expect("lock").push(seen);
+        self.dirs.lock().expect("lock").push(dir.path().to_owned());
     }
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<EntryKind> {
-        let seen = (entry.path().to_owned(), entry.depth());
-        self.entries.lock().expect("lock").push(seen);
+        self.entries
+            .lock()
+            .expect("lock")
+            .push(entry.path().to_owned());
         Visit::Keep(entry.kind())
     }
 }
 
-fn sorted(seen: &Mutex<Vec<(String, usize)>>) -> Vec<(String, usize)> {
+fn sorted(seen: &Mutex<Vec<String>>) -> Vec<String> {
     let mut seen = seen.lock().expect("lock").clone();
     seen.sort();
     seen
 }
 
 #[test]
-fn a_subtree_walk_shows_the_policy_the_paths_and_depths_the_whole_walk_would() {
+fn a_subtree_walk_shows_the_policy_the_paths_the_whole_walk_would() {
     let dir = fixture();
     let seen = Seen::default();
     let options = WalkOptions {
@@ -139,17 +140,10 @@ fn a_subtree_walk_shows_the_policy_the_paths_and_depths_the_whole_walk_would() {
         ["b.txt File", "nested Dir", "nested/c.txt File"],
         "the tree holds the directory's contents"
     );
-    assert_eq!(
-        sorted(&seen.dirs),
-        [("dir".to_owned(), 1), ("dir/nested".to_owned(), 2)]
-    );
+    assert_eq!(sorted(&seen.dirs), ["dir", "dir/nested"]);
     assert_eq!(
         sorted(&seen.entries),
-        [
-            ("dir/b.txt".to_owned(), 2),
-            ("dir/nested".to_owned(), 2),
-            ("dir/nested/c.txt".to_owned(), 3),
-        ]
+        ["dir/b.txt", "dir/nested", "dir/nested/c.txt"]
     );
 }
 
@@ -165,8 +159,8 @@ fn a_nested_subtree_spelled_loosely_walks_as_the_whole_walk_sees_it() {
     let outcome = walk(dir.path(), &seen, &(), &options).expect("walk");
 
     assert_eq!(render(outcome.tree()), ["c.txt File"]);
-    assert_eq!(sorted(&seen.dirs), [("dir/nested".to_owned(), 2)]);
-    assert_eq!(sorted(&seen.entries), [("dir/nested/c.txt".to_owned(), 3)]);
+    assert_eq!(sorted(&seen.dirs), ["dir/nested"]);
+    assert_eq!(sorted(&seen.entries), ["dir/nested/c.txt"]);
 }
 
 #[test]
@@ -527,14 +521,13 @@ struct Facts;
 
 impl Policy for Facts {
     type State = ();
-    type Value = (EntryKind, usize, PathBuf, Option<u64>);
+    type Value = (EntryKind, PathBuf, Option<u64>);
 
     fn enter(&self, _dir: &Dir<'_>, _parent_state: &()) {}
 
     fn visit(&self, entry: &Entry<'_>, _state: &()) -> Visit<Self::Value> {
         Visit::Keep((
             entry.kind(),
-            entry.depth(),
             entry.native_path(),
             entry.metadata().ok().map(|metadata| metadata.len()),
         ))
@@ -566,10 +559,7 @@ fn a_walk_asked_for_listed_stats_records_the_tree_a_walk_without_them_records() 
 
     let [without, with] = with_and_without_listed_stats(dir.path());
 
-    assert_eq!(
-        with, without,
-        "kinds, depths, native paths and metadata all agree"
-    );
+    assert_eq!(with, without, "kinds, native paths and metadata all agree");
 }
 
 struct Stats;
