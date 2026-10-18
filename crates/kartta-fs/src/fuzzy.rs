@@ -145,10 +145,10 @@ impl Index {
     pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> Vec<FuzzyMatch<'_>> {
         let FuzzyOptions { filter, limit } = *options;
         let ranked: Vec<Ranked> = self.on_threads(|| {
-            (0..self.len().div_ceil(RANK_CHUNK_LEN))
+            (0..self.len())
                 .into_par_iter()
-                .map(|chunk| {
-                    let start = chunk * RANK_CHUNK_LEN;
+                .step_by(RANK_CHUNK_LEN)
+                .map(|start| {
                     let positions = start..self.len().min(start + RANK_CHUNK_LEN);
                     let mut ranking = Ranking::new(query, limit);
                     self.candidates(positions, filter, |at, path| ranking.offer(at, path));
