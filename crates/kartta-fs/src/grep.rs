@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::ops::Range;
 
@@ -236,7 +237,7 @@ impl Index {
                 .collect();
 
             for (&at, outcome) in batch.iter().zip(scanned) {
-                fold.take(self, at as usize, outcome);
+                fold.take(at as usize, outcome);
             }
         }
 
@@ -434,12 +435,12 @@ impl<'a> Fold<'a> {
         self.tally.unsearched += count;
     }
 
-    fn take(&mut self, index: &'a Index, at: usize, outcome: Scanned) {
+    fn take(&mut self, at: usize, outcome: Scanned) {
         match outcome {
             Scanned::Searched(_) if self.proven() => self.tally.unsearched += 1,
             Scanned::Searched(found) => {
                 self.tally.searched += 1;
-                self.take_found(index, at, found);
+                self.take_found(at, found);
             }
             Scanned::Binary => self.tally.binary += 1,
             Scanned::Oversized => self.tally.oversized += 1,
@@ -454,7 +455,7 @@ impl<'a> Fold<'a> {
         }
     }
 
-    fn take_found(&mut self, index: &'a Index, at: usize, mut found: Found) {
+    fn take_found(&mut self, at: usize, mut found: Found) {
         let matched = found.kept + found.past;
         if let Some(total) = &mut self.total {
             total.lines += matched;
@@ -473,8 +474,9 @@ impl<'a> Fold<'a> {
         self.lines += found.kept;
         if !found.lines.is_empty() {
             self.files.push(MatchedFile {
-                inspected: index.inspected_at(at),
+                position: at,
                 lines: found.lines,
+                index: PhantomData,
             });
         }
     }
@@ -560,10 +562,6 @@ mod tests {
 
     #[test]
     fn a_file_scanned_after_the_limit_proved_the_cut_still_reports_what_it_was() {
-        let dir = tempfile::tempdir().expect("create temp dir");
-        let index = Index::build(dir.path(), &BuildOptions::default())
-            .expect("build")
-            .index;
         let mut fold = Fold::new(&GrepOptions::default().limit(1), Tally::default());
         fold.lines = 1;
         fold.truncated = true;
@@ -573,14 +571,13 @@ mod tests {
             past: 0,
         };
 
-        fold.take(&index, 0, Scanned::Searched(found));
-        fold.take(&index, 1, Scanned::Binary);
+        fold.take(0, Scanned::Searched(found));
+        fold.take(1, Scanned::Binary);
         fold.take(
-            &index,
             2,
             Scanned::Failed(std::io::ErrorKind::PermissionDenied.into()),
         );
-        fold.take(&index, 3, Scanned::Unsearched);
+        fold.take(3, Scanned::Unsearched);
 
         assert_eq!(
             fold.tally.unsearched, 2,

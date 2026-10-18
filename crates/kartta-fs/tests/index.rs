@@ -208,10 +208,7 @@ fn paths_sharing_a_prefix_too_long_for_a_byte_read_and_list_whole() {
         .list(&long, &ListOptions::default())
         .expect("list the long directory");
     assert_eq!(listed.total(), 140);
-    assert_eq!(
-        paths_at(&index, listed.items().iter().map(Listed::position)),
-        names[..140]
-    );
+    assert_eq!(self::listed(&listed), names[..140]);
 }
 
 #[test]
@@ -1836,7 +1833,7 @@ fn glob_selecting_nothing_is_an_empty_answer_rather_than_a_cut_one() {
 
     let found = index.glob(&filter, &GlobOptions::default().limit(5));
 
-    assert!(found.is_empty());
+    assert_eq!(found.items(), []);
     assert!(!found.truncated());
 }
 

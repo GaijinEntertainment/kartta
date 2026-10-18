@@ -162,13 +162,6 @@ impl<'a> Listed<'a> {
         self.inspected.entry()
     }
 
-    /// Where the entry sits in [`Index::entries`], for reading its path through [`Index::paths`]. A listing's
-    /// positions rise, so reading them in order costs a few bytes each.
-    #[must_use]
-    pub const fn position(&self) -> usize {
-        self.inspected.position()
-    }
-
     /// The entry's size, on the terms [`Index::size`] states.
     #[must_use]
     pub fn size(&self) -> Option<u64> {
@@ -276,8 +269,7 @@ impl Index {
     /// let index = Index::build(dir.path(), &BuildOptions::default())?.index;
     ///
     /// let listed = index.list("src", &ListOptions::default())?;
-    /// let mut paths = index.paths();
-    /// let listed_paths: Vec<String> = listed.items().iter().map(|found| paths.get(found.position()).to_owned()).collect();
+    /// let listed_paths: Vec<String> = listed.items().iter().map(|found| found.entry().path().to_owned()).collect();
     /// assert_eq!(listed_paths, ["src/main.rs", "src/net", "src/net/tcp.rs"]);
     /// assert!(!listed.truncated());
     ///
