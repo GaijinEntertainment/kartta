@@ -15,6 +15,14 @@ and member qualifiers wherever the walk can establish one without guessing, so a
 the graph and two overloads stay apart. Function-like macros, a test harness's `TEST(...)` blocks and trailing
 annotation macros included, are never mistaken for definitions.
 
+Inside a function's body and its initializer list, each read, write and update of a value is a use: `x.f` and `x->f`
+outside a call's callee, `this->f`, a member a constructor's initializer list or a designated initializer sets, and a
+bare name that no local, parameter, capture or enclosing template parameter of the body declares before it. A bare name
+stays bare, since C++ looks it up in the enclosing class before the namespaces. A member on `this` or in an initializer
+list is on the own receiver, and one on a local or a parameter names the type its declaration spells, a pointer's for
+`->`, as the class's bare name; any other operand names no type. A name the walk cannot place — an enumerator, a macro,
+a value of another file — is kept, for the graph to bind or leave unbound.
+
 From the path and the repository: each `#include` resolved to the file of the repository it names — the path relative to
 the including file, the exact path, the one file whose path ends in it — with no compiler search path, or kept as an
 unresolved import when no file matches or two match equally well; and test or generated code marked by the file's name.
