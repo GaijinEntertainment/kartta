@@ -7,7 +7,7 @@ use rayon::prelude::*;
 
 use crate::content_index::Narrowed;
 use crate::filter::Filter;
-use crate::index::Index;
+use crate::index::{Index, node_sized};
 use crate::list::is_below;
 use crate::matches::{Failure, Line, LineKind, MatchedFile, Matches, Tally, Total};
 use crate::patterns::Patterns;
@@ -372,7 +372,7 @@ impl Planner<'_, '_> {
         } else if self.narrowed.is_some_and(|narrowed| !narrowed.admits(at)) {
             self.tally.ruled_out += 1;
         } else {
-            self.candidates.push(narrow(at));
+            self.candidates.push(node_sized(at));
         }
     }
 }
@@ -382,14 +382,6 @@ fn excluded_ancestor(path: &str, exclude: &Filter) -> Option<String> {
         .map(|(end, _)| &path[..end])
         .find(|dir| exclude.matches(dir))
         .map(str::to_owned)
-}
-
-#[expect(
-    clippy::expect_used,
-    reason = "positions are the walk's node ids, which it keeps in a u32 and cannot run past"
-)]
-fn narrow(at: usize) -> u32 {
-    u32::try_from(at).expect("a position fits the walk's u32 node ids")
 }
 
 struct Fold<'a> {
