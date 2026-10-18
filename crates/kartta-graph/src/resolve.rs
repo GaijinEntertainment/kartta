@@ -5,6 +5,7 @@ use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
     CallableRole, Conventions, IncludeReach, InheritedMembers, OwnMembers, SymbolKind,
+    UntypedMembers, ValueUses,
 };
 
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
@@ -857,9 +858,9 @@ impl<'g> Cascade<'g> {
         referenceable
     }
 
-    // constraint: a member of a value binds through the type its path spells, else the one field of the name its own
-    // file declares outside other bodies; the package, the imports and the family bind a namesake too often, where a
-    // test table or an anonymous struct holds the value
+    // constraint: a member of a value binds through the type its path spells, or of the owner it names where receivers
+    // name owners, else the one field of the name its own file declares outside other bodies; the package, the imports
+    // and the family bind a namesake too often, where a test table or an anonymous struct holds the value
     fn member_use(&self, site: SymbolAt, name: Str, path: Option<Str>) -> Result<Bound, UseMiss> {
         if let Some(path) = path
             && self.reads_type_paths()
@@ -871,6 +872,13 @@ impl<'g> Cascade<'g> {
                 }
                 Typed::Unknown => {}
             }
+        } else if let Some(owner) =
+            path.filter(|&path| !self.graph.strings.resolve(path).is_empty())
+        {
+            return self.owner_member(site, owner, name);
+        }
+        if self.conventions.untyped_members == UntypedMembers::Unbound {
+            return Err(UseMiss::Ambiguous);
         }
         let body = self.holder(site).unwrap_or(site);
         let mut fields = self
@@ -888,11 +896,17 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    // constraint: no tier binds a member of the enclosing member's own receiver yet, so such a use may name any member
     pub(crate) fn resolve_reference(&self, file: u32, index: u32) -> Result<Bound, UseMiss> {
         let site = self.graph.file(file).references[index as usize];
+        let at = SymbolAt {
+            file,
+            index: site.site_of(),
+        };
         match site.receiver() {
-            UseReceiver::Bare => self.bare_use(file, site.name).ok_or(UseMiss::Elsewhere),
+            UseReceiver::Bare => self
+                .bare_use(file, site.name)
+                .or_else(|| self.imported_value(at, site.name))
+                .ok_or(UseMiss::Elsewhere),
             UseReceiver::Qualifier(qualifier) => self
                 .binding(file, qualifier)
                 .and_then(|target| {
@@ -900,14 +914,50 @@ impl<'g> Cascade<'g> {
                     self.imported(&candidates, (file, target), Pick::PackageLevel)
                 })
                 .ok_or(UseMiss::Elsewhere),
-            UseReceiver::Own => Err(UseMiss::Ambiguous),
-            UseReceiver::Path(path) => {
-                let at = SymbolAt {
-                    file,
-                    index: site.site_of(),
-                };
-                self.member_use(at, site.name, path)
-            }
+            UseReceiver::Own => self.own_member(at, site.name),
+            UseReceiver::Path(path) => self.member_use(at, site.name, path),
+        }
+    }
+
+    // constraint: a module imports a name its source exports, so an included file's unexported namesake binds only
+    // where no export and no re-export offers the name, as Python imports a name whatever its underscore says
+    fn imported_value(&self, site: SymbolAt, name: Str) -> Option<Bound> {
+        if self.conventions.value_uses != ValueUses::Imported {
+            return None;
+        }
+        let named = self.named(name);
+        let includes = self.includes(site.file);
+        let declaring = |exported: bool| {
+            includes.iter().filter_map(move |&included| {
+                let declared = self.graph.in_file(named, included).iter().copied();
+                let declared = declared.filter(move |&at| self.graph.sym(at).exported == exported);
+                self.pick(Pick::PackageLevel, declared)
+            })
+        };
+        let mut exporting = declaring(true);
+        match (exporting.next(), exporting.next()) {
+            (Some(at), None) => return Some((at, confidence::INCLUDE)),
+            (Some(_), Some(_)) => return None,
+            (None, _) => {}
+        }
+        let mut walk = ReExportWalk {
+            cascade: self,
+            caller: site,
+            visited: HashSet::with_hasher(FixedState::default()),
+        };
+        let mut renamed = includes
+            .iter()
+            .filter_map(|&included| walk.follow(included, name));
+        match (renamed.next(), renamed.next()) {
+            (Some(at), None) => return Some((at, confidence::RE_EXPORT)),
+            (Some(at), Some(other)) if at == other => return Some((at, confidence::RE_EXPORT)),
+            (Some(_), Some(_)) => return None,
+            (None, _) => {}
+        }
+        let mut unexported = declaring(false);
+        match (unexported.next(), unexported.next()) {
+            (Some(at), None) => Some((at, confidence::INCLUDE)),
+            _ => None,
         }
     }
 

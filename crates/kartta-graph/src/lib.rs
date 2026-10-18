@@ -57,6 +57,7 @@ mod dead;
 mod dependents;
 mod graph;
 mod implementations;
+mod members;
 mod order;
 mod resolution;
 mod resolve;
