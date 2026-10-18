@@ -146,6 +146,10 @@ pub struct Conventions {
     pub receivers: Receivers,
     /// Where the language records a use of a type.
     pub type_uses: TypeUses,
+    /// Where a bare use of a name that its own file does not declare binds.
+    pub value_uses: ValueUses,
+    /// What a member use on a value of a type the language cannot name binds.
+    pub untyped_members: UntypedMembers,
 }
 
 impl Default for Conventions {
@@ -164,6 +168,8 @@ impl Default for Conventions {
             calls_on_values: CallsOnValues::NearestGuessed,
             receivers: Receivers::Owners,
             type_uses: TypeUses::Partial,
+            value_uses: ValueUses::Declared,
+            untyped_members: UntypedMembers::FileField,
         }
     }
 }
@@ -238,6 +244,29 @@ pub enum TypeUses {
     /// composite literal and a call in a conversion: such a type that no call and no use names is named nowhere the
     /// language reads. A local type stays unjudged, because no use binds a local.
     Every,
+}
+
+/// Where a bare use of a name that its own file does not declare binds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ValueUses {
+    /// In the use's package, where packages are directories, or a dot-imported one.
+    #[default]
+    Declared,
+    /// In the one file of those the use's file includes that exports the name outside every body and owner, else in
+    /// the definition a re-export chain from them renames, else in the one included file that declares the name
+    /// without exporting it: a module imports a name from the module that exports it.
+    Imported,
+}
+
+/// What a member use on a value of a type the language cannot name binds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum UntypedMembers {
+    /// The one field of the name its own file declares outside other bodies.
+    #[default]
+    FileField,
+    /// Nothing, where values are most often built from literals and inline types, so that the file's one field of the
+    /// name is a namesake of the member a value holds.
+    Unbound,
 }
 
 /// When a bare call inside a member reaches the members of that member's own owner.
