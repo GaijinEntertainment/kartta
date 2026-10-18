@@ -109,7 +109,7 @@ impl Published {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct Aging {
+pub(crate) struct Expired {
     pub(crate) entries: u64,
     pub(crate) bytes: u64,
 }
@@ -237,13 +237,13 @@ impl Pack {
             .then_some((namespace, decoded, payload))
     }
 
-    pub(crate) fn aged_before(&self, cutoff: Published) -> Aging {
+    pub(crate) fn expired_before(&self, cutoff: Published) -> Expired {
         self.entry_records()
             .iter()
             .filter(|record| published_of(record) < cutoff)
-            .fold(Aging::default(), |aging, record| Aging {
-                entries: aging.entries + 1,
-                bytes: aging.bytes + u64::from(len_of(record)),
+            .fold(Expired::default(), |expired, record| Expired {
+                entries: expired.entries + 1,
+                bytes: expired.bytes + u64::from(len_of(record)),
             })
     }
 
