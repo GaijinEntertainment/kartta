@@ -1,4 +1,4 @@
-use kartta_lang::path::{base, dir, join};
+use kartta_lang::path::{base, dir, join, sole};
 use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
@@ -40,12 +40,11 @@ impl<'r> Autoload<'r> {
         }
 
         let suffix = format!("/{spec}");
-        let mut ending = self
-            .repository
-            .files_named(base(spec))
-            .filter(|candidate| candidate.ends_with(&suffix));
-        let found = ending.next()?;
-        ending.next().is_none().then_some(found)
+        sole(
+            self.repository
+                .files_named(base(spec))
+                .filter(|candidate| candidate.ends_with(&suffix)),
+        )
     }
 
     fn used_file(&self, form: u32, name: &str) -> Option<String> {

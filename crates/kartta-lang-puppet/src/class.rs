@@ -1,5 +1,5 @@
 use kartta_lang::Repository;
-use kartta_lang::path::base;
+use kartta_lang::path::{base, sole};
 
 const MODULE_ROOTS: [&str; 5] = ["", "modules/", "site/", "site-modules/", "dist/"];
 
@@ -37,12 +37,10 @@ pub(crate) fn manifest(written: &str, repository: &dyn Repository) -> Option<Str
         }
     }
 
-    let mut found = repository.files_named(base(&suffix)).filter(|path| {
+    sole(repository.files_named(base(&suffix)).filter(|path| {
         path.strip_suffix(suffix.as_str())
             .is_some_and(|head| head.ends_with('/'))
-    });
-    let only = found.next()?;
-    found.next().is_none().then_some(only)
+    }))
 }
 
 #[cfg(test)]

@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::iter;
 
-use kartta_lang::path::{dir, forward_slashes, join};
+use kartta_lang::path::{dir, forward_slashes, join, sole};
 use kartta_lang::{RawExtraction, Repository};
 
-use crate::resolve::{indexed, sole};
+use crate::resolve::indexed;
 use crate::walk::{MOUNT_BLOCK_FORM, MOUNT_PARAMETER_FORM};
 
 // constraint: `MAX_MOUNT_NAME_LEN` of the engine's `dag_basePath.h`
