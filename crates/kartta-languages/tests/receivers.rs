@@ -4,9 +4,10 @@
 //!
 //! C++ and JS/TS keep it, and C++ names the class a value is declared as where the walk sees the declaration, the class
 //! the value holds and not an owner its name spells. Python, Ruby, Rust, PHP, Lua, Quirrel, Puppet and daslang record a
-//! value's own name instead, which the graph's receiver tiers read (ADR 3.7). Python lists the receivers it writes for
-//! a value of the caller's own type in `Conventions::own_type_receivers`, so there no other value's name is taken for
-//! one of the caller's type.
+//! value's own name instead, which the graph's receiver tiers read (ADR 3.7). Python and Rust list the receivers they
+//! write for a value of the caller's own type in `Conventions::own_type_receivers`, so in both no other value's name is
+//! taken for one of the caller's type. Rust lists only `other`, since it records its own receiver as the name of the
+//! caller's owner.
 
 use kartta_lang::CallRef;
 use kartta_languages::all;
@@ -110,6 +111,18 @@ fn a_member_call_on_the_own_receiver_or_an_import_keeps_its_name() {
             "readFile",
             "fs",
         ),
+        (
+            "rust",
+            "struct Pool;\nimpl Pool {\n    fn run(&self) {\n        self.drain();\n    }\n}\n",
+            "drain",
+            "Pool",
+        ),
+        (
+            "rust",
+            "struct Pool;\nimpl Pool {\n    fn run() {\n        Self::drain();\n    }\n}\n",
+            "drain",
+            "Pool",
+        ),
     ];
 
     for (language, source, callee, receiver) in cases {
@@ -127,6 +140,10 @@ fn a_member_call_on_a_value_of_the_caller_s_type_records_a_receiver_its_language
         (
             "python",
             "class Pool:\n    def __eq__(self, other):\n        return other.drain()\n",
+        ),
+        (
+            "rust",
+            "struct Pool;\nimpl Pool {\n    fn eq(&self, other: &Self) -> bool {\n        other.drain()\n    }\n}\n",
         ),
         (
             "python",

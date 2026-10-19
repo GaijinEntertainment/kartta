@@ -116,6 +116,7 @@ impl Language for Rust {
         conventions.own_members = OwnMembers::Unreached;
         conventions.owner_chain_separator = Some("::");
         conventions.runtime_methods = runtime::METHODS;
+        conventions.own_type_receivers = Some(&["other"]);
 
         conventions
     }
