@@ -4,10 +4,10 @@
 //!
 //! C++ and JS/TS keep it, and C++ names the class a value is declared as where the walk sees the declaration, the class
 //! the value holds and not an owner its name spells. Python, Ruby, Rust, PHP, Lua, Quirrel, Puppet and daslang record a
-//! value's own name instead, which the graph's receiver tiers read (ADR 3.7). Python and Rust list the receivers they
-//! write for a value of the caller's own type in `Conventions::own_type_receivers`, so in both no other value's name is
-//! taken for one of the caller's type. Rust lists only `other`, since it records its own receiver as the name of the
-//! caller's owner.
+//! value's own name instead, which the graph's receiver tiers read (ADR 3.7). Python, Rust and daslang list the
+//! receivers they write for a value of the caller's own type in `Conventions::own_type_receivers`, so in each no other
+//! value's name is taken for one of the caller's type. Rust lists only `other`, since it records its own receiver as
+//! the name of the caller's owner.
 
 use kartta_lang::CallRef;
 use kartta_languages::all;
@@ -152,6 +152,14 @@ fn a_member_call_on_a_value_of_the_caller_s_type_records_a_receiver_its_language
         (
             "python",
             "class Pool:\n    @classmethod\n    def run(cls):\n        cls.drain()\n",
+        ),
+        (
+            "daslang",
+            "options gen2\nclass Pool {\n    def run() {\n        self->drain()\n    }\n}\n",
+        ),
+        (
+            "daslang",
+            "options gen2\nclass Pool {\n    def run() {\n        self.drain()\n    }\n}\n",
         ),
     ];
 
