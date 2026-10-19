@@ -18,6 +18,14 @@
 //! `M.build()` and `self` in `self:render()`, else the empty receiver. A call outside every function is a call from
 //! file scope, before the file's first function too.
 //!
+//! A name read where no call takes it is a use of it: an argument, `table.sort(t, compare)`, a value an assignment, a
+//! `return` or a loop takes, a field's value, `{ on_click = handler }`, an operand and a condition; an assignment's
+//! target, a callee and a table indexed through `.` or `:` are no reads. A parameter hides its name in its function,
+//! as `self` does in a method declared with `:` and a local function its own name, a local from the end of its
+//! declaration to the end of its block, and a loop variable inside its loop; outside every function, a local function
+//! or a local bound to a function hides nothing. A use binds the function of its name its own file declares outside
+//! every function.
+//!
 //! # Resolution
 //!
 //! A bare `require`, `dofile` or `loadfile` whose first argument is a string literal loads a module and records no
