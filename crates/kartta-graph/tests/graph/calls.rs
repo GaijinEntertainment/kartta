@@ -1674,6 +1674,48 @@ fn a_member_call_of_a_runtime_method_binds_a_member_only_where_scope_reaches_it(
 }
 
 #[test]
+fn a_language_that_lists_its_own_type_receivers_binds_the_caller_s_owner_only_on_one() {
+    let drain = |owner: &str| member(owner, "drain", SymbolKind::Method, 1);
+    let calling = |own_type_receivers, receiver: &str| {
+        let mut conventions = Conventions::default();
+        conventions.own_type_receivers = own_type_receivers;
+        let graph = graph_of(
+            conventions,
+            &[
+                file(
+                    "a/x.py",
+                    vec![member("Pool", "run", SymbolKind::Method, 1)],
+                    vec![member_call(0, receiver, "drain", 2)],
+                ),
+                file("b/y.py", vec![drain("Pool")], Vec::new()),
+                file("c/z.py", vec![drain("Queue")], Vec::new()),
+            ],
+        );
+        callees(&graph, "Pool::run")
+    };
+    let python = Some(&["cls", "other", "self"][..]);
+
+    assert_eq!(calling(python, "self"), ["b/y.py:1@80"]);
+    assert_eq!(calling(python, "cls"), ["b/y.py:1@80"]);
+    assert_eq!(calling(python, "other"), ["b/y.py:1@80"]);
+    assert_eq!(
+        calling(python, "sock"),
+        Vec::<String>::new(),
+        "a value's name the language does not list has no type of the caller's"
+    );
+    assert_eq!(
+        calling(python, "Queue"),
+        ["c/z.py:1@85"],
+        "a receiver that names an owner still binds that owner's member"
+    );
+    assert_eq!(
+        calling(None, "sock"),
+        ["b/y.py:1@80"],
+        "a language that lists none binds the caller's owner on any name"
+    );
+}
+
+#[test]
 fn a_member_call_of_a_runtime_method_binds_the_one_callable_whose_owner_its_receiver_spells() {
     let mut conventions = Conventions::default();
     conventions.runtime_methods = &["push"];

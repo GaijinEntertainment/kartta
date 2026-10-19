@@ -146,6 +146,12 @@ pub struct Conventions {
     pub calls_on_values: CallsOnValues,
     /// What a member call's receiver spells.
     pub receivers: Receivers,
+    /// The receivers a member call writes for a value of the caller's own type: its own receiver, as `self` and `cls`
+    /// in Python, and `other`, as a comparison names its second operand. Where the language lists them, a member call
+    /// on any other name that names no owner, a value's, binds no member of the caller's own owner. A language that
+    /// records its own receiver as the name of the caller's owner, as Rust does `self` and `Self`, lists only `other`,
+    /// since a call on that name binds through the owner it names. `None` keeps the caller's own owner for every name.
+    pub own_type_receivers: Option<&'static [&'static str]>,
     /// Where the language records a use of a type.
     pub type_uses: TypeUses,
     /// Where a bare use of a name that its own file does not declare binds.
@@ -169,6 +175,7 @@ impl Default for Conventions {
             runtime_methods: &[],
             calls_on_values: CallsOnValues::NearestGuessed,
             receivers: Receivers::Owners,
+            own_type_receivers: None,
             type_uses: TypeUses::Partial,
             value_uses: ValueUses::Declared,
             untyped_members: UntypedMembers::FileField,

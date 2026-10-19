@@ -931,7 +931,12 @@ impl Cascade<'_> {
         call: &Call,
         candidates: &Candidates<'_>,
     ) -> Option<Bound> {
-        self.named_receiver(call)?;
+        let receiver = self.named_receiver(call)?;
+        if let Some(own_type) = self.conventions.own_type_receivers
+            && !own_type.contains(&self.graph.strings.resolve(receiver))
+        {
+            return None;
+        }
         let caller_owner = self
             .graph
             .file(call.file)
