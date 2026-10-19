@@ -15,22 +15,22 @@ categories = ["development-tools", "parser-implementations"]
 workspace = true
 
 [dependencies]
-kartta-lang = { version = "0.0.0", path = "../kartta-lang" }
-kartta-lang-bash = { version = "0.0.0", path = "../kartta-lang-bash" }
-kartta-lang-blk = { version = "0.0.0", path = "../kartta-lang-blk" }
-kartta-lang-cpp = { version = "0.0.0", path = "../kartta-lang-cpp" }
-kartta-lang-daslang = { version = "0.0.0", path = "../kartta-lang-daslang" }
-kartta-lang-dshl = { version = "0.0.0", path = "../kartta-lang-dshl" }
-kartta-lang-go = { version = "0.0.0", path = "../kartta-lang-go" }
-kartta-lang-jsts = { version = "0.0.0", path = "../kartta-lang-jsts" }
-kartta-lang-lua = { version = "0.0.0", path = "../kartta-lang-lua" }
-kartta-lang-php = { version = "0.0.0", path = "../kartta-lang-php" }
-kartta-lang-puppet = { version = "0.0.0", path = "../kartta-lang-puppet" }
-kartta-lang-python = { version = "0.0.0", path = "../kartta-lang-python" }
-kartta-lang-quirrel = { version = "0.0.0", path = "../kartta-lang-quirrel" }
-kartta-lang-ruby = { version = "0.0.0", path = "../kartta-lang-ruby" }
-kartta-lang-rust = { version = "0.0.0", path = "../kartta-lang-rust" }
+kartta-lang.workspace = true
+kartta-lang-bash.workspace = true
+kartta-lang-blk.workspace = true
+kartta-lang-cpp.workspace = true
+kartta-lang-daslang.workspace = true
+kartta-lang-dshl.workspace = true
+kartta-lang-go.workspace = true
+kartta-lang-jsts.workspace = true
+kartta-lang-lua.workspace = true
+kartta-lang-php.workspace = true
+kartta-lang-puppet.workspace = true
+kartta-lang-python.workspace = true
+kartta-lang-quirrel.workspace = true
+kartta-lang-ruby.workspace = true
+kartta-lang-rust.workspace = true
 
 [dev-dependencies]
-kartta = { version = "0.0.0", path = "../kartta" }
+kartta.workspace = true
 tempfile = "3.27.0"

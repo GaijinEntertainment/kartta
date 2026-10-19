@@ -15,9 +15,9 @@ categories = ["development-tools", "parser-implementations"]
 workspace = true
 
 [dependencies]
-kartta-lang = { version = "0.0.0", path = "../kartta-lang", features = ["tree-sitter"] }
+kartta-lang = { workspace = true, features = ["tree-sitter"] }
 tree-sitter = "0.27.1"
 tree-sitter-quirrel = "4.43.3"
 
 [build-dependencies]
-kartta-lang = { version = "0.0.0", path = "../kartta-lang" }
+kartta-lang.workspace = true

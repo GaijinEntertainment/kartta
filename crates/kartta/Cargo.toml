@@ -15,9 +15,9 @@ workspace = true
 
 [dependencies]
 foldhash = "0.2.0"
-kartta-fs = { version = "0.0.0", path = "../kartta-fs" }
-kartta-graph = { version = "0.0.0", path = "../kartta-graph" }
-kartta-lang = { version = "0.0.0", path = "../kartta-lang" }
+kartta-fs.workspace = true
+kartta-graph.workspace = true
+kartta-lang.workspace = true
 rayon = "1.12.0"
 
 [target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
