@@ -124,8 +124,9 @@ export class Kartta {
   }
 
   /**
-   * Stops the build `params` names by its id, or every build in flight when it names none, running or waiting its
-   * turn. A build {@link Kartta.build} started rejects with `build_cancelled`.
+   * Stops the build or the grep `params` names by its id, or, when it names neither, every build in flight, running or
+   * waiting its turn, and every grep in flight. A build {@link Kartta.build} started rejects with `build_cancelled`; a
+   * grep answers what it covered, `cancelled` set.
    */
   cancel(params: CancelParams = {}): Promise<CancelAnswer> {
     return this.#ask("cancel", params);
@@ -288,9 +289,9 @@ export class Kartta {
   }
 
   /**
-   * Cancels the builds in flight and lets the engine go once the calls in flight answer. A build this cancels rejects
-   * with `build_cancelled`, a `closed` error its cause; every later call rejects with `closed`. Closing a closed handle
-   * does nothing.
+   * Cancels the builds and greps in flight and lets the engine go once the calls in flight answer. A build this cancels
+   * rejects with `build_cancelled`, a `closed` error its cause; every later call rejects with `closed`. Closing a closed
+   * handle does nothing.
    */
   close(): void {
     const handle = this.#handle;

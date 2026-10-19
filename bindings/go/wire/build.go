@@ -60,16 +60,19 @@ const (
 	StorageMapped Storage = "mapped"
 )
 
-// CancelParams are the params of the cancel method.
+// CancelParams are the params of the cancel method. Naming neither a build nor a grep stops every build in flight,
+// running or waiting its turn, and every grep in flight.
 type CancelParams struct {
-	// Build is the ID of the build to stop; 0 stops every build in flight, running or waiting its turn.
+	// Build is the ID of the build to stop; 0 names none.
 	Build uint64 `json:"build,omitempty"`
+	// Grep is the ID of the grep to stop; 0 names none.
+	Grep uint64 `json:"grep,omitempty"`
 }
 
 // CancelAnswer is the answer of the cancel method.
 type CancelAnswer struct {
-	// Stopped reports whether the cancel stopped a build in flight, running or waiting its turn. A named build that has
-	// not entered the library starts stopped.
+	// Stopped reports whether the cancel stopped a build or a grep in flight. A named build or grep that has not entered
+	// the library starts stopped; a grep that had already opened its last file answers whole, with Cancelled false.
 	Stopped bool `json:"stopped"`
 }
 

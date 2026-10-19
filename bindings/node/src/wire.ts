@@ -88,15 +88,23 @@ export type SetChange = { extend: string[] } | { replace: string[] };
 /** Where a content index lives: in memory, or in scratch files the file and mapped storages create in `dir`. */
 export type ContentIndex = { storage: "memory" } | { storage: "file" | "mapped"; dir: string };
 
-/** The params of `cancel`. */
+/**
+ * The params of `cancel`. Naming neither a build nor a grep stops every build in flight, running or waiting its turn,
+ * and every grep in flight.
+ */
 export interface CancelParams {
-  /** The id of the build to stop; absent stops every build in flight, running or waiting its turn. */
+  /** The id of the build to stop. */
   build?: number;
+  /** The id of the grep to stop. */
+  grep?: number;
 }
 
 /** The answer of `cancel`. */
 export interface CancelAnswer {
-  /** Whether a build in flight was stopped. A named build that has not entered the library starts stopped. */
+  /**
+   * Whether a build or a grep in flight was stopped. A named build or grep that has not entered the library starts
+   * stopped; a grep that had already opened its last file answers whole, with `cancelled` false.
+   */
   stopped: boolean;
 }
 
@@ -748,6 +756,8 @@ export interface Fuzzy {
 
 /** The params of `grep`. */
 export interface GrepParams {
+  /** Names the grep for a cancel. */
+  id?: number;
   patterns: string[];
   case_insensitive?: boolean;
   /** Keep the files they match; absent keeps every file. */
