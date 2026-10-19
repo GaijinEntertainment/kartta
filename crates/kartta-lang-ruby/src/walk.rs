@@ -1,7 +1,7 @@
 use kartta_lang::tree::{line, named_child_nodes, preorder, signature, text};
 use kartta_lang::{
-    Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
-    SymbolKind,
+    Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol,
+    SymbolFlags, SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree};
 
@@ -269,6 +269,7 @@ impl Emitter<'_> {
         if receiver_node.is_none() {
             self.class_body_macro(node, &callee);
         }
+        self.method_reference(&callee, node, site_of);
         self.raw.calls.push(CallRef {
             site_of,
             callee,
@@ -277,9 +278,79 @@ impl Emitter<'_> {
         });
     }
 
+    // constraint: `method(:render)`, `send(:render)` and their kin name a method by a symbol, of the object's own type
+    // where the receiver is none or `self` and of a class where it is a constant or a constant path; a receiver of any
+    // other kind names a type the walk cannot tell, and `instance_method` and `respond_to?` most often only inspect. In
+    // a class body outside every method, the class makes the use and names its own method through its name, as a use
+    // at file scope keeps only the name it spells and would reach every namesake the file sees. A top-level `def` is a
+    // private method of `Object`, which every object reaches, so at a site no class owns, file scope, a top-level
+    // `def`, `def self.x` or `def obj.x`, the use is bare. `singleton_method` with no receiver or `self` names a method
+    // of the object itself, which only a class body names, through its class
+    fn method_reference(&mut self, callee: &str, call: Node<'_>, site_of: SymbolId) {
+        if !matches!(
+            callee,
+            "method" | "public_method" | "singleton_method" | "send" | "public_send" | "__send__"
+        ) {
+            return;
+        }
+        let Some(symbol) = call
+            .child_by_field_name("arguments")
+            .and_then(|arguments| named_child_nodes(arguments).next())
+            .filter(|argument| argument.kind() == "simple_symbol")
+        else {
+            return;
+        };
+        let receiver = match call.child_by_field_name("receiver") {
+            None => Receiver::Own,
+            Some(receiver) if receiver.kind() == "self" => Receiver::Own,
+            Some(receiver) if matches!(receiver.kind(), "constant" | "scope_resolution") => {
+                Receiver::Path(text(receiver, self.source))
+            }
+            Some(_) => return,
+        };
+        let class = (site_of == FILE_SCOPE)
+            .then(|| self.open_types.last().map(|class| class.id))
+            .flatten();
+        if callee == "singleton_method" && receiver == Receiver::Own && class.is_none() {
+            return;
+        }
+        let (site_of, receiver) = match class {
+            Some(class) if receiver == Receiver::Own => {
+                (class, Receiver::Path(self.qualified_name(class)))
+            }
+            Some(class) => (class, receiver),
+            None if receiver == Receiver::Own && !self.has_owner(site_of) => {
+                (site_of, Receiver::Bare)
+            }
+            None => (site_of, receiver),
+        };
+        let spelled = &self.source[symbol.byte_range()];
+        self.raw.uses.push(UseRef {
+            site_of,
+            name: String::from_utf8_lossy(spelled.strip_prefix(b":").unwrap_or(spelled))
+                .into_owned(),
+            receiver,
+            access: Access::Read,
+            line: line(symbol.start_position().row),
+        });
+    }
+
+    fn symbol(&self, id: SymbolId) -> Option<&Symbol> {
+        self.raw.symbols.get(usize::try_from(id.0).ok()?)
+    }
+
+    fn qualified_name(&self, id: SymbolId) -> String {
+        self.symbol(id)
+            .map(|symbol| symbol.qualified_name.clone())
+            .unwrap_or_default()
+    }
+
+    fn has_owner(&self, id: SymbolId) -> bool {
+        self.symbol(id).is_some_and(|symbol| symbol.owner.is_some())
+    }
+
     fn owner_of(&self, caller: SymbolId) -> Option<String> {
-        let at = usize::try_from(caller.0).ok()?;
-        self.raw.symbols.get(at)?.owner.clone()
+        self.symbol(caller)?.owner.clone()
     }
 }
 
