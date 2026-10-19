@@ -118,7 +118,7 @@ pub fn walk<P: Policy>(
         policy,
         options,
         list,
-        stopped: AtomicBool::new(false),
+        cancelled: AtomicBool::new(false),
     };
 
     let frame = Frame {
@@ -145,7 +145,7 @@ pub fn walk<P: Policy>(
     Ok(WalkOutcome {
         tree,
         errors,
-        cancelled: walker.stopped.load(Ordering::Relaxed),
+        cancelled: walker.cancelled.load(Ordering::Relaxed),
     })
 }
 
@@ -180,18 +180,18 @@ struct Walker<'a, P: Policy> {
     policy: &'a P,
     options: &'a WalkOptions,
     list: fn(&Path) -> io::Result<Listing>,
-    stopped: AtomicBool,
+    cancelled: AtomicBool,
 }
 
 impl<P: Policy> Walker<'_, P> {
-    fn stops_here(&self) -> bool {
+    fn cancelled_here(&self) -> bool {
         let cancelled = self
             .options
             .cancel_token
             .as_ref()
             .is_some_and(CancelToken::is_cancelled);
         if cancelled {
-            self.stopped.store(true, Ordering::Relaxed);
+            self.cancelled.store(true, Ordering::Relaxed);
         }
 
         cancelled
@@ -260,7 +260,7 @@ impl<P: Policy> Walker<'_, P> {
                 .listing()
                 .iter()
                 .map(|item| (item, self.decide(&at, &mut path, item)))
-                .take_while(|(_, decided)| !matches!(decided, Decided::Stopped));
+                .take_while(|(_, decided)| !matches!(decided, Decided::Cancelled));
             for (item, decided) in decided {
                 classified.record(item, decided);
             }
@@ -290,12 +290,12 @@ impl<P: Policy> Walker<'_, P> {
                     |path, item| self.decide(at, path, item),
                 )
                 .collect();
-            let mut stopped = false;
+            let mut cancelled = false;
             for (item, decided) in run.iter().zip(decided) {
-                stopped |= matches!(decided, Decided::Stopped);
+                cancelled |= matches!(decided, Decided::Cancelled);
                 classified.record(item, decided);
             }
-            if stopped {
+            if cancelled {
                 return;
             }
         }
@@ -307,8 +307,8 @@ impl<P: Policy> Walker<'_, P> {
         prefixed_path: &mut String,
         item: &ListedEntry,
     ) -> Decided<P::Value> {
-        if self.stops_here() {
-            return Decided::Stopped;
+        if self.cancelled_here() {
+            return Decided::Cancelled;
         }
 
         let kind = match item.kind() {
@@ -371,7 +371,7 @@ struct Classified<V> {
 }
 
 enum Decided<V> {
-    Stopped,
+    Cancelled,
     Failed(WalkError),
     Skipped,
     Recorded {
@@ -383,7 +383,7 @@ enum Decided<V> {
 impl<V> Classified<V> {
     fn record(&mut self, item: &ListedEntry, decided: Decided<V>) {
         match decided {
-            Decided::Stopped | Decided::Skipped => {}
+            Decided::Cancelled | Decided::Skipped => {}
             Decided::Failed(error) => self.subtree.errors.push(error),
             Decided::Recorded { value, descent } => {
                 if let Some((native_path, path)) = descent {
