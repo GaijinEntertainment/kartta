@@ -1189,12 +1189,17 @@ impl Server {
                        artifact); 'role' keeps the callers of one role - the root then echoes role= and each <match> \
                        counts its callers per role in consumers, tests, entries, and generated; weakly resolved edges \
                        are marked confidence=likely (module-structure inference) or confidence=guess (name-only \
-                       match) - unmarked means certain. A <match> also counts what the walk left out, each only when \
-                       it is not zero: passed_over= the other symbols the name selects (the most called listed as up \
-                       to 5 <candidate callers=N/> records; path_prefix picks one), unexpanded= the callers whose \
-                       own callers were not followed, at the hops limit or left when the node cap stopped the walk, \
-                       below_confidence= the callers the floor dropped, and turned_away= with truncated=true when the \
-                       node cap (500) stopped the walk. A match without callers states why: entry point, dead code, \
+                       match) - unmarked means certain. A file whose top level, outside every function, calls or uses \
+                       the name and sees the symbol is a direct caller that no symbol holds: file_scope=N counts \
+                       them, and after the refs each is a <file_scope path=../> record with the same confidence \
+                       mark. It has no line, because the graph keeps only the names a top level spells, and the walk \
+                       does not go past it; 'role' lists none of them. A <match> also counts what the walk left out, \
+                       each only when it is not zero: passed_over= the other symbols the name selects (the most \
+                       called listed as up to 5 <candidate callers=N/> records; path_prefix picks one), unexpanded= \
+                       the callers whose own callers were not followed, at the hops limit or left when the node cap \
+                       stopped the walk, below_confidence= the callers and files the floor dropped, and turned_away= \
+                       with truncated=true when the node cap (500) stopped the walk. A match without callers or \
+                       file_scope records states why: entry point, dead code, \
                        or dynamic dispatch for a function, a method, or a macro. For a field or an enum variant, it \
                        states that the graph records no call or other use of it, and that grep searches the text for \
                        its name. For any other kind, it states that no call names it, or that no call at the \
