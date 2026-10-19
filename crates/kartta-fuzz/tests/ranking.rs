@@ -136,6 +136,26 @@ fn empty_query_returns_every_candidate_in_input_order() {
 }
 
 #[test]
+fn an_empty_query_keeps_its_limit_for_a_caller_that_keeps_offering() {
+    let mut ranking = Ranking::new("", NonZeroUsize::new(2));
+    let answers: Vec<bool> = (0..4)
+        .map(|position| ranking.offer(position, "x.rs"))
+        .collect();
+
+    assert_eq!(answers, [true, false, false, false]);
+    let positions: Vec<usize> = ranking
+        .finish()
+        .iter()
+        .map(|found| found.position)
+        .collect();
+    assert_eq!(
+        positions,
+        [0, 1],
+        "the first candidates in input order, never more than the limit"
+    );
+}
+
+#[test]
 fn limit_truncates_after_ranking() {
     let candidates = ["main/lib.rs", "src/main.rs"];
     let limited = rank(&candidates, "main", NonZeroUsize::new(1));
