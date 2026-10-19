@@ -289,20 +289,15 @@ fn find_call_path_and_find_references_follow_the_calls() {
                 r#"<references of="Service" matches="1">"#,
                 concat!(
                     r#"<match lang="go" of="Service" qn="pkg.Service" loc="pkg/service.go:4" kind="struct" "#,
-                    r#"count="4" types="4">"#,
+                    r#"count="4" files="2" types="4">"#,
                 ),
-                concat!(
-                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" site="type" "#,
-                    r#"at="cmd/app/main.go:10"/>"#,
-                ),
-                concat!(
-                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7" role="consumer" site="type" "#,
-                    r#"at="pkg/service.go:7,8"/>"#,
-                ),
-                concat!(
-                    r#"<ref name="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12" role="consumer" "#,
-                    r#"site="type" at="pkg/service.go:12"/>"#,
-                ),
+                r#"<file path="pkg/service.go" sites="3">"#,
+                r#"<ref name="New" qn="pkg.New" line="7" role="consumer" site="type" at="7,8"/>"#,
+                r#"<ref name="Greet" qn="pkg.Service.Greet" line="12" role="consumer" site="type" at="12"/>"#,
+                "</file>",
+                r#"<file path="cmd/app/main.go" sites="1">"#,
+                r#"<ref name="run" qn="main.run" line="10" role="consumer" site="type" at="10"/>"#,
+                "</file>",
                 "</match>",
                 "</references>",
             ]),
@@ -310,16 +305,15 @@ fn find_call_path_and_find_references_follow_the_calls() {
                 r#"<references of="Greet" matches="1">"#,
                 concat!(
                     r#"<match lang="go" of="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12" kind="method" "#,
-                    r#"count="1" calls="1">"#,
+                    r#"count="1" files="1" calls="1">"#,
                 ),
                 concat!(
                     "<note>a call through a value of the owner's type resolves only where the graph can name ",
                     "that type, so some of those calls can be missing</note>",
                 ),
-                concat!(
-                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" site="call" "#,
-                    r#"at="cmd/app/main.go:11"/>"#,
-                ),
+                r#"<file path="cmd/app/main.go" sites="1">"#,
+                r#"<ref name="run" qn="main.run" line="10" role="consumer" site="call" at="11"/>"#,
+                "</file>",
                 "</match>",
                 "</references>",
             ]),
@@ -354,20 +348,25 @@ fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_o
 
     let open = concat!(
         r#"<match lang="go" of="Timeout" qn="pkg.Config.Timeout" loc="pkg/config.go:4" kind="field" "#,
-        r#"count="{count}" reads="2" writes="2" updates="1">"#,
+        r#"count="{count}" files="2" reads="2" writes="2" updates="1">"#,
     );
+    let load = [
+        r#"<ref name="Load" qn="pkg.Load" line="7" role="consumer" site="write" at="8"/>"#,
+        r#"<ref name="Load" qn="pkg.Load" line="7" role="consumer" site="update" at="9"/>"#,
+    ];
     assert_eq!(
         every,
         lines(&[
             r#"<references of="pkg.Config.Timeout" matches="1">"#,
             &open.replace("{count}", "5"),
-            r#"<ref name="main" qn="main.main" loc="cmd/main.go:5" role="entry" site="write" at="cmd/main.go:7"/>"#,
-            r#"<ref name="main" qn="main.main" loc="cmd/main.go:5" role="entry" site="read" at="cmd/main.go:8,9"/>"#,
-            r#"<ref name="Load" qn="pkg.Load" loc="pkg/config.go:7" role="consumer" site="write" at="pkg/config.go:8"/>"#,
-            concat!(
-                r#"<ref name="Load" qn="pkg.Load" loc="pkg/config.go:7" role="consumer" site="update" "#,
-                r#"at="pkg/config.go:9"/>"#,
-            ),
+            r#"<file path="cmd/main.go" sites="3">"#,
+            r#"<ref name="main" qn="main.main" line="5" role="entry" site="write" at="7"/>"#,
+            r#"<ref name="main" qn="main.main" line="5" role="entry" site="read" at="8,9"/>"#,
+            "</file>",
+            r#"<file path="pkg/config.go" sites="2">"#,
+            load[0],
+            load[1],
+            "</file>",
             "</match>",
             "</references>",
         ]),
@@ -378,12 +377,13 @@ fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_o
         lines(&[
             r#"<references of="pkg.Config.Timeout" matches="1">"#,
             &open.replace("{count}", "3"),
-            r#"<ref name="main" qn="main.main" loc="cmd/main.go:5" role="entry" site="write" at="cmd/main.go:7"/>"#,
-            r#"<ref name="Load" qn="pkg.Load" loc="pkg/config.go:7" role="consumer" site="write" at="pkg/config.go:8"/>"#,
-            concat!(
-                r#"<ref name="Load" qn="pkg.Load" loc="pkg/config.go:7" role="consumer" site="update" "#,
-                r#"at="pkg/config.go:9"/>"#,
-            ),
+            r#"<file path="pkg/config.go" sites="2">"#,
+            load[0],
+            load[1],
+            "</file>",
+            r#"<file path="cmd/main.go" sites="1">"#,
+            r#"<ref name="main" qn="main.main" line="5" role="entry" site="write" at="7"/>"#,
+            "</file>",
             "</match>",
             "</references>",
         ]),
@@ -394,6 +394,90 @@ fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_o
             "a field is read and written, not called; find_references lists its reads and writes"
         ),
         "{callers}"
+    );
+}
+
+#[test]
+fn find_references_lists_a_hot_field_by_file_most_sites_first_and_counts_what_it_leaves_out() {
+    let readers: Vec<(String, String)> = (0..130)
+        .map(|file| {
+            let reads = if file == 30 { 9 } else { 4 };
+            let body: String = (0..reads).map(|_| "\t_ = c.Timeout\n").collect();
+            (
+                format!("pkg/use{file:03}.go"),
+                format!("package pkg\n\nfunc use{file:03}(c Config) {{\n{body}}}\n"),
+            )
+        })
+        .collect();
+    let mut files: Vec<(&str, &str)> = vec![
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "pkg/config.go",
+            "package pkg\n\ntype Config struct {\n\tTimeout int\n}\n",
+        ),
+    ];
+    files.extend(
+        readers
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    let module = tree(&files);
+    let mut client = Client::start(&[]);
+    client.index(module.path());
+
+    let answer = client.answer("find_references", &json!({"name": "pkg.Config.Timeout"}));
+
+    let records: Vec<&str> = answer.lines().collect();
+    assert_eq!(
+        records[1],
+        concat!(
+            r#"<match lang="go" of="Timeout" qn="pkg.Config.Timeout" loc="pkg/config.go:4" kind="field" "#,
+            r#"count="525" shown="100" files="130" files_shown="74" reads="525">"#,
+        ),
+        "past the 500 sites the answer once listed, the counts still cover every site: {answer}"
+    );
+    assert_eq!(
+        records[2..5],
+        [
+            r#"<file path="pkg/use030.go" sites="9">"#,
+            concat!(
+                r#"<ref name="use030" qn="pkg.use030" line="3" role="consumer" site="read" "#,
+                r#"at="4,5,6,7,8,9,10,11,12"/>"#,
+            ),
+            "</file>",
+        ],
+        "the file with the most sites comes first, its sites listed: {answer}"
+    );
+    assert_eq!(
+        records[5..8],
+        [
+            r#"<file path="pkg/use000.go" sites="4">"#,
+            r#"<ref name="use000" qn="pkg.use000" line="3" role="consumer" site="read" at="4,5,6,7"/>"#,
+            "</file>",
+        ],
+        "files of one count follow in path order: {answer}"
+    );
+    let partial = records
+        .iter()
+        .position(|record| record.contains(r#"shown="3">"#))
+        .expect("the file where the listed sites run out says how many it lists");
+    assert_eq!(
+        records[partial..partial + 4],
+        [
+            r#"<file path="pkg/use022.go" sites="4" shown="3">"#,
+            r#"<ref name="use022" qn="pkg.use022" line="3" role="consumer" site="read" at="4,5,6"/>"#,
+            "</file>",
+            r#"<file path="pkg/use023.go" sites="4"/>"#,
+        ],
+        "past the listed sites, a file carries its count alone: {answer}"
+    );
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| record.starts_with("<file "))
+            .count(),
+        74,
+        "the files holding the listed sites and 50 more are named: {answer}"
     );
 }
 
@@ -425,18 +509,19 @@ fn find_references_lists_a_typescript_field_s_sites_and_says_what_an_untyped_acc
             r#"<references of="Config.timeout" matches="1">"#,
             concat!(
                 r#"<match lang="jsts" of="timeout" qn="Config.timeout" loc="src/config.ts:2" kind="field" "#,
-                r#"count="3" reads="1" writes="1" updates="1" ambiguous="1">"#,
+                r#"count="3" files="2" reads="1" writes="1" updates="1" ambiguous="1">"#,
             ),
             concat!(
                 "<note>a member access on a value whose declaration spells no one type binds nothing; ambiguous ",
                 "counts those</note>",
             ),
-            concat!(
-                r#"<ref name="grow" qn="Config.grow" loc="src/config.ts:3" role="consumer" site="update" "#,
-                r#"at="src/config.ts:4"/>"#,
-            ),
-            r#"<ref name="run" loc="src/main.ts:3" role="consumer" site="write" at="src/main.ts:4"/>"#,
-            r#"<ref name="run" loc="src/main.ts:3" role="consumer" site="read" at="src/main.ts:5"/>"#,
+            r#"<file path="src/main.ts" sites="2">"#,
+            r#"<ref name="run" line="3" role="consumer" site="write" at="4"/>"#,
+            r#"<ref name="run" line="3" role="consumer" site="read" at="5"/>"#,
+            "</file>",
+            r#"<file path="src/config.ts" sites="1">"#,
+            r#"<ref name="grow" qn="Config.grow" line="3" role="consumer" site="update" at="4"/>"#,
+            "</file>",
             "</match>",
             "</references>",
         ]),
@@ -447,13 +532,12 @@ fn find_references_lists_a_typescript_field_s_sites_and_says_what_an_untyped_acc
         lines(&[
             r#"<references of="LIMIT" matches="1">"#,
             concat!(
-                r#"<match lang="jsts" of="LIMIT" loc="src/limits.ts:1" kind="constant" count="1" "#,
+                r#"<match lang="jsts" of="LIMIT" loc="src/limits.ts:1" kind="constant" count="1" files="1" "#,
                 r#"reads="1">"#,
             ),
-            concat!(
-                r#"<ref name="cap" loc="src/main.ts:7" role="consumer" site="read" at="src/main.ts:7" "#,
-                r#"confidence="likely"/>"#,
-            ),
+            r#"<file path="src/main.ts" sites="1">"#,
+            r#"<ref name="cap" line="7" role="consumer" site="read" at="7" confidence="likely"/>"#,
+            "</file>",
             "</match>",
             "</references>",
         ]),
@@ -490,20 +574,16 @@ fn find_references_lists_a_python_attribute_s_sites_and_a_module_value_read_thro
             r#"<references of="pkg.config.Config.timeout" matches="1">"#,
             concat!(
                 r#"<match lang="python" of="timeout" qn="pkg.config.Config.timeout" loc="pkg/config.py:6" "#,
-                r#"kind="field" count="2" writes="1" updates="1" ambiguous="2">"#,
+                r#"kind="field" count="2" files="1" writes="1" updates="1" ambiguous="2">"#,
             ),
             concat!(
                 "<note>an attribute of a value whose class the extraction cannot name binds only where one field ",
                 "of the name is in its own file; ambiguous counts the rest</note>",
             ),
-            concat!(
-                r#"<ref name="__init__" qn="pkg.config.Config.__init__" loc="pkg/config.py:5" role="entry" "#,
-                r#"site="write" at="pkg/config.py:6"/>"#,
-            ),
-            concat!(
-                r#"<ref name="grow" qn="pkg.config.Config.grow" loc="pkg/config.py:8" role="consumer" "#,
-                r#"site="update" at="pkg/config.py:9"/>"#,
-            ),
+            r#"<file path="pkg/config.py" sites="2">"#,
+            r#"<ref name="__init__" qn="pkg.config.Config.__init__" line="5" role="entry" site="write" at="6"/>"#,
+            r#"<ref name="grow" qn="pkg.config.Config.grow" line="8" role="consumer" site="update" at="9"/>"#,
+            "</file>",
             "</match>",
             "</references>",
         ]),
@@ -515,9 +595,11 @@ fn find_references_lists_a_python_attribute_s_sites_and_a_module_value_read_thro
             r#"<references of="pkg.config.LIMIT" matches="1">"#,
             concat!(
                 r#"<match lang="python" of="LIMIT" qn="pkg.config.LIMIT" loc="pkg/config.py:1" kind="variable" "#,
-                r#"count="1" reads="1">"#,
+                r#"count="1" files="1" reads="1">"#,
             ),
-            r#"<ref name="run" qn="main.run" loc="main.py:4" role="consumer" site="read" at="main.py:6"/>"#,
+            r#"<file path="main.py" sites="1">"#,
+            r#"<ref name="run" qn="main.run" line="4" role="consumer" site="read" at="6"/>"#,
+            "</file>",
             "</match>",
             "</references>",
         ]),
@@ -549,18 +631,17 @@ fn find_references_lists_a_cpp_field_s_sites_and_says_what_an_untyped_access_lea
             r#"<references of="Widget::width" matches="1">"#,
             concat!(
                 r#"<match lang="cpp" of="width" qn="Widget::width" loc="widget.h:2" kind="field" count="3" "#,
-                r#"reads="1" writes="1" updates="1" ambiguous="1">"#,
+                r#"files="1" reads="1" writes="1" updates="1" ambiguous="1">"#,
             ),
             concat!(
                 "<note>a member access on a value whose type the graph cannot name binds only where one field of the ",
                 "name is in the file or the files it includes; ambiguous counts the rest</note>",
             ),
-            concat!(
-                r#"<ref name="grow" qn="Widget::grow" loc="widget.cpp:3" role="consumer" site="update" "#,
-                r#"at="widget.cpp:4"/>"#,
-            ),
-            r#"<ref name="paint" loc="widget.cpp:7" role="consumer" site="write" at="widget.cpp:8"/>"#,
-            r#"<ref name="paint" loc="widget.cpp:7" role="consumer" site="read" at="widget.cpp:9"/>"#,
+            r#"<file path="widget.cpp" sites="3">"#,
+            r#"<ref name="grow" qn="Widget::grow" line="3" role="consumer" site="update" at="4"/>"#,
+            r#"<ref name="paint" line="7" role="consumer" site="write" at="8"/>"#,
+            r#"<ref name="paint" line="7" role="consumer" site="read" at="9"/>"#,
+            "</file>",
             "</match>",
             "</references>",
         ]),
@@ -1227,12 +1308,11 @@ fn references_of_a_shared_name_list_the_other_copy_and_a_path_prefix_picks_it() 
                 r#"<references of="util.Limit" matches="1">"#,
                 concat!(
                     r#"<match lang="go" of="Limit" qn="util.Limit" loc="b/util/util.go:3" kind="variable" "#,
-                    r#"count="2" reads="2" passed_over="1">"#,
+                    r#"count="2" files="1" reads="2" passed_over="1">"#,
                 ),
-                concat!(
-                    r#"<ref name="Other" qn="util.Other" loc="b/util/util.go:9" role="consumer" site="read" "#,
-                    r#"at="b/util/util.go:10,11"/>"#,
-                ),
+                r#"<file path="b/util/util.go" sites="2">"#,
+                r#"<ref name="Other" qn="util.Other" line="9" role="consumer" site="read" at="10,11"/>"#,
+                "</file>",
                 r#"<candidate name="Limit" qn="util.Limit" kind="variable" loc="a/util/util.go:3" sites="1"/>"#,
                 "</match>",
                 "</references>",
@@ -1241,12 +1321,11 @@ fn references_of_a_shared_name_list_the_other_copy_and_a_path_prefix_picks_it() 
                 r#"<references of="util.Limit" matches="1">"#,
                 concat!(
                     r#"<match lang="go" of="Limit" qn="util.Limit" loc="a/util/util.go:3" kind="variable" "#,
-                    r#"count="1" reads="1">"#,
+                    r#"count="1" files="1" reads="1">"#,
                 ),
-                concat!(
-                    r#"<ref name="Run" qn="util.Run" loc="a/util/util.go:7" role="consumer" site="read" "#,
-                    r#"at="a/util/util.go:7"/>"#,
-                ),
+                r#"<file path="a/util/util.go" sites="1">"#,
+                r#"<ref name="Run" qn="util.Run" line="7" role="consumer" site="read" at="7"/>"#,
+                "</file>",
                 "</match>",
                 "</references>",
             ]),
