@@ -619,11 +619,20 @@ impl<'g> Cascade<'g> {
         if !targets.clone().any(|at| self.admits(&shape, at)) {
             return Err(self.unadmitted(call));
         }
-        self.member_of_the_caller_s_owner(call, &candidates)
-            .or_else(|| {
-                self.one_callable(&shape, targets.clone())
-                    .map(|at| (at, confidence::UNIQUE))
-            })
+        if let Some(bound) = self.member_of_the_caller_s_owner(call, &candidates) {
+            return Ok(bound);
+        }
+        // constraint: a runtime method's name says nothing of which type the value is, so a member of the name binds
+        // only where scope reaches it, or as the name's one callable when the receiver spells its owner
+        if call.names_a_runtime_method {
+            return self
+                .one_callable(&shape, targets.clone())
+                .filter(|&at| self.receiver_spells_owner(call, at))
+                .map(|at| (at, confidence::UNIQUE))
+                .ok_or(Miss::NotAdmitted);
+        }
+        self.one_callable(&shape, targets.clone())
+            .map(|at| (at, confidence::UNIQUE))
             .or_else(|| self.resolve_by_proximity(call, &candidates, reach))
             .ok_or(Miss::Ambiguous)
     }

@@ -136,7 +136,9 @@ pub struct Conventions {
     /// What a member call, `x.f()`, can call besides a member.
     pub member_calls: MemberCalls,
     /// The methods the language's runtime gives its own values, a string's, an array's or a table's, in ascending
-    /// order: a member call of one, `line.trim()`, binds a member of the name and no free definition, because a call on
+    /// order: a member call of one, `line.trim()`, binds no free definition, and a member of the name only where scope
+    /// reaches it, the caller's file, its imports, package or includes, or the caller's own owner, or as the name's one
+    /// callable where its receiver spells that callable's owner, `session.seek()` for a `Session`, because a call on
     /// such a value reaches the runtime, not a function of the repository. Empty where a language names none.
     pub runtime_methods: &'static [&'static str],
     /// Whether a member call on a value, `x.f()` with an `x` that names no owner, guesses the callable of its name
