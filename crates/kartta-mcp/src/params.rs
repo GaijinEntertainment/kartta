@@ -131,8 +131,14 @@ pub(crate) struct FindCallersParams {
     /// The symbol whose callers to trace. A qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol
     /// of that name; a name qualified by its owner ("Service.Greet") picks the callable it names; a bare name ("New")
     /// picks the unique match. Where several share the name - a bare name, or overloads of one qualified name - the
-    /// most-called candidate is picked, and the answer counts the others in passed_over; check the match's loc.
+    /// most-called candidate is picked, the answer counts the others in passed_over and lists the most called of them
+    /// as <candidate/> records; check the match's loc, and pass path_prefix to pick another.
     pub(crate) name: String,
+    /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
+    /// from, e.g. a <candidate/>'s file, or "vendor/" for the vendored copy of a package. It is how to reach one of
+    /// several copies that share a qualified name. Omitted picks from every file.
+    #[serde(default)]
+    pub(crate) path_prefix: Option<String>,
     /// Optional language filter (multiselect). Omit to trace in every indexed language - a name resolving in several
     /// graphs yields one match per language; narrow to the language the symbol is defined in when you know it, e.g.
     /// ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
@@ -168,8 +174,13 @@ pub(crate) struct FindCalleesParams {
     /// The symbol whose callees to trace. A qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol
     /// of that name; a name qualified by its owner ("Service.Greet") picks the callable it names; a bare name ("New")
     /// picks the unique match. Where several share the name - a bare name, or overloads of one qualified name - the
-    /// most-called candidate is picked, and the answer counts the others in passed_over; check the match's loc.
+    /// most-called candidate is picked, the answer counts the others in passed_over and lists the most called of them
+    /// as <candidate/> records; check the match's loc, and pass path_prefix to pick another.
     pub(crate) name: String,
+    /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
+    /// from, e.g. a <candidate/>'s file. Omitted picks from every file.
+    #[serde(default)]
+    pub(crate) path_prefix: Option<String>,
     /// Optional language filter (multiselect). Omit to trace in every indexed language - a name resolving in several
     /// graphs yields one match per language; narrow to the language the symbol is defined in when you know it, e.g.
     /// ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
@@ -353,11 +364,20 @@ pub(crate) struct FindCallPathParams {
     /// The symbol the chain starts at: the first caller. A qualified name from a find_symbols hit (e.g. "pkg.Serve")
     /// picks the symbol of that name; a name qualified by its owner ("Service.Greet") picks the callable it names; a
     /// bare name picks the unique match. Where several share the name - a bare name, or overloads of one qualified
-    /// name - the most-called candidate is picked, and the answer counts the others in passed_over_from.
+    /// name - the most-called candidate is picked, and the answer counts the others in passed_over_from and lists the
+    /// most called of them as <candidate end="from"/> records.
     pub(crate) from: String,
+    /// Repo-relative path prefix with forward slashes: from is picked only among the symbols in files whose path
+    /// starts with it. Omitted picks from every file.
+    #[serde(default)]
+    pub(crate) from_path_prefix: Option<String>,
     /// The symbol the chain ends at: the last callee, named and picked the same way as from, the others that share
-    /// its name counted in passed_over_to.
+    /// its name counted in passed_over_to and listed as <candidate end="to"/> records.
     pub(crate) to: String,
+    /// Repo-relative path prefix with forward slashes: to is picked only among the symbols in files whose path starts
+    /// with it. Omitted picks from every file.
+    #[serde(default)]
+    pub(crate) to_path_prefix: Option<String>,
     /// Optional language filter (multiselect). Omit to search every indexed language - a pair resolving in several
     /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
     /// anything else is a tool error listing the accepted set. A valid name absent from this repo contributes no
@@ -383,8 +403,14 @@ pub(crate) struct FindReferencesParams {
     /// The symbol whose uses to list. A qualified name from a find_symbols hit (e.g. "pkg.Config") picks the symbol of
     /// that name; a name qualified by its owner ("Service.Greet") picks the symbol it names; a bare name picks the
     /// unique match. Where several share the name - a bare name, or overloads of one qualified name - the candidate
-    /// with the most recorded sites is picked, and the answer counts the others in passed_over.
+    /// with the most recorded sites is picked, the answer counts the others in passed_over and lists the most used of
+    /// them as <candidate/> records; pass path_prefix to pick another.
     pub(crate) name: String,
+    /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
+    /// from, e.g. a <candidate/>'s file, or "vendor/" for the vendored copy of a package. Omitted picks from every
+    /// file.
+    #[serde(default)]
+    pub(crate) path_prefix: Option<String>,
     /// Optional language filter (multiselect). Omit to search every indexed language - a name resolving in several
     /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
     /// anything else is a tool error listing the accepted set. A valid name absent from this repo contributes no
@@ -450,8 +476,14 @@ pub(crate) struct ReadDefinitionsParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindImplementationsParams {
     /// The interface / base class / trait name, e.g. "Provider". Bare or qualified; take the exact name from a
-    /// find_symbols hit when unsure.
+    /// find_symbols hit when unsure. Where several types share the name, the most implemented is picked: the answer
+    /// names it in <root/>, counts the others in passed_over and lists the most implemented of them as <candidate/>
+    /// records.
     pub(crate) name: String,
+    /// Repo-relative path prefix with forward slashes: only the types in files whose path starts with it are picked
+    /// from, e.g. a <candidate/>'s file. Omitted picks from every file.
+    #[serde(default)]
+    pub(crate) path_prefix: Option<String>,
     /// Optional language filter (multiselect). Omit to query every indexed language; narrow when you know the
     /// contract's language, e.g. ["go"]. Lowercase language names - the set index_repo / index_stats report; anything
     /// else is a tool error listing the accepted set. A valid name absent from this repo contributes no results. An

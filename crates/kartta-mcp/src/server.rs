@@ -3,7 +3,10 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use kartta::{Graph, Hit, Limits, Region, Search, SiteQuery, SourceOptions};
+use kartta::{
+    Definition, Graph, Hit, Limits, Region, Search, Selector, SiteQuery, SourceOptions, SymbolKind,
+    is_parent, is_referent,
+};
 use kartta_fs::{
     Case, Filter, FuzzyOptions, GlobOptions, GrepOptions, ListError, ListOptions, Patterns,
 };
@@ -24,7 +27,7 @@ use crate::params::{
 };
 use crate::render::{
     self, CallersAsk, Found, Globbed, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion,
-    UnusedAsk,
+    Unmatched, UnusedAsk,
 };
 use crate::state::{GraphRow, Indexed, Request, Served, Slot};
 
@@ -207,6 +210,53 @@ fn suggestions<'g>(searched: &[(&'g str, &'g Graph)], name: &str) -> Vec<Suggest
     found.sort_by(|left, right| right.hit.score.total_cmp(&left.hit.score));
     found.truncate(SUGGESTIONS);
     found
+}
+
+/// The selector a name and an optional path prefix make.
+fn selector<'a>(name: &'a str, path_prefix: Option<&'a str>) -> Selector<'a> {
+    let selector = Selector::new(name);
+    path_prefix.map_or(selector, |prefix| selector.within(prefix))
+}
+
+/// What a selector that picked no symbol in the graphs a query searched matches instead, among the definitions of
+/// the kinds `selects` takes: the several an owner-qualified name ends with, those of the name outside the path
+/// prefix, or the close alternatives a search finds.
+fn unmatched<'g>(
+    searched: &[(&'g str, &'g Graph)],
+    selector: Selector<'_>,
+    selects: fn(SymbolKind) -> bool,
+) -> Unmatched<'g> {
+    let mut within: (usize, Vec<(&'g str, Definition<'g>)>) = (0, Vec::new());
+    let mut elsewhere: (usize, Vec<(&'g str, Definition<'g>)>) = (0, Vec::new());
+    let matching = searched
+        .iter()
+        .flat_map(|&(family, graph)| {
+            graph
+                .definitions(selector.name, None, usize::MAX)
+                .found
+                .into_iter()
+                .map(move |found| (family, found.definition))
+        })
+        .filter(|(_, definition)| selects(definition.kind));
+    for (family, definition) in matching {
+        let under = selector
+            .path_prefix
+            .is_none_or(|prefix| definition.file.starts_with(prefix));
+        let (total, listed) = if under { &mut within } else { &mut elsewhere };
+        *total += 1;
+        if listed.len() < SUGGESTIONS {
+            listed.push((family, definition));
+        }
+    }
+    if within.0 > 1 {
+        let (total, listed) = within;
+        return Unmatched::Several { total, listed };
+    }
+    if selector.path_prefix.is_some() && elsewhere.0 > 0 {
+        let (total, listed) = elsewhere;
+        return Unmatched::Elsewhere { total, listed };
+    }
+    Unmatched::Suggested(suggestions(searched, selector.name))
 }
 
 #[tool_router]
@@ -750,8 +800,10 @@ impl Server {
                        unless narrowed with 'languages'. Returns an <implementations> envelope, one <type/> record \
                        per implementor with its lang and loc (file:line), nearest first; depth=N marks one that \
                        implements the type through N-1 others. At most 500 are listed, and total= then counts them \
-                       all; passed_over= counts the other types the name selects. A type that implements an \
-                       interface without naming it, as Go's structural typing allows, is not found. An unknown name \
+                       all; passed_over= counts the other types the name selects, and then a <root/> names the type \
+                       answered for and up to 5 <candidate/> records list the most implemented others - path_prefix \
+                       picks one. A type that implements an interface without naming it, as Go's structural typing \
+                       allows, is not found. A name several types end with lists them instead; an unknown name \
                        answers with up to 5 close alternatives (did you mean). Requires index_repo first."
     )]
     async fn find_implementations(
@@ -761,12 +813,13 @@ impl Server {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let searched = selected(indexed, p.languages.as_deref());
+            let named = selector(&p.name, p.path_prefix.as_deref());
             let mut found: Vec<_> = searched
                 .iter()
                 .filter_map(|&(family, graph)| {
                     Some((
                         family,
-                        graph.implementations(p.name.as_str(), u32::MAX, IMPLEMENTORS)?,
+                        graph.implementations(named, u32::MAX, IMPLEMENTORS)?,
                     ))
                 })
                 .collect();
@@ -775,16 +828,16 @@ impl Server {
                 implementations.found.truncate(room);
                 room -= implementations.found.len();
             }
-            let suggestions = if found.is_empty() {
-                suggestions(&searched, &p.name)
+            let unmatched = if found.is_empty() {
+                unmatched(&searched, named, is_parent)
             } else {
-                Vec::new()
+                Unmatched::Suggested(Vec::new())
             };
             Ok(render::implementations(
                 &p.name,
                 p.languages.as_deref().map(echo).as_deref(),
                 &found,
-                &suggestions,
+                &unmatched,
             ))
         })
         .await
@@ -849,7 +902,10 @@ impl Server {
                        at_depth_bound= counts the callers at the hops limit a longer chain could pass through, and \
                        below_confidence= the callers the floor dropped. A search the node cap (20000) stops carries \
                        truncated=true. When from and to resolve to one symbol, the match has hops=0 and no ref. \
-                       Requires index_repo first."
+                       passed_over_from= and passed_over_to= count the other symbols each name selects, the most \
+                       called of them listed as up to 5 <candidate end=\"from\"|\"to\" callers=N/> records - \
+                       from_path_prefix and to_path_prefix pick one. With no match, an end whose name selects no \
+                       symbol lists what it matches instead under <from> or <to>. Requires index_repo first."
     )]
     async fn find_call_path(
         &self,
@@ -862,15 +918,27 @@ impl Server {
             let limits = Limits::new(hops)
                 .with_min_confidence(floor)
                 .with_max_symbols(PATH_MAX_SYMBOLS);
-            let paths: Vec<_> = selected(indexed, p.languages.as_deref())
-                .into_iter()
-                .filter_map(|(family, graph)| {
-                    Some((
-                        family,
-                        graph.call_path(p.from.as_str(), p.to.as_str(), limits)?,
-                    ))
-                })
+            let searched = selected(indexed, p.languages.as_deref());
+            let from = selector(&p.from, p.from_path_prefix.as_deref());
+            let to = selector(&p.to, p.to_path_prefix.as_deref());
+            let paths: Vec<_> = searched
+                .iter()
+                .filter_map(|&(family, graph)| Some((family, graph.call_path(from, to, limits)?)))
                 .collect();
+            // constraint: an end selects as Graph::callers selects, so a walk of no hops tells whether it selects.
+            let unmatched_ends: Vec<_> = if paths.is_empty() {
+                [("from", from), ("to", to)]
+                    .into_iter()
+                    .filter(|&(_, end)| {
+                        searched
+                            .iter()
+                            .all(|(_, graph)| graph.callers(end, Limits::new(0)).is_none())
+                    })
+                    .map(|(name, end)| (name, unmatched(&searched, end, |_| true)))
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let languages = p.languages.as_deref().map(echo);
             let ask = PathAsk {
                 from: &p.from,
@@ -879,7 +947,7 @@ impl Server {
                 hops,
                 min_confidence: floor,
             };
-            Ok(render::call_path(&ask, &paths))
+            Ok(render::call_path(&ask, &paths, &unmatched_ends))
         })
         .await
     }
@@ -904,8 +972,10 @@ impl Server {
                        owner's type resolve only where the graph can name that type, so a missing site does not show \
                        an unused symbol. A match lists at \
                        most 500 sites and then carries shown=; below_confidence= counts the sites the floor dropped \
-                       and passed_over= the other symbols the name selects. An unknown name answers with up to 5 close \
-                       alternatives (did you mean). Requires index_repo first."
+                       and passed_over= the other symbols the name selects, the most used of them listed as up to 5 \
+                       <candidate sites=N/> records - path_prefix picks one. A name several symbols end with lists \
+                       them instead; an unknown name answers with up to 5 close alternatives (did you mean). Requires \
+                       index_repo first."
     )]
     async fn find_references(
         &self,
@@ -915,6 +985,7 @@ impl Server {
         self.answer(move |indexed| {
             let floor = p.min_confidence.floor();
             let searched = selected(indexed, p.languages.as_deref());
+            let named = selector(&p.name, p.path_prefix.as_deref());
             let found: Vec<_> = searched
                 .iter()
                 .filter_map(|&(family, graph)| {
@@ -922,13 +993,13 @@ impl Server {
                     let query = p
                         .access
                         .map_or(query, |access| query.with_access(access.access()));
-                    Some((family, graph.references(p.name.as_str(), query)?))
+                    Some((family, graph.references(named, query)?))
                 })
                 .collect();
-            let suggestions = if found.is_empty() {
-                suggestions(&searched, &p.name)
+            let unmatched = if found.is_empty() {
+                unmatched(&searched, named, is_referent)
             } else {
-                Vec::new()
+                Unmatched::Suggested(Vec::new())
             };
             let languages = p.languages.as_deref().map(echo);
             let ask = CallersAsk {
@@ -937,7 +1008,7 @@ impl Server {
                 role: None,
                 floored: floor != 0,
             };
-            Ok(render::references(&ask, &found, &suggestions))
+            Ok(render::references(&ask, &found, &unmatched))
         })
         .await
     }
@@ -1089,7 +1160,8 @@ impl Server {
                        counts its callers per role in consumers, tests, entries, and generated; weakly resolved edges \
                        are marked confidence=likely (module-structure inference) or confidence=guess (name-only \
                        match) - unmarked means certain. A <match> also counts what the walk left out, each only when \
-                       it is not zero: passed_over= the other symbols the name selects, unexpanded= the callers whose \
+                       it is not zero: passed_over= the other symbols the name selects (the most called listed as up \
+                       to 5 <candidate callers=N/> records; path_prefix picks one), unexpanded= the callers whose \
                        own callers were not followed, at the hops limit or left when the node cap stopped the walk, \
                        below_confidence= the callers the floor dropped, and turned_away= with truncated=true when the \
                        node cap (500) stopped the walk. A match without callers states why: entry point, dead code, \
@@ -1110,16 +1182,15 @@ impl Server {
                 .with_min_confidence(p.min_confidence.floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
+            let named = selector(&p.name, p.path_prefix.as_deref());
             let walks: Vec<_> = searched
                 .iter()
-                .filter_map(|&(family, graph)| {
-                    Some((family, graph.callers(p.name.as_str(), limits)?))
-                })
+                .filter_map(|&(family, graph)| Some((family, graph.callers(named, limits)?)))
                 .collect();
-            let suggestions = if walks.is_empty() {
-                suggestions(&searched, &p.name)
+            let unmatched = if walks.is_empty() {
+                unmatched(&searched, named, |_| true)
             } else {
-                Vec::new()
+                Unmatched::Suggested(Vec::new())
             };
             let languages = p.languages.as_deref().map(echo);
             let ask = CallersAsk {
@@ -1128,7 +1199,7 @@ impl Server {
                 role: p.role.map(CallerRole::as_str),
                 floored: p.min_confidence.floor() != 0,
             };
-            Ok(render::callers(&ask, &walks, &suggestions))
+            Ok(render::callers(&ask, &walks, &unmatched))
         })
         .await
     }
@@ -1146,7 +1217,8 @@ impl Server {
                        callee, at= for the line of the call. A <match> also counts what the walk left out, each only \
                        when it is not zero: unresolved= the calls in the bodies walked that bound no definition the \
                        graph holds (a library, a builtin, or a name the resolver could not tell apart - read the body \
-                       for those), passed_over= the other symbols the name selects, unexpanded= the callees whose own \
+                       for those), passed_over= the other symbols the name selects (the most called listed as up to 5 \
+                       <candidate callers=N/> records; path_prefix picks one), unexpanded= the callees whose own \
                        callees were not followed, at the hops limit or left when the node cap stopped the walk, \
                        below_confidence= the callees the floor dropped, and turned_away= with truncated=true when the \
                        node cap (500) stopped the walk. A call \
@@ -1165,18 +1237,17 @@ impl Server {
                 .with_min_confidence(floor)
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
+            let named = selector(&p.name, p.path_prefix.as_deref());
             let walks: Vec<_> = searched
                 .iter()
                 .filter_map(|&(family, graph)| {
-                    graph
-                        .callees(p.name.as_str(), limits)
-                        .map(|walk| (family, walk))
+                    graph.callees(named, limits).map(|walk| (family, walk))
                 })
                 .collect();
-            let suggestions = if walks.is_empty() {
-                suggestions(&searched, &p.name)
+            let unmatched = if walks.is_empty() {
+                unmatched(&searched, named, |_| true)
             } else {
-                Vec::new()
+                Unmatched::Suggested(Vec::new())
             };
             let languages = p.languages.as_deref().map(echo);
             let ask = CallersAsk {
@@ -1185,7 +1256,7 @@ impl Server {
                 role: None,
                 floored: floor != 0,
             };
-            Ok(render::callees(&ask, &walks, &suggestions))
+            Ok(render::callees(&ask, &walks, &unmatched))
         })
         .await
     }
