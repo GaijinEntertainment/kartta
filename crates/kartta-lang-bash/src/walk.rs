@@ -1,7 +1,7 @@
 use kartta_lang::tree::{line, named_child_nodes, preorder, text};
 use kartta_lang::{
-    Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
-    SymbolKind,
+    Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol,
+    SymbolFlags, SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree};
 
@@ -116,6 +116,9 @@ impl Emitter<'_> {
             self.source_directive(node);
             return;
         }
+        if command == b"trap" || command == b"complete" {
+            self.handler_use(node, command, site_of);
+        }
 
         self.raw.calls.push(CallRef {
             site_of,
@@ -123,6 +126,48 @@ impl Emitter<'_> {
             receiver: None,
             line: start_line(node),
         });
+    }
+
+    // constraint: a function the shell runs later is named as a word, the handler of `trap cleanup EXIT` and the
+    // completer of `complete -F _git git`; a quoted handler, `trap 'rm -f "$tmp"' EXIT`, is a command line, and names a
+    // function only when it is one name alone
+    fn handler_use(&mut self, node: Node<'_>, command: &[u8], site_of: SymbolId) {
+        let mut cursor = node.walk();
+        let mut arguments = node.children_by_field_name("argument", &mut cursor);
+        let handler = match command {
+            b"trap" => arguments.next(),
+            b"complete" => arguments
+                .by_ref()
+                .find(|argument| &self.source[argument.byte_range()] == b"-F")
+                .and_then(|_| arguments.next()),
+            _ => None,
+        };
+        let Some(handler) = handler else {
+            return;
+        };
+        let written = &self.source[handler.byte_range()];
+        let spelled = match handler.kind() {
+            "word" => written,
+            "raw_string" | "string" => written
+                .get(1..written.len().saturating_sub(1))
+                .unwrap_or_default(),
+            _ => return,
+        };
+        let is_name = spelled
+            .first()
+            .is_some_and(|first| first.is_ascii_alphabetic() || *first == b'_')
+            && spelled
+                .iter()
+                .all(|&byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b':'));
+        if is_name {
+            self.raw.uses.push(UseRef {
+                site_of,
+                name: String::from_utf8_lossy(spelled).into_owned(),
+                receiver: Receiver::Bare,
+                access: Access::Read,
+                line: start_line(handler),
+            });
+        }
     }
 
     fn source_directive(&mut self, node: Node<'_>) {
