@@ -1244,7 +1244,7 @@ fn a_member_call_binds_a_free_function_its_file_defines_or_the_one_of_its_name()
 }
 
 #[test]
-fn a_member_call_of_a_runtime_method_binds_a_member_and_no_free_function() {
+fn a_member_call_of_a_runtime_method_binds_no_free_function() {
     let mut conventions = Conventions::default();
     conventions.runtime_methods = &["push", "trim"];
     let calling = |site: CallRef, others: Vec<Extraction>| {
@@ -1273,16 +1273,6 @@ fn a_member_call_of_a_runtime_method_binds_a_member_and_no_free_function() {
             );
         }
     }
-    assert_eq!(
-        calling(
-            member_call(0, "", "push", 2),
-            vec![elsewhere(
-                "b/y.js",
-                member("Stack", "push", SymbolKind::Method, 1)
-            )]
-        ),
-        ["b/y.js:1@60"]
-    );
     assert_eq!(calling(call(0, "trim", 2), Vec::new()), ["a/x.js:5@80"]);
     assert_eq!(
         calling(
@@ -1290,6 +1280,124 @@ fn a_member_call_of_a_runtime_method_binds_a_member_and_no_free_function() {
             vec![elsewhere("a/y.js", function("join", 1))]
         ),
         ["a/y.js:1@60"]
+    );
+}
+
+#[test]
+fn a_member_call_of_a_runtime_method_binds_a_member_only_where_scope_reaches_it() {
+    let mut conventions = Conventions::default();
+    conventions.runtime_methods = &["push"];
+    let push = |owner: &str, line: u32| member(owner, "push", SymbolKind::Method, line);
+    let calling = |caller: Vec<Symbol>, others: Vec<Extraction>| {
+        let mut files = vec![file("a/x.js", caller, vec![member_call(0, "", "push", 2)])];
+        files.extend(others);
+        graph_of(conventions, &files)
+    };
+    let run = || vec![function("run", 1)];
+
+    let one_member_anywhere = calling(
+        run(),
+        vec![file("b/y.js", vec![push("Stack", 1)], Vec::new())],
+    );
+    assert_eq!(
+        callees(&one_member_anywhere, "run"),
+        Vec::<String>::new(),
+        "the one member of the name is a namesake of the runtime's method, not what a value calls"
+    );
+    assert_eq!(one_member_anywhere.resolution(0).misses.not_admitted, 1);
+
+    let one_member_nearby = calling(
+        run(),
+        vec![
+            file("a/y.js", vec![push("Stack", 1)], Vec::new()),
+            file("b/z.js", vec![push("Queue", 1)], Vec::new()),
+        ],
+    );
+    assert_eq!(
+        callees(&one_member_nearby, "run"),
+        Vec::<String>::new(),
+        "nor is the one member of the name in the caller's directory"
+    );
+
+    let mut own_file = run();
+    own_file.push(push("Stack", 5));
+    assert_eq!(
+        callees(&calling(own_file, Vec::new()), "run"),
+        ["a/x.js:5@80"],
+        "a member the caller's own file defines still binds"
+    );
+
+    let included = graph_of(
+        conventions,
+        &[
+            including(
+                "a/x.js",
+                &["lib/stack.js"],
+                vec![member_call(0, "", "push", 2)],
+            ),
+            file("lib/stack.js", vec![push("Stack", 1)], Vec::new()),
+        ],
+    );
+    assert_eq!(
+        callees(&included, "run"),
+        ["lib/stack.js:1@70"],
+        "so does a member a file the caller includes defines"
+    );
+
+    let own_owner = graph_of(
+        conventions,
+        &[
+            file(
+                "a/x.js",
+                vec![member("Stack", "run", SymbolKind::Method, 1)],
+                vec![member_call(0, "items", "push", 2)],
+            ),
+            file("b/y.js", vec![push("Stack", 1)], Vec::new()),
+            file("c/z.js", vec![push("Queue", 1)], Vec::new()),
+        ],
+    );
+    assert_eq!(
+        callees(&own_owner, "Stack::run"),
+        ["b/y.js:1@80"],
+        "and a member of the caller's own owner"
+    );
+}
+
+#[test]
+fn a_member_call_of_a_runtime_method_binds_the_one_callable_whose_owner_its_receiver_spells() {
+    let mut conventions = Conventions::default();
+    conventions.runtime_methods = &["push"];
+    let push = |owner: &str, line: u32| member(owner, "push", SymbolKind::Method, line);
+    let calling = |receiver: &str, others: Vec<Extraction>| {
+        let mut files = vec![file(
+            "a/x.js",
+            vec![function("run", 1)],
+            vec![member_call(0, receiver, "push", 2)],
+        )];
+        files.extend(others);
+        callees(&graph_of(conventions, &files), "run")
+    };
+    let stack = || vec![file("b/y.js", vec![push("Stack", 1)], Vec::new())];
+
+    assert_eq!(calling("stack", stack()), ["b/y.js:1@60"]);
+    assert_eq!(calling("this.stack", stack()), ["b/y.js:1@60"]);
+    assert_eq!(
+        calling("items", stack()),
+        Vec::<String>::new(),
+        "a receiver that spells no owner binds nothing"
+    );
+    assert_eq!(
+        calling("st", vec![file("b/y.js", vec![push("St", 1)], Vec::new())]),
+        ["b/y.js:1@60"],
+        "a short receiver spells its owner too"
+    );
+
+    let mut queue_too = stack();
+    queue_too.push(file("c/z.js", vec![push("Queue", 1)], Vec::new()));
+    assert_eq!(
+        calling("stack", queue_too),
+        Vec::<String>::new(),
+        "beside another callable of the name, the spelling alone binds nothing"
     );
 }
 
