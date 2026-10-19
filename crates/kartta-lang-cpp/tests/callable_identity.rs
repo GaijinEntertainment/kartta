@@ -187,6 +187,34 @@ fn file_local_identity_does_not_hide_an_external_declaration() {
 }
 
 #[test]
+fn an_extern_value_and_its_definition_share_the_key_of_their_qualified_name() {
+    let header = extract(concat!(
+        "extern int limit;\n",
+        "namespace ns { extern const char *names[]; }\n",
+        "extern int seeded = 4;\n",
+        "static int hidden;\n",
+    ));
+    let source = extract("int limit = 4;\nnamespace ns { const char *names[] = {\"a\"}; }\n");
+
+    assert_eq!(
+        keys_with_roles(&header),
+        [
+            ("limit", CallableRole::Declaration),
+            ("ns::names", CallableRole::Declaration),
+            ("seeded", CallableRole::Definition),
+        ],
+        "an initializer defines what `extern` declares, and a file-local value links to nothing"
+    );
+    assert_eq!(
+        keys_with_roles(&source),
+        [
+            ("limit", CallableRole::Definition),
+            ("ns::names", CallableRole::Definition)
+        ]
+    );
+}
+
+#[test]
 fn unsupported_prototypes_are_preserved_instead_of_merged_by_name() {
     let raw = extract(concat!(
         "void callback(void (*fn)(int));\nvoid callback(void (*fn)(int)) {}\n",
@@ -222,7 +250,11 @@ fn anonymous_owners_do_not_acquire_free_function_identities() {
         names(&raw),
         ["first", "run", "second", "run", "third", "run"]
     );
-    assert_eq!(keys(&raw), Vec::<&str>::new());
+    assert_eq!(
+        keys(&raw),
+        ["first", "second", "third"],
+        "only the values of the anonymous types take a key"
+    );
 }
 
 #[test]
@@ -365,7 +397,11 @@ fn a_file_scope_lambda_does_not_export_its_local_class_identity() {
     let raw = extract("auto make = [] { struct Local { void run(int) {} }; return 0; };");
 
     assert_eq!(qualified_names(&raw), ["make", "Local", "Local::run"]);
-    assert_eq!(keys(&raw), Vec::<&str>::new());
+    assert_eq!(
+        keys(&raw),
+        ["make"],
+        "only the value the lambda initializes takes a key"
+    );
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use kartta_lang::path::{base, dir, join};
 use kartta_lang::{
-    Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, Symbol, SymbolFlags,
-    SymbolKind,
+    Callable, CallableRole, Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver,
+    Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
 
 use crate::{EXTENSIONS, QUOTED_INCLUDE};
@@ -65,9 +65,7 @@ impl Resolver for Includes<'_> {
             .with_generated(name_marks_generated(base(path)));
         extraction.flag_symbols(path_flags);
         if is_c_source(path) {
-            for symbol in &mut extraction.symbols {
-                symbol.exported |= has_c_external_linkage(symbol);
-            }
+            export_c_constants(&mut extraction);
         }
 
         for directive in directives {
@@ -89,6 +87,21 @@ fn is_c_source(path: &str) -> bool {
     base(path)
         .rsplit_once('.')
         .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("c"))
+}
+
+/// Exports each file-scope constant C links outside its file, keyed as the definition a header's `extern` declares.
+fn export_c_constants(extraction: &mut Extraction) {
+    for (index, symbol) in (0u32..).zip(&mut extraction.symbols) {
+        if symbol.exported || !has_c_external_linkage(symbol) {
+            continue;
+        }
+        symbol.exported = true;
+        extraction.callables.push(Callable {
+            symbol: SymbolId(index),
+            key: symbol.qualified_name.clone(),
+            role: CallableRole::Definition,
+        });
+    }
 }
 
 // constraint: C gives a file-scope `const` external linkage where C++ gives it internal linkage, and the extraction
@@ -392,6 +405,17 @@ mod tests {
                 ("local_limit".to_owned(), false),
                 ("other".to_owned(), false)
             ]
+        );
+        let keys: Vec<(String, CallableRole)> = resolved(source, "src/limits.c", &[])
+            .callables
+            .iter()
+            .filter(|callable| !callable.key.contains('('))
+            .map(|callable| (callable.key.clone(), callable.role))
+            .collect();
+        assert_eq!(
+            keys,
+            [("limit".to_owned(), CallableRole::Definition)],
+            "the constant C links outside its file defines what a header's `extern` declares"
         );
         assert_eq!(exported("src/LIMITS.C"), in_c);
         let unexported = [

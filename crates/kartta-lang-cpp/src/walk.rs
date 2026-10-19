@@ -385,8 +385,8 @@ impl<'s, 't> Replayer<'s, 't> {
         }
         let constexpr = has_qualifier(node, "constexpr", self.source);
         let declared_const = has_qualifier(node, "const", self.source);
-        let external = has_storage_class(node, "extern", self.source)
-            || has_storage_class(node, "inline", self.source);
+        let declared_extern = has_storage_class(node, "extern", self.source);
+        let external = declared_extern || has_storage_class(node, "inline", self.source);
         let signature = data_signature(node, self.source);
 
         let mut cursor = node.walk();
@@ -404,7 +404,14 @@ impl<'s, 't> Replayer<'s, 't> {
             symbol.signature.clone_from(&signature);
             symbol.flags = self.base_flags();
             self.apply_linkage(&mut symbol, node);
-            self.push_symbol(symbol);
+            let id = self.push_symbol(symbol);
+            let role = if declared_extern && declarator.kind() != "init_declarator" {
+                CallableRole::Declaration
+            } else {
+                CallableRole::Definition
+            };
+            let key = self.raw.symbols[id.0 as usize].qualified_name.clone();
+            self.record_callable(id, Some(key), role);
         }
     }
 
