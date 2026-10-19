@@ -255,7 +255,7 @@ impl Judge<'_, '_> {
             .any(|(far, _)| !is_own(graph, at, far))
             || self.is_an_alternative_reached(at)
             || self.is_a_counterpart_reached(at)
-            || self.is_named_at_file_scope(at)
+            || self.calls.file_scope_callers(at).next().is_some()
             || (is_type_kind(self.graph.sym(at).kind) && self.types.is_a_parent(at))
     }
 
@@ -343,16 +343,6 @@ impl Judge<'_, '_> {
                         .reached_by(counterpart)
                         .any(|(far, _)| far != at && !is_own(graph, counterpart, far))
             })
-    }
-
-    fn is_named_at_file_scope(&self, at: SymbolAt) -> bool {
-        let Some(key) = self.graph.listing_key(self.graph.sym(at).name) else {
-            return false;
-        };
-        self.graph
-            .named_at_file_scope(key)
-            .iter()
-            .any(|&file| self.calls.cascade.sees(file, at))
     }
 
     fn may_be_dispatched(&mut self, method: SymbolAt) -> bool {

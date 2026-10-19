@@ -670,6 +670,21 @@ impl<'g> Calls<'g> {
         Cow::Borrowed(self.caller_edges(target))
     }
 
+    /// The files whose top level calls or uses the name of the definition at `at` and see it, in the order the graph
+    /// indexes them, each with how sure the name is to mean it. A file keeps only the names its top level spells, so
+    /// neither the line nor whether a call or a use spelled it is known.
+    pub(crate) fn file_scope_callers(&self, at: SymbolAt) -> impl Iterator<Item = (u32, u8)> + '_ {
+        let files = self
+            .graph
+            .listing_key(self.graph.sym(at).name)
+            .map_or(&[][..], |key| self.graph.named_at_file_scope(key));
+        files.iter().filter_map(move |&file| {
+            self.cascade
+                .seen_from(file, at)
+                .map(|confidence| (file, confidence))
+        })
+    }
+
     pub(crate) fn caller_edges(&mut self, target: SymbolAt) -> &[Edge] {
         self.resolve_callers(self.graph.sym(target).name);
         listed(&self.callers, &target)
