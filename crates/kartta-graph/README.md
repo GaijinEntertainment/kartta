@@ -23,7 +23,8 @@ conventions let one stand for what a value holds and `f` names no method the lan
 as `trim` in `line.trim()` does; such a runtime method binds a member of its name only where scope reaches one, never
 the nearest, and the one callable of the name only where its receiver spells that callable's owner, as
 `session.seek()` binds `Session.seek`. A member call binds no free variable or constant, whose name no property of a
-value reads. Where
+value reads. Where a language lists the receivers it writes for a value of the caller's own type, as `self` and `other`,
+a member call binds a member of the caller's own owner only on one of them. Where
 a language's includes are transitive, as C++'s are, a call of a name at most 32 definitions share that no included file
 defines binds the one file the includes reach in turn that defines it, a member call only a member. Where a language
 says so, a member call on a value takes nothing from the callables nearest the caller. A use outside a call binds more
