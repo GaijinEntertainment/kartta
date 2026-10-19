@@ -465,15 +465,50 @@ fn a_cancel_naming_a_build_before_it_starts_stops_that_build_and_no_other() {
 }
 
 #[test]
+fn a_cancel_naming_a_grep_before_it_starts_stops_that_grep_and_no_other() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let ahead = ok(&kartta, "cancel", &json!({ "grep": 3 }));
+    let cancelled = ok(&kartta, "grep", &json!({ "patterns": ["func"], "id": 3 }));
+    let next = ok(&kartta, "grep", &json!({ "patterns": ["func"], "id": 4 }));
+
+    assert_eq!(ahead, json!({ "stopped": false }));
+    assert_eq!(cancelled["cancelled"], true);
+    assert_eq!(cancelled["files"], json!([]), "no file was read");
+    assert_eq!(cancelled["unsearched"], 2);
+    assert_eq!(next["cancelled"], false);
+    assert_eq!(next["files"].as_array().map(Vec::len), Some(2));
+}
+
+#[test]
+fn a_cancel_naming_a_build_leaves_a_grep_of_that_id_alone() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    ok(&kartta, "cancel", &json!({ "build": 5 }));
+    let found = ok(&kartta, "grep", &json!({ "patterns": ["func"], "id": 5 }));
+
+    assert_eq!(found["cancelled"], false);
+}
+
+#[test]
 fn a_cancel_while_no_build_runs_leaves_the_next_build_alone() {
     let tree = tree();
     let kartta = open(tree.path());
 
     let stray = ok(&kartta, "cancel", &Value::Null);
     let built = call(&kartta, "build", &Value::Null);
+    let found = ok(&kartta, "grep", &json!({ "patterns": ["func"] }));
 
     assert_eq!(stray, json!({ "stopped": false }));
     assert!(built.get("ok").is_some(), "{built}");
+    assert_eq!(
+        found["cancelled"], false,
+        "a cancel naming no call stops only what is in flight"
+    );
 }
 
 #[test]

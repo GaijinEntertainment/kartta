@@ -10,6 +10,7 @@ use crate::ABI_VERSION;
 use crate::built::Built;
 use crate::error::{Error, ErrorCode};
 use crate::query::QUERIES;
+use crate::wire::files::{GrepParams, GrepView};
 use crate::wire::{
     self, BuildParams, CancelAnswer, CancelParams, NoParams, OpenParams, StatsAnswer, StoredErrors,
 };
@@ -27,6 +28,7 @@ pub struct Kartta {
     root: PathBuf,
     built: RwLock<Option<Arc<Built>>>,
     builds: Mutex<Calls>,
+    greps: Mutex<Calls>,
     one_build_at_a_time: Mutex<()>,
 }
 
@@ -77,6 +79,7 @@ impl Kartta {
             root,
             built: RwLock::new(None),
             builds: Mutex::default(),
+            greps: Mutex::default(),
             one_build_at_a_time: Mutex::new(()),
         })
     }
@@ -98,6 +101,7 @@ impl Kartta {
         match method {
             "build" => self.build(&wire::params(params)?),
             "cancel" => wire::ok(&self.cancel(&wire::params(params)?)),
+            "grep" => self.grep(&wire::params(params)?),
             "version" => {
                 let NoParams {} = wire::params(params)?;
                 wire::ok(&About {
@@ -152,9 +156,25 @@ impl Kartta {
         wire::ok(&StatsAnswer::new(&built.engine, &built.errors))
     }
 
+    fn grep(&self, params: &GrepParams) -> Result<Vec<u8>, Error> {
+        let built = self.built()?;
+        let index = built.engine.index();
+
+        let (ticket, token) = lock(&self.greps).enter(params.id);
+        let searched = panic::catch_unwind(AssertUnwindSafe(|| params.search(index, &token)));
+        lock(&self.greps).leave(ticket);
+
+        let matches = searched.unwrap_or_else(|payload| Err(Error::panicked(payload.as_ref())))?;
+        wire::ok(&GrepView::new(index, &matches))
+    }
+
     fn cancel(&self, params: &CancelParams) -> CancelAnswer {
+        let every = params.build.is_none() && params.grep.is_none();
+        let builds = (every || params.build.is_some()) && lock(&self.builds).cancel(params.build);
+        let greps = (every || params.grep.is_some()) && lock(&self.greps).cancel(params.grep);
+
         CancelAnswer {
-            stopped: lock(&self.builds).cancel(params.build),
+            stopped: builds || greps,
         }
     }
 
@@ -191,7 +211,7 @@ impl Kartta {
 }
 
 fn methods() -> Vec<&'static str> {
-    let mut methods: Vec<&'static str> = ["build", "cancel", "version"]
+    let mut methods: Vec<&'static str> = ["build", "cancel", "grep", "version"]
         .into_iter()
         .chain(QUERIES.iter().map(|&(name, _)| name))
         .collect();
@@ -245,7 +265,41 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::Calls;
+    use super::{Calls, CancelParams, Kartta, lock};
+
+    fn handle() -> (tempfile::TempDir, Kartta) {
+        let tree = tempfile::tempdir().expect("a temporary directory");
+        let params = serde_json::json!({ "root": tree.path() }).to_string();
+        let kartta = Kartta::open(params.as_bytes()).expect("the tree opens");
+        (tree, kartta)
+    }
+
+    #[test]
+    fn a_cancel_naming_no_call_stops_every_build_and_grep_in_flight() {
+        let (_tree, kartta) = handle();
+        let (_, build) = lock(&kartta.builds).enter(Some(1));
+        let (_, grep) = lock(&kartta.greps).enter(Some(2));
+
+        let answer = kartta.cancel(&CancelParams::default());
+
+        assert!(answer.stopped);
+        assert!(build.is_cancelled() && grep.is_cancelled());
+    }
+
+    #[test]
+    fn a_cancel_naming_a_grep_leaves_a_build_of_that_id_running() {
+        let (_tree, kartta) = handle();
+        let (_, build) = lock(&kartta.builds).enter(Some(2));
+        let (_, grep) = lock(&kartta.greps).enter(Some(2));
+
+        let answer = kartta.cancel(&CancelParams {
+            build: None,
+            grep: Some(2),
+        });
+
+        assert!(answer.stopped);
+        assert!(grep.is_cancelled() && !build.is_cancelled());
+    }
 
     #[test]
     fn a_cancel_repeated_before_its_build_enters_is_remembered_once() {
@@ -255,5 +309,15 @@ mod tests {
         builds.cancel(Some(7));
 
         assert_eq!(builds.cancelled_ahead, [7]);
+    }
+
+    #[test]
+    fn a_cancel_naming_a_call_in_flight_trips_its_token_and_remembers_nothing() {
+        let mut calls = Calls::default();
+        let (_, token) = calls.enter(Some(3));
+
+        assert!(calls.cancel(Some(3)), "the call was in flight");
+        assert!(token.is_cancelled());
+        assert_eq!(calls.cancelled_ahead, Vec::<u64>::new());
     }
 }

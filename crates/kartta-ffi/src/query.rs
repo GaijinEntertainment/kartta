@@ -2,9 +2,7 @@ use kartta::{Region, SourceOptions};
 
 use crate::built::Built;
 use crate::error::Error;
-use crate::wire::files::{
-    FuzzyParams, FuzzyView, GlobParams, GlobView, GrepParams, GrepView, ListParams, ListView,
-};
+use crate::wire::files::{FuzzyParams, FuzzyView, GlobParams, GlobView, ListParams, ListView};
 use crate::wire::graph::{DefinitionsView, FileView, OutlineView, Wired};
 use crate::wire::params::{
     CALLEES_DEPTH, CALLERS_DEPTH, CallPathParams, ChangeParams, DeadCodeParams, DefinitionsParams,
@@ -26,7 +24,6 @@ pub(crate) const QUERIES: &[(&str, Query)] = &[
     ("dependents", dependents),
     ("fuzzy", fuzzy),
     ("glob", glob),
-    ("grep", grep),
     ("implementations", implementations),
     ("list", list),
     ("outline", outline),
@@ -199,11 +196,4 @@ fn glob(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
 fn fuzzy(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: FuzzyParams = wire::params(params)?;
     wire::ok(&FuzzyView::new(built.engine.index(), &params)?)
-}
-
-fn grep(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
-    let params: GrepParams = wire::params(params)?;
-    let index = built.engine.index();
-    let matches = params.search(index)?;
-    wire::ok(&GrepView::new(index, &matches))
 }
