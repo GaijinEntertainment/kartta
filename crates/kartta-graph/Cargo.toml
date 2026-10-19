@@ -17,5 +17,5 @@ workspace = true
 [dependencies]
 foldhash = "0.2.0"
 hashbrown = { version = "0.17.1", default-features = false }
-kartta-lang = { version = "0.0.0", path = "../kartta-lang" }
+kartta-lang.workspace = true
 rayon = "1.12.0"

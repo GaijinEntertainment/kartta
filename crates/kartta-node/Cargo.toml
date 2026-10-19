@@ -19,7 +19,7 @@ crate-type = ["cdylib"]
 workspace = true
 
 [dependencies]
-kartta-ffi = { version = "0.0.0", path = "../kartta-ffi" }
+kartta-ffi.workspace = true
 napi = { version = "3.14.2", default-features = false, features = ["napi4"] }
 napi-derive = "3.6.12"
 
