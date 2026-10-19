@@ -17,6 +17,7 @@ enum HeaderLine {
 }
 
 pub(crate) fn is_generated_source(source: &[u8]) -> bool {
+    let source = source.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(source);
     let mut block_open = false;
 
     for line in source.split(|&byte| byte == b'\n') {
@@ -100,6 +101,19 @@ pub(crate) fn name_marks_generated(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_byte_order_mark_before_the_banner_hides_nothing() {
+        assert!(is_generated_source(
+            b"\xEF\xBB\xBF// @generated\nexport const a = 1;\n"
+        ));
+        assert!(is_generated_source(
+            b"\xEF\xBB\xBF/* DO NOT EDIT */\nexport const a = 1;\n"
+        ));
+        assert!(!is_generated_source(
+            b"\xEF\xBB\xBF// a header\nexport const a = 1;\n"
+        ));
+    }
 
     #[test]
     fn a_marker_name_counts_whatever_case_the_extension_is_in() {
