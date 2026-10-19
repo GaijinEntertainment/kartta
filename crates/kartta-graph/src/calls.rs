@@ -5,11 +5,11 @@ use std::hash::Hash;
 
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
-use kartta_lang::{Access, SymbolKind};
+use kartta_lang::Access;
 
 use crate::confidence;
 use crate::graph::{
-    Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, is_call_target_kind,
+    Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, is_referent,
     keep_first, listed, narrow,
 };
 use crate::resolve::{Call, Cascade, UseMiss};
@@ -583,7 +583,7 @@ impl<'g> Calls<'g> {
             let kind = self.graph.sym(at).kind;
             match self.wanted {
                 Wanted::Callables => self.cascade.is_call_target(kind),
-                Wanted::Referents => is_call_target_kind(kind) || kind == SymbolKind::Field,
+                Wanted::Referents => is_referent(kind),
             }
         };
         if self.wanted == Wanted::Referents || candidates.iter().any(|&at| is_wanted(at)) {
