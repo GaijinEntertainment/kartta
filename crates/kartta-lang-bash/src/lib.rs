@@ -17,6 +17,11 @@
 //! a command after that outside every function is a call from file scope. `alias` with definitions, `source` and `.`
 //! are no calls.
 //!
+//! A function the shell runs later, named as one word, is a use of it: the handler of `trap cleanup EXIT`, of
+//! `trap 'cleanup' INT` or of `trap "cleanup" HUP`, and the completer of `complete -F _tool tool`. A quoted handler
+//! that holds more than a name, `trap 'rm -f "$tmp"' EXIT` or `trap "$on_exit" USR1`, is a command line and names
+//! nothing.
+//!
 //! A `source` or `.` whose argument is literal — a word, a quoted string, or the literal tail after the expansions it
 //! starts with, as in `"$DIR/lib/x.sh"` or `"$DIR"/lib/x.sh` — is a directive for the resolver; an argument computed
 //! at run time alone, or one with an expansion after a literal part, names nothing.
