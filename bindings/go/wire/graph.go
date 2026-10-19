@@ -10,6 +10,10 @@ type Matches[T any] struct {
 type WalkParams struct {
 	// Name selects the symbol to start from: a bare or a qualified name.
 	Name string `json:"name"`
+	// PathPrefix keeps only the symbols in files whose root-relative path starts with it, as one file's path or a
+	// directory's with its closing slash; it reaches one of several copies that share a qualified name. Empty looks
+	// in every file.
+	PathPrefix string `json:"path_prefix,omitempty"`
 	// Lang names the graph to ask, by a language or its family; empty asks every graph.
 	Lang string `json:"lang,omitempty"`
 	// Depth is how many calls away the walk goes; 0 takes the method's default, 3 for callers and 1 for callees.
@@ -25,8 +29,10 @@ type Walk struct {
 	Graph string     `json:"graph"`
 	Root  Definition `json:"root"`
 	// PassedOver counts the other symbols the name selects, of which Root was chosen.
-	PassedOver int       `json:"passed_over"`
-	Reached    []Reached `json:"reached"`
+	PassedOver int `json:"passed_over"`
+	// Candidates lists the most called of those, the most first, at most five; Count is each one's callers.
+	Candidates []Candidate `json:"candidates,omitempty"`
+	Reached    []Reached   `json:"reached"`
 	// Truncated reports that the symbol cap stopped the walk.
 	Truncated bool `json:"truncated"`
 	// TurnedAway counts the symbols the cap kept out.
@@ -37,6 +43,12 @@ type Walk struct {
 	BelowConfidence int `json:"below_confidence"`
 	// Unresolved counts the calls that bound no symbol the graph holds.
 	Unresolved int `json:"unresolved"`
+}
+
+// Candidate is a symbol a name also selects that the answer passed over, and the count the query ranked it by.
+type Candidate struct {
+	Symbol Definition `json:"symbol"`
+	Count  int        `json:"count"`
 }
 
 // Reached is a symbol a walk reached, and the call that reached it.
@@ -68,8 +80,14 @@ type Definition struct {
 // CallPathParams are the params of the call_path method.
 type CallPathParams struct {
 	From string `json:"from"`
-	To   string `json:"to"`
-	Lang string `json:"lang,omitempty"`
+	// FromPathPrefix keeps the symbols From may select to the files whose root-relative path starts with it, as one
+	// file's path or a directory's with its closing slash. Empty keeps every file.
+	FromPathPrefix string `json:"from_path_prefix,omitempty"`
+	To             string `json:"to"`
+	// ToPathPrefix keeps the symbols To may select to the files whose root-relative path starts with it, as one
+	// file's path or a directory's with its closing slash. Empty keeps every file.
+	ToPathPrefix string `json:"to_path_prefix,omitempty"`
+	Lang         string `json:"lang,omitempty"`
 	// Depth is how many calls long a path may be; 0 takes the default, 8.
 	Depth         int `json:"depth,omitempty"`
 	MinConfidence int `json:"min_confidence,omitempty"`
@@ -90,6 +108,15 @@ type CallPath struct {
 	AtDepthBound    int        `json:"at_depth_bound"`
 	BelowConfidence int        `json:"below_confidence"`
 	PassedOver      PassedOver `json:"passed_over"`
+	// Candidates lists the most called of each end's passed-over symbols; nil when neither end passed one over.
+	Candidates *PathCandidates `json:"candidates,omitempty"`
+}
+
+// PathCandidates lists the most called of each end's passed-over symbols, the most first, at most five each;
+// Count is each one's callers.
+type PathCandidates struct {
+	From []Candidate `json:"from"`
+	To   []Candidate `json:"to"`
 }
 
 // PassedOver counts the other symbols each end's name selects.
@@ -100,7 +127,11 @@ type PassedOver struct {
 
 // ReferencesParams are the params of the references method.
 type ReferencesParams struct {
-	Name          string `json:"name"`
+	Name string `json:"name"`
+	// PathPrefix keeps only the symbols in files whose root-relative path starts with it, as one file's path or a
+	// directory's with its closing slash; it reaches one of several copies that share a qualified name. Empty looks
+	// in every file.
+	PathPrefix    string `json:"path_prefix,omitempty"`
 	Lang          string `json:"lang,omitempty"`
 	MinConfidence int    `json:"min_confidence,omitempty"`
 	// Access keeps the uses that read ("read"), that set ("write") or that update ("update") the symbol, an update
@@ -115,7 +146,10 @@ type References struct {
 	Graph      string     `json:"graph"`
 	Symbol     Definition `json:"symbol"`
 	PassedOver int        `json:"passed_over"`
-	Sites      []Site     `json:"sites"`
+	// Candidates lists the most used of the symbols passed over, the most first, at most five; Count is each one's
+	// sites.
+	Candidates []Candidate `json:"candidates,omitempty"`
+	Sites      []Site      `json:"sites"`
 	// Total counts the sites that pass the confidence floor and the access kept, before the limit.
 	Total           int `json:"total"`
 	BelowConfidence int `json:"below_confidence"`
@@ -240,7 +274,11 @@ type Hit struct {
 // ImplementationsParams are the params of the implementations method.
 type ImplementationsParams struct {
 	Name string `json:"name"`
-	Lang string `json:"lang,omitempty"`
+	// PathPrefix keeps only the types in files whose root-relative path starts with it, as one file's path or a
+	// directory's with its closing slash; it reaches one of several types that share a qualified name. Empty looks
+	// in every file.
+	PathPrefix string `json:"path_prefix,omitempty"`
+	Lang       string `json:"lang,omitempty"`
 	// Depth is how many levels below the root the search goes; 0 takes the default, 3.
 	Depth int `json:"depth,omitempty"`
 	// Limit caps the implementors answered; 0 takes the default, 100.
@@ -249,9 +287,12 @@ type ImplementationsParams struct {
 
 // Implementations are the types that implement or extend a type in one graph.
 type Implementations struct {
-	Graph      string        `json:"graph"`
-	Root       Definition    `json:"root"`
-	PassedOver int           `json:"passed_over"`
+	Graph      string     `json:"graph"`
+	Root       Definition `json:"root"`
+	PassedOver int        `json:"passed_over"`
+	// Candidates lists the most implemented of the types passed over, the most first, at most five; Count is each
+	// one's direct implementors.
+	Candidates []Candidate   `json:"candidates,omitempty"`
 	Found      []Implementor `json:"found"`
 	// Total counts the implementors within the depth bound, before the limit.
 	Total      int `json:"total"`
