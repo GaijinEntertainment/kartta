@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::iter;
+use std::ops::Range;
 
 use kartta::{
     CallPath, Candidate, Change, Definition, DirectCalls, Hotspot, ReachBand, Reached, Reference,
@@ -184,6 +185,12 @@ pub(crate) fn references(
     )
 }
 
+/// How many sites a `find_references` match lists one by one, in the files with the most sites.
+const LISTED_SITES: usize = 100;
+
+/// How many more files a `find_references` match names once its listed sites run out, each with its count of sites.
+const COUNTED_FILES: usize = 50;
+
 fn reference_match(floored: bool, family: &str, references: &References<'_>) -> String {
     let symbol = &references.symbol;
     let counts = &references.counts;
@@ -192,12 +199,16 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
     } else {
         "reads"
     };
+    let listing = Listing::of(symbol.kind, &references.sites);
+    let shown = references.sites.len().min(LISTED_SITES);
     let element = match_of(family, symbol)
         .attr("kind", kind(symbol.kind))
         .attr("count", references.total)
+        .optional("shown", (references.total > shown).then_some(shown))
+        .count("files", listing.files)
         .optional(
-            "shown",
-            (references.total > references.sites.len()).then_some(references.sites.len()),
+            "files_shown",
+            (listing.files > listing.records.len()).then_some(listing.records.len()),
         )
         .count("calls", counts.calls)
         .count(reads, counts.reads)
@@ -229,19 +240,74 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
         return noted(element, &text, passed_over);
     }
     let note = member_note.map(|note| Element::new("note").inline(note));
-    let records = site_records(symbol.kind, &references.sites);
-    let refs = records.iter().map(|record| {
-        let enclosing = &record.enclosing;
-        let lines: Vec<String> = record.lines.iter().map(u32::to_string).collect();
-        named("ref", enclosing)
-            .attr("loc", loc(enclosing.file, enclosing.line))
-            .attr("role", edge_role(enclosing.flags))
-            .attr("site", record.site)
-            .attr("at", format!("{}:{}", enclosing.file, lines.join(",")))
-            .optional("confidence", record.band)
-            .close()
-    });
-    element.children(note.into_iter().chain(refs).chain(passed_over))
+    element.children(note.into_iter().chain(listing.records).chain(passed_over))
+}
+
+/// The `<file>` records of a `find_references` match: the files with the most sites first, the others in path order,
+/// their sites listed one by one up to [`LISTED_SITES`], then [`COUNTED_FILES`] more files by their count alone.
+struct Listing {
+    records: Vec<String>,
+    files: usize,
+}
+
+impl Listing {
+    fn of(of: SymbolKind, sites: &[Reference<'_>]) -> Self {
+        let files = by_file(sites);
+        let (mut unlisted, mut counted) = (LISTED_SITES, 0);
+        let mut records = Vec::new();
+        for file in &files {
+            let sites = &sites[file.clone()];
+            let listed = sites.len().min(unlisted);
+            counted += usize::from(listed == 0);
+            if counted > COUNTED_FILES {
+                break;
+            }
+            unlisted -= listed;
+            records.push(file_record(of, sites, listed));
+        }
+        Self {
+            records,
+            files: files.len(),
+        }
+    }
+}
+
+fn file_record(of: SymbolKind, sites: &[Reference<'_>], listed: usize) -> String {
+    let element = Element::new("file")
+        .attr("path", sites[0].site_of.file)
+        .attr("sites", sites.len());
+    if listed == 0 {
+        return element.close();
+    }
+    element
+        .optional("shown", (listed < sites.len()).then_some(listed))
+        .children(site_records(of, &sites[..listed]).iter().map(site_record))
+}
+
+/// The ranges of `sites`, which come in file and line order, that each file holds: the files with the most sites
+/// first, the others in path order.
+fn by_file(sites: &[Reference<'_>]) -> Vec<Range<usize>> {
+    let mut files: Vec<Range<usize>> = Vec::new();
+    for (at, site) in sites.iter().enumerate() {
+        match files.last_mut() {
+            Some(file) if sites[file.start].site_of.file == site.site_of.file => file.end = at + 1,
+            _ => files.push(at..at + 1),
+        }
+    }
+    files.sort_by_key(|file| std::cmp::Reverse(file.len()));
+    files
+}
+
+fn site_record(record: &SiteRecord<'_>) -> String {
+    let enclosing = &record.enclosing;
+    let lines: Vec<String> = record.lines.iter().map(u32::to_string).collect();
+    named("ref", enclosing)
+        .attr("line", enclosing.line)
+        .attr("role", edge_role(enclosing.flags))
+        .attr("site", record.site)
+        .attr("at", lines.join(","))
+        .optional("confidence", record.band)
+        .close()
 }
 
 /// The sites one enclosing symbol holds of one kind and confidence band, on the lines they are on.
