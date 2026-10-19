@@ -254,6 +254,21 @@ export interface Walk {
   below_confidence: number;
   /** The calls that bound no symbol the graph holds. */
   unresolved: number;
+  /**
+   * For a walk over callers, the files whose top level calls or uses the root's name and sees the root, in path order.
+   * `below_confidence` also counts the files the floor left out.
+   */
+  file_scope?: FileScope[];
+}
+
+/**
+ * A file whose top level, outside every definition, calls or uses a name. The graph keeps only the names a top level
+ * spells, so it has no line.
+ */
+export interface FileScope {
+  file: string;
+  /** How the file sees the symbol: 80 in the same file, 75 in its package, 70 through an include. */
+  confidence: number;
 }
 
 /** The params of `call_path`. */
