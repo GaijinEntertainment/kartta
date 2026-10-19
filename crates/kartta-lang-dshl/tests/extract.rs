@@ -39,7 +39,7 @@ fn calls(raw: &RawExtraction) -> Vec<(Option<&str>, &str)> {
 }
 
 fn uses(raw: &RawExtraction) -> Vec<(Option<&str>, &str)> {
-    raw.references
+    raw.uses
         .iter()
         .map(|site| {
             let holder = (site.site_of != NO_CALLER_ID)
@@ -253,7 +253,7 @@ fn an_opaque_macro_body_extracts_nothing_but_the_macro() {
     let raw = extract("macro PAIR(a, b) a, b endmacro\n");
 
     assert_eq!(kinds(&raw), [("PAIR", SymbolKind::Macro)]);
-    assert!(raw.calls.is_empty() && raw.references.is_empty());
+    assert!(raw.calls.is_empty() && raw.uses.is_empty());
 }
 
 #[test]

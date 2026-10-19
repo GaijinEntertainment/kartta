@@ -25,7 +25,7 @@ export class Pool extends Base {
 
 fn uses(extraction: &Extraction) -> Vec<(&str, &str, Receiver, Access, u32)> {
     extraction
-        .references
+        .uses
         .iter()
         .map(|site| {
             (

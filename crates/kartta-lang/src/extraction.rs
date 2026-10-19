@@ -22,7 +22,7 @@ pub struct RawExtraction {
     /// Calls the language's own scoping binds to a symbol in `local_symbols`.
     pub local_calls: Vec<LocalCall>,
     /// Uses of a name outside a call, unresolved; empty for a language that records none.
-    pub references: Vec<RefSite>,
+    pub uses: Vec<UseRef>,
     /// The symbols declared inside a body, local to it; see [`Extraction::local_symbols`].
     pub local_symbols: Vec<SymbolId>,
     /// Re-exports, their specifiers as written; empty for a language without them.
@@ -58,7 +58,7 @@ impl RawExtraction {
             folded_declarations,
             calls,
             local_calls,
-            references,
+            uses,
             local_symbols,
             re_exports,
             package,
@@ -74,7 +74,7 @@ impl RawExtraction {
             folded_declarations,
             calls,
             local_calls,
-            references,
+            uses,
             local_symbols,
             re_exports: re_exports.into_iter().map(ReExport::from).collect(),
             package,
@@ -133,10 +133,10 @@ pub struct Extraction {
     /// Calls the language's own scoping binds to a symbol in `local_symbols`.
     pub local_calls: Vec<LocalCall>,
     /// Uses of a name outside a call, unresolved.
-    pub references: Vec<RefSite>,
+    pub uses: Vec<UseRef>,
     /// The symbols declared inside a function, method or function-literal body: each is local to that body.
     ///
-    /// No reference binds a local, and a call in `calls` binds one only from inside its holder, the declaration whose
+    /// No use binds a local, and a call in `calls` binds one only from inside its holder, the declaration whose
     /// body declares it. The holder is the nearest symbol before the local in `symbols` that this list does not name:
     /// it must be the caller of the calls in the body, or the holder of that caller where this list names the caller
     /// too. A local with no such symbol before it is its own holder, and no call of another symbol binds it.
@@ -203,7 +203,7 @@ pub struct LocalCall {
 /// Its [`Receiver`] decides where the name is looked up. A bare or qualified name binds no field, no enum variant and
 /// no local symbol, and a language records no use that a local binding of the name covers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RefSite {
+pub struct UseRef {
     /// The innermost symbol declared around the use, or [`NO_CALLER_ID`](crate::NO_CALLER_ID) at file scope, where
     /// the use binds no edge and the graph keeps only the name it spells.
     pub site_of: SymbolId,

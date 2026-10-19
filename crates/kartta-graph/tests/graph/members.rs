@@ -5,7 +5,7 @@
 use kartta_graph::{Graph, SiteQuery};
 use kartta_lang::{
     Access, CallsOnValues, Conventions, Extraction, IncludeReach, InheritedMembers, OwnMembers,
-    ReExport, Receiver, RefSite, Symbol, SymbolId, SymbolKind, UntypedMembers, ValueUses,
+    ReExport, Receiver, Symbol, SymbolId, SymbolKind, UntypedMembers, UseRef, ValueUses,
 };
 
 use crate::{graph_of as graph, including};
@@ -35,8 +35,8 @@ fn free(name: &str, kind: SymbolKind, lines: [u32; 2]) -> Symbol {
     Symbol::new(name, kind, lines[0], lines[1])
 }
 
-fn using(site_of: u32, name: &str, receiver: Receiver, line: u32) -> RefSite {
-    RefSite {
+fn using(site_of: u32, name: &str, receiver: Receiver, line: u32) -> UseRef {
+    UseRef {
         site_of: SymbolId(site_of),
         name: name.to_owned(),
         receiver,
@@ -93,7 +93,7 @@ fn an_own_receiver_binds_the_class_s_member_then_one_a_base_found_without_a_gues
         &["lib/base.py"],
     );
     pool.local_symbols = vec![SymbolId(3)];
-    pool.references = vec![
+    pool.uses = vec![
         using(2, "free", Receiver::Own, 5),
         using(3, "free", Receiver::Own, 7),
         using(2, "size", Receiver::Own, 9),
@@ -137,7 +137,7 @@ fn an_own_receiver_binds_a_member_any_number_of_bases_up_and_a_cycle_of_bases_en
     symbols.push(member("Ring", "spin", SymbolKind::Method, 201));
     symbols.push(class("Loop", [210, 219], &["Ring"]));
     let mut chain = file("app/chain.py", symbols, &[]);
-    chain.references = vec![
+    chain.uses = vec![
         using(12, "depth", Receiver::Own, 102),
         using(14, "depth", Receiver::Own, 202),
     ];
@@ -169,7 +169,7 @@ fn a_receiver_that_names_an_owner_binds_its_member_where_the_file_or_one_include
         vec![free("Card", SymbolKind::Function, [1, 9])],
         &["ui/props.ts"],
     );
-    card.references = vec![
+    card.uses = vec![
         using(0, "title", Receiver::Path("Props".to_owned()), 2),
         using(0, "title", Receiver::Path("HTMLElement".to_owned()), 3),
         using(0, "title", Receiver::Path(String::new()), 4),
@@ -202,7 +202,7 @@ fn a_member_of_a_value_of_no_known_type_binds_the_file_s_one_field_only_where_th
         ],
         &[],
     );
-    card.references = vec![using(2, "title", Receiver::Path(String::new()), 6)];
+    card.uses = vec![using(2, "title", Receiver::Path(String::new()), 6)];
     let mut unbound = script();
     unbound.untyped_members = UntypedMembers::Unbound;
 
@@ -231,7 +231,7 @@ fn a_receiver_that_ends_an_included_module_s_name_binds_that_module_s_own_defini
         vec![free("run", SymbolKind::Function, [1, 9])],
         &["lib/consts.py", "app/other.py"],
     );
-    main.references = vec![
+    main.uses = vec![
         using(0, "LIMIT", Receiver::Path("consts".to_owned()), 2),
         using(0, "LIMIT", Receiver::Path("lib.consts".to_owned()), 3),
         using(0, "LIMIT", Receiver::Path("c".to_owned()), 4),
@@ -281,13 +281,13 @@ fn a_bare_use_binds_the_one_included_module_that_declares_the_name_or_a_re_expor
         vec![free("show", SymbolKind::Function, [1, 9])],
         &["src/index.ts", "src/again.ts"],
     );
-    both.references = vec![using(0, "NAME", Receiver::Bare, 2)];
+    both.uses = vec![using(0, "NAME", Receiver::Bare, 2)];
     let mut user = file(
         "src/user.ts",
         vec![free("run", SymbolKind::Function, [1, 9])],
         &["src/constants.ts", "src/other.ts"],
     );
-    user.references = vec![
+    user.uses = vec![
         using(0, "LIMIT", Receiver::Bare, 2),
         using(0, "NAME", Receiver::Bare, 3),
     ];
@@ -296,7 +296,7 @@ fn a_bare_use_binds_the_one_included_module_that_declares_the_name_or_a_re_expor
         vec![free("go", SymbolKind::Function, [1, 9])],
         &["src/index.ts"],
     );
-    far.references = vec![using(0, "MAX", Receiver::Bare, 2)];
+    far.uses = vec![using(0, "MAX", Receiver::Bare, 2)];
     let files = [constants, other, barrel, again, both, user, far];
 
     assert_eq!(
@@ -338,13 +338,13 @@ fn an_imported_value_binds_an_export_or_a_re_export_before_an_unexported_namesak
         vec![free("go", SymbolKind::Function, [1, 9])],
         &["src/constants.ts", "src/private.ts"],
     );
-    direct.references = vec![using(0, "LIMIT", Receiver::Bare, 3)];
+    direct.uses = vec![using(0, "LIMIT", Receiver::Bare, 3)];
     let mut renamed = file(
         "app/renamed.ts",
         vec![free("run", SymbolKind::Function, [1, 9])],
         &["src/index.ts", "src/private.ts"],
     );
-    renamed.references = vec![using(0, "LIMIT", Receiver::Bare, 2)];
+    renamed.uses = vec![using(0, "LIMIT", Receiver::Bare, 2)];
     let graph = graph(script(), &[constants, private, barrel, direct, renamed]);
 
     assert_eq!(
@@ -386,7 +386,7 @@ fn with_uses(
     site_of: u32,
     sites: &[(&str, Receiver, u32)],
 ) -> Extraction {
-    extraction.references = sites
+    extraction.uses = sites
         .iter()
         .map(|(name, receiver, line)| using(site_of, name, receiver.clone(), *line))
         .collect();
