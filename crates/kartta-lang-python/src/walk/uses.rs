@@ -1,4 +1,4 @@
-use kartta_lang::{Access, NO_CALLER_ID, Receiver, RefSite, SymbolId};
+use kartta_lang::{Access, NO_CALLER_ID, Receiver, SymbolId, UseRef};
 use tree_sitter::Node;
 
 use super::{Binding, Emitter, IDENTIFIER, line};
@@ -119,7 +119,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn push_site(&mut self, used: &NameUse<'_>, name: &[u8], receiver: Receiver) {
-        self.raw.references.push(RefSite {
+        self.raw.uses.push(UseRef {
             site_of: used.caller,
             name: String::from_utf8_lossy(name).into_owned(),
             receiver,

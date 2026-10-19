@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::extraction::{
     Access, CallRef, Callable, CallableRole, FoldedDeclaration, ImplementsAssertion, LocalCall,
-    RawDirective, RawExtraction, RawReExport, Receiver, RefSite,
+    RawDirective, RawExtraction, RawReExport, Receiver, UseRef,
 };
 use crate::symbol::{Symbol, SymbolFlags, SymbolId, SymbolKind};
 
@@ -35,8 +35,8 @@ impl RawExtraction {
             writer.uint(call.line);
         });
         let mut spelled = HashMap::new();
-        writer.seq(&self.references, |writer, reference| {
-            writer.reference(reference, &mut spelled);
+        writer.seq(&self.uses, |writer, site| {
+            writer.use_ref(site, &mut spelled);
         });
         writer.seq(&self.local_symbols, |writer, &id| writer.id(id));
         writer.seq(&self.re_exports, Writer::re_export);
@@ -77,9 +77,9 @@ impl RawExtraction {
                     line: reader.uint()?,
                 })
             })?,
-            references: {
+            uses: {
                 let mut spelled = Vec::new();
-                reader.seq(|reader| reader.reference(&mut spelled))?
+                reader.seq(|reader| reader.use_ref(&mut spelled))?
             },
             local_symbols: reader.seq(Reader::id)?,
             re_exports: reader.seq(Reader::re_export)?,
@@ -202,16 +202,16 @@ impl Writer<'_> {
         self.uint(call.line);
     }
 
-    fn reference<'t>(&mut self, reference: &'t RefSite, spelled: &mut HashMap<&'t str, u32>) {
-        self.id(reference.site_of);
-        self.spelled(&reference.name, spelled);
-        let (form, written) = match &reference.receiver {
+    fn use_ref<'t>(&mut self, site: &'t UseRef, spelled: &mut HashMap<&'t str, u32>) {
+        self.id(site.site_of);
+        self.spelled(&site.name, spelled);
+        let (form, written) = match &site.receiver {
             Receiver::Bare => (BARE, None),
             Receiver::Qualifier(qualifier) => (QUALIFIER, Some(qualifier)),
             Receiver::Own => (OWN, None),
             Receiver::Path(path) => (PATH, Some(path)),
         };
-        let access = match reference.access {
+        let access = match site.access {
             Access::Read => READ,
             Access::Write => WRITE,
             Access::Update => UPDATE,
@@ -220,7 +220,7 @@ impl Writer<'_> {
         if let Some(written) = written {
             self.spelled(written, spelled);
         }
-        self.uint(reference.line);
+        self.uint(site.line);
     }
 
     fn re_export(&mut self, re_export: &RawReExport) {
@@ -375,7 +375,7 @@ impl<'a> Reader<'a> {
         Ok(text.to_owned())
     }
 
-    fn reference(&mut self, spelled: &mut Vec<&'a str>) -> Read<RefSite> {
+    fn use_ref(&mut self, spelled: &mut Vec<&'a str>) -> Read<UseRef> {
         let site_of = self.id()?;
         let name = self.spelled(spelled)?;
         let marks = self.byte()?;
@@ -391,7 +391,7 @@ impl<'a> Reader<'a> {
             UPDATE => Access::Update,
             _ => return Err(Malformed),
         };
-        Ok(RefSite {
+        Ok(UseRef {
             site_of,
             name,
             receiver,
@@ -467,7 +467,7 @@ mod tests {
                 local: SymbolId(1),
                 line: 5,
             }],
-            references: every_receiver_and_access(),
+            uses: every_receiver_and_access(),
             local_symbols: vec![SymbolId(1)],
             re_exports: vec![RawReExport {
                 local_name: "*".to_owned(),
@@ -489,8 +489,8 @@ mod tests {
         }
     }
 
-    fn every_receiver_and_access() -> Vec<RefSite> {
-        let site = |name: &str, receiver, access| RefSite {
+    fn every_receiver_and_access() -> Vec<UseRef> {
+        let site = |name: &str, receiver, access| UseRef {
             site_of: SymbolId(0),
             name: name.to_owned(),
             receiver,
@@ -547,7 +547,7 @@ mod tests {
         unknown_kind[1] = 200;
         unknown_mark[2] |= 1 << 5;
         let one_use = encoded(&RawExtraction {
-            references: vec![RefSite {
+            uses: vec![UseRef {
                 site_of: SymbolId(0),
                 name: "f".to_owned(),
                 receiver: Receiver::Bare,
@@ -560,7 +560,7 @@ mod tests {
         let name = one_use
             .windows(name_then_marks.len())
             .position(|window| window == name_then_marks)
-            .expect("the reference's marks follow its name");
+            .expect("the use's marks follow its name");
         let mut unknown_access = one_use.clone();
         unknown_access[name + 2] = UPDATE + WRITE;
         let name_spelled_before_any = [&one_use[..name], &[1], &one_use[name + 2..]].concat();
@@ -581,7 +581,7 @@ mod tests {
     #[test]
     fn a_text_the_uses_spelled_before_is_written_once() {
         let raw = RawExtraction {
-            references: every_receiver_and_access()
+            uses: every_receiver_and_access()
                 .into_iter()
                 .chain(every_receiver_and_access())
                 .collect(),

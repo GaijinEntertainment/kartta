@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use kartta_lang::tree::{self, signature, text};
 use kartta_lang::{
-    Access, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Receiver, RefSite, Symbol,
-    SymbolId, SymbolKind,
+    Access, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Receiver, Symbol, SymbolId,
+    SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree, TreeCursor};
 
@@ -242,7 +242,7 @@ impl Walker<'_> {
     }
 
     fn reference(&mut self, name: String, node: Node<'_>) {
-        self.raw.references.push(RefSite {
+        self.raw.uses.push(UseRef {
             site_of: self.caller(),
             name,
             receiver: Receiver::Bare,

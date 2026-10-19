@@ -2,8 +2,8 @@
 
 use kartta_graph::Graph;
 use kartta_lang::{
-    Access, Conventions, Extraction, IncludeRef, LocalCall, NO_CALLER_ID, Receiver, RefSite,
-    Symbol, SymbolId, SymbolKind,
+    Access, Conventions, Extraction, IncludeRef, LocalCall, NO_CALLER_ID, Receiver, Symbol,
+    SymbolId, SymbolKind, UseRef,
 };
 
 use crate::call;
@@ -28,14 +28,14 @@ fn library() -> Extraction {
         local: SymbolId(1),
         line: 6,
     }];
-    let point = |access, line| RefSite {
+    let point = |access, line| UseRef {
         site_of: SymbolId(0),
         name: "Point".to_owned(),
         receiver: Receiver::Bare,
         access,
         line,
     };
-    extraction.references = vec![
+    extraction.uses = vec![
         point(Access::Read, 7),
         point(Access::Write, 8),
         point(Access::Update, 8),

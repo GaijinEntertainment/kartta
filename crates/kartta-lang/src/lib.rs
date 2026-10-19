@@ -80,7 +80,7 @@ pub use crate::doc::{BlockComment, DocComments};
 pub use crate::extraction::{
     Access, CallRef, Callable, CallableRole, Extraction, FoldedDeclaration, ImplementsAssertion,
     ImportBinding, ImportRef, IncludeRef, LocalCall, RawDirective, RawExtraction, RawReExport,
-    ReExport, Receiver, RefSite,
+    ReExport, Receiver, UseRef,
 };
 pub use crate::language::{
     CallsOnValues, Conventions, IncludeReach, InheritedMembers, Language, MemberCalls, OwnMembers,

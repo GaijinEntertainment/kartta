@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use kartta_lang::tree::text;
-use kartta_lang::{Access, Receiver, RefSite};
+use kartta_lang::{Access, Receiver, UseRef};
 use tree_sitter::Node;
 
 use super::data::data_declarator;
@@ -327,7 +327,7 @@ impl<'s, 't> Replayer<'s, 't> {
     }
 
     fn push_site(&mut self, at: Node<'_>, (name, receiver, access): (String, Receiver, Access)) {
-        self.raw.references.push(RefSite {
+        self.raw.uses.push(UseRef {
             site_of: self.caller(),
             name,
             receiver,

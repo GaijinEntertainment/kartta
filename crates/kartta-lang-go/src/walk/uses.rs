@@ -1,5 +1,5 @@
 use kartta_lang::tree::{line, preorder, text};
-use kartta_lang::{Access, NO_CALLER_ID, Receiver, RefSite, SymbolId};
+use kartta_lang::{Access, NO_CALLER_ID, Receiver, SymbolId, UseRef};
 use tree_sitter::Node;
 
 use super::Emitter;
@@ -200,7 +200,7 @@ impl<'a> Emitter<'a> {
         site: Node<'_>,
         (name, receiver, access): (String, Receiver, Access),
     ) {
-        self.raw.references.push(RefSite {
+        self.raw.uses.push(UseRef {
             site_of: owner,
             name,
             receiver,

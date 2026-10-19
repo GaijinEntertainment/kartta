@@ -2,8 +2,8 @@
 
 use kartta_graph::{Graph, Limits, Miss, SiteCounts, SiteQuery};
 use kartta_lang::{
-    Access, Conventions, Extraction, MemberCalls, OwnMembers, Receiver, Receivers, RefSite, Symbol,
-    SymbolFlags, SymbolId, SymbolKind,
+    Access, Conventions, Extraction, MemberCalls, OwnMembers, Receiver, Receivers, Symbol,
+    SymbolFlags, SymbolId, SymbolKind, UseRef,
 };
 
 use crate::go_code::{callees_of, file, function, importing};
@@ -409,8 +409,8 @@ fn a_type_local_to_a_body_gives_its_fields() {
     );
 }
 
-fn accessing(name: &str, path: &str, access: Access, line: u32) -> RefSite {
-    RefSite {
+fn accessing(name: &str, path: &str, access: Access, line: u32) -> UseRef {
+    UseRef {
         site_of: SymbolId(0),
         name: name.to_owned(),
         receiver: Receiver::Path(path.to_owned()),
@@ -457,7 +457,7 @@ fn a_member_on_a_value_binds_the_field_or_method_its_type_path_reaches() {
         vec![function("main", "Run", 1)],
         Vec::new(),
     );
-    caller.references = vec![
+    caller.uses = vec![
         accessing("Timeout", "cfg.Config", Access::Write, 2),
         accessing("Timeout", "cfg.Config", Access::Read, 3),
         accessing("Reset", "cfg.Config", Access::Read, 4),
@@ -497,7 +497,7 @@ fn a_member_whose_type_the_path_cannot_reach_binds_only_the_one_field_of_its_fil
         Vec::new(),
     );
     caller.local_symbols = vec![SymbolId(4), SymbolId(5)];
-    caller.references = vec![
+    caller.uses = vec![
         accessing("Limit", "", Access::Read, 2),
         accessing("Timeout", "", Access::Read, 3),
         accessing("consumer", "", Access::Read, 4),
@@ -532,7 +532,7 @@ fn a_member_of_a_type_outside_the_graph_or_of_one_without_it_binds_nothing() {
         ],
         Vec::new(),
     );
-    caller.references = vec![
+    caller.uses = vec![
         accessing("Timeout", "http.Client", Access::Read, 2),
         accessing("Timeout", "Plain", Access::Read, 3),
     ];
@@ -551,7 +551,7 @@ fn a_field_answers_each_access_counted_the_ones_asked_for_and_the_uses_it_could_
         vec![function("main", "Run", 1)],
         Vec::new(),
     );
-    caller.references = vec![
+    caller.uses = vec![
         accessing("Timeout", "cfg.Config", Access::Write, 2),
         accessing("Timeout", "cfg.Config", Access::Read, 2),
         accessing("Timeout", "cfg.Config", Access::Update, 3),

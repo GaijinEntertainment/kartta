@@ -4,7 +4,7 @@ use kartta_graph::{Graph, Limits, SiteQuery, Walk};
 use kartta_lang::{
     Access, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, ImportBinding,
     IncludeReach, IncludeRef, InheritedMembers, LocalCall, MemberCalls, OwnMembers, ReExport,
-    Receiver, RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Receiver, Symbol, SymbolFlags, SymbolId, SymbolKind, UseRef,
 };
 
 use crate::{call, function, graph, graph_of};
@@ -1876,8 +1876,8 @@ fn a_call_path_counts_the_other_callables_each_name_selects() {
     assert_eq!(path.passed_over, (1, 2));
 }
 
-fn using(name: &str, qualifier: Option<&str>) -> RefSite {
-    RefSite {
+fn using(name: &str, qualifier: Option<&str>) -> UseRef {
+    UseRef {
         site_of: SymbolId(0),
         name: name.to_owned(),
         receiver: qualifier.map_or(Receiver::Bare, |qualifier| {
@@ -1896,7 +1896,7 @@ fn references_bind_through_imports_the_file_and_the_package() {
         Some("pkg/lib"),
         vec![member_call(0, "lib", "Config", 2)],
     );
-    caller.references = vec![using("Config", Some("lib"))];
+    caller.uses = vec![using("Config", Some("lib"))];
     let mut same_file = package(
         "pkg/lib/config.go",
         "lib",
@@ -1905,12 +1905,12 @@ fn references_bind_through_imports_the_file_and_the_package() {
             function("load", 5),
         ],
     );
-    same_file.references = vec![RefSite {
+    same_file.uses = vec![UseRef {
         site_of: SymbolId(1),
         ..using("Config", None)
     }];
     let mut same_package = package("pkg/lib/other.go", "lib", vec![function("other", 1)]);
-    same_package.references = vec![using("Config", None)];
+    same_package.uses = vec![using("Config", None)];
 
     let graph = graph_of(go(), &[caller, same_file, same_package]);
 
@@ -1952,7 +1952,7 @@ fn references_count_what_the_floor_and_the_limit_cut() {
         ],
         vec![call(0, "Config", 2)],
     );
-    defining.references = vec![using("Config", None), using("Config", None)];
+    defining.uses = vec![using("Config", None), using("Config", None)];
 
     let graph = graph(&[defining]);
 
@@ -1983,12 +1983,12 @@ fn references_select_the_symbol_with_the_most_calls_and_uses_together() {
         vec![function("parse", 1), function("take", 5)],
         Vec::new(),
     );
-    used.references = vec![
-        RefSite {
+    used.uses = vec![
+        UseRef {
             site_of: SymbolId(1),
             ..using("parse", None)
         },
-        RefSite {
+        UseRef {
             site_of: SymbolId(1),
             line: 6,
             ..using("parse", None)
@@ -2024,9 +2024,9 @@ fn references_select_among_every_symbol_a_use_can_name_where_values_are_no_call_
         ],
         Vec::new(),
     );
-    constant.references = [6, 7, 8]
+    constant.uses = [6, 7, 8]
         .into_iter()
-        .map(|line| RefSite {
+        .map(|line| UseRef {
             site_of: SymbolId(1),
             line,
             ..using("limit", None)
@@ -2059,7 +2059,7 @@ fn references_select_among_every_symbol_a_use_can_name_where_values_are_no_call_
 #[test]
 fn a_qualified_reference_binds_an_imported_value_where_values_are_no_call_targets() {
     let mut caller = importing("cmd/main.go", None, Some("pkg/lib"), Vec::new());
-    caller.references = vec![using("Limit", Some("lib"))];
+    caller.uses = vec![using("Limit", Some("lib"))];
     let graph = graph_of(
         cpp(),
         &[
@@ -2110,7 +2110,7 @@ fn removing_a_file_takes_its_calls_and_its_callees_out_of_every_answer() {
 fn a_file_inserted_again_answers_with_its_new_uses() {
     let using_file = |line: u32| {
         let mut using_file = file("a.go", vec![function("run", 1)], Vec::new());
-        using_file.references = vec![RefSite {
+        using_file.uses = vec![UseRef {
             line,
             ..using("Limit", None)
         }];

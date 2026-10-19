@@ -9,14 +9,14 @@ fn extract(source: &str) -> RawExtraction {
 }
 
 fn sites(raw: &RawExtraction) -> Vec<(&str, Receiver, Access)> {
-    raw.references
+    raw.uses
         .iter()
         .map(|site| (site.name.as_str(), site.receiver.clone(), site.access))
         .collect()
 }
 
 fn named(raw: &RawExtraction, name: &str) -> Vec<(Receiver, Access, u32)> {
-    raw.references
+    raw.uses
         .iter()
         .filter(|site| site.name == name)
         .map(|site| (site.receiver.clone(), site.access, site.line))
@@ -100,7 +100,7 @@ done:
     );
 
     let mut names: Vec<&str> = raw
-        .references
+        .uses
         .iter()
         .filter(|site| site.receiver == Receiver::Bare)
         .map(|site| site.name.as_str())
@@ -227,7 +227,7 @@ PX_FORCE_INLINE void Widget::draw(int width = fallback) {
         .position(|symbol| symbol.name == "draw")
         .expect("the definition is a symbol");
     let held: Vec<(&str, usize)> = raw
-        .references
+        .uses
         .iter()
         .map(|site| (site.name.as_str(), site.site_of.0 as usize))
         .collect();
