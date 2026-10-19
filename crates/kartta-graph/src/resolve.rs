@@ -14,7 +14,7 @@ use crate::confidence;
 use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind, last_segment};
 use crate::members::DataNamed;
 use crate::resolution::Miss;
-use crate::scope::{Ancestors, Reach, Scoped, is_value};
+use crate::scope::{Ancestors, OwnerMember, Reach, Scoped, is_value};
 use crate::stored::{Entry, Site, SymbolAt, UseReceiver};
 use crate::strings::Str;
 use crate::typed::{Typed, Value};
@@ -618,6 +618,18 @@ impl<'g> Cascade<'g> {
 
     fn resolve_by_name(&self, call: &Call) -> Result<Bound, Miss> {
         let candidates = self.candidates(call);
+        let on_a_value;
+        let call = match self.member_of_a_reached_owner(call, &candidates) {
+            OwnerMember::Member(at) => return Ok((at, confidence::RECEIVER)),
+            OwnerMember::Elsewhere => {
+                on_a_value = Call {
+                    receiver: self.empty_receiver.or(call.receiver),
+                    ..*call
+                };
+                &on_a_value
+            }
+            OwnerMember::NotDeclared => call,
+        };
         if let Some(at) = self.member_of_the_receiver_s_owner(call, &candidates) {
             return Ok((at, confidence::RECEIVER));
         }
