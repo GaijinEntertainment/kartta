@@ -226,7 +226,7 @@ fn a_file_that_crosses_the_limit_another_file_left_it_is_cut_where_the_limit_run
 }
 
 #[test]
-fn a_limit_that_fills_before_the_last_batch_reports_the_files_it_left_unread() {
+fn a_limit_that_fills_with_its_batch_reads_on_until_a_further_match_proves_the_cut() {
     let dir = needles(300);
     let index = index(dir.path());
     let needle = patterns(&["needle"]);
@@ -234,15 +234,23 @@ fn a_limit_that_fills_before_the_last_batch_reports_the_files_it_left_unread() {
     let filled = index.grep(&needle, &GrepOptions::default().limit(256));
     assert_eq!(filled.lines(), 256);
     assert!(
-        !filled.truncated(),
-        "no match past the limit was seen, so none is claimed"
+        filled.truncated(),
+        "the first batch filled the limit exactly, and the next one holds the match that proves the cut"
     );
+    assert_eq!(filled.searched(), 257);
     assert_eq!(
         filled.unsearched(),
-        44,
-        "the files past the first batch were never read"
+        43,
+        "the rest of the second batch was read after the cut was proven"
     );
     assert_accounted(&filled);
+
+    let exact = index.grep(&needle, &GrepOptions::default().limit(300));
+    assert_eq!(exact.lines(), 300);
+    assert!(
+        !exact.truncated() && exact.unsearched() == 0,
+        "a limit equal to every match reads on, finds none past it, and answers whole"
+    );
 
     let counted = index.grep(&needle, &GrepOptions::default().limit(256).count_all());
     assert_eq!(counted.lines(), 256);
@@ -251,6 +259,32 @@ fn a_limit_that_fills_before_the_last_batch_reports_the_files_it_left_unread() {
     assert_eq!(counted.total_lines(), Some(300));
     assert_eq!(counted.total_files(), Some(300));
     assert_accounted(&counted);
+}
+
+#[test]
+fn a_limited_search_answers_truncated_alike_whatever_shares_the_batch_that_fills_it() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    for at in 0..512 {
+        let text = if at % 2 == 0 { "needle\n" } else { "hay\n" };
+        write(dir.path(), &format!("f{at:04}.txt"), text);
+    }
+    let needle = patterns(&["needle"]);
+    let plain = index(dir.path());
+    let content_indexed = build(dir.path(), None).index;
+
+    for (build, index) in [
+        ("no content index", &plain),
+        ("a content index", &content_indexed),
+    ] {
+        let found = index.grep(&needle, &GrepOptions::default().limit(128));
+
+        assert_eq!(found.lines(), 128, "{build}");
+        assert!(
+            found.truncated(),
+            "with {build}, a match past the limit proves the cut, though the index rules the hay out of the batch"
+        );
+        assert_accounted(&found);
+    }
 }
 
 #[test]

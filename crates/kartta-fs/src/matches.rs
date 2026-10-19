@@ -17,15 +17,14 @@ use crate::index::Index;
 /// | [`oversized`](Matches::oversized) | skipped for being larger than [`GrepOptions::max_file_bytes`](crate::GrepOptions::max_file_bytes) |
 /// | [`ruled_out`](Matches::ruled_out) | skipped unread, because the content index shows it holds no match |
 /// | [`failures`](Matches::failures) | not readable, and listed with the reason |
-/// | [`unsearched`](Matches::unsearched) | not covered, because the limit or a cancellation ended the search first |
+/// | [`unsearched`](Matches::unsearched) | not covered, because a match past the limit or a cancellation ended the search first |
 ///
 /// A file that is both binary and too large counts as oversized, unless its extension alone makes it binary: the name
 /// is judged first, then the size, then the content, whatever an earlier read of the file already learned.
 ///
-/// The answer is complete exactly when nothing is [`truncated`](Matches::truncated), nothing went
-/// [`unsearched`](Matches::unsearched) and nothing [`failed`](Matches::failures) — a file that would not read holds
-/// matches the answer cannot know of. A search that cannot know whether the limit cut it short says how many candidates
-/// it does not cover instead of guessing.
+/// The answer is complete exactly when nothing is [`truncated`](Matches::truncated), the search was not
+/// [`cancelled`](Matches::cancelled) and nothing [`failed`](Matches::failures) — a file that would not read holds
+/// matches the answer cannot know of.
 #[derive(Debug)]
 pub struct Matches<'a> {
     pub(crate) files: Vec<MatchedFile<'a>>,
@@ -53,9 +52,9 @@ impl<'a> Matches<'a> {
     /// Whether the limit turned a matching line away, so more matches exist than the answer shows.
     ///
     /// Set by a match actually seen past the limit and never inferred from a count, so an answer holding exactly the
-    /// limit can still be whole. `false` is only conclusive when [`Matches::unsearched`] is zero: once the limit fills,
-    /// the search does not go looking for one more match through the rest of the tree, which can cost the whole
-    /// search over again, unless [`GrepOptions::count_all`](crate::GrepOptions::count_all) asks it to.
+    /// limit can still be whole. Exact unless the search was [`cancelled`](Matches::cancelled) or a file
+    /// [`failed`](Matches::failures): once the limit fills, the search reads on until one more match proves the cut, so
+    /// `false` means no candidate it read holds another match.
     #[must_use]
     pub const fn truncated(&self) -> bool {
         self.truncated
@@ -142,9 +141,10 @@ impl<'a> Matches<'a> {
         self.tally.ruled_out
     }
 
-    /// How many candidates this answer does not cover, because the limit filled or a cancellation landed first.
+    /// How many candidates this answer does not cover, because a match past the limit proved the cut or a cancellation
+    /// landed first.
     ///
-    /// A file read after the limit had already settled the answer counts here too: its lines are not in the answer.
+    /// A file read after the cut was proven counts here too: its lines are not in the answer.
     #[must_use]
     pub const fn unsearched(&self) -> usize {
         self.tally.unsearched
