@@ -86,14 +86,23 @@ impl Banner {
     }
 
     /// Whether `comment` announces this banner: holds one of its markers outside a backtick span.
+    ///
+    /// A span opens at a run of backticks and closes at the next run of the same length, as a Markdown or
+    /// reStructuredText code span does, so a double-backtick span can hold a single backtick. A span that never closes
+    /// runs to the end of the comment.
     #[must_use]
     pub fn marks(&self, comment: &[u8]) -> bool {
-        let mut outside_span = true;
-        for (at, &byte) in comment.iter().enumerate() {
-            if outside_span && starts_with_any(&comment[at..], self.markers) {
+        let mut at = 0;
+        while at < comment.len() {
+            let rest = &comment[at..];
+            let run = backtick_run(rest);
+            if run == 0 && starts_with_any(rest, self.markers) {
                 return true;
             }
-            outside_span ^= byte == b'`';
+            let Some(step) = step_past(rest, run) else {
+                return false;
+            };
+            at += step;
         }
 
         false
@@ -143,6 +152,30 @@ impl Banner {
             unmarked
         }
     }
+}
+
+fn backtick_run(text: &[u8]) -> usize {
+    text.iter().take_while(|&&byte| byte == b'`').count()
+}
+
+fn step_past(rest: &[u8], run: usize) -> Option<usize> {
+    if run == 0 {
+        return Some(1);
+    }
+    span_before_run(&rest[run..], run).map(|span| run + span + run)
+}
+
+fn span_before_run(text: &[u8], run: usize) -> Option<usize> {
+    let mut at = 0;
+    while at < text.len() {
+        let next = backtick_run(&text[at..]);
+        if next == run {
+            return Some(at);
+        }
+        at += next.max(1);
+    }
+
+    None
 }
 
 fn starts_with_any(text: &[u8], tokens: &[&str]) -> bool {
@@ -250,5 +283,18 @@ mod tests {
         assert!(!C.marks(b"// see `docs.md: @generated"));
         assert!(!C.marks(b"// an ordinary header"));
         assert!(!C.marks(b""));
+    }
+
+    #[test]
+    fn a_backtick_span_closes_only_at_a_run_of_its_own_length() {
+        assert!(!C.marks(b"// a ``@generated`` banner marks machine output"));
+        assert!(!C.marks(b"\"\"\"Files with a ``DO NOT EDIT`` header are skipped.\"\"\""));
+        assert!(!C.marks(b"// ``a ` @generated``"));
+        assert!(!C.marks(b"// ```DO NOT EDIT```"));
+        assert!(C.marks(b"// ``a`` @generated"));
+        assert!(
+            !C.marks(b"// ``see @generated"),
+            "a span that never closes runs to the end"
+        );
     }
 }
