@@ -445,7 +445,7 @@ var _ Codec = (*Box[int])(nil)
     let pairs: Vec<(&str, &str)> = raw
         .assertions
         .iter()
-        .map(|assertion| (assertion.type_name.as_str(), assertion.iface.as_str()))
+        .map(|assertion| (assertion.type_name.as_str(), assertion.interface.as_str()))
         .collect();
     assert_eq!(
         pairs,

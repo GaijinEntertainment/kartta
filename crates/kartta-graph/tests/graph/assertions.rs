@@ -18,9 +18,9 @@ fn asserting(path: &str, assertions: &[(&str, &str)], imports: &[(&str, &str)]) 
     let mut extraction = file(path, Vec::new());
     extraction.assertions = assertions
         .iter()
-        .map(|&(type_name, iface)| ImplementsAssertion {
+        .map(|&(type_name, interface)| ImplementsAssertion {
             type_name: type_name.to_owned(),
-            iface: iface.to_owned(),
+            interface: interface.to_owned(),
         })
         .collect();
     extraction.bindings = imports

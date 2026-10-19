@@ -315,7 +315,7 @@ pub struct ImplementsAssertion {
     /// The implementing type as written: `T` or `pkg.T`.
     pub type_name: String,
     /// The interface as written: `I` or `pkg.I`.
-    pub iface: String,
+    pub interface: String,
 }
 
 /// A name a module re-exports from another, as the bytes write it: `export { Foo } from './foo'`.
