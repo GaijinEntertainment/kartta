@@ -202,10 +202,21 @@ export interface Reached {
   line: number;
 }
 
+/** A symbol a name also selects that the answer passed over, and the count the query ranked it by. */
+export interface Candidate {
+  symbol: Definition;
+  count: number;
+}
+
 /** The params of `callers` and `callees`. */
 export interface WalkParams {
   /** Selects the symbol to start from: a bare or a qualified name. */
   name: string;
+  /**
+   * Keeps only the symbols in files whose root-relative path starts with it, one file's path or a directory's with
+   * its closing slash; it reaches one of several copies that share a qualified name. Absent looks in every file.
+   */
+  path_prefix?: string;
   /** Names the graph to ask, by a language or its family; absent asks every graph. */
   lang?: string;
   /** How many calls away the walk goes; callers default to 3, callees to 1. */
@@ -222,6 +233,8 @@ export interface Walk {
   root: Definition;
   /** The other symbols the name selects, of which `root` was chosen. */
   passed_over: number;
+  /** The most called of those, the most first, at most five; `count` is each one's callers. */
+  candidates?: Candidate[];
   reached: Reached[];
   /** The symbol cap stopped the walk. */
   truncated: boolean;
@@ -238,7 +251,17 @@ export interface Walk {
 /** The params of `call_path`. */
 export interface CallPathParams {
   from: string;
+  /**
+   * Keeps the symbols `from` may select to the files whose root-relative path starts with it, one file's path or a
+   * directory's with its closing slash. Absent keeps every file.
+   */
+  from_path_prefix?: string;
   to: string;
+  /**
+   * Keeps the symbols `to` may select to the files whose root-relative path starts with it, one file's path or a
+   * directory's with its closing slash. Absent keeps every file.
+   */
+  to_path_prefix?: string;
   lang?: string;
   /** How many calls long a path may be; 8 by default. */
   depth?: number;
@@ -261,11 +284,21 @@ export interface CallPath {
   below_confidence: number;
   /** The other symbols each end's name selects. */
   passed_over: { from: number; to: number };
+  /**
+   * The most called of each end's passed-over symbols, the most first, at most five each; `count` is each one's
+   * callers. Absent when neither end passed one over.
+   */
+  candidates?: { from: Candidate[]; to: Candidate[] };
 }
 
 /** The params of `references`. */
 export interface ReferencesParams {
   name: string;
+  /**
+   * Keeps only the symbols in files whose root-relative path starts with it, one file's path or a directory's with
+   * its closing slash; it reaches one of several copies that share a qualified name. Absent looks in every file.
+   */
+  path_prefix?: string;
   lang?: string;
   min_confidence?: number;
   /** Keeps the uses that read, set or update the symbol, an update counting as both, and drops the calls. */
@@ -282,6 +315,8 @@ export interface References {
   graph: string;
   symbol: Definition;
   passed_over: number;
+  /** The most used of the symbols passed over, the most first, at most five; `count` is each one's sites. */
+  candidates?: Candidate[];
   sites: Site[];
   /** The sites that pass the confidence floor and the access kept, before the limit. */
   total: number;
@@ -396,6 +431,11 @@ export interface Hit {
 /** The params of `implementations`. */
 export interface ImplementationsParams {
   name: string;
+  /**
+   * Keeps only the types in files whose root-relative path starts with it, one file's path or a directory's with its
+   * closing slash; it reaches one of several types that share a qualified name. Absent looks in every file.
+   */
+  path_prefix?: string;
   lang?: string;
   /** How many levels below the root the search goes; 3 by default. */
   depth?: number;
@@ -408,6 +448,11 @@ export interface Implementations {
   graph: string;
   root: Definition;
   passed_over: number;
+  /**
+   * The most implemented of the types passed over, the most first, at most five; `count` is each one's direct
+   * implementors.
+   */
+  candidates?: Candidate[];
   found: { symbol: Definition; depth: number }[];
   /** The implementors within the depth bound, before the limit. */
   total: number;

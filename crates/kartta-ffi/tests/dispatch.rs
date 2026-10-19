@@ -287,6 +287,152 @@ fn callers_answers_each_graph_s_walk_with_what_it_left_out() {
     );
 }
 
+/// A built handle over two copies of a Go package: each defines `Parse` and `Base`, and `Start`, which calls `Helper`.
+/// `a` calls `Parse` from `One`, `Start` from `Kick`, and embeds `Base` in `Impl`; `b` calls `Parse` from `Two`. The
+/// tree directory is returned to keep it alive.
+fn two_copies() -> (tempfile::TempDir, Kartta) {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    for (dir, caller, embedder, kicker) in [
+        (
+            "a",
+            "One",
+            "type Impl interface{ Base }\n\n",
+            "\nfunc Kick() { Start() }\n",
+        ),
+        ("b", "Two", "", ""),
+    ] {
+        fs::create_dir_all(tree.path().join(dir)).expect("a package directory");
+        fs::write(
+            tree.path().join(dir).join("util.go"),
+            format!(
+                "package util\n\ntype Base interface{{}}\n\n{embedder}func Parse() {{}}\n\nfunc {caller}() {{ Parse() }}\n\n\
+                 func Helper() {{}}\n\nfunc Start() {{ Helper() }}\n{kicker}"
+            ),
+        )
+        .expect("util.go");
+    }
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+    (tree, kartta)
+}
+
+/// The file of the symbol under `at` in an answer's first match.
+fn file(answer: &Value, at: &str) -> Value {
+    answer["matches"][0][at]["file"].clone()
+}
+
+#[test]
+fn a_path_prefix_picks_one_of_two_copies_and_an_answer_lists_the_copy_it_passed_over() {
+    let (_tree, kartta) = two_copies();
+
+    let either = ok(&kartta, "references", &json!({ "name": "util.Parse" }));
+    let in_b = ok(
+        &kartta,
+        "references",
+        &json!({ "name": "util.Parse", "path_prefix": "b/" }),
+    );
+    let path = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "One", "to": "util.Parse" }),
+    );
+    let into_b = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "Two", "from_path_prefix": "b/", "to": "util.Parse", "to_path_prefix": "b/" }),
+    );
+    let from_a = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "util.Start", "to": "util.Helper" }),
+    );
+    let from_b = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "util.Start", "from_path_prefix": "b/", "to": "util.Helper", "to_path_prefix": "b/" }),
+    );
+
+    assert_eq!(file(&either, "symbol"), "a/util.go");
+    assert_eq!(
+        either["matches"][0]["candidates"][0]["symbol"]["file"],
+        "b/util.go"
+    );
+    assert_eq!(
+        either["matches"][0]["candidates"][0]["count"], 1,
+        "the passed-over copy's count is its sites: Two calls it once"
+    );
+    assert_eq!(file(&in_b, "symbol"), "b/util.go");
+    assert!(
+        in_b["matches"][0].get("candidates").is_none(),
+        "the prefix leaves no copy to pass over"
+    );
+    let ends = &path["matches"][0]["candidates"];
+    assert_eq!(ends["from"], json!([]), "One has no copy");
+    assert_eq!(ends["to"][0]["symbol"]["file"], "b/util.go");
+    assert_eq!(
+        (file(&into_b, "from"), file(&into_b, "to")),
+        (json!("b/util.go"), json!("b/util.go"))
+    );
+    assert_eq!(into_b["matches"][0]["found"], true);
+    assert!(
+        into_b["matches"][0].get("candidates").is_none(),
+        "neither end passed a copy over"
+    );
+    assert_eq!(
+        file(&from_a, "from"),
+        "a/util.go",
+        "the Start with a caller ranks first"
+    );
+    assert_eq!(
+        from_a["matches"][0]["candidates"]["from"][0]["symbol"]["file"],
+        "b/util.go"
+    );
+    assert_eq!(
+        (file(&from_b, "from"), file(&from_b, "to")),
+        (json!("b/util.go"), json!("b/util.go"))
+    );
+    assert_eq!(from_b["matches"][0]["found"], true);
+}
+
+#[test]
+fn a_path_prefix_picks_the_copy_a_walk_or_an_implementations_search_starts_from() {
+    let (_tree, kartta) = two_copies();
+
+    let incoming = ok(
+        &kartta,
+        "callers",
+        &json!({ "name": "util.Parse", "path_prefix": "b/" }),
+    );
+    let outgoing = ok(
+        &kartta,
+        "callees",
+        &json!({ "name": "util.Parse", "path_prefix": "b/" }),
+    );
+    let either = ok(&kartta, "implementations", &json!({ "name": "util.Base" }));
+    let in_b = ok(
+        &kartta,
+        "implementations",
+        &json!({ "name": "util.Base", "path_prefix": "b/" }),
+    );
+
+    assert_eq!(file(&incoming, "root"), "b/util.go");
+    assert_eq!(
+        incoming["matches"][0]["reached"][0]["symbol"]["name"],
+        "Two"
+    );
+    assert_eq!(file(&outgoing, "root"), "b/util.go");
+    assert_eq!(
+        file(&either, "root"),
+        "a/util.go",
+        "the copy with an implementor ranks first"
+    );
+    assert_eq!(
+        either["matches"][0]["candidates"][0]["symbol"]["file"],
+        "b/util.go"
+    );
+    assert_eq!(file(&in_b, "root"), "b/util.go");
+}
+
 #[test]
 fn a_language_the_build_did_not_hold_is_refused_with_the_ones_it_did() {
     let tree = tree();

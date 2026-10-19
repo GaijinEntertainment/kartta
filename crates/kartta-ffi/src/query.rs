@@ -46,7 +46,7 @@ fn callers(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: WalkParams = wire::params(params)?;
     let limits = params.limits(CALLERS_DEPTH);
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        graph.callers(params.name.as_str(), limits).map(Wired)
+        graph.callers(params.selector(), limits).map(Wired)
     })?)
 }
 
@@ -54,7 +54,7 @@ fn callees(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: WalkParams = wire::params(params)?;
     let limits = params.limits(CALLEES_DEPTH);
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        graph.callees(params.name.as_str(), limits).map(Wired)
+        graph.callees(params.selector(), limits).map(Wired)
     })?)
 }
 
@@ -63,7 +63,7 @@ fn call_path(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let limits = params.limits();
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
         graph
-            .call_path(params.from.as_str(), params.to.as_str(), limits)
+            .call_path(params.from(), params.to(), limits)
             .map(Wired)
     })?)
 }
@@ -72,7 +72,7 @@ fn references(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: ReferencesParams = wire::params(params)?;
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
         graph
-            .references(params.name.as_str(), params.query())
+            .references(params.selector(), params.query())
             .map(Wired)
     })?)
 }
@@ -81,7 +81,7 @@ fn implementations(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: ImplementationsParams = wire::params(params)?;
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
         graph
-            .implementations(params.name.as_str(), params.depth(), params.limit())
+            .implementations(params.selector(), params.depth(), params.limit())
             .map(Wired)
     })?)
 }

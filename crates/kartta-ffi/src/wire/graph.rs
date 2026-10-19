@@ -2,11 +2,11 @@ use std::io;
 use std::ops::RangeInclusive;
 
 use kartta::{
-    Access, Blast, CallPath, Change, CutLine, Dead, DeadCode, Definition, Definitions, Dependent,
-    Dependents, DirCount, DirectCalls, Excluded, Hit, Hotspot, Implementations, Implementor,
-    LanguageFiles, Miss, Misses, Nearness, ReachBand, Reached, Reference, References, Resolution,
-    Search, Seed, Segment, SegmentSymbol, SiteCounts, Source, Stats, SymbolFlags, SymbolKind,
-    Unbound, Walk,
+    Access, Blast, CallPath, Candidate, Change, CutLine, Dead, DeadCode, Definition, Definitions,
+    Dependent, Dependents, DirCount, DirectCalls, Excluded, Hit, Hotspot, Implementations,
+    Implementor, LanguageFiles, Miss, Misses, Nearness, ReachBand, Reached, Reference, References,
+    Resolution, Search, Seed, Segment, SegmentSymbol, SiteCounts, Source, Stats, SymbolFlags,
+    SymbolKind, Unbound, Walk,
 };
 use serde::{Serialize, Serializer};
 
@@ -40,6 +40,7 @@ macro_rules! wire {
 
 wire!(
     Definition<'_> => DefinitionDef,
+    Candidate<'_> => CandidateDef,
     Reached<'_> => ReachedDef,
     Walk<'_> => WalkDef,
     CallPath<'_> => CallPathDef,
@@ -166,6 +167,14 @@ struct DefinitionDef<'g> {
 }
 
 #[derive(Serialize)]
+#[serde(remote = "Candidate")]
+struct CandidateDef<'g> {
+    #[serde(with = "DefinitionDef")]
+    symbol: Definition<'g>,
+    count: usize,
+}
+
+#[derive(Serialize)]
 #[serde(remote = "Reached")]
 struct ReachedDef<'g> {
     #[serde(with = "DefinitionDef")]
@@ -181,6 +190,8 @@ struct WalkDef<'g> {
     #[serde(with = "DefinitionDef")]
     root: Definition<'g>,
     passed_over: usize,
+    #[serde(serialize_with = "each", skip_serializing_if = "Vec::is_empty")]
+    candidates: Vec<Candidate<'g>>,
     #[serde(serialize_with = "each")]
     reached: Vec<Reached<'g>>,
     truncated: bool,
@@ -206,6 +217,11 @@ struct CallPathDef<'g> {
     below_confidence: usize,
     #[serde(serialize_with = "passed_over")]
     passed_over: (usize, usize),
+    #[serde(
+        serialize_with = "path_candidates",
+        skip_serializing_if = "no_path_candidates"
+    )]
+    candidates: PathCandidates<'g>,
 }
 
 fn passed_over<S: Serializer>(
@@ -221,12 +237,35 @@ fn passed_over<S: Serializer>(
     PassedOver { from, to }.serialize(serializer)
 }
 
+type PathCandidates<'g> = (Vec<Candidate<'g>>, Vec<Candidate<'g>>);
+
+const fn no_path_candidates((from, to): &PathCandidates<'_>) -> bool {
+    from.is_empty() && to.is_empty()
+}
+
+fn path_candidates<S: Serializer>(
+    (from, to): &PathCandidates<'_>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    #[derive(Serialize)]
+    struct Ends<'a, 'g> {
+        #[serde(serialize_with = "each")]
+        from: &'a [Candidate<'g>],
+        #[serde(serialize_with = "each")]
+        to: &'a [Candidate<'g>],
+    }
+
+    Ends { from, to }.serialize(serializer)
+}
+
 #[derive(Serialize)]
 #[serde(remote = "References")]
 struct ReferencesDef<'g> {
     #[serde(with = "DefinitionDef")]
     symbol: Definition<'g>,
     passed_over: usize,
+    #[serde(serialize_with = "each", skip_serializing_if = "Vec::is_empty")]
+    candidates: Vec<Candidate<'g>>,
     #[serde(serialize_with = "each")]
     sites: Vec<Reference<'g>>,
     total: usize,
@@ -349,6 +388,8 @@ struct ImplementationsDef<'g> {
     #[serde(with = "DefinitionDef")]
     root: Definition<'g>,
     passed_over: usize,
+    #[serde(serialize_with = "each", skip_serializing_if = "Vec::is_empty")]
+    candidates: Vec<Candidate<'g>>,
     #[serde(serialize_with = "each")]
     found: Vec<Implementor<'g>>,
     total: usize,
