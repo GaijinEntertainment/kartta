@@ -7,8 +7,8 @@
 )]
 
 use kartta_lang::{
-    CallRef, Extraction, Language, MemoryRepository, NO_CALLER_ID, OwnMembers, RawExtraction,
-    Symbol, SymbolId, SymbolKind,
+    CallRef, Extraction, FILE_SCOPE, Language, MemoryRepository, OwnMembers, RawExtraction, Symbol,
+    SymbolId, SymbolKind,
 };
 use kartta_lang_lua::Lua;
 
@@ -162,14 +162,14 @@ fn a_call_is_made_by_the_function_around_it() {
         .iter()
         .find(|call| call.callee == "greet")
         .unwrap_or_else(|| panic!("no call of greet"));
-    assert_eq!(greet.caller_id, id_of(&raw.symbols, "helper"));
+    assert_eq!(greet.site_of, id_of(&raw.symbols, "helper"));
     assert_eq!(greet.receiver, None);
 
     let helper_callers: Vec<SymbolId> = raw
         .calls
         .iter()
         .filter(|call| call.callee == "helper")
-        .map(|call| call.caller_id)
+        .map(|call| call.site_of)
         .collect();
     for caller in ["build", "attach", "setup"] {
         assert!(
@@ -185,7 +185,7 @@ fn a_call_after_every_function_is_made_from_file_scope() {
 
     let last = raw.calls.last().unwrap_or_else(|| panic!("no calls"));
     assert_eq!(last.callee, "greet");
-    assert_eq!(last.caller_id, NO_CALLER_ID);
+    assert_eq!(last.site_of, FILE_SCOPE);
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn a_call_through_a_table_name_records_it_as_the_receiver() {
 
     let build = call(&raw.calls, "build");
     assert_eq!(build.receiver.as_deref(), Some("self"));
-    assert_eq!(build.caller_id, id_of(&raw.symbols, "render"));
+    assert_eq!(build.site_of, id_of(&raw.symbols, "render"));
 }
 
 #[test]
@@ -263,14 +263,8 @@ fn each_target_of_an_assignment_keeps_its_own_signature_and_calls() {
         symbol(&raw.symbols, "g").signature.as_deref(),
         Some("g = function(y)")
     );
-    assert_eq!(
-        call(&raw.calls, "fcall").caller_id,
-        id_of(&raw.symbols, "f")
-    );
-    assert_eq!(
-        call(&raw.calls, "gcall").caller_id,
-        id_of(&raw.symbols, "g")
-    );
+    assert_eq!(call(&raw.calls, "fcall").site_of, id_of(&raw.symbols, "f"));
+    assert_eq!(call(&raw.calls, "gcall").site_of, id_of(&raw.symbols, "g"));
 }
 
 #[test]
@@ -283,16 +277,13 @@ fn a_value_beside_a_bound_function_is_no_call_of_it() {
         .as_bytes(),
     );
 
-    assert_eq!(call(&raw.calls, "mk").caller_id, NO_CALLER_ID);
-    assert_eq!(call(&raw.calls, "body").caller_id, id_of(&raw.symbols, "g"));
+    assert_eq!(call(&raw.calls, "mk").site_of, FILE_SCOPE);
+    assert_eq!(call(&raw.calls, "body").site_of, id_of(&raw.symbols, "g"));
     assert_eq!(
-        call(&raw.calls, "mk2").caller_id,
+        call(&raw.calls, "mk2").site_of,
         id_of(&raw.symbols, "outer")
     );
-    assert_eq!(
-        call(&raw.calls, "body2").caller_id,
-        id_of(&raw.symbols, "i")
-    );
+    assert_eq!(call(&raw.calls, "body2").site_of, id_of(&raw.symbols, "i"));
 }
 
 #[test]
@@ -332,18 +323,9 @@ fn bound_functions_open_their_scopes_in_order_around_nested_bindings() {
         b"local anchor = 1\nf, g = function()\n  h = function() hcall() end\n  fcall()\nend, function() gcall() end\n",
     );
 
-    assert_eq!(
-        call(&raw.calls, "fcall").caller_id,
-        id_of(&raw.symbols, "f")
-    );
-    assert_eq!(
-        call(&raw.calls, "hcall").caller_id,
-        id_of(&raw.symbols, "h")
-    );
-    assert_eq!(
-        call(&raw.calls, "gcall").caller_id,
-        id_of(&raw.symbols, "g")
-    );
+    assert_eq!(call(&raw.calls, "fcall").site_of, id_of(&raw.symbols, "f"));
+    assert_eq!(call(&raw.calls, "hcall").site_of, id_of(&raw.symbols, "h"));
+    assert_eq!(call(&raw.calls, "gcall").site_of, id_of(&raw.symbols, "g"));
 }
 
 #[test]

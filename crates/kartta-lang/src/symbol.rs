@@ -7,9 +7,9 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SymbolId(pub u32);
 
-/// The caller of a call made outside any symbol, at file scope. Such a call never becomes an edge from nowhere: the
-/// graph keeps only the name it spells.
-pub const NO_CALLER_ID: SymbolId = SymbolId(u32::MAX);
+/// The `site_of` of a call or a use made outside every symbol, at file scope. Such a site never becomes an edge from
+/// nowhere: the graph keeps only the name it spells.
+pub const FILE_SCOPE: SymbolId = SymbolId(u32::MAX);
 
 /// What a definition is.
 ///

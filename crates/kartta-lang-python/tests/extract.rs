@@ -200,7 +200,7 @@ fn an_attribute_a_method_gives_its_instance_is_a_field_declared_once_after_the_c
     assert_eq!(
         raw.calls,
         [CallRef {
-            caller_id: id_of(&raw, "grow"),
+            site_of: id_of(&raw, "grow"),
             callee: "append".to_owned(),
             receiver: Some(String::new()),
             line: 17,
@@ -333,7 +333,7 @@ fn local_calls(raw: &RawExtraction) -> Vec<(&str, &str, u32)> {
     let name = |id: SymbolId| raw.symbols[id.0 as usize].name.as_str();
     raw.local_calls
         .iter()
-        .map(|call| (name(call.caller_id), name(call.local), call.line))
+        .map(|call| (name(call.site_of), name(call.local), call.line))
         .collect()
 }
 
@@ -341,7 +341,7 @@ fn callers_of<'r>(raw: &'r RawExtraction, callee: &str) -> Vec<&'r str> {
     raw.calls
         .iter()
         .filter(|call| call.callee == callee)
-        .map(|call| raw.symbols[call.caller_id.0 as usize].name.as_str())
+        .map(|call| raw.symbols[call.site_of.0 as usize].name.as_str())
         .collect()
 }
 
@@ -374,7 +374,7 @@ fn a_call_binds_the_definition_its_own_function_holds_beside_a_namesake_in_anoth
         .iter()
         .map(|call| {
             (
-                raw.symbols[call.caller_id.0 as usize].name.as_str(),
+                raw.symbols[call.site_of.0 as usize].name.as_str(),
                 raw.symbols[call.local.0 as usize].line,
             )
         })
@@ -466,7 +466,7 @@ fn a_call_in_a_class_body_sees_the_names_that_body_binds() {
         .iter()
         .map(|call| {
             (
-                raw.symbols[call.caller_id.0 as usize].name.as_str(),
+                raw.symbols[call.site_of.0 as usize].name.as_str(),
                 raw.symbols[call.local.0 as usize].line,
             )
         })
@@ -560,7 +560,7 @@ fn a_call_belongs_to_the_function_around_it() {
         .calls
         .iter()
         .filter(|call| call.callee == "helper" && call.receiver.is_none())
-        .map(|call| call.caller_id)
+        .map(|call| call.site_of)
         .collect();
     assert_eq!(
         callers,
@@ -578,7 +578,7 @@ fn a_member_call_on_a_name_records_the_name_as_its_receiver() {
         .expect("greet call");
 
     assert_eq!(greet.receiver.as_deref(), Some("self"));
-    assert_eq!(greet.caller_id, id_of(&raw, "_private"));
+    assert_eq!(greet.site_of, id_of(&raw, "_private"));
 }
 
 #[test]

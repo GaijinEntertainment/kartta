@@ -7,7 +7,7 @@ use std::ops::Range;
 use self::uses::NameUse;
 use kartta_lang::tree::{child_nodes, line, named_child_nodes, preorder, signature, text};
 use kartta_lang::{
-    CallRef, LocalCall, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
+    CallRef, FILE_SCOPE, LocalCall, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
 };
 use tree_sitter::{Node, Tree};
@@ -78,7 +78,7 @@ impl Binding {
 }
 
 struct BareCall<'a> {
-    caller_id: SymbolId,
+    site_of: SymbolId,
     callee: &'a [u8],
     line: u32,
     at: usize,
@@ -143,10 +143,7 @@ struct Emitter<'a> {
 impl<'a> Emitter<'a> {
     fn handle(&mut self, node: Node<'_>) {
         self.close_frames(node.start_byte());
-        let caller = self
-            .frames
-            .last()
-            .map_or(NO_CALLER_ID, |frame| frame.caller);
+        let caller = self.frames.last().map_or(FILE_SCOPE, |frame| frame.caller);
 
         match node.kind() {
             FUNCTION_DEFINITION => {
@@ -259,9 +256,9 @@ impl<'a> Emitter<'a> {
                 .map(|&(_, binding)| binding)
                 .max_by_key(|binding| binding.strength());
             match binding {
-                Some(Binding::Definition(local)) if caller != NO_CALLER_ID => {
+                Some(Binding::Definition(local)) if caller != FILE_SCOPE => {
                     self.raw.local_calls.push(LocalCall {
-                        caller_id: call.caller_id,
+                        site_of: call.site_of,
                         local,
                         line: call.line,
                     });
@@ -607,7 +604,7 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn call(&mut self, node: Node<'_>, caller_id: SymbolId) {
+    fn call(&mut self, node: Node<'_>, site_of: SymbolId) {
         if self.raw.symbols.is_empty() {
             return;
         }
@@ -620,7 +617,7 @@ impl<'a> Emitter<'a> {
             && let Some(frame) = self.frames.iter_mut().rev().find(|frame| frame.holds(at))
         {
             frame.calls.push(BareCall {
-                caller_id,
+                site_of,
                 callee: &source[function.byte_range()],
                 line,
                 at,
@@ -632,7 +629,7 @@ impl<'a> Emitter<'a> {
         };
 
         self.raw.calls.push(CallRef {
-            caller_id,
+            site_of,
             callee,
             receiver,
             line,
@@ -641,7 +638,7 @@ impl<'a> Emitter<'a> {
 
     fn push_call(&mut self, call: &BareCall<'_>) {
         self.raw.calls.push(CallRef {
-            caller_id: call.caller_id,
+            site_of: call.site_of,
             callee: String::from_utf8_lossy(call.callee).into_owned(),
             receiver: None,
             line: call.line,

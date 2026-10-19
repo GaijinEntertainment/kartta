@@ -61,7 +61,7 @@ pub(crate) fn attributed(extraction: &Extraction) -> Vec<(&str, &str)> {
     (extraction.calls.iter())
         .map(|call| {
             (
-                extraction.symbols[call.caller_id.0 as usize].name.as_str(),
+                extraction.symbols[call.site_of.0 as usize].name.as_str(),
                 call.callee.as_str(),
             )
         })
@@ -72,7 +72,7 @@ pub(crate) fn caller_of<'e>(extraction: &'e Extraction, callee: &str) -> &'e Sym
     let call = (extraction.calls.iter())
         .find(|call| call.callee == callee)
         .unwrap_or_else(|| panic!("no call of {callee}"));
-    (extraction.symbols.get(call.caller_id.0 as usize))
+    (extraction.symbols.get(call.site_of.0 as usize))
         .unwrap_or_else(|| panic!("{callee} is called at file scope"))
 }
 

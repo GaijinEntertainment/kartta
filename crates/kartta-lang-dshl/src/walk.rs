@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use kartta_lang::tree::{self, signature, text};
 use kartta_lang::{
-    Access, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Receiver, Symbol, SymbolId,
+    Access, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol, SymbolId,
     SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree, TreeCursor};
@@ -69,7 +69,7 @@ impl Walker<'_> {
     fn caller(&self) -> SymbolId {
         self.scopes
             .last()
-            .map_or(NO_CALLER_ID, |scope| SymbolId(scope.names.start))
+            .map_or(FILE_SCOPE, |scope| SymbolId(scope.names.start))
     }
 
     fn visit(&mut self, node: Node<'_>, cursor: &TreeCursor<'_>) {
@@ -199,7 +199,7 @@ impl Walker<'_> {
     fn macro_call(&mut self, node: Node<'_>) {
         if let Some(name) = node.child_by_field_name("macro") {
             self.raw.calls.push(CallRef {
-                caller_id: self.caller(),
+                site_of: self.caller(),
                 callee: text(name, self.source),
                 receiver: None,
                 line: line(node),

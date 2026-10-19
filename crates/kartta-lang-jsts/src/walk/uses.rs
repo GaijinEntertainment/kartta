@@ -1,4 +1,4 @@
-use kartta_lang::{Access, NO_CALLER_ID, Receiver, SymbolId, UseRef};
+use kartta_lang::{Access, FILE_SCOPE, Receiver, SymbolId, UseRef};
 use tree_sitter::Node;
 
 use super::{Binding, Emitter, Span};
@@ -7,7 +7,7 @@ use crate::syntax::start_line;
 impl Emitter<'_> {
     // constraint: a member called or constructed is a call site already, and a JSX element's name is a call
     pub(super) fn member_use(&mut self, member: Node<'_>, caller: SymbolId) {
-        if caller == NO_CALLER_ID || is_callee(member) {
+        if caller == FILE_SCOPE || is_callee(member) {
             return;
         }
         let (Some(object), Some(property)) = (
@@ -33,7 +33,7 @@ impl Emitter<'_> {
     // constraint: an identifier names a module's value where the file imports it or declares it outside every body,
     // and a body that binds the name again hides it; a declaration, an import or an export of the name is no use
     pub(super) fn value_use(&mut self, identifier: Node<'_>, caller: SymbolId) {
-        if caller == NO_CALLER_ID || is_callee(identifier) || declares(identifier) {
+        if caller == FILE_SCOPE || is_callee(identifier) || declares(identifier) {
             return;
         }
         let binding = self.binding(&self.source[identifier.byte_range()]);
@@ -47,7 +47,7 @@ impl Emitter<'_> {
     // constraint: a key of an object literal writes a field only where the literal's type is written beside it, a
     // declaration's or a field's annotation, `as` or `satisfies`
     pub(super) fn literal_keys(&mut self, object: Node<'_>, caller: SymbolId) {
-        if caller == NO_CALLER_ID {
+        if caller == FILE_SCOPE {
             return;
         }
         let Some(span) = literal_type(object) else {

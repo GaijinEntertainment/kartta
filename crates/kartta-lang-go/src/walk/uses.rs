@@ -1,5 +1,5 @@
 use kartta_lang::tree::{line, preorder, text};
-use kartta_lang::{Access, NO_CALLER_ID, Receiver, SymbolId, UseRef};
+use kartta_lang::{Access, FILE_SCOPE, Receiver, SymbolId, UseRef};
 use tree_sitter::Node;
 
 use super::Emitter;
@@ -237,9 +237,7 @@ impl<'a> Emitter<'a> {
     }
 
     pub(super) fn use_owner(&self) -> SymbolId {
-        self.use_owners
-            .last()
-            .map_or(NO_CALLER_ID, |scope| scope.id)
+        self.use_owners.last().map_or(FILE_SCOPE, |scope| scope.id)
     }
 
     pub(super) fn borrowed(&self, node: Node<'_>) -> &'a str {

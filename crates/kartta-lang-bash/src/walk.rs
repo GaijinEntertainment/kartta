@@ -1,6 +1,6 @@
 use kartta_lang::tree::{line, named_child_nodes, preorder, text};
 use kartta_lang::{
-    Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
+    Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
 };
 use tree_sitter::{Node, Tree};
@@ -51,7 +51,7 @@ impl Emitter<'_> {
         while self.scopes.last().is_some_and(|scope| scope.end <= start) {
             self.scopes.pop();
         }
-        let caller = self.scopes.last().map_or(NO_CALLER_ID, |scope| scope.id);
+        let caller = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
 
         match node.kind() {
             "function_definition" => {
@@ -103,7 +103,7 @@ impl Emitter<'_> {
         }
     }
 
-    fn command(&mut self, node: Node<'_>, caller_id: SymbolId) {
+    fn command(&mut self, node: Node<'_>, site_of: SymbolId) {
         let Some(name) = node.child_by_field_name("name") else {
             return;
         };
@@ -121,7 +121,7 @@ impl Emitter<'_> {
         }
 
         self.raw.calls.push(CallRef {
-            caller_id,
+            site_of,
             callee: text(name, self.source),
             receiver: None,
             line: start_line(node),

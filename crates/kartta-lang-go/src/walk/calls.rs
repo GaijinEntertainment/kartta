@@ -7,7 +7,7 @@ use super::locals::LocalKind;
 use super::syntax::{TYPE_ONLY_KINDS, call_target, first_operand, is_pointer_indirection};
 
 impl Emitter<'_> {
-    pub(super) fn call(&mut self, node: Node<'_>, caller_id: SymbolId) {
+    pub(super) fn call(&mut self, node: Node<'_>, site_of: SymbolId) {
         let Some(function) = node.child_by_field_name("function") else {
             return;
         };
@@ -26,14 +26,14 @@ impl Emitter<'_> {
         {
             if let LocalKind::ValueSymbol(symbol) | LocalKind::TypeSymbol(symbol) = local.kind {
                 self.raw.local_calls.push(LocalCall {
-                    caller_id,
+                    site_of,
                     local: symbol,
                     line: line(node.start_position().row),
                 });
             }
             return;
         }
-        self.push_call(target, node, caller_id);
+        self.push_call(target, node, site_of);
     }
 
     // constraint: the receiver is the type path of the operand's value, and the empty receiver of a member call on a
@@ -146,14 +146,14 @@ impl Emitter<'_> {
         &mut self,
         (callee, receiver): (String, Option<String>),
         node: Node<'_>,
-        caller_id: SymbolId,
+        site_of: SymbolId,
     ) {
         if callee.is_empty() || self.symbol_count == 0 {
             return;
         }
 
         self.raw.calls.push(CallRef {
-            caller_id,
+            site_of,
             callee,
             receiver,
             line: line(node.start_position().row),

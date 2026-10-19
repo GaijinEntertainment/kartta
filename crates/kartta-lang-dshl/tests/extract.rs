@@ -6,7 +6,7 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{Language, NO_CALLER_ID, OwnMembers, RawExtraction, Symbol, SymbolKind};
+use kartta_lang::{FILE_SCOPE, Language, OwnMembers, RawExtraction, Symbol, SymbolKind};
 use kartta_lang_dshl::Dshl;
 
 fn extract(source: &str) -> RawExtraction {
@@ -31,8 +31,8 @@ fn calls(raw: &RawExtraction) -> Vec<(Option<&str>, &str)> {
     raw.calls
         .iter()
         .map(|call| {
-            let caller = (call.caller_id != NO_CALLER_ID)
-                .then(|| raw.symbols[call.caller_id.0 as usize].name.as_str());
+            let caller = (call.site_of != FILE_SCOPE)
+                .then(|| raw.symbols[call.site_of.0 as usize].name.as_str());
             (caller, call.callee.as_str())
         })
         .collect()
@@ -42,7 +42,7 @@ fn uses(raw: &RawExtraction) -> Vec<(Option<&str>, &str)> {
     raw.uses
         .iter()
         .map(|site| {
-            let holder = (site.site_of != NO_CALLER_ID)
+            let holder = (site.site_of != FILE_SCOPE)
                 .then(|| raw.symbols[site.site_of.0 as usize].name.as_str());
             (holder, site.name.as_str())
         })

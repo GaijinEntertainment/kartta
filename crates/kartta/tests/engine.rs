@@ -70,7 +70,7 @@ impl Language for Defs {
                 && let Some(caller) = raw.symbols.len().checked_sub(1)
             {
                 raw.calls.push(CallRef {
-                    caller_id: SymbolId(u32::try_from(caller).unwrap_or(u32::MAX)),
+                    site_of: SymbolId(u32::try_from(caller).unwrap_or(u32::MAX)),
                     callee: callee.to_owned(),
                     receiver: None,
                     line: number,

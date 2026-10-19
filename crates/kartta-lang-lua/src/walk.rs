@@ -2,7 +2,7 @@ use kartta_lang::tree::{
     child_nodes, line, named_child_nodes, preorder, signature, signature_from, text,
 };
 use kartta_lang::{
-    CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    CallRef, FILE_SCOPE, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
 use tree_sitter::{Node, Tree};
 
@@ -215,7 +215,7 @@ impl Emitter<'_> {
         )
         .then(|| owner.unwrap_or_default());
         self.raw.calls.push(CallRef {
-            caller_id: self.scopes.last().map_or(NO_CALLER_ID, |scope| scope.id),
+            site_of: self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id),
             callee,
             receiver,
             line: line(node.start_position().row),

@@ -6,7 +6,7 @@
 )]
 
 use kartta_lang::{
-    Conventions, Language, NO_CALLER_ID, OwnMembers, RawExtraction, Symbol, SymbolId, SymbolKind,
+    Conventions, FILE_SCOPE, Language, OwnMembers, RawExtraction, Symbol, SymbolId, SymbolKind,
 };
 use kartta_lang_quirrel::Quirrel;
 
@@ -55,7 +55,7 @@ fn caller_of(raw: &RawExtraction, callee: &str) -> SymbolId {
         .iter()
         .find(|call| call.callee == callee)
         .unwrap_or_else(|| panic!("no call of {callee} in {:?}", raw.calls))
-        .caller_id
+        .site_of
 }
 
 fn kinds(raw: &RawExtraction) -> Vec<(&str, SymbolKind)> {
@@ -68,7 +68,7 @@ fn kinds(raw: &RawExtraction) -> Vec<(&str, SymbolKind)> {
 fn callers(raw: &RawExtraction) -> Vec<(&str, SymbolId)> {
     raw.calls
         .iter()
-        .map(|call| (call.callee.as_str(), call.caller_id))
+        .map(|call| (call.callee.as_str(), call.site_of))
         .collect()
 }
 
@@ -252,7 +252,7 @@ fn a_function_value_takes_its_binding_name_before_its_own() {
             ("b", SymbolId(1)),
             ("c", SymbolId(2)),
             ("d", SymbolId(4)),
-            ("run", NO_CALLER_ID),
+            ("run", FILE_SCOPE),
             ("e", SymbolId(5)),
         ]
     );
@@ -275,9 +275,9 @@ fn computed_and_string_keys_bind_no_name() {
     assert_eq!(
         callers(&raw),
         [
-            ("onA", NO_CALLER_ID),
-            ("onK", NO_CALLER_ID),
-            ("onQ", NO_CALLER_ID),
+            ("onA", FILE_SCOPE),
+            ("onK", FILE_SCOPE),
+            ("onQ", FILE_SCOPE),
             ("handleB", SymbolId(1)),
         ]
     );
@@ -342,10 +342,7 @@ fn from_and_import_are_names_after_a_declaration() {
 
     assert_eq!(imports(&raw), []);
     assert_eq!(kinds(&raw), [("pick", SymbolKind::Function)]);
-    assert_eq!(
-        callers(&raw),
-        [("rnd", SymbolId(0)), ("pick", NO_CALLER_ID)]
-    );
+    assert_eq!(callers(&raw), [("rnd", SymbolId(0)), ("pick", FILE_SCOPE)]);
 }
 
 #[test]
@@ -511,7 +508,7 @@ fn class_data_slots_emit_fields_owned_by_the_class() {
     assert_eq!(named(&raw, "C").parents, ["B"]);
     assert_eq!(
         callers(&raw),
-        [("make", NO_CALLER_ID), ("register", NO_CALLER_ID)]
+        [("make", FILE_SCOPE), ("register", FILE_SCOPE)]
     );
 }
 
@@ -582,7 +579,7 @@ fn module_table_data_slots_emit_fields_owned_by_the_binding() {
             Some("function f()"),
         ]
     );
-    assert_eq!(callers(&raw), [("go", SymbolId(4)), ("make", NO_CALLER_ID)]);
+    assert_eq!(callers(&raw), [("go", SymbolId(4)), ("make", FILE_SCOPE)]);
 }
 
 #[test]
@@ -755,7 +752,7 @@ fn assigned_function_values_bind_by_their_target() {
             ("b", SymbolId(2)),
             ("c", SymbolId(3)),
             ("o", SymbolId(4)),
-            ("d", NO_CALLER_ID),
+            ("d", FILE_SCOPE),
         ]
     );
 }
@@ -765,7 +762,7 @@ fn a_missing_assignment_target_binds_no_name() {
     let raw = extract("function outer() {\n  = function() { a() }\n}\n");
 
     assert_eq!(kinds(&raw), [("outer", SymbolKind::Function)]);
-    assert_eq!(callers(&raw), [("a", NO_CALLER_ID)]);
+    assert_eq!(callers(&raw), [("a", FILE_SCOPE)]);
 }
 
 #[test]
@@ -821,7 +818,7 @@ fn an_unbound_function_value_keeps_its_calls_out_of_the_enclosing_function() {
     ] {
         let raw = extract(source);
 
-        assert_eq!(caller_of(&raw, "helper"), NO_CALLER_ID, "{source:?}");
+        assert_eq!(caller_of(&raw, "helper"), FILE_SCOPE, "{source:?}");
     }
 
     let bound = extract("function outer() {\n  local cb = @(x) helper(x)\n}\n");
