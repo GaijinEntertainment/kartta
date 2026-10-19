@@ -790,8 +790,9 @@ impl Index {
     /// **This reads the filesystem**, on the first ask for a given entry, and keeps the answer — so a second ask
     /// costs nothing and a listing that is drawn twice is stat'd once. The walk does not collect sizes, because
     /// stat'ing every file of a large tree is roughly half of what a build costs and most of those sizes are never
-    /// looked at. A file the build read, for a [`ContentVisitor`] or for [`BuildOptions::content_index`], answers from
-    /// that read, with no ask of its own.
+    /// looked at. A file already opened — by the build, for a [`ContentVisitor`] or for
+    /// [`BuildOptions::content_index`], by [`Index::grep`], or to answer [`Index::is_binary`] — answers from that open,
+    /// with no ask of its own.
     ///
     /// What that buys is paid for in coherence. A size belongs to the moment it was first asked for rather than to
     /// the walk, so two sizes from one index may describe two different moments, and neither is refreshed once taken.
