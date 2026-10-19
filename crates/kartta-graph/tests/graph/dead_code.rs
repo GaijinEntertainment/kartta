@@ -143,6 +143,39 @@ fn a_call_the_cascade_cannot_bind_leaves_every_definition_of_its_name_uncertain(
 }
 
 #[test]
+fn a_call_bound_to_a_fallback_leaves_every_namesake_uncertain() {
+    let library = file(
+        "lib/fog.dshl",
+        vec![
+            flagged(
+                Symbol::new("USE_FOG", SymbolKind::Macro, 1, 2),
+                SymbolFlags::empty().with_fallback(true),
+            ),
+            Symbol::new("fog", SymbolKind::Class, 4, 6),
+        ],
+        vec![call(1, "USE_FOG", 5), call(FILE_SCOPE.0, "fog", 7)],
+    );
+    let graph = graph(&[
+        library,
+        file(
+            "game/fog.dshl",
+            vec![Symbol::new("USE_FOG", SymbolKind::Macro, 1, 2)],
+            Vec::new(),
+        ),
+        file(
+            "game/haze.dshl",
+            vec![Symbol::new("USE_HAZE", SymbolKind::Macro, 1, 2)],
+            Vec::new(),
+        ),
+    ]);
+
+    let dead = graph.dead_code(&[SymbolKind::Macro], None, 10);
+
+    assert_eq!(names(&dead), ["USE_HAZE"]);
+    assert_eq!((dead.live, dead.excluded.uncertain), (1, 1));
+}
+
+#[test]
 fn a_receiver_call_that_binds_nothing_leaves_members_and_what_its_file_sees_uncertain() {
     let mut caller = file("app/main.c", vec![function("run", 1)], Vec::new());
     caller.calls.push(CallRef {

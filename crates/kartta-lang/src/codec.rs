@@ -434,7 +434,8 @@ mod tests {
         method.flags = SymbolFlags::empty()
             .with_test(true)
             .with_generated(true)
-            .with_vendored(true);
+            .with_vendored(true)
+            .with_fallback(true);
         let free = Symbol::new("ünïcode", SymbolKind::EnumVariant, 1, 1);
 
         RawExtraction {

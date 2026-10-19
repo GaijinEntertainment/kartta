@@ -76,7 +76,7 @@ impl Walker<'_> {
         match node.kind() {
             "shader_declaration" => self.shader(node),
             "block_declaration" => self.named_scope(node, SymbolKind::Interface),
-            "macro_definition" => self.named_scope(node, SymbolKind::Macro),
+            "macro_definition" => self.macro_definition(node),
             "render_pass_declaration"
             | "render_pass_group_declaration"
             | "framebuffer_layout_declaration" => self.named_scope(node, SymbolKind::Class),
@@ -138,6 +138,18 @@ impl Walker<'_> {
         if let Some(name) = node.child_by_field_name("name") {
             let SymbolId(id) = self.declared(node, name, kind);
             self.open(node, id..id + 1, text(name, self.source));
+        }
+    }
+
+    // constraint: `define_macro_if_not_defined` defines the macro only where the build holds none of its name yet, so
+    // a game that defines the macro first runs its own wherever the library calls it
+    fn macro_definition(&mut self, node: Node<'_>) {
+        let declared = self.raw.symbols.len();
+        self.named_scope(node, SymbolKind::Macro);
+        if node.child(0).map(|keyword| keyword.kind()) == Some("define_macro_if_not_defined")
+            && let Some(symbol) = self.raw.symbols.get_mut(declared)
+        {
+            symbol.flags = symbol.flags.with_fallback(true);
         }
     }
 

@@ -12,7 +12,9 @@ Each name of a `shader` is a class, a `block` an interface, a `macro` a macro, a
 and a framebuffer layout each a class. A variable or a sampler at file scope is a variable; inside a shader, a block or
 a macro it is a field of that declaration, and a `local` variable is no symbol. A preshader binding is a field, a `bool`
 a constant, and an `interval` an enum whose ranges are its variants. DSHL has one namespace per compilation, so a
-declaration at file scope is qualified by its own name: `frame_tex`, and `water.foam_tex` for a field of `water`.
+declaration at file scope is qualified by its own name: `frame_tex`, and `water.foam_tex` for a field of `water`. A
+`define_macro_if_not_defined` is a macro flagged as a fallback: the build skips it where a game defines the macro
+first, so a call bound to it may run the game's own.
 
 A `supports` statement makes each block it names a parent of the shader or block around it, of every name of a shader
 with several. A macro invocation is a call of the macro, made by the declaration around it. A name that a condition,

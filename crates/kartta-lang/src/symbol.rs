@@ -101,11 +101,12 @@ impl fmt::Display for SymbolKind {
     }
 }
 
-/// What a symbol is for besides its kind: test code, generated code, vendored code, an entry point.
+/// What a symbol is for besides its kind: test code, generated code, vendored code, an entry point, a fallback.
 ///
 /// A language sets these by its own conventions — a Go `_test.go` file, a Rust `#[test]`, a generated-code banner, a
 /// `vendor` directory — so they are heuristic: they rank answers, a caller that is test code below one that is not,
-/// and a query that leaves flagged symbols out, as a dead-code query does, counts what it left out.
+/// and a query that leaves flagged symbols out, as a dead-code query does, counts what it left out. A fallback does
+/// neither: it makes a call bound to it uncertain, so the namesakes such a call may run are not judged dead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct SymbolFlags(u8);
 
@@ -114,6 +115,7 @@ impl SymbolFlags {
     const ENTRY: u8 = 1 << 1;
     const GENERATED: u8 = 1 << 2;
     const VENDORED: u8 = 1 << 3;
+    const FALLBACK: u8 = 1 << 4;
 
     /// No flag set: an ordinary definition.
     #[must_use]
@@ -148,6 +150,13 @@ impl SymbolFlags {
         self.0 & Self::VENDORED != 0
     }
 
+    /// Whether the symbol is a fallback: a definition a build makes only where it holds no other of the name, as a
+    /// DSHL `define_macro_if_not_defined`, so a call bound to it may run a namesake a build defines first.
+    #[must_use]
+    pub const fn is_fallback(self) -> bool {
+        self.0 & Self::FALLBACK != 0
+    }
+
     /// These flags with test code set to `yes`.
     #[must_use]
     pub const fn with_test(self, yes: bool) -> Self {
@@ -172,6 +181,12 @@ impl SymbolFlags {
         self.set(Self::VENDORED, yes)
     }
 
+    /// These flags with the fallback set to `yes`.
+    #[must_use]
+    pub const fn with_fallback(self, yes: bool) -> Self {
+        self.set(Self::FALLBACK, yes)
+    }
+
     /// The flags set in either: how a resolver adds what a file's path shows to what its bytes showed.
     #[must_use]
     pub const fn union(self, other: Self) -> Self {
@@ -182,7 +197,8 @@ impl SymbolFlags {
         self.0
     }
 
-    pub(crate) const ALL: u8 = Self::TEST | Self::ENTRY | Self::GENERATED | Self::VENDORED;
+    pub(crate) const ALL: u8 =
+        Self::TEST | Self::ENTRY | Self::GENERATED | Self::VENDORED | Self::FALLBACK;
 
     pub(crate) const fn from_bits(bits: u8) -> Self {
         Self(bits & Self::ALL)
