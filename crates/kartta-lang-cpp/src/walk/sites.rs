@@ -5,6 +5,7 @@ use kartta_lang::{Access, Receiver, UseRef};
 use tree_sitter::Node;
 
 use super::data::data_declarator;
+use super::declarator::qualified_terminal;
 use super::{Replayer, line};
 
 /// The names the bodies around the walk declare, each visible from its declaration to the end of the block that
@@ -98,6 +99,7 @@ impl<'s, 't> Replayer<'s, 't> {
             "lambda_capture_initializer" => self.declare_capture(node),
             _ if !self.in_body(node) => {}
             "identifier" => self.record_name(node),
+            "qualified_identifier" => self.record_qualified(node),
             "field_expression" => self.record_member(node),
             "field_initializer" => self.record_initialized_field(node),
             "initializer_pair" => self.record_designated_field(node),
@@ -217,6 +219,39 @@ impl<'s, 't> Replayer<'s, 't> {
             let access = self.access_of(node);
             self.push_site(node, (name.to_owned(), Receiver::Bare, access));
         }
+    }
+
+    // constraint: a qualified name names a member of the class or the namespace its scope spells, and the graph names a
+    // class by its bare name, so the use is on the scope's last segment; a name written from the root alone is bare
+    fn record_qualified(&mut self, node: Node<'t>) {
+        let Some(&parent) = self.ancestors.last() else {
+            return;
+        };
+        if !is_used(node, parent) {
+            return;
+        }
+        let (Some(name), scope) = qualified_terminal(node) else {
+            return;
+        };
+        if name.kind() != "identifier" {
+            return;
+        }
+        let receiver = match scope {
+            None => Receiver::Bare,
+            Some(scope) => {
+                let segment = match scope.kind() {
+                    "namespace_identifier" | "type_identifier" => Some(scope),
+                    "template_type" => scope.child_by_field_name("name"),
+                    _ => None,
+                };
+                let Some(segment) = segment else {
+                    return;
+                };
+                Receiver::Path(text(segment, self.source))
+            }
+        };
+        let access = self.access_of(node);
+        self.push_site(name, (text(name, self.source), receiver, access));
     }
 
     // constraint: the operand of `.` or `->` names a type only where the walk saw it declared as a value of one, or

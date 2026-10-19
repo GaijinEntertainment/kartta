@@ -63,6 +63,32 @@ void use(const Config &config, Config *pointer, T &generic, ns::Box<Item> boxed)
 }
 
 #[test]
+fn a_qualified_name_read_without_a_call_uses_its_terminal_on_the_scope_s_last_segment() {
+    let raw = extract(
+        "void use() {
+    register_handler(&Widget::draw, Config::kLimit, ns::Box<int>::empty);
+    Config::kLimit = ::global_limit + outer::inner::value;
+    Widget::draw();
+    ns::Type local;
+}
+",
+    );
+
+    assert_eq!(
+        sites(&raw),
+        [
+            ("draw", path("Widget"), Access::Read),
+            ("kLimit", path("Config"), Access::Read),
+            ("empty", path("Box"), Access::Read),
+            ("kLimit", path("Config"), Access::Write),
+            ("global_limit", Receiver::Bare, Access::Read),
+            ("value", path("inner"), Access::Read),
+        ],
+        "a callee and a type are no use, and a name written from the root is bare"
+    );
+}
+
+#[test]
 fn a_member_of_this_is_on_the_own_receiver_and_a_called_member_is_no_site() {
     let raw = extract(
         "void Widget::resize(int width) {
