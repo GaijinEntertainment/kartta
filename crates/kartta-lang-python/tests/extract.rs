@@ -846,7 +846,7 @@ fn a_use_names_its_receiver_s_class_and_reads_a_module_value_the_file_binds() {
           print(VERSION, item.field, LATER.real, Pool, bump)\n    VERSION = item = 3\n",
     );
     let mut uses: Vec<(&str, &str, Receiver, Access, u32)> = raw
-        .references
+        .uses
         .iter()
         .map(|site| {
             (

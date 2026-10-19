@@ -1,4 +1,4 @@
-use kartta_lang::{Access, NO_CALLER_ID, Receiver, RefSite, SymbolId};
+use kartta_lang::{Access, NO_CALLER_ID, Receiver, SymbolId, UseRef};
 use tree_sitter::Node;
 
 use super::{Binding, Emitter, Span};
@@ -115,7 +115,7 @@ impl Emitter<'_> {
         name: Node<'_>,
         (receiver, access): (Receiver, Access),
     ) {
-        self.raw.references.push(RefSite {
+        self.raw.uses.push(UseRef {
             site_of: caller,
             name: String::from_utf8_lossy(&self.source[name.byte_range()]).into_owned(),
             receiver,

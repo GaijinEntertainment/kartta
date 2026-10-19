@@ -4,7 +4,7 @@
 use kartta_graph::DeadCode;
 use kartta_lang::{
     Access, CallRef, Callable, CallableRole, Conventions, Extraction, IncludeRef, NO_CALLER_ID,
-    OwnMembers, Receiver, Receivers, RefSite, Symbol, SymbolFlags, SymbolId, SymbolKind, TypeUses,
+    OwnMembers, Receiver, Receivers, Symbol, SymbolFlags, SymbolId, SymbolKind, TypeUses, UseRef,
 };
 
 use crate::{call, function, graph, graph_of};
@@ -319,7 +319,7 @@ fn fields_values_and_types_are_unobservable_where_uses_name_no_type() {
 #[test]
 fn a_method_taken_only_as_a_value_is_live() {
     let mut user = file("pkg/user.go", vec![function("Run", 1)], Vec::new());
-    user.references.push(RefSite {
+    user.uses.push(UseRef {
         site_of: SymbolId(0),
         name: "handle".to_owned(),
         receiver: Receiver::Path("Server".to_owned()),
@@ -347,7 +347,7 @@ fn a_method_taken_only_as_a_value_is_live() {
 #[test]
 fn a_type_is_judged_where_uses_name_every_type() {
     let mut user = file("pkg/user.go", vec![function("Handle", 1)], Vec::new());
-    user.references.push(RefSite {
+    user.uses.push(UseRef {
         site_of: SymbolId(0),
         name: "Request".to_owned(),
         receiver: Receiver::Bare,
@@ -401,7 +401,7 @@ fn a_definition_local_to_a_body_is_unobservable_as_no_use_binds_a_local() {
 #[test]
 fn a_use_at_file_scope_reaches_the_types_its_package_defines() {
     let mut assertion = file("pkg/assert.go", Vec::new(), Vec::new());
-    assertion.references.push(RefSite {
+    assertion.uses.push(UseRef {
         site_of: NO_CALLER_ID,
         name: "Checked".to_owned(),
         receiver: Receiver::Bare,
@@ -446,7 +446,7 @@ fn a_type_only_its_own_members_name_is_dead() {
         vec![call(NO_CALLER_ID.0, "Make", 20)],
     );
     for (site_of, name, line) in [(1, "Lonely", 5), (1, "Lonely", 6), (3, "Used", 12)] {
-        types.references.push(RefSite {
+        types.uses.push(UseRef {
             site_of: SymbolId(site_of),
             name: name.to_owned(),
             receiver: Receiver::Bare,

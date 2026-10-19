@@ -608,7 +608,7 @@ impl Graph {
             let callee = self.strings.intern(callee);
             keys.push(self.intern_listing_key(callee));
         }
-        for site in &extraction.references {
+        for site in &extraction.uses {
             if !holds(extraction, site.site_of) {
                 keys.push(self.strings.intern(&site.name));
             }
@@ -620,7 +620,7 @@ impl Graph {
     // `StoredUse::SITES`th of its file is not kept
     fn store_uses(&mut self, extraction: &Extraction) -> Box<[StoredUse]> {
         extraction
-            .references
+            .uses
             .iter()
             .filter(|site| holds(extraction, site.site_of) && site.site_of.0 < StoredUse::SITES)
             .map(|site| {

@@ -6,8 +6,8 @@
 )]
 
 use kartta_lang::{
-    Access, Language, MemberCalls, OwnMembers, RawExtraction, Receiver, RefSite, Symbol, SymbolId,
-    SymbolKind, TypeUses,
+    Access, Language, MemberCalls, OwnMembers, RawExtraction, Receiver, Symbol, SymbolId,
+    SymbolKind, TypeUses, UseRef,
 };
 use kartta_lang_go::Go;
 
@@ -77,19 +77,19 @@ fn symbol(raw: &RawExtraction, id: SymbolId) -> &Symbol {
     &raw.symbols[id.0 as usize]
 }
 
-fn qualifier(site: &RefSite) -> Option<&str> {
+fn qualifier(site: &UseRef) -> Option<&str> {
     match &site.receiver {
         Receiver::Qualifier(qualifier) => Some(qualifier),
         _ => None,
     }
 }
 
-const fn names_no_member(site: &RefSite) -> bool {
+const fn names_no_member(site: &UseRef) -> bool {
     matches!(site.receiver, Receiver::Bare | Receiver::Qualifier(_))
 }
 
 fn uses(raw: &RawExtraction) -> Vec<(&str, Option<&str>, &str, u32)> {
-    raw.references
+    raw.uses
         .iter()
         .filter(|site| names_no_member(site))
         .map(|site| {
@@ -160,7 +160,7 @@ fn a_type_named_in_a_declaration_or_a_composite_literal_is_a_use_and_in_a_conver
           func f(x int) {\n\tvar a A\n\t_ = a\n\t_ = B(x)\n\t_ = C{}\n}\n",
     );
     let used: Vec<(&str, Option<&str>)> = raw
-        .references
+        .uses
         .iter()
         .map(|site| {
             let owner = raw.symbols.get(site.site_of.0 as usize);
@@ -184,7 +184,7 @@ fn a_type_local_to_a_body_is_a_local_symbol_no_use_names() {
         .collect();
 
     assert_eq!(local, ["L", "l"]);
-    assert!(!raw.references.iter().any(|site| site.name == "L"));
+    assert!(!raw.uses.iter().any(|site| site.name == "L"));
 }
 
 #[test]
@@ -389,7 +389,7 @@ func (Box) Map[T any](v T) []T { var out []T; return out }
     );
 
     let uses: Vec<(&str, u32)> = raw
-        .references
+        .uses
         .iter()
         .map(|site| (site.name.as_str(), site.line))
         .collect();
@@ -413,7 +413,7 @@ func adapt() *pkg.Logger {
     );
 
     let uses: Vec<(&str, Option<&str>, u32)> = raw
-        .references
+        .uses
         .iter()
         .map(|site| (site.name.as_str(), qualifier(site), site.line))
         .collect();
@@ -1167,7 +1167,7 @@ func Signature(T T) {}
     );
 
     let uses: Vec<(&str, Option<&str>, u32)> = raw
-        .references
+        .uses
         .iter()
         .filter(|site| names_no_member(site))
         .map(|site| (site.name.as_str(), qualifier(site), site.line))
@@ -1209,7 +1209,7 @@ func Package() {
     );
 
     let uses: Vec<(&str, u32)> = raw
-        .references
+        .uses
         .iter()
         .map(|site| (site.name.as_str(), site.line))
         .collect();
@@ -1456,7 +1456,7 @@ func Block() {
     );
 
     let uses: Vec<(&str, u32)> = raw
-        .references
+        .uses
         .iter()
         .filter(|site| names_no_member(site))
         .map(|site| (site.name.as_str(), site.line))
@@ -1591,7 +1591,7 @@ func Load(c *Config) {
 "#;
 
 fn members(raw: &RawExtraction) -> Vec<(&str, &str, Access, u32)> {
-    raw.references
+    raw.uses
         .iter()
         .filter_map(|site| match &site.receiver {
             Receiver::Path(path) => {
@@ -1624,16 +1624,14 @@ fn a_member_taken_on_a_value_is_a_use_spelled_with_its_type_and_how_it_is_touche
          is a use and a called method is not; an anonymous struct's keys name no field"
     );
     assert!(
-        !raw.references
-            .iter()
-            .any(|site| site.receiver == Receiver::Bare
-                && matches!(site.name.as_str(), "Timeout" | "Retries" | "Reset" | "name")),
+        !raw.uses.iter().any(|site| site.receiver == Receiver::Bare
+            && matches!(site.name.as_str(), "Timeout" | "Retries" | "Reset" | "name")),
         "a member's name is no bare use"
     );
 }
 
 fn values(raw: &RawExtraction) -> Vec<(&str, Access, u32)> {
-    raw.references
+    raw.uses
         .iter()
         .filter(|site| site.receiver == Receiver::Bare && site.name.starts_with(char::is_lowercase))
         .map(|site| (site.name.as_str(), site.access, site.line))
