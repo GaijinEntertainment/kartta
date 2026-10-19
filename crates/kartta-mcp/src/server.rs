@@ -1,11 +1,12 @@
 use std::fmt;
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
+use std::pin::pin;
 use std::sync::Arc;
 
 use kartta::{
-    Definition, Graph, Hit, Limits, Region, Search, Selector, SiteQuery, SourceOptions, SymbolKind,
-    is_parent, is_referent,
+    CancelToken, Definition, Graph, Hit, Limits, Region, Search, Selector, SiteQuery,
+    SourceOptions, SymbolKind, is_parent, is_referent,
 };
 use kartta_fs::{
     Case, Filter, FuzzyOptions, GlobOptions, GrepOptions, ListError, ListOptions, Patterns,
@@ -13,7 +14,8 @@ use kartta_fs::{
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
-use rmcp::{ServerHandler, tool, tool_handler, tool_router};
+use rmcp::service::RequestContext;
+use rmcp::{RoleServer, ServerHandler, tool, tool_handler, tool_router};
 
 use crate::config::Config;
 use crate::diff::{self, Changed};
@@ -166,6 +168,23 @@ where
     })
     .await
     .map_err(|error| format!("the query stopped before it answered: {error}"))?
+}
+
+/// Awaits what `answering` answers, cancelling the token it was handed once `stop` resolves first. The answer is still
+/// awaited after the cancel: work on a blocking thread ends only when it notices the token.
+async fn stop_on<A: Future>(
+    stop: impl Future<Output = ()>,
+    answering: impl FnOnce(CancelToken) -> A,
+) -> A::Output {
+    let cancel = CancelToken::new();
+    let mut answering = pin!(answering(cancel.clone()));
+    tokio::select! {
+        answered = &mut answering => answered,
+        () = stop => {
+            cancel.cancel();
+            answering.await
+        }
+    }
 }
 
 /// A definition a name selects in one family's graph, and how near it sits.
@@ -497,7 +516,11 @@ impl Server {
                        use find_symbols, for call sites find_callers - grep finds text, not structure. Requires \
                        index_repo first."
     )]
-    async fn grep(&self, Parameters(p): Parameters<GrepParams>) -> Result<String, String> {
+    async fn grep(
+        &self,
+        Parameters(p): Parameters<GrepParams>,
+        request: RequestContext<RoleServer>,
+    ) -> Result<String, String> {
         if p.patterns.iter().all(|pattern| pattern.trim().is_empty()) {
             return Err("patterns needs at least one non-blank pattern".to_owned());
         }
@@ -515,21 +538,24 @@ impl Server {
             }
             None => None,
         };
-        self.answer(move |indexed| {
-            let index = indexed.engine.index();
-            let mut options = GrepOptions::default()
-                .context(p.context_lines)
-                .limit(p.max_results.map_or(GREP_MATCHES, NonZeroUsize::get))
-                .max_line_bytes(GREP_LINE_BYTES)
-                .max_file_bytes(GREP_FILE_BYTES);
-            if let Some(includes) = &includes {
-                options = options.filter(includes);
-            }
-            if let Some(excludes) = &excludes {
-                options = options.exclude(excludes);
-            }
-            let matches = index.grep(&patterns, &options);
-            Ok(render::grep(&p.patterns, &matches, &mut index.paths()))
+        stop_on(request.ct.cancelled(), |cancel| {
+            self.answer(move |indexed| {
+                let index = indexed.engine.index();
+                let mut options = GrepOptions::default()
+                    .context(p.context_lines)
+                    .limit(p.max_results.map_or(GREP_MATCHES, NonZeroUsize::get))
+                    .max_line_bytes(GREP_LINE_BYTES)
+                    .max_file_bytes(GREP_FILE_BYTES)
+                    .cancel(&cancel);
+                if let Some(includes) = &includes {
+                    options = options.filter(includes);
+                }
+                if let Some(excludes) = &excludes {
+                    options = options.exclude(excludes);
+                }
+                let matches = index.grep(&patterns, &options);
+                Ok(render::grep(&p.patterns, &matches, &mut index.paths()))
+            })
         })
         .await
     }
@@ -1358,5 +1384,32 @@ mod tests {
 
         assert!(filter.matches("x/a[1]{b}*"));
         assert!(!filter.matches("x/a1b"));
+    }
+
+    async fn until_cancelled(cancel: CancelToken) -> &'static str {
+        for _ in 0..1000 {
+            if cancel.is_cancelled() {
+                return "stopped early";
+            }
+            tokio::task::yield_now().await;
+        }
+        "never cancelled"
+    }
+
+    #[tokio::test]
+    async fn a_stop_cancels_the_answering_work_and_its_answer_still_arrives() {
+        let answered = stop_on(std::future::ready(()), until_cancelled).await;
+
+        assert_eq!(answered, "stopped early");
+    }
+
+    #[tokio::test]
+    async fn a_stop_that_never_comes_leaves_the_work_uncancelled() {
+        let cancelled = stop_on(std::future::pending(), |cancel| async move {
+            cancel.is_cancelled()
+        })
+        .await;
+
+        assert!(!cancelled);
     }
 }
