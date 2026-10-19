@@ -7,8 +7,8 @@
 )]
 
 use kartta_lang::{
-    CallRef, CallableRole, Extraction, FILE_SCOPE, InheritedMembers, Language, MemoryRepository,
-    OwnMembers, RawExtraction, Symbol, SymbolId, SymbolKind,
+    Access, CallRef, CallableRole, Extraction, FILE_SCOPE, InheritedMembers, Language,
+    MemoryRepository, OwnMembers, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind,
 };
 use kartta_lang_ruby::Ruby;
 
@@ -912,4 +912,74 @@ fn doc_line(name: &str) -> u32 {
 fn hash_comments_and_an_embedded_document_above_a_method_document_it() {
     assert_eq!(doc_line("parse"), 3);
     assert_eq!(doc_line("render"), 7);
+}
+
+fn uses(raw: &RawExtraction) -> Vec<(&str, &Receiver, SymbolId, u32)> {
+    raw.uses
+        .iter()
+        .map(|used| {
+            assert_eq!(used.access, Access::Read, "{used:?}");
+            (used.name.as_str(), &used.receiver, used.site_of, used.line)
+        })
+        .collect()
+}
+
+#[test]
+fn a_method_named_by_a_symbol_is_a_use_of_it() {
+    let raw = extract(
+        b"class Feed
+  def boot
+    items.map(&method(:render))
+    send(:refresh, value)
+    self.public_send(:refresh)
+    Cache.__send__(:flush)
+    Cache::Store.method(:open)
+    other.send(:render)
+    respond_to?(:render)
+    Feed.instance_method(:render)
+    public_method(:render)
+    singleton_method(:build)
+  end
+  define_method(:reload) { send(:refresh) }
+  singleton_method(:make)
+end
+send(:setup)
+def run
+  send(:setup)
+end
+def obj.tick
+  send(:setup)
+end
+def self.start
+  Cache.singleton_method(:warm)
+  send(:setup)
+end
+",
+    );
+
+    let (feed, boot, run, tick, start) = (
+        id_of(&raw.symbols, "Feed"),
+        id_of(&raw.symbols, "Feed#boot"),
+        id_of(&raw.symbols, "run"),
+        id_of(&raw.symbols, "tick"),
+        id_of(&raw.symbols, "start"),
+    );
+    assert_eq!(
+        uses(&raw),
+        [
+            ("render", &Receiver::Own, boot, 3),
+            ("refresh", &Receiver::Own, boot, 4),
+            ("refresh", &Receiver::Own, boot, 5),
+            ("flush", &Receiver::Path("Cache".to_owned()), boot, 6),
+            ("open", &Receiver::Path("Cache::Store".to_owned()), boot, 7),
+            ("render", &Receiver::Own, boot, 11),
+            ("refresh", &Receiver::Path("Feed".to_owned()), feed, 14),
+            ("make", &Receiver::Path("Feed".to_owned()), feed, 15),
+            ("setup", &Receiver::Bare, FILE_SCOPE, 17),
+            ("setup", &Receiver::Bare, run, 19),
+            ("setup", &Receiver::Bare, tick, 22),
+            ("warm", &Receiver::Path("Cache".to_owned()), start, 25),
+            ("setup", &Receiver::Bare, start, 26),
+        ]
+    );
 }
