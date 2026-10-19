@@ -2,7 +2,7 @@ use std::collections::{HashSet, VecDeque};
 
 use kartta_lang::tree::{child_nodes, line, named_child_nodes, preorder, signature, text};
 use kartta_lang::{
-    ImplementsAssertion, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
+    FILE_SCOPE, ImplementsAssertion, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
 };
 use tree_sitter::{Node, Tree};
@@ -141,7 +141,7 @@ impl<'a> Emitter<'a> {
 
     fn handle(&mut self, node: Node<'_>) -> bool {
         self.close_scopes(node.start_byte());
-        let caller = self.callers.last().map_or(NO_CALLER_ID, |scope| scope.id);
+        let caller = self.callers.last().map_or(FILE_SCOPE, |scope| scope.id);
 
         match node.kind() {
             "function_declaration" => self.enter_function(node),

@@ -2,8 +2,8 @@
 
 use kartta_graph::Graph;
 use kartta_lang::{
-    Access, Conventions, Extraction, IncludeRef, LocalCall, NO_CALLER_ID, Receiver, Symbol,
-    SymbolId, SymbolKind, UseRef,
+    Access, Conventions, Extraction, FILE_SCOPE, IncludeRef, LocalCall, Receiver, Symbol, SymbolId,
+    SymbolKind, UseRef,
 };
 
 use crate::call;
@@ -21,10 +21,10 @@ fn library() -> Extraction {
     extraction.calls = vec![
         call(0, "parse", 4),
         call(0, "print", 5),
-        call(NO_CALLER_ID.0, "init", 20),
+        call(FILE_SCOPE.0, "init", 20),
     ];
     extraction.local_calls = vec![LocalCall {
-        caller_id: SymbolId(0),
+        site_of: SymbolId(0),
         local: SymbolId(1),
         line: 6,
     }];

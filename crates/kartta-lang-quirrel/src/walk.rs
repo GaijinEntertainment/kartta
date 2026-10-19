@@ -1,6 +1,6 @@
 use kartta_lang::tree::{line, named_child_nodes, preorder, signature_from, text};
 use kartta_lang::{
-    Banner, CallRef, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
+    Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
 };
 use tree_sitter::{Node, Tree};
@@ -154,7 +154,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn declared_function(&mut self, node: Node<'_>) {
-        let id = field_text(node, "name", self.source).map_or(NO_CALLER_ID, |name| {
+        let id = field_text(node, "name", self.source).map_or(FILE_SCOPE, |name| {
             let owner = (node.kind() == "method")
                 .then(|| self.member_owner())
                 .flatten()
@@ -182,7 +182,7 @@ impl<'a> Emitter<'a> {
                 header_start: node.start_byte(),
             })
         });
-        let id = binding.map_or(NO_CALLER_ID, |binding| self.bind_function(binding, node));
+        let id = binding.map_or(FILE_SCOPE, |binding| self.bind_function(binding, node));
         self.open_scope(node, id);
     }
 
@@ -378,9 +378,9 @@ impl<'a> Emitter<'a> {
             return;
         }
 
-        let caller_id = self.scopes.last().map_or(NO_CALLER_ID, |scope| scope.id);
+        let site_of = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
         self.raw.calls.push(CallRef {
-            caller_id,
+            site_of,
             callee,
             receiver,
             line: start_line(node),

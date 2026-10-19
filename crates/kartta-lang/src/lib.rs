@@ -87,7 +87,7 @@ pub use crate::language::{
     Receivers, Repository, Resolver, TypeUses, UntypedMembers, ValueUses,
 };
 pub use crate::memory::MemoryRepository;
-pub use crate::symbol::{NO_CALLER_ID, Symbol, SymbolFlags, SymbolId, SymbolKind};
+pub use crate::symbol::{FILE_SCOPE, Symbol, SymbolFlags, SymbolId, SymbolKind};
 
 /// Identifies this crate's code: its name, its version and a digest of its source.
 ///

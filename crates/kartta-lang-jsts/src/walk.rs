@@ -7,7 +7,7 @@ use std::ops::Range;
 
 use kartta_lang::tree::{preorder, signature, signature_from, text};
 use kartta_lang::{
-    Callable, CallableRole, NO_CALLER_ID, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Callable, CallableRole, FILE_SCOPE, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
 use tree_sitter::{Node, Tree};
 
@@ -167,7 +167,7 @@ impl<'s> Emitter<'s> {
 
     fn handle(&mut self, node: Node<'_>) {
         self.close_scopes(node.start_byte());
-        let caller = self.scopes.last().map_or(NO_CALLER_ID, |scope| scope.id);
+        let caller = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
 
         match node.kind() {
             "function_declaration" | "generator_function_declaration" => {

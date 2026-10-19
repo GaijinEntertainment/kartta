@@ -6,7 +6,7 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{Language, NO_CALLER_ID, RawExtraction, Symbol, SymbolId, SymbolKind};
+use kartta_lang::{FILE_SCOPE, Language, RawExtraction, Symbol, SymbolId, SymbolKind};
 use kartta_lang_bash::Bash;
 
 const SAMPLE: &[u8] = br#"#!/usr/bin/env bash
@@ -137,7 +137,7 @@ fn a_command_is_a_call_from_the_function_around_it() {
     let greet = raw
         .calls
         .iter()
-        .find(|call| call.callee == "greet" && call.caller_id == deploy)
+        .find(|call| call.callee == "greet" && call.site_of == deploy)
         .expect("greet inside deploy");
     let rsync = raw
         .calls
@@ -146,7 +146,7 @@ fn a_command_is_a_call_from_the_function_around_it() {
         .expect("rsync");
 
     assert_eq!(greet.receiver, None);
-    assert_eq!(rsync.caller_id, deploy);
+    assert_eq!(rsync.site_of, deploy);
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn a_command_outside_every_function_is_made_from_file_scope() {
     assert!(
         raw.calls
             .iter()
-            .any(|call| call.callee == "greet" && call.caller_id == NO_CALLER_ID)
+            .any(|call| call.callee == "greet" && call.site_of == FILE_SCOPE)
     );
 }
 
@@ -176,7 +176,7 @@ fn a_command_substitution_opens_no_scope() {
         .calls
         .iter()
         .filter(|call| call.callee == "compile")
-        .map(|call| call.caller_id)
+        .map(|call| call.site_of)
         .collect();
     assert_eq!(callers, [build]);
 }

@@ -210,7 +210,7 @@ impl Emitter<'_> {
             CallForm::Plain => {
                 self.innermost_block_item(&site.callee, call, |kind| match kind {
                     BlockItemKind::Value(_) | BlockItemKind::Import => true,
-                    BlockItemKind::Binding(function) => function == site.caller_id,
+                    BlockItemKind::Binding(function) => function == site.site_of,
                     _ => false,
                 })?
             }
@@ -254,7 +254,7 @@ impl Emitter<'_> {
                 return true;
             };
             local_calls.push(LocalCall {
-                caller_id: call.caller_id,
+                site_of: call.site_of,
                 local,
                 line: call.line,
             });

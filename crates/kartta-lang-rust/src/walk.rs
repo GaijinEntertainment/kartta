@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use kartta_lang::tree::{line, named_child_nodes, preorder, signature, text};
 use kartta_lang::{
-    Banner, NO_CALLER_ID, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Banner, FILE_SCOPE, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
 use tree_sitter::{Node, Tree};
 
@@ -132,7 +132,7 @@ impl Emitter<'_> {
     fn handle(&mut self, node: Node<'_>) {
         self.close_scopes(node.start_byte());
         self.open_test_scopes(node);
-        let caller = self.functions.last().map_or(NO_CALLER_ID, |scope| scope.id);
+        let caller = self.functions.last().map_or(FILE_SCOPE, |scope| scope.id);
 
         match node.kind() {
             "function_item" => {

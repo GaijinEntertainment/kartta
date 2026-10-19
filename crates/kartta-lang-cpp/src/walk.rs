@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use kartta_lang::tree::{child_nodes, line, preorder, signature, text};
 use kartta_lang::{
-    Banner, CallRef, Callable, CallableRole, FoldedDeclaration, NO_CALLER_ID, RawDirective,
+    Banner, CallRef, Callable, CallableRole, FILE_SCOPE, FoldedDeclaration, RawDirective,
     RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
 use tree_sitter::{Node, Tree};
@@ -427,7 +427,7 @@ impl<'s, 't> Replayer<'s, 't> {
         }
 
         self.raw.calls.push(CallRef {
-            caller_id: self.caller(),
+            site_of: self.caller(),
             callee,
             receiver,
             line: line(node.start_position().row),
@@ -443,7 +443,7 @@ impl<'s, 't> Replayer<'s, 't> {
     }
 
     fn caller(&self) -> SymbolId {
-        self.functions.last().map_or(NO_CALLER_ID, |scope| scope.id)
+        self.functions.last().map_or(FILE_SCOPE, |scope| scope.id)
     }
 
     fn attribute_to_class(&self, symbol: &mut Symbol) {
@@ -895,14 +895,14 @@ int defined_and_declared(int x) { return x; }
             .find(|call| call.callee == "draw")
             .expect("draw call");
         assert_eq!(draw.receiver.as_deref(), Some(""));
-        assert_eq!(draw.caller_id, render);
+        assert_eq!(draw.site_of, render);
 
         let bare_compute = raw
             .calls
             .iter()
             .find(|call| call.callee == "compute" && call.receiver.is_none())
             .expect("compute call");
-        assert_eq!(bare_compute.caller_id, render);
+        assert_eq!(bare_compute.site_of, render);
     }
 
     #[test]
@@ -1251,7 +1251,7 @@ int defined_and_declared(int x) { return x; }
         let calls: Vec<(&str, SymbolId)> = raw
             .calls
             .iter()
-            .map(|call| (call.callee.as_str(), call.caller_id))
+            .map(|call| (call.callee.as_str(), call.site_of))
             .collect();
         assert_eq!(
             calls,

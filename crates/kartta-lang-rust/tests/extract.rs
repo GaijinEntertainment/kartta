@@ -393,11 +393,11 @@ fn a_call_belongs_to_the_function_around_it_and_self_names_the_impl_type() {
         .expect("self.greet() call");
 
     assert_eq!(
-        (helper.caller_id, helper.receiver.as_deref()),
+        (helper.site_of, helper.receiver.as_deref()),
         (id_of(&raw, "Service::greet"), None)
     );
     assert_eq!(
-        (greet.caller_id, greet.receiver.as_deref()),
+        (greet.site_of, greet.receiver.as_deref()),
         (id_of(&raw, "Service::touch"), Some("Service"))
     );
 }
@@ -462,7 +462,7 @@ fn a_closure_opens_no_scope() {
         .find(|call| call.callee == "helper")
         .expect("helper call");
 
-    assert_eq!(call.caller_id, id_of(&raw, "outer"));
+    assert_eq!(call.site_of, id_of(&raw, "outer"));
 }
 
 #[test]

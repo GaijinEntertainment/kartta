@@ -3,7 +3,7 @@
 
 use kartta_graph::{Graph, Miss, Resolution, confidence};
 use kartta_lang::{
-    CallRef, Conventions, Extraction, ImportBinding, LocalCall, NO_CALLER_ID, Symbol, SymbolId,
+    CallRef, Conventions, Extraction, FILE_SCOPE, ImportBinding, LocalCall, Symbol, SymbolId,
     SymbolKind,
 };
 
@@ -40,12 +40,12 @@ fn program() -> Graph {
             call(0, None, "size", 6),
             call(0, None, "helper", 7),
             call(0, Some("obj"), "missing", 8),
-            call(NO_CALLER_ID.0, None, "init", 20),
+            call(FILE_SCOPE.0, None, "init", 20),
         ],
     );
     main.local_symbols = vec![SymbolId(1)];
     main.local_calls = vec![LocalCall {
-        caller_id: SymbolId(0),
+        site_of: SymbolId(0),
         local: SymbolId(1),
         line: 9,
     }];

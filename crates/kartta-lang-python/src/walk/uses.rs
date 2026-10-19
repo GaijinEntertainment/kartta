@@ -1,4 +1,4 @@
-use kartta_lang::{Access, NO_CALLER_ID, Receiver, SymbolId, UseRef};
+use kartta_lang::{Access, FILE_SCOPE, Receiver, SymbolId, UseRef};
 use tree_sitter::Node;
 
 use super::{Binding, Emitter, IDENTIFIER, line};
@@ -18,7 +18,7 @@ pub(super) struct NameUse<'a> {
 impl<'a> Emitter<'a> {
     // constraint: a called attribute is a call site already
     pub(super) fn attribute_use(&mut self, attribute: Node<'_>, caller: SymbolId) {
-        if caller == NO_CALLER_ID || is_callee(attribute) {
+        if caller == FILE_SCOPE || is_callee(attribute) {
             return;
         }
         let (Some(object), Some(name)) = (
@@ -48,7 +48,7 @@ impl<'a> Emitter<'a> {
     }
 
     pub(super) fn name_use(&mut self, identifier: Node<'_>, caller: SymbolId) {
-        if caller == NO_CALLER_ID || is_callee(identifier) || !reads(identifier) {
+        if caller == FILE_SCOPE || is_callee(identifier) || !reads(identifier) {
             return;
         }
         self.defer(NameUse {

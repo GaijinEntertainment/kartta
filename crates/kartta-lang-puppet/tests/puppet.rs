@@ -7,7 +7,7 @@
 )]
 
 use kartta_lang::{
-    CallRef, Extraction, Language, MemoryRepository, NO_CALLER_ID, RawExtraction, SymbolId,
+    CallRef, Extraction, FILE_SCOPE, Language, MemoryRepository, RawExtraction, SymbolId,
     SymbolKind,
 };
 use kartta_lang_puppet::Puppet;
@@ -126,13 +126,13 @@ fn a_statement_is_a_call_of_the_definition_around_it() {
     let apache = id_of(&raw, "webserver::apache");
 
     for callee in ["package", "service", "stdlib"] {
-        assert_eq!(call(&raw.calls, callee).caller_id, apache, "{callee}");
+        assert_eq!(call(&raw.calls, callee).site_of, apache, "{callee}");
     }
     let fail = call(&raw.calls, "fail");
-    assert_eq!(fail.caller_id, id_of(&raw, "webserver::port_for"));
+    assert_eq!(fail.site_of, id_of(&raw, "webserver::port_for"));
     assert_eq!(fail.receiver, None);
     assert_eq!(
-        call(&raw.calls, "webserver::apache").caller_id,
+        call(&raw.calls, "webserver::apache").site_of,
         id_of(&raw, "'web01.example.com'")
     );
 }
@@ -146,12 +146,7 @@ fn a_top_scope_statement_calls_from_file_scope() {
     );
 
     assert_eq!(callees(&resolved.calls), ["before", "after"]);
-    assert!(
-        resolved
-            .calls
-            .iter()
-            .all(|call| call.caller_id == NO_CALLER_ID)
-    );
+    assert!(resolved.calls.iter().all(|call| call.site_of == FILE_SCOPE));
     assert_eq!(
         includes(&resolved),
         ["before/manifests/init.pp", "after/manifests/init.pp"]
@@ -265,7 +260,7 @@ fn an_inherited_class_is_a_parent_a_call_and_an_include() {
 
     assert_eq!(resolved.symbols[0].parents, ["apache::params"]);
     assert_eq!(callees(&resolved.calls), ["apache::params"]);
-    assert_eq!(resolved.calls[0].caller_id, SymbolId(0));
+    assert_eq!(resolved.calls[0].site_of, SymbolId(0));
     assert_eq!(includes(&resolved), ["modules/apache/manifests/params.pp"]);
 }
 

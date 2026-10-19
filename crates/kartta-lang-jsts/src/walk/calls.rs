@@ -34,7 +34,7 @@ const TEST_MODIFIERS: [&str; 6] = [
 const TEST_HOOKS: [&str; 4] = ["beforeEach", "afterEach", "beforeAll", "afterAll"];
 
 impl Emitter<'_> {
-    pub(super) fn jsx_call(&mut self, node: Node<'_>, caller_id: SymbolId) {
+    pub(super) fn jsx_call(&mut self, node: Node<'_>, site_of: SymbolId) {
         let Some(name) = node.child_by_field_name("name") else {
             return;
         };
@@ -69,11 +69,11 @@ impl Emitter<'_> {
             .is_some_and(u8::is_ascii_uppercase)
         {
             let (callee, receiver) = target;
-            self.push_call((callee, self.value_receiver(receiver)), node, caller_id);
+            self.push_call((callee, self.value_receiver(receiver)), node, site_of);
         }
     }
 
-    pub(super) fn new_call(&mut self, node: Node<'_>, caller_id: SymbolId) {
+    pub(super) fn new_call(&mut self, node: Node<'_>, site_of: SymbolId) {
         let Some(constructor) = node.child_by_field_name("constructor") else {
             return;
         };
@@ -91,10 +91,10 @@ impl Emitter<'_> {
             }
             _ => return,
         };
-        self.push_call(target, node, caller_id);
+        self.push_call(target, node, site_of);
     }
 
-    pub(super) fn call(&mut self, node: Node<'_>, caller_id: SymbolId) {
+    pub(super) fn call(&mut self, node: Node<'_>, site_of: SymbolId) {
         let (callee, written) = call_target(node, self.source);
         let owner = self.this_owner(node);
         let on_this = owner.is_some();
@@ -112,7 +112,7 @@ impl Emitter<'_> {
         } else {
             self.value_receiver(receiver.clone())
         };
-        self.push_call((callee.clone(), recorded), node, caller_id);
+        self.push_call((callee.clone(), recorded), node, site_of);
         self.test_registration(node, &callee, receiver.as_deref());
     }
 
@@ -165,13 +165,13 @@ impl Emitter<'_> {
         &mut self,
         (callee, receiver): (String, Option<String>),
         node: Node<'_>,
-        caller_id: SymbolId,
+        site_of: SymbolId,
     ) {
         if callee.is_empty() || self.raw.symbols.is_empty() {
             return;
         }
         self.raw.calls.push(CallRef {
-            caller_id,
+            site_of,
             callee,
             receiver,
             line: start_line(node),

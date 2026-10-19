@@ -30,7 +30,7 @@ impl Emitter<'_> {
     // constraint: a scoped call's receiver path under the module chain replaces its receiver after the walk when the
     // file declares a type or module of that name, and a `self` or `Self` receiver follows the owner of the impl it
     // names when that owner settles
-    pub(super) fn call(&mut self, node: Node<'_>, caller_id: SymbolId) {
+    pub(super) fn call(&mut self, node: Node<'_>, site_of: SymbolId) {
         let Some(function) = node.child_by_field_name("function") else {
             return;
         };
@@ -38,7 +38,7 @@ impl Emitter<'_> {
         let path = receiver_path(function, self.source).and_then(|path| self.module_path(&path));
         let names_own_type = target.names_own_type;
         let call = CallRef {
-            caller_id,
+            site_of,
             callee: target.callee,
             receiver: target.receiver,
             line: line(node.start_position().row),
@@ -142,10 +142,10 @@ impl Emitter<'_> {
         self.types.last().map(|scope| scope.name.clone())
     }
 
-    pub(super) fn macro_call(&mut self, node: Node<'_>, caller_id: SymbolId) {
+    pub(super) fn macro_call(&mut self, node: Node<'_>, site_of: SymbolId) {
         let name = node.child_by_field_name("macro");
         let call = CallRef {
-            caller_id,
+            site_of,
             callee: name.map_or_else(String::new, |name| last_segment(name, self.source)),
             receiver: None,
             line: line(node.start_position().row),
