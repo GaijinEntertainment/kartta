@@ -9,8 +9,8 @@ use kartta_lang::{Access, SymbolKind};
 
 use crate::confidence;
 use crate::graph::{
-    Definition, Graph, QUALIFIER_SEPARATORS, distinct, is_call_target_kind, keep_first, listed,
-    narrow,
+    Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, is_call_target_kind,
+    keep_first, listed, narrow,
 };
 use crate::resolve::{Call, Cascade, UseMiss};
 use crate::stored::{Entry, Site, SymbolAt};
@@ -82,6 +82,8 @@ pub struct Walk<'g> {
     pub root: Definition<'g>,
     /// The other callables the name selects, which the walk did not start from.
     pub passed_over: usize,
+    /// The most called of those, the most first, then in path order, at most five.
+    pub candidates: Vec<Candidate<'g>>,
     /// The symbols reached, each once, nearest first.
     pub reached: Vec<Reached<'g>>,
     /// Whether the symbol cap stopped the walk.
@@ -203,6 +205,8 @@ pub struct References<'g> {
     pub symbol: Definition<'g>,
     /// The other symbols the name selects, whose sites these are not.
     pub passed_over: usize,
+    /// The most used of those, the most sites first, then in path order, at most five.
+    pub candidates: Vec<Candidate<'g>>,
     /// The sites, by file and line, at most the query's limit.
     pub sites: Vec<Reference<'g>>,
     /// The sites that pass the confidence floor and the access the query keeps, before the limit.
@@ -243,6 +247,9 @@ pub struct CallPath<'g> {
     pub below_confidence: usize,
     /// The other callables each name selects, which the search did not start or end at: `from`'s, then `to`'s.
     pub passed_over: (usize, usize),
+    /// The most called of each end's passed-over callables, `from`'s then `to`'s, the most first, then in path order,
+    /// at most five each.
+    pub candidates: (Vec<Candidate<'g>>, Vec<Candidate<'g>>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -288,31 +295,39 @@ impl Graph {
     /// tie. A declaration and the definition it links to are one callable, and a call of either is a call of that
     /// definition.
     ///
+    /// A selector's path prefix keeps only the symbols in the files under it, before any of these rules: it reaches
+    /// one of several copies that share a qualified name.
+    ///
     /// Calls are resolved when this asks, from the call sites the graph keeps: the cost grows with the call sites of
     /// each name the walk reaches.
     #[must_use]
-    pub fn callers(&self, name: &str, limits: Limits) -> Option<Walk<'_>> {
+    pub fn callers<'s>(&self, name: impl Into<Selector<'s>>, limits: Limits) -> Option<Walk<'_>> {
+        let selector = name.into();
         let mut calls = Calls::new(self);
-        let root = calls.select(name, Calls::caller_count)?;
+        let root = calls.select(selector, Calls::caller_count)?;
         let mut walk = calls.walk(root, limits, Calls::callers_of);
-        walk.passed_over = calls.passed_over(name, root);
+        (walk.passed_over, walk.candidates) =
+            calls.passed_over(selector, root, Calls::caller_count);
         Some(walk)
     }
 
     /// The callees of the symbol `name` selects, transitively within `limits`, or `None` when it selects none; a name
     /// selects as [`Graph::callers`] describes.
     #[must_use]
-    pub fn callees(&self, name: &str, limits: Limits) -> Option<Walk<'_>> {
+    pub fn callees<'s>(&self, name: impl Into<Selector<'s>>, limits: Limits) -> Option<Walk<'_>> {
+        let selector = name.into();
         let mut calls = Calls::new(self);
-        let root = calls.select(name, Calls::caller_count)?;
+        let root = calls.select(selector, Calls::caller_count)?;
         let mut walk = calls.walk(root, limits, Calls::walked_callees);
-        walk.passed_over = calls.passed_over(name, root);
+        (walk.passed_over, walk.candidates) =
+            calls.passed_over(selector, root, Calls::caller_count);
         Some(walk)
     }
 
     /// The sites that call or use the symbol `name` selects that `query` keeps, or `None` when it selects none. A name
     /// selects among every symbol a use can name, a value and a field included where calls target neither, and a bare
-    /// name shared by several of them selects the one with the most sites.
+    /// name shared by several of them selects the one with the most sites; a path prefix narrows them as
+    /// [`Graph::callers`] describes.
     ///
     /// The uses are those the language records. A member taken on a value binds through the type the language spells
     /// for the value, else the one field of the name in the use's own file, and where the language says so, in the
@@ -321,9 +336,14 @@ impl Graph {
     /// of the one base that lookup finds. Every site of the name is resolved before the query's limit applies, so the
     /// limit bounds the answer, not the work, and `total` counts them all.
     #[must_use]
-    pub fn references(&self, name: &str, query: SiteQuery) -> Option<References<'_>> {
+    pub fn references<'s>(
+        &self,
+        name: impl Into<Selector<'s>>,
+        query: SiteQuery,
+    ) -> Option<References<'_>> {
+        let selector = name.into();
         let mut calls = Calls::wanting(self, Wanted::Referents);
-        let root = calls.select(name, Calls::site_count)?;
+        let root = calls.select(selector, Calls::site_count)?;
 
         let named = self.sym(root).name;
         calls.resolve_callers(named);
@@ -360,10 +380,12 @@ impl Graph {
             by_file_and_line(left).cmp(&by_file_and_line(right))
         });
         sites.sort_unstable_by_key(by_file_and_line);
+        let (passed_over, candidates) = calls.passed_over(selector, root, Calls::site_count);
 
         Some(References {
             symbol: self.definition_at(root),
-            passed_over: calls.passed_over(name, root),
+            passed_over,
+            candidates,
             total,
             sites: sites
                 .into_iter()
@@ -389,15 +411,21 @@ impl Graph {
     /// when either selects none; each name selects as [`Graph::callers`] describes. A chain the graph does not hold is
     /// no proof that the code holds none: calls are resolved by name and miss dynamic dispatch.
     #[must_use]
-    pub fn call_path(&self, from: &str, to: &str, limits: Limits) -> Option<CallPath<'_>> {
+    pub fn call_path<'s>(
+        &self,
+        from: impl Into<Selector<'s>>,
+        to: impl Into<Selector<'s>>,
+        limits: Limits,
+    ) -> Option<CallPath<'_>> {
+        let (from, to) = (from.into(), to.into());
         let mut calls = Calls::new(self);
         let start = calls.select(from, Calls::caller_count)?;
         let target = calls.select(to, Calls::caller_count)?;
         let mut path = calls.path(start, target, limits);
-        path.passed_over = (
-            calls.passed_over(from, start),
-            calls.passed_over(to, target),
-        );
+        let (from_count, from_candidates) = calls.passed_over(from, start, Calls::caller_count);
+        let (to_count, to_candidates) = calls.passed_over(to, target, Calls::caller_count);
+        path.passed_over = (from_count, to_count);
+        path.candidates = (from_candidates, to_candidates);
         Some(path)
     }
 }
@@ -517,24 +545,33 @@ impl<'g> Calls<'g> {
         }
     }
 
-    fn select(&mut self, name: &str, rank: Rank<'g>) -> Option<SymbolAt> {
-        let key = self.graph.strings.get(name);
+    fn select(&mut self, selector: Selector<'_>, rank: Rank<'g>) -> Option<SymbolAt> {
+        let within = |at: &SymbolAt| self.graph.is_within(*at, selector.path_prefix);
+        let key = self.graph.strings.get(selector.name);
         if let Some(key) = key {
-            let holders = self.wanted_first(self.cascade.qualified_as(key).collect());
+            let holders =
+                self.wanted_first(self.cascade.qualified_as(key).filter(within).collect());
             if !holders.is_empty() {
                 return self.ranked_first(&holders, rank);
             }
         }
-        let named = key.map_or_else(Vec::new, |key| self.graph.named(key).to_vec());
+        let named = key.map_or_else(Vec::new, |key| {
+            self.graph
+                .named(key)
+                .iter()
+                .copied()
+                .filter(within)
+                .collect()
+        });
         let named = self.wanted_first(named);
         if !named.is_empty() {
             return self.ranked_first(&named, rank);
         }
-        if !name.contains(QUALIFIER_SEPARATORS) {
+        if !selector.name.contains(QUALIFIER_SEPARATORS) {
             return None;
         }
         let mut pool = self
-            .wanted_first(self.graph.selected(name).collect())
+            .wanted_first(self.graph.selected(selector.name).filter(within).collect())
             .into_iter()
             .map(|at| self.cascade.canonical(at));
         let first = pool.next()?;
@@ -571,13 +608,30 @@ impl<'g> Calls<'g> {
         best.map(|(callable, _)| callable)
     }
 
-    fn passed_over(&self, name: &str, chosen: SymbolAt) -> usize {
+    fn others(&self, selector: Selector<'_>, chosen: SymbolAt) -> Vec<SymbolAt> {
+        let selected = self
+            .graph
+            .selected(selector.name)
+            .filter(|&at| self.graph.is_within(at, selector.path_prefix))
+            .collect();
         let others = self
-            .wanted_first(self.graph.selected(name).collect())
+            .wanted_first(selected)
             .into_iter()
             .map(|at| self.cascade.canonical(at))
             .filter(|&at| at != chosen);
-        distinct(others).len()
+        distinct(others)
+    }
+
+    fn passed_over(
+        &mut self,
+        selector: Selector<'_>,
+        chosen: SymbolAt,
+        rank: Rank<'g>,
+    ) -> (usize, Vec<Candidate<'g>>) {
+        let others = self.others(selector, chosen);
+        let count = others.len();
+        let ranked = others.into_iter().map(|at| (at, rank(self, at))).collect();
+        (count, self.graph.candidates(ranked))
     }
 
     fn renamings(&self, name: Str) -> Vec<Str> {
@@ -763,6 +817,7 @@ impl<'g> Calls<'g> {
         Walk {
             root: graph.definition_at(root),
             passed_over: 0,
+            candidates: Vec::new(),
             reached,
             truncated: left_out.truncated,
             turned_away: left_out.turned_away,
@@ -833,6 +888,7 @@ impl<'g> Calls<'g> {
             at_depth_bound: search.at_depth_bound,
             below_confidence: search.below_confidence,
             passed_over: (0, 0),
+            candidates: (Vec::new(), Vec::new()),
         }
     }
 }
