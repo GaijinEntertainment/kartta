@@ -245,7 +245,9 @@ pub enum BuildError {
         /// The path as it was given.
         path: String,
     },
-    /// The directory [`BuildOptions::content_cache`] names could not be opened, written, published to or merged.
+    /// The directory [`BuildOptions::content_cache`] names could not be opened, written, published to or merged, or its
+    /// merge could not remove files it should have: merged packs, which then hold their entries twice, temporary files
+    /// of killed builds, or packs it does not map.
     ///
     /// Collected rather than returned: a content index is whole, because the build computed every file's trigrams it
     /// could not take from the cache. What it lost is the sharing — what it computed, and what a visitor cached, is

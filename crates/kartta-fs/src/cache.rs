@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use kartta_cache::{ContentHash, DEFAULT_TTL, Namespace, PackWriter, Store};
+use kartta_cache::{ContentHash, DEFAULT_TTL, Merged, Namespace, PackWriter, Store};
 
 use crate::build::BuildError;
 use crate::trigram::{self, Trigrams};
@@ -81,9 +81,28 @@ impl SharedCache {
         writer
             .publish()
             .and_then(|_| Store::open(&dir)?.merge(ttl))
-            .err()
+            .map_or_else(Some, |merged| unremoved(&merged))
             .map(|source| cache_error(&dir, source))
     }
+}
+
+fn unremoved(merged: &Merged) -> Option<io::Error> {
+    let left: Vec<String> = [
+        (merged.left_in_place, "merged pack"),
+        (merged.orphans_left, "temporary file"),
+        (merged.unreadable_left, "unmapped pack"),
+    ]
+    .into_iter()
+    .filter(|&(count, _)| count > 0)
+    .map(|(count, what)| format!("{count} {what}{}", if count == 1 { "" } else { "s" }))
+    .collect();
+
+    (!left.is_empty()).then(|| {
+        io::Error::other(format!(
+            "the merge could not remove {}, which stay in the directory",
+            left.join(", ")
+        ))
+    })
 }
 
 fn trigram_namespace() -> Namespace {
@@ -142,5 +161,31 @@ mod tests {
             1,
             "the planted entry holds the haystack's, so the file is read and nothing found"
         );
+    }
+
+    #[test]
+    fn a_merge_that_left_files_behind_is_a_failure_naming_what_it_left() {
+        let mut merged = Merged::default();
+        merged.left_in_place = 2;
+        merged.orphans_left = 1;
+        merged.unreadable_left = 3;
+
+        let error = unremoved(&merged).expect("the merge left files behind");
+
+        assert_eq!(
+            error.to_string(),
+            "the merge could not remove 2 merged packs, 1 temporary file, 3 unmapped packs, which stay in the directory"
+        );
+    }
+
+    #[test]
+    fn a_merge_that_removed_all_it_meant_to_is_no_failure_whatever_it_expired() {
+        let mut merged = Merged::default();
+        merged.expired = 5;
+        merged.expired_kept = 3;
+        merged.orphans = 1;
+        merged.unreadable = 1;
+
+        assert!(unremoved(&merged).is_none());
     }
 }
