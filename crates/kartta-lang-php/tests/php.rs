@@ -7,8 +7,8 @@
 )]
 
 use kartta_lang::{
-    CallRef, Extraction, FILE_SCOPE, InheritedMembers, Language, MemoryRepository, OwnMembers,
-    RawExtraction, Symbol, SymbolId, SymbolKind,
+    Access, CallRef, Extraction, FILE_SCOPE, InheritedMembers, Language, MemoryRepository,
+    OwnMembers, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind,
 };
 use kartta_lang_php::Php;
 
@@ -1095,4 +1095,96 @@ function render() {}
 
     assert_eq!(doc_line(source, "parse"), 2);
     assert_eq!(doc_line(source, "render"), 8);
+}
+
+fn uses(raw: &RawExtraction) -> Vec<(&str, &Receiver, SymbolId, u32)> {
+    raw.uses
+        .iter()
+        .map(|used| {
+            assert_eq!(used.access, Access::Read, "{used:?}");
+            (used.name.as_str(), &used.receiver, used.site_of, used.line)
+        })
+        .collect()
+}
+
+#[test]
+fn a_callable_spelled_as_a_string_or_an_array_is_a_use_of_what_it_names() {
+    let raw = extract(
+        br#"<?php
+function slugify($v) { return $v; }
+add_action('init', 'slugify');
+class Feed {
+    private $hooks = [[self::class, 'make']];
+    public function boot() {
+        $names = array_map('slugify', $this->names);
+        usort($names, "Sorter::compare");
+        $hooks = ['view' => [$this, 'render'], [self::class, 'make'], [Cache::class, 'flush']];
+        call_user_func(__NAMESPACE__ . '\slugify');
+    }
+}
+"#,
+    );
+
+    let (feed, boot) = (
+        id_of(&raw.symbols, "Feed"),
+        id_of(&raw.symbols, "Feed::boot"),
+    );
+    let feed_path = Receiver::Path("Feed".to_owned());
+    assert_eq!(
+        uses(&raw),
+        [
+            ("slugify", &Receiver::Bare, FILE_SCOPE, 3),
+            ("make", &feed_path, feed, 5),
+            ("slugify", &Receiver::Bare, boot, 7),
+            ("compare", &Receiver::Path("Sorter".to_owned()), boot, 8),
+            ("render", &Receiver::Own, boot, 9),
+            ("make", &Receiver::Own, boot, 9),
+            ("flush", &Receiver::Path("Cache".to_owned()), boot, 9),
+        ]
+    );
+}
+
+#[test]
+fn a_callable_string_names_a_function_of_the_namespace_it_spells() {
+    let raw = extract(
+        br"<?php
+namespace App;
+function helper() {}
+function run() {
+    array_map('App\helper', []);
+    array_map('\App\helper', []);
+    array_map('helper', []);
+    array_map('Other\helper', []);
+    usort($items, 'App\Sorter::compare');
+    usort($items, 'Sorter::compare');
+}
+",
+    );
+
+    let run = id_of(&raw.symbols, "App\\run");
+    assert_eq!(
+        uses(&raw),
+        [
+            ("helper", &Receiver::Bare, run, 5),
+            ("helper", &Receiver::Bare, run, 6),
+            ("compare", &Receiver::Path("Sorter".to_owned()), run, 9),
+        ]
+    );
+}
+
+#[test]
+fn a_string_no_callable_parameter_takes_names_nothing() {
+    let raw = extract(
+        br#"<?php
+function init() {}
+do_action('init');
+if (!function_exists('init')) { function init() {} }
+$pair = ['Cache', 'warm'];
+$keyed = ['handler' => 'run'];
+array_map("prefix_$name", $items);
+App\Util\array_map('init', $items);
+"#,
+    );
+
+    assert_eq!(uses(&raw), []);
 }

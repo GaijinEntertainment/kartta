@@ -15,6 +15,12 @@ implements and the traits it `use`s as parents. A member is exported unless it i
 receiver: the variable of a member call, the scope of a static call, by the last segment of a qualified one, and the
 empty receiver where that is an expression. A construction calls the class by the last segment of its name.
 
+A callable named by a string or an array is a use of what it names: a string in the callable argument of a builtin or
+a WordPress hook that takes one, `usort($a, 'cmp')` or `add_action('init', 'boot')`, and an array of a class and a
+method, `[$this, 'render']` or `[Cache::class, 'flush']`. PHP reads a callable string as fully qualified: `'helper'`
+names the global `helper` and `'App\helper'` the one of `App`, so a string is a use only where the namespace it spells
+is the file's own. A bare use binds the function its own file declares.
+
 ## Resolution
 
 An `include` or `require` whose path folds to a constant, from strings, `__DIR__`, `__FILE__`, `.` and `dirname`,
