@@ -706,6 +706,95 @@ fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
 }
 
 #[test]
+fn find_callers_lists_the_calling_symbols_before_the_files_whose_top_level_calls() {
+    let answers = answers_over(
+        &[(
+            "bin/run.sh",
+            "#!/bin/sh\nhelper() {\n\techo help\n}\n\nmain() {\n\thelper\n}\n\nhelper\nmain\n",
+        )],
+        &[("find_callers", json!({"name": "helper"}))],
+    );
+
+    let answer = &answers[0];
+    let symbol = answer.find("<ref ").expect("main calls helper");
+    let file = answer
+        .find("<file_scope ")
+        .expect("the top level calls helper");
+    assert!(
+        symbol < file,
+        "the calling symbols come before the file-scope records: {answer}"
+    );
+    assert!(
+        answer.contains(r#"count="1""#) && answer.contains(r#"file_scope="1""#),
+        "{answer}"
+    );
+}
+
+#[test]
+fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
+    let answers = answers_over(
+        &[
+            (
+                "bin/run.sh",
+                "#!/bin/sh\n. lib/common.sh\n\nsetup() {\n\techo ready\n}\n\nsetup\nshared\n",
+            ),
+            ("lib/common.sh", "shared() {\n\techo shared\n}\n"),
+        ],
+        &[
+            ("find_callers", json!({"name": "setup"})),
+            ("find_callers", json!({"name": "shared"})),
+            (
+                "find_callers",
+                json!({"name": "shared", "min_confidence": "certain"}),
+            ),
+            ("find_callers", json!({"name": "setup", "role": "entry"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<callers of="setup" matches="1">"#,
+                concat!(
+                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4" count="0" reach_band="low" "#,
+                    r#"file_scope="1">"#,
+                ),
+                r#"<file_scope path="bin/run.sh"/>"#,
+                "</match>",
+                "</callers>",
+            ]),
+            lines(&[
+                r#"<callers of="shared" matches="1">"#,
+                concat!(
+                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1" count="0" reach_band="low" "#,
+                    r#"file_scope="1">"#,
+                ),
+                r#"<file_scope path="bin/run.sh" confidence="likely"/>"#,
+                "</match>",
+                "</callers>",
+            ]),
+            lines(&[
+                r#"<callers of="shared" matches="1">"#,
+                concat!(
+                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1" count="0" reach_band="low" "#,
+                    r#"below_confidence="1">no callers - entry point, dead code, or dynamic dispatch</match>"#,
+                ),
+                "</callers>",
+            ]),
+            lines(&[
+                r#"<callers of="setup" role="entry" matches="1">"#,
+                concat!(
+                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4" count="0" reach_band="low" "#,
+                    r#"file_scope="1" consumers="0" tests="0" entries="0" generated="0"/>"#,
+                ),
+                "</callers>",
+            ]),
+        ]
+    );
+}
+
+#[test]
 fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
     let answers = answers(&[
         ("find_callees", json!({"name": "main"})),
