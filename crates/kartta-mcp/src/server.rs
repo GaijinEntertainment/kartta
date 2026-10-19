@@ -81,9 +81,6 @@ const PATH_HOPS: u32 = 8;
 /// How many symbols a call path search reaches before it stops.
 const PATH_MAX_SYMBOLS: usize = 20_000;
 
-/// How many sites `find_references` lists.
-const REFERENCES: usize = 500;
-
 /// How many calls away `impact_of_edit` walks the callers a change reaches, and the files that include the file.
 const IMPACT_DEPTH: u32 = 3;
 
@@ -990,18 +987,21 @@ impl Server {
                        indexed language unless narrowed with 'languages'; a name resolving in several languages \
                        yields one match per language. Returns a <references> envelope of <match lang=..> records: each \
                        the resolved symbol with its loc, kind, and count= of the sites it keeps, calls= reads= writes= \
-                       updates= (types= for a type) counting every site whatever access keeps, and one <ref> per \
-                       enclosing symbol and site kind in file and line order, carrying the enclosing symbol's name, qn \
-                       and loc, its explicit role= (\"consumer\", or test/entry/generated), site= (call, type, read, \
-                       write, or update for += and ++), at= for file:line or file:line,line,... where it touches the \
-                       symbol on several lines, and a confidence=likely / guess mark on a weakly resolved site. A \
-                       caller is one site, at one of its calls; every other use is one site per line and kind. Field \
-                       accesses and value reads are recorded only for Go, C/C++, TypeScript, JavaScript and Python so \
-                       far; ambiguous= counts the uses of a member's name on a value whose type the graph could not \
-                       follow, which may be this member and are not listed. A method's calls through a value of its \
-                       owner's type resolve only where the graph can name that type, so a missing site does not show \
-                       an unused symbol. A match lists at \
-                       most 500 sites and then carries shown=; below_confidence= counts the sites the floor dropped \
+                       updates= (types= for a type) counting every site whatever access keeps, and files= the files \
+                       holding them. The sites come grouped in <file path= sites=N> records, the files with the most \
+                       sites first: one <ref> per enclosing symbol and site kind in line order, carrying the enclosing \
+                       symbol's name, qn and line=, its explicit role= (\"consumer\", or test/entry/generated), site= \
+                       (call, type, read, write, or update for += and ++), at= the lines where it touches the symbol, \
+                       and a confidence=likely / guess mark on a weakly resolved site. A caller is one site, at one of \
+                       its calls; every other use is one site per line and kind. Field accesses and value reads are \
+                       recorded only for Go, C/C++, TypeScript, JavaScript and Python so far; ambiguous= counts the \
+                       uses of a member's name on a value whose type the graph could not follow, which may be this \
+                       member and are not listed. A method's calls through a value of its owner's type resolve only \
+                       where the graph can name that type, so a missing site does not show an unused symbol. A match \
+                       lists at most 100 sites one by one, then names 50 more files with their sites= count alone. It \
+                       carries shown= only when it lists fewer sites than count=, a <file> carries shown= only when it \
+                       lists part of its sites, and files_shown= appears only when the match names fewer files than \
+                       files=; below_confidence= counts the sites the floor dropped \
                        and passed_over= the other symbols the name selects, the most used of them listed as up to 5 \
                        <candidate sites=N/> records - path_prefix picks one. A name several symbols end with lists \
                        them instead; an unknown name answers with up to 5 close alternatives (did you mean). Requires \
@@ -1019,7 +1019,7 @@ impl Server {
             let found: Vec<_> = searched
                 .iter()
                 .filter_map(|&(family, graph)| {
-                    let query = SiteQuery::new(REFERENCES).with_min_confidence(floor);
+                    let query = SiteQuery::new(usize::MAX).with_min_confidence(floor);
                     let query = p
                         .access
                         .map_or(query, |access| query.with_access(access.access()));
