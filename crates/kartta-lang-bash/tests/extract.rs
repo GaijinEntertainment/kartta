@@ -6,7 +6,9 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{FILE_SCOPE, Language, RawExtraction, Symbol, SymbolId, SymbolKind};
+use kartta_lang::{
+    Access, FILE_SCOPE, Language, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind,
+};
 use kartta_lang_bash::Bash;
 
 const SAMPLE: &[u8] = br#"#!/usr/bin/env bash
@@ -334,4 +336,51 @@ fn doc_line(name: &str) -> u32 {
 fn hash_comments_directly_above_a_function_document_it() {
     assert_eq!(doc_line("parse"), 3);
     assert_eq!(doc_line("after"), 9);
+}
+
+#[test]
+fn a_trap_handler_and_a_completer_named_as_a_word_are_uses() {
+    let raw = extract(
+        br#"cleanup() { rm -f "$tmp"; }
+_tool() { COMPREPLY=(); }
+setup() {
+  trap 'cleanup' INT
+}
+trap cleanup EXIT
+trap 'rm -f "$tmp"' TERM
+trap - EXIT
+complete -o default -F _tool tool
+trap "cleanup" HUP
+trap "$on_exit" USR1
+"#,
+    );
+
+    let commands: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+    assert_eq!(
+        commands,
+        [
+            "rm", "trap", "trap", "trap", "trap", "complete", "trap", "trap"
+        ]
+    );
+    let uses: Vec<(&str, SymbolId, u32)> = raw
+        .uses
+        .iter()
+        .map(|used| {
+            assert_eq!(
+                (&used.receiver, used.access),
+                (&Receiver::Bare, Access::Read),
+                "{used:?}"
+            );
+            (used.name.as_str(), used.site_of, used.line)
+        })
+        .collect();
+    assert_eq!(
+        uses,
+        [
+            ("cleanup", id_of(&raw, "setup"), 4),
+            ("cleanup", FILE_SCOPE, 6),
+            ("_tool", FILE_SCOPE, 9),
+            ("cleanup", FILE_SCOPE, 10),
+        ]
+    );
 }
