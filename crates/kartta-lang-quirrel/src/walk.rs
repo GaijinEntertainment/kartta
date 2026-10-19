@@ -1,7 +1,9 @@
+use std::collections::HashSet;
+
 use kartta_lang::tree::{line, named_child_nodes, preorder, signature_from, text};
 use kartta_lang::{
-    Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
-    SymbolKind,
+    Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol,
+    SymbolFlags, SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree};
 
@@ -11,22 +13,37 @@ const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT", "Code generate
     .with_lines(&["//"])
     .with_block("/*", "*/");
 
+// constraint: a node is judged as a value by its parent's kind and its field there, which only the cursor holds, as
+// `Node::parent` walks down from the root
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter::new(source);
-    preorder(tree.root_node(), |node| {
+    let mut cursor = tree.walk();
+    let mut parents = Vec::new();
+    loop {
+        let node = cursor.node();
         if node.is_named() {
-            emitter.handle(node);
+            emitter.handle(
+                node,
+                parents.last().map(|&parent| (parent, cursor.field_name())),
+            );
         }
-        true
-    });
-
-    emitter.raw
+        if cursor.goto_first_child() {
+            parents.push(node.kind());
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return emitter.raw;
+            }
+            parents.pop();
+        }
+    }
 }
 
-#[derive(Clone, Copy)]
-struct Scope {
+struct Scope<'a> {
     end: usize,
     id: SymbolId,
+    locals: HashSet<&'a [u8]>,
 }
 
 enum SlotOwner {
@@ -47,7 +64,7 @@ struct Binding {
 
 struct Emitter<'a> {
     source: &'a [u8],
-    scopes: Vec<Scope>,
+    scopes: Vec<Scope<'a>>,
     containers: Vec<SlotContainer>,
     flags: SymbolFlags,
     raw: RawExtraction,
@@ -64,7 +81,7 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn handle(&mut self, node: Node<'_>) {
+    fn handle(&mut self, node: Node<'_>, parent: Option<(&str, Option<&str>)>) {
         let start = node.start_byte();
         while self.scopes.last().is_some_and(|scope| scope.end <= start) {
             self.scopes.pop();
@@ -100,6 +117,44 @@ impl<'a> Emitter<'a> {
             "enum_declaration" => self.enum_declaration(node),
             _ => {}
         }
+        if let Some((parent, field)) = parent {
+            self.value_use(parent, field, node);
+        }
+    }
+
+    // constraint: a name read where no call takes it, and that no parameter or local of an enclosing function
+    // declares, is a value its file binds: a function passed, stored or returned without a call
+    fn value_use(&mut self, parent: &str, field: Option<&str>, child: Node<'_>) {
+        match child.kind() {
+            "identifier" if is_value_position(parent, field) => self.push_value_use(child, false),
+            "root_table_access" if is_value_position(parent, field) => {
+                if let Some(name) = child.child_by_field_name("name") {
+                    self.push_value_use(name, true);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn push_value_use(&mut self, name: Node<'_>, from_root: bool) {
+        let spelled = &self.source[name.byte_range()];
+        if !from_root
+            && self
+                .scopes
+                .iter()
+                .any(|scope| scope.locals.contains(spelled))
+        {
+            return;
+        }
+
+        let site_of = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
+        self.raw.uses.push(UseRef {
+            site_of,
+            name: text(name, self.source),
+            receiver: Receiver::Bare,
+            access: Access::Read,
+            line: start_line(name),
+        });
     }
 
     fn class(&mut self, node: Node<'_>) {
@@ -225,6 +280,7 @@ impl<'a> Emitter<'a> {
         self.scopes.push(Scope {
             end: callable.end_byte(),
             id,
+            locals: declared_names(callable, self.source),
         });
     }
 
@@ -386,6 +442,74 @@ impl<'a> Emitter<'a> {
             line: start_line(node),
         });
     }
+}
+
+// constraint: a name a declaration, a slot's key, a member's field, an assignment's target or an increment holds is
+// no value read; a shorthand slot's key is the value it stores
+fn is_value_position(parent: &str, field: Option<&str>) -> bool {
+    match parent {
+        "shorthand_slot" => true,
+        "call_expression" => field != Some("callee"),
+        "assignment_expression" | "newslot_expression" | "compound_assignment_expression" => {
+            field != Some("left")
+        }
+        "foreach_statement" => !matches!(field, Some("index" | "value")),
+        "field_access_expression"
+        | "increment_expression"
+        | "root_table_access"
+        | "directive"
+        | "function_attributes"
+        | "type_annotation" => false,
+        _ => !matches!(field, Some("name" | "key" | "alias" | "index")),
+    }
+}
+
+// constraint: a parameter, or a local a body declares anywhere, hides its name in the whole body, as no use before a
+// local's declaration reads anything else; a nested function's name is a local, its own locals are not
+fn declared_names<'a>(callable: Node<'_>, source: &'a [u8]) -> HashSet<&'a [u8]> {
+    let mut names = HashSet::new();
+    let mut declare = |declared: Option<Node<'_>>| {
+        if let Some(declared) = declared.filter(|declared| declared.kind() == "identifier") {
+            names.insert(&source[declared.byte_range()]);
+        }
+    };
+    if let Some(parameters) = callable.child_by_field_name("parameters") {
+        preorder(parameters, |node| {
+            if matches!(node.kind(), "parameter" | "pattern_field") {
+                declare(node.child_by_field_name("name"));
+            }
+            true
+        });
+    }
+    let Some(body) = callable.child_by_field_name("body") else {
+        return names;
+    };
+    preorder(body, |node| match node.kind() {
+        "function_declaration"
+        | "function_expression"
+        | "lambda_expression"
+        | "method"
+        | "class_declaration"
+        | "class_expression" => {
+            declare(node.child_by_field_name("name"));
+            false
+        }
+        "local_declaration" => {
+            declare(node.child_by_field_name("name"));
+            node.child_by_field_name("body").is_none()
+        }
+        "variable_declaration" | "pattern_field" | "catch_clause" | "const_declaration" => {
+            declare(node.child_by_field_name("name"));
+            true
+        }
+        "foreach_statement" => {
+            declare(node.child_by_field_name("index"));
+            declare(node.child_by_field_name("value"));
+            true
+        }
+        _ => true,
+    });
+    names
 }
 
 // constraint: error recovery inserts MISSING nodes, which have a field but no text

@@ -19,6 +19,13 @@
 //! A call records its callee: a bare name, a root-table `::f`, or the field of a member call, whose receiver is the
 //! whole receiver expression as written. A computed callee, `a[k]()` or `f()()`, records nothing.
 //!
+//! A name read where no call takes it, `subscribe("evt", onEvent)`, `{ onClick = handler, handler }` or `return
+//! handler`, and that no parameter or local of an enclosing function declares, is a bare use of it; so is a root-table
+//! `::name` read the same way. A name being declared, a slot's key, a member's field, an assignment's target and the
+//! receiver of a member access are not. A bare use binds the definition of its name its own file declares outside every
+//! owner and body, a field of the enclosing class first: a `from` import or a destructured `require` names the module
+//! a name comes from, which the graph does not keep, so a name another module exports binds nothing.
+//!
 //! # Resolution
 //!
 //! Every `import`, `from ... import`, and `require("spec")` or `require_optional("spec")` with one string literal

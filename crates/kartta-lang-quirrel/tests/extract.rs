@@ -6,7 +6,8 @@
 )]
 
 use kartta_lang::{
-    Conventions, FILE_SCOPE, Language, OwnMembers, RawExtraction, Symbol, SymbolId, SymbolKind,
+    Access, Conventions, FILE_SCOPE, Language, OwnMembers, RawExtraction, Receiver, Symbol,
+    SymbolId, SymbolKind,
 };
 use kartta_lang_quirrel::Quirrel;
 
@@ -79,6 +80,20 @@ fn receivers(raw: &RawExtraction) -> Vec<(&str, Option<&str>)> {
         .collect()
 }
 
+fn uses(raw: &RawExtraction) -> Vec<(&str, SymbolId, u32)> {
+    raw.uses
+        .iter()
+        .map(|used| {
+            assert_eq!(
+                (&used.receiver, used.access),
+                (&Receiver::Bare, Access::Read),
+                "{used:?}"
+            );
+            (used.name.as_str(), used.site_of, used.line)
+        })
+        .collect()
+}
+
 fn imports(raw: &RawExtraction) -> Vec<(&str, Vec<&str>)> {
     raw.directives
         .iter()
@@ -109,6 +124,63 @@ fn a_bare_call_in_a_member_reaches_the_class_first() {
     expected.runtime_methods = conventions.runtime_methods;
 
     assert_eq!(conventions, expected);
+}
+
+#[test]
+fn a_name_taken_as_a_value_is_a_use_of_it() {
+    let raw = extract(
+        "function handler(e) { print(e) }
+function setup() {
+  subscribe(\"evt\", handler)
+  local cb = handler
+  return { onClick = handler, handler }
+}
+subscribe(\"ready\", ::handler)
+",
+    );
+
+    let setup = id_of(&raw, "setup");
+    assert_eq!(
+        uses(&raw),
+        [
+            ("handler", setup, 3),
+            ("handler", setup, 4),
+            ("handler", setup, 5),
+            ("handler", setup, 5),
+            ("handler", FILE_SCOPE, 7),
+        ]
+    );
+}
+
+#[test]
+fn a_parameter_a_local_or_a_name_being_declared_is_no_use() {
+    let raw = extract(
+        "function handler() {}
+function run(handler) { register(handler) }
+function other() {
+  register(handler)
+  local handler = 1
+  register(handler)
+  foreach (k, v in list) { keep(k, v) }
+  try { go() } catch (err) { report(err) }
+  let { a, b = 2 } = pair
+  use(a, b)
+  keep(object.field)
+}
+let m = { handler = 1 }
+handler = 2
+::handler = 3
+::handler <- 4
+",
+    );
+
+    assert_eq!(
+        uses(&raw),
+        [
+            ("list", id_of(&raw, "other"), 7),
+            ("pair", id_of(&raw, "other"), 9)
+        ]
+    );
 }
 
 #[test]
