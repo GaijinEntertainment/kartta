@@ -5,7 +5,7 @@ pub(crate) mod params;
 
 use std::path::PathBuf;
 
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::{Deserialize, Serialize};
 
 pub(crate) use self::build::{BuildParams, CancelAnswer, CancelParams, StatsAnswer, StoredErrors};
@@ -26,6 +26,15 @@ pub(crate) fn params<P: DeserializeOwned>(params: &[u8]) -> Result<P, Error> {
     } else {
         text
     };
+    // constraint: serde reads a struct from a JSON array by position, so a non-object never reaches the struct
+    if let Some(kind) = not_an_object(text)
+        && serde_json::from_str::<IgnoredAny>(text).is_ok()
+    {
+        return Err(Error::new(
+            ErrorCode::InvalidParams,
+            format!("params are a JSON object or null, not {kind}"),
+        ));
+    }
     serde_json::from_str(text).map_err(|error| {
         let code = if error.is_syntax() || error.is_eof() {
             ErrorCode::InvalidRequest
@@ -34,6 +43,16 @@ pub(crate) fn params<P: DeserializeOwned>(params: &[u8]) -> Result<P, Error> {
         };
         Error::new(code, format!("params: {error}"))
     })
+}
+
+fn not_an_object(text: &str) -> Option<&'static str> {
+    match text.bytes().next()? {
+        b'[' => Some("an array"),
+        b'"' => Some("a string"),
+        b't' | b'f' => Some("a boolean"),
+        b'-' | b'0'..=b'9' => Some("a number"),
+        _ => None,
+    }
 }
 
 pub(crate) fn ok(answer: &impl Serialize) -> Result<Vec<u8>, Error> {
