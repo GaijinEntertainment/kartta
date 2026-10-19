@@ -319,6 +319,222 @@ fn a_callee_written_from_the_owner_binds_a_member_of_a_longer_qualified_name() {
     assert_eq!(callees(&unscoped, "run"), Vec::<String>::new());
 }
 
+fn namespaced(scope: &str, name: &str, line: u32) -> Symbol {
+    let mut symbol = function(name, line);
+    symbol.qualified_name = format!("{scope}::{name}");
+    symbol
+}
+
+fn calling_from(path: &str, from: Symbol, targets: &[&str], callee: &str) -> Extraction {
+    let mut extraction = including(path, targets, vec![call(0, callee, 2)]);
+    extraction.symbols = vec![from];
+    extraction
+}
+
+#[test]
+fn a_callee_written_inside_a_namespace_binds_the_definition_that_scope_names() {
+    let files = [
+        calling_from(
+            "duration.cc",
+            namespaced("absl", "FromChrono", 1),
+            &["time.h", "other.h"],
+            "time_internal::GetRepHi",
+        ),
+        calling_from(
+            "other.cc",
+            namespaced("other", "Convert", 1),
+            &["time.h", "other.h"],
+            "time_internal::GetRepHi",
+        ),
+        file(
+            "time.h",
+            vec![namespaced("absl::time_internal", "GetRepHi", 1)],
+            Vec::new(),
+        ),
+        file(
+            "other.h",
+            vec![namespaced("other::time_internal", "GetRepHi", 1)],
+            Vec::new(),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "FromChrono"), ["time.h:1@88"]);
+    assert_eq!(callees(&graph, "Convert"), ["other.h:1@88"]);
+}
+
+#[test]
+fn a_callee_written_inside_a_namespace_binds_its_scope_s_definition_before_a_global_one() {
+    let files = [
+        calling_from(
+            "duration.cc",
+            namespaced("absl", "FromChrono", 1),
+            &["time.h", "global.h"],
+            "time_internal::GetRepHi",
+        ),
+        file(
+            "time.h",
+            vec![namespaced("absl::time_internal", "GetRepHi", 1)],
+            Vec::new(),
+        ),
+        file(
+            "global.h",
+            vec![namespaced("time_internal", "GetRepHi", 1)],
+            Vec::new(),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "FromChrono"), ["time.h:1@88"]);
+}
+
+#[test]
+fn a_callee_written_inside_nested_namespaces_binds_the_innermost_scope_s_definition() {
+    let files = [
+        calling_from(
+            "run.cc",
+            namespaced("a::b", "Run", 1),
+            &["outer.h", "inner.h"],
+            "x::g",
+        ),
+        file("outer.h", vec![namespaced("a::x", "g", 1)], Vec::new()),
+        file("inner.h", vec![namespaced("a::b::x", "g", 1)], Vec::new()),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "Run"), ["inner.h:1@88"]);
+}
+
+#[test]
+fn a_callee_written_inside_a_namespace_binds_the_copy_its_file_sees() {
+    let files = [
+        calling_from(
+            "duration.cc",
+            namespaced("absl", "FromChrono", 1),
+            &["b/time.h"],
+            "time_internal::GetRepHi",
+        ),
+        file(
+            "a/time.h",
+            vec![namespaced("absl::time_internal", "GetRepHi", 1)],
+            Vec::new(),
+        ),
+        file(
+            "b/time.h",
+            vec![namespaced("absl::time_internal", "GetRepHi", 1)],
+            Vec::new(),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "FromChrono"), ["b/time.h:1@88"]);
+}
+
+#[test]
+fn a_callee_written_from_the_root_inside_a_namespace_binds_the_global_definition() {
+    let files = [
+        calling_from(
+            "duration.cc",
+            namespaced("absl", "FromChrono", 1),
+            &["time.h", "global.h"],
+            "::time_internal::GetRepHi",
+        ),
+        file(
+            "time.h",
+            vec![namespaced("absl::time_internal", "GetRepHi", 1)],
+            Vec::new(),
+        ),
+        file(
+            "global.h",
+            vec![namespaced("time_internal", "GetRepHi", 1)],
+            Vec::new(),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "FromChrono"), ["global.h:1@90"]);
+}
+
+#[test]
+fn a_callee_no_enclosing_scope_names_binds_the_global_name_it_spells() {
+    let files = [
+        calling_from(
+            "duration.cc",
+            namespaced("absl", "FromChrono", 1),
+            &["global.h"],
+            "time_internal::GetRepHi",
+        ),
+        file(
+            "global.h",
+            vec![namespaced("time_internal", "GetRepHi", 1)],
+            Vec::new(),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "FromChrono"), ["global.h:1@90"]);
+}
+
+#[test]
+fn a_callee_its_innermost_scope_does_not_name_binds_the_next_scope_out() {
+    let files = [
+        calling_from("run.cc", namespaced("a::b", "Run", 1), &["outer.h"], "x::g"),
+        file("outer.h", vec![namespaced("a::x", "g", 1)], Vec::new()),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "Run"), ["outer.h:1@88"]);
+}
+
+#[test]
+fn a_callee_written_outside_every_namespace_binds_no_namespaced_definition() {
+    let files = [
+        calling_from(
+            "duration.cc",
+            function("FromChrono", 1),
+            &["time.h"],
+            "time_internal::GetRepHi",
+        ),
+        file(
+            "time.h",
+            vec![namespaced("absl::time_internal", "GetRepHi", 1)],
+            Vec::new(),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "FromChrono"), Vec::<String>::new());
+}
+
+#[test]
+fn a_callee_written_inside_a_namespace_binds_none_its_file_does_not_see() {
+    let files = [
+        calling_from(
+            "duration.cc",
+            namespaced("absl", "FromChrono", 1),
+            &[],
+            "time_internal::GetRepHi",
+        ),
+        file(
+            "time.h",
+            vec![namespaced("absl::time_internal", "GetRepHi", 1)],
+            Vec::new(),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "FromChrono"), Vec::<String>::new());
+}
+
 #[test]
 fn a_bare_call_binds_its_own_file_before_any_other() {
     let graph = graph(&[
