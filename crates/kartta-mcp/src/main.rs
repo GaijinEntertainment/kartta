@@ -23,6 +23,8 @@ that repository at launch; without either, the index_repo tool builds one.
 Environment:
   KARTTA_ROOT            the repository to index at launch
   KARTTA_CACHE_DIR       a directory builds share per-file data through
+  KARTTA_CACHE_ENTRY_TTL_SECS
+                         the age in seconds past which a cache entry expires (unset, empty or 0: a week)
   KARTTA_GREP_INDEX      memory, file or mmap: build a trigram index that narrows grep
   KARTTA_GREP_INDEX_DIR  where a file or mmap trigram index lives (default: the temporary directory)
   KARTTA_THREADS         how many threads builds and queries run on (default: every core)
@@ -112,4 +114,25 @@ async fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::USAGE;
+
+    #[test]
+    fn the_help_lists_the_variables_the_readme_lists() {
+        let readme: Vec<&str> = include_str!("../README.md")
+            .lines()
+            .filter_map(|line| line.strip_prefix("| `")?.split_once('`'))
+            .map(|(name, _)| name)
+            .collect();
+        let help: Vec<&str> = USAGE
+            .lines()
+            .filter_map(|line| line.split_whitespace().next())
+            .filter(|word| word.starts_with("KARTTA_"))
+            .collect();
+
+        assert_eq!(help, readme);
+    }
 }
