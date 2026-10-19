@@ -506,8 +506,12 @@ impl Server {
                        max_results match lines (default 100) spent in file-path order. A line longer than 1024 \
                        bytes is cut around its match and marked \
                        [... omitted N bytes]. Binary files and files over 4 MiB are skipped and counted in binary= \
-                       and oversized=; unreadable files are listed in <failures>; unsearched= counts the files the \
-                       search did not reach once the cap filled, excluded= the files the excludes dropped, \
+                       and oversized=; unreadable files are listed in <failures>; truncated=\"true\" means a match \
+                       past the cap was seen, so more exist; an answer with no truncated, unsearched= or <failures> \
+                       holds every match in the files it did not skip as binary or oversized, the ruled_out \
+                       files judged by their content as index_repo read it; \
+                       unsearched= counts the files the answer does not cover once that match was \
+                       found or a cancel stopped the search, excluded= the files the excludes dropped, \
                        ruled_out= the files the content index, built from their content as index_repo read it, \
                        shows hold no match, and symlinks= the links \
                        selected, which are never read through. The \

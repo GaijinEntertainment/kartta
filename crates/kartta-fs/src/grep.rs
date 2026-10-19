@@ -52,10 +52,10 @@ pub struct GrepOptions<'a> {
     /// How many matching lines to return at most, spent in index order. Context lines do not count. `None` returns
     /// every match.
     pub limit: Option<NonZeroUsize>,
-    /// Whether to keep searching once the limit fills, counting every match past it without returning one.
+    /// Whether to search every candidate past the limit, counting every match there without returning one.
     ///
-    /// Off by default, because proving what lies past the limit can cost the whole search over again. On, the answer
-    /// carries [`Matches::total_lines`] and [`Matches::total_files`], and [`Matches::truncated`] is exact.
+    /// Off by default, because it reads the rest of the tree, where a search without it stops at the first match past
+    /// the limit. On, the answer carries [`Matches::total_lines`] and [`Matches::total_files`].
     pub count_all: bool,
     /// How many bytes of a line to report. A longer matching line is cut around its first match and a longer context
     /// line keeps its start; [`Line::cut`] says how much each lost. `None` reports lines whole.
@@ -149,9 +149,10 @@ impl Index {
     /// [`BuildOptions::binary_extensions`](crate::BuildOptions::binary_extensions) skips it unopened, and otherwise a
     /// NUL in its first 64 KiB does.
     ///
-    /// [`Matches`] accounts for every candidate the search did not cover. The one thing it does not do by default is go
-    /// looking for a match past the limit through files it has not read yet, which can cost the whole search over again;
-    /// [`GrepOptions::count_all`] asks for that.
+    /// [`Matches`] accounts for every candidate the search did not cover. Once the limit fills, the search reads on only
+    /// until one more match proves the cut, so [`Matches::truncated`] is exact. A limited search that finds no further
+    /// match reads every candidate, as a search without a limit does. [`GrepOptions::count_all`] reads every candidate
+    /// in any case, and counts what lies past the limit.
     ///
     /// **This reads the filesystem**: a candidate is opened when it is searched, and what is read is the file as it is
     /// then, not as it was at the walk. The size and the binary verdict each open learns are kept, as [`Index::size`]
@@ -216,7 +217,7 @@ impl Index {
         let mut batches = runs.iter().flat_map(|run| run.chunks(BATCH));
 
         for batch in batches.by_ref() {
-            if fold.settled() {
+            if fold.proven() {
                 fold.leave_unsearched(batch.len());
                 break;
             }
@@ -414,10 +415,6 @@ impl<'a> Fold<'a> {
 
     const fn budget(&self) -> usize {
         self.limit - self.lines
-    }
-
-    const fn settled(&self) -> bool {
-        self.proven() || (self.total.is_none() && self.lines == self.limit)
     }
 
     const fn proven(&self) -> bool {
