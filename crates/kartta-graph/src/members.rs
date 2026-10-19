@@ -136,8 +136,9 @@ impl<'g> Cascade<'g> {
 
     // constraint: where includes paste text in place, an owner names a class by its bare name, which several classes
     // can share, and a name the graph holds no type of names a class outside it, whose namesake fields are not meant;
-    // a class without the field binds the field of the one base that declares it, and a type the graph holds that
-    // neither does, an alias most often, leaves the field to the tiers that read no type
+    // a member taken without a call is a field, or a method taken as a value, `&Class::draw`; a class without the
+    // field binds the field of the one base that declares it, and a type the graph holds that neither does, an alias
+    // most often, leaves the field to the tiers that read no type
     pub(crate) fn included_owner_member(
         &self,
         file: u32,
@@ -147,6 +148,18 @@ impl<'g> Cascade<'g> {
         let named = self.data_named(name);
         let declared = named.fields.with_owner(self.graph, owner);
         if let Some(found) = self.reached_owner(file, &declared) {
+            return Some(found);
+        }
+        let methods: Vec<SymbolAt> = self
+            .named(name)
+            .iter()
+            .copied()
+            .filter(|&at| {
+                let symbol = self.graph.sym(at);
+                symbol.kind == SymbolKind::Method && symbol.owner == Some(owner)
+            })
+            .collect();
+        if let Some(found) = self.reached_owner(file, &methods) {
             return Some(found);
         }
         let types: Vec<SymbolAt> = self
