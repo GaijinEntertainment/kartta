@@ -32,7 +32,9 @@
 //! `const` or `volatile`, and its member qualifiers, as in `ns::Widget::run(const int &,int)const &`. A template, a
 //! function inside a body or a lambda, a member of an unnamed class, a conversion operator, `operator bool()`, a scope
 //! written with template arguments, a relative scope that can name an enclosing namespace, and a parameter declared
-//! through anything but a name, a pointer or a reference get no key.
+//! through anything but a name, a pointer or a reference get no key. An exported namespace-scope value is keyed by
+//! its qualified name, which holds no parameter list: `extern` without an initializer declares it, and any other
+//! declaration defines it.
 //!
 //! A symbol is unexported inside an anonymous namespace, as a `static` free function, and as a namespace-scope
 //! constant that is neither `extern` nor `inline`, but for a file-scope constant of a `.c` file, which C links outside
