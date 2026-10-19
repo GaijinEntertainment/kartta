@@ -17,6 +17,10 @@ A call records its callee and, for a member call, the whole receiver expression 
 methods of Quirrel's built-in types, so a member call of one, `list.len()` or `t.rawin()`, binds a member of the name
 and no free function of the repository.
 
+A name read where no call takes it, `subscribe("evt", onEvent)` or `{ onClick = handler }`, and that no parameter or
+local of an enclosing function declares, is a use of it. It binds a definition of its own file only: the graph does not
+keep the module that a `from` import or a destructured `require` takes a name from.
+
 ## Resolution
 
 Every `import`, `from ... import`, and `require("spec")` or `require_optional("spec")` with one string literal names a
