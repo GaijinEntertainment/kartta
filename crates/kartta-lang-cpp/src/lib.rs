@@ -58,8 +58,9 @@
 //! receiver on `this` and the empty receiver on any other operand, a named one included, because the operand of `.` or
 //! `->` is a value and its name names no type. A call through a named scope keeps the scope as written, `ns::f`, and
 //! one through the root keeps the `::`, `::f`. `new ns::Widget<T>()` is a call of `Widget`. A cast, a call spelled by a
-//! type keyword, a call or a `new` of a parameter of an enclosing template, `Compare()` in a template over `Compare`,
-//! and a call before the first symbol of the file are not recorded.
+//! type keyword, and a call or a `new` of a parameter of an enclosing template, `Compare()` in a template over
+//! `Compare`, are not recorded. A call outside every function is a call from file scope, before the file's first symbol
+//! too.
 //!
 //! # Uses
 //!

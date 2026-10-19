@@ -161,10 +161,14 @@ fn a_command_outside_every_function_is_made_from_file_scope() {
 }
 
 #[test]
-fn a_command_before_the_first_definition_is_dropped() {
+fn a_command_before_the_first_definition_is_a_call_from_file_scope() {
     let raw = extract(b"echo early\nrun() {\n    :\n}\n");
 
-    assert!(raw.calls.iter().all(|call| call.callee != "echo"));
+    assert!(
+        raw.calls
+            .iter()
+            .any(|call| call.callee == "echo" && call.site_of == FILE_SCOPE)
+    );
 }
 
 #[test]

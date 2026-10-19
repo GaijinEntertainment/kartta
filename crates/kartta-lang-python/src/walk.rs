@@ -605,9 +605,6 @@ impl<'a> Emitter<'a> {
     }
 
     fn call(&mut self, node: Node<'_>, site_of: SymbolId) {
-        if self.raw.symbols.is_empty() {
-            return;
-        }
         let line = line(node.start_position().row);
         let at = node.start_byte();
         let source = self.source;

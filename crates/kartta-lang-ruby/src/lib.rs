@@ -20,8 +20,9 @@
 //! names there.
 //!
 //! A call inside a method is a call made by it, and records its receiver: a plain name as written, `self` as the
-//! caller's own type, and any other expression as the empty receiver. A call before the file's first symbol records
-//! nothing. A call with no receiver and no arguments, `setup`, parses as a name, so it records nothing either.
+//! caller's own type, and any other expression as the empty receiver. A call outside every method is a call from file
+//! scope, before the file's first symbol too. A call with no receiver and no arguments, `setup`, parses as a name, so
+//! it records nothing.
 //!
 //! # Resolution
 //!

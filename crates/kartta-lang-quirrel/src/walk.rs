@@ -374,7 +374,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn push_call(&mut self, callee: String, receiver: Option<String>, node: Node<'_>) {
-        if callee.is_empty() || self.raw.symbols.is_empty() {
+        if callee.is_empty() {
             return;
         }
 

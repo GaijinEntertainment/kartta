@@ -7,8 +7,8 @@
 )]
 
 use kartta_lang::{
-    CallRef, Extraction, InheritedMembers, Language, MemoryRepository, OwnMembers, RawExtraction,
-    Symbol, SymbolId, SymbolKind,
+    CallRef, Extraction, FILE_SCOPE, InheritedMembers, Language, MemoryRepository, OwnMembers,
+    RawExtraction, Symbol, SymbolId, SymbolKind,
 };
 use kartta_lang_php::Php;
 
@@ -389,10 +389,11 @@ include "$base/x.php";
 }
 
 #[test]
-fn a_call_before_the_first_symbol_records_nothing() {
+fn a_call_before_the_first_symbol_is_a_call_from_file_scope() {
     let raw = extract(b"<?php\nboot();\nfunction main(): void {}\nmain();\n");
 
-    assert_eq!(callees(&raw.calls), ["main"]);
+    assert_eq!(callees(&raw.calls), ["boot", "main"]);
+    assert!(raw.calls.iter().all(|call| call.site_of == FILE_SCOPE));
 }
 
 #[test]

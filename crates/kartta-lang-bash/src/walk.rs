@@ -116,9 +116,6 @@ impl Emitter<'_> {
             self.source_directive(node);
             return;
         }
-        if self.raw.symbols.is_empty() {
-            return;
-        }
 
         self.raw.calls.push(CallRef {
             site_of,

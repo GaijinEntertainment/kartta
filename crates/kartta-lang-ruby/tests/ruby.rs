@@ -7,8 +7,8 @@
 )]
 
 use kartta_lang::{
-    CallRef, CallableRole, Extraction, InheritedMembers, Language, MemoryRepository, OwnMembers,
-    RawExtraction, Symbol, SymbolId, SymbolKind,
+    CallRef, CallableRole, Extraction, FILE_SCOPE, InheritedMembers, Language, MemoryRepository,
+    OwnMembers, RawExtraction, Symbol, SymbolId, SymbolKind,
 };
 use kartta_lang_ruby::Ruby;
 
@@ -203,10 +203,14 @@ fn a_call_is_made_by_the_method_around_it() {
 }
 
 #[test]
-fn a_call_before_the_first_symbol_records_nothing() {
+fn a_call_before_the_first_symbol_is_a_call_from_file_scope() {
     let raw = extract(SAMPLE);
 
-    assert!(raw.calls.iter().all(|call| call.callee != "require"));
+    assert!(
+        raw.calls
+            .iter()
+            .any(|call| call.callee == "require" && call.site_of == FILE_SCOPE)
+    );
 }
 
 #[test]
