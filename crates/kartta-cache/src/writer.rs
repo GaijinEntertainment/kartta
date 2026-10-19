@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -33,15 +34,16 @@ struct Writing {
     temp: PathBuf,
     file: BufWriter<File>,
     written: u64,
-    entries: Vec<Pending>,
-    seen: HashSet<(Namespace, ContentHash)>,
+    entries: BTreeMap<Namespace, HashMap<ContentHash, Slot>>,
     failed: bool,
 }
 
-#[derive(Debug)]
-struct Pending {
-    namespace: Namespace,
-    record: IndexEntry,
+#[derive(Debug, Clone, Copy)]
+struct Slot {
+    offset: u64,
+    len: u32,
+    check: u64,
+    published: Published,
 }
 
 pub(crate) const TEMP_PREFIX: &str = ".tmp-";
@@ -93,17 +95,13 @@ impl PackWriter {
         record: IndexEntry,
         payload: &[u8],
     ) -> io::Result<()> {
-        let entry = Pending {
-            namespace: *namespace,
-            record,
-        };
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
 
         match &mut *state {
-            Some(writing) => writing.append(entry, payload),
+            Some(writing) => writing.append(namespace, &record, payload),
             None => state
                 .insert(Writing::start(&self.dir)?)
-                .append(entry, payload),
+                .append(namespace, &record, payload),
         }
     }
 
@@ -112,7 +110,9 @@ impl PackWriter {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .as_ref()
-            .map_or(0, |writing| writing.entries.len())
+            .map_or(0, |writing| {
+                writing.entries.values().map(HashMap::len).sum()
+            })
     }
 
     /// Finishes the pack and links it into the store's directory, returning its path, or `None` when nothing was
@@ -179,26 +179,39 @@ impl Writing {
             temp,
             file: BufWriter::with_capacity(WRITE_BUFFER, file),
             written: 0,
-            entries: Vec::new(),
-            seen: HashSet::new(),
+            entries: BTreeMap::new(),
             failed: false,
         })
     }
 
-    fn append(&mut self, mut entry: Pending, payload: &[u8]) -> io::Result<()> {
+    fn append(
+        &mut self,
+        namespace: &Namespace,
+        record: &IndexEntry,
+        payload: &[u8],
+    ) -> io::Result<()> {
         if self.failed {
             return Err(failed_earlier());
         }
-        if !self.seen.insert((entry.namespace, entry.record.content)) {
+        let Entry::Vacant(slot) = self
+            .entries
+            .entry(*namespace)
+            .or_default()
+            .entry(record.content)
+        else {
             return Ok(());
-        }
+        };
         if let Err(error) = self.file.write_all(payload) {
             self.failed = true;
             return Err(error);
         }
-        entry.record.offset = self.written;
-        self.written += u64::from(entry.record.len);
-        self.entries.push(entry);
+        slot.insert(Slot {
+            offset: self.written,
+            len: record.len,
+            check: record.check,
+            published: record.published,
+        });
+        self.written += u64::from(record.len);
 
         Ok(())
     }
@@ -210,23 +223,33 @@ impl Writing {
     }
 
     fn finish(mut self, dir: &Path) -> io::Result<PathBuf> {
-        self.entries.sort_unstable_by(|left, right| {
-            (left.namespace, left.record.content).cmp(&(right.namespace, right.record.content))
-        });
         let mut name = blake3::Hasher::new();
         let index_offset = self.written;
+        let mut entry_count = 0_u64;
         let mut namespaces: Vec<(Namespace, u64, u64)> = Vec::new();
-        for (at, entry) in (0_u64..).zip(&self.entries) {
-            let record = entry.record.encode();
-            self.file.write_all(&record)?;
-            name.update(&record[..pack::NAMED_RECORD_LEN]);
-            match namespaces.last_mut() {
-                Some((namespace, _, end)) if *namespace == entry.namespace => *end = at + 1,
-                _ => namespaces.push((entry.namespace, at, at + 1)),
+        for (namespace, slots) in self.entries {
+            let mut records: Vec<IndexEntry> = slots
+                .into_iter()
+                .map(|(content, slot)| IndexEntry {
+                    content,
+                    offset: slot.offset,
+                    len: slot.len,
+                    check: slot.check,
+                    published: slot.published,
+                })
+                .collect();
+            records.sort_unstable_by_key(|record| record.content);
+            let start = entry_count;
+            for record in &records {
+                let record = record.encode();
+                self.file.write_all(&record)?;
+                name.update(&record[..pack::NAMED_RECORD_LEN]);
             }
+            entry_count += u64::try_from(records.len()).unwrap_or(u64::MAX);
+            namespaces.push((namespace, start, entry_count));
         }
-        let namespaces_offset = index_offset
-            + u64::try_from(self.entries.len() * pack::ENTRY_RECORD_LEN).unwrap_or(u64::MAX);
+        let namespaces_offset =
+            index_offset + entry_count * u64::try_from(pack::ENTRY_RECORD_LEN).unwrap_or(u64::MAX);
         for (namespace, start, end) in &namespaces {
             let record = pack::namespace_record(namespace, *start..*end);
             self.file.write_all(&record)?;
@@ -234,7 +257,7 @@ impl Writing {
         }
         let footer = Footer {
             namespace_count: u32::try_from(namespaces.len()).unwrap_or(u32::MAX),
-            entry_count: u64::try_from(self.entries.len()).unwrap_or(u64::MAX),
+            entry_count,
             index_offset,
             namespaces_offset,
         };
@@ -305,5 +328,46 @@ mod tests {
             0,
             "the buffered payload is discarded, not written"
         );
+    }
+
+    #[test]
+    fn entries_arriving_across_namespaces_in_any_order_are_each_served_their_own_payload() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (first, second) = (
+            Namespace::new("first", b"1"),
+            Namespace::new("second", b"1"),
+        );
+        let writer = PackWriter::new(dir.path());
+        for (namespace, content, payload) in [
+            (&second, "b", "second b"),
+            (&first, "a", "first a"),
+            (&second, "a", "second a"),
+            (&first, "b", "first b"),
+            (&first, "a", "a later first a"),
+        ] {
+            writer
+                .insert(
+                    namespace,
+                    &ContentHash::of(content.as_bytes()),
+                    payload.as_bytes(),
+                )
+                .expect("insert");
+        }
+
+        writer.publish().expect("publish");
+        let store = crate::Store::open(dir.path()).expect("open");
+
+        for (namespace, content, payload) in [
+            (&first, "a", "first a"),
+            (&first, "b", "first b"),
+            (&second, "a", "second a"),
+            (&second, "b", "second b"),
+        ] {
+            assert_eq!(
+                store.get(namespace, &ContentHash::of(content.as_bytes())),
+                Some(payload.as_bytes())
+            );
+        }
+        assert_eq!(store.stats().entries, 4);
     }
 }
