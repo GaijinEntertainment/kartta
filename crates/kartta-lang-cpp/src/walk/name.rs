@@ -92,8 +92,8 @@ pub(super) fn head_scope(class: Node<'_>, source: &[u8]) -> Option<String> {
     Some(scope.to_owned())
 }
 
-// constraint: the operand of `.` or `->` is a value, never a type, so a named one records the empty receiver like any
-// other expression, and only `this` names an owner, the caller's own
+// constraint: the operand of `.` or `->` is a value, never a type, so from the syntax alone a named one records the
+// empty receiver like any other expression, and only `this` names an owner, the caller's own
 pub(super) fn call_target(call: Node<'_>, source: &[u8]) -> Option<(String, Option<String>)> {
     let function = call.child_by_field_name("function")?;
     let target = match function.kind() {

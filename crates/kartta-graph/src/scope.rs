@@ -19,6 +19,18 @@ pub(crate) enum Scoped {
     Several,
 }
 
+/// What the class a member call's operand is declared as gives the call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OwnerMember {
+    /// The member of a class of that name the caller's file reaches.
+    Member(SymbolAt),
+    /// No class of that name that the caller's file reaches holds the member: the name is a typedef, a class of another
+    /// project, or a class that inherits the member, so the call resolves as one on an operand of no declared class.
+    Elsewhere,
+    /// The language has no nested scopes, or the call names no receiver.
+    NotDeclared,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum Shape {
     Free,
@@ -841,6 +853,39 @@ impl Cascade<'_> {
             .or_else(|| owned.iter().find(|at| self.graph.file(at.file).dir == dir))
             .or_else(|| owned.first())
             .copied()
+    }
+
+    // constraint: where scopes nest, as C++ namespaces do, the class an operand is declared as is one its file reaches
+    // through its includes, the nearest first: its own file, the files it includes, then the files those reach, since a
+    // class of that name in another namespace comes in deeper; a class of that name only elsewhere belongs to another
+    // project, so its member is not the one called
+    pub(crate) fn member_of_a_reached_owner(
+        &self,
+        call: &Call,
+        candidates: &Candidates<'_>,
+    ) -> OwnerMember {
+        let (Some(_), Some(receiver)) =
+            (self.conventions.scope_separator, self.named_receiver(call))
+        else {
+            return OwnerMember::NotDeclared;
+        };
+        let owned = candidates.with_owner(self.graph, receiver);
+        owned
+            .iter()
+            .copied()
+            .find(|&at| at.file == call.file)
+            .or_else(|| {
+                let includes = self.includes(call.file);
+                owned.iter().copied().find(|at| includes.contains(&at.file))
+            })
+            .or_else(|| {
+                let closure = self.closure(call.file);
+                owned
+                    .iter()
+                    .copied()
+                    .find(|at| closure.binary_search(&at.file).is_ok())
+            })
+            .map_or(OwnerMember::Elsewhere, OwnerMember::Member)
     }
 
     pub(crate) fn member_of_the_receiver_s_owner(

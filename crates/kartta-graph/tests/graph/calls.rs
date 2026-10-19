@@ -248,6 +248,100 @@ fn a_qualified_callee_binds_the_symbol_of_that_qualified_name() {
     assert_eq!(callees(&graph, "run"), ["w.cpp:1@90"]);
 }
 
+fn calling_member(path: &str, from: &str, targets: &[&str], call: CallRef) -> Extraction {
+    let mut extraction = including(path, targets, vec![call]);
+    extraction.symbols = vec![function(from, 1)];
+    extraction
+}
+
+#[test]
+fn a_cpp_operand_s_class_binds_its_member_where_the_caller_s_file_sees_the_class() {
+    let files = [
+        including(
+            "main.cpp",
+            &["vec.h"],
+            vec![member_call(0, "vector", "begin", 2)],
+        ),
+        file(
+            "vec.h",
+            vec![member("vector", "begin", SymbolKind::Method, 1)],
+            Vec::new(),
+        ),
+        file(
+            "apex/PxVector.h",
+            vec![
+                member("vector", "begin", SymbolKind::Method, 1),
+                member("vector", "end", SymbolKind::Method, 2),
+            ],
+            Vec::new(),
+        ),
+        calling_member("z.cpp", "unseen", &[], member_call(0, "vector", "end", 2)),
+        calling_member("y.cpp", "undeclared", &[], member_call(0, "", "end", 2)),
+        calling_member(
+            "s.cpp",
+            "typedef",
+            &["str.h"],
+            member_call(0, "string", "append", 2),
+        ),
+        calling_member(
+            "t.cpp",
+            "untyped",
+            &["str.h"],
+            member_call(0, "", "append", 2),
+        ),
+        file(
+            "str.h",
+            vec![member("basic_string", "append", SymbolKind::Method, 1)],
+            Vec::new(),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "run"), ["vec.h:1@85"]);
+    assert_eq!(
+        callees(&graph, "unseen"),
+        callees(&graph, "undeclared"),
+        "a class the caller's file does not see leaves the call as one on an operand of no declared class"
+    );
+    assert_eq!(
+        callees(&graph, "typedef"),
+        callees(&graph, "untyped"),
+        "a name no class holding the member answers to, as a typedef, does the same"
+    );
+    assert_eq!(callees(&graph, "untyped"), ["str.h:1@70"]);
+}
+
+#[test]
+fn a_cpp_operand_s_class_binds_the_member_of_the_class_its_file_includes_before_a_deeper_namesake()
+{
+    let mut hud = including("m/hud.h", &["a/xray.h"], Vec::new());
+    hud.symbols.clear();
+    let files = [
+        calling_member(
+            "hud.cpp",
+            "draw",
+            &["m/hud.h", "z/unit.h"],
+            member_call(0, "Unit", "getWeap", 2),
+        ),
+        hud,
+        file(
+            "a/xray.h",
+            vec![member("Unit", "getWeap", SymbolKind::Method, 1)],
+            Vec::new(),
+        ),
+        file(
+            "z/unit.h",
+            vec![member("Unit", "getWeap", SymbolKind::Method, 1)],
+            Vec::new(),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "draw"), ["z/unit.h:1@85"]);
+}
+
 #[test]
 fn a_qualified_callee_two_files_define_binds_the_first_in_path_order() {
     let widget = || vec![member("Widget", "draw", SymbolKind::Method, 1)];

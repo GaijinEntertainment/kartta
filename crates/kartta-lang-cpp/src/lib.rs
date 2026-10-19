@@ -54,13 +54,15 @@
 //!
 //! # Calls
 //!
-//! A bare call `f()` names `f`; a member call names the field, its template arguments dropped, with `this` as its
-//! receiver on `this` and the empty receiver on any other operand, a named one included, because the operand of `.` or
-//! `->` is a value and its name names no type. A call through a named scope keeps the scope as written, `ns::f`, and
-//! one through the root keeps the `::`, `::f`. `new ns::Widget<T>()` is a call of `Widget`. A cast, a call spelled by a
-//! type keyword, and a call or a `new` of a parameter of an enclosing template, `Compare()` in a template over
-//! `Compare`, are not recorded. A call outside every function is a call from file scope, before the file's first symbol
-//! too.
+//! A bare call `f()` names `f`; a member call names the field, its template arguments dropped, with the bare name of
+//! the class its operand holds as its receiver: the caller's own class on `this`, and on a local or a parameter
+//! declared as a value of a class or a reference to it for `.`, or a pointer to it for `->`, that class, as a use's
+//! [`Receiver::Path`](kartta_lang::Receiver::Path) is. `this` outside a member keeps `this`, and any other operand
+//! records the empty receiver, because the operand of `.` or `->` is a value whose name names no type. A call through
+//! a named scope keeps the scope as written, `ns::f`, and one through the root keeps the `::`, `::f`.
+//! `new ns::Widget<T>()` is a call of `Widget`. A cast, a call spelled by a type keyword, and a call or a `new` of a
+//! parameter of an enclosing template, `Compare()` in a template over `Compare`, are not recorded. A call outside every
+//! function is a call from file scope, before the file's first symbol too.
 //!
 //! # Uses
 //!

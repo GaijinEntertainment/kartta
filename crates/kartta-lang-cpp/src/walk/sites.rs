@@ -330,6 +330,26 @@ impl<'s, 't> Replayer<'s, 't> {
         self.push_site(field, (text(field, self.source), receiver, access));
     }
 
+    /// The class a member call's operand is declared as, as `declared_owner` reads it, or empty.
+    pub(super) fn called_owner(&self, call: Node<'_>) -> &'s str {
+        let Some(function) = call
+            .child_by_field_name("function")
+            .filter(|function| function.kind() == "field_expression")
+        else {
+            return "";
+        };
+        let (Some(operand), Some(operator)) = (
+            function.child_by_field_name("argument"),
+            function.child_by_field_name("operator"),
+        ) else {
+            return "";
+        };
+        if operand.kind() != "identifier" {
+            return "";
+        }
+        self.declared_owner(operand, operator.kind() == "->")
+    }
+
     fn declared_owner(&self, operand: Node<'_>, arrow: bool) -> &'s str {
         let held = self
             .borrowed(operand)
