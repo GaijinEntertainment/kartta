@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::iter;
 
 use kartta::{
-    CallPath, Change, Definition, DirectCalls, Hotspot, ReachBand, Reached, Reference, References,
-    Seed, Segment, SymbolKind, Walk,
+    CallPath, Candidate, Change, Definition, DirectCalls, Hotspot, ReachBand, Reached, Reference,
+    References, Seed, Segment, SymbolKind, Walk,
 };
 
 use super::{
-    Suggestion, confidence, edge_role, empty_languages_note, file_element, flat, kind, loc, named,
-    qn, role, span, unresolved,
+    Unmatched, candidate, confidence, edge_role, empty_languages_note, file_element, flat, kind,
+    loc, named, noted, qn, role, span, unresolved,
 };
 use crate::llmxml::Element;
 
@@ -55,6 +55,14 @@ pub(crate) struct PathAsk<'a> {
     pub(crate) min_confidence: u8,
 }
 
+/// The `<candidate>` records of the symbols a name also selects, each with the count it ranked by under `count`.
+fn candidates(candidates: &[Candidate<'_>], count: &str) -> Vec<String> {
+    candidates
+        .iter()
+        .map(|listed| candidate(&listed.symbol).attr(count, listed.count).close())
+        .collect()
+}
+
 /// A caller, a callee or a hop: where the symbol is defined, its role, how surely its call binds.
 fn edge(tag: &'static str, reached: &Reached<'_>) -> Element {
     let symbol = &reached.symbol;
@@ -64,17 +72,33 @@ fn edge(tag: &'static str, reached: &Reached<'_>) -> Element {
         .optional("confidence", confidence(reached.confidence))
 }
 
-/// The `find_call_path` answer: one `<match>` per family graph both names select a symbol in.
-pub(crate) fn call_path(ask: &PathAsk<'_>, paths: &[(&str, CallPath<'_>)]) -> String {
+/// The `find_call_path` answer: one `<match>` per family graph both names select a symbol in. With none, each end
+/// that selects no symbol in any graph searched lists what its name matches instead, under its own `<from>` or
+/// `<to>`.
+pub(crate) fn call_path(
+    ask: &PathAsk<'_>,
+    paths: &[(&str, CallPath<'_>)],
+    unmatched_ends: &[(&'static str, Unmatched<'_>)],
+) -> String {
     let element = Element::new("call_path")
         .attr("from", ask.from)
         .attr("to", ask.to)
         .optional("languages", ask.languages)
         .attr("matches", paths.len());
     if paths.is_empty() {
-        return element.inline(empty_languages_note(ask.languages).unwrap_or(
-            "no symbol matches from or to in one graph - find_symbols can pin the exact names",
-        ));
+        if let Some(note) = empty_languages_note(ask.languages) {
+            return element.inline(note);
+        }
+        if unmatched_ends.is_empty() {
+            return element.inline(
+                "no graph holds both a symbol from selects and one to selects - find_symbols can pin the exact \
+                 names",
+            );
+        }
+        return element.children(unmatched_ends.iter().map(|(end, unmatched)| {
+            let prefix = format!("{end}_path_prefix");
+            unresolved(Element::new(end), None, &prefix, unmatched)
+        }));
     }
     element.children(
         paths
@@ -97,12 +121,25 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
         .count("below_confidence", path.below_confidence)
         .count("passed_over_from", passed_over_from)
         .count("passed_over_to", passed_over_to);
+    let (from_candidates, to_candidates) = &path.candidates;
+    let passed_over: Vec<String> = [("from", from_candidates), ("to", to_candidates)]
+        .into_iter()
+        .flat_map(|(end, listed)| {
+            listed.iter().map(move |listed| {
+                candidate(&listed.symbol)
+                    .attr("end", end)
+                    .attr("callers", listed.count)
+                    .close()
+            })
+        })
+        .collect();
     if !path.found && path.truncated {
-        return element.attr("found", false).inline(&format!(
+        let text = format!(
             "the node cap stopped the search before it covered {} calls, so a chain can still exist in the graph - a \
              smaller hops value or a higher min_confidence narrows the search",
             ask.hops
-        ));
+        );
+        return noted(element.attr("found", false), &text, passed_over);
     }
     if !path.found {
         let floor = match confidence(ask.min_confidence) {
@@ -112,31 +149,33 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
                 band.unwrap_or("certain")
             ),
         };
-        return element.attr("found", false).inline(&format!(
+        let text = format!(
             "no call chain within {} calls{floor} - the graph misses dynamic and unresolved calls, so this does not \
              show that the code holds none",
             ask.hops
-        ));
+        );
+        return noted(element.attr("found", false), &text, passed_over);
     }
-    element.children(path.hops.iter().map(|hop| {
+    let hops = path.hops.iter().map(|hop| {
         edge("ref", hop)
             .attr("call", loc(hop.symbol.file, hop.line))
             .close()
-    }))
+    });
+    element.children(hops.chain(passed_over))
 }
 
 /// The `find_references` answer: one `<match>` per family graph the name selects a symbol in.
 pub(crate) fn references(
     ask: &CallersAsk<'_>,
     found: &[(&str, References<'_>)],
-    suggestions: &[Suggestion<'_>],
+    unmatched: &Unmatched<'_>,
 ) -> String {
     let element = Element::new("references")
         .attr("of", ask.name)
         .optional("languages", ask.languages)
         .attr("matches", found.len());
     if found.is_empty() {
-        return unresolved(element, ask.languages, suggestions);
+        return unresolved(element, ask.languages, "path_prefix", unmatched);
     }
     element.children(
         found
@@ -176,6 +215,7 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
             .map(|&(_, note)| note),
         _ => None,
     };
+    let passed_over = candidates(&references.candidates, "sites");
     if references.sites.is_empty() {
         let mut text = format!(
             "no recorded site{} - resolved calls can omit dynamic or unresolved ones, and uses other than calls are \
@@ -186,11 +226,11 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
             text.push_str("; ");
             text.push_str(note);
         }
-        return element.inline(&text);
+        return noted(element, &text, passed_over);
     }
     let note = member_note.map(|note| Element::new("note").inline(note));
     let records = site_records(symbol.kind, &references.sites);
-    element.children(note.into_iter().chain(records.iter().map(|record| {
+    let refs = records.iter().map(|record| {
         let enclosing = &record.enclosing;
         let lines: Vec<String> = record.lines.iter().map(u32::to_string).collect();
         named("ref", enclosing)
@@ -200,7 +240,8 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
             .attr("at", format!("{}:{}", enclosing.file, lines.join(",")))
             .optional("confidence", record.band)
             .close()
-    })))
+    });
+    element.children(note.into_iter().chain(refs).chain(passed_over))
 }
 
 /// The sites one enclosing symbol holds of one kind and confidence band, on the lines they are on.
@@ -458,7 +499,7 @@ pub(crate) struct CallersAsk<'a> {
 pub(crate) fn callers(
     ask: &CallersAsk<'_>,
     walks: &[(&str, Walk<'_>)],
-    suggestions: &[Suggestion<'_>],
+    unmatched: &Unmatched<'_>,
 ) -> String {
     let element = Element::new("callers")
         .attr("of", ask.name)
@@ -466,7 +507,7 @@ pub(crate) fn callers(
         .optional("role", ask.role)
         .attr("matches", walks.len());
     if walks.is_empty() {
-        return unresolved(element, ask.languages, suggestions);
+        return unresolved(element, ask.languages, "path_prefix", unmatched);
     }
     element.children(
         walks
@@ -503,23 +544,24 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
             element = element.attr(attribute, callers);
         }
     }
+    let passed_over = candidates(&walk.candidates, "callers");
     if walk.reached.is_empty() {
-        return element.inline(&no_callers(root.kind, ask.floored));
+        return noted(element, &no_callers(root.kind, ask.floored), passed_over);
     }
-    element.children(
-        walk.reached
-            .iter()
-            .filter(|caller| {
-                ask.role
-                    .is_none_or(|role| edge_role(caller.symbol.flags) == role)
-            })
-            .map(|caller| {
-                edge("ref", caller)
-                    .attr("hops", caller.depth)
-                    .attr("at", loc(caller.symbol.file, caller.line))
-                    .close()
-            }),
-    )
+    let refs = walk
+        .reached
+        .iter()
+        .filter(|caller| {
+            ask.role
+                .is_none_or(|role| edge_role(caller.symbol.flags) == role)
+        })
+        .map(|caller| {
+            edge("ref", caller)
+                .attr("hops", caller.depth)
+                .attr("at", loc(caller.symbol.file, caller.line))
+                .close()
+        });
+    element.children(refs.chain(passed_over))
 }
 
 /// The `find_callees` answer: one `<match>` per family graph the name selects a symbol in, or the alternatives to a
@@ -527,14 +569,14 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
 pub(crate) fn callees(
     ask: &CallersAsk<'_>,
     walks: &[(&str, Walk<'_>)],
-    suggestions: &[Suggestion<'_>],
+    unmatched: &Unmatched<'_>,
 ) -> String {
     let element = Element::new("callees")
         .attr("of", ask.name)
         .optional("languages", ask.languages)
         .attr("matches", walks.len());
     if walks.is_empty() {
-        return unresolved(element, ask.languages, suggestions);
+        return unresolved(element, ask.languages, "path_prefix", unmatched);
     }
     element.children(
         walks
@@ -555,14 +597,16 @@ fn callee_match(floored: bool, family: &str, walk: &Walk<'_>) -> String {
         .count("below_confidence", walk.below_confidence)
         .count("unresolved", walk.unresolved)
         .count("passed_over", walk.passed_over);
+    let passed_over = candidates(&walk.candidates, "callers");
     if walk.reached.is_empty() {
-        return element.inline(&format!(
+        let text = format!(
             "no callees - no call in its body binds a definition the graph holds{}; a call into a library or a \
              builtin, through a function value, or by dynamic dispatch binds none",
             at_floor(floored)
-        ));
+        );
+        return noted(element, &text, passed_over);
     }
-    element.children(walk.reached.iter().map(|reached| {
+    let refs = walk.reached.iter().map(|reached| {
         edge("ref", reached)
             .attr("hops", reached.depth)
             .optional(
@@ -570,7 +614,8 @@ fn callee_match(floored: bool, family: &str, walk: &Walk<'_>) -> String {
                 (reached.depth == 1).then(|| loc(root.file, reached.line)),
             )
             .close()
-    }))
+    });
+    element.children(refs.chain(passed_over))
 }
 
 /// Starts a `<match>`: the family graph, and the symbol a name selected in it with its place.

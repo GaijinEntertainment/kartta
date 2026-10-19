@@ -3,7 +3,10 @@ use std::io;
 
 use kartta::{Definition, Dependents, Hit, Implementations, Nearness, Source};
 
-use super::{Suggestion, empty_languages_note, flat, kind, loc, named, role, span, unresolved};
+use super::{
+    Unmatched, candidate, empty_languages_note, flat, kind, loc, named, noted, role, span,
+    unresolved,
+};
 use crate::llmxml::Element;
 use crate::state::GraphRow;
 
@@ -174,12 +177,13 @@ const fn scope(nearness: Nearness, definition: &Definition<'_>) -> &'static str 
 }
 
 /// The `find_implementations` answer: a `<type/>` per implementor, nearest first, `depth` marking one that implements
-/// the type through another.
+/// the type through another. Where the name selects several types, a `<root/>` names the one answered for, and
+/// `<candidate/>` records the most implemented of the others.
 pub(crate) fn implementations(
     name: &str,
     languages: Option<&str>,
     found: &[(&str, Implementations<'_>)],
-    suggestions: &[Suggestion<'_>],
+    unmatched: &Unmatched<'_>,
 ) -> String {
     let count: usize = found.iter().map(|(_, found)| found.found.len()).sum();
     let total: usize = found.iter().map(|(_, found)| found.total).sum();
@@ -191,12 +195,33 @@ pub(crate) fn implementations(
         .optional("total", (total > count).then_some(total))
         .count("passed_over", passed_over);
     if found.is_empty() {
-        return unresolved(element, languages, suggestions);
+        return unresolved(element, languages, "path_prefix", unmatched);
     }
+    let selection: Vec<String> = found
+        .iter()
+        .filter(|(_, found)| found.passed_over > 0)
+        .flat_map(|(family, found)| {
+            let root = named("root", &found.root)
+                .attr("lang", *family)
+                .attr("loc", loc(found.root.file, found.root.line))
+                .close();
+            let others = found.candidates.iter().map(move |listed| {
+                candidate(&listed.symbol)
+                    .attr("lang", *family)
+                    .attr("implementors", listed.count)
+                    .close()
+            });
+            std::iter::once(root).chain(others)
+        })
+        .collect();
     if count == 0 {
-        return element.inline("the symbol is indexed but nothing implements or extends it");
+        return noted(
+            element,
+            "the symbol is indexed but nothing implements or extends it",
+            selection,
+        );
     }
-    element.children(found.iter().flat_map(|(family, found)| {
+    let types = found.iter().flat_map(|(family, found)| {
         found.found.iter().map(move |implementor| {
             let symbol = &implementor.symbol;
             named("type", symbol)
@@ -208,7 +233,8 @@ pub(crate) fn implementations(
                 )
                 .close()
         })
-    }))
+    });
+    element.children(selection.into_iter().chain(types))
 }
 
 /// The `find_importers` answer: a `<file/>` per file that includes the file, nearest first, `depth` marking one that
