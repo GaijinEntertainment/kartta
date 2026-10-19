@@ -1,5 +1,5 @@
 use kartta_lang::Repository;
-use kartta_lang::path::{dir, join};
+use kartta_lang::path::{dir, join, shared_segments};
 
 use crate::config::ScopedAliases;
 use crate::package_json::{self, PkgExports};
@@ -158,15 +158,6 @@ fn governs(dir: &str, importer: &str) -> bool {
         || importer
             .strip_prefix(dir)
             .is_some_and(|rest| rest.starts_with('/'))
-}
-
-fn shared_segments(dir: &str, path: &str) -> usize {
-    if dir.is_empty() {
-        return 0;
-    }
-    (dir.split('/').zip(path.split('/')))
-        .take_while(|(dir, path)| dir == path)
-        .count()
 }
 
 fn match_pattern<'s>(pattern: &str, specifier: &'s str) -> Option<&'s str> {
