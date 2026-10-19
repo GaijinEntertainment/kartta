@@ -63,7 +63,7 @@ impl Inspection {
                 let read = if named() {
                     BINARY
                 } else {
-                    classify(&native_path())
+                    self.classify(at, &native_path())
                 };
 
                 decode_class(
@@ -129,6 +129,20 @@ impl Inspection {
             _ = slot.compare_exchange(UNCLASSIFIED, class, Ordering::Relaxed, Ordering::Relaxed);
         }
     }
+
+    fn classify(&self, at: usize, native_path: &Path) -> u8 {
+        let Ok((mut file, metadata)) = open_regular(native_path, Symlinks::Refuse) else {
+            return UNOPENABLE;
+        };
+        self.record_size(at, metadata.len());
+        let mut head = vec![0u8; PROBE];
+
+        match read_prefix(&mut file, &mut head) {
+            Ok(filled) if head[..filled].contains(&0) => BINARY,
+            Ok(_) => TEXT,
+            Err(_) => UNOPENABLE,
+        }
+    }
 }
 
 const fn decode_size(stored: u64) -> Option<u64> {
@@ -144,22 +158,6 @@ const fn decode_class(class: u8) -> Option<bool> {
         BINARY => Some(true),
         _ => None,
     }
-}
-
-fn classify(native_path: &Path) -> u8 {
-    match holds_nul(native_path) {
-        Some(true) => BINARY,
-        Some(false) => TEXT,
-        None => UNOPENABLE,
-    }
-}
-
-fn holds_nul(native_path: &Path) -> Option<bool> {
-    let (mut file, _metadata) = open_regular(native_path, Symlinks::Refuse).ok()?;
-    let mut head = vec![0u8; PROBE];
-    let filled = read_prefix(&mut file, &mut head).ok()?;
-
-    Some(head[..filled].contains(&0))
 }
 
 // constraint: one `read` may return short for reasons that say nothing about the file, and a verdict taken on a short

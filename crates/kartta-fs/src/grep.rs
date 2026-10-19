@@ -360,8 +360,7 @@ impl Planner<'_, '_> {
         self.tally.candidates += 1;
 
         let inspection = self.index.inspection();
-        if self.index.binary_extensions().matches(path) || inspection.known_binary(at) == Some(true)
-        {
+        if self.index.binary_extensions().matches(path) {
             self.tally.binary += 1;
         } else if self.options.max_file_bytes.is_some_and(|max| {
             inspection
@@ -369,6 +368,8 @@ impl Planner<'_, '_> {
                 .is_some_and(|size| size > max.get())
         }) {
             self.tally.oversized += 1;
+        } else if inspection.known_binary(at) == Some(true) {
+            self.tally.binary += 1;
         } else if self.narrowed.is_some_and(|narrowed| !narrowed.admits(at)) {
             self.tally.ruled_out += 1;
         } else {
