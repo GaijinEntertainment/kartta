@@ -69,8 +69,8 @@ func Open(root string) (*Kartta, error) {
 	return k, nil
 }
 
-// Close cancels the builds in flight, waits for the calls in flight to return, and frees the handle. A build Close
-// cancels answers an error matching both wire.BuildCancelled and ErrClosed. Closing a closed handle does nothing.
+// Close cancels the builds and greps in flight, waits for the calls in flight to return, and frees the handle. A build
+// Close cancels answers an error matching both wire.BuildCancelled and ErrClosed. Closing a closed handle does nothing.
 func (k *Kartta) Close() error {
 	k.tracked.Lock()
 	k.closing = true
