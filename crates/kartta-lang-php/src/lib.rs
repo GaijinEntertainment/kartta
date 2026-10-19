@@ -21,6 +21,14 @@
 //! in its body; a closure passed as an argument leaves them to the callable around it. A call before the file's first
 //! symbol records nothing.
 //!
+//! A callable named by a string or an array is a use of what it names. A string in the callable argument of a builtin
+//! that takes one, `array_map('trim', $x)` or `usort($a, 'cmp')`, or of a hook function, `add_action('init', 'boot')`,
+//! is a use of the function, and `'Cache::flush'` of the member `flush` of `Cache`. An array `[$this, 'render']`,
+//! `[self::class, 'make']`, `[static::class, ...]` or `[parent::class, ...]` is a use of the method of the class around
+//! it, and `[Cache::class, 'flush']` of the one of `Cache`. PHP reads a callable string as fully qualified, `'helper'`
+//! the global `helper` and `'App\helper'` the one of `App`, so a string is a use only where the namespace it spells is
+//! the file's own. A bare use binds the function its own file declares.
+//!
 //! # Resolution
 //!
 //! An `include` or `require` whose path folds to a constant, from strings, `__DIR__`, `__FILE__`, the `.` operator and

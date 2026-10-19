@@ -2,7 +2,8 @@ use kartta_lang::tree::{
     child_nodes, line, named_child_nodes, preorder, signature, signature_from, text,
 };
 use kartta_lang::{
-    CallRef, FILE_SCOPE, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Access, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol, SymbolFlags,
+    SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree};
 
@@ -99,15 +100,137 @@ impl Emitter<'_> {
             }
             "assignment_expression" => self.closure_binding(node),
             "object_creation_expression" => self.object_creation(node),
-            "function_call_expression"
-            | "member_call_expression"
+            "function_call_expression" => {
+                let (callee, receiver) = call_target(node, self.source);
+                self.callable_argument(&callee, node);
+                self.call(callee, receiver, node);
+            }
+            "member_call_expression"
             | "nullsafe_member_call_expression"
             | "scoped_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
                 self.call(callee, receiver, node);
             }
+            "array_creation_expression" => self.array_callable(node),
             _ => {}
         }
+    }
+
+    // constraint: a function that takes a callable takes it as a string naming a function, `'trim'`, or a static
+    // method, `'Cache::flush'`, in the positional argument the table names; the table names global functions, so a
+    // call spelled through a namespace, `App\array_map()`, calls a function of the repository instead
+    fn callable_argument(&mut self, callee: &str, call: Node<'_>) {
+        let Some(position) = callable_position(callee) else {
+            return;
+        };
+        let global = call
+            .child_by_field_name("function")
+            .is_some_and(|function| {
+                let spelled = &self.source[function.byte_range()];
+                !spelled
+                    .strip_prefix(b"\\")
+                    .unwrap_or(spelled)
+                    .contains(&b'\\')
+            });
+        if !global {
+            return;
+        }
+        let Some(argument) = call
+            .child_by_field_name("arguments")
+            .and_then(|arguments| {
+                named_child_nodes(arguments)
+                    .filter(|argument| argument.kind() == "argument")
+                    .nth(position)
+            })
+            .filter(|argument| argument.child_by_field_name("name").is_none())
+            .and_then(|argument| argument.named_child(0))
+        else {
+            return;
+        };
+        let Some(callable) = string_text(argument, self.source) else {
+            return;
+        };
+        let (receiver, name) = match callable.split_once("::") {
+            Some((class, method)) if self.in_own_namespace(class) => {
+                (Receiver::Path(last_name(class).to_owned()), method)
+            }
+            None if self.in_own_namespace(callable) => (Receiver::Bare, last_name(callable)),
+            _ => return,
+        };
+        if is_identifier(name) {
+            self.value_use(name.to_owned(), receiver, argument);
+        }
+    }
+
+    // constraint: a callable string is fully qualified, so `'helper'` names the global `helper` and
+    // `'App\Jobs\run'` the `run` of `App\Jobs`; it names one the file declares only where its namespace is the file's
+    fn in_own_namespace(&self, spelled: &str) -> bool {
+        let spelled = spelled.strip_prefix('\\').unwrap_or(spelled);
+        spelled
+            .rsplit_once('\\')
+            .map_or("", |(namespace, _)| namespace)
+            == self.namespace
+    }
+
+    // constraint: `[$this, 'm']`, `[self::class, 'm']`, `[static::class, 'm']` and `[parent::class, 'm']` name a
+    // method of the class around them, and `[Cache::class, 'm']` one of `Cache`; `['Cache', 'm']` reads as any pair
+    // of strings does, and names nothing
+    fn array_callable(&mut self, array: Node<'_>) {
+        let mut elements = named_child_nodes(array);
+        let (Some(target), Some(method), None) = (
+            elements.next().and_then(sole_value),
+            elements.next().and_then(sole_value),
+            elements.next(),
+        ) else {
+            return;
+        };
+        let Some(name) = string_text(method, self.source).filter(|name| is_identifier(name)) else {
+            return;
+        };
+        let receiver = match target.kind() {
+            "variable_name"
+                if variable_identifier(target, self.source).as_deref() == Some("this") =>
+            {
+                Receiver::Own
+            }
+            "class_constant_access_expression" => match class_constant_scope(target, self.source) {
+                Some(scope) if matches!(scope.as_str(), "self" | "static" | "parent") => {
+                    Receiver::Own
+                }
+                Some(scope) => Receiver::Path(scope),
+                None => return,
+            },
+            _ => return,
+        };
+        self.value_use(name.to_owned(), receiver, method);
+    }
+
+    // constraint: a use in a class body outside every method, a property's default, is made by the class, whose own
+    // methods it names through the class, as a use at file scope keeps only its name
+    fn value_use(&mut self, name: String, receiver: Receiver, node: Node<'_>) {
+        let class = match (self.scopes.last(), self.types.last()) {
+            (Some(function), Some(class)) => (class.end < function.end).then_some(class.id),
+            (None, Some(class)) => Some(class.id),
+            (_, None) => None,
+        };
+        let (site_of, receiver) = match class {
+            Some(class) if receiver == Receiver::Own => {
+                let class_name = self.raw.symbols[class.0 as usize].name.clone();
+                (class, Receiver::Path(class_name))
+            }
+            Some(class) => (class, receiver),
+            None => (
+                self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id),
+                receiver,
+            ),
+        };
+        self.raw.uses.push(UseRef {
+            site_of,
+            name,
+            receiver,
+            access: Access::Read,
+            line: line(node.start_position().row),
+        });
     }
 
     fn push(&mut self, mut symbol: Symbol) -> SymbolId {
@@ -520,6 +643,96 @@ fn promoted_identifier(node: Node<'_>, source: &[u8]) -> Option<String> {
     match node.kind() {
         "variable_name" => variable_identifier(node, source),
         "by_ref" => promoted_identifier(node.named_child(0)?, source),
+        _ => None,
+    }
+}
+
+// constraint: the builtins and the WordPress hook functions that take a callable, with the positional argument that
+// holds it; an existence test, `function_exists` or `is_callable`, uses nothing
+fn callable_position(callee: &str) -> Option<usize> {
+    match callee {
+        "array_map"
+        | "call_user_func"
+        | "call_user_func_array"
+        | "forward_static_call"
+        | "forward_static_call_array"
+        | "ob_start"
+        | "register_shutdown_function"
+        | "set_error_handler"
+        | "set_exception_handler"
+        | "spl_autoload_register" => Some(0),
+        "add_action"
+        | "add_filter"
+        | "add_shortcode"
+        | "array_filter"
+        | "array_reduce"
+        | "array_walk"
+        | "array_walk_recursive"
+        | "iterator_apply"
+        | "preg_replace_callback"
+        | "register_activation_hook"
+        | "register_deactivation_hook"
+        | "remove_action"
+        | "remove_filter"
+        | "uasort"
+        | "uksort"
+        | "usort" => Some(1),
+        _ => None,
+    }
+}
+
+// constraint: a literal without interpolation, quoted either way
+fn string_text<'s>(node: Node<'_>, source: &'s [u8]) -> Option<&'s str> {
+    if !matches!(node.kind(), "string" | "encapsed_string") {
+        return None;
+    }
+    let mut parts = named_child_nodes(node);
+    let (Some(content), None) = (parts.next(), parts.next()) else {
+        return None;
+    };
+    (content.kind() == "string_content")
+        .then(|| std::str::from_utf8(&source[content.byte_range()]).ok())
+        .flatten()
+}
+
+fn last_name(name: &str) -> &str {
+    name.rsplit_once('\\').map_or(name, |(_, last)| last)
+}
+
+fn is_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|first| first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|rest| rest == '_' || rest.is_ascii_alphanumeric())
+}
+
+// constraint: an array element with no key, no `&` and no spread is the value it holds
+fn sole_value(element: Node<'_>) -> Option<Node<'_>> {
+    if element.kind() != "array_element_initializer" {
+        return None;
+    }
+    let mut children = named_child_nodes(element);
+    let (Some(value), None) = (children.next(), children.next()) else {
+        return None;
+    };
+    (!matches!(value.kind(), "by_ref" | "variadic_unpacking")).then_some(value)
+}
+
+// constraint: `X::class` names the class `X`, the last segment of a qualified name, or a relative scope, `self`,
+// `static` or `parent`
+fn class_constant_scope(access: Node<'_>, source: &[u8]) -> Option<String> {
+    let mut children = named_child_nodes(access);
+    let (Some(scope), Some(constant), None) = (children.next(), children.next(), children.next())
+    else {
+        return None;
+    };
+    if &source[constant.byte_range()] != b"class" {
+        return None;
+    }
+    match scope.kind() {
+        "name" | "relative_scope" => Some(text(scope, source)),
+        "qualified_name" | "relative_name" => last_segment(scope, source),
         _ => None,
     }
 }
