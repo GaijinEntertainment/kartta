@@ -314,13 +314,25 @@ impl<'g> Cascade<'g> {
         })
     }
 
-    // constraint: a file sees the definitions of its own, of the files it includes, and where a package is a
-    // directory, of its package
     pub(crate) fn sees(&self, file: u32, at: SymbolAt) -> bool {
-        file == at.file
-            || self.includes(file).contains(&at.file)
-            || (self.conventions.directory_packages
-                && self.graph.file(file).dir == self.graph.file(at.file).dir)
+        self.seen_from(file, at).is_some()
+    }
+
+    /// How sure a name `file` spells is to mean the definition at `at`, by how the file sees it: its own definitions,
+    /// where a package is a directory those of its package, and those of the files it includes, the nearest first;
+    /// `None` where it does not see it.
+    pub(crate) fn seen_from(&self, file: u32, at: SymbolAt) -> Option<u8> {
+        if file == at.file {
+            Some(confidence::SAME_FILE)
+        } else if self.conventions.directory_packages
+            && self.graph.file(file).dir == self.graph.file(at.file).dir
+        {
+            Some(confidence::PACKAGE)
+        } else if self.includes(file).contains(&at.file) {
+            Some(confidence::INCLUDE)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn canonical(&self, at: SymbolAt) -> SymbolAt {
