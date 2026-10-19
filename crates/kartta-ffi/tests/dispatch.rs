@@ -324,6 +324,58 @@ fn callers_answers_each_graph_s_walk_with_what_it_left_out() {
         ok(&kartta, "callers", &json!({ "name": "nothing" })),
         json!({ "matches": [] })
     );
+    assert!(
+        walk.get("file_scope").is_none(),
+        "a walk no file's top level calls into carries no file_scope"
+    );
+}
+
+#[test]
+fn callers_answers_the_files_whose_top_level_calls_the_root() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::create_dir_all(tree.path().join("bin")).expect("bin/");
+    fs::create_dir_all(tree.path().join("lib")).expect("lib/");
+    fs::write(
+        tree.path().join("bin/run.sh"),
+        "#!/bin/sh\n. lib/common.sh\n\nsetup() {\n\techo ready\n}\n\nsetup\nshared\n",
+    )
+    .expect("bin/run.sh");
+    fs::write(
+        tree.path().join("lib/common.sh"),
+        "shared() {\n\techo shared\n}\n",
+    )
+    .expect("lib/common.sh");
+    fs::write(
+        tree.path().join("bin/check.sh"),
+        "#!/bin/sh\n. lib/common.sh\n\nshared\n",
+    )
+    .expect("bin/check.sh");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let own = ok(&kartta, "callers", &json!({ "name": "setup" }));
+    let included = ok(&kartta, "callers", &json!({ "name": "shared" }));
+    let floored = ok(
+        &kartta,
+        "callers",
+        &json!({ "name": "shared", "min_confidence": 75 }),
+    );
+
+    assert_eq!(
+        own["matches"][0]["file_scope"],
+        json!([{ "file": "bin/run.sh", "confidence": 80 }])
+    );
+    assert_eq!(own["matches"][0]["reached"], json!([]));
+    assert_eq!(
+        included["matches"][0]["file_scope"],
+        json!([
+            { "file": "bin/check.sh", "confidence": 70 },
+            { "file": "bin/run.sh", "confidence": 70 }
+        ]),
+        "the files come in path order"
+    );
+    assert!(floored["matches"][0].get("file_scope").is_none());
+    assert_eq!(floored["matches"][0]["below_confidence"], 2);
 }
 
 /// A built handle over two copies of a Go package: each defines `Parse` and `Base`, and `Start`, which calls `Helper`.

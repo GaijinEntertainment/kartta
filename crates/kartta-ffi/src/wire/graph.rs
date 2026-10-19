@@ -3,10 +3,10 @@ use std::ops::RangeInclusive;
 
 use kartta::{
     Access, Blast, CallPath, Candidate, Change, CutLine, Dead, DeadCode, Definition, Definitions,
-    Dependent, Dependents, DirCount, DirectCalls, Excluded, Hit, Hotspot, Implementations,
-    Implementor, LanguageFiles, Miss, Misses, Nearness, ReachBand, Reached, Reference, References,
-    Resolution, Search, Seed, Segment, SegmentSymbol, SiteCounts, Source, Stats, SymbolFlags,
-    SymbolKind, Unbound, Walk,
+    Dependent, Dependents, DirCount, DirectCalls, Excluded, FileScope, Hit, Hotspot,
+    Implementations, Implementor, LanguageFiles, Miss, Misses, Nearness, ReachBand, Reached,
+    Reference, References, Resolution, Search, Seed, Segment, SegmentSymbol, SiteCounts, Source,
+    Stats, SymbolFlags, SymbolKind, Unbound, Walk,
 };
 use serde::{Serialize, Serializer};
 
@@ -43,6 +43,7 @@ wire!(
     Candidate<'_> => CandidateDef,
     Reached<'_> => ReachedDef,
     Walk<'_> => WalkDef,
+    FileScope<'_> => FileScopeDef,
     CallPath<'_> => CallPathDef,
     Reference<'_> => ReferenceDef,
     References<'_> => ReferencesDef,
@@ -199,6 +200,15 @@ struct WalkDef<'g> {
     unexpanded: usize,
     below_confidence: usize,
     unresolved: usize,
+    #[serde(serialize_with = "each", skip_serializing_if = "Vec::is_empty")]
+    file_scope: Vec<FileScope<'g>>,
+}
+
+#[derive(Serialize)]
+#[serde(remote = "FileScope")]
+struct FileScopeDef<'g> {
+    file: &'g str,
+    confidence: u8,
 }
 
 #[derive(Serialize)]

@@ -43,6 +43,17 @@ type Walk struct {
 	BelowConfidence int `json:"below_confidence"`
 	// Unresolved counts the calls that bound no symbol the graph holds.
 	Unresolved int `json:"unresolved"`
+	// FileScope lists, for a walk over callers, the files whose top level calls or uses the root's name and sees the
+	// root, in path order. BelowConfidence also counts the files the floor left out.
+	FileScope []FileScope `json:"file_scope,omitempty"`
+}
+
+// FileScope is a file whose top level, outside every definition, calls or uses a name. The graph keeps only the names a
+// top level spells, so it has no line.
+type FileScope struct {
+	File string `json:"file"`
+	// Confidence is how the file sees the symbol: 80 in the same file, 75 in its package, 70 through an include.
+	Confidence int `json:"confidence"`
 }
 
 // Candidate is a symbol a name also selects that the answer passed over, and the count the query ranked it by.
