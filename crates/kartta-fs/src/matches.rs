@@ -19,6 +19,9 @@ use crate::index::Index;
 /// | [`failures`](Matches::failures) | not readable, and listed with the reason |
 /// | [`unsearched`](Matches::unsearched) | not covered, because the limit or a cancellation ended the search first |
 ///
+/// A file that is both binary and too large counts as oversized, unless its extension alone makes it binary: the name
+/// is judged first, then the size, then the content, whatever an earlier read of the file already learned.
+///
 /// The answer is complete exactly when nothing is [`truncated`](Matches::truncated), nothing went
 /// [`unsearched`](Matches::unsearched) and nothing [`failed`](Matches::failures) — a file that would not read holds
 /// matches the answer cannot know of. A search that cannot know whether the limit cut it short says how many candidates

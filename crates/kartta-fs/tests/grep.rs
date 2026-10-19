@@ -449,6 +449,32 @@ fn a_file_over_the_size_limit_is_skipped_and_counted() {
 }
 
 #[test]
+fn a_binary_file_over_the_size_limit_is_oversized_whatever_read_it_before() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    write(dir.path(), "blob.txt", b"\0needle and more\n");
+    let fresh = index(dir.path());
+    let content_indexed = build(dir.path(), None).index;
+    let classified = index(dir.path());
+    assert_eq!(classified.is_binary("blob.txt"), Some(true));
+
+    for (read_before, index) in [
+        ("nothing", &fresh),
+        ("the build", &content_indexed),
+        ("is_binary", &classified),
+    ] {
+        let found = index.grep(
+            &patterns(&["needle"]),
+            &GrepOptions::default().max_file_bytes(10),
+        );
+        assert_eq!(
+            (found.oversized(), found.binary()),
+            (1, 0),
+            "after {read_before} read the file, the size bound is still checked before the binary verdict"
+        );
+    }
+}
+
+#[test]
 fn a_file_gone_since_the_walk_is_a_failure_naming_its_position() {
     let dir = tree(&[("gone.txt", "needle\n"), ("kept.txt", "needle\n")]);
     let index = index(dir.path());
