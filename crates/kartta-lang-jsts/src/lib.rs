@@ -31,9 +31,9 @@
 //!   beside it) or an update (`+=`, `++`): a member taken without a call, on `this` as a member of the class around
 //!   the method, on a value whose declaration spells one type, `p: Props` or `new Pool()`, as a member of that type,
 //!   on a class or an import by its name, and on anything else as a member of a value of no known type, which binds
-//!   nothing; and a use of a module-level variable or constant the file imports or declares, before its declaration
-//!   too, which binds the declaration in the file, in the one module it imports that declares it, or through a
-//!   re-export. A module-level function or class the file declares, taken as a value, is no use.
+//!   nothing; and a use of a module-level variable or constant the file imports or declares, or of a function or
+//!   class it declares at its top level taken as a value, before its declaration too, which binds the declaration in
+//!   the file, in the one module it imports that declares it, or through a re-export.
 //! - Overload signatures joined to the implementation that follows them, as one callable.
 //! - Imports, `require` and dynamic `import()` of a string, and `export … from` re-exports, a type-only one included.
 //!

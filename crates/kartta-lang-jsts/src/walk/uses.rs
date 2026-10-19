@@ -30,14 +30,18 @@ impl Emitter<'_> {
         self.push_use(caller, property, (receiver, access_of(member)));
     }
 
-    // constraint: an identifier names a module's value where the file imports it or declares it outside every body,
-    // and a body that binds the name again hides it; a declaration, an import or an export of the name is no use
+    // constraint: an identifier names a module's value where the file imports it or declares it outside every body, a
+    // function or a class included, and a body that binds the name again hides it; a declaration, an import or an
+    // export of the name is no use
     pub(super) fn value_use(&mut self, identifier: Node<'_>, caller: SymbolId) {
         if caller == FILE_SCOPE || is_callee(identifier) || declares(identifier) {
             return;
         }
         let binding = self.binding(&self.source[identifier.byte_range()]);
-        if !matches!(binding, Some(Binding::Module(_) | Binding::Imported)) {
+        if !matches!(
+            binding,
+            Some(Binding::Module(_) | Binding::Imported | Binding::Declared)
+        ) {
             return;
         }
         let access = access_of(identifier);
@@ -93,7 +97,7 @@ impl Emitter<'_> {
             Some(Binding::Value(typed) | Binding::Module(typed)) => {
                 typed.map_or_else(String::new, |span| self.spelled(span))
             }
-            Some(Binding::Imported | Binding::Type) | None => {
+            Some(Binding::Imported | Binding::Type | Binding::Declared) | None => {
                 String::from_utf8_lossy(name).into_owned()
             }
         }
@@ -151,7 +155,11 @@ fn declares(identifier: Node<'_>) -> bool {
     };
     let in_field = |field| parent.child_by_field_name(field) == Some(identifier);
     match parent.kind() {
-        "variable_declarator" => in_field("name"),
+        "variable_declarator"
+        | "function_declaration"
+        | "generator_function_declaration"
+        | "class_declaration"
+        | "abstract_class_declaration" => in_field("name"),
         "assignment_pattern" => in_field("left"),
         "required_parameter" | "optional_parameter" => in_field("pattern"),
         "import_specifier" | "import_clause" | "namespace_import" | "export_specifier" => true,

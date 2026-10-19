@@ -115,6 +115,8 @@ enum Binding {
     Module(Option<Span>),
     Imported,
     Type,
+    /// A function or a class the module declares at its top level, which a name taken as a value uses.
+    Declared,
 }
 
 // constraint: a binding lives until the innermost scope around its declaration ends — a function, a block, a catch
@@ -182,12 +184,7 @@ impl<'s> Emitter<'s> {
                 self.declare_parameters(node);
                 self.anonymous_function(node, caller);
             }
-            "class_declaration" | "abstract_class_declaration" => {
-                if let Some(name) = node.child_by_field_name("name") {
-                    self.declare(name.byte_range(), self.scope_end(), Binding::Type);
-                }
-                self.type_with_members(node, SymbolKind::Class);
-            }
+            "class_declaration" | "abstract_class_declaration" => self.class_declaration(node),
             "statement_block" | "switch_body" | "for_statement" | "catch_clause"
             | "for_in_statement" => {
                 self.open_scope(node);
@@ -263,6 +260,10 @@ impl<'s> Emitter<'s> {
                 "lexical_declaration" | "variable_declaration" => named_child_nodes(declaration)
                     .for_each(|declarator| self.declare_declarator(declarator)),
                 "import_statement" => self.declare_imported(declaration),
+                "function_declaration"
+                | "generator_function_declaration"
+                | "class_declaration"
+                | "abstract_class_declaration" => self.declare_module_name(declaration),
                 _ => {}
             }
         }
@@ -328,6 +329,23 @@ impl<'s> Emitter<'s> {
                 shadowed,
             });
         }
+    }
+
+    fn declare_module_name(&mut self, declaration: Node<'_>) {
+        if let Some(name) = declaration.child_by_field_name("name") {
+            self.declare(name.byte_range(), usize::MAX, Binding::Declared);
+        }
+    }
+
+    // constraint: a class at the module's top level keeps the binding the hoist gave it, which a value taken of the
+    // name uses; one in a nearer scope is a type binding of that scope
+    fn class_declaration(&mut self, node: Node<'_>) {
+        if let Some(name) = node.child_by_field_name("name")
+            && self.scope_end() != usize::MAX
+        {
+            self.declare(name.byte_range(), self.scope_end(), Binding::Type);
+        }
+        self.type_with_members(node, SymbolKind::Class);
     }
 
     // constraint: a function declared inside a function body names a value of its scope, while one at module or

@@ -131,3 +131,33 @@ fn a_called_member_a_local_and_a_use_outside_every_definition_record_no_use() {
         ]
     );
 }
+
+#[test]
+fn a_function_or_a_class_the_module_declares_taken_as_a_value_is_used() {
+    let extraction = extracted(
+        "src/jobs.ts",
+        "export function onDone() {}\n\
+         function schedule() {\n    setTimeout(tick, 10);\n    register(Store, onDone, ids);\n    return run();\n}\n\
+         function tick() { schedule(); }\n\
+         class Store { static open() {} }\n\
+         function run() { return Store.open(); }\n\
+         function* ids() {}\n\
+         function local() {\n    function onDone() {}\n    class Store {}\n    return [onDone, Store];\n}\n\
+         abstract class Shape {}\n\
+         function shapes() { return [Shape]; }\n",
+    );
+
+    assert_eq!(
+        uses(&extraction),
+        [
+            ("schedule", "tick", Receiver::Bare, Access::Read, 3),
+            ("schedule", "Store", Receiver::Bare, Access::Read, 4),
+            ("schedule", "onDone", Receiver::Bare, Access::Read, 4),
+            ("schedule", "ids", Receiver::Bare, Access::Read, 4),
+            ("run", "Store", Receiver::Bare, Access::Read, 9),
+            ("shapes", "Shape", Receiver::Bare, Access::Read, 17),
+        ],
+        "a call of the name, its declaration and a later body's call record no use; a value taken before the \
+         declaration does; a body's own function or class of the name hides the module's"
+    );
+}
