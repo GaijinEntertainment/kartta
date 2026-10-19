@@ -170,7 +170,7 @@ pub enum BuildError {
     ///
     /// A restricted environment is where this happens: a process or cgroup thread limit, or a sandbox that refuses to
     /// spawn. The build fails rather than quietly running at a parallelism the caller did not ask for.
-    #[error("cannot start a thread pool of {threads} for the walk: {source}")]
+    #[error("cannot start the index's thread pool of {threads}: {source}")]
     ThreadPool {
         /// The thread count that was requested.
         threads: NonZeroUsize,
@@ -298,5 +298,23 @@ impl BuildError {
             Self::Cache { .. } => 8,
             Self::ThreadPool { .. } => 9,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pool_that_cannot_start_is_named_as_the_index_s_whole_pool() {
+        let error = BuildError::ThreadPool {
+            threads: NonZeroUsize::new(4).expect("four"),
+            source: "the process thread limit".into(),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "cannot start the index's thread pool of 4: the process thread limit"
+        );
     }
 }
