@@ -597,7 +597,8 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
         .count("turned_away", walk.turned_away)
         .count("unexpanded", walk.unexpanded)
         .count("below_confidence", walk.below_confidence)
-        .count("passed_over", walk.passed_over);
+        .count("passed_over", walk.passed_over)
+        .count("file_scope", walk.file_scope.len());
     if ask.role.is_some() {
         let mut callers = [0_usize; ROLE_COUNTS.len()];
         for caller in &walk.reached {
@@ -611,7 +612,7 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
         }
     }
     let passed_over = candidates(&walk.candidates, "callers");
-    if walk.reached.is_empty() {
+    if walk.reached.is_empty() && walk.file_scope.is_empty() {
         return noted(element, &no_callers(root.kind, ask.floored), passed_over);
     }
     let refs = walk
@@ -627,7 +628,17 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
                 .attr("at", loc(caller.symbol.file, caller.line))
                 .close()
         });
-    element.children(refs.chain(passed_over))
+    let file_scope = walk
+        .file_scope
+        .iter()
+        .filter(|_| ask.role.is_none())
+        .map(|caller| {
+            Element::new("file_scope")
+                .attr("path", caller.file)
+                .optional("confidence", confidence(caller.confidence))
+                .close()
+        });
+    element.children(refs.chain(file_scope).chain(passed_over))
 }
 
 /// The `find_callees` answer: one `<match>` per family graph the name selects a symbol in, or the alternatives to a
