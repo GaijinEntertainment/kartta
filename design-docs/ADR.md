@@ -102,7 +102,7 @@
   `03-code-graph`, 2026-10-17
 - [3.20 Resolve implementors from the parents written when a query
   asks](./adr/3.20-resolve-implementors-from-the-parents-written-when-a-query-asks.md) — initiative `03-code-graph`,
-  2026-10-17
+  2026-10-17, revised 2026-10-19
 - [3.21 Search definitions by the words of their names and
   paths](./adr/3.21-search-definitions-by-the-words-of-their-names-and-paths.md) — initiative `03-code-graph`,
   2026-10-17
@@ -134,11 +134,15 @@
 - [3.34 Record each read and write of a field or a value, and bind it when a query
   asks](./adr/3.34-record-each-read-and-write-of-a-field-or-a-value.md) — initiative `03-code-graph`, 2026-10-18,
   revised 2026-10-19
+- [3.35 Pick a shared name's symbol by its path, and list the
+  others](./adr/3.35-pick-a-shared-name-s-symbol-by-its-path-and-list-the-others.md) — initiative `03-code-graph`,
+  2026-10-19
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md) — initiative
-  `04-consumer-surfaces`, 2026-10-18
+  `04-consumer-surfaces`, 2026-10-18, revised 2026-10-19
 - [4.2 Reach the engine through one JSON call over a small C
-  ABI](./adr/4.2-reach-the-engine-through-one-json-call.md) — initiative `04-consumer-surfaces`, 2026-10-18
+  ABI](./adr/4.2-reach-the-engine-through-one-json-call.md) — initiative `04-consumer-surfaces`, 2026-10-18, revised
+  2026-10-19
 - [4.3 Reach the engine from Node through an addon over the same
   dispatch](./adr/4.3-reach-the-engine-from-node-through-an-addon-over-the-same-dispatch.md) — initiative
   `04-consumer-surfaces`, 2026-10-18
