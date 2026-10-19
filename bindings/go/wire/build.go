@@ -72,7 +72,8 @@ type CancelParams struct {
 // CancelAnswer is the answer of the cancel method.
 type CancelAnswer struct {
 	// Stopped reports whether the cancel stopped a build or a grep in flight. A named build or grep that has not entered
-	// the library starts stopped; a grep that had already opened its last file answers whole, with Cancelled false.
+	// the library starts stopped, unless cancels that stopped nothing named 1,024 distinct later ids of its kind before
+	// it entered; a grep that had already opened its last file answers whole, with Cancelled false.
 	Stopped bool `json:"stopped"`
 }
 

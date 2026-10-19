@@ -290,8 +290,8 @@ export class Kartta {
 
   /**
    * Cancels the builds and greps in flight and lets the engine go once the calls in flight answer. A build this cancels
-   * rejects with `build_cancelled`, a `closed` error its cause; every later call rejects with `closed`. Closing a closed
-   * handle does nothing.
+   * rejects with `build_cancelled`, a `closed` error its cause; of the builds that have yet to enter the library, only
+   * the last 1,024 it cancels stop. Every later call rejects with `closed`. Closing a closed handle does nothing.
    */
   close(): void {
     const handle = this.#handle;
