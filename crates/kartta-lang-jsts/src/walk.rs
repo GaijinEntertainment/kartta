@@ -14,8 +14,8 @@ use tree_sitter::{Node, Tree};
 use self::uses::{annotated_type, constructed_type, names_a_value};
 use crate::generated::is_generated_source;
 use crate::syntax::{
-    declarator_kind, end_line, function_value, is_function_type, is_member_exported, member_name,
-    named_child_nodes, parents, start_line, trim_quotes, type_name,
+    declaration_start_line, declarator_kind, end_line, function_value, is_function_type,
+    is_member_exported, member_name, named_child_nodes, parents, trim_quotes, type_name,
 };
 
 pub(crate) fn walk(tree: &Tree, source: &[u8]) -> RawExtraction {
@@ -698,7 +698,7 @@ impl<'s> Emitter<'s> {
     }
 
     fn unowned(&self, name: String, kind: SymbolKind, node: Node<'_>) -> Symbol {
-        let mut symbol = Symbol::new(name, kind, start_line(node), end_line(node));
+        let mut symbol = Symbol::new(name, kind, declaration_start_line(node), end_line(node));
         symbol.flags = SymbolFlags::empty().with_generated(self.file_is_generated);
         symbol
     }
