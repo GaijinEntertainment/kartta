@@ -1000,3 +1000,391 @@ fn a_wrong_call_answers_a_tool_error() {
         assert!(client.call(tool, &arguments).is_error, "{tool} {arguments}");
     }
 }
+
+#[test]
+fn a_call_path_lists_each_ends_passed_over_symbols_and_what_an_unselected_end_matches() {
+    let answers = answers_over_copies(&[
+        ("find_call_path", json!({"from": "One", "to": "util.Parse"})),
+        (
+            "find_call_path",
+            json!({"from": "One", "to": "util.Parse", "to_path_prefix": "c/"}),
+        ),
+        (
+            "find_call_path",
+            json!({"from": "Store.Close", "to": "util.Parse"}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<call_path from="One" to="util.Parse" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" from="util.One" to="util.Parse" hops="1" max_hops="8" "#,
+                    r#"passed_over_to="1">"#,
+                ),
+                r#"<ref name="One" qn="util.One" loc="a/util/util.go:5" role="consumer" call="a/util/util.go:5"/>"#,
+                concat!(
+                    r#"<candidate name="Parse" qn="util.Parse" kind="function" loc="b/util/util.go:3" end="to" "#,
+                    r#"callers="1"/>"#,
+                ),
+                "</match>",
+                "</call_path>",
+            ]),
+            lines(&[
+                r#"<call_path from="One" to="util.Parse" matches="0">"#,
+                "<to>",
+                "no definition of this name is under to_path_prefix - 2 are elsewhere:",
+                r#"<candidate name="Parse" qn="util.Parse" kind="function" loc="a/util/util.go:3" lang="go"/>"#,
+                r#"<candidate name="Parse" qn="util.Parse" kind="function" loc="b/util/util.go:3" lang="go"/>"#,
+                "</to>",
+                "</call_path>",
+            ]),
+            lines(&[
+                r#"<call_path from="Store.Close" to="util.Parse" matches="0">"#,
+                "<from>",
+                concat!(
+                    "2 definitions end with this name and it picks none of them - a longer name, or ",
+                    "from_path_prefix with one's file, picks one:",
+                ),
+                r#"<candidate name="Close" qn="alpha.Store.Close" kind="method" loc="a/alpha/store.go:9" lang="go"/>"#,
+                r#"<candidate name="Close" qn="beta.Store.Close" kind="method" loc="b/beta/store.go:7" lang="go"/>"#,
+                "</from>",
+                "</call_path>",
+            ]),
+        ]
+    );
+}
+
+/// The answers to `calls` over a tree of `files`.
+fn answers_over(files: &[(&str, &str)], calls: &[(&str, Value)]) -> Vec<String> {
+    let tree = tree(files);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+    calls
+        .iter()
+        .map(|(tool, arguments)| client.answer(tool, arguments))
+        .collect()
+}
+
+/// The answers to `calls` over two copies of a package, and two packages whose types and methods share names.
+fn answers_over_copies(calls: &[(&str, Value)]) -> Vec<String> {
+    answers_over(
+        &[
+            ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+            (
+                "a/util/util.go",
+                "package util\n\nfunc Parse() {}\n\nfunc One() { Parse() }\n\nfunc Two() { Parse() }\n",
+            ),
+            (
+                "b/util/util.go",
+                "package util\n\nfunc Parse() {}\n\nfunc Three() { Parse() }\n",
+            ),
+            (
+                "a/alpha/store.go",
+                "package alpha\n\ntype Base interface{}\n\ntype Impl interface{ Base }\n\ntype Store struct{}\n\n\
+             func (s *Store) Close() {}\n",
+            ),
+            (
+                "b/beta/store.go",
+                "package beta\n\ntype Base interface{}\n\ntype Store struct{}\n\nfunc (s *Store) Close() {}\n",
+            ),
+        ],
+        calls,
+    )
+}
+
+#[test]
+fn a_name_several_symbols_share_lists_the_others_and_a_path_prefix_picks_one() {
+    let answers = answers_over_copies(&[
+        ("find_callers", json!({"name": "util.Parse", "hops": 1})),
+        (
+            "find_callers",
+            json!({"name": "util.Parse", "hops": 1, "path_prefix": "b/"}),
+        ),
+        (
+            "find_callers",
+            json!({"name": "util.Parse", "path_prefix": "c/"}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<callers of="util.Parse" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Parse" qn="util.Parse" loc="a/util/util.go:3" count="2" "#,
+                    r#"reach_band="low" unexpanded="2" passed_over="1">"#,
+                ),
+                r#"<ref name="One" qn="util.One" loc="a/util/util.go:5" role="consumer" hops="1" at="a/util/util.go:5"/>"#,
+                r#"<ref name="Two" qn="util.Two" loc="a/util/util.go:7" role="consumer" hops="1" at="a/util/util.go:7"/>"#,
+                r#"<candidate name="Parse" qn="util.Parse" kind="function" loc="b/util/util.go:3" callers="1"/>"#,
+                "</match>",
+                "</callers>",
+            ]),
+            lines(&[
+                r#"<callers of="util.Parse" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Parse" qn="util.Parse" loc="b/util/util.go:3" count="1" "#,
+                    r#"reach_band="low" unexpanded="1">"#,
+                ),
+                concat!(
+                    r#"<ref name="Three" qn="util.Three" loc="b/util/util.go:5" role="consumer" hops="1" "#,
+                    r#"at="b/util/util.go:5"/>"#,
+                ),
+                "</match>",
+                "</callers>",
+            ]),
+            lines(&[
+                r#"<callers of="util.Parse" matches="0">"#,
+                "no definition of this name is under path_prefix - 2 are elsewhere:",
+                r#"<candidate name="Parse" qn="util.Parse" kind="function" loc="a/util/util.go:3" lang="go"/>"#,
+                r#"<candidate name="Parse" qn="util.Parse" kind="function" loc="b/util/util.go:3" lang="go"/>"#,
+                "</callers>",
+            ]),
+        ]
+    );
+}
+
+/// The answers to `calls` over two copies of a package: `a`'s `Run` has a caller and reads `Limit` once, `b`'s `Run`
+/// has none and `b` reads its `Limit` on two lines.
+fn answers_over_run_and_limit_copies(calls: &[(&str, Value)]) -> Vec<String> {
+    answers_over(
+        &[
+            ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+            (
+                "a/util/util.go",
+                "package util\n\nvar Limit = 1\n\nfunc Helper() {}\n\nfunc Run() { Helper(); _ = Limit }\n\n\
+                 func Caller() { Run() }\n",
+            ),
+            (
+                "b/util/util.go",
+                "package util\n\nvar Limit = 2\n\nfunc Check() {}\n\nfunc Run() { Check() }\n\n\
+                 func Other() {\n\t_ = Limit\n\t_ = Limit\n}\n",
+            ),
+        ],
+        calls,
+    )
+}
+
+#[test]
+fn callees_of_a_shared_name_list_the_other_copy_and_a_path_prefix_picks_it() {
+    let answers = answers_over_run_and_limit_copies(&[
+        ("find_callees", json!({"name": "util.Run", "hops": 1})),
+        (
+            "find_callees",
+            json!({"name": "util.Run", "hops": 1, "path_prefix": "b/"}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<callees of="util.Run" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Run" qn="util.Run" loc="a/util/util.go:7" count="1" unexpanded="1" "#,
+                    r#"passed_over="1">"#,
+                ),
+                concat!(
+                    r#"<ref name="Helper" qn="util.Helper" loc="a/util/util.go:5" role="consumer" hops="1" "#,
+                    r#"at="a/util/util.go:7"/>"#,
+                ),
+                r#"<candidate name="Run" qn="util.Run" kind="function" loc="b/util/util.go:7" callers="0"/>"#,
+                "</match>",
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<callees of="util.Run" matches="1">"#,
+                r#"<match lang="go" of="Run" qn="util.Run" loc="b/util/util.go:7" count="1" unexpanded="1">"#,
+                concat!(
+                    r#"<ref name="Check" qn="util.Check" loc="b/util/util.go:5" role="consumer" hops="1" "#,
+                    r#"at="b/util/util.go:7"/>"#,
+                ),
+                "</match>",
+                "</callees>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn references_of_a_shared_name_list_the_other_copy_and_a_path_prefix_picks_it() {
+    let answers = answers_over_run_and_limit_copies(&[
+        ("find_references", json!({"name": "util.Limit"})),
+        (
+            "find_references",
+            json!({"name": "util.Limit", "path_prefix": "a/"}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="util.Limit" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Limit" qn="util.Limit" loc="b/util/util.go:3" kind="variable" "#,
+                    r#"count="2" reads="2" passed_over="1">"#,
+                ),
+                concat!(
+                    r#"<ref name="Other" qn="util.Other" loc="b/util/util.go:9" role="consumer" site="read" "#,
+                    r#"at="b/util/util.go:10,11"/>"#,
+                ),
+                r#"<candidate name="Limit" qn="util.Limit" kind="variable" loc="a/util/util.go:3" sites="1"/>"#,
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="util.Limit" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Limit" qn="util.Limit" loc="a/util/util.go:3" kind="variable" "#,
+                    r#"count="1" reads="1">"#,
+                ),
+                concat!(
+                    r#"<ref name="Run" qn="util.Run" loc="a/util/util.go:7" role="consumer" site="read" "#,
+                    r#"at="a/util/util.go:7"/>"#,
+                ),
+                "</match>",
+                "</references>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn implementations_of_a_shared_name_list_the_other_type_and_a_path_prefix_picks_it() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+            (
+                "a/alpha/base.go",
+                "package alpha\n\ntype Base interface{}\n\ntype Wide interface{ Base }\n\ntype Deep interface{ Base }\n",
+            ),
+            (
+                "b/beta/base.go",
+                "package beta\n\ntype Base interface{}\n\ntype Narrow interface{ Base }\n",
+            ),
+        ],
+        &[
+            ("find_implementations", json!({"name": "Base"})),
+            (
+                "find_implementations",
+                json!({"name": "Base", "path_prefix": "b/"}),
+            ),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<implementations of="Base" count="2" passed_over="1">"#,
+                r#"<root name="Base" qn="alpha.Base" lang="go" loc="a/alpha/base.go:3"/>"#,
+                concat!(
+                    r#"<candidate name="Base" qn="beta.Base" kind="interface" loc="b/beta/base.go:3" lang="go" "#,
+                    r#"implementors="1"/>"#,
+                ),
+                r#"<type name="Wide" qn="alpha.Wide" lang="go" loc="a/alpha/base.go:5"/>"#,
+                r#"<type name="Deep" qn="alpha.Deep" lang="go" loc="a/alpha/base.go:7"/>"#,
+                "</implementations>",
+            ]),
+            lines(&[
+                r#"<implementations of="Base" count="1">"#,
+                r#"<type name="Narrow" qn="beta.Narrow" lang="go" loc="b/beta/base.go:5"/>"#,
+                "</implementations>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn a_call_path_from_a_shared_name_starts_where_from_path_prefix_picks() {
+    let answers = answers_over_run_and_limit_copies(&[
+        (
+            "find_call_path",
+            json!({"from": "util.Run", "to": "util.Check"}),
+        ),
+        (
+            "find_call_path",
+            json!({"from": "util.Run", "to": "util.Check", "from_path_prefix": "b/"}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<call_path from="util.Run" to="util.Check" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" from="util.Run" to="util.Check" hops="0" max_hops="8" "#,
+                    r#"passed_over_from="1" found="false">"#,
+                ),
+                concat!(
+                    "no call chain within 8 calls - the graph misses dynamic and unresolved calls, so this does not ",
+                    "show that the code holds none",
+                ),
+                concat!(
+                    r#"<candidate name="Run" qn="util.Run" kind="function" loc="b/util/util.go:7" end="from" "#,
+                    r#"callers="0"/>"#,
+                ),
+                "</match>",
+                "</call_path>",
+            ]),
+            lines(&[
+                r#"<call_path from="util.Run" to="util.Check" matches="1">"#,
+                r#"<match lang="go" from="util.Run" to="util.Check" hops="1" max_hops="8">"#,
+                r#"<ref name="Run" qn="util.Run" loc="b/util/util.go:7" role="consumer" call="b/util/util.go:7"/>"#,
+                "</match>",
+                "</call_path>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn a_name_that_picks_no_one_of_several_lists_them_and_implementations_name_the_type_they_took() {
+    let answers = answers_over_copies(&[
+        ("find_references", json!({"name": "Store.Close"})),
+        ("find_implementations", json!({"name": "Base"})),
+        (
+            "find_call_path",
+            json!({"from": "Three", "to": "util.Parse", "to_path_prefix": "b/"}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="Store.Close" matches="0">"#,
+                concat!(
+                    "2 definitions end with this name and it picks none of them - a longer name, or path_prefix ",
+                    "with one's file, picks one:",
+                ),
+                r#"<candidate name="Close" qn="alpha.Store.Close" kind="method" loc="a/alpha/store.go:9" lang="go"/>"#,
+                r#"<candidate name="Close" qn="beta.Store.Close" kind="method" loc="b/beta/store.go:7" lang="go"/>"#,
+                "</references>",
+            ]),
+            lines(&[
+                r#"<implementations of="Base" count="1" passed_over="1">"#,
+                r#"<root name="Base" qn="alpha.Base" lang="go" loc="a/alpha/store.go:3"/>"#,
+                concat!(
+                    r#"<candidate name="Base" qn="beta.Base" kind="interface" loc="b/beta/store.go:3" lang="go" "#,
+                    r#"implementors="0"/>"#,
+                ),
+                r#"<type name="Impl" qn="alpha.Impl" lang="go" loc="a/alpha/store.go:5"/>"#,
+                "</implementations>",
+            ]),
+            lines(&[
+                r#"<call_path from="Three" to="util.Parse" matches="1">"#,
+                r#"<match lang="go" from="util.Three" to="util.Parse" hops="1" max_hops="8">"#,
+                r#"<ref name="Three" qn="util.Three" loc="b/util/util.go:5" role="consumer" call="b/util/util.go:5"/>"#,
+                "</match>",
+                "</call_path>",
+            ]),
+        ]
+    );
+}

@@ -136,17 +136,75 @@ fn empty_languages_note(languages: Option<&str>) -> Option<&'static str> {
     )
 }
 
-/// The body of an answer whose name selected nothing: the empty filter's note, or the alternatives a search found.
-fn unresolved(element: Element, languages: Option<&str>, suggestions: &[Suggestion<'_>]) -> String {
+/// What a name that selected no symbol does match, in the graphs a query searched.
+#[derive(Debug, Clone)]
+pub(crate) enum Unmatched<'g> {
+    /// Several definitions the name ends with, none of which it picks: `total` of them, the first listed.
+    Several {
+        total: usize,
+        listed: Vec<(&'g str, Definition<'g>)>,
+    },
+    /// Definitions of the name outside the path prefix asked: `total` of them, the first listed.
+    Elsewhere {
+        total: usize,
+        listed: Vec<(&'g str, Definition<'g>)>,
+    },
+    /// The close alternatives a search found.
+    Suggested(Vec<Suggestion<'g>>),
+}
+
+/// Starts a `<candidate>`: a symbol the name also selects, and where it is.
+fn candidate(definition: &Definition<'_>) -> Element {
+    named("candidate", definition)
+        .attr("kind", kind(definition.kind))
+        .attr("loc", loc(definition.file, definition.line))
+}
+
+/// An element holding `text`, then the `<candidate>` records, on one line when there are none.
+fn noted(element: Element, text: &str, candidates: Vec<String>) -> String {
+    if candidates.is_empty() {
+        return element.inline(text);
+    }
+    element.children(std::iter::once(text.to_owned()).chain(candidates))
+}
+
+/// The body of an answer whose name selected nothing: the empty filter's note, what the name matches instead, or the
+/// alternatives a search found. `prefix` names the parameter that took the path prefix.
+fn unresolved(
+    element: Element,
+    languages: Option<&str>,
+    prefix: &str,
+    unmatched: &Unmatched<'_>,
+) -> String {
     if let Some(note) = empty_languages_note(languages) {
         return element.inline(note);
     }
-    if suggestions.is_empty() {
-        return element.inline("no symbol matches - find_symbols can pin the exact name");
-    }
-    let mut lines = vec!["no symbol matches - did you mean:".to_owned()];
-    lines.extend(suggestions.iter().map(suggestion));
-    element.wrap(&lines.join("\n"))
+    let (text, listed) = match unmatched {
+        Unmatched::Several { total, listed } => (
+            format!(
+                "{total} definitions end with this name and it picks none of them - a longer name, or {prefix} with \
+                 one's file, picks one:"
+            ),
+            listed,
+        ),
+        Unmatched::Elsewhere { total, listed } => (
+            format!("no definition of this name is under {prefix} - {total} are elsewhere:"),
+            listed,
+        ),
+        Unmatched::Suggested(suggestions) if suggestions.is_empty() => {
+            return element.inline("no symbol matches - find_symbols can pin the exact name");
+        }
+        Unmatched::Suggested(suggestions) => {
+            let mut lines = vec!["no symbol matches - did you mean:".to_owned()];
+            lines.extend(suggestions.iter().map(suggestion));
+            return element.wrap(&lines.join("\n"));
+        }
+    };
+    let candidates = listed
+        .iter()
+        .map(|(family, definition)| candidate(definition).attr("lang", *family).close())
+        .collect();
+    noted(element, &text, candidates)
 }
 
 /// The `index_repo` and `index_stats` answer: the index's shape, one `<language/>` per graph that holds a file, how
