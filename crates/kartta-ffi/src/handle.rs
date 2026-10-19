@@ -26,12 +26,12 @@ use crate::wire::{
 pub struct Kartta {
     root: PathBuf,
     built: RwLock<Option<Arc<Built>>>,
-    builds: Mutex<Builds>,
+    builds: Mutex<Calls>,
     one_build_at_a_time: Mutex<()>,
 }
 
 #[derive(Debug, Default)]
-struct Builds {
+struct Calls {
     entered: u64,
     in_flight: Vec<InFlight>,
     cancelled_ahead: Vec<u64>,
@@ -199,7 +199,7 @@ fn methods() -> Vec<&'static str> {
     methods
 }
 
-impl Builds {
+impl Calls {
     fn enter(&mut self, id: Option<u64>) -> (u64, CancelToken) {
         let token = CancelToken::new();
         if let Some(id) = id
@@ -245,11 +245,11 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::Builds;
+    use super::Calls;
 
     #[test]
     fn a_cancel_repeated_before_its_build_enters_is_remembered_once() {
-        let mut builds = Builds::default();
+        let mut builds = Calls::default();
 
         builds.cancel(Some(7));
         builds.cancel(Some(7));
