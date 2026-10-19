@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use kartta_lang::tree::{line, named_child_nodes, preorder, signature, text};
+use kartta_lang::tree::{line, named_child_nodes, signature, text};
 use kartta_lang::{
     Banner, FILE_SCOPE, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
 };
@@ -23,24 +23,40 @@ mod blocks;
 mod calls;
 mod settle;
 mod syntax;
+mod values;
 
 pub(crate) const MOD_FORM: u32 = 0;
 pub(crate) const MOD_TEST_FORM: u32 = 1;
 
+// constraint: a node is judged as a read by its parent's kind and its field there, which only the cursor holds, as
+// `Node::parent` walks down from the root
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter::new(source);
-
-    preorder(tree.root_node(), |node| {
+    let mut cursor = tree.walk();
+    let mut parents = Vec::new();
+    loop {
+        let node = cursor.node();
         if node.is_named() {
-            emitter.handle(node);
+            emitter.handle(
+                node,
+                parents.last().map(|&parent| (parent, cursor.field_name())),
+            );
         }
-        true
-    });
-
-    emitter.settle_paths();
-    emitter.apply_pending_parents();
-    emitter.bind_block_item_calls();
-    emitter.raw
+        if cursor.goto_first_child() {
+            parents.push(node.kind());
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                emitter.settle_paths();
+                emitter.apply_pending_parents();
+                emitter.bind_block_item_calls();
+                emitter.bind_value_reads();
+                return emitter.raw;
+            }
+            parents.pop();
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -103,6 +119,12 @@ struct Emitter<'a> {
     block_items: HashMap<String, Vec<BlockItem>>,
     block_calls: Vec<BlockCall>,
     module_parents: HashMap<usize, usize>,
+    regions: Vec<values::Region<'a>>,
+    pending_bindings: Vec<values::PendingBindings<'a>>,
+    // constraint: the end of each `if` or `while` open around the walk, with the end of the branch it runs on a match
+    branches: Vec<(usize, usize)>,
+    read_scopes: Vec<String>,
+    value_reads: Vec<values::ValueRead>,
     symbol_count: u32,
     raw: RawExtraction,
 }
@@ -122,6 +144,11 @@ impl<'a> Emitter<'a> {
             block_items: HashMap::new(),
             block_calls: Vec::new(),
             module_parents: HashMap::new(),
+            regions: Vec::new(),
+            pending_bindings: Vec::new(),
+            branches: Vec::new(),
+            read_scopes: vec![String::new()],
+            value_reads: Vec::new(),
             symbol_count: 0,
             raw: RawExtraction::default(),
         }
@@ -129,9 +156,10 @@ impl<'a> Emitter<'a> {
 }
 
 impl Emitter<'_> {
-    fn handle(&mut self, node: Node<'_>) {
+    fn handle(&mut self, node: Node<'_>, parent: Option<(&str, Option<&str>)>) {
         self.close_scopes(node.start_byte());
         self.open_test_scopes(node);
+        self.track_bindings(node);
         let caller = self.functions.last().map_or(FILE_SCOPE, |scope| scope.id);
 
         match node.kind() {
@@ -167,6 +195,8 @@ impl Emitter<'_> {
             "let_declaration" => self.let_declaration(node),
             "call_expression" => self.call(node, caller),
             "macro_invocation" => self.macro_call(node, caller),
+            "identifier" | "shorthand_field_identifier" => self.name(node, parent),
+            "scoped_identifier" => self.scoped_read(node, parent),
             _ => {}
         }
     }
