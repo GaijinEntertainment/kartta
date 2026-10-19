@@ -123,6 +123,7 @@ impl Language for Ruby {
         conventions.own_members = OwnMembers::First;
         conventions.inherited_members = InheritedMembers::Admitted;
         conventions.owner_chain_separator = Some("::");
+        conventions.own_type_receivers = Some(&["other"]);
 
         conventions
     }
