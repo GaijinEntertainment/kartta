@@ -13,7 +13,9 @@ A named function is a symbol: a declaration such as `function M.f`, a function b
 A function on a table is a method of the table, `M.f`, and a function declared or bound with `local` is not exported;
 a method of a local table stays exported, because a module hands that table out by `return M`.
 A call inside a function is a call made by it, and a call through `.` or `:` records the table as its receiver when the
-table is a plain name.
+table is a plain name. A name read where no call takes it, `table.sort(t, compare)` or `{ on_click = handler }`, is a
+use of it, which binds the function of its name the file declares outside every function; a parameter hides its name
+in its function, a local from the end of its declaration to the end of its block, and a loop variable inside its loop.
 
 ## Resolution
 
