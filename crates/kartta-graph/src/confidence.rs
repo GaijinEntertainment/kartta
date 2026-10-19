@@ -28,6 +28,9 @@ pub const INCLUDE: u8 = 70;
 /// A re-export chain from an included file binds the definition it renames.
 pub const RE_EXPORT: u8 = 65;
 /// The one callable of the name binds from anywhere.
+///
+/// A call of a method the language's runtime gives its values binds here only where its receiver spells that
+/// callable's owner in any case: `session.seek()` binds the one `seek`, `Session.seek`.
 pub const UNIQUE: u8 = 60;
 /// The one callable of the name in the caller's directory binds.
 pub const SAME_DIR: u8 = 50;
