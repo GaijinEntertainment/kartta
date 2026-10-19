@@ -33,7 +33,7 @@
             {
               "access": "read",
               "call": true,
-              "confidence": 80,
+              "confidence": 85,
               "line": 8,
               "site_of": {
                 "end_line": 9,

@@ -2,8 +2,9 @@
 //! empty receiver, so the graph never binds it through an owner that the value's name happens to spell, while the
 //! caller's own receiver, as the language spells it, and an import keep a name.
 //!
-//! C++ and JS/TS keep it. Python, Ruby, Rust, PHP, Lua, Quirrel, Puppet and daslang record a value's own name instead,
-//! and join these cases once they keep it.
+//! C++ and JS/TS keep it, and C++ names the class a value is declared as where the walk sees the declaration, the class
+//! the value holds and not an owner its name spells. Python, Ruby, Rust, PHP, Lua, Quirrel, Puppet and daslang record a
+//! value's own name instead, and join these cases once they keep it.
 
 use kartta_lang::CallRef;
 use kartta_languages::all;
@@ -24,12 +25,12 @@ fn a_member_call_on_a_value_the_caller_declares_records_the_empty_receiver() {
     let cases = [
         (
             "cpp",
-            "void run() { Buffer buf = make(); buf.resize(); }\n",
+            "void run() { auto buf = make(); buf.resize(); }\n",
             "resize",
         ),
         (
             "cpp",
-            "void run(Buffer* items) { items->close(); }\n",
+            "void run(Buffer** items) { items[0]->close(); }\n",
             "close",
         ),
         (
@@ -59,13 +60,32 @@ fn a_member_call_on_a_value_the_caller_declares_records_the_empty_receiver() {
 }
 
 #[test]
+fn a_cpp_member_call_on_a_value_of_a_declared_class_names_the_class() {
+    let cases = [
+        (
+            "void run() { Buffer buf = make(); buf.resize(); }\n",
+            "resize",
+        ),
+        ("void run(Buffer* items) { items->close(); }\n", "close"),
+    ];
+
+    for (source, callee) in cases {
+        assert_eq!(
+            call_of("cpp", source, callee).map(|call| call.receiver),
+            Some(Some("Buffer".to_owned())),
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn a_member_call_on_the_own_receiver_or_an_import_keeps_its_name() {
     let cases = [
         (
             "cpp",
             "struct Pool { void run() { this->drain(); } };\n",
             "drain",
-            "this",
+            "Pool",
         ),
         (
             "typescript",

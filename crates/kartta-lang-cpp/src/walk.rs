@@ -431,6 +431,11 @@ impl<'s, 't> Replayer<'s, 't> {
         if receiver.is_none() && self.is_template_parameter(&callee) {
             return;
         }
+        let receiver = receiver.map(|receiver| match receiver.as_str() {
+            "" => self.called_owner(node).to_owned(),
+            "this" => self.callers_owner().map_or(receiver, str::to_owned),
+            _ => receiver,
+        });
 
         self.raw.calls.push(CallRef {
             site_of: self.caller(),
@@ -450,6 +455,11 @@ impl<'s, 't> Replayer<'s, 't> {
 
     fn caller(&self) -> SymbolId {
         self.functions.last().map_or(FILE_SCOPE, |scope| scope.id)
+    }
+
+    fn callers_owner(&self) -> Option<&str> {
+        let scope = self.functions.last()?;
+        self.raw.symbols[scope.id.0 as usize].owner.as_deref()
     }
 
     fn attribute_to_class(&self, symbol: &mut Symbol) {
@@ -912,7 +922,49 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
-    fn a_member_call_names_no_type_unless_it_is_on_this() {
+    fn a_member_call_on_a_local_or_a_parameter_of_a_class_names_the_class() {
+        let raw = extract(
+            b"void f(Widget &w, Scene *s, int n) { NpScene *scene = get(); scene->startWrite(); w.draw();\n\
+              s->update(); Widget copy; copy.draw(); auto a = make(); a.go(); s.update(); scene.run(); }\n",
+        );
+
+        let calls: Vec<(&str, Option<&str>)> = raw
+            .calls
+            .iter()
+            .filter(|call| call.receiver.is_some())
+            .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+            .collect();
+        assert_eq!(
+            calls,
+            [
+                ("startWrite", Some("NpScene")),
+                ("draw", Some("Widget")),
+                ("update", Some("Scene")),
+                ("draw", Some("Widget")),
+                ("go", Some("")),
+                ("update", Some("")),
+                ("run", Some("")),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_member_call_on_this_names_the_caller_s_own_class() {
+        let raw = extract(
+            b"struct Panel { void show() { this->hide(); } };\n\
+              void Widget::paint() { this->draw(); }\n",
+        );
+
+        let calls: Vec<(&str, Option<&str>)> = raw
+            .calls
+            .iter()
+            .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+            .collect();
+        assert_eq!(calls, [("hide", Some("Panel")), ("draw", Some("Widget"))]);
+    }
+
+    #[test]
+    fn a_member_call_on_an_operand_the_walk_saw_no_class_for_names_no_type() {
         let raw = extract(
             b"void f() { descs[i].init(); a.b.close(); make().run(); this->reset(); buffer.resize(1);\n\
               list->clear(); Widget::create(); (*ptr).run(); }\n",
@@ -2048,7 +2100,7 @@ void F() {
             .iter()
             .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
             .collect();
-        assert_eq!(calls, [("method", Some(""))]);
+        assert_eq!(calls, [("method", Some("Widget"))]);
     }
 
     #[test]
@@ -2085,7 +2137,7 @@ void F() {
             .iter()
             .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
             .collect();
-        assert_eq!(calls, [("get", Some(""))]);
+        assert_eq!(calls, [("get", Some("Widget"))]);
     }
 
     #[test]
