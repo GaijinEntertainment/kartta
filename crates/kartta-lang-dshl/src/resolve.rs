@@ -1,4 +1,4 @@
-use kartta_lang::path::{base, dir, join};
+use kartta_lang::path::{base, dir, join, shared_segments};
 use kartta_lang::{Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver};
 
 pub(crate) struct Includes<'r> {
@@ -22,7 +22,7 @@ impl Includes<'_> {
             .files_named(base(spec))
             .filter(|candidate| ends_at_segment(candidate, spec));
         for candidate in candidates {
-            let nearness = shared_dirs(dir(&candidate), dir(path));
+            let nearness = shared_segments(dir(&candidate), dir(path));
             match &nearest {
                 Some((best, _)) if nearness < *best => {}
                 Some((best, _)) if nearness == *best => tied = true,
@@ -61,11 +61,4 @@ fn ends_at_segment(path: &str, spec: &str) -> bool {
         || path
             .strip_suffix(spec)
             .is_some_and(|head| head.ends_with('/'))
-}
-
-fn shared_dirs(left: &str, right: &str) -> usize {
-    left.split('/')
-        .zip(right.split('/'))
-        .take_while(|(left, right)| left == right)
-        .count()
 }
