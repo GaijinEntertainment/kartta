@@ -63,7 +63,7 @@
   2026-10-17
 - [3.4 Extract TypeScript and JavaScript as one
   family](./adr/3.4-extract-typescript-and-javascript-as-one-family.md) — initiative `03-code-graph`, 2026-10-16,
-  revised 2026-10-18
+  revised 2026-10-19
 - [3.5 Keep the graph a file at a time](./adr/3.5-keep-the-graph-a-file-at-a-time.md) — initiative `03-code-graph`,
   2026-10-16, revised 2026-10-17
 - [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md) — initiative
@@ -83,16 +83,16 @@
   `03-code-graph`, 2026-10-16
 - [3.12 Qualify Python by the module its path
   names](./adr/3.12-qualify-python-by-the-module-its-path-names.md) — initiative `03-code-graph`, 2026-10-16, revised
-  2026-10-18
+  2026-10-19
 - [3.13 Read a shell script's commands as calls and its sources as
   includes](./adr/3.13-read-a-shell-script-s-commands-as-calls-and-its-sources-as-includes.md) — initiative
-  `03-code-graph`, 2026-10-16
+  `03-code-graph`, 2026-10-16, revised 2026-10-19
 - [3.14 Fold a PHP include path and map a use through
   PSR-4](./adr/3.14-fold-a-php-include-path-and-map-a-use-through-psr-4.md) — initiative `03-code-graph`, 2026-10-16
 - [3.15 Qualify a Ruby member by its whole namespace
   chain](./adr/3.15-qualify-a-ruby-member-by-its-whole-namespace-chain.md) — initiative `03-code-graph`, 2026-10-16
 - [3.16 Load a Lua module only from a literal name](./adr/3.16-load-a-lua-module-only-from-a-literal-name.md) —
-  initiative `03-code-graph`, 2026-10-16
+  initiative `03-code-graph`, 2026-10-16, revised 2026-10-19
 - [3.17 Resolve a Puppet class through the autoloader's
   layout](./adr/3.17-resolve-a-puppet-class-through-the-autoloader-s-layout.md) — initiative `03-code-graph`, 2026-10-16
 - [3.18 Extract DSHL as one namespace that its includes

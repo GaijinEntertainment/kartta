@@ -251,8 +251,7 @@ impl Emitter<'_> {
             _ => String::new(),
         });
 
-        // constraint: a require is recorded before the guard on calls ahead of the first symbol, since a file
-        // requires at its top; a call with any receiver, `config.require 'x'`, is a method of its own
+        // constraint: a call with any receiver, `config.require 'x'`, is a method of its own and loads nothing
         if receiver_node.is_none()
             && let Some(form) = require_form(&callee)
             && let Some(module) = first_string_argument(node, self.source)
@@ -264,7 +263,7 @@ impl Emitter<'_> {
             ));
         }
 
-        if callee.is_empty() || self.raw.symbols.is_empty() {
+        if callee.is_empty() {
             return;
         }
         if receiver_node.is_none() {

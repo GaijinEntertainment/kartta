@@ -3,7 +3,7 @@ mod identity;
 mod resolution;
 mod uses;
 
-use kartta_lang::{Extraction, Language, MemoryRepository, Symbol};
+use kartta_lang::{Extraction, FILE_SCOPE, Language, MemoryRepository, Symbol};
 
 use crate::{JavaScript, Tsx, TypeScript};
 
@@ -60,10 +60,12 @@ pub(crate) fn imports(extraction: &Extraction) -> Vec<&str> {
 pub(crate) fn attributed(extraction: &Extraction) -> Vec<(&str, &str)> {
     (extraction.calls.iter())
         .map(|call| {
-            (
-                extraction.symbols[call.site_of.0 as usize].name.as_str(),
-                call.callee.as_str(),
-            )
+            let site = if call.site_of == FILE_SCOPE {
+                ""
+            } else {
+                extraction.symbols[call.site_of.0 as usize].name.as_str()
+            };
+            (site, call.callee.as_str())
         })
         .collect()
 }

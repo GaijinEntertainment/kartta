@@ -758,6 +758,13 @@ fn assigned_function_values_bind_by_their_target() {
 }
 
 #[test]
+fn a_call_before_the_first_function_is_a_call_from_file_scope() {
+    let raw = extract("setup()\nfunction run() { go() }\n");
+
+    assert_eq!(callers(&raw), [("setup", FILE_SCOPE), ("go", SymbolId(0))]);
+}
+
+#[test]
 fn a_missing_assignment_target_binds_no_name() {
     let raw = extract("function outer() {\n  = function() { a() }\n}\n");
 

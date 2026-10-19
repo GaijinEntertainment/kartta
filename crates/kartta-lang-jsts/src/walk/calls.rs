@@ -167,7 +167,7 @@ impl Emitter<'_> {
         node: Node<'_>,
         site_of: SymbolId,
     ) {
-        if callee.is_empty() || self.raw.symbols.is_empty() {
+        if callee.is_empty() {
             return;
         }
         self.raw.calls.push(CallRef {

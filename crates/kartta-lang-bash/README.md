@@ -14,8 +14,7 @@ is a variable symbol; an assignment that prefixes a command, `LANG=C sort`, or o
 no namespaces, so the qualified name of a symbol is its name.
 
 Every command is a call of its name from the function around it. A subshell, a loop or a command substitution opens no
-scope. A command before the first definition of the script is dropped, and a later command outside every function is a
-call from file scope.
+scope. A command outside every function is a call from file scope, before the script's first definition too.
 
 ## Resolution
 

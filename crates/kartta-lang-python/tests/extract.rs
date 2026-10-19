@@ -8,7 +8,8 @@
 )]
 
 use kartta_lang::{
-    Access, CallRef, Language, LocalCall, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind,
+    Access, CallRef, FILE_SCOPE, Language, LocalCall, RawExtraction, Receiver, Symbol, SymbolId,
+    SymbolKind,
 };
 use kartta_lang_python::Python;
 
@@ -602,11 +603,15 @@ fn a_member_call_on_an_unnamed_expression_keeps_an_empty_receiver() {
 }
 
 #[test]
-fn a_call_before_the_first_definition_or_of_a_computed_callee_is_dropped() {
+fn a_call_before_the_first_definition_is_from_file_scope_and_a_computed_callee_is_dropped() {
     let raw = extract(b"setup()\ndef f():\n    handlers[0]()\n    run()\n");
-    let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+    let calls: Vec<(&str, bool)> = raw
+        .calls
+        .iter()
+        .map(|call| (call.callee.as_str(), call.site_of == FILE_SCOPE))
+        .collect();
 
-    assert_eq!(callees, ["run"]);
+    assert_eq!(calls, [("setup", true), ("run", false)]);
 }
 
 #[test]

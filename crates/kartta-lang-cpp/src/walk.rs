@@ -418,9 +418,6 @@ impl<'s, 't> Replayer<'s, 't> {
     }
 
     fn record_call(&mut self, node: Node<'_>) {
-        if self.raw.symbols.is_empty() {
-            return;
-        }
         let target = if node.kind() == "new_expression" {
             node.child_by_field_name("type")
                 .map(|constructed| (type_base_name(constructed, self.source), None))
@@ -2044,10 +2041,15 @@ static int free_helper() { return 2; }
     }
 
     #[test]
-    fn a_call_before_the_first_symbol_is_not_recorded() {
+    fn a_call_before_the_first_symbol_is_a_call_from_file_scope() {
         let raw = extract(b"TEST(Suite, Case) { helper(); }\nvoid run() { go(); }\n");
+        let file_scope: Vec<&str> = (raw.calls.iter())
+            .filter(|call| call.site_of == FILE_SCOPE)
+            .map(|call| call.callee.as_str())
+            .collect();
 
-        assert_eq!(callees(&raw), ["go"]);
+        assert_eq!(callees(&raw), ["helper", "go"]);
+        assert_eq!(file_scope, ["helper"]);
     }
 
     #[test]
