@@ -28,7 +28,7 @@
 //! main.file = "src/main.go".to_owned();
 //! main.symbols.push(Symbol::new("main", SymbolKind::Function, 1, 4));
 //! main.calls.push(CallRef {
-//!     caller_id: SymbolId(0),
+//!     site_of: SymbolId(0),
 //!     callee: "Parse".to_owned(),
 //!     receiver: None,
 //!     line: 2,

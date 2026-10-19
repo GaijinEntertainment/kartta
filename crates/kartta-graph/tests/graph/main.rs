@@ -58,7 +58,7 @@ fn function(name: &str, line: u32) -> Symbol {
 
 fn call(from: u32, callee: &str, line: u32) -> CallRef {
     CallRef {
-        caller_id: SymbolId(from),
+        site_of: SymbolId(from),
         callee: callee.to_owned(),
         receiver: None,
         line,

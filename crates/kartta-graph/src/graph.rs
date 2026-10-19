@@ -573,12 +573,12 @@ impl Graph {
         let mut calls: Vec<StoredCall> = extraction
             .calls
             .iter()
-            .filter(|call| holds(extraction, call.caller_id))
+            .filter(|call| holds(extraction, call.site_of))
             .map(|call| {
                 let rooted = self.written_from_root(&call.callee);
                 let callee = rooted.unwrap_or(&call.callee);
                 let mut stored = StoredCall::new(
-                    call.caller_id.0,
+                    call.site_of.0,
                     self.strings.intern(callee),
                     call.receiver
                         .as_deref()
@@ -601,7 +601,7 @@ impl Graph {
     fn store_file_scope_names(&mut self, extraction: &Extraction) -> Box<[Str]> {
         let mut keys = Vec::new();
         for call in &extraction.calls {
-            if holds(extraction, call.caller_id) {
+            if holds(extraction, call.site_of) {
                 continue;
             }
             let callee = self.written_from_root(&call.callee).unwrap_or(&call.callee);
@@ -940,9 +940,9 @@ fn local_calls(extraction: &Extraction) -> Box<[StoredLocalCall]> {
     let mut local_calls: Vec<StoredLocalCall> = extraction
         .local_calls
         .iter()
-        .filter(|call| holds(extraction, call.caller_id) && holds(extraction, call.local))
+        .filter(|call| holds(extraction, call.site_of) && holds(extraction, call.local))
         .map(|call| StoredLocalCall {
-            caller: call.caller_id.0,
+            caller: call.site_of.0,
             local: call.local.0,
             line: call.line,
         })
@@ -951,7 +951,7 @@ fn local_calls(extraction: &Extraction) -> Box<[StoredLocalCall]> {
     local_calls.into_boxed_slice()
 }
 
-// constraint: `NO_CALLER_ID`, the caller of a call at file scope, lies past every extraction's symbols
+// constraint: `FILE_SCOPE`, the `site_of` of a site at file scope, lies past every extraction's symbols
 const fn holds(extraction: &Extraction, id: SymbolId) -> bool {
     (id.0 as usize) < extraction.symbols.len()
 }

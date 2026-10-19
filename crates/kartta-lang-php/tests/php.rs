@@ -261,7 +261,7 @@ fn a_call_is_made_by_the_enclosing_method() {
 
     let helper = call(&raw.calls, "helper");
     assert_eq!(
-        helper.caller_id,
+        helper.site_of,
         id_of(&raw.symbols, "App\\Service\\Service::greet")
     );
     assert_eq!(helper.receiver, None);
@@ -274,10 +274,10 @@ fn member_and_static_calls_record_their_receivers() {
 
     let member = call(&raw.calls, "greet");
     assert_eq!(member.receiver.as_deref(), Some("$this"));
-    assert_eq!(member.caller_id, secret);
+    assert_eq!(member.site_of, secret);
     let scoped = call(&raw.calls, "log");
     assert_eq!(scoped.receiver.as_deref(), Some("Logger"));
-    assert_eq!(scoped.caller_id, secret);
+    assert_eq!(scoped.site_of, secret);
     assert_eq!(call(&raw.calls, "maybe").receiver.as_deref(), Some("$svc"));
 }
 
@@ -286,7 +286,7 @@ fn a_construction_calls_the_class_by_its_bare_name() {
     let raw = extract(SAMPLE);
 
     assert_eq!(
-        call(&raw.calls, "Widget").caller_id,
+        call(&raw.calls, "Widget").site_of,
         id_of(&raw.symbols, "App\\Service\\Service::secret")
     );
     assert_eq!(call(&raw.calls, "User").receiver, None);
@@ -433,10 +433,10 @@ $top = fn($x) => topcall($x);
     assert_eq!(f.kind, SymbolKind::Function);
     assert!(!f.exported);
     assert_eq!(f.signature.as_deref(), Some("$f = function ()"));
-    assert_eq!(call(&raw.calls, "bar").caller_id, bound);
-    assert_eq!(call(&raw.calls, "after_close").caller_id, method);
-    assert_eq!(call(&raw.calls, "inner").caller_id, method);
-    assert_eq!(call(&raw.calls, "mem").caller_id, method);
+    assert_eq!(call(&raw.calls, "bar").site_of, bound);
+    assert_eq!(call(&raw.calls, "after_close").site_of, method);
+    assert_eq!(call(&raw.calls, "inner").site_of, method);
+    assert_eq!(call(&raw.calls, "mem").site_of, method);
     for unbound in ["cb", "g", "a", "b"] {
         assert!(
             raw.symbols.iter().all(|symbol| symbol.name != unbound),
@@ -444,7 +444,7 @@ $top = fn($x) => topcall($x);
         );
     }
     let top = id_of(&raw.symbols, "top");
-    assert_eq!(call(&raw.calls, "topcall").caller_id, top);
+    assert_eq!(call(&raw.calls, "topcall").site_of, top);
     assert_eq!(
         raw.symbols[top.0 as usize].signature.as_deref(),
         Some("$top = fn($x) =>")

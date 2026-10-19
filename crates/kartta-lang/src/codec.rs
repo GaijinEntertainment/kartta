@@ -30,7 +30,7 @@ impl RawExtraction {
         });
         writer.seq(&self.calls, Writer::call);
         writer.seq(&self.local_calls, |writer, call| {
-            writer.id(call.caller_id);
+            writer.id(call.site_of);
             writer.id(call.local);
             writer.uint(call.line);
         });
@@ -72,7 +72,7 @@ impl RawExtraction {
             calls: reader.seq(Reader::call)?,
             local_calls: reader.seq(|reader| {
                 Ok(LocalCall {
-                    caller_id: reader.id()?,
+                    site_of: reader.id()?,
                     local: reader.id()?,
                     line: reader.uint()?,
                 })
@@ -196,7 +196,7 @@ impl Writer<'_> {
     }
 
     fn call(&mut self, call: &CallRef) {
-        self.id(call.caller_id);
+        self.id(call.site_of);
         self.text(&call.callee);
         self.optional(call.receiver.as_deref());
         self.uint(call.line);
@@ -356,7 +356,7 @@ impl<'a> Reader<'a> {
 
     fn call(&mut self) -> Read<CallRef> {
         Ok(CallRef {
-            caller_id: self.id()?,
+            site_of: self.id()?,
             callee: self.text()?,
             receiver: self.optional()?,
             line: self.uint()?,
@@ -421,7 +421,7 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::NO_CALLER_ID;
+    use crate::FILE_SCOPE;
 
     fn every_channel() -> RawExtraction {
         let mut method = Symbol::new("parse", SymbolKind::Method, 3, 9);
@@ -450,20 +450,20 @@ mod tests {
             }],
             calls: vec![
                 CallRef {
-                    caller_id: SymbolId(0),
+                    site_of: SymbolId(0),
                     callee: "read".to_owned(),
                     receiver: Some(String::new()),
                     line: 4,
                 },
                 CallRef {
-                    caller_id: NO_CALLER_ID,
+                    site_of: FILE_SCOPE,
                     callee: "init".to_owned(),
                     receiver: None,
                     line: 300_000,
                 },
             ],
             local_calls: vec![LocalCall {
-                caller_id: SymbolId(0),
+                site_of: SymbolId(0),
                 local: SymbolId(1),
                 line: 5,
             }],

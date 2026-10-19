@@ -103,7 +103,7 @@ fn calls(raw: &RawExtraction) -> Vec<(&str, &str, Option<&str>, u32)> {
     raw.calls
         .iter()
         .map(|call| {
-            let caller = symbol(raw, call.caller_id).name.as_str();
+            let caller = symbol(raw, call.site_of).name.as_str();
             (
                 caller,
                 call.callee.as_str(),
@@ -118,7 +118,7 @@ fn local_calls(raw: &RawExtraction) -> Vec<(&str, &str)> {
     raw.local_calls
         .iter()
         .map(|call| {
-            let caller = symbol(raw, call.caller_id).name.as_str();
+            let caller = symbol(raw, call.site_of).name.as_str();
             (caller, symbol(raw, call.local).name.as_str())
         })
         .collect()
@@ -559,7 +559,7 @@ fn calls_are_attributed_to_the_enclosing_function() {
         .find(|call| call.callee == "helper")
         .expect("helper is called");
     assert_eq!(
-        symbol(&raw, helper_call.caller_id).qualified_name,
+        symbol(&raw, helper_call.site_of).qualified_name,
         "sample.Service.Greet"
     );
     assert_eq!(helper_call.receiver, None);
@@ -1340,7 +1340,7 @@ func Pair() {
         .iter()
         .map(|call| {
             let local = symbol(&raw, call.local);
-            let caller = symbol(&raw, call.caller_id).name.as_str();
+            let caller = symbol(&raw, call.site_of).name.as_str();
             (
                 caller,
                 call.line,

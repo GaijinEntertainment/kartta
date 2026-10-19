@@ -90,7 +90,7 @@ fn a_local_call_binds_the_local_its_scope_declares() {
     );
     extraction.local_symbols = vec![SymbolId(1)];
     extraction.local_calls = vec![LocalCall {
-        caller_id: SymbolId(0),
+        site_of: SymbolId(0),
         local: SymbolId(1),
         line: 3,
     }];
@@ -113,7 +113,7 @@ fn a_local_that_is_no_call_target_binds_no_call() {
     );
     extraction.local_symbols = vec![SymbolId(1)];
     extraction.local_calls = vec![LocalCall {
-        caller_id: SymbolId(0),
+        site_of: SymbolId(0),
         local: SymbolId(1),
         line: 3,
     }];

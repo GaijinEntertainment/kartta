@@ -174,8 +174,8 @@ impl Extraction {
 /// A call, unresolved.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CallRef {
-    /// The symbol whose body makes the call, or [`NO_CALLER_ID`](crate::NO_CALLER_ID) at file scope.
-    pub caller_id: SymbolId,
+    /// The symbol whose body makes the call, or [`FILE_SCOPE`](crate::FILE_SCOPE) at file scope.
+    pub site_of: SymbolId,
     /// The called name as written.
     pub callee: String,
     /// The type of the receiver of a member call, where the language and the call's form name one, spelled as the
@@ -189,8 +189,8 @@ pub struct CallRef {
 /// A call the language's own scoping binds to a local symbol in scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocalCall {
-    /// The symbol whose body makes the call, or [`NO_CALLER_ID`](crate::NO_CALLER_ID) at file scope.
-    pub caller_id: SymbolId,
+    /// The symbol whose body makes the call, or [`FILE_SCOPE`](crate::FILE_SCOPE) at file scope.
+    pub site_of: SymbolId,
     /// The called local, a symbol in the extraction's `local_symbols`.
     pub local: SymbolId,
     /// The one-based line of the call.
@@ -204,7 +204,7 @@ pub struct LocalCall {
 /// no local symbol, and a language records no use that a local binding of the name covers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UseRef {
-    /// The innermost symbol declared around the use, or [`NO_CALLER_ID`](crate::NO_CALLER_ID) at file scope, where
+    /// The innermost symbol declared around the use, or [`FILE_SCOPE`](crate::FILE_SCOPE) at file scope, where
     /// the use binds no edge and the graph keeps only the name it spells.
     pub site_of: SymbolId,
     /// The name as written, without what it is written on.

@@ -38,7 +38,7 @@ fn local_calls(source: &str) -> Vec<(String, SymbolKind, u32)> {
         .iter()
         .map(|call| {
             let local = &raw.symbols[call.local.0 as usize];
-            let caller = &raw.symbols[call.caller_id.0 as usize];
+            let caller = &raw.symbols[call.site_of.0 as usize];
             (caller.qualified_name.clone(), local.kind, local.line)
         })
         .collect()

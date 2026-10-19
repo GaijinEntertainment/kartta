@@ -5,9 +5,7 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{
-    Conventions, Language, NO_CALLER_ID, RawExtraction, Symbol, SymbolId, SymbolKind,
-};
+use kartta_lang::{Conventions, FILE_SCOPE, Language, RawExtraction, Symbol, SymbolId, SymbolKind};
 use kartta_lang_daslang::Daslang;
 
 const SAMPLE: &str = r"
@@ -100,7 +98,7 @@ fn caller_of(raw: &RawExtraction, callee: &str) -> SymbolId {
         .iter()
         .find(|call| call.callee == callee)
         .unwrap_or_else(|| panic!("no call of {callee} in {:?}", raw.calls))
-        .caller_id
+        .site_of
 }
 
 fn calls(raw: &RawExtraction) -> Vec<(&str, Option<&str>)> {
@@ -336,7 +334,7 @@ fn records_calls_attributed_to_their_callable() {
         .iter()
         .find(|call| call.callee == "helper")
         .unwrap_or_else(|| panic!("no helper call in {:?}", raw.calls));
-    assert_eq!(helper.caller_id, id_of(&raw, "area"));
+    assert_eq!(helper.site_of, id_of(&raw, "area"));
     assert_eq!(helper.receiver, None);
 }
 
@@ -354,7 +352,7 @@ fn member_calls_capture_their_receiver() {
     let run_calls: Vec<(&str, Option<&str>)> = raw
         .calls
         .iter()
-        .filter(|call| call.caller_id == id_of(&raw, "run"))
+        .filter(|call| call.site_of == id_of(&raw, "run"))
         .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
         .collect();
     assert_eq!(
@@ -420,7 +418,7 @@ fn a_new_expression_calls_the_type_it_constructs() {
     assert!(
         raw.calls
             .iter()
-            .all(|call| call.caller_id == id_of(&raw, "make"))
+            .all(|call| call.site_of == id_of(&raw, "make"))
     );
 }
 
@@ -607,7 +605,7 @@ fn inline_expression_forms_keep_the_calls_around_them() {
 #[test]
 fn a_stored_block_keeps_its_calls_out_of_the_enclosing_def() {
     let lambda = extract("options gen2\ndef outer() {\n  var f = @(e) { cb(e) }\n  reg()\n}\n");
-    assert_eq!(caller_of(&lambda, "cb"), NO_CALLER_ID);
+    assert_eq!(caller_of(&lambda, "cb"), FILE_SCOPE);
     assert_eq!(caller_of(&lambda, "reg"), id_of(&lambda, "outer"));
 
     let local = extract(
@@ -618,7 +616,7 @@ fn a_stored_block_keeps_its_calls_out_of_the_enclosing_def() {
          }\n",
     );
     let outer = id_of(&local, "outer");
-    assert_eq!(caller_of(&local, "cb"), NO_CALLER_ID);
+    assert_eq!(caller_of(&local, "cb"), FILE_SCOPE);
     assert_eq!(caller_of(&local, "on"), outer);
     assert_eq!(caller_of(&local, "reg"), outer);
 }
@@ -651,7 +649,7 @@ fn a_block_applied_to_a_field_calls_the_field() {
         .find(|call| call.callee == "handler")
         .unwrap_or_else(|| panic!("no handler call in {:?}", braced.calls));
     assert_eq!(handler.receiver.as_deref(), Some("obj"));
-    assert_eq!(handler.caller_id, id_of(&braced, "outer"));
+    assert_eq!(handler.site_of, id_of(&braced, "outer"));
     assert_eq!(caller_of(&braced, "use"), id_of(&braced, "outer"));
 
     let piped = extract("options gen2\ndef outer() {\n  obj.handler <| ${ use() }\n}\n");

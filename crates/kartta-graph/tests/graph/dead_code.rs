@@ -3,7 +3,7 @@
 
 use kartta_graph::DeadCode;
 use kartta_lang::{
-    Access, CallRef, Callable, CallableRole, Conventions, Extraction, IncludeRef, NO_CALLER_ID,
+    Access, CallRef, Callable, CallableRole, Conventions, Extraction, FILE_SCOPE, IncludeRef,
     OwnMembers, Receiver, Receivers, Symbol, SymbolFlags, SymbolId, SymbolKind, TypeUses, UseRef,
 };
 
@@ -86,8 +86,8 @@ fn a_call_at_file_scope_reaches_its_file_and_the_files_it_includes() {
         "bin/run.sh",
         vec![function("setup", 1)],
         vec![
-            call(NO_CALLER_ID.0, "setup", 9),
-            call(NO_CALLER_ID.0, "shared", 10),
+            call(FILE_SCOPE.0, "setup", 9),
+            call(FILE_SCOPE.0, "shared", 10),
         ],
     );
     script.includes.push(IncludeRef {
@@ -114,7 +114,7 @@ fn removing_the_file_that_calls_a_function_leaves_it_dead() {
         file(
             "src/b.c",
             vec![function("caller", 1)],
-            vec![call(0, "used", 2), call(NO_CALLER_ID.0, "caller", 5)],
+            vec![call(0, "used", 2), call(FILE_SCOPE.0, "caller", 5)],
         ),
     ]);
     assert_eq!(graph.dead_code(&[], None, 10).total, 0);
@@ -132,7 +132,7 @@ fn a_call_the_cascade_cannot_bind_leaves_every_definition_of_its_name_uncertain(
         file(
             "c/main.c",
             vec![function("run", 1)],
-            vec![call(0, "helper", 2), call(NO_CALLER_ID.0, "run", 5)],
+            vec![call(0, "helper", 2), call(FILE_SCOPE.0, "run", 5)],
         ),
     ]);
 
@@ -146,7 +146,7 @@ fn a_call_the_cascade_cannot_bind_leaves_every_definition_of_its_name_uncertain(
 fn a_receiver_call_that_binds_nothing_leaves_members_and_what_its_file_sees_uncertain() {
     let mut caller = file("app/main.c", vec![function("run", 1)], Vec::new());
     caller.calls.push(CallRef {
-        caller_id: SymbolId(0),
+        site_of: SymbolId(0),
         callee: "close".to_owned(),
         receiver: Some(String::new()),
         line: 2,
@@ -185,7 +185,7 @@ fn a_receiver_call_that_binds_nothing_leaves_a_free_definition_no_member_could_s
 {
     let mut loader = file("tools/load.py", vec![function("load", 1)], Vec::new());
     loader.calls.push(CallRef {
-        caller_id: SymbolId(0),
+        site_of: SymbolId(0),
         callee: "get_mapping".to_owned(),
         receiver: Some("module".to_owned()),
         line: 3,
@@ -221,7 +221,7 @@ fn a_call_through_a_value_bound_to_its_own_caller_leaves_the_members_of_its_name
         Vec::new(),
     );
     wrapper.calls.push(CallRef {
-        caller_id: SymbolId(1),
+        site_of: SymbolId(1),
         callee: "setLimit".to_owned(),
         receiver: Some(String::new()),
         line: 3,
@@ -387,7 +387,7 @@ fn a_definition_local_to_a_body_is_unobservable_as_no_use_binds_a_local() {
             Symbol::new("row", SymbolKind::Struct, 2, 2),
             function("each", 3),
         ],
-        vec![call(NO_CALLER_ID.0, "Run", 9)],
+        vec![call(FILE_SCOPE.0, "Run", 9)],
     );
     body.local_symbols.extend([SymbolId(1), SymbolId(2)]);
     let graph = graph_of(go(), &[body]);
@@ -402,7 +402,7 @@ fn a_definition_local_to_a_body_is_unobservable_as_no_use_binds_a_local() {
 fn a_use_at_file_scope_reaches_the_types_its_package_defines() {
     let mut assertion = file("pkg/assert.go", Vec::new(), Vec::new());
     assertion.uses.push(UseRef {
-        site_of: NO_CALLER_ID,
+        site_of: FILE_SCOPE,
         name: "Checked".to_owned(),
         receiver: Receiver::Bare,
         access: Access::Read,
@@ -443,7 +443,7 @@ fn a_type_only_its_own_members_name_is_dead() {
             Symbol::new("Used", SymbolKind::Struct, 9, 9),
             function("Make", 11),
         ],
-        vec![call(NO_CALLER_ID.0, "Make", 20)],
+        vec![call(FILE_SCOPE.0, "Make", 20)],
     );
     for (site_of, name, line) in [(1, "Lonely", 5), (1, "Lonely", 6), (3, "Used", 12)] {
         types.uses.push(UseRef {

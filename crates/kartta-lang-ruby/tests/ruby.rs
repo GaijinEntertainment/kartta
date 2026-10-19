@@ -195,13 +195,10 @@ fn a_call_is_made_by_the_method_around_it() {
     let raw = extract(SAMPLE);
 
     let compute = call(&raw.calls, "compute");
-    assert_eq!(
-        compute.caller_id,
-        id_of(&raw.symbols, "Geometry::Shape#area")
-    );
+    assert_eq!(compute.site_of, id_of(&raw.symbols, "Geometry::Shape#area"));
     assert_eq!(compute.receiver, None);
     let draw = call(&raw.calls, "draw");
-    assert_eq!(draw.caller_id, id_of(&raw.symbols, "Circle#radius"));
+    assert_eq!(draw.site_of, id_of(&raw.symbols, "Circle#radius"));
     assert_eq!(draw.receiver.as_deref(), Some("helper"));
 }
 
