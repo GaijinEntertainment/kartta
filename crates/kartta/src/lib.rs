@@ -96,10 +96,11 @@ pub use kartta_fs::{
     PrunedNames, PrunedNamesError, RefreshOutcome,
 };
 pub use kartta_graph::{
-    Blast, CallPath, Change, Dead, DeadCode, Definition, Definitions, Dependent, Dependents,
-    DirCount, DirectCalls, Excluded, Found, Graph, Hit, Hotspot, Implementations, Implementor,
-    Limits, Miss, Misses, Nearness, ReachBand, Reached, Reference, References, Region, Resolution,
-    Search, Seed, Segment, SegmentSymbol, SiteCounts, SiteQuery, Stats, Unbound, Walk, confidence,
+    Blast, CallPath, Candidate, Change, Dead, DeadCode, Definition, Definitions, Dependent,
+    Dependents, DirCount, DirectCalls, Excluded, Found, Graph, Hit, Hotspot, Implementations,
+    Implementor, Limits, Miss, Misses, Nearness, ReachBand, Reached, Reference, References, Region,
+    Resolution, Search, Seed, Segment, SegmentSymbol, Selector, SiteCounts, SiteQuery, Stats,
+    Unbound, Walk, confidence,
 };
 pub use kartta_lang::{
     Access, BlockComment, Conventions, DocComments, Extraction, Language, RawExtraction,

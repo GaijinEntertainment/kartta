@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
 use std::hash::Hash;
 use std::sync::OnceLock;
 
@@ -108,6 +108,58 @@ pub struct Definitions<'g> {
     pub total: usize,
     /// The nearest of them, ranked.
     pub found: Vec<Found<'g>>,
+}
+
+/// A name a query selects a symbol by, and the files it looks for the symbol in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct Selector<'s> {
+    /// The name, bare or qualified, read as [`Graph::definitions`] reads it.
+    pub name: &'s str,
+    /// The start of the root-relative path of the file that holds the symbol: one file's path, or a directory's with
+    /// its closing `/`. Copies of one symbol that share its qualified name, as a vendored package and the same
+    /// package in a second checkout, are told apart by it. `None` looks in every file.
+    pub path_prefix: Option<&'s str>,
+}
+
+impl<'s> Selector<'s> {
+    /// The symbol `name` selects, in any file.
+    #[must_use]
+    pub const fn new(name: &'s str) -> Self {
+        Self {
+            name,
+            path_prefix: None,
+        }
+    }
+
+    /// This selector looking only in the files whose path starts with `path_prefix`.
+    #[must_use]
+    pub const fn within(self, path_prefix: &'s str) -> Self {
+        Self {
+            path_prefix: Some(path_prefix),
+            ..self
+        }
+    }
+}
+
+impl<'s> From<&'s str> for Selector<'s> {
+    fn from(name: &'s str) -> Self {
+        Self::new(name)
+    }
+}
+
+/// How many of the symbols a name selects and a query passes over its answer lists.
+pub(crate) const LISTED_CANDIDATES: usize = 5;
+
+/// A symbol a name selects that a query passed over, and the count the query ranks a name's symbols by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct Candidate<'g> {
+    /// The symbol.
+    pub symbol: Definition<'g>,
+    /// Its callers for a walk over calls, its sites for references, the types that name it as a parent for
+    /// implementations.
+    pub count: usize,
 }
 
 impl Graph {
@@ -247,6 +299,31 @@ impl Graph {
 
     pub(crate) fn named(&self, name: Str) -> &[SymbolAt] {
         listed(&self.by_name, &name)
+    }
+
+    pub(crate) fn is_within(&self, at: SymbolAt, path_prefix: Option<&str>) -> bool {
+        path_prefix.is_none_or(|prefix| {
+            self.strings
+                .resolve(self.file(at.file).path)
+                .starts_with(prefix)
+        })
+    }
+
+    /// The symbols a query passed over, `others` each with its count, ranked by count and then path order, at most
+    /// [`LISTED_CANDIDATES`] of them.
+    pub(crate) fn candidates(&self, mut others: Vec<(SymbolAt, usize)>) -> Vec<Candidate<'_>> {
+        let rank = |&(at, count): &(SymbolAt, usize)| (Reverse(count), self.order_of(at));
+        keep_first(&mut others, LISTED_CANDIDATES, |left, right| {
+            rank(left).cmp(&rank(right))
+        });
+        others.sort_unstable_by_key(rank);
+        others
+            .into_iter()
+            .map(|(at, count)| Candidate {
+                symbol: self.definition_at(at),
+                count,
+            })
+            .collect()
     }
 
     pub(crate) fn in_file<'a>(&self, named: &'a [SymbolAt], slot: u32) -> &'a [SymbolAt] {

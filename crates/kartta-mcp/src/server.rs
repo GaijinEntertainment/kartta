@@ -766,7 +766,7 @@ impl Server {
                 .filter_map(|&(family, graph)| {
                     Some((
                         family,
-                        graph.implementations(&p.name, u32::MAX, IMPLEMENTORS)?,
+                        graph.implementations(p.name.as_str(), u32::MAX, IMPLEMENTORS)?,
                     ))
                 })
                 .collect();
@@ -865,7 +865,10 @@ impl Server {
             let paths: Vec<_> = selected(indexed, p.languages.as_deref())
                 .into_iter()
                 .filter_map(|(family, graph)| {
-                    Some((family, graph.call_path(&p.from, &p.to, limits)?))
+                    Some((
+                        family,
+                        graph.call_path(p.from.as_str(), p.to.as_str(), limits)?,
+                    ))
                 })
                 .collect();
             let languages = p.languages.as_deref().map(echo);
@@ -919,7 +922,7 @@ impl Server {
                     let query = p
                         .access
                         .map_or(query, |access| query.with_access(access.access()));
-                    Some((family, graph.references(&p.name, query)?))
+                    Some((family, graph.references(p.name.as_str(), query)?))
                 })
                 .collect();
             let suggestions = if found.is_empty() {
@@ -1109,7 +1112,9 @@ impl Server {
             let searched = selected(indexed, p.languages.as_deref());
             let walks: Vec<_> = searched
                 .iter()
-                .filter_map(|&(family, graph)| Some((family, graph.callers(&p.name, limits)?)))
+                .filter_map(|&(family, graph)| {
+                    Some((family, graph.callers(p.name.as_str(), limits)?))
+                })
                 .collect();
             let suggestions = if walks.is_empty() {
                 suggestions(&searched, &p.name)
@@ -1163,7 +1168,9 @@ impl Server {
             let walks: Vec<_> = searched
                 .iter()
                 .filter_map(|&(family, graph)| {
-                    graph.callees(&p.name, limits).map(|walk| (family, walk))
+                    graph
+                        .callees(p.name.as_str(), limits)
+                        .map(|walk| (family, walk))
                 })
                 .collect();
             let suggestions = if walks.is_empty() {
