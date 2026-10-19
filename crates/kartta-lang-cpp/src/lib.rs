@@ -63,7 +63,9 @@
 //!
 //! # Uses
 //!
-//! Only a function's initializer list and body yield uses. `x.f` and `x->f` outside a call's callee use `f` on
+//! A function's initializer list and body yield uses, and so does an initializer outside every body and lambda, where
+//! a name, a table of handlers' most often, is a use at [`FILE_SCOPE`](kartta_lang::FILE_SCOPE) that keeps only the
+//! name it spells. `x.f` and `x->f` outside a call's callee use `f` on
 //! [`Receiver::Path`](kartta_lang::Receiver::Path): the class's bare name where `x` is a local or a parameter declared
 //! as a value of it or a reference to it for `.`, or a pointer to it for `->`, else empty. `this->f` and a member a
 //! constructor's initializer list sets use `f` on [`Receiver::Own`](kartta_lang::Receiver::Own), a designated

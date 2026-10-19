@@ -107,6 +107,49 @@ impl<'s, 't> Replayer<'s, 't> {
         }
     }
 
+    // constraint: an initializer outside every body names a value or a function the file's scope reaches, as a table
+    // of handlers does; the use has no symbol to resolve from, so the graph keeps only the name, and a lambda there
+    // declares locals the walk does not follow
+    pub(super) fn handle_at_file_scope(&mut self, node: Node<'t>) {
+        if !matches!(node.kind(), "identifier" | "qualified_identifier") {
+            return;
+        }
+        let Some(&parent) = self.ancestors.last() else {
+            return;
+        };
+        let used = if parent.kind() == "field_declaration" {
+            fills(parent, "default_value", node)
+        } else {
+            is_used(node, parent)
+        };
+        if !used || !self.in_file_scope_initializer(node) {
+            return;
+        }
+        let name = if node.kind() == "identifier" {
+            node
+        } else {
+            match qualified_terminal(node).0 {
+                Some(terminal) if terminal.kind() == "identifier" => terminal,
+                _ => return,
+            }
+        };
+        let access = self.access_of(node);
+        self.push_site(name, (text(name, self.source), Receiver::Bare, access));
+    }
+
+    fn in_file_scope_initializer(&self, node: Node<'_>) -> bool {
+        let mut child = node;
+        for &ancestor in self.ancestors.iter().rev() {
+            match ancestor.kind() {
+                "lambda_expression" => return false,
+                "init_declarator" => return fills(ancestor, "value", child),
+                "field_declaration" => return fills(ancestor, "default_value", child),
+                _ => child = ancestor,
+            }
+        }
+        false
+    }
+
     // constraint: a definition's head before its initializer list and body reads no value; what the grammar finds
     // there is most often an annotation macro read as a name, `PX_FORCE_INLINE void f()`
     fn in_body(&self, node: Node<'_>) -> bool {

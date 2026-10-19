@@ -120,7 +120,9 @@ impl<'s, 't> Replayer<'s, 't> {
     fn handle(&mut self, node: Node<'t>) {
         self.close_scopes(node.start_byte());
         self.handle_declaration(node);
-        if !self.functions.is_empty() {
+        if self.functions.is_empty() {
+            self.handle_at_file_scope(node);
+        } else {
             self.handle_in_body(node);
         }
         self.ancestors.push(node);

@@ -1,7 +1,7 @@
-//! The data sites a C++ body yields: each field access, each read or write of a name no declaration of the body binds,
-//! how it touches its target and what its name is written on.
+//! The data sites a C++ body or a file-scope initializer yields: each field access, each read or write of a name no
+//! declaration of the body binds, how it touches its target and what its name is written on.
 
-use kartta_lang::{Access, Language, RawExtraction, Receiver};
+use kartta_lang::{Access, FILE_SCOPE, Language, RawExtraction, Receiver};
 use kartta_lang_cpp::Cpp;
 
 fn extract(source: &str) -> RawExtraction {
@@ -238,9 +238,12 @@ fn an_initializer_list_and_a_designated_initializer_write_their_fields() {
 }
 
 #[test]
-fn a_site_belongs_to_the_definition_around_it_and_none_lies_outside_a_body() {
+fn a_site_belongs_to_the_definition_around_it_and_a_file_scope_initializer_to_the_file() {
     let raw = extract(
-        "int table[] = {first, second};
+        "int table[] = {first, &Widget::second};
+Handler handler = on_event;
+struct Slot { Handler handler = on_member; };
+auto lambda = [](int local) { return local; };
 PX_FORCE_INLINE void Widget::draw(int width = fallback) {
     auto paint = [this]() { return colour; };
 }
@@ -252,15 +255,25 @@ PX_FORCE_INLINE void Widget::draw(int width = fallback) {
         .iter()
         .position(|symbol| symbol.name == "draw")
         .expect("the definition is a symbol");
-    let held: Vec<(&str, usize)> = raw
+    let held: Vec<(&str, Option<usize>)> = raw
         .uses
         .iter()
-        .map(|site| (site.name.as_str(), site.site_of.0 as usize))
+        .map(|site| {
+            let scope = (site.site_of != FILE_SCOPE).then_some(site.site_of.0 as usize);
+            (site.name.as_str(), scope)
+        })
         .collect();
     assert_eq!(
         held,
-        [("colour", draw)],
-        "a lambda's body belongs to the definition that holds it, and an initializer outside a body, a default \
-         argument and an annotation macro in a definition's head yield nothing"
+        [
+            ("first", None),
+            ("second", None),
+            ("on_event", None),
+            ("on_member", None),
+            ("colour", Some(draw))
+        ],
+        "an initializer outside every body names what the file's scope reaches, a lambda's body belongs to the \
+         definition that holds it, and a lambda outside one, a default argument and an annotation macro in a \
+         definition's head yield nothing"
     );
 }
