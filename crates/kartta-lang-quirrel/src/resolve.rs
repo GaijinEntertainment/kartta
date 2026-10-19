@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::iter;
 
-use kartta_lang::path::{base, dir, forward_slashes, join};
+use kartta_lang::path::{base, dir, forward_slashes, join, sole};
 use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
@@ -69,10 +69,7 @@ impl<'r> QuirrelResolver<'r> {
         if self.repository.contains(&candidate) {
             return Some(candidate);
         }
-        let mut matches = self.repository.files_ignoring_case(&candidate);
-        let only = matches.next()?;
-
-        matches.next().is_none().then_some(only)
+        sole(self.repository.files_ignoring_case(&candidate))
     }
 
     // constraint: without a `.sqconfig` the mounts are unknown, so a `%root/rest` path takes the nearest ancestor of

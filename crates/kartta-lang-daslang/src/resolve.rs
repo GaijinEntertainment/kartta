@@ -1,6 +1,6 @@
 use std::iter;
 
-use kartta_lang::path::{base, dir, forward_slashes, join};
+use kartta_lang::path::{base, dir, forward_slashes, join, sole};
 use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
@@ -97,11 +97,6 @@ impl Resolver for DaslangResolver<'_> {
 
         extraction
     }
-}
-
-fn sole(mut found: impl Iterator<Item = String>) -> Option<String> {
-    let first = found.next()?;
-    found.next().is_none().then_some(first)
 }
 
 fn is_test_path(path: &str) -> bool {

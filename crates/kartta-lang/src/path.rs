@@ -45,6 +45,13 @@ pub fn child(dir: &str, name: &str) -> String {
     }
 }
 
+/// The one path `found` yields; `None` when it yields none, or several and a choice between them would be a guess.
+#[must_use]
+pub fn sole(mut found: impl Iterator<Item = String>) -> Option<String> {
+    let only = found.next()?;
+    found.next().is_none().then_some(only)
+}
+
 /// The root-relative path that `relative`, such as `./util/b` or `../b`, names from the directory `from`, with its
 /// `.` and `..` components applied; `None` when it climbs above the root.
 ///
@@ -106,6 +113,18 @@ mod tests {
         assert_eq!(child("", "a.py"), "a.py");
         assert_eq!(child("src", ""), "src");
         assert_eq!(child("", ""), "");
+    }
+
+    #[test]
+    fn only_a_lookup_that_yields_one_path_picks_it() {
+        let found = |paths: &[&str]| sole(paths.iter().map(|&path| path.to_owned()));
+        assert_eq!(found(&[]), None);
+        assert_eq!(found(&["a/b.nut"]).as_deref(), Some("a/b.nut"));
+        assert_eq!(
+            found(&["a/b.nut", "c/b.nut"]),
+            None,
+            "two paths are a guess"
+        );
     }
 
     #[test]

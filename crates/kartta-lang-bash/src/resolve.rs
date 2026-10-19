@@ -1,4 +1,4 @@
-use kartta_lang::path::{base, dir, join};
+use kartta_lang::path::{base, dir, join, sole};
 use kartta_lang::{Extraction, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags};
 
 const SOURCE_EXTENSIONS: [&str; 3] = ["", ".sh", ".bash"];
@@ -27,14 +27,12 @@ impl Sources<'_> {
     }
 
     fn segment_suffix(&self, spec: &str) -> Option<String> {
-        let mut matches = SOURCE_EXTENSIONS.iter().flat_map(|extension| {
+        sole(SOURCE_EXTENSIONS.iter().flat_map(|extension| {
             let suffix = format!("/{spec}{extension}");
             self.repository
                 .files_named(base(&suffix))
                 .filter(move |candidate| candidate.ends_with(&suffix))
-        });
-        let only = matches.next()?;
-        matches.next().is_none().then_some(only)
+        }))
     }
 }
 
