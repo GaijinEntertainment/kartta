@@ -1,6 +1,6 @@
 use kartta::{
-    Case, EntryKind, Filter, FuzzyMatch, FuzzyOptions, GlobOptions, GrepOptions, Index, LineKind,
-    ListError, ListOptions, Listing, Matches, Patterns,
+    CancelToken, Case, EntryKind, Filter, FuzzyMatch, FuzzyOptions, GlobOptions, GrepOptions,
+    Index, LineKind, ListError, ListOptions, Listing, Matches, Patterns,
 };
 use serde::{Deserialize, Serialize};
 
@@ -71,6 +71,8 @@ pub(crate) struct GrepParams {
     max_line_bytes: Option<usize>,
     #[serde(default)]
     max_file_bytes: Option<u64>,
+    #[serde(default)]
+    pub(crate) id: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -268,7 +270,11 @@ struct GrepFailureView {
 }
 
 impl GrepParams {
-    pub(crate) fn search<'i>(&self, index: &'i Index) -> Result<Matches<'i>, Error> {
+    pub(crate) fn search<'i>(
+        &self,
+        index: &'i Index,
+        cancel: &CancelToken,
+    ) -> Result<Matches<'i>, Error> {
         let case = if self.case_insensitive {
             Case::Insensitive
         } else {
@@ -282,7 +288,8 @@ impl GrepParams {
             .context(self.context)
             .limit(self.limit.unwrap_or(GREP_LIMIT))
             .max_line_bytes(bound(self.max_line_bytes, GREP_MAX_LINE_BYTES))
-            .max_file_bytes(bound(self.max_file_bytes, GREP_MAX_FILE_BYTES));
+            .max_file_bytes(bound(self.max_file_bytes, GREP_MAX_FILE_BYTES))
+            .cancel(cancel);
         if self.count_all {
             options = options.count_all();
         }

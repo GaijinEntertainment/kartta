@@ -8,7 +8,8 @@
 //!
 //! A handle names a tree. Its `build` method walks the tree once, building the file index and the graph of every
 //! language `kartta-languages` ships, or of those the params name; every query asks what the last finished build
-//! made. Queries run concurrently; builds run one at a time, each under a cancel of its own that `cancel` trips.
+//! made. Queries run concurrently; builds run one at a time. A build and a grep each run under a cancel of their own,
+//! which `cancel` trips by the id the call named.
 //!
 //! Answers are kartta's own: each carries the counts the engine holds of what a cap, a depth bound or a confidence
 //! floor left out.

@@ -113,6 +113,7 @@ fn invalid(error: impl Display) -> Error {
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct CancelParams {
     pub(crate) build: Option<u64>,
+    pub(crate) grep: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
