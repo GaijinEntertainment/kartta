@@ -18,7 +18,9 @@ parent.
 A call records its callee and, for a member call, its receiver: the object when it is a bare name, and the empty
 receiver otherwise. A module-scoped call `mod::f()` keeps `mod` as its receiver, and a construction `T(...)` or
 `new T(...)` is a call of `T`. A block applied in place keeps its calls in the enclosing `def`; a block stored in a name
-gives its calls to no symbol.
+gives its calls to no symbol. A function's address, `@@f` or `@@mod::f`, the one form daslang passes a function as a
+value in, is a use of `f`, which binds the function of the name its own file declares, else the one a file it requires
+exports, else the one such a file declares `private`, as a call of the name binds it.
 
 ## Resolution
 

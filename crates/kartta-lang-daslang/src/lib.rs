@@ -28,6 +28,10 @@
 //! `def`'s. A block or a local function stored in a name runs when the value is called, so its calls belong to no
 //! symbol, and the graph drops them.
 //!
+//! A function's address, `@@f`, is a bare use of `f` and `@@mod::f` one qualified by `mod`, the one form daslang takes
+//! a function as a value in. A bare use binds the one function of its name its own file declares, else the one a file
+//! it requires exports, else the one such a file declares `private`, as a call of the name binds it.
+//!
 //! # Resolution
 //!
 //! A `require` names a module, which the compiler finds by the `module` name a file declares; a module almost always
@@ -68,7 +72,9 @@
 //! ```
 
 use kartta_lang::path::has_extension;
-use kartta_lang::{DocComments, Language, RawExtraction, Repository, Resolver};
+use kartta_lang::{
+    Conventions, DocComments, Language, RawExtraction, Repository, Resolver, ValueUses,
+};
 
 use crate::resolve::DaslangResolver;
 
@@ -103,6 +109,12 @@ impl Language for Daslang {
 
     fn doc_comments(&self) -> DocComments {
         DocComments::C_LIKE
+    }
+
+    fn conventions(&self) -> Conventions {
+        let mut conventions = Conventions::default();
+        conventions.value_uses = ValueUses::Imported;
+        conventions
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {
