@@ -114,6 +114,7 @@ impl Language for Daslang {
     fn conventions(&self) -> Conventions {
         let mut conventions = Conventions::default();
         conventions.value_uses = ValueUses::Imported;
+        conventions.own_type_receivers = Some(&["self"]);
         conventions
     }
 

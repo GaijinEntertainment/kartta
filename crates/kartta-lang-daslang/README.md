@@ -20,7 +20,9 @@ receiver otherwise. A module-scoped call `mod::f()` keeps `mod` as its receiver,
 `new T(...)` is a call of `T`. A block applied in place keeps its calls in the enclosing `def`; a block stored in a name
 gives its calls to no symbol. A function's address, `@@f` or `@@mod::f`, the one form daslang passes a function as a
 value in, is a use of `f`, which binds the function of the name its own file declares, else the one a file it requires
-exports, else the one such a file declares `private`, as a call of the name binds it.
+exports, else the one such a file declares `private`, as a call of the name binds it. The conventions list `self` as
+the receiver of a value of the caller's own type, so `super.m()` and a member call on another name, `child.init()`
+inside an `init`, bind no member of the caller's own class.
 
 ## Resolution
 
