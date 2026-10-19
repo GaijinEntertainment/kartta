@@ -305,8 +305,9 @@ pub(crate) struct GrepParams {
     #[serde(default)]
     pub(crate) context_lines: usize,
     /// Positive cap on match lines across all files, spent in file-path order. Omitted or null = 100. Zero and
-    /// negatives are rejected. The answer carries truncated="true" when the cap cut it, and unsearched= counts the
-    /// files the search did not reach once the cap filled.
+    /// negatives are rejected. Once the cap fills, the search reads on until one more match shows the cap cut the
+    /// answer, which then carries truncated="true"; unsearched= counts the files the answer does not cover from then
+    /// on, or once a cancel stopped the search.
     #[serde(default)]
     pub(crate) max_results: Option<NonZeroUsize>,
 }
