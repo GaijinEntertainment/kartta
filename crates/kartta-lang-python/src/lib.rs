@@ -122,6 +122,7 @@ impl Language for Python {
         conventions.owner_chain_separator = Some(".");
         conventions.runtime_methods = runtime::METHODS;
         conventions.value_uses = ValueUses::Imported;
+        conventions.own_type_receivers = Some(&["cls", "other", "self"]);
 
         conventions
     }
