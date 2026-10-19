@@ -62,11 +62,13 @@ macro_rules! tree_sitter_fingerprint {
 
 /// The [fingerprint](crate::Language::fingerprint) of a language that extracts through `grammar`.
 ///
-/// It holds `source_id`, the identity of the language crate's own code that
+/// It holds `source_id`, the identity of the language crate's code and dependency versions that
 /// [`set_source_id`](crate::fingerprint::set_source_id) hands its build, then the grammar's version, a digest of its
-/// `node_types` and its counts of ABI version, node kinds, parse states and fields. It cannot see a grammar built from
-/// changed sources that keeps all of those, nor a change to the tree-sitter runtime that keeps its version: a crate
-/// that updates either bumps its own version, which `source_id` holds.
+/// `node_types` and its counts of ABI version, node kinds, parse states and fields. `source_id` follows the versions of
+/// the grammar crate and of tree-sitter that a visible `Cargo.lock` resolves, so an update of either changes it. A
+/// build that sees no lock follows only the manifest's version requirements, and the rest covers a later release it
+/// resolves as far as that release changes its version metadata, node types or counts: many grammars of ABI 14 carry
+/// no version metadata.
 #[must_use]
 pub fn fingerprint(source_id: &str, grammar: &Language, node_types: &str) -> Vec<u8> {
     let version = grammar.metadata().map_or([0; 3], |version| {
