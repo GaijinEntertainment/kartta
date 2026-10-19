@@ -94,11 +94,28 @@ pub struct Walk<'g> {
     /// depth of 0, and those the cap left.
     pub unexpanded: usize,
     /// The symbols the confidence floor left out, counted at each symbol the walk expanded that calls them or that they
-    /// call: a symbol that calls another from several lines counts once there, at its most confident call.
+    /// call: a symbol that calls another from several lines counts once there, at its most confident call. A walk over
+    /// callers also counts the files of [`file_scope`](Self::file_scope) the floor left out.
     pub below_confidence: usize,
     /// The calls at the symbols a walk over callees expanded that bound no definition the graph holds: calls into
     /// code outside it, and calls the cascade could not tell apart. A walk over callers counts none.
     pub unresolved: usize,
+    /// The files whose top level, outside every definition, calls or uses the root's name and sees the root, in path
+    /// order: callers no symbol holds, so the walk does not go past them. A walk over callees lists none, and neither
+    /// does a walk from a root no call binds, such as a field, whose name a top level reads rather than calls.
+    pub file_scope: Vec<FileScope<'g>>,
+}
+
+/// A file whose top level calls or uses a name, outside every definition. The graph keeps only the names a file's top
+/// level spells, so neither the line nor whether a call or a use spelled it is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct FileScope<'g> {
+    /// The root-relative path of the file.
+    pub file: &'g str,
+    /// How sure the name is to mean the symbol, by how the file sees it: the [`confidence`](crate::confidence) of a
+    /// definition in the same file, in its package, or in a file it includes.
+    pub confidence: u8,
 }
 
 /// Which of a symbol's sites [`Graph::references`] answers, and how many of them.
@@ -299,13 +316,30 @@ impl Graph {
     /// one of several copies that share a qualified name.
     ///
     /// Calls are resolved when this asks, from the call sites the graph keeps: the cost grows with the call sites of
-    /// each name the walk reaches.
+    /// each name the walk reaches. The walk also lists the files whose top level names the root and sees it, which the
+    /// confidence floor bounds as it bounds a call.
     #[must_use]
     pub fn callers<'s>(&self, name: impl Into<Selector<'s>>, limits: Limits) -> Option<Walk<'_>> {
         let selector = name.into();
         let mut calls = Calls::new(self);
         let root = calls.select(selector, Calls::caller_count)?;
         let mut walk = calls.walk(root, limits, Calls::callers_of);
+        let mut file_scope: Vec<(u32, u8)> = if calls.cascade.is_call_target(self.sym(root).kind) {
+            calls.file_scope_callers(root).collect()
+        } else {
+            Vec::new()
+        };
+        let named = file_scope.len();
+        file_scope.retain(|&(_, confidence)| confidence >= limits.min_confidence);
+        walk.below_confidence += named - file_scope.len();
+        file_scope.sort_unstable_by_key(|&(file, _)| self.path_rank(file));
+        walk.file_scope = file_scope
+            .into_iter()
+            .map(|(file, confidence)| FileScope {
+                file: self.strings.resolve(self.file(file).path),
+                confidence,
+            })
+            .collect();
         (walk.passed_over, walk.candidates) =
             calls.passed_over(selector, root, Calls::caller_count);
         Some(walk)
@@ -839,6 +873,7 @@ impl<'g> Calls<'g> {
             unexpanded: left_out.unexpanded,
             below_confidence: left_out.below_confidence,
             unresolved: self.unresolved,
+            file_scope: Vec::new(),
         }
     }
 
