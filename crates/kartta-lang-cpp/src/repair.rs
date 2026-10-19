@@ -4,6 +4,8 @@ use tree_sitter::Tree;
 const RECOVERY_SPILL_ROWS: usize = 3;
 const CLASS_KEYS: [&[u8]; 3] = [b"class", b"struct", b"union"];
 const HEAD_WORDS_MAX: usize = 4;
+const HEAD_GROUP_MAX: usize = 256;
+const HEAD_ATTRIBUTES: [&[u8]; 4] = [b"alignas", b"_Alignas", b"__declspec", b"__attribute__"];
 const DATA_GROUP_MIN: usize = 4096;
 
 pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
@@ -159,44 +161,113 @@ fn is_class_key(source: &[u8], at: usize) -> bool {
         })
 }
 
-// constraint: an export or visibility macro between the key and the class name, `class TORRENT_EXPORT torrent : base`,
-// parses as the class name and takes the head and the body down with it; a head that goes on to a body or a base list
-// with upper-case words before its last name holds such macros, while `struct STAT st;` declares a variable
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeadWord {
+    Name,
+    Macro,
+    MacroCall,
+    Attribute,
+}
+
+// constraint: an export, visibility or alignment macro between the key and the class name, `class TORRENT_EXPORT
+// torrent : base` or `struct DECLSPEC_ALIGN(16) N {`, parses as the class name and takes the head and the body down
+// with it; a head that goes on to a body or a base list with such macros, and the attributes the grammar reads, before
+// its last name holds them, while `struct STAT st;` declares a variable and `class DECLARE(Foo) {}` names no class
 fn head_macros(source: &[u8], key: usize) -> Option<(usize, usize)> {
-    let mut words = [(0, 0); HEAD_WORDS_MAX];
+    let mut words = [(0, 0, HeadWord::Name); HEAD_WORDS_MAX];
     let mut count = 0;
     let mut at = key + word_len(&source[key..]);
-    loop {
-        at += source[at..]
-            .iter()
-            .take_while(|byte| byte.is_ascii_whitespace())
-            .count();
-        let len = word_len(&source[at..]);
-        if len == 0 || count == HEAD_WORDS_MAX {
+    while count < HEAD_WORDS_MAX {
+        at += whitespace_len(&source[at..]);
+        let Some((end, kind)) = head_word(source, at) else {
             break;
-        }
-        words[count] = (at, at + len);
+        };
+        words[count] = (at, end, kind);
         count += 1;
-        at += len;
+        at = end;
     }
 
     let next = source.get(at).copied();
     let base_list = next == Some(b':') && source.get(at + 1) != Some(&b':');
     let (names, opens_a_body) = match &words[..count] {
-        [head @ .., (start, end)] if &source[*start..*end] == b"final" => (head, true),
+        [head @ .., (start, end, HeadWord::Name)] if &source[*start..*end] == b"final" => {
+            (head, true)
+        }
         all => (all, next == Some(b'{') || base_list),
     };
-    let [macros @ .., _] = names else {
+    let [prefix @ .., (_, _, HeadWord::Name | HeadWord::Macro)] = names else {
         return None;
     };
-    let all_macros = macros
+    let mut macros = prefix
         .iter()
-        .all(|(start, end)| is_macro_name(&source[*start..*end]));
+        .filter(|(_, _, kind)| matches!(kind, HeadWord::Macro | HeadWord::MacroCall));
+    let prefix_reads = prefix.iter().all(|(_, _, kind)| *kind != HeadWord::Name);
 
-    if !(opens_a_body && all_macros) {
+    if !(opens_a_body && prefix_reads) {
         return None;
     }
-    Some((macros.first()?.0, macros.last()?.1))
+    let first = macros.next()?;
+    Some((first.0, macros.next_back().unwrap_or(first).1))
+}
+
+fn head_word(source: &[u8], at: usize) -> Option<(usize, HeadWord)> {
+    if source[at..].starts_with(b"[[") {
+        let close = bounded_find(&source[at..], b"]]")?;
+        return Some((at + close + 2, HeadWord::Attribute));
+    }
+    let len = word_len(&source[at..]);
+    if len == 0 {
+        return None;
+    }
+    let word = &source[at..at + len];
+    let open = at + len + whitespace_len(&source[at + len..]);
+    if source.get(open) != Some(&b'(') {
+        let kind = if is_macro_name(word) {
+            HeadWord::Macro
+        } else {
+            HeadWord::Name
+        };
+        return Some((at + len, kind));
+    }
+    let end = open + group_len(&source[open..])?;
+    let kind = if is_macro_name(word) {
+        HeadWord::MacroCall
+    } else if HEAD_ATTRIBUTES.contains(&word) {
+        HeadWord::Attribute
+    } else {
+        return None;
+    };
+    Some((end, kind))
+}
+
+fn whitespace_len(text: &[u8]) -> usize {
+    text.iter()
+        .take_while(|byte| byte.is_ascii_whitespace())
+        .count()
+}
+
+fn group_len(text: &[u8]) -> Option<usize> {
+    let mut depth = 0usize;
+    for (at, byte) in text.iter().take(HEAD_GROUP_MAX).enumerate() {
+        match byte {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(at + 1);
+                }
+            }
+            b'{' | b'}' | b';' => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+fn bounded_find(text: &[u8], needle: &[u8]) -> Option<usize> {
+    text[..text.len().min(HEAD_GROUP_MAX)]
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
@@ -204,16 +275,20 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
 
-    let spills = spilled_error_rows(tree);
+    let mut spills = spilled_error_rows(tree);
     if spills.is_empty() {
         return None;
+    }
+    let lines: Vec<&[u8]> = source.split(|byte| *byte == b'\n').collect();
+    for spill in &mut spills {
+        spill.0 = lead_in(&lines, spill.0);
     }
 
     let mut repaired: Option<Vec<u8>> = None;
     let mut offset = 0;
     let mut continuation = false;
 
-    for (row, line) in source.split(|byte| *byte == b'\n').enumerate() {
+    for (row, line) in lines.into_iter().enumerate() {
         let in_define = continuation;
         continuation = line.strip_suffix(b"\r").unwrap_or(line).ends_with(b"\\");
 
@@ -231,6 +306,32 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
     }
 
     repaired
+}
+
+// constraint: a bare macro on a line of its own that opens a scope, `JPH_NAMESPACE_BEGIN` above a class, joins the
+// declaration after it, and the error tree-sitter recovers into starts at that declaration, past blank lines and
+// comments, rather than at the macro. Only a template or a class head takes no type before it: above a function, the
+// macro reads as its return type, as `NAMESPACE_END` above `STDAPI_(bool) f()` does once the macro call is blanked.
+// A macro call above an error, as the `TABLE_END(name)` that closes a table an earlier line opens, is no such macro,
+// and blanking it unbalances what it closes
+fn lead_in(lines: &[&[u8]], start: usize) -> usize {
+    let opens_a_type = lines.get(start).is_some_and(|line| {
+        let text = line.trim_ascii_start();
+        let word = &text[..word_len(text)];
+        word == b"template" || CLASS_KEYS.contains(&word)
+    });
+    if !opens_a_type {
+        return start;
+    }
+    let mut row = start;
+    while let Some(line) = row.checked_sub(1).and_then(|above| lines.get(above)) {
+        let text = line.trim_ascii();
+        if !(text.is_empty() || text.starts_with(b"//") || is_macro_name(text)) {
+            break;
+        }
+        row -= 1;
+    }
+    row
 }
 
 fn spilled_error_rows(tree: &Tree) -> Vec<(usize, usize)> {
@@ -558,6 +659,30 @@ void free_fn() {}
             .collect();
         assert_eq!(lines[0], ("filters", 1, 202));
         assert_eq!(lines.last(), Some(&("after", 407, 407)));
+    }
+
+    #[test]
+    fn a_class_head_macro_with_arguments_is_blanked_beside_the_attributes_the_grammar_reads() {
+        const SOURCE: &[u8] = b"struct DECLSPEC_ALIGN(16) N { void i(); };\n\
+                                class alignas(32) DLL_API E final { void l(); };\n\
+                                class [[nodiscard]] ALIGN_A(8) F : Base {};\n\
+                                struct __declspec(align(16)) M {};\nstruct ALIGNED(4) STAT st;\n\
+                                class DECLARE_CLASS(Foo) {};\n";
+
+        let repaired = for_parse(SOURCE).expect("class heads with macros");
+
+        let text = String::from_utf8_lossy(&repaired);
+        for kept in [
+            "struct                    N { void i(); };",
+            "class alignas(32)         E final",
+            "class [[nodiscard]]            F : Base",
+            "struct __declspec(align(16)) M {};",
+            "struct ALIGNED(4) STAT st;",
+            "class DECLARE_CLASS(Foo) {};",
+        ] {
+            assert!(text.contains(kept), "{kept:?} in {text}");
+        }
+        assert_eq!(repaired.len(), SOURCE.len());
     }
 
     #[test]
