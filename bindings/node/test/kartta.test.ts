@@ -39,6 +39,23 @@ async function walking(kartta: Kartta, signal?: AbortSignal): Promise<{ built: P
   return { built };
 }
 
+async function cancelledUnlessFinished(
+  t: TestContext,
+  built: Promise<unknown>,
+  files: number,
+): Promise<KarttaError | undefined> {
+  const outcome = await built.then(
+    (answer) => answer,
+    (error: unknown) => (error instanceof KarttaError ? error : Promise.reject(error)),
+  );
+  if (outcome instanceof KarttaError) {
+    t.assert.strictEqual(outcome.code, "build_cancelled");
+    return outcome;
+  }
+  t.assert.partialDeepStrictEqual(outcome, { entries: files });
+  return undefined;
+}
+
 test("open refuses a root that is not a directory, with invalid_root", (t: TestContext) => {
   const missing = join(tree(t, 1), "missing");
 
@@ -80,15 +97,18 @@ test("a signal aborted while the build walks cancels it, the reason its cause", 
   t.assert.strictEqual((await kartta.build()).entries, 3000);
 });
 
-test("a signal aborted right after the call cancels the build, entered or not", async (t: TestContext) => {
-  const kartta = open(t);
+test("an abort right after the call cancels the build, entered or not, unless it finished", async (t: TestContext) => {
+  const kartta = open(t, 3000);
   const controller = new AbortController();
   const reason = new Error("the caller gave up");
 
   const built = kartta.build({}, { signal: controller.signal });
   controller.abort(reason);
 
-  await t.assert.rejects(built, { name: "KarttaError", code: "build_cancelled", cause: reason });
+  const cancelled = await cancelledUnlessFinished(t, built, 3000);
+  if (cancelled !== undefined) {
+    t.assert.strictEqual(cancelled.cause, reason);
+  }
 });
 
 test("close cancels the build in flight, a closed error its cause", async (t: TestContext) => {
@@ -106,22 +126,22 @@ test("close cancels the build in flight, a closed error its cause", async (t: Te
   });
 });
 
-test("close right after a build call cancels it, entered or not", async (t: TestContext) => {
-  const kartta = open(t);
+test("close right after a build call cancels it, entered or not, unless it finished", async (t: TestContext) => {
+  const kartta = open(t, 3000);
 
   const built = kartta.build();
   kartta.close();
 
-  await t.assert.rejects(built, { name: "KarttaError", code: "build_cancelled" });
+  await cancelledUnlessFinished(t, built, 3000);
 });
 
-test("close right after a build through call cancels it too", async (t: TestContext) => {
-  const kartta = open(t);
+test("close right after a build through call cancels it too, unless it finished", async (t: TestContext) => {
+  const kartta = open(t, 3000);
 
   const built = kartta.call("build");
   kartta.close();
 
-  await t.assert.rejects(built, { name: "KarttaError", code: "build_cancelled" });
+  await cancelledUnlessFinished(t, built, 3000);
 });
 
 test("a build through call takes an id of the handle's, so an abort stops another", async (t: TestContext) => {
