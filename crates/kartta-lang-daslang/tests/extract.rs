@@ -144,9 +144,10 @@ fn daslang_claims_files_with_the_das_extension_in_any_case() {
 }
 
 #[test]
-fn daslang_resolves_calls_under_the_default_conventions_and_a_value_through_its_requires() {
+fn daslang_resolves_calls_under_the_default_conventions_but_value_uses_and_own_type_receivers() {
     let mut expected = Conventions::default();
     expected.value_uses = ValueUses::Imported;
+    expected.own_type_receivers = Some(&["self"]);
 
     assert_eq!(Daslang::new().conventions(), expected);
 }
