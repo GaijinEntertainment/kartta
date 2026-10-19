@@ -257,6 +257,31 @@ fn an_opaque_macro_body_extracts_nothing_but_the_macro() {
 }
 
 #[test]
+fn a_macro_defined_only_where_none_of_its_name_is_yet_is_a_fallback() {
+    let raw = extract(
+        "define_macro_if_not_defined USE_FOG(code) endmacro\nmacro USE_FOG(code) endmacro\nmacro HAZE() endmacro\n",
+    );
+
+    let fallbacks: Vec<_> = (raw.symbols.iter())
+        .map(|symbol| {
+            (
+                symbol.name.as_str(),
+                symbol.line,
+                symbol.flags.is_fallback(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        fallbacks,
+        [
+            ("USE_FOG", 1, true),
+            ("USE_FOG", 2, false),
+            ("HAZE", 3, false)
+        ]
+    );
+}
+
+#[test]
 fn a_file_the_parser_cannot_read_keeps_what_it_recovered() {
     let raw = extract("texture ok_tex;\nshader broken { z_write = ; }\n");
 

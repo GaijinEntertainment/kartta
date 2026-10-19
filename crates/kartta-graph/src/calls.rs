@@ -487,9 +487,9 @@ pub(crate) struct Calls<'g> {
     ambiguous: HashMap<Str, usize, FixedState>,
 }
 
-// constraint: the calls of one name that bind no definition, bind one only by proximity, or bind their own caller
-// through a value, by how they are written: whether one is bare, and the files that make one through a receiver,
-// sorted and once each; whether a member of the name exists is looked up once, when a free definition first asks
+// constraint: the calls of one name that bind no definition, bind one only by proximity or a fallback, or bind their
+// own caller through a value, by how they are written: whether one is bare, and the files that make one through a
+// receiver, sorted and once each; whether a member of the name exists is found once, when a free definition first asks
 #[derive(Debug, Default)]
 struct Uncertain {
     bare: bool,
@@ -534,10 +534,11 @@ impl<'g> Calls<'g> {
             .map(|edge| (edge.far, edge.confidence))
     }
 
-    // constraint: a call that binds no definition, binds one only by proximity, or binds its own caller through a value
-    // may reach any other definition the way it is written admits: a bare call any definition of the name, and a call
-    // through a receiver a member, or a free definition its file sees or that no member of the name could stand for,
-    // as a module's function, a function a table holds, or one the extractor could not place in its class is called
+    // constraint: a call that binds no definition, binds one only by proximity or a fallback, or binds its own caller
+    // through a value may reach any other definition the way it is written admits: a bare call any definition of the
+    // name, and a call through a receiver a member, or a free definition its file sees or that no member of the name
+    // could stand for, as a module's function, a function a table holds, or one the extractor could not place in its
+    // class is called
     pub(crate) fn is_called_uncertainly(&mut self, at: SymbolAt) -> bool {
         let symbol = self.graph.sym(at);
         self.resolve_callers(symbol.name);
@@ -741,6 +742,7 @@ impl<'g> Calls<'g> {
                 .is_some_and(|receiver| self.graph.strings.resolve(receiver).is_empty());
             if resolved.is_none_or(|(callee, confidence)| {
                 confidence < confidence::UNIQUE
+                    || self.graph.sym(callee).flags.is_fallback()
                     || (through_a_value && self.cascade.canonical(callee) == call.caller_at())
             }) {
                 self.uncertain.entry(name).or_default().add(&call);
