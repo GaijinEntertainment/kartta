@@ -133,12 +133,14 @@ impl Ranking {
     /// the rest is turned away unscored.
     pub fn offer(&mut self, position: usize, candidate: &str) -> bool {
         if self.terms.is_empty() {
-            self.all.push(Ranked {
-                position,
-                score: 0,
-                tiebreak: 0,
-            });
-            return self.limit.is_none_or(|limit| self.all.len() < limit.get());
+            if self.has_room() {
+                self.all.push(Ranked {
+                    position,
+                    score: 0,
+                    tiebreak: 0,
+                });
+            }
+            return self.has_room();
         }
 
         let Some(score) = self.score_terms(candidate) else {
@@ -208,6 +210,10 @@ impl Ranking {
             merged.truncate(limit.get());
         }
         merged
+    }
+
+    fn has_room(&self) -> bool {
+        self.limit.is_none_or(|limit| self.all.len() < limit.get())
     }
 
     fn score_terms(&mut self, candidate: &str) -> Option<i32> {
