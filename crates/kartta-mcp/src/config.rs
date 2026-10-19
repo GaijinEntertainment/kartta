@@ -50,7 +50,6 @@ impl Config {
     /// | --- | --- |
     /// | `KARTTA_CACHE_DIR` | [`Config::content_cache`], when not empty |
     /// | `KARTTA_CACHE_ENTRY_TTL_SECS` | [`Config::content_cache_ttl`]: a count of seconds; empty or `0` is a week |
-    /// | `KARTTA_CACHE_SWEEP` | nothing: every build expires entries, so a value only warns that it does not apply |
     /// | `KARTTA_GREP_INDEX` | [`Config::content_index`]: `memory`, `file` or `mmap`, in any case; empty builds none |
     /// | `KARTTA_GREP_INDEX_DIR` | where a `file` or `mmap` index lives; empty or unset is the temporary directory |
     /// | `KARTTA_THREADS` | [`Config::threads`]: a positive count |
@@ -66,13 +65,6 @@ impl Config {
             .filter(|dir| !dir.is_empty())
             .map(PathBuf::from);
         let content_cache_ttl = cache_ttl(var("KARTTA_CACHE_ENTRY_TTL_SECS"), &mut warnings);
-        if var("KARTTA_CACHE_SWEEP").is_some_and(|raw| !raw.is_empty()) {
-            warnings.push(
-                "KARTTA_CACHE_SWEEP does not apply: every build's merge expires the cache entries older than \
-                 KARTTA_CACHE_ENTRY_TTL_SECS, a week unless it says otherwise"
-                    .to_owned(),
-            );
-        }
         let index_dir = || {
             var("KARTTA_GREP_INDEX_DIR")
                 .filter(|dir| !dir.is_empty())
@@ -220,15 +212,6 @@ mod tests {
             read(&[("KARTTA_CACHE_ENTRY_TTL_SECS", "0")]),
             (Config::default(), Vec::new())
         );
-    }
-
-    #[test]
-    fn a_cache_sweep_setting_warns_that_it_does_not_apply() {
-        let (config, warnings) = read(&[("KARTTA_CACHE_SWEEP", "1")]);
-
-        assert_eq!(config, Config::default());
-        assert_eq!(warnings.len(), 1, "{warnings:?}");
-        assert!(warnings[0].starts_with("KARTTA_CACHE_SWEEP does not apply"));
     }
 
     #[test]
