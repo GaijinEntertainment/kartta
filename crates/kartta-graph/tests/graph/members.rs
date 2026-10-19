@@ -685,6 +685,44 @@ fn a_bare_name_of_a_free_function_reads_it_as_a_value_where_its_file_or_includes
 }
 
 #[test]
+fn a_member_on_a_class_path_binds_a_method_of_that_class_taken_as_a_value() {
+    let user = with_uses(
+        file(
+            "src/user.cpp",
+            vec![Symbol::new("run", SymbolKind::Function, 1, 9)],
+            &["inc/widget.h"],
+        ),
+        0,
+        &[("draw", path("Widget"), 2), ("draw", path("Gadget"), 3)],
+    );
+    let widget = file(
+        "inc/widget.h",
+        vec![
+            class("Widget", [1, 5], &[]),
+            cpp_member("Widget", "draw", SymbolKind::Method, 2),
+        ],
+        &[],
+    );
+    let gadget = file(
+        "lib/gadget.h",
+        vec![
+            class("Gadget", [1, 5], &[]),
+            cpp_member("Gadget", "draw", SymbolKind::Method, 2),
+        ],
+        &[],
+    );
+
+    let graph = graph(cpp(), &[user, widget, gadget]);
+
+    assert_eq!(lines_of(&graph, "Widget::draw"), [(2, 85)]);
+    assert_eq!(
+        lines_of(&graph, "Gadget::draw"),
+        [],
+        "a class the file neither includes nor reaches holds no method it takes"
+    );
+}
+
+#[test]
 fn a_member_on_a_declared_value_binds_the_field_of_the_class_its_declaration_names() {
     let user = with_uses(
         file(
