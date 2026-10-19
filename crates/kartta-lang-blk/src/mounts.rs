@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::iter;
 
-use kartta_lang::path::{dir, forward_slashes, join, sole};
+use kartta_lang::path::{dir, forward_slashes, join, shared_segments, sole};
 use kartta_lang::{RawExtraction, Repository};
 
 use crate::resolve::indexed;
@@ -167,15 +167,4 @@ fn ancestors(dir: &str) -> impl Iterator<Item = &str> {
     iter::successors(Some(start), |dir| {
         (!dir.is_empty()).then(|| dir.rfind('/').map_or("", |slash| &dir[..slash]))
     })
-}
-
-fn shared_segments(dir: &str, path: &str) -> usize {
-    if dir == "." {
-        return 0;
-    }
-
-    dir.split('/')
-        .zip(path.split('/'))
-        .take_while(|(left, right)| left == right)
-        .count()
 }

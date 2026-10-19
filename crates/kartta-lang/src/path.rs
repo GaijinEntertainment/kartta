@@ -52,6 +52,15 @@ pub fn sole(mut found: impl Iterator<Item = String>) -> Option<String> {
     found.next().is_none().then_some(only)
 }
 
+/// How many leading `/`-separated components `left` and `right` share: 1 for `a/b` and `a/c`, 0 for `a` and `b`.
+#[must_use]
+pub fn shared_segments(left: &str, right: &str) -> usize {
+    left.split('/')
+        .zip(right.split('/'))
+        .take_while(|(left, right)| left == right)
+        .count()
+}
+
 /// The root-relative path that `relative`, such as `./util/b` or `../b`, names from the directory `from`, with its
 /// `.` and `..` components applied; `None` when it climbs above the root.
 ///
@@ -140,5 +149,18 @@ mod tests {
     fn a_relative_path_that_climbs_above_the_root_names_nothing() {
         assert_eq!(join(".", "../foo"), None);
         assert_eq!(join("a", "../../foo"), None);
+    }
+
+    #[test]
+    fn two_paths_share_their_equal_leading_components() {
+        assert_eq!(shared_segments("a/b/c", "a/b/d.blk"), 2);
+        assert_eq!(shared_segments("a/b", "a/c"), 1);
+        assert_eq!(shared_segments("a", "b/a"), 0);
+        assert_eq!(shared_segments("", "a/b"), 0);
+        assert_eq!(
+            shared_segments(".", "."),
+            1,
+            "two files at the root share the root"
+        );
     }
 }
