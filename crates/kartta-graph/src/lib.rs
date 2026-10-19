@@ -76,7 +76,9 @@ pub use crate::calls::{
 pub use crate::change::{Change, DirCount, Hotspot, Region, Seed};
 pub use crate::dead::{Dead, DeadCode, Excluded};
 pub use crate::dependents::{Dependent, Dependents};
-pub use crate::graph::{Candidate, Definition, Definitions, Found, Graph, Nearness, Selector};
+pub use crate::graph::{
+    Candidate, Definition, Definitions, Found, Graph, Nearness, Selector, is_parent, is_referent,
+};
 pub use crate::implementations::{Implementations, Implementor};
 pub use crate::resolution::{Miss, Misses, Resolution, Unbound};
 pub use crate::search::{Hit, Search};

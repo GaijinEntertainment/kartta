@@ -4,10 +4,9 @@ use hashbrown::{HashMap, HashSet};
 use kartta_lang::SymbolKind;
 
 use crate::graph::{
-    Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, last_segment,
+    Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, is_parent, last_segment,
 };
 use crate::resolve::{Cascade, is_type_kind};
-use crate::scope::is_type;
 use crate::stored::{Parent, SymbolAt};
 use crate::strings::Str;
 
@@ -162,7 +161,7 @@ impl<'g> Types<'g> {
 
 impl Types<'_> {
     fn is_type_at(&self, at: SymbolAt) -> bool {
-        is_type(self.graph.sym(at).kind)
+        is_parent(self.graph.sym(at).kind)
     }
 
     fn is_selectable(&self, at: SymbolAt, selector: Selector<'_>) -> bool {

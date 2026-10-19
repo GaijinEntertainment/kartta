@@ -9,6 +9,7 @@ use kartta_lang::{
 };
 
 use crate::order::PathOrder;
+use crate::scope::is_type;
 use crate::stored::{
     Entry, Folded, Local, Occurrence, Parent, Site, StoredAssertion, StoredBinding, StoredCall,
     StoredCallable, StoredFile, StoredLocalCall, StoredReExport, StoredSymbol, StoredUse, SymbolAt,
@@ -1035,6 +1036,20 @@ const fn holds(extraction: &Extraction, id: SymbolId) -> bool {
 
 pub(crate) const fn is_call_target_kind(kind: SymbolKind) -> bool {
     !matches!(kind, SymbolKind::Field | SymbolKind::EnumVariant)
+}
+
+/// Whether [`Graph::references`] selects a symbol of `kind`: every kind a use names, which is all but an enum's
+/// variants.
+#[must_use]
+pub const fn is_referent(kind: SymbolKind) -> bool {
+    !matches!(kind, SymbolKind::EnumVariant)
+}
+
+/// Whether [`Graph::implementations`] selects a symbol of `kind`: a class, a struct, an interface, a trait or a
+/// namespace.
+#[must_use]
+pub const fn is_parent(kind: SymbolKind) -> bool {
+    is_type(kind)
 }
 
 // constraint: the order of the file index, whose `/` ranks below every other byte, so the engine inserts files in this

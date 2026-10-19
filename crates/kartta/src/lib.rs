@@ -100,7 +100,7 @@ pub use kartta_graph::{
     Dependents, DirCount, DirectCalls, Excluded, Found, Graph, Hit, Hotspot, Implementations,
     Implementor, Limits, Miss, Misses, Nearness, ReachBand, Reached, Reference, References, Region,
     Resolution, Search, Seed, Segment, SegmentSymbol, Selector, SiteCounts, SiteQuery, Stats,
-    Unbound, Walk, confidence,
+    Unbound, Walk, confidence, is_parent, is_referent,
 };
 pub use kartta_lang::{
     Access, BlockComment, Conventions, DocComments, Extraction, Language, RawExtraction,
