@@ -189,10 +189,11 @@ fn a_call_after_every_function_is_made_from_file_scope() {
 }
 
 #[test]
-fn a_call_before_the_first_function_records_nothing() {
+fn a_call_before_the_first_function_is_a_call_from_file_scope() {
     let raw = extract(b"setup()\nfunction run() end\nteardown()\n");
 
-    assert_eq!(callees(&raw.calls), ["teardown"]);
+    assert_eq!(callees(&raw.calls), ["setup", "teardown"]);
+    assert!(raw.calls.iter().all(|call| call.site_of == FILE_SCOPE));
 }
 
 #[test]

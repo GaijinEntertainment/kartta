@@ -15,8 +15,8 @@
 //! value beside a bound function in one assignment, `mk` in `f, g = mk(), function() end`, is not.
 //!
 //! A call records its callee and, through `.` or `:`, its receiver: the table when it is a plain name, `M` in
-//! `M.build()` and `self` in `self:render()`, else the empty receiver. A call before the file's first function records
-//! nothing.
+//! `M.build()` and `self` in `self:render()`, else the empty receiver. A call outside every function is a call from
+//! file scope, before the file's first function too.
 //!
 //! # Resolution
 //!

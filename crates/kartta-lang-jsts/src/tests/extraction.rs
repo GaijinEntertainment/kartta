@@ -1,4 +1,4 @@
-use kartta_lang::{CallRef, Extraction, Language, OwnMembers, SymbolKind};
+use kartta_lang::{Extraction, Language, OwnMembers, SymbolKind};
 
 use super::{
     LANGUAGES, SAMPLE_TS, attributed, caller_of, extracted, imports, language_of, names, symbol,
@@ -758,6 +758,7 @@ describe("Header", () => {
     assert_eq!(
         attributed(&extraction),
         [
+            ("", "describe"),
             ("Header", "beforeEach"),
             ("beforeEach", "resetDom"),
             ("Header", "it"),
@@ -800,6 +801,7 @@ describe("shipping rules", () => {
     assert_eq!(
         attributed(&extraction),
         [
+            ("", "describe"),
             ("shipping rules", "beforeEach"),
             ("beforeEach", "resetRules"),
             ("shipping rules", "applyRule")
@@ -815,7 +817,10 @@ fn an_empty_test_description_names_nothing() {
     );
 
     assert_eq!(names(&extraction), ["Edge"]);
-    assert_eq!(attributed(&extraction), [("Edge", "it"), ("Edge", "noop")]);
+    assert_eq!(
+        attributed(&extraction),
+        [("", "describe"), ("Edge", "it"), ("Edge", "noop")]
+    );
 }
 
 #[test]
@@ -843,6 +848,7 @@ describe("Cases", () => {
     assert_eq!(
         attributed(&extraction),
         [
+            ("", "describe"),
             ("Cases", "it"),
             ("Cases", "runTemplate"),
             ("Cases", "it"),
@@ -854,14 +860,17 @@ describe("Cases", () => {
 }
 
 #[test]
-fn a_dynamic_registration_at_file_scope_drops_its_calls() {
+fn a_dynamic_registration_at_file_scope_leaves_its_calls_at_file_scope() {
     let extraction = extracted(
         "src/loose.test.ts",
         "it(label, () => {\n    runAtFileScope();\n});\n",
     );
 
     assert_eq!(names(&extraction), Vec::<&str>::new());
-    assert_eq!(extraction.calls, Vec::<CallRef>::new());
+    assert_eq!(
+        attributed(&extraction),
+        [("", "it"), ("", "runAtFileScope")]
+    );
 }
 
 #[test]

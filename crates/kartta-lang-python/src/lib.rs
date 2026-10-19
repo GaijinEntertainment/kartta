@@ -23,7 +23,8 @@
 //!
 //! A call records its callee and, for a member call, its receiver: `self.greet()` records `greet` on `self`, and a
 //! member call on anything but a name, `items[0].close()`, records the empty receiver. A call is attributed to the
-//! function around it, one in a class body included. A call before the first definition of the file is dropped.
+//! function around it, one in a class body included. A call outside every function is a call from file scope, before
+//! the file's first definition too.
 //!
 //! A bare call of a function or class that a function around the call defines is a local call to that definition, as
 //! Python's scoping finds the name, and a bare call of a value that such a function binds, a parameter or the target

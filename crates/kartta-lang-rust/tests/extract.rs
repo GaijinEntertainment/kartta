@@ -6,7 +6,7 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{Language, RawExtraction, Symbol, SymbolId, SymbolKind};
+use kartta_lang::{FILE_SCOPE, Language, RawExtraction, Symbol, SymbolId, SymbolKind};
 use kartta_lang_rust::Rust;
 
 const SAMPLE: &[u8] = br#"
@@ -744,4 +744,16 @@ fn render() {}
 
     assert_eq!(doc_line(source, "parse"), 3);
     assert_eq!(doc_line(source, "render"), 10);
+}
+
+#[test]
+fn a_macro_before_the_first_item_is_a_call_from_file_scope() {
+    let raw = extract(b"lazy_static! {}\nfn run() { go(); }\n");
+    let calls: Vec<(&str, bool)> = raw
+        .calls
+        .iter()
+        .map(|call| (call.callee.as_str(), call.site_of == FILE_SCOPE))
+        .collect();
+
+    assert_eq!(calls, [("lazy_static", true), ("go", false)]);
 }

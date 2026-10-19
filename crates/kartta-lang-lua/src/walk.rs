@@ -191,9 +191,7 @@ impl Emitter<'_> {
         };
         let (callee, owner) = name_and_owner(name, self.source);
 
-        // constraint: a loader call is recorded before the guard on calls ahead of the first symbol, since a module
-        // loads its dependencies at its top; only a bare `require`, `dofile` or `loadfile` loads, `M.require` is a
-        // method
+        // constraint: only a bare `require`, `dofile` or `loadfile` loads, `M.require` is a method
         if name.kind() == IDENTIFIER
             && let Some(form) = loader_form(&callee)
             && let Some(literal) = loader_literal(node, self.source)
@@ -206,7 +204,7 @@ impl Emitter<'_> {
             return;
         }
 
-        if callee.is_empty() || self.raw.symbols.is_empty() {
+        if callee.is_empty() {
             return;
         }
         let receiver = matches!(

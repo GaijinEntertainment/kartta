@@ -155,9 +155,8 @@ impl Emitter<'_> {
         }
     }
 
-    // constraint: a call with no callee, or one made at file scope before the first symbol, is dropped
     fn push_call(&mut self, call: CallRef) -> bool {
-        if call.callee.is_empty() || self.symbol_count == 0 {
+        if call.callee.is_empty() {
             return false;
         }
         self.raw.calls.push(call);
