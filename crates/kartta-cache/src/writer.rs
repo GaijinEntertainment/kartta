@@ -135,12 +135,12 @@ impl PackWriter {
         else {
             return Ok(None);
         };
+        if writing.failed {
+            writing.discard();
+            return Err(failed_earlier());
+        }
         let temp = writing.temp.clone();
-        let published = if writing.failed {
-            Err(failed_earlier())
-        } else {
-            writing.finish(&self.dir)
-        };
+        let published = writing.finish(&self.dir);
         let _ = fs::remove_file(&temp);
 
         published.map(Some)
@@ -155,8 +155,7 @@ impl Drop for PackWriter {
             .unwrap_or_else(PoisonError::into_inner)
             .take()
         {
-            drop(writing.file);
-            let _ = fs::remove_file(&writing.temp);
+            writing.discard();
         }
     }
 }
@@ -202,6 +201,12 @@ impl Writing {
         self.entries.push(entry);
 
         Ok(())
+    }
+
+    fn discard(self) {
+        let (file, _unwritten) = self.file.into_parts();
+        drop(file);
+        let _ = fs::remove_file(&self.temp);
     }
 
     fn finish(mut self, dir: &Path) -> io::Result<PathBuf> {
@@ -259,5 +264,46 @@ fn link(temp: &Path, published: &Path) -> io::Result<PathBuf> {
         Ok(()) => Ok(published.to_path_buf()),
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(published.to_path_buf()),
         Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temporary_file(dir: &Path) -> PathBuf {
+        fs::read_dir(dir)
+            .expect("list the store")
+            .map(|entry| entry.expect("an entry").path())
+            .find(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with(TEMP_PREFIX))
+            })
+            .expect("the writer's temporary file")
+    }
+
+    #[test]
+    fn a_writer_dropped_unpublished_writes_none_of_its_buffer_into_the_file_it_removes() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let writer = PackWriter::new(dir.path());
+        writer
+            .insert(
+                &Namespace::new("test", b"1"),
+                &ContentHash::of(b"a"),
+                b"a payload",
+            )
+            .expect("insert");
+        let temp = temporary_file(dir.path());
+        let kept = dir.path().join("the temporary file's bytes");
+        fs::hard_link(&temp, &kept).expect("link the temporary file");
+
+        drop(writer);
+
+        assert!(!temp.exists(), "the temporary file is removed");
+        assert_eq!(
+            fs::metadata(&kept).expect("the kept bytes").len(),
+            0,
+            "the buffered payload is discarded, not written"
+        );
     }
 }
