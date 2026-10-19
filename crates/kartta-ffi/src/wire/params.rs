@@ -1,6 +1,6 @@
 use std::ops::RangeInclusive;
 
-use kartta::{Access, Limits, SiteQuery, SymbolKind};
+use kartta::{Access, Limits, Selector, SiteQuery, SymbolKind};
 use serde::Deserialize;
 
 use crate::error::{Error, ErrorCode};
@@ -32,6 +32,11 @@ fn limits(
         .with_max_symbols(bound(max_symbols, defaults.1))
 }
 
+fn selector<'a>(name: &'a str, path_prefix: Option<&'a str>) -> Selector<'a> {
+    let selector = Selector::new(name);
+    path_prefix.map_or(selector, |prefix| selector.within(prefix))
+}
+
 /// `value`, or `default` when it is left out or 0.
 pub(crate) fn bound<T: Copy + Default + PartialEq>(value: Option<T>, default: T) -> T {
     value
@@ -49,6 +54,8 @@ fn lines(start_line: Option<u32>, end_line: u32) -> RangeInclusive<u32> {
 pub(crate) struct WalkParams {
     pub(crate) name: String,
     #[serde(default)]
+    path_prefix: Option<String>,
+    #[serde(default)]
     pub(crate) lang: Option<String>,
     #[serde(default)]
     depth: Option<u32>,
@@ -59,6 +66,10 @@ pub(crate) struct WalkParams {
 }
 
 impl WalkParams {
+    pub(crate) fn selector(&self) -> Selector<'_> {
+        selector(&self.name, self.path_prefix.as_deref())
+    }
+
     pub(crate) fn limits(&self, depth: u32) -> Limits {
         limits(
             self.depth,
@@ -72,8 +83,12 @@ impl WalkParams {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CallPathParams {
-    pub(crate) from: String,
-    pub(crate) to: String,
+    from: String,
+    #[serde(default)]
+    from_path_prefix: Option<String>,
+    to: String,
+    #[serde(default)]
+    to_path_prefix: Option<String>,
     #[serde(default)]
     pub(crate) lang: Option<String>,
     #[serde(default)]
@@ -85,6 +100,14 @@ pub(crate) struct CallPathParams {
 }
 
 impl CallPathParams {
+    pub(crate) fn from(&self) -> Selector<'_> {
+        selector(&self.from, self.from_path_prefix.as_deref())
+    }
+
+    pub(crate) fn to(&self) -> Selector<'_> {
+        selector(&self.to, self.to_path_prefix.as_deref())
+    }
+
     pub(crate) fn limits(&self) -> Limits {
         limits(
             self.depth,
@@ -98,7 +121,9 @@ impl CallPathParams {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ReferencesParams {
-    pub(crate) name: String,
+    name: String,
+    #[serde(default)]
+    path_prefix: Option<String>,
     #[serde(default)]
     pub(crate) lang: Option<String>,
     #[serde(default)]
@@ -110,6 +135,10 @@ pub(crate) struct ReferencesParams {
 }
 
 impl ReferencesParams {
+    pub(crate) fn selector(&self) -> Selector<'_> {
+        selector(&self.name, self.path_prefix.as_deref())
+    }
+
     pub(crate) fn query(&self) -> SiteQuery {
         let query =
             SiteQuery::new(bound(self.limit, REFERENCES)).with_min_confidence(self.min_confidence);
@@ -133,7 +162,9 @@ enum AccessParam {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ImplementationsParams {
-    pub(crate) name: String,
+    name: String,
+    #[serde(default)]
+    path_prefix: Option<String>,
     #[serde(default)]
     pub(crate) lang: Option<String>,
     #[serde(default)]
@@ -143,6 +174,10 @@ pub(crate) struct ImplementationsParams {
 }
 
 impl ImplementationsParams {
+    pub(crate) fn selector(&self) -> Selector<'_> {
+        selector(&self.name, self.path_prefix.as_deref())
+    }
+
     pub(crate) fn depth(&self) -> u32 {
         bound(self.depth, IMPLEMENTATIONS_DEPTH)
     }
