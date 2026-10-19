@@ -1,9 +1,11 @@
 use foldhash::fast::FixedState;
-use hashbrown::HashSet;
+use hashbrown::{HashMap, HashSet};
 
 use kartta_lang::SymbolKind;
 
-use crate::graph::{Definition, Graph, QUALIFIER_SEPARATORS, distinct, last_segment};
+use crate::graph::{
+    Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, last_segment,
+};
 use crate::resolve::{Cascade, is_type_kind};
 use crate::scope::is_type;
 use crate::stored::{Parent, SymbolAt};
@@ -27,6 +29,8 @@ pub struct Implementations<'g> {
     pub root: Definition<'g>,
     /// The other types [`Graph::definitions`] lists for the name, whose implementors these are not.
     pub passed_over: usize,
+    /// The most implemented of those, the most direct implementors first, then in path order, at most five.
+    pub candidates: Vec<Candidate<'g>>,
     /// The implementors, each once, nearest first, then in path order, at most the query's limit.
     pub found: Vec<Implementor<'g>>,
     /// The implementors within the depth bound, before the limit.
@@ -46,7 +50,8 @@ impl Graph {
     /// declare `T`, makes the interface a parent of the type it names, read from the asserting file.
     /// A name selects among classes, structs, interfaces, traits and namespaces as [`Graph::definitions`] does: the
     /// type whose qualified name it is, else the type of that bare name, and where several share it, the one the
-    /// most types name as a parent, the first in path order on a tie.
+    /// most types name as a parent, the first in path order on a tie; a path prefix narrows them as
+    /// [`Graph::callers`] describes.
     ///
     /// A parent written in one file names a type the way the language's scopes reach it. Where a package is a
     /// directory, as in Go, a bare parent names a type of its own directory and a qualified one a type of the
@@ -60,14 +65,20 @@ impl Graph {
     /// it, as Go's structural typing allows, is not found. Every implementor within `depth` is found before `limit`
     /// applies, so the limit bounds the answer, not the work, and `total` counts them all.
     #[must_use]
-    pub fn implementations(
+    pub fn implementations<'s>(
         &self,
-        name: &str,
+        name: impl Into<Selector<'s>>,
         depth: u32,
         limit: usize,
     ) -> Option<Implementations<'_>> {
+        let selector = name.into();
         let types = Types::new(self);
-        let (root, mut direct) = types.select(name)?;
+        let Selected {
+            root,
+            mut direct,
+            implementor_counts,
+        } = types.select(selector)?;
+        let (passed_over, candidates) = types.passed_over(selector, root, &implementor_counts);
         let mut visited: HashSet<SymbolAt, FixedState> = HashSet::default();
         visited.insert(root);
         let mut level = vec![root];
@@ -97,7 +108,8 @@ impl Graph {
 
         Some(Implementations {
             root: self.definition_at(root),
-            passed_over: types.passed_over(name, root),
+            passed_over,
+            candidates,
             found,
             total,
             unexpanded: level.len(),
@@ -121,6 +133,31 @@ impl<'g> Types<'g> {
     pub(crate) fn is_a_parent(&self, ty: SymbolAt) -> bool {
         !self.implementors_of(ty).is_empty()
     }
+
+    fn passed_over(
+        &self,
+        selector: Selector<'_>,
+        chosen: SymbolAt,
+        implementor_counts: &ImplementorCounts,
+    ) -> (usize, Vec<Candidate<'g>>) {
+        let others = distinct(
+            self.graph
+                .selected(selector.name)
+                .filter(|&at| at != chosen && self.is_selectable(at, selector)),
+        );
+        let count = others.len();
+        let ranked = others
+            .into_iter()
+            .map(|at| {
+                let count = implementor_counts
+                    .get(&at)
+                    .copied()
+                    .unwrap_or_else(|| distinct(self.implementors_of(at)).len());
+                (at, count)
+            })
+            .collect();
+        (count, self.graph.candidates(ranked))
+    }
 }
 
 impl Types<'_> {
@@ -128,13 +165,17 @@ impl Types<'_> {
         is_type(self.graph.sym(at).kind)
     }
 
-    fn select(&self, name: &str) -> Option<Selected> {
-        let key = self.graph.strings.get(name);
+    fn is_selectable(&self, at: SymbolAt, selector: Selector<'_>) -> bool {
+        self.is_type_at(at) && self.graph.is_within(at, selector.path_prefix)
+    }
+
+    fn select(&self, selector: Selector<'_>) -> Option<Selected> {
+        let key = self.graph.strings.get(selector.name);
         if let Some(key) = key {
             let qualified: Vec<SymbolAt> = self
                 .cascade
                 .qualified_as(key)
-                .filter(|&at| self.is_type_at(at))
+                .filter(|&at| self.is_selectable(at, selector))
                 .collect();
             if !qualified.is_empty() {
                 return self.most_implemented(qualified);
@@ -144,19 +185,19 @@ impl Types<'_> {
                 .named(key)
                 .iter()
                 .copied()
-                .filter(|&at| self.is_type_at(at))
+                .filter(|&at| self.is_selectable(at, selector))
                 .collect();
             if !named.is_empty() {
                 return self.most_implemented(named);
             }
         }
-        if !name.contains(QUALIFIER_SEPARATORS) {
+        if !selector.name.contains(QUALIFIER_SEPARATORS) {
             return None;
         }
         let suffixed: Vec<SymbolAt> = self
             .graph
-            .selected(name)
-            .filter(|&at| self.is_type_at(at))
+            .selected(selector.name)
+            .filter(|&at| self.is_selectable(at, selector))
             .collect();
         self.most_implemented(suffixed)
     }
@@ -166,24 +207,28 @@ impl Types<'_> {
         candidates.dedup();
         let (&first, others) = candidates.split_first()?;
         if others.is_empty() {
-            return Some((first, None));
+            return Some(Selected {
+                root: first,
+                direct: None,
+                implementor_counts: ImplementorCounts::default(),
+            });
         }
-        let mut best = (first, distinct(self.implementors_of(first)));
+        let first_implementors = distinct(self.implementors_of(first));
+        let mut implementor_counts = ImplementorCounts::default();
+        implementor_counts.insert(first, first_implementors.len());
+        let mut best = (first, first_implementors);
         for &at in others {
             let implementors = distinct(self.implementors_of(at));
+            implementor_counts.insert(at, implementors.len());
             if implementors.len() > best.1.len() {
                 best = (at, implementors);
             }
         }
-        Some((best.0, Some(best.1)))
-    }
-
-    fn passed_over(&self, name: &str, chosen: SymbolAt) -> usize {
-        let others = self
-            .graph
-            .selected(name)
-            .filter(|&at| at != chosen && self.is_type_at(at));
-        distinct(others).len()
+        Some(Selected {
+            root: best.0,
+            direct: Some(best.1),
+            implementor_counts,
+        })
     }
 
     fn implementors_of(&self, ty: SymbolAt) -> Vec<SymbolAt> {
@@ -360,7 +405,14 @@ impl Types<'_> {
     }
 }
 
-type Selected = (SymbolAt, Option<Vec<SymbolAt>>);
+/// The direct implementors each type a name selects has, as its selection counted them.
+type ImplementorCounts = HashMap<SymbolAt, usize, FixedState>;
+
+struct Selected {
+    root: SymbolAt,
+    direct: Option<Vec<SymbolAt>>,
+    implementor_counts: ImplementorCounts,
+}
 
 #[derive(Debug, Clone, Copy)]
 enum Spelling<'w> {

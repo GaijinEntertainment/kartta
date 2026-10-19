@@ -1,7 +1,7 @@
 //! The types that name a type as a parent: how a written parent meets the type it names, transitively, and what the
 //! depth bound and the limit left out.
 
-use kartta_graph::{Graph, Implementations};
+use kartta_graph::{Graph, Implementations, Selector};
 use kartta_lang::{Conventions, ImportBinding, Symbol, SymbolKind};
 
 use crate::{file, graph_of as graph, including};
@@ -370,10 +370,62 @@ fn a_name_several_types_share_selects_the_most_implemented_and_counts_the_rest()
     );
 
     let selected = graph.implementations("Node", 1, 10).expect("a type");
+    let passed_over = graph
+        .implementations(Selector::new("Node").within("a.h"), 1, 10)
+        .expect("a type in a.h");
 
     assert_eq!(selected.root.qualified_name, "b::Node");
     assert_eq!(selected.passed_over, 1);
+    assert_eq!(
+        selected
+            .candidates
+            .iter()
+            .map(|candidate| (candidate.symbol.qualified_name, candidate.count))
+            .collect::<Vec<_>>(),
+        [("a::Node", 0)]
+    );
     assert_eq!(selected.total, 2);
+    assert_eq!(
+        (passed_over.root.qualified_name, passed_over.total),
+        ("a::Node", 0)
+    );
+}
+
+#[test]
+fn the_types_a_name_passes_over_are_listed_the_most_implemented_first() {
+    let graph = graph(
+        cpp(),
+        &[
+            file("a.h", vec![ty("Node", "a::Node", 1, &[])]),
+            file("b.h", vec![ty("Node", "b::Node", 1, &[])]),
+            file("c.h", vec![ty("Node", "c::Node", 1, &[])]),
+            file("d.h", vec![ty("Node", "d::Node", 1, &[])]),
+            file(
+                "e.h",
+                vec![
+                    ty("Leaf", "Leaf", 1, &["c::Node"]),
+                    ty("Branch", "Branch", 5, &["c::Node"]),
+                    ty("Root", "Root", 9, &["c::Node"]),
+                    ty("Stem", "Stem", 13, &["b::Node"]),
+                    ty("Twig", "Twig", 17, &["d::Node"]),
+                    ty("Bud", "Bud", 21, &["d::Node"]),
+                ],
+            ),
+        ],
+    );
+
+    let selected = graph.implementations("Node", 1, 10).expect("a type");
+    let listed: Vec<(&str, usize)> = selected
+        .candidates
+        .iter()
+        .map(|candidate| (candidate.symbol.qualified_name, candidate.count))
+        .collect();
+
+    assert_eq!(
+        (selected.root.qualified_name, selected.passed_over),
+        ("c::Node", 3)
+    );
+    assert_eq!(listed, [("d::Node", 2), ("b::Node", 1), ("a::Node", 0)]);
 }
 
 #[test]

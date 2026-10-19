@@ -1,6 +1,6 @@
 //! Call resolution through the public queries: each tier of the cascade, and what each query answers and leaves out.
 
-use kartta_graph::{Graph, Limits, SiteQuery, Walk};
+use kartta_graph::{Candidate, Graph, Limits, Selector, SiteQuery, Walk};
 use kartta_lang::{
     Access, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, ImportBinding,
     IncludeReach, IncludeRef, InheritedMembers, LocalCall, MemberCalls, OwnMembers, ReExport,
@@ -1874,6 +1874,20 @@ fn a_call_path_counts_the_other_callables_each_name_selects() {
     assert!(path.found);
     assert_eq!((path.from.file, path.to.file), ("a.go", "a.go"));
     assert_eq!(path.passed_over, (1, 2));
+    let (from, to) = &path.candidates;
+    assert_eq!(candidate_files(from), [("b.go", 0)]);
+    assert_eq!(
+        candidate_files(to),
+        [("b.go", 0), ("c.go", 0)],
+        "uncalled copies follow in path order"
+    );
+}
+
+fn candidate_files<'g>(candidates: &[Candidate<'g>]) -> Vec<(&'g str, usize)> {
+    candidates
+        .iter()
+        .map(|candidate| (candidate.symbol.file, candidate.count))
+        .collect()
 }
 
 fn using(name: &str, qualifier: Option<&str>) -> UseRef {
@@ -2335,5 +2349,184 @@ fn passed_over_counts_the_other_callables_the_name_selects() {
     assert_eq!(
         (beside_a_value.root.file, beside_a_value.passed_over),
         ("a.cpp", 0)
+    );
+}
+
+fn copies_of_parse() -> Graph {
+    graph(&[
+        file(
+            "app/a.go",
+            vec![function("parse", 1), function("once", 5)],
+            vec![call(1, "parse", 6)],
+        ),
+        file(
+            "vendor/b.go",
+            vec![
+                function("parse", 1),
+                function("first", 5),
+                function("second", 9),
+                function("third", 13),
+            ],
+            vec![
+                call(1, "parse", 6),
+                call(2, "parse", 10),
+                call(3, "parse", 14),
+            ],
+        ),
+        file("vendor/c.go", vec![function("parse", 1)], Vec::new()),
+    ])
+}
+
+#[test]
+fn passed_over_lists_the_other_callables_the_most_called_first() {
+    let graph = copies_of_parse();
+
+    let walk = graph
+        .callers("parse", Limits::new(1))
+        .expect("parse is defined");
+    let references = graph
+        .references("parse", SiteQuery::new(usize::MAX))
+        .expect("parse is defined");
+
+    assert_eq!((walk.root.file, walk.passed_over), ("vendor/b.go", 2));
+    assert_eq!(
+        candidate_files(&walk.candidates),
+        [("app/a.go", 1), ("vendor/c.go", 0)]
+    );
+    assert_eq!(
+        (references.symbol.file, references.passed_over),
+        ("vendor/b.go", 2)
+    );
+    assert_eq!(
+        candidate_files(&references.candidates),
+        [("app/a.go", 1), ("vendor/c.go", 0)],
+        "references rank by sites"
+    );
+}
+
+#[test]
+fn passed_over_lists_at_most_five_and_counts_the_rest() {
+    let copies: Vec<Extraction> = (0..7_u32)
+        .map(|callers| {
+            let mut symbols = vec![function("parse", 1)];
+            let mut calls = Vec::new();
+            for caller in 1..=callers {
+                let line = caller * 4;
+                symbols.push(function(&format!("caller{caller}"), line));
+                calls.push(call(caller, "parse", line + 1));
+            }
+            file(&format!("p{callers}.go"), symbols, calls)
+        })
+        .collect();
+    let graph = graph(&copies);
+
+    let walk = graph
+        .callers("parse", Limits::new(1))
+        .expect("parse is defined");
+
+    assert_eq!((walk.root.file, walk.passed_over), ("p6.go", 6));
+    assert_eq!(
+        candidate_files(&walk.candidates),
+        [
+            ("p5.go", 5),
+            ("p4.go", 4),
+            ("p3.go", 3),
+            ("p2.go", 2),
+            ("p1.go", 1)
+        ],
+        "the least called copy, p0.go, is counted and not listed"
+    );
+}
+
+#[test]
+fn a_path_prefix_selects_a_copy_the_most_called_one_hides() {
+    let graph = copies_of_parse();
+
+    let walk = graph
+        .callers(Selector::new("parse").within("app/"), Limits::new(1))
+        .expect("parse is defined under app/");
+    let references = graph
+        .references(
+            Selector::new("parse").within("vendor/c.go"),
+            SiteQuery::new(usize::MAX),
+        )
+        .expect("parse is defined in vendor/c.go");
+
+    assert_eq!((walk.root.file, walk.passed_over), ("app/a.go", 0));
+    assert_eq!(walk.candidates, []);
+    assert_eq!(reached(&walk), ["app/a.go:5@80"]);
+    assert_eq!(
+        (
+            references.symbol.file,
+            references.total,
+            references.passed_over
+        ),
+        ("vendor/c.go", 0, 0)
+    );
+    assert!(
+        graph
+            .callers(Selector::new("parse").within("lib/"), Limits::new(1))
+            .is_none(),
+        "no definition of the name under the prefix"
+    );
+}
+
+#[test]
+fn a_path_prefix_narrows_an_owner_qualified_name_several_symbols_end_with_to_one() {
+    let close = |qualified: &str| {
+        let mut symbol = Symbol::new("Close", SymbolKind::Method, 1, 2);
+        symbol.qualified_name = qualified.to_owned();
+        symbol.owner = Some("Store".to_owned());
+        symbol
+    };
+    let graph = graph(&[
+        file("a/store.go", vec![close("a.Store.Close")], Vec::new()),
+        file("b/store.go", vec![close("b.Store.Close")], Vec::new()),
+    ]);
+
+    let narrowed = graph
+        .callers(Selector::new("Store.Close").within("b/"), Limits::new(1))
+        .expect("one Store.Close is under b/");
+
+    assert!(graph.callers("Store.Close", Limits::new(1)).is_none());
+    assert_eq!(narrowed.root.qualified_name, "b.Store.Close");
+}
+
+#[test]
+fn a_call_path_takes_a_path_prefix_at_each_end() {
+    let graph = copies_of_parse();
+
+    let into_app = graph
+        .call_path(
+            Selector::new("once").within("app/"),
+            Selector::new("parse").within("app/"),
+            Limits::new(2),
+        )
+        .expect("both are defined under app/");
+    let into_vendor = graph
+        .call_path(
+            "first",
+            Selector::new("parse").within("vendor/b.go"),
+            Limits::new(2),
+        )
+        .expect("both are defined");
+
+    assert!(into_app.found);
+    assert_eq!(
+        (into_app.from.file, into_app.to.file),
+        ("app/a.go", "app/a.go")
+    );
+    assert_eq!(into_app.passed_over, (0, 0));
+    assert!(into_vendor.found);
+    assert_eq!(into_vendor.to.file, "vendor/b.go");
+    assert!(
+        graph
+            .call_path(
+                "once",
+                Selector::new("parse").within("vendor/c.go"),
+                Limits::new(2)
+            )
+            .is_some_and(|path| !path.found),
+        "once calls the copy under app/, not the one in vendor/c.go"
     );
 }
