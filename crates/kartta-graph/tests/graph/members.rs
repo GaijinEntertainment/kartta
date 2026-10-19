@@ -617,6 +617,74 @@ fn a_declaration_and_a_definition_of_one_value_in_one_tier_count_once() {
 }
 
 #[test]
+fn a_bare_name_of_a_free_function_reads_it_as_a_value_where_its_file_or_includes_declare_it() {
+    let user = with_uses(
+        file(
+            "src/user.cpp",
+            vec![
+                Symbol::new("run", SymbolKind::Function, 1, 9),
+                Symbol::new("on_local", SymbolKind::Function, 10, 12),
+            ],
+            &["inc/handlers.h"],
+        ),
+        0,
+        &[
+            ("on_local", Receiver::Bare, 2),
+            ("on_event", Receiver::Bare, 3),
+            ("mixed", Receiver::Bare, 4),
+            ("on_deep", Receiver::Bare, 5),
+        ],
+    );
+    let mut mixed_value = value("mixed", 3);
+    mixed_value.qualified_name = "ns::mixed".to_owned();
+    let handlers = file(
+        "inc/handlers.h",
+        vec![
+            Symbol::new("on_event", SymbolKind::Function, 1, 1),
+            Symbol::new("mixed", SymbolKind::Function, 2, 2),
+            mixed_value,
+            Symbol::new("on_event", SymbolKind::Function, 4, 4),
+            Symbol::new("never_named", SymbolKind::Function, 5, 5),
+        ],
+        &["inc/core.h"],
+    );
+    let core = file(
+        "inc/core.h",
+        vec![Symbol::new("on_deep", SymbolKind::Function, 1, 1)],
+        &[],
+    );
+
+    let graph = graph(cpp(), &[user, handlers, core]);
+
+    assert_eq!(lines_of(&graph, "on_local"), [(2, 80)]);
+    assert_eq!(lines_of(&graph, "on_event"), [(3, 70)]);
+    assert_eq!(
+        lines_of(&graph, "on_deep"),
+        [(5, 70)],
+        "a function the includes' includes declare binds past the direct includes"
+    );
+    assert_eq!(
+        lines_of(&graph, "mixed"),
+        [],
+        "a function and a value of another qualified name in one tier bind neither"
+    );
+    let dead = graph.dead_code(&[SymbolKind::Function], Some("inc/"), usize::MAX);
+    let dead: Vec<(&str, u32)> = dead
+        .found
+        .iter()
+        .map(|found| (found.definition.name, found.definition.line))
+        .collect();
+    assert!(
+        dead.contains(&("never_named", 5)),
+        "a function nothing names stays dead: {dead:?}"
+    );
+    assert!(
+        !dead.iter().any(|&(name, _)| name == "on_event"),
+        "a function passed as a value is reached, each overload of its qualified name with it: {dead:?}"
+    );
+}
+
+#[test]
 fn a_member_on_a_declared_value_binds_the_field_of_the_class_its_declaration_names() {
     let user = with_uses(
         file(

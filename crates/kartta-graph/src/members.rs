@@ -21,7 +21,8 @@ enum Inherited {
     Unknown,
 }
 
-/// The definitions of one name a data site can bind: the fields, and the values a namespace or the file scope holds.
+/// The definitions of one name a data site can bind: the fields, and the values and functions a namespace or the file
+/// scope holds.
 #[derive(Debug)]
 pub(crate) struct DataNamed<'g> {
     fields: Candidates<'g>,
@@ -38,8 +39,10 @@ impl<'g> Cascade<'g> {
                 .filter(|&at| {
                     let symbol = self.graph.sym(at);
                     symbol.kind == SymbolKind::Field
-                        || (matches!(symbol.kind, SymbolKind::Variable | SymbolKind::Constant)
-                            && symbol.owner.is_none()
+                        || (matches!(
+                            symbol.kind,
+                            SymbolKind::Variable | SymbolKind::Constant | SymbolKind::Function
+                        ) && symbol.owner.is_none()
                             && self.holder(at).is_none())
                 })
                 .partition(|&at| self.graph.sym(at).kind == SymbolKind::Field);
