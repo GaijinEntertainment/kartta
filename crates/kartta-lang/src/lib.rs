@@ -89,7 +89,9 @@ pub use crate::language::{
 pub use crate::memory::MemoryRepository;
 pub use crate::symbol::{FILE_SCOPE, Symbol, SymbolFlags, SymbolId, SymbolKind};
 
-/// Identifies this crate's code: its name, its version and a digest of its source.
+/// Identifies this crate's code: its name, its version and a digest of its manifest, of the versions a visible
+/// `Cargo.lock` resolves for its dependencies, and of its source, as
+/// [`set_source_id`](crate::fingerprint::set_source_id) computes it.
 ///
 /// The `tree` helpers a language extracts with and the encoding of a [`RawExtraction`] both shape what a cache holds
 /// for the same bytes, and neither shows in a language's [`fingerprint`](Language::fingerprint). A cache keys an
