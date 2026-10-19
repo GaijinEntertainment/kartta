@@ -322,7 +322,7 @@ pub(crate) struct StoredBinding {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct StoredAssertion {
     pub(crate) type_name: Str,
-    pub(crate) iface: Str,
+    pub(crate) interface: Str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

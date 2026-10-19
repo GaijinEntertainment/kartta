@@ -222,8 +222,8 @@ impl Types<'_> {
             .assertions
             .iter()
             .filter(|assertion| {
-                self.graph.listing_key(assertion.iface) == Some(key)
-                    && self.file_names(slot, assertion.iface, ty)
+                self.graph.listing_key(assertion.interface) == Some(key)
+                    && self.file_names(slot, assertion.interface, ty)
             })
             .filter_map(|assertion| self.asserted_type(slot, assertion.type_name))
             .filter(|&implementor| implementor != ty);

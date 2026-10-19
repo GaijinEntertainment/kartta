@@ -43,7 +43,7 @@ impl RawExtraction {
         writer.optional(self.package.as_deref());
         writer.seq(&self.assertions, |writer, assertion| {
             writer.text(&assertion.type_name);
-            writer.text(&assertion.iface);
+            writer.text(&assertion.interface);
         });
         writer.seq(&self.directives, Writer::directive);
         writer.seq(&self.entry_candidates, |writer, &id| writer.id(id));
@@ -87,7 +87,7 @@ impl RawExtraction {
             assertions: reader.seq(|reader| {
                 Ok(ImplementsAssertion {
                     type_name: reader.text()?,
-                    iface: reader.text()?,
+                    interface: reader.text()?,
                 })
             })?,
             directives: reader.seq(Reader::directive)?,
@@ -477,7 +477,7 @@ mod tests {
             package: Some("parser".to_owned()),
             assertions: vec![ImplementsAssertion {
                 type_name: "pkg.T".to_owned(),
-                iface: "I".to_owned(),
+                interface: "I".to_owned(),
             }],
             directives: vec![RawDirective {
                 form: 2,
