@@ -6,7 +6,9 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{FILE_SCOPE, Language, RawExtraction, Symbol, SymbolId, SymbolKind};
+use kartta_lang::{
+    Access, FILE_SCOPE, Language, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind,
+};
 use kartta_lang_rust::Rust;
 
 const SAMPLE: &[u8] = br#"
@@ -756,4 +758,181 @@ fn a_macro_before_the_first_item_is_a_call_from_file_scope() {
         .collect();
 
     assert_eq!(calls, [("lazy_static", true), ("go", false)]);
+}
+
+fn uses(raw: &RawExtraction) -> Vec<(&str, &Receiver, SymbolId, u32)> {
+    raw.uses
+        .iter()
+        .map(|used| {
+            assert_eq!(used.access, Access::Read, "{used:?}");
+            (used.name.as_str(), &used.receiver, used.site_of, used.line)
+        })
+        .collect()
+}
+
+#[test]
+fn an_item_taken_as_a_value_is_a_use_of_it() {
+    let raw = extract(
+        b"fn helper(x: u8) -> u8 { x }
+const LIMIT: u8 = 3;
+struct Unit;
+struct Service;
+impl Service {
+    fn make() -> Self { Service }
+    fn run(&self) {
+        items.map(helper);
+        let table = [helper, other];
+        let f = Self::make;
+        let g = Service::make;
+        let value = Unit;
+        Handler { on_event: helper, limit: LIMIT }
+    }
+}
+fn other() {}
+const TOP: u8 = LIMIT;
+fn more() -> u8 {
+    let on = SETTINGS.enabled && STATE.lock().is_ok();
+    for step in 0..LIMIT {}
+    for entry in TABLE {}
+    let ready = (PENDING.await, CHECKED?);
+    loop { break LIMIT }
+}
+static SETTINGS: Settings = Settings { enabled: true };
+static STATE: Mutex<u8> = Mutex::new(0);
+static TABLE: [u8; 1] = [0];
+static PENDING: Ready = Ready;
+static CHECKED: Option<u8> = None;
+",
+    );
+
+    let (make, run) = (id_of(&raw, "Service::make"), id_of(&raw, "Service::run"));
+    let path = Receiver::Path("Service".to_owned());
+    let more = id_of(&raw, "more");
+    assert_eq!(
+        uses(&raw),
+        [
+            ("Service", &Receiver::Bare, make, 6),
+            ("helper", &Receiver::Bare, run, 8),
+            ("helper", &Receiver::Bare, run, 9),
+            ("other", &Receiver::Bare, run, 9),
+            ("make", &Receiver::Own, run, 10),
+            ("make", &path, run, 11),
+            ("Unit", &Receiver::Bare, run, 12),
+            ("helper", &Receiver::Bare, run, 13),
+            ("LIMIT", &Receiver::Bare, run, 13),
+            ("LIMIT", &Receiver::Bare, FILE_SCOPE, 17),
+            ("SETTINGS", &Receiver::Bare, more, 19),
+            ("STATE", &Receiver::Bare, more, 19),
+            ("LIMIT", &Receiver::Bare, more, 20),
+            ("TABLE", &Receiver::Bare, more, 21),
+            ("PENDING", &Receiver::Bare, more, 22),
+            ("CHECKED", &Receiver::Bare, more, 22),
+            ("LIMIT", &Receiver::Bare, more, 23),
+        ]
+    );
+}
+
+#[test]
+fn a_local_a_parameter_or_a_name_the_file_declares_nothing_of_is_no_use() {
+    let raw = extract(
+        b"fn helper() {}
+fn item() {}
+fn found() {}
+fn x() {}
+fn run(helper: u8, data: Vec<u8>) {
+    keep(helper);
+}
+fn other() {
+    keep(helper);
+    let helper = 1;
+    keep(helper);
+    let (a, b) = pair;
+    for item in data { keep(item) }
+    match value { Some(found) => keep(found), None => keep(None) }
+    if let Some(x) = maybe { keep(x) }
+    let closure = |helper| helper;
+    keep(String::from);
+    keep(missing);
+}
+",
+    );
+
+    assert_eq!(
+        uses(&raw),
+        [("helper", &Receiver::Bare, id_of(&raw, "other"), 9)]
+    );
+}
+
+#[test]
+fn a_binding_hides_its_name_from_its_end_to_its_block_s_and_a_read_binds_in_its_module() {
+    let raw = extract(
+        b"fn helper() {}
+static ENABLED: bool = true;
+mod other {
+    pub fn tool() {}
+}
+struct Service;
+struct Other;
+impl Other {
+    fn make() {}
+}
+fn run() {
+    let helper = helper;
+    {
+        let tool = 1;
+    }
+    if ENABLED {}
+    keep(tool);
+    keep(Service::make);
+}
+fn after() {
+    { let helper = 1; }
+    keep(helper);
+}
+impl Service {
+    fn build() { keep(Self::make); }
+}
+fn branch(maybe: Option<u8>) {
+    if let Some(helper) = maybe { keep(helper) } else { keep(helper) }
+}
+static TABLE: [u8; 1] = [0];
+fn item() {}
+fn more(maybe: Option<u8>) {
+    if let Some(helper) = maybe && helper > 0 {}
+    while let Some(helper) = maybe { keep(helper) }
+    keep(TABLE[0]);
+    match ENABLED { _ => {} }
+    for item in [item] { keep(item) }
+    match maybe { item => keep(item) }
+}
+mod tools {
+    pub fn tool() {}
+    pub fn run() { keep(tool); let f = || tool; }
+}
+static mut COUNT: u8 = 0;
+fn bump() { unsafe { COUNT += 1; } }
+",
+    );
+
+    let (run, after, more) = (
+        id_of(&raw, "run"),
+        id_of(&raw, "after"),
+        id_of(&raw, "more"),
+    );
+    let (tools_run, bump) = (id_of(&raw, "tools::run"), id_of(&raw, "bump"));
+    assert_eq!(
+        uses(&raw),
+        [
+            ("helper", &Receiver::Bare, run, 12),
+            ("ENABLED", &Receiver::Bare, run, 16),
+            ("helper", &Receiver::Bare, after, 22),
+            ("helper", &Receiver::Bare, id_of(&raw, "branch"), 28),
+            ("TABLE", &Receiver::Bare, more, 35),
+            ("ENABLED", &Receiver::Bare, more, 36),
+            ("item", &Receiver::Bare, more, 37),
+            ("tool", &Receiver::Bare, tools_run, 42),
+            ("tool", &Receiver::Bare, tools_run, 42),
+            ("COUNT", &Receiver::Bare, bump, 45),
+        ]
+    );
 }

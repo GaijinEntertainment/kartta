@@ -21,6 +21,12 @@ of an item that a function body declares is a local call of that item. The conve
 functions of the standard library that code calls most, so a call of one through a receiver or a path, `name.clone()`
 or `fs::write()`, binds a member of the name and no free function of the repository.
 
+A name read where no call takes it, `items.map(helper)`, `Handler { on_event: helper }` or `SETTINGS.enabled`, is a use
+of it, and so are `Self::make` and `Service::make` of the member `make`. A name a pattern binds, a parameter, a `let`,
+a closure's parameter, a match arm or a `for`, hides it from the end of its binding to the end of its block, arm or
+loop. A bare read is kept only where its inline module declares an item of its name, since it binds only an item the
+file declares outside every owner and body, and a read through a type only where the file declares that member.
+
 ## Resolution
 
 A bodiless `mod NAME;` includes the file it pulls in, by its `#[path]` override or by Cargo's module layout: beside a
