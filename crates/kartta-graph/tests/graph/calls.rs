@@ -2,9 +2,9 @@
 
 use kartta_graph::{Candidate, Graph, Limits, Selector, SiteQuery, Walk};
 use kartta_lang::{
-    Access, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, ImportBinding,
-    IncludeReach, IncludeRef, InheritedMembers, LocalCall, MemberCalls, OwnMembers, ReExport,
-    Receiver, Symbol, SymbolFlags, SymbolId, SymbolKind, UseRef,
+    Access, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, FILE_SCOPE,
+    ImportBinding, IncludeReach, IncludeRef, InheritedMembers, LocalCall, MemberCalls, OwnMembers,
+    ReExport, Receiver, Symbol, SymbolFlags, SymbolId, SymbolKind, UseRef,
 };
 
 use crate::{call, function, graph, graph_of};
@@ -2636,5 +2636,180 @@ fn a_call_path_takes_a_path_prefix_at_each_end() {
             )
             .is_some_and(|path| !path.found),
         "once calls the copy under app/, not the one in vendor/c.go"
+    );
+}
+
+fn file_scope<'g>(walk: &Walk<'g>) -> Vec<(&'g str, u8)> {
+    walk.file_scope
+        .iter()
+        .map(|caller| (caller.file, caller.confidence))
+        .collect()
+}
+
+#[test]
+fn callers_list_the_files_whose_top_level_names_a_function_by_how_each_sees_it() {
+    let mut script = file(
+        "bin/run.sh",
+        vec![function("setup", 1)],
+        vec![
+            call(FILE_SCOPE.0, "setup", 9),
+            call(FILE_SCOPE.0, "shared", 10),
+        ],
+    );
+    script.includes.push(IncludeRef {
+        target: "lib/common.sh".to_owned(),
+    });
+    let graph = graph(&[
+        script,
+        file("lib/common.sh", vec![function("shared", 1)], Vec::new()),
+        file("lib/other.sh", vec![function("setup", 1)], Vec::new()),
+    ]);
+    let callers = |name: Selector<'_>, limits: Limits| {
+        graph
+            .callers(name, limits)
+            .expect("the name selects a function")
+    };
+
+    let own = callers(Selector::new("setup").within("bin/"), Limits::new(3));
+    let included = callers(Selector::new("shared"), Limits::new(3));
+    let floored = callers(
+        Selector::new("shared"),
+        Limits::new(3).with_min_confidence(75),
+    );
+    let unseen = callers(Selector::new("setup").within("lib/"), Limits::new(3));
+
+    assert_eq!(
+        file_scope(&own),
+        [("bin/run.sh", 80)],
+        "its own file's top level"
+    );
+    assert!(
+        own.reached.is_empty(),
+        "a file is no symbol the walk reaches"
+    );
+    assert_eq!(
+        file_scope(&included),
+        [("bin/run.sh", 70)],
+        "through an include"
+    );
+    assert_eq!(
+        (file_scope(&floored), floored.below_confidence),
+        (Vec::new(), 1),
+        "the floor drops an include's file-scope call and counts it"
+    );
+    assert!(
+        unseen.file_scope.is_empty(),
+        "a file whose top level names a function it does not see calls another of the name"
+    );
+}
+
+#[test]
+fn callers_list_the_files_whose_top_level_names_a_function_in_path_order() {
+    let script = |path: &str| {
+        let mut script = file(path, Vec::new(), vec![call(FILE_SCOPE.0, "shared", 3)]);
+        script.includes.push(IncludeRef {
+            target: "lib/common.sh".to_owned(),
+        });
+        script
+    };
+    let graph = graph(&[
+        script("bin/zip.sh"),
+        file("lib/common.sh", vec![function("shared", 1)], Vec::new()),
+        script("bin/all.sh"),
+    ]);
+
+    let walk = graph
+        .callers("shared", Limits::new(3))
+        .expect("shared is defined");
+
+    assert_eq!(
+        file_scope(&walk),
+        [("bin/all.sh", 70), ("bin/zip.sh", 70)],
+        "the files come in path order, not in the order the graph took them"
+    );
+}
+
+#[test]
+fn callers_list_a_package_file_whose_top_level_names_a_function_at_the_package_s_confidence() {
+    let graph = graph_of(
+        go(),
+        &[
+            file("pkg/load.go", vec![function("Load", 3)], Vec::new()),
+            file(
+                "pkg/vars.go",
+                Vec::new(),
+                vec![call(FILE_SCOPE.0, "Load", 3)],
+            ),
+            file(
+                "cmd/vars.go",
+                Vec::new(),
+                vec![call(FILE_SCOPE.0, "Load", 3)],
+            ),
+        ],
+    );
+
+    let walk = graph
+        .callers("Load", Limits::new(3))
+        .expect("Load is defined");
+
+    assert_eq!(
+        file_scope(&walk),
+        [("pkg/vars.go", 75)],
+        "a file of the package sees Load, and one of another package does not"
+    );
+}
+
+#[test]
+fn callers_list_a_file_whose_top_level_passes_a_function_as_a_value() {
+    let mut script = file("bin/run.sh", Vec::new(), Vec::new());
+    script.uses = vec![UseRef {
+        site_of: FILE_SCOPE,
+        line: 4,
+        ..using("shared", None)
+    }];
+    script.includes.push(IncludeRef {
+        target: "lib/common.sh".to_owned(),
+    });
+    let graph = graph(&[
+        script,
+        file("lib/common.sh", vec![function("shared", 1)], Vec::new()),
+    ]);
+
+    let walk = graph
+        .callers("shared", Limits::new(3))
+        .expect("shared is defined");
+
+    assert_eq!(
+        file_scope(&walk),
+        [("bin/run.sh", 70)],
+        "a top level that uses a function without calling it names it all the same"
+    );
+}
+
+#[test]
+fn callers_of_a_field_list_no_file_whose_top_level_names_it() {
+    let mut config = file(
+        "app/config.ts",
+        vec![
+            Symbol::new("Config", SymbolKind::Class, 1, 3),
+            member("Config", "limit", SymbolKind::Field, 2),
+        ],
+        vec![call(FILE_SCOPE.0, "limit", 5)],
+    );
+    config.uses = vec![UseRef {
+        site_of: FILE_SCOPE,
+        line: 6,
+        ..using("limit", None)
+    }];
+    let graph = graph(&[config]);
+
+    let walk = graph
+        .callers("Config::limit", Limits::new(3))
+        .expect("the field is defined");
+
+    assert!(
+        walk.file_scope.is_empty(),
+        "a field is read, not called, so the top level that names it calls nothing: {:?}",
+        walk.file_scope
     );
 }
