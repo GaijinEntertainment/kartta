@@ -5,7 +5,10 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{Conventions, FILE_SCOPE, Language, RawExtraction, Symbol, SymbolId, SymbolKind};
+use kartta_lang::{
+    Access, Conventions, FILE_SCOPE, Language, RawExtraction, Receiver, Symbol, SymbolId,
+    SymbolKind, ValueUses,
+};
 use kartta_lang_daslang::Daslang;
 
 const SAMPLE: &str = r"
@@ -141,8 +144,49 @@ fn daslang_claims_files_with_the_das_extension_in_any_case() {
 }
 
 #[test]
-fn daslang_resolves_calls_under_the_default_conventions() {
-    assert_eq!(Daslang::new().conventions(), Conventions::default());
+fn daslang_resolves_calls_under_the_default_conventions_and_a_value_through_its_requires() {
+    let mut expected = Conventions::default();
+    expected.value_uses = ValueUses::Imported;
+
+    assert_eq!(Daslang::new().conventions(), expected);
+}
+
+#[test]
+fn a_function_taken_by_its_address_is_a_use_of_it() {
+    let raw = extract(
+        "options gen2
+def handler(x : int) {
+}
+def setup() {
+  register(@@handler)
+  let typed = @@<(x : int) : void> handler
+  sort(items, @@cmp::less)
+  bind(@@$c(\"ctor`{hash}\"))
+}
+let {
+  callback = @@handler
+}
+",
+    );
+
+    let uses: Vec<(&str, &Receiver, SymbolId, u32)> = raw
+        .uses
+        .iter()
+        .map(|used| {
+            assert_eq!(used.access, Access::Read, "{used:?}");
+            (used.name.as_str(), &used.receiver, used.site_of, used.line)
+        })
+        .collect();
+    let setup = id_of(&raw, "setup");
+    assert_eq!(
+        uses,
+        [
+            ("handler", &Receiver::Bare, setup, 5),
+            ("handler", &Receiver::Bare, setup, 6),
+            ("less", &Receiver::Qualifier("cmp".to_owned()), setup, 7),
+            ("handler", &Receiver::Bare, FILE_SCOPE, 11),
+        ]
+    );
 }
 
 #[test]

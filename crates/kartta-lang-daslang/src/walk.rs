@@ -1,7 +1,7 @@
 use kartta_lang::tree::{child_nodes, line, preorder, signature, text};
 use kartta_lang::{
-    Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
-    SymbolKind,
+    Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol,
+    SymbolFlags, SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree};
 
@@ -170,8 +170,33 @@ impl<'a> Emitter<'a> {
             "invoke" => self.member_call(node),
             "pipe" => self.block_call(node),
             "make_block" => self.anonymous_scope(node),
+            "address" => self.address(node),
             _ => {}
         }
+    }
+
+    // constraint: `@@f` takes a function's address, the one form daslang passes a function as a value in, and
+    // `@@mod::f` names it through its module; a macro splice `@@$c(...)` names nothing yet
+    fn address(&mut self, node: Node<'_>) {
+        let Some(target) = node
+            .child_by_field_name("target")
+            .filter(|target| target.kind() != "tag")
+        else {
+            return;
+        };
+        let (name, module) = callee_parts(target, self.source);
+        if name.is_empty() {
+            return;
+        }
+
+        let site_of = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
+        self.raw.uses.push(UseRef {
+            site_of,
+            name,
+            receiver: module.map_or(Receiver::Bare, Receiver::Qualifier),
+            access: Access::Read,
+            line: start_line(node),
+        });
     }
 
     // constraint: `module $` names the compiler's builtin module, which no qualified name can spell, so it declares
