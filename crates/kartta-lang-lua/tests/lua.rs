@@ -7,8 +7,8 @@
 )]
 
 use kartta_lang::{
-    CallRef, Extraction, FILE_SCOPE, Language, MemoryRepository, OwnMembers, RawExtraction, Symbol,
-    SymbolId, SymbolKind,
+    Access, CallRef, Extraction, FILE_SCOPE, Language, MemoryRepository, OwnMembers, RawExtraction,
+    Receiver, Symbol, SymbolId, SymbolKind,
 };
 use kartta_lang_lua::Lua;
 
@@ -342,6 +342,102 @@ fn a_function_inside_another_value_binds_nothing() {
     let raw = extract(b"x = ready() and function() end\n");
 
     assert_eq!(raw.symbols.len(), 0);
+}
+
+fn uses(raw: &RawExtraction) -> Vec<(&str, SymbolId, u32)> {
+    raw.uses
+        .iter()
+        .map(|used| {
+            assert_eq!(
+                (&used.receiver, used.access),
+                (&Receiver::Bare, Access::Read),
+                "{used:?}"
+            );
+            (used.name.as_str(), used.site_of, used.line)
+        })
+        .collect()
+}
+
+#[test]
+fn a_name_taken_as_a_value_is_a_use_of_it() {
+    let raw = extract(
+        b"local function handler(e) print(e) end
+function setup()
+  subscribe(\"evt\", handler)
+  local cb = handler
+  return { on_click = handler, handler }, handler or fallback
+end
+table.sort(items, compare)
+if handler then go() end
+function after()
+  for handler = 1, 2 do keep(handler) end
+  return handler
+end
+function before()
+  register(handler)
+  local handler = 1
+end
+function initializer()
+  local handler = handler
+  do local compare = 1 end
+  return compare
+end
+do
+  local function grouped() end
+  register(grouped)
+end
+",
+    );
+
+    let (setup, after) = (id_of(&raw.symbols, "setup"), id_of(&raw.symbols, "after"));
+    let (before, initializer) = (
+        id_of(&raw.symbols, "before"),
+        id_of(&raw.symbols, "initializer"),
+    );
+    assert_eq!(
+        uses(&raw),
+        [
+            ("handler", setup, 3),
+            ("handler", setup, 4),
+            ("handler", setup, 5),
+            ("handler", setup, 5),
+            ("handler", setup, 5),
+            ("fallback", setup, 5),
+            ("items", FILE_SCOPE, 7),
+            ("compare", FILE_SCOPE, 7),
+            ("handler", FILE_SCOPE, 8),
+            ("handler", after, 11),
+            ("handler", before, 14),
+            ("handler", initializer, 18),
+            ("compare", initializer, 20),
+            ("grouped", FILE_SCOPE, 24),
+        ]
+    );
+}
+
+#[test]
+fn a_parameter_a_local_or_a_name_being_declared_is_no_use() {
+    let raw = extract(
+        b"function run(handler) register(handler) end
+function other()
+  local handler = 1
+  register(handler)
+  for i = 1, n do keep(i) end
+  for k, v in pairs(list) do keep(k, v) end
+  local function inner() end
+  register(inner)
+  keep(object.field)
+  local f = function(x) return x end
+end
+handler = 2
+M.handler = 3
+function M:method() register(self) end
+local function recurse() return recurse end
+",
+    );
+
+    let other = id_of(&raw.symbols, "other");
+    assert_eq!(uses(&raw), [("n", other, 5), ("list", other, 6)]);
 }
 
 #[test]

@@ -1,8 +1,9 @@
-use kartta_lang::tree::{
-    child_nodes, line, named_child_nodes, preorder, signature, signature_from, text,
-};
+use std::collections::HashSet;
+
+use kartta_lang::tree::{child_nodes, line, named_child_nodes, signature, signature_from, text};
 use kartta_lang::{
-    CallRef, FILE_SCOPE, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Access, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol, SymbolFlags,
+    SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree};
 
@@ -13,24 +14,41 @@ pub(crate) const DOFILE_FORM: u32 = 1;
 
 const IDENTIFIER: &str = "identifier";
 const FUNCTION_DEFINITION: &str = "function_definition";
+const FUNCTION_DECLARATION: &str = "function_declaration";
 
+// constraint: a node is judged as a value by its parent's kind and its field there, which only the cursor holds, as
+// `Node::parent` walks down from the root
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter {
         source,
         scopes: Vec::new(),
+        regions: Vec::new(),
+        pending_locals: Vec::new(),
         pending_scopes: Vec::new(),
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
         raw: RawExtraction::default(),
     };
-
-    preorder(tree.root_node(), |node| {
+    let mut cursor = tree.walk();
+    let mut parents = Vec::new();
+    loop {
+        let node = cursor.node();
         if node.is_named() {
-            emitter.handle(node);
+            emitter.handle(
+                node,
+                parents.last().map(|&parent| (parent, cursor.field_name())),
+            );
         }
-        true
-    });
-
-    emitter.raw
+        if cursor.goto_first_child() {
+            parents.push(node.kind());
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return emitter.raw;
+            }
+            parents.pop();
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -39,9 +57,30 @@ struct Scope {
     id: SymbolId,
 }
 
+// constraint: a region hides the names declared in it: a function, an anonymous one too, which opens no scope since
+// its calls belong to no symbol, its parameters and a local function its own name, a loop its variables, and a block
+// its locals; outside every function, a local function or a local bound to a function is a definition the file
+// binds, and hides nothing
+struct Region<'s> {
+    end: usize,
+    function: bool,
+    names: HashSet<&'s [u8]>,
+}
+
+// constraint: a local hides its name from the end of its declaration on, as the initializer of `local f = f` reads
+// the `f` outside; the declaration lies inside the region it declares into, so that region is still open when the
+// walk passes the declaration's end
+struct PendingLocals<'s> {
+    at: usize,
+    region: usize,
+    names: Vec<&'s [u8]>,
+}
+
 struct Emitter<'s> {
     source: &'s [u8],
     scopes: Vec<Scope>,
+    regions: Vec<Region<'s>>,
+    pending_locals: Vec<PendingLocals<'s>>,
     // constraint: a function bound by an assignment opens its scope when the walk reaches the function, not at the
     // assignment: a value before it, `f, g = mk(), function() end`, is no call of `g`. The walk reaches the bound
     // functions in the order they are written, and those an assignment inside one of them binds before the next, so
@@ -51,21 +90,138 @@ struct Emitter<'s> {
     raw: RawExtraction,
 }
 
-impl Emitter<'_> {
-    fn handle(&mut self, node: Node<'_>) {
+impl<'s> Emitter<'s> {
+    fn handle(&mut self, node: Node<'_>, parent: Option<(&str, Option<&str>)>) {
         let start = node.start_byte();
         while self.scopes.last().is_some_and(|scope| scope.end <= start) {
             self.scopes.pop();
         }
+        while let Some(pending) = self.pending_locals.pop_if(|pending| pending.at <= start) {
+            self.regions[pending.region].names.extend(pending.names);
+        }
+        while self
+            .regions
+            .last()
+            .is_some_and(|region| region.end <= start)
+        {
+            self.regions.pop();
+        }
 
         match node.kind() {
-            "function_declaration" => self.function_declaration(node),
+            FUNCTION_DECLARATION => {
+                let source = self.source;
+                let local = child_nodes(node)
+                    .any(|child| child.kind() == "local")
+                    .then(|| node.child_by_field_name("name"))
+                    .flatten()
+                    .filter(|name| name.kind() == IDENTIFIER)
+                    .map(|name| &source[name.byte_range()]);
+                if self.in_function()
+                    && let (Some(name), Some(region)) = (local, self.regions.last_mut())
+                {
+                    region.names.insert(name);
+                }
+                self.function_declaration(node);
+                self.open_function(node, local);
+            }
+            "variable_declaration" => self.declare_locals(node),
             "assignment_statement" => self.assignment(node),
-            FUNCTION_DEFINITION => self.open_pending_scope(node),
+            FUNCTION_DEFINITION => {
+                self.open_pending_scope(node);
+                self.open_function(node, None);
+            }
             "field" => self.table_field(node),
             "function_call" => self.call(node),
+            "for_statement" => self.open_loop(node),
+            "block" => self.regions.push(Region {
+                end: node.end_byte(),
+                function: false,
+                names: HashSet::new(),
+            }),
+            IDENTIFIER
+                if parent.is_some_and(|(parent, field)| is_value_position(parent, field)) =>
+            {
+                self.value_use(node);
+            }
             _ => {}
         }
+    }
+
+    fn open_function(&mut self, function: Node<'_>, own_name: Option<&'s [u8]>) {
+        let mut names = parameter_names(function, self.source);
+        names.extend(own_name);
+        self.regions.push(Region {
+            end: function.end_byte(),
+            function: true,
+            names,
+        });
+    }
+
+    fn in_function(&self) -> bool {
+        self.regions.iter().any(|region| region.function)
+    }
+
+    // constraint: a local outside every region is a definition the file binds, and hides nothing
+    fn declare_locals(&mut self, declaration: Node<'_>) {
+        let (Some(region), Some(variables)) = (
+            self.regions.len().checked_sub(1),
+            declared_variables(declaration),
+        ) else {
+            return;
+        };
+        let in_function = self.in_function();
+        let mut values = declared_values(declaration);
+        let names = bound_variables(variables)
+            .filter(|_| {
+                in_function
+                    || values
+                        .next()
+                        .is_none_or(|value| value.kind() != FUNCTION_DEFINITION)
+            })
+            .filter(|name| name.kind() == IDENTIFIER)
+            .map(|name| &self.source[name.byte_range()])
+            .collect();
+        self.pending_locals.push(PendingLocals {
+            at: declaration.end_byte(),
+            region,
+            names,
+        });
+    }
+
+    fn open_loop(&mut self, statement: Node<'_>) {
+        let mut names = HashSet::new();
+        if let Some(clause) = statement.child_by_field_name("clause") {
+            let listed = named_child_of_kind(clause, "variable_list").into_iter();
+            let variables = (clause.child_by_field_name("name").into_iter())
+                .chain(listed.flat_map(bound_variables))
+                .filter(|variable| variable.kind() == IDENTIFIER);
+            names.extend(variables.map(|variable| &self.source[variable.byte_range()]));
+        }
+        self.regions.push(Region {
+            end: statement.end_byte(),
+            function: false,
+            names,
+        });
+    }
+
+    // constraint: a name read where no call takes it, and that no region around it declares, is a value its file
+    // binds: a function passed, stored or returned without a call
+    fn value_use(&mut self, name: Node<'_>) {
+        let spelled = &self.source[name.byte_range()];
+        if self
+            .regions
+            .iter()
+            .any(|region| region.names.contains(spelled))
+        {
+            return;
+        }
+        self.raw.uses.push(UseRef {
+            site_of: self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id),
+            name: text(name, self.source),
+            receiver: Receiver::Bare,
+            access: Access::Read,
+            line: line(name.start_position().row),
+        });
     }
 
     fn push(&mut self, mut symbol: Symbol) -> SymbolId {
@@ -303,4 +459,56 @@ fn bound_variables(variables: Node<'_>) -> impl Iterator<Item = Node<'_>> {
 
 fn named_child_of_kind<'t>(node: Node<'t>, kind: &str) -> Option<Node<'t>> {
     named_child_nodes(node).find(|child| child.kind() == kind)
+}
+
+// constraint: a name is read as a value as an argument, a value an assignment, a `return` or a loop takes, a field's
+// value, a key, an operand or a condition; a callee, an assignment's target, a table indexed through `.` or `:` and a
+// name being declared are not
+fn is_value_position(parent: &str, field: Option<&str>) -> bool {
+    match parent {
+        "arguments"
+        | "expression_list"
+        | "binary_expression"
+        | "unary_expression"
+        | "parenthesized_expression" => true,
+        "field" => field == Some("value"),
+        "bracket_index_expression" => field == Some("field"),
+        "if_statement" | "elseif_statement" | "while_statement" | "repeat_statement" => {
+            field == Some("condition")
+        }
+        "for_numeric_clause" => field != Some("name"),
+        _ => false,
+    }
+}
+
+// constraint: a method declared with `:` holds `self` beside its parameters
+fn parameter_names<'s>(function: Node<'_>, source: &'s [u8]) -> HashSet<&'s [u8]> {
+    let mut names = HashSet::new();
+    if function
+        .child_by_field_name("name")
+        .is_some_and(|name| name.kind() == "method_index_expression")
+    {
+        names.insert(b"self".as_slice());
+    }
+    if let Some(parameters) = function.child_by_field_name("parameters") {
+        let parameters = named_child_nodes(parameters).filter(|name| name.kind() == IDENTIFIER);
+        names.extend(parameters.map(|name| &source[name.byte_range()]));
+    }
+    names
+}
+
+// constraint: `local a` holds its names in a `variable_list`, and `local a = ...` in the one of its assignment
+fn declared_variables(declaration: Node<'_>) -> Option<Node<'_>> {
+    named_child_of_kind(declaration, "variable_list").or_else(|| {
+        named_child_of_kind(declaration, "assignment_statement")
+            .and_then(|assignment| named_child_of_kind(assignment, "variable_list"))
+    })
+}
+
+// constraint: the values of `local a, b = x, y` in their places, and none for `local a`
+fn declared_values(declaration: Node<'_>) -> impl Iterator<Item = Node<'_>> {
+    named_child_of_kind(declaration, "assignment_statement")
+        .and_then(|assignment| named_child_of_kind(assignment, "expression_list"))
+        .into_iter()
+        .flat_map(named_child_nodes)
 }
