@@ -19,7 +19,9 @@ A call records its callee and, where the syntax spells one, its receiver: `self.
 type of the `impl` around them, and `Widget::new()` records `Widget`. A macro invocation is a call of the macro. A call
 of an item that a function body declares is a local call of that item. The conventions name the methods and associated
 functions of the standard library that code calls most, so a call of one through a receiver or a path, `name.clone()`
-or `fs::write()`, binds a member of the name and no free function of the repository.
+or `fs::write()`, binds a member of the name and no free function of the repository. They list `other` alone as the
+receiver of a value of the caller's own type, since a call on `self` binds through the type it records, so
+`input.parse()` inside a `parse` binds no member of the caller's own type.
 
 A name read where no call takes it, `items.map(helper)`, `Handler { on_event: helper }` or `SETTINGS.enabled`, is a use
 of it, and so are `Self::make` and `Service::make` of the member `make`. A name a pattern binds, a parameter, a `let`,
