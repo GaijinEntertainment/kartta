@@ -187,6 +187,45 @@ fn params_that_are_not_the_method_s_answer_invalid_params() {
 }
 
 #[test]
+fn params_that_are_not_an_object_answer_invalid_params_naming_what_they_are() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let refusals = [
+        (
+            call(&kartta, "build", &json!(["ignored"]))["err"].clone(),
+            "an array",
+        ),
+        (
+            call(&kartta, "version", &json!([]))["err"].clone(),
+            "an array",
+        ),
+        (call(&kartta, "grep", &json!(-1))["err"].clone(), "a number"),
+        (
+            call(&kartta, "stats", &json!("x"))["err"].clone(),
+            "a string",
+        ),
+        (
+            call(&kartta, "cancel", &json!(false))["err"].clone(),
+            "a boolean",
+        ),
+        (refused(br#"["/"]"#), "an array"),
+    ];
+
+    for (error, kind) in refusals {
+        assert_eq!(error["code"], "invalid_params", "{error}");
+        assert!(mentions(&error, &format!("not {kind}")), "{error}");
+    }
+    let malformed: Value =
+        serde_json::from_slice(&kartta.call("version", b"[1")).expect("the answer is JSON");
+    assert_eq!(
+        malformed["err"]["code"], "invalid_request",
+        "an array that does not parse is a malformed request, not a wrong shape"
+    );
+}
+
+#[test]
 fn a_build_answers_what_it_indexed_and_what_each_graph_holds() {
     let tree = tree();
     let kartta = open(tree.path());
