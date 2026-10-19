@@ -1,10 +1,12 @@
-//! The receiver contract a language with owner receivers keeps: a member call on a value the caller declares records the
-//! empty receiver, so the graph never binds it through an owner that the value's name happens to spell, while the
+//! The receiver contract a language with owner receivers keeps: a member call on a value the caller declares records
+//! the empty receiver, so the graph never binds it through an owner that the value's name happens to spell, while the
 //! caller's own receiver, as the language spells it, and an import keep a name.
 //!
 //! C++ and JS/TS keep it, and C++ names the class a value is declared as where the walk sees the declaration, the class
 //! the value holds and not an owner its name spells. Python, Ruby, Rust, PHP, Lua, Quirrel, Puppet and daslang record a
-//! value's own name instead, and join these cases once they keep it.
+//! value's own name instead, which the graph's receiver tiers read (ADR 3.7). Python lists the receivers it writes for
+//! a value of the caller's own type in `Conventions::own_type_receivers`, so there no other value's name is taken for
+//! one of the caller's type.
 
 use kartta_lang::CallRef;
 use kartta_languages::all;
@@ -18,6 +20,15 @@ fn call_of(language: &str, source: &str, callee: &str) -> Option<CallRef> {
         .calls
         .into_iter()
         .find(|call| call.callee == callee)
+}
+
+/// The receivers the language lists for a value of the caller's own type, empty where it lists none.
+fn own_type_receivers(language: &str) -> &'static [&'static str] {
+    all()
+        .into_iter()
+        .find(|candidate| candidate.name() == language)
+        .and_then(|language| language.conventions().own_type_receivers)
+        .unwrap_or_default()
 }
 
 #[test]
@@ -106,6 +117,35 @@ fn a_member_call_on_the_own_receiver_or_an_import_keeps_its_name() {
             call_of(language, source, callee).map(|call| call.receiver),
             Some(Some(receiver.to_owned())),
             "{language}: {source}"
+        );
+    }
+}
+
+#[test]
+fn a_member_call_on_a_value_of_the_caller_s_type_records_a_receiver_its_language_lists() {
+    let cases = [
+        (
+            "python",
+            "class Pool:\n    def __eq__(self, other):\n        return other.drain()\n",
+        ),
+        (
+            "python",
+            "class Pool:\n    def run(self):\n        self.drain()\n",
+        ),
+        (
+            "python",
+            "class Pool:\n    @classmethod\n    def run(cls):\n        cls.drain()\n",
+        ),
+    ];
+
+    for (language, source) in cases {
+        let receiver = call_of(language, source, "drain").and_then(|call| call.receiver);
+        let own_type = own_type_receivers(language);
+        assert!(
+            receiver
+                .as_deref()
+                .is_some_and(|receiver| own_type.contains(&receiver)),
+            "{language} records {receiver:?}, not one of {own_type:?}: {source}"
         );
     }
 }

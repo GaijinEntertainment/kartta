@@ -28,7 +28,9 @@ included. A bare call of a function or class that a function around the call def
 definition, unless a name nearer the call hides it, as Python's scoping decides, and a bare call of a value such a
 function binds, such as a parameter, is not recorded. The conventions name the methods of the built-in types and of the
 standard library's values a script holds most, so a member call of one, `name.strip()` or `path.read_text()`, binds a
-member of the name and no free function of the repository.
+member of the name and no free function of the repository. They list `self`, `cls` and `other` as the receivers of a
+value of the caller's own type, so a member call on another name, `sock.close()` inside a class with a `close`, binds no
+member of the caller's own class.
 
 ## Resolution
 
