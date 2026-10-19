@@ -19,8 +19,8 @@ crate-type = ["staticlib", "rlib"]
 workspace = true
 
 [dependencies]
-kartta = { version = "0.0.0", path = "../kartta" }
-kartta-languages = { version = "0.0.0", path = "../kartta-languages" }
+kartta.workspace = true
+kartta-languages.workspace = true
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 
