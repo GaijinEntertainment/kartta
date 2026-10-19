@@ -25,6 +25,19 @@ pub(crate) fn start_line(node: Node<'_>) -> u32 {
     line(node.start_position().row)
 }
 
+// constraint: the grammar keeps a member's decorators, and those written before `export`, beside the declaration
+// rather than inside it, so a declaration starts at the first decorator in the run directly before it
+pub(crate) fn declaration_start_line(node: Node<'_>) -> u32 {
+    let mut first = node;
+    while let Some(decorator) = first
+        .prev_named_sibling()
+        .filter(|previous| previous.kind() == "decorator")
+    {
+        first = decorator;
+    }
+    start_line(first)
+}
+
 pub(crate) fn end_line(node: Node<'_>) -> u32 {
     line(node.end_position().row)
 }
