@@ -1,0 +1,321 @@
+use std::collections::HashSet;
+use std::ops::Range;
+
+use kartta_lang::tree::{line, named_child_nodes, text};
+use kartta_lang::{Access, FILE_SCOPE, Receiver, SymbolId, SymbolKind, UseRef};
+use tree_sitter::Node;
+
+use super::Emitter;
+use super::blocks::pattern_bindings;
+
+// constraint: a read waits for the end of the walk, because a name binds only what its own file declares, which a
+// definition below the read can still add; `scope` indexes the interned chain of the inline module a bare read is in,
+// or the type a read through `Self` is in
+pub(super) struct ValueRead {
+    name: Range<usize>,
+    receiver: Receiver,
+    scope: usize,
+    site_of: SymbolId,
+    line: u32,
+}
+
+// constraint: a region hides the names bound in it: a function and a closure their parameters, a match arm its
+// pattern, a `for` its pattern in its body, an `if let` or a `while let` its pattern in the operands after it and the
+// branch it runs on a match, and a block its `let`s; a function's region ends the lookup, as an item sees no local of
+// the function around it
+pub(super) struct Region<'a> {
+    end: usize,
+    function: bool,
+    names: HashSet<&'a [u8]>,
+}
+
+// constraint: a binding hides its names from the end of what it reads on, as `let helper = helper` and
+// `for item in [item]` read the item outside: a `let` from its end into its block, a `for` from its iterator's end
+// into its own region, and a `let` condition from its end into a region to the end of its `if`'s consequence or its
+// `while`'s body, so not in an `else`; where the walk reaches no node between a binding's end and its region's, the
+// region is gone by then and the binding hides nothing
+pub(super) struct PendingBindings<'a> {
+    at: usize,
+    into: Into,
+    names: Vec<&'a [u8]>,
+}
+
+pub(super) enum Into {
+    Region(usize),
+    Opened(usize),
+}
+
+impl<'a> Emitter<'a> {
+    pub(super) fn track_bindings(&mut self, node: Node<'_>) {
+        let start = node.start_byte();
+        while self.regions.pop_if(|region| region.end <= start).is_some() {}
+        while let Some(pending) = self.pending_bindings.pop_if(|pending| pending.at <= start) {
+            self.activate(pending, start);
+        }
+        while self.branches.pop_if(|branch| branch.0 <= start).is_some() {}
+
+        match node.kind() {
+            "function_item" => {
+                let parameters = node.child_by_field_name("parameters");
+                let names = self.parameter_names(parameters);
+                self.open_region(node, true, names);
+            }
+            "closure_expression" => {
+                let parameters = node.child_by_field_name("parameters");
+                let names = self.parameter_names(parameters);
+                self.open_region(node, false, names);
+            }
+            "match_arm" => {
+                let pattern = node.child_by_field_name("pattern");
+                let condition =
+                    pattern.and_then(|pattern| pattern.child_by_field_name("condition"));
+                let patterns = pattern
+                    .into_iter()
+                    .flat_map(named_child_nodes)
+                    .filter(|inner| Some(*inner) != condition);
+                let names = self.bound_names(patterns);
+                self.open_region(node, false, names);
+            }
+            "for_expression" => {
+                self.open_region(node, false, Vec::new());
+                let names = self.bound_names(node.child_by_field_name("pattern").into_iter());
+                let at = node
+                    .child_by_field_name("value")
+                    .map_or_else(|| node.start_byte(), |value| value.end_byte());
+                self.bind_later(at, Into::Region(self.regions.len() - 1), names);
+            }
+            "if_expression" | "while_expression" => {
+                let branch = node
+                    .child_by_field_name("consequence")
+                    .or_else(|| node.child_by_field_name("body"));
+                if let Some(branch) = branch {
+                    self.branches.push((node.end_byte(), branch.end_byte()));
+                }
+            }
+            "let_condition" => {
+                let names = self.bound_names(node.child_by_field_name("pattern").into_iter());
+                if let Some(&(_, branch_end)) = self.branches.last() {
+                    self.bind_later(node.end_byte(), Into::Opened(branch_end), names);
+                }
+            }
+            "block" => self.open_region(node, false, Vec::new()),
+            "let_declaration" => {
+                let names = self.bound_names(node.child_by_field_name("pattern").into_iter());
+                if let Some(region) = self.regions.len().checked_sub(1) {
+                    self.bind_later(node.end_byte(), Into::Region(region), names);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn activate(&mut self, pending: PendingBindings<'a>, start: usize) {
+        match pending.into {
+            Into::Region(region) => {
+                if let Some(region) = self.regions.get_mut(region) {
+                    region.names.extend(pending.names);
+                }
+            }
+            Into::Opened(end) if end > start => self.regions.push(Region {
+                end,
+                function: false,
+                names: pending.names.into_iter().collect(),
+            }),
+            Into::Opened(_) => {}
+        }
+    }
+
+    fn bind_later(&mut self, at: usize, into: Into, names: Vec<&'a [u8]>) {
+        if !names.is_empty() {
+            self.pending_bindings
+                .push(PendingBindings { at, into, names });
+        }
+    }
+
+    fn open_region(&mut self, node: Node<'_>, function: bool, names: Vec<&'a [u8]>) {
+        self.regions.push(Region {
+            end: node.end_byte(),
+            function,
+            names: names.into_iter().collect(),
+        });
+    }
+
+    // constraint: a parameter list holds a typed `parameter` around its pattern, or, for a closure, the pattern alone
+    fn parameter_names(&self, parameters: Option<Node<'_>>) -> Vec<&'a [u8]> {
+        let patterns = parameters
+            .into_iter()
+            .flat_map(named_child_nodes)
+            .map(|parameter| {
+                if parameter.kind() == "parameter" {
+                    parameter.child_by_field_name("pattern")
+                } else {
+                    Some(parameter)
+                }
+            });
+        self.bound_names(patterns.flatten())
+    }
+
+    fn bound_names<'t>(&self, patterns: impl Iterator<Item = Node<'t>>) -> Vec<&'a [u8]> {
+        let source = self.source;
+        let mut names = Vec::new();
+        for pattern in patterns {
+            pattern_bindings(pattern, &mut |name| names.push(&source[name.byte_range()]));
+        }
+        names
+    }
+
+    fn is_bound(&self, spelled: &[u8]) -> bool {
+        for region in self.regions.iter().rev() {
+            if region.names.contains(spelled) {
+                return true;
+            }
+            if region.function {
+                break;
+            }
+        }
+        false
+    }
+
+    pub(super) fn name(&mut self, node: Node<'_>, parent: Option<(&str, Option<&str>)>) {
+        if parent.is_some_and(|(parent, field)| reads_value(parent, field))
+            && !self.is_bound(&self.source[node.byte_range()])
+        {
+            let chain = self.modules.last().map(|module| module.chain.as_str());
+            let scope = intern(&mut self.read_scopes, chain.unwrap_or_default());
+            self.defer_read(node, Receiver::Bare, scope);
+        }
+    }
+
+    // constraint: `Self::f` read as a value names a member of the type around it, and `T::f` one of `T` as a call
+    // through `T` names it
+    pub(super) fn scoped_read(&mut self, node: Node<'_>, parent: Option<(&str, Option<&str>)>) {
+        if !parent.is_some_and(|(parent, field)| reads_value(parent, field)) {
+            return;
+        }
+        let (Some(path), Some(name)) = (
+            node.child_by_field_name("path"),
+            node.child_by_field_name("name")
+                .filter(|name| name.kind() == "identifier"),
+        ) else {
+            return;
+        };
+        let written = text(path, self.source);
+        if written != "Self" {
+            let path = Receiver::Path(self.module_path(&written).unwrap_or(written));
+            self.defer_read(name, path, 0);
+        } else if let Some(own) = self.types.last() {
+            let scope = intern(&mut self.read_scopes, &own.name);
+            self.defer_read(name, Receiver::Own, scope);
+        }
+    }
+
+    fn defer_read(&mut self, name: Node<'_>, receiver: Receiver, scope: usize) {
+        self.value_reads.push(ValueRead {
+            name: name.byte_range(),
+            receiver,
+            scope,
+            site_of: self.functions.last().map_or(FILE_SCOPE, |scope| scope.id),
+            line: line(name.start_position().row),
+        });
+    }
+
+    // constraint: a bare read binds only an item its own file declares outside every owner and body, so the walk
+    // keeps one only where its own inline module declares the item, and a read through `Self` or a type only where
+    // the file declares a member of the name under that type; any other is dropped before it costs a use, which
+    // leaves out a member that only a file it includes declares
+    pub(super) fn bind_value_reads(&mut self) {
+        if self.value_reads.is_empty() {
+            return;
+        }
+        let local: HashSet<u32> = self.raw.local_symbols.iter().map(|id| id.0).collect();
+        let mut free = HashSet::new();
+        let mut members = HashSet::new();
+        for (at, symbol) in (0..).zip(&self.raw.symbols) {
+            match &symbol.owner {
+                Some(type_name) => {
+                    members.insert((type_name.as_str(), symbol.name.as_str()));
+                }
+                None if symbol.kind != SymbolKind::Macro && !local.contains(&at) => {
+                    let qualified = symbol.qualified_name.as_str();
+                    free.insert(qualified.rsplit_once("::").unwrap_or(("", qualified)));
+                }
+                None => {}
+            }
+        }
+        let (source, scopes) = (self.source, &self.read_scopes);
+        self.raw
+            .uses
+            .extend(self.value_reads.drain(..).filter_map(|read| {
+                let name = String::from_utf8_lossy(&source[read.name]);
+                let scope = scopes[read.scope].as_str();
+                let known = match &read.receiver {
+                    Receiver::Bare => free.contains(&(scope, name.as_ref())),
+                    Receiver::Own => members.contains(&(scope, name.as_ref())),
+                    Receiver::Path(type_name) => {
+                        members.contains(&(type_name.as_str(), name.as_ref()))
+                    }
+                    Receiver::Qualifier(_) => false,
+                };
+                known.then(|| UseRef {
+                    site_of: read.site_of,
+                    name: name.into_owned(),
+                    receiver: read.receiver,
+                    access: Access::Read,
+                    line: read.line,
+                })
+            }));
+    }
+}
+
+// constraint: the reads of one module or type come in a run, so one copy of its name serves the run; the root module
+// is the scope at 0
+fn intern(scopes: &mut Vec<String>, scope: &str) -> usize {
+    if scope.is_empty() {
+        return 0;
+    }
+    if scopes.last().is_none_or(|last| last != scope) {
+        scopes.push(scope.to_owned());
+    }
+    scopes.len() - 1
+}
+
+// constraint: a name is read as a value as an argument, an element, an operand, a range's bound, a condition, an
+// indexed value or an index, a returned, a broken-out, a block's or a closure's last value, the value a `let`, a `let`
+// condition, an assignment, a `const`, a `static`, a field, a reference, a cast, a `match`, a match arm or a `for`
+// takes, either side of `+=` and its kin, the base of a field access or a method call, an awaited or a `?` operand,
+// and a field written shorthand
+fn reads_value(parent: &str, field: Option<&str>) -> bool {
+    match parent {
+        "arguments"
+        | "array_expression"
+        | "tuple_expression"
+        | "binary_expression"
+        | "unary_expression"
+        | "range_expression"
+        | "parenthesized_expression"
+        | "return_expression"
+        | "break_expression"
+        | "index_expression"
+        | "compound_assignment_expr"
+        | "await_expression"
+        | "try_expression"
+        | "block"
+        | "let_chain"
+        | "shorthand_field_initializer" => true,
+        "let_declaration"
+        | "let_condition"
+        | "const_item"
+        | "static_item"
+        | "field_initializer"
+        | "field_expression"
+        | "reference_expression"
+        | "type_cast_expression"
+        | "match_expression"
+        | "match_arm"
+        | "for_expression" => field == Some("value"),
+        "if_expression" | "while_expression" => field == Some("condition"),
+        "closure_expression" => field == Some("body"),
+        "assignment_expression" => field == Some("right"),
+        _ => false,
+    }
+}
