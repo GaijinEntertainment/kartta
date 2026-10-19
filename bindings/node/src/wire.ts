@@ -103,7 +103,8 @@ export interface CancelParams {
 export interface CancelAnswer {
   /**
    * Whether a build or a grep in flight was stopped. A named build or grep that has not entered the library starts
-   * stopped; a grep that had already opened its last file answers whole, with `cancelled` false.
+   * stopped, unless cancels that stopped nothing named 1,024 distinct later ids of its kind before it entered; a grep
+   * that had already opened its last file answers whole, with `cancelled` false.
    */
   stopped: boolean;
 }

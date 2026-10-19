@@ -32,6 +32,8 @@ pub struct Kartta {
     one_build_at_a_time: Mutex<()>,
 }
 
+const CANCELLED_AHEAD_LIMIT: usize = 1024;
+
 #[derive(Debug, Default)]
 struct Calls {
     entered: u64,
@@ -253,6 +255,9 @@ impl Calls {
             && !stopped
             && !self.cancelled_ahead.contains(&id)
         {
+            if self.cancelled_ahead.len() == CANCELLED_AHEAD_LIMIT {
+                self.cancelled_ahead.remove(0);
+            }
             self.cancelled_ahead.push(id);
         }
         stopped
@@ -265,7 +270,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Calls, CancelParams, Kartta, lock};
+    use super::{CANCELLED_AHEAD_LIMIT, Calls, CancelParams, Kartta, lock};
 
     fn handle() -> (tempfile::TempDir, Kartta) {
         let tree = tempfile::tempdir().expect("a temporary directory");
@@ -319,5 +324,21 @@ mod tests {
         assert!(calls.cancel(Some(3)), "the call was in flight");
         assert!(token.is_cancelled());
         assert_eq!(calls.cancelled_ahead, Vec::<u64>::new());
+    }
+
+    #[test]
+    fn stale_cancels_past_the_limit_forget_the_oldest_and_a_later_cancel_still_stops_its_call() {
+        let mut calls = Calls::default();
+        let last_id = u64::try_from(CANCELLED_AHEAD_LIMIT).expect("the limit fits a u64") + 1;
+
+        for id in 1..=last_id {
+            calls.cancel(Some(id));
+        }
+
+        assert_eq!(calls.cancelled_ahead.len(), CANCELLED_AHEAD_LIMIT);
+        let (_, first) = calls.enter(Some(1));
+        let (_, last) = calls.enter(Some(last_id));
+        assert!(!first.is_cancelled(), "the oldest id was forgotten");
+        assert!(last.is_cancelled(), "the latest id was remembered");
     }
 }
