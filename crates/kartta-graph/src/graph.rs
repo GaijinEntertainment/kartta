@@ -492,7 +492,7 @@ impl Graph {
             .iter()
             .map(|assertion| StoredAssertion {
                 type_name: self.strings.intern(&assertion.type_name),
-                iface: self.strings.intern(&assertion.iface),
+                interface: self.strings.intern(&assertion.interface),
             })
             .collect()
     }
@@ -767,8 +767,8 @@ impl Graph {
             keys.push(self.intern_listing_key(written));
         }
         for at in 0..self.file(slot).assertions.len() {
-            let iface = self.file(slot).assertions[at].iface;
-            keys.push(self.intern_listing_key(iface));
+            let interface = self.file(slot).assertions[at].interface;
+            keys.push(self.intern_listing_key(interface));
         }
         distinct(keys)
     }

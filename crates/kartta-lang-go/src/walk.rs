@@ -117,7 +117,7 @@ impl<'a> Emitter<'a> {
     // constraint: an assertion may precede the type it names, so the pairs wait for the end of the walk; a pair whose
     // type the file does not declare goes out as an assertion, for the graph to apply where it sees the whole package
     fn apply_pending_parents(&mut self) {
-        for (type_name, iface) in std::mem::take(&mut self.pending_parents) {
+        for (type_name, interface) in std::mem::take(&mut self.pending_parents) {
             let declared = self.raw.symbols.iter_mut().find(|symbol| {
                 symbol.name == type_name
                     && matches!(
@@ -129,12 +129,12 @@ impl<'a> Emitter<'a> {
                     )
             });
             match declared {
-                Some(symbol) if symbol.parents.contains(&iface) => {}
-                Some(symbol) => symbol.parents.push(iface),
-                None => self
-                    .raw
-                    .assertions
-                    .push(ImplementsAssertion { type_name, iface }),
+                Some(symbol) if symbol.parents.contains(&interface) => {}
+                Some(symbol) => symbol.parents.push(interface),
+                None => self.raw.assertions.push(ImplementsAssertion {
+                    type_name,
+                    interface,
+                }),
             }
         }
     }
