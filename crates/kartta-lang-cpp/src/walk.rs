@@ -1137,6 +1137,73 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
+    fn a_lone_macro_line_above_a_class_keeps_the_class_and_its_members() {
+        let raw = extract(
+            b"#pragma once\n\nJPH_NAMESPACE_BEGIN\n\n/// Either a result or an error\n\
+              template <class Type>\nclass [[nodiscard]] Result\n{\npublic:\n\
+              \t\t\t\t\t\tResult() { }\n\t\t\t\t\t\tResult(const Result<Type> &inRHS) :\n\
+              \t\tmState(inRHS.mState)\n\t{\n\t}\n\
+              \tbool HasError() const { return mState == EState::Error; }\n\
+              private:\n\tint mState;\n};\n\nJPH_NAMESPACE_END\n",
+        );
+
+        assert_eq!(qualified(&raw, "Result::HasError").kind, SymbolKind::Method);
+        assert_eq!(symbol(&raw, "Result").kind, SymbolKind::Class);
+    }
+
+    #[test]
+    fn a_macro_call_that_closes_a_table_above_an_error_keeps_the_function_after_it() {
+        let raw = extract(
+            b"int get_params(void) { return 1; }\n\n\
+              TABLE_START(generic)\n{ PARAM_MAC, PARAM_PTR, NULL, 0, UNMODIFIED },\nTABLE_END(generic)\n\n\
+              SETTABLE_START(generic)\nPARAM_uint(USE_BITS, NULL),\nPARAM_uint(TLS_VERSION, NULL),\n\
+              PARAM_size_t(MAC_SIZE, NULL),\nSETTABLE_END(generic)\n\n\
+              /*\n * Variable key length\n */\n\
+              int var_keylen_set_ctx_params(void *vctx, const PARAM params[])\n{\n\
+              \x20   const PARAM *p;\n    if (params == NULL)\n        return 1;\n\
+              \x20   p = locate_const(params, KEYLEN);\n    return p != NULL;\n}\n",
+        );
+
+        assert_eq!(
+            symbol(&raw, "var_keylen_set_ctx_params").kind,
+            SymbolKind::Function
+        );
+    }
+
+    #[test]
+    fn a_macro_line_above_a_function_an_error_starts_at_keeps_the_function() {
+        let raw = extract(
+            b"template<typename TWork>\nHRESULT ApiImpl(TWork&& work) noexcept\n{\n    return work();\n}\n\n\
+              NAMESPACE_SOCIAL_CPP_END\n\n\
+              STDAPI_(bool) IsUserPlayingTitle(\n    _In_ const Record* record,\n    _In_ uint32_t titleId\n\
+              ) XBL_NOEXCEPT\ntry\n{\n    if (record == nullptr)\n    {\n        return false;\n    }\n\
+              \x20   return record->titleId == titleId;\n}\nCATCH_RETURN_WITH(false);\n\n\
+              STDAPI GetType(\n    _In_ Handle handle,\n    _Out_ Type* type\n) XBL_NOEXCEPT\ntry\n{\n\
+              \x20   return ApiImpl([&]() { return S_OK; });\n}\nCATCH_RETURN()\n",
+        );
+
+        assert_eq!(
+            symbol(&raw, "IsUserPlayingTitle").kind,
+            SymbolKind::Function
+        );
+        assert_eq!(symbol(&raw, "GetType").kind, SymbolKind::Function);
+    }
+
+    #[test]
+    fn an_attribute_or_an_alignment_macro_in_a_class_head_keeps_its_members() {
+        let raw = extract(
+            b"class [[nodiscard]] AABox { void f(); };\nstruct alignas(16) Vec4 { void g(); };\n\
+              struct __declspec(align(16)) M { void h(); };\nstruct DAGOR_ALIGN(16) N { void i(); };\n\
+              class __attribute__((aligned(16))) P { void j(); };\n\
+              class alignas(32) DLL_API E final { void l(); };\n",
+        );
+
+        for member in ["AABox::f", "Vec4::g", "M::h", "N::i", "P::j", "E::l"] {
+            assert_eq!(qualified(&raw, member).kind, SymbolKind::Method, "{member}");
+        }
+    }
+
+    #[test]
     fn a_macro_in_a_class_head_keeps_the_class_and_its_members() {
         let raw = extract(
             b"namespace libtorrent {\n\
