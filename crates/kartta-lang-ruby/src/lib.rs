@@ -24,6 +24,15 @@
 //! scope, before the file's first symbol too. A call with no receiver and no arguments, `setup`, parses as a name, so
 //! it records nothing.
 //!
+//! A method named by a symbol is a use of it: `method(:render)`, `public_method`, `singleton_method`, `send(:render)`,
+//! `public_send` and `__send__` name a method of the object's own type where they have no receiver or `self`, and one
+//! of a class where the receiver is a constant or a constant path, `Cache.send(:flush)` or `Cache::Store.send(:flush)`.
+//! A top-level `def` is a private method of `Object`, which every object reaches, so at a site no class owns, file
+//! scope, a top-level `def`, `def self.x` or `def obj.x`, the symbol names a top-level method as a bare use. With no
+//! receiver or `self`, `singleton_method` names a method of the object itself, which only a class body names, through
+//! its class; with a constant receiver it names one of that class anywhere. Any other receiver names a type the walk
+//! cannot tell, and `instance_method` and `respond_to?` most often only inspect, so they name nothing.
+//!
 //! # Resolution
 //!
 //! A `require` or `require_relative` with no receiver and a string argument of plain text names a file, with or without
