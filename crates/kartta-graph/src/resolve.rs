@@ -521,6 +521,9 @@ impl<'g> Cascade<'g> {
             };
         }
 
+        if let Some(at) = self.written_inside_an_enclosing_scope(call) {
+            return Ok((at, confidence::QUALIFIED_TAIL));
+        }
         if self
             .graph
             .strings
@@ -544,6 +547,38 @@ impl<'g> Cascade<'g> {
         }
 
         self.resolve_by_name(call)
+    }
+
+    // constraint: a qualified name written inside a namespace is looked up from the scopes around the call outward, so
+    // `time_internal::f` called inside `absl` names `absl::time_internal::f`; the caller's qualified name carries
+    // those scopes, and the innermost one that names a definition the caller's file sees wins, ahead of the global
+    // name the call spells, the outermost scope
+    fn written_inside_an_enclosing_scope(&self, call: &Call) -> Option<SymbolAt> {
+        let separator = self.conventions.scope_separator?;
+        let strings = &self.graph.strings;
+        let written = strings.resolve(call.callee);
+        if call.written_from_root || !written.contains(separator) {
+            return None;
+        }
+        let caller = call.caller_at();
+        let mut scope = strings.resolve(self.graph.sym(caller).qualified_name);
+        let mut name = String::new();
+        while let Some((enclosing, _)) = scope.rsplit_once(separator) {
+            name.clear();
+            name.push_str(enclosing);
+            name.push_str(separator);
+            name.push_str(written);
+            let seen = strings.get(&name).and_then(|qualified| {
+                self.qualified_as(qualified)
+                    .filter(|&at| self.is_candidate(caller, at) && self.sees(call.file, at))
+                    .min_by_key(|&at| self.graph.order_of(at))
+            });
+            if seen.is_some() {
+                return seen;
+            }
+            scope = enclosing;
+        }
+        None
     }
 
     fn candidates(&self, call: &Call) -> CandidateSet<'g> {
