@@ -61,16 +61,21 @@ fn wait_for(watcher: &mut Watcher, wanted: &str) -> Vec<String> {
     seen
 }
 
+fn refresh_under(index: &mut Index, watcher: &mut Watcher, changes: &[String]) {
+    let (outcome, followed) = index
+        .refresh_paths_watched(changes.iter().map(String::as_str), watcher, None, None)
+        .expect("refresh the changed paths");
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    followed.expect("watch what the refresh took in");
+}
+
 fn follow(watcher: &mut Watcher, index: &mut Index) {
     loop {
         let changes = watcher.wait(Duration::from_secs(1)).expect("wait");
         if changes.is_empty() {
             return;
         }
-        let outcome = index
-            .refresh_paths(changes.iter().map(String::as_str), None, None)
-            .expect("refresh the changed paths");
-        assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+        refresh_under(index, watcher, &changes);
     }
 }
 
@@ -358,4 +363,33 @@ fn a_directory_the_rules_ignore_is_not_watched() {
         !seen.iter().any(|path| path.starts_with("build")),
         "{seen:?}"
     );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_directory_a_gitignore_edit_shows_is_watched_by_the_refresh_that_takes_it_in() {
+    let dir = tree(&[
+        (".gitignore", "build/\n"),
+        ("build/deep/old.o", ""),
+        ("sub/.gitignore", "out/\n"),
+        ("sub/out/deep/old.o", ""),
+        ("a.rs", "a"),
+    ]);
+    let (mut index, mut watcher) = watched(dir.path());
+
+    write(dir.path(), "sub/.gitignore", "");
+    let shown_below = watcher.drain().expect("drain");
+    refresh_under(&mut index, &mut watcher, &shown_below);
+    write(dir.path(), ".gitignore", "");
+    let shown_at_the_root = watcher.drain().expect("drain");
+    refresh_under(&mut index, &mut watcher, &shown_at_the_root);
+    write(dir.path(), "build/deep/new.o", "");
+    write(dir.path(), "sub/out/deep/new.o", "");
+    let seen = watcher.drain().expect("drain");
+    refresh_under(&mut index, &mut watcher, &seen);
+
+    assert_eq!(shown_below, ["sub/.gitignore"]);
+    assert_eq!(shown_at_the_root, [".gitignore"]);
+    assert_eq!(seen, ["build/deep/new.o", "sub/out/deep/new.o"]);
+    assert_eq!(shown(&index), shown(&build(dir.path())));
 }

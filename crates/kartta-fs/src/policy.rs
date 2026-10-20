@@ -187,6 +187,12 @@ impl<'a> Indexing<'a> {
         Self { descending, ..self }
     }
 
+    pub(crate) fn descend(&self, native_dir: &Path) {
+        if let Some(descending) = self.descending {
+            descending(native_dir);
+        }
+    }
+
     pub(crate) fn into_report(self) -> Report {
         let mut errors = into_inner(self.errors);
         let Some(reading) = self.reading else {

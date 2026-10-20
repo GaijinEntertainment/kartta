@@ -125,9 +125,10 @@ impl Watcher {
     ///
     /// # Errors
     ///
-    /// [`WatchError::Stopped`] when the notifications stopped arriving, and [`WatchError::Limit`] when Linux's inotify
-    /// watch limit ran out before a directory made since the start could be watched, so changes inside it would go
-    /// unseen. Either way the watcher no longer covers the tree, and a new one has to be started.
+    /// [`WatchError::Stopped`] when the notifications stopped arriving, [`WatchError::Limit`] when Linux's inotify watch
+    /// limit ran out before a directory made since the start could be watched, so changes inside it would go unseen,
+    /// and [`WatchError::Limit`] or [`WatchError::Start`] when a refresh under the watcher met them but returned an
+    /// error of its own. Either way the watcher no longer covers the tree, and a new one has to be started.
     pub fn wait(&mut self, timeout: Duration) -> Result<Vec<String>, WatchError> {
         self.gather(timeout, LONGEST, Found::default())
     }
@@ -157,19 +158,13 @@ impl Watcher {
         self.gather(REPORTED, longest, found)
     }
 
-    #[cfg_attr(
-        not(target_os = "linux"),
-        expect(
-            clippy::needless_pass_by_ref_mut,
-            reason = "Linux's backend adds watches as it reads, so a wait takes the watcher mutably everywhere"
-        )
-    )]
     fn gather(
         &mut self,
         timeout: Duration,
         longest: Duration,
         mut found: Found,
     ) -> Result<Vec<String>, WatchError> {
+        self.backend.descended()?;
         if !self.backend.poll(timeout, &mut found)? {
             return Ok(self.changes(found));
         }
@@ -243,6 +238,46 @@ impl Index {
         watch_walk(watcher, Asked::new(visitor, cancel), |asked| {
             self.refresh_walking(asked)
         })
+    }
+
+    /// Walks again the parts of the tree at `paths` as [`Index::refresh_paths`] does, under `watcher`, so a change made
+    /// in a directory the walk took in reaches `watcher` too.
+    ///
+    /// On Linux the walk watches each directory it keeps before it lists it, as [`Index::build_watched`] does, at a
+    /// watch call a directory, one already watched included. The ignore rules the walk reads decide what it keeps, so
+    /// a directory they hide is not watched, and one a `.gitignore` edit shows is watched by the refresh that takes it
+    /// in; one an edit hides keeps the watches it had until the watcher is replaced. On macOS and Windows the watcher
+    /// already covers the whole tree, and this is [`Index::refresh_paths`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Index::refresh_paths`]. The second value is [`WatchError::Limit`] when Linux's inotify watch limit ran out
+    /// before every directory the walk kept was watched, and [`WatchError::Start`] when the operating system refused a
+    /// watch: either way `watcher` no longer covers the tree, and a new one has to be started. A call that returns an
+    /// error of its own leaves either for the next [`Watcher::wait`], [`Watcher::drain`] or call of this under
+    /// `watcher` to report.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the arguments of Index::refresh_paths and the watcher whose watches its walk adds"
+    )]
+    pub fn refresh_paths_watched<'p>(
+        &mut self,
+        paths: impl IntoIterator<Item = &'p str>,
+        watcher: &mut Watcher,
+        visitor: Option<&dyn ContentVisitor>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(RefreshOutcome, Result<(), WatchError>), BuildError> {
+        let refreshed = {
+            let hook = watcher.backend.descending();
+            self.refresh_paths_walking(
+                paths,
+                Asked {
+                    descending: hook.as_ref().map(|hook| hook as Descending<'_>),
+                    ..Asked::new(visitor, cancel)
+                },
+            )
+        }?;
+        Ok((refreshed, watcher.backend.descended()))
     }
 }
 
