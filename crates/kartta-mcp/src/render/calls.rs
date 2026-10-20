@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use kartta::{
     CallPath, Candidate, Change, Definition, DirectCalls, Hotspot, ReachBand, Reached, Reference,
-    References, Seed, Segment, SymbolKind, Walk,
+    References, Seed, Segment, SymbolKind, TypeUses, Walk,
 };
 
 use super::{
@@ -23,6 +23,10 @@ const METHOD_NOTE: &str = "a call through a value of the owner's type resolves o
 /// The blind spot of a field's sites in a language whose extraction records no access to a field.
 const FIELD_NOTE: &str = "this language's extraction records no access to a field yet, so every use of it is missing \
                           from this answer";
+
+/// What a type's sites leave out in a family whose graph records no use of a type, after the name of that graph.
+const NO_TYPE_USES: &str = "graph records no use of a type where code names it as one, such as a declaration, a \
+                            signature, a generic argument or an import";
 
 /// The families whose extraction records field accesses and reads of package-level values.
 const RECORDS_DATA_ACCESS: &[&str] = &["cpp", "go", "jsts", "python"];
@@ -170,10 +174,11 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
     element.children(hops.chain(passed_over))
 }
 
-/// The `find_references` answer: one `<match>` per family graph the name selects a symbol in.
+/// The `find_references` answer: one `<match>` per family graph the name selects a symbol in, with where that family
+/// records a use of a type.
 pub(crate) fn references(
     ask: &CallersAsk<'_>,
-    found: &[(&str, References<'_>)],
+    found: &[(&str, TypeUses, References<'_>)],
     unmatched: &Unmatched<'_>,
 ) -> String {
     let element = Element::new("references")
@@ -184,11 +189,9 @@ pub(crate) fn references(
     if found.is_empty() {
         return unresolved(element, ask.languages, "path_prefix", unmatched);
     }
-    element.children(
-        found
-            .iter()
-            .map(|(family, references)| reference_match(ask.floored, family, references)),
-    )
+    element.children(found.iter().map(|(family, type_uses, references)| {
+        reference_match(ask.floored, family, *type_uses, references)
+    }))
 }
 
 /// How many sites a `find_references` match lists one by one, in the files with the most sites.
@@ -197,7 +200,12 @@ const LISTED_SITES: usize = 100;
 /// How many more files a `find_references` match names once its listed sites run out, each with its count of sites.
 const COUNTED_FILES: usize = 50;
 
-fn reference_match(floored: bool, family: &str, references: &References<'_>) -> String {
+fn reference_match(
+    floored: bool,
+    family: &str,
+    type_uses: TypeUses,
+    references: &References<'_>,
+) -> String {
     let symbol = &references.symbol;
     let counts = &references.counts;
     let reads = if is_type(symbol.kind) {
@@ -232,21 +240,40 @@ fn reference_match(floored: bool, family: &str, references: &References<'_>) -> 
             .map(|&(_, note)| note),
         _ => None,
     };
+    let unrecorded = (type_uses == TypeUses::Nowhere && is_type(symbol.kind)).then_some(family);
     let passed_over = candidates(&references.candidates, "sites");
     if references.sites.is_empty() {
-        let mut text = format!(
-            "no recorded site{} - resolved calls can omit dynamic or unresolved ones, and uses other than calls are \
-             recorded only where the graph records them, so this does not show that nothing uses the symbol",
-            at_floor(floored)
-        );
-        if let Some(note) = member_note {
-            text.push_str("; ");
-            text.push_str(note);
-        }
+        let text = no_sites(floored, unrecorded, member_note);
         return noted(element, &text, passed_over);
     }
-    let note = member_note.map(|note| Element::new("note").inline(note));
+    let missing = unrecorded.map(|family| {
+        format!("the {family} {NO_TYPE_USES}, so every such use is missing from this answer")
+    });
+    let note = (missing.as_deref())
+        .or(member_note)
+        .map(|note| Element::new("note").inline(note));
     element.children(note.into_iter().chain(listing.records).chain(passed_over))
+}
+
+/// Why a match lists no site: that the graph of the family `unrecorded` names records no use of a type, else the
+/// caveat that fits any language with the `member_note` of a method's or a field's sites.
+fn no_sites(floored: bool, unrecorded: Option<&str>, member_note: Option<&str>) -> String {
+    let floor = at_floor(floored);
+    if let Some(family) = unrecorded {
+        return format!(
+            "no recorded site{floor} - the {family} {NO_TYPE_USES}, so this does not show that nothing uses the type; \
+             grep finds where code names it"
+        );
+    }
+    let mut text = format!(
+        "no recorded site{floor} - resolved calls can omit dynamic or unresolved ones, and uses other than calls are \
+         recorded only where the graph records them, so this does not show that nothing uses the symbol"
+    );
+    if let Some(note) = member_note {
+        text.push_str("; ");
+        text.push_str(note);
+    }
+    text
 }
 
 /// The `<file>` records of a `find_references` match: the files with the most sites first, the others in path order,
