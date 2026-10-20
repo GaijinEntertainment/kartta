@@ -59,7 +59,7 @@ type Unnamed<Wire, Typed, Path extends string> =
 		? Typed extends ReadonlyArray<infer TypedItem>
 			? Unnamed<Item, TypedItem, `${Path}[]`>
 			: Path
-		: Wire extends object
+		: Wire extends Record<string, unknown>
 			? {
 					[Key in keyof Wire & string]: Key extends keyof Typed
 						? Unnamed<Wire[Key], NonNullable<Typed[Key]>, `${Path}.${Key}`>
@@ -105,6 +105,17 @@ const replays: {[M in keyof Methods]: Replay<M>} = {
 
 const fixture = fileURLToPath(new URL('../../../crates/kartta-ffi/tests/fixture', import.meta.url));
 
+async function envelope(answer: Promise<unknown>): Promise<unknown> {
+	try {
+		return {ok: await answer};
+	} catch (error) {
+		if (error instanceof KarttaError) {
+			return {err: {code: error.code, message: error.message}};
+		}
+		throw error;
+	}
+}
+
 test("the goldens' fields are the ones the wire types name", () => {
 	expect(typesNameEveryFieldTheGoldensHold).toBe(true);
 	expect(answersHoldTheirTypes).toBe(goldens);
@@ -112,7 +123,9 @@ test("the goldens' fields are the ones the wire types name", () => {
 
 test('the typed calls cover every method the library answers', async () => {
 	const kartta = Kartta.open(fixture);
-	onTestFinished(() => kartta.close());
+	onTestFinished(() => {
+		kartta.close();
+	});
 
 	const {methods} = await kartta.version();
 
@@ -121,18 +134,21 @@ test('the typed calls cover every method the library answers', async () => {
 
 test('every method answers its golden request through its typed call as pinned', async () => {
 	const kartta = Kartta.open(fixture);
-	onTestFinished(() => kartta.close());
+	onTestFinished(() => {
+		kartta.close();
+	});
 
+	const answered: Record<string, unknown> = {};
 	for (const [method, golden] of Object.entries(goldens)) {
 		// SAFETY: goldens and replays share their keys, as the mapped types above require.
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion
 		const replay = replays[method as keyof Methods] as (kartta: Kartta, params: unknown) => Promise<unknown>;
-		const answered = await replay(kartta, golden.params).then(
-			(ok) => ({ok}),
-			(error: unknown) =>
-				error instanceof KarttaError ? {err: {code: error.code, message: error.message}} : Promise.reject(error),
-		);
-
-		expect(answered, method).toStrictEqual(golden.answer);
+		// Each replay asks what the build golden built, so the replays run in the goldens' order, one at a time.
+		// oxlint-disable-next-line no-await-in-loop
+		answered[method] = await envelope(replay(kartta, golden.params));
 	}
+
+	expect(answered).toStrictEqual(
+		Object.fromEntries(Object.entries(goldens).map(([method, golden]) => [method, golden.answer])),
+	);
 });
