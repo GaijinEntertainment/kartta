@@ -111,6 +111,9 @@ pub struct SegmentSymbol<'g> {
     pub definition: Definition<'g>,
     /// The symbols that call it.
     pub callers: DirectCalls<'g>,
+    /// The calls of its name that [`Walk::ambiguous`](crate::Walk::ambiguous) counts for a walk from it: any of them
+    /// may call it, and neither `callers` nor `blast` holds them.
+    pub ambiguous: usize,
     /// The symbols it calls.
     pub callees: DirectCalls<'g>,
     /// The calls of its body that bound no definition the graph holds: calls into code outside it, and calls the
@@ -258,6 +261,7 @@ impl<'g> Analysis<'g> {
         SegmentSymbol {
             definition: self.graph.definition_at(at),
             callers,
+            ambiguous: self.calls.ambiguous_calls(root),
             callees: DirectCalls::of(self.graph, &outgoing, floor),
             unresolved,
             blast: self.blast(at, root, includers),

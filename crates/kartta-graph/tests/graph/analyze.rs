@@ -156,6 +156,35 @@ fn each_symbol_lists_its_direct_callers_and_callees_and_counts_what_bound_nothin
     assert_eq!(listed(&helper.callees), [("core".to_owned(), 6)]);
     assert_eq!(helper.callees.total, 1);
     assert_eq!(helper.unresolved, 1);
+    assert_eq!(helper.ambiguous, 0);
+}
+
+/// Two free functions of one name in two directories, and a caller in a third whose bare call of the name neither
+/// scope nor nearness settles.
+fn split_between_two_formats() -> Graph {
+    graph(vec![
+        File::new("a/fmt.c").function("format", (1, 3)),
+        File::new("b/fmt.c").function("format", (1, 3)),
+        File::new("c/render.c")
+            .function("render", (1, 4))
+            .calls(0, "format", 2),
+    ])
+}
+
+#[test]
+fn a_symbol_and_a_seed_count_the_calls_of_their_name_that_several_definitions_may_answer() {
+    let graph = split_between_two_formats();
+
+    let segment = graph
+        .analyze_segment("a/fmt.c", 1..=3, Limits::new(3))
+        .expect("held");
+    let change = graph.analyze_change(&[Region::new("b/fmt.c", 1..=3)], Limits::new(3));
+
+    assert_eq!(segment.symbols[0].callers.total, 0);
+    assert_eq!(segment.symbols[0].blast.reach, 0);
+    assert_eq!(segment.symbols[0].ambiguous, 1);
+    assert_eq!(change.seeds[0].caller_count, 0);
+    assert_eq!(change.seeds[0].ambiguous, 1);
 }
 
 fn drawing() -> Graph {

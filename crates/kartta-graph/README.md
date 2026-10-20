@@ -80,15 +80,15 @@ another file changes.
 - `Graph::analyze_segment` — the symbols a range of a file's lines overlaps, each with its direct callers and callees,
   at most 50 of each listed and all of them counted, and the blast of a change to it: the callers a walk over its
   callers reaches by depth, the files they and the file's includers sit in, and a reach band, counting what the cap,
-  the depth bound and the floor left out; `None` for a file the graph does not hold. Each name's call sites are
-  resolved once for the whole segment.
+  the depth bound and the floor left out, and the calls of its name left ambiguous as `Graph::callers` counts them;
+  `None` for a file the graph does not hold. Each name's call sites are resolved once for the whole segment.
 - `Graph::analyze_change` — what a change to a set of line regions reaches: the symbols they overlap, a declaration
   and its definition counting once, the callers a walk over each one's callers reaches, the footprint those walks
   cover together, and the hotspots two or more of them reach, at most 300 hotspots and 300 changed symbols listed and
   all of them counted. Each changed symbol lists its direct callers while 30 or fewer pass the floor, and counts them
-  by directory past that. The regions whose file the graph does not hold, those that overlap no symbol, and the walks
-  the cap stopped are counted. `Change::merge` ranks the answers of several graphs together, as a change across
-  language families needs.
+  by directory past that, and counts the calls of its name left ambiguous as `Graph::callers` does. The regions whose
+  file the graph does not hold, those that overlap no symbol, and the walks the cap stopped are counted.
+  `Change::merge` ranks the answers of several graphs together, as a change across language families needs.
 - `Graph::dead_code` — the definitions no call and no use reaches, in path order, cut to a limit and counting every one
   found, those found reached, and those it did not judge, by reason: of a kind not asked for; test, generated, entry
   and vendored code; a kind no call and no use shows used; a definition a call that binds nothing, or binds only by
