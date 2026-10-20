@@ -4,7 +4,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 
-use kartta::{BuildError, BuildOptions, CancelToken, Engine, EngineRefresh};
+use kartta::{
+    BuildError, BuildOptions, CancelToken, Engine, EngineOutcome, EngineRefresh, WatchError,
+    Watcher,
+};
 use kartta_fs::EntryKind;
 use tokio::sync::watch;
 
@@ -132,18 +135,38 @@ impl Served {
         &self,
         paths: impl ExactSizeIterator<Item = &'p str>,
     ) -> Result<Refreshed, String> {
+        let (refreshed, ()) = self.refreshed(|engine, cancel| {
+            let refresh = if paths.len() == 0 {
+                engine.refresh(cancel)
+            } else {
+                engine.refresh_paths(paths, cancel)
+            };
+            Ok((refresh?, ()))
+        })?;
+        Ok(refreshed)
+    }
+
+    /// Starts a new watcher, then brings the index up to the whole tree, so the watcher holds every change made while
+    /// the refresh walked for its next wait to hand over, as the watcher of a build holds those made while it walked.
+    pub(crate) fn refresh_watched(&self) -> Result<Watcher, String> {
+        let (_, watcher) = self.refreshed(Engine::refresh_watched)?;
+        watcher.map_err(|error| error.to_string())
+    }
+
+    fn refreshed<T>(
+        &self,
+        refresh: impl FnOnce(
+            &mut Engine,
+            Option<&CancelToken>,
+        ) -> Result<(EngineRefresh, T), BuildError>,
+    ) -> Result<(Refreshed, T), String> {
         let mut indexed = self
             .indexed
             .write()
             .map_err(|poisoned| broken(&poisoned.into_inner()))?;
         let started = Instant::now();
-        let cancel = Some(&self.cancel);
-        let refreshed = if paths.len() == 0 {
-            indexed.engine.refresh(cancel)
-        } else {
-            indexed.engine.refresh_paths(paths, cancel)
-        };
-        let refresh = refreshed.map_err(|error| match error {
+        let refreshed = refresh(&mut indexed.engine, Some(&self.cancel));
+        let (refresh, walked) = refreshed.map_err(|error| match error {
             BuildError::Cancelled => {
                 "a later index_repo replaced this index before the refresh finished".to_owned()
             }
@@ -156,10 +179,11 @@ impl Served {
             .collect();
         replace_failures(&mut indexed.errors, &refresh.index.walked, failed);
         drop(indexed);
-        Ok(Refreshed {
+        let refreshed = Refreshed {
             refresh,
             elapsed: started.elapsed(),
-        })
+        };
+        Ok((refreshed, walked))
     }
 
     /// Records that the index no longer follows its tree, and why.
@@ -322,21 +346,10 @@ impl Slot {
             if let Some(replaced) = replaced {
                 release(replaced);
             }
-            let watch = if slot.watch {
-                Watch::Following
-            } else {
-                Watch::Off("turned off in the server configuration".to_owned())
+            let (built, watcher) = match build(&request, &options, &cancel, slot.watch) {
+                Ok((served, watcher)) => (Ok(Arc::new(served)), watcher),
+                Err(error) => (Err(error), None),
             };
-            let built = build(&request, &options, &cancel, watch).map(Arc::new);
-            let watcher = built
-                .as_ref()
-                .ok()
-                .filter(|_| slot.watch)
-                .and_then(|served| {
-                    crate::watch::start(served)
-                        .map_err(|reason| served.unwatch(reason))
-                        .ok()
-                });
             let ready = slot.finish(id, &request, &built);
             match (&built, watcher) {
                 (Ok(served), _) if !ready => {
@@ -410,42 +423,82 @@ fn release(mut served: Arc<Served>) {
     }
 }
 
+/// Builds the engine `request` asks for, and with `watch` a watcher started before the build walked, which follows the
+/// tree once the index holds what changed while it was built.
 fn build(
     request: &Request,
     options: &BuildOptions,
     cancel: &CancelToken,
-    watch: Watch,
-) -> Result<Served, String> {
+    watch: bool,
+) -> Result<(Served, Option<Watcher>), String> {
     let languages =
         kartta_languages::select(&request.languages).map_err(|error| error.to_string())?;
-    let outcome = Engine::build(&request.root, options, languages, Some(cancel)).map_err(
-        |error| match error {
-            BuildError::Cancelled => {
-                "a later index_repo replaced this build before it finished".to_owned()
-            }
-            error => format!("cannot index {}: {error}", request.root.display()),
-        },
-    )?;
-    let root = outcome.engine.index().root();
-    let errors = outcome
-        .errors
-        .iter()
-        .map(|error| Failure::new(error, root))
-        .collect();
-    Ok(Served {
-        indexed: RwLock::new(Indexed {
-            root: request.root.display().to_string(),
-            gitignore: !request.index_ignored,
-            engine: outcome.engine,
-            errors,
-            watch,
-        }),
-        cancel: cancel.clone(),
-    })
+    let failed = |error| match error {
+        BuildError::Cancelled => {
+            "a later index_repo replaced this build before it finished".to_owned()
+        }
+        error => format!("cannot index {}: {error}", request.root.display()),
+    };
+    if !watch {
+        let outcome =
+            Engine::build(&request.root, options, languages, Some(cancel)).map_err(failed)?;
+        let off = Watch::Off("turned off in the server configuration".to_owned());
+        return Ok((Served::new(request, outcome, cancel, off), None));
+    }
+    let (outcome, watcher) =
+        Engine::build_watched(&request.root, options, languages, Some(cancel)).map_err(failed)?;
+    Ok(served_watched(request, outcome, cancel, watcher))
+}
+
+/// The engine `outcome` holds as served, with the changes `watcher` holds taken in, so the index answers for what
+/// changed while it was built; the watcher is handed back to follow the tree from there, or the watch is off with the
+/// reason it could not start or take those changes in.
+fn served_watched(
+    request: &Request,
+    outcome: EngineOutcome,
+    cancel: &CancelToken,
+    watcher: Result<Watcher, WatchError>,
+) -> (Served, Option<Watcher>) {
+    let served = Served::new(request, outcome, cancel, Watch::Following);
+    match watcher
+        .map_err(|error| error.to_string())
+        .and_then(|watcher| crate::watch::caught_up(&served, watcher))
+    {
+        Ok(watcher) => (served, Some(watcher)),
+        Err(reason) => {
+            served.unwatch(reason);
+            (served, None)
+        }
+    }
+}
+
+impl Served {
+    fn new(request: &Request, outcome: EngineOutcome, cancel: &CancelToken, watch: Watch) -> Self {
+        let root = outcome.engine.index().root();
+        let errors = outcome
+            .errors
+            .iter()
+            .map(|error| Failure::new(error, root))
+            .collect();
+        Self {
+            indexed: RwLock::new(Indexed {
+                root: request.root.display().to_string(),
+                gitignore: !request.index_ignored,
+                engine: outcome.engine,
+                errors,
+                watch,
+            }),
+            cancel: cancel.clone(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use kartta::{Language, RawExtraction, Repository, Resolver};
+
     use super::*;
 
     fn failure(path: Option<&str>, text: &str) -> Failure {
@@ -546,34 +599,181 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_watch_follows_a_directory_made_between_the_build_and_its_start() {
-        let tree = tempfile::tempdir().unwrap();
-        std::fs::write(tree.path().join("a.go"), "package a\n\nfunc A() {}\n").unwrap();
+    /// Claims nothing, and the first time a walk asks it about `asked` makes each file of `makes`, with the directories
+    /// that hold it, while the walk is in the directory of `asked`.
+    #[derive(Debug)]
+    struct WritesMidWalk {
+        root: PathBuf,
+        asked: &'static str,
+        makes: Vec<String>,
+        written: AtomicBool,
+    }
+
+    impl WritesMidWalk {
+        fn languages(
+            root: &Path,
+            asked: &'static str,
+            makes: Vec<String>,
+        ) -> Vec<Box<dyn Language>> {
+            vec![Box::new(Self {
+                root: root.to_owned(),
+                asked,
+                makes,
+                written: AtomicBool::new(false),
+            })]
+        }
+    }
+
+    impl Language for WritesMidWalk {
+        fn name(&self) -> &'static str {
+            "writes-mid-walk"
+        }
+
+        fn claims(&self, path: &str) -> bool {
+            if path != self.asked || self.written.swap(true, Ordering::Relaxed) {
+                return false;
+            }
+            for made in &self.makes {
+                let made = self.root.join(made);
+                std::fs::create_dir_all(made.parent().unwrap()).unwrap();
+                std::fs::write(made, "").unwrap();
+            }
+            false
+        }
+
+        fn fingerprint(&self) -> &[u8] {
+            b"writes-mid-walk"
+        }
+
+        fn extract(&self, _source: &[u8]) -> RawExtraction {
+            RawExtraction::default()
+        }
+
+        fn resolver<'r>(&'r self, _repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+            unreachable!("a language that claims nothing resolves nothing")
+        }
+    }
+
+    /// Builds `tree` watched with `languages`, runs `meanwhile`, and serves the index as `index_repo` does, with the
+    /// changes its watcher holds taken in.
+    fn served_from(
+        tree: &Path,
+        languages: Vec<Box<dyn Language>>,
+        meanwhile: impl FnOnce(),
+    ) -> (Served, Option<Watcher>) {
         let request = Request {
-            root: tree.path().to_owned(),
-            languages: vec!["go"],
+            root: tree.to_owned(),
+            languages: Vec::new(),
             index_ignored: false,
         };
         let options = crate::Config::default().build_options(false);
-        let served = build(&request, &options, &CancelToken::new(), Watch::Following).unwrap();
+        let cancel = CancelToken::new();
+        let (outcome, watcher) =
+            Engine::build_watched(tree, &options, languages, Some(&cancel)).unwrap();
+        meanwhile();
+        served_watched(&request, outcome, &cancel, watcher)
+    }
+
+    /// Raises more notifications in `tree` than a watcher holds unread: on Linux more than inotify's queue holds,
+    /// through writes alternating between two files so the kernel merges none, and elsewhere more than the 65,536 the
+    /// watcher queues itself, through new files, each of which raised two there.
+    fn flood(tree: &Path) {
+        #[cfg(target_os = "linux")]
+        {
+            use std::io::Write as _;
+
+            let queued = std::fs::read_to_string("/proc/sys/fs/inotify/max_queued_events").unwrap();
+            let mut files = [
+                std::fs::File::create(tree.join("flood-a")).unwrap(),
+                std::fs::File::create(tree.join("flood-b")).unwrap(),
+            ];
+            for at in 0..=queued.trim().parse::<usize>().unwrap() {
+                files[at % 2].write_all(b"x").unwrap();
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        for at in 0..40_000 {
+            std::fs::write(tree.join(format!("flood-{at}")), "").unwrap();
+        }
+    }
+
+    #[test]
+    fn the_published_index_holds_a_directory_made_while_it_was_built_and_follows_it() {
+        let tree = tempfile::tempdir().unwrap();
+        std::fs::write(tree.path().join("a.txt"), "a").unwrap();
+        let languages =
+            WritesMidWalk::languages(tree.path(), "a.txt", vec!["late/b.txt".to_owned()]);
+
+        let (served, watcher) = served_from(tree.path(), languages, || ());
+
+        let indexed = served.read().unwrap();
+        assert_eq!(indexed.watch, Watch::Following);
+        assert!(indexed.engine.index().entry("late/b.txt").is_some());
+        drop(indexed);
+        let mut watcher = watcher.unwrap();
+        std::fs::write(tree.path().join("late/c.txt"), "c").unwrap();
+        let seen = seen_soon(&mut watcher, "late/c.txt");
+        assert!(seen.iter().any(|path| path == "late/c.txt"), "{seen:?}");
+    }
+
+    #[test]
+    fn a_restarted_watch_takes_in_what_changed_while_it_was_down_or_restarting_and_follows_it() {
+        let tree = tempfile::tempdir().unwrap();
+        std::fs::write(tree.path().join("a.txt"), "a").unwrap();
+        let languages = WritesMidWalk::languages(
+            tree.path(),
+            "late/b.txt",
+            vec!["late/deeper/c.txt".to_owned()],
+        );
+        let (served, watcher) = served_from(tree.path(), languages, || ());
+        drop(watcher);
         std::fs::create_dir(tree.path().join("late")).unwrap();
-        std::fs::write(tree.path().join("late/b.go"), "package late\n").unwrap();
+        std::fs::write(tree.path().join("late/b.txt"), "b").unwrap();
 
-        let mut watcher = crate::watch::start(&served).unwrap();
-        std::fs::write(
-            tree.path().join("late/b.go"),
-            "package late\n\nfunc B() {}\n",
-        )
-        .unwrap();
+        let watcher = served.refresh_watched().unwrap();
+        let mut watcher = crate::watch::caught_up(&served, watcher).unwrap();
 
+        let indexed = served.read().unwrap();
+        assert!(indexed.engine.index().entry("late/b.txt").is_some());
+        assert!(indexed.engine.index().entry("late/deeper/c.txt").is_some());
+        drop(indexed);
+        std::fs::write(tree.path().join("late/deeper/d.txt"), "d").unwrap();
+        let seen = seen_soon(&mut watcher, "late/deeper/d.txt");
+        assert!(
+            seen.iter().any(|path| path == "late/deeper/d.txt"),
+            "{seen:?}"
+        );
+    }
+
+    #[test]
+    fn a_directory_made_while_the_watcher_dropped_changes_is_published_and_followed() {
+        let tree = tempfile::tempdir().unwrap();
+        std::fs::write(tree.path().join("a.txt"), "a").unwrap();
+
+        let (served, watcher) = served_from(tree.path(), Vec::new(), || {
+            flood(tree.path());
+            std::fs::create_dir(tree.path().join("late")).unwrap();
+            std::fs::write(tree.path().join("late/b.txt"), "b").unwrap();
+        });
+
+        let indexed = served.read().unwrap();
+        assert_eq!(indexed.watch, Watch::Following);
+        assert!(indexed.engine.index().entry("late/b.txt").is_some());
+        drop(indexed);
+        let mut watcher = watcher.unwrap();
+        std::fs::write(tree.path().join("late/c.txt"), "c").unwrap();
+        let seen = seen_soon(&mut watcher, "late/c.txt");
+        assert!(seen.iter().any(|path| path == "late/c.txt"), "{seen:?}");
+    }
+
+    /// Every path `watcher` hands over until it names `path`, or 10 s pass.
+    fn seen_soon(watcher: &mut Watcher, path: &str) -> Vec<String> {
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut seen = Vec::new();
-        while Instant::now() < deadline && !seen.iter().any(|path| path == "late/b.go") {
-            let changes = watcher.wait(Duration::from_millis(500)).unwrap();
-            seen.extend(changes);
+        while Instant::now() < deadline && !seen.iter().any(|seen| seen == path) {
+            seen.extend(watcher.wait(Duration::from_millis(500)).unwrap());
         }
-        assert!(seen.iter().any(|path| path == "late/b.go"), "{seen:?}");
+        seen
     }
 
     #[test]

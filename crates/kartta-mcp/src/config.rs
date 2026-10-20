@@ -25,8 +25,8 @@ pub struct Config {
     /// How many threads a build and every query run on, as [`BuildOptions::threads`] takes it.
     pub threads: Option<NonZeroUsize>,
     /// Whether a built index follows its tree through the operating system's change notifications, as a
-    /// [`kartta_fs::Watcher`] reports them, and refreshes itself from each change. Without it, the `refresh` tool
-    /// alone takes a change in.
+    /// [`kartta::Watcher`] started before the build walks the tree reports them, and refreshes itself from each change.
+    /// Without it, the `refresh` tool alone takes a change in.
     pub watch: bool,
 }
 
