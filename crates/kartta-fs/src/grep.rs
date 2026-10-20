@@ -8,7 +8,7 @@ use rayon::prelude::*;
 use crate::content_index::Narrowed;
 use crate::filter::Filter;
 use crate::index::{Index, node_sized};
-use crate::list::is_below;
+use crate::list::{excluded_ancestor, is_below};
 use crate::matches::{Failure, Line, LineKind, MatchedFile, Matches, Tally, Total};
 use crate::patterns::Patterns;
 use crate::scan::{Found, Scanned, Scanner};
@@ -292,7 +292,8 @@ impl Index {
         if let Some(exclude) = options.exclude
             && !positions.is_empty()
         {
-            planner.excluded_dir = excluded_ancestor(paths.get(positions.start), exclude);
+            planner.excluded_dir =
+                excluded_ancestor(paths.get(positions.start), exclude).map(str::to_owned);
         }
         for at in positions {
             planner.plan(at, paths.get(at));
@@ -377,13 +378,6 @@ impl Planner<'_, '_> {
             self.candidates.push(node_sized(at));
         }
     }
-}
-
-fn excluded_ancestor(path: &str, exclude: &Filter) -> Option<String> {
-    path.match_indices('/')
-        .map(|(end, _)| &path[..end])
-        .find(|dir| exclude.matches(dir))
-        .map(str::to_owned)
 }
 
 struct Fold<'a> {
@@ -532,22 +526,6 @@ mod tests {
         );
         assert_eq!(candidates, [3]);
         assert_eq!(tally.excluded, 1);
-    }
-
-    #[test]
-    fn the_shallowest_excluded_ancestor_is_the_one_found() {
-        let exclude = Filter::new(["a", "a/b"]).expect("compile");
-
-        assert_eq!(
-            excluded_ancestor("a/b/c.rs", &exclude).as_deref(),
-            Some("a")
-        );
-        assert_eq!(excluded_ancestor("x/b/c.rs", &exclude), None);
-        assert_eq!(
-            excluded_ancestor("a", &exclude),
-            None,
-            "an entry is not its own ancestor"
-        );
     }
 
     #[test]

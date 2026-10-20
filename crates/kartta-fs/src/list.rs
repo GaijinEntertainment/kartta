@@ -428,6 +428,12 @@ pub(crate) fn is_below(path: &str, dir: &str) -> bool {
         .is_some_and(|below| below.starts_with('/'))
 }
 
+pub(crate) fn excluded_ancestor<'p>(path: &'p str, exclude: &Filter) -> Option<&'p str> {
+    path.match_indices('/')
+        .map(|(end, _)| &path[..end])
+        .find(|dir| exclude.matches(dir))
+}
+
 fn is_at_depth_bound(below: &str, depth: NonZeroUsize) -> bool {
     below.matches('/').count() + 1 >= depth.get()
 }
@@ -442,6 +448,19 @@ mod tests {
             size_of::<Listed<'_>>(),
             3 * size_of::<usize>(),
             "a listing holds one of these per entry, so every word is paid per listed entry"
+        );
+    }
+
+    #[test]
+    fn the_shallowest_excluded_ancestor_is_the_one_found() {
+        let exclude = Filter::new(["a", "a/b"]).expect("compile");
+
+        assert_eq!(excluded_ancestor("a/b/c.rs", &exclude), Some("a"));
+        assert_eq!(excluded_ancestor("x/b/c.rs", &exclude), None);
+        assert_eq!(
+            excluded_ancestor("a", &exclude),
+            None,
+            "an entry is not its own ancestor"
         );
     }
 }
