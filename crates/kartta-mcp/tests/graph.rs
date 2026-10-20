@@ -957,6 +957,29 @@ fn find_callers_kept_to_one_role_still_counts_every_call_of_the_name_it_could_no
 }
 
 #[test]
+fn find_references_counts_the_calls_find_callers_could_not_bind() {
+    let answers = answers_over_shared_method_names(&[(
+        "find_references",
+        json!({"name": "CancelToken::cancel"}),
+    )]);
+
+    assert_eq!(
+        answers,
+        [lines(&[
+            r#"<references of="CancelToken::cancel" matches="1">"#,
+            concat!(
+                r#"<match lang="rust" of="cancel" qn="CancelToken::cancel" loc="src/cancel.rs:4" kind="method" "#,
+                r#"count="0" ambiguous="1">no recorded site - resolved calls can omit dynamic or unresolved ones, "#,
+                "and uses other than calls are recorded only where the graph records them, so this does not show ",
+                "that nothing uses the symbol; a call through a value of the owner's type resolves only where the ",
+                "graph can name that type, so some of those calls can be missing</match>",
+            ),
+            "</references>",
+        ])]
+    );
+}
+
+#[test]
 fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
     let answers = answers(&[
         ("find_callees", json!({"name": "main"})),

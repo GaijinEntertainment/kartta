@@ -3288,6 +3288,14 @@ fn callers_of_a_member_count_the_calls_through_a_receiver_its_name_s_other_membe
         (0, 1),
         "a walk over callees counts the call it could not bind as unresolved"
     );
+    let references = graph
+        .references("CancelToken::cancel", SiteQuery::new(10))
+        .expect("the method is defined");
+    assert_eq!(
+        (references.total, references.ambiguous),
+        (0, 2),
+        "its references count the calls its callers count"
+    );
 }
 
 #[test]
@@ -3317,6 +3325,15 @@ fn callers_of_a_free_function_count_its_name_s_ambiguous_calls_a_free_function_c
         ambiguous_callers(&graph(&formatters()), "format", 1),
         (Vec::new(), 2),
         "no member of the name answers a call through a receiver, so the free functions may"
+    );
+    let free = graph(&formatters());
+    let references = free
+        .references("format", SiteQuery::new(10))
+        .expect("the function is defined");
+    assert_eq!(
+        (references.total, references.ambiguous),
+        (0, 2),
+        "the references of a free function count the calls its callers count"
     );
     assert_eq!(
         ambiguous_callers(&graph(&with_members), "format", 1),
