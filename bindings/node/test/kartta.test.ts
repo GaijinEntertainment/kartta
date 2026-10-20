@@ -1,37 +1,52 @@
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import path from 'node:path';
 
 import {expect, onTestFinished, test} from 'vite-plus/test';
 
 import {Kartta, KarttaError} from '../src/kartta.ts';
 
 function tree(files: number): string {
-	const root = mkdtempSync(join(tmpdir(), 'kartta-node-'));
-	onTestFinished(() => rmSync(root, {recursive: true, force: true}));
+	const root = mkdtempSync(path.join(tmpdir(), 'kartta-node-'));
+	onTestFinished(() => {
+		rmSync(root, {recursive: true, force: true});
+	});
 	for (let file = 0; file < files; file += 1) {
-		writeFileSync(join(root, `f${file}.go`), `package main\n\nfunc f${file}() {\n\tf${(file + 1) % files}()\n}\n`);
+		writeFileSync(path.join(root, `f${file}.go`), `package main\n\nfunc f${file}() {\n\tf${(file + 1) % files}()\n}\n`);
 	}
 	return root;
 }
 
 function open(files = 1): Kartta {
 	const kartta = Kartta.open(tree(files));
-	onTestFinished(() => kartta.close());
+	onTestFinished(() => {
+		kartta.close();
+	});
 	return kartta;
 }
 
+async function settled(promise: Promise<unknown>): Promise<unknown> {
+	try {
+		return await promise;
+	} catch (error) {
+		if (error instanceof KarttaError) {
+			return error;
+		}
+		throw error;
+	}
+}
+
 async function code(promise: Promise<unknown>): Promise<string> {
-	return promise.then(
-		() => 'ok',
-		(error: unknown) => (error instanceof KarttaError ? error.code : Promise.reject(error)),
-	);
+	const outcome = await settled(promise);
+	return outcome instanceof KarttaError ? outcome.code : 'ok';
 }
 
 async function walking(kartta: Kartta, signal?: AbortSignal): Promise<{built: Promise<unknown>}> {
 	const built = kartta.build({}, signal === undefined ? {} : {signal});
 	let state = await code(kartta.stats());
 	while (state === 'not_built') {
+		// Whether to poll again turns on the answer before, so the polls run one at a time.
+		// oxlint-disable-next-line no-await-in-loop
 		state = await code(kartta.stats());
 	}
 	if (state !== 'building') {
@@ -40,21 +55,8 @@ async function walking(kartta: Kartta, signal?: AbortSignal): Promise<{built: Pr
 	return {built};
 }
 
-async function cancelledUnlessFinished(built: Promise<unknown>, files: number): Promise<KarttaError | undefined> {
-	const outcome = await built.then(
-		(answer) => answer,
-		(error: unknown) => (error instanceof KarttaError ? error : Promise.reject(error)),
-	);
-	if (outcome instanceof KarttaError) {
-		expect(outcome.code).toBe('build_cancelled');
-		return outcome;
-	}
-	expect(outcome).toMatchObject({entries: files});
-	return undefined;
-}
-
 test('open refuses a root that is not a directory, with invalid_root', () => {
-	const missing = join(tree(1), 'missing');
+	const missing = path.join(tree(1), 'missing');
 
 	expect(() => Kartta.open(missing)).toThrow(expect.objectContaining({name: 'KarttaError', code: 'invalid_root'}));
 });
@@ -91,21 +93,23 @@ test('a signal aborted while the build walks cancels it, the reason its cause', 
 
 	await expect(built).rejects.toMatchObject({name: 'KarttaError', code: 'build_cancelled', cause: reason});
 	expect(await code(kartta.stats())).toBe('not_built');
-	expect((await kartta.build()).entries).toBe(3000);
+	const rebuilt = await kartta.build();
+	expect(rebuilt.entries).toBe(3000);
 });
 
 test('an abort right after the call cancels the build, entered or not, unless it finished', async () => {
 	const kartta = open(3000);
 	const controller = new AbortController();
 	const reason = new Error('the caller gave up');
+	const sameReason: unknown = expect.toSatisfy((cause) => cause === reason);
 
 	const built = kartta.build({}, {signal: controller.signal});
 	controller.abort(reason);
 
-	const cancelled = await cancelledUnlessFinished(built, 3000);
-	if (cancelled !== undefined) {
-		expect(cancelled.cause).toBe(reason);
-	}
+	expect(await settled(built)).toBeOneOf([
+		expect.objectContaining({entries: 3000}),
+		expect.objectContaining({code: 'build_cancelled', cause: sameReason}),
+	]);
 });
 
 test('close cancels the build in flight, a closed error its cause', async () => {
@@ -114,11 +118,11 @@ test('close cancels the build in flight, a closed error its cause', async () => 
 
 	kartta.close();
 
-	const error = await built.catch((rejection: unknown) => rejection);
-	expect(error).toBeInstanceOf(KarttaError);
-	expect(error).toHaveProperty('code', 'build_cancelled');
-	expect(error).toHaveProperty('cause', expect.any(KarttaError));
-	expect(error).toHaveProperty('cause.code', 'closed');
+	const outcome = await settled(built);
+	expect(outcome).toBeInstanceOf(KarttaError);
+	expect(outcome).toHaveProperty('code', 'build_cancelled');
+	expect(outcome).toHaveProperty('cause', expect.any(KarttaError));
+	expect(outcome).toHaveProperty('cause.code', 'closed');
 });
 
 test('close right after a build call cancels it, entered or not, unless it finished', async () => {
@@ -127,7 +131,10 @@ test('close right after a build call cancels it, entered or not, unless it finis
 	const built = kartta.build();
 	kartta.close();
 
-	await cancelledUnlessFinished(built, 3000);
+	expect(await settled(built)).toBeOneOf([
+		expect.objectContaining({entries: 3000}),
+		expect.objectContaining({code: 'build_cancelled'}),
+	]);
 });
 
 test('close right after a build through call cancels it too, unless it finished', async () => {
@@ -136,7 +143,10 @@ test('close right after a build through call cancels it too, unless it finished'
 	const built = kartta.call('build');
 	kartta.close();
 
-	await cancelledUnlessFinished(built, 3000);
+	expect(await settled(built)).toBeOneOf([
+		expect.objectContaining({entries: 3000}),
+		expect.objectContaining({code: 'build_cancelled'}),
+	]);
 });
 
 test("a build through call takes an id of the handle's, so an abort stops another", async () => {
@@ -177,7 +187,7 @@ test('every call after close rejects with closed, and closing again does nothing
 		kartta.grep({patterns: ['f0']}),
 		kartta.call('cancel'),
 	];
-	expect(await Promise.all(calls.map(code))).toStrictEqual(Array(calls.length).fill('closed'));
+	expect(await Promise.all(calls.map(async (call) => code(call)))).toStrictEqual(Array.from(calls, () => 'closed'));
 });
 
 test('queries run side by side and each answers as it does alone', async () => {
@@ -192,6 +202,8 @@ test('queries run side by side and each answers as it does alone', async () => {
 	];
 	const alone: unknown[] = [];
 	for (const query of queries) {
+		// Each query must answer alone, so the next starts once it has.
+		// oxlint-disable-next-line no-await-in-loop
 		alone.push(await query());
 	}
 
