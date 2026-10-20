@@ -117,7 +117,7 @@ impl Index {
         root: impl AsRef<Path>,
         options: &BuildOptions,
     ) -> Result<BuildOutcome, BuildError> {
-        Self::build_walking(root.as_ref(), options, None, None)
+        Self::build_walking(root.as_ref(), options, Asked::new(None, None))
     }
 
     /// Walks `root` and builds the index, handing `visitor` the content of each text file it wants, read during the
@@ -141,7 +141,7 @@ impl Index {
         visitor: Option<&dyn ContentVisitor>,
         cancel: Option<&CancelToken>,
     ) -> Result<BuildOutcome, BuildError> {
-        Self::build_walking(root.as_ref(), options, visitor, cancel)
+        Self::build_walking(root.as_ref(), options, Asked::new(visitor, cancel))
     }
 
     /// Walks the tree again and makes this index what a build of it would make now, handing `visitor` each wanted text
@@ -179,8 +179,9 @@ impl Index {
         visitor: Option<&dyn ContentVisitor>,
         cancel: Option<&CancelToken>,
     ) -> Result<RefreshOutcome, BuildError> {
+        let asked = Asked::new(visitor, cancel);
         let (BuildOutcome { index, errors }, retired) =
-            self.counting_handed(|index, handed| index.walk_again(visitor, cancel, handed))?;
+            self.counting_handed(|index, handed| index.walk_again(asked, handed))?;
         let mut changed = ChangedFiles::default();
         changed.add_between(Held::all(self), Held::all(&index));
         *self = index;
@@ -238,16 +239,14 @@ impl Index {
 
     fn walk_again(
         &self,
-        visitor: Option<&dyn ContentVisitor>,
-        cancel: Option<&CancelToken>,
+        asked: Asked<'_>,
         handed: &AtomicU32,
     ) -> Result<(BuildOutcome, Vec<Range<u32>>), BuildError> {
         let options = self.rebuild_options();
-        let can_carry = visitor.is_some() || self.content_storage.is_some();
+        let can_carry = asked.visitor.is_some() || self.content_storage.is_some();
         let previous = can_carry.then(|| Previous::of(self)).flatten();
         let walking = Walking {
-            visitor,
-            cancel,
+            asked,
             first_content_id: self.next_content_id,
             handed: Some(handed),
             pool: self.pool.clone(),
@@ -265,12 +264,10 @@ impl Index {
     fn build_walking(
         root: &Path,
         options: &BuildOptions,
-        visitor: Option<&dyn ContentVisitor>,
-        cancel: Option<&CancelToken>,
+        asked: Asked<'_>,
     ) -> Result<BuildOutcome, BuildError> {
         let walking = Walking {
-            visitor,
-            cancel,
+            asked,
             first_content_id: 0,
             handed: None,
             pool: options.threads.map(thread_pool).transpose()?,
@@ -288,8 +285,7 @@ impl Index {
         walking: Walking<'_>,
     ) -> Result<BuildOutcome, BuildError> {
         let Walking {
-            visitor,
-            cancel,
+            asked: Asked { visitor, cancel },
             first_content_id,
             handed,
             pool,
@@ -1070,9 +1066,20 @@ struct Base {
     pool: Option<Arc<ThreadPool>>,
 }
 
-struct Walking<'a> {
+#[derive(Clone, Copy)]
+struct Asked<'a> {
     visitor: Option<&'a dyn ContentVisitor>,
     cancel: Option<&'a CancelToken>,
+}
+
+impl<'a> Asked<'a> {
+    const fn new(visitor: Option<&'a dyn ContentVisitor>, cancel: Option<&'a CancelToken>) -> Self {
+        Self { visitor, cancel }
+    }
+}
+
+struct Walking<'a> {
+    asked: Asked<'a>,
     first_content_id: u32,
     handed: Option<&'a AtomicU32>,
     pool: Option<Arc<ThreadPool>>,
