@@ -15,7 +15,7 @@ use crate::resolving::{Graphs, Resolving};
 use crate::source::{FileLines, Source, SourceOptions};
 use crate::stats::{EngineStats, LanguageFiles};
 
-const ENTRIES_PER_PART: usize = 150;
+const ENTRIES_PER_PART: usize = 30;
 const FEWEST_PARTS: usize = 50;
 
 /// A tree's file index and the code graph of its languages, built from one walk that reads each source file once.
@@ -299,7 +299,7 @@ impl Engine {
     }
 
     /// The most parts [`Engine::refresh_paths`] walks apart before it refreshes the whole tree in their place: one for
-    /// every 150 entries the index holds, since a whole refresh costs a pass over every entry, and never fewer than 50.
+    /// every 30 entries the index holds, since a whole refresh costs a pass over every entry, and never fewer than 50.
     #[must_use]
     pub fn refresh_paths_limit(&self) -> usize {
         (self.index.len() / ENTRIES_PER_PART).max(FEWEST_PARTS)

@@ -234,6 +234,23 @@ fn named_paths_that_come_to_more_parts_than_the_limit_refresh_the_whole_tree() {
 }
 
 #[test]
+fn named_paths_walk_apart_up_to_one_part_for_every_30_entries() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    let notes: Vec<String> = (0..1_530).map(|at| format!("notes/{at:04}.txt")).collect();
+    for path in &notes {
+        write(tree.path(), path, "");
+    }
+    let mut engine = build(tree.path(), true);
+    let parts = engine.index().len() / 30;
+
+    let refresh = refreshed(engine.refresh_paths(notes[..parts].iter().map(String::as_str), None));
+
+    assert_eq!(engine.refresh_paths_limit(), parts);
+    assert_eq!(refresh.widened, None);
+    assert_eq!(refresh.index.walked.len(), parts);
+}
+
+#[test]
 fn paths_past_the_limit_inside_an_ignored_directory_walk_only_that_directory() {
     let tree = settled_tree();
     write(tree.path(), ".gitignore", "target/\n");
