@@ -241,8 +241,10 @@ impl Graph {
     /// A bare name selects the definitions of that name. A qualified one, `Owner.parse` or `ns::Owner::parse`,
     /// selects every definition whose qualified name equals it or ends with it at a separator, and every definition
     /// of its last segment whose own qualified name, of two segments or more, it ends with: `ns::Owner::parse` selects
-    /// a member qualified as `Owner::parse`. The separators are those the languages qualify with: `.`, `:`, `\`, `#`
-    /// and `/`.
+    /// a member qualified as `Owner::parse`. Its last segment is the part after its last separator; where neither the
+    /// name nor that part selects a definition, it is each longer part after a separator, so a name whose own last
+    /// part holds a separator, `das::operator/`, `UIImage.operator . nineGrid :=` or `Kartta.#handle`, selects the
+    /// definition it names. The separators are those the languages qualify with: `.`, `:`, `\`, `#` and `/`.
     #[must_use]
     pub fn definitions(&self, name: &str, from: Option<&str>, limit: usize) -> Definitions<'_> {
         if limit == 0 {
@@ -280,8 +282,6 @@ impl Graph {
     }
 
     pub(crate) fn selected<'a>(&'a self, name: &'a str) -> impl Iterator<Item = SymbolAt> + 'a {
-        let last = last_segment(name);
-        let qualified = last != name;
         let at_separator =
             |head: Option<&str>| head.is_some_and(|head| head.ends_with(QUALIFIER_SEPARATORS));
         let named = |text: &str| {
@@ -289,19 +289,21 @@ impl Graph {
                 .get(text)
                 .map_or(&[][..], |name| self.named(name))
         };
-
-        let suffixed = qualified.then(|| {
-            named(last).iter().copied().filter(move |&at| {
+        let suffixed = move |tail: &'a str| {
+            named(tail).iter().copied().filter(move |&at| {
                 let own = self.strings.resolve(self.sym(at).qualified_name);
                 own == name
                     || at_separator(own.strip_suffix(name))
-                    || (own != last && at_separator(name.strip_suffix(own)))
+                    || (own != tail && at_separator(name.strip_suffix(own)))
             })
-        });
-        named(name)
+        };
+
+        let mut tails = tails(name);
+        let last = named(name)
             .iter()
             .copied()
-            .chain(suffixed.into_iter().flatten())
+            .chain(tails.next().into_iter().flat_map(suffixed));
+        or_if_none(last, tails.flat_map(suffixed))
     }
 
     pub(crate) fn named(&self, name: Str) -> &[SymbolAt] {
@@ -967,6 +969,28 @@ pub(crate) fn last_segment(written: &str) -> &str {
         .rsplit(QUALIFIER_SEPARATORS)
         .next()
         .unwrap_or(written)
+}
+
+/// The parts of `written` after each of its separators, the shortest first: the names a qualified name can end with.
+pub(crate) fn tails(written: &str) -> impl Iterator<Item = &str> {
+    written
+        .rmatch_indices(QUALIFIER_SEPARATORS)
+        .map(move |(at, separator)| &written[at + separator.len()..])
+}
+
+/// The items of `first`, or those of `otherwise` where `first` yields none.
+pub(crate) fn or_if_none<T>(
+    mut first: impl Iterator<Item = T>,
+    mut otherwise: impl Iterator<Item = T>,
+) -> impl Iterator<Item = T> {
+    let mut found = false;
+    std::iter::from_fn(move || {
+        if let Some(item) = first.next() {
+            found = true;
+            return Some(item);
+        }
+        if found { None } else { otherwise.next() }
+    })
 }
 
 fn qualified_tail(written: &str) -> Option<&str> {
