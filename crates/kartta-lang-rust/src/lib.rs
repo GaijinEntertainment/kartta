@@ -72,7 +72,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
+    Conventions, DocComments, Language, NamespaceCalls, OwnMembers, RawExtraction, Repository,
+    Resolver,
 };
 
 use crate::resolve::Crates;
@@ -114,6 +115,7 @@ impl Language for Rust {
     fn conventions(&self) -> Conventions {
         let mut conventions = Conventions::default();
         conventions.own_members = OwnMembers::Unreached;
+        conventions.namespace_calls = NamespaceCalls::Unbound;
         conventions.owner_chain_separator = Some("::");
         conventions.runtime_methods = runtime::METHODS;
         conventions.own_type_receivers = Some(&["other"]);
