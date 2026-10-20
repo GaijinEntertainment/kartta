@@ -24,5 +24,9 @@ try {
   params)` reaches the wire untyped.
 
 The addon is a native library per platform: macOS on arm64, and Linux with glibc on x64 and arm64. Each ships in a
-package of its own, `kartta-<target>`, which this package loads; a checkout builds the host's with `npm run build`,
+package of its own, `kartta-<target>`, which this package loads; a checkout builds the host's with `vp run build`,
 which needs the Rust toolchain `rust-toolchain.toml` pins.
+
+A checkout's toolchain is the `vite-plus` the lockfile pins, installed by `npm ci --ignore-scripts`: `vp fmt` formats,
+`vp lint` lints, `vp run typecheck` type-checks and `vp test` runs the tests, which load the addon `vp run build` built.
+Without a global `vp`, `npx vp` runs the same one.
