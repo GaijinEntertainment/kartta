@@ -1305,8 +1305,10 @@ impl Server {
                        may call it, counted for the symbol alone whatever hops and role say, below_confidence= the \
                        callers and files the floor dropped, and turned_away= with truncated=true when the node cap \
                        (500) stopped the walk. A match without callers or file_scope records states why. With \
-                       ambiguous=, it states first that no call binds it while those calls may, which grep finds. For \
-                       a function, a method, or a macro, it then names an entry point, dead code, or dynamic dispatch. \
+                       below_confidence=, it states only how many callers bind below the confidence floor, which \
+                       min_confidence \"any\" lists. Otherwise, with ambiguous=, it states first that no call binds it \
+                       while those calls may, which grep finds. For a function, a method, or a macro, it then names an \
+                       entry point, dead code, or dynamic dispatch. \
                        A field's match reads \"a field is read and written, not called; find_references lists its \
                        reads and writes\", and an enum variant's \"the graph records no call or other use of this \
                        enum-variant; grep searches the text for its name\". For any other kind, it states that no \
