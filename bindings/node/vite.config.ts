@@ -20,5 +20,9 @@ export default defineConfig({
 			typeAware: true,
 			typeCheck: true,
 		},
+		rules: {
+			// Kartta, the addon's handle, AbortSignal and Promise are mutable types, and the wire types mirror plain JSON.
+			'typescript/prefer-readonly-parameter-types': 'off',
+		},
 	},
 });
