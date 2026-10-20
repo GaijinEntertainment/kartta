@@ -19,13 +19,13 @@ use common::{tree, write};
 use kartta_fs::{BuildOptions, Content, ContentVisitor, EntryKind, Index, Watcher};
 
 fn build(root: &Path) -> Index {
-    build_with(root, &BuildOptions::default())
-}
-
-fn build_with(root: &Path, options: &BuildOptions) -> Index {
-    let outcome = Index::build(root, options).expect("build the index");
+    let outcome = Index::build(root, &BuildOptions::default()).expect("build the index");
     assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
     outcome.index
+}
+
+fn watched(root: &Path) -> (Index, Watcher) {
+    watched_with(root, &BuildOptions::default(), None)
 }
 
 fn watched_with(
@@ -166,8 +166,7 @@ fn more_notifications_than_the_queue_holds_while_the_build_walks_lose_the_batch(
 #[test]
 fn a_file_written_after_the_start_is_named_by_its_path() {
     let dir = tree(&[("src/a.rs", "a")]);
-    let index = build(dir.path());
-    let mut watcher = Watcher::new(&index).expect("start watching");
+    let (_, mut watcher) = watched(dir.path());
 
     write(dir.path(), "src/b.rs", "b");
 
@@ -178,8 +177,7 @@ fn a_file_written_after_the_start_is_named_by_its_path() {
 #[test]
 fn a_file_made_in_a_directory_made_after_the_start_is_seen_too() {
     let dir = tree(&[("a.rs", "a")]);
-    let mut index = build(dir.path());
-    let mut watcher = Watcher::new(&index).expect("start watching");
+    let (mut index, mut watcher) = watched(dir.path());
 
     fs::create_dir(dir.path().join("late")).expect("make a directory");
     follow(&mut watcher, &mut index);
@@ -199,8 +197,7 @@ fn refreshing_with_what_the_watcher_hands_over_keeps_the_index_a_build_would_mak
         ("old/deep/y.rs", "e"),
         ("from.rs", "f"),
     ]);
-    let mut index = build(dir.path());
-    let mut watcher = Watcher::new(&index).expect("start watching");
+    let (mut index, mut watcher) = watched(dir.path());
 
     fs::remove_file(dir.path().join("gone.rs")).expect("remove");
     write(dir.path(), "src/edit.rs", "changed");
@@ -215,8 +212,7 @@ fn refreshing_with_what_the_watcher_hands_over_keeps_the_index_a_build_would_mak
 #[test]
 fn what_the_watcher_hands_over_from_a_pruned_directory_stays_out_of_the_index() {
     let dir = tree(&[("a.rs", "a")]);
-    let mut index = build(dir.path());
-    let mut watcher = Watcher::new(&index).expect("start watching");
+    let (mut index, mut watcher) = watched(dir.path());
 
     write(dir.path(), ".vscode/settings.json", "{}");
     write(dir.path(), "b.rs", "b");
@@ -228,46 +224,47 @@ fn what_the_watcher_hands_over_from_a_pruned_directory_stays_out_of_the_index() 
 }
 
 #[test]
-fn a_watcher_covers_every_directory_the_index_held_at_its_start() {
+fn every_directory_the_build_kept_is_watched() {
     let dir = tree(&[("a.rs", "a"), ("src/deep/b.rs", "b")]);
-    let index = build(dir.path());
-    let mut watcher = Watcher::new(&index).expect("start watching");
+    let (_, mut watcher) = watched(dir.path());
 
-    let covered = watcher.cover(&index).expect("cover the index");
+    write(dir.path(), "src/deep/c.rs", "c");
 
-    assert!(
-        covered.is_empty(),
-        "{:?}",
-        covered.iter().map(String::as_str).collect::<Vec<_>>()
-    );
+    let seen = wait_for(&mut watcher, "src/deep/c.rs");
+    assert!(seen.iter().any(|path| path == "src/deep/c.rs"), "{seen:?}");
 }
 
-#[cfg(target_os = "linux")]
 #[test]
-fn a_directory_a_refresh_took_in_after_the_start_is_watched_once_covered() {
+fn a_watched_refresh_hands_over_what_changed_while_it_walked_and_watches_what_it_took_in() {
     let dir = tree(&[("a.rs", "a")]);
     let mut index = build(dir.path());
     write(dir.path(), "early/deep/b.rs", "b");
-    let mut watcher = Watcher::new(&index).expect("start watching");
-    index.refresh(None, None).expect("refresh the tree");
-    write(dir.path(), "early/c.rs", "c");
+    let writes = [("early/deep/c.rs", "c"), ("early/new/d.rs", "d")];
+    let hook = WritesMidWalk::new(dir.path(), "early/deep/b.rs", &writes);
 
-    let covered = watcher.cover(&index).expect("cover the index");
+    let (outcome, watcher) = index
+        .refresh_watched(Some(&hook), None)
+        .expect("refresh the tree");
+    let mut watcher = watcher.expect("start watching");
+    let handed = watcher.drain().expect("drain");
     index
-        .refresh_paths(covered.iter().map(String::as_str), None, None)
-        .expect("refresh what was covered");
-    write(dir.path(), "early/deep/b.rs", "changed");
+        .refresh_paths(handed.iter().map(String::as_str), None, None)
+        .expect("refresh what was handed over");
 
-    assert_eq!(
-        covered.iter().map(String::as_str).collect::<Vec<_>>(),
-        ["early"]
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    assert!(
+        handed.iter().any(|path| path == "early/deep/c.rs"),
+        "{handed:?}"
     );
-    assert!(index.entry("early/c.rs").is_some());
-    let seen = wait_for(&mut watcher, "early/deep/b.rs");
+    assert_eq!(shown(&index), shown(&build(dir.path())));
+    write(dir.path(), "early/deep/b.rs", "changed");
+    write(dir.path(), "early/new/e.rs", "e");
+    let seen = wait_for(&mut watcher, "early/new/e.rs");
     assert!(
         seen.iter().any(|path| path == "early/deep/b.rs"),
         "{seen:?}"
     );
+    assert!(seen.iter().any(|path| path == "early/new/e.rs"), "{seen:?}");
 }
 
 #[cfg(target_os = "linux")]
@@ -277,8 +274,7 @@ fn a_directory_made_after_the_start_under_a_pruned_name_is_not_watched() {
     let mut options = BuildOptions::default();
     options.pruned_names = kartta_fs::PrunedNames::builtin()
         .union(&kartta_fs::PrunedNames::new(["node_modules"]).expect("a name"));
-    let mut index = build_with(dir.path(), &options);
-    let mut watcher = Watcher::new(&index).expect("start watching");
+    let (mut index, mut watcher) = watched_with(dir.path(), &options, None);
 
     fs::create_dir(dir.path().join(".idea")).expect("make a directory");
     fs::create_dir_all(dir.path().join("web/node_modules")).expect("make a directory");
@@ -301,8 +297,7 @@ fn a_directory_made_after_the_start_under_a_pruned_name_is_not_watched() {
 #[test]
 fn a_watched_directory_renamed_to_a_pruned_name_is_no_longer_watched() {
     let dir = tree(&[("src/deep/a.rs", "a")]);
-    let mut index = build(dir.path());
-    let mut watcher = Watcher::new(&index).expect("start watching");
+    let (mut index, mut watcher) = watched(dir.path());
 
     fs::rename(dir.path().join("src"), dir.path().join(".idea")).expect("rename");
     follow(&mut watcher, &mut index);
@@ -323,8 +318,7 @@ fn a_watched_directory_renamed_to_a_pruned_name_is_no_longer_watched() {
 #[test]
 fn a_tree_nobody_touches_hands_over_nothing_a_refresh_would_change() {
     let dir = tree(&[("a.rs", "a"), ("src/b.rs", "b")]);
-    let mut index = build(dir.path());
-    let mut watcher = Watcher::new(&index).expect("start watching");
+    let (mut index, mut watcher) = watched(dir.path());
 
     let changes = watcher.wait(Duration::from_millis(300)).expect("wait");
     let outcome = index
@@ -354,8 +348,7 @@ fn a_root_spelled_through_the_data_volume_is_watched_by_its_firmlinked_path() {
     let canonical = fs::canonicalize(dir.path()).expect("canonical path");
     let on_data =
         Path::new("/System/Volumes/Data").join(canonical.strip_prefix("/").expect("absolute"));
-    let index = build(&on_data);
-    let mut watcher = Watcher::new(&index).expect("start watching");
+    let (_, mut watcher) = watched(&on_data);
 
     write(dir.path(), "src/b.rs", "b");
 
@@ -371,8 +364,7 @@ fn a_directory_the_rules_ignore_is_not_watched() {
         ("build/old.o", ""),
         ("a.rs", "a"),
     ]);
-    let index = build(dir.path());
-    let mut watcher = Watcher::new(&index).expect("start watching");
+    let (_, mut watcher) = watched(dir.path());
 
     write(dir.path(), "build/new.o", "");
     write(dir.path(), "b.rs", "b");

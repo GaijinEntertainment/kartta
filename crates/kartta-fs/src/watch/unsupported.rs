@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{Found, WatchError};
-use crate::index::Index;
 use crate::pruned::PrunedNames;
 
 #[derive(Debug)]
@@ -28,10 +27,6 @@ impl Backend {
     }
 
     pub(super) fn descended(&mut self) -> Result<(), WatchError> {
-        match *self {}
-    }
-
-    pub(super) fn cover(&self, _index: &Index, _found: &mut Found) -> Result<(), WatchError> {
         match *self {}
     }
 }

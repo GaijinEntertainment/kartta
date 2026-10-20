@@ -8,7 +8,6 @@ use std::{io, iter};
 use notify::{Config, EventKindMask, RecommendedWatcher, RecursiveMode, Watcher as _};
 
 use super::{Found, WatchError, relative, start_error};
-use crate::index::Index;
 use crate::pruned::PrunedNames;
 
 // constraint: notifications wait here while the caller walks the tree or refreshes it, so they are bounded; past this
@@ -99,16 +98,6 @@ impl Backend {
         reason = "one signature for every platform, and the walk watched nothing, so no watch can have failed"
     )]
     pub(super) const fn descended(&mut self) -> Result<(), WatchError> {
-        Ok(())
-    }
-
-    #[expect(
-        clippy::unnecessary_wraps,
-        clippy::unused_self,
-        reason = "one signature for every platform, and the stream covers the whole tree from its start, so nothing \
-                  is left to watch"
-    )]
-    pub(super) const fn cover(&self, _index: &Index, _found: &mut Found) -> Result<(), WatchError> {
         Ok(())
     }
 }

@@ -58,10 +58,8 @@ const REPORTED: Duration = Duration::from_millis(50);
 ///
 /// A change made before the watcher starts is not reported, but on macOS and Windows one made moments before can
 /// still arrive; refreshing its path changes nothing when the index already holds the change, as for one the walk
-/// read after it was made, and takes it in when it does not. [`Watcher::new`] starts one over an index built without
-/// it, which misses what changed in between; a caller that starts one that way refreshes once more, then calls
-/// [`Watcher::cover`] and refreshes the paths it names. When the operating system drops changes it could not deliver,
-/// the batch names the whole tree, or on macOS the directory below the root that `FSEvents` names for them.
+/// read after it was made, and takes it in when it does not. When the operating system drops changes it could not
+/// deliver, the batch names the whole tree, or on macOS the directory below the root that `FSEvents` names for them.
 ///
 /// # Examples
 ///
@@ -91,23 +89,6 @@ pub struct Watcher {
 }
 
 impl Watcher {
-    /// Starts following the tree `index` was built from, under the root it was built with.
-    ///
-    /// # Errors
-    ///
-    /// [`WatchError::Start`] when the operating system refuses the watch, [`WatchError::Limit`] when Linux's inotify
-    /// watch limit is too low for the directories the index holds, and [`WatchError::Unsupported`] on a platform other
-    /// than Linux, macOS and Windows.
-    pub fn new(index: &Index) -> Result<Self, WatchError> {
-        let prefixes = event_prefixes(index.root())?;
-        #[cfg(target_os = "linux")]
-        let backend = Backend::from_index(index)?;
-        #[cfg(not(target_os = "linux"))]
-        let backend = Backend::start(index.root(), &prefixes, index.pruned_names())?;
-
-        Ok(Self { backend, prefixes })
-    }
-
     fn start(root: &Path, pruned_names: &PrunedNames) -> Result<Self, WatchError> {
         let prefixes = event_prefixes(root)?;
         let backend = Backend::start(root, &prefixes, pruned_names)?;
@@ -177,35 +158,6 @@ impl Watcher {
     /// As [`Watcher::wait`].
     pub fn drain(&mut self) -> Result<Vec<String>, WatchError> {
         self.wait(REPORTED)
-    }
-
-    /// Watches each directory `index` holds that this watcher does not watch yet, together with every directory inside
-    /// each, and returns those directories for [`Index::refresh_paths`], since a change made in one before its watch
-    /// went on raised no event.
-    ///
-    /// On Linux [`Watcher::new`] watches the directories the index holds when it starts, so a directory that a later
-    /// refresh adds, made before the watcher started, is watched only from this call; it makes one watch call for each
-    /// directory the index holds, as [`Watcher::new`] does, and a listing for each directory it starts to watch. A
-    /// directory found inside one that the operating system refuses to watch is skipped, as [`Watcher::wait`] skips
-    /// it: refused for permission, it is one the walk cannot list either. On macOS and Windows the watcher covers the
-    /// whole tree from its start, so this returns nothing.
-    ///
-    /// # Errors
-    ///
-    /// [`WatchError::Limit`] when Linux's inotify watch limit runs out before every such directory is watched, and
-    /// [`WatchError::Start`] when the operating system refuses to watch one that is still there, so changes inside it
-    /// would go unseen. The watcher then no longer covers the tree, and a new one has to be started.
-    #[cfg_attr(
-        not(target_os = "linux"),
-        expect(
-            clippy::needless_pass_by_ref_mut,
-            reason = "Linux's backend adds watches, so covering takes the watcher mutably everywhere"
-        )
-    )]
-    pub fn cover(&mut self, index: &Index) -> Result<Vec<String>, WatchError> {
-        let mut found = Found::default();
-        self.backend.cover(index, &mut found)?;
-        Ok(self.changes(found))
     }
 
     fn changes(&self, found: Found) -> Vec<String> {
@@ -306,7 +258,7 @@ pub enum WatchError {
         /// The underlying failure, boxed so no dependency's error type reaches this crate's public API.
         source: Box<dyn Error + Send + Sync>,
     },
-    /// Linux's inotify watch limit ran out before every directory the walk kept, or the index holds, was watched.
+    /// Linux's inotify watch limit ran out before every directory the walk kept, or a wait found made, was watched.
     ///
     /// Each watched directory takes one watch from `fs.inotify.max_user_watches`, shared by every process of the user.
     #[error(
@@ -315,7 +267,7 @@ pub enum WatchError {
     Limit {
         /// How many directories were watched when the limit ran out.
         watched: usize,
-        /// How many directories the walk kept, or the index holds, the root included.
+        /// How many directories were to be watched, the root included.
         wanted: usize,
     },
     /// The notifications stopped arriving.
