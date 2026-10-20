@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use kartta::{
     CancelToken, Definition, Graph, Hit, Limits, Region, Search, Selector, SiteQuery,
-    SourceOptions, SymbolKind, is_parent, is_referent,
+    SourceOptions, SymbolKind, ask_reading, is_parent, is_referent,
 };
 use kartta_fs::{
     Case, Filter, FuzzyOptions, GlobOptions, GrepOptions, ListError, ListOptions, Patterns,
@@ -226,61 +226,6 @@ fn suggestions<'g>(searched: &[(&'g str, &'g Graph)], name: &str) -> Vec<Suggest
     found.sort_by(|left, right| right.hit.score.total_cmp(&left.hit.score));
     found.truncate(SUGGESTIONS);
     found
-}
-
-/// Whether `named` selects a definition of the kinds `selects` takes, in the files it looks in, in the graphs a query
-/// searched: one [`unmatched`] counts as within.
-fn selects_any(
-    searched: &[(&str, &Graph)],
-    named: Selector<'_>,
-    selects: fn(SymbolKind) -> bool,
-) -> bool {
-    searched.iter().any(|(_, graph)| {
-        let selected = graph.definitions(named.name, None, usize::MAX).found;
-        selected.iter().any(|found| {
-            selects(found.definition.kind)
-                && named
-                    .path_prefix
-                    .is_none_or(|prefix| found.definition.file.starts_with(prefix))
-        })
-    })
-}
-
-/// The name of `named` read with the other owner separator, each `.` as `::` or else each `::` as `.`, when the name
-/// selects no definition of the kinds `selects` takes in the files and graphs a query looks in and that reading
-/// selects one: a qualified name spelled with another language's separator, `Index.refresh` for Rust's
-/// `Index::refresh`.
-fn reading(
-    searched: &[(&str, &Graph)],
-    named: Selector<'_>,
-    selects: fn(SymbolKind) -> bool,
-) -> Option<String> {
-    let name = named.name;
-    if !(name.contains('.') || name.contains("::")) || selects_any(searched, named, selects) {
-        return None;
-    }
-    [(".", "::"), ("::", ".")]
-        .into_iter()
-        .filter(|(written, _)| name.contains(written))
-        .map(|(written, read)| name.replace(written, read))
-        .find(|read| selects_any(searched, selector(read, named.path_prefix), selects))
-}
-
-/// What `ask` answers for `named` in the graphs a query searched, or, when that is nothing and its name has a
-/// [`reading`], what it answers for the reading, with the reading.
-fn asked<T>(
-    searched: &[(&str, &Graph)],
-    named: Selector<'_>,
-    selects: fn(SymbolKind) -> bool,
-    ask: impl Fn(Selector<'_>) -> Vec<T>,
-) -> (Vec<T>, Option<String>) {
-    let found = ask(named);
-    if !found.is_empty() {
-        return (found, None);
-    }
-    reading(searched, named, selects).map_or((found, None), |read| {
-        (ask(selector(&read, named.path_prefix)), Some(read))
-    })
 }
 
 /// The selector a name and an optional path prefix make.
@@ -798,19 +743,14 @@ impl Server {
                 .names
                 .iter()
                 .map(|name| {
-                    let (selecting, read_as) = asked(
-                        &searched,
-                        Selector::new(name),
+                    let (selecting, [read_as]) = ask_reading(
+                        searched.iter().copied(),
+                        [Selector::new(name)],
                         |_| true,
-                        |named| {
-                            searched
-                                .iter()
-                                .map(|&(family, graph)| {
-                                    let from = p.from.as_deref();
-                                    (family, graph.definitions(named.name, from, limit))
-                                })
-                                .filter(|(_, definitions)| definitions.total > 0)
-                                .collect()
+                        |(family, graph), [named]| {
+                            let definitions =
+                                graph.definitions(named.name, p.from.as_deref(), limit);
+                            (definitions.total > 0).then_some((family, definitions))
                         },
                     );
                     let total = selecting
@@ -894,17 +834,17 @@ impl Server {
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = p.path_prefix.as_deref();
             let named = selector(&p.name, path_prefix);
-            let (mut found, read_as) = asked(&searched, named, is_parent, |named| {
-                searched
-                    .iter()
-                    .filter_map(|&(family, graph)| {
-                        Some((
-                            family,
-                            graph.implementations(named, u32::MAX, IMPLEMENTORS)?,
-                        ))
-                    })
-                    .collect()
-            });
+            let (mut found, [read_as]) = ask_reading(
+                searched.iter().copied(),
+                [named],
+                is_parent,
+                |(family, graph), [named]| {
+                    Some((
+                        family,
+                        graph.implementations(named, u32::MAX, IMPLEMENTORS)?,
+                    ))
+                },
+            );
             let mut room = IMPLEMENTORS;
             for (_, implementations) in &mut found {
                 implementations.found.truncate(room);
@@ -1009,36 +949,24 @@ impl Server {
                 .with_min_confidence(floor)
                 .with_max_symbols(PATH_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
-            let call_paths = |from: Selector<'_>, to: Selector<'_>| -> Vec<_> {
-                searched
-                    .iter()
-                    .filter_map(|&(family, graph)| {
-                        Some((family, graph.call_path(from, to, limits)?))
-                    })
-                    .collect()
-            };
-            let written = (
+            let written = [
                 selector(&p.from, p.from_path_prefix.as_deref()),
                 selector(&p.to, p.to_path_prefix.as_deref()),
+            ];
+            let (paths, [from_read_as, to_read_as]) = ask_reading(
+                searched.iter().copied(),
+                written,
+                |_| true,
+                |(family, graph), [from, to]| Some((family, graph.call_path(from, to, limits)?)),
             );
-            let mut paths = call_paths(written.0, written.1);
-            let (from_read_as, to_read_as) = if paths.is_empty() {
-                let read = |end| reading(&searched, end, |_| true);
-                (read(written.0), read(written.1))
-            } else {
-                (None, None)
-            };
             let from = selector(
                 from_read_as.as_deref().unwrap_or(&p.from),
-                written.0.path_prefix,
+                written[0].path_prefix,
             );
             let to = selector(
                 to_read_as.as_deref().unwrap_or(&p.to),
-                written.1.path_prefix,
+                written[1].path_prefix,
             );
-            if from_read_as.is_some() || to_read_as.is_some() {
-                paths = call_paths(from, to);
-            }
             // constraint: an end selects as Graph::callers selects, so a walk of no hops tells whether it selects.
             let unmatched_ends: Vec<_> = if paths.is_empty() {
                 [("from", from), ("to", to)]
@@ -1110,19 +1038,19 @@ impl Server {
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = p.path_prefix.as_deref();
             let named = selector(&p.name, path_prefix);
-            let (found, read_as) = asked(&searched, named, is_referent, |named| {
-                searched
-                    .iter()
-                    .filter_map(|&(family, graph)| {
-                        let query = SiteQuery::new(usize::MAX).with_min_confidence(floor);
-                        let query = p
-                            .access
-                            .map_or(query, |access| query.with_access(access.access()));
-                        let type_uses = graph.conventions().type_uses;
-                        Some((family, type_uses, graph.references(named, query)?))
-                    })
-                    .collect()
-            });
+            let (found, [read_as]) = ask_reading(
+                searched.iter().copied(),
+                [named],
+                is_referent,
+                |(family, graph), [named]| {
+                    let query = SiteQuery::new(usize::MAX).with_min_confidence(floor);
+                    let query = p
+                        .access
+                        .map_or(query, |access| query.with_access(access.access()));
+                    let type_uses = graph.conventions().type_uses;
+                    Some((family, type_uses, graph.references(named, query)?))
+                },
+            );
             let named = selector(read_as.as_deref().unwrap_or(&p.name), path_prefix);
             let unmatched = if found.is_empty() {
                 unmatched(&searched, named, is_referent)
@@ -1329,18 +1257,11 @@ impl Server {
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = p.path_prefix.as_deref();
             let named = selector(&p.name, path_prefix);
-            let (walks, read_as) = asked(
-                &searched,
-                named,
+            let (walks, [read_as]) = ask_reading(
+                searched.iter().copied(),
+                [named],
                 |_| true,
-                |named| {
-                    searched
-                        .iter()
-                        .filter_map(|&(family, graph)| {
-                            Some((family, graph.callers(named, limits)?))
-                        })
-                        .collect()
-                },
+                |(family, graph), [named]| Some((family, graph.callers(named, limits)?)),
             );
             let named = selector(read_as.as_deref().unwrap_or(&p.name), path_prefix);
             let unmatched = if walks.is_empty() {
@@ -1396,18 +1317,11 @@ impl Server {
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = p.path_prefix.as_deref();
             let named = selector(&p.name, path_prefix);
-            let (walks, read_as) = asked(
-                &searched,
-                named,
+            let (walks, [read_as]) = ask_reading(
+                searched.iter().copied(),
+                [named],
                 |_| true,
-                |named| {
-                    searched
-                        .iter()
-                        .filter_map(|&(family, graph)| {
-                            graph.callees(named, limits).map(|walk| (family, walk))
-                        })
-                        .collect()
-                },
+                |(family, graph), [named]| graph.callees(named, limits).map(|walk| (family, walk)),
             );
             let named = selector(read_as.as_deref().unwrap_or(&p.name), path_prefix);
             let unmatched = if walks.is_empty() {
