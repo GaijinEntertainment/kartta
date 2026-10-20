@@ -43,6 +43,32 @@ pub struct FuzzyMatch<'a> {
     index: PhantomData<&'a Index>,
 }
 
+/// What [`Index::fuzzy`] ranked: the best matches, and how many paths matched in all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FuzzyMatches<'a> {
+    items: Vec<FuzzyMatch<'a>>,
+    matched: Option<usize>,
+}
+
+impl<'a> FuzzyMatches<'a> {
+    /// The matches, best first, at most [`FuzzyOptions::limit`] of them.
+    #[must_use]
+    pub fn items(&self) -> &[FuzzyMatch<'a>] {
+        &self.items
+    }
+
+    /// How many paths matched every term of the query, those the limit left out included.
+    ///
+    /// Only what the ranking scores counts: never a directory, a path the filter does not select or one the exclusion
+    /// removes. The ranking counts as it scores, so this costs no pass of its own. `None` for an empty query, which
+    /// matches every path in index order: under a limit it stops there without reading the rest, so counting them would
+    /// be the pass the limit spares, and without one every match is already in [`items`](Self::items).
+    #[must_use]
+    pub const fn matched(&self) -> Option<usize> {
+        self.matched
+    }
+}
+
 /// Which paths a fuzzy search ranks, and how many it returns.
 ///
 /// Every bound is absent by default, which ranks every indexed file and returns every match.
@@ -104,7 +130,8 @@ impl Index {
     /// A path matches when it contains every whitespace-separated term of the query as a subsequence, and ranks by how
     /// well those terms align against path structure — a hit inside a filename beats a hit inside a directory name, so
     /// `main` finds `src/main.rs` before `main/lib.rs`. An empty query matches everything in index order.
-    /// [`FuzzyOptions`] narrows what is ranked and caps what is returned.
+    /// [`FuzzyOptions`] narrows what is ranked and caps what is returned, and [`FuzzyMatches::matched`] counts every
+    /// match, those past the cap included.
     ///
     /// Directories are not ranked. A path search answers "which file did you mean", and a directory that matches would
     /// otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are* ranked: they
@@ -142,49 +169,71 @@ impl Index {
     ///
     /// let ranked = index.fuzzy("main", &FuzzyOptions::default());
     /// let mut paths = index.paths();
-    /// let ranked_paths: Vec<String> = ranked.iter().map(|found| paths.get(found.position).to_owned()).collect();
+    /// let ranked_paths: Vec<String> =
+    ///     ranked.items().iter().map(|found| paths.get(found.position).to_owned()).collect();
     /// assert_eq!(ranked_paths, ["src/main.rs", "main/lib.rs"]);
     ///
-    /// assert_eq!(index.fuzzy("main", &FuzzyOptions::default().limit(1)).len(), 1);
+    /// let best = index.fuzzy("main", &FuzzyOptions::default().limit(1));
+    /// assert_eq!(best.items().len(), 1);
+    /// assert_eq!(best.matched(), Some(2), "one of two matches");
     ///
     /// let in_src = Filter::new(["src/**"])?;
     /// let narrowed = index.fuzzy("main", &FuzzyOptions::default().filter(&in_src));
-    /// assert_eq!(narrowed.len(), 1);
-    /// assert_eq!(paths.get(narrowed[0].position), "src/main.rs");
+    /// assert_eq!(narrowed.items().len(), 1);
+    /// assert_eq!(paths.get(narrowed.items()[0].position), "src/main.rs");
     /// # Ok(())
     /// # }
     /// ```
     #[must_use]
-    pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> Vec<FuzzyMatch<'_>> {
+    pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> FuzzyMatches<'_> {
+        self.fuzzy_in_chunks(query, options, RANK_CHUNK_LEN)
+    }
+
+    fn fuzzy_in_chunks(
+        &self,
+        query: &str,
+        options: &FuzzyOptions<'_>,
+        chunk_len: usize,
+    ) -> FuzzyMatches<'_> {
         let FuzzyOptions {
             filter,
             exclude,
             limit,
         } = *options;
         let selection = Selection { filter, exclude };
-        let ranked: Vec<Ranked> = self.on_threads(|| {
+        let (ranked, matched): (Vec<Ranked>, usize) = self.on_threads(|| {
             (0..self.len())
                 .into_par_iter()
-                .step_by(RANK_CHUNK_LEN)
+                .step_by(chunk_len)
                 .map(|start| {
-                    let positions = start..self.len().min(start + RANK_CHUNK_LEN);
+                    let positions = start..self.len().min(start + chunk_len);
                     let mut ranking = Ranking::new(query, limit);
                     self.candidates(positions, selection, |found| offer(&mut ranking, &found));
-                    ranking.finish()
+                    let matched = ranking.matched();
+                    (ranking.finish(), matched)
                 })
-                .reduce(Vec::new, |left, right| {
-                    Ranking::merge([left, right], query, limit)
-                })
+                .reduce(
+                    || (Vec::new(), 0),
+                    |(left, left_matched), (right, right_matched)| {
+                        (
+                            Ranking::merge([left, right], query, limit),
+                            left_matched + right_matched,
+                        )
+                    },
+                )
         });
 
-        ranked
-            .into_iter()
-            .map(|found| FuzzyMatch {
-                position: found.position,
-                score: found.score,
-                index: PhantomData,
-            })
-            .collect()
+        FuzzyMatches {
+            items: ranked
+                .into_iter()
+                .map(|found| FuzzyMatch {
+                    position: found.position,
+                    score: found.score,
+                    index: PhantomData,
+                })
+                .collect(),
+            matched: query.split_whitespace().next().is_some().then_some(matched),
+        }
     }
 }
 
@@ -192,5 +241,61 @@ fn offer(ranking: &mut Ranking, candidate: &Candidate<'_>) -> bool {
     match *candidate {
         Candidate::Selected(at, path) => ranking.offer(at, path),
         Candidate::Excluded | Candidate::ExcludedBeneath(_) => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::BuildOptions;
+
+    #[test]
+    fn chunks_ranked_apart_answer_and_count_as_one_chunk_does() {
+        // constraint: the ranking splits into chunks only past RANK_CHUNK_LEN entries, a tree too large to build here,
+        // so the chunks are made small instead
+        let dir = tempfile::tempdir().expect("create temp dir");
+        for path in [
+            "a/main.rs",
+            "b/main.rs",
+            "docs/main.md",
+            "lib.rs",
+            "main/lib.rs",
+            "src/domain.rs",
+            "src/main.rs",
+            "vendor/deep/main.c",
+            "vendor/main.rs",
+        ] {
+            let full = dir.path().join(path);
+            std::fs::create_dir_all(full.parent().expect("a parent")).expect("create directory");
+            std::fs::write(full, "x").expect("write file");
+        }
+        let index = Index::build(dir.path(), &BuildOptions::default())
+            .expect("build")
+            .index;
+        let vendor = Filter::new(["vendor"]).expect("compile");
+
+        for (query, limit) in ["main", "", "zz"]
+            .iter()
+            .flat_map(|&query| [0, 2].map(|limit| (query, limit)))
+        {
+            let options = FuzzyOptions::default().exclude(&vendor).limit(limit);
+            let whole = index.fuzzy_in_chunks(query, &options, index.len());
+            for chunk_len in 1..index.len() {
+                assert_eq!(
+                    index.fuzzy_in_chunks(query, &options, chunk_len),
+                    whole,
+                    "query {query:?}, limit {limit}, chunks of {chunk_len}"
+                );
+            }
+        }
+
+        let options = FuzzyOptions::default().exclude(&vendor).limit(2);
+        let one_entry_each = index.fuzzy_in_chunks("main", &options, 1);
+        assert_eq!(one_entry_each.items().len(), 2);
+        assert_eq!(
+            one_entry_each.matched(),
+            Some(6),
+            "every match outside vendor, lib.rs holding no main"
+        );
     }
 }
