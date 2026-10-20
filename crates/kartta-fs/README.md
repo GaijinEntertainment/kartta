@@ -128,6 +128,11 @@ directory name, so `main` finds `src/main.rs` before `main/lib.rs`. Directories 
 for the same reason. Matching ignores case, which is this crate's choice and not git's: `core.ignoreCase` describes what
 the filesystem does with case, a different question from what a search should do with it.
 
+`glob` and `fuzzy` take an exclusion beside the `Filter` that selects, as a listing and a content search do: a matched
+directory is removed with everything beneath it before a limit sees it, so a capped answer stays exact. A ranking skips
+what lies beneath an excluded directory without matching or scoring any of it; a glob matches its filter against each
+path there once, to count what the exclusion removed.
+
 The index keeps its paths front-coded, so results name entries by position and `Index::paths` reads each path back —
 cheaply in index order, from the nearest full path otherwise. A ranking carries this crate's own `FuzzyMatch` rather
 than the scorer's result type, so replacing the ranking engine stays a non-breaking change.

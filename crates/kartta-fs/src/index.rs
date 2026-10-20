@@ -22,6 +22,7 @@ use crate::content_index::{
 use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::inspection::Inspection;
+use crate::list::excluded_ancestor;
 use crate::policy::{Collected, DirState, Indexing, Learned, Numbering, Payload, Reading, Report};
 use crate::pruned::PrunedNames;
 use crate::requirement::Requirement;
@@ -661,8 +662,36 @@ impl Index {
     pub(crate) fn candidates(
         &self,
         positions: Range<usize>,
+        selection: Selection<'_>,
+        mut visit: impl FnMut(Candidate<'_>) -> bool,
+    ) {
+        let Some(exclude) = selection.exclude else {
+            return self.selected(positions, selection.filter, visit);
+        };
+        let mut paths = self.paths();
+        let mut at = positions.start;
+
+        if let Some(past) = self.past_excluded_ancestor(&positions, exclude, &mut paths) {
+            if !visit(Candidate::ExcludedBeneath(at..past)) {
+                return;
+            }
+            at = past;
+        }
+
+        while at < positions.end {
+            let (candidate, next) = self.candidate_at(at..positions.end, selection, &mut paths);
+            if candidate.is_some_and(|candidate| !visit(candidate)) {
+                return;
+            }
+            at = next;
+        }
+    }
+
+    fn selected(
+        &self,
+        positions: Range<usize>,
         filter: Option<&Filter>,
-        mut visit: impl FnMut(usize, &str) -> bool,
+        mut visit: impl FnMut(Candidate<'_>) -> bool,
     ) {
         let mut paths = self.paths();
         for at in positions {
@@ -670,10 +699,55 @@ impl Index {
                 continue;
             }
             let path = paths.get(at);
-            if filter.is_none_or(|filter| filter.matches(path)) && !visit(at, path) {
+            if filter.is_none_or(|filter| filter.matches(path))
+                && !visit(Candidate::Selected(at, path))
+            {
                 return;
             }
         }
+    }
+
+    fn past_excluded_ancestor(
+        &self,
+        positions: &Range<usize>,
+        exclude: &Filter,
+        paths: &mut Paths<'_>,
+    ) -> Option<usize> {
+        if positions.is_empty() {
+            return None;
+        }
+        let dir = excluded_ancestor(paths.get(positions.start), exclude)?;
+        let dir_at = self.position(dir)?;
+        Some(self.past_subtree(dir_at + 1, dir).min(positions.end))
+    }
+
+    fn candidate_at<'p>(
+        &self,
+        rest: Range<usize>,
+        selection: Selection<'_>,
+        paths: &'p mut Paths<'_>,
+    ) -> (Option<Candidate<'p>>, usize) {
+        let Selection { filter, exclude } = selection;
+        let here = rest.start;
+
+        if self.kind_at(here) == EntryKind::Dir {
+            let dir = paths.get(here);
+            if !exclude.is_some_and(|exclude| exclude.matches(dir)) {
+                return (None, here + 1);
+            }
+            let past = self.past_subtree(here + 1, dir).min(rest.end);
+            return (Some(Candidate::ExcludedBeneath(here + 1..past)), past);
+        }
+
+        let path = paths.get(here);
+        let candidate = if filter.is_some_and(|filter| !filter.matches(path)) {
+            None
+        } else if exclude.is_some_and(|exclude| exclude.matches(path)) {
+            Some(Candidate::Excluded)
+        } else {
+            Some(Candidate::Selected(here, path))
+        };
+        (candidate, here + 1)
     }
 
     pub(crate) fn kind_at(&self, at: usize) -> EntryKind {
@@ -902,6 +976,19 @@ impl<'a> Inspected<'a> {
 
         self.index.is_binary_at(self.at)
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Selection<'f> {
+    pub(crate) filter: Option<&'f Filter>,
+    pub(crate) exclude: Option<&'f Filter>,
+}
+
+#[derive(Debug)]
+pub(crate) enum Candidate<'p> {
+    Selected(usize, &'p str),
+    Excluded,
+    ExcludedBeneath(Range<usize>),
 }
 
 /// Reads the paths of an [`Index`]'s entries by position, rebuilding each into one buffer the reader reuses.
@@ -1425,6 +1512,63 @@ mod tests {
     fn tree_order_by_byte(left: &str, right: &str) -> Ordering {
         let rank = |byte: u8| if byte == b'/' { 0 } else { u16::from(byte) + 1 };
         left.bytes().map(rank).cmp(right.bytes().map(rank))
+    }
+
+    #[test]
+    fn an_excluded_directory_reaches_a_path_query_as_one_range_wherever_a_run_starts() {
+        // constraint: a fuzzy run starts inside a directory only past RANK_CHUNK_LEN entries, a tree too large to build
+        // here, so the runs are walked directly
+        let dir = tempfile::tempdir().expect("create temp dir");
+        for path in ["vendor/a.rs", "vendor/deep/b.rs", "z.rs"] {
+            let full = dir.path().join(path);
+            std::fs::create_dir_all(full.parent().expect("a parent")).expect("create directory");
+            std::fs::write(full, "x").expect("write file");
+        }
+        let index = Index::build(dir.path(), &BuildOptions::default())
+            .expect("build")
+            .index;
+        let vendor = Filter::new(["vendor"]).expect("compile");
+        let selection = Selection {
+            filter: None,
+            exclude: Some(&vendor),
+        };
+        let offered = |positions: Range<usize>| {
+            let mut offered = Vec::new();
+            index.candidates(positions, selection, |candidate| {
+                offered.push(format!("{candidate:?}"));
+                true
+            });
+            offered
+        };
+
+        assert_eq!(
+            index
+                .entries()
+                .map(|entry| entry.path().to_owned())
+                .collect::<Vec<_>>(),
+            [
+                "vendor",
+                "vendor/a.rs",
+                "vendor/deep",
+                "vendor/deep/b.rs",
+                "z.rs"
+            ]
+        );
+        assert_eq!(
+            offered(0..5),
+            ["ExcludedBeneath(1..4)", r#"Selected(4, "z.rs")"#],
+            "nothing beneath vendor is offered on its own"
+        );
+        assert_eq!(
+            offered(2..5),
+            ["ExcludedBeneath(2..4)", r#"Selected(4, "z.rs")"#],
+            "a run starting inside vendor skips to its end"
+        );
+        assert_eq!(
+            offered(1..3),
+            ["ExcludedBeneath(1..3)"],
+            "and stops at its own end"
+        );
     }
 
     #[test]

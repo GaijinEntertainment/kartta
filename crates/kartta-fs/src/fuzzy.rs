@@ -5,7 +5,7 @@ use kartta_fuzz::{Ranked, Ranking};
 use rayon::prelude::*;
 
 use crate::filter::Filter;
-use crate::index::Index;
+use crate::index::{Candidate, Index, Selection};
 
 const RANK_CHUNK_LEN: usize = 16 * 1024;
 
@@ -57,6 +57,9 @@ pub struct FuzzyMatch<'a> {
 ///
 /// let sources = Filter::new(["src/**"])?;
 /// let in_sources = FuzzyOptions::default().filter(&sources);
+///
+/// let vendored = Filter::new(["**/vendor"])?;
+/// let without_vendored = FuzzyOptions::default().exclude(&vendored);
 /// # Ok(())
 /// # }
 /// ```
@@ -65,6 +68,9 @@ pub struct FuzzyMatch<'a> {
 pub struct FuzzyOptions<'a> {
     /// The paths to rank. A path the filter does not select is never scored. `None` ranks every indexed file.
     pub filter: Option<&'a Filter>,
+    /// The paths to leave out, matched by their root-relative path: a matched file is never scored, and nothing beneath
+    /// a matched directory is, as [`ListOptions::exclude`](crate::ListOptions) treats one. `None` excludes nothing.
+    pub exclude: Option<&'a Filter>,
     /// How many paths to return at most. `None` returns every match.
     pub limit: Option<NonZeroUsize>,
 }
@@ -74,6 +80,13 @@ impl<'a> FuzzyOptions<'a> {
     #[must_use]
     pub const fn filter(mut self, filter: &'a Filter) -> Self {
         self.filter = Some(filter);
+        self
+    }
+
+    /// Leaves out every path `exclude` matches, and everything beneath a matched directory.
+    #[must_use]
+    pub const fn exclude(mut self, exclude: &'a Filter) -> Self {
+        self.exclude = Some(exclude);
         self
     }
 
@@ -143,7 +156,12 @@ impl Index {
     /// ```
     #[must_use]
     pub fn fuzzy(&self, query: &str, options: &FuzzyOptions<'_>) -> Vec<FuzzyMatch<'_>> {
-        let FuzzyOptions { filter, limit } = *options;
+        let FuzzyOptions {
+            filter,
+            exclude,
+            limit,
+        } = *options;
+        let selection = Selection { filter, exclude };
         let ranked: Vec<Ranked> = self.on_threads(|| {
             (0..self.len())
                 .into_par_iter()
@@ -151,7 +169,7 @@ impl Index {
                 .map(|start| {
                     let positions = start..self.len().min(start + RANK_CHUNK_LEN);
                     let mut ranking = Ranking::new(query, limit);
-                    self.candidates(positions, filter, |at, path| ranking.offer(at, path));
+                    self.candidates(positions, selection, |found| offer(&mut ranking, &found));
                     ranking.finish()
                 })
                 .reduce(Vec::new, |left, right| {
@@ -167,5 +185,12 @@ impl Index {
                 index: PhantomData,
             })
             .collect()
+    }
+}
+
+fn offer(ranking: &mut Ranking, candidate: &Candidate<'_>) -> bool {
+    match *candidate {
+        Candidate::Selected(at, path) => ranking.offer(at, path),
+        Candidate::Excluded | Candidate::ExcludedBeneath(_) => true,
     }
 }
