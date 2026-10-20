@@ -934,7 +934,8 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
                 r#"<callers of="shared" matches="1">"#,
                 concat!(
                     r#"<match lang="bash" of="shared" loc="lib/common.sh:1" count="0" reach_band="low" "#,
-                    r#"below_confidence="1">no callers - entry point, dead code, or dynamic dispatch</match>"#,
+                    r#"below_confidence="1">no callers at this confidence floor - 1 caller binds below it, and "#,
+                    r#"min_confidence "any" lists it</match>"#,
                 ),
                 "</callers>",
             ]),
@@ -947,6 +948,35 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
                 "</callers>",
             ]),
         ]
+    );
+}
+
+#[test]
+fn find_callers_says_how_many_callers_bind_below_the_floor_in_place_of_a_verdict() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/lib\n\ngo 1.22\n"),
+            ("helper.go", "package lib\n\nfunc helper() {}\n"),
+            ("run.go", "package lib\n\nfunc Run() {\n\thelper()\n}\n"),
+            ("stop.go", "package lib\n\nfunc Stop() {\n\thelper()\n}\n"),
+        ],
+        &[(
+            "find_callers",
+            json!({"name": "helper", "min_confidence": "certain"}),
+        )],
+    );
+
+    assert_eq!(
+        answers,
+        [lines(&[
+            r#"<callers of="helper" matches="1">"#,
+            concat!(
+                r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:3" count="0" reach_band="low" "#,
+                r#"below_confidence="2">no callers at this confidence floor - 2 callers bind below it, and "#,
+                r#"min_confidence "any" lists them</match>"#,
+            ),
+            "</callers>",
+        ])]
     );
 }
 
