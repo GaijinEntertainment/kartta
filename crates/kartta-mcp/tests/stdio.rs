@@ -258,17 +258,68 @@ fn a_query_before_index_repo_names_the_fix() {
 #[test]
 fn index_repo_reports_each_graph() {
     let tree = go_module();
+    std::fs::create_dir(tree.path().join(".git")).expect("the root is a repository's top");
     let mut client = Client::start(&[]);
 
     let answer = client.index(tree.path());
 
     assert_eq!(
         rooted(&answer, tree.path()),
-        "<index root=\"<root>\" files=\"4\" gitignore=\"respected\" watch=\"following\" symbols=\"5\" calls=\"3\">\n\
+        "<index root=\"<root>\" files=\"4\" gitignore=\"in-tree\" watch=\"following\" symbols=\"5\" calls=\"3\">\n\
          <language name=\"go\" files=\"2\" symbols=\"5\" calls=\"3\" uses=\"4\" includes=\"1\"/>\n\
          </index>"
     );
     assert_eq!(client.answer("index_stats", &json!({})), answer);
+}
+
+#[test]
+fn an_index_inside_a_repository_names_the_top_whose_rules_it_did_not_read_unless_it_applies_none() {
+    let tree = common::tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        (".gitignore", "vendor/\n"),
+        ("app/notes.txt", "notes\n"),
+        ("app/vendor/lib.txt", "vendored\n"),
+    ]);
+    let root = tree.path().join("app");
+    let top = tree.path().canonicalize().expect("the tree resolves");
+    let mut client = Client::start(&[]);
+
+    let answer = client.index(&root);
+
+    let gitignore = format!(
+        "in-tree: the root is inside the repository at {}, whose .gitignore files above the root were not read",
+        top.display()
+    );
+    assert_eq!(
+        answer,
+        format!(
+            "<index root={:?} files=\"2\" gitignore={gitignore:?} watch=\"following\" symbols=\"0\" calls=\"0\">the \
+             code graph is empty</index>",
+            root.display().to_string()
+        ),
+        "the rules of the top do not apply, so vendor/ is indexed"
+    );
+    let listed = client.request("tools/list", &json!({}));
+    let description = listed["tools"]
+        .as_array()
+        .expect("a tool list")
+        .iter()
+        .find(|tool| tool["name"] == "index_stats")
+        .and_then(|tool| tool["description"].as_str())
+        .expect("index_stats is described");
+    let quoted = gitignore.replace(&top.display().to_string(), "<top>");
+    assert!(
+        description.contains(&format!("gitignore={quoted:?}")),
+        "the description quotes the answer: {description}"
+    );
+    assert_eq!(
+        client.answer("index_repo", &json!({"root": root, "index_ignored": true})),
+        format!(
+            "<index root={:?} files=\"2\" gitignore=\"ignored\" watch=\"following\" symbols=\"0\" calls=\"0\">the \
+             code graph is empty</index>",
+            root.display().to_string()
+        )
+    );
 }
 
 #[test]

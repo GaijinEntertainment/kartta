@@ -19,7 +19,7 @@ pub(crate) use self::symbols::{
 };
 pub(crate) use self::unused::{UnusedAsk, unused};
 use crate::llmxml::Element;
-use crate::state::{Indexed, Refreshed, Watch};
+use crate::state::{Gitignore, Indexed, Refreshed, Watch};
 
 /// How an answer echoes an empty `languages` filter.
 pub(crate) const EMPTY_LANGUAGES: &str = "[]";
@@ -216,10 +216,15 @@ pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> S
         .attr("files", indexed.files())
         .attr(
             "gitignore",
-            if indexed.gitignore {
-                "respected"
-            } else {
-                "ignored"
+            match &indexed.gitignore {
+                Gitignore::Ignored => "ignored".to_owned(),
+                Gitignore::InTree { outer_top: None } => "in-tree".to_owned(),
+                Gitignore::InTree {
+                    outer_top: Some(top),
+                } => format!(
+                    "in-tree: the root is inside the repository at {top}, whose .gitignore files above the root were \
+                     not read"
+                ),
             },
         )
         .attr(
