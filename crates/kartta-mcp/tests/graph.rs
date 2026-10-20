@@ -694,6 +694,118 @@ fn find_references_lists_a_cpp_field_s_sites_and_says_what_an_untyped_access_lea
 }
 
 #[test]
+fn find_references_says_the_rust_graph_records_no_use_of_a_type_as_one() {
+    let answers = answers_over(
+        &[
+            ("Cargo.toml", "[package]\nname = \"app\"\n"),
+            ("src/lib.rs", "mod run;\nmod watch;\n"),
+            (
+                "src/watch.rs",
+                "pub struct Watcher {\n    pub id: u32,\n}\n\npub struct Point(pub u32);\n",
+            ),
+            (
+                "src/run.rs",
+                "use crate::watch::{Point, Watcher};\n\npub fn start(watcher: &Watcher) -> Point {\n    \
+                 Point(watcher.id)\n}\n",
+            ),
+        ],
+        &[
+            ("find_references", json!({"name": "Watcher"})),
+            ("find_references", json!({"name": "Point"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="Watcher" matches="1">"#,
+                concat!(
+                    r#"<match lang="rust" of="Watcher" loc="src/watch.rs:1" kind="struct" count="0">no recorded "#,
+                    "site - the rust graph records no use of a type where code names it as one, such as a ",
+                    "declaration, a signature, a generic argument or an import, so this does not show that nothing ",
+                    "uses the type; grep finds where code names it</match>",
+                ),
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="Point" matches="1">"#,
+                concat!(
+                    r#"<match lang="rust" of="Point" loc="src/watch.rs:5" kind="struct" count="1" files="1" "#,
+                    r#"calls="1">"#,
+                ),
+                concat!(
+                    "<note>the rust graph records no use of a type where code names it as one, such as a ",
+                    "declaration, a signature, a generic argument or an import, so every such use is missing from ",
+                    "this answer</note>",
+                ),
+                r#"<file path="src/run.rs" sites="1">"#,
+                r#"<ref name="start" line="3" role="consumer" site="call" at="4" confidence="likely"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+        ],
+        "a type named only in a signature and an import has no recorded site, and a tuple struct's constructor call \
+         is one"
+    );
+}
+
+#[test]
+fn find_references_keeps_its_answer_for_a_type_where_go_and_python_record_type_uses() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+            ("pkg/kinds.go", "package pkg\n\ntype Spare struct{}\n"),
+            (
+                "models.py",
+                "class Config:\n    pass\n\n\nclass Spare:\n    pass\n\n\ndef load(path):\n    \
+                 config: Config = path\n    return config\n",
+            ),
+        ],
+        &[
+            ("find_references", json!({"name": "Spare"})),
+            ("find_references", json!({"name": "Config"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="Spare" matches="2">"#,
+                concat!(
+                    r#"<match lang="go" of="Spare" qn="pkg.Spare" loc="pkg/kinds.go:3" kind="struct" "#,
+                    r#"count="0">no recorded site - resolved calls can omit dynamic or unresolved ones, and uses "#,
+                    "other than calls are recorded only where the graph records them, so this does not show that ",
+                    "nothing uses the symbol</match>",
+                ),
+                concat!(
+                    r#"<match lang="python" of="Spare" qn="models.Spare" loc="models.py:5" kind="class" "#,
+                    r#"count="0">no recorded site - resolved calls can omit dynamic or unresolved ones, and uses "#,
+                    "other than calls are recorded only where the graph records them, so this does not show that ",
+                    "nothing uses the symbol</match>",
+                ),
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="Config" matches="1">"#,
+                concat!(
+                    r#"<match lang="python" of="Config" qn="models.Config" loc="models.py:1" kind="class" "#,
+                    r#"count="1" files="1" types="1">"#,
+                ),
+                r#"<file path="models.py" sites="1">"#,
+                r#"<ref name="load" qn="models.load" line="9" role="consumer" site="type" at="10"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+        ],
+        "a language that records uses as a type keeps the caveat that fits any language, and lists the uses"
+    );
+}
+
+#[test]
 fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
     let answers = answers(&[
         (

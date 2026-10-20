@@ -106,7 +106,7 @@ pub use kartta_graph::{
 };
 pub use kartta_lang::{
     Access, BlockComment, Conventions, DocComments, Extraction, Language, RawExtraction,
-    Repository, Resolver, Symbol, SymbolFlags, SymbolKind,
+    Repository, Resolver, Symbol, SymbolFlags, SymbolKind, TypeUses,
 };
 
 pub use crate::engine::{Engine, EngineOutcome, EngineRefresh, Widened};
