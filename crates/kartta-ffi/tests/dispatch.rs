@@ -668,6 +668,85 @@ fn a_name_that_selects_as_written_or_in_neither_spelling_answers_no_reading() {
     );
 }
 
+/// A built handle over a tree that defines `Index` in Rust and in Go and names it in a signature of each, Rust's
+/// `open(index: &Index)` and Go's `Open(index Index)`. The tree directory is returned to keep it alive.
+fn index_in_rust_and_go() -> (tempfile::TempDir, Kartta) {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("Cargo.toml"),
+        "[package]\nname = \"index\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .expect("Cargo.toml");
+    fs::create_dir(tree.path().join("src")).expect("src");
+    fs::write(
+        tree.path().join("src/lib.rs"),
+        "pub struct Index;\n\npub fn open(index: &Index) {}\n",
+    )
+    .expect("lib.rs");
+    fs::write(
+        tree.path().join("index.go"),
+        "package index\n\ntype Index struct{}\n\nfunc Open(index Index) {}\n",
+    )
+    .expect("index.go");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+    (tree, kartta)
+}
+
+/// The part of a graph query's answer that `graph` answered.
+fn part<'a>(answer: &'a Value, graph: &str) -> &'a Value {
+    answer["matches"]
+        .as_array()
+        .and_then(|parts| parts.iter().find(|part| part["graph"] == graph))
+        .unwrap_or_else(|| panic!("no {graph} part in {answer}"))
+}
+
+/// The keys of a references part with no candidates, a symbol's uses as a type recorded or no type asked.
+const REFERENCES_KEYS: [&str; 8] = [
+    "ambiguous",
+    "below_confidence",
+    "counts",
+    "graph",
+    "passed_over",
+    "sites",
+    "symbol",
+    "total",
+];
+
+#[test]
+fn a_rust_type_s_references_say_that_its_uses_as_a_type_go_unrecorded() {
+    let (_tree, kartta) = index_in_rust_and_go();
+
+    let answer = ok(&kartta, "references", &json!({ "name": "Index" }));
+
+    let rust = part(&answer, "rust");
+    assert_eq!(rust["symbol"]["kind"], "struct", "{rust}");
+    assert_eq!(
+        rust["total"], 0,
+        "the signature names it unrecorded: {rust}"
+    );
+    assert_eq!(rust["type_uses_unrecorded"], true, "{rust}");
+}
+
+#[test]
+fn a_go_type_s_references_and_a_rust_function_s_carry_no_new_key() {
+    let (_tree, kartta) = index_in_rust_and_go();
+
+    let index = ok(&kartta, "references", &json!({ "name": "Index" }));
+    let open = ok(
+        &kartta,
+        "references",
+        &json!({ "name": "open", "lang": "rust" }),
+    );
+
+    let go = part(&index, "go");
+    assert_eq!(go["total"], 1, "Go records the signature's use: {go}");
+    assert_eq!(keys(go), REFERENCES_KEYS, "{go}");
+    let function = part(&open, "rust");
+    assert_eq!(function["symbol"]["kind"], "func", "{function}");
+    assert_eq!(keys(function), REFERENCES_KEYS, "{function}");
+}
+
 #[test]
 fn a_language_the_build_did_not_hold_is_refused_with_the_ones_it_did() {
     let tree = tree();

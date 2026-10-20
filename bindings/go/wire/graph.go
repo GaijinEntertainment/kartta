@@ -182,6 +182,10 @@ type References struct {
 	// may be meant, and the uses of a member's name on a value whose type the graph could not follow, which bound no
 	// definition: any of them may take this one.
 	Ambiguous int `json:"ambiguous"`
+	// TypeUsesUnrecorded is set when Symbol is a type and its graph records no use of a type where code names it as
+	// one, such as a declaration, a signature, a generic argument or an import: Sites then hold only the calls that
+	// name it and its reads as a value, so an empty Sites does not show that nothing uses the type.
+	TypeUsesUnrecorded bool `json:"type_uses_unrecorded,omitempty"`
 }
 
 // SiteCounts counts a symbol's sites by kind.

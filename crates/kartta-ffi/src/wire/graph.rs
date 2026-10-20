@@ -6,7 +6,7 @@ use kartta::{
     Dependent, Dependents, DirCount, DirectCalls, Excluded, FileScope, Hit, Hotspot,
     Implementations, Implementor, LanguageFiles, Miss, Misses, Nearness, ReachBand, Reached,
     Reference, References, Resolution, Search, Seed, Segment, SegmentSymbol, SiteCounts, Source,
-    Stats, SymbolFlags, SymbolKind, Unbound, Walk,
+    Stats, SymbolFlags, SymbolKind, TypeUses, Unbound, Walk, is_type_kind,
 };
 use serde::{Serialize, Serializer};
 
@@ -293,6 +293,24 @@ struct ReferencesDef<'g> {
     #[serde(with = "SiteCountsDef")]
     counts: SiteCounts,
     ambiguous: usize,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ReferencesView<'g> {
+    #[serde(flatten)]
+    references: Wired<References<'g>>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    type_uses_unrecorded: bool,
+}
+
+impl<'g> ReferencesView<'g> {
+    pub(crate) fn new(references: References<'g>, type_uses: TypeUses) -> Self {
+        Self {
+            type_uses_unrecorded: type_uses == TypeUses::Nowhere
+                && is_type_kind(references.symbol.kind),
+            references: Wired(references),
+        }
+    }
 }
 
 #[derive(Serialize)]

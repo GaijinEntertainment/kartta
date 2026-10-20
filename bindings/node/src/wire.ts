@@ -370,6 +370,12 @@ export type References = {
 	 * symbol.
 	 */
 	ambiguous: number;
+	/**
+	 * Present, and `true`, when `symbol` is a type and its graph records no use of a type where code names it as one,
+	 * such as a declaration, a signature, a generic argument or an import: `sites` then hold only the calls that name
+	 * it and its reads as a value, so an empty `sites` does not show that nothing uses the type.
+	 */
+	type_uses_unrecorded?: boolean;
 };
 
 /** A symbol's sites, counted by kind. */
