@@ -26,10 +26,38 @@ pub(crate) struct Request {
 #[derive(Debug)]
 pub(crate) struct Indexed {
     pub(crate) root: String,
-    pub(crate) gitignore: bool,
+    pub(crate) gitignore: Gitignore,
     pub(crate) engine: Engine,
     pub(crate) errors: Vec<Failure>,
     pub(crate) watch: Watch,
+}
+
+/// Which `.gitignore` files a build applied.
+#[derive(Debug)]
+pub(crate) enum Gitignore {
+    /// None: the build indexed what they hide.
+    Ignored,
+    /// Those inside the root. `outer_top` is the top of the repository the root sits inside, when that top is above
+    /// the root: git applies its `.gitignore` files above the root, and the build read none of them.
+    InTree { outer_top: Option<String> },
+}
+
+impl Gitignore {
+    /// What a build of `request` applied. The top is the nearest directory, the root or one above it, that holds a
+    /// `.git`, as git finds it: one look in each, on the path with its links resolved, as git reads the directory it
+    /// runs in.
+    fn of(request: &Request) -> Self {
+        if request.index_ignored {
+            return Self::Ignored;
+        }
+        let outer_top = std::fs::canonicalize(&request.root).ok().and_then(|root| {
+            let top = root
+                .ancestors()
+                .find(|dir| std::fs::symlink_metadata(dir.join(".git")).is_ok())?;
+            (top != root).then(|| top.display().to_string())
+        });
+        Self::InTree { outer_top }
+    }
 }
 
 /// Whether an index follows its tree by itself, which decides whether an answer can be older than the tree.
@@ -498,7 +526,7 @@ impl Served {
         Self {
             indexed: RwLock::new(Indexed {
                 root: request.root.display().to_string(),
-                gitignore: !request.index_ignored,
+                gitignore: Gitignore::of(request),
                 engine: outcome.engine,
                 errors,
                 watch,
