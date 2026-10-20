@@ -104,9 +104,13 @@ jobs:
         with:
           node-version-file: bindings/node/.nvmrc
       - run: npm ci --ignore-scripts
-      - run: npm run build
-      - run: npm run typecheck
-      - run: npm test
+      # The vp that package-lock.json pins, so the toolchain moves with the lockfile rather than with an action.
+      - run: echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+      - run: vp fmt --check
+      - run: vp lint
+      - run: vp run typecheck
+      - run: vp run build
+      - run: vp test
 
   # Advisories, licences and sources, against the resolved graph rather than the manifests. The other jobs prove the
   # code we wrote is sound; this one is about the code we did not write, which is most of what ships.
