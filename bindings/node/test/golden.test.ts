@@ -1,5 +1,6 @@
-import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
+
+import { expect, onTestFinished, test } from "vite-plus/test";
 
 import { Kartta, KarttaError, type Methods } from "../src/kartta.ts";
 import analyzeChange from "../../../crates/kartta-ffi/tests/golden/analyze_change.json" with { type: "json" };
@@ -103,23 +104,23 @@ const replays: { [M in keyof Methods]: Replay<M> } = {
 
 const fixture = fileURLToPath(new URL("../../../crates/kartta-ffi/tests/fixture", import.meta.url));
 
-test("the goldens' fields are the ones the wire types name", (t: TestContext) => {
-  t.assert.strictEqual(typesNameEveryFieldTheGoldensHold, true);
-  t.assert.strictEqual(answersHoldTheirTypes, goldens);
+test("the goldens' fields are the ones the wire types name", () => {
+  expect(typesNameEveryFieldTheGoldensHold).toBe(true);
+  expect(answersHoldTheirTypes).toBe(goldens);
 });
 
-test("the typed calls cover every method the library answers", async (t: TestContext) => {
+test("the typed calls cover every method the library answers", async () => {
   const kartta = Kartta.open(fixture);
-  t.after(() => kartta.close());
+  onTestFinished(() => kartta.close());
 
   const { methods } = await kartta.version();
 
-  t.assert.deepStrictEqual(Object.keys(replays).toSorted(), methods);
+  expect(Object.keys(replays).toSorted()).toStrictEqual(methods);
 });
 
-test("every method answers its golden request through its typed call as pinned", async (t: TestContext) => {
+test("every method answers its golden request through its typed call as pinned", async () => {
   const kartta = Kartta.open(fixture);
-  t.after(() => kartta.close());
+  onTestFinished(() => kartta.close());
 
   for (const [method, golden] of Object.entries(goldens)) {
     // SAFETY: goldens and replays share their keys, as the mapped types above require.
@@ -130,6 +131,6 @@ test("every method answers its golden request through its typed call as pinned",
         error instanceof KarttaError ? { err: { code: error.code, message: error.message } } : Promise.reject(error),
     );
 
-    t.assert.deepStrictEqual(answered, golden.answer, method);
+    expect(answered, method).toStrictEqual(golden.answer);
   }
 });
