@@ -1,7 +1,5 @@
 version: 2
 
-# The Go and Node planes get their own `gomod` / `npm` entries once their directories exist — dependabot errors on a
-# configured directory that is not in the repo, so the entries land with the planes, not before.
 updates:
   - package-ecosystem: cargo
     directory: /
@@ -29,6 +27,31 @@ updates:
       interval: weekly
     groups:
       actions:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /bindings/node
+    schedule:
+      interval: weekly
+    groups:
+      npm-deps:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # constraint: @types/node's major is the Node major it types, and engines.node's floor is 24
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: gomod
+    directory: /bindings/go
+    schedule:
+      interval: weekly
+    groups:
+      go-deps:
         update-types:
           - minor
           - patch
