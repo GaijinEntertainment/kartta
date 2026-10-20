@@ -604,7 +604,7 @@ fn fuzzy_ranks_a_filename_hit_above_a_directory_hit() {
     let ranked = index.fuzzy("main", &FuzzyOptions::default());
 
     assert_eq!(
-        paths_at(&index, ranked.iter().map(|found| found.position)),
+        paths_at(&index, ranked.items().iter().map(|found| found.position)),
         ["src/main.rs", "main/lib.rs"]
     );
 }
@@ -615,15 +615,19 @@ fn fuzzy_never_returns_a_directory() {
     let index = default_index(dir.path());
 
     let ranked = index.fuzzy("src", &FuzzyOptions::default());
-    assert!(!ranked.is_empty(), "the query matches the files under src");
+    assert!(
+        !ranked.items().is_empty(),
+        "the query matches the files under src"
+    );
 
-    for path in paths_at(&index, ranked.iter().map(|found| found.position)) {
+    for path in paths_at(&index, ranked.items().iter().map(|found| found.position)) {
         assert_ne!(
             kind_of(&index, &path),
             EntryKind::Dir,
             "{path} is a directory"
         );
     }
+    assert_eq!(ranked.matched(), Some(2), "nor counts one");
 }
 
 #[test]
@@ -636,15 +640,23 @@ fn fuzzy_honours_a_limit_and_scores_descend() {
     let index = default_index(dir.path());
 
     let all = index.fuzzy("main", &FuzzyOptions::default());
-    assert_eq!(all.len(), 3);
+    assert_eq!(all.items().len(), 3);
     assert!(
-        all.windows(2).all(|pair| pair[0].score >= pair[1].score),
+        all.items()
+            .windows(2)
+            .all(|pair| pair[0].score >= pair[1].score),
         "best first"
     );
+    assert_eq!(all.matched(), Some(3));
 
     let capped = index.fuzzy("main", &FuzzyOptions::default().limit(2));
-    assert_eq!(capped.len(), 2);
-    assert_eq!(capped[0].position, all[0].position);
+    assert_eq!(capped.items().len(), 2);
+    assert_eq!(capped.items()[0].position, all.items()[0].position);
+    assert_eq!(
+        capped.matched(),
+        Some(3),
+        "the count holds the match the limit left out"
+    );
 }
 
 #[test]
@@ -655,8 +667,30 @@ fn an_empty_query_matches_every_indexed_file_in_index_order() {
     let ranked = index.fuzzy("", &FuzzyOptions::default());
 
     assert_eq!(
-        paths_at(&index, ranked.iter().map(|found| found.position)),
+        paths_at(&index, ranked.items().iter().map(|found| found.position)),
         ["a.txt", "b.txt"]
+    );
+}
+
+#[test]
+fn an_empty_query_counts_nothing_with_or_without_a_limit() {
+    let dir = tree(&[("b.txt", ""), ("a.txt", "")]);
+    let index = default_index(dir.path());
+
+    for (query, limit) in ["", " "]
+        .iter()
+        .flat_map(|&query| [0, 1, 3].map(|limit| (query, limit)))
+    {
+        let ranked = index.fuzzy(query, &FuzzyOptions::default().limit(limit));
+        assert_eq!(ranked.matched(), None, "query {query:?}, limit {limit}");
+    }
+    assert_eq!(
+        index
+            .fuzzy("", &FuzzyOptions::default().limit(1))
+            .items()
+            .len(),
+        1,
+        "it stops at the limit"
     );
 }
 
@@ -665,7 +699,10 @@ fn fuzzy_answers_nothing_for_a_query_no_path_contains() {
     let dir = tree(&[("src/main.rs", "")]);
     let index = default_index(dir.path());
 
-    assert_eq!(index.fuzzy("qqzz", &FuzzyOptions::default()), []);
+    let ranked = index.fuzzy("qqzz", &FuzzyOptions::default());
+
+    assert_eq!(ranked.items(), []);
+    assert_eq!(ranked.matched(), Some(0), "counted, and none matched");
 }
 
 #[test]
@@ -748,8 +785,13 @@ fn a_filter_narrows_what_fuzzy_ranks() {
     let ranked = index.fuzzy("main", &FuzzyOptions::default().filter(&filter));
 
     assert_eq!(
-        paths_at(&index, ranked.iter().map(|found| found.position)),
+        paths_at(&index, ranked.items().iter().map(|found| found.position)),
         ["src/main.rs", "main/lib.rs"]
+    );
+    assert_eq!(
+        ranked.matched(),
+        Some(2),
+        "a path the filter does not select is never counted"
     );
 }
 
@@ -828,22 +870,31 @@ fn a_fuzzy_exclusion_removes_a_file_and_a_directory_with_everything_beneath_it()
 
     let everything = index.fuzzy("main", &FuzzyOptions::default().limit(1));
     assert_eq!(
-        paths_at(&index, everything.iter().map(|found| found.position)),
+        paths_at(
+            &index,
+            everything.items().iter().map(|found| found.position)
+        ),
         ["main.log"],
         "the shortest filename hit ranks first when nothing is excluded"
     );
+    assert_eq!(everything.matched(), Some(5));
 
     let ranked = index.fuzzy("main", &FuzzyOptions::default().exclude(&left_out));
     assert_eq!(
-        paths_at(&index, ranked.iter().map(|found| found.position)),
+        paths_at(&index, ranked.items().iter().map(|found| found.position)),
         ["src/main.rs", "src/domain.rs"]
     );
 
     let capped = index.fuzzy("main", &FuzzyOptions::default().exclude(&left_out).limit(1));
     assert_eq!(
-        paths_at(&index, capped.iter().map(|found| found.position)),
+        paths_at(&index, capped.items().iter().map(|found| found.position)),
         ["src/main.rs"],
         "the limit is spent on what the exclusion leaves"
+    );
+    assert_eq!(
+        capped.matched(),
+        Some(2),
+        "and the count covers only what it leaves"
     );
 }
 
@@ -863,6 +914,7 @@ fn a_glob_query_and_a_fuzzy_query_select_from_the_same_set() {
         &index,
         index
             .fuzzy("", &FuzzyOptions::default())
+            .items()
             .iter()
             .map(|found| found.position),
     );
@@ -1034,7 +1086,7 @@ fn a_backslash_in_a_filename_is_not_a_path_separator_when_ranking() {
     let ranked = index.fuzzy("main", &FuzzyOptions::default());
 
     assert_eq!(
-        paths_at(&index, ranked.iter().map(|found| found.position)),
+        paths_at(&index, ranked.items().iter().map(|found| found.position)),
         ["main\\x.rs", "main/x.rs"],
         "one unix filename outranks a directory hit of the same spelling"
     );
@@ -1952,7 +2004,7 @@ fn path_search_options_default_to_no_limit_and_zero_lifts_it() {
     assert!(!globbed.truncated());
 
     let ranked = index.fuzzy("rs", &FuzzyOptions::default().limit(0));
-    assert_eq!(ranked.len(), 3, "a zero limit reads as no limit");
+    assert_eq!(ranked.items().len(), 3, "a zero limit reads as no limit");
     assert_eq!(ranked, index.fuzzy("rs", &FuzzyOptions::default()));
 }
 

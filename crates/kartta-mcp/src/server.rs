@@ -413,9 +413,10 @@ impl Server {
             if let Some(excludes) = &excludes {
                 options = options.exclude(excludes);
             }
+            let ranked = index.fuzzy(&p.pattern, &options);
             let mut paths = index.paths();
             let mut listed = List::default();
-            for found in &index.fuzzy(&p.pattern, &options) {
+            for found in ranked.items() {
                 listed.push(paths.get(found.position));
             }
             Ok(render::paths(&p.pattern, listed))
