@@ -3,7 +3,7 @@ use kartta::{Region, Selector, SourceOptions, ask_reading, is_parent, is_referen
 use crate::built::{Built, Matches};
 use crate::error::Error;
 use crate::wire::files::{FuzzyParams, FuzzyView, GlobParams, GlobView, ListParams, ListView};
-use crate::wire::graph::{DefinitionsView, FileView, OutlineView, Wired};
+use crate::wire::graph::{DefinitionsView, FileView, OutlineView, ReferencesView, Wired};
 use crate::wire::params::{
     CALLEES_DEPTH, CALLERS_DEPTH, CallPathParams, ChangeParams, DeadCodeParams, DefinitionsParams,
     DependentsParams, ImplementationsParams, OutlineParams, ReferencesParams, ResolutionParams,
@@ -81,7 +81,13 @@ fn references(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         built.graphs(params.lang.as_deref())?,
         [params.selector()],
         is_referent,
-        |(name, graph), [named]| Some((name, Wired(graph.references(named, params.query())?))),
+        |(name, graph), [named]| {
+            let found = graph.references(named, params.query())?;
+            Some((
+                name,
+                ReferencesView::new(found, graph.conventions().type_uses),
+            ))
+        },
     );
     wire::ok(&Matches::read(found, read_as))
 }

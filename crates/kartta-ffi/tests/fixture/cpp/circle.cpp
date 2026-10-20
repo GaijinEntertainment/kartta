@@ -7,3 +7,7 @@ double Circle::area() const {
 double total(const Circle &circle) {
     return circle.area();
 }
+
+Circle unit() {
+    return Circle();
+}

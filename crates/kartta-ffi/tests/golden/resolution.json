@@ -53,9 +53,13 @@
             {
               "confidence": 85,
               "sites": 1
+            },
+            {
+              "confidence": 70,
+              "sites": 1
             }
           ],
-          "edges": 1,
+          "edges": 2,
           "graph": "cpp",
           "misses": {
             "ambiguous": 0,
@@ -65,7 +69,7 @@
             "through_a_receiver": 0,
             "undefined": 0
           },
-          "sites": 1,
+          "sites": 2,
           "unbound": [],
           "unlisted": 0
         }

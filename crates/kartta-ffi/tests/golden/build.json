@@ -2,9 +2,9 @@
   "answer": {
     "ok": {
       "content_index": {
-        "bytes": 787536,
+        "bytes": 787566,
         "files": 7,
-        "trigrams": 364
+        "trigrams": 374
       },
       "entries": 9,
       "errors": {
@@ -28,18 +28,18 @@
           "uses": 4
         },
         {
-          "calls": 1,
+          "calls": 2,
           "files": 3,
           "files_without_symbols": 0,
           "includes": 2,
           "kinds": {
             "class": 2,
-            "func": 1,
-            "method": 3
+            "func": 2,
+            "method": 4
           },
           "local_calls": 0,
           "name": "cpp",
-          "symbols": 6,
+          "symbols": 8,
           "uses": 0
         }
       ],
