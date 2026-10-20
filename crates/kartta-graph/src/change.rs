@@ -70,6 +70,9 @@ pub struct Seed<'g> {
     pub band: ReachBand,
     /// Its direct callers that pass the confidence floor.
     pub caller_count: usize,
+    /// The calls of its name that [`Walk::ambiguous`](crate::Walk::ambiguous) counts for a walk from it: any of them
+    /// may call it, and neither `caller_count` nor `reach` counts them.
+    pub ambiguous: usize,
     /// Those direct callers, in path order and those outside test, generated and entry code first, when
     /// `caller_count` is 30 or fewer; empty otherwise.
     pub consumers: Vec<Reached<'g>>,
@@ -268,6 +271,7 @@ impl<'g> Analysis<'g> {
             reach,
             band: ReachBand::of(reach, symbol.kind, symbol.exported),
             caller_count,
+            ambiguous: self.calls.ambiguous_calls(canonical),
             consumers,
             consumer_dirs,
             truncated: left_out.truncated,
