@@ -41,6 +41,8 @@ type Listed struct {
 // GlobParams are the params of the glob method.
 type GlobParams struct {
 	Globs []string `json:"globs"`
+	// Exclude are globs naming the paths left out, a directory with everything beneath it.
+	Exclude []string `json:"exclude,omitempty"`
 	// Limit caps the paths answered; 0 sets no cap.
 	Limit int `json:"limit,omitempty"`
 }
@@ -49,6 +51,8 @@ type GlobParams struct {
 type Glob struct {
 	Paths     []string `json:"paths"`
 	Truncated bool     `json:"truncated"`
+	// Excluded counts the matching paths Exclude left out before the answer ended.
+	Excluded int `json:"excluded,omitempty"`
 }
 
 // FuzzyParams are the params of the fuzzy method.
@@ -56,6 +60,8 @@ type FuzzyParams struct {
 	Query string `json:"query"`
 	// Globs keep the paths they match; nil keeps every path.
 	Globs []string `json:"globs,omitempty"`
+	// Exclude are globs naming the paths left out, a directory with everything beneath it.
+	Exclude []string `json:"exclude,omitempty"`
 	// Limit caps the matches answered; 0 takes the default, 50.
 	Limit int `json:"limit,omitempty"`
 }

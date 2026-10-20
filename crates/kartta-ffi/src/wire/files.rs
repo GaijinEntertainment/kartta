@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use kartta::{
     CancelToken, Case, EntryKind, Filter, FuzzyMatch, FuzzyOptions, GlobOptions, GrepOptions,
     Index, LineKind, ListError, ListOptions, Listing, Matches, Patterns,
@@ -38,6 +40,8 @@ pub(crate) struct ListParams {
 pub(crate) struct GlobParams {
     globs: Vec<String>,
     #[serde(default)]
+    exclude: Option<Vec<String>>,
+    #[serde(default)]
     limit: usize,
 }
 
@@ -47,6 +51,8 @@ pub(crate) struct FuzzyParams {
     query: String,
     #[serde(default)]
     globs: Option<Vec<String>>,
+    #[serde(default)]
+    exclude: Option<Vec<String>>,
     #[serde(default)]
     limit: Option<usize>,
 }
@@ -163,13 +169,20 @@ fn list_error(error: &ListError) -> Error {
 pub(crate) struct GlobView {
     paths: Vec<String>,
     truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    excluded: Option<NonZeroUsize>,
 }
 
 impl GlobView {
     pub(crate) fn new(index: &Index, params: &GlobParams) -> Result<Self, Error> {
+        let exclude = filter(params.exclude.as_deref())?;
         let filter = Filter::new(&params.globs)
             .map_err(|error| Error::new(ErrorCode::InvalidGlob, error.to_string()))?;
-        let found = index.glob(&filter, &GlobOptions::default().limit(params.limit));
+        let mut options = GlobOptions::default().limit(params.limit);
+        if let Some(exclude) = &exclude {
+            options = options.exclude(exclude);
+        }
+        let found = index.glob(&filter, &options);
         let mut paths = index.paths();
         Ok(Self {
             paths: found
@@ -178,6 +191,7 @@ impl GlobView {
                 .map(|&at| paths.get(at).to_owned())
                 .collect(),
             truncated: found.truncated(),
+            excluded: NonZeroUsize::new(found.excluded()),
         })
     }
 }
@@ -196,11 +210,15 @@ struct FuzzyMatchView {
 
 impl FuzzyView {
     pub(crate) fn new(index: &Index, params: &FuzzyParams) -> Result<Self, Error> {
+        let exclude = filter(params.exclude.as_deref())?;
         let filter = filter(params.globs.as_deref())?;
         let limit = bound(params.limit, FUZZY_LIMIT);
         let mut options = FuzzyOptions::default().limit(limit.saturating_add(1));
         if let Some(filter) = &filter {
             options = options.filter(filter);
+        }
+        if let Some(exclude) = &exclude {
+            options = options.exclude(exclude);
         }
         let mut ranked: Vec<FuzzyMatch<'_>> = index.fuzzy(&params.query, &options);
         let truncated = limit > 0 && ranked.len() > limit;
