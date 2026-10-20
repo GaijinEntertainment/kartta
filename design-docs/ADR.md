@@ -108,7 +108,7 @@
   2026-10-17
 - [3.22 Analyze what a change reaches with the walk the call queries
   take](./adr/3.22-analyze-what-a-change-reaches-with-the-walk-the-call-queries-take.md) — initiative `03-code-graph`,
-  2026-10-17
+  2026-10-17, revised 2026-10-20
 - [3.23 Judge code dead only where the graph sees it
   used](./adr/3.23-judge-code-dead-only-where-the-graph-sees-it-used.md) — initiative `03-code-graph`, 2026-10-17,
   revised 2026-10-19
@@ -133,7 +133,7 @@
   2026-10-18, revised 2026-10-20
 - [3.34 Record each read and write of a field or a value, and bind it when a query
   asks](./adr/3.34-record-each-read-and-write-of-a-field-or-a-value.md) — initiative `03-code-graph`, 2026-10-18,
-  revised 2026-10-19
+  revised 2026-10-20
 - [3.35 Pick a shared name's symbol by its path, and list the
   others](./adr/3.35-pick-a-shared-name-s-symbol-by-its-path-and-list-the-others.md) — initiative `03-code-graph`,
   2026-10-19
