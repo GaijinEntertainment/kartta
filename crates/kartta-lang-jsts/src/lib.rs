@@ -101,7 +101,7 @@ mod tsconfig;
 mod walk;
 
 use kartta_lang::{
-    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
+    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver, TypeUses,
     UntypedMembers, ValueUses,
 };
 
@@ -118,6 +118,7 @@ fn conventions() -> Conventions {
     conventions.runtime_methods = runtime::METHODS;
     conventions.value_uses = ValueUses::Imported;
     conventions.untyped_members = UntypedMembers::Unbound;
+    conventions.type_uses = TypeUses::Nowhere;
     conventions
 }
 

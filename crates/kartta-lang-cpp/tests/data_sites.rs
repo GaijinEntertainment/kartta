@@ -1,7 +1,7 @@
 //! The data sites a C++ body or a file-scope initializer yields: each field access, each read or write of a name no
 //! declaration of the body binds, how it touches its target and what its name is written on.
 
-use kartta_lang::{Access, FILE_SCOPE, Language, RawExtraction, Receiver};
+use kartta_lang::{Access, FILE_SCOPE, Language, RawExtraction, Receiver, TypeUses};
 use kartta_lang_cpp::Cpp;
 
 fn extract(source: &str) -> RawExtraction {
@@ -276,4 +276,29 @@ PX_FORCE_INLINE void Widget::draw(int width = fallback) {
          definition that holds it, and a lambda outside one, a default argument and an annotation macro in a \
          definition's head yield nothing"
     );
+}
+
+#[test]
+fn a_type_named_as_one_is_no_use_of_it() {
+    let raw = extract(
+        "struct Point { int x; };
+using Alias = Point;
+class Line : public Shape { Point from; };
+Point draw(const Line &line, Alias *alias) {
+    Point start = line.from;
+    auto copy = static_cast<Point>(start);
+    std::vector<Line> lines;
+    return Point{copy.x};
+}
+",
+    );
+
+    assert_eq!(
+        sites(&raw),
+        [
+            ("from", path("Line"), Access::Read),
+            ("x", path(""), Access::Read)
+        ]
+    );
+    assert_eq!(Cpp::new().conventions().type_uses, TypeUses::Nowhere);
 }

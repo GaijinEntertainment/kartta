@@ -8,7 +8,7 @@
 
 use kartta_lang::{
     CallRef, Extraction, FILE_SCOPE, Language, MemoryRepository, RawExtraction, SymbolId,
-    SymbolKind,
+    SymbolKind, TypeUses,
 };
 use kartta_lang_puppet::Puppet;
 
@@ -192,6 +192,25 @@ fn a_type_reference_is_no_class_reference() {
 
     assert_eq!(resolved.calls, []);
     assert_eq!(includes(&resolved), Vec::<&str>::new());
+}
+
+#[test]
+fn a_type_named_as_one_is_no_use_of_it() {
+    let raw = extract(
+        b"type Port = Integer[1, 65535]\nclass web (Port $port, Array[Port] $more) {\n  \
+          notify { 'up': require => Class['db'] }\n}\n",
+    );
+
+    let declared: Vec<&str> = raw
+        .symbols
+        .iter()
+        .map(|symbol| symbol.name.as_str())
+        .collect();
+    for name in ["Port", "web"] {
+        assert!(declared.contains(&name), "{name} in {declared:?}");
+    }
+    assert_eq!(raw.uses, []);
+    assert_eq!(Puppet::new().conventions().type_uses, TypeUses::Nowhere);
 }
 
 #[test]
