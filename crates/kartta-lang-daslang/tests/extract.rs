@@ -7,7 +7,7 @@
 
 use kartta_lang::{
     Access, Conventions, FILE_SCOPE, Language, RawExtraction, Receiver, Symbol, SymbolId,
-    SymbolKind, ValueUses,
+    SymbolKind, TypeUses, ValueUses,
 };
 use kartta_lang_daslang::Daslang;
 
@@ -144,12 +144,40 @@ fn daslang_claims_files_with_the_das_extension_in_any_case() {
 }
 
 #[test]
-fn daslang_resolves_calls_under_the_default_conventions_but_value_uses_and_own_type_receivers() {
+fn daslang_conventions_are_the_default_but_value_uses_type_uses_and_own_type_receivers() {
     let mut expected = Conventions::default();
     expected.value_uses = ValueUses::Imported;
     expected.own_type_receivers = Some(&["self"]);
+    expected.type_uses = TypeUses::Nowhere;
 
     assert_eq!(Daslang::new().conventions(), expected);
+}
+
+#[test]
+fn a_type_named_as_one_is_no_use_of_it() {
+    let raw = extract(
+        "options gen2
+require shapes
+struct Point {
+  x : int
+}
+typedef Alias = Point
+def draw(p : Point; a : Alias?; all : array<Point>) : Point {
+  var copy : Point = p
+  return copy
+}
+",
+    );
+
+    let declared: Vec<&str> = raw
+        .symbols
+        .iter()
+        .map(|symbol| symbol.name.as_str())
+        .collect();
+    for name in ["Point", "Alias", "draw"] {
+        assert!(declared.contains(&name), "{name} in {declared:?}");
+    }
+    assert!(raw.uses.is_empty(), "{:?}", raw.uses);
 }
 
 #[test]

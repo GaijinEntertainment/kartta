@@ -8,7 +8,7 @@
 
 use kartta_lang::{
     Access, CallRef, CallableRole, Extraction, FILE_SCOPE, InheritedMembers, Language,
-    MemoryRepository, OwnMembers, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind,
+    MemoryRepository, OwnMembers, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind, TypeUses,
 };
 use kartta_lang_ruby::Ruby;
 
@@ -982,4 +982,28 @@ end
             ("setup", &Receiver::Bare, start, 26),
         ]
     );
+}
+
+#[test]
+fn a_type_named_as_one_is_no_use_of_it() {
+    let raw = extract(
+        b"require 'shapes/shape'
+class Circle < Shape
+  include Drawable
+  def grow(size)
+    raise ArgumentError unless size.is_a?(Size)
+    Circle.new(Size::DEFAULT)
+  rescue Shapes::Error
+    nil
+  end
+end
+",
+    );
+
+    let declared = names(&raw.symbols);
+    for name in ["Circle", "Circle#grow"] {
+        assert!(declared.contains(&name), "{name} in {declared:?}");
+    }
+    assert_eq!(uses(&raw), []);
+    assert_eq!(Ruby::new().conventions().type_uses, TypeUses::Nowhere);
 }

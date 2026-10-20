@@ -67,7 +67,7 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{
     BlockComment, Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository,
-    Resolver,
+    Resolver, TypeUses,
 };
 
 use crate::resolve::Autoload;
@@ -116,6 +116,7 @@ impl Language for Php {
     fn conventions(&self) -> Conventions {
         let mut conventions = Conventions::default();
         conventions.own_members = OwnMembers::Unreached;
+        conventions.type_uses = TypeUses::Nowhere;
 
         conventions
     }

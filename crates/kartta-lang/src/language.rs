@@ -262,7 +262,12 @@ pub enum NamespaceCalls {
 /// Where a language records a use of a type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TypeUses {
-    /// Code can name a type where the language records no use, so a type that no use names may still be named.
+    /// Nowhere code names a type as one, such as a declaration, a signature, a generic argument or an import: a type's
+    /// sites are the calls that name it and, where the language records them, its reads as a value, as a Rust unit
+    /// struct is read.
+    Nowhere,
+    /// Where some code names a type, as Python's extraction records an annotation inside a body: code can name a type
+    /// where the language records no use, so a type that no use names may still be named.
     #[default]
     Partial,
     /// Wherever code names a type that is not local to a body, as Go's extraction records a use in a declaration or a

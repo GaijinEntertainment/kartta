@@ -53,7 +53,9 @@
 //! ```
 
 use kartta_lang::path::has_extension;
-use kartta_lang::{BlockComment, DocComments, Language, RawExtraction, Repository, Resolver};
+use kartta_lang::{
+    BlockComment, Conventions, DocComments, Language, RawExtraction, Repository, Resolver, TypeUses,
+};
 
 use crate::resolve::Manifests;
 
@@ -92,6 +94,12 @@ impl Language for Puppet {
 
     fn doc_comments(&self) -> DocComments {
         DOC_COMMENTS
+    }
+
+    fn conventions(&self) -> Conventions {
+        let mut conventions = Conventions::default();
+        conventions.type_uses = TypeUses::Nowhere;
+        conventions
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {
