@@ -60,7 +60,7 @@
   2026-10-16
 - [3.3 Repair what the C++ grammar cannot parse instead of vendoring
   it](./adr/3.3-repair-what-the-c-plus-plus-grammar-cannot-parse.md) — initiative `03-code-graph`, 2026-10-16, revised
-  2026-10-19
+  2026-10-20
 - [3.4 Extract TypeScript and JavaScript as one
   family](./adr/3.4-extract-typescript-and-javascript-as-one-family.md) — initiative `03-code-graph`, 2026-10-16,
   revised 2026-10-19
