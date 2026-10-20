@@ -125,6 +125,7 @@ test('every method answers its golden request through its typed call as pinned',
 
 	for (const [method, golden] of Object.entries(goldens)) {
 		// SAFETY: goldens and replays share their keys, as the mapped types above require.
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion
 		const replay = replays[method as keyof Methods] as (kartta: Kartta, params: unknown) => Promise<unknown>;
 		const answered = await replay(kartta, golden.params).then(
 			(ok) => ({ok}),
