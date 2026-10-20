@@ -14,7 +14,7 @@ report(&outcome.errors); // a partial index looks exactly like a complete one
 let index = outcome.index;
 
 let ranked = index.fuzzy("main", &FuzzyOptions::default());
-assert_eq!(index.paths().get(ranked[0].position), "src/main.rs");
+assert_eq!(index.paths().get(ranked.items()[0].position), "src/main.rs");
 
 let listed = index.list("src", &ListOptions::default())?; // what is in a place, depth-first
 assert_eq!(index.size("src/main.rs"), Some(12)); // read now, kept
@@ -127,6 +127,11 @@ directory name, so `main` finds `src/main.rs` before `main/lib.rs`. Directories 
 "which file did you mean", and a matching directory would otherwise arrive alongside every file beneath it that matches
 for the same reason. Matching ignores case, which is this crate's choice and not git's: `core.ignoreCase` describes what
 the filesystem does with case, a different question from what a search should do with it.
+
+A ranking answers how many paths matched beside the ones it returns, so ten paths read as ten of however many matched.
+A limit keeps the best of every match it scores, so the count is a tally of that work. An empty query is not counted:
+it matches every path in index order, so under a limit it stops there without reading the rest, and without one it
+returns every match.
 
 `glob` and `fuzzy` take an exclusion beside the `Filter` that selects, as a listing and a content search do: a matched
 directory is removed with everything beneath it before a limit sees it, so a capped answer stays exact. A ranking skips

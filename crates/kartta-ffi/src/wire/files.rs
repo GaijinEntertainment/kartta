@@ -1,8 +1,8 @@
 use std::num::NonZeroUsize;
 
 use kartta::{
-    CancelToken, Case, EntryKind, Filter, FuzzyMatch, FuzzyOptions, GlobOptions, GrepOptions,
-    Index, LineKind, ListError, ListOptions, Listing, Matches, Patterns,
+    CancelToken, Case, EntryKind, Filter, FuzzyOptions, GlobOptions, GrepOptions, Index, LineKind,
+    ListError, ListOptions, Listing, Matches, Patterns,
 };
 use serde::{Deserialize, Serialize};
 
@@ -220,14 +220,16 @@ impl FuzzyView {
         if let Some(exclude) = &exclude {
             options = options.exclude(exclude);
         }
-        let mut ranked: Vec<FuzzyMatch<'_>> = index.fuzzy(&params.query, &options);
-        let truncated = limit > 0 && ranked.len() > limit;
-        if truncated {
-            ranked.truncate(limit);
-        }
+        let ranked = index.fuzzy(&params.query, &options);
+        let truncated = limit > 0 && ranked.items().len() > limit;
+        let answered = if truncated {
+            &ranked.items()[..limit]
+        } else {
+            ranked.items()
+        };
         let mut paths = index.paths();
         Ok(Self {
-            matches: ranked
+            matches: answered
                 .iter()
                 .map(|found| FuzzyMatchView {
                     path: paths.get(found.position).to_owned(),

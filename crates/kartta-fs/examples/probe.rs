@@ -66,7 +66,7 @@ fn main() {
 
     println!("\n  {query:?} ranked in {elapsed:.2?}");
     let mut paths = index.paths();
-    for found in &ranked {
+    for found in ranked.items() {
         println!("    {:>12}  {:?}", found.score, paths.get(found.position));
     }
 }
