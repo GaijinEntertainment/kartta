@@ -18,6 +18,7 @@ use crate::inspection::Inspection;
 use crate::list::is_below;
 use crate::policy::{DirState, Indexing, Learned, Numbering, Payload, Report, names_match};
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
+use crate::spelling;
 use crate::stamp::{Seen, Stamp, Stamping, UNTRUSTED};
 
 impl Index {
@@ -40,6 +41,13 @@ impl Index {
     /// A path inside a `.git` directory names nothing the index holds and is skipped, as is a `.git` at the root, a
     /// `.git` anywhere when no ignore rules apply, and a path through a name in
     /// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names).
+    ///
+    /// A path names the entry the disk holds. On macOS and Windows, where a volume can find an entry by a name in
+    /// another letter case, or on macOS in another Unicode normalization form, than the one it holds, a part the index
+    /// does not hold takes the name the filesystem answers for it, so `dir/f.rs` refreshes an indexed `Dir/f.rs`; and a
+    /// part the disk holds under another name, as after a rename that changed only its case, is gone, as is a part no
+    /// longer on disk. Asking costs a part found on disk one more call to the filesystem, and a part the index does not
+    /// hold another, once a call however many paths come to it. Elsewhere a path is taken as spelled.
     ///
     /// While ignore rules apply, the rules for a part walked again come from the `.gitignore` files of the directories
     /// above it, read again once a call for each such directory, at two stats a directory and a third with the read of
@@ -103,7 +111,9 @@ impl Index {
     /// comes to that one directory, and the empty path alone says the paths come to the whole tree.
     ///
     /// No ignore rule is read: a part the rules hide is still a part. A call stats each directory the index holds
-    /// once, when a path's widening first meets it, to see that it is still a directory.
+    /// once, when a path's widening first meets it, to see that it is still a directory, and on macOS and Windows asks
+    /// the filesystem for the name of each part the index does not hold, so a path in another case comes to the part
+    /// the disk holds, as [`Index::refresh_paths`] says.
     ///
     /// # Errors
     ///
@@ -113,9 +123,9 @@ impl Index {
         paths: impl IntoIterator<Item = &'p str>,
     ) -> Result<Vec<String>, BuildError> {
         let mut scopes = Vec::new();
-        let mut held = HashMap::new();
+        let mut lookups = Lookups::default();
         for path in paths {
-            if let Some(scope) = self.scope_of(path, &mut held)? {
+            if let Some(scope) = self.scope_of(path, &mut lookups, 0)? {
                 scopes.push(scope);
             }
         }
@@ -128,7 +138,8 @@ impl Index {
     fn scope_of(
         &self,
         path: &str,
-        held: &mut HashMap<String, bool>,
+        lookups: &mut Lookups,
+        names_on_disk: usize,
     ) -> Result<Option<String>, BuildError> {
         let mut parts = Vec::new();
         for part in path.split('/').filter(|part| !matches!(*part, "" | ".")) {
@@ -161,9 +172,10 @@ impl Index {
         let mut scope = parts.join("/");
         while !scope.is_empty() {
             let parent = parent_of(&scope);
-            let holds = match held.get(parent) {
+            let holds = match lookups.held.get(parent) {
                 Some(&holds) => holds,
-                None => *held
+                None => *lookups
+                    .held
                     .entry(parent.to_owned())
                     .or_insert_with(|| self.holds_dir(parent)),
             };
@@ -172,7 +184,33 @@ impl Index {
             }
             scope.truncate(parent.len());
         }
-        Ok(Some(scope))
+
+        let at = scope.bytes().filter(|&byte| byte == b'/').count();
+        if scope.is_empty() || at < names_on_disk {
+            return Ok(Some(scope));
+        }
+        let Some(name) = self.respelling(&scope, &mut lookups.respellings) else {
+            return Ok(Some(scope));
+        };
+        parts[at] = &name;
+        self.scope_of(&parts.join("/"), lookups, at + 1)
+    }
+
+    fn respelling(
+        &self,
+        scope: &str,
+        respellings: &mut HashMap<String, Option<String>>,
+    ) -> Option<String> {
+        if let Some(respelling) = respellings.get(scope) {
+            return respelling.clone();
+        }
+        let respelling = if self.position(scope).is_some() {
+            None
+        } else {
+            spelling::on_disk(&self.root.join(scope)).filter(|name| name != name_of(scope))
+        };
+        respellings.insert(scope.to_owned(), respelling.clone());
+        respelling
     }
 
     fn holds_dir(&self, dir: &str) -> bool {
@@ -310,6 +348,12 @@ impl Index {
     }
 }
 
+#[derive(Default)]
+struct Lookups {
+    held: HashMap<String, bool>,
+    respellings: HashMap<String, Option<String>>,
+}
+
 struct Planned {
     pending: Option<(Pending, Option<ContentIndexes>)>,
     errors: Vec<BuildError>,
@@ -434,6 +478,9 @@ impl Rewalk<'_, '_> {
                 return Ok(Part::Found(Found::GONE));
             }
         };
+        if spelling::on_disk(&native_path).is_some_and(|name| name != name_of(scope)) {
+            return Ok(Part::Found(Found::GONE));
+        }
         let rules = self.rules_for(parent_of(scope));
         let is_dir = metadata.is_dir();
         if rules.ignores(scope, is_dir) {
@@ -559,6 +606,10 @@ impl Facts<'_> {
 
 fn parent_of(path: &str) -> &str {
     path.rfind('/').map_or("", |at| &path[..at])
+}
+
+fn name_of(path: &str) -> &str {
+    path.rfind('/').map_or(path, |at| &path[at + 1..])
 }
 
 fn holds(dir: &str, path: &str) -> bool {
