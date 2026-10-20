@@ -61,7 +61,8 @@ another file changes.
   distinct words of its definitions and path, gathered by the first search, so building spends nothing on search and a
   search splits only the names of the files that may hold a word it asks for.
 - `Graph::callers` and `Graph::callees` — the callers or callees of a callable, to a depth, above a confidence floor and
-  under a symbol cap, counting what the cap, the depth bound and the floor left out.
+  under a symbol cap, counting what the cap, the depth bound and the floor left out. The callers also count the calls
+  of the callable's name that bound none because several of its definitions may be meant.
 - `Graph::references` — the sites that call or use a symbol, a field included, by file and line, each marked a read, a
   write or an update; it can keep the readers or the writers alone, counts every site by kind whatever it keeps, and
   counts what the floor and the limit left out and the uses of a member's name it could not tell apart.

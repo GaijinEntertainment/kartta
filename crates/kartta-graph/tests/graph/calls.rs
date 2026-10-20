@@ -3226,3 +3226,125 @@ fn callers_of_a_field_list_no_file_whose_top_level_names_it() {
         walk.file_scope
     );
 }
+
+fn ambiguous_callers(graph: &Graph, name: &str, depth: u32) -> (Vec<String>, usize) {
+    let walk = graph
+        .callers(name, Limits::new(depth))
+        .expect("the name selects a symbol");
+    (reached(&walk), walk.ambiguous)
+}
+
+#[test]
+fn callers_of_a_member_count_the_calls_through_a_receiver_its_name_s_other_members_may_answer() {
+    let graph = graph(&[
+        file(
+            "app/run.rs",
+            vec![function("run", 1), function("stop", 10)],
+            vec![
+                member_call(0, "token", "cancel", 2),
+                member_call(0, "", "is_cancelled", 3),
+                member_call(1, "", "cancel", 11),
+            ],
+        ),
+        file(
+            "walk/cancel.rs",
+            vec![
+                member("CancelToken", "cancel", SymbolKind::Method, 1),
+                member("CancelToken", "is_cancelled", SymbolKind::Method, 5),
+            ],
+            Vec::new(),
+        ),
+        file(
+            "ffi/handle.rs",
+            vec![member("Handle", "cancel", SymbolKind::Method, 1)],
+            Vec::new(),
+        ),
+    ]);
+
+    assert_eq!(
+        ambiguous_callers(&graph, "CancelToken::cancel", 1),
+        (Vec::new(), 2)
+    );
+    assert_eq!(
+        ambiguous_callers(&graph, "Handle::cancel", 1),
+        (Vec::new(), 2),
+        "each member the calls may mean counts them"
+    );
+    assert_eq!(
+        ambiguous_callers(&graph, "CancelToken::cancel", 3),
+        (Vec::new(), 2),
+        "the count is the root's at every depth"
+    );
+    assert_eq!(
+        ambiguous_callers(&graph, "CancelToken::is_cancelled", 1),
+        (vec!["app/run.rs:1@60".to_owned()], 0),
+        "the one member of a name binds its calls"
+    );
+    let callees = graph
+        .callees("run", Limits::new(1))
+        .expect("the function is defined");
+    assert_eq!(
+        (callees.ambiguous, callees.unresolved),
+        (0, 1),
+        "a walk over callees counts the call it could not bind as unresolved"
+    );
+}
+
+#[test]
+fn callers_of_a_free_function_count_its_name_s_ambiguous_calls_a_free_function_can_answer() {
+    let formatters = || {
+        vec![
+            file("a/fmt.js", vec![function("format", 1)], Vec::new()),
+            file("b/fmt.js", vec![function("format", 1)], Vec::new()),
+            file(
+                "c/x.js",
+                vec![function("render", 1)],
+                vec![call(0, "format", 2), member_call(0, "utils", "format", 3)],
+            ),
+        ]
+    };
+    let mut with_members = formatters();
+    with_members.push(file(
+        "d/fmt.js",
+        vec![
+            member("Formatter", "format", SymbolKind::Method, 1),
+            member("Printer", "format", SymbolKind::Method, 5),
+        ],
+        Vec::new(),
+    ));
+
+    assert_eq!(
+        ambiguous_callers(&graph(&formatters()), "format", 1),
+        (Vec::new(), 2),
+        "no member of the name answers a call through a receiver, so the free functions may"
+    );
+    assert_eq!(
+        ambiguous_callers(&graph(&with_members), "format", 1),
+        (Vec::new(), 1),
+        "a call through a receiver means one of the members"
+    );
+    assert_eq!(
+        ambiguous_callers(&graph(&with_members), "Formatter::format", 1),
+        (Vec::new(), 1),
+        "a bare call means one of the free functions"
+    );
+    let mut with_a_local = formatters();
+    let mut holder = file(
+        "e/wrap.js",
+        vec![
+            Symbol::new("wrap", SymbolKind::Function, 1, 10),
+            function("format", 3),
+        ],
+        Vec::new(),
+    );
+    holder.local_symbols = vec![SymbolId(1)];
+    with_a_local.push(holder);
+    let local = graph(&with_a_local)
+        .callers(Selector::new("format").within("e/"), Limits::new(1))
+        .expect("the local is defined")
+        .ambiguous;
+    assert_eq!(
+        local, 0,
+        "a call outside its body cannot mean a local function"
+    );
+}
