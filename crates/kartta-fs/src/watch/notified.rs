@@ -33,16 +33,8 @@ impl Backend {
         let (sender, signals) = mpsc::sync_channel(QUEUED);
         let overflowed = Arc::new(AtomicBool::new(false));
         let overflowing = Arc::clone(&overflowed);
-        // constraint: notify names the directory to scan again on a drop when the system names one, and nothing when the
-        // whole watch lost track, as a Windows buffer that overflowed does; an error from the stream may have cost a
-        // change, so it counts as a loss too
         let handler = move |event: notify::Result<notify::Event>| {
-            let signal = match event {
-                Ok(event) if event.need_rescan() && event.paths.is_empty() => Signal::Lost,
-                Ok(event) => Signal::Changed(event.paths),
-                Err(_) => Signal::Lost,
-            };
-            if let Err(TrySendError::Full(_)) = sender.try_send(signal) {
+            if let Err(TrySendError::Full(_)) = sender.try_send(signal(event)) {
                 overflowing.store(true, Ordering::Relaxed);
             }
         };
@@ -93,5 +85,64 @@ impl Backend {
     )]
     pub(super) const fn cover(&self, _index: &Index, _found: &mut Found) -> Result<(), WatchError> {
         Ok(())
+    }
+}
+
+// constraint: notify names the directory to scan again on a drop when the system names one, and nothing when the whole
+// watch lost track, as a Windows buffer that overflowed does; an error from the stream may have cost a change, so it
+// counts as a loss too
+fn signal(event: notify::Result<notify::Event>) -> Signal {
+    match event {
+        Ok(event) if event.need_rescan() && event.paths.is_empty() => Signal::Lost,
+        Ok(event) => Signal::Changed(event.paths),
+        Err(_) => Signal::Lost,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use notify::event::{CreateKind, Flag};
+    use notify::{Event, EventKind};
+
+    use super::*;
+
+    fn rescan() -> Event {
+        Event::new(EventKind::Other).set_flag(Flag::Rescan)
+    }
+
+    #[test]
+    fn a_rescan_that_names_no_directory_loses_the_batch() {
+        assert!(matches!(signal(Ok(rescan())), Signal::Lost));
+    }
+
+    #[test]
+    fn a_rescan_of_a_directory_names_that_directory() {
+        let signal = signal(Ok(rescan().add_path(PathBuf::from("/tree/src"))));
+
+        assert!(
+            matches!(&signal, Signal::Changed(paths) if *paths == [PathBuf::from("/tree/src")]),
+            "{signal:?}"
+        );
+    }
+
+    #[test]
+    fn a_change_names_its_path() {
+        let event =
+            Event::new(EventKind::Create(CreateKind::File)).add_path(PathBuf::from("/tree/a.rs"));
+
+        let signal = signal(Ok(event));
+
+        assert!(
+            matches!(&signal, Signal::Changed(paths) if *paths == [PathBuf::from("/tree/a.rs")]),
+            "{signal:?}"
+        );
+    }
+
+    #[test]
+    fn an_error_from_the_stream_loses_the_batch() {
+        assert!(matches!(
+            signal(Err(notify::Error::generic("stream failed"))),
+            Signal::Lost
+        ));
     }
 }
