@@ -7,7 +7,7 @@
 )]
 
 use kartta_lang::{
-    Access, FILE_SCOPE, Language, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind,
+    Access, FILE_SCOPE, Language, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind, TypeUses,
 };
 use kartta_lang_rust::Rust;
 
@@ -834,6 +834,33 @@ static CHECKED: Option<u8> = None;
             ("LIMIT", &Receiver::Bare, more, 23),
         ]
     );
+}
+
+#[test]
+fn a_type_named_as_one_is_no_use_of_it() {
+    let raw = extract(
+        b"use crate::shapes::Shape;
+struct Point { x: u32 }
+struct Line { from: Point, to: Point }
+trait Draw {}
+impl Draw for Point {}
+fn draw<T: Draw>(shape: &dyn Draw, line: Line, all: Vec<Point>) -> Point {
+    let start: Point = line.from;
+    Point { x: start.x }
+}
+",
+    );
+
+    let declared: Vec<&str> = raw
+        .symbols
+        .iter()
+        .map(|symbol| symbol.name.as_str())
+        .collect();
+    for name in ["Point", "Line", "Draw", "draw"] {
+        assert!(declared.contains(&name), "{name} in {declared:?}");
+    }
+    assert!(raw.uses.is_empty(), "{:?}", raw.uses);
+    assert_eq!(Rust::new().conventions().type_uses, TypeUses::Nowhere);
 }
 
 #[test]

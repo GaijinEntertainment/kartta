@@ -8,7 +8,7 @@
 
 use kartta_lang::{
     Access, CallRef, Extraction, FILE_SCOPE, InheritedMembers, Language, MemoryRepository,
-    OwnMembers, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind,
+    OwnMembers, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind, TypeUses,
 };
 use kartta_lang_php::Php;
 
@@ -1187,4 +1187,29 @@ App\Util\array_map('init', $items);
     );
 
     assert_eq!(uses(&raw), []);
+}
+
+#[test]
+fn a_type_named_as_one_is_no_use_of_it() {
+    let raw = extract(
+        br"<?php
+namespace App;
+use App\Shapes\Shape;
+interface Drawable {}
+class Circle extends Shape implements Drawable {
+    private Size $size;
+    public function grow(Size $by): Circle {
+        if ($by instanceof Size) { return new Circle(); }
+        return Circle::make(Size::class);
+    }
+}
+",
+    );
+
+    let declared = names(&raw.symbols);
+    for name in ["App\\Drawable", "App\\Circle", "App\\Circle::grow"] {
+        assert!(declared.contains(&name), "{name} in {declared:?}");
+    }
+    assert_eq!(uses(&raw), []);
+    assert_eq!(Php::new().conventions().type_uses, TypeUses::Nowhere);
 }

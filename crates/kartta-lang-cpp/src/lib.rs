@@ -142,7 +142,7 @@ mod walk;
 use kartta_lang::tree::parse;
 use kartta_lang::{
     CallsOnValues, Conventions, DocComments, IncludeReach, InheritedMembers, Language, OwnMembers,
-    RawExtraction, Repository, Resolver, UntypedMembers, ValueUses,
+    RawExtraction, Repository, Resolver, TypeUses, UntypedMembers, ValueUses,
 };
 
 const EXTENSIONS: [&str; 10] = [
@@ -191,6 +191,7 @@ impl Language for Cpp {
         conventions.calls_on_values = CallsOnValues::NoNearestGuess;
         conventions.value_uses = ValueUses::Included;
         conventions.untyped_members = UntypedMembers::IncludedField;
+        conventions.type_uses = TypeUses::Nowhere;
         conventions
     }
 

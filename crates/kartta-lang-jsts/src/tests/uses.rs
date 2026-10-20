@@ -1,6 +1,7 @@
-use kartta_lang::{Access, Extraction, Receiver};
+use kartta_lang::{Access, Extraction, Language, Receiver, TypeUses};
 
-use super::extracted;
+use super::{extracted, names};
+use crate::TypeScript;
 
 const SAMPLE: &str = r"import { LIMIT, Config } from './config';
 const DEFAULTS: Config = { timeout: 5 };
@@ -160,4 +161,25 @@ fn a_function_or_a_class_the_module_declares_taken_as_a_value_is_used() {
         "a call of the name, its declaration and a later body's call record no use; a value taken before the \
          declaration does; a body's own function or class of the name hides the module's"
     );
+}
+
+#[test]
+fn a_type_named_as_one_is_no_use_of_it() {
+    let extraction = extracted(
+        "src/shapes.ts",
+        "import { Shape } from './shape';\n\
+         interface Drawable { draw(): void; }\n\
+         type Size = { width: number };\n\
+         enum Kind { Round }\n\
+         class Circle implements Drawable { size: Size; draw(): void {} }\n\
+         function make<T extends Drawable>(size: Size, kind: Kind): Circle {\n    \
+         const shapes: Array<Shape> = [];\n    return {} as Circle;\n}\n",
+    );
+
+    let declared = names(&extraction);
+    for name in ["Drawable", "Size", "Kind", "Circle", "make"] {
+        assert!(declared.contains(&name), "{name} in {declared:?}");
+    }
+    assert_eq!(uses(&extraction), []);
+    assert_eq!(TypeScript::new().conventions().type_uses, TypeUses::Nowhere);
 }

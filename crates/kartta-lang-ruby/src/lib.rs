@@ -71,7 +71,7 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{
     BlockComment, Conventions, DocComments, InheritedMembers, Language, OwnMembers, RawExtraction,
-    Repository, Resolver,
+    Repository, Resolver, TypeUses,
 };
 
 use crate::resolve::Requires;
@@ -124,6 +124,7 @@ impl Language for Ruby {
         conventions.inherited_members = InheritedMembers::Admitted;
         conventions.owner_chain_separator = Some("::");
         conventions.own_type_receivers = Some(&["other"]);
+        conventions.type_uses = TypeUses::Nowhere;
 
         conventions
     }

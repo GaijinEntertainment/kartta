@@ -73,7 +73,7 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{
     Conventions, DocComments, Language, NamespaceCalls, OwnMembers, RawExtraction, Repository,
-    Resolver,
+    Resolver, TypeUses,
 };
 
 use crate::resolve::Crates;
@@ -119,6 +119,7 @@ impl Language for Rust {
         conventions.owner_chain_separator = Some("::");
         conventions.runtime_methods = runtime::METHODS;
         conventions.own_type_receivers = Some(&["other"]);
+        conventions.type_uses = TypeUses::Nowhere;
 
         conventions
     }
