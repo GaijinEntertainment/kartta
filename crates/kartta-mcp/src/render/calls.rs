@@ -175,9 +175,10 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
 }
 
 /// The `find_references` answer: one `<match>` per family graph the name selects a symbol in, with where that family
-/// records a use of a type.
+/// records a use of a type. `keeps_one_access` says that the call kept the sites of one access.
 pub(crate) fn references(
     ask: &CallersAsk<'_>,
+    keeps_one_access: bool,
     found: &[(&str, TypeUses, References<'_>)],
     unmatched: &Unmatched<'_>,
 ) -> String {
@@ -190,7 +191,7 @@ pub(crate) fn references(
         return unresolved(element, ask.languages, "path_prefix", unmatched);
     }
     element.children(found.iter().map(|(family, type_uses, references)| {
-        reference_match(ask.floored, family, *type_uses, references)
+        reference_match(keeps_one_access, family, *type_uses, references)
     }))
 }
 
@@ -201,7 +202,7 @@ const LISTED_SITES: usize = 100;
 const COUNTED_FILES: usize = 50;
 
 fn reference_match(
-    floored: bool,
+    keeps_one_access: bool,
     family: &str,
     type_uses: TypeUses,
     references: &References<'_>,
@@ -243,7 +244,21 @@ fn reference_match(
     let unrecorded = (type_uses == TypeUses::Nowhere && is_type(symbol.kind)).then_some(family);
     let passed_over = candidates(&references.candidates, "sites");
     if references.sites.is_empty() {
-        let text = no_sites(floored, unrecorded, member_note);
+        let text = if references.below_confidence > 0 {
+            let lists = if keeps_one_access {
+                "min_confidence \"any\" without access lists"
+            } else {
+                "min_confidence \"any\" lists"
+            };
+            below_the_floor(
+                "no recorded site",
+                references.below_confidence,
+                ("site binds", "sites bind"),
+                lists,
+            )
+        } else {
+            no_sites(unrecorded, member_note)
+        };
         return noted(element, &text, passed_over);
     }
     let missing = unrecorded.map(|family| {
@@ -255,20 +270,18 @@ fn reference_match(
     element.children(note.into_iter().chain(listing.records).chain(passed_over))
 }
 
-/// Why a match lists no site: that the graph of the family `unrecorded` names records no use of a type, else the
-/// caveat that fits any language with the `member_note` of a method's or a field's sites.
-fn no_sites(floored: bool, unrecorded: Option<&str>, member_note: Option<&str>) -> String {
-    let floor = at_floor(floored);
+/// Why a match lists no site at any confidence: that the graph of the family `unrecorded` names records no use of a
+/// type, else the caveat that fits any language with the `member_note` of a method's or a field's sites.
+fn no_sites(unrecorded: Option<&str>, member_note: Option<&str>) -> String {
     if let Some(family) = unrecorded {
         return format!(
-            "no recorded site{floor} - the {family} {NO_TYPE_USES}, so this does not show that nothing uses the type; \
-             grep finds where code names it"
+            "no recorded site - the {family} {NO_TYPE_USES}, so this does not show that nothing uses the type; grep \
+             finds where code names it"
         );
     }
-    let mut text = format!(
-        "no recorded site{floor} - resolved calls can omit dynamic or unresolved ones, and uses other than calls are \
-         recorded only where the graph records them, so this does not show that nothing uses the symbol"
-    );
+    let mut text = "no recorded site - resolved calls can omit dynamic or unresolved ones, and uses other than calls \
+                    are recorded only where the graph records them, so this does not show that nothing uses the symbol"
+        .to_owned();
     if let Some(note) = member_note {
         text.push_str("; ");
         text.push_str(note);
@@ -594,7 +607,6 @@ pub(crate) struct CallersAsk<'a> {
     pub(crate) read_as: Option<&'a str>,
     pub(crate) languages: Option<&'a str>,
     pub(crate) role: Option<&'a str>,
-    pub(crate) floored: bool,
 }
 
 /// The `find_callers` answer: one `<match>` per family graph the name selects a symbol in, or the alternatives to a
@@ -652,12 +664,7 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
     }
     let passed_over = candidates(&walk.candidates, "callers");
     if walk.reached.is_empty() && walk.file_scope.is_empty() {
-        let text = no_callers(
-            root.kind,
-            ask.floored,
-            walk.ambiguous,
-            walk.below_confidence,
-        );
+        let text = no_callers(root.kind, walk.ambiguous, walk.below_confidence);
         return noted(element, &text, passed_over);
     }
     let refs = walk
@@ -704,13 +711,13 @@ pub(crate) fn callees(
     element.children(
         walks
             .iter()
-            .map(|(family, walk)| callee_match(ask.floored, family, walk)),
+            .map(|(family, walk)| callee_match(family, walk)),
     )
 }
 
 /// One graph's walk: the symbol, how many callees it reached, what the walk left out, and a flat `<ref>` per callee,
 /// nearest first.
-fn callee_match(floored: bool, family: &str, walk: &Walk<'_>) -> String {
+fn callee_match(family: &str, walk: &Walk<'_>) -> String {
     let root = &walk.root;
     let element = match_of(family, root)
         .attr("count", walk.reached.len())
@@ -722,11 +729,18 @@ fn callee_match(floored: bool, family: &str, walk: &Walk<'_>) -> String {
         .count("passed_over", walk.passed_over);
     let passed_over = candidates(&walk.candidates, "callers");
     if walk.reached.is_empty() {
-        let text = format!(
-            "no callees - no call in its body binds a definition the graph holds{}; a call into a library or a \
-             builtin, through a function value, or by dynamic dispatch binds none",
-            at_floor(floored)
-        );
+        let text = if walk.below_confidence > 0 {
+            below_the_floor(
+                "no callees",
+                walk.below_confidence,
+                ("callee binds", "callees bind"),
+                "min_confidence \"any\" lists",
+            )
+        } else {
+            "no callees - no call in its body binds a definition the graph holds; a call into a library or a builtin, \
+             through a function value, or by dynamic dispatch binds none"
+                .to_owned()
+        };
         return noted(element, &text, passed_over);
     }
     let refs = walk.reached.iter().map(|reached| {
@@ -750,27 +764,26 @@ fn match_of(family: &str, symbol: &Definition<'_>) -> Element {
         .attr("loc", loc(symbol.file, symbol.line))
 }
 
-/// How an answer with nothing to list names the confidence floor that may have left it empty.
-const fn at_floor(floored: bool) -> &'static str {
-    if floored {
-        " at this confidence floor"
+/// The note of an answer the confidence floor emptied: `empty` at the floor, then the `dropped` records that bind below
+/// it, as `records` spells one and several, and `lists`, the call that lists them.
+fn below_the_floor(empty: &str, dropped: usize, records: (&str, &str), lists: &str) -> String {
+    let (bind, them) = if dropped == 1 {
+        (records.0, "it")
     } else {
-        ""
-    }
+        (records.1, "them")
+    };
+    format!("{empty} at this confidence floor - {dropped} {bind} below it, and {lists} {them}")
 }
 
 /// Why a symbol may have no callers: the `below_confidence` callers the confidence floor dropped, else the `ambiguous`
 /// calls of its name that may call it, else what it is.
-fn no_callers(of: SymbolKind, floored: bool, ambiguous: usize, below_confidence: usize) -> String {
+fn no_callers(of: SymbolKind, ambiguous: usize, below_confidence: usize) -> String {
     if below_confidence > 0 {
-        let (callers, them) = if below_confidence == 1 {
-            ("caller binds", "it")
-        } else {
-            ("callers bind", "them")
-        };
-        return format!(
-            "no callers at this confidence floor - {below_confidence} {callers} below it, and min_confidence \"any\" \
-             lists {them}"
+        return below_the_floor(
+            "no callers",
+            below_confidence,
+            ("caller binds", "callers bind"),
+            "min_confidence \"any\" lists",
         );
     }
     let label = of.label();
@@ -782,9 +795,8 @@ fn no_callers(of: SymbolKind, floored: bool, ambiguous: usize, below_confidence:
             "find_references lists its recorded uses"
         };
         return format!(
-            "no call binds it{} - ambiguous counts the calls of its name that bound none because several definitions \
-             of the name may be meant, and any of them may call this {kind}; grep finds them, and {otherwise}",
-            at_floor(floored)
+            "no call binds it - ambiguous counts the calls of its name that bound none because several definitions of \
+             the name may be meant, and any of them may call this {kind}; grep finds them, and {otherwise}"
         );
     }
     match label {
@@ -796,9 +808,6 @@ fn no_callers(of: SymbolKind, floored: bool, ambiguous: usize, below_confidence:
             .to_owned(),
         "variant" => format!(
             "no callers - the graph records no call or other use of this {kind}; grep searches the text for its name"
-        ),
-        _ if floored => format!(
-            "no callers - no call at this confidence floor names this {kind}; find_references lists its recorded uses"
         ),
         _ => format!(
             "no callers - the graph holds no call that names this {kind}; find_references lists its recorded uses"

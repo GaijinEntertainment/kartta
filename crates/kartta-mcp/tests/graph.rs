@@ -1331,6 +1331,10 @@ fn find_callees_counts_the_calls_that_bound_nothing_and_the_callees_below_the_fl
                 "find_callees",
                 &json!({"name": "Run", "min_confidence": "certain"})
             ),
+            client.answer(
+                "find_callees",
+                &json!({"name": "helper", "min_confidence": "certain"})
+            ),
         ],
         [
             lines(&[
@@ -1350,11 +1354,123 @@ fn find_callees_counts_the_calls_that_bound_nothing_and_the_callees_below_the_fl
                 r#"<callees of="Run" matches="1">"#,
                 concat!(
                     r#"<match lang="go" of="Run" qn="lib.Run" loc="run.go:5" count="0" below_confidence="1" "#,
-                    r#"unresolved="1">no callees - no call in its body binds a definition the graph holds at this "#,
-                    "confidence floor; a call into a library or a builtin, through a function value, or by dynamic ",
-                    "dispatch binds none</match>",
+                    r#"unresolved="1">no callees at this confidence floor - 1 callee binds below it, and "#,
+                    r#"min_confidence "any" lists it</match>"#,
                 ),
                 "</callees>",
+            ]),
+            lines(&[
+                r#"<callees of="helper" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:3" count="0">no callees - no "#,
+                    "call in its body binds a definition the graph holds; a call into a library or a builtin, ",
+                    "through a function value, or by dynamic dispatch binds none</match>",
+                ),
+                "</callees>",
+            ]),
+        ],
+        "the floor is named only where it dropped a callee"
+    );
+}
+
+#[test]
+fn find_references_counts_the_sites_below_the_floor_and_names_it_only_where_it_dropped_some() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/lib\n\ngo 1.22\n"),
+            (
+                "helper.go",
+                "package lib\n\nvar limit = 3\n\nfunc helper() {}\n",
+            ),
+            (
+                "run.go",
+                "package lib\n\nfunc Run() int {\n\thelper()\n\treturn limit\n}\n",
+            ),
+            ("stop.go", "package lib\n\nfunc Stop() {\n\thelper()\n}\n"),
+        ],
+        &[
+            (
+                "find_references",
+                json!({"name": "helper", "min_confidence": "certain"}),
+            ),
+            (
+                "find_references",
+                json!({"name": "limit", "min_confidence": "certain", "access": "write"}),
+            ),
+            (
+                "find_references",
+                json!({"name": "Stop", "min_confidence": "certain"}),
+            ),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="helper" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:5" kind="function" count="0" "#,
+                    r#"below_confidence="2">no recorded site at this confidence floor - 2 sites bind below it, "#,
+                    r#"and min_confidence "any" lists them</match>"#,
+                ),
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="limit" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="limit" qn="lib.limit" loc="helper.go:3" kind="variable" count="0" "#,
+                    r#"below_confidence="1">no recorded site at this confidence floor - 1 site binds below it, and "#,
+                    r#"min_confidence "any" without access lists it</match>"#,
+                ),
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="Stop" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Stop" qn="lib.Stop" loc="stop.go:3" kind="function" count="0">no "#,
+                    "recorded site - resolved calls can omit dynamic or unresolved ones, and uses other than calls ",
+                    "are recorded only where the graph records them, so this does not show that nothing uses the ",
+                    "symbol</match>",
+                ),
+                "</references>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn find_callers_names_the_floor_only_where_it_dropped_callers() {
+    let answers = answers_over_shared_method_names(&[
+        (
+            "find_callers",
+            json!({"name": "CancelToken::cancel", "min_confidence": "certain"}),
+        ),
+        (
+            "find_callers",
+            json!({"name": "CancelToken", "min_confidence": "certain"}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<callers of="CancelToken::cancel" matches="1">"#,
+                &format!(
+                    "<match lang=\"rust\" of=\"cancel\" qn=\"CancelToken::cancel\" loc=\"src/cancel.rs:4\" \
+                     count=\"0\" reach_band=\"low\" ambiguous=\"1\">{NO_CALL_BINDS}</match>"
+                ),
+                "</callers>",
+            ]),
+            lines(&[
+                r#"<callers of="CancelToken" matches="1">"#,
+                concat!(
+                    r#"<match lang="rust" of="CancelToken" loc="src/cancel.rs:1" count="0" reach_band="low">no "#,
+                    "callers - the graph holds no call that names this struct; find_references lists its recorded ",
+                    "uses</match>",
+                ),
+                "</callers>",
             ]),
         ]
     );
