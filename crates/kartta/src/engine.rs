@@ -136,10 +136,21 @@ impl Engine {
         languages: Vec<Box<dyn Language>>,
         cancel: Option<&CancelToken>,
     ) -> Result<EngineOutcome, BuildError> {
+        let root = root.as_ref();
+        let (outcome, ()) = Self::build_from_walk(options, languages, cancel, |visitor| {
+            Ok((Index::build_with(root, options, Some(visitor), cancel)?, ()))
+        })?;
+        Ok(outcome)
+    }
+
+    fn build_from_walk<T>(
+        options: &BuildOptions,
+        languages: Vec<Box<dyn Language>>,
+        cancel: Option<&CancelToken>,
+        walk: impl FnOnce(&dyn ContentVisitor) -> Result<(BuildOutcome, T), BuildError>,
+    ) -> Result<(EngineOutcome, T), BuildError> {
         let extracting = Extracting::new(&languages);
-        let visitor: &dyn ContentVisitor = &extracting;
-        let BuildOutcome { index, mut errors } =
-            Index::build_with(root, options, Some(visitor), cancel)?;
+        let (BuildOutcome { index, mut errors }, walked) = walk(&extracting)?;
         let (extracted, mut file_counts) = extracting.into_extracted();
 
         let (families, family_of) = families(&languages);
@@ -164,17 +175,15 @@ impl Engine {
             .then(|| Following::new(inserted.followed, configurations));
         release_freed_memory();
 
-        Ok(EngineOutcome {
-            engine: Self {
-                index,
-                languages,
-                file_counts,
-                families,
-                family_of,
-                following,
-            },
-            errors,
-        })
+        let engine = Self {
+            index,
+            languages,
+            file_counts,
+            families,
+            family_of,
+            following,
+        };
+        Ok((EngineOutcome { engine, errors }, walked))
     }
 
     /// Walks the tree again as [`kartta_fs::Index::refresh`] does and brings every family's graph up to it, in place,
@@ -198,14 +207,9 @@ impl Engine {
     /// As [`kartta_fs::Index::refresh`]: a returned error, a cancelled refresh included, leaves the engine answering
     /// as it did. Once the index is replaced, the graphs are brought up to it whatever `cancel` says.
     pub fn refresh(&mut self, cancel: Option<&CancelToken>) -> Result<EngineRefresh, BuildError> {
-        let extracting = Extracting::new(&self.languages);
-        let outcome = self.index.refresh(Some(&extracting), cancel)?;
-        let (extracted, counts) = extracting.into_extracted();
-        self.brought_up(Walked {
-            outcome,
-            extracted,
-            counts,
-        })
+        let (refresh, ()) = self
+            .refresh_from_walk(|index, visitor| Ok((index.refresh(Some(visitor), cancel)?, ())))?;
+        Ok(refresh)
     }
 
     /// Walks again only the parts of the tree at `paths`, as [`kartta_fs::Index::refresh_paths`] does, and brings
@@ -267,14 +271,25 @@ impl Engine {
         paths: impl IntoIterator<Item = &'p str>,
         cancel: Option<&CancelToken>,
     ) -> Result<EngineRefresh, BuildError> {
+        let (refresh, ()) = self.refresh_from_walk(|index, visitor| {
+            Ok((index.refresh_paths(paths, Some(visitor), cancel)?, ()))
+        })?;
+        Ok(refresh)
+    }
+
+    fn refresh_from_walk<T>(
+        &mut self,
+        walk: impl FnOnce(&mut Index, &dyn ContentVisitor) -> Result<(RefreshOutcome, T), BuildError>,
+    ) -> Result<(EngineRefresh, T), BuildError> {
         let extracting = Extracting::new(&self.languages);
-        let outcome = self.index.refresh_paths(paths, Some(&extracting), cancel)?;
+        let (outcome, walked) = walk(&mut self.index, &extracting)?;
         let (extracted, counts) = extracting.into_extracted();
-        self.brought_up(Walked {
+        let refresh = self.brought_up(Walked {
             outcome,
             extracted,
             counts,
-        })
+        })?;
+        Ok((refresh, walked))
     }
 
     fn brought_up(&mut self, walked: Walked) -> Result<EngineRefresh, BuildError> {
