@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::ffi::{CString, OsStr};
-use std::fs;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
@@ -11,8 +10,6 @@ use std::time::Duration;
 
 use super::{Found, WatchError, start_error};
 use crate::lock;
-use crate::policy::pruned;
-use crate::pruned::PrunedNames;
 
 // constraint: no access events, so the reads of a refresh raise none; a write is seen at every write and at the close
 const MASK: u32 = libc::IN_CREATE
@@ -28,32 +25,27 @@ const MASK: u32 = libc::IN_CREATE
     | libc::IN_EXCL_UNLINK;
 
 const HEADER: usize = size_of::<libc::inotify_event>();
+const MOVED_DIR: u32 = libc::IN_MOVED_FROM | libc::IN_ISDIR;
 
 #[derive(Debug)]
 pub(super) struct Backend {
     fd: OwnedFd,
     root: PathBuf,
-    pruned_names: PrunedNames,
     dirs: HashMap<i32, PathBuf>,
     walked: Mutex<Walked>,
     unwatched: AtomicUsize,
     refused: Mutex<Option<WatchError>>,
-    moved_from: Option<(u32, PathBuf)>,
     buffer: Box<[u8]>,
 }
 
 impl Backend {
-    pub(super) fn start(
-        root: &Path,
-        _prefixes: &[(PathBuf, String)],
-        pruned_names: &PrunedNames,
-    ) -> Result<Self, WatchError> {
-        let backend = Self::opened(root, pruned_names)?;
+    pub(super) fn start(root: &Path, _prefixes: &[(PathBuf, String)]) -> Result<Self, WatchError> {
+        let backend = Self::opened(root)?;
         backend.descend(root);
         Ok(backend)
     }
 
-    fn opened(root: &Path, pruned_names: &PrunedNames) -> Result<Self, WatchError> {
+    fn opened(root: &Path) -> Result<Self, WatchError> {
         // SAFETY: inotify_init1 takes no pointers; a negative return is a failure and anything else is a descriptor
         // nothing else holds.
         let raw = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
@@ -65,12 +57,10 @@ impl Backend {
         Ok(Self {
             fd,
             root: root.to_path_buf(),
-            pruned_names: pruned_names.clone(),
             dirs: HashMap::new(),
             walked: Mutex::default(),
             unwatched: AtomicUsize::new(0),
             refused: Mutex::default(),
-            moved_from: None,
             buffer: vec![0; 64 * 1024].into_boxed_slice(),
         })
     }
@@ -148,9 +138,7 @@ impl Backend {
             Err(error) => return Err(WatchError::Stopped { source: error }),
         };
         found.unread = found.unread.saturating_sub(read);
-        let mut made = Vec::new();
-        self.take(read, found, &mut made);
-        self.follow(made)?;
+        self.take(read, found);
         Ok(read > 0)
     }
 
@@ -187,7 +175,7 @@ impl Backend {
         }
     }
 
-    fn take(&mut self, len: usize, found: &mut Found, made: &mut Vec<PathBuf>) {
+    fn take(&mut self, len: usize, found: &mut Found) {
         let mut at = 0;
         while at + HEADER <= len {
             // SAFETY: the kernel hands over whole events, so a header lies at `at` within the bytes it wrote, and an
@@ -220,39 +208,16 @@ impl Backend {
                 continue;
             }
 
-            let name = OsStr::from_bytes(name);
-            let path = dir.join(name);
-            let pruned = prunes(name, &self.pruned_names);
-            if event.mask & libc::IN_ISDIR != 0 && self.follows(&event, &path, pruned) {
-                made.push(path.clone());
+            let path = dir.join(OsStr::from_bytes(name));
+            if event.mask & MOVED_DIR == MOVED_DIR {
+                self.unwatch_below(&path);
             }
             found.paths.push(path);
         }
     }
 
-    // constraint: a rename raises IN_MOVED_FROM and then IN_MOVED_TO under one cookie, and the watches inside the moved
-    // directory keep the path it had until a follow of the new name re-points them; a pruned name is never followed, so
-    // its watches are dropped instead of reporting changes under the old name
-    fn follows(&mut self, event: &libc::inotify_event, path: &Path, pruned: bool) -> bool {
-        if event.mask & libc::IN_MOVED_FROM != 0 {
-            self.moved_from = Some((event.cookie, path.to_path_buf()));
-        }
-        if event.mask & (libc::IN_CREATE | libc::IN_MOVED_TO) == 0 {
-            return false;
-        }
-        if !pruned {
-            return true;
-        }
-        if event.mask & libc::IN_MOVED_TO != 0
-            && let Some((_, from)) = self
-                .moved_from
-                .take_if(|(cookie, _)| *cookie == event.cookie)
-        {
-            self.unwatch_below(&from);
-        }
-        false
-    }
-
+    // constraint: a watch follows its directory wherever it moves and keeps the path it had, so the watches below a
+    // directory moved away are dropped, and the walk of a refresh that keeps it where it went watches it again
     fn unwatch_below(&mut self, dir: &Path) {
         let fd = self.fd.as_raw_fd();
         self.dirs.retain(|&wd, path| {
@@ -264,32 +229,6 @@ impl Backend {
             }
             !below
         });
-    }
-
-    // constraint: whatever is made in a new directory before its watch is added raises no event, so the watch goes on
-    // before the refresh that names the directory walks it, and every directory already inside it is watched alike
-    fn follow(&mut self, mut pending: Vec<PathBuf>) -> Result<(), WatchError> {
-        while let Some(dir) = pending.pop() {
-            match self.add(&dir) {
-                Ok(()) => pending.extend(subdirs(&dir, &self.pruned_names)),
-                Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => {
-                    return Err(WatchError::Limit {
-                        watched: self.dirs.len(),
-                        wanted: self.dirs.len() + pending.len() + 1,
-                    });
-                }
-                Err(_) => {}
-            }
-        }
-        Ok(())
-    }
-
-    // constraint: inotify_add_watch hands back the descriptor a directory already has, so a descriptor this backend
-    // holds is a directory it watches, re-pointed here to the path it has now
-    fn add(&mut self, dir: &Path) -> io::Result<()> {
-        let wd = self.watch(dir)?;
-        self.dirs.insert(wd, dir.to_path_buf());
-        Ok(())
     }
 
     fn watch(&self, dir: &Path) -> io::Result<i32> {
@@ -337,20 +276,6 @@ fn held<T>(mutex: &mut Mutex<T>) -> &mut T {
     mutex.get_mut().unwrap_or_else(PoisonError::into_inner)
 }
 
-fn subdirs(dir: &Path, pruned_names: &PrunedNames) -> impl Iterator<Item = PathBuf> {
-    fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .filter(|entry| !prunes(&entry.file_name(), pruned_names))
-        .map(|entry| entry.path())
-}
-
-fn prunes(name: &OsStr, pruned_names: &PrunedNames) -> bool {
-    name.to_str().is_some_and(|name| pruned(name, pruned_names))
-}
-
 fn gone(error: &io::Error) -> bool {
     matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR))
 }
@@ -367,8 +292,7 @@ mod tests {
     #[test]
     fn a_queue_overflow_loses_the_batch() {
         let tree = tempfile::tempdir().expect("a tree");
-        let mut backend =
-            Backend::start(tree.path(), &[], &PrunedNames::builtin()).expect("start watching");
+        let mut backend = Backend::start(tree.path(), &[]).expect("start watching");
         let overflow = libc::inotify_event {
             wd: -1,
             mask: libc::IN_Q_OVERFLOW,
@@ -380,15 +304,80 @@ mod tests {
         unsafe { std::ptr::write_unaligned(backend.buffer.as_mut_ptr().cast(), overflow) };
         let mut found = Found::default();
 
-        backend.take(HEADER, &mut found, &mut Vec::new());
+        backend.take(HEADER, &mut found);
 
         assert!(found.lost);
     }
 
     fn watched(tree: &Path) -> Watcher {
-        Watcher::start(tree, &PrunedNames::builtin())
+        Watcher::start(tree)
             .and_then(Watcher::walked)
             .expect("start watching")
+    }
+
+    /// The watches the kernel holds for `watcher`, one line each in its descriptor's fdinfo.
+    fn held_watches(watcher: &Watcher) -> usize {
+        let fd = watcher.backend.fd.as_raw_fd();
+        std::fs::read_to_string(format!("/proc/self/fdinfo/{fd}"))
+            .expect("read the descriptor's fdinfo")
+            .lines()
+            .filter(|line| line.starts_with("inotify wd:"))
+            .count()
+    }
+
+    /// Builds and watches a tree that ignores `target/`, then makes a tree of six directories under `target/` and takes
+    /// in what the watcher hands over for it, as a consumer that refreshes under its watcher does.
+    fn ignored_build_output_made_after_the_start()
+    -> (tempfile::TempDir, Index, Watcher, Vec<String>) {
+        let tree = tempfile::tempdir().expect("a tree");
+        std::fs::write(tree.path().join(".gitignore"), "target/\n").expect("write a file");
+        let (outcome, watcher) =
+            Index::build_watched(tree.path(), &BuildOptions::default(), None, None).expect("build");
+        let (mut index, mut watcher) = (outcome.index, watcher.expect("start watching"));
+
+        for dir in ["target/debug/deps", "target/debug/build/x/out"] {
+            std::fs::create_dir_all(tree.path().join(dir)).expect("make a directory");
+        }
+        let made = watcher.drain().expect("drain");
+        refresh_under(&mut index, &mut watcher, &made);
+
+        (tree, index, watcher, made)
+    }
+
+    fn refresh_under(index: &mut Index, watcher: &mut Watcher, changes: &[String]) {
+        let (_, followed) = index
+            .refresh_paths_watched(changes.iter().map(String::as_str), watcher, None, None)
+            .expect("refresh");
+        followed.expect("watch what the refresh took in");
+    }
+
+    #[test]
+    fn a_tree_made_under_an_ignored_path_after_the_start_takes_no_watch() {
+        let (tree, _, mut watcher, made) = ignored_build_output_made_after_the_start();
+
+        std::fs::write(tree.path().join("target/debug/deps/a.rlib"), "").expect("write a file");
+        let inside = watcher.drain().expect("drain");
+
+        assert_eq!(made, ["target"]);
+        assert_eq!(inside, Vec::<String>::new());
+        assert_eq!(held_watches(&watcher), 1);
+    }
+
+    #[test]
+    fn a_tree_a_gitignore_edit_shows_is_watched_and_followed_once_a_refresh_takes_it_in() {
+        let (tree, mut index, mut watcher, _) = ignored_build_output_made_after_the_start();
+
+        std::fs::write(tree.path().join(".gitignore"), "").expect("write a file");
+        let shown = watcher.drain().expect("drain");
+        refresh_under(&mut index, &mut watcher, &shown);
+        std::fs::write(tree.path().join("target/debug/build/x/out/a.o"), "").expect("write a file");
+        let inside = watcher.drain().expect("drain");
+        refresh_under(&mut index, &mut watcher, &inside);
+
+        assert_eq!(shown, [".gitignore"]);
+        assert_eq!(held_watches(&watcher), 7);
+        assert_eq!(inside, ["target/debug/build/x/out/a.o"]);
+        assert!(index.entry("target/debug/build/x/out/a.o").is_some());
     }
 
     /// Writes to two files of `tree` in turn, so the kernel merges none of the events, until `watcher` holds more than

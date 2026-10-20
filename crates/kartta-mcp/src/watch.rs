@@ -49,8 +49,9 @@ enum Next {
     Stop(String),
 }
 
-// constraint: a batch that names the whole tree is one the watcher dropped changes from, and on Linux the directories
-// made meanwhile went unwatched with them, so only a new watcher over a refresh of the whole tree follows them
+// constraint: a batch that names the whole tree is one the watcher dropped changes from, and on Linux the notice of a
+// directory moved meanwhile went with them, so the watcher would go on naming its changes by the path it had, and only
+// a new watcher over a refresh of the whole tree follows the tree as it is
 fn next(batch: Result<Vec<String>, WatchError>) -> Next {
     match batch {
         Ok(changes) if changes.iter().any(String::is_empty) => {

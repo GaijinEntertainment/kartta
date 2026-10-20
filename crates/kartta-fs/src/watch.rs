@@ -9,7 +9,6 @@ use crate::build::{BuildError, BuildOptions};
 use crate::content::ContentVisitor;
 use crate::index::{Asked, BuildOutcome, Index, RefreshOutcome};
 use crate::policy::Descending;
-use crate::pruned::PrunedNames;
 
 #[cfg(target_os = "linux")]
 mod inotify;
@@ -39,22 +38,24 @@ const REPORTED: Duration = Duration::ZERO;
 const REPORTED: Duration = Duration::from_millis(50);
 
 /// Follows a tree through the operating system's change notifications, and hands over what changed as paths for
-/// [`Index::refresh_paths`].
+/// [`Index::refresh_paths_watched`].
 ///
 /// [`Index::build_watched`] starts one before its build walks the tree, and [`Index::refresh_watched`] before its
 /// refresh walks it, so the watcher holds every change made while the walk ran, and [`Watcher::drain`] hands them over
 /// once the index is there to take them in. The loop is the caller's: [`Watcher::wait`] blocks until the tree changes,
 /// gathers the changes that follow until it has been quiet for a moment, and returns them, and the caller refreshes
-/// the index with them. The index holds no thread and no lock for the watcher, so an index nobody watches pays nothing.
+/// the index with them under the watcher. The index holds no thread and no lock for the watcher, so an index nobody
+/// watches pays nothing.
 ///
-/// On Linux each directory the walk keeps is watched through inotify, one watch a directory, before the walk lists it,
-/// so whatever is made in it after the listing raises a notification, and each directory made later is watched as its
-/// creation is read, before the refresh that names it walks it. A directory the ignore rules hide is therefore never
-/// watched unless it is made after the walk, and a directory named `.git` or in
-/// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names) is never watched. On macOS the root is watched
-/// through `FSEvents` and on Windows through `ReadDirectoryChangesW`, both of which cover the whole tree, ignored and
-/// pruned parts included; a refresh of an ignored or pruned path changes nothing and costs no pass over the index,
-/// except that a changed `.gitignore` under a pruned name re-walks the directory whose rules it holds.
+/// On Linux each directory a walk keeps is watched through inotify, one watch a directory, before the walk lists it,
+/// so whatever is made in it after the listing raises a notification: the walk of a watched build or refresh, and that
+/// of [`Index::refresh_paths_watched`], which takes in each directory made later. A directory named `.git` or in
+/// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names) is never watched, and one the ignore rules the
+/// walk reads hide is not watched until a `.gitignore` edit shows it and the refresh that takes it in watches it; one
+/// an edit hides keeps the watches it had until the watcher is replaced. On macOS the root is watched through
+/// `FSEvents` and on Windows through `ReadDirectoryChangesW`, both of which cover the whole tree, ignored and pruned
+/// parts included; a refresh of an ignored or pruned path changes nothing and costs no pass over the index, except
+/// that a changed `.gitignore` under a pruned name re-walks the directory whose rules it holds.
 ///
 /// A change made before the watcher starts is not reported, but on macOS and Windows one made moments before can
 /// still arrive; refreshing its path changes nothing when the index already holds the change, as for one the walk
@@ -78,7 +79,9 @@ const REPORTED: Duration = Duration::from_millis(50);
 ///         let (_, restarted) = index.refresh_watched(None, None)?;
 ///         watcher = restarted?;
 ///     } else if !changes.is_empty() {
-///         let outcome = index.refresh_paths(changes.iter().map(String::as_str), None, None)?;
+///         let paths = changes.iter().map(String::as_str);
+///         let (outcome, followed) = index.refresh_paths_watched(paths, &mut watcher, None, None)?;
+///         followed?;
 ///         eprintln!("walked again: {:?}", outcome.walked);
 ///     }
 ///     changes = watcher.wait(Duration::from_secs(1))?;
@@ -92,9 +95,9 @@ pub struct Watcher {
 }
 
 impl Watcher {
-    fn start(root: &Path, pruned_names: &PrunedNames) -> Result<Self, WatchError> {
+    fn start(root: &Path) -> Result<Self, WatchError> {
         let prefixes = event_prefixes(root)?;
-        let backend = Backend::start(root, &prefixes, pruned_names)?;
+        let backend = Backend::start(root, &prefixes)?;
 
         Ok(Self { backend, prefixes })
     }
@@ -108,27 +111,23 @@ impl Watcher {
     /// 20 ms, or for 500 ms at most, and returns them. Empty when nothing changed within `timeout`, but on macOS and
     /// Windows a wait can also hand over a change made moments before the watcher started, as the [`Watcher`] docs say.
     ///
-    /// The changes are root-relative forward-slash paths, each once, for [`Index::refresh_paths`]. A path is named as
-    /// the operating system reported it, so it may be ignored, pruned, inside `.git`, or gone again;
+    /// The changes are root-relative forward-slash paths, each once, for [`Index::refresh_paths_watched`]. A path is
+    /// named as the operating system reported it, so it may be ignored, pruned, inside `.git`, or gone again;
     /// [`Index::refresh_paths`] skips or widens each as it does any path. A name that is not valid UTF-8 is named by
     /// the directory that holds it. The batch is the empty path alone, the whole tree, when changes were dropped before
     /// they could be handed over: an inotify queue that overflowed, an `FSEvents` stream that dropped events at the
     /// root or at a directory above it, a `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that
     /// piled up while the caller was not waiting. Events `FSEvents` dropped below the root are named by the directory
-    /// it names for them, which [`Index::refresh_paths`] walks again with everything below it. On Linux a directory
-    /// made while inotify dropped changes is not watched, since its creation went with them, so a caller takes the
-    /// whole tree in through [`Index::refresh_watched`] and follows it with the watcher that returns.
-    ///
-    /// On Linux a wait also watches each directory made since the start as it reads of it, together with every
-    /// directory already inside it, so a large tree moved in or unpacked lengthens the wait that meets it by a watch
-    /// call a directory.
+    /// it names for them, which [`Index::refresh_paths`] walks again with everything below it. On Linux the notice of
+    /// a directory moved while inotify dropped changes went with them, so the watcher would go on naming its changes by
+    /// the path it had, and a caller takes the whole tree in through [`Index::refresh_watched`] and follows it with the
+    /// watcher that returns.
     ///
     /// # Errors
     ///
-    /// [`WatchError::Stopped`] when the notifications stopped arriving, [`WatchError::Limit`] when Linux's inotify watch
-    /// limit ran out before a directory made since the start could be watched, so changes inside it would go unseen,
-    /// and [`WatchError::Limit`] or [`WatchError::Start`] when a refresh under the watcher met them but returned an
-    /// error of its own. Either way the watcher no longer covers the tree, and a new one has to be started.
+    /// [`WatchError::Stopped`] when the notifications stopped arriving, and [`WatchError::Limit`] or
+    /// [`WatchError::Start`] when a refresh under the watcher met them but returned an error of its own. Either way the
+    /// watcher no longer covers the tree, and a new one has to be started.
     pub fn wait(&mut self, timeout: Duration) -> Result<Vec<String>, WatchError> {
         self.gather(timeout, LONGEST, Found::default())
     }
@@ -196,7 +195,8 @@ impl Watcher {
 
 impl Index {
     /// Starts a [`Watcher`] on `root`, then builds the index as [`Index::build_with`] does, so the watcher holds every
-    /// change made while the build walked, which [`Watcher::drain`] then hands over for [`Index::refresh_paths`].
+    /// change made while the build walked, which [`Watcher::drain`] then hands over for
+    /// [`Index::refresh_paths_watched`].
     ///
     /// On Linux the walk watches each directory it keeps before it lists it: a change made in the directory after its
     /// listing raises a notification, and one made before is in the listing. That costs the walk a watch call a
@@ -217,7 +217,7 @@ impl Index {
         cancel: Option<&CancelToken>,
     ) -> Result<(BuildOutcome, Result<Watcher, WatchError>), BuildError> {
         let root = root.as_ref();
-        let watcher = Watcher::start(root, &options.pruned_names);
+        let watcher = Watcher::start(root);
         watch_walk(watcher, Asked::new(visitor, cancel), |asked| {
             Self::build_walking(root, options, asked)
         })
@@ -234,7 +234,7 @@ impl Index {
         visitor: Option<&dyn ContentVisitor>,
         cancel: Option<&CancelToken>,
     ) -> Result<(RefreshOutcome, Result<Watcher, WatchError>), BuildError> {
-        let watcher = Watcher::start(self.root(), self.pruned_names());
+        let watcher = Watcher::start(self.root());
         watch_walk(watcher, Asked::new(visitor, cancel), |asked| {
             self.refresh_walking(asked)
         })
@@ -318,7 +318,7 @@ pub enum WatchError {
         /// The underlying failure, boxed so no dependency's error type reaches this crate's public API.
         source: Box<dyn Error + Send + Sync>,
     },
-    /// Linux's inotify watch limit ran out before every directory the walk kept, or a wait found made, was watched.
+    /// Linux's inotify watch limit ran out before every directory a walk kept was watched.
     ///
     /// Each watched directory takes one watch from `fs.inotify.max_user_watches`, shared by every process of the user.
     #[error(
