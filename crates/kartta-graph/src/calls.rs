@@ -12,6 +12,7 @@ use crate::graph::{
     Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, is_referent,
     keep_first, listed, narrow,
 };
+use crate::resolution::Miss;
 use crate::resolve::{Call, Cascade, UseMiss};
 use crate::stored::{Entry, Site, SymbolAt};
 use crate::strings::Str;
@@ -100,6 +101,12 @@ pub struct Walk<'g> {
     /// The calls at the symbols a walk over callees expanded that bound no definition the graph holds: calls into
     /// code outside it, and calls the cascade could not tell apart. A walk over callers counts none.
     pub unresolved: usize,
+    /// The calls of the root's name that bound no definition because several definitions of the name may be meant and
+    /// none is nearer, made as a call of the root can be made: through a receiver for a member, and for a free
+    /// definition bare, or through a receiver where no member of the name is a call target. Any of them may call the
+    /// root, and none is among [`reached`](Self::reached). Counted for the root alone, so every depth counts the same;
+    /// a root local to a body counts none, and neither does a walk over callees.
+    pub ambiguous: usize,
     /// The files whose top level, outside every definition, calls or uses the root's name and sees the root, in path
     /// order: callers no symbol holds, so the walk does not go past them. A walk over callees lists none, and neither
     /// does a walk from a root no call binds, such as a field, whose name a top level reads rather than calls.
@@ -340,6 +347,7 @@ impl Graph {
                 confidence,
             })
             .collect();
+        walk.ambiguous = calls.ambiguous_calls(root);
         (walk.passed_over, walk.candidates) =
             calls.passed_over(selector, root, Calls::caller_count);
         Some(walk)
@@ -489,22 +497,28 @@ pub(crate) struct Calls<'g> {
 
 // constraint: the calls of one name that bind no definition, bind one only by proximity or a fallback, or bind their
 // own caller through a value, by how they are written: whether one is bare, and the files that make one through a
-// receiver, sorted and once each; whether a member of the name exists is found once, when a free definition first asks
+// receiver, sorted and once each, with how many of each way bound none as ambiguous; whether a member of the name
+// exists is found once, when a free definition first asks
 #[derive(Debug, Default)]
 struct Uncertain {
     bare: bool,
     through_a_receiver_in: Vec<u32>,
+    ambiguous_bare: usize,
+    ambiguous_through_a_receiver: usize,
     has_members: Option<bool>,
 }
 
 impl Uncertain {
-    fn add(&mut self, call: &Call) {
-        match call.receiver {
-            None => self.bare = true,
-            Some(_) if self.through_a_receiver_in.last() != Some(&call.file) => {
-                self.through_a_receiver_in.push(call.file);
-            }
-            Some(_) => {}
+    fn add(&mut self, call: &Call, missed: Option<Miss>) {
+        let ambiguous = usize::from(missed == Some(Miss::Ambiguous));
+        if call.receiver.is_none() {
+            self.bare = true;
+            self.ambiguous_bare += ambiguous;
+            return;
+        }
+        self.ambiguous_through_a_receiver += ambiguous;
+        if self.through_a_receiver_in.last() != Some(&call.file) {
+            self.through_a_receiver_in.push(call.file);
         }
     }
 
@@ -566,6 +580,29 @@ impl<'g> Calls<'g> {
             return true;
         }
         !uncertain.has_members(cascade, symbol.name)
+    }
+
+    // constraint: the cascade leaves a call ambiguous among the definitions its shape admits, and a call through a
+    // receiver takes the member shape wherever a member of the name is a call target, a bare call a free shape; a
+    // definition local to a body is a candidate of a call in that body alone, which binds it as a local call
+    pub(crate) fn ambiguous_calls(&mut self, at: SymbolAt) -> usize {
+        let symbol = self.graph.sym(at);
+        if !self.cascade.is_call_target(symbol.kind) || self.cascade.holder(at).is_some() {
+            return 0;
+        }
+        self.resolve_callers(symbol.name);
+        let cascade = &self.cascade;
+        let Some(uncertain) = self.uncertain.get_mut(&symbol.name) else {
+            return 0;
+        };
+        let through_a_receiver = uncertain.ambiguous_through_a_receiver;
+        if symbol.owner.is_some() {
+            return through_a_receiver;
+        }
+        if through_a_receiver == 0 || uncertain.has_members(cascade, symbol.name) {
+            return uncertain.ambiguous_bare;
+        }
+        uncertain.ambiguous_bare + through_a_receiver
     }
 
     fn wanting(graph: &'g Graph, wanted: Wanted) -> Self {
@@ -739,18 +776,22 @@ impl<'g> Calls<'g> {
         let mut strongest: HashMap<(SymbolAt, SymbolAt), Edge, FixedState> = HashMap::default();
         for site in self.sites_of_name(name) {
             let call = self.cascade.call(site);
-            let resolved = self.cascade.resolve_call(&call).ok();
+            let resolved = self.cascade.resolve_call(&call);
+            let bound = resolved.ok();
             let through_a_value = call
                 .receiver
                 .is_some_and(|receiver| self.graph.strings.resolve(receiver).is_empty());
-            if resolved.is_none_or(|(callee, confidence)| {
+            if bound.is_none_or(|(callee, confidence)| {
                 confidence < confidence::UNIQUE
                     || self.graph.sym(callee).flags.is_fallback()
                     || (through_a_value && self.cascade.canonical(callee) == call.caller_at())
             }) {
-                self.uncertain.entry(name).or_default().add(&call);
+                self.uncertain
+                    .entry(name)
+                    .or_default()
+                    .add(&call, resolved.err());
             }
-            let Some((callee, confidence)) = resolved else {
+            let Some((callee, confidence)) = bound else {
                 continue;
             };
             let callable = self.cascade.canonical(callee);
@@ -878,6 +919,7 @@ impl<'g> Calls<'g> {
             unexpanded: left_out.unexpanded,
             below_confidence: left_out.below_confidence,
             unresolved: self.unresolved,
+            ambiguous: 0,
             file_scope: Vec::new(),
         }
     }
