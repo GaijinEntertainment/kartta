@@ -7,13 +7,22 @@ use crate::llmxml::{Element, List};
 /// How many unreadable files a `grep` answer lists before it counts the rest.
 const LISTED_FAILURES: usize = 5;
 
-/// The `find_files` answer: the paths one per line, best first. A ranked answer needs no mark of a cap, since its order
-/// says the paths it left out rank lower.
-pub(crate) fn paths(pattern: &str, paths: List) -> String {
-    if paths.len() == 0 {
+/// The `find_files` answer: the paths one per line, best first, and a last line counting the `matched` paths when the
+/// cap cut them. The order says the paths left out rank lower; the count says how many, so an agent knows whether to
+/// narrow the pattern.
+pub(crate) fn paths(pattern: &str, paths: List, matched: Option<usize>) -> String {
+    let shown = paths.len();
+    if shown == 0 {
         return format!("no files match {pattern:?}");
     }
-    paths.into_text()
+    let mut answer = paths.into_text();
+    if let Some(matched) = matched.filter(|&matched| matched > shown) {
+        let _ = write!(
+            answer,
+            "\n({shown} of {matched} matching paths, best first)"
+        );
+    }
+    answer
 }
 
 /// The `glob_files` answer: the paths one per line, in path order, and a last line saying so when the cap cut them,
