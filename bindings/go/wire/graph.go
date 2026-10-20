@@ -166,8 +166,9 @@ type References struct {
 	BelowConfidence int `json:"below_confidence"`
 	// Counts counts the sites that pass the confidence floor by kind, whatever access is kept.
 	Counts SiteCounts `json:"counts"`
-	// Ambiguous counts the uses of a member's name on a value whose type the graph could not follow, which bound no
-	// definition and may take this one.
+	// Ambiguous counts the calls of the symbol's name that bound no definition because several definitions of the name
+	// may be meant, and the uses of a member's name on a value whose type the graph could not follow, which bound no
+	// definition: any of them may take this one.
 	Ambiguous int `json:"ambiguous"`
 }
 

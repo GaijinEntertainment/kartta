@@ -239,10 +239,10 @@ pub struct References<'g> {
     pub below_confidence: usize,
     /// The sites that pass the confidence floor, of each kind, whatever access the query keeps.
     pub counts: SiteCounts,
-    /// The uses that take a member of the symbol's name on a value and bind no definition, because the graph could
-    /// not follow the value's type and no other tier picked one of the members of the name, and those of the own
-    /// receiver that several bases may hold: any of them, this one included, may be meant. Counted for a member only,
-    /// and 0 for any other symbol.
+    /// The calls of the symbol's name that [`Walk::ambiguous`] counts for a walk from it, and the uses that take a
+    /// member of its name on a value and bind no definition, because the graph could not follow the value's type and
+    /// no other tier picked one of the members of the name, and those of the own receiver that several bases may
+    /// hold: any of them, this one included, may be meant. The uses are counted for a member only.
     pub ambiguous: usize,
 }
 
@@ -423,6 +423,11 @@ impl Graph {
         });
         sites.sort_unstable_by_key(by_file_and_line);
         let (passed_over, candidates) = calls.passed_over(selector, root, Calls::site_count);
+        let ambiguous_uses = if self.sym(root).owner.is_some() {
+            calls.ambiguous.get(&named).copied().unwrap_or(0)
+        } else {
+            0
+        };
 
         Some(References {
             symbol: self.definition_at(root),
@@ -441,11 +446,7 @@ impl Graph {
                 .collect(),
             below_confidence,
             counts,
-            ambiguous: if self.sym(root).owner.is_some() {
-                calls.ambiguous.get(&named).copied().unwrap_or(0)
-            } else {
-                0
-            },
+            ambiguous: ambiguous_uses + calls.ambiguous_calls(root),
         })
     }
 
