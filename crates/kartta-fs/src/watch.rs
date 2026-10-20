@@ -98,8 +98,8 @@ impl Watcher {
     ///
     /// The changes are root-relative forward-slash paths, each once, for [`Index::refresh_paths`]. A path is named as
     /// the operating system reported it, so it may be ignored, pruned, inside `.git`, or gone again;
-    /// [`Index::refresh_paths`] skips or widens each as it does any path. A name that is not valid UTF-8 is named by the
-    /// directory that holds it. The batch is the empty path alone, the whole tree, when changes were dropped before
+    /// [`Index::refresh_paths`] skips or widens each as it does any path. A name that is not valid UTF-8 is named by
+    /// the directory that holds it. The batch is the empty path alone, the whole tree, when changes were dropped before
     /// they could be handed over: an inotify queue that overflowed, an `FSEvents` stream that dropped events at the
     /// root or at a directory above it, a `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that
     /// piled up while the caller was not waiting. Events `FSEvents` dropped below the root are named by the directory

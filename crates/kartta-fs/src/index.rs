@@ -156,10 +156,10 @@ impl Index {
     /// time match its stamp is carried over unread: it keeps its [`ContentId`], what the index knew of it
     /// and its place in the content index, and the visitor is not handed it again — unless the visitor wants it now
     /// and was never handed it before. Checking a stamp costs one stat of the file. The files a refresh reads are
-    /// indexed in a segment of the content index beside the segments that hold the files it carried. Once there are more
-    /// than eight segments, the refresh merges the ones after the first into one, at a cost that follows what those
-    /// segments hold; once more than a quarter of the files the segments hold lists for are gone, it merges all of them
-    /// into one, at about what the build's own merge cost. Either way the index in use stays whole until
+    /// indexed in a segment of the content index beside the segments that hold the files it carried. Once there are
+    /// more than eight segments, the refresh merges the ones after the first into one, at a cost that follows what
+    /// those segments hold; once more than a quarter of the files the segments hold lists for are gone, it merges all
+    /// of them into one, at about what the build's own merge cost. Either way the index in use stays whole until
     /// the new one is done, so the two are held at once while it runs. A refresh that returns an error, a cancelled one
     /// included, leaves the index answering as it did; one that returns [`RefreshOutcome`] has replaced it, even when
     /// [`RefreshOutcome::errors`] lists what its walk could not read, and ends with the trim [`Index::build`] ends
@@ -526,9 +526,9 @@ impl Index {
     /// How many threads this index runs its parallel work on: the walk that built it, and the searches after.
     ///
     /// Exactly what [`BuildOptions::threads`] named, which every parallel query of this index then shares, so two
-    /// searches at once divide those threads rather than each taking its own. When the build named none, the index runs
-    /// on the ambient rayon pool, and this is that pool's size as seen from the caller — every core the machine reports,
-    /// unless the process configured the pool otherwise.
+    /// searches at once divide those threads rather than each taking its own. When the build named none, the index
+    /// runs on the ambient rayon pool, and this is that pool's size as seen from the caller — every core the machine
+    /// reports, unless the process configured the pool otherwise.
     #[must_use]
     pub fn threads(&self) -> usize {
         self.pool
@@ -579,9 +579,9 @@ impl Index {
             .map_or(self.len(), |next| next.first as usize)
     }
 
-    // constraint: an entry's offset counts the bytes its block stored before it, and every stored suffix is at least one
-    // byte — the next path in tree order is never a prefix of the one before it — so only a block's first entry has an
-    // offset of 0
+    // constraint: an entry's offset counts the bytes its block stored before it, and every stored suffix is at least
+    // one byte — the next path in tree order is never a prefix of the one before it — so only a block's first entry has
+    // an offset of 0
     pub(crate) fn starts_block(&self, at: usize) -> bool {
         self.offsets[at] == 0
     }
@@ -1334,9 +1334,9 @@ pub(crate) fn node_sized(count: usize) -> u32 {
 
 fn path_between(suffixes: &str, start: usize, end: usize) -> &str {
     // SAFETY: every start `Index::start_in` rebuilds — an entry's, the next block's, or past the last entry
-    // `suffixes.len()` itself — is `suffixes.len()` as the build read it before the first append or right after appending
-    // a whole `&str`, so each one is a character boundary of `suffixes` and they rise in order; `start` and `end` are an
-    // entry's start and its successor's, so `start..end` lies inside `suffixes`.
+    // `suffixes.len()` itself — is `suffixes.len()` as the build read it before the first append or right after
+    // appending a whole `&str`, so each one is a character boundary of `suffixes` and they rise in order; `start` and
+    // `end` are an entry's start and its successor's, so `start..end` lies inside `suffixes`.
     unsafe { suffixes.get_unchecked(start..end) }
 }
 
