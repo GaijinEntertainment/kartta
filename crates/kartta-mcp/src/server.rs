@@ -898,12 +898,16 @@ impl Server {
         description = "List the definitions of one known file in source order - \"where in this file is X?\" when the \
                        file is known but the place in it is not. Returns an <outline> envelope with one <symbol/> \
                        record per definition: name; qn, the qualified name, omitted when it equals name; owner, the \
-                       declaring type or namespace, omitted on a top-level symbol; kind; lines=\"start-end\" (the \
-                       definition's full span, nested definitions inside their enclosing one's span); and sig, the \
-                       declaration, omitted when none was captured. Read the one span you need instead of the whole \
-                       file or a guessed window. A path no code graph holds and a held file with no recorded \
-                       definition both report symbols=\"0\", told apart by the note. For callers and reach of a range \
-                       use impact_of_edit. Requires index_repo first."
+                       declaring type or namespace; in, on a definition without an owner inside another listed one - \
+                       a local of a body, a member of an inline type or object literal, an item of a module block - \
+                       the qn of the innermost one holding it, judged by lines, so one starting on its holder's first \
+                       or last line, as in minified code, carries it only as a field or method of a callable's \
+                       signature; a definition with neither starts outside every other listed one or on such a line; \
+                       kind; lines=\"start-end\" (the definition's full span, nested definitions inside their \
+                       enclosing one's span); and sig, the declaration, omitted when none was captured. Read the one \
+                       span you need instead of the whole file or a guessed window. A path no code graph holds and a \
+                       held file with no recorded definition both report symbols=\"0\", told apart by the note. For \
+                       callers and reach of a range use impact_of_edit. Requires index_repo first."
     )]
     async fn file_outline(&self, Parameters(p): Parameters<FileParams>) -> Result<String, String> {
         self.answer(move |indexed| {
