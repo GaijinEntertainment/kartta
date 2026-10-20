@@ -11,7 +11,7 @@ use kartta_lang::{
 
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
 use crate::confidence;
-use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind, last_segment};
+use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind, or_if_none, tails};
 use crate::members::DataNamed;
 use crate::resolution::Miss;
 use crate::scope::{Ancestors, OwnerMember, Reach, Scoped, is_value};
@@ -191,18 +191,21 @@ impl<'g> Cascade<'g> {
     }
 
     pub(crate) fn qualified_as(&self, qualified: Str) -> impl Iterator<Item = SymbolAt> + '_ {
-        let last = last_segment(self.graph.strings.resolve(qualified));
-        let tail = self
-            .graph
-            .strings
-            .get(last)
-            .filter(|&tail| tail != qualified)
-            .map_or(&[][..], |tail| self.named(tail));
-        self.named(qualified)
+        let named = |tail: &str| {
+            self.graph
+                .strings
+                .get(tail)
+                .map_or(&[][..], |tail| self.named(tail))
+        };
+        let is_it = move |at: &SymbolAt| self.graph.sym(*at).qualified_name == qualified;
+        let mut tails = tails(self.graph.strings.resolve(qualified));
+        let last = self
+            .named(qualified)
             .iter()
-            .chain(tail)
+            .chain(tails.next().map_or(&[][..], named))
             .copied()
-            .filter(move |&at| self.graph.sym(at).qualified_name == qualified)
+            .filter(is_it);
+        or_if_none(last, tails.flat_map(named).copied().filter(is_it))
     }
 
     pub(crate) fn is_candidate(&self, caller: SymbolAt, at: SymbolAt) -> bool {
