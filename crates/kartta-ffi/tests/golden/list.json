@@ -10,7 +10,7 @@
         {
           "kind": "dir",
           "path": "go",
-          "unlisted": 2
+          "unlisted": 3
         },
         {
           "binary": false,
@@ -21,7 +21,7 @@
       ],
       "excluded": 0,
       "path": "",
-      "total": 8,
+      "total": 9,
       "truncated": false
     }
   },

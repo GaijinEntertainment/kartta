@@ -7,13 +7,26 @@
             "dispatched": 0,
             "entry": 1,
             "generated": 0,
-            "kind": 0,
+            "kind": 4,
             "test": 0,
             "uncertain": 0,
             "unobservable": 0,
             "vendored": 0
           },
           "found": [
+            {
+              "definition": {
+                "end_line": 14,
+                "exported": false,
+                "file": "go/close.go",
+                "kind": "func",
+                "line": 11,
+                "name": "shut",
+                "qualified_name": "main.shut",
+                "signature": "func shut(f file, open func() conn)"
+              },
+              "spelled": false
+            },
             {
               "definition": {
                 "end_line": 10,
@@ -30,7 +43,7 @@
           ],
           "graph": "go",
           "live": 2,
-          "total": 1
+          "total": 2
         }
       ]
     }
