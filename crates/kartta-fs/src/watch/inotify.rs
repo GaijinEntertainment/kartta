@@ -40,7 +40,10 @@ pub(super) struct Backend {
 }
 
 impl Backend {
-    pub(super) fn start(index: &Index, _watched: &[PathBuf]) -> Result<Self, WatchError> {
+    pub(super) fn start(
+        index: &Index,
+        _prefixes: &[(PathBuf, String)],
+    ) -> Result<Self, WatchError> {
         let root = index.root().to_path_buf();
         // SAFETY: inotify_init1 takes no pointers; a negative return is a failure and anything else is a descriptor
         // nothing else holds.

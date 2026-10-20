@@ -47,7 +47,7 @@ const LONGEST: Duration = Duration::from_millis(500);
 /// the build, and takes it in when it does not. A caller that builds and then watches refreshes once
 /// more, for what changed in between, then calls [`Watcher::cover`] and refreshes the paths it names: on Linux a
 /// directory that refresh added is watched only from that call. When the operating system drops changes it could not
-/// deliver, the batch names the whole tree.
+/// deliver, the batch names the whole tree, or on macOS the directory below the root that `FSEvents` names for them.
 ///
 /// # Examples
 ///
@@ -87,8 +87,7 @@ impl Watcher {
     /// than Linux, macOS and Windows.
     pub fn new(index: &Index) -> Result<Self, WatchError> {
         let prefixes = event_prefixes(index.root())?;
-        let watched: Vec<PathBuf> = prefixes.iter().map(|(path, _)| path.clone()).collect();
-        let backend = Backend::start(index, &watched)?;
+        let backend = Backend::start(index, &prefixes)?;
 
         Ok(Self { backend, prefixes })
     }
@@ -101,9 +100,10 @@ impl Watcher {
     /// the operating system reported it, so it may be ignored, pruned, inside `.git`, or gone again;
     /// [`Index::refresh_paths`] skips or widens each as it does any path. A name that is not valid UTF-8 is named by the
     /// directory that holds it. The batch is the empty path alone, the whole tree, when changes were dropped before
-    /// they could be handed over: an inotify queue that overflowed, an `FSEvents` stream that dropped events with no
-    /// directory to scan, a `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that piled up while
-    /// the caller was not waiting.
+    /// they could be handed over: an inotify queue that overflowed, an `FSEvents` stream that dropped events at the
+    /// root or at a directory above it, a `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that
+    /// piled up while the caller was not waiting. Events `FSEvents` dropped below the root are named by the directory
+    /// it names for them, which [`Index::refresh_paths`] walks again with everything below it.
     ///
     /// On Linux a wait also watches each directory made since the start as it reads of it, together with every
     /// directory already inside it, so a large tree moved in or unpacked lengthens the wait that meets it by a watch
