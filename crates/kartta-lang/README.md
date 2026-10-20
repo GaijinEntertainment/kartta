@@ -40,7 +40,8 @@ extraction records it.
 A tool that generates a file says so in the comments that open it, with a marker such as `@generated` or `DO NOT EDIT`.
 A language states its markers and the comment forms of its header as a `Banner`, and flags the symbols of a file the
 banner opens as generated code. A marker inside a backtick span is a mention, and one below the first code is no
-banner.
+banner. `Banner::opens` also carries a code fence, as the example of a doc comment opens one, across the comments of
+the header, while `Banner::marks` reads one comment on its own.
 
 ## Parsing and walking tree-sitter trees
 

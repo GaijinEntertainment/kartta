@@ -1,9 +1,9 @@
 /// The banner a tool writes in the comments that open a file it generated: one of a language's markers, such as
 /// `@generated` or `DO NOT EDIT`, in the file's leading run of comments.
 ///
-/// A marker inside a backtick span is a mention, as documentation of the convention quotes it, and a marker below the
-/// first code is no banner, because a hand-written file may mention the phrase. An empty marker or comment token
-/// matches nothing.
+/// A marker inside a backtick span is a mention, as documentation of the convention quotes it, and so is one inside a
+/// code fence that [`Banner::opens`] carries across comments. A marker below the first code is no banner, because a
+/// hand-written file may mention the phrase. An empty marker or comment token matches nothing.
 ///
 /// # Examples
 ///
@@ -24,6 +24,8 @@ pub struct Banner {
     line_comments: &'static [&'static str],
     block_comment: Option<(&'static str, &'static str)>,
 }
+
+const FENCE_BACKTICKS: usize = 3;
 
 enum HeaderLine {
     Marked,
@@ -68,13 +70,16 @@ impl Banner {
     /// Those are the leading run of blank lines and comments, after a UTF-8 byte order mark, up to the first line that
     /// starts with anything else. A block comment closed on its line leaves the rest of the line to be read as a line
     /// of its own, so a comment after it is still read and code after it ends the run; a marker counts only in comment
-    /// text, never in that code. The scan stops at the end of the run and allocates nothing.
+    /// text, never in that code. A span of three or more backticks that a comment leaves open is a code fence, as a
+    /// doc comment's example opens one, and runs on through the next comments until a run of its own length closes it;
+    /// a shorter span ends with its comment. The scan stops at the end of the run and allocates nothing.
     #[must_use]
     pub fn opens(&self, source: &[u8]) -> bool {
         let source = source.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(source);
         let mut open_block = None;
+        let mut fence = 0;
         for line in source.split(|&byte| byte == b'\n') {
-            match self.header_line(line.trim_ascii(), open_block) {
+            match self.header_line(line.trim_ascii(), open_block, &mut fence) {
                 HeaderLine::Marked => return true,
                 HeaderLine::Comment => open_block = None,
                 HeaderLine::InBlock(close) => open_block = Some(close),
@@ -92,7 +97,18 @@ impl Banner {
     /// runs to the end of the comment.
     #[must_use]
     pub fn marks(&self, comment: &[u8]) -> bool {
+        self.marks_carrying_fence(comment, &mut 0)
+    }
+
+    fn marks_carrying_fence(&self, comment: &[u8], fence: &mut usize) -> bool {
         let mut at = 0;
+        if *fence > 0 {
+            let Some(close) = span_before_run(comment, *fence) else {
+                return false;
+            };
+            at = close + *fence;
+            *fence = 0;
+        }
         while at < comment.len() {
             let rest = &comment[at..];
             let run = backtick_run(rest);
@@ -100,6 +116,7 @@ impl Banner {
                 return true;
             }
             let Some(step) = step_past(rest, run) else {
+                *fence = fence_left_open(run);
                 return false;
             };
             at += step;
@@ -108,12 +125,17 @@ impl Banner {
         false
     }
 
-    fn header_line(&self, mut line: &[u8], open_block: Option<&'static str>) -> HeaderLine {
+    fn header_line(
+        &self,
+        mut line: &[u8],
+        open_block: Option<&'static str>,
+        fence: &mut usize,
+    ) -> HeaderLine {
         if let Some(close) = open_block {
             let Some(end) = find(line, close) else {
-                return self.marked_or(line, HeaderLine::InBlock(close));
+                return self.marked_or(line, HeaderLine::InBlock(close), fence);
             };
-            if self.marks(&line[..end]) {
+            if self.marks_carrying_fence(&line[..end], fence) {
                 return HeaderLine::Marked;
             }
             line = line[end + close.len()..].trim_ascii();
@@ -124,7 +146,7 @@ impl Banner {
                 return HeaderLine::Comment;
             }
             if starts_with_any(line, self.line_comments) {
-                return self.marked_or(line, HeaderLine::Comment);
+                return self.marked_or(line, HeaderLine::Comment, fence);
             }
             let Some((open, close)) = self.block_comment.filter(|(open, _)| !open.is_empty())
             else {
@@ -134,19 +156,19 @@ impl Banner {
                 return HeaderLine::Code;
             };
             let Some(end) = find(body, close) else {
-                return self.marked_or(line, HeaderLine::InBlock(close));
+                return self.marked_or(line, HeaderLine::InBlock(close), fence);
             };
 
             let comment_end = open.len() + end + close.len();
-            if self.marks(&line[..comment_end]) {
+            if self.marks_carrying_fence(&line[..comment_end], fence) {
                 return HeaderLine::Marked;
             }
             line = line[comment_end..].trim_ascii();
         }
     }
 
-    fn marked_or(&self, comment: &[u8], unmarked: HeaderLine) -> HeaderLine {
-        if self.marks(comment) {
+    fn marked_or(&self, comment: &[u8], unmarked: HeaderLine, fence: &mut usize) -> HeaderLine {
+        if self.marks_carrying_fence(comment, fence) {
             HeaderLine::Marked
         } else {
             unmarked
@@ -163,6 +185,10 @@ fn step_past(rest: &[u8], run: usize) -> Option<usize> {
         return Some(1);
     }
     span_before_run(&rest[run..], run).map(|span| run + span + run)
+}
+
+const fn fence_left_open(run: usize) -> usize {
+    if run >= FENCE_BACKTICKS { run } else { 0 }
 }
 
 fn span_before_run(text: &[u8], run: usize) -> Option<usize> {
@@ -283,6 +309,22 @@ mod tests {
         assert!(!C.marks(b"// see `docs.md: @generated"));
         assert!(!C.marks(b"// an ordinary header"));
         assert!(!C.marks(b""));
+    }
+
+    #[test]
+    fn a_marker_in_a_code_fence_only_mentions_it() {
+        let doctest = b"/// Reads a banner.\n///\n/// ```\n\
+                        /// let header = \"// Code generated by protoc. DO NOT EDIT.\";\n/// ```\npub struct Banner;\n";
+        let nested = b"//! A module.\n//!\n//! ````text\n//! ```\n//! // @generated\n//! ```\n//! ````\nfn f() {}\n";
+
+        assert!(!C.opens(doctest));
+        assert!(!C.opens(nested));
+        assert!(!C.opens(b"/*\n * ```\n * @generated\n * ```\n */\nint f();\n"));
+        assert!(C.opens(b"/// ```\n/// let a = 1;\n/// ```\n// DO NOT EDIT\nfn f() {}\n"));
+        assert!(
+            C.opens(b"/* provided ``AS IS'' */\n/* DO NOT EDIT */\nint f();\n"),
+            "a span shorter than a fence ends with its comment"
+        );
     }
 
     #[test]
