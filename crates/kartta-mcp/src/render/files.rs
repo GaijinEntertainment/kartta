@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use kartta_fs::{EntryKind, Failure, Line, LineKind, Listing, Matches, Paths};
+use kartta_fs::{Capped, EntryKind, Failure, Line, LineKind, Listing, Matches, Paths};
 
 use crate::llmxml::{Element, List};
 
@@ -16,20 +16,12 @@ pub(crate) fn paths(pattern: &str, paths: List) -> String {
     paths.into_text()
 }
 
-/// How much of what a glob matched a `glob_files` answer lists.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum Globbed {
-    /// Every path that matched.
-    Whole,
-    /// The first paths in path order, and how many matched in all when the search counted them.
-    Cut { matched: Option<usize> },
-}
-
 /// The `glob_files` answer: the paths one per line, in path order, and a last line saying so when the cap cut them,
-/// since paths in path order look the same whether or not more follow, and a last line counting the `excluded`
-/// matches the excludes removed.
-pub(crate) fn globbed(globs: &str, listed: List, globbed: Globbed, excluded: usize) -> String {
-    let shown = listed.len();
+/// since paths in path order look the same whether or not more follow, and a last line counting the matches the
+/// excludes removed.
+pub(crate) fn globbed(globs: &str, found: &Capped<'_>, paths: &mut Paths<'_>) -> String {
+    let excluded = found.excluded();
+    let shown = found.items().len();
     if shown == 0 {
         return if excluded == 0 {
             format!("no files match {globs}")
@@ -37,20 +29,17 @@ pub(crate) fn globbed(globs: &str, listed: List, globbed: Globbed, excluded: usi
             format!("no files match {globs} outside the excludes (excludes removed: {excluded})")
         };
     }
+    let mut listed = List::default();
+    for &position in found.items() {
+        listed.push(paths.get(position));
+    }
     let mut answer = listed.into_text();
-    let _ = match globbed {
-        Globbed::Whole => Ok(()),
-        Globbed::Cut {
-            matched: Some(matched),
-        } => write!(
-            answer,
-            "\n(truncated: {shown} of {matched} matching paths, in path order)"
-        ),
-        Globbed::Cut { matched: None } => write!(
+    if found.truncated() {
+        let _ = write!(
             answer,
             "\n(truncated: the first {shown} matching paths in path order; more match)"
-        ),
-    };
+        );
+    }
     if excluded > 0 {
         let _ = write!(answer, "\n(excludes removed: {excluded})");
     }
@@ -222,18 +211,27 @@ const fn kind(kind: EntryKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{Globbed, globbed};
-    use crate::llmxml::List;
+    use kartta_fs::{BuildOptions, Filter, GlobOptions, Index};
 
+    use super::globbed;
+
+    // constraint: Windows refuses a line break in a file name
+    #[cfg(unix)]
     #[test]
     fn a_glob_answer_keeps_a_path_with_a_line_break_on_its_line() {
-        let mut paths = List::default();
-        paths.push("a.rs");
-        paths.push("b\nc.rs");
+        let dir = tempfile::tempdir().expect("create temp dir");
+        for name in ["a.rs", "b\nc.rs", "d.rs"] {
+            std::fs::write(dir.path().join(name), "").expect("write file");
+        }
+        let index = Index::build(dir.path(), &BuildOptions::default())
+            .expect("build")
+            .index;
+        let every = Filter::new(["**"]).expect("compile");
+        let found = index.glob(&every, &GlobOptions::default().limit(2));
 
         assert_eq!(
-            globbed("**", paths, Globbed::Cut { matched: Some(3) }, 0),
-            "a.rs\n\"b\\nc.rs\"\n(truncated: 2 of 3 matching paths, in path order)"
+            globbed("**", &found, &mut index.paths()),
+            "a.rs\n\"b\\nc.rs\"\n(truncated: the first 2 matching paths in path order; more match)"
         );
     }
 }

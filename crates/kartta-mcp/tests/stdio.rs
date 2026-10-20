@@ -74,7 +74,17 @@ fn glob_files_lists_in_path_order_and_says_when_the_cap_cut_it() {
             "glob_files",
             &json!({"globs": ["**"], "excludes": ["*.md"], "max_results": 1})
         ),
-        "cmd/app/main.go\n(truncated: 1 of 3 matching paths, in path order)\n(excludes removed: 1)"
+        "cmd/app/main.go\n(truncated: the first 1 matching paths in path order; more match)\n\
+         (excludes removed: 1)"
+    );
+    assert_eq!(
+        client.answer(
+            "glob_files",
+            &json!({"globs": ["**"], "excludes": ["cmd"], "max_results": 2})
+        ),
+        "README.md\ngo.mod\n(truncated: the first 2 matching paths in path order; more match)\n\
+         (excludes removed: 1)",
+        "an excluded directory takes everything beneath it, and the cap holds"
     );
     assert_eq!(
         client.answer("glob_files", &json!({"globs": ["*.rs"]})),
@@ -311,6 +321,14 @@ fn find_files_ranks_file_names_and_drops_the_excluded() {
             &json!({"pattern": "go", "excludes": ["cmd/**"], "max_results": 1})
         ),
         "go.mod"
+    );
+    assert_eq!(
+        client.answer(
+            "find_files",
+            &json!({"pattern": "go", "excludes": ["cmd", "go.mod"]})
+        ),
+        "pkg/service.go",
+        "an excluded directory takes everything beneath it"
     );
     assert_eq!(
         client.answer("find_files", &json!({"pattern": "zzz"})),

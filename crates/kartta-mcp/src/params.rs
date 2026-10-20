@@ -115,8 +115,8 @@ pub(crate) struct FindFilesParams {
     /// without "/" matches across directories ("*.go" matches at any depth). Omit to search every indexed file.
     #[serde(default)]
     pub(crate) includes: Vec<String>,
-    /// Glob patterns; a path matching ANY of them is dropped, e.g. ["**/vendor/**", "*_test.go"]. Omit to exclude
-    /// nothing.
+    /// Glob patterns; a path matching ANY of them is dropped, and a matching directory with everything beneath it,
+    /// e.g. ["**/vendor", "*_test.go"]. Omit to exclude nothing.
     #[serde(default)]
     pub(crate) excludes: Vec<String>,
     /// Maximum number of paths to return; 0 or omitted returns every match. Null is rejected; omit the argument for
@@ -269,7 +269,8 @@ pub(crate) struct GlobFilesParams {
     /// matches across directories ("*.go" matches at any depth). REQUIRED and non-empty - to enumerate the whole tree,
     /// pass ["**"]. To hunt ONE file by name, use find_files instead.
     pub(crate) globs: Vec<String>,
-    /// Glob patterns; a path matching ANY of them is dropped, e.g. ["**/vendor/**"]. Omit to exclude nothing.
+    /// Glob patterns; a path matching ANY of them is dropped, and a matching directory with everything beneath it,
+    /// e.g. ["**/vendor"]. Omit to exclude nothing.
     #[serde(default)]
     pub(crate) excludes: Vec<String>,
     /// Maximum number of paths to return; 0 or omitted returns every match. Null is rejected; omit the argument for
