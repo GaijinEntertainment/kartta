@@ -75,6 +75,16 @@ impl Backend {
     }
 
     #[expect(
+        clippy::unnecessary_wraps,
+        clippy::unused_self,
+        reason = "one signature for every platform, and a poll takes as many notifications as the queue holds, so the \
+                  first leaves none of those queued before it unread"
+    )]
+    pub(super) const fn queued(&self) -> Option<usize> {
+        Some(0)
+    }
+
+    #[expect(
         clippy::unused_self,
         reason = "one signature for every platform, and the stream covers each directory from its start, so the walk \
                   has nothing to tell it"
