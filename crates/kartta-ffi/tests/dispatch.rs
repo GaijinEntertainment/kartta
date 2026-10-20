@@ -157,6 +157,34 @@ fn a_fuzzy_limit_of_0_takes_the_default() {
 }
 
 #[test]
+fn a_fuzzy_answer_counts_its_matches_unless_the_query_is_empty() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let found = ok(&kartta, "fuzzy", &json!({ "query": "go", "limit": 1 }));
+    assert_eq!(
+        (&found["truncated"], &found["matched"]),
+        (&json!(true), &json!(2)),
+        "{found}"
+    );
+
+    let nothing = ok(&kartta, "fuzzy", &json!({ "query": "zz" }));
+    assert_eq!(
+        (&nothing["matches"], &nothing["matched"]),
+        (&json!([]), &json!(0)),
+        "a query with terms is counted, 0 included: {nothing}"
+    );
+
+    let everything = ok(&kartta, "fuzzy", &json!({ "query": "", "limit": 1 }));
+    assert_eq!(
+        everything.get("matched"),
+        None,
+        "an empty query is not counted: {everything}"
+    );
+}
+
+#[test]
 fn params_that_are_not_the_method_s_answer_invalid_params() {
     let tree = tree();
     let kartta = open(tree.path());

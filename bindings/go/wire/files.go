@@ -70,6 +70,9 @@ type FuzzyParams struct {
 type Fuzzy struct {
 	Matches   []FuzzyMatch `json:"matches"`
 	Truncated bool         `json:"truncated"`
+	// Matched counts the paths that matched the query, those past the limit included; nil for an empty query, which
+	// is not counted.
+	Matched *int `json:"matched,omitempty"`
 }
 
 // FuzzyMatch is a path a fuzzy query ranked.

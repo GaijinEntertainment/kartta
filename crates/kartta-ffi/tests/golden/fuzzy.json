@@ -1,13 +1,14 @@
 {
   "answer": {
     "ok": {
+      "matched": 2,
       "matches": [
         {
-          "path": "cpp/circle.cpp",
-          "score": 4450
+          "path": "notes.txt",
+          "score": 110
         }
       ],
-      "truncated": false
+      "truncated": true
     }
   },
   "method": "fuzzy",
@@ -16,6 +17,6 @@
       "**/*.h"
     ],
     "limit": 1,
-    "query": "circ"
+    "query": "e"
   }
 }

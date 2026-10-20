@@ -774,6 +774,11 @@ export type FuzzyParams = {
 export type Fuzzy = {
 	matches: Array<{path: string; score: number}>;
 	truncated: boolean;
+	/**
+	 * The paths that matched the query, those past the limit included; absent for an empty query, which is not
+	 * counted.
+	 */
+	matched?: number;
 };
 
 /** The params of `grep`. */
