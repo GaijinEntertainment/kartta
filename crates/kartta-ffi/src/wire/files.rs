@@ -223,7 +223,7 @@ impl FuzzyView {
             options = options.exclude(exclude);
         }
         let ranked = index.fuzzy(&params.query, &options);
-        let truncated = limit > 0 && ranked.items().len() > limit;
+        let truncated = ranked.items().len() > limit;
         let answered = if truncated {
             &ranked.items()[..limit]
         } else {
