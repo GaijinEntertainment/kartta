@@ -1,6 +1,5 @@
 name: CI
 
-# fmt, clippy, docs, test and deny are the gates, and every one of them blocks a merge.
 on:
   push:
     branches: [main]
@@ -117,11 +116,21 @@ jobs:
         with:
           command: check
 
+  npm-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: bindings/node/.nvmrc
+      - run: npm audit --include=dev
+        working-directory: bindings/node
+
   # ci-ok is the single branch-protection gate: it fails when any job of the run failed or was cancelled, and passes
   # when every triggered job passed or was skipped — so conditional jobs never need enumerating in rulesets.
   ci-ok:
     if: always()
-    needs: [fmt, clippy, docs, test, go, node, deny]
+    needs: [fmt, clippy, docs, test, go, node, deny, npm-audit]
     runs-on: ubuntu-24.04
     steps:
       - name: verify all jobs succeeded
