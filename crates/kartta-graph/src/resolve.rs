@@ -5,8 +5,8 @@ use std::rc::Rc;
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    CallableRole, Conventions, IncludeReach, InheritedMembers, OwnMembers, SymbolKind,
-    UntypedMembers, ValueUses,
+    CallableRole, Conventions, IncludeReach, InheritedMembers, NamespaceCalls, OwnMembers,
+    SymbolKind, UntypedMembers, ValueUses,
 };
 
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
@@ -479,7 +479,20 @@ impl<'g> Cascade<'g> {
         self.bindings(file).dot_dirs.clone()
     }
 
+    pub(crate) fn is_unbound_namespace(&self, at: SymbolAt) -> bool {
+        self.conventions.namespace_calls == NamespaceCalls::Unbound
+            && self.graph.sym(at).kind == SymbolKind::Namespace
+    }
+
     pub(crate) fn resolve_call(&self, call: &Call) -> Result<Bound, Miss> {
+        let (at, confidence) = self.resolve_by_tiers(call)?;
+        if self.is_unbound_namespace(at) {
+            return Err(Miss::NotAdmitted);
+        }
+        Ok((at, confidence))
+    }
+
+    fn resolve_by_tiers(&self, call: &Call) -> Result<Bound, Miss> {
         let caller = call.caller_at();
 
         if let Some(local) = call.local {

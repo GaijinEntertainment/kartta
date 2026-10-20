@@ -3,8 +3,9 @@
 use kartta_graph::{Candidate, Graph, Limits, Selector, SiteQuery, Walk};
 use kartta_lang::{
     Access, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, FILE_SCOPE,
-    ImportBinding, IncludeReach, IncludeRef, InheritedMembers, LocalCall, MemberCalls, OwnMembers,
-    ReExport, Receiver, Symbol, SymbolFlags, SymbolId, SymbolKind, UseRef,
+    ImportBinding, IncludeReach, IncludeRef, InheritedMembers, LocalCall, MemberCalls,
+    NamespaceCalls, OwnMembers, ReExport, Receiver, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    UseRef,
 };
 
 use crate::{call, function, graph, graph_of};
@@ -692,6 +693,34 @@ fn a_dot_import_binds_its_one_export_of_the_name() {
 }
 
 #[test]
+fn a_dot_import_binds_no_namespace_where_the_language_binds_none() {
+    let files = [
+        importing(
+            "cmd/main.go",
+            Some("."),
+            Some("pkg/lib"),
+            vec![call(0, "walk", 2)],
+        ),
+        package(
+            "pkg/lib/walk.go",
+            "lib",
+            vec![exported(Symbol::new("walk", SymbolKind::Namespace, 1, 1))],
+        ),
+    ];
+    let mut unbound = go();
+    unbound.namespace_calls = NamespaceCalls::Unbound;
+
+    assert_eq!(
+        callees(&graph_of(go(), &files), "main"),
+        ["pkg/lib/walk.go:1@95"]
+    );
+    assert_eq!(
+        callees(&graph_of(unbound, &files), "main"),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
 fn a_dot_import_binds_before_the_package_of_the_caller_s_directory() {
     let mut external_test = package("app/app_test.go", "app_test", vec![function("TestRun", 1)]);
     external_test.bindings = vec![ImportBinding {
@@ -1300,6 +1329,38 @@ fn the_one_callable_of_a_name_binds_from_anywhere() {
     ]);
 
     assert_eq!(callees(&graph, "run"), ["b/c/y.go:1@60"]);
+}
+
+#[test]
+fn a_call_binds_no_namespace_where_the_language_binds_none_and_the_namespace_still_counts() {
+    let files = [
+        file(
+            "a/x.rs",
+            vec![
+                function("run", 1),
+                Symbol::new("draw", SymbolKind::Namespace, 5, 5),
+                function("draw", 6),
+            ],
+            vec![call(0, "walk", 2), call(0, "draw", 3), call(0, "text", 4)],
+        ),
+        file(
+            "b/lib.rs",
+            vec![
+                Symbol::new("walk", SymbolKind::Namespace, 1, 1),
+                Symbol::new("text", SymbolKind::Namespace, 2, 2),
+            ],
+            Vec::new(),
+        ),
+        file("c/text.rs", vec![function("text", 1)], Vec::new()),
+    ];
+    let mut unbound = Conventions::default();
+    unbound.namespace_calls = NamespaceCalls::Unbound;
+
+    assert_eq!(
+        callees(&graph(&files), "run"),
+        ["a/x.rs:5@80", "b/lib.rs:1@60"]
+    );
+    assert_eq!(callees(&graph_of(unbound, &files), "run"), ["a/x.rs:6@80"]);
 }
 
 #[test]

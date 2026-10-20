@@ -369,6 +369,9 @@ impl Cascade<'_> {
     }
 
     pub(crate) fn admits(&self, shape: &Shape, at: SymbolAt) -> bool {
+        if self.is_unbound_namespace(at) {
+            return false;
+        }
         let owner = self.owner(at);
         let free = || owner.is_none() || self.stands_for_its_type(at);
         match shape {
