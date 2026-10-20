@@ -338,6 +338,19 @@ impl<'a> Indexing<'a> {
         }
     }
 
+    pub(crate) fn file(
+        &self,
+        path: &str,
+        native_path: impl FnOnce() -> PathBuf,
+        seen: Seen,
+    ) -> Payload {
+        Payload {
+            kind: EntryKind::File,
+            target: None,
+            content: self.read_file(path, native_path, || Some(seen)),
+        }
+    }
+
     fn hand_over_ignore_file(&self, path: &str, read: &IgnoreFile) -> Option<ContentId> {
         let (reading, visit) = self.wanted(path)?;
         if let Some(carried) = reading.carry(path, visit, || Seen::of(&read.metadata)) {
@@ -395,6 +408,10 @@ impl<'a> Indexing<'a> {
 
         self.record(BuildError::Name { native_path });
         false
+    }
+
+    pub(crate) const fn reads(&self) -> bool {
+        self.reading.is_some()
     }
 
     pub(crate) fn may_carry(&self) -> bool {

@@ -15,6 +15,7 @@ use std::num::NonZeroUsize;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::Mutex;
+use std::thread::ThreadId;
 use std::time::Duration;
 
 use common::{tree, write};
@@ -611,6 +612,52 @@ fn paths_given_twice_out_of_order_or_below_one_another_are_walked_once() {
 }
 
 #[test]
+fn the_named_files_a_refresh_reads_are_read_on_the_index_threads() {
+    #[derive(Default)]
+    struct Threads(Mutex<Vec<(String, ThreadId)>>);
+
+    impl ContentVisitor for Threads {
+        fn wants(&self, _path: &str) -> bool {
+            true
+        }
+
+        fn visit(&self, content: Content<'_>) {
+            let thread = std::thread::current().id();
+            self.0
+                .lock()
+                .expect("lock")
+                .push((content.path().to_owned(), thread));
+        }
+    }
+
+    let dir = tree(&[("a.rs", "a"), ("b.rs", "b"), ("src/c.rs", "c")]);
+    let mut options = BuildOptions::default();
+    options.threads = NonZeroUsize::new(2);
+    let mut index = build(dir.path(), &options, None);
+    let pool: Vec<ThreadId> =
+        index.on_threads(|| rayon::broadcast(|_| std::thread::current().id()));
+    let threads = Threads::default();
+
+    let outcome = index
+        .refresh_paths(["a.rs", "b.rs", "src/c.rs"], Some(&threads), None)
+        .expect("refresh the paths");
+
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    let mut read = threads.0.into_inner().expect("lock");
+    read.sort_by(|(left, _), (right, _)| left.cmp(right));
+    assert_eq!(
+        read.iter()
+            .map(|(path, _)| path.as_str())
+            .collect::<Vec<_>>(),
+        ["a.rs", "b.rs", "src/c.rs"]
+    );
+    assert!(
+        read.iter().all(|(_, thread)| pool.contains(thread)),
+        "every named file is read on the index's own pool {pool:?}: {read:?}"
+    );
+}
+
+#[test]
 fn the_parts_of_named_paths_are_what_a_refresh_of_them_walks() {
     let dir = tree(&[
         (".gitignore", "target/\n"),
@@ -1122,6 +1169,54 @@ fn refreshing_paths_never_hands_out_again_an_id_a_stopped_refresh_handed_its_vis
     let retired: Vec<ContentId> = outcome.retired().collect();
     assert!(
         stopped.values().all(|id| retired.contains(id)),
+        "the ids the stopped refreshes handed out are retired"
+    );
+}
+
+#[test]
+fn named_files_read_on_threads_never_hand_out_again_an_id_a_stopped_refresh_handed_its_visitor() {
+    let names: Vec<String> = (0..16).map(|at| format!("file{at:02}.rs")).collect();
+    let spec: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "x")).collect();
+    let dir = tree(&spec);
+    let mut options = BuildOptions::default();
+    options.threads = NonZeroUsize::new(4);
+    let mut index = build(dir.path(), &options, Some(&Ids::default()));
+    let every_file = || names.iter().map(String::as_str);
+
+    let cancelling = CancelAtFirstVisit {
+        ids: Ids::default(),
+        cancel: CancelToken::new(),
+    };
+    let cancelled = index.refresh_paths(every_file(), Some(&cancelling), Some(&cancelling.cancel));
+    assert!(matches!(cancelled, Err(BuildError::Cancelled)));
+    let panicking = PanicAtFirstVisit(Ids::default());
+    let unwound = panic::catch_unwind(AssertUnwindSafe(|| {
+        index.refresh_paths(every_file(), Some(&panicking), None)
+    }));
+    assert!(unwound.is_err(), "the visitor's panic reaches the caller");
+
+    let cancelled_ids = cancelling.ids.take();
+    let panicked_ids = panicking.0.take();
+    let ids = Ids::default();
+    let outcome = index
+        .refresh_paths(every_file(), Some(&ids), None)
+        .expect("refresh the paths");
+
+    assert!(
+        !cancelled_ids.is_empty() && !panicked_ids.is_empty(),
+        "each stopped refresh handed out an id"
+    );
+    let stopped: Vec<&ContentId> = cancelled_ids
+        .values()
+        .chain(panicked_ids.values())
+        .collect();
+    assert!(
+        ids.take().values().all(|id| !stopped.contains(&id)),
+        "no id names two files"
+    );
+    let retired: Vec<ContentId> = outcome.retired().collect();
+    assert!(
+        stopped.iter().all(|id| retired.contains(id)),
         "the ids the stopped refreshes handed out are retired"
     );
 }

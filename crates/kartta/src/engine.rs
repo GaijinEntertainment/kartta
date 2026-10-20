@@ -254,10 +254,11 @@ impl Engine {
     /// every family's graph up to them as [`Engine::refresh`] does, stopping the walk when `cancel` is cancelled.
     ///
     /// The paths are what changed, as a [`kartta_fs::Watcher`] or a version control tool names them, and a change no
-    /// path names is not seen. The named files are read and extracted one after another, where a whole refresh reads
-    /// and extracts on every thread, so a call whose paths come to more parts than [`Engine::refresh_paths_limit`] is
-    /// [`Engine::refresh`], and [`EngineRefresh::widened`] says so. The parts are those
-    /// [`kartta_fs::Index::parts_of`] answers: the paths inside a directory the index does not hold, such as an
+    /// path names is not seen. The named files are read and extracted on the index's threads, as a whole refresh's
+    /// are, except that a call with one file among its parts reads it on the calling thread. Each part is taken on the
+    /// calling thread, a stat and the ignore rules above it, so a call whose paths come to more parts than
+    /// [`Engine::refresh_paths_limit`] is [`Engine::refresh`], and [`EngineRefresh::widened`] says so. The parts are
+    /// those [`kartta_fs::Index::parts_of`] answers: the paths inside a directory the index does not hold, such as an
     /// ignored `target/`, are one part, and a path the index skips is none. A call named more paths than the limit
     /// works their parts out first, at the cost [`kartta_fs::Index::parts_of`] states, whether it then walks them or
     /// the whole tree. Without [`BuildOptions::stamps`] at the build, the engine kept nothing to find the files a

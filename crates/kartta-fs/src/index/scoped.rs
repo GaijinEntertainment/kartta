@@ -4,6 +4,7 @@ use std::sync::atomic::AtomicU32;
 use std::{fs, io};
 
 use kartta_walk::{CancelToken, EntryKind, Tree, WalkError, WalkOptions, WalkOutcome, walk};
+use rayon::prelude::*;
 
 use super::splice::{Fresh, Pending, Replacement};
 use super::{
@@ -17,7 +18,7 @@ use crate::inspection::Inspection;
 use crate::list::is_below;
 use crate::policy::{DirState, Indexing, Learned, Numbering, Payload, Report, names_match};
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
-use crate::stamp::{Stamp, Stamping, UNTRUSTED};
+use crate::stamp::{Seen, Stamp, Stamping, UNTRUSTED};
 
 impl Index {
     /// Walks again only the parts of the tree at these root-relative forward-slash paths and makes this index what
@@ -43,16 +44,21 @@ impl Index {
     /// While ignore rules apply, the rules for a part walked again come from the `.gitignore` files of the directories
     /// above it, read again once a call for each such directory, at two stats a directory and a third with the read of
     /// a `.gitignore` it holds; the visitor is not handed those files, which lie outside the parts. Content is read,
-    /// carried over and numbered as [`Index::refresh`] does, and what it reads is indexed in a segment of the content
-    /// index of its own. Unlike [`Index::refresh`], this changes the index in place: every entry outside the walked
-    /// parts moves once, so a call costs one pass over the index's per-entry arrays whatever the number of paths, and
-    /// the old and new arrays are held at once while it runs. A call whose parts are neither indexed nor on disk, such
-    /// as ignored paths and files already gone again, changes nothing and makes no such pass.
+    /// carried over and numbered as [`Index::refresh`] does, on the index's [threads](Index::on_threads): the parts
+    /// that are files are read there once every part has been looked at, except that a call with one such part reads
+    /// it on the calling thread. What it reads is indexed in a segment of the content index of its own. Unlike
+    /// [`Index::refresh`], this changes the index in place: every entry outside the walked parts moves once, so a call
+    /// costs one pass over the index's per-entry arrays whatever the number of paths, and the old and new arrays are
+    /// held at once while it runs. A call whose parts are neither indexed nor on disk, such as ignored paths and files
+    /// already gone again, changes nothing and makes no such pass.
     ///
     /// # Errors
     ///
     /// [`BuildError::OutsideTree`] for a path with a `..` component, before anything is walked, and otherwise as
-    /// [`Index::refresh`]. A returned error leaves the index answering as it did.
+    /// [`Index::refresh`]. A returned error leaves the index answering as it did. Like [`Index::refresh`], the call
+    /// stops for `cancel` only while it has something left to walk or read, or a content index to finish: it looks at
+    /// `cancel` before it takes each part and reads each file, so a cancel that comes once the last files are being
+    /// read, with no content index to finish, stops nothing, and the call completes.
     pub fn refresh_paths<'p>(
         &mut self,
         paths: impl IntoIterator<Item = &'p str>,
@@ -209,10 +215,7 @@ impl Index {
             errors: Vec::new(),
             rules: Vec::new(),
         };
-        let found = scopes
-            .iter()
-            .map(|scope| rewalk.scope(scope))
-            .collect::<Result<Vec<Found>, BuildError>>()?;
+        let found = rewalk.found(scopes)?;
 
         let Rewalk {
             policy, mut errors, ..
@@ -325,6 +328,11 @@ impl Found {
     };
 }
 
+enum Part {
+    Found(Found),
+    File(Seen),
+}
+
 struct Rewalk<'i, 'a> {
     index: &'i Index,
     policy: Indexing<'a>,
@@ -362,7 +370,53 @@ impl Rewalk<'_, '_> {
             .unwrap_or_default()
     }
 
-    fn scope(&mut self, scope: &str) -> Result<Found, BuildError> {
+    fn found(&mut self, scopes: &[String]) -> Result<Vec<Found>, BuildError> {
+        let mut parts = scopes
+            .iter()
+            .map(|scope| self.scope(scope))
+            .collect::<Result<Vec<Part>, BuildError>>()?;
+        let mut files = parts.iter().filter(|part| matches!(part, Part::File(_)));
+        if files.nth(1).is_some() {
+            self.read_on_threads(scopes, &mut parts)?;
+        }
+
+        Ok(parts
+            .into_iter()
+            .zip(scopes)
+            .map(|(part, scope)| match part {
+                Part::Found(found) => found,
+                Part::File(seen) => self.file(scope, seen),
+            })
+            .collect())
+    }
+
+    fn read_on_threads(&self, scopes: &[String], parts: &mut [Part]) -> Result<(), BuildError> {
+        self.index
+            .on_threads(|| {
+                parts
+                    .par_iter_mut()
+                    .zip(scopes)
+                    .try_for_each(|(part, scope)| self.read(part, scope))
+            })
+            .ok_or(BuildError::Cancelled)
+    }
+
+    fn read(&self, part: &mut Part, path: &str) -> Option<()> {
+        let Part::File(seen) = *part else {
+            return Some(());
+        };
+        let cancelled = self.cancel.is_some_and(CancelToken::is_cancelled);
+        (!cancelled).then(|| *part = Part::Found(self.file(path, seen)))
+    }
+
+    fn file(&self, path: &str, seen: Seen) -> Found {
+        Found {
+            scope: Some(self.policy.file(path, || self.index.root.join(path), seen)),
+            below: None,
+        }
+    }
+
+    fn scope(&mut self, scope: &str) -> Result<Part, BuildError> {
         if self.cancel.is_some_and(CancelToken::is_cancelled) {
             return Err(BuildError::Cancelled);
         }
@@ -377,13 +431,18 @@ impl Rewalk<'_, '_> {
                         source,
                     }));
                 }
-                return Ok(Found::GONE);
+                return Ok(Part::Found(Found::GONE));
             }
         };
         let rules = self.rules_for(parent_of(scope));
         let is_dir = metadata.is_dir();
         if rules.ignores(scope, is_dir) {
-            return Ok(Found::GONE);
+            return Ok(Part::Found(Found::GONE));
+        }
+        if self.policy.reads()
+            && let Some(seen) = Seen::of(&metadata)
+        {
+            return Ok(Part::File(seen));
         }
 
         let entry = self.policy.single(scope, &native_path, &metadata);
@@ -392,10 +451,10 @@ impl Rewalk<'_, '_> {
         } else {
             None
         };
-        Ok(Found {
+        Ok(Part::Found(Found {
             scope: Some(entry),
             below,
-        })
+        }))
     }
 
     fn below(&mut self, dir: &str, state: &DirState) -> Result<Option<Tree<Payload>>, BuildError> {
