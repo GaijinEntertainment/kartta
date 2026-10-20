@@ -1100,7 +1100,11 @@ impl ReExportWalk<'_, '_> {
     }
 }
 
-pub(crate) const fn is_type_kind(kind: SymbolKind) -> bool {
+/// Whether a symbol of `kind` is a type, whose uses as one a graph records where its
+/// [`TypeUses`](kartta_lang::TypeUses) convention says: a class, a struct, an interface, a trait, an enum, a type alias
+/// or a defined type.
+#[must_use]
+pub const fn is_type_kind(kind: SymbolKind) -> bool {
     derives(kind)
         || matches!(
             kind,
