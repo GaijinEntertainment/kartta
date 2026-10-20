@@ -54,7 +54,7 @@
   published](./adr/2.3-expire-cache-entries-by-the-time-each-was-published.md) — initiative `02-shared-cache`,
   2026-10-18, revised 2026-10-19
 - [3.1 Plug languages in through a trait](./adr/3.1-plug-languages-in-through-a-trait.md) — initiative `03-code-graph`,
-  2026-10-16, revised 2026-10-19
+  2026-10-16, revised 2026-10-20
 - [3.2 Name a Go call's target only where the syntax
   spells it](./adr/3.2-name-a-go-call-s-target-only-where-the-syntax-spells-it.md) — initiative `03-code-graph`,
   2026-10-16
