@@ -116,6 +116,8 @@ pub struct Conventions {
     /// Whether a variable or a constant can be called. True where a function-valued binding is a callable form of the
     /// language; false where such a name is data, and a call of it is some other symbol's.
     pub values_are_call_targets: bool,
+    /// Whether a call can bind a namespace of the name it calls.
+    pub namespace_calls: NamespaceCalls,
     /// The separator that joins an owner's chain of names, `.` in `A.Worker` and `::` in `a::Worker`, where an owner
     /// is such a chain: a receiver that spells the chain's end at a separator, `Worker` or `m::Worker` for
     /// `a::m::Worker`, names that owner. `None` where an owner is a single name.
@@ -166,6 +168,7 @@ impl Default for Conventions {
             own_members: OwnMembers::Fallback,
             inherited_members: InheritedMembers::Unreached,
             values_are_call_targets: true,
+            namespace_calls: NamespaceCalls::Bound,
             owner_chain_separator: None,
             bare_call_reaches_enclosing_owners: false,
             scope_separator: None,
@@ -241,6 +244,19 @@ pub enum CallsOnValues {
     /// container, smart pointer or library type is, so the nearest namesake is most often not what the value holds.
     /// The one callable of the name still binds.
     NoNearestGuess,
+}
+
+/// Whether a call can bind a namespace of the name it calls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum NamespaceCalls {
+    /// It can: a namespace is a candidate as any callable of its name is.
+    #[default]
+    Bound,
+    /// It cannot, where a call never names a namespace, as no Rust call names a `mod`: a call binds another definition
+    /// of the name or none. The namespace still counts among the definitions of its name where a call binds only the
+    /// one callable of a name, as a definition the call's shape rules out does, so a function named like a namespace
+    /// is not the one callable of its name.
+    Unbound,
 }
 
 /// Where a language records a use of a type.
