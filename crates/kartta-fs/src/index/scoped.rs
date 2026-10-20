@@ -7,8 +7,8 @@ use kartta_walk::{CancelToken, EntryKind, Tree, WalkError, WalkOptions, WalkOutc
 
 use super::splice::{Fresh, Pending, Replacement};
 use super::{
-    ChangedFiles, Finished, Held, Index, Previous, RefreshOutcome, depth_first_below, indexing,
-    node_sized, order_errors, tree_order, unfinished_error,
+    Asked, ChangedFiles, Finished, Held, Index, Previous, RefreshOutcome, depth_first_below,
+    indexing, node_sized, order_errors, tree_order, unfinished_error,
 };
 use crate::build::{BuildError, IgnoreSources};
 use crate::content::{ContentId, ContentVisitor};
@@ -72,7 +72,7 @@ impl Index {
             return self.refresh(visitor, cancel);
         }
 
-        let asked = Asked { visitor, cancel };
+        let asked = Asked::new(visitor, cancel);
         let Planned {
             pending,
             errors,
@@ -305,12 +305,6 @@ impl Index {
         })
         .map_err(|unfinished| unfinished_error(&storage, unfinished))
     }
-}
-
-#[derive(Clone, Copy)]
-struct Asked<'a> {
-    visitor: Option<&'a dyn ContentVisitor>,
-    cancel: Option<&'a CancelToken>,
 }
 
 struct Planned {
