@@ -9,10 +9,11 @@ use notify::{Config, EventKindMask, RecommendedWatcher, RecursiveMode, Watcher a
 
 use super::{Found, WatchError, relative, start_error};
 use crate::index::Index;
+use crate::pruned::PrunedNames;
 
-// constraint: notifications wait here while the caller refreshes, so they are bounded; past this many the batch is
-// lost, as an inotify queue that overflowed loses its own, and one poll takes no more than this many, so a stream that
-// never stops still lets a wait close its batch
+// constraint: notifications wait here while the caller walks the tree or refreshes it, so they are bounded; past this
+// many the batch is lost, as an inotify queue that overflowed loses its own, and one poll takes no more than this many,
+// so a stream that never stops still lets a wait close its batch
 const QUEUED: usize = 65_536;
 
 #[derive(Debug)]
@@ -30,18 +31,11 @@ enum Signal {
 
 impl Backend {
     pub(super) fn start(
-        _index: &Index,
+        _root: &Path,
         prefixes: &[(PathBuf, String)],
+        _pruned_names: &PrunedNames,
     ) -> Result<Self, WatchError> {
-        let (sender, signals) = mpsc::sync_channel(QUEUED);
-        let overflowed = Arc::new(AtomicBool::new(false));
-        let overflowing = Arc::clone(&overflowed);
-        let tree = prefixes.to_vec();
-        let handler = move |event: notify::Result<notify::Event>| {
-            if let Err(TrySendError::Full(_)) = sender.try_send(signal(event, &tree)) {
-                overflowing.store(true, Ordering::Relaxed);
-            }
-        };
+        let (handler, signals, overflowed) = queue(prefixes);
         let config = Config::default().with_event_kinds(EventKindMask::CORE);
         let first = prefixes
             .first()
@@ -82,6 +76,25 @@ impl Backend {
     }
 
     #[expect(
+        clippy::unused_self,
+        reason = "one signature for every platform, and the stream covers each directory from its start, so the walk \
+                  has nothing to tell it"
+    )]
+    pub(super) const fn descending(&self) -> Option<fn(&Path)> {
+        None
+    }
+
+    #[expect(
+        clippy::unnecessary_wraps,
+        clippy::unused_self,
+        clippy::needless_pass_by_ref_mut,
+        reason = "one signature for every platform, and the walk watched nothing, so no watch can have failed"
+    )]
+    pub(super) const fn descended(&mut self) -> Result<(), WatchError> {
+        Ok(())
+    }
+
+    #[expect(
         clippy::unnecessary_wraps,
         clippy::unused_self,
         reason = "one signature for every platform, and the stream covers the whole tree from its start, so nothing \
@@ -112,13 +125,33 @@ fn rescans_whole_tree(event: &notify::Event, prefixes: &[(PathBuf, String)]) -> 
                 .any(|path| relative(path, prefixes).is_none_or(|name| name.is_empty())))
 }
 
+fn queue(
+    prefixes: &[(PathBuf, String)],
+) -> (impl notify::EventHandler, Receiver<Signal>, Arc<AtomicBool>) {
+    let (sender, signals) = mpsc::sync_channel(QUEUED);
+    let overflowed = Arc::new(AtomicBool::new(false));
+    let overflowing = Arc::clone(&overflowed);
+    let tree = prefixes.to_vec();
+    let handler = move |event: notify::Result<notify::Event>| {
+        if let Err(TrySendError::Full(_)) = sender.try_send(signal(event, &tree)) {
+            overflowing.store(true, Ordering::Relaxed);
+        }
+    };
+
+    (handler, signals, overflowed)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use notify::event::{CreateKind, Flag};
-    use notify::{Event, EventKind};
+    use notify::{Event, EventHandler, EventKind};
 
     use super::*;
-    use crate::watch::through_firmlinks;
+    use crate::index::Asked;
+    use crate::watch::{Watcher, event_prefixes, through_firmlinks, watch_walk};
+    use crate::{BuildOptions, Content, ContentVisitor};
 
     const FIRMLINKS: &str = "/Users\tUsers\n";
 
@@ -216,5 +249,54 @@ mod tests {
             signal(Err(notify::Error::generic("stream failed")), &tree()),
             Signal::Lost
         ));
+    }
+
+    struct OverflowsMidWalk<H> {
+        root: PathBuf,
+        handler: Mutex<H>,
+    }
+
+    impl<H: EventHandler> ContentVisitor for OverflowsMidWalk<H> {
+        fn wants(&self, _path: &str) -> bool {
+            let mut handler = self.handler.lock().expect("the handler");
+            for at in 0..=QUEUED {
+                let made = Event::new(EventKind::Create(CreateKind::File))
+                    .add_path(self.root.join(format!("flood/{at}.rs")));
+                handler.handle_event(Ok(made));
+            }
+            false
+        }
+
+        fn visit(&self, _content: Content<'_>) {}
+    }
+
+    #[test]
+    fn more_notifications_than_the_queue_holds_while_the_build_walks_lose_the_batch() {
+        let dir = tempfile::tempdir().expect("a tree");
+        std::fs::write(dir.path().join("a.rs"), "a").expect("write a file");
+        let prefixes = event_prefixes(dir.path()).expect("the paths events name");
+        let (handler, signals, overflowed) = queue(&prefixes);
+        let hook = OverflowsMidWalk {
+            root: prefixes[0].0.clone(),
+            handler: Mutex::new(handler),
+        };
+        let unwatched = RecommendedWatcher::new(|_: notify::Result<Event>| {}, Config::default())
+            .expect("a watcher");
+        let watcher = Watcher {
+            backend: Backend {
+                _watcher: unwatched,
+                signals,
+                overflowed,
+            },
+            prefixes,
+        };
+
+        let (_, watcher) = watch_walk(Ok(watcher), Asked::new(Some(&hook), None), |asked| {
+            Index::build_walking(dir.path(), &BuildOptions::default(), asked)
+        })
+        .expect("build the index");
+        let handed = watcher.expect("a watcher").drain().expect("drain");
+
+        assert_eq!(handed, [""]);
     }
 }

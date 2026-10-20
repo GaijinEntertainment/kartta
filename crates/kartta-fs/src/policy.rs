@@ -34,6 +34,8 @@ pub(crate) struct Learned {
     pub(crate) binary: Option<bool>,
 }
 
+pub(crate) type Descending<'a> = &'a (dyn Fn(&Path) + Sync);
+
 pub(crate) struct Indexing<'a> {
     ignore_sources: IgnoreSources,
     pruned_names: &'a PrunedNames,
@@ -42,6 +44,7 @@ pub(crate) struct Indexing<'a> {
     // collects here
     errors: Mutex<Vec<BuildError>>,
     reading: Option<Reading<'a>>,
+    descending: Option<Descending<'a>>,
 }
 
 pub(crate) struct Reading<'a> {
@@ -176,7 +179,12 @@ impl<'a> Indexing<'a> {
             canonical_root: fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()),
             errors: Mutex::new(Vec::new()),
             reading,
+            descending: None,
         }
+    }
+
+    pub(crate) fn descending(self, descending: Option<Descending<'a>>) -> Self {
+        Self { descending, ..self }
     }
 
     pub(crate) fn into_report(self) -> Report {
@@ -848,6 +856,11 @@ impl Policy for Indexing<'_> {
             IgnoreFileRead::Read(content) if names_match(entry.name(), GITIGNORE) => content,
             _ => self.read_content(entry),
         };
+        if kind == EntryKind::Dir
+            && let Some(descending) = self.descending
+        {
+            descending(&entry.native_path());
+        }
 
         Visit::Keep(Payload {
             kind,
