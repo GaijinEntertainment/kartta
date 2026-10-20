@@ -462,8 +462,10 @@ fn served_watched(
     let served = Served::new(request, outcome, cancel, Watch::Following);
     match watcher
         .map_err(|error| error.to_string())
-        .and_then(|watcher| crate::watch::caught_up(&served, watcher))
-    {
+        .and_then(|mut watcher| {
+            let batch = watcher.drain();
+            crate::watch::caught_up(&served, watcher, batch)
+        }) {
         Ok(watcher) => (served, Some(watcher)),
         Err(reason) => {
             served.unwatch(reason);
@@ -654,13 +656,9 @@ mod tests {
         }
     }
 
-    /// Builds `tree` watched with `languages`, runs `meanwhile`, and serves the index as `index_repo` does, with the
-    /// changes its watcher holds taken in.
-    fn served_from(
-        tree: &Path,
-        languages: Vec<Box<dyn Language>>,
-        meanwhile: impl FnOnce(),
-    ) -> (Served, Option<Watcher>) {
+    /// Builds `tree` watched with `languages` and serves the index as `index_repo` does, with the changes its watcher
+    /// holds taken in.
+    fn served_from(tree: &Path, languages: Vec<Box<dyn Language>>) -> (Served, Option<Watcher>) {
         let request = Request {
             root: tree.to_owned(),
             languages: Vec::new(),
@@ -670,31 +668,15 @@ mod tests {
         let cancel = CancelToken::new();
         let (outcome, watcher) =
             Engine::build_watched(tree, &options, languages, Some(&cancel)).unwrap();
-        meanwhile();
         served_watched(&request, outcome, &cancel, watcher)
     }
 
-    /// Raises more notifications in `tree` than a watcher holds unread: on Linux more than inotify's queue holds,
-    /// through writes alternating between two files so the kernel merges none, and elsewhere more than the 65,536 the
-    /// watcher queues itself, through new files, each of which raised two there.
-    fn flood(tree: &Path) {
-        #[cfg(target_os = "linux")]
-        {
-            use std::io::Write as _;
-
-            let queued = std::fs::read_to_string("/proc/sys/fs/inotify/max_queued_events").unwrap();
-            let mut files = [
-                std::fs::File::create(tree.join("flood-a")).unwrap(),
-                std::fs::File::create(tree.join("flood-b")).unwrap(),
-            ];
-            for at in 0..=queued.trim().parse::<usize>().unwrap() {
-                files[at % 2].write_all(b"x").unwrap();
-            }
-        }
-        #[cfg(not(target_os = "linux"))]
-        for at in 0..40_000 {
-            std::fs::write(tree.join(format!("flood-{at}")), "").unwrap();
-        }
+    /// A watcher that dropped changes, with the batch it hands over for them: the whole tree. It watches `elsewhere`,
+    /// so a server that kept it would follow nothing of the tree it stands in for, as on Linux it would follow no
+    /// directory made while it dropped them.
+    fn dropped_changes(elsewhere: &Path) -> (Watcher, Result<Vec<String>, WatchError>) {
+        let (_, watcher) = served_from(elsewhere, Vec::new());
+        (watcher.unwrap(), Ok(vec![String::new()]))
     }
 
     #[test]
@@ -704,7 +686,7 @@ mod tests {
         let languages =
             WritesMidWalk::languages(tree.path(), "a.txt", vec!["late/b.txt".to_owned()]);
 
-        let (served, watcher) = served_from(tree.path(), languages, || ());
+        let (served, watcher) = served_from(tree.path(), languages);
 
         let indexed = served.read().unwrap();
         assert_eq!(indexed.watch, Watch::Following);
@@ -725,13 +707,14 @@ mod tests {
             "late/b.txt",
             vec!["late/deeper/c.txt".to_owned()],
         );
-        let (served, watcher) = served_from(tree.path(), languages, || ());
+        let (served, watcher) = served_from(tree.path(), languages);
         drop(watcher);
         std::fs::create_dir(tree.path().join("late")).unwrap();
         std::fs::write(tree.path().join("late/b.txt"), "b").unwrap();
 
-        let watcher = served.refresh_watched().unwrap();
-        let mut watcher = crate::watch::caught_up(&served, watcher).unwrap();
+        let mut watcher = served.refresh_watched().unwrap();
+        let batch = watcher.drain();
+        let mut watcher = crate::watch::caught_up(&served, watcher, batch).unwrap();
 
         let indexed = served.read().unwrap();
         assert!(indexed.engine.index().entry("late/b.txt").is_some());
@@ -749,15 +732,15 @@ mod tests {
     fn a_directory_made_while_the_watcher_dropped_changes_is_published_and_followed() {
         let tree = tempfile::tempdir().unwrap();
         std::fs::write(tree.path().join("a.txt"), "a").unwrap();
+        let (served, _) = served_from(tree.path(), Vec::new());
+        std::fs::create_dir(tree.path().join("late")).unwrap();
+        std::fs::write(tree.path().join("late/b.txt"), "b").unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let (dropped, batch) = dropped_changes(elsewhere.path());
 
-        let (served, watcher) = served_from(tree.path(), Vec::new(), || {
-            flood(tree.path());
-            std::fs::create_dir(tree.path().join("late")).unwrap();
-            std::fs::write(tree.path().join("late/b.txt"), "b").unwrap();
-        });
+        let watcher = crate::watch::caught_up(&served, dropped, batch);
 
         let indexed = served.read().unwrap();
-        assert_eq!(indexed.watch, Watch::Following);
         assert!(indexed.engine.index().entry("late/b.txt").is_some());
         drop(indexed);
         let mut watcher = watcher.unwrap();
