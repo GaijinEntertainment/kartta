@@ -10,11 +10,15 @@ use crate::state::Served;
 /// How long the watch waits for a change before it looks again whether an `index_repo` replaced its index.
 const WAKE: Duration = Duration::from_secs(1);
 
-/// Refreshes `served` at the paths `watcher` holds changes for, made while the index was built or refreshed since the
-/// watcher started, and hands the watcher back to follow the tree from there, or a new one when the old one dropped
-/// changes, stopped or met the inotify limit.
-pub(crate) fn caught_up(served: &Served, mut watcher: Watcher) -> Result<Watcher, String> {
-    match next(watcher.drain()) {
+/// Refreshes `served` at the paths of `batch`, which `watcher` handed over for the changes made while the index was
+/// built or refreshed since the watcher started, and hands the watcher back to follow the tree from there, or a new one
+/// when the batch says the old one dropped changes, stopped or met the inotify limit.
+pub(crate) fn caught_up(
+    served: &Served,
+    watcher: Watcher,
+    batch: Result<Vec<String>, WatchError>,
+) -> Result<Watcher, String> {
+    match next(batch) {
         Next::Refresh(changes) => {
             if !changes.is_empty() {
                 served.refresh(changes.iter().map(String::as_str))?;
