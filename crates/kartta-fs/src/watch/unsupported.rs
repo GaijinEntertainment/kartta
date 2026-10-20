@@ -8,7 +8,10 @@ use crate::index::Index;
 pub(super) enum Backend {}
 
 impl Backend {
-    pub(super) fn start(index: &Index, _watched: &[PathBuf]) -> Result<Self, WatchError> {
+    pub(super) fn start(
+        index: &Index,
+        _prefixes: &[(PathBuf, String)],
+    ) -> Result<Self, WatchError> {
         Err(WatchError::Unsupported {
             native_path: index.root().to_path_buf(),
         })
