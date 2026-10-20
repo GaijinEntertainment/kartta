@@ -902,6 +902,95 @@ fn a_path_that_may_leave_the_tree_is_refused_before_anything_is_walked() {
     assert_eq!(paths(&index), ["a.rs"]);
 }
 
+#[cfg(any(target_os = "macos", windows))]
+fn folding_tree(spec: &[(&str, &str)]) -> TempDir {
+    let dir = tree(spec);
+    let (first, _) = spec.first().expect("a path");
+    assert!(
+        dir.path().join(first.to_lowercase()).exists(),
+        "the temporary directory sits on a volume that folds case"
+    );
+    dir
+}
+
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn a_path_spelled_in_another_case_refreshes_the_entry_the_disk_holds() {
+    let dir = folding_tree(&[("Dir/f.rs", "a"), ("Dir/Sub/g.rs", "b")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+    let entries = index.len();
+
+    write(dir.path(), "Dir/f.rs", "changed");
+    let parts = index.parts_of(["dir/f.rs"]).expect("work out the parts");
+    let walked = refresh_paths(&mut index, ["dir/f.rs"]);
+
+    assert_eq!(parts, ["Dir/f.rs"]);
+    assert_eq!(walked, parts);
+    assert_eq!(index.len(), entries);
+    assert_as_built(&index, &BuildOptions::default());
+}
+
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn every_name_of_a_path_spelled_in_another_case_takes_the_disk_s_spelling() {
+    let dir = folding_tree(&[("Dir/Sub/g.rs", "a"), ("Dir/f.rs", "b")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "Dir/Sub/new.rs", "c");
+    let walked = refresh_paths(&mut index, ["DIR/SUB/G.RS", "dir/sub/new.rs", "DIR/F.RS"]);
+
+    assert_eq!(walked, ["Dir/Sub/g.rs", "Dir/Sub/new.rs", "Dir/f.rs"]);
+    assert_as_built(&index, &BuildOptions::default());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_path_in_either_unicode_normalization_form_refreshes_the_entry_the_disk_holds() {
+    let dir = folding_tree(&[("Dir/caf\u{e9}.rs", "a")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+    let held = paths(&index).pop().expect("the file below its directory");
+
+    let walked = refresh_paths(&mut index, ["Dir/caf\u{e9}.rs", "Dir/cafe\u{301}.rs"]);
+
+    assert_eq!(walked, [held]);
+    assert_as_built(&index, &BuildOptions::default());
+}
+
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn a_rename_that_changes_only_case_leaves_the_new_spelling_alone() {
+    let dir = folding_tree(&[("Dir/g.rs", "a"), ("Dir/Sub/h.rs", "b")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    fs::rename(dir.path().join("Dir/g.rs"), dir.path().join("Dir/G.rs")).expect("rename");
+    fs::rename(dir.path().join("Dir/Sub"), dir.path().join("Dir/sub")).expect("rename");
+    refresh_paths(&mut index, ["Dir/g.rs", "Dir/G.rs", "Dir/Sub", "Dir/sub"]);
+
+    assert_eq!(
+        paths(&index),
+        ["Dir", "Dir/G.rs", "Dir/sub", "Dir/sub/h.rs"]
+    );
+    assert_as_built(&index, &BuildOptions::default());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn paths_that_differ_only_in_case_stay_apart_where_the_disk_holds_both() {
+    let dir = tree(&[("Dir/f.rs", "a"), ("dir/f.rs", "b")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "dir/f.rs", "changed");
+    write(dir.path(), "DIR/f.rs", "c");
+    let walked = refresh_paths(&mut index, ["dir/f.rs", "DIR/f.rs", "Dir/F.rs"]);
+
+    assert_eq!(walked, ["DIR", "Dir/F.rs", "dir/f.rs"]);
+    assert_eq!(
+        paths(&index),
+        ["DIR", "DIR/f.rs", "Dir", "Dir/f.rs", "dir", "dir/f.rs"]
+    );
+    assert_as_built(&index, &BuildOptions::default());
+}
+
 #[test]
 fn a_path_the_rules_ignore_stays_out_of_the_index() {
     let dir = tree(&[(".gitignore", "build/\n"), ("a.rs", "")]);

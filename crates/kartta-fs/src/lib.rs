@@ -164,6 +164,7 @@ mod pruned;
 mod requirement;
 mod rules;
 mod scan;
+mod spelling;
 mod stamp;
 mod trigram;
 #[cfg(feature = "watch")]
