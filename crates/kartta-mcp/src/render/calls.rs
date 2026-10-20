@@ -596,6 +596,7 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
         .flag("truncated", walk.truncated)
         .count("turned_away", walk.turned_away)
         .count("unexpanded", walk.unexpanded)
+        .count("ambiguous", walk.ambiguous)
         .count("below_confidence", walk.below_confidence)
         .count("passed_over", walk.passed_over)
         .count("file_scope", walk.file_scope.len());
@@ -613,7 +614,8 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
     }
     let passed_over = candidates(&walk.candidates, "callers");
     if walk.reached.is_empty() && walk.file_scope.is_empty() {
-        return noted(element, &no_callers(root.kind, ask.floored), passed_over);
+        let text = no_callers(root.kind, ask.floored, walk.ambiguous);
+        return noted(element, &text, passed_over);
     }
     let refs = walk
         .reached
@@ -713,10 +715,22 @@ const fn at_floor(floored: bool) -> &'static str {
     }
 }
 
-/// Why a symbol may have no callers, by what it is.
-fn no_callers(of: SymbolKind, floored: bool) -> String {
+/// Why a symbol may have no callers, by what it is and by the `ambiguous` calls of its name that may call it.
+fn no_callers(of: SymbolKind, floored: bool, ambiguous: usize) -> String {
     let label = of.label();
     let kind = kind(of);
+    if ambiguous > 0 {
+        let otherwise = if matches!(label, "func" | "method" | "macro") {
+            "if none of them calls it, it is an entry point, dead code, or reached by dynamic dispatch"
+        } else {
+            "find_references lists its recorded uses"
+        };
+        return format!(
+            "no call binds it{} - ambiguous counts the calls of its name that bound none because several definitions \
+             of the name may be meant, and any of them may call this {kind}; grep finds them, and {otherwise}",
+            at_floor(floored)
+        );
+    }
     match label {
         "func" | "method" | "macro" => {
             "no callers - entry point, dead code, or dynamic dispatch".to_owned()
