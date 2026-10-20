@@ -4,5 +4,5 @@
  * a package ships an addon for.
  */
 export function target(): string {
-  return `${process.platform}-${process.arch}${process.platform === "linux" ? "-gnu" : ""}`;
+	return `${process.platform}-${process.arch}${process.platform === 'linux' ? '-gnu' : ''}`;
 }
