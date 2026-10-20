@@ -13,16 +13,47 @@ use crate::resolving::{Resolvers, Resolving, ToResolve};
 /// resolution put to the repository, and for each language, what its resolver asked while it was built.
 #[derive(Debug, Default)]
 pub(crate) struct Following {
-    files: HashMap<ContentId, Followed, FixedState>,
+    files: HashMap<ContentId, Kept, FixedState>,
+    asked: Asked,
     configurations: Vec<Option<Configuration>>,
 }
 
+/// A file a resolution put into a graph, and the keys of the questions it asked.
 #[derive(Debug)]
 pub(crate) struct Followed {
     pub(crate) path: Box<str>,
     pub(crate) language: usize,
     pub(crate) cached: bool,
     pub(crate) asked: Box<[u32]>,
+}
+
+/// A followed file as the engine keeps it, its keys a run of [`Asked`], or [`NO_RUN`] when it asked nothing.
+#[derive(Debug)]
+struct Kept {
+    path: Box<str>,
+    language: usize,
+    cached: bool,
+    run: u32,
+}
+
+/// The run of a file that asked nothing: no refresh can reach it through its keys, so it takes no run.
+const NO_RUN: u32 = u32::MAX;
+
+/// The keys of every kept file in one buffer, a run a file in the order the files came, so that a refresh reads them
+/// in the order of memory. Every run holds a key, and a run whose file left stays until such runs hold a quarter of
+/// the keys.
+#[derive(Debug, Default)]
+struct Asked {
+    keys: Vec<u32>,
+    runs: Vec<Run>,
+    retired: usize,
+}
+
+/// Where a run of [`Asked::keys`] ends, and the file it holds the keys of until that file leaves.
+#[derive(Debug, Clone, Copy)]
+struct Run {
+    owner: Option<ContentId>,
+    end: u32,
 }
 
 /// The parts of an engine a refresh brings up to its refreshed index.
@@ -53,8 +84,8 @@ struct Reached {
 const BITS_PER_KEY: usize = 32;
 
 struct Plan {
-    stale: Vec<Followed>,
-    reread: Vec<Followed>,
+    stale: Vec<Kept>,
+    reread: Vec<Kept>,
     reread_ids: Vec<ContentId>,
     work: Vec<ToResolve>,
     reconfigured: Vec<usize>,
@@ -65,10 +96,46 @@ impl Following {
         followed: Vec<(ContentId, Followed)>,
         configurations: Vec<Option<Configuration>>,
     ) -> Self {
-        Self {
-            files: followed.into_iter().collect(),
+        let mut following = Self {
             configurations,
+            ..Self::default()
+        };
+        following.keep(followed);
+        following
+    }
+
+    /// Takes in the files a resolution put into the graphs, their keys appended to [`Asked`].
+    fn keep(&mut self, followed: Vec<(ContentId, Followed)>) {
+        self.files.reserve(followed.len());
+        self.asked.reserve(&followed);
+        for (id, followed) in followed {
+            let run = self.asked.push(id, &followed.asked);
+            let Followed {
+                path,
+                language,
+                cached,
+                ..
+            } = followed;
+            self.files.insert(
+                id,
+                Kept {
+                    path,
+                    language,
+                    cached,
+                    run,
+                },
+            );
         }
+        if self.asked.retired > self.asked.keys.len() / 4 {
+            self.asked.compact(&mut self.files);
+        }
+    }
+
+    /// Takes `id` out of the kept files, its run retired.
+    fn forget(&mut self, id: ContentId) -> Option<Kept> {
+        let kept = self.files.remove(&id)?;
+        self.asked.retire(kept.run);
+        Some(kept)
     }
 
     /// Brings `engine`'s graphs up to its refreshed index: drops the files the refresh retired, inserts what its walk
@@ -99,10 +166,7 @@ impl Following {
             recording: true,
         };
         let repository = IndexRepository::recording(index);
-        let mut stale: Vec<Followed> = outcome
-            .retired()
-            .filter_map(|id| self.files.remove(&id))
-            .collect();
+        let mut stale: Vec<Kept> = outcome.retired().filter_map(|id| self.forget(id)).collect();
         let handed = resolving.placed(extracted);
         let reached = reached(index, &outcome, &handed);
         let (resolvers, plan) = self.plan(&resolving, &repository, (&outcome, &reached, handed));
@@ -131,7 +195,7 @@ impl Following {
             .chain(&plan.reread)
             .filter(|followed| !held.contains(&*followed.path))
             .count();
-        self.files.extend(inserted.followed);
+        self.keep(inserted.followed);
         count(
             languages,
             file_counts,
@@ -164,11 +228,7 @@ impl Following {
         let mut dependents: Vec<ContentId> = if reached.keys.is_empty() {
             Vec::new()
         } else {
-            self.files
-                .iter()
-                .filter(|(_, followed)| followed.asked.iter().any(|&key| reached.holds(key)))
-                .map(|(&id, _)| id)
-                .collect()
+            self.asked.reaching(reached).collect()
         };
         let mut wanted = vec![false; resolving.languages.len()];
         for file in &handed {
@@ -202,7 +262,7 @@ impl Following {
             reconfigured,
         };
         for id in dependents {
-            let Some(followed) = self.files.remove(&id) else {
+            let Some(followed) = self.forget(id) else {
                 continue;
             };
             match resolving.index.content_position(id) {
@@ -246,10 +306,98 @@ impl Following {
     }
 }
 
+impl Asked {
+    /// Makes room for the keys of `followed`, by at least an eighth of what is held when a buffer grows, so that the
+    /// few files of a refresh do not double it.
+    fn reserve(&mut self, followed: &[(ContentId, Followed)]) {
+        let (keys, runs) = followed
+            .iter()
+            .map(|(_, followed)| followed.asked.len())
+            .fold((0, 0), |(keys, runs), asked| {
+                (keys + asked, runs + usize::from(asked > 0))
+            });
+        grow(&mut self.keys, keys);
+        grow(&mut self.runs, runs);
+    }
+
+    fn push(&mut self, owner: ContentId, keys: &[u32]) -> u32 {
+        if keys.is_empty() {
+            return NO_RUN;
+        }
+        self.keys.extend_from_slice(keys);
+        self.runs.push(Run {
+            owner: Some(owner),
+            end: narrow(self.keys.len()),
+        });
+        narrow(self.runs.len() - 1)
+    }
+
+    fn retire(&mut self, run: u32) {
+        if run == NO_RUN {
+            return;
+        }
+        let run = run as usize;
+        let start = run.checked_sub(1).map_or(0, |before| self.runs[before].end);
+        self.retired += (self.runs[run].end - start) as usize;
+        self.runs[run].owner = None;
+    }
+
+    /// The files whose run holds a key `reached` holds.
+    fn reaching<'a>(&'a self, reached: &'a Reached) -> impl Iterator<Item = ContentId> + 'a {
+        let mut start = 0;
+        self.runs.iter().filter_map(move |run| {
+            let keys = &self.keys[start..run.end as usize];
+            start = run.end as usize;
+            run.owner
+                .filter(|_| keys.iter().any(|&key| reached.holds(key)))
+        })
+    }
+
+    /// Moves the runs of the files still kept to the front, in their order, and points each file at its run.
+    fn compact(&mut self, files: &mut HashMap<ContentId, Kept, FixedState>) {
+        let (mut start, mut end, mut held) = (0, 0, 0);
+        for at in 0..self.runs.len() {
+            let Run { owner, end: until } = self.runs[at];
+            let (from, until) = (start, until as usize);
+            start = until;
+            let Some(owner) = owner else {
+                continue;
+            };
+            self.keys.copy_within(from..until, end);
+            end += until - from;
+            self.runs[held] = Run {
+                owner: Some(owner),
+                end: narrow(end),
+            };
+            if let Some(kept) = files.get_mut(&owner) {
+                kept.run = narrow(held);
+            }
+            held += 1;
+        }
+        self.keys.truncate(end);
+        self.runs.truncate(held);
+        self.retired = 0;
+    }
+}
+
+fn grow<T>(vec: &mut Vec<T>, adding: usize) {
+    if vec.capacity() - vec.len() < adding {
+        vec.reserve_exact(adding.max(vec.len() / 8));
+    }
+}
+
+#[expect(
+    clippy::expect_used,
+    reason = "an engine keeps fewer than 4G keys and files: 2.35M files asked 41.7M on a tree of 2.9M entries"
+)]
+fn narrow(len: usize) -> u32 {
+    u32::try_from(len).expect("fewer than 4G keys and files")
+}
+
 fn count(
     languages: &[Box<dyn Language>],
     file_counts: &mut [FileCounts],
-    (outcome, counts, stale): (&RefreshOutcome, &[FileCounts], &[Followed]),
+    (outcome, counts, stale): (&RefreshOutcome, &[FileCounts], &[Kept]),
     inserted: &[usize],
 ) {
     for path in &outcome.added {
@@ -329,10 +477,118 @@ fn holds(part: &str, path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::sync::Mutex;
+
+    use kartta_fs::{BuildOptions, Content, ContentVisitor};
+
     use super::*;
 
     fn spread(range: std::ops::Range<u32>) -> impl Iterator<Item = u32> {
         range.map(|at| at.wrapping_mul(2_654_435_761))
+    }
+
+    struct Ids(Mutex<Vec<ContentId>>);
+
+    impl ContentVisitor for Ids {
+        fn wants(&self, _: &str) -> bool {
+            true
+        }
+
+        fn visit(&self, content: Content<'_>) {
+            self.0.lock().expect("the ids").push(content.id());
+        }
+    }
+
+    /// The ids of `count` files an index read, sorted.
+    fn ids(count: usize) -> Vec<ContentId> {
+        let tree = tempfile::tempdir().expect("a temporary directory");
+        for at in 0..count {
+            fs::write(tree.path().join(format!("{at}.txt")), "text").expect("write a file");
+        }
+        let ids = Ids(Mutex::new(Vec::new()));
+        Index::build_with(tree.path(), &BuildOptions::default(), Some(&ids), None)
+            .expect("build the index");
+        let mut ids = ids.0.into_inner().expect("the ids");
+        ids.sort_unstable();
+        ids
+    }
+
+    fn followed(id: ContentId, asked: &[u32]) -> (ContentId, Followed) {
+        let followed = Followed {
+            path: format!("{id:?}").into(),
+            language: 0,
+            cached: false,
+            asked: asked.into(),
+        };
+        (id, followed)
+    }
+
+    fn reaching(following: &Following, key: u32) -> Vec<ContentId> {
+        let reached = Reached::new(std::iter::once(key).collect());
+        let mut found: Vec<ContentId> = following.asked.reaching(&reached).collect();
+        found.sort_unstable();
+        found
+    }
+
+    #[test]
+    fn files_that_asked_nothing_leave_no_run_however_often_they_come_back() {
+        let ids = ids(4);
+        let mut following = Following::new(
+            vec![
+                followed(ids[0], &[]),
+                followed(ids[1], &[]),
+                followed(ids[2], &[7, 9]),
+                followed(ids[3], &[9]),
+            ],
+            Vec::new(),
+        );
+
+        for _ in 0..100 {
+            for &id in &ids[..2] {
+                following.forget(id).expect("a kept file");
+                following.keep(vec![followed(id, &[])]);
+            }
+        }
+
+        assert_eq!(
+            (following.asked.runs.len(), following.asked.keys.len()),
+            (2, 3)
+        );
+        assert_eq!(reaching(&following, 9), ids[2..]);
+    }
+
+    #[test]
+    fn the_files_a_key_reaches_are_found_after_their_runs_moved() {
+        let ids = ids(6);
+        let more = |at: u32, extra: u32| 1_000 + 10 * at + extra;
+        let file = |at: u32, extras: u32| {
+            let asked: Vec<u32> = [at, 100]
+                .into_iter()
+                .chain((0..extras).map(|extra| more(at, extra)))
+                .collect();
+            followed(ids[at as usize], &asked)
+        };
+        let mut following = Following::new((0..6).map(|at| file(at, at)).collect(), Vec::new());
+
+        for round in 0..60 {
+            let at = round % 3;
+            following.forget(ids[at as usize]).expect("a kept file");
+            following.keep(vec![file(at, round % 5)]);
+        }
+
+        let extras = |at: u32| if at < 3 { (57 + at) % 5 } else { at };
+        let held: u32 = (0..6).map(|at| 2 + extras(at)).sum();
+        assert!(following.asked.keys.len() <= held as usize * 4 / 3);
+        assert_eq!(reaching(&following, 100), ids);
+        for at in 0..6 {
+            let id = [ids[at as usize]];
+            assert_eq!(reaching(&following, at), id);
+            for extra in 0..extras(at) {
+                assert_eq!(reaching(&following, more(at, extra)), id);
+            }
+            assert_eq!(reaching(&following, more(at, extras(at))), []);
+        }
     }
 
     #[test]
