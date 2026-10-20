@@ -68,6 +68,10 @@ assert_eq!(paths[ranking.finish()[0].position], "src/main.rs");
 Rankings of consecutive slices of one list, each built with the same query and limit, merge into the ranking of the
 whole list with `Ranking::merge`, which is how a long list is ranked on several threads.
 
+`Ranking::matched` counts the offered candidates that matched every term, those the limit kept out included, so a caller
+can say how many its page was cut from. An empty query counts only what was offered, which stops short of the list where
+a caller stops at `offer`'s `false`; where every slice was offered in full, the slices' counts sum to the list's.
+
 ## Cost
 
 Cost is at query time: the alignment runs per surviving candidate on every search, and nothing is precomputed between
