@@ -1,9 +1,9 @@
 //! The graph's contract: what it answers about the files it holds, and how a file going in or out changes that.
 
-use kartta_graph::{Definitions, Graph, Nearness};
+use kartta_graph::{Definitions, Graph, Limits, Nearness, SiteQuery};
 use kartta_lang::{Conventions, Extraction, IncludeRef, Symbol, SymbolFlags, SymbolKind, TypeUses};
 
-use crate::{file, graph};
+use crate::{call, file, function, graph};
 
 fn symbol(name: &str, qualified: &str, line: u32, end_line: u32) -> Symbol {
     let mut symbol = Symbol::new(name, SymbolKind::Function, line, end_line);
@@ -133,6 +133,150 @@ fn a_qualified_name_selects_definitions_it_ends_at_a_separator() {
 
     assert_eq!(places(&dotted), ["a.go:1"]);
     assert_eq!(places(&longer), ["a.go:3"]);
+}
+
+fn member(kind: SymbolKind, name: &str, qualified: &str, line: u32) -> Symbol {
+    let mut symbol = Symbol::new(name, kind, line, line);
+    qualified.clone_into(&mut symbol.qualified_name);
+    symbol
+}
+
+fn callers_root(graph: &Graph, name: &str) -> Option<u32> {
+    graph
+        .callers(name, Limits::new(1))
+        .map(|walk| walk.root.line)
+}
+
+fn references_root(graph: &Graph, name: &str) -> Option<u32> {
+    graph
+        .references(name, SiteQuery::new(10))
+        .map(|references| references.symbol.line)
+}
+
+#[test]
+fn a_cpp_operator_is_selected_by_its_qualified_name() {
+    let mut eval = file("das/eval.cpp", vec![function("divide", 30)]);
+    eval.calls = vec![call(0, "das::operator/", 31)];
+    let graph = graph(&[
+        file(
+            "das/math.h",
+            vec![
+                symbol("operator/", "das::operator/", 12, 14),
+                symbol("operator/", "das::operator/", 16, 18),
+                symbol("operator/=", "das::operator/=", 20, 22),
+                symbol("operator/", "other::operator/", 24, 26),
+            ],
+        ),
+        eval,
+    ]);
+
+    let overloads = graph.definitions("das::operator/", None, 10);
+    let called: Vec<String> = graph
+        .callees("divide", Limits::new(1))
+        .expect("divide is defined")
+        .reached
+        .iter()
+        .map(|reached| format!("{}:{}", reached.symbol.file, reached.symbol.line))
+        .collect();
+
+    assert_eq!(places(&overloads), ["das/math.h:12", "das/math.h:16"]);
+    assert_eq!(callers_root(&graph, "das::operator/"), Some(12));
+    assert_eq!(called, ["das/math.h:12"]);
+}
+
+#[test]
+fn a_daslang_property_operator_is_selected_by_its_owner_qualified_name() {
+    let graph = graph(&[file(
+        "ui/sprite_component.das",
+        vec![
+            member(
+                SymbolKind::Method,
+                "operator . frameSize",
+                "sprite_component.Sprite.operator . frameSize",
+                118,
+            ),
+            member(
+                SymbolKind::Method,
+                "operator . frameSize :=",
+                "sprite_component.Sprite.operator . frameSize :=",
+                123,
+            ),
+        ],
+    )]);
+
+    let setter = graph.definitions("Sprite.operator . frameSize :=", None, 10);
+    let getter = graph.definitions("Sprite.operator . frameSize", None, 10);
+
+    assert_eq!(places(&setter), ["ui/sprite_component.das:123"]);
+    assert_eq!(places(&getter), ["ui/sprite_component.das:118"]);
+    assert_eq!(
+        callers_root(&graph, "sprite_component.Sprite.operator . frameSize :="),
+        Some(123)
+    );
+}
+
+#[test]
+fn a_javascript_computed_member_is_selected_by_its_qualified_name() {
+    let graph = graph(&[file(
+        "vendor/loader.js",
+        vec![
+            member(SymbolKind::Class, "E", "E", 20),
+            member(
+                SymbolKind::Method,
+                "[Symbol.toStringTag]",
+                "E.[Symbol.toStringTag]",
+                21,
+            ),
+            member(
+                SymbolKind::Method,
+                "[Symbol.iterator]",
+                "E.[Symbol.iterator]",
+                22,
+            ),
+        ],
+    )]);
+
+    let selected = graph.definitions("E.[Symbol.toStringTag]", None, 10);
+
+    assert_eq!(places(&selected), ["vendor/loader.js:21"]);
+    assert_eq!(callers_root(&graph, "E.[Symbol.toStringTag]"), Some(21));
+}
+
+#[test]
+fn a_typescript_member_named_by_a_path_is_selected_by_its_qualified_name() {
+    let graph = graph(&[file(
+        "src/routeTree.gen.ts",
+        vec![
+            member(SymbolKind::Field, "'/'", "FileRoutesByFullPath.'/'", 75),
+            member(SymbolKind::Field, "'/$'", "FileRoutesByFullPath.'/$'", 76),
+            member(SymbolKind::Field, "'/'", "FileRoutesByTo.'/'", 90),
+        ],
+    )]);
+
+    let selected = graph.definitions("FileRoutesByFullPath.'/'", None, 10);
+
+    assert_eq!(places(&selected), ["src/routeTree.gen.ts:75"]);
+    assert_eq!(
+        references_root(&graph, "FileRoutesByFullPath.'/'"),
+        Some(75)
+    );
+}
+
+#[test]
+fn a_typescript_private_member_is_selected_by_its_qualified_name() {
+    let graph = graph(&[file(
+        "src/kartta.ts",
+        vec![
+            member(SymbolKind::Field, "#handle", "Kartta.#handle", 91),
+            member(SymbolKind::Field, "handle", "Kartta.handle", 92),
+            member(SymbolKind::Constant, "handle", "handle", 140),
+        ],
+    )]);
+
+    let selected = graph.definitions("Kartta.#handle", None, 10);
+
+    assert_eq!(places(&selected), ["src/kartta.ts:91"]);
+    assert_eq!(references_root(&graph, "Kartta.#handle"), Some(91));
 }
 
 #[test]

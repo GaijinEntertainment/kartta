@@ -1,5 +1,6 @@
 //! How the symbol tools read a qualified name written with the owner separator of another language: Rust's and C++'s
-//! `::` written as `.`, and Go's `.` written as `::`.
+//! `::` written as `.`, and Go's `.` written as `::`; and one whose last part holds a separator, as an outline prints
+//! it.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and an integration test crate is built \
@@ -297,4 +298,39 @@ fn a_name_neither_separator_selects_answers_with_close_alternatives() {
             "{tool}: {answer}"
         );
     }
+}
+
+#[test]
+fn a_qualified_name_whose_last_part_holds_a_separator_is_asked_back_as_the_outline_prints_it() {
+    let tree = tree(&[(
+        "src/kartta.ts",
+        "export class Kartta {\n  #handle: number | undefined;\n\n  close(): void {\n    const handle = this.#handle;\n\
+         \x20   this.#handle = undefined;\n  }\n}\n",
+    )]);
+    let mut client = Client::unwatched(&[]);
+    client.index(tree.path());
+
+    let outline = client.answer("file_outline", &json!({"file": "src/kartta.ts"}));
+    let references = client.answer("find_references", &json!({"name": "Kartta.#handle"}));
+    let read = client.answer("read_definitions", &json!({"names": ["Kartta.#handle"]}));
+    let misspelled = client.answer("find_references", &json!({"name": "Kartta.#handel"}));
+
+    assert!(
+        outline.contains(r##"name="#handle" qn="Kartta.#handle""##),
+        "{outline}"
+    );
+    assert!(
+        references.contains(r##"of="#handle" qn="Kartta.#handle""##)
+            && references.contains(r#"reads="1" writes="1""#),
+        "{references}"
+    );
+    assert!(
+        read.contains(r#"total="1""#) && read.contains("#handle: number | undefined;"),
+        "{read}"
+    );
+    assert!(
+        misspelled.contains("no symbol matches - did you mean:")
+            && misspelled.contains(r##"<suggestion name="#handle" qn="Kartta.#handle""##),
+        "{misspelled}"
+    );
 }
