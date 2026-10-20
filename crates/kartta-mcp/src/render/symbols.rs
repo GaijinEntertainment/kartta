@@ -4,8 +4,8 @@ use std::io;
 use kartta::{Definition, Dependents, Hit, Implementations, Nearness, Source, SymbolKind};
 
 use super::{
-    Unmatched, candidate, empty_languages_note, flat, kind, loc, named, noted, role, span,
-    unresolved,
+    CallersAsk, Unmatched, candidate, empty_languages_note, flat, kind, loc, named, noted, role,
+    span, unresolved,
 };
 use crate::llmxml::Element;
 use crate::state::GraphRow;
@@ -85,11 +85,13 @@ fn no_hits(languages: Option<&str>, coverage: &[&GraphRow]) -> String {
     )
 }
 
-/// One requested name of a `read_definitions` call: how many definitions it selects, the nearest of them with their
-/// text, and the close alternatives to a name that selects none.
+/// One requested name of a `read_definitions` call: the reading it was answered for when it selects nothing as
+/// written, how many definitions it selects, the nearest of them with their text, and the close alternatives to a
+/// name that selects none.
 #[derive(Debug)]
 pub(crate) struct NameDefinitions<'g> {
     pub(crate) name: &'g str,
+    pub(crate) read_as: Option<String>,
     pub(crate) total: usize,
     pub(crate) definitions: Vec<Read<'g>>,
     pub(crate) unmatched: Unmatched<'g>,
@@ -113,6 +115,7 @@ pub(crate) fn definitions(languages: Option<&str>, answers: &[NameDefinitions<'_
     element.children(answers.iter().map(|answer| {
         let name = Element::new("name")
             .attr("of", answer.name)
+            .optional("read_as", answer.read_as.as_deref())
             .attr("total", answer.total);
         if answer.total == 0 {
             return unresolved(name, languages, "path_prefix", &answer.unmatched);
@@ -178,16 +181,17 @@ const fn scope(nearness: Nearness, definition: &Definition<'_>) -> &'static str 
 /// the type through another. Where the name selects several types, a `<root/>` names the one answered for, and
 /// `<candidate/>` records the most implemented of the others.
 pub(crate) fn implementations(
-    name: &str,
-    languages: Option<&str>,
+    ask: &CallersAsk<'_>,
     found: &[(&str, Implementations<'_>)],
     unmatched: &Unmatched<'_>,
 ) -> String {
+    let languages = ask.languages;
     let count: usize = found.iter().map(|(_, found)| found.found.len()).sum();
     let total: usize = found.iter().map(|(_, found)| found.total).sum();
     let passed_over: usize = found.iter().map(|(_, found)| found.passed_over).sum();
     let element = Element::new("implementations")
-        .attr("of", name)
+        .attr("of", ask.name)
+        .optional("read_as", ask.read_as)
         .optional("languages", languages)
         .attr("count", count)
         .optional("total", (total > count).then_some(total))
