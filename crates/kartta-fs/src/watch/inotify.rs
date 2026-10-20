@@ -5,12 +5,15 @@ use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use kartta_walk::EntryKind;
 
 use super::{Found, WatchError, start_error};
 use crate::index::Index;
+use crate::lock;
 use crate::policy::pruned;
 use crate::pruned::PrunedNames;
 
@@ -35,39 +38,95 @@ pub(super) struct Backend {
     root: PathBuf,
     pruned_names: PrunedNames,
     dirs: HashMap<i32, PathBuf>,
+    walked: Mutex<Walked>,
+    unwatched: AtomicUsize,
+    refused: Mutex<Option<WatchError>>,
     moved_from: Option<(u32, PathBuf)>,
     buffer: Box<[u8]>,
 }
 
 impl Backend {
     pub(super) fn start(
-        index: &Index,
+        root: &Path,
         _prefixes: &[(PathBuf, String)],
+        pruned_names: &PrunedNames,
     ) -> Result<Self, WatchError> {
-        let root = index.root().to_path_buf();
-        // SAFETY: inotify_init1 takes no pointers; a negative return is a failure and anything else is a descriptor
-        // nothing else holds.
-        let raw = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
-        if raw < 0 {
-            return Err(start_error(&root, io::Error::last_os_error()));
-        }
-        // SAFETY: `raw` was just opened by inotify_init1 and is owned by nothing else.
-        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-        let mut backend = Self {
-            fd,
-            root: root.clone(),
-            pruned_names: index.pruned_names().clone(),
-            dirs: HashMap::new(),
-            moved_from: None,
-            buffer: vec![0; 64 * 1024].into_boxed_slice(),
-        };
+        let backend = Self::opened(root, pruned_names)?;
+        backend.descend(root);
+        Ok(backend)
+    }
 
+    pub(super) fn from_index(index: &Index) -> Result<Self, WatchError> {
+        let root = index.root().to_path_buf();
+        let mut backend = Self::opened(&root, index.pruned_names())?;
         backend.add_at_start(&root, || 1 + dirs_from(index, 0))?;
         let mut paths = index.paths();
         for at in (0..index.len()).filter(|&at| index.kind_at(at) == EntryKind::Dir) {
             backend.add_at_start(&root.join(paths.get(at)), || dirs_from(index, at))?;
         }
         Ok(backend)
+    }
+
+    fn opened(root: &Path, pruned_names: &PrunedNames) -> Result<Self, WatchError> {
+        // SAFETY: inotify_init1 takes no pointers; a negative return is a failure and anything else is a descriptor
+        // nothing else holds.
+        let raw = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+        if raw < 0 {
+            return Err(start_error(root, io::Error::last_os_error()));
+        }
+        // SAFETY: `raw` was just opened by inotify_init1 and is owned by nothing else.
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        Ok(Self {
+            fd,
+            root: root.to_path_buf(),
+            pruned_names: pruned_names.clone(),
+            dirs: HashMap::new(),
+            walked: Mutex::default(),
+            unwatched: AtomicUsize::new(0),
+            refused: Mutex::default(),
+            moved_from: None,
+            buffer: vec![0; 64 * 1024].into_boxed_slice(),
+        })
+    }
+
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "one signature for every platform, and a stream on macOS or Windows needs no word from the walk"
+    )]
+    pub(super) fn descending(&self) -> Option<impl Fn(&Path) + Sync + '_> {
+        Some(|dir: &Path| self.descend(dir))
+    }
+
+    // constraint: the walk lists a directory only once its parent's visit kept it, which is when this runs, so whatever
+    // is made in the directory after its listing raises an event, and whatever was made before is in the listing
+    fn descend(&self, dir: &Path) {
+        if self.unwatched.load(Ordering::Relaxed) > 0 {
+            self.unwatched.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        match self.watch(dir) {
+            Ok(wd) => lock(&self.walked).push(wd, dir),
+            Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => {
+                self.unwatched.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(error) if gone(&error) || error.raw_os_error() == Some(libc::EACCES) => {}
+            Err(error) => {
+                lock(&self.refused).get_or_insert_with(|| start_error(dir, error));
+            }
+        }
+    }
+
+    pub(super) fn descended(&mut self) -> Result<(), WatchError> {
+        std::mem::take(held(&mut self.walked)).into_dirs(&mut self.dirs);
+        let watched = self.dirs.len();
+        let unwatched = *self.unwatched.get_mut();
+        if unwatched > 0 {
+            return Err(WatchError::Limit {
+                watched,
+                wanted: watched + unwatched,
+            });
+        }
+        held(&mut self.refused).take().map_or(Ok(()), Err)
     }
 
     fn add_at_start(
@@ -266,14 +325,53 @@ impl Backend {
     // constraint: inotify_add_watch hands back the descriptor a directory already has, so a descriptor this backend
     // holds is a directory it watches, re-pointed here to the path it has now
     fn add(&mut self, dir: &Path) -> io::Result<bool> {
+        let wd = self.watch(dir)?;
+        Ok(self.dirs.insert(wd, dir.to_path_buf()).is_none())
+    }
+
+    fn watch(&self, dir: &Path) -> io::Result<i32> {
         let native = CString::new(dir.as_os_str().as_bytes())?;
         // SAFETY: `native` is NUL-terminated and outlives the call, and the descriptor is this backend's own.
         let wd = unsafe { libc::inotify_add_watch(self.fd.as_raw_fd(), native.as_ptr(), MASK) };
         if wd < 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(self.dirs.insert(wd, dir.to_path_buf()).is_none())
+        Ok(wd)
     }
+}
+
+// constraint: a path allocated on a walk thread stays in that thread's glibc arena among the pages the walk freed,
+// which the trim after the build then cannot return, so the walk appends to these buffers and the caller's thread
+// makes the map from them
+#[derive(Debug, Default)]
+struct Walked {
+    wds: Vec<i32>,
+    ends: Vec<usize>,
+    bytes: Vec<u8>,
+}
+
+impl Walked {
+    fn push(&mut self, wd: i32, dir: &Path) {
+        self.wds.push(wd);
+        self.bytes.extend_from_slice(dir.as_os_str().as_bytes());
+        self.ends.push(self.bytes.len());
+    }
+
+    fn into_dirs(self, dirs: &mut HashMap<i32, PathBuf>) {
+        dirs.reserve(self.wds.len());
+        let mut start = 0;
+        for (wd, end) in self.wds.into_iter().zip(self.ends) {
+            dirs.insert(
+                wd,
+                PathBuf::from(OsStr::from_bytes(&self.bytes[start..end])),
+            );
+            start = end;
+        }
+    }
+}
+
+fn held<T>(mutex: &mut Mutex<T>) -> &mut T {
+    mutex.get_mut().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn dirs_from(index: &Index, from: usize) -> usize {
@@ -298,4 +396,30 @@ fn prunes(name: &OsStr, pruned_names: &PrunedNames) -> bool {
 
 fn gone(error: &io::Error) -> bool {
     matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_queue_overflow_loses_the_batch() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let mut backend =
+            Backend::start(tree.path(), &[], &PrunedNames::builtin()).expect("start watching");
+        let overflow = libc::inotify_event {
+            wd: -1,
+            mask: libc::IN_Q_OVERFLOW,
+            cookie: 0,
+            len: 0,
+        };
+        // SAFETY: the buffer holds 64 KiB, more than one event header, and an unaligned write puts the header at its
+        // start whatever its alignment.
+        unsafe { std::ptr::write_unaligned(backend.buffer.as_mut_ptr().cast(), overflow) };
+        let mut found = Found::default();
+
+        backend.take(HEADER, &mut found, &mut Vec::new());
+
+        assert!(found.lost);
+    }
 }
