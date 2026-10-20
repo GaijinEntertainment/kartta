@@ -46,4 +46,4 @@ libc = "0.2.190"
 # Linux is watched through inotify directly, so only the directories the index holds are watched. The first release of
 # notify that asks Windows to report a lost batch, and inotify for no access events, is the 9.0 candidate.
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-notify = { version = "9.0.0-rc.5", optional = true }
+notify = { version = "9.0.0-rc.6", optional = true }
