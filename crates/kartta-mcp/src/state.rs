@@ -147,7 +147,8 @@ impl Served {
     }
 
     /// Starts a new watcher, then brings the index up to the whole tree, so the watcher holds every change made while
-    /// the refresh walked for its next wait to hand over, as the watcher of a build holds those made while it walked.
+    /// the refresh walked for its next drain or wait to hand over, as the watcher of a build holds those made while it
+    /// walked.
     pub(crate) fn refresh_watched(&self) -> Result<Watcher, String> {
         let (_, watcher) = self.refreshed(Engine::refresh_watched)?;
         watcher.map_err(|error| error.to_string())
@@ -746,11 +747,16 @@ mod tests {
     }
 
     #[test]
-    fn a_directory_made_while_the_watcher_dropped_changes_is_published_and_followed() {
+    fn a_directory_made_while_the_watch_dropped_changes_or_restarted_is_published_and_followed() {
         let tree = tempfile::tempdir().unwrap();
         std::fs::write(tree.path().join("a.txt"), "a").unwrap();
+        let languages = WritesMidWalk::languages(
+            tree.path(),
+            "late/b.txt",
+            vec!["late/deeper/c.txt".to_owned()],
+        );
 
-        let (served, watcher) = served_from(tree.path(), Vec::new(), || {
+        let (served, watcher) = served_from(tree.path(), languages, || {
             flood(tree.path());
             std::fs::create_dir(tree.path().join("late")).unwrap();
             std::fs::write(tree.path().join("late/b.txt"), "b").unwrap();
@@ -759,6 +765,7 @@ mod tests {
         let indexed = served.read().unwrap();
         assert_eq!(indexed.watch, Watch::Following);
         assert!(indexed.engine.index().entry("late/b.txt").is_some());
+        assert!(indexed.engine.index().entry("late/deeper/c.txt").is_some());
         drop(indexed);
         let mut watcher = watcher.unwrap();
         std::fs::write(tree.path().join("late/c.txt"), "c").unwrap();

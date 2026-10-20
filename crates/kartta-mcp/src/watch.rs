@@ -11,18 +11,21 @@ use crate::state::Served;
 const WAKE: Duration = Duration::from_secs(1);
 
 /// Refreshes `served` at the paths `watcher` holds changes for, made while the index was built or refreshed since the
-/// watcher started, and hands the watcher back to follow the tree from there, or a new one when the old one dropped
-/// changes, stopped or met the inotify limit.
+/// watcher started, and hands the watcher back to follow the tree from there. A watcher that dropped changes, stopped
+/// or met the inotify limit gives way to a new one over a refresh of the whole tree, which is caught up the same way,
+/// so `served` holds what changed while the watch restarted too.
 pub(crate) fn caught_up(served: &Served, mut watcher: Watcher) -> Result<Watcher, String> {
-    match next(watcher.drain()) {
-        Next::Refresh(changes) => {
-            if !changes.is_empty() {
-                served.refresh(changes.iter().map(String::as_str))?;
+    loop {
+        match next(watcher.drain()) {
+            Next::Refresh(changes) => {
+                if !changes.is_empty() {
+                    served.refresh(changes.iter().map(String::as_str))?;
+                }
+                return Ok(watcher);
             }
-            Ok(watcher)
+            Next::Restart(why) => watcher = restarted(served, watcher, &why)?,
+            Next::Stop(reason) => return Err(reason),
         }
-        Next::Restart(why) => restarted(served, watcher, &why),
-        Next::Stop(reason) => Err(reason),
     }
 }
 
