@@ -235,9 +235,7 @@ fn a_watched_refresh_hands_over_what_changed_while_it_walked_and_watches_what_it
         .expect("refresh the tree");
     let mut watcher = watcher.expect("start watching");
     let handed = watcher.drain().expect("drain");
-    index
-        .refresh_paths(handed.iter().map(String::as_str), None, None)
-        .expect("refresh what was handed over");
+    refresh_under(&mut index, &mut watcher, &handed);
 
     assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
     assert!(
@@ -363,6 +361,42 @@ fn a_directory_the_rules_ignore_is_not_watched() {
         !seen.iter().any(|path| path.starts_with("build")),
         "{seen:?}"
     );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_watched_directory_renamed_in_the_tree_is_followed_by_its_new_name() {
+    let dir = tree(&[("src/deep/a.rs", "a")]);
+    let (mut index, mut watcher) = watched(dir.path());
+
+    fs::rename(dir.path().join("src"), dir.path().join("lib")).expect("rename");
+    let renamed = watcher.drain().expect("drain");
+    refresh_under(&mut index, &mut watcher, &renamed);
+    write(dir.path(), "lib/deep/b.rs", "b");
+    let seen = watcher.drain().expect("drain");
+
+    assert_eq!(renamed, ["lib", "src"]);
+    assert_eq!(seen, ["lib/deep/b.rs"]);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_watched_directory_moved_under_an_ignored_one_is_no_longer_followed() {
+    let dir = tree(&[
+        (".gitignore", "build/\n"),
+        ("build/old.o", ""),
+        ("src/deep/a.rs", "a"),
+    ]);
+    let (mut index, mut watcher) = watched(dir.path());
+
+    fs::rename(dir.path().join("src"), dir.path().join("build/src")).expect("rename");
+    let moved = watcher.drain().expect("drain");
+    refresh_under(&mut index, &mut watcher, &moved);
+    write(dir.path(), "build/src/deep/b.rs", "b");
+    let seen = watcher.drain().expect("drain");
+
+    assert_eq!(moved, ["src"]);
+    assert_eq!(seen, Vec::<String>::new());
 }
 
 #[cfg(target_os = "linux")]
