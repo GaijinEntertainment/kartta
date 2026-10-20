@@ -256,6 +256,12 @@ export type Walk = {
 	/** The calls that bound no symbol the graph holds. */
 	unresolved: number;
 	/**
+	 * For a walk over callers, the calls of the root's name that bound no definition because several definitions of the
+	 * name may be meant: any of them may call the root, and none is in `reached`. It is the root's alone, so every depth
+	 * counts the same; absent when none.
+	 */
+	ambiguous?: number;
+	/**
 	 * For a walk over callers, the files whose top level calls or uses the root's name and sees the root, in path order.
 	 * `below_confidence` also counts the files the floor left out.
 	 */
@@ -619,6 +625,11 @@ export type Segment = {
 export type SegmentSymbol = {
 	definition: Definition;
 	callers: DirectCalls;
+	/**
+	 * The calls of its name a walk over its callers counts as {@link Walk}'s `ambiguous`: any of them may call it, and
+	 * neither `callers` nor `blast` holds them; absent when none.
+	 */
+	ambiguous?: number;
 	callees: DirectCalls;
 	unresolved: number;
 	blast: Blast;
@@ -698,6 +709,11 @@ export type Seed = {
 	band: string;
 	/** Its direct callers that pass the confidence floor. */
 	caller_count: number;
+	/**
+	 * The calls of its name a walk over its callers counts as {@link Walk}'s `ambiguous`: any of them may call it, and
+	 * neither `caller_count` nor `reach` counts them; absent when none.
+	 */
+	ambiguous?: number;
 	/** Those direct callers when there are 30 or fewer; empty otherwise. */
 	consumers: Reached[];
 	/** Those direct callers by directory, the most first, when there are more than 30. */

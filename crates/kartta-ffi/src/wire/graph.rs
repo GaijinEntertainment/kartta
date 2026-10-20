@@ -200,8 +200,18 @@ struct WalkDef<'g> {
     unexpanded: usize,
     below_confidence: usize,
     unresolved: usize,
+    #[serde(skip_serializing_if = "is_zero")]
+    ambiguous: usize,
     #[serde(serialize_with = "each", skip_serializing_if = "Vec::is_empty")]
     file_scope: Vec<FileScope<'g>>,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde passes a field to skip_serializing_if by reference"
+)]
+const fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 #[derive(Serialize)]
@@ -490,6 +500,8 @@ struct SegmentSymbolDef<'g> {
     definition: Definition<'g>,
     #[serde(with = "DirectCallsDef")]
     callers: DirectCalls<'g>,
+    #[serde(skip_serializing_if = "is_zero")]
+    ambiguous: usize,
     #[serde(with = "DirectCallsDef")]
     callees: DirectCalls<'g>,
     unresolved: usize,
@@ -557,6 +569,8 @@ struct SeedDef<'g> {
     #[serde(serialize_with = "label::band")]
     band: ReachBand,
     caller_count: usize,
+    #[serde(skip_serializing_if = "is_zero")]
+    ambiguous: usize,
     #[serde(serialize_with = "each")]
     consumers: Vec<Reached<'g>>,
     #[serde(serialize_with = "each")]

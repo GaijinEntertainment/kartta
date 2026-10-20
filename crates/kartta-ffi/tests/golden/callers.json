@@ -3,53 +3,37 @@
     "ok": {
       "matches": [
         {
+          "ambiguous": 1,
           "below_confidence": 0,
           "graph": "go",
           "passed_over": 0,
           "reached": [
             {
-              "confidence": 80,
+              "confidence": 85,
               "depth": 1,
-              "line": 5,
+              "line": 12,
               "symbol": {
-                "end_line": 6,
+                "end_line": 14,
                 "exported": false,
-                "file": "go/run.go",
+                "file": "go/close.go",
                 "kind": "func",
-                "line": 4,
-                "name": "run",
-                "qualified_name": "main.run",
-                "signature": "func run()"
-              }
-            },
-            {
-              "confidence": 75,
-              "depth": 2,
-              "line": 4,
-              "symbol": {
-                "end_line": 5,
-                "exported": false,
-                "file": "go/main.go",
-                "flags": [
-                  "entry"
-                ],
-                "kind": "func",
-                "line": 3,
-                "name": "main",
-                "qualified_name": "main.main",
-                "signature": "func main()"
+                "line": 11,
+                "name": "shut",
+                "qualified_name": "main.shut",
+                "signature": "func shut(f file, open func() conn)"
               }
             }
           ],
           "root": {
-            "end_line": 8,
+            "end_line": 5,
             "exported": false,
-            "file": "go/run.go",
-            "kind": "func",
-            "line": 8,
-            "name": "helper",
-            "qualified_name": "main.helper",
-            "signature": "func helper()"
+            "file": "go/close.go",
+            "kind": "method",
+            "line": 5,
+            "name": "close",
+            "owner": "file",
+            "qualified_name": "main.file.close",
+            "signature": "func (file) close()"
           },
           "truncated": false,
           "turned_away": 0,
@@ -62,6 +46,6 @@
   "method": "callers",
   "params": {
     "lang": "go",
-    "name": "helper"
+    "name": "file.close"
   }
 }
