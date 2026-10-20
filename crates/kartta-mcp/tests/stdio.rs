@@ -407,6 +407,57 @@ fn find_files_counts_every_match_when_its_cap_cuts_the_list() {
 }
 
 #[test]
+fn a_path_that_opens_with_a_parenthesis_is_quoted_so_it_cannot_read_as_the_closing_line() {
+    let tree = common::tree(&[
+        ("(x).txt", "x\n"),
+        ("(x)/notes.md", "x\n"),
+        ("a.txt", "x\n"),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        [
+            client.answer("glob_files", &json!({"globs": ["*.txt"], "max_results": 1})),
+            client.answer("find_files", &json!({"pattern": "(x", "max_results": 1})),
+        ],
+        [
+            "\"(x).txt\"\n(truncated: the first 1 matching paths in path order; more match)",
+            "\"(x).txt\"\n(1 of 2 matching paths, best first)",
+        ]
+    );
+}
+
+#[test]
+fn grep_quotes_an_unreadable_path_that_opens_with_a_parenthesis_and_not_the_count_after_it() {
+    let names = [
+        "(a).txt", "(b).txt", "(c).txt", "(d).txt", "(e).txt", "(f).txt",
+    ];
+    let tree = common::tree(&names.map(|name| (name, "x\n")));
+    let mut client = Client::unwatched(&[]);
+    client.index(tree.path());
+    for name in names {
+        std::fs::remove_file(tree.path().join(name)).expect("the file is removed");
+    }
+    let missing = std::fs::File::open(tree.path().join(names[0]))
+        .expect_err("the file is gone")
+        .to_string();
+
+    let listed: Vec<String> = names[..5]
+        .iter()
+        .map(|name| format!("{:?}", format!("{name}: {missing}")))
+        .collect();
+    assert_eq!(
+        client.answer("grep", &json!({"patterns": ["x"]})),
+        format!(
+            "<grep patterns=\"x\" candidates=\"6\" files=\"0\" matches=\"0\">\n<failures count=\"6\">\n{}\n(+1 more)\n\
+             </failures>\n</grep>",
+            listed.join("\n")
+        )
+    );
+}
+
+#[test]
 fn find_callers_walks_callers_with_the_line_of_each_call() {
     let tree = go_module();
     let mut client = Client::start(&[]);

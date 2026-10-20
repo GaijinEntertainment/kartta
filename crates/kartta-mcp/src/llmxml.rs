@@ -1,11 +1,12 @@
 use std::borrow::Cow;
 use std::fmt::{Display, Write};
 
-/// `text` as one record of a plain list: as it is, or, when it holds a control character or opens with a quote, quoted
-/// and escaped as an attribute value is, so a line break in a path cannot split its record and a quoted record cannot
-/// be read as one written as it is.
+/// `text` as one record of a plain list: as it is, or, when it holds a control character or opens with a quote or a
+/// parenthesis, quoted and escaped as an attribute value is, so a line break in a path cannot split its record, a
+/// quoted record cannot be read as one written as it is, and a record cannot be read as a line in parentheses that
+/// closes a list.
 pub(crate) fn line(text: &str) -> Cow<'_, str> {
-    if text.starts_with('"') || text.contains(char::is_control) {
+    if text.starts_with(['"', '(']) || text.contains(char::is_control) {
         Cow::Owned(format!("{text:?}"))
     } else {
         Cow::Borrowed(text)
@@ -122,13 +123,15 @@ mod tests {
     use super::{Element, List};
 
     #[test]
-    fn a_record_with_a_line_break_or_an_opening_quote_is_quoted_on_its_line() {
+    fn a_record_with_a_line_break_or_an_opening_quote_or_parenthesis_is_quoted() {
         let mut list = List::default();
         for record in [
             "src/main.rs",
             "src/two\nlines.rs",
             "src/tab\there.rs",
             r#""quoted".rs"#,
+            "(x).txt",
+            "src/(x).txt",
             r"src\back.rs",
         ] {
             list.push(record);
@@ -141,6 +144,8 @@ mod tests {
                 r#""src/two\nlines.rs""#,
                 r#""src/tab\there.rs""#,
                 r#""\"quoted\".rs""#,
+                r#""(x).txt""#,
+                "src/(x).txt",
                 r"src\back.rs",
             ]
             .join("\n")
