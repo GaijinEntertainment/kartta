@@ -146,6 +146,18 @@ impl Served {
         Ok(refreshed)
     }
 
+    /// Brings the index up to the tree at `paths`, as [`Served::refresh`] does, under `watcher`, which watches each
+    /// directory the refresh takes in, and answers whether `watcher` still covers the tree.
+    pub(crate) fn refresh_under<'p>(
+        &self,
+        paths: impl IntoIterator<Item = &'p str>,
+        watcher: &mut Watcher,
+    ) -> Result<Result<(), WatchError>, String> {
+        let (_, followed) =
+            self.refreshed(|engine, cancel| engine.refresh_paths_watched(paths, watcher, cancel))?;
+        Ok(followed)
+    }
+
     /// Starts a new watcher, then brings the index up to the whole tree, so the watcher holds every change made while
     /// the refresh walked for its next drain or wait to hand over, as the watcher of a build holds those made while it
     /// walked.
@@ -754,6 +766,28 @@ mod tests {
         std::fs::write(tree.path().join("late/c.txt"), "c").unwrap();
         let seen = seen_soon(&mut watcher, "late/c.txt");
         assert!(seen.iter().any(|path| path == "late/c.txt"), "{seen:?}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_directory_a_gitignore_edit_shows_is_followed_once_the_watch_takes_it_in() {
+        let tree = tempfile::tempdir().unwrap();
+        std::fs::write(tree.path().join(".gitignore"), "out/\n").unwrap();
+        std::fs::create_dir_all(tree.path().join("out/deep")).unwrap();
+        std::fs::write(tree.path().join("out/deep/a.txt"), "a").unwrap();
+        let (served, watcher) = served_from(tree.path(), Vec::new());
+        let mut watcher = watcher.unwrap();
+
+        std::fs::write(tree.path().join(".gitignore"), "").unwrap();
+        let shown = watcher.drain();
+        let mut watcher = crate::watch::caught_up(&served, watcher, shown).unwrap();
+        std::fs::write(tree.path().join("out/deep/b.txt"), "b").unwrap();
+        let changed = watcher.drain();
+        crate::watch::caught_up(&served, watcher, changed).unwrap();
+
+        let held = ["out/deep/a.txt", "out/deep/b.txt"]
+            .map(|path| served.read().unwrap().engine.index().entry(path).is_some());
+        assert_eq!(held, [true, true]);
     }
 
     /// Every path `watcher` hands over until it names `path`, or 10 s pass.
