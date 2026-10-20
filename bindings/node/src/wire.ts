@@ -347,7 +347,11 @@ export type References = {
 	below_confidence: number;
 	/** The sites that pass the confidence floor, by kind, whatever access is kept. */
 	counts: SiteCounts;
-	/** The uses of a member's name on a value whose type the graph could not follow, which may take this symbol. */
+	/**
+	 * The calls of the symbol's name that bound no definition because several definitions of the name may be meant,
+	 * and the uses of a member's name on a value whose type the graph could not follow: any of them may take this
+	 * symbol.
+	 */
 	ambiguous: number;
 };
 

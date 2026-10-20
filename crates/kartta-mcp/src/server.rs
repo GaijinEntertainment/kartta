@@ -969,8 +969,10 @@ impl Server {
                        and a confidence=likely / guess mark on a weakly resolved site. A caller is one site, at one of \
                        its calls; every other use is one site per line and kind. Field accesses and value reads are \
                        recorded only for Go, C/C++, TypeScript, JavaScript and Python so far; ambiguous= counts the \
-                       uses of a member's name on a value whose type the graph could not follow, which may be this \
-                       member and are not listed. A method's calls through a value of its owner's type resolve only \
+                       calls of its name that bound no definition because several definitions of the name may be \
+                       meant, as find_callers counts them, and the uses of a member's name on a value whose type the \
+                       graph could not follow: any of them may be this symbol, and none is listed. A method's calls \
+                       through a value of its owner's type resolve only \
                        where the graph can name that type, so a missing site does not show an unused symbol. A match \
                        lists at most 100 sites one by one, then names 50 more files with their sites= count alone. It \
                        carries shown= only when it lists fewer sites than count=, a <file> carries shown= only when it \

@@ -65,7 +65,8 @@ another file changes.
   of the callable's name that bound none because several of its definitions may be meant.
 - `Graph::references` — the sites that call or use a symbol, a field included, by file and line, each marked a read, a
   write or an update; it can keep the readers or the writers alone, counts every site by kind whatever it keeps, and
-  counts what the floor and the limit left out and the uses of a member's name it could not tell apart.
+  counts what the floor and the limit left out, the uses of a member's name it could not tell apart, and the calls of
+  the symbol's name that `Graph::callers` counts as left ambiguous between several of its definitions.
 - `Graph::call_path` — the shortest chain of calls from one callable to another, counting what the cap, the depth bound
   and the floor left out.
 - `Graph::dependents` — the files that include a file, transitively, nearest first, to a depth and under a file cap,
