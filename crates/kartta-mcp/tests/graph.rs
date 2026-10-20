@@ -92,7 +92,7 @@ fn read_definitions_answers_each_body_with_its_doc_comment() {
                 "    14\t}",
                 "</definition>",
                 "</name>",
-                r#"<name of="Missing" total="0">no definition matches - find_symbols can locate the name</name>"#,
+                r#"<name of="Missing" total="0">no symbol matches - find_symbols can pin the exact name</name>"#,
                 "</definitions>",
             ]),
             lines(&[
@@ -108,6 +108,50 @@ fn read_definitions_answers_each_body_with_its_doc_comment() {
                 "     9\t}",
                 "</definition>",
                 "</name>",
+                "</definitions>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn read_definitions_answers_an_unknown_name_with_close_alternatives() {
+    let answers = answers(&[
+        ("read_definitions", json!({"names": ["Gret", "New"]})),
+        (
+            "read_definitions",
+            json!({"names": ["Gret"], "languages": ["python"]}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<definitions count="2">"#,
+                r#"<name of="Gret" total="0">"#,
+                "no symbol matches - did you mean:",
+                r#"<suggestion name="Greet" qn="pkg.Service.Greet" kind="method" lang="go" loc="pkg/service.go:12"/>"#,
+                "</name>",
+                r#"<name of="New" total="1">"#,
+                concat!(
+                    r#"<definition name="New" qn="pkg.New" kind="function" lang="go" loc="pkg/service.go:7-9" "#,
+                    r#"scope="other">"#,
+                ),
+                "     6\t// New builds a Service.",
+                "     7\tfunc New() *Service {",
+                "     8\t\treturn &Service{}",
+                "     9\t}",
+                "</definition>",
+                "</name>",
+                "</definitions>",
+            ]),
+            lines(&[
+                r#"<definitions languages="python" count="1">"#,
+                concat!(
+                    r#"<name of="Gret" total="0">no symbol matches - find_symbols can pin the exact "#,
+                    "name</name>",
+                ),
                 "</definitions>",
             ]),
         ]
