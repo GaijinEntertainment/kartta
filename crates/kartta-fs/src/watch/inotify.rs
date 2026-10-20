@@ -9,10 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-use kartta_walk::EntryKind;
-
 use super::{Found, WatchError, start_error};
-use crate::index::Index;
 use crate::lock;
 use crate::policy::pruned;
 use crate::pruned::PrunedNames;
@@ -53,17 +50,6 @@ impl Backend {
     ) -> Result<Self, WatchError> {
         let backend = Self::opened(root, pruned_names)?;
         backend.descend(root);
-        Ok(backend)
-    }
-
-    pub(super) fn from_index(index: &Index) -> Result<Self, WatchError> {
-        let root = index.root().to_path_buf();
-        let mut backend = Self::opened(&root, index.pruned_names())?;
-        backend.add_at_start(&root, || 1 + dirs_from(index, 0))?;
-        let mut paths = index.paths();
-        for at in (0..index.len()).filter(|&at| index.kind_at(at) == EntryKind::Dir) {
-            backend.add_at_start(&root.join(paths.get(at)), || dirs_from(index, at))?;
-        }
         Ok(backend)
     }
 
@@ -129,22 +115,6 @@ impl Backend {
         held(&mut self.refused).take().map_or(Ok(()), Err)
     }
 
-    fn add_at_start(
-        &mut self,
-        dir: &Path,
-        unwatched: impl FnOnce() -> usize,
-    ) -> Result<(), WatchError> {
-        match self.add(dir) {
-            Ok(_) => Ok(()),
-            Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => Err(WatchError::Limit {
-                watched: self.dirs.len(),
-                wanted: self.dirs.len() + unwatched(),
-            }),
-            Err(error) if gone(&error) => Ok(()),
-            Err(error) => Err(start_error(dir, error)),
-        }
-    }
-
     pub(super) fn poll(
         &mut self,
         timeout: Duration,
@@ -180,29 +150,6 @@ impl Backend {
         self.take(read, found, &mut made);
         self.follow(made)?;
         Ok(read > 0)
-    }
-
-    pub(super) fn cover(&mut self, index: &Index, found: &mut Found) -> Result<(), WatchError> {
-        let mut paths = index.paths();
-        for at in (0..index.len()).filter(|&at| index.kind_at(at) == EntryKind::Dir) {
-            let dir = self.root.join(paths.get(at));
-            let within_limit = match self.add(&dir) {
-                Ok(true) => self
-                    .follow(subdirs(&dir, &self.pruned_names).collect())
-                    .is_ok(),
-                Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => false,
-                Err(error) if !gone(&error) => return Err(start_error(&dir, error)),
-                Ok(false) | Err(_) => continue,
-            };
-            if !within_limit {
-                return Err(WatchError::Limit {
-                    watched: self.dirs.len(),
-                    wanted: 1 + dirs_from(index, 0),
-                });
-            }
-            found.paths.push(dir);
-        }
-        Ok(())
     }
 
     fn read_once(&mut self) -> io::Result<usize> {
@@ -309,7 +256,7 @@ impl Backend {
     fn follow(&mut self, mut pending: Vec<PathBuf>) -> Result<(), WatchError> {
         while let Some(dir) = pending.pop() {
             match self.add(&dir) {
-                Ok(_) => pending.extend(subdirs(&dir, &self.pruned_names)),
+                Ok(()) => pending.extend(subdirs(&dir, &self.pruned_names)),
                 Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => {
                     return Err(WatchError::Limit {
                         watched: self.dirs.len(),
@@ -324,9 +271,10 @@ impl Backend {
 
     // constraint: inotify_add_watch hands back the descriptor a directory already has, so a descriptor this backend
     // holds is a directory it watches, re-pointed here to the path it has now
-    fn add(&mut self, dir: &Path) -> io::Result<bool> {
+    fn add(&mut self, dir: &Path) -> io::Result<()> {
         let wd = self.watch(dir)?;
-        Ok(self.dirs.insert(wd, dir.to_path_buf()).is_none())
+        self.dirs.insert(wd, dir.to_path_buf());
+        Ok(())
     }
 
     fn watch(&self, dir: &Path) -> io::Result<i32> {
@@ -372,12 +320,6 @@ impl Walked {
 
 fn held<T>(mutex: &mut Mutex<T>) -> &mut T {
     mutex.get_mut().unwrap_or_else(PoisonError::into_inner)
-}
-
-fn dirs_from(index: &Index, from: usize) -> usize {
-    (from..index.len())
-        .filter(|&at| index.kind_at(at) == EntryKind::Dir)
-        .count()
 }
 
 fn subdirs(dir: &Path, pruned_names: &PrunedNames) -> impl Iterator<Item = PathBuf> {
