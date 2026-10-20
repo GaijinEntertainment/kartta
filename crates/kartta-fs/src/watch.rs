@@ -128,6 +128,35 @@ impl Watcher {
     /// [`WatchError::Stopped`] when the notifications stopped arriving, and [`WatchError::Limit`] when Linux's inotify
     /// watch limit ran out before a directory made since the start could be watched, so changes inside it would go
     /// unseen. Either way the watcher no longer covers the tree, and a new one has to be started.
+    pub fn wait(&mut self, timeout: Duration) -> Result<Vec<String>, WatchError> {
+        self.gather(timeout, LONGEST, Found::default())
+    }
+
+    /// Hands over every change made before the call, as [`Watcher::wait`] does, waiting for the operating system only
+    /// as long as it takes to report a change: on Linux not at all, and on macOS and Windows up to 50 ms, so a change
+    /// those systems report later comes with a later wait. Empty when nothing changed; once a change is there, it
+    /// gathers those that follow as [`Watcher::wait`] does, until the tree has been quiet for 20 ms or for 500 ms at
+    /// most, but not before it has read every change queued at the call, so a deep queue lengthens the drain by the
+    /// time its reads take. A drain that cannot read them all hands over the empty path alone, the whole tree, as for
+    /// changes the operating system dropped.
+    ///
+    /// # Errors
+    ///
+    /// As [`Watcher::wait`].
+    pub fn drain(&mut self) -> Result<Vec<String>, WatchError> {
+        self.drain_within(LONGEST)
+    }
+
+    fn drain_within(&mut self, longest: Duration) -> Result<Vec<String>, WatchError> {
+        let queued = self.backend.queued();
+        let found = Found {
+            lost: queued.is_none(),
+            unread: queued.unwrap_or(0),
+            ..Found::default()
+        };
+        self.gather(REPORTED, longest, found)
+    }
+
     #[cfg_attr(
         not(target_os = "linux"),
         expect(
@@ -135,15 +164,20 @@ impl Watcher {
             reason = "Linux's backend adds watches as it reads, so a wait takes the watcher mutably everywhere"
         )
     )]
-    pub fn wait(&mut self, timeout: Duration) -> Result<Vec<String>, WatchError> {
-        let mut found = Found::default();
+    fn gather(
+        &mut self,
+        timeout: Duration,
+        longest: Duration,
+        mut found: Found,
+    ) -> Result<Vec<String>, WatchError> {
         if !self.backend.poll(timeout, &mut found)? {
-            return Ok(Vec::new());
+            return Ok(self.changes(found));
         }
         let started = Instant::now();
         loop {
-            let left = LONGEST.saturating_sub(started.elapsed());
-            if left.is_zero() || !self.backend.poll(SETTLE.min(left), &mut found)? {
+            let left = longest.saturating_sub(started.elapsed());
+            let closed = left.is_zero() && found.unread == 0;
+            if closed || !self.backend.poll(SETTLE.min(left), &mut found)? {
                 break;
             }
         }
@@ -151,20 +185,8 @@ impl Watcher {
         Ok(self.changes(found))
     }
 
-    /// Hands over every change made before the call, as [`Watcher::wait`] does, waiting for the operating system only
-    /// as long as it takes to report a change: on Linux not at all, and on macOS and Windows up to 50 ms. Empty when
-    /// nothing changed; once a change is there, it gathers those that follow as [`Watcher::wait`] does, until the tree
-    /// has been quiet for 20 ms or for 500 ms at most.
-    ///
-    /// # Errors
-    ///
-    /// As [`Watcher::wait`].
-    pub fn drain(&mut self) -> Result<Vec<String>, WatchError> {
-        self.wait(REPORTED)
-    }
-
     fn changes(&self, found: Found) -> Vec<String> {
-        if found.lost {
+        if found.lost || found.unread > 0 {
             return vec![String::new()];
         }
         let paths: BTreeSet<String> = found
@@ -285,6 +307,7 @@ pub enum WatchError {
 struct Found {
     paths: Vec<PathBuf>,
     lost: bool,
+    unread: usize,
 }
 
 #[cfg_attr(
