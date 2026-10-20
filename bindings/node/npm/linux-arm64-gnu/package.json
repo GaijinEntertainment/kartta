@@ -1,20 +1,28 @@
 {
-  "name": "kartta-linux-arm64-gnu",
-  "version": "0.0.0",
-  "description": "The addon of the kartta package for Linux on arm64 with glibc",
-  "license": "MIT",
-  "author": "Gaijin Entertainment",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/GaijinEntertainment/kartta.git",
-    "directory": "bindings/node/npm/linux-arm64-gnu"
-  },
-  "os": ["linux"],
-  "cpu": ["arm64"],
-  "libc": ["glibc"],
-  "main": "kartta.linux-arm64-gnu.node",
-  "files": ["kartta.linux-arm64-gnu.node"],
-  "engines": {
-    "node": ">=24"
-  }
+	"name": "kartta-linux-arm64-gnu",
+	"version": "0.0.0",
+	"description": "The addon of the kartta package for Linux on arm64 with glibc",
+	"license": "MIT",
+	"author": "Gaijin Entertainment",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/GaijinEntertainment/kartta.git",
+		"directory": "bindings/node/npm/linux-arm64-gnu"
+	},
+	"files": [
+		"kartta.linux-arm64-gnu.node"
+	],
+	"os": [
+		"linux"
+	],
+	"cpu": [
+		"arm64"
+	],
+	"libc": [
+		"glibc"
+	],
+	"main": "kartta.linux-arm64-gnu.node",
+	"engines": {
+		"node": ">=24"
+	}
 }

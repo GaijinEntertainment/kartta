@@ -1,44 +1,44 @@
 {
-  "name": "kartta",
-  "version": "0.0.0",
-  "description": "Node.js binding of the kartta code graph engine: file search, content search and graph queries",
-  "keywords": [
-    "code-graph",
-    "static-analysis",
-    "call-graph",
-    "search",
-    "napi"
-  ],
-  "license": "MIT",
-  "author": "Gaijin Entertainment",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/GaijinEntertainment/kartta.git",
-    "directory": "bindings/node"
-  },
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/kartta.d.ts",
-      "default": "./dist/kartta.js"
-    }
-  },
-  "files": [
-    "dist"
-  ],
-  "engines": {
-    "node": ">=24"
-  },
-  "scripts": {
-    "build": "node scripts/build.ts",
-    "typecheck": "tsc",
-    "test": "vp test",
-    "prepack": "tsc -p tsconfig.build.json"
-  },
-  "devDependencies": {
-    "@types/node": "24.19.2",
-    "@ver0/oxlint-config": "2.0.3",
-    "typescript": "7.0.2",
-    "vite-plus": "1.3.0"
-  }
+	"name": "kartta",
+	"version": "0.0.0",
+	"description": "Node.js binding of the kartta code graph engine: file search, content search and graph queries",
+	"keywords": [
+		"call-graph",
+		"code-graph",
+		"napi",
+		"search",
+		"static-analysis"
+	],
+	"license": "MIT",
+	"author": "Gaijin Entertainment",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/GaijinEntertainment/kartta.git",
+		"directory": "bindings/node"
+	},
+	"files": [
+		"dist"
+	],
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/kartta.d.ts",
+			"default": "./dist/kartta.js"
+		}
+	},
+	"scripts": {
+		"build": "node scripts/build.ts",
+		"typecheck": "tsc",
+		"test": "vp test",
+		"prepack": "tsc -p tsconfig.build.json"
+	},
+	"devDependencies": {
+		"@types/node": "24.19.2",
+		"@ver0/oxlint-config": "2.0.3",
+		"typescript": "7.0.2",
+		"vite-plus": "1.3.0"
+	},
+	"engines": {
+		"node": ">=24"
+	}
 }
