@@ -3,27 +3,64 @@
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use kartta_fs::{WatchError, Watcher};
+use kartta::{WatchError, Watcher};
 
 use crate::state::Served;
 
 /// How long the watch waits for a change before it looks again whether an `index_repo` replaced its index.
 const WAKE: Duration = Duration::from_secs(1);
 
-/// Starts a watcher over the tree of `served` and refreshes the whole tree, since a change made before the watcher
-/// started, while the index was built included, is not reported. The directories that refresh added are then watched
-/// too, and refreshed for what changed inside each before its watch went on.
-pub(crate) fn start(served: &Served) -> Result<Watcher, String> {
-    let mut watcher =
-        Watcher::new(served.read()?.engine.index()).map_err(|error| error.to_string())?;
-    served.refresh(std::iter::empty())?;
-    let covered = watcher
-        .cover(served.read()?.engine.index())
-        .map_err(|error| error.to_string())?;
-    if !covered.is_empty() {
-        served.refresh(covered.iter().map(String::as_str))?;
+/// Refreshes `served` at the paths `watcher` holds changes for, made while the index was built or refreshed since the
+/// watcher started, and hands the watcher back to follow the tree from there, or a new one when the old one dropped
+/// changes, stopped or met the inotify limit.
+pub(crate) fn caught_up(served: &Served, mut watcher: Watcher) -> Result<Watcher, String> {
+    match next(watcher.drain()) {
+        Next::Refresh(changes) => {
+            if !changes.is_empty() {
+                served.refresh(changes.iter().map(String::as_str))?;
+            }
+            Ok(watcher)
+        }
+        Next::Restart(why) => restarted(served, watcher, &why),
+        Next::Stop(reason) => Err(reason),
     }
-    Ok(watcher)
+}
+
+/// What a batch from a watcher asks of the watch.
+#[derive(Debug, PartialEq, Eq)]
+enum Next {
+    /// The paths to refresh, none when nothing changed.
+    Refresh(Vec<String>),
+    /// The watcher no longer covers the tree, for this reason, and a new one over a refresh of the whole tree does.
+    Restart(String),
+    /// The watch ends, for this reason.
+    Stop(String),
+}
+
+// constraint: a batch that names the whole tree is one the watcher dropped changes from, and on Linux the directories
+// made meanwhile went unwatched with them, so only a new watcher over a refresh of the whole tree follows them
+fn next(batch: Result<Vec<String>, WatchError>) -> Next {
+    match batch {
+        Ok(changes) if changes.iter().any(String::is_empty) => {
+            Next::Restart("the notifications dropped changes".to_owned())
+        }
+        Ok(changes) => Next::Refresh(changes),
+        Err(error @ (WatchError::Stopped { .. } | WatchError::Limit { .. })) => {
+            Next::Restart(error.to_string())
+        }
+        Err(error) => Next::Stop(error.to_string()),
+    }
+}
+
+/// Replaces `watcher`, which no longer covers the tree for the reason `why`, with a new one over a refresh of the
+/// whole tree of `served`.
+fn restarted(served: &Served, watcher: Watcher, why: &str) -> Result<Watcher, String> {
+    // constraint: inotify's watch limit counts every watch the user holds, so a new watcher beside the old one would
+    // need the limit twice over
+    drop(watcher);
+    served
+        .refresh_watched()
+        .map_err(|reason| format!("{why}, and a new watch failed: {reason}"))
 }
 
 /// Follows the tree of `served` through `watcher` on a thread of its own.
@@ -42,39 +79,25 @@ pub(crate) fn follow(served: &Arc<Served>, watcher: Watcher) {
 
 fn run(index: &Weak<Served>, mut watcher: Watcher) {
     loop {
-        let changes = watcher.wait(WAKE);
+        let batch = watcher.wait(WAKE);
         let Some(served) = index.upgrade() else {
             return;
         };
         if served.is_replaced() {
             return;
         }
-        match changes {
-            Ok(changes) if changes.is_empty() => {}
-            Ok(changes) => {
+        match next(batch) {
+            Next::Refresh(changes) if changes.is_empty() => {}
+            Next::Refresh(changes) => {
                 if let Err(error) = served.refresh(changes.iter().map(String::as_str)) {
-                    stop(&served, format!("a refresh failed: {error}"));
-                    return;
+                    return stop(&served, format!("a refresh failed: {error}"));
                 }
             }
-            Err(error @ (WatchError::Stopped { .. } | WatchError::Limit { .. })) => {
-                // constraint: inotify's watch limit counts every watch the user holds, so a new watcher beside the
-                // stopped one would need the limit twice over
-                drop(watcher);
-                match start(&served) {
-                    Ok(restarted) => watcher = restarted,
-                    Err(reason) => {
-                        return stop(
-                            &served,
-                            format!("{error}, and a new watch failed: {reason}"),
-                        );
-                    }
-                }
-            }
-            Err(error) => {
-                stop(&served, error.to_string());
-                return;
-            }
+            Next::Restart(why) => match restarted(&served, watcher, &why) {
+                Ok(restarted) => watcher = restarted,
+                Err(reason) => return stop(&served, reason),
+            },
+            Next::Stop(reason) => return stop(&served, reason),
         }
     }
 }
@@ -83,5 +106,45 @@ fn run(index: &Weak<Served>, mut watcher: Watcher) {
 fn stop(served: &Served, reason: String) {
     if !served.is_replaced() {
         served.unwatch(reason);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use super::*;
+
+    #[test]
+    fn a_batch_naming_paths_is_refreshed_and_an_empty_one_changes_nothing() {
+        assert_eq!(
+            next(Ok(vec!["a.rs".to_owned(), "src".to_owned()])),
+            Next::Refresh(vec!["a.rs".to_owned(), "src".to_owned()])
+        );
+        assert_eq!(next(Ok(Vec::new())), Next::Refresh(Vec::new()));
+    }
+
+    #[test]
+    fn a_watcher_that_dropped_changes_stopped_or_met_the_limit_is_restarted() {
+        let stopped = WatchError::Stopped {
+            source: io::Error::other("the notification thread ended"),
+        };
+        let limit = WatchError::Limit {
+            watched: 8,
+            wanted: 9,
+        };
+
+        assert_eq!(
+            next(Ok(vec![String::new()])),
+            Next::Restart("the notifications dropped changes".to_owned())
+        );
+        assert_eq!(
+            next(Err(stopped)),
+            Next::Restart("the watch stopped: the notification thread ended".to_owned())
+        );
+        assert!(
+            matches!(next(Err(limit)), Next::Restart(why) if why.starts_with("cannot watch 9 directories")),
+            "a limit met restarts the watch"
+        );
     }
 }
