@@ -12,9 +12,9 @@ const WAKE: Duration = Duration::from_secs(1);
 
 /// Refreshes `served` at the paths of `batch`, which `watcher` handed over for the changes made while the index was
 /// built or refreshed since the watcher started, and hands the watcher back to follow the tree from there. When the
-/// batch says the watcher dropped changes, stopped or met the inotify limit, the watcher gives way to a new one over a
-/// refresh of the whole tree, which is caught up the same way, so `served` holds what changed while the watch
-/// restarted too.
+/// batch says the watcher dropped changes, stopped or met the inotify limit, or the refresh met the limit, the watcher
+/// gives way to a new one over a refresh of the whole tree, which is caught up the same way, so `served` holds what
+/// changed while the watch restarted too.
 pub(crate) fn caught_up(
     served: &Served,
     mut watcher: Watcher,
@@ -22,11 +22,12 @@ pub(crate) fn caught_up(
 ) -> Result<Watcher, String> {
     loop {
         match next(batch) {
+            Next::Refresh(changes) if changes.is_empty() => return Ok(watcher),
             Next::Refresh(changes) => {
-                if !changes.is_empty() {
-                    served.refresh(changes.iter().map(String::as_str))?;
+                match served.refresh_under(changes.iter().map(String::as_str), &mut watcher)? {
+                    Ok(()) => return Ok(watcher),
+                    Err(error) => batch = Err(error),
                 }
-                return Ok(watcher);
             }
             Next::Restart(why) => {
                 watcher = restarted(served, watcher, &why)?;
@@ -89,8 +90,8 @@ pub(crate) fn follow(served: &Arc<Served>, watcher: Watcher) {
 }
 
 fn run(index: &Weak<Served>, mut watcher: Watcher) {
+    let mut batch = watcher.wait(WAKE);
     loop {
-        let batch = watcher.wait(WAKE);
         let Some(served) = index.upgrade() else {
             return;
         };
@@ -100,8 +101,13 @@ fn run(index: &Weak<Served>, mut watcher: Watcher) {
         match next(batch) {
             Next::Refresh(changes) if changes.is_empty() => {}
             Next::Refresh(changes) => {
-                if let Err(error) = served.refresh(changes.iter().map(String::as_str)) {
-                    return stop(&served, format!("a refresh failed: {error}"));
+                match served.refresh_under(changes.iter().map(String::as_str), &mut watcher) {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => {
+                        batch = Err(error);
+                        continue;
+                    }
+                    Err(error) => return stop(&served, format!("a refresh failed: {error}")),
                 }
             }
             Next::Restart(why) => match restarted(&served, watcher, &why) {
@@ -110,6 +116,8 @@ fn run(index: &Weak<Served>, mut watcher: Watcher) {
             },
             Next::Stop(reason) => return stop(&served, reason),
         }
+        drop(served);
+        batch = watcher.wait(WAKE);
     }
 }
 
