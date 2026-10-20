@@ -4,6 +4,8 @@ use std::{io, iter};
 use kartta_fs::{
     BuildError, BuildOptions, BuildOutcome, CancelToken, ContentVisitor, Index, RefreshOutcome,
 };
+#[cfg(feature = "watch")]
+use kartta_fs::{WatchError, Watcher};
 use kartta_graph::{Change, Definition, Graph, Limits, Region, Resolution};
 use kartta_lang::{DocComments, Language};
 
@@ -143,6 +145,27 @@ impl Engine {
         Ok(outcome)
     }
 
+    /// Starts a [`Watcher`] on `root`, then builds as [`Engine::build`] does, walking the tree as
+    /// [`kartta_fs::Index::build_watched`] does, so the watcher holds every change made while the build walked, which
+    /// [`Watcher::drain`] then hands over for [`Engine::refresh_paths`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Engine::build`]. The watcher's own failures are the second value, as
+    /// [`kartta_fs::Index::build_watched`] says.
+    #[cfg(feature = "watch")]
+    pub fn build_watched(
+        root: impl AsRef<Path>,
+        options: &BuildOptions,
+        languages: Vec<Box<dyn Language>>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(EngineOutcome, Result<Watcher, WatchError>), BuildError> {
+        let root = root.as_ref();
+        Self::build_from_walk(options, languages, cancel, |visitor| {
+            Index::build_watched(root, options, Some(visitor), cancel)
+        })
+    }
+
     fn build_from_walk<T>(
         options: &BuildOptions,
         languages: Vec<Box<dyn Language>>,
@@ -210,6 +233,21 @@ impl Engine {
         let (refresh, ()) = self
             .refresh_from_walk(|index, visitor| Ok((index.refresh(Some(visitor), cancel)?, ())))?;
         Ok(refresh)
+    }
+
+    /// Starts a [`Watcher`] on the tree, then refreshes as [`Engine::refresh`] does, walking the tree as
+    /// [`kartta_fs::Index::refresh_watched`] does, so the watcher holds every change made while the refresh walked.
+    ///
+    /// # Errors
+    ///
+    /// As [`Engine::refresh`]. The watcher's own failures are the second value, as
+    /// [`kartta_fs::Index::build_watched`] says.
+    #[cfg(feature = "watch")]
+    pub fn refresh_watched(
+        &mut self,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(EngineRefresh, Result<Watcher, WatchError>), BuildError> {
+        self.refresh_from_walk(|index, visitor| index.refresh_watched(Some(visitor), cancel))
     }
 
     /// Walks again only the parts of the tree at `paths`, as [`kartta_fs::Index::refresh_paths`] does, and brings

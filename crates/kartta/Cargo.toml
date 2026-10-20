@@ -20,6 +20,11 @@ kartta-graph.workspace = true
 kartta-lang.workspace = true
 rayon = "1.12.0"
 
+[features]
+# Building and refreshing with a watcher started before the walk, through kartta-fs's own feature. Off by default: a
+# consumer that never watches builds none of it.
+watch = ["kartta-fs/watch"]
+
 [target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
 libc = "0.2.190"
 
