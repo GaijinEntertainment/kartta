@@ -1,22 +1,23 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test, type TestContext } from "node:test";
+
+import { expect, onTestFinished, test } from "vite-plus/test";
 
 import { Kartta, KarttaError } from "../src/kartta.ts";
 
-function tree(t: TestContext, files: number): string {
+function tree(files: number): string {
   const root = mkdtempSync(join(tmpdir(), "kartta-node-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  onTestFinished(() => rmSync(root, { recursive: true, force: true }));
   for (let file = 0; file < files; file += 1) {
     writeFileSync(join(root, `f${file}.go`), `package main\n\nfunc f${file}() {\n\tf${(file + 1) % files}()\n}\n`);
   }
   return root;
 }
 
-function open(t: TestContext, files = 1): Kartta {
-  const kartta = Kartta.open(tree(t, files));
-  t.after(() => kartta.close());
+function open(files = 1): Kartta {
+  const kartta = Kartta.open(tree(files));
+  onTestFinished(() => kartta.close());
   return kartta;
 }
 
@@ -39,135 +40,129 @@ async function walking(kartta: Kartta, signal?: AbortSignal): Promise<{ built: P
   return { built };
 }
 
-async function cancelledUnlessFinished(
-  t: TestContext,
-  built: Promise<unknown>,
-  files: number,
-): Promise<KarttaError | undefined> {
+async function cancelledUnlessFinished(built: Promise<unknown>, files: number): Promise<KarttaError | undefined> {
   const outcome = await built.then(
     (answer) => answer,
     (error: unknown) => (error instanceof KarttaError ? error : Promise.reject(error)),
   );
   if (outcome instanceof KarttaError) {
-    t.assert.strictEqual(outcome.code, "build_cancelled");
+    expect(outcome.code).toBe("build_cancelled");
     return outcome;
   }
-  t.assert.partialDeepStrictEqual(outcome, { entries: files });
+  expect(outcome).toMatchObject({ entries: files });
   return undefined;
 }
 
-test("open refuses a root that is not a directory, with invalid_root", (t: TestContext) => {
-  const missing = join(tree(t, 1), "missing");
+test("open refuses a root that is not a directory, with invalid_root", () => {
+  const missing = join(tree(1), "missing");
 
-  t.assert.throws(() => Kartta.open(missing), { name: "KarttaError", code: "invalid_root" });
+  expect(() => Kartta.open(missing)).toThrow(expect.objectContaining({ name: "KarttaError", code: "invalid_root" }));
 });
 
-test("a query before any build rejects with not_built", async (t: TestContext) => {
-  const kartta = open(t);
+test("a query before any build rejects with not_built", async () => {
+  const kartta = open();
 
-  t.assert.strictEqual(await code(kartta.stats()), "not_built");
+  expect(await code(kartta.stats())).toBe("not_built");
 });
 
-test("a method the library does not answer rejects with unknown_method", async (t: TestContext) => {
-  const kartta = open(t);
+test("a method the library does not answer rejects with unknown_method", async () => {
+  const kartta = open();
 
-  t.assert.strictEqual(await code(kartta.call("paths")), "unknown_method");
+  expect(await code(kartta.call("paths"))).toBe("unknown_method");
 });
 
-test("a signal aborted before the build rejects with its reason and keeps the index", async (t: TestContext) => {
-  const kartta = open(t);
+test("a signal aborted before the build rejects with its reason and keeps the index", async () => {
+  const kartta = open();
   const built = await kartta.build();
   const reason = new Error("the caller gave up");
 
-  await t.assert.rejects(kartta.build({}, { signal: AbortSignal.abort(reason) }), (error) => error === reason);
+  await expect(kartta.build({}, { signal: AbortSignal.abort(reason) })).rejects.toBe(reason);
 
-  t.assert.deepStrictEqual(await kartta.stats(), built);
+  expect(await kartta.stats()).toStrictEqual(built);
 });
 
-test("a signal aborted while the build walks cancels it, the reason its cause", async (t: TestContext) => {
-  const kartta = open(t, 3000);
+test("a signal aborted while the build walks cancels it, the reason its cause", async () => {
+  const kartta = open(3000);
   const controller = new AbortController();
   const reason = new Error("the caller gave up");
   const { built } = await walking(kartta, controller.signal);
 
   controller.abort(reason);
 
-  await t.assert.rejects(built, { name: "KarttaError", code: "build_cancelled", cause: reason });
-  t.assert.strictEqual(await code(kartta.stats()), "not_built");
-  t.assert.strictEqual((await kartta.build()).entries, 3000);
+  await expect(built).rejects.toMatchObject({ name: "KarttaError", code: "build_cancelled", cause: reason });
+  expect(await code(kartta.stats())).toBe("not_built");
+  expect((await kartta.build()).entries).toBe(3000);
 });
 
-test("an abort right after the call cancels the build, entered or not, unless it finished", async (t: TestContext) => {
-  const kartta = open(t, 3000);
+test("an abort right after the call cancels the build, entered or not, unless it finished", async () => {
+  const kartta = open(3000);
   const controller = new AbortController();
   const reason = new Error("the caller gave up");
 
   const built = kartta.build({}, { signal: controller.signal });
   controller.abort(reason);
 
-  const cancelled = await cancelledUnlessFinished(t, built, 3000);
+  const cancelled = await cancelledUnlessFinished(built, 3000);
   if (cancelled !== undefined) {
-    t.assert.strictEqual(cancelled.cause, reason);
+    expect(cancelled.cause).toBe(reason);
   }
 });
 
-test("close cancels the build in flight, a closed error its cause", async (t: TestContext) => {
-  const kartta = open(t, 3000);
+test("close cancels the build in flight, a closed error its cause", async () => {
+  const kartta = open(3000);
   const { built } = await walking(kartta);
 
   kartta.close();
 
-  await t.assert.rejects(built, (error) => {
-    t.assert.ok(error instanceof KarttaError);
-    t.assert.strictEqual(error.code, "build_cancelled");
-    t.assert.ok(error.cause instanceof KarttaError);
-    t.assert.strictEqual(error.cause.code, "closed");
-    return true;
-  });
+  const error = await built.catch((rejection: unknown) => rejection);
+  expect(error).toBeInstanceOf(KarttaError);
+  expect(error).toHaveProperty("code", "build_cancelled");
+  expect(error).toHaveProperty("cause", expect.any(KarttaError));
+  expect(error).toHaveProperty("cause.code", "closed");
 });
 
-test("close right after a build call cancels it, entered or not, unless it finished", async (t: TestContext) => {
-  const kartta = open(t, 3000);
+test("close right after a build call cancels it, entered or not, unless it finished", async () => {
+  const kartta = open(3000);
 
   const built = kartta.build();
   kartta.close();
 
-  await cancelledUnlessFinished(t, built, 3000);
+  await cancelledUnlessFinished(built, 3000);
 });
 
-test("close right after a build through call cancels it too, unless it finished", async (t: TestContext) => {
-  const kartta = open(t, 3000);
+test("close right after a build through call cancels it too, unless it finished", async () => {
+  const kartta = open(3000);
 
   const built = kartta.call("build");
   kartta.close();
 
-  await cancelledUnlessFinished(t, built, 3000);
+  await cancelledUnlessFinished(built, 3000);
 });
 
-test("a build through call takes an id of the handle's, so an abort stops another", async (t: TestContext) => {
-  const kartta = open(t, 3000);
+test("a build through call takes an id of the handle's, so an abort stops another", async () => {
+  const kartta = open(3000);
   const controller = new AbortController();
 
   const untyped = kartta.call("build", { id: 2 });
   const typed = kartta.build({}, { signal: controller.signal });
   controller.abort();
 
-  await t.assert.rejects(typed, { name: "KarttaError", code: "build_cancelled" });
-  t.assert.partialDeepStrictEqual(await untyped, { entries: 3000 });
+  await expect(typed).rejects.toMatchObject({ name: "KarttaError", code: "build_cancelled" });
+  expect(await untyped).toMatchObject({ entries: 3000 });
 });
 
-test("cancel with no id stops the build in flight", async (t: TestContext) => {
-  const kartta = open(t, 3000);
+test("cancel with no id stops the build in flight", async () => {
+  const kartta = open(3000);
   const { built } = await walking(kartta);
 
   const { stopped } = await kartta.cancel();
 
-  t.assert.strictEqual(stopped, true);
-  await t.assert.rejects(built, { name: "KarttaError", code: "build_cancelled" });
+  expect(stopped).toBe(true);
+  await expect(built).rejects.toMatchObject({ name: "KarttaError", code: "build_cancelled" });
 });
 
-test("every call after close rejects with closed, and closing again does nothing", async (t: TestContext) => {
-  const kartta = open(t);
+test("every call after close rejects with closed, and closing again does nothing", async () => {
+  const kartta = open();
   await kartta.build();
 
   kartta.close();
@@ -182,11 +177,11 @@ test("every call after close rejects with closed, and closing again does nothing
     kartta.grep({ patterns: ["f0"] }),
     kartta.call("cancel"),
   ];
-  t.assert.deepStrictEqual(await Promise.all(calls.map(code)), Array(calls.length).fill("closed"));
+  expect(await Promise.all(calls.map(code))).toStrictEqual(Array(calls.length).fill("closed"));
 });
 
-test("queries run side by side and each answers as it does alone", async (t: TestContext) => {
-  const kartta = open(t, 200);
+test("queries run side by side and each answers as it does alone", async () => {
+  const kartta = open(200);
   await kartta.build({ content_index: { storage: "memory" } });
   const queries = [
     () => kartta.callers({ name: "f0", depth: 5 }),
@@ -202,19 +197,13 @@ test("queries run side by side and each answers as it does alone", async (t: Tes
 
   const together = await Promise.all(Array.from({ length: 40 }, (_, at) => queries[at % queries.length]!()));
 
-  t.assert.deepStrictEqual(
-    together,
-    together.map((_, at) => alone[at % alone.length]),
-  );
+  expect(together).toStrictEqual(together.map((_, at) => alone[at % alone.length]));
 });
 
-test("builds asked side by side run one at a time and each finishes", async (t: TestContext) => {
-  const kartta = open(t, 200);
+test("builds asked side by side run one at a time and each finishes", async () => {
+  const kartta = open(200);
 
   const built = await Promise.all([kartta.build(), kartta.build(), kartta.build()]);
 
-  t.assert.deepStrictEqual(
-    built.map((stats) => stats.entries),
-    [200, 200, 200],
-  );
+  expect(built.map((stats) => stats.entries)).toStrictEqual([200, 200, 200]);
 });
