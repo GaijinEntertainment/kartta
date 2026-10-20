@@ -31,31 +31,18 @@
                 "signature": "double area() const override"
               },
               "nearness": "same_directory"
-            },
-            {
-              "definition": {
-                "end_line": 5,
-                "exported": true,
-                "file": "cpp/shape.h",
-                "kind": "method",
-                "line": 5,
-                "name": "area",
-                "owner": "Shape",
-                "qualified_name": "Shape::area",
-                "signature": "virtual double area() const = 0"
-              },
-              "nearness": "same_directory"
             }
           ],
           "graph": "cpp",
-          "total": 3
+          "total": 2
         }
-      ]
+      ],
+      "read_as": "Circle::area"
     }
   },
   "method": "definitions",
   "params": {
     "from": "cpp/circle.cpp",
-    "name": "area"
+    "name": "Circle.area"
   }
 }
