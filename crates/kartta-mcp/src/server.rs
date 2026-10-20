@@ -716,8 +716,8 @@ impl Server {
                        cut before the span ends, or missing because the file no longer reaches the span; a definition \
                        whose file could not be read has no body, carries error= with the reason and its sig when one \
                        was captured. total on a <name> counts every definition the name selects; shown=N means the \
-                       limit cut the list to N. A name nothing defines answers total=0 with a find_symbols hint. \
-                       Requires index_repo first."
+                       limit cut the list to N. A name nothing defines answers total=0 with up to 5 close \
+                       alternatives (did you mean). Requires index_repo first."
     )]
     async fn read_definitions(
         &self,
@@ -780,6 +780,11 @@ impl Server {
                             source,
                         })
                         .collect(),
+                    unmatched: Unmatched::Suggested(if total == 0 {
+                        suggestions(&searched, name)
+                    } else {
+                        Vec::new()
+                    }),
                 })
                 .collect();
             Ok(render::definitions(

@@ -85,13 +85,14 @@ fn no_hits(languages: Option<&str>, coverage: &[&GraphRow]) -> String {
     )
 }
 
-/// One requested name of a `read_definitions` call: how many definitions it selects, and the nearest of them with
-/// their text.
+/// One requested name of a `read_definitions` call: how many definitions it selects, the nearest of them with their
+/// text, and the close alternatives to a name that selects none.
 #[derive(Debug)]
 pub(crate) struct NameDefinitions<'g> {
     pub(crate) name: &'g str,
     pub(crate) total: usize,
     pub(crate) definitions: Vec<Read<'g>>,
+    pub(crate) unmatched: Unmatched<'g>,
 }
 
 /// One definition `read_definitions` answers, with its text as its file holds it now.
@@ -114,10 +115,7 @@ pub(crate) fn definitions(languages: Option<&str>, answers: &[NameDefinitions<'_
             .attr("of", answer.name)
             .attr("total", answer.total);
         if answer.total == 0 {
-            return name.inline(
-                empty_languages_note(languages)
-                    .unwrap_or("no definition matches - find_symbols can locate the name"),
-            );
+            return unresolved(name, languages, "path_prefix", &answer.unmatched);
         }
         name.optional(
             "shown",
