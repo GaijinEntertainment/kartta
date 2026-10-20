@@ -59,7 +59,7 @@ impl Index {
         visitor: Option<&dyn ContentVisitor>,
         cancel: Option<&CancelToken>,
     ) -> Result<RefreshOutcome, BuildError> {
-        let scopes = self.scopes(paths)?;
+        let scopes = self.parts_of(paths)?;
         if scopes.is_empty() {
             return Ok(RefreshOutcome::new(
                 Vec::new(),
@@ -91,7 +91,18 @@ impl Index {
         Ok(RefreshOutcome::new(errors, retired, scopes, changed))
     }
 
-    fn scopes<'p>(
+    /// The parts of the tree [`Index::refresh_paths`] walks again for these paths, as [`RefreshOutcome::walked`] lists
+    /// them, worked out without walking any: each path widened as that refresh widens it, the paths it skips left out,
+    /// and none below another. So every path inside a directory the index does not hold, such as an ignored `target/`,
+    /// comes to that one directory, and the empty path alone says the paths come to the whole tree.
+    ///
+    /// No ignore rule is read: a part the rules hide is still a part. A call stats each directory the index holds
+    /// once, when a path's widening first meets it, to see that it is still a directory.
+    ///
+    /// # Errors
+    ///
+    /// [`BuildError::OutsideTree`] for a path with a `..` component.
+    pub fn parts_of<'p>(
         &self,
         paths: impl IntoIterator<Item = &'p str>,
     ) -> Result<Vec<String>, BuildError> {

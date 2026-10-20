@@ -611,6 +611,34 @@ fn paths_given_twice_out_of_order_or_below_one_another_are_walked_once() {
 }
 
 #[test]
+fn the_parts_of_named_paths_are_what_a_refresh_of_them_walks() {
+    let dir = tree(&[
+        (".gitignore", "target/\n"),
+        ("sub/.gitignore", ""),
+        ("sub/a.rs", ""),
+        ("b.rs", ""),
+    ]);
+    fs::create_dir(dir.path().join(".git")).expect("make a repository");
+    let mut index = build(dir.path(), &pruning_node_modules(), None);
+    let named = [
+        "target/debug/x.o",
+        "target/debug/deps/y.o",
+        "sub/.gitignore",
+        "sub/a.rs",
+        "node_modules/m/index.js",
+        ".git/HEAD",
+        "b.rs",
+        "c.rs",
+    ];
+
+    let parts = index.parts_of(named).expect("work out the parts");
+    let walked = refresh_paths(&mut index, named);
+
+    assert_eq!(parts, ["b.rs", "c.rs", "sub", "target"]);
+    assert_eq!(walked, parts);
+}
+
+#[test]
 fn a_changed_gitignore_walks_again_the_directory_it_governs() {
     let dir = tree(&[
         ("sub/.gitignore", "*.log\n"),
