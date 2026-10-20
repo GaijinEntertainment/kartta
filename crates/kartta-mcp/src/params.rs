@@ -129,8 +129,10 @@ pub(crate) struct FindFilesParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindCallersParams {
     /// The symbol whose callers to trace. A qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol
-    /// of that name; a name qualified by its owner ("Service.Greet") picks the callable it names; a bare name ("New")
-    /// picks the unique match. Where several share the name - a bare name, or overloads of one qualified name - the
+    /// of that name; a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
+    /// TypeScript, "Service::greet" in Rust or C++) picks the callable it names; a bare name ("New") picks the unique
+    /// match. A name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as=
+    /// names that reading. Where several share the name - a bare name, or overloads of one qualified name - the
     /// most-called candidate is picked, the answer counts the others in passed_over and lists the most called of them
     /// as <candidate/> records; check the match's loc, and pass path_prefix to pick another.
     pub(crate) name: String,
@@ -172,8 +174,10 @@ pub(crate) struct FindCallersParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindCalleesParams {
     /// The symbol whose callees to trace. A qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol
-    /// of that name; a name qualified by its owner ("Service.Greet") picks the callable it names; a bare name ("New")
-    /// picks the unique match. Where several share the name - a bare name, or overloads of one qualified name - the
+    /// of that name; a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
+    /// TypeScript, "Service::greet" in Rust or C++) picks the callable it names; a bare name ("New") picks the unique
+    /// match. A name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as=
+    /// names that reading. Where several share the name - a bare name, or overloads of one qualified name - the
     /// most-called candidate is picked, the answer counts the others in passed_over and lists the most called of them
     /// as <candidate/> records; check the match's loc, and pass path_prefix to pick another.
     pub(crate) name: String,
@@ -364,8 +368,10 @@ pub(crate) struct FindSymbolsParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindCallPathParams {
     /// The symbol the chain starts at: the first caller. A qualified name from a find_symbols hit (e.g. "pkg.Serve")
-    /// picks the symbol of that name; a name qualified by its owner ("Service.Greet") picks the callable it names; a
-    /// bare name picks the unique match. Where several share the name - a bare name, or overloads of one qualified
+    /// picks the symbol of that name; a name qualified by its owner with its language's separator ("Service.Greet" in
+    /// Go, Python or TypeScript, "Service::greet" in Rust or C++) picks the callable it names; a bare name picks the
+    /// unique match. A name that selects nothing as written is read with each "." as "::", or each "::" as ".", and
+    /// from_read_as= names that reading. Where several share the name - a bare name, or overloads of one qualified
     /// name - the most-called candidate is picked, and the answer counts the others in passed_over_from and lists the
     /// most called of them as <candidate end="from"/> records.
     pub(crate) from: String,
@@ -373,8 +379,9 @@ pub(crate) struct FindCallPathParams {
     /// starts with it. Omitted picks from every file.
     #[serde(default)]
     pub(crate) from_path_prefix: Option<String>,
-    /// The symbol the chain ends at: the last callee, named and picked the same way as from, the others that share
-    /// its name counted in passed_over_to and listed as <candidate end="to"/> records.
+    /// The symbol the chain ends at: the last callee, named, read and picked the same way as from, its reading named
+    /// in to_read_as= and the others that share its name counted in passed_over_to and listed as <candidate end="to"/>
+    /// records.
     pub(crate) to: String,
     /// Repo-relative path prefix with forward slashes: to is picked only among the symbols in files whose path starts
     /// with it. Omitted picks from every file.
@@ -403,8 +410,10 @@ pub(crate) struct FindCallPathParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindReferencesParams {
     /// The symbol whose uses to list. A qualified name from a find_symbols hit (e.g. "pkg.Config") picks the symbol of
-    /// that name; a name qualified by its owner ("Service.Greet") picks the symbol it names; a bare name picks the
-    /// unique match. Where several share the name - a bare name, or overloads of one qualified name - the candidate
+    /// that name; a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
+    /// TypeScript, "Service::greet" in Rust or C++) picks the symbol it names; a bare name picks the unique match. A
+    /// name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as= names
+    /// that reading. Where several share the name - a bare name, or overloads of one qualified name - the candidate
     /// with the most recorded sites is picked, the answer counts the others in passed_over and lists the most used of
     /// them as <candidate/> records; pass path_prefix to pick another.
     pub(crate) name: String,
@@ -453,10 +462,12 @@ impl AccessFilter {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ReadDefinitionsParams {
-    /// Symbol names to read, 1 to 10, each bare ("New") or qualified by its package or owner ("pkg.New",
-    /// "Service.Greet"). A qualified name selects every definition whose qualified name equals it or ends with it at a
-    /// separator, and every definition named by its last segment whose own qualified name the name ends with, so
-    /// "ns::Service::Greet" also selects "Service::Greet". An empty list or an empty name is a tool error.
+    /// Symbol names to read, 1 to 10, each bare ("New") or qualified by its package or owner with its language's
+    /// separator ("pkg.New", "Service.Greet" in Go, Python or TypeScript, "Service::greet" in Rust or C++). A qualified
+    /// name selects every definition whose qualified name equals it or ends with it at a separator, and every
+    /// definition named by its last segment whose own qualified name the name ends with, so "ns::Service::Greet" also
+    /// selects "Service::Greet". A name that selects nothing as written is read with each "." as "::", or each "::" as
+    /// ".", and read_as= on its <name> names that reading. An empty list or an empty name is a tool error.
     #[schemars(length(min = 1, max = 10), inner(length(min = 1)))]
     pub(crate) names: Vec<String>,
     /// Repository-relative path of the file the names are read for, as returned by find_files. Definitions in its
@@ -477,8 +488,10 @@ pub(crate) struct ReadDefinitionsParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindImplementationsParams {
-    /// The interface / base class / trait name, e.g. "Provider". Bare or qualified; take the exact name from a
-    /// find_symbols hit when unsure. Where several types share the name, the most implemented is picked: the answer
+    /// The interface / base class / trait name, e.g. "Provider". Bare or qualified with its language's separator
+    /// ("io.Reader" in Go, "ui::Widget" in Rust or C++); a name that selects nothing as written is read with each "."
+    /// as "::", or each "::" as ".", and read_as= names that reading. Take the exact name from a find_symbols hit when
+    /// unsure. Where several types share the name, the most implemented is picked: the answer
     /// names it in <root/>, counts the others in passed_over and lists the most implemented of them as <candidate/>
     /// records.
     pub(crate) name: String,
