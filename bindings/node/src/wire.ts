@@ -745,6 +745,8 @@ export type Listed = {
 /** The params of `glob`. */
 export type GlobParams = {
 	globs: string[];
+	/** Globs naming the paths left out, a directory with everything beneath it. */
+	exclude?: string[];
 	/** Caps the paths answered; 0 sets no cap. */
 	limit?: number;
 };
@@ -753,6 +755,8 @@ export type GlobParams = {
 export type Glob = {
 	paths: string[];
 	truncated: boolean;
+	/** The matching paths `exclude` left out before the answer ended; absent when none. */
+	excluded?: number;
 };
 
 /** The params of `fuzzy`. */
@@ -760,6 +764,8 @@ export type FuzzyParams = {
 	query: string;
 	/** Keep the paths they match; absent keeps every path. */
 	globs?: string[];
+	/** Globs naming the paths left out, a directory with everything beneath it. */
+	exclude?: string[];
 	/** Caps the matches answered; 50 by default. */
 	limit?: number;
 };

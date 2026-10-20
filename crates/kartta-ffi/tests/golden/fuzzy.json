@@ -3,15 +3,18 @@
     "ok": {
       "matches": [
         {
-          "path": "cpp/circle.h",
-          "score": 4460
+          "path": "cpp/circle.cpp",
+          "score": 4450
         }
       ],
-      "truncated": true
+      "truncated": false
     }
   },
   "method": "fuzzy",
   "params": {
+    "exclude": [
+      "**/*.h"
+    ],
     "limit": 1,
     "query": "circ"
   }
