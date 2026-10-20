@@ -28,8 +28,8 @@ use crate::params::{
     IndexRepoParams, IndexStatsParams, ListDirParams, ReadDefinitionsParams, RefreshParams,
 };
 use crate::render::{
-    self, CallersAsk, Found, Globbed, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion,
-    Unmatched, UnusedAsk,
+    self, CallersAsk, Found, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion, Unmatched,
+    UnusedAsk,
 };
 use crate::state::{GraphRow, Indexed, Request, Served, Slot};
 
@@ -406,26 +406,17 @@ impl Server {
         let excludes = globs(&p.excludes)?;
         self.answer(move |indexed| {
             let index = indexed.engine.index();
-            let mut options = FuzzyOptions::default();
+            let mut options = FuzzyOptions::default().limit(p.max_results);
             if let Some(includes) = &includes {
                 options = options.filter(includes);
             }
-            if excludes.is_none() {
-                options = options.limit(p.max_results);
+            if let Some(excludes) = &excludes {
+                options = options.exclude(excludes);
             }
             let mut paths = index.paths();
             let mut listed = List::default();
             for found in &index.fuzzy(&p.pattern, &options) {
-                if p.max_results != 0 && listed.len() == p.max_results {
-                    break;
-                }
-                let path = paths.get(found.position);
-                if excludes
-                    .as_ref()
-                    .is_none_or(|excludes| !excludes.matches(path))
-                {
-                    listed.push(path);
-                }
+                listed.push(paths.get(found.position));
             }
             Ok(render::paths(&p.pattern, listed))
         })
@@ -437,9 +428,9 @@ impl Server {
                        under src/, the tree minus vendored code. Use it when the SET of files is the answer \
                        (inventory, scoping a sweep); when you are hunting ONE file by name, use find_files. Returns \
                        matching repo-relative paths, one per line, in sorted path order, quoted as find_files quotes \
-                       them; a list max_results cut ends with a (truncated: ...) line saying how many matched when \
-                       the search counted them, and an (excludes removed: N) line counts the matches the excludes \
-                       dropped. Requires index_repo first."
+                       them; a list max_results cut ends with a (truncated: ...) line, and an (excludes removed: N) \
+                       line counts the matches the excludes dropped before the list ended. Requires index_repo \
+                       first."
     )]
     async fn glob_files(
         &self,
@@ -455,39 +446,15 @@ impl Server {
         let excludes = globs(&p.excludes)?;
         self.answer(move |indexed| {
             let index = indexed.engine.index();
-            let limit = if excludes.is_some() { 0 } else { p.max_results };
-            let found = index.glob(&filter, &GlobOptions::default().limit(limit));
-            let mut paths = index.paths();
-            let mut listed = List::default();
-            let mut matched = 0;
-            for &position in found.items() {
-                let path = paths.get(position);
-                if excludes
-                    .as_ref()
-                    .is_some_and(|excludes| excludes.matches(path))
-                {
-                    continue;
-                }
-                matched += 1;
-                if p.max_results == 0 || listed.len() < p.max_results {
-                    listed.push(path);
-                }
+            let mut options = GlobOptions::default().limit(p.max_results);
+            if let Some(excludes) = &excludes {
+                options = options.exclude(excludes);
             }
-            let globbed = if found.truncated() {
-                Globbed::Cut { matched: None }
-            } else if matched > listed.len() {
-                Globbed::Cut {
-                    matched: Some(matched),
-                }
-            } else {
-                Globbed::Whole
-            };
-            let excluded = found.items().len() - matched;
+            let found = index.glob(&filter, &options);
             Ok(render::globbed(
                 &p.globs.join(", "),
-                listed,
-                globbed,
-                excluded,
+                &found,
+                &mut index.paths(),
             ))
         })
         .await
