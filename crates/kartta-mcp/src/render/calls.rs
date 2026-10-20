@@ -46,11 +46,14 @@ const PARTIAL_DATA_ACCESS: &[(&str, &str)] = &[
     ),
 ];
 
-/// What a `find_call_path` call asked, as its answer echoes it.
+/// What a `find_call_path` call asked, as its answer echoes it, with the reading of each end that selects nothing as
+/// written.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PathAsk<'a> {
     pub(crate) from: &'a str,
+    pub(crate) from_read_as: Option<&'a str>,
     pub(crate) to: &'a str,
+    pub(crate) to_read_as: Option<&'a str>,
     pub(crate) languages: Option<&'a str>,
     pub(crate) hops: u32,
     pub(crate) min_confidence: u8,
@@ -83,7 +86,9 @@ pub(crate) fn call_path(
 ) -> String {
     let element = Element::new("call_path")
         .attr("from", ask.from)
+        .optional("from_read_as", ask.from_read_as)
         .attr("to", ask.to)
+        .optional("to_read_as", ask.to_read_as)
         .optional("languages", ask.languages)
         .attr("matches", paths.len());
     if paths.is_empty() {
@@ -173,6 +178,7 @@ pub(crate) fn references(
 ) -> String {
     let element = Element::new("references")
         .attr("of", ask.name)
+        .optional("read_as", ask.read_as)
         .optional("languages", ask.languages)
         .attr("matches", found.len());
     if found.is_empty() {
@@ -553,10 +559,12 @@ const ROLE_COUNTS: [(&str, &str); 4] = [
     ("generated", "generated"),
 ];
 
-/// What a `find_callers` call asked, as its answer echoes it.
+/// What a call that names one symbol asked, as its answer echoes it, with the reading of a name that selects nothing
+/// as written.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CallersAsk<'a> {
     pub(crate) name: &'a str,
+    pub(crate) read_as: Option<&'a str>,
     pub(crate) languages: Option<&'a str>,
     pub(crate) role: Option<&'a str>,
     pub(crate) floored: bool,
@@ -571,6 +579,7 @@ pub(crate) fn callers(
 ) -> String {
     let element = Element::new("callers")
         .attr("of", ask.name)
+        .optional("read_as", ask.read_as)
         .optional("languages", ask.languages)
         .optional("role", ask.role)
         .attr("matches", walks.len());
@@ -654,6 +663,7 @@ pub(crate) fn callees(
 ) -> String {
     let element = Element::new("callees")
         .attr("of", ask.name)
+        .optional("read_as", ask.read_as)
         .optional("languages", ask.languages)
         .attr("matches", walks.len());
     if walks.is_empty() {
