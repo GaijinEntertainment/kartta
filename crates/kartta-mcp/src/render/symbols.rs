@@ -1,7 +1,7 @@
 use std::fmt::Write;
 use std::io;
 
-use kartta::{Definition, Dependents, Hit, Implementations, Nearness, Source};
+use kartta::{Definition, Dependents, Hit, Implementations, Nearness, Source, SymbolKind};
 
 use super::{
     Unmatched, candidate, empty_languages_note, flat, kind, loc, named, noted, role, span,
@@ -259,7 +259,8 @@ pub(crate) fn importers(file: &str, dependents: Option<&Dependents<'_>>) -> Stri
         }))
 }
 
-/// The `file_outline` answer: a `<symbol/>` per definition of the file in source order.
+/// The `file_outline` answer: a `<symbol/>` per definition of the file in source order, `in` naming the definition that
+/// holds one without an owner.
 pub(crate) fn outline(file: &str, outline: Option<&[Definition<'_>]>) -> String {
     let element = Element::new("outline").attr("of", file);
     match outline {
@@ -271,15 +272,56 @@ pub(crate) fn outline(file: &str, outline: Option<&[Definition<'_>]>) -> String 
             "no definitions recorded - the graph holds this file but lists none: its language declined it, its parse \
              failed, or it declares none; index_stats reports whether the language has files without symbols",
         ),
-        Some(definitions) => element
-            .attr("symbols", definitions.len())
-            .children(definitions.iter().map(|definition| {
-                named("symbol", definition)
-                    .optional("owner", definition.owner)
-                    .attr("kind", kind(definition.kind))
-                    .attr("lines", format!("{}-{}", definition.line, definition.end_line))
-                    .optional("sig", definition.signature.map(flat))
-                    .close()
-            })),
+        Some(definitions) => {
+            let mut open = Vec::new();
+            element
+                .attr("symbols", definitions.len())
+                .children(definitions.iter().map(|definition| {
+                    named("symbol", definition)
+                        .optional("owner", definition.owner)
+                        .optional("in", holder(&mut open, definition))
+                        .attr("kind", kind(definition.kind))
+                        .attr("lines", format!("{}-{}", definition.line, definition.end_line))
+                        .optional("sig", definition.signature.map(flat))
+                        .close()
+                }))
+        }
     }
+}
+
+/// The qualified name of the innermost definition of `open` that holds `definition`, when it has no owner; `open` then
+/// drops the innermost definitions that end before its line, and opens `definition`. `open` holds earlier definitions
+/// of one outline.
+fn holder<'o, 'g>(
+    open: &mut Vec<&'o Definition<'g>>,
+    definition: &'o Definition<'g>,
+) -> Option<&'g str> {
+    while open
+        .last()
+        .is_some_and(|outer| outer.end_line < definition.line)
+    {
+        open.pop();
+    }
+    let holder = if definition.owner.is_none() {
+        (open.iter().rev())
+            .find(|outer| holds(outer, definition))
+            .map(|outer| outer.qualified_name)
+    } else {
+        None
+    };
+    open.push(definition);
+    holder
+}
+
+/// Whether `outer`, a definition that starts before or on the line `inner` starts on, holds `inner`: one starting
+/// strictly inside its lines, or a field or a method starting on any of them when `outer` is a callable.
+const fn holds(outer: &Definition<'_>, inner: &Definition<'_>) -> bool {
+    let line = inner.line;
+    (outer.line < line && line < outer.end_line)
+        || (line <= outer.end_line
+            && matches!(
+                outer.kind,
+                SymbolKind::Function | SymbolKind::Method | SymbolKind::Macro
+            )
+            && matches!(inner.kind, SymbolKind::Field | SymbolKind::Method))
 }
