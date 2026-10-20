@@ -272,6 +272,41 @@ impl Engine {
         paths: impl IntoIterator<Item = &'p str>,
         cancel: Option<&CancelToken>,
     ) -> Result<EngineRefresh, BuildError> {
+        let (refresh, ()) = self.refresh_parts(paths, |index, parts, visitor| {
+            Ok((index.refresh_paths(parts, Some(visitor), cancel)?, ()))
+        })?;
+        Ok(refresh)
+    }
+
+    /// Walks again the parts of the tree at `paths` as [`Engine::refresh_paths`] does, under `watcher`, as
+    /// [`kartta_fs::Index::refresh_paths_watched`] walks them, so a change made in a directory the refresh took in
+    /// reaches `watcher` too, a refresh of the whole tree past [`Engine::refresh_paths_limit`] included.
+    ///
+    /// # Errors
+    ///
+    /// As [`Engine::refresh_paths`]. The second value says whether `watcher` still covers the tree, as
+    /// [`kartta_fs::Index::refresh_paths_watched`] says.
+    #[cfg(feature = "watch")]
+    pub fn refresh_paths_watched<'p>(
+        &mut self,
+        paths: impl IntoIterator<Item = &'p str>,
+        watcher: &mut Watcher,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(EngineRefresh, Result<(), WatchError>), BuildError> {
+        self.refresh_parts(paths, |index, parts, visitor| {
+            index.refresh_paths_watched(parts, watcher, Some(visitor), cancel)
+        })
+    }
+
+    fn refresh_parts<'p, T>(
+        &mut self,
+        paths: impl IntoIterator<Item = &'p str>,
+        walk: impl FnOnce(
+            &mut Index,
+            &mut dyn Iterator<Item = &str>,
+            &dyn ContentVisitor,
+        ) -> Result<(RefreshOutcome, T), BuildError>,
+    ) -> Result<(EngineRefresh, T), BuildError> {
         let mut paths = paths.into_iter();
         if self.following.is_none() {
             if let Some(path) = paths.find(|path| leads_outside_tree(path)) {
@@ -279,23 +314,28 @@ impl Engine {
                     path: path.to_owned(),
                 });
             }
-            return self.refresh(cancel);
+            return self
+                .refresh_from_walk(|index, visitor| walk(index, &mut iter::once(""), visitor));
         }
         let limit = self.refresh_paths_limit();
         let first: Vec<&str> = paths.by_ref().take(limit + 1).collect();
         if first.len() <= limit {
-            return self.walked_apart(first, cancel);
+            return self
+                .refresh_from_walk(|index, visitor| walk(index, &mut first.into_iter(), visitor));
         }
         let mut named = 0;
         let parts = self
             .index
             .parts_of(first.into_iter().chain(paths).inspect(|_| named += 1))?;
         if parts.len() > limit {
-            let mut refresh = self.refresh(cancel)?;
+            let (mut refresh, walked) =
+                self.refresh_from_walk(|index, visitor| walk(index, &mut iter::once(""), visitor))?;
             refresh.widened = Some(Widened { named, limit });
-            return Ok(refresh);
+            return Ok((refresh, walked));
         }
-        self.walked_apart(parts.iter().map(String::as_str), cancel)
+        self.refresh_from_walk(|index, visitor| {
+            walk(index, &mut parts.iter().map(String::as_str), visitor)
+        })
     }
 
     /// The most parts [`Engine::refresh_paths`] walks apart before it refreshes the whole tree in their place: one for
@@ -303,17 +343,6 @@ impl Engine {
     #[must_use]
     pub fn refresh_paths_limit(&self) -> usize {
         (self.index.len() / ENTRIES_PER_PART).max(FEWEST_PARTS)
-    }
-
-    fn walked_apart<'p>(
-        &mut self,
-        paths: impl IntoIterator<Item = &'p str>,
-        cancel: Option<&CancelToken>,
-    ) -> Result<EngineRefresh, BuildError> {
-        let (refresh, ()) = self.refresh_from_walk(|index, visitor| {
-            Ok((index.refresh_paths(paths, Some(visitor), cancel)?, ()))
-        })?;
-        Ok(refresh)
     }
 
     fn refresh_from_walk<T>(
