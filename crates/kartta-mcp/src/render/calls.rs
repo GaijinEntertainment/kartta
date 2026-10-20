@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use kartta::{
     CallPath, Candidate, Change, Definition, DirectCalls, Hotspot, ReachBand, Reached, Reference,
-    References, Seed, Segment, SymbolKind, TypeUses, Walk,
+    References, Seed, Segment, SymbolKind, TypeUses, Walk, is_type_kind,
 };
 
 use super::{
@@ -209,7 +209,7 @@ fn reference_match(
 ) -> String {
     let symbol = &references.symbol;
     let counts = &references.counts;
-    let reads = if is_type(symbol.kind) {
+    let reads = if is_type_kind(symbol.kind) {
         "types"
     } else {
         "reads"
@@ -241,7 +241,8 @@ fn reference_match(
             .map(|&(_, note)| note),
         _ => None,
     };
-    let unrecorded = (type_uses == TypeUses::Nowhere && is_type(symbol.kind)).then_some(family);
+    let unrecorded =
+        (type_uses == TypeUses::Nowhere && is_type_kind(symbol.kind)).then_some(family);
     let passed_over = candidates(&references.candidates, "sites");
     if references.sites.is_empty() {
         let text = if references.below_confidence > 0 {
@@ -390,22 +391,9 @@ fn site_records<'g>(of: SymbolKind, sites: &[Reference<'g>]) -> Vec<SiteRecord<'
 const fn site_kind(of: SymbolKind, site: &Reference<'_>) -> &'static str {
     match site.access {
         _ if site.call => "call",
-        _ if is_type(of) => "type",
+        _ if is_type_kind(of) => "type",
         access => access.label(),
     }
-}
-
-const fn is_type(kind: SymbolKind) -> bool {
-    matches!(
-        kind,
-        SymbolKind::Class
-            | SymbolKind::Struct
-            | SymbolKind::Interface
-            | SymbolKind::Enum
-            | SymbolKind::TypeAlias
-            | SymbolKind::Trait
-            | SymbolKind::DefinedType
-    )
 }
 
 /// The `impact_of_edit` answer: a `<symbol>` per definition the lines overlap, with its direct callers and callees
