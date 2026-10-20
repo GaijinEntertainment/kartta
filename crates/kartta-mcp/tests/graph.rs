@@ -794,6 +794,168 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
     );
 }
 
+/// What a method that no call binds answers while calls of its name that several methods may answer bound none.
+const NO_CALL_BINDS: &str = "no call binds it - ambiguous counts the calls of its name that bound none because \
+                             several definitions of the name may be meant, and any of them may call this method; \
+                             grep finds them, and if none of them calls it, it is an entry point, dead code, or \
+                             reached by dynamic dispatch";
+
+/// The answers to `calls` over a Rust crate whose methods share names: calls on a value of a type the graph does not
+/// follow, and calls split between two methods of one name.
+fn answers_over_shared_method_names(calls: &[(&str, Value)]) -> Vec<String> {
+    answers_over(
+        &[
+            ("Cargo.toml", "[package]\nname = \"app\"\n"),
+            (
+                "src/lib.rs",
+                "mod cancel;\nmod engine;\nmod handle;\nmod index;\nmod run;\nmod scan;\nmod state;\n",
+            ),
+            (
+                "src/cancel.rs",
+                "pub struct CancelToken;\n\nimpl CancelToken {\n    pub fn cancel(&self) {}\n\n    \
+                 pub fn is_cancelled(&self) -> bool {\n        false\n    }\n}\n",
+            ),
+            (
+                "src/handle.rs",
+                "pub struct Handle;\n\nimpl Handle {\n    pub fn cancel(&self) {}\n\n    \
+                 pub fn close(&self) {\n        self.cancel();\n    }\n}\n",
+            ),
+            (
+                "src/run.rs",
+                "use crate::cancel::CancelToken;\n\npub fn stop(token: &CancelToken) -> bool {\n    \
+                 token.cancel();\n    token.is_cancelled()\n}\n",
+            ),
+            (
+                "src/index.rs",
+                "pub struct Index;\n\nimpl Index {\n    \
+                 pub fn refresh_paths(&mut self, paths: &[&str]) -> usize {\n        paths.len()\n    }\n}\n",
+            ),
+            (
+                "src/engine.rs",
+                "pub struct Engine;\n\nimpl Engine {\n    \
+                 pub fn refresh_paths(&mut self, paths: &[&str]) -> usize {\n        paths.len()\n    }\n\n    \
+                 pub fn refresh_paths_limit(&self) -> usize {\n        8\n    }\n}\n",
+            ),
+            (
+                "src/state.rs",
+                "use crate::engine::Engine;\n\npub fn refresh(engine: &mut Engine, paths: &[&str]) -> usize {\n    \
+                 if paths.len() > engine.refresh_paths_limit() {\n        return 0;\n    }\n    \
+                 engine.refresh_paths(paths)\n}\n",
+            ),
+            (
+                "src/scan.rs",
+                "use crate::index::Index;\n\npub fn scan(index: &mut Index) -> usize {\n    \
+                 index.refresh_paths(&[\"a.rs\"])\n}\n",
+            ),
+        ],
+        calls,
+    )
+}
+
+#[test]
+fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
+    let answers = answers_over_shared_method_names(&[
+        (
+            "find_callers",
+            json!({"name": "CancelToken::cancel", "hops": 1}),
+        ),
+        (
+            "find_callers",
+            json!({"name": "Index::refresh_paths", "hops": 1}),
+        ),
+        ("find_callers", json!({"name": "Engine::refresh_paths"})),
+        (
+            "find_callers",
+            json!({"name": "CancelToken::is_cancelled", "hops": 1}),
+        ),
+        (
+            "find_callers",
+            json!({"name": "Engine::refresh_paths_limit"}),
+        ),
+        ("find_callers", json!({"name": "Handle::cancel", "hops": 1})),
+    ]);
+
+    let no_call_binds = |of: &str, qn: &str, loc: &str| {
+        lines(&[
+            &format!(r#"<callers of="{qn}" matches="1">"#),
+            &format!(
+                "<match lang=\"rust\" of=\"{of}\" qn=\"{qn}\" loc=\"{loc}\" count=\"0\" reach_band=\"low\" \
+                 ambiguous=\"{}\">{NO_CALL_BINDS}</match>",
+                if of == "cancel" { 1 } else { 2 }
+            ),
+            "</callers>",
+        ])
+    };
+    assert_eq!(
+        answers,
+        [
+            no_call_binds("cancel", "CancelToken::cancel", "src/cancel.rs:4"),
+            no_call_binds("refresh_paths", "Index::refresh_paths", "src/index.rs:4"),
+            no_call_binds("refresh_paths", "Engine::refresh_paths", "src/engine.rs:4"),
+            lines(&[
+                r#"<callers of="CancelToken::is_cancelled" matches="1">"#,
+                concat!(
+                    r#"<match lang="rust" of="is_cancelled" qn="CancelToken::is_cancelled" loc="src/cancel.rs:6" "#,
+                    r#"count="1" reach_band="low" unexpanded="1">"#,
+                ),
+                concat!(
+                    r#"<ref name="stop" loc="src/run.rs:3" role="consumer" confidence="likely" hops="1" "#,
+                    r#"at="src/run.rs:5"/>"#,
+                ),
+                "</match>",
+                "</callers>",
+            ]),
+            lines(&[
+                r#"<callers of="Engine::refresh_paths_limit" matches="1">"#,
+                concat!(
+                    r#"<match lang="rust" of="refresh_paths_limit" qn="Engine::refresh_paths_limit" "#,
+                    r#"loc="src/engine.rs:8" count="1" reach_band="low">"#,
+                ),
+                concat!(
+                    r#"<ref name="refresh" loc="src/state.rs:3" role="consumer" confidence="likely" hops="1" "#,
+                    r#"at="src/state.rs:4"/>"#,
+                ),
+                "</match>",
+                "</callers>",
+            ]),
+            lines(&[
+                r#"<callers of="Handle::cancel" matches="1">"#,
+                concat!(
+                    r#"<match lang="rust" of="cancel" qn="Handle::cancel" loc="src/handle.rs:4" count="1" "#,
+                    r#"reach_band="low" unexpanded="1" ambiguous="1">"#,
+                ),
+                concat!(
+                    r#"<ref name="close" qn="Handle::close" loc="src/handle.rs:6" role="consumer" hops="1" "#,
+                    r#"at="src/handle.rs:7"/>"#,
+                ),
+                "</match>",
+                "</callers>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn find_callers_kept_to_one_role_still_counts_every_call_of_the_name_it_could_not_bind() {
+    let answers = answers_over_shared_method_names(&[(
+        "find_callers",
+        json!({"name": "Index::refresh_paths", "hops": 1, "role": "consumer"}),
+    )]);
+
+    assert_eq!(
+        answers,
+        [lines(&[
+            r#"<callers of="Index::refresh_paths" role="consumer" matches="1">"#,
+            &format!(
+                "<match lang=\"rust\" of=\"refresh_paths\" qn=\"Index::refresh_paths\" loc=\"src/index.rs:4\" \
+                 count=\"0\" reach_band=\"low\" ambiguous=\"2\" consumers=\"0\" tests=\"0\" entries=\"0\" \
+                 generated=\"0\">{NO_CALL_BINDS}</match>"
+            ),
+            "</callers>",
+        ])]
+    );
+}
+
 #[test]
 fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
     let answers = answers(&[
