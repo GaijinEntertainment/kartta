@@ -184,18 +184,18 @@ test('queries run side by side and each answers as it does alone', async () => {
 	const kartta = open(200);
 	await kartta.build({content_index: {storage: 'memory'}});
 	const queries = [
-		() => kartta.callers({name: 'f0', depth: 5}),
-		() => kartta.grep({patterns: ['f1\\d\\('], count_all: true}),
-		() => kartta.fuzzy({query: 'f19'}),
-		() => kartta.list({limit: 0}),
-		() => kartta.stats(),
+		async () => kartta.callers({name: 'f0', depth: 5}),
+		async () => kartta.grep({patterns: ['f1\\d\\('], count_all: true}),
+		async () => kartta.fuzzy({query: 'f19'}),
+		async () => kartta.list({limit: 0}),
+		async () => kartta.stats(),
 	];
 	const alone: unknown[] = [];
 	for (const query of queries) {
 		alone.push(await query());
 	}
 
-	const together = await Promise.all(Array.from({length: 40}, (_, at) => queries[at % queries.length]!()));
+	const together = await Promise.all(Array.from({length: 40}, async (_, at) => queries[at % queries.length]!()));
 
 	expect(together).toStrictEqual(together.map((_, at) => alone[at % alone.length]));
 });

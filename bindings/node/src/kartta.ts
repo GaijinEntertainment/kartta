@@ -118,7 +118,7 @@ export class Kartta {
 	 * leaves the handle without an index until the next one finishes. A signal aborted before the call rejects with its
 	 * reason alone and leaves the handle as it was.
 	 */
-	build(options: BuildOptions = {}, {signal}: {signal?: AbortSignal} = {}): Promise<Stats> {
+	async build(options: BuildOptions = {}, {signal}: {signal?: AbortSignal} = {}): Promise<Stats> {
 		// SAFETY: the dispatch answers `build` with the wire's stats, which the golden files pin.
 		return this.#build(options, signal) as Promise<Stats>;
 	}
@@ -128,7 +128,7 @@ export class Kartta {
 	 * waiting its turn, and every grep in flight. A build {@link Kartta.build} started rejects with `build_cancelled`; a
 	 * grep answers what it covered, `cancelled` set.
 	 */
-	cancel(params: CancelParams = {}): Promise<CancelAnswer> {
+	async cancel(params: CancelParams = {}): Promise<CancelAnswer> {
 		return this.#ask('cancel', params);
 	}
 
@@ -162,82 +162,82 @@ export class Kartta {
 	}
 
 	/** Answers what the last build indexed, what it made of each language's files, and what each graph holds. */
-	stats(): Promise<Stats> {
+	async stats(): Promise<Stats> {
 		return this.#ask('stats', {});
 	}
 
 	/** Answers the library's ABI version, its crate version, the methods it answers and the languages it ships. */
-	version(): Promise<Version> {
+	async version(): Promise<Version> {
 		return this.#ask('version', {});
 	}
 
 	/** Answers how the call sites of each graph bound, and lists those that bound nothing. */
-	resolution(params: ResolutionParams = {}): Promise<Matches<Resolution>> {
+	async resolution(params: ResolutionParams = {}): Promise<Matches<Resolution>> {
 		return this.#ask('resolution', params);
 	}
 
 	/** Answers the callers of the symbol `params` names, transitively, in each graph that holds one. */
-	callers(params: WalkParams): Promise<Matches<Walk>> {
+	async callers(params: WalkParams): Promise<Matches<Walk>> {
 		return this.#ask('callers', params);
 	}
 
 	/** Answers the callees of the symbol `params` names, transitively, in each graph that holds one. */
-	callees(params: WalkParams): Promise<Matches<Walk>> {
+	async callees(params: WalkParams): Promise<Matches<Walk>> {
 		return this.#ask('callees', params);
 	}
 
 	/** Answers a chain of calls from one symbol to another, in each graph that holds both. */
-	callPath(params: CallPathParams): Promise<Matches<CallPath>> {
+	async callPath(params: CallPathParams): Promise<Matches<CallPath>> {
 		return this.#ask('call_path', params);
 	}
 
 	/** Answers the sites that call or use the symbol `params` names, in each graph that holds one. */
-	references(params: ReferencesParams): Promise<Matches<References>> {
+	async references(params: ReferencesParams): Promise<Matches<References>> {
 		return this.#ask('references', params);
 	}
 
 	/** Answers the definitions the name `params` gives selects, in each graph that holds one. */
-	definitions(params: DefinitionsParams): Promise<Matches<Definitions>> {
+	async definitions(params: DefinitionsParams): Promise<Matches<Definitions>> {
 		return this.#ask('definitions', params);
 	}
 
 	/** Answers the definitions the name `params` gives selects, each with its text as its file holds it now. */
-	sources(params: SourcesParams): Promise<Matches<Definitions>> {
+	async sources(params: SourcesParams): Promise<Matches<Definitions>> {
 		return this.#ask('sources', params);
 	}
 
 	/** Answers the definitions that best match the words of a query, in each graph. */
-	search(params: SearchParams): Promise<Matches<Search>> {
+	async search(params: SearchParams): Promise<Matches<Search>> {
 		return this.#ask('search', params);
 	}
 
 	/** Answers the types that implement or extend the type `params` names, in each graph that holds one. */
-	implementations(params: ImplementationsParams): Promise<Matches<Implementations>> {
+	async implementations(params: ImplementationsParams): Promise<Matches<Implementations>> {
 		return this.#ask('implementations', params);
 	}
 
 	/** Answers the definitions of each graph that nothing the graph sees uses. */
-	deadCode(params: DeadCodeParams = {}): Promise<Matches<DeadCode>> {
+	async deadCode(params: DeadCodeParams = {}): Promise<Matches<DeadCode>> {
 		return this.#ask('dead_code', params);
 	}
 
 	/** Answers the definitions of one file. */
-	outline(params: OutlineParams): Promise<Outline> {
+	async outline(params: OutlineParams): Promise<Outline> {
 		return this.#ask('outline', params);
 	}
 
 	/** Answers the files that include a file, directly or through others. */
-	dependents(params: DependentsParams): Promise<Dependents> {
+	async dependents(params: DependentsParams): Promise<Dependents> {
 		return this.#ask('dependents', params);
 	}
 
 	/** Answers what a change to a range of a file's lines reaches. */
-	analyzeSegment(params: SegmentParams): Promise<Segment> {
+	async analyzeSegment(params: SegmentParams): Promise<Segment> {
 		return this.#ask('analyze_segment', params);
 	}
 
 	/** Answers what a change to regions across files reaches. */
-	analyzeChange(params: ChangeParams): Promise<Change> {
+	async analyzeChange(params: ChangeParams): Promise<Change> {
 		return this.#ask('analyze_change', params);
 	}
 
@@ -245,17 +245,17 @@ export class Kartta {
 	 * Answers the entries under a directory of the index. A path the index does not hold rejects with `not_found`, and
 	 * one that is not a directory with `not_a_directory`.
 	 */
-	list(params: ListParams = {}): Promise<Listing> {
+	async list(params: ListParams = {}): Promise<Listing> {
 		return this.#ask('list', params);
 	}
 
 	/** Answers the paths of the index the globs match. A glob that does not compile rejects with `invalid_glob`. */
-	glob(params: GlobParams): Promise<Glob> {
+	async glob(params: GlobParams): Promise<Glob> {
 		return this.#ask('glob', params);
 	}
 
 	/** Answers the paths of the index that best match a query. */
-	fuzzy(params: FuzzyParams): Promise<Fuzzy> {
+	async fuzzy(params: FuzzyParams): Promise<Fuzzy> {
 		return this.#ask('fuzzy', params);
 	}
 
@@ -263,7 +263,7 @@ export class Kartta {
 	 * Answers the lines of the indexed files the patterns match. A pattern that does not compile rejects with
 	 * `invalid_pattern`, and a glob with `invalid_glob`.
 	 */
-	grep(params: GrepParams): Promise<Grep> {
+	async grep(params: GrepParams): Promise<Grep> {
 		return this.#ask('grep', params);
 	}
 
@@ -313,7 +313,7 @@ export class Kartta {
 		return this.#handle;
 	}
 
-	#ask<M extends keyof Methods>(method: M, params: Methods[M]['params']): Promise<Methods[M]['answer']> {
+	async #ask<M extends keyof Methods>(method: M, params: Methods[M]['params']): Promise<Methods[M]['answer']> {
 		// SAFETY: the dispatch answers each method with the wire's answer `Methods` names, which the golden files pin.
 		return this.call(method, params) as Promise<Methods[M]['answer']>;
 	}
