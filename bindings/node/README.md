@@ -4,15 +4,15 @@ Node.js binding of the kartta code graph engine: a handle on a tree, one build t
 and graph query the engine answers, each answer carrying the counts of what a cap or a bound left out.
 
 ```ts
-import { Kartta } from "kartta";
+import {Kartta} from 'kartta';
 
-const kartta = Kartta.open("/path/to/repo");
+const kartta = Kartta.open('/path/to/repo');
 try {
-  await kartta.build({ content_index: { storage: "memory" } }, { signal: AbortSignal.timeout(60_000) });
-  const { matches } = await kartta.callers({ name: "main" });
-  const { files, total_lines } = await kartta.grep({ patterns: ["TODO"], count_all: true });
+	await kartta.build({content_index: {storage: 'memory'}}, {signal: AbortSignal.timeout(60_000)});
+	const {matches} = await kartta.callers({name: 'main'});
+	const {files, total_lines} = await kartta.grep({patterns: ['TODO'], count_all: true});
 } finally {
-  kartta.close();
+	kartta.close();
 }
 ```
 
