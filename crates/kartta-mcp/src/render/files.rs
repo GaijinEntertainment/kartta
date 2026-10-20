@@ -102,13 +102,14 @@ fn failures_block(failures: &[Failure], paths: &mut Paths<'_>) -> Option<String>
             failure.error()
         ));
     }
+    let mut text = listed.into_text();
     if failures.len() > LISTED_FAILURES {
-        listed.push(&format!("(+{} more)", failures.len() - LISTED_FAILURES));
+        let _ = write!(text, "\n(+{} more)", failures.len() - LISTED_FAILURES);
     }
     Some(
         Element::new("failures")
             .attr("count", failures.len())
-            .wrap(&listed.into_text()),
+            .wrap(&text),
     )
 }
 

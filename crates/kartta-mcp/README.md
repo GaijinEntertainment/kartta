@@ -21,8 +21,10 @@ keeps the change time of each file it read. A query waits for a refresh under wa
 
 An answer is an XML-like envelope written for a model: one root element named for the question, counts as attributes,
 one record per line, and an attribute such as `truncated="true"` only where it applies. The path searches answer plain
-paths instead, one per line; a path holding a control character, or opening with a quote, is quoted and escaped as an
-attribute value is. An answer that a cap, a depth limit or a filter cut says how much it left out.
+paths instead, one per line; a path holding a control character, or opening with a quote or a parenthesis, is quoted
+and escaped as an attribute value is, and so is such a `path: error` record in the `<failures>` of `grep`, so no record
+reads as the closing line in parentheses of a list that was cut. An answer that a cap, a depth limit or a filter cut
+says how much it left out.
 
 | Variable | Effect |
 | --- | --- |

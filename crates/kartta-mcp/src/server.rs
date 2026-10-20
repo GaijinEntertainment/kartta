@@ -396,7 +396,8 @@ impl Server {
                        pattern alone - every .ts file, everything under src/ - use glob_files instead. Returns \
                        matching repo-relative paths, one per line, best first - exactly the path format the 'file' \
                        parameters of other tools expect; a path holding a control character such as a line break, or \
-                       opening with a quote, is written quoted with backslash escapes (\\n, \\t, \\\", \\\\). A list \
+                       opening with a quote or a parenthesis, is written quoted with backslash escapes (\\n, \\t, \\\", \
+                       \\\\), so no path reads as a closing line in parentheses. A list \
                        max_results cut ends with a (N of M matching paths, best first) line counting every match. \
                        Requires index_repo first."
     )]
@@ -479,7 +480,8 @@ impl Server {
                        max_results match lines (default 100) spent in file-path order. A line longer than 1024 \
                        bytes is cut around its match and marked \
                        [... omitted N bytes]. Binary files and files over 4 MiB are skipped and counted in binary= \
-                       and oversized=; unreadable files are listed in <failures>; truncated=\"true\" means a match \
+                       and oversized=; unreadable files are listed in <failures>, a path: error line each, quoted as \
+                       find_files quotes a path, and a (+N more) line past 5; truncated=\"true\" means a match \
                        past the cap was seen, so more exist; an answer with no truncated, unsearched= or <failures> \
                        holds every match in the files it did not skip as binary or oversized, the ruled_out \
                        files judged by their content as index_repo read it; \
