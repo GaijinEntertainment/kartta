@@ -7,7 +7,7 @@ use std::{io, iter};
 
 use notify::{Config, EventKindMask, RecommendedWatcher, RecursiveMode, Watcher as _};
 
-use super::{Found, WatchError, start_error};
+use super::{Found, WatchError, relative, start_error};
 use crate::index::Index;
 
 // constraint: notifications wait here while the caller refreshes, so they are bounded; past this many the batch is lost,
@@ -29,22 +29,26 @@ enum Signal {
 }
 
 impl Backend {
-    pub(super) fn start(_index: &Index, watched: &[PathBuf]) -> Result<Self, WatchError> {
+    pub(super) fn start(
+        _index: &Index,
+        prefixes: &[(PathBuf, String)],
+    ) -> Result<Self, WatchError> {
         let (sender, signals) = mpsc::sync_channel(QUEUED);
         let overflowed = Arc::new(AtomicBool::new(false));
         let overflowing = Arc::clone(&overflowed);
+        let tree = prefixes.to_vec();
         let handler = move |event: notify::Result<notify::Event>| {
-            if let Err(TrySendError::Full(_)) = sender.try_send(signal(event)) {
+            if let Err(TrySendError::Full(_)) = sender.try_send(signal(event, &tree)) {
                 overflowing.store(true, Ordering::Relaxed);
             }
         };
         let config = Config::default().with_event_kinds(EventKindMask::CORE);
-        let first = watched
+        let first = prefixes
             .first()
-            .map_or_else(|| Path::new(""), PathBuf::as_path);
+            .map_or_else(|| Path::new(""), |(path, _)| path.as_path());
         let mut notifier =
             RecommendedWatcher::new(handler, config).map_err(|error| start_error(first, error))?;
-        for path in watched {
+        for (path, _) in prefixes {
             notifier
                 .watch(path, RecursiveMode::Recursive)
                 .map_err(|error| start_error(path, error))?;
@@ -88,15 +92,24 @@ impl Backend {
     }
 }
 
-// constraint: notify names the directory to scan again on a drop when the system names one, and nothing when the whole
-// watch lost track, as a Windows buffer that overflowed does; an error from the stream may have cost a change, so it
-// counts as a loss too
-fn signal(event: notify::Result<notify::Event>) -> Signal {
+// constraint: notify names the directory to scan again, with everything below it, on a drop when the system names one,
+// which `FSEvents` may name at the root or at a directory above it, and nothing when the whole watch lost track, as a
+// Windows buffer that overflowed does; an error from the stream may have cost a change, so it counts as a loss too
+fn signal(event: notify::Result<notify::Event>, prefixes: &[(PathBuf, String)]) -> Signal {
     match event {
-        Ok(event) if event.need_rescan() && event.paths.is_empty() => Signal::Lost,
+        Ok(event) if rescans_whole_tree(&event, prefixes) => Signal::Lost,
         Ok(event) => Signal::Changed(event.paths),
         Err(_) => Signal::Lost,
     }
+}
+
+fn rescans_whole_tree(event: &notify::Event, prefixes: &[(PathBuf, String)]) -> bool {
+    event.need_rescan()
+        && (event.paths.is_empty()
+            || event
+                .paths
+                .iter()
+                .any(|path| relative(path, prefixes).is_none_or(|name| name.is_empty())))
 }
 
 #[cfg(test)]
@@ -105,43 +118,102 @@ mod tests {
     use notify::{Event, EventKind};
 
     use super::*;
+    use crate::watch::through_firmlinks;
+
+    const FIRMLINKS: &str = "/Users\tUsers\n";
+
+    fn tree() -> Vec<(PathBuf, String)> {
+        vec![(PathBuf::from("/parent/tree"), String::new())]
+    }
 
     fn rescan() -> Event {
         Event::new(EventKind::Other).set_flag(Flag::Rescan)
     }
 
+    fn rescan_of(path: &str, prefixes: &[(PathBuf, String)]) -> Signal {
+        signal(Ok(rescan().add_path(PathBuf::from(path))), prefixes)
+    }
+
+    fn names(signal: &Signal, path: &str) -> bool {
+        matches!(signal, Signal::Changed(paths) if *paths == [PathBuf::from(path)])
+    }
+
     #[test]
     fn a_rescan_that_names_no_directory_loses_the_batch() {
-        assert!(matches!(signal(Ok(rescan())), Signal::Lost));
+        assert!(matches!(signal(Ok(rescan()), &tree()), Signal::Lost));
     }
 
     #[test]
-    fn a_rescan_of_a_directory_names_that_directory() {
-        let signal = signal(Ok(rescan().add_path(PathBuf::from("/tree/src"))));
+    fn a_rescan_of_the_root_or_a_directory_above_it_loses_the_batch() {
+        for path in ["/parent/tree", "/parent", "/"] {
+            let signal = rescan_of(path, &tree());
 
-        assert!(
-            matches!(&signal, Signal::Changed(paths) if *paths == [PathBuf::from("/tree/src")]),
-            "{signal:?}"
-        );
+            assert!(matches!(signal, Signal::Lost), "{path}: {signal:?}");
+        }
     }
 
     #[test]
-    fn a_change_names_its_path() {
-        let event =
-            Event::new(EventKind::Create(CreateKind::File)).add_path(PathBuf::from("/tree/a.rs"));
+    fn a_rescan_that_names_a_directory_above_the_root_beside_one_below_it_loses_the_batch() {
+        let event = rescan()
+            .add_path(PathBuf::from("/parent/tree/src"))
+            .add_path(PathBuf::from("/parent"));
 
-        let signal = signal(Ok(event));
+        let signal = signal(Ok(event), &tree());
 
-        assert!(
-            matches!(&signal, Signal::Changed(paths) if *paths == [PathBuf::from("/tree/a.rs")]),
-            "{signal:?}"
+        assert!(matches!(signal, Signal::Lost), "{signal:?}");
+    }
+
+    #[test]
+    fn a_rescan_of_a_directory_below_the_root_names_that_directory() {
+        let signal = rescan_of("/parent/tree/src", &tree());
+
+        assert!(names(&signal, "/parent/tree/src"), "{signal:?}");
+    }
+
+    #[test]
+    fn a_rescan_of_a_firmlink_below_the_data_volume_names_that_firmlink() {
+        let data_volume = through_firmlinks(Path::new("/System/Volumes/Data"), FIRMLINKS);
+
+        let signal = rescan_of("/Users", &data_volume);
+
+        assert!(names(&signal, "/Users"), "{signal:?}");
+        for path in ["/System/Volumes/Data", "/System/Volumes", "/"] {
+            let signal = rescan_of(path, &data_volume);
+
+            assert!(matches!(signal, Signal::Lost), "{path}: {signal:?}");
+        }
+    }
+
+    #[test]
+    fn a_rescan_above_a_root_inside_a_firmlink_loses_the_batch() {
+        let project = through_firmlinks(
+            Path::new("/System/Volumes/Data/Users/me/project"),
+            FIRMLINKS,
         );
+
+        for path in ["/Users/me", "/Users", "/System/Volumes/Data/Users/me"] {
+            let signal = rescan_of(path, &project);
+
+            assert!(matches!(signal, Signal::Lost), "{path}: {signal:?}");
+        }
+    }
+
+    #[test]
+    fn a_change_names_its_path_inside_the_root_or_outside_it() {
+        for path in ["/parent/tree/a.rs", "/parent/other.rs"] {
+            let event =
+                Event::new(EventKind::Create(CreateKind::File)).add_path(PathBuf::from(path));
+
+            let signal = signal(Ok(event), &tree());
+
+            assert!(names(&signal, path), "{signal:?}");
+        }
     }
 
     #[test]
     fn an_error_from_the_stream_loses_the_batch() {
         assert!(matches!(
-            signal(Err(notify::Error::generic("stream failed"))),
+            signal(Err(notify::Error::generic("stream failed")), &tree()),
             Signal::Lost
         ));
     }
