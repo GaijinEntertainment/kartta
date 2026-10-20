@@ -8,7 +8,6 @@ use std::{io, iter};
 use notify::{Config, EventKindMask, RecommendedWatcher, RecursiveMode, Watcher as _};
 
 use super::{Found, WatchError, relative, start_error};
-use crate::pruned::PrunedNames;
 
 // constraint: notifications wait here while the caller walks the tree or refreshes it, so they are bounded; past this
 // many the batch is lost, as an inotify queue that overflowed loses its own, and one poll takes no more than this many,
@@ -29,11 +28,7 @@ enum Signal {
 }
 
 impl Backend {
-    pub(super) fn start(
-        _root: &Path,
-        prefixes: &[(PathBuf, String)],
-        _pruned_names: &PrunedNames,
-    ) -> Result<Self, WatchError> {
+    pub(super) fn start(_root: &Path, prefixes: &[(PathBuf, String)]) -> Result<Self, WatchError> {
         let (handler, signals, overflowed) = queue(prefixes);
         let config = Config::default().with_event_kinds(EventKindMask::CORE);
         let first = prefixes

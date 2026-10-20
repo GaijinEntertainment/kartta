@@ -147,7 +147,7 @@ impl Engine {
 
     /// Starts a [`Watcher`] on `root`, then builds as [`Engine::build`] does, walking the tree as
     /// [`kartta_fs::Index::build_watched`] does, so the watcher holds every change made while the build walked, which
-    /// [`Watcher::drain`] then hands over for [`Engine::refresh_paths`].
+    /// [`Watcher::drain`] then hands over for [`Engine::refresh_paths_watched`].
     ///
     /// # Errors
     ///

@@ -2,17 +2,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{Found, WatchError};
-use crate::pruned::PrunedNames;
 
 #[derive(Debug)]
 pub(super) enum Backend {}
 
 impl Backend {
-    pub(super) fn start(
-        root: &Path,
-        _prefixes: &[(PathBuf, String)],
-        _pruned_names: &PrunedNames,
-    ) -> Result<Self, WatchError> {
+    pub(super) fn start(root: &Path, _prefixes: &[(PathBuf, String)]) -> Result<Self, WatchError> {
         Err(WatchError::Unsupported {
             native_path: root.to_path_buf(),
         })
