@@ -400,3 +400,28 @@ fn a_changed_go_mod_resolves_every_go_file_again() {
     assert_eq!(refresh.resolved_again, 2, "main.go and lib/lib.go");
     assert_eq!(answers(&engine), answers(&build(tree.path(), false)));
 }
+
+#[test]
+fn an_engine_refreshed_again_and_again_follows_every_change() {
+    let tree = settled_tree();
+    let mut engine = build(tree.path(), true);
+
+    for round in 0..6 {
+        if round % 2 == 0 {
+            write(tree.path(), "src/later.h", "void later();\n");
+        } else {
+            fs::remove_file(tree.path().join("src/later.h")).expect("remove later.h");
+        }
+        let refresh = refreshed(engine.refresh_paths(["src/later.h"], None));
+
+        assert_eq!(
+            refresh.resolved_again, 1,
+            "src/a.cpp includes later.h, round {round}"
+        );
+        assert_eq!(
+            answers(&engine),
+            answers(&build(tree.path(), false)),
+            "round {round}"
+        );
+    }
+}
