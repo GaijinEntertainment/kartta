@@ -10,9 +10,9 @@ use notify::{Config, EventKindMask, RecommendedWatcher, RecursiveMode, Watcher a
 use super::{Found, WatchError, relative, start_error};
 use crate::index::Index;
 
-// constraint: notifications wait here while the caller refreshes, so they are bounded; past this many the batch is lost,
-// as an inotify queue that overflowed loses its own, and one poll takes no more than this many, so a stream that never
-// stops still lets a wait close its batch
+// constraint: notifications wait here while the caller refreshes, so they are bounded; past this many the batch is
+// lost, as an inotify queue that overflowed loses its own, and one poll takes no more than this many, so a stream that
+// never stops still lets a wait close its batch
 const QUEUED: usize = 65_536;
 
 #[derive(Debug)]

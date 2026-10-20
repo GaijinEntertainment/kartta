@@ -230,8 +230,8 @@ impl<'a> Indexing<'a> {
             ));
         }
 
-        // constraint: a name the check found regular is opened refusing a link, so a link renamed onto it after the check
-        // fails the read rather than escaping the tree
+        // constraint: a name the check found regular is opened refusing a link, so a link renamed onto it after the
+        // check fails the read rather than escaping the tree
         let symlinks = if via_symlink {
             Symlinks::Follow
         } else {
