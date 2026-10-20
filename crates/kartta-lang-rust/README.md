@@ -21,7 +21,9 @@ of an item that a function body declares is a local call of that item. The conve
 functions of the standard library that code calls most, so a call of one through a receiver or a path, `name.clone()`
 or `fs::write()`, binds a member of the name and no free function of the repository. They list `other` alone as the
 receiver of a value of the caller's own type, since a call on `self` binds through the type it records, so
-`input.parse()` inside a `parse` binds no member of the caller's own type.
+`input.parse()` inside a `parse` binds no member of the caller's own type. They say no call names a module, so
+`tree.walk()` beside a `mod walk;` binds no call to the module, and `text()` in a file that declares `mod text;` and
+`fn text` binds the function.
 
 A name read where no call takes it, `items.map(helper)`, `Handler { on_event: helper }` or `SETTINGS.enabled`, is a use
 of it, and so are `Self::make` and `Service::make` of the member `make`. A name a pattern binds, a parameter, a `let`,
