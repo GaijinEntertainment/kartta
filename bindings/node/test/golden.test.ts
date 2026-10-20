@@ -54,17 +54,18 @@ const goldens = {
 type Goldens = typeof goldens;
 
 /** The paths of the fields `Wire` holds and `Typed` does not name, at any depth; `never` when it names them all. */
-type Unnamed<Wire, Typed, Path extends string> = Wire extends readonly (infer Item)[]
-	? Typed extends readonly (infer TypedItem)[]
-		? Unnamed<Item, TypedItem, `${Path}[]`>
-		: Path
-	: Wire extends object
-		? {
-				[Key in keyof Wire & string]: Key extends keyof Typed
-					? Unnamed<Wire[Key], NonNullable<Typed[Key]>, `${Path}.${Key}`>
-					: `${Path}.${Key}`;
-			}[keyof Wire & string]
-		: never;
+type Unnamed<Wire, Typed, Path extends string> =
+	Wire extends ReadonlyArray<infer Item>
+		? Typed extends ReadonlyArray<infer TypedItem>
+			? Unnamed<Item, TypedItem, `${Path}[]`>
+			: Path
+		: Wire extends object
+			? {
+					[Key in keyof Wire & string]: Key extends keyof Typed
+						? Unnamed<Wire[Key], NonNullable<Typed[Key]>, `${Path}.${Key}`>
+						: `${Path}.${Key}`;
+				}[keyof Wire & string]
+			: never;
 
 type UnnamedFields = {
 	[M in keyof Methods]:

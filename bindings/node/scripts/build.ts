@@ -11,11 +11,11 @@ import {fileURLToPath} from 'node:url';
 
 import {target} from '../src/target.ts';
 
-interface CargoMessage {
+type CargoMessage = {
 	reason: string;
 	target?: {name: string};
 	filenames?: string[];
-}
+};
 
 const profile = process.argv.includes('--release') ? ['--release'] : [];
 const messages = execFileSync(
