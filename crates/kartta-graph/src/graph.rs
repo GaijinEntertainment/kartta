@@ -173,6 +173,12 @@ impl Graph {
         }
     }
 
+    /// The conventions the graph was made with, which its files' calls resolve under and their uses are recorded by.
+    #[must_use]
+    pub const fn conventions(&self) -> &Conventions {
+        &self.conventions
+    }
+
     /// Takes in one file's extraction, replacing whatever the graph held for the same path.
     ///
     /// Files can arrive in any order: the graph keeps them in path order, and placing a file among those it holds

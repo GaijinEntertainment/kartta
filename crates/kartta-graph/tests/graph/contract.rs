@@ -1,7 +1,7 @@
 //! The graph's contract: what it answers about the files it holds, and how a file going in or out changes that.
 
 use kartta_graph::{Definitions, Graph, Nearness};
-use kartta_lang::{Extraction, IncludeRef, Symbol, SymbolFlags, SymbolKind};
+use kartta_lang::{Conventions, Extraction, IncludeRef, Symbol, SymbolFlags, SymbolKind, TypeUses};
 
 use crate::{file, graph};
 
@@ -45,6 +45,15 @@ fn an_outline_tells_a_file_with_no_definitions_from_one_the_graph_does_not_hold(
         Some(0)
     );
     assert_eq!(graph.outline("absent.go"), None);
+}
+
+#[test]
+fn a_graph_answers_the_conventions_it_was_made_with() {
+    let mut conventions = Conventions::default();
+    conventions.type_uses = TypeUses::Nowhere;
+    let graph = Graph::new(conventions);
+
+    assert_eq!(graph.conventions(), &conventions);
 }
 
 #[test]
