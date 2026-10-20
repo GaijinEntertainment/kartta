@@ -1,32 +1,52 @@
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
+use std::ops::Range;
+
+use kartta_walk::EntryKind;
 
 use crate::filter::Filter;
-use crate::index::Index;
+use crate::index::{Candidate, Index, Paths, Selection};
 
-/// How many paths a glob search returns.
+/// What a glob search leaves out, and how many paths it returns.
 ///
 /// Every bound is absent by default, which returns every path the filter selects.
 ///
 /// # Examples
 ///
 /// ```
-/// use kartta_fs::GlobOptions;
+/// use kartta_fs::{Filter, GlobOptions};
 ///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let first_twenty = GlobOptions::default().limit(20);
+///
+/// let vendored = Filter::new(["**/vendor"])?;
+/// let without_vendored = GlobOptions::default().exclude(&vendored).limit(20);
+/// # Ok(())
+/// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
-pub struct GlobOptions {
+pub struct GlobOptions<'a> {
     /// How many paths to return at most. `None` returns all of them.
     pub limit: Option<NonZeroUsize>,
+    /// The paths to leave out, matched by their root-relative path: a matched file is not returned, and nothing beneath
+    /// a matched directory is, as [`ListOptions::exclude`](crate::ListOptions) treats one. [`Capped::excluded`] counts
+    /// what this removed. `None` excludes nothing.
+    pub exclude: Option<&'a Filter>,
 }
 
-impl GlobOptions {
+impl<'a> GlobOptions<'a> {
     /// Returns at most `limit` paths. `0` lifts the bound, as `None` does.
     #[must_use]
     pub const fn limit(mut self, limit: usize) -> Self {
         self.limit = NonZeroUsize::new(limit);
+        self
+    }
+
+    /// Leaves out every path `exclude` matches, and everything beneath a matched directory.
+    #[must_use]
+    pub const fn exclude(mut self, exclude: &'a Filter) -> Self {
+        self.exclude = Some(exclude);
         self
     }
 }
@@ -54,6 +74,7 @@ impl GlobOptions {
 pub struct Capped<'a> {
     items: Vec<usize>,
     truncated: bool,
+    excluded: usize,
     index: PhantomData<&'a Index>,
 }
 
@@ -72,6 +93,17 @@ impl Capped<'_> {
     pub const fn truncated(&self) -> bool {
         self.truncated
     }
+
+    /// How many non-directory paths the filter selects that [`GlobOptions::exclude`] removed, those beneath a removed
+    /// directory included. A removed directory is no match of its own, so it never counts.
+    ///
+    /// Counted up to where the answer ended, so an answer the limit cut short says nothing about exclusions past the
+    /// cut. Counting beneath a removed directory matches the filter against each path there: that one match is what an
+    /// exclusion does not save a glob, where a ranking, which counts nothing, skips the directory's subtree unmatched.
+    #[must_use]
+    pub const fn excluded(&self) -> usize {
+        self.excluded
+    }
 }
 
 impl Index {
@@ -86,6 +118,9 @@ impl Index {
     /// ranked search needs no such flag — its order already says the rest scored lower — but ten paths in index order
     /// look identical to the first ten of two hundred. It costs one extra match: the search pulls one path past the
     /// limit and reports whether it was there.
+    ///
+    /// [`GlobOptions::exclude`] removes paths before the limit sees them, so the limit is spent on what the exclusion
+    /// leaves and [`Capped::truncated`] stays exact; [`Capped::excluded`] counts what it removed.
     ///
     /// Directories are not returned. A path search answers "which file did you mean", and a directory that matches
     /// would otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are*
@@ -119,29 +154,48 @@ impl Index {
     /// # }
     /// ```
     #[must_use]
-    #[expect(
-        clippy::trivially_copy_pass_by_ref,
-        reason = "every query takes its options by reference, as list and fuzzy do; GlobOptions is one word only until \
-                  it grows a second bound"
-    )]
-    pub fn glob(&self, filter: &Filter, options: &GlobOptions) -> Capped<'_> {
+    pub fn glob(&self, filter: &Filter, options: &GlobOptions<'_>) -> Capped<'_> {
         let limit = options.limit.map_or(usize::MAX, NonZeroUsize::get);
         let mut items = Vec::new();
         let mut truncated = false;
+        let mut excluded = 0;
+        let mut beneath_paths = self.paths();
+        let selection = Selection {
+            filter: Some(filter),
+            exclude: options.exclude,
+        };
 
-        self.candidates(0..self.len(), Some(filter), |at, _| {
-            if items.len() == limit {
-                truncated = true;
-                return false;
+        self.candidates(0..self.len(), selection, |candidate| {
+            match candidate {
+                Candidate::Selected(..) if items.len() == limit => {
+                    truncated = true;
+                    return false;
+                }
+                Candidate::Selected(at, _) => items.push(at),
+                Candidate::Excluded => excluded += 1,
+                Candidate::ExcludedBeneath(beneath) => {
+                    excluded += self.selected_in(beneath, filter, &mut beneath_paths);
+                }
             }
-            items.push(at);
             true
         });
 
         Capped {
             items,
             truncated,
+            excluded,
             index: PhantomData,
         }
+    }
+
+    fn selected_in(
+        &self,
+        positions: Range<usize>,
+        filter: &Filter,
+        paths: &mut Paths<'_>,
+    ) -> usize {
+        positions
+            .filter(|&at| self.kind_at(at) != EntryKind::Dir && filter.matches(paths.get(at)))
+            .count()
     }
 }
