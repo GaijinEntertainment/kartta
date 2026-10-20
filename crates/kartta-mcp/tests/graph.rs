@@ -980,6 +980,52 @@ fn find_references_counts_the_calls_find_callers_could_not_bind() {
 }
 
 #[test]
+fn the_impact_tools_count_the_calls_find_callers_could_not_bind() {
+    let answers = answers_over_shared_method_names(&[
+        (
+            "impact_of_edit",
+            json!({"file": "src/cancel.rs", "start_line": 4, "end_line": 4}),
+        ),
+        (
+            "impact_of_change",
+            json!({"regions": [{"file": "src/index.rs", "start_line": 4, "end_line": 6}]}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<impact of="src/cancel.rs" start_line="4" end_line="4" symbols="1">"#,
+                concat!(
+                    r#"<symbol name="cancel" qn="CancelToken::cancel" kind="method" lines="4-4" callers="0" "#,
+                    r#"ambiguous="1" callees="0" reach="0" reach_files="1" reach_band="low" "#,
+                    r#"sig="pub fn cancel(&self)"/>"#,
+                ),
+                r#"<includes count="0"/>"#,
+                r#"<included-by count="1">"#,
+                r#"<file path="src/lib.rs"/>"#,
+                "</included-by>",
+                "</impact>",
+            ]),
+            lines(&[
+                concat!(
+                    r#"<change regions="1" changed_symbols="1" changed_files="1" footprint="0" "#,
+                    r#"footprint_files="0">"#,
+                ),
+                r#"<seeds shown="1" of="1">"#,
+                concat!(
+                    r#"<seed name="refresh_paths" qn="Index::refresh_paths" kind="method" loc="src/index.rs:4-6" "#,
+                    r#"callers="0" ambiguous="2" reach="0" reach_band="low"/>"#,
+                ),
+                "</seeds>",
+                "</change>",
+            ]),
+        ]
+    );
+}
+
+#[test]
 fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
     let answers = answers(&[
         ("find_callees", json!({"name": "main"})),

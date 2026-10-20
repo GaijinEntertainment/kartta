@@ -404,6 +404,7 @@ pub(crate) fn impact(file: &str, lines: (u32, u32), segment: Option<&Segment<'_>
                         format!("{}-{}", definition.line, definition.end_line),
                     )
                     .attr("callers", symbol.callers.total)
+                    .count("ambiguous", symbol.ambiguous)
                     .attr("callees", symbol.callees.total)
                     .attr("reach", blast.reach)
                     .attr("reach_files", blast.affected_files)
@@ -477,6 +478,7 @@ fn seed(seed: &Seed<'_>) -> String {
         .attr("kind", kind(symbol.kind))
         .attr("loc", span(symbol))
         .attr("callers", seed.caller_count)
+        .count("ambiguous", seed.ambiguous)
         .attr("reach", seed.reach)
         .attr("reach_band", seed.band.label())
         .flag("truncated", seed.truncated)
