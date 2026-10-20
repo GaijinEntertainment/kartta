@@ -7,7 +7,7 @@
             {
               "depth": 1,
               "symbol": {
-                "end_line": 8,
+                "end_line": 9,
                 "exported": true,
                 "file": "cpp/circle.h",
                 "kind": "class",

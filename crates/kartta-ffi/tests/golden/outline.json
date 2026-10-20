@@ -6,7 +6,7 @@
       "held": true,
       "symbols": [
         {
-          "end_line": 8,
+          "end_line": 9,
           "exported": true,
           "file": "cpp/circle.h",
           "kind": "class",
@@ -24,6 +24,20 @@
           "owner": "Circle",
           "qualified_name": "Circle::area",
           "signature": "double area() const override"
+        },
+        {
+          "end_line": 8,
+          "exported": true,
+          "file": "cpp/circle.h",
+          "flags": [
+            "entry"
+          ],
+          "kind": "method",
+          "line": 8,
+          "name": "Circle",
+          "owner": "Circle",
+          "qualified_name": "Circle::Circle",
+          "signature": "Circle()"
         }
       ]
     }

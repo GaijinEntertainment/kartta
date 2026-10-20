@@ -9,15 +9,18 @@
             {
               "count": 0,
               "symbol": {
-                "end_line": 5,
+                "end_line": 8,
                 "exported": true,
-                "file": "cpp/shape.h",
+                "file": "cpp/circle.h",
+                "flags": [
+                  "entry"
+                ],
                 "kind": "method",
-                "line": 5,
-                "name": "area",
-                "owner": "Shape",
-                "qualified_name": "Shape::area",
-                "signature": "virtual double area() const = 0"
+                "line": 8,
+                "name": "Circle",
+                "owner": "Circle",
+                "qualified_name": "Circle::Circle",
+                "signature": "Circle()"
               }
             }
           ],
@@ -33,32 +36,31 @@
             {
               "access": "read",
               "call": true,
-              "confidence": 85,
-              "line": 8,
+              "confidence": 70,
+              "line": 12,
               "site_of": {
-                "end_line": 9,
+                "end_line": 13,
                 "exported": true,
                 "file": "cpp/circle.cpp",
                 "kind": "func",
-                "line": 7,
-                "name": "total",
-                "qualified_name": "total",
-                "signature": "double total(const Circle &circle)"
+                "line": 11,
+                "name": "unit",
+                "qualified_name": "unit",
+                "signature": "Circle unit()"
               }
             }
           ],
           "symbol": {
-            "end_line": 5,
+            "end_line": 9,
             "exported": true,
-            "file": "cpp/circle.cpp",
-            "kind": "method",
-            "line": 3,
-            "name": "area",
-            "owner": "Circle",
-            "qualified_name": "Circle::area",
-            "signature": "double Circle::area() const"
+            "file": "cpp/circle.h",
+            "kind": "class",
+            "line": 5,
+            "name": "Circle",
+            "qualified_name": "Circle"
           },
-          "total": 1
+          "total": 1,
+          "type_uses_unrecorded": true
         }
       ]
     }
@@ -66,6 +68,6 @@
   "method": "references",
   "params": {
     "lang": "cpp",
-    "name": "area"
+    "name": "Circle"
   }
 }
