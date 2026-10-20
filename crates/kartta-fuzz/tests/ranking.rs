@@ -143,6 +143,11 @@ fn an_empty_query_keeps_its_limit_for_a_caller_that_keeps_offering() {
         .collect();
 
     assert_eq!(answers, [true, false, false, false]);
+    assert_eq!(
+        ranking.matched(),
+        4,
+        "every offered candidate matches an empty query, those past its limit included"
+    );
     let positions: Vec<usize> = ranking
         .finish()
         .iter()
@@ -165,6 +170,59 @@ fn limit_truncates_after_ranking() {
         candidates[limited[0].position], "src/main.rs",
         "the cap keeps the best, not the first"
     );
+}
+
+#[test]
+fn a_ranking_counts_every_match_its_limit_keeps_out() {
+    let candidates = ["src/main.rs", "main/lib.rs", "src/lib.rs", "docs/main.md"];
+    let counted = |query: &str| {
+        let mut ranking = Ranking::new(query, NonZeroUsize::new(1));
+        for (position, candidate) in candidates.iter().enumerate() {
+            ranking.offer(position, candidate);
+        }
+        (ranking.matched(), ranking.finish().len())
+    };
+
+    assert_eq!(counted("main"), (3, 1), "src/lib.rs holds no main");
+    assert_eq!(
+        counted("main rs"),
+        (2, 1),
+        "a match holds every term, and docs/main.md holds no rs"
+    );
+    assert_eq!(counted("zz"), (0, 0));
+}
+
+#[test]
+fn slices_offered_in_full_count_what_the_whole_list_counts() {
+    let paths = [
+        "a/main.rs",
+        "src/lib.rs",
+        "main/lib.rs",
+        "docs/main.md",
+        "lib.rs",
+    ];
+    let limits = [None, NonZeroUsize::new(1)];
+
+    for (query, limit) in ["main", "", "rs", "zz"]
+        .iter()
+        .flat_map(|&query| limits.map(|limit| (query, limit)))
+    {
+        let counted = |range: std::ops::Range<usize>| {
+            let mut ranking = Ranking::new(query, limit);
+            for position in range {
+                ranking.offer(position, paths[position]);
+            }
+            ranking.matched()
+        };
+
+        for split in 0..=paths.len() {
+            assert_eq!(
+                counted(0..split) + counted(split..paths.len()),
+                counted(0..paths.len()),
+                "query {query:?}, limit {limit:?}, split at {split}"
+            );
+        }
+    }
 }
 
 #[test]
