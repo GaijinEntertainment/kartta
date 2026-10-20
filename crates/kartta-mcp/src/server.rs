@@ -1026,14 +1026,16 @@ impl Server {
                        sampled <ref/> lists (each carrying an explicit role=, \"consumer\" for a real caller/callee or \
                        test/entry/generated for a reach artifact, at= for the line of the call, and weakly resolved \
                        edges marked confidence=likely/guess; a shown=/of= pair on the enclosing <callers>/<callees> \
-                       discloses the 50-ref sampling cap), unresolved= for the calls into code the graph does not \
-                       hold, and the reach (how many symbols across how many files transitively depend on it within 3 \
-                       hops, with a reach-band grade; truncated=true when the 500-symbol cap stopped the walk) - plus \
-                       <includes> and <included-by> file lists. A range covering only file-scope code (imports, \
-                       comments) reports zero symbols and still lists the file's includes and includers when it has \
-                       any; zero symbols means nothing is defined there, not that the edit is safe. For one named \
-                       function use find_callers; for whole-file impact use find_importers. Requires index_repo \
-                       first."
+                       discloses the 50-ref sampling cap), ambiguous= for the calls of its name that bound no \
+                       definition because several definitions of the name may be meant, any of which may call it and \
+                       none of which callers= or the reach counts, unresolved= for the calls into code the graph does \
+                       not hold, each of the two only when it is not zero, and the reach (how many symbols across how \
+                       many files transitively depend on it within 3 hops, with a reach-band grade; truncated=true \
+                       when the 500-symbol cap stopped the walk) - plus <includes> and <included-by> file lists. A \
+                       range covering only file-scope code (imports, comments) reports zero symbols and still lists \
+                       the file's includes and includers when it has any; zero symbols means nothing is defined there, \
+                       not that the edit is safe. For one named function use find_callers; for whole-file impact use \
+                       find_importers. Requires index_repo first."
     )]
     async fn impact_of_edit(
         &self,
@@ -1087,11 +1089,12 @@ impl Server {
                        count of what was left out appears only when it is not zero: unheld_regions= the regions in \
                        files no code graph holds, regions_outside_symbols= those overlapping no symbol, \
                        truncated_walks= the changed symbols whose walk the 500-symbol cap stopped (truncated=true and \
-                       turned_away= on the seed), and unexpanded= on a seed the callers whose own callers its walk \
-                       did not follow, at the 3-hop bound or left by the cap, so its reach counts none beyond them. \
-                       Callers through dynamic dispatch, function values and code outside \
-                       the repository are not seen, so a small footprint is not proof the change is safe. Requires \
-                       index_repo first."
+                       turned_away= on the seed), unexpanded= on a seed the callers whose own callers its walk did not \
+                       follow, at the 3-hop bound or left by the cap, so its reach counts none beyond them, and \
+                       ambiguous= on a seed the calls of its name that bound no definition because several definitions \
+                       of the name may be meant, any of which may call it and none of which its callers or its reach \
+                       count. Callers through dynamic dispatch, function values and code outside the repository are \
+                       not seen, so a small footprint is not proof the change is safe. Requires index_repo first."
     )]
     async fn impact_of_change(
         &self,
