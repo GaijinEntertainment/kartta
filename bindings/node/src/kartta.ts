@@ -55,14 +55,16 @@ export type * from './wire.ts';
 
 const TARGETS = ['darwin-arm64', 'linux-x64-gnu', 'linux-arm64-gnu'];
 
+const decoder = new TextDecoder();
+
 type Addon = {
-	open(params: string): Handle | Buffer;
+	open(params: string): Handle | Uint8Array;
 };
 
 type Handle = {
-	build(params: string): Promise<Buffer>;
-	call(method: string, params: string): Promise<Buffer>;
-	cancel(params: string): Buffer;
+	build(params: string): Promise<Uint8Array>;
+	call(method: string, params: string): Promise<Uint8Array>;
+	cancel(params: string): Uint8Array;
 	close(): void;
 };
 
@@ -102,9 +104,9 @@ export class Kartta {
 	 */
 	static open(root: string): Kartta {
 		const opened = addon().open(JSON.stringify({root}));
-		if (Buffer.isBuffer(opened)) {
+		if (opened instanceof Uint8Array) {
 			// SAFETY: the addon answers a failed open as the wire's error object, which the golden files pin.
-			const {code, message} = JSON.parse(opened.toString()) as {code: Code; message: string};
+			const {code, message} = JSON.parse(decoder.decode(opened)) as {code: Code; message: string};
 			throw new KarttaError(code, message);
 		}
 		return new Kartta(opened);
@@ -345,9 +347,9 @@ function load(): Addon {
 	);
 }
 
-function answer(envelope: Buffer): unknown {
+function answer(envelope: Uint8Array): unknown {
 	// SAFETY: the dispatch answers every call with the wire's envelope, `{ok}` or `{err: {code, message}}`.
-	const parsed = JSON.parse(envelope.toString()) as {ok: unknown} | {err: {code: Code; message: string}};
+	const parsed = JSON.parse(decoder.decode(envelope)) as {ok: unknown} | {err: {code: Code; message: string}};
 	if ('err' in parsed) {
 		throw new KarttaError(parsed.err.code, parsed.err.message);
 	}
