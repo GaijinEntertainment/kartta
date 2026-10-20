@@ -754,6 +754,100 @@ fn a_filter_narrows_what_fuzzy_ranks() {
 }
 
 #[test]
+fn a_glob_exclusion_removes_a_file_and_a_directory_with_everything_beneath_it() {
+    let dir = tree(&[
+        ("src/main.rs", ""),
+        ("src/notes.md", ""),
+        ("vendor/dep/lib.rs", ""),
+        ("vendor/dep/more.rs", ""),
+        ("vendor/dep/README.md", ""),
+        ("generated.rs", ""),
+    ]);
+    let index = default_index(dir.path());
+    let sources = filter(&["*.rs"]);
+    let left_out = filter(&["vendor", "generated.rs"]);
+
+    let found = index.glob(&sources, &GlobOptions::default().exclude(&left_out));
+
+    assert_eq!(
+        paths_at(&index, found.items().iter().copied()),
+        ["src/main.rs"],
+        "vendor names neither file beneath it, and still removes both"
+    );
+    assert_eq!(
+        found.excluded(),
+        3,
+        "both .rs files under vendor and generated.rs; the .md files were never selected"
+    );
+}
+
+#[test]
+fn a_glob_limit_stays_exact_under_an_exclusion() {
+    let dir = tree(&[
+        ("a/skipped.rs", ""),
+        ("b.rs", ""),
+        ("c.rs", ""),
+        ("d/skipped.rs", ""),
+    ]);
+    let index = default_index(dir.path());
+    let sources = filter(&["*.rs"]);
+    let skipped = filter(&["a", "d"]);
+
+    let whole = index.glob(&sources, &GlobOptions::default().exclude(&skipped).limit(2));
+    assert_eq!(
+        paths_at(&index, whole.items().iter().copied()),
+        ["b.rs", "c.rs"]
+    );
+    assert!(
+        !whole.truncated(),
+        "the excluded paths neither count toward the limit nor stand past it"
+    );
+    assert_eq!(whole.excluded(), 2);
+
+    let cut = index.glob(&sources, &GlobOptions::default().exclude(&skipped).limit(1));
+    assert_eq!(paths_at(&index, cut.items().iter().copied()), ["b.rs"]);
+    assert!(cut.truncated(), "c.rs matched and was turned away");
+    assert_eq!(
+        cut.excluded(),
+        1,
+        "the answer ended at c.rs, so d/skipped.rs past the cut is not counted"
+    );
+}
+
+#[test]
+fn a_fuzzy_exclusion_removes_a_file_and_a_directory_with_everything_beneath_it() {
+    let dir = tree(&[
+        ("src/main.rs", ""),
+        ("src/domain.rs", ""),
+        ("vendor/main.rs", ""),
+        ("vendor/deep/main.c", ""),
+        ("main.log", ""),
+    ]);
+    let index = default_index(dir.path());
+    let left_out = filter(&["vendor", "*.log"]);
+
+    let everything = index.fuzzy("main", &FuzzyOptions::default().limit(1));
+    assert_eq!(
+        paths_at(&index, everything.iter().map(|found| found.position)),
+        ["main.log"],
+        "the shortest filename hit ranks first when nothing is excluded"
+    );
+
+    let ranked = index.fuzzy("main", &FuzzyOptions::default().exclude(&left_out));
+    assert_eq!(
+        paths_at(&index, ranked.iter().map(|found| found.position)),
+        ["src/main.rs", "src/domain.rs"]
+    );
+
+    let capped = index.fuzzy("main", &FuzzyOptions::default().exclude(&left_out).limit(1));
+    assert_eq!(
+        paths_at(&index, capped.iter().map(|found| found.position)),
+        ["src/main.rs"],
+        "the limit is spent on what the exclusion leaves"
+    );
+}
+
+#[test]
 fn a_glob_query_and_a_fuzzy_query_select_from_the_same_set() {
     let dir = tree(&[
         ("src/main.rs", ""),
