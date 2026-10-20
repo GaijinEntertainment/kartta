@@ -19,7 +19,46 @@ pub(crate) struct Graphed<'b, T> {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct Matches<'b, T> {
-    matches: Vec<Graphed<'b, T>>,
+    #[serde(rename = "matches")]
+    parts: Vec<Graphed<'b, T>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    read_as: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    from_read_as: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_read_as: Option<String>,
+}
+
+impl<'b, T> Matches<'b, T> {
+    pub(crate) fn read(found: Vec<(&'b str, T)>, [read_as]: [Option<String>; 1]) -> Self {
+        Self {
+            read_as,
+            ..Self::new(found)
+        }
+    }
+
+    pub(crate) fn read_ends(
+        found: Vec<(&'b str, T)>,
+        [from_read_as, to_read_as]: [Option<String>; 2],
+    ) -> Self {
+        Self {
+            from_read_as,
+            to_read_as,
+            ..Self::new(found)
+        }
+    }
+
+    fn new(found: impl IntoIterator<Item = (&'b str, T)>) -> Self {
+        Self {
+            parts: found
+                .into_iter()
+                .map(|(graph, answer)| Graphed { graph, answer })
+                .collect(),
+            read_as: None,
+            from_read_as: None,
+            to_read_as: None,
+        }
+    }
 }
 
 impl Built {
@@ -28,20 +67,21 @@ impl Built {
         lang: Option<&str>,
         ask: impl Fn(&'b Graph) -> Option<T>,
     ) -> Result<Matches<'b, T>, Error> {
+        let searched = self.graphs(lang)?;
+        Ok(Matches::new(
+            searched.filter_map(|(graph, held)| Some((graph, ask(held)?))),
+        ))
+    }
+
+    pub(crate) fn graphs(
+        &self,
+        lang: Option<&str>,
+    ) -> Result<impl Iterator<Item = (&str, &Graph)> + Clone, Error> {
         let family = lang.map(|lang| self.family_named(lang)).transpose()?;
-        Ok(Matches {
-            matches: self
-                .engine
-                .graphs()
-                .filter(|(name, _)| family.is_none_or(|family| family == *name))
-                .filter_map(|(graph, held)| {
-                    Some(Graphed {
-                        graph,
-                        answer: ask(held)?,
-                    })
-                })
-                .collect(),
-        })
+        Ok(self
+            .engine
+            .graphs()
+            .filter(move |(name, _)| family.is_none_or(|family| family == *name)))
     }
 
     fn family_named(&self, lang: &str) -> Result<&str, Error> {

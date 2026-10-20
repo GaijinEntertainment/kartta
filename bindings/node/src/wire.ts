@@ -183,6 +183,17 @@ export type Version = {
  */
 export type Matches<T> = {
 	matches: T[];
+	/**
+	 * The name the parts answer for when the params' qualified name selects no symbol as written in the graphs asked:
+	 * the name read with each `.` as `::`, or else each `::` as `.`, as `Index.refresh` is read as Rust's
+	 * `Index::refresh`. A name that selects as written is never read, and the key is then absent, as it is for `search`,
+	 * `dead_code` and `resolution`. A reading the method then answers nothing for leaves `matches` empty.
+	 */
+	read_as?: string;
+	/** The reading of a `call_path`'s `from`, each end read on its own. */
+	from_read_as?: string;
+	/** The reading of a `call_path`'s `to`, each end read on its own. */
+	to_read_as?: string;
 };
 
 /** A symbol a graph holds, where it is defined. */

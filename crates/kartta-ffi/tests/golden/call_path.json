@@ -1,6 +1,7 @@
 {
   "answer": {
     "ok": {
+      "from_read_as": "main.main",
       "matches": [
         {
           "at_depth_bound": 0,
@@ -72,13 +73,14 @@
           "truncated": false,
           "turned_away": 0
         }
-      ]
+      ],
+      "to_read_as": "main.helper"
     }
   },
   "method": "call_path",
   "params": {
-    "from": "main",
+    "from": "main::main",
     "lang": "go",
-    "to": "helper"
+    "to": "main::helper"
   }
 }

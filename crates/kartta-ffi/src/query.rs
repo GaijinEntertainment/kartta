@@ -1,6 +1,6 @@
-use kartta::{Region, SourceOptions};
+use kartta::{Region, Selector, SourceOptions, ask_reading, is_parent, is_referent};
 
-use crate::built::Built;
+use crate::built::{Built, Matches};
 use crate::error::Error;
 use crate::wire::files::{FuzzyParams, FuzzyView, GlobParams, GlobView, ListParams, ListView};
 use crate::wire::graph::{DefinitionsView, FileView, OutlineView, Wired};
@@ -42,53 +42,76 @@ fn stats(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
 fn callers(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: WalkParams = wire::params(params)?;
     let limits = params.limits(CALLERS_DEPTH);
-    wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        graph.callers(params.selector(), limits).map(Wired)
-    })?)
+    let (found, read_as) = ask_reading(
+        built.graphs(params.lang.as_deref())?,
+        [params.selector()],
+        |_| true,
+        |(name, graph), [named]| Some((name, Wired(graph.callers(named, limits)?))),
+    );
+    wire::ok(&Matches::read(found, read_as))
 }
 
 fn callees(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: WalkParams = wire::params(params)?;
     let limits = params.limits(CALLEES_DEPTH);
-    wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        graph.callees(params.selector(), limits).map(Wired)
-    })?)
+    let (found, read_as) = ask_reading(
+        built.graphs(params.lang.as_deref())?,
+        [params.selector()],
+        |_| true,
+        |(name, graph), [named]| Some((name, Wired(graph.callees(named, limits)?))),
+    );
+    wire::ok(&Matches::read(found, read_as))
 }
 
 fn call_path(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: CallPathParams = wire::params(params)?;
     let limits = params.limits();
-    wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        graph
-            .call_path(params.from(), params.to(), limits)
-            .map(Wired)
-    })?)
+    let (found, read_as) = ask_reading(
+        built.graphs(params.lang.as_deref())?,
+        [params.from(), params.to()],
+        |_| true,
+        |(name, graph), [from, to]| Some((name, Wired(graph.call_path(from, to, limits)?))),
+    );
+    wire::ok(&Matches::read_ends(found, read_as))
 }
 
 fn references(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: ReferencesParams = wire::params(params)?;
-    wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        graph
-            .references(params.selector(), params.query())
-            .map(Wired)
-    })?)
+    let (found, read_as) = ask_reading(
+        built.graphs(params.lang.as_deref())?,
+        [params.selector()],
+        is_referent,
+        |(name, graph), [named]| Some((name, Wired(graph.references(named, params.query())?))),
+    );
+    wire::ok(&Matches::read(found, read_as))
 }
 
 fn implementations(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: ImplementationsParams = wire::params(params)?;
-    wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        graph
-            .implementations(params.selector(), params.depth(), params.limit())
-            .map(Wired)
-    })?)
+    let (found, read_as) = ask_reading(
+        built.graphs(params.lang.as_deref())?,
+        [params.selector()],
+        is_parent,
+        |(name, graph), [named]| {
+            let found = graph.implementations(named, params.depth(), params.limit())?;
+            Some((name, Wired(found)))
+        },
+    );
+    wire::ok(&Matches::read(found, read_as))
 }
 
 fn definitions(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: DefinitionsParams = wire::params(params)?;
-    wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        let found = graph.definitions(&params.name, params.from.as_deref(), params.limit());
-        (found.total > 0).then(|| DefinitionsView::new(&found, None))
-    })?)
+    let (found, read_as) = ask_reading(
+        built.graphs(params.lang.as_deref())?,
+        [Selector::new(&params.name)],
+        |_| true,
+        |(name, graph), [named]| {
+            let found = graph.definitions(named.name, params.from.as_deref(), params.limit());
+            (found.total > 0).then(|| (name, DefinitionsView::new(&found, None)))
+        },
+    );
+    wire::ok(&Matches::read(found, read_as))
 }
 
 fn sources(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
@@ -96,15 +119,21 @@ fn sources(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let options = SourceOptions::default()
         .max_lines(params.max_lines)
         .max_line_bytes(params.max_line_bytes);
-    wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        let found = graph.definitions(&params.name, params.from.as_deref(), params.limit());
-        if found.total == 0 {
-            return None;
-        }
-        let asked: Vec<_> = found.found.iter().map(|found| found.definition).collect();
-        let sources = built.engine.sources(&asked, options);
-        Some(DefinitionsView::new(&found, Some(sources)))
-    })?)
+    let (found, read_as) = ask_reading(
+        built.graphs(params.lang.as_deref())?,
+        [Selector::new(&params.name)],
+        |_| true,
+        |(name, graph), [named]| {
+            let found = graph.definitions(named.name, params.from.as_deref(), params.limit());
+            if found.total == 0 {
+                return None;
+            }
+            let asked: Vec<_> = found.found.iter().map(|found| found.definition).collect();
+            let sources = built.engine.sources(&asked, options);
+            Some((name, DefinitionsView::new(&found, Some(sources))))
+        },
+    );
+    wire::ok(&Matches::read(found, read_as))
 }
 
 fn search(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {

@@ -4,6 +4,14 @@ package wire
 // the one graph the params' Lang names, in the order of the engine's graphs. Each part names its graph.
 type Matches[T any] struct {
 	Matches []T `json:"matches"`
+	// ReadAs is the name the parts answer for when the params' qualified name selects no symbol as written in the
+	// graphs asked: the name read with each "." as "::", or else each "::" as ".", as "Index.refresh" is read as Rust's
+	// "Index::refresh". A name that selects as written is never read, and ReadAs is then empty, as it is for search,
+	// dead_code and resolution. A reading the method then answers nothing for leaves Matches empty.
+	ReadAs string `json:"read_as,omitempty"`
+	// FromReadAs and ToReadAs are the readings of a call_path's From and To, each end read on its own.
+	FromReadAs string `json:"from_read_as,omitempty"`
+	ToReadAs   string `json:"to_read_as,omitempty"`
 }
 
 // WalkParams are the params of the callers and callees methods.
