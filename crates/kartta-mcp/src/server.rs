@@ -283,7 +283,8 @@ impl Server {
                        calls, uses and includes. Run this first - every other tool queries this index and errors \
                        until it exists. Takes seconds on large repositories; one repository is indexed per server, \
                        and indexing another replaces the previous one (a build of the same root and languages already \
-                       under way is waited for, not repeated). Returns an <index> envelope with one <language/> record \
+                       under way is waited for, not repeated). Returns an <index> envelope, its gitignore= naming the \
+                       ignore files that applied as index_stats describes, with one <language/> record \
                        per built graph (files, symbols, calls, uses and includes, plus 'files_without_symbols' when a \
                        language's files did not all yield symbols and 'unheld' when some files it claims are binary or \
                        unreadable), and an <errors> block listing what the walk could not read - those language names \
@@ -320,7 +321,12 @@ impl Server {
                        code each language has, to tell a genuinely empty answer from missing coverage, or to check \
                        whether a repository is indexed at all. watch=\"following\" means the index takes in by itself \
                        each edit the operating system reports; watch=\"off: <reason>\" means answers stay as the index \
-                       last read the tree until refresh runs. While a build runs it answers status=\"building\" with \
+                       last read the tree until refresh runs. gitignore=\"in-tree\" means the .gitignore files inside \
+                       the root applied, and no other ignore file did ($GIT_DIR/info/exclude, a global excludes file); \
+                       gitignore=\"ignored\" means none applied (index_ignored). A root inside a repository whose top \
+                       is above it reads gitignore=\"in-tree: the root is inside the repository at <top>, whose \
+                       .gitignore files above the root were not read\": the index can hold files those hide. While a \
+                       build runs it answers status=\"building\" with \
                        the seconds so far. Returns the same <index> envelope index_repo produced. With \
                        coverage=true it also resolves every call site and adds one <coverage/> record per language: \
                        sites, bound (split into certain / likely / guess, the confidence marks of the call tools), \

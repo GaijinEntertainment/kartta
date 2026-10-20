@@ -76,8 +76,8 @@ pub(crate) struct IndexRepoParams {
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
     /// Whether to also index the files .gitignore hides - build output, vendored code, node_modules... Defaults to
-    /// false, which applies every .gitignore inside the tree and is almost always what you want: their size reflects
-    /// what the machine has built, not what the repository contains.
+    /// false, which applies every .gitignore inside the tree, and none in a directory above the root, and is almost
+    /// always what you want: their size reflects what the machine has built, not what the repository contains.
     #[serde(default)]
     pub(crate) index_ignored: bool,
 }
