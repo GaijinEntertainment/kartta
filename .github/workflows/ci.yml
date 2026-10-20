@@ -82,6 +82,8 @@ jobs:
         working-directory: bindings/go
       - run: go test -race ./...
         working-directory: bindings/go
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+        working-directory: bindings/go
 
   # The Node binding, loading the addon the same checkout builds. Its tests replay the golden files through every typed
   # call and run builds that a signal or close cancels, and its type check holds the wire types to the golden answers.
