@@ -11,8 +11,8 @@ kartta-mcp [ROOT]
 `KARTTA_ROOT`, starts that build at launch; until it finishes, `index_stats` answers that it is building and every other
 query answers an error saying so. One repository is indexed per process, and indexing another replaces it.
 
-A built index follows its tree through the operating system's change notifications, refreshes itself from each change,
-and refreshes the whole tree once when it starts, for the changes made while it was built. `index_stats` says
+A built index follows its tree through the operating system's change notifications, from a watch started before the
+build walked the tree, and refreshes itself from each change, those made while it was built included. `index_stats` says
 `watch="following"`, or `watch="off: <reason>"` when `KARTTA_WATCH` turned it off, the inotify watch limit is too low
 for the tree's directories, the notifications stopped, or the platform has none. `refresh` brings the index up to the
 tree at the paths it is given or across the whole tree, for a watch that is off or a change made where notifications
