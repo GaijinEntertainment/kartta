@@ -870,7 +870,6 @@ impl Server {
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: None,
-                floored: false,
             };
             Ok(render::implementations(&ask, &found, &unmatched))
         })
@@ -1030,9 +1029,12 @@ impl Server {
                        lists at most 100 sites one by one, then names 50 more files with their sites= count alone. It \
                        carries shown= only when it lists fewer sites than count=, a <file> carries shown= only when it \
                        lists part of its sites, and files_shown= appears only when the match names fewer files than \
-                       files=; below_confidence= counts the sites the floor dropped \
+                       files=; below_confidence= counts the sites the floor dropped, whatever access keeps, \
                        and passed_over= the other symbols the name selects, the most used of them listed as up to 5 \
-                       <candidate sites=N/> records - path_prefix picks one. A name several symbols end with lists \
+                       <candidate sites=N/> records - path_prefix picks one. A match with no site states what the \
+                       graph does not record; with below_confidence=, it states only how many sites bind below the \
+                       confidence floor, which min_confidence \"any\" lists, without access where one was asked. A \
+                       name several symbols end with lists \
                        them instead; an unknown name answers with up to 5 close alternatives (did you mean). Requires \
                        index_repo first."
     )]
@@ -1071,9 +1073,13 @@ impl Server {
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: None,
-                floored: floor != 0,
             };
-            Ok(render::references(&ask, &found, &unmatched))
+            Ok(render::references(
+                &ask,
+                p.access.is_some(),
+                &found,
+                &unmatched,
+            ))
         })
         .await
     }
@@ -1248,8 +1254,9 @@ impl Server {
                        A field's match reads \"a field is read and written, not called; find_references lists its \
                        reads and writes\", and an enum variant's \"the graph records no call or other use of this \
                        enum-variant; grep searches the text for its name\". For any other kind, it states that no \
-                       call names it, or that no call at the confidence floor names it, and that find_references lists \
-                       its recorded uses. An unknown name answers with up to 5 close alternatives (did you mean). \
+                       call names it, and that find_references lists its recorded uses. Only the note of a floor that \
+                       dropped callers names the floor. An unknown name answers with up to 5 close alternatives (did \
+                       you mean). \
                        Calls through an interface may be missed - check find_implementations of the interface too. \
                        Requires index_repo first."
     )]
@@ -1283,7 +1290,6 @@ impl Server {
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: p.role.map(CallerRole::as_str),
-                floored: p.min_confidence.floor() != 0,
             };
             Ok(render::callers(&ask, &walks, &unmatched))
         })
@@ -1307,7 +1313,9 @@ impl Server {
                        <candidate callers=N/> records; path_prefix picks one), unexpanded= the callees whose own \
                        callees were not followed, at the hops limit or left when the node cap stopped the walk, \
                        below_confidence= the callees the floor dropped, and turned_away= with truncated=true when the \
-                       node cap (500) stopped the walk. A call \
+                       node cap (500) stopped the walk. A match without callees states that no call in its body binds \
+                       a definition the graph holds; with below_confidence=, it states only how many callees bind \
+                       below the confidence floor, which min_confidence \"any\" lists. A call \
                        through a function value, an interface or a virtual method binds only where the graph can name \
                        its target, so a callee missing here can still run. An unknown name answers with up to 5 close \
                        alternatives (did you mean). Requires index_repo first."
@@ -1318,9 +1326,8 @@ impl Server {
     ) -> Result<String, String> {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
-            let floor = p.min_confidence.floor();
             let limits = Limits::new(p.hops.map_or(CALLEE_HOPS, NonZeroU32::get))
-                .with_min_confidence(floor)
+                .with_min_confidence(p.min_confidence.floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = p.path_prefix.as_deref();
@@ -1343,7 +1350,6 @@ impl Server {
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: None,
-                floored: floor != 0,
             };
             Ok(render::callees(&ask, &walks, &unmatched))
         })
