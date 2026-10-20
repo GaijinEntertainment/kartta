@@ -109,6 +109,7 @@ pub struct Ranking {
     limit: Option<NonZeroUsize>,
     heap: BinaryHeap<Ranked>,
     all: Vec<Ranked>,
+    matched: usize,
 }
 
 impl Ranking {
@@ -124,6 +125,7 @@ impl Ranking {
             limit,
             heap: BinaryHeap::new(),
             all: Vec::new(),
+            matched: 0,
         }
     }
 
@@ -133,6 +135,7 @@ impl Ranking {
     /// the rest is turned away unscored.
     pub fn offer(&mut self, position: usize, candidate: &str) -> bool {
         if self.terms.is_empty() {
+            self.matched += 1;
             if self.has_room() {
                 self.all.push(Ranked {
                     position,
@@ -146,6 +149,7 @@ impl Ranking {
         let Some(score) = self.score_terms(candidate) else {
             return true;
         };
+        self.matched += 1;
         let entry = Ranked {
             position,
             score,
@@ -164,6 +168,15 @@ impl Ranking {
             self.heap.push(entry);
         }
         true
+    }
+
+    /// How many offered candidates matched every term, those the limit kept out of the ranking included.
+    ///
+    /// An empty query matches every candidate, so it counts what was offered, which stops short of the list where a
+    /// caller stops at [`offer`](Self::offer)'s `false`.
+    #[must_use]
+    pub const fn matched(&self) -> usize {
+        self.matched
     }
 
     /// The ranking, best first, keeping only the candidates that match every term.
@@ -193,7 +206,8 @@ impl Ranking {
     ///
     /// Merging is associative: a merge of consecutive rankings is itself a ranking of their slices put together, so
     /// rankings can be merged in any grouping that keeps their order — pairwise as parallel tasks finish, say — and
-    /// answer as one merge of them all.
+    /// answer as one merge of them all. Where every slice was offered in full, the slices' [`matched`](Self::matched)
+    /// counts sum to the whole list's.
     #[must_use]
     pub fn merge(
         rankings: impl IntoIterator<Item = Vec<Ranked>>,
