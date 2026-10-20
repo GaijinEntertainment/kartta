@@ -9,10 +9,11 @@ use notify::{Config, EventKindMask, RecommendedWatcher, RecursiveMode, Watcher a
 
 use super::{Found, WatchError, relative, start_error};
 use crate::index::Index;
+use crate::pruned::PrunedNames;
 
-// constraint: notifications wait here while the caller refreshes, so they are bounded; past this many the batch is
-// lost, as an inotify queue that overflowed loses its own, and one poll takes no more than this many, so a stream that
-// never stops still lets a wait close its batch
+// constraint: notifications wait here while the caller walks the tree or refreshes it, so they are bounded; past this
+// many the batch is lost, as an inotify queue that overflowed loses its own, and one poll takes no more than this many,
+// so a stream that never stops still lets a wait close its batch
 const QUEUED: usize = 65_536;
 
 #[derive(Debug)]
@@ -30,8 +31,9 @@ enum Signal {
 
 impl Backend {
     pub(super) fn start(
-        _index: &Index,
+        _root: &Path,
         prefixes: &[(PathBuf, String)],
+        _pruned_names: &PrunedNames,
     ) -> Result<Self, WatchError> {
         let (sender, signals) = mpsc::sync_channel(QUEUED);
         let overflowed = Arc::new(AtomicBool::new(false));
@@ -79,6 +81,25 @@ impl Backend {
         }
         found.lost |= self.overflowed.swap(false, Ordering::Relaxed);
         Ok(true)
+    }
+
+    #[expect(
+        clippy::unused_self,
+        reason = "one signature for every platform, and the stream covers each directory from its start, so the walk \
+                  has nothing to tell it"
+    )]
+    pub(super) const fn descending(&self) -> Option<fn(&Path)> {
+        None
+    }
+
+    #[expect(
+        clippy::unnecessary_wraps,
+        clippy::unused_self,
+        clippy::needless_pass_by_ref_mut,
+        reason = "one signature for every platform, and the walk watched nothing, so no watch can have failed"
+    )]
+    pub(super) const fn descended(&mut self) -> Result<(), WatchError> {
+        Ok(())
     }
 
     #[expect(

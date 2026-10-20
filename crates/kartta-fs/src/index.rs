@@ -23,7 +23,9 @@ use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::inspection::Inspection;
 use crate::list::excluded_ancestor;
-use crate::policy::{Collected, DirState, Indexing, Learned, Numbering, Payload, Reading, Report};
+use crate::policy::{
+    Collected, Descending, DirState, Indexing, Learned, Numbering, Payload, Reading, Report,
+};
 use crate::pruned::PrunedNames;
 use crate::requirement::Requirement;
 use crate::stamp::{Stamp, Stamping, UNTRUSTED};
@@ -179,7 +181,13 @@ impl Index {
         visitor: Option<&dyn ContentVisitor>,
         cancel: Option<&CancelToken>,
     ) -> Result<RefreshOutcome, BuildError> {
-        let asked = Asked::new(visitor, cancel);
+        self.refresh_walking(Asked::new(visitor, cancel))
+    }
+
+    pub(crate) fn refresh_walking(
+        &mut self,
+        asked: Asked<'_>,
+    ) -> Result<RefreshOutcome, BuildError> {
         let (BuildOutcome { index, errors }, retired) =
             self.counting_handed(|index, handed| index.walk_again(asked, handed))?;
         let mut changed = ChangedFiles::default();
@@ -261,7 +269,7 @@ impl Index {
         Ok((outcome, retired))
     }
 
-    fn build_walking(
+    pub(crate) fn build_walking(
         root: &Path,
         options: &BuildOptions,
         asked: Asked<'_>,
@@ -285,7 +293,12 @@ impl Index {
         walking: Walking<'_>,
     ) -> Result<BuildOutcome, BuildError> {
         let Walking {
-            asked: Asked { visitor, cancel },
+            asked:
+                Asked {
+                    visitor,
+                    cancel,
+                    descending,
+                },
             first_content_id,
             handed,
             pool,
@@ -297,7 +310,7 @@ impl Index {
             stamps: options.stamps.then(Stamping::starting_now),
             previous,
         };
-        let policy = indexing(root, options, visitor, numbering)?;
+        let policy = indexing(root, options, visitor, numbering)?.descending(descending);
         let walk_options = WalkOptions {
             cancel_token: cancel.cloned(),
             listed_stats: policy.may_carry(),
@@ -1067,14 +1080,22 @@ struct Base {
 }
 
 #[derive(Clone, Copy)]
-struct Asked<'a> {
-    visitor: Option<&'a dyn ContentVisitor>,
-    cancel: Option<&'a CancelToken>,
+pub(crate) struct Asked<'a> {
+    pub(crate) visitor: Option<&'a dyn ContentVisitor>,
+    pub(crate) cancel: Option<&'a CancelToken>,
+    pub(crate) descending: Option<Descending<'a>>,
 }
 
 impl<'a> Asked<'a> {
-    const fn new(visitor: Option<&'a dyn ContentVisitor>, cancel: Option<&'a CancelToken>) -> Self {
-        Self { visitor, cancel }
+    pub(crate) const fn new(
+        visitor: Option<&'a dyn ContentVisitor>,
+        cancel: Option<&'a CancelToken>,
+    ) -> Self {
+        Self {
+            visitor,
+            cancel,
+            descending: None,
+        }
     }
 }
 
