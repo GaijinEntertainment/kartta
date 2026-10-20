@@ -95,6 +95,8 @@ pub use kartta_fs::{
     LineKind, ListError, ListOptions, Listed, Listing, MatchedFile, Matches, Paths, PatternError,
     Patterns, PrunedNames, PrunedNamesError, RefreshOutcome,
 };
+#[cfg(feature = "watch")]
+pub use kartta_fs::{WatchError, Watcher};
 pub use kartta_graph::{
     Blast, CallPath, Candidate, Change, Dead, DeadCode, Definition, Definitions, Dependent,
     Dependents, DirCount, DirectCalls, Excluded, FileScope, Found, Graph, Hit, Hotspot,
