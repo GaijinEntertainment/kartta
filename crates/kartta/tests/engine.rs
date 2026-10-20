@@ -630,3 +630,34 @@ fn a_tree_of_more_files_than_one_batch_resolves_whole() {
     let (_, graph) = engine.graph_of("f0.defs").expect("defs claims the file");
     assert_eq!((graph.stats().files, graph.stats().symbols), (4100, 4100));
 }
+
+#[cfg(all(feature = "watch", target_os = "linux"))]
+#[test]
+fn a_refresh_past_the_limit_under_a_watcher_watches_what_it_takes_in() {
+    let tree = tree(&[
+        ("sub/.gitignore", "out/\n"),
+        ("sub/out/deep/old.defs", "def old\n"),
+    ]);
+    let mut options = BuildOptions::default();
+    options.stamps = true;
+    let languages: Vec<Box<dyn Language>> = vec![Box::new(Defs::new("defs", "defs", ".defs"))];
+    let (outcome, watcher) =
+        Engine::build_watched(tree.path(), &options, languages, None).expect("build the engine");
+    let (mut engine, mut watcher) = (outcome.engine, watcher.expect("start watching"));
+    let limit = engine.refresh_paths_limit();
+
+    fs::write(tree.path().join("sub/.gitignore"), "").expect("show sub/out");
+    for at in 0..limit {
+        fs::create_dir(tree.path().join(format!("new{at}"))).expect("make a directory");
+    }
+    let changes = watcher.drain().expect("drain");
+    let (refresh, followed) = engine
+        .refresh_paths_watched(changes.iter().map(String::as_str), &mut watcher, None)
+        .expect("refresh what changed");
+    followed.expect("watch what the refresh took in");
+    fs::write(tree.path().join("sub/out/deep/new.defs"), "def new\n").expect("write a file");
+    let seen = watcher.drain().expect("drain");
+
+    assert!(refresh.widened.is_some(), "{:?}", refresh.widened);
+    assert_eq!(seen, ["sub/out/deep/new.defs"]);
+}
