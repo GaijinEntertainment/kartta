@@ -320,7 +320,8 @@ fn find_files_ranks_file_names_and_drops_the_excluded() {
             "find_files",
             &json!({"pattern": "go", "excludes": ["cmd/**"], "max_results": 1})
         ),
-        "go.mod"
+        "go.mod\n(1 of 2 matching paths, best first)",
+        "the count holds only what the excludes leave"
     );
     assert_eq!(
         client.answer(
@@ -335,6 +336,23 @@ fn find_files_ranks_file_names_and_drops_the_excluded() {
         "no files match \"zzz\""
     );
     assert!(client.call("find_files", &json!({"pattern": " "})).is_error);
+}
+
+#[test]
+fn find_files_counts_every_match_when_its_cap_cuts_the_list() {
+    let tree = go_module();
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("find_files", &json!({"pattern": "go", "max_results": 2})),
+        "go.mod\npkg/service.go\n(2 of 3 matching paths, best first)"
+    );
+    assert_eq!(
+        client.answer("find_files", &json!({"pattern": "go", "max_results": 3})),
+        "go.mod\npkg/service.go\ncmd/app/main.go",
+        "a cap that cut nothing says nothing"
+    );
 }
 
 #[test]

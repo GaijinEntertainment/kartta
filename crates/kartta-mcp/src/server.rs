@@ -390,7 +390,8 @@ impl Server {
                        pattern alone - every .ts file, everything under src/ - use glob_files instead. Returns \
                        matching repo-relative paths, one per line, best first - exactly the path format the 'file' \
                        parameters of other tools expect; a path holding a control character such as a line break, or \
-                       opening with a quote, is written quoted with backslash escapes (\\n, \\t, \\\", \\\\). \
+                       opening with a quote, is written quoted with backslash escapes (\\n, \\t, \\\", \\\\). A list \
+                       max_results cut ends with a (N of M matching paths, best first) line counting every match. \
                        Requires index_repo first."
     )]
     async fn find_files(
@@ -419,7 +420,7 @@ impl Server {
             for found in ranked.items() {
                 listed.push(paths.get(found.position));
             }
-            Ok(render::paths(&p.pattern, listed))
+            Ok(render::paths(&p.pattern, listed, ranked.matched()))
         })
         .await
     }
