@@ -200,6 +200,8 @@ impl GlobView {
 pub(crate) struct FuzzyView {
     matches: Vec<FuzzyMatchView>,
     truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matched: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -237,6 +239,7 @@ impl FuzzyView {
                 })
                 .collect(),
             truncated,
+            matched: ranked.matched(),
         })
     }
 }
