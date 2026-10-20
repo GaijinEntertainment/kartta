@@ -1307,12 +1307,13 @@ impl Server {
                        (500) stopped the walk. A match without callers or file_scope records states why. With \
                        ambiguous=, it states first that no call binds it while those calls may, which grep finds. For \
                        a function, a method, or a macro, it then names an entry point, dead code, or dynamic dispatch. \
-                       For a field or an enum variant, it states that the graph records no call or other use of it, \
-                       and that grep searches the text for its name. For any other kind, it states that no call names \
-                       it, or that no call at the confidence floor names it, and that find_references lists its \
-                       recorded uses. An unknown name answers with up to 5 close alternatives (did you mean). Calls \
-                       through an interface may be missed - check find_implementations of the interface too. Requires \
-                       index_repo first."
+                       A field's match reads \"a field is read and written, not called; find_references lists its \
+                       reads and writes\", and an enum variant's \"the graph records no call or other use of this \
+                       enum-variant; grep searches the text for its name\". For any other kind, it states that no \
+                       call names it, or that no call at the confidence floor names it, and that find_references lists \
+                       its recorded uses. An unknown name answers with up to 5 close alternatives (did you mean). \
+                       Calls through an interface may be missed - check find_implementations of the interface too. \
+                       Requires index_repo first."
     )]
     async fn find_callers(
         &self,

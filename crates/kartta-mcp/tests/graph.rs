@@ -950,6 +950,40 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
     );
 }
 
+#[test]
+fn find_callers_describes_the_no_callers_note_of_a_function_a_field_and_an_enum_variant() {
+    let tree = tree(&[
+        ("Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "src/lib.rs",
+            "pub struct Config {\n    pub timeout: u32,\n}\n\npub enum Mode {\n    Fast,\n}\n\npub fn idle() {}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+    let listed = client.request("tools/list", &json!({}));
+    let description = listed["tools"]
+        .as_array()
+        .expect("a tool list")
+        .iter()
+        .find(|tool| tool["name"] == "find_callers")
+        .and_then(|tool| tool["description"].as_str())
+        .expect("find_callers is described")
+        .to_owned();
+
+    for name in ["idle", "Config::timeout", "Mode::Fast"] {
+        let answer = client.answer("find_callers", &json!({"name": name}));
+        let note = answer
+            .split_once(">no callers - ")
+            .and_then(|(_, note)| note.split_once("</match>"))
+            .map(|(note, _)| note);
+        assert!(
+            note.is_some_and(|note| description.contains(note)),
+            "the description states the no-callers note of {name}: {answer}\n{description}"
+        );
+    }
+}
+
 /// What a method that no call binds answers while calls of its name that several methods may answer bound none.
 const NO_CALL_BINDS: &str = "no call binds it - ambiguous counts the calls of its name that bound none because \
                              several definitions of the name may be meant, and any of them may call this method; \
