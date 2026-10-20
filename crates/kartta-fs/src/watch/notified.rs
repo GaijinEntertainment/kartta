@@ -8,7 +8,6 @@ use std::{io, iter};
 use notify::{Config, EventKindMask, RecommendedWatcher, RecursiveMode, Watcher as _};
 
 use super::{Found, WatchError, relative, start_error};
-use crate::index::Index;
 use crate::pruned::PrunedNames;
 
 // constraint: notifications wait here while the caller walks the tree or refreshes it, so they are bounded; past this
@@ -93,16 +92,6 @@ impl Backend {
     pub(super) const fn descended(&mut self) -> Result<(), WatchError> {
         Ok(())
     }
-
-    #[expect(
-        clippy::unnecessary_wraps,
-        clippy::unused_self,
-        reason = "one signature for every platform, and the stream covers the whole tree from its start, so nothing \
-                  is left to watch"
-    )]
-    pub(super) const fn cover(&self, _index: &Index, _found: &mut Found) -> Result<(), WatchError> {
-        Ok(())
-    }
 }
 
 // constraint: notify names the directory to scan again, with everything below it, on a drop when the system names one,
@@ -149,7 +138,7 @@ mod tests {
     use notify::{Event, EventHandler, EventKind};
 
     use super::*;
-    use crate::index::Asked;
+    use crate::index::{Asked, Index};
     use crate::watch::{Watcher, event_prefixes, through_firmlinks, watch_walk};
     use crate::{BuildOptions, Content, ContentVisitor};
 
