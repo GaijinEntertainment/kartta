@@ -43,6 +43,15 @@ pub(crate) struct Walked {
 
 type Keys = HashSet<u32, FixedState>;
 
+/// The keys a refresh reached, behind a bit set at the low bits of each, so that most keys a file asked are told apart
+/// from them without a probe of the set.
+struct Reached {
+    keys: Keys,
+    bits: Box<[u64]>,
+}
+
+const BITS_PER_KEY: usize = 32;
+
 struct Plan {
     stale: Vec<Followed>,
     reread: Vec<Followed>,
@@ -150,14 +159,14 @@ impl Following {
         &mut self,
         resolving: &Resolving<'r>,
         repository: &'r IndexRepository<'_>,
-        (outcome, reached, handed): (&RefreshOutcome, &Keys, Vec<ToResolve>),
+        (outcome, reached, handed): (&RefreshOutcome, &Reached, Vec<ToResolve>),
     ) -> (Resolvers<'r>, Plan) {
-        let mut dependents: Vec<ContentId> = if reached.is_empty() {
+        let mut dependents: Vec<ContentId> = if reached.keys.is_empty() {
             Vec::new()
         } else {
             self.files
                 .iter()
-                .filter(|(_, followed)| followed.asked.iter().any(|key| reached.contains(key)))
+                .filter(|(_, followed)| followed.asked.iter().any(|&key| reached.holds(key)))
                 .map(|(&id, _)| id)
                 .collect()
         };
@@ -267,7 +276,7 @@ fn count(
 
 /// The keys of every question a refresh may answer differently: whether each file it added or removed is there, and
 /// what each file it read again holds.
-fn reached(index: &Index, outcome: &RefreshOutcome, handed: &[ToResolve]) -> Keys {
+fn reached(index: &Index, outcome: &RefreshOutcome, handed: &[ToResolve]) -> Reached {
     let mut reached = HashSet::with_hasher(FixedState::default());
     for path in outcome.added.iter().chain(&outcome.removed) {
         reached.extend(reached_by_presence(path));
@@ -276,13 +285,35 @@ fn reached(index: &Index, outcome: &RefreshOutcome, handed: &[ToResolve]) -> Key
     for file in handed {
         reached.insert(asked(Query::Read, paths.get(file.position)));
     }
-    reached
+    Reached::new(reached)
+}
+
+impl Reached {
+    fn new(keys: Keys) -> Self {
+        let words = (keys.len() * BITS_PER_KEY).next_power_of_two().div_ceil(64);
+        let mut bits = vec![0; words].into_boxed_slice();
+        for &key in &keys {
+            let (word, bit) = bit_of(key, words);
+            bits[word] |= bit;
+        }
+        Self { keys, bits }
+    }
+
+    fn holds(&self, key: u32) -> bool {
+        let (word, bit) = bit_of(key, self.bits.len());
+        self.bits[word] & bit != 0 && self.keys.contains(&key)
+    }
+}
+
+const fn bit_of(key: u32, words: usize) -> (usize, u64) {
+    let at = key as usize & (words * 64 - 1);
+    (at / 64, 1 << (at % 64))
 }
 
 /// Whether a refresh may have changed what a resolver read while it was built: an answer to one of its questions, or a
 /// file it read inside a part the refresh walked again.
-fn reaches(configuration: &Configuration, reached: &Keys, walked: &[String]) -> bool {
-    configuration.asked.iter().any(|key| reached.contains(key))
+fn reaches(configuration: &Configuration, reached: &Reached, walked: &[String]) -> bool {
+    configuration.asked.iter().any(|&key| reached.holds(key))
         || configuration
             .read
             .iter()
@@ -294,4 +325,37 @@ fn holds(part: &str, path: &str) -> bool {
         || path
             .strip_prefix(part)
             .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spread(range: std::ops::Range<u32>) -> impl Iterator<Item = u32> {
+        range.map(|at| at.wrapping_mul(2_654_435_761))
+    }
+
+    #[test]
+    fn the_reached_keys_hold_every_key_of_their_set_and_no_other() {
+        let keys: Keys = spread(0..1_000).collect();
+        let reached = Reached::new(keys.clone());
+
+        assert!(keys.iter().all(|&key| reached.holds(key)));
+        assert_eq!(
+            spread(1_000..200_000)
+                .filter(|&key| reached.holds(key))
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn no_reached_key_holds_nothing() {
+        let reached = Reached::new(Keys::default());
+
+        assert_eq!(
+            spread(0..10_000).filter(|&key| reached.holds(key)).count(),
+            0
+        );
+    }
 }
