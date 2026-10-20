@@ -146,10 +146,24 @@ impl Backend {
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
             Err(error) => return Err(WatchError::Stopped { source: error }),
         };
+        found.unread = found.unread.saturating_sub(read);
         let mut made = Vec::new();
         self.take(read, found, &mut made);
         self.follow(made)?;
         Ok(read > 0)
+    }
+
+    // constraint: inotify queues an event as the call that made it returns and hands events over in order, so the bytes
+    // FIONREAD counts hold every change made before the count, one dropped as the overflow marker among them
+    pub(super) fn queued(&self) -> Option<usize> {
+        let mut queued: libc::c_int = 0;
+        // SAFETY: FIONREAD writes one int through the pointer, alive for the whole call, and the descriptor is this
+        // backend's own.
+        let asked = unsafe { libc::ioctl(self.fd.as_raw_fd(), libc::FIONREAD, &raw mut queued) };
+        if asked < 0 {
+            return None;
+        }
+        usize::try_from(queued).ok()
     }
 
     fn read_once(&mut self) -> io::Result<usize> {
@@ -342,7 +356,11 @@ fn gone(error: &io::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+    use std::io::Write as _;
+
     use super::*;
+    use crate::watch::Watcher;
 
     #[test]
     fn a_queue_overflow_loses_the_batch() {
@@ -363,5 +381,51 @@ mod tests {
         backend.take(HEADER, &mut found, &mut Vec::new());
 
         assert!(found.lost);
+    }
+
+    fn watched(tree: &Path) -> Watcher {
+        Watcher::start(tree, &PrunedNames::builtin())
+            .and_then(Watcher::walked)
+            .expect("start watching")
+    }
+
+    /// Writes to two files of `tree` in turn, so the kernel merges none of the events, until `watcher` holds more than
+    /// `bytes` of them queued.
+    fn queue_past(watcher: &Watcher, tree: &Path, bytes: usize) {
+        let mut files = ["a", "b"].map(|name| File::create(tree.join(name)).expect("make a file"));
+        let mut at = 0;
+        while watcher.backend.queued().expect("count the queue") <= bytes {
+            files[at % 2].write_all(b"x").expect("write a file");
+            at += 1;
+        }
+    }
+
+    #[test]
+    fn a_drain_reads_past_its_bound_every_change_queued_at_its_call() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let mut watcher = watched(tree.path());
+        queue_past(&watcher, tree.path(), watcher.backend.buffer.len());
+        File::create(tree.path().join("c")).expect("make a file");
+
+        let handed = watcher.drain_within(Duration::ZERO).expect("drain");
+
+        assert_eq!(handed, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn a_drain_whose_reads_end_before_they_cover_its_count_loses_the_batch() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let mut watcher = watched(tree.path());
+        queue_past(&watcher, tree.path(), 0);
+        let counted_past_the_queue = Found {
+            unread: usize::MAX,
+            ..Found::default()
+        };
+
+        let handed = watcher
+            .gather(Duration::ZERO, Duration::ZERO, counted_past_the_queue)
+            .expect("drain");
+
+        assert_eq!(handed, [""]);
     }
 }

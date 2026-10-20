@@ -22,6 +22,10 @@ impl Backend {
         match *self {}
     }
 
+    pub(super) fn queued(&self) -> Option<usize> {
+        match *self {}
+    }
+
     pub(super) fn descending(&self) -> Option<fn(&Path)> {
         match *self {}
     }
