@@ -399,7 +399,7 @@ impl Engine {
     }
 
     /// Each language family's name and graph, in the order their first languages were given to [`Engine::build`].
-    pub fn graphs(&self) -> impl ExactSizeIterator<Item = (&str, &Graph)> {
+    pub fn graphs(&self) -> impl ExactSizeIterator<Item = (&str, &Graph)> + Clone {
         self.families
             .iter()
             .map(|family| (family.name.as_str(), &family.graph))
