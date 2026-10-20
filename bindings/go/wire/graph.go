@@ -43,6 +43,10 @@ type Walk struct {
 	BelowConfidence int `json:"below_confidence"`
 	// Unresolved counts the calls that bound no symbol the graph holds.
 	Unresolved int `json:"unresolved"`
+	// Ambiguous counts, for a walk over callers, the calls of the root's name that bound no definition because several
+	// definitions of the name may be meant: any of them may call the root, and none is among Reached. It is the root's
+	// alone, so every depth counts the same, and absent when 0.
+	Ambiguous int `json:"ambiguous,omitempty"`
 	// FileScope lists, for a walk over callers, the files whose top level calls or uses the root's name and sees the
 	// root, in path order. BelowConfidence also counts the files the floor left out.
 	FileScope []FileScope `json:"file_scope,omitempty"`
@@ -389,6 +393,9 @@ type Segment struct {
 type SegmentSymbol struct {
 	Definition Definition  `json:"definition"`
 	Callers    DirectCalls `json:"callers"`
+	// Ambiguous counts the calls of its name that a walk over its callers counts as Walk.Ambiguous: any of them may
+	// call it, and neither Callers nor Blast holds them. Absent when 0.
+	Ambiguous  int         `json:"ambiguous,omitempty"`
 	Callees    DirectCalls `json:"callees"`
 	Unresolved int         `json:"unresolved"`
 	Blast      Blast       `json:"blast"`
@@ -471,6 +478,9 @@ type Seed struct {
 	Band string `json:"band"`
 	// CallerCount counts its direct callers that pass the confidence floor.
 	CallerCount int `json:"caller_count"`
+	// Ambiguous counts the calls of its name that a walk over its callers counts as Walk.Ambiguous: any of them may
+	// call it, and neither CallerCount nor Reach counts them. Absent when 0.
+	Ambiguous int `json:"ambiguous,omitempty"`
 	// Consumers are those direct callers when there are 30 or fewer; empty otherwise.
 	Consumers []Reached `json:"consumers"`
 	// ConsumerDirs count those direct callers by directory, the most first, when there are more than 30.
