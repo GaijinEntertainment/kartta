@@ -12,10 +12,11 @@ mod common;
 
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use common::{tree, write};
-use kartta_fs::{BuildOptions, EntryKind, Index, Watcher};
+use kartta_fs::{BuildOptions, Content, ContentVisitor, EntryKind, Index, Watcher};
 
 fn build(root: &Path) -> Index {
     build_with(root, &BuildOptions::default())
@@ -25,6 +26,17 @@ fn build_with(root: &Path, options: &BuildOptions) -> Index {
     let outcome = Index::build(root, options).expect("build the index");
     assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
     outcome.index
+}
+
+fn watched_with(
+    root: &Path,
+    options: &BuildOptions,
+    visitor: Option<&dyn ContentVisitor>,
+) -> (Index, Watcher) {
+    let (outcome, watcher) =
+        Index::build_watched(root, options, visitor, None).expect("build the index");
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    (outcome.index, watcher.expect("start watching"))
 }
 
 fn shown(index: &Index) -> Vec<(String, EntryKind)> {
@@ -60,6 +72,78 @@ fn follow(watcher: &mut Watcher, index: &mut Index) {
             .expect("refresh the changed paths");
         assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
     }
+}
+
+/// Writes `writes` into the tree the first time the build asks it about the file at `at`, while the walk is in that
+/// file's directory, and wants no file read.
+struct WritesMidWalk<'a> {
+    root: &'a Path,
+    at: &'a str,
+    writes: &'a [(&'a str, &'a str)],
+    written: AtomicBool,
+}
+
+impl<'a> WritesMidWalk<'a> {
+    const fn new(root: &'a Path, at: &'a str, writes: &'a [(&'a str, &'a str)]) -> Self {
+        Self {
+            root,
+            at,
+            writes,
+            written: AtomicBool::new(false),
+        }
+    }
+}
+
+impl ContentVisitor for WritesMidWalk<'_> {
+    fn wants(&self, path: &str) -> bool {
+        if path == self.at && !self.written.swap(true, Ordering::Relaxed) {
+            for (path, content) in self.writes {
+                write(self.root, path, content);
+            }
+        }
+        false
+    }
+
+    fn visit(&self, _content: Content<'_>) {}
+}
+
+#[test]
+fn a_change_made_while_the_build_walks_is_handed_over_once_it_is_built() {
+    let dir = tree(&[("a.rs", "a"), ("src/b.rs", "b"), ("src/deep/c.rs", "c")]);
+    let writes = [
+        ("a.rs", "changed"),
+        ("late.rs", "d"),
+        ("src/new/deeper/e.rs", "e"),
+        ("src/deep/f.rs", "f"),
+    ];
+    let hook = WritesMidWalk::new(dir.path(), "src/b.rs", &writes);
+    let (mut index, mut watcher) = watched_with(dir.path(), &BuildOptions::default(), Some(&hook));
+
+    let handed = watcher.drain().expect("drain");
+    let outcome = index
+        .refresh_paths(handed.iter().map(String::as_str), None, None)
+        .expect("refresh what was handed over");
+
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    assert!(handed.iter().any(|path| path == "a.rs"), "{handed:?}");
+    assert_eq!(shown(&index), shown(&build(dir.path())));
+}
+
+#[test]
+fn a_directory_made_while_the_build_walks_is_watched_once_it_is_built() {
+    let dir = tree(&[("a.rs", "a"), ("src/b.rs", "b")]);
+    let writes = [("src/new/deeper/c.rs", "c")];
+    let hook = WritesMidWalk::new(dir.path(), "src/b.rs", &writes);
+    let (mut index, mut watcher) = watched_with(dir.path(), &BuildOptions::default(), Some(&hook));
+    follow(&mut watcher, &mut index);
+
+    write(dir.path(), "src/new/deeper/d.rs", "d");
+
+    let seen = wait_for(&mut watcher, "src/new/deeper/d.rs");
+    assert!(
+        seen.iter().any(|path| path == "src/new/deeper/d.rs"),
+        "{seen:?}"
+    );
 }
 
 #[test]
