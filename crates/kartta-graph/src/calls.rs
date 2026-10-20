@@ -507,6 +507,15 @@ impl Uncertain {
             Some(_) => {}
         }
     }
+
+    fn has_members(&mut self, cascade: &Cascade<'_>, name: Str) -> bool {
+        *self.has_members.get_or_insert_with(|| {
+            cascade.named(name).iter().any(|&member| {
+                let member = cascade.graph.sym(member);
+                member.owner.is_some() && cascade.is_call_target(member.kind)
+            })
+        })
+    }
 }
 
 impl<'g> Calls<'g> {
@@ -542,7 +551,7 @@ impl<'g> Calls<'g> {
     pub(crate) fn is_called_uncertainly(&mut self, at: SymbolAt) -> bool {
         let symbol = self.graph.sym(at);
         self.resolve_callers(symbol.name);
-        let (graph, cascade) = (self.graph, &self.cascade);
+        let cascade = &self.cascade;
         let Some(uncertain) = self.uncertain.get_mut(&symbol.name) else {
             return false;
         };
@@ -556,13 +565,7 @@ impl<'g> Calls<'g> {
         if files.iter().any(|&file| cascade.sees(file, at)) {
             return true;
         }
-        let has_members = uncertain.has_members.get_or_insert_with(|| {
-            graph.named(symbol.name).iter().any(|&member| {
-                let member = graph.sym(member);
-                member.owner.is_some() && cascade.is_call_target(member.kind)
-            })
-        });
-        !*has_members
+        !uncertain.has_members(cascade, symbol.name)
     }
 
     fn wanting(graph: &'g Graph, wanted: Wanted) -> Self {
