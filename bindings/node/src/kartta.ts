@@ -106,6 +106,7 @@ export class Kartta {
 		const opened = addon().open(JSON.stringify({root}));
 		if (opened instanceof Uint8Array) {
 			// SAFETY: the addon answers a failed open as the wire's error object, which the golden files pin.
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion
 			const {code, message} = JSON.parse(decoder.decode(opened)) as {code: Code; message: string};
 			throw new KarttaError(code, message);
 		}
@@ -122,6 +123,7 @@ export class Kartta {
 	 */
 	async build(options: BuildOptions = {}, {signal}: {signal?: AbortSignal} = {}): Promise<Stats> {
 		// SAFETY: the dispatch answers `build` with the wire's stats, which the golden files pin.
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion
 		return this.#build(options, signal) as Promise<Stats>;
 	}
 
@@ -320,6 +322,7 @@ export class Kartta {
 
 	async #ask<M extends keyof Methods>(method: M, params: Methods[M]['params']): Promise<Methods[M]['answer']> {
 		// SAFETY: the dispatch answers each method with the wire's answer `Methods` names, which the golden files pin.
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion
 		return this.call(method, params) as Promise<Methods[M]['answer']>;
 	}
 }
@@ -337,6 +340,7 @@ function load(): Addon {
 	for (const id of [`../kartta.${host}.node`, `kartta-${host}`]) {
 		try {
 			// SAFETY: both ids name the addon crates/kartta-node builds, whose surface `Addon` declares.
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion
 			return require(id) as Addon;
 		} catch (error) {
 			if (!(error instanceof Error && 'code' in error && error.code === 'MODULE_NOT_FOUND')) {
@@ -352,6 +356,7 @@ function load(): Addon {
 
 function answer(envelope: Uint8Array): unknown {
 	// SAFETY: the dispatch answers every call with the wire's envelope, `{ok}` or `{err: {code, message}}`.
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion
 	const parsed = JSON.parse(decoder.decode(envelope)) as {ok: unknown} | {err: {code: Code; message: string}};
 	if ('err' in parsed) {
 		throw new KarttaError(parsed.err.code, parsed.err.message);

@@ -27,6 +27,7 @@ const library = messages
 	.split('\n')
 	.filter((line) => line.startsWith('{'))
 	// SAFETY: cargo writes one JSON object a line under --message-format=json, each with a reason.
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion
 	.map((line) => JSON.parse(line) as CargoMessage)
 	.find((message) => message.reason === 'compiler-artifact' && message.target?.name === 'kartta_node')
 	?.filenames?.find((file) => /\.(?:dylib|so|dll)$/v.test(file));
