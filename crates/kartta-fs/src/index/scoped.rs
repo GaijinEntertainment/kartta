@@ -73,6 +73,14 @@ impl Index {
         visitor: Option<&dyn ContentVisitor>,
         cancel: Option<&CancelToken>,
     ) -> Result<RefreshOutcome, BuildError> {
+        self.refresh_paths_walking(paths, Asked::new(visitor, cancel))
+    }
+
+    pub(crate) fn refresh_paths_walking<'p>(
+        &mut self,
+        paths: impl IntoIterator<Item = &'p str>,
+        asked: Asked<'_>,
+    ) -> Result<RefreshOutcome, BuildError> {
         let scopes = self.parts_of(paths)?;
         if scopes.is_empty() {
             return Ok(RefreshOutcome::new(
@@ -83,10 +91,9 @@ impl Index {
             ));
         }
         if scopes[0].is_empty() {
-            return self.refresh(visitor, cancel);
+            return self.refresh_walking(asked);
         }
 
-        let asked = Asked::new(visitor, cancel);
         let Planned {
             pending,
             errors,
@@ -248,7 +255,8 @@ impl Index {
         };
         let mut rewalk = Rewalk {
             index: self,
-            policy: indexing(&self.root, &options, asked.visitor, numbering)?,
+            policy: indexing(&self.root, &options, asked.visitor, numbering)?
+                .descending(asked.descending),
             cancel: asked.cancel,
             errors: Vec::new(),
             rules: Vec::new(),
@@ -494,6 +502,7 @@ impl Rewalk<'_, '_> {
 
         let entry = self.policy.single(scope, &native_path, &metadata);
         let below = if is_dir {
+            self.policy.descend(&native_path);
             self.below(scope, &DirState::below(rules))?
         } else {
             None

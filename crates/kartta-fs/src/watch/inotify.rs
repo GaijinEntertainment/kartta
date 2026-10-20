@@ -91,6 +91,7 @@ impl Backend {
             return;
         }
         match self.watch(dir) {
+            Ok(wd) if self.dirs.get(&wd).is_some_and(|held| held == dir) => {}
             Ok(wd) => lock(&self.walked).push(wd, dir),
             Err(error) if error.raw_os_error() == Some(libc::ENOSPC) => {
                 self.unwatched.fetch_add(1, Ordering::Relaxed);
@@ -361,6 +362,7 @@ mod tests {
 
     use super::*;
     use crate::watch::Watcher;
+    use crate::{BuildError, BuildOptions, Index};
 
     #[test]
     fn a_queue_overflow_loses_the_batch() {
@@ -427,5 +429,21 @@ mod tests {
             .expect("drain");
 
         assert_eq!(handed, [""]);
+    }
+
+    #[test]
+    fn a_refused_watch_a_failed_refresh_met_is_reported_by_the_next_drain() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let (outcome, watcher) =
+            Index::build_watched(tree.path(), &BuildOptions::default(), None, None).expect("build");
+        let (mut index, mut watcher) = (outcome.index, watcher.expect("start watching"));
+        let refusal = io::Error::from_raw_os_error(libc::EINVAL);
+        *held(&mut watcher.backend.refused) = Some(start_error(tree.path(), refusal));
+
+        let refreshed = index.refresh_paths_watched(["../outside"], &mut watcher, None, None);
+        let drained = watcher.drain();
+
+        assert!(matches!(refreshed, Err(BuildError::OutsideTree { .. })));
+        assert!(matches!(drained, Err(WatchError::Start { .. })));
     }
 }
