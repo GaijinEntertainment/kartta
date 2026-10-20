@@ -281,12 +281,15 @@ export class Kartta {
 		const handle = this.#open();
 		const text = JSON.stringify(params);
 		switch (method) {
-			case 'build':
+			case 'build': {
 				return answer(await handle.build(text));
-			case 'cancel':
+			}
+			case 'cancel': {
 				return answer(handle.cancel(text));
-			default:
+			}
+			default: {
 				return answer(await handle.call(method, text));
+			}
 		}
 	}
 
