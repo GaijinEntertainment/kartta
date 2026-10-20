@@ -552,6 +552,122 @@ fn a_path_prefix_picks_the_copy_a_walk_or_an_implementations_search_starts_from(
     assert_eq!(file(&in_b, "root"), "b/util.go");
 }
 
+/// A built handle over a Rust crate: `Index::rebuild` calls `Index::refresh`, and `Index` implements
+/// `render::Paint`. The tree directory is returned to keep it alive.
+fn rust_crate() -> (tempfile::TempDir, Kartta) {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .expect("Cargo.toml");
+    fs::create_dir(tree.path().join("src")).expect("src");
+    fs::write(
+        tree.path().join("src/lib.rs"),
+        "pub mod render {\n    pub trait Paint {\n        fn paint(&self);\n    }\n}\n\npub struct Index;\n\n\
+         impl Index {\n    pub fn refresh(&self) {}\n\n    pub fn rebuild(&self) {\n        self.refresh();\n    }\n}\n\n\
+         impl render::Paint for Index {\n    fn paint(&self) {}\n}\n",
+    )
+    .expect("lib.rs");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &json!({ "languages": ["rust"] }));
+    (tree, kartta)
+}
+
+/// Each method that takes one symbol's name, with the params that name `callable`, or `parent` for implementations.
+fn by_name(callable: &str, parent: &str) -> [(&'static str, Value); 6] {
+    [
+        ("callers", json!({ "name": callable })),
+        ("callees", json!({ "name": callable })),
+        ("references", json!({ "name": callable })),
+        ("definitions", json!({ "name": callable })),
+        ("sources", json!({ "name": callable })),
+        ("implementations", json!({ "name": parent })),
+    ]
+}
+
+/// The keys of an answer.
+fn keys(answer: &Value) -> Vec<&str> {
+    answer
+        .as_object()
+        .expect("an answer is an object")
+        .keys()
+        .map(String::as_str)
+        .collect()
+}
+
+#[test]
+fn a_rust_name_written_with_dots_answers_as_its_own_spelling_and_names_the_reading() {
+    let (_tree, kartta) = rust_crate();
+
+    let written = by_name("Index.rebuild", "render.Paint");
+    for ((method, written), (_, own)) in written
+        .into_iter()
+        .zip(by_name("Index::rebuild", "render::Paint"))
+    {
+        let mut expected = ok(&kartta, method, &own);
+        assert!(
+            expected["matches"]
+                .as_array()
+                .is_some_and(|matches| !matches.is_empty()),
+            "{method} {own}: {expected}"
+        );
+        expected["read_as"] = own["name"].clone();
+        assert_eq!(
+            ok(&kartta, method, &written),
+            expected,
+            "{method} {written}"
+        );
+    }
+
+    let mut expected = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "Index::rebuild", "to": "Index::refresh" }),
+    );
+    assert_eq!(expected["matches"][0]["found"], true, "{expected}");
+    expected["to_read_as"] = json!("Index::refresh");
+    let one_end = json!({ "from": "Index::rebuild", "to": "Index.refresh" });
+    assert_eq!(
+        ok(&kartta, "call_path", &one_end),
+        expected,
+        "an end that selects as written is not read"
+    );
+    expected["from_read_as"] = json!("Index::rebuild");
+    let both = json!({ "from": "Index.rebuild", "to": "Index.refresh" });
+    assert_eq!(ok(&kartta, "call_path", &both), expected);
+}
+
+#[test]
+fn a_name_that_selects_as_written_or_in_neither_spelling_answers_no_reading() {
+    let (_tree, kartta) = rust_crate();
+
+    for (method, params) in by_name("Index::rebuild", "render::Paint")
+        .into_iter()
+        .chain(by_name("Index.missing", "render.Missing"))
+    {
+        let answer = ok(&kartta, method, &params);
+        assert_eq!(keys(&answer), ["matches"], "{method} {params}: {answer}");
+    }
+    let path = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "Index::rebuild", "to": "Index::refresh" }),
+    );
+    assert_eq!(keys(&path), ["matches"], "{path}");
+
+    let unmatched_end = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "Index.rebuild", "to": "Index.missing" }),
+    );
+    assert_eq!(
+        unmatched_end,
+        json!({ "matches": [], "from_read_as": "Index::rebuild" }),
+        "the end its reading selects says so, though the other end selects nothing"
+    );
+}
+
 #[test]
 fn a_language_the_build_did_not_hold_is_refused_with_the_ones_it_did() {
     let tree = tree();
