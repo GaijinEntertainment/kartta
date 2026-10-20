@@ -208,11 +208,11 @@ fn an_engine_refreshed_after_edits_answers_as_a_build_of_the_edited_tree() {
 }
 
 #[test]
-fn more_named_paths_than_the_limit_refresh_the_whole_tree() {
+fn named_paths_that_come_to_more_parts_than_the_limit_refresh_the_whole_tree() {
     let tree = settled_tree();
     let mut engine = build(tree.path(), true);
     let limit = engine.refresh_paths_limit();
-    let vanished: Vec<String> = (0..limit).map(|at| format!("tmp/{at}.cpp")).collect();
+    let vanished: Vec<String> = (0..limit).map(|at| format!("src/tmp-{at}.cpp")).collect();
     let named = EDITED
         .iter()
         .copied()
@@ -234,13 +234,98 @@ fn more_named_paths_than_the_limit_refresh_the_whole_tree() {
 }
 
 #[test]
+fn paths_past_the_limit_inside_an_ignored_directory_walk_only_that_directory() {
+    let tree = settled_tree();
+    write(tree.path(), ".gitignore", "target/\n");
+    let mut engine = build(tree.path(), true);
+    let before = answers(&engine);
+    let limit = engine.refresh_paths_limit();
+    let built: Vec<String> = (0..=limit)
+        .map(|at| format!("target/debug/deps/{at}.o"))
+        .collect();
+    for path in &built {
+        write(tree.path(), path, "");
+    }
+
+    let refresh = refreshed(engine.refresh_paths(built.iter().map(String::as_str), None));
+
+    assert_eq!(refresh.widened, None);
+    assert_eq!(refresh.index.walked, ["target"]);
+    assert_eq!(answers(&engine), before);
+}
+
+#[test]
+fn paths_past_the_limit_that_come_to_the_limit_in_parts_walk_apart() {
+    let tree = settled_tree();
+    write(tree.path(), ".gitignore", "target/\n");
+    let mut engine = build(tree.path(), true);
+    let limit = engine.refresh_paths_limit();
+    let vanished: Vec<String> = (1..limit).map(|at| format!("src/tmp-{at}.cpp")).collect();
+    let named = vanished
+        .iter()
+        .map(String::as_str)
+        .chain(["target/a.o", "target/b.o"]);
+
+    let refresh = refreshed(engine.refresh_paths(named, None));
+
+    assert_eq!(refresh.widened, None);
+    assert_eq!(refresh.index.walked.len(), limit);
+}
+
+#[test]
+fn paths_past_the_limit_that_a_gitignore_edit_shows_are_taken_in() {
+    let tree = settled_tree();
+    write(tree.path(), "web/.gitignore", "dist/\n");
+    write(
+        tree.path(),
+        "web/dist/bundle.ts",
+        "export function bundle() {\n  return button();\n}\n",
+    );
+    let mut with_gitignore = build(tree.path(), true);
+    let mut without_gitignore = build(tree.path(), true);
+    let limit = with_gitignore.refresh_paths_limit();
+    let built: Vec<String> = (0..limit).map(|at| format!("web/dist/{at}.ts")).collect();
+    write(tree.path(), "web/.gitignore", "");
+    for path in &built {
+        write(tree.path(), path, "export const built = 1;\n");
+    }
+    let named = || built.iter().map(String::as_str);
+
+    let named_with_gitignore = refreshed(with_gitignore.refresh_paths(
+        named().chain(["web/.gitignore", "web/dist/bundle.ts"]),
+        None,
+    ));
+    let named_without_gitignore =
+        refreshed(without_gitignore.refresh_paths(named().chain(["web/dist/bundle.ts"]), None));
+
+    assert_eq!(
+        (
+            named_with_gitignore.widened,
+            named_without_gitignore.widened
+        ),
+        (None, None)
+    );
+    assert_eq!(named_with_gitignore.index.walked, ["web"]);
+    assert_eq!(
+        named_without_gitignore.index.walked,
+        ["web/dist"],
+        "the part the index last saw ignored is walked under the rules read now"
+    );
+    let fresh = answers(&build(tree.path(), false));
+    for engine in [&with_gitignore, &without_gitignore] {
+        assert!(engine.index().entry("web/dist/bundle.ts").is_some());
+        assert_eq!(answers(engine), fresh);
+    }
+}
+
+#[test]
 fn a_path_outside_the_tree_fails_a_refresh_that_would_walk_the_whole_tree() {
     let tree = settled_tree();
     let mut widened = build(tree.path(), true);
     let mut unstamped = build(tree.path(), false);
     let before = (answers(&widened), answers(&unstamped));
     let limit = widened.refresh_paths_limit();
-    let vanished: Vec<String> = (0..limit).map(|at| format!("tmp/{at}.cpp")).collect();
+    let vanished: Vec<String> = (0..limit).map(|at| format!("src/tmp-{at}.cpp")).collect();
     let named = EDITED
         .iter()
         .copied()

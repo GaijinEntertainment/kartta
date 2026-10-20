@@ -13,8 +13,8 @@ use crate::resolving::{Graphs, Resolving};
 use crate::source::{FileLines, Source, SourceOptions};
 use crate::stats::{EngineStats, LanguageFiles};
 
-const ENTRIES_PER_NAMED_PATH: usize = 150;
-const FEWEST_NAMED_PATHS: usize = 50;
+const ENTRIES_PER_PART: usize = 150;
+const FEWEST_PARTS: usize = 50;
 
 /// A tree's file index and the code graph of its languages, built from one walk that reads each source file once.
 ///
@@ -72,17 +72,18 @@ pub struct EngineRefresh {
     /// Whether every graph was built again from every file, because the engine was built without
     /// [`BuildOptions::stamps`] and kept nothing to find what a change reaches.
     pub rebuilt: bool,
-    /// The paths an [`Engine::refresh_paths`] was named and the limit they passed, when it refreshed the whole tree
-    /// in their place; `None` from [`Engine::refresh`] and from a call that walked the paths it was named.
+    /// The paths an [`Engine::refresh_paths`] was named and the limit their parts passed, when it refreshed the whole
+    /// tree in their place; `None` from [`Engine::refresh`] and from a call that walked the parts of its paths.
     pub widened: Option<Widened>,
 }
 
-/// How an [`Engine::refresh_paths`] came to refresh the whole tree: it was named more paths than it walks apart.
+/// How an [`Engine::refresh_paths`] came to refresh the whole tree: the paths it was named came to more parts than it
+/// walks apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Widened {
     /// The paths the call was named.
     pub named: usize,
-    /// The most paths the call would have walked apart, [`Engine::refresh_paths_limit`] when it began.
+    /// The most parts the call would have walked apart, [`Engine::refresh_paths_limit`] when it began.
     pub limit: usize,
 }
 
@@ -212,10 +213,13 @@ impl Engine {
     ///
     /// The paths are what changed, as a [`kartta_fs::Watcher`] or a version control tool names them, and a change no
     /// path names is not seen. The named files are read and extracted one after another, where a whole refresh reads
-    /// and extracts on every thread, so a call named more paths than [`Engine::refresh_paths_limit`] is
-    /// [`Engine::refresh`], and [`EngineRefresh::widened`] says so. Without [`BuildOptions::stamps`] at the build,
-    /// the engine kept nothing to find the files a change reaches, so this is [`Engine::refresh`] and walks the whole
-    /// tree, however few the paths.
+    /// and extracts on every thread, so a call whose paths come to more parts than [`Engine::refresh_paths_limit`] is
+    /// [`Engine::refresh`], and [`EngineRefresh::widened`] says so. The parts are those
+    /// [`kartta_fs::Index::parts_of`] answers: the paths inside a directory the index does not hold, such as an
+    /// ignored `target/`, are one part, and a path the index skips is none. A call named more paths than the limit
+    /// works their parts out first, at the cost [`kartta_fs::Index::parts_of`] states, whether it then walks them or
+    /// the whole tree. Without [`BuildOptions::stamps`] at the build, the engine kept nothing to find the files a
+    /// change reaches, so this is [`Engine::refresh`] and walks the whole tree, however few the paths.
     ///
     /// # Errors
     ///
@@ -225,46 +229,52 @@ impl Engine {
         paths: impl IntoIterator<Item = &'p str>,
         cancel: Option<&CancelToken>,
     ) -> Result<EngineRefresh, BuildError> {
-        let walks_apart = self.following.is_some();
-        let limit = self.refresh_paths_limit();
-        let mut walked_apart: Vec<&str> = Vec::new();
-        let mut named = 0;
-        for path in paths {
-            if leads_outside_tree(path) {
+        let mut paths = paths.into_iter();
+        if self.following.is_none() {
+            if let Some(path) = paths.find(|path| leads_outside_tree(path)) {
                 return Err(BuildError::OutsideTree {
                     path: path.to_owned(),
                 });
             }
-            if walks_apart && named < limit {
-                walked_apart.push(path);
-            }
-            named += 1;
-        }
-        if !walks_apart {
             return self.refresh(cancel);
         }
-        if named > limit {
+        let limit = self.refresh_paths_limit();
+        let first: Vec<&str> = paths.by_ref().take(limit + 1).collect();
+        if first.len() <= limit {
+            return self.walked_apart(first, cancel);
+        }
+        let mut named = 0;
+        let parts = self
+            .index
+            .parts_of(first.into_iter().chain(paths).inspect(|_| named += 1))?;
+        if parts.len() > limit {
             let mut refresh = self.refresh(cancel)?;
             refresh.widened = Some(Widened { named, limit });
             return Ok(refresh);
         }
+        self.walked_apart(parts.iter().map(String::as_str), cancel)
+    }
+
+    /// The most parts [`Engine::refresh_paths`] walks apart before it refreshes the whole tree in their place: one for
+    /// every 150 entries the index holds, since a whole refresh costs a pass over every entry, and never fewer than 50.
+    #[must_use]
+    pub fn refresh_paths_limit(&self) -> usize {
+        (self.index.len() / ENTRIES_PER_PART).max(FEWEST_PARTS)
+    }
+
+    fn walked_apart<'p>(
+        &mut self,
+        paths: impl IntoIterator<Item = &'p str>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<EngineRefresh, BuildError> {
         let extracting = Extracting::new(&self.languages);
-        let outcome = self
-            .index
-            .refresh_paths(walked_apart, Some(&extracting), cancel)?;
+        let outcome = self.index.refresh_paths(paths, Some(&extracting), cancel)?;
         let (extracted, counts) = extracting.into_extracted();
         self.brought_up(Walked {
             outcome,
             extracted,
             counts,
         })
-    }
-
-    /// The most paths [`Engine::refresh_paths`] walks apart before it refreshes the whole tree in their place: one for
-    /// every 150 entries the index holds, since a whole refresh costs a pass over every entry, and never fewer than 50.
-    #[must_use]
-    pub fn refresh_paths_limit(&self) -> usize {
-        (self.index.len() / ENTRIES_PER_NAMED_PATH).max(FEWEST_NAMED_PATHS)
     }
 
     fn brought_up(&mut self, walked: Walked) -> Result<EngineRefresh, BuildError> {
