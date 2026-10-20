@@ -652,7 +652,12 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
     }
     let passed_over = candidates(&walk.candidates, "callers");
     if walk.reached.is_empty() && walk.file_scope.is_empty() {
-        let text = no_callers(root.kind, ask.floored, walk.ambiguous);
+        let text = no_callers(
+            root.kind,
+            ask.floored,
+            walk.ambiguous,
+            walk.below_confidence,
+        );
         return noted(element, &text, passed_over);
     }
     let refs = walk
@@ -754,8 +759,20 @@ const fn at_floor(floored: bool) -> &'static str {
     }
 }
 
-/// Why a symbol may have no callers, by what it is and by the `ambiguous` calls of its name that may call it.
-fn no_callers(of: SymbolKind, floored: bool, ambiguous: usize) -> String {
+/// Why a symbol may have no callers: the `below_confidence` callers the confidence floor dropped, else the `ambiguous`
+/// calls of its name that may call it, else what it is.
+fn no_callers(of: SymbolKind, floored: bool, ambiguous: usize, below_confidence: usize) -> String {
+    if below_confidence > 0 {
+        let (callers, them) = if below_confidence == 1 {
+            ("caller binds", "it")
+        } else {
+            ("callers bind", "them")
+        };
+        return format!(
+            "no callers at this confidence floor - {below_confidence} {callers} below it, and min_confidence \"any\" \
+             lists {them}"
+        );
+    }
     let label = of.label();
     let kind = kind(of);
     if ambiguous > 0 {
