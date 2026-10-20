@@ -6,7 +6,7 @@
  */
 
 /** Each method of the wire, its params and its answer. */
-export interface Methods {
+export type Methods = {
 	build: {params: BuildParams; answer: Stats};
 	cancel: {params: CancelParams; answer: CancelAnswer};
 	stats: {params: NoParams; answer: Stats};
@@ -29,7 +29,7 @@ export interface Methods {
 	glob: {params: GlobParams; answer: Glob};
 	fuzzy: {params: FuzzyParams; answer: Fuzzy};
 	grep: {params: GrepParams; answer: Grep};
-}
+};
 
 /**
  * What a failure reports. Every code but `closed` is the engine's; `closed` is the binding's own, for a call on a
@@ -58,7 +58,7 @@ export type NoParams = Record<string, never>;
  * The params of `build`. Left empty, a build indexes every language kartta ships, under the tree's own `.gitignore`
  * files, with no content index and no cache.
  */
-export interface BuildParams {
+export type BuildParams = {
 	/** Names the build for a cancel; {@link Kartta.build} sets it. */
 	id?: number;
 	/** The languages to build graphs of, by the names `version` lists; absent builds every one, empty none. */
@@ -77,7 +77,7 @@ export interface BuildParams {
 	content_cache?: string;
 	/** Seconds after the build that computed it began that a cache entry expires; absent or 0 is a week. */
 	content_cache_ttl_secs?: number;
-}
+};
 
 /** The options of {@link Kartta.build}: the params of `build` but the id the binding gives each build. */
 export type BuildOptions = Omit<BuildParams, 'id'>;
@@ -92,25 +92,25 @@ export type ContentIndex = {storage: 'memory'} | {storage: 'file' | 'mapped'; di
  * The params of `cancel`. Naming neither a build nor a grep stops every build in flight, running or waiting its turn,
  * and every grep in flight.
  */
-export interface CancelParams {
+export type CancelParams = {
 	/** The id of the build to stop. */
 	build?: number;
 	/** The id of the grep to stop. */
 	grep?: number;
-}
+};
 
 /** The answer of `cancel`. */
-export interface CancelAnswer {
+export type CancelAnswer = {
 	/**
 	 * Whether a build or a grep in flight was stopped. A named build or grep that has not entered the library starts
 	 * stopped, unless cancels that stopped nothing named 1,024 distinct later ids of its kind before it entered; a grep
 	 * that had already opened its last file answers whole, with `cancelled` false.
 	 */
 	stopped: boolean;
-}
+};
 
 /** The answer of `build` and `stats`. */
-export interface Stats {
+export type Stats = {
 	/** The entries the index holds, directories included. */
 	entries: number;
 	languages: LanguageFiles[];
@@ -118,10 +118,10 @@ export interface Stats {
 	/** Absent when the build made no content index. */
 	content_index?: ContentIndexStats;
 	errors: BuildErrors;
-}
+};
 
 /** What a build made of one language's files. */
-export interface LanguageFiles {
+export type LanguageFiles = {
 	name: string;
 	family: string;
 	/** The files the language was the first to claim, of those the ignore rules kept. */
@@ -132,10 +132,10 @@ export interface LanguageFiles {
 	cached: number;
 	/** The read files the family's graph holds. */
 	held: number;
-}
+};
 
 /** What one family's graph holds. */
-export interface GraphStats {
+export type GraphStats = {
 	name: string;
 	files: number;
 	files_without_symbols: number;
@@ -146,47 +146,47 @@ export interface GraphStats {
 	local_calls: number;
 	uses: number;
 	includes: number;
-}
+};
 
 /** What a content index holds. */
-export interface ContentIndexStats {
+export type ContentIndexStats = {
 	files: number;
 	trigrams: number;
 	bytes: number;
-}
+};
 
 /** The failures a build collected rather than stopped on: `total` of them, the first of them listed. */
-export interface BuildErrors {
+export type BuildErrors = {
 	total: number;
 	listed: BuildFailure[];
-}
+};
 
 /** One failure a build collected. */
-export interface BuildFailure {
+export type BuildFailure = {
 	/** `walk`, `ignore`, `name`, `read`, `content_index`, `cache` or `other`. */
 	kind: string;
 	path?: string;
 	message: string;
-}
+};
 
 /** The answer of `version`. */
-export interface Version {
+export type Version = {
 	abi: number;
 	version: string;
 	methods: string[];
 	languages: string[];
-}
+};
 
 /**
  * The answer of a query that names a symbol: one part for each graph the name selects a symbol in, or for the one
  * graph the params' `lang` names, in the order of the engine's graphs. Each part names its graph.
  */
-export interface Matches<T> {
+export type Matches<T> = {
 	matches: T[];
-}
+};
 
 /** A symbol a graph holds, where it is defined. */
-export interface Definition {
+export type Definition = {
 	name: string;
 	qualified_name: string;
 	owner?: string;
@@ -200,25 +200,25 @@ export interface Definition {
 	exported: boolean;
 	/** Those set of `test`, `entry`, `generated` and `vendored`. */
 	flags?: string[];
-}
+};
 
 /** A symbol a walk reached, and the call that reached it. */
-export interface Reached {
+export type Reached = {
 	symbol: Definition;
 	depth: number;
 	confidence: number;
 	/** The line of the call. */
 	line: number;
-}
+};
 
 /** A symbol a name also selects that the answer passed over, and the count the query ranked it by. */
-export interface Candidate {
+export type Candidate = {
 	symbol: Definition;
 	count: number;
-}
+};
 
 /** The params of `callers` and `callees`. */
-export interface WalkParams {
+export type WalkParams = {
 	/** Selects the symbol to start from: a bare or a qualified name. */
 	name: string;
 	/**
@@ -234,10 +234,10 @@ export interface WalkParams {
 	min_confidence?: number;
 	/** Caps the symbols the walk reaches, its root included; 500 by default. */
 	max_symbols?: number;
-}
+};
 
 /** What a walk over calls reached in one graph, and what it left out. */
-export interface Walk {
+export type Walk = {
 	graph: string;
 	root: Definition;
 	/** The other symbols the name selects, of which `root` was chosen. */
@@ -260,20 +260,20 @@ export interface Walk {
 	 * `below_confidence` also counts the files the floor left out.
 	 */
 	file_scope?: FileScope[];
-}
+};
 
 /**
  * A file whose top level, outside every definition, calls or uses a name. The graph keeps only the names a top level
  * spells, so it has no line.
  */
-export interface FileScope {
+export type FileScope = {
 	file: string;
 	/** How the file sees the symbol: 80 in the same file, 75 in its package, 70 through an include. */
 	confidence: number;
-}
+};
 
 /** The params of `call_path`. */
-export interface CallPathParams {
+export type CallPathParams = {
 	from: string;
 	/**
 	 * Keeps the symbols `from` may select to the files whose root-relative path starts with it, one file's path or a
@@ -292,10 +292,10 @@ export interface CallPathParams {
 	min_confidence?: number;
 	/** Caps the symbols the search reaches; 20,000 by default. */
 	max_symbols?: number;
-}
+};
 
 /** What a search for a chain of calls between two symbols found in one graph, and what it left out. */
-export interface CallPath {
+export type CallPath = {
 	graph: string;
 	from: Definition;
 	to: Definition;
@@ -313,10 +313,10 @@ export interface CallPath {
 	 * callers. Absent when neither end passed one over.
 	 */
 	candidates?: {from: Candidate[]; to: Candidate[]};
-}
+};
 
 /** The params of `references`. */
-export interface ReferencesParams {
+export type ReferencesParams = {
 	name: string;
 	/**
 	 * Keeps only the symbols in files whose root-relative path starts with it, one file's path or a directory's with
@@ -329,13 +329,13 @@ export interface ReferencesParams {
 	access?: Access;
 	/** Caps the sites answered; 500 by default. */
 	limit?: number;
-}
+};
 
 /** How a site touches a symbol; a call, and a use as a type, read it. */
 export type Access = 'read' | 'write' | 'update';
 
 /** The sites that call or use a symbol in one graph. */
-export interface References {
+export type References = {
 	graph: string;
 	symbol: Definition;
 	passed_over: number;
@@ -349,18 +349,18 @@ export interface References {
 	counts: SiteCounts;
 	/** The uses of a member's name on a value whose type the graph could not follow, which may take this symbol. */
 	ambiguous: number;
-}
+};
 
 /** A symbol's sites, counted by kind. */
-export interface SiteCounts {
+export type SiteCounts = {
 	calls: number;
 	reads: number;
 	writes: number;
 	updates: number;
-}
+};
 
 /** A call or a use of a symbol, and the definition it sits in. */
-export interface Site {
+export type Site = {
 	site_of: Definition;
 	line: number;
 	confidence: number;
@@ -368,36 +368,36 @@ export interface Site {
 	call: boolean;
 	/** How the site touches the symbol: an `Access`, as `kind` is a `Definition`'s label. */
 	access: string;
-}
+};
 
 /** The params of `definitions`. */
-export interface DefinitionsParams {
+export type DefinitionsParams = {
 	name: string;
 	lang?: string;
 	/** The file the lookup asks from: definitions in its directory rank first. */
 	from?: string;
 	/** Caps the definitions answered; 10 by default. */
 	limit?: number;
-}
+};
 
 /** The params of `sources`: those of `definitions`, and the caps on each definition's text. */
-export interface SourcesParams extends DefinitionsParams {
+export type SourcesParams = DefinitionsParams & {
 	/** Caps the lines of each definition, its doc comment included; 0 answers every line. */
 	max_lines?: number;
 	/** Caps the bytes of each line; 0 answers lines whole. */
 	max_line_bytes?: number;
-}
+};
 
 /** The answer of `definitions` and `sources` in one graph. */
-export interface Definitions {
+export type Definitions = {
 	graph: string;
 	/** Every definition the name selects, before the limit. */
 	total: number;
 	found: Found[];
-}
+};
 
 /** A definition a name selects. */
-export interface Found {
+export type Found = {
 	definition: Definition;
 	/** `same_directory` or `elsewhere`, from the file the lookup asks from. */
 	nearness: string;
@@ -405,30 +405,30 @@ export interface Found {
 	source?: Source;
 	/** Why `sources` could not read the definition's text. */
 	error?: string;
-}
+};
 
 /** The text of a definition, its doc comment included, as its file holds it now. */
-export interface Source {
+export type Source = {
 	doc_line: number;
 	first_line: number;
 	lines: number;
 	text: string;
 	/** The lines of `text` the byte cap cut, each with its length before the cut. */
-	cut_lines: {line: number; bytes: number}[];
+	cut_lines: Array<{line: number; bytes: number}>;
 	/** The file's size differs from the size the build read, so the lines may have moved. */
 	resized: boolean;
-}
+};
 
 /** The params of `search`. */
-export interface SearchParams {
+export type SearchParams = {
 	query: string;
 	lang?: string;
 	/** Caps the hits answered; 20 by default. */
 	limit?: number;
-}
+};
 
 /** The answer of `search` in one graph. */
-export interface Search {
+export type Search = {
 	graph: string;
 	hits: Hit[];
 	/** The definitions that share a word with the query or that it names, before the limit. */
@@ -440,20 +440,20 @@ export interface Search {
 	dropped_words: number;
 	/** What the fill-up by characters found before the limit, when it ran. */
 	fuzzy_total?: number;
-}
+};
 
 /** A definition a search found. */
-export interface Hit {
+export type Hit = {
 	definition: Definition;
 	score: number;
 	/** The name is the query as written. */
 	exact: boolean;
 	/** The fill-up by characters found it. */
 	fuzzy: boolean;
-}
+};
 
 /** The params of `implementations`. */
-export interface ImplementationsParams {
+export type ImplementationsParams = {
 	name: string;
 	/**
 	 * Keeps only the types in files whose root-relative path starts with it, one file's path or a directory's with its
@@ -465,10 +465,10 @@ export interface ImplementationsParams {
 	depth?: number;
 	/** Caps the implementors answered; 100 by default. */
 	limit?: number;
-}
+};
 
 /** The types that implement or extend a type in one graph. */
-export interface Implementations {
+export type Implementations = {
 	graph: string;
 	root: Definition;
 	passed_over: number;
@@ -477,14 +477,14 @@ export interface Implementations {
 	 * implementors.
 	 */
 	candidates?: Candidate[];
-	found: {symbol: Definition; depth: number}[];
+	found: Array<{symbol: Definition; depth: number}>;
 	/** The implementors within the depth bound, before the limit. */
 	total: number;
 	unexpanded: number;
-}
+};
 
 /** The params of `dead_code`. */
-export interface DeadCodeParams {
+export type DeadCodeParams = {
 	lang?: string;
 	/** The kinds to judge, by their labels; every kind when absent or empty. */
 	kinds?: string[];
@@ -492,12 +492,12 @@ export interface DeadCodeParams {
 	path_prefix?: string;
 	/** Caps the definitions answered; 100 by default. */
 	limit?: number;
-}
+};
 
 /** The definitions of one graph nothing the graph sees uses, and the counts of what the judgement left out. */
-export interface DeadCode {
+export type DeadCode = {
 	graph: string;
-	found: {definition: Definition; spelled: boolean}[];
+	found: Array<{definition: Definition; spelled: boolean}>;
 	total: number;
 	live: number;
 	excluded: {
@@ -510,21 +510,21 @@ export interface DeadCode {
 		uncertain: number;
 		dispatched: number;
 	};
-}
+};
 
 /** The params of `resolution`. */
-export interface ResolutionParams {
+export type ResolutionParams = {
 	lang?: string;
 	/** How many unbound call sites of each graph to list; 20 by default. */
 	limit?: number;
-}
+};
 
 /** How the call sites of one graph bound. */
-export interface Resolution {
+export type Resolution = {
 	graph: string;
 	sites: number;
 	/** The sites bound at each confidence. */
-	bound: {confidence: number; sites: number}[];
+	bound: Array<{confidence: number; sites: number}>;
 	edges: number;
 	misses: {
 		external_import: number;
@@ -537,56 +537,56 @@ export interface Resolution {
 	unbound: Unbound[];
 	/** The unbound sites past the limit. */
 	unlisted: number;
-}
+};
 
 /** A call site that bound no symbol. */
-export interface Unbound {
+export type Unbound = {
 	caller: Definition;
 	line: number;
 	callee: string;
 	receiver?: string;
 	/** `external_import`, `not_exported`, `undefined`, `not_admitted` or `ambiguous`. */
 	miss: string;
-}
+};
 
 /** The params of `outline`. */
-export interface OutlineParams {
+export type OutlineParams = {
 	file: string;
-}
+};
 
 /**
  * The definitions of one file. `graph` is the graph of the language that claims the file, absent when none does; when
  * that graph does not hold the file, `held` is false and the rest is empty.
  */
-export interface Outline {
+export type Outline = {
 	file: string;
 	graph?: string;
 	held: boolean;
 	symbols: Definition[];
-}
+};
 
 /** The params of `dependents`. */
-export interface DependentsParams {
+export type DependentsParams = {
 	file: string;
 	/** How many includes away the search goes; 3 by default. */
 	depth?: number;
 	/** Caps the files answered; 100 by default, and 0 sets no cap. */
 	max_files?: number;
-}
+};
 
 /** The files that include a file, directly or through others. `graph` and `held` are as {@link Outline}'s. */
-export interface Dependents {
+export type Dependents = {
 	file: string;
 	graph?: string;
 	held: boolean;
-	found: {file: string; depth: number}[];
+	found: Array<{file: string; depth: number}>;
 	truncated: boolean;
 	turned_away: number;
 	unexpanded: number;
-}
+};
 
 /** The params of `analyze_segment`. */
-export interface SegmentParams {
+export type SegmentParams = {
 	file: string;
 	/** The first line of the segment; absent takes the first line of the file. */
 	start_line?: number;
@@ -597,10 +597,10 @@ export interface SegmentParams {
 	min_confidence?: number;
 	/** Caps the symbols each blast reaches; 500 by default. */
 	max_symbols?: number;
-}
+};
 
 /** What a change to a range of a file's lines reaches. `graph` and `held` are as {@link Outline}'s. */
-export interface Segment {
+export type Segment = {
 	file: string;
 	graph?: string;
 	held: boolean;
@@ -609,26 +609,26 @@ export interface Segment {
 	symbols: SegmentSymbol[];
 	includes: string[];
 	included_by: string[];
-}
+};
 
 /** A symbol the segment overlaps, its direct calls each way, and the callers it reaches. */
-export interface SegmentSymbol {
+export type SegmentSymbol = {
 	definition: Definition;
 	callers: DirectCalls;
 	callees: DirectCalls;
 	unresolved: number;
 	blast: Blast;
-}
+};
 
 /** A symbol's direct callers or callees: at most 50 listed, and `total` of them that pass the confidence floor. */
-export interface DirectCalls {
+export type DirectCalls = {
 	listed: Reached[];
 	total: number;
 	below_confidence: number;
-}
+};
 
 /** What a walk over a symbol's callers reached. */
-export interface Blast {
+export type Blast = {
 	/** The callers reached, the symbol itself not among them. */
 	reach: number;
 	/** The callers reached at each depth, the direct callers first. */
@@ -641,27 +641,27 @@ export interface Blast {
 	turned_away: number;
 	unexpanded: number;
 	below_confidence: number;
-}
+};
 
 /** The params of `analyze_change`. */
-export interface ChangeParams {
+export type ChangeParams = {
 	regions: Region[];
 	/** How many calls away each changed symbol's walk goes; 3 by default. */
 	depth?: number;
 	min_confidence?: number;
 	/** Caps the symbols each walk reaches; 500 by default. */
 	max_symbols?: number;
-}
+};
 
 /** A changed range of a file's lines; absent ends take the file's first and last lines. */
-export interface Region {
+export type Region = {
 	file: string;
 	start_line?: number;
 	end_line?: number;
-}
+};
 
 /** What a change to regions across files reaches. */
-export interface Change {
+export type Change = {
 	changed_symbols: number;
 	changed_files: number;
 	unheld_regions: number;
@@ -673,10 +673,10 @@ export interface Change {
 	total_hotspots: number;
 	seeds: Seed[];
 	truncated_seeds: number;
-}
+};
 
 /** A symbol several changed symbols reach. */
-export interface Hotspot {
+export type Hotspot = {
 	symbol: Definition;
 	/** The changed symbols that reach it. */
 	hit_count: number;
@@ -684,10 +684,10 @@ export interface Hotspot {
 	min_depth: number;
 	/** It is itself a changed symbol. */
 	also_changed: boolean;
-}
+};
 
 /** A changed symbol and the callers it reaches. */
-export interface Seed {
+export type Seed = {
 	symbol: Definition;
 	reach: number;
 	/** `low`, `medium`, `high` or `critical`. */
@@ -697,15 +697,15 @@ export interface Seed {
 	/** Those direct callers when there are 30 or fewer; empty otherwise. */
 	consumers: Reached[];
 	/** Those direct callers by directory, the most first, when there are more than 30. */
-	consumer_dirs: {dir: string; count: number}[];
+	consumer_dirs: Array<{dir: string; count: number}>;
 	truncated: boolean;
 	turned_away: number;
 	unexpanded: number;
 	below_confidence: number;
-}
+};
 
 /** The params of `list`. */
-export interface ListParams {
+export type ListParams = {
 	/** The directory to list; absent lists the root. */
 	path?: string;
 	/** How many levels to descend; absent lists the directory's children alone, and 0 its whole subtree. */
@@ -716,10 +716,10 @@ export interface ListParams {
 	collapse?: string[];
 	/** Globs naming the entries left out. */
 	exclude?: string[];
-}
+};
 
 /** The answer of `list`. */
-export interface Listing {
+export type Listing = {
 	path: string;
 	entries: Listed[];
 	truncated: boolean;
@@ -727,10 +727,10 @@ export interface Listing {
 	excluded: number;
 	/** The entries the index holds under the directory, at every depth. */
 	total: number;
-}
+};
 
 /** One entry of a listing. */
-export interface Listed {
+export type Listed = {
 	path: string;
 	/** `file`, `dir`, `symlink` or `other`. */
 	kind: string;
@@ -740,38 +740,38 @@ export interface Listed {
 	target?: string;
 	/** The entries below a directory the listing did not descend into. */
 	unlisted?: number;
-}
+};
 
 /** The params of `glob`. */
-export interface GlobParams {
+export type GlobParams = {
 	globs: string[];
 	/** Caps the paths answered; 0 sets no cap. */
 	limit?: number;
-}
+};
 
 /** The answer of `glob`: the matching paths in index order. */
-export interface Glob {
+export type Glob = {
 	paths: string[];
 	truncated: boolean;
-}
+};
 
 /** The params of `fuzzy`. */
-export interface FuzzyParams {
+export type FuzzyParams = {
 	query: string;
 	/** Keep the paths they match; absent keeps every path. */
 	globs?: string[];
 	/** Caps the matches answered; 50 by default. */
 	limit?: number;
-}
+};
 
 /** The answer of `fuzzy`: the best-ranked paths, best first. */
-export interface Fuzzy {
-	matches: {path: string; score: number}[];
+export type Fuzzy = {
+	matches: Array<{path: string; score: number}>;
 	truncated: boolean;
-}
+};
 
 /** The params of `grep`. */
-export interface GrepParams {
+export type GrepParams = {
 	/** Names the grep for a cancel. */
 	id?: number;
 	patterns: string[];
@@ -790,11 +790,11 @@ export interface GrepParams {
 	max_line_bytes?: number;
 	/** The size past which a file is not searched; 4 MiB by default. */
 	max_file_bytes?: number;
-}
+};
 
 /** The answer of `grep`: the files holding a match with their lines, and the account of every candidate. */
-export interface Grep {
-	files: {path: string; lines: GrepLine[]}[];
+export type Grep = {
+	files: Array<{path: string; lines: GrepLine[]}>;
 	/** The matching lines answered. */
 	lines: number;
 	truncated: boolean;
@@ -810,15 +810,15 @@ export interface Grep {
 	/** The candidates the content index ruled out unread. */
 	ruled_out: number;
 	unsearched: number;
-	failures: {path: string; message: string}[];
-}
+	failures: Array<{path: string; message: string}>;
+};
 
 /** A matching line, or a line of context around one. */
-export interface GrepLine {
+export type GrepLine = {
 	number: number;
 	/** `match` or `context`. */
 	kind: string;
 	text: string;
 	/** The bytes left out before and after the part of the line answered, when `max_line_bytes` cut it. */
 	cut?: {before: number; after: number};
-}
+};

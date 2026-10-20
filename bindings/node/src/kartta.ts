@@ -55,16 +55,16 @@ export type * from './wire.ts';
 
 const TARGETS = ['darwin-arm64', 'linux-x64-gnu', 'linux-arm64-gnu'];
 
-interface Addon {
+type Addon = {
 	open(params: string): Handle | Buffer;
-}
+};
 
-interface Handle {
+type Handle = {
 	build(params: string): Promise<Buffer>;
 	call(method: string, params: string): Promise<Buffer>;
 	cancel(params: string): Buffer;
 	close(): void;
-}
+};
 
 /** A failure the engine answered, or a call on a closed handle: a code to branch on, and a message for a reader. */
 export class KarttaError extends Error {
