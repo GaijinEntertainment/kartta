@@ -8,7 +8,7 @@ mod unused;
 use std::fmt::Display;
 use std::time::Duration;
 
-use kartta::{Definition, Hit, Resolution, SymbolFlags, SymbolKind};
+use kartta::{Definition, Hit, Resolution, SymbolFlags, SymbolKind, UnmatchedKind};
 
 pub(crate) use self::calls::{
     CallersAsk, PathAsk, call_path, callees, callers, change, impact, references,
@@ -139,16 +139,8 @@ fn empty_languages_note(languages: Option<&str>) -> Option<&'static str> {
 /// What a name that selected no symbol does match, in the graphs a query searched.
 #[derive(Debug, Clone)]
 pub(crate) enum Unmatched<'g> {
-    /// Several definitions the name ends with, none of which it picks: `total` of them, the first listed.
-    Several {
-        total: usize,
-        listed: Vec<(&'g str, Definition<'g>)>,
-    },
-    /// Definitions of the name outside the path prefix asked: `total` of them, the first listed.
-    Elsewhere {
-        total: usize,
-        listed: Vec<(&'g str, Definition<'g>)>,
-    },
+    /// The definitions the name names, which say why it selected none.
+    Named(kartta::Unmatched<'g>),
     /// The close alternatives a search found.
     Suggested(Vec<Suggestion<'g>>),
 }
@@ -180,17 +172,18 @@ fn unresolved(
         return element.inline(note);
     }
     let (text, listed) = match unmatched {
-        Unmatched::Several { total, listed } => (
-            format!(
-                "{total} definitions end with this name and it picks none of them - a longer name, or {prefix} with \
-                 one's file, picks one:"
-            ),
-            listed,
-        ),
-        Unmatched::Elsewhere { total, listed } => (
-            format!("no definition of this name is under {prefix} - {total} are elsewhere:"),
-            listed,
-        ),
+        Unmatched::Named(named) => {
+            let total = named.total;
+            let text = if named.kind == UnmatchedKind::Several {
+                format!(
+                    "{total} definitions end with this name and it picks none of them - a longer name, or {prefix} \
+                     with one's file, picks one:"
+                )
+            } else {
+                format!("no definition of this name is under {prefix} - {total} are elsewhere:")
+            };
+            (text, &named.listed)
+        }
         Unmatched::Suggested(suggestions) if suggestions.is_empty() => {
             return element.inline("no symbol matches - find_symbols can pin the exact name");
         }
