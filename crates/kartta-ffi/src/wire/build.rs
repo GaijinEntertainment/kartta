@@ -19,6 +19,7 @@ const ERRORS_LISTED: usize = 20;
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct BuildParams {
     pub(crate) id: Option<u64>,
+    pub(crate) binding_id: Option<u64>,
     languages: Option<Vec<String>>,
     threads: Option<NonZeroUsize>,
     ignore: Ignore,
@@ -118,6 +119,18 @@ pub(crate) struct CancelParams {
     pub(crate) build: Option<u64>,
     pub(crate) grep: Option<u64>,
     pub(crate) refresh: Option<u64>,
+    pub(crate) by: By,
+}
+
+/// The name of a build, a grep or a refresh that a cancel compares its ids with: the `id` the call's caller gives, or
+/// the `binding_id` a binding over the wire gives each call it runs. An id by one name never stops a call by the other,
+/// so the ids a binding picks for cancels of its own never meet those its callers give.
+#[derive(Debug, Default, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum By {
+    #[default]
+    Id,
+    BindingId,
 }
 
 #[derive(Debug, Serialize)]

@@ -85,7 +85,10 @@ type FuzzyMatch struct {
 type GrepParams struct {
 	// ID names the grep for a cancel. The kartta package's Grep sets it; Call keeps one other than 0, and picks one
 	// in place of 0.
-	ID              uint64   `json:"id,omitempty"`
+	ID uint64 `json:"id,omitempty"`
+	// BindingID names the grep for a cancel ByBindingID, apart from ID: a binding over the wire names each call it
+	// runs by one, so the IDs its callers give never stop a call of its own.
+	BindingID       uint64   `json:"binding_id,omitempty"`
 	Patterns        []string `json:"patterns"`
 	CaseInsensitive bool     `json:"case_insensitive,omitempty"`
 	// Globs keep the files they match; nil keeps every file.
