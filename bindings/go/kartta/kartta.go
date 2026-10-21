@@ -70,9 +70,10 @@ func Open(root string) (*Kartta, error) {
 }
 
 // Close cancels the builds, greps and refreshes in flight, waits for the calls in flight to return, and frees the
-// handle. A build Close cancels answers an error matching both wire.BuildCancelled and ErrClosed, and a refresh one
-// matching both wire.RefreshCancelled and ErrClosed; of the builds and the refreshes that have yet to enter the
-// library, only the last 1,024 of each it cancels stop. Closing a closed handle does nothing.
+// handle. A build Close cancels answers an error matching both wire.BuildCancelled and ErrClosed, a refresh one
+// matching both wire.RefreshCancelled and ErrClosed, and a grep what it covered, Cancelled set; a call that reaches the
+// handle only after Close freed it answers ErrClosed alone. Of the builds, the greps and the refreshes that have yet to
+// enter the library, only the last 1,024 of each it cancels stop. Closing a closed handle does nothing.
 func (k *Kartta) Close() error {
 	k.tracked.Lock()
 	k.closing = true
@@ -117,8 +118,9 @@ func (k *Kartta) Refresh(ctx context.Context, params wire.RefreshParams) (*wire.
 }
 
 // tracked calls method under an id of its own, which named gives the params it sends and the cancel that stops it.
-// Close and ctx stop the call through that cancel, and a call they stopped answers an error matching both cancelled
-// and ctx's cause.
+// Close and ctx stop the call through that cancel, and one they stop before it enters the library starts stopped. A
+// call they stopped answers an error matching both cancelled and ctx's cause; a grep answers what it covered, so Grep
+// names no code.
 func tracked[A any](
 	ctx context.Context,
 	k *Kartta,
@@ -157,6 +159,9 @@ func tracked[A any](
 			<-cancelSent
 		}
 	}()
+	if ctx.Err() != nil {
+		<-cancelSent
+	}
 	var answer A
 	if err := call(handle, method, params, &answer); err != nil {
 		if cause := context.Cause(ctx); cause != nil && errors.Is(err, cancelled) {
@@ -271,9 +276,14 @@ func (k *Kartta) Fuzzy(params wire.FuzzyParams) (*wire.Fuzzy, error) {
 }
 
 // Grep answers the lines of the indexed files the patterns match. A pattern that does not compile answers
-// wire.InvalidPattern, and a glob wire.InvalidGlob.
-func (k *Kartta) Grep(params wire.GrepParams) (*wire.Grep, error) {
-	return ask[wire.Grep](k, "grep", params)
+// wire.InvalidPattern, and a glob wire.InvalidGlob. If ctx is done before the grep opens its last file, the grep stops
+// and answers what it covered, Cancelled set and the files it did not open counted Unsearched; otherwise it answers
+// whole. A ctx done before the call answers its cause alone.
+func (k *Kartta) Grep(ctx context.Context, params wire.GrepParams) (*wire.Grep, error) {
+	return tracked[wire.Grep](ctx, k, "grep", "", func(id uint64) (any, wire.CancelParams) {
+		params.ID = id
+		return params, wire.CancelParams{Grep: id}
+	})
 }
 
 // Call answers method with params, encoded as JSON, decoding the answer into answer, a pointer, or discarding it when
