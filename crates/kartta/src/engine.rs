@@ -74,8 +74,9 @@ pub struct EngineRefresh {
     /// Whether every graph was built again from every file, because the engine was built without
     /// [`BuildOptions::stamps`] and kept nothing to find what a change reaches.
     pub rebuilt: bool,
-    /// The paths an [`Engine::refresh_paths`] was named and the limit their parts passed, when it refreshed the whole
-    /// tree in their place; `None` from [`Engine::refresh`] and from a call that walked the parts of its paths.
+    /// The paths an [`Engine::refresh_paths`] was named, the parts they came to and the limit those passed, when it
+    /// refreshed the whole tree in their place; `None` from [`Engine::refresh`] and from a call that walked the parts
+    /// of its paths.
     pub widened: Option<Widened>,
 }
 
@@ -85,6 +86,8 @@ pub struct EngineRefresh {
 pub struct Widened {
     /// The paths the call was named.
     pub named: usize,
+    /// The parts those paths came to, as [`kartta_fs::Index::parts_of`] answers them, more than `limit`.
+    pub parts: usize,
     /// The most parts the call would have walked apart, [`Engine::refresh_paths_limit`] when it began.
     pub limit: usize,
 }
@@ -330,7 +333,11 @@ impl Engine {
         if parts.len() > limit {
             let (mut refresh, walked) =
                 self.refresh_from_walk(|index, visitor| walk(index, &mut iter::once(""), visitor))?;
-            refresh.widened = Some(Widened { named, limit });
+            refresh.widened = Some(Widened {
+                named,
+                parts: parts.len(),
+                limit,
+            });
             return Ok((refresh, walked));
         }
         self.refresh_from_walk(|index, visitor| {
