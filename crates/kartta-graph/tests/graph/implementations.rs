@@ -371,7 +371,7 @@ fn a_name_several_types_share_selects_the_most_implemented_and_counts_the_rest()
 
     let selected = graph.implementations("Node", 1, 10).expect("a type");
     let passed_over = graph
-        .implementations(Selector::new("Node").within("a.h"), 1, 10)
+        .implementations(Selector::new("Node", Some("a.h")), 1, 10)
         .expect("a type in a.h");
 
     assert_eq!(selected.root.qualified_name, "b::Node");
