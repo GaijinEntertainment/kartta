@@ -271,7 +271,7 @@ export type Matches<T> = {
 	/**
 	 * Why `matches` is empty when the name, or its reading, names definitions of the kinds the method selects and picks
 	 * none of them, or names no definition while names one edit from it do; absent for a name that matched or for which
-	 * neither holds. `callers`, `callees`, `references` and `implementations` carry it.
+	 * neither holds. `callers`, `callees`, `references`, `implementations`, `definitions` and `sources` carry it.
 	 */
 	unmatched?: Unmatched;
 	/** The same for a `call_path`'s `from`, carried only when that end selects no symbol. */

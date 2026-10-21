@@ -14,7 +14,8 @@ type Matches[T any] struct {
 	ToReadAs   string `json:"to_read_as,omitempty"`
 	// Unmatched says why Matches is empty when the name, or its reading, names definitions of the kinds the method
 	// selects and picks none of them, or names no definition while names one edit from it do; nil for a name that
-	// matched or for which neither holds. callers, callees, references and implementations set it.
+	// matched or for which neither holds. callers, callees, references, implementations, definitions and sources set
+	// it.
 	Unmatched *Unmatched `json:"unmatched,omitempty"`
 	// FromUnmatched and ToUnmatched say it for a call_path's From and To, each set only for an end that selects no
 	// symbol.

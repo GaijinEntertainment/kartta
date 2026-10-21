@@ -147,16 +147,15 @@ fn implementations(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
 
 fn definitions(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: DefinitionsParams = wire::params(params)?;
-    let (found, read_as) = ask_reading(
+    wire::ok(&ask_named(
         built.graphs(params.lang.as_deref())?,
-        [Selector::new(&params.name, None)],
+        Selector::new(&params.name, None),
         |_| true,
-        |(name, graph), [named]| {
+        |(name, graph), named| {
             let found = graph.definitions(named.name, params.from.as_deref(), params.limit());
             (found.total > 0).then(|| (name, DefinitionsView::new(&found, None)))
         },
-    );
-    wire::ok(&Matches::read(found, read_as, None))
+    ))
 }
 
 fn sources(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
@@ -164,11 +163,11 @@ fn sources(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let options = SourceOptions::default()
         .max_lines(params.max_lines)
         .max_line_bytes(params.max_line_bytes);
-    let (found, read_as) = ask_reading(
+    wire::ok(&ask_named(
         built.graphs(params.lang.as_deref())?,
-        [Selector::new(&params.name, None)],
+        Selector::new(&params.name, None),
         |_| true,
-        |(name, graph), [named]| {
+        |(name, graph), named| {
             let found = graph.definitions(named.name, params.from.as_deref(), params.limit());
             if found.total == 0 {
                 return None;
@@ -177,8 +176,7 @@ fn sources(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
             let sources = built.engine.sources(&asked, options);
             Some((name, DefinitionsView::new(&found, Some(sources))))
         },
-    );
-    wire::ok(&Matches::read(found, read_as, None))
+    ))
 }
 
 fn search(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
