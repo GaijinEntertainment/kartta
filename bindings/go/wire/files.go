@@ -83,7 +83,7 @@ type FuzzyMatch struct {
 
 // GrepParams are the params of the grep method.
 type GrepParams struct {
-	// ID names the grep for a cancel; 0 names none, as BuildOptions.ID does.
+	// ID names the grep for a cancel. The kartta package sets it.
 	ID              uint64   `json:"id,omitempty"`
 	Patterns        []string `json:"patterns"`
 	CaseInsensitive bool     `json:"case_insensitive,omitempty"`

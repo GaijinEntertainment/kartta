@@ -75,6 +75,17 @@ func refreshTracked(ctx context.Context, k *Kartta, id uint64) <-chan error {
 	})
 }
 
+func grepTracked(ctx context.Context, k *Kartta, id uint64) (<-chan error, *wire.Grep) {
+	answer := new(wire.Grep)
+	return tracking(k, id, func() error {
+		grep, err := k.Grep(ctx, wire.GrepParams{Patterns: []string{"package"}})
+		if err == nil {
+			*answer = *grep
+		}
+		return err
+	}), answer
+}
+
 func openStamped(t *testing.T) *Kartta {
 	t.Helper()
 	k := openTree(t)
@@ -140,6 +151,61 @@ func Test_Close_stops_a_build_in_flight(t *testing.T) {
 	}
 	if err := <-built; !errors.Is(err, ErrClosed) {
 		t.Fatalf("Build beside Close = %v, want %v", err, ErrClosed)
+	}
+}
+
+func Test_Grep_cancel(t *testing.T) {
+	k := openTree(t)
+	if _, err := k.Build(t.Context(), wire.BuildOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("a context done before its grep enters stops it before it opens a file", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		k.mu.Lock()
+		grepped, answer := grepTracked(ctx, k, k.ids.Load()+1)
+		cancel()
+		k.mu.Unlock()
+
+		if err := <-grepped; err != nil {
+			t.Fatal(err)
+		}
+		if !answer.Cancelled || answer.Searched != 0 || answer.Unsearched != answer.Candidates {
+			t.Errorf("Grep = %+v, want one cancelled with every candidate unsearched", answer)
+		}
+	})
+
+	t.Run("the next grep answers whole", func(t *testing.T) {
+		answer, err := k.Grep(t.Context(), wire.GrepParams{Patterns: []string{"package"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if answer.Cancelled || answer.Searched != answer.Candidates || len(answer.Files) != 1 {
+			t.Errorf("Grep = %+v, want every candidate searched and one file", answer)
+		}
+	})
+}
+
+func Test_Close_stops_a_grep_yet_to_enter(t *testing.T) {
+	k := openTree(t)
+	if _, err := k.Build(t.Context(), wire.BuildOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	k.mu.Lock()
+	grepped, answer := grepTracked(t.Context(), k, k.ids.Load()+1)
+	closed := make(chan error, 1)
+	go func() { closed <- k.Close() }()
+	until(func(k *Kartta) bool { return k.closing }, k)
+	k.mu.Unlock()
+
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-grepped; err != nil {
+		t.Fatal(err)
+	}
+	if !answer.Cancelled || answer.Searched != 0 || answer.Unsearched != answer.Candidates {
+		t.Errorf("Grep beside Close = %+v, want one cancelled with every candidate unsearched", answer)
 	}
 }
 
