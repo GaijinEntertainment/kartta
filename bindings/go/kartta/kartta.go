@@ -99,9 +99,9 @@ func (k *Kartta) Close() error {
 // leaves the handle without an index until the next one finishes. A ctx done before the call answers its cause alone
 // and leaves the handle as it was.
 func (k *Kartta) Build(ctx context.Context, options wire.BuildOptions) (*wire.Stats, error) {
-	return tracked[wire.Stats](ctx, k, "build", wire.BuildCancelled, func(id uint64) (any, wire.CancelParams) {
+	return tracked[wire.Stats](ctx, k, "build", func(id uint64) any {
 		options.ID = id
-		return options, wire.CancelParams{Build: id}
+		return options
 	})
 }
 
@@ -111,23 +111,15 @@ func (k *Kartta) Build(ctx context.Context, options wire.BuildOptions) (*wire.St
 // wire.RefreshCancelled and ctx's cause, leaving the index as it was; one past its walk finishes. A ctx done before the
 // call answers its cause alone.
 func (k *Kartta) Refresh(ctx context.Context, params wire.RefreshParams) (*wire.Refresh, error) {
-	return tracked[wire.Refresh](ctx, k, "refresh", wire.RefreshCancelled, func(id uint64) (any, wire.CancelParams) {
+	return tracked[wire.Refresh](ctx, k, "refresh", func(id uint64) any {
 		params.ID = id
-		return params, wire.CancelParams{Refresh: id}
+		return params
 	})
 }
 
-// tracked calls method under an id of its own, which named gives the params it sends and the cancel that stops it.
-// Close and ctx stop the call through that cancel, and one they stop before it enters the library starts stopped. A
-// call they stopped answers an error matching both cancelled and ctx's cause; a grep answers what it covered, so Grep
-// names no code.
-func tracked[A any](
-	ctx context.Context,
-	k *Kartta,
-	method string,
-	cancelled wire.Code,
-	named func(id uint64) (any, wire.CancelParams),
-) (*A, error) {
+// tracked calls method under an id of its own, sending the params named gives that id, as callTracked does. A ctx
+// done before the call answers its cause alone.
+func tracked[A any](ctx context.Context, k *Kartta, method string, named func(id uint64) any) (*A, error) {
 	if err := context.Cause(ctx); err != nil {
 		if k.closed() {
 			return nil, ErrClosed
@@ -135,24 +127,34 @@ func tracked[A any](
 		return nil, err
 	}
 	id := k.ids.Add(1)
-	params, cancel := named(id)
+	var answer A
+	if err := k.callTracked(ctx, method, id, named(id), &answer); err != nil {
+		return nil, err
+	}
+	return &answer, nil
+}
+
+// callTracked calls method with params under id, decoding the answer into answer. Close and ctx stop the call through
+// a cancel naming method and id, and one they stop before it enters the library starts stopped. A build or a refresh
+// they stopped answers an error matching both its cancelled code and ctx's cause; a grep answers what it covered.
+func (k *Kartta) callTracked(ctx context.Context, method string, id uint64, params, answer any) error {
 	ctx, stopCall := context.WithCancelCause(ctx)
 	defer stopCall(nil)
 	if !k.track(id, stopCall) {
-		return nil, ErrClosed
+		return ErrClosed
 	}
 	defer k.untrack(id)
 
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	if k.handle == nil {
-		return nil, ErrClosed
+		return ErrClosed
 	}
 	handle := k.handle
 	cancelSent := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
 		defer close(cancelSent)
-		_ = call(handle, "cancel", cancel, nil)
+		_ = call(handle, "cancel", map[string]uint64{method: id}, nil)
 	})
 	defer func() {
 		if !stop() {
@@ -162,14 +164,13 @@ func tracked[A any](
 	if ctx.Err() != nil {
 		<-cancelSent
 	}
-	var answer A
-	if err := call(handle, method, params, &answer); err != nil {
-		if cause := context.Cause(ctx); cause != nil && errors.Is(err, cancelled) {
-			return nil, fmt.Errorf("%w: %w", err, cause)
+	if err := call(handle, method, params, answer); err != nil {
+		if cause := context.Cause(ctx); cause != nil && errors.Is(err, wire.Code(method+"_cancelled")) {
+			return fmt.Errorf("%w: %w", err, cause)
 		}
-		return nil, err
+		return err
 	}
-	return &answer, nil
+	return nil
 }
 
 func (k *Kartta) track(id uint64, stop context.CancelCauseFunc) bool {
@@ -280,9 +281,9 @@ func (k *Kartta) Fuzzy(params wire.FuzzyParams) (*wire.Fuzzy, error) {
 // and answers what it covered, Cancelled set and the files it did not open counted Unsearched; otherwise it answers
 // whole. A ctx done before the call answers its cause alone.
 func (k *Kartta) Grep(ctx context.Context, params wire.GrepParams) (*wire.Grep, error) {
-	return tracked[wire.Grep](ctx, k, "grep", "", func(id uint64) (any, wire.CancelParams) {
+	return tracked[wire.Grep](ctx, k, "grep", func(id uint64) any {
 		params.ID = id
-		return params, wire.CancelParams{Grep: id}
+		return params
 	})
 }
 
