@@ -94,6 +94,14 @@ impl Daslang {
     }
 }
 
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.value_uses = ValueUses::Imported;
+    conventions.own_type_receivers = Some(&["self"]);
+    conventions.type_uses = TypeUses::Nowhere;
+    conventions
+};
+
 impl Language for Daslang {
     fn name(&self) -> &'static str {
         "daslang"
@@ -112,11 +120,7 @@ impl Language for Daslang {
     }
 
     fn conventions(&self) -> Conventions {
-        let mut conventions = Conventions::default();
-        conventions.value_uses = ValueUses::Imported;
-        conventions.own_type_receivers = Some(&["self"]);
-        conventions.type_uses = TypeUses::Nowhere;
-        conventions
+        CONVENTIONS
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {

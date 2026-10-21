@@ -98,6 +98,16 @@ impl Ruby {
 const DOC_COMMENTS: DocComments =
     DocComments::lines(&["#"]).with_blocks(&[BlockComment::new("=begin", "=end").closed_alone()]);
 
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.own_members = OwnMembers::First;
+    conventions.inherited_members = InheritedMembers::Admitted;
+    conventions.owner_chain_separator = Some("::");
+    conventions.own_type_receivers = Some(&["other"]);
+    conventions.type_uses = TypeUses::Nowhere;
+    conventions
+};
+
 impl Language for Ruby {
     fn name(&self) -> &'static str {
         "ruby"
@@ -119,14 +129,7 @@ impl Language for Ruby {
     // type first; the parents of a type also name the modules it `extend`s, which its instance methods do not reach,
     // so an inherited method is one candidate among those of its name
     fn conventions(&self) -> Conventions {
-        let mut conventions = Conventions::default();
-        conventions.own_members = OwnMembers::First;
-        conventions.inherited_members = InheritedMembers::Admitted;
-        conventions.owner_chain_separator = Some("::");
-        conventions.own_type_receivers = Some(&["other"]);
-        conventions.type_uses = TypeUses::Nowhere;
-
-        conventions
+        CONVENTIONS
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {

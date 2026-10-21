@@ -99,6 +99,16 @@ impl Python {
     }
 }
 
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.own_members = OwnMembers::Unreached;
+    conventions.owner_chain_separator = Some(".");
+    conventions.runtime_methods = runtime::METHODS;
+    conventions.value_uses = ValueUses::Imported;
+    conventions.own_type_receivers = Some(&["cls", "other", "self"]);
+    conventions
+};
+
 impl Language for Python {
     fn name(&self) -> &'static str {
         "python"
@@ -117,14 +127,7 @@ impl Language for Python {
     }
 
     fn conventions(&self) -> Conventions {
-        let mut conventions = Conventions::default();
-        conventions.own_members = OwnMembers::Unreached;
-        conventions.owner_chain_separator = Some(".");
-        conventions.runtime_methods = runtime::METHODS;
-        conventions.value_uses = ValueUses::Imported;
-        conventions.own_type_receivers = Some(&["cls", "other", "self"]);
-
-        conventions
+        CONVENTIONS
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {

@@ -168,6 +168,20 @@ impl Cpp {
     }
 }
 
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.own_members = OwnMembers::First;
+    conventions.inherited_members = InheritedMembers::Found;
+    conventions.values_are_call_targets = false;
+    conventions.scope_separator = Some("::");
+    conventions.include_reach = IncludeReach::Transitive;
+    conventions.calls_on_values = CallsOnValues::NoNearestGuess;
+    conventions.value_uses = ValueUses::Included;
+    conventions.untyped_members = UntypedMembers::IncludedField;
+    conventions.type_uses = TypeUses::Nowhere;
+    conventions
+};
+
 impl Language for Cpp {
     fn name(&self) -> &'static str {
         "cpp"
@@ -182,17 +196,7 @@ impl Language for Cpp {
     }
 
     fn conventions(&self) -> Conventions {
-        let mut conventions = Conventions::default();
-        conventions.own_members = OwnMembers::First;
-        conventions.inherited_members = InheritedMembers::Found;
-        conventions.values_are_call_targets = false;
-        conventions.scope_separator = Some("::");
-        conventions.include_reach = IncludeReach::Transitive;
-        conventions.calls_on_values = CallsOnValues::NoNearestGuess;
-        conventions.value_uses = ValueUses::Included;
-        conventions.untyped_members = UntypedMembers::IncludedField;
-        conventions.type_uses = TypeUses::Nowhere;
-        conventions
+        CONVENTIONS
     }
 
     fn doc_comments(&self) -> DocComments {

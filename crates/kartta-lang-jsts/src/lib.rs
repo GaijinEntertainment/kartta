@@ -110,8 +110,8 @@ use crate::resolve::JstsResolver;
 
 const FAMILY: &str = "jsts";
 
-fn conventions() -> Conventions {
-    let mut conventions = Conventions::default();
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
     conventions.own_members = OwnMembers::Unreached;
     conventions.owner_chain_separator = Some(".");
     conventions.bare_call_reaches_enclosing_owners = true;
@@ -120,7 +120,7 @@ fn conventions() -> Conventions {
     conventions.untyped_members = UntypedMembers::Unbound;
     conventions.type_uses = TypeUses::Nowhere;
     conventions
-}
+};
 
 macro_rules! flavor_language {
     ($(#[$doc:meta])* $language:ident => $flavor:expr) => {
@@ -155,7 +155,7 @@ macro_rules! flavor_language {
             }
 
             fn conventions(&self) -> Conventions {
-                conventions()
+                CONVENTIONS
             }
 
             fn doc_comments(&self) -> DocComments {
