@@ -240,7 +240,7 @@ impl Following {
         for (language, configuration) in self.configurations.iter().enumerate() {
             wanted[language] |= configuration
                 .as_ref()
-                .is_some_and(|configuration| reaches(configuration, reached, &outcome.walked));
+                .is_some_and(|configuration| reaches(configuration, reached, outcome));
         }
 
         let mut resolvers = resolving.resolvers(repository, &wanted);
@@ -460,19 +460,12 @@ const fn bit_of(key: u32, words: usize) -> (usize, u64) {
 
 /// Whether a refresh may have changed what a resolver read while it was built: an answer to one of its questions, or a
 /// file it read inside a part the refresh walked again.
-fn reaches(configuration: &Configuration, reached: &Reached, walked: &[String]) -> bool {
+fn reaches(configuration: &Configuration, reached: &Reached, outcome: &RefreshOutcome) -> bool {
     configuration.asked.iter().any(|&key| reached.holds(key))
         || configuration
             .read
             .iter()
-            .any(|path| walked.iter().any(|part| holds(part, path)))
-}
-
-fn holds(part: &str, path: &str) -> bool {
-    part.is_empty()
-        || path
-            .strip_prefix(part)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+            .any(|path| outcome.walked_over(path))
 }
 
 #[cfg(test)]
