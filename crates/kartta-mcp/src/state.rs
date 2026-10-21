@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
@@ -218,7 +218,12 @@ impl Served {
             .errors()
             .map(|error| Failure::new(error, root))
             .collect();
-        replace_failures(&mut indexed.errors, &refresh.index.walked, failed);
+        kartta::replace_failures(
+            &mut indexed.errors,
+            &refresh.index.walked,
+            failed,
+            |failure| (failure.path.as_deref().map(Cow::Borrowed), &failure.text),
+        );
         drop(indexed);
         let refreshed = Refreshed {
             refresh,
@@ -247,39 +252,6 @@ fn broken(indexed: &Indexed) -> String {
         "a refresh of {} panicked partway, so the index may hold half of it - call index_repo to build it again",
         indexed.root
     )
-}
-
-/// Takes the failures of a refresh that `walked` the parts at those paths into `failures`, so they list what the tree
-/// fails now, each once: a failure under a part walked again, or one the refresh met again, gives way to the
-/// refresh's. A failure that names no path in the tree, such as an unwritable cache, stays until a refresh of the
-/// whole tree.
-fn replace_failures(failures: &mut Vec<Failure>, walked: &[String], failed: Vec<Failure>) {
-    let walked: HashSet<&str> = walked.iter().map(String::as_str).collect();
-    let failed_paths: HashSet<&str> = failed
-        .iter()
-        .filter_map(|failure| failure.path.as_deref())
-        .collect();
-    let failed_pathless: HashSet<&str> = failed
-        .iter()
-        .filter(|failure| failure.path.is_none())
-        .map(|failure| failure.text.as_str())
-        .collect();
-    failures.retain(|failure| {
-        failure.path.as_deref().map_or_else(
-            || !walked.contains("") && !failed_pathless.contains(failure.text.as_str()),
-            |path| {
-                !failed_paths.contains(path) && !ancestors(path).any(|part| walked.contains(part))
-            },
-        )
-    });
-    failures.extend(failed);
-}
-
-/// The root-relative path `path`, and every directory above it up to the root, the empty path.
-fn ancestors(path: &str) -> impl Iterator<Item = &str> {
-    std::iter::once("")
-        .chain(path.match_indices('/').filter_map(|(at, _)| path.get(..at)))
-        .chain(std::iter::once(path))
 }
 
 /// What one family's graph holds, and how many of the files its languages claimed it does not hold.
@@ -543,67 +515,6 @@ mod tests {
     use kartta::{Language, RawExtraction, Repository, Resolver};
 
     use super::*;
-
-    fn failure(path: Option<&str>, text: &str) -> Failure {
-        Failure {
-            path: path.map(str::to_owned),
-            text: text.to_owned(),
-        }
-    }
-
-    fn texts(failures: &[Failure]) -> Vec<&str> {
-        failures
-            .iter()
-            .map(|failure| failure.text.as_str())
-            .collect()
-    }
-
-    #[test]
-    fn a_refresh_replaces_the_failures_under_what_it_walked_and_those_it_met_again() {
-        let mut failures = vec![
-            failure(Some("src/a.rs"), "a unread"),
-            failure(Some("src/deep/b.rs"), "b unread"),
-            failure(Some("srcs/c.rs"), "c unread"),
-            failure(Some("lib/d.rs"), "d unread"),
-            failure(None, "cache unwritable"),
-            failure(None, "cache unmergeable"),
-        ];
-
-        replace_failures(
-            &mut failures,
-            &["src".to_owned()],
-            vec![
-                failure(Some("lib/d.rs"), "d unread again"),
-                failure(None, "cache unmergeable"),
-            ],
-        );
-
-        assert_eq!(
-            texts(&failures),
-            [
-                "c unread",
-                "cache unwritable",
-                "d unread again",
-                "cache unmergeable"
-            ]
-        );
-    }
-
-    #[test]
-    fn a_refresh_of_the_tree_replaces_every_failure() {
-        let mut failures = vec![
-            failure(Some("a.rs"), "a unread"),
-            failure(None, "cache unwritable"),
-        ];
-
-        replace_failures(
-            &mut failures,
-            &[String::new()],
-            vec![failure(Some("b.rs"), "b unread")],
-        );
-
-        assert_eq!(texts(&failures), ["b unread"]);
-    }
 
     #[test]
     fn a_rebuild_releases_the_watched_index_before_it_builds_its_own() {

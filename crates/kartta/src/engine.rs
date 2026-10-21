@@ -1,6 +1,9 @@
+use std::borrow::Cow;
+use std::collections::HashSet;
 use std::path::Path;
 use std::{io, iter};
 
+use foldhash::fast::FixedState;
 use kartta_fs::{
     BuildError, BuildOptions, BuildOutcome, CancelToken, ContentVisitor, Index, RefreshOutcome,
 };
@@ -98,6 +101,47 @@ impl EngineRefresh {
     pub fn errors(&self) -> impl Iterator<Item = &BuildError> {
         self.index.errors.iter().chain(&self.errors)
     }
+}
+
+/// Takes `failed`, a refresh's failures, into `stored`, so `stored` lists what the tree fails now, each once.
+///
+/// `walked` is the [`RefreshOutcome::walked`] of the refresh's [`EngineRefresh::index`], the root-relative paths of the
+/// parts it walked again, and `failed` is what the caller keeps of its [`EngineRefresh::errors`]; `stored` holds those
+/// kept from the build and the refreshes before it. `at` answers a failure's root-relative path, when it names one in
+/// the tree, and its message.
+///
+/// A stored failure under a part walked again, or at a path the refresh failed at, gives way to the refresh's. A
+/// failure that names no path in the tree, such as an unwritable cache, stays until a refresh of the whole tree, or
+/// until the refresh fails with the same message.
+pub fn replace_failures<T>(
+    stored: &mut Vec<T>,
+    walked: &[String],
+    failed: Vec<T>,
+    at: impl Fn(&T) -> (Option<Cow<'_, str>>, &str),
+) {
+    let walked: HashSet<&str, FixedState> = walked.iter().map(String::as_str).collect();
+    let mut failed_paths: HashSet<Cow<'_, str>, FixedState> = HashSet::default();
+    let mut failed_pathless: HashSet<&str, FixedState> = HashSet::default();
+    for failure in &failed {
+        match at(failure) {
+            (Some(path), _) => failed_paths.insert(path),
+            (None, message) => failed_pathless.insert(message),
+        };
+    }
+    stored.retain(|failure| match at(failure) {
+        (Some(path), _) => {
+            !failed_paths.contains(&*path) && !ancestors(&path).any(|part| walked.contains(part))
+        }
+        (None, message) => !walked.contains("") && !failed_pathless.contains(message),
+    });
+    stored.extend(failed);
+}
+
+/// The root-relative path `path`, and every directory above it up to the root, the empty path.
+fn ancestors(path: &str) -> impl Iterator<Item = &str> {
+    iter::once("")
+        .chain(path.match_indices('/').filter_map(|(at, _)| path.get(..at)))
+        .chain(iter::once(path))
 }
 
 impl Engine {
@@ -608,3 +652,56 @@ fn release_freed_memory() {
 
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 const fn release_freed_memory() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type Failure = (Option<&'static str>, &'static str);
+
+    fn messages_after(
+        mut stored: Vec<Failure>,
+        walked: &[&str],
+        failed: Vec<Failure>,
+    ) -> Vec<&'static str> {
+        let walked: Vec<String> = walked.iter().map(|&part| part.to_owned()).collect();
+        replace_failures(&mut stored, &walked, failed, |&(path, message)| {
+            (path.map(Cow::Borrowed), message)
+        });
+        stored.into_iter().map(|(_, message)| message).collect()
+    }
+
+    #[test]
+    fn a_refresh_replaces_the_failures_under_what_it_walked_and_those_it_met_again() {
+        let stored = vec![
+            (Some("src/a.rs"), "a unread"),
+            (Some("src/deep/b.rs"), "b unread"),
+            (Some("srcs/c.rs"), "c unread"),
+            (Some("lib/d.rs"), "d unread"),
+            (None, "cache unwritable"),
+            (None, "cache unmergeable"),
+        ];
+        let failed = vec![
+            (Some("lib/d.rs"), "d unread again"),
+            (None, "cache unmergeable"),
+        ];
+
+        assert_eq!(
+            messages_after(stored, &["src"], failed),
+            [
+                "c unread",
+                "cache unwritable",
+                "d unread again",
+                "cache unmergeable"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_refresh_of_the_tree_replaces_every_failure() {
+        let stored = vec![(Some("a.rs"), "a unread"), (None, "cache unwritable")];
+        let failed = vec![(Some("b.rs"), "b unread")];
+
+        assert_eq!(messages_after(stored, &[""], failed), ["b unread"]);
+    }
+}
