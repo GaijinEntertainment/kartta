@@ -419,12 +419,16 @@ fn relative(path: &Path, prefixes: &[(PathBuf, String)]) -> Option<String> {
         .filter_map(|(prefix, base)| Some((path.strip_prefix(prefix).ok()?, base)))
         .min_by_key(|(rest, _)| rest.components().count())?;
 
-    let mut named = base.clone();
+    let rest_len = rest.as_os_str().len();
+    let separator = usize::from(!base.is_empty() && rest_len > 0);
+    let mut named = String::with_capacity(base.len() + separator + rest_len);
+    named.push_str(base);
     for component in rest.components() {
         let Component::Normal(name) = component else {
             return None;
         };
         let Some(name) = name.to_str() else {
+            named.shrink_to_fit();
             break;
         };
         if !named.is_empty() {
@@ -522,6 +526,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_named_path_holds_its_own_bytes_and_no_more() {
+        let prefixes = vec![
+            (PathBuf::from("/tree"), String::new()),
+            (PathBuf::from("/usr/local"), "usr/local".to_owned()),
+        ];
+
+        let named: Vec<(usize, usize)> = [
+            "/tree/src/lib/a.rs",
+            "/usr/local/bin/tools",
+            "/tree",
+            "/usr/local",
+        ]
+        .into_iter()
+        .map(|path| relative(Path::new(path), &prefixes).expect("a path inside a prefix"))
+        .map(|named| (named.len(), named.capacity()))
+        .collect();
+
+        assert_eq!(named, [(12, 12), (19, 19), (0, 0), (9, 9)]);
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_name_that_is_not_utf8_is_named_by_the_directory_that_holds_it() {
@@ -534,5 +559,22 @@ mod tests {
             .join("a.rs");
 
         assert_eq!(relative(&path, &prefixes).as_deref(), Some("src"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_named_by_the_directory_above_a_name_that_is_not_utf8_holds_its_own_bytes_and_no_more()
+    {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let prefixes = vec![(PathBuf::from("/tree"), String::new())];
+        let path = Path::new("/tree/src")
+            .join(OsStr::from_bytes(b"bad\xff"))
+            .join("a.rs");
+
+        let named = relative(&path, &prefixes).expect("a path inside a prefix");
+
+        assert_eq!((named.len(), named.capacity()), (3, 3));
     }
 }
