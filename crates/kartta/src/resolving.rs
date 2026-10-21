@@ -7,7 +7,9 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use crate::engine::Family;
 use crate::extracting::Extracted;
 use crate::following::Followed;
-use crate::repository::{Configuration, IndexRepository, asked_while, configured_while};
+use crate::repository::{
+    Configuration, FileTables, IndexRepository, asked_while, configured_while,
+};
 
 const RESOLVED_AT_ONCE: usize = 1024;
 
@@ -70,7 +72,7 @@ impl<'b> Resolving<'b> {
             wanted[file.language] = true;
         }
         let repository = if self.recording {
-            IndexRepository::recording(self.index)
+            IndexRepository::recording(self.index, FileTables::default())
         } else {
             IndexRepository::new(self.index)
         };

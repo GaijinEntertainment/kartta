@@ -6,16 +6,20 @@ use kartta_lang::Language;
 
 use crate::engine::{EngineRefresh, Family};
 use crate::extracting::{Extracted, FileCounts, claimant};
-use crate::repository::{Configuration, IndexRepository, Query, asked, reached_by_presence};
+use crate::repository::{
+    Configuration, FileTables, IndexRepository, Query, asked, reached_by_presence,
+};
 use crate::resolving::{Resolvers, Resolving, ToResolve};
 
 /// What an engine built with stamps keeps to follow its tree: for each file its graphs hold, the questions its
-/// resolution put to the repository, and for each language, what its resolver asked while it was built.
+/// resolution put to the repository, for each language, what its resolver asked while it was built, and the tables the
+/// last refresh's repository built to find files in.
 #[derive(Debug, Default)]
 pub(crate) struct Following {
     files: HashMap<ContentId, Kept, FixedState>,
     asked: Asked,
     configurations: Vec<Option<Configuration>>,
+    tables: FileTables,
 }
 
 /// A file a resolution put into a graph, and the keys of the questions it asked.
@@ -165,7 +169,8 @@ impl Following {
             cancel: None,
             recording: true,
         };
-        let repository = IndexRepository::recording(index);
+        let tables = std::mem::take(&mut self.tables).refreshed(index, &outcome);
+        let repository = IndexRepository::recording(index, tables);
         let mut stale: Vec<Kept> = outcome.retired().filter_map(|id| self.forget(id)).collect();
         let handed = resolving.placed(extracted);
         let reached = reached(index, &outcome, &handed);
@@ -178,6 +183,8 @@ impl Following {
             file_counts[followed.language].held -= 1;
         }
         let inserted = resolving.insert_all(plan.work, &resolvers, families)?;
+        drop(resolvers);
+        self.tables = repository.into_tables();
         let reread: HashSet<ContentId, FixedState> = plan.reread_ids.iter().copied().collect();
         let resolved_again = inserted
             .followed
