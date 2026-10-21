@@ -35,7 +35,7 @@ pub trait Language: Send + Sync + fmt::Debug {
 
     /// The conventions the graph resolves this language's calls under.
     fn conventions(&self) -> Conventions {
-        Conventions::default()
+        Conventions::DEFAULT
     }
 
     /// Where the language writes the comments that document a definition from the lines above it; none by default.
@@ -104,6 +104,25 @@ pub trait Repository: Sync {
 
 /// The conventions a language's calls resolve under and its uses are recorded by, which the graph cannot infer from its
 /// extractions. The default states those of the languages that change none.
+///
+/// # Examples
+///
+/// A language states its conventions as a `const` that sets the fields it changes on the default, which leaves a field
+/// added later at its default too:
+///
+/// ```
+/// use kartta_lang::{Conventions, OwnMembers, TypeUses};
+///
+/// const CONVENTIONS: Conventions = {
+///     let mut conventions = Conventions::DEFAULT;
+///     conventions.own_members = OwnMembers::Unreached;
+///     conventions.type_uses = TypeUses::Nowhere;
+///     conventions
+/// };
+///
+/// assert_eq!(CONVENTIONS.own_members, OwnMembers::Unreached);
+/// assert_eq!(CONVENTIONS.values_are_call_targets, Conventions::DEFAULT.values_are_call_targets);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Conventions {
@@ -162,27 +181,32 @@ pub struct Conventions {
     pub untyped_members: UntypedMembers,
 }
 
+impl Conventions {
+    /// The default conventions, which [`Conventions::default`] returns, as a value a `const` can start from.
+    pub const DEFAULT: Self = Self {
+        own_members: OwnMembers::Fallback,
+        inherited_members: InheritedMembers::Unreached,
+        values_are_call_targets: true,
+        namespace_calls: NamespaceCalls::Bound,
+        owner_chain_separator: None,
+        bare_call_reaches_enclosing_owners: false,
+        scope_separator: None,
+        directory_packages: false,
+        include_reach: IncludeReach::Direct,
+        member_calls: MemberCalls::NearbyFreeFunctions,
+        runtime_methods: &[],
+        calls_on_values: CallsOnValues::NearestGuessed,
+        receivers: Receivers::Owners,
+        own_type_receivers: None,
+        type_uses: TypeUses::Partial,
+        value_uses: ValueUses::Declared,
+        untyped_members: UntypedMembers::FileField,
+    };
+}
+
 impl Default for Conventions {
     fn default() -> Self {
-        Self {
-            own_members: OwnMembers::Fallback,
-            inherited_members: InheritedMembers::Unreached,
-            values_are_call_targets: true,
-            namespace_calls: NamespaceCalls::Bound,
-            owner_chain_separator: None,
-            bare_call_reaches_enclosing_owners: false,
-            scope_separator: None,
-            directory_packages: false,
-            include_reach: IncludeReach::Direct,
-            member_calls: MemberCalls::NearbyFreeFunctions,
-            runtime_methods: &[],
-            calls_on_values: CallsOnValues::NearestGuessed,
-            receivers: Receivers::Owners,
-            own_type_receivers: None,
-            type_uses: TypeUses::Partial,
-            value_uses: ValueUses::Declared,
-            untyped_members: UntypedMembers::FileField,
-        }
+        Self::DEFAULT
     }
 }
 
@@ -335,4 +359,14 @@ pub enum InheritedMembers {
     /// The `parents` of a type are the bases its member lookup searches, as C++ class-scope lookup does, so an
     /// inherited member a base certainly declares is taken when the caller's owner declares none of the name.
     Found,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_returns_the_const_default() {
+        assert_eq!(Conventions::default(), Conventions::DEFAULT);
+    }
 }

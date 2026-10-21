@@ -26,7 +26,8 @@ language or of this crate never reads an old one's. A language crate's build scr
 
 How a call resolves differs between languages — C++ looks in the caller's class first, sees what its includes include
 and guesses no nearby member for a call on a value, Go never reaches a method without a receiver — and the graph cannot
-infer it from the extractions. A language states it in `Conventions`.
+infer it from the extractions. A language states it in `Conventions`, as a `const` that sets the fields it changes on
+`Conventions::DEFAULT`.
 
 ## Doc comments
 
