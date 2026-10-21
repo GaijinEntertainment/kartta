@@ -1,4 +1,5 @@
 use std::io::{Read, Seek};
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -22,10 +23,32 @@ use crate::trigram::{self, Trigram, Trigrams};
 use crate::{into_inner, lock};
 
 #[derive(Debug)]
-pub(crate) struct Payload {
-    pub(crate) kind: EntryKind,
-    pub(crate) target: Option<Box<str>>,
-    pub(crate) content: Option<ContentId>,
+pub(crate) enum Payload {
+    Dir,
+    File(Option<ContentId>),
+    Symlink(Option<TargetId>),
+    Other,
+}
+
+impl Payload {
+    pub(crate) const fn kind(&self) -> EntryKind {
+        match self {
+            Self::Dir => EntryKind::Dir,
+            Self::File(_) => EntryKind::File,
+            Self::Symlink(_) => EntryKind::Symlink,
+            Self::Other => EntryKind::Other,
+        }
+    }
+}
+
+/// A symlink's target by its place among the targets its walk read, which [`Report::targets`] holds.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TargetId(NonZeroU32);
+
+impl TargetId {
+    pub(crate) const fn at(self) -> usize {
+        self.0.get() as usize - 1
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -45,6 +68,7 @@ pub(crate) struct Indexing<'a> {
     errors: Mutex<Vec<BuildError>>,
     reading: Option<Reading<'a>>,
     descending: Option<Descending<'a>>,
+    targets: Mutex<Vec<Box<str>>>,
 }
 
 pub(crate) struct Reading<'a> {
@@ -126,6 +150,7 @@ pub(crate) struct Report {
     pub(crate) stamps: Option<Vec<Stamp>>,
     pub(crate) ran_out_of_ids: bool,
     pub(crate) content: Option<Collected>,
+    pub(crate) targets: Vec<Box<str>>,
 }
 
 pub(crate) struct Collected {
@@ -180,6 +205,7 @@ impl<'a> Indexing<'a> {
             errors: Mutex::new(Vec::new()),
             reading,
             descending: None,
+            targets: Mutex::new(Vec::new()),
         }
     }
 
@@ -195,6 +221,7 @@ impl<'a> Indexing<'a> {
 
     pub(crate) fn into_report(self) -> Report {
         let mut errors = into_inner(self.errors);
+        let targets = into_inner(self.targets);
         let Some(reading) = self.reading else {
             return Report {
                 errors,
@@ -202,6 +229,7 @@ impl<'a> Indexing<'a> {
                 stamps: None,
                 ran_out_of_ids: false,
                 content: None,
+                targets,
             };
         };
 
@@ -228,6 +256,7 @@ impl<'a> Indexing<'a> {
             stamps,
             ran_out_of_ids: ran_out,
             content,
+            targets,
         }
     }
 
@@ -329,19 +358,11 @@ impl<'a> Indexing<'a> {
         native_path: &Path,
         metadata: &fs::Metadata,
     ) -> Payload {
-        let kind = EntryKind::from(metadata.file_type());
-        let content = match kind {
-            EntryKind::File => {
-                self.read_file(path, || native_path.to_path_buf(), || Seen::of(metadata))
-            }
-            _ => None,
-        };
-
-        Payload {
-            kind,
-            target: symlink_target(kind, || native_path),
-            content,
-        }
+        self.payload(
+            EntryKind::from(metadata.file_type()),
+            || native_path,
+            || self.read_file(path, || native_path.to_path_buf(), || Seen::of(metadata)),
+        )
     }
 
     pub(crate) fn file(
@@ -350,11 +371,32 @@ impl<'a> Indexing<'a> {
         native_path: impl FnOnce() -> PathBuf,
         seen: Seen,
     ) -> Payload {
-        Payload {
-            kind: EntryKind::File,
-            target: None,
-            content: self.read_file(path, native_path, || Some(seen)),
+        Payload::File(self.read_file(path, native_path, || Some(seen)))
+    }
+
+    fn payload<P: AsRef<Path>>(
+        &self,
+        kind: EntryKind,
+        native_path: impl FnOnce() -> P,
+        read: impl FnOnce() -> Option<ContentId>,
+    ) -> Payload {
+        match kind {
+            EntryKind::Dir => Payload::Dir,
+            EntryKind::File => Payload::File(read()),
+            EntryKind::Symlink => Payload::Symlink(self.target(native_path().as_ref())),
+            EntryKind::Other => Payload::Other,
         }
+    }
+
+    fn target(&self, native_path: &Path) -> Option<TargetId> {
+        let target = read_target(native_path)?;
+        let mut targets = lock(&self.targets);
+        let id = u32::try_from(targets.len() + 1)
+            .ok()
+            .and_then(NonZeroU32::new)?;
+        targets.push(target);
+        drop(targets);
+        Some(TargetId(id))
     }
 
     fn hand_over_ignore_file(&self, path: &str, read: &IgnoreFile) -> Option<ContentId> {
@@ -758,15 +800,8 @@ fn feed_rest(
     Ok(())
 }
 
-fn symlink_target<P: AsRef<Path>>(
-    kind: EntryKind,
-    native_path: impl FnOnce() -> P,
-) -> Option<Box<str>> {
-    if kind != EntryKind::Symlink {
-        return None;
-    }
-
-    fs::read_link(native_path())
+fn read_target(native_path: &Path) -> Option<Box<str>> {
+    fs::read_link(native_path)
         .ok()?
         .into_os_string()
         .into_string()
@@ -874,22 +909,20 @@ impl Policy for Indexing<'_> {
             return Visit::Skip;
         }
 
-        let content = match state.ignore_file {
-            _ if kind != EntryKind::File => None,
-            IgnoreFileRead::Read(content) if names_match(entry.name(), GITIGNORE) => content,
-            _ => self.read_content(entry),
-        };
         if kind == EntryKind::Dir
             && let Some(descending) = self.descending
         {
             descending(&entry.native_path());
         }
 
-        Visit::Keep(Payload {
+        Visit::Keep(self.payload(
             kind,
-            target: symlink_target(kind, || entry.native_path()),
-            content,
-        })
+            || entry.native_path(),
+            || match state.ignore_file {
+                IgnoreFileRead::Read(content) if names_match(entry.name(), GITIGNORE) => content,
+                _ => self.read_content(entry),
+            },
+        ))
     }
 }
 
@@ -906,11 +939,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_node_carries_its_content_id_in_padding() {
+    fn a_node_holds_its_kind_and_one_id_in_eight_bytes() {
         assert_eq!(
             size_of::<Payload>(),
-            size_of::<(EntryKind, Option<Box<str>>)>(),
-            "every walk node holds one of these until the index is built, so the id must cost no bytes"
+            8,
+            "every walk node holds one of these until the index is built, a file's content id or a symlink's target \
+             id beside its kind"
         );
     }
 }
