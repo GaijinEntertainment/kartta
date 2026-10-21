@@ -6,7 +6,7 @@ use kartta_lang::{CallsOnValues, InheritedMembers, MemberCalls, SymbolKind};
 
 use crate::candidates::Candidates;
 use crate::confidence;
-use crate::graph::{agree, distinct, last_segment};
+use crate::graph::{agree, distinct, is_parent, last_segment};
 use crate::resolve::{Bound, Call, Cascade, derived, derives};
 use crate::stored::SymbolAt;
 use crate::strings::Str;
@@ -438,19 +438,19 @@ impl Cascade<'_> {
 
         loop {
             let Some(at) = scope else {
-                return self.type_named(name);
+                return self.parent_named(name);
             };
-            if let Some(owner) = self.type_named(&format!("{at}{separator}{name}")) {
+            if let Some(owner) = self.parent_named(&format!("{at}{separator}{name}")) {
                 return Some(owner);
             }
             scope = at.rsplit_once(separator).map(|(outer, _)| outer);
         }
     }
 
-    fn type_named(&self, qualified: &str) -> Option<Str> {
+    fn parent_named(&self, qualified: &str) -> Option<Str> {
         let qualified = self.graph.strings.get(qualified)?;
         let at = self.qualified(qualified)?;
-        is_type(self.graph.sym(at).kind).then_some(qualified)
+        is_parent(self.graph.sym(at).kind).then_some(qualified)
     }
 
     fn located_types(
@@ -1017,10 +1017,6 @@ impl Cascade<'_> {
         let first = constructors.next()?;
         (nearby.clone().all(outside) && self.is_one_callable(first, constructors)).then_some(first)
     }
-}
-
-pub(crate) const fn is_type(kind: SymbolKind) -> bool {
-    derives(kind) || matches!(kind, SymbolKind::Namespace)
 }
 
 pub(crate) const fn is_value(kind: SymbolKind) -> bool {
