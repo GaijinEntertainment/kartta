@@ -22,6 +22,8 @@ import list from '../../../crates/kartta-ffi/tests/golden/list.json' with {type:
 import outline from '../../../crates/kartta-ffi/tests/golden/outline.json' with {type: 'json'};
 import referencesUnmatched from '../../../crates/kartta-ffi/tests/golden/references-unmatched.json' with {type: 'json'};
 import references from '../../../crates/kartta-ffi/tests/golden/references.json' with {type: 'json'};
+import refreshPaths from '../../../crates/kartta-ffi/tests/golden/refresh-paths.json' with {type: 'json'};
+import refresh from '../../../crates/kartta-ffi/tests/golden/refresh.json' with {type: 'json'};
 import resolution from '../../../crates/kartta-ffi/tests/golden/resolution.json' with {type: 'json'};
 import search from '../../../crates/kartta-ffi/tests/golden/search.json' with {type: 'json'};
 import sources from '../../../crates/kartta-ffi/tests/golden/sources.json' with {type: 'json'};
@@ -46,6 +48,7 @@ const goldens = {
 	list,
 	outline,
 	references,
+	refresh,
 	resolution,
 	search,
 	sources,
@@ -59,6 +62,7 @@ type Goldens = typeof goldens;
 const secondGoldens = {
 	call_path: callPathUnmatched,
 	references: referencesUnmatched,
+	refresh: refreshPaths,
 };
 
 type Golden = {params: unknown; answer: {ok: unknown}};
@@ -113,6 +117,7 @@ const replays: {[M in keyof Methods]: Replay<M>} = {
 	list: async (kartta, params) => kartta.list(params),
 	outline: async (kartta, params) => kartta.outline(params),
 	references: async (kartta, params) => kartta.references(params),
+	refresh: async (kartta, params) => kartta.refresh(params),
 	resolution: async (kartta, params) => kartta.resolution(params),
 	search: async (kartta, params) => kartta.search(params),
 	sources: async (kartta, params) => kartta.sources(params),

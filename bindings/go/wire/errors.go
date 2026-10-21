@@ -23,6 +23,12 @@ const (
 	BuildFailed Code = "build_failed"
 	// BuildCancelled: a cancel stopped the build, which leaves no index.
 	BuildCancelled Code = "build_cancelled"
+	// NoStamps: the build kept no stamps, so refresh refuses; a build with Stamps set refreshes.
+	NoStamps Code = "no_stamps"
+	// RefreshFailed: the refresh stopped on a failure, which leaves the index as it was.
+	RefreshFailed Code = "refresh_failed"
+	// RefreshCancelled: a cancel stopped the refresh, which leaves the index as it was.
+	RefreshCancelled Code = "refresh_cancelled"
 	// InvalidGlob: a glob the params name does not compile.
 	InvalidGlob Code = "invalid_glob"
 	// InvalidPattern: a grep pattern does not compile.
