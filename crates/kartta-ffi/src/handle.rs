@@ -1,7 +1,7 @@
 use std::fs;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
 use kartta::{BuildError, CancelToken, Engine};
 use serde::Serialize;
@@ -26,7 +26,7 @@ use crate::wire::{
 #[derive(Debug)]
 pub struct Kartta {
     root: PathBuf,
-    built: RwLock<Option<Arc<Built>>>,
+    built: RwLock<Option<Arc<RwLock<Built>>>>,
     builds: Mutex<Calls>,
     greps: Mutex<Calls>,
     one_build_at_a_time: Mutex<()>,
@@ -123,7 +123,8 @@ impl Kartta {
                         ),
                     ));
                 };
-                query(self.built()?.as_ref(), params)
+                let built = self.built()?;
+                query(&*read(&built)?, params)
             }
         }
     }
@@ -146,20 +147,23 @@ impl Kartta {
                 ErrorCode::BuildCancelled,
                 "a cancel stopped the build; the handle holds no index until a build finishes",
             )),
-            Ok(Ok(outcome)) => Ok(Arc::new(Built {
+            Ok(Ok(outcome)) => Ok(Built {
                 errors: StoredErrors::new(&outcome.errors),
                 engine: outcome.engine,
-            })),
+            }),
             Ok(Err(error)) => Err(Error::new(ErrorCode::BuildFailed, error.to_string())),
             Err(payload) => Err(Error::panicked(payload.as_ref())),
         }?;
-        *self.built.write().unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(&built));
+        let answer = wire::ok(&StatsAnswer::new(&built.engine, &built.errors));
+        *self.built.write().unwrap_or_else(PoisonError::into_inner) =
+            Some(Arc::new(RwLock::new(built)));
         drop(builds);
-        wire::ok(&StatsAnswer::new(&built.engine, &built.errors))
+        answer
     }
 
     fn grep(&self, params: &GrepParams) -> Result<Vec<u8>, Error> {
         let built = self.built()?;
+        let built = read(&built)?;
         let index = built.engine.index();
 
         let (ticket, token) = lock(&self.greps).enter(params.id);
@@ -167,7 +171,9 @@ impl Kartta {
         lock(&self.greps).leave(ticket);
 
         let matches = searched.unwrap_or_else(|payload| Err(Error::panicked(payload.as_ref())))?;
-        wire::ok(&GrepView::new(index, &matches))
+        let answer = wire::ok(&GrepView::new(index, &matches));
+        drop(built);
+        answer
     }
 
     fn cancel(&self, params: &CancelParams) -> CancelAnswer {
@@ -180,7 +186,7 @@ impl Kartta {
         }
     }
 
-    fn built(&self) -> Result<Arc<Built>, Error> {
+    fn built(&self) -> Result<Arc<RwLock<Built>>, Error> {
         if let Some(built) = self.finished() {
             return Ok(built);
         }
@@ -204,12 +210,24 @@ impl Kartta {
         }
     }
 
-    fn finished(&self) -> Option<Arc<Built>> {
+    fn finished(&self) -> Option<Arc<RwLock<Built>>> {
         self.built
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
+}
+
+/// The engine to answer from, or the error that names the fix once a call panicked while it changed the engine.
+fn read(built: &RwLock<Built>) -> Result<RwLockReadGuard<'_, Built>, Error> {
+    built.read().map_err(|_| broken())
+}
+
+fn broken() -> Error {
+    Error::new(
+        ErrorCode::Internal,
+        "a refresh panicked partway, so the engine may hold half of it; call build to build it again",
+    )
 }
 
 fn methods() -> Vec<&'static str> {
@@ -270,6 +288,14 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::panic::{self, AssertUnwindSafe};
+    use std::sync::Barrier;
+    use std::thread;
+    use std::time::Duration;
+
+    use serde_json::Value;
+
     use super::{CANCELLED_AHEAD_LIMIT, Calls, CancelParams, Kartta, lock};
 
     fn handle() -> (tempfile::TempDir, Kartta) {
@@ -277,6 +303,58 @@ mod tests {
         let params = serde_json::json!({ "root": tree.path() }).to_string();
         let kartta = Kartta::open(params.as_bytes()).expect("the tree opens");
         (tree, kartta)
+    }
+
+    fn built() -> (tempfile::TempDir, Kartta) {
+        let (tree, kartta) = handle();
+        let built: Value = serde_json::from_slice(&kartta.call("build", b"")).expect("JSON");
+        assert!(built.get("ok").is_some(), "{built}");
+        (tree, kartta)
+    }
+
+    #[test]
+    fn a_query_waits_while_the_engine_is_written() {
+        let (tree, kartta) = built();
+        let engine = kartta.finished().expect("an engine");
+        let mut written = engine.write().expect("the engine is not poisoned");
+        let asking = Barrier::new(2);
+
+        thread::scope(|scope| {
+            let stats = scope.spawn(|| {
+                asking.wait();
+                kartta.call("stats", b"")
+            });
+            asking.wait();
+            thread::sleep(Duration::from_millis(50));
+            assert!(!stats.is_finished(), "stats answered past the write");
+            fs::write(tree.path().join("main.go"), "package main\n").expect("main.go");
+            written.engine.refresh(None).expect("the refresh");
+            drop(written);
+
+            let answer: Value =
+                serde_json::from_slice(&stats.join().expect("stats returns")).expect("JSON");
+            assert_eq!(
+                answer["ok"]["entries"], 1,
+                "stats answers the engine the write left: {answer}"
+            );
+        });
+    }
+
+    #[test]
+    fn an_engine_a_panic_left_half_written_answers_internal_naming_build() {
+        let (_tree, kartta) = built();
+        let engine = kartta.finished().expect("an engine");
+        let panicked = panic::catch_unwind(AssertUnwindSafe(|| {
+            let _written = engine.write().expect("the engine is not poisoned");
+            panic!("halfway");
+        }));
+        assert!(panicked.is_err());
+
+        let answer: Value = serde_json::from_slice(&kartta.call("stats", b"")).expect("JSON");
+
+        assert_eq!(answer["err"]["code"], "internal", "{answer}");
+        let message = answer["err"]["message"].as_str().expect("a message");
+        assert!(message.contains("call build"), "{message}");
     }
 
     #[test]
