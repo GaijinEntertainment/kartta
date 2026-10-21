@@ -1,13 +1,12 @@
+use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TrySendError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
-use std::{io, iter};
 
 use notify::{Config, EventKindMask, PathOp, RecommendedWatcher, UpdatePathsError, Watcher as _};
 
 use super::{Found, WatchError, relative, start_error};
+use crate::lock;
 
 // constraint: notifications wait here while the caller walks the tree or refreshes it, so they are bounded; past this
 // many the batch is lost, as an inotify queue that overflowed loses its own, and one poll takes no more than this many,
@@ -17,8 +16,23 @@ const QUEUED: usize = 65_536;
 #[derive(Debug)]
 pub(super) struct Backend {
     _watcher: RecommendedWatcher,
-    signals: Receiver<Signal>,
-    overflowed: Arc<AtomicBool>,
+    queue: Arc<Queue>,
+}
+
+// constraint: a channel of `QUEUED` slots takes 2 MiB as the watcher starts, before any notification arrives, so they
+// wait in a vector that grows as they come and that a poll takes whole under the lock that checks the bound, and no
+// notification meets a full queue while fewer than `QUEUED` wait
+#[derive(Debug, Default)]
+struct Queue {
+    held: Mutex<Held>,
+    arrived: Condvar,
+}
+
+#[derive(Debug, Default)]
+struct Held {
+    signals: Vec<Signal>,
+    overflowed: bool,
+    ended: bool,
 }
 
 #[derive(Debug)]
@@ -29,7 +43,7 @@ enum Signal {
 
 impl Backend {
     pub(super) fn start(_root: &Path, prefixes: &[(PathBuf, String)]) -> Result<Self, WatchError> {
-        let (handler, signals, overflowed) = queue(prefixes);
+        let (handler, queue) = queue(prefixes);
         let config = Config::default().with_event_kinds(EventKindMask::CORE);
         let first = prefixes
             .first()
@@ -49,28 +63,36 @@ impl Backend {
 
         Ok(Self {
             _watcher: notifier,
-            signals,
-            overflowed,
+            queue,
         })
     }
 
     pub(super) fn poll(&self, timeout: Duration, found: &mut Found) -> Result<bool, WatchError> {
-        let first = match self.signals.recv_timeout(timeout) {
-            Ok(signal) => signal,
-            Err(RecvTimeoutError::Timeout) => return Ok(false),
-            Err(RecvTimeoutError::Disconnected) => {
-                return Err(WatchError::Stopped {
+        let (mut held, _) = self
+            .queue
+            .arrived
+            .wait_timeout_while(lock(&self.queue.held), timeout, |held| {
+                held.signals.is_empty() && !held.ended
+            })
+            .unwrap_or_else(PoisonError::into_inner);
+        if held.signals.is_empty() {
+            return if held.ended {
+                Err(WatchError::Stopped {
                     source: io::Error::other("the notification thread ended"),
-                });
-            }
-        };
-        for signal in iter::once(first).chain(self.signals.try_iter().take(QUEUED)) {
+                })
+            } else {
+                Ok(false)
+            };
+        }
+        let signals = std::mem::take(&mut held.signals);
+        found.lost |= std::mem::take(&mut held.overflowed);
+        drop(held);
+        for signal in signals {
             match signal {
                 Signal::Changed(paths) => found.paths.extend(paths),
                 Signal::Lost => found.lost = true,
             }
         }
-        found.lost |= self.overflowed.swap(false, Ordering::Relaxed);
         Ok(true)
     }
 
@@ -130,26 +152,48 @@ fn rescans_whole_tree(event: &notify::Event, prefixes: &[(PathBuf, String)]) -> 
                 .any(|path| relative(path, prefixes).is_none_or(|name| name.is_empty())))
 }
 
-fn queue(
-    prefixes: &[(PathBuf, String)],
-) -> (impl notify::EventHandler, Receiver<Signal>, Arc<AtomicBool>) {
-    let (sender, signals) = mpsc::sync_channel(QUEUED);
-    let overflowed = Arc::new(AtomicBool::new(false));
-    let overflowing = Arc::clone(&overflowed);
-    let tree = prefixes.to_vec();
-    let handler = move |event: notify::Result<notify::Event>| {
-        if let Err(TrySendError::Full(_)) = sender.try_send(signal(event, &tree)) {
-            overflowing.store(true, Ordering::Relaxed);
+struct Queuing {
+    queue: Arc<Queue>,
+    tree: Vec<(PathBuf, String)>,
+}
+
+impl notify::EventHandler for Queuing {
+    fn handle_event(&mut self, event: notify::Result<notify::Event>) {
+        let signal = signal(event, &self.tree);
+        let mut held = lock(&self.queue.held);
+        let was_empty = held.signals.is_empty();
+        if held.signals.len() < QUEUED {
+            held.signals.push(signal);
+        } else {
+            held.overflowed = true;
         }
+        drop(held);
+        if was_empty {
+            self.queue.arrived.notify_one();
+        }
+    }
+}
+
+impl Drop for Queuing {
+    fn drop(&mut self) {
+        lock(&self.queue.held).ended = true;
+        self.queue.arrived.notify_one();
+    }
+}
+
+fn queue(prefixes: &[(PathBuf, String)]) -> (impl notify::EventHandler, Arc<Queue>) {
+    let queue = Arc::new(Queue::default());
+    let handler = Queuing {
+        queue: Arc::clone(&queue),
+        tree: prefixes.to_vec(),
     };
 
-    (handler, signals, overflowed)
+    (handler, queue)
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
-    use std::sync::Mutex;
     use std::time::Instant;
 
     use notify::event::{CreateKind, Flag};
@@ -318,7 +362,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("a tree");
         std::fs::write(dir.path().join("a.rs"), "a").expect("write a file");
         let prefixes = event_prefixes(dir.path()).expect("the paths events name");
-        let (handler, signals, overflowed) = queue(&prefixes);
+        let (handler, queue) = queue(&prefixes);
         let hook = OverflowsMidWalk {
             root: prefixes[0].0.clone(),
             handler: Mutex::new(handler),
@@ -328,8 +372,7 @@ mod tests {
         let watcher = Watcher {
             backend: Backend {
                 _watcher: unwatched,
-                signals,
-                overflowed,
+                queue,
             },
             prefixes,
         };
@@ -341,5 +384,106 @@ mod tests {
         let handed = watcher.expect("a watcher").drain().expect("drain");
 
         assert_eq!(handed, [""]);
+    }
+
+    #[test]
+    fn a_queue_filled_to_its_bound_keeps_its_batch_and_room_for_the_next_once_read() {
+        let (mut handler, queue) = queue(&tree());
+        let unwatched = RecommendedWatcher::new(|_: notify::Result<Event>| {}, Config::default())
+            .expect("a watcher");
+        let backend = Backend {
+            _watcher: unwatched,
+            queue,
+        };
+        let made = |at: usize| {
+            let path = PathBuf::from(format!("/parent/tree/{at}.rs"));
+            Ok(Event::new(EventKind::Create(CreateKind::File)).add_path(path))
+        };
+
+        for at in 0..QUEUED {
+            handler.handle_event(made(at));
+        }
+        let mut full = Found::default();
+        backend.poll(Duration::ZERO, &mut full).expect("poll");
+        handler.handle_event(made(QUEUED));
+        let mut next = Found::default();
+        backend.poll(Duration::ZERO, &mut next).expect("poll");
+
+        assert_eq!((full.paths.len(), full.lost), (QUEUED, false));
+        assert_eq!((next.paths.len(), next.lost), (1, false));
+    }
+
+    #[test]
+    fn a_poll_once_the_notifications_stopped_coming_stops_the_watch() {
+        let (handler, queue) = queue(&tree());
+        let unwatched = RecommendedWatcher::new(|_: notify::Result<Event>| {}, Config::default())
+            .expect("a watcher");
+        let backend = Backend {
+            _watcher: unwatched,
+            queue,
+        };
+
+        drop(handler);
+        let polled = backend.poll(Duration::from_secs(10), &mut Found::default());
+
+        assert!(matches!(polled, Err(WatchError::Stopped { .. })));
+    }
+
+    /// Whether the thread `thread` waits, as the kernel reports its run state.
+    #[cfg(target_os = "macos")]
+    fn waiting(thread: libc::mach_port_t) -> bool {
+        let mut info = std::mem::MaybeUninit::<libc::thread_basic_info>::zeroed();
+        let mut count = libc::THREAD_BASIC_INFO_COUNT;
+        // SAFETY: the buffer holds a whole thread_basic_info, as the count says, and both outlive the call.
+        let asked = unsafe {
+            libc::thread_info(
+                thread,
+                libc::THREAD_BASIC_INFO.unsigned_abs(),
+                info.as_mut_ptr().cast(),
+                &raw mut count,
+            )
+        };
+        assert_eq!(asked, libc::KERN_SUCCESS, "ask for the thread's state");
+        // SAFETY: the call succeeded, so it wrote the whole struct.
+        unsafe { info.assume_init() }.run_state == libc::TH_STATE_WAITING
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_poll_that_waits_for_a_notification_wakes_when_one_arrives() {
+        let (mut handler, queue) = queue(&tree());
+        let unwatched = RecommendedWatcher::new(|_: notify::Result<Event>| {}, Config::default())
+            .expect("a watcher");
+        let backend = Backend {
+            _watcher: unwatched,
+            queue,
+        };
+        let (naming, names) = std::sync::mpsc::channel();
+        let made = Event::new(EventKind::Create(CreateKind::File))
+            .add_path(PathBuf::from("/parent/tree/a.rs"));
+
+        let (polled, found, took) = std::thread::scope(|scope| {
+            let polling = scope.spawn(|| {
+                // SAFETY: pthread_self takes nothing and names the calling thread.
+                let this = unsafe { libc::pthread_self() };
+                // SAFETY: `this` is the calling thread, which runs for the whole call.
+                let thread = unsafe { libc::pthread_mach_thread_np(this) };
+                naming.send(thread).expect("name the polling thread");
+                let started = Instant::now();
+                let mut found = Found::default();
+                let polled = backend.poll(Duration::from_secs(10), &mut found);
+                (polled, found, started.elapsed())
+            });
+            let thread = names.recv().expect("the polling thread");
+            while !waiting(thread) {
+                std::hint::spin_loop();
+            }
+            handler.handle_event(Ok(made));
+            polling.join().expect("poll")
+        });
+
+        assert!(matches!(polled, Ok(true)));
+        assert_eq!(found.paths, [PathBuf::from("/parent/tree/a.rs")]);
+        assert!(took < Duration::from_secs(10), "{took:?}");
     }
 }
