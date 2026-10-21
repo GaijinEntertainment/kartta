@@ -2,11 +2,11 @@ package wire
 
 // RefreshParams are the params of the refresh method.
 type RefreshParams struct {
-	// ID names the refresh for a cancel. The kartta package's Refresh sets it; Call keeps one other than 0, and picks
-	// one in place of 0.
+	// ID names the refresh for a cancel; the kartta package passes it on as it is.
 	ID uint64 `json:"id,omitempty"`
 	// BindingID names the refresh for a cancel ByBindingID, apart from ID: a binding over the wire names each call it
-	// runs by one, so the IDs its callers give never stop a call of its own.
+	// runs by one, so the IDs its callers give never stop a call of its own. The kartta package's Refresh and Call set
+	// it, in place of any the params give.
 	BindingID uint64 `json:"binding_id,omitempty"`
 	// Paths are the root-relative paths that changed, spelled as the index's answers spell them; nil refreshes the
 	// whole tree, and an empty list walks nothing.

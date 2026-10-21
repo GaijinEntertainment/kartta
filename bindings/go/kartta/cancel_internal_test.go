@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -37,11 +38,11 @@ func cancelAhead(t *testing.T, k *Kartta, naming func(id uint64) wire.CancelPara
 }
 
 func aBuild(id uint64) wire.CancelParams {
-	return wire.CancelParams{Build: id}
+	return wire.CancelParams{Build: id, By: wire.ByBindingID}
 }
 
 func aRefresh(id uint64) wire.CancelParams {
-	return wire.CancelParams{Refresh: id}
+	return wire.CancelParams{Refresh: id, By: wire.ByBindingID}
 }
 
 func until(holds func(k *Kartta) bool, k *Kartta) {
@@ -102,7 +103,7 @@ func Test_Build_cancel(t *testing.T) {
 
 	t.Run("a cancel that reaches the engine before its build starts stops that build", func(t *testing.T) {
 		var answer wire.CancelAnswer
-		if err := k.Call("cancel", wire.CancelParams{Build: k.ids.Load() + 1}, &answer); err != nil {
+		if err := k.Call("cancel", aBuild(k.ids.Load()+1), &answer); err != nil {
 			t.Fatal(err)
 		}
 
@@ -138,6 +139,16 @@ func Test_Build_cancel(t *testing.T) {
 
 		if err := k.Call("build", map[string]uint64{"id": 77}, nil); !errors.Is(err, wire.BuildCancelled) {
 			t.Fatalf("Call(build) under a cancelled id = %v, want %s", err, wire.BuildCancelled)
+		}
+	})
+
+	t.Run("a cancel naming the ID a Build's options give stops that build", func(t *testing.T) {
+		if err := k.Call("cancel", wire.CancelParams{Build: 78}, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := k.Build(t.Context(), wire.BuildOptions{ID: 78}); !errors.Is(err, wire.BuildCancelled) {
+			t.Fatalf("Build under a cancelled ID = %v, want %s", err, wire.BuildCancelled)
 		}
 	})
 
@@ -267,26 +278,115 @@ func Test_Close_stops_a_refresh_in_flight(t *testing.T) {
 	}
 }
 
-func Test_withID(t *testing.T) {
-	t.Run("an id of null takes the fallback", func(t *testing.T) {
-		body, id, ok := withID(map[string]any{"id": nil, "patterns": []string{"package"}}, 9)
+func openFiles(t *testing.T, files int) *Kartta {
+	t.Helper()
+	root := t.TempDir()
+	for file := range files {
+		source := fmt.Sprintf("package main\n\nfunc f%d() {\n\tf%d()\n}\n", file, (file+1)%files)
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("f%d.go", file)), []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	k, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = k.Close() })
+	return k
+}
+
+func walking(ctx context.Context, t *testing.T, k *Kartta) <-chan error {
+	t.Helper()
+	built := make(chan error, 1)
+	go func() {
+		_, err := k.Build(ctx, wire.BuildOptions{})
+		built <- err
+	}()
+	_, err := k.Stats()
+	for errors.Is(err, wire.NotBuilt) {
+		_, err = k.Stats()
+	}
+	if !errors.Is(err, wire.Building) {
+		t.Fatalf("Stats = %v before a query saw the build walking; give it a larger tree", err)
+	}
+	return built
+}
+
+func Test_Call_ids(t *testing.T) {
+	t.Run("a cancel by a raw call's id stops it and not a build of the handle's in flight", func(t *testing.T) {
+		k := openFiles(t, 3000)
+		id := k.ids.Load() + 1
+		typed := walking(t.Context(), t, k)
+		raw := make(chan error, 1)
+		go func() { raw <- k.Call("build", map[string]uint64{"id": id}, nil) }()
+
+		if err := k.Call("cancel", wire.CancelParams{Build: id}, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := <-typed; err != nil {
+			t.Errorf("Build beside a cancel naming a raw call's id = %v, want its stats", err)
+		}
+		if err := <-raw; !errors.Is(err, wire.BuildCancelled) {
+			t.Errorf("Call(build) under the cancelled id = %v, want %s", err, wire.BuildCancelled)
+		}
+	})
+
+	t.Run("a context done stops its build and not a raw call given its binding ID as an id", func(t *testing.T) {
+		k := openFiles(t, 3000)
+		id := k.ids.Load() + 1
+		ctx, cancel := context.WithCancel(t.Context())
+		typed := walking(ctx, t, k)
+		raw := make(chan error, 1)
+		go func() { raw <- k.Call("build", map[string]uint64{"id": id}, nil) }()
+
+		cancel()
+
+		if err := <-typed; !errors.Is(err, wire.BuildCancelled) || !errors.Is(err, context.Canceled) {
+			t.Errorf("Build under a context done = %v, want both %s and %v", err, wire.BuildCancelled, context.Canceled)
+		}
+		if err := <-raw; err != nil {
+			t.Errorf("Call(build) beside it = %v, want its stats", err)
+		}
+	})
+
+	t.Run("a cancel by a finished raw call's id leaves the handle's next build running", func(t *testing.T) {
+		k := openTree(t)
+		id := k.ids.Load() + 2
+		if err := k.Call("build", map[string]uint64{"id": id}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := k.Call("cancel", wire.CancelParams{Build: id}, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := k.Build(t.Context(), wire.BuildOptions{}); err != nil {
+			t.Fatalf("Build after a cancel naming a finished raw call's id = %v, want its stats", err)
+		}
+	})
+}
+
+func Test_withBindingID(t *testing.T) {
+	t.Run("the id the params give passes on beside the binding ID, which replaces theirs", func(t *testing.T) {
+		body, ok := withBindingID(map[string]any{"id": 77, "binding_id": 5, "patterns": []string{"package"}}, 9)
 
 		var got struct {
-			ID       uint64   `json:"id"`
-			Patterns []string `json:"patterns"`
+			ID        uint64   `json:"id"`
+			BindingID uint64   `json:"binding_id"`
+			Patterns  []string `json:"patterns"`
 		}
 		if err := json.Unmarshal(body, &got); err != nil {
 			t.Fatal(err)
 		}
-		if !ok || id != 9 || got.ID != 9 || !slices.Equal(got.Patterns, []string{"package"}) {
-			t.Errorf("withID = %s, %d, %v, want the patterns under id 9", body, id, ok)
+		if !ok || got.ID != 77 || got.BindingID != 9 || !slices.Equal(got.Patterns, []string{"package"}) {
+			t.Errorf("withBindingID = %s, %v, want the patterns under id 77 and binding ID 9", body, ok)
 		}
 	})
 
-	t.Run("params that are no object, or an id that is no uint64, are not named", func(t *testing.T) {
-		for _, give := range []any{[]int{1}, "grep", map[string]any{"id": -1}, map[string]any{"id": "77"}} {
-			if body, _, ok := withID(give, 9); ok {
-				t.Errorf("withID(%v) = %s, want false", give, body)
+	t.Run("params that are no object are not named", func(t *testing.T) {
+		for _, give := range []any{[]int{1}, "grep"} {
+			if body, ok := withBindingID(give, 9); ok {
+				t.Errorf("withBindingID(%v) = %s, want false", give, body)
 			}
 		}
 	})
