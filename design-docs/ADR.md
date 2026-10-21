@@ -36,7 +36,7 @@
 - [1.15 Refresh an index in place from a second walk](./adr/1.15-refresh-an-index-in-place-from-a-second-walk.md) —
   initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-15
 - [1.16 Refresh the parts of a tree a caller names](./adr/1.16-refresh-the-parts-of-a-tree-a-caller-names.md) —
-  initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-20
+  initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-21
 - [1.17 Follow a tree through its change notifications](./adr/1.17-follow-a-tree-through-its-change-notifications.md) —
   initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-21
 - [1.18 Return the memory a build freed to the system](./adr/1.18-return-the-memory-a-build-freed-to-the-system.md) —
