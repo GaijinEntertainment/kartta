@@ -2,9 +2,10 @@
 //!
 //! The addon decides nothing. Every method takes the wire's params as a JSON string and answers the wire's envelope,
 //! `{"ok": <answer>}` or `{"err": {"code": <code>, "message": <message>}}`, as the dispatch's UTF-8 bytes in a
-//! `Buffer`; the package in `bindings/node` parses it and types it. A build runs on a thread of its own, so a walk of
-//! millions of entries never holds one of libuv's four pool threads; a query runs on that pool; a cancel answers at
-//! once on the calling thread, so it is never queued behind the work it stops.
+//! `Buffer`; the package in `bindings/node` parses it and types it. A build and a refresh each run on a thread of their
+//! own, so a walk of millions of entries never holds one of libuv's four pool threads, and a refresh is never queued
+//! where a close cannot reach it; a query runs on that pool; a cancel answers at once on the calling thread, so it is
+//! never queued behind the work it stops.
 #![expect(
     clippy::needless_pass_by_value,
     reason = "napi reads a JS string argument only into an owned String, and copies an item's attributes onto the \
@@ -51,7 +52,17 @@ impl Handle {
         self.on_a_thread_of_its_own(env, "build", params)
     }
 
-    /// Runs any method but `build` on libuv's thread pool, answering the envelope as a promise.
+    /// Runs the `refresh` method on a thread of its own, answering the envelope as a promise.
+    ///
+    /// # Errors
+    ///
+    /// The handle is closed, or the thread or the promise could not be made.
+    #[napi]
+    pub fn refresh<'env>(&self, env: &'env Env, params: String) -> Result<Object<'env>> {
+        self.on_a_thread_of_its_own(env, "refresh", params)
+    }
+
+    /// Runs any method but `build` and `refresh` on libuv's thread pool, answering the envelope as a promise.
     ///
     /// # Errors
     ///
@@ -76,7 +87,7 @@ impl Handle {
     }
 
     /// Lets the engine go once the calls in flight answer; every later call fails. It cancels nothing: the caller
-    /// cancels the builds it started first.
+    /// cancels the builds and the refreshes it started first.
     #[napi]
     pub fn close(&mut self) {
         self.kartta = None;
