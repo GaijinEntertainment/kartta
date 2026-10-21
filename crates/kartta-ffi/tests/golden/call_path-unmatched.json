@@ -1,0 +1,32 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [],
+      "to_unmatched": {
+        "kind": "outside_prefix",
+        "listed": [
+          {
+            "definition": {
+              "end_line": 8,
+              "exported": false,
+              "file": "go/run.go",
+              "kind": "func",
+              "line": 8,
+              "name": "helper",
+              "qualified_name": "main.helper",
+              "signature": "func helper()"
+            },
+            "graph": "go"
+          }
+        ],
+        "total": 1
+      }
+    }
+  },
+  "method": "call_path",
+  "params": {
+    "from": "main",
+    "to": "helper",
+    "to_path_prefix": "cpp/"
+  }
+}
