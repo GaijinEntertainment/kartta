@@ -1,4 +1,7 @@
-use kartta::{Region, Selector, SourceOptions, ask_reading, is_parent, is_referent};
+use kartta::{
+    Graph, Region, Selector, SourceOptions, SymbolKind, ask_reading, is_parent, is_referent,
+    selects_as_callers, unmatched,
+};
 
 use crate::built::{Built, Matches};
 use crate::error::Error;
@@ -12,6 +15,9 @@ use crate::wire::params::{
 use crate::wire::{self, NoParams, StatsAnswer};
 
 type Query = fn(&Built, &[u8]) -> Result<Vec<u8>, Error>;
+
+/// How many of the definitions a name that selected nothing names instead an answer lists.
+const UNMATCHED_LISTED: usize = 5;
 
 pub(crate) const QUERIES: &[(&str, Query)] = &[
     ("analyze_change", analyze_change),
@@ -39,71 +45,104 @@ fn stats(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     wire::ok(&StatsAnswer::new(&built.engine, &built.errors))
 }
 
+/// What the `searched` graphs answer for `named`, as [`ask_reading`] asks them, and, where none answers, what the name
+/// names instead among the definitions of the kinds `selects` takes.
+fn ask_named<'b, T>(
+    searched: impl Iterator<Item = (&'b str, &'b Graph)> + Clone,
+    named: Selector<'_>,
+    selects: fn(SymbolKind) -> bool,
+    ask: impl Fn((&'b str, &'b Graph), Selector<'_>) -> Option<(&'b str, T)>,
+) -> Matches<'b, T> {
+    let (found, read_as) = ask_reading(searched.clone(), [named], selects, |graph, [named]| {
+        ask(graph, named)
+    });
+    let unmatched = if found.is_empty() {
+        let [read] = &read_as;
+        let read = Selector::new(read.as_deref().unwrap_or(named.name), named.path_prefix);
+        unmatched(searched, read, selects, UNMATCHED_LISTED)
+    } else {
+        None
+    };
+    Matches::read(found, read_as, unmatched)
+}
+
 fn callers(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: WalkParams = wire::params(params)?;
     let limits = params.limits(CALLERS_DEPTH);
-    let (found, read_as) = ask_reading(
+    wire::ok(&ask_named(
         built.graphs(params.lang.as_deref())?,
-        [params.selector()],
+        params.selector(),
         |_| true,
-        |(name, graph), [named]| Some((name, Wired(graph.callers(named, limits)?))),
-    );
-    wire::ok(&Matches::read(found, read_as))
+        |(name, graph), named| Some((name, Wired(graph.callers(named, limits)?))),
+    ))
 }
 
 fn callees(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: WalkParams = wire::params(params)?;
     let limits = params.limits(CALLEES_DEPTH);
-    let (found, read_as) = ask_reading(
+    wire::ok(&ask_named(
         built.graphs(params.lang.as_deref())?,
-        [params.selector()],
+        params.selector(),
         |_| true,
-        |(name, graph), [named]| Some((name, Wired(graph.callees(named, limits)?))),
-    );
-    wire::ok(&Matches::read(found, read_as))
+        |(name, graph), named| Some((name, Wired(graph.callees(named, limits)?))),
+    ))
 }
 
 fn call_path(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: CallPathParams = wire::params(params)?;
     let limits = params.limits();
+    let searched = built.graphs(params.lang.as_deref())?;
+    let written = [params.from(), params.to()];
     let (found, read_as) = ask_reading(
-        built.graphs(params.lang.as_deref())?,
-        [params.from(), params.to()],
+        searched.clone(),
+        written,
         |_| true,
         |(name, graph), [from, to]| Some((name, Wired(graph.call_path(from, to, limits)?))),
     );
-    wire::ok(&Matches::read_ends(found, read_as))
+    let unmatched_ends = if found.is_empty() {
+        std::array::from_fn(|at| {
+            let end = Selector::new(
+                read_as[at].as_deref().unwrap_or(written[at].name),
+                written[at].path_prefix,
+            );
+            if selects_as_callers(searched.clone(), end) {
+                return None;
+            }
+            unmatched(searched.clone(), end, |_| true, UNMATCHED_LISTED)
+        })
+    } else {
+        [None, None]
+    };
+    wire::ok(&Matches::read_ends(found, read_as, unmatched_ends))
 }
 
 fn references(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: ReferencesParams = wire::params(params)?;
-    let (found, read_as) = ask_reading(
+    wire::ok(&ask_named(
         built.graphs(params.lang.as_deref())?,
-        [params.selector()],
+        params.selector(),
         is_referent,
-        |(name, graph), [named]| {
+        |(name, graph), named| {
             let found = graph.references(named, params.query())?;
             Some((
                 name,
                 ReferencesView::new(found, graph.conventions().type_uses),
             ))
         },
-    );
-    wire::ok(&Matches::read(found, read_as))
+    ))
 }
 
 fn implementations(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: ImplementationsParams = wire::params(params)?;
-    let (found, read_as) = ask_reading(
+    wire::ok(&ask_named(
         built.graphs(params.lang.as_deref())?,
-        [params.selector()],
+        params.selector(),
         is_parent,
-        |(name, graph), [named]| {
+        |(name, graph), named| {
             let found = graph.implementations(named, params.depth(), params.limit())?;
             Some((name, Wired(found)))
         },
-    );
-    wire::ok(&Matches::read(found, read_as))
+    ))
 }
 
 fn definitions(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
@@ -117,7 +156,7 @@ fn definitions(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
             (found.total > 0).then(|| (name, DefinitionsView::new(&found, None)))
         },
     );
-    wire::ok(&Matches::read(found, read_as))
+    wire::ok(&Matches::read(found, read_as, None))
 }
 
 fn sources(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
@@ -139,7 +178,7 @@ fn sources(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
             Some((name, DefinitionsView::new(&found, Some(sources))))
         },
     );
-    wire::ok(&Matches::read(found, read_as))
+    wire::ok(&Matches::read(found, read_as, None))
 }
 
 fn search(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {

@@ -6,7 +6,8 @@ use kartta::{
     Dependent, Dependents, DirCount, DirectCalls, Excluded, FileScope, Hit, Hotspot,
     Implementations, Implementor, LanguageFiles, Miss, Misses, Nearness, ReachBand, Reached,
     Reference, References, Resolution, Search, Seed, Segment, SegmentSymbol, SiteCounts, Source,
-    Stats, SymbolFlags, SymbolKind, TypeUses, Unbound, Walk, is_type_kind,
+    Stats, SymbolFlags, SymbolKind, TypeUses, Unbound, Unmatched, UnmatchedKind, Walk,
+    is_type_kind,
 };
 use serde::{Serialize, Serializer};
 
@@ -20,6 +21,7 @@ impl<T: Wire> Wire for &T {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Wired<T>(pub(crate) T);
 
 impl<T: Wire> Serialize for Wired<T> {
@@ -67,6 +69,7 @@ wire!(
     Resolution<'_> => ResolutionDef,
     LanguageFiles<'_> => LanguageFilesDef,
     Stats => StatsDef,
+    Unmatched<'_> => UnmatchedDef,
 );
 
 fn each<T: Wire, S: Serializer>(items: &[T], serializer: S) -> Result<S::Ok, S::Error> {
@@ -78,7 +81,7 @@ fn each<T: Wire, S: Serializer>(items: &[T], serializer: S) -> Result<S::Ok, S::
     reason = "serde passes a field to serialize_with and skip_serializing_if by reference"
 )]
 mod label {
-    use kartta::{Access, Miss, Nearness, ReachBand, SymbolFlags, SymbolKind};
+    use kartta::{Access, Miss, Nearness, ReachBand, SymbolFlags, SymbolKind, UnmatchedKind};
     use serde::Serializer;
 
     pub(super) fn kind<S: Serializer>(kind: &SymbolKind, serializer: S) -> Result<S::Ok, S::Error> {
@@ -117,6 +120,16 @@ mod label {
             Miss::Undefined => "undefined",
             Miss::NotAdmitted => "not_admitted",
             _ => "ambiguous",
+        })
+    }
+
+    pub(super) fn unmatched<S: Serializer>(
+        kind: &UnmatchedKind,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(match kind {
+            UnmatchedKind::Several => "several",
+            _ => "outside_prefix",
         })
     }
 
@@ -713,4 +726,32 @@ struct StatsDef {
     local_calls: usize,
     uses: usize,
     includes: usize,
+}
+
+#[derive(Serialize)]
+#[serde(remote = "Unmatched")]
+struct UnmatchedDef<'g> {
+    #[serde(serialize_with = "label::unmatched")]
+    kind: UnmatchedKind,
+    total: usize,
+    #[serde(serialize_with = "graphed")]
+    listed: Vec<(&'g str, Definition<'g>)>,
+}
+
+fn graphed<S: Serializer>(
+    listed: &[(&str, Definition<'_>)],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    #[derive(Serialize)]
+    struct Graphed<'g> {
+        graph: &'g str,
+        #[serde(with = "DefinitionDef")]
+        definition: Definition<'g>,
+    }
+
+    serializer.collect_seq(
+        listed
+            .iter()
+            .map(|&(graph, definition)| Graphed { graph, definition }),
+    )
 }

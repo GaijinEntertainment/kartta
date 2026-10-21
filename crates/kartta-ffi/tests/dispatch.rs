@@ -668,6 +668,215 @@ fn a_name_that_selects_as_written_or_in_neither_spelling_answers_no_reading() {
     );
 }
 
+/// A built handle over one Go package per name of `packages`, each defining `Store.Close`, the interface `Closer` and
+/// `Run`, which calls `Close`. The tree directory is returned to keep it alive.
+fn stores(packages: &[&str]) -> (tempfile::TempDir, Kartta) {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    for package in packages {
+        fs::create_dir_all(tree.path().join(package)).expect("a package directory");
+        fs::write(
+            tree.path().join(package).join("store.go"),
+            format!(
+                "package {package}\n\ntype Store struct{{}}\n\nfunc (Store) Close() {{}}\n\n\
+                 type Closer interface{{ Close() }}\n\nfunc Run() {{ Store{{}}.Close() }}\n"
+            ),
+        )
+        .expect("store.go");
+    }
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+    (tree, kartta)
+}
+
+/// The kind, the count and the files of the definitions an answer's `key` names in place of a match.
+fn unmatched_in(answer: &Value, key: &str) -> (Value, Value, Vec<Value>) {
+    let unmatched = &answer[key];
+    let files = unmatched["listed"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no {key} in {answer}"))
+        .iter()
+        .map(|listed| {
+            assert_eq!(listed["graph"], "go", "{listed}");
+            listed["definition"]["file"].clone()
+        })
+        .collect();
+    (unmatched["kind"].clone(), unmatched["total"].clone(), files)
+}
+
+#[test]
+fn a_name_several_definitions_end_with_answers_them_in_place_of_a_match() {
+    let (_tree, kartta) = stores(&["a", "b"]);
+
+    for method in ["callers", "callees", "references"] {
+        let answer = ok(&kartta, method, &json!({ "name": "Store.Close" }));
+
+        assert_eq!(answer["matches"], json!([]), "{method}: {answer}");
+        assert_eq!(
+            unmatched_in(&answer, "unmatched"),
+            (
+                json!("several"),
+                json!(2),
+                vec![json!("a/store.go"), json!("b/store.go")]
+            ),
+            "{method}"
+        );
+    }
+    let read = ok(&kartta, "callers", &json!({ "name": "Store::Close" }));
+    assert_eq!(read["read_as"], "Store.Close", "{read}");
+    assert_eq!(
+        read["unmatched"]["kind"], "several",
+        "the reading's own: {read}"
+    );
+}
+
+#[test]
+fn a_name_defined_only_outside_its_path_prefix_says_so_and_counts_the_definitions() {
+    let (_tree, kartta) = stores(&["a", "b"]);
+
+    for (method, name) in [
+        ("callers", "Store.Close"),
+        ("callees", "Store.Close"),
+        ("references", "Store.Close"),
+        ("implementations", "Closer"),
+    ] {
+        let answer = ok(
+            &kartta,
+            method,
+            &json!({ "name": name, "path_prefix": "c/" }),
+        );
+
+        assert_eq!(answer["matches"], json!([]), "{method}: {answer}");
+        assert_eq!(
+            unmatched_in(&answer, "unmatched"),
+            (
+                json!("outside_prefix"),
+                json!(2),
+                vec![json!("a/store.go"), json!("b/store.go")]
+            ),
+            "{method}"
+        );
+    }
+    let one = ok(
+        &kartta,
+        "callers",
+        &json!({ "name": "a.Store.Close", "path_prefix": "b/" }),
+    );
+    assert_eq!(
+        unmatched_in(&one, "unmatched"),
+        (json!("outside_prefix"), json!(1), vec![json!("a/store.go")])
+    );
+}
+
+#[test]
+fn a_call_path_end_that_selects_nothing_says_what_it_names_and_one_that_selects_says_nothing() {
+    let (_tree, kartta) = stores(&["a", "b"]);
+
+    let several = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "a.Run", "to": "Store.Close" }),
+    );
+    let outside = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "Run", "from_path_prefix": "c/", "to": "a.Store.Close" }),
+    );
+    let both = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "Store.Close", "to": "Run", "to_path_prefix": "c/" }),
+    );
+
+    assert_eq!(keys(&several), ["matches", "to_unmatched"], "{several}");
+    assert_eq!(
+        unmatched_in(&several, "to_unmatched"),
+        (
+            json!("several"),
+            json!(2),
+            vec![json!("a/store.go"), json!("b/store.go")]
+        )
+    );
+    assert_eq!(keys(&outside), ["from_unmatched", "matches"], "{outside}");
+    assert_eq!(
+        unmatched_in(&outside, "from_unmatched"),
+        (
+            json!("outside_prefix"),
+            json!(2),
+            vec![json!("a/store.go"), json!("b/store.go")]
+        )
+    );
+    assert_eq!(
+        keys(&both),
+        ["from_unmatched", "matches", "to_unmatched"],
+        "{both}"
+    );
+    assert_eq!(
+        unmatched_in(&both, "from_unmatched"),
+        unmatched_in(&several, "to_unmatched"),
+        "each end its own"
+    );
+    assert_eq!(
+        unmatched_in(&both, "to_unmatched"),
+        unmatched_in(&outside, "from_unmatched"),
+        "each end its own"
+    );
+    let read = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "a.Run", "to": "Store::Close" }),
+    );
+    assert_eq!(
+        keys(&read),
+        ["matches", "to_read_as", "to_unmatched"],
+        "{read}"
+    );
+    assert_eq!(read["to_read_as"], "Store.Close");
+    assert_eq!(
+        unmatched_in(&read, "to_unmatched"),
+        unmatched_in(&several, "to_unmatched"),
+        "the reading's own"
+    );
+}
+
+#[test]
+fn a_name_that_names_more_than_five_definitions_lists_the_first_five_and_counts_them_all() {
+    let (_tree, kartta) = stores(&["a", "b", "c", "d", "e", "f"]);
+
+    let answer = ok(&kartta, "callers", &json!({ "name": "Store.Close" }));
+
+    assert_eq!(
+        unmatched_in(&answer, "unmatched"),
+        (
+            json!("several"),
+            json!(6),
+            ["a", "b", "c", "d", "e"]
+                .map(|package| json!(format!("{package}/store.go")))
+                .to_vec()
+        )
+    );
+}
+
+#[test]
+fn a_name_that_matches_or_names_nothing_answers_no_unmatched_key() {
+    let (_tree, kartta) = stores(&["a", "b"]);
+
+    for (method, name) in [
+        ("callers", "a.Store.Close"),
+        ("callers", "Missing"),
+        ("callees", "Store.Missing"),
+        ("references", "b.Store.Close"),
+        ("implementations", "a.Closer"),
+        ("implementations", "Missing"),
+    ] {
+        let answer = ok(&kartta, method, &json!({ "name": name }));
+        assert_eq!(keys(&answer), ["matches"], "{method} {name}: {answer}");
+    }
+    for (from, to) in [("a.Run", "b.Store.Close"), ("a.Run", "Missing")] {
+        let answer = ok(&kartta, "call_path", &json!({ "from": from, "to": to }));
+        assert_eq!(keys(&answer), ["matches"], "{from} {to}: {answer}");
+    }
+}
+
 /// A built handle over a tree that defines `Index` in Rust and in Go and names it in a signature of each, Rust's
 /// `open(index: &Index)` and Go's `Open(index Index)`. The tree directory is returned to keep it alive.
 fn index_in_rust_and_go() -> (tempfile::TempDir, Kartta) {
