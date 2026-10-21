@@ -228,12 +228,6 @@ fn suggestions<'g>(searched: &[(&'g str, &'g Graph)], name: &str) -> Vec<Suggest
     found
 }
 
-/// The selector a name and an optional path prefix make.
-fn selector<'a>(name: &'a str, path_prefix: Option<&'a str>) -> Selector<'a> {
-    let selector = Selector::new(name);
-    path_prefix.map_or(selector, |prefix| selector.within(prefix))
-}
-
 /// What a selector that picked no symbol in the graphs a query searched matches instead, among the definitions of
 /// the kinds `selects` takes: the several an owner-qualified name ends with, those of the name outside the path
 /// prefix, or the close alternatives a search finds.
@@ -753,7 +747,7 @@ impl Server {
                 .map(|name| {
                     let (selecting, [read_as]) = ask_reading(
                         searched.iter().copied(),
-                        [Selector::new(name)],
+                        [Selector::new(name, None)],
                         |_| true,
                         |(family, graph), [named]| {
                             let definitions =
@@ -841,7 +835,7 @@ impl Server {
         self.answer(move |indexed| {
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = p.path_prefix.as_deref();
-            let named = selector(&p.name, path_prefix);
+            let named = Selector::new(&p.name, path_prefix);
             let (mut found, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [named],
@@ -858,7 +852,7 @@ impl Server {
                 implementations.found.truncate(room);
                 room -= implementations.found.len();
             }
-            let named = selector(read_as.as_deref().unwrap_or(&p.name), path_prefix);
+            let named = Selector::new(read_as.as_deref().unwrap_or(&p.name), path_prefix);
             let unmatched = if found.is_empty() {
                 unmatched(&searched, named, is_parent)
             } else {
@@ -959,8 +953,8 @@ impl Server {
                 .with_max_symbols(PATH_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
             let written = [
-                selector(&p.from, p.from_path_prefix.as_deref()),
-                selector(&p.to, p.to_path_prefix.as_deref()),
+                Selector::new(&p.from, p.from_path_prefix.as_deref()),
+                Selector::new(&p.to, p.to_path_prefix.as_deref()),
             ];
             let (paths, [from_read_as, to_read_as]) = ask_reading(
                 searched.iter().copied(),
@@ -968,11 +962,11 @@ impl Server {
                 |_| true,
                 |(family, graph), [from, to]| Some((family, graph.call_path(from, to, limits)?)),
             );
-            let from = selector(
+            let from = Selector::new(
                 from_read_as.as_deref().unwrap_or(&p.from),
                 written[0].path_prefix,
             );
-            let to = selector(
+            let to = Selector::new(
                 to_read_as.as_deref().unwrap_or(&p.to),
                 written[1].path_prefix,
             );
@@ -1048,7 +1042,7 @@ impl Server {
             let floor = p.min_confidence.floor();
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = p.path_prefix.as_deref();
-            let named = selector(&p.name, path_prefix);
+            let named = Selector::new(&p.name, path_prefix);
             let (found, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [named],
@@ -1062,7 +1056,7 @@ impl Server {
                     Some((family, type_uses, graph.references(named, query)?))
                 },
             );
-            let named = selector(read_as.as_deref().unwrap_or(&p.name), path_prefix);
+            let named = Selector::new(read_as.as_deref().unwrap_or(&p.name), path_prefix);
             let unmatched = if found.is_empty() {
                 unmatched(&searched, named, is_referent)
             } else {
@@ -1272,14 +1266,14 @@ impl Server {
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = p.path_prefix.as_deref();
-            let named = selector(&p.name, path_prefix);
+            let named = Selector::new(&p.name, path_prefix);
             let (walks, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [named],
                 |_| true,
                 |(family, graph), [named]| Some((family, graph.callers(named, limits)?)),
             );
-            let named = selector(read_as.as_deref().unwrap_or(&p.name), path_prefix);
+            let named = Selector::new(read_as.as_deref().unwrap_or(&p.name), path_prefix);
             let unmatched = if walks.is_empty() {
                 unmatched(&searched, named, |_| true)
             } else {
@@ -1332,14 +1326,14 @@ impl Server {
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = p.path_prefix.as_deref();
-            let named = selector(&p.name, path_prefix);
+            let named = Selector::new(&p.name, path_prefix);
             let (walks, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [named],
                 |_| true,
                 |(family, graph), [named]| graph.callees(named, limits).map(|walk| (family, walk)),
             );
-            let named = selector(read_as.as_deref().unwrap_or(&p.name), path_prefix);
+            let named = Selector::new(read_as.as_deref().unwrap_or(&p.name), path_prefix);
             let unmatched = if walks.is_empty() {
                 unmatched(&searched, named, |_| true)
             } else {

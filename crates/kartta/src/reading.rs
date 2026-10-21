@@ -34,7 +34,7 @@ pub fn ask_reading<'g, T, const N: usize>(
     let read = std::array::from_fn(|at| {
         readings[at]
             .as_deref()
-            .map_or(named[at], |read| selector(read, named[at].path_prefix))
+            .map_or(named[at], |read| Selector::new(read, named[at].path_prefix))
     });
     let found = searched.filter_map(|graph| ask(graph, read)).collect();
     (found, readings)
@@ -57,7 +57,13 @@ fn reading<'g>(
         .into_iter()
         .filter(|(written, _)| name.contains(written))
         .map(|(written, read)| name.replace(written, read))
-        .find(|read| selects_any(searched.clone(), selector(read, named.path_prefix), selects))
+        .find(|read| {
+            selects_any(
+                searched.clone(),
+                Selector::new(read, named.path_prefix),
+                selects,
+            )
+        })
 }
 
 /// Whether `named` selects a definition of the kinds `selects` takes, in the files it looks in, in the graphs a query
@@ -76,10 +82,4 @@ fn selects_any<'g>(
                     .is_none_or(|prefix| found.definition.file.starts_with(prefix))
         })
     })
-}
-
-/// The selector a name and an optional path prefix make.
-fn selector<'a>(name: &'a str, path_prefix: Option<&'a str>) -> Selector<'a> {
-    let selector = Selector::new(name);
-    path_prefix.map_or(selector, |prefix| selector.within(prefix))
 }

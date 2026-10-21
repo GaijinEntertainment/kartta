@@ -2993,11 +2993,11 @@ fn a_path_prefix_selects_a_copy_the_most_called_one_hides() {
     let graph = copies_of_parse();
 
     let walk = graph
-        .callers(Selector::new("parse").within("app/"), Limits::new(1))
+        .callers(Selector::new("parse", Some("app/")), Limits::new(1))
         .expect("parse is defined under app/");
     let references = graph
         .references(
-            Selector::new("parse").within("vendor/c.go"),
+            Selector::new("parse", Some("vendor/c.go")),
             SiteQuery::new(usize::MAX),
         )
         .expect("parse is defined in vendor/c.go");
@@ -3015,7 +3015,7 @@ fn a_path_prefix_selects_a_copy_the_most_called_one_hides() {
     );
     assert!(
         graph
-            .callers(Selector::new("parse").within("lib/"), Limits::new(1))
+            .callers(Selector::new("parse", Some("lib/")), Limits::new(1))
             .is_none(),
         "no definition of the name under the prefix"
     );
@@ -3035,7 +3035,7 @@ fn a_path_prefix_narrows_an_owner_qualified_name_several_symbols_end_with_to_one
     ]);
 
     let narrowed = graph
-        .callers(Selector::new("Store.Close").within("b/"), Limits::new(1))
+        .callers(Selector::new("Store.Close", Some("b/")), Limits::new(1))
         .expect("one Store.Close is under b/");
 
     assert!(graph.callers("Store.Close", Limits::new(1)).is_none());
@@ -3048,15 +3048,15 @@ fn a_call_path_takes_a_path_prefix_at_each_end() {
 
     let into_app = graph
         .call_path(
-            Selector::new("once").within("app/"),
-            Selector::new("parse").within("app/"),
+            Selector::new("once", Some("app/")),
+            Selector::new("parse", Some("app/")),
             Limits::new(2),
         )
         .expect("both are defined under app/");
     let into_vendor = graph
         .call_path(
             "first",
-            Selector::new("parse").within("vendor/b.go"),
+            Selector::new("parse", Some("vendor/b.go")),
             Limits::new(2),
         )
         .expect("both are defined");
@@ -3073,7 +3073,7 @@ fn a_call_path_takes_a_path_prefix_at_each_end() {
         graph
             .call_path(
                 "once",
-                Selector::new("parse").within("vendor/c.go"),
+                Selector::new("parse", Some("vendor/c.go")),
                 Limits::new(2)
             )
             .is_some_and(|path| !path.found),
@@ -3112,13 +3112,13 @@ fn callers_list_the_files_whose_top_level_names_a_function_by_how_each_sees_it()
             .expect("the name selects a function")
     };
 
-    let own = callers(Selector::new("setup").within("bin/"), Limits::new(3));
-    let included = callers(Selector::new("shared"), Limits::new(3));
+    let own = callers(Selector::new("setup", Some("bin/")), Limits::new(3));
+    let included = callers(Selector::new("shared", None), Limits::new(3));
     let floored = callers(
-        Selector::new("shared"),
+        Selector::new("shared", None),
         Limits::new(3).with_min_confidence(75),
     );
-    let unseen = callers(Selector::new("setup").within("lib/"), Limits::new(3));
+    let unseen = callers(Selector::new("setup", Some("lib/")), Limits::new(3));
 
     assert_eq!(
         file_scope(&own),
@@ -3386,7 +3386,7 @@ fn callers_of_a_free_function_count_its_name_s_ambiguous_calls_a_free_function_c
     holder.local_symbols = vec![SymbolId(1)];
     with_a_local.push(holder);
     let local = graph(&with_a_local)
-        .callers(Selector::new("format").within("e/"), Limits::new(1))
+        .callers(Selector::new("format", Some("e/")), Limits::new(1))
         .expect("the local is defined")
         .ambiguous;
     assert_eq!(

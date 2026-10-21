@@ -110,7 +110,7 @@ fn definitions(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: DefinitionsParams = wire::params(params)?;
     let (found, read_as) = ask_reading(
         built.graphs(params.lang.as_deref())?,
-        [Selector::new(&params.name)],
+        [Selector::new(&params.name, None)],
         |_| true,
         |(name, graph), [named]| {
             let found = graph.definitions(named.name, params.from.as_deref(), params.limit());
@@ -127,7 +127,7 @@ fn sources(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         .max_line_bytes(params.max_line_bytes);
     let (found, read_as) = ask_reading(
         built.graphs(params.lang.as_deref())?,
-        [Selector::new(&params.name)],
+        [Selector::new(&params.name, None)],
         |_| true,
         |(name, graph), [named]| {
             let found = graph.definitions(named.name, params.from.as_deref(), params.limit());

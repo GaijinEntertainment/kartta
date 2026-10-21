@@ -124,28 +124,16 @@ pub struct Selector<'s> {
 }
 
 impl<'s> Selector<'s> {
-    /// The symbol `name` selects, in any file.
+    /// The symbol `name` selects in the files whose path starts with `path_prefix`, or in any file for `None`.
     #[must_use]
-    pub const fn new(name: &'s str) -> Self {
-        Self {
-            name,
-            path_prefix: None,
-        }
-    }
-
-    /// This selector looking only in the files whose path starts with `path_prefix`.
-    #[must_use]
-    pub const fn within(self, path_prefix: &'s str) -> Self {
-        Self {
-            path_prefix: Some(path_prefix),
-            ..self
-        }
+    pub const fn new(name: &'s str, path_prefix: Option<&'s str>) -> Self {
+        Self { name, path_prefix }
     }
 }
 
 impl<'s> From<&'s str> for Selector<'s> {
     fn from(name: &'s str) -> Self {
-        Self::new(name)
+        Self::new(name, None)
     }
 }
 
