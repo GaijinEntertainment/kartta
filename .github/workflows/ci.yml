@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install
       - run: rustup target add x86_64-unknown-freebsd
-      - run: cargo check --locked -p kartta-fs --features watch --target x86_64-unknown-freebsd
+      - run: cargo clippy --locked -p kartta-fs --features watch --target x86_64-unknown-freebsd -- -D warnings
 
   test:
     strategy:
