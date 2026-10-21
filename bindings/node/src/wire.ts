@@ -924,7 +924,7 @@ export type Fuzzy = {
 
 /** The params of `grep`. */
 export type GrepParams = {
-	/** Names the grep for a cancel. */
+	/** Names the grep for a cancel; {@link Kartta.grep} sets it. */
 	id?: number;
 	patterns: string[];
 	case_insensitive?: boolean;
@@ -943,6 +943,9 @@ export type GrepParams = {
 	/** The size past which a file is not searched; 4 MiB by default. */
 	max_file_bytes?: number;
 };
+
+/** The options of {@link Kartta.grep}: the params of `grep` but the id the binding gives each grep. */
+export type GrepOptions = Omit<GrepParams, 'id'>;
 
 /** The answer of `grep`: the files holding a match with their lines, and the account of every candidate. */
 export type Grep = {

@@ -27,7 +27,7 @@ import type {
 	Glob,
 	GlobParams,
 	Grep,
-	GrepParams,
+	GrepOptions,
 	Implementations,
 	ImplementationsParams,
 	ListParams,
@@ -71,8 +71,11 @@ type Handle = {
 	close(): void;
 };
 
-/** The methods the addon runs on a thread of their own, each under an id a cancel names by the method. */
-type Tracked = 'build' | 'refresh';
+/**
+ * The methods that run under an id a cancel names by the method: a build and a refresh each on a thread of its own, a
+ * grep on libuv's pool.
+ */
+type Tracked = 'build' | 'grep' | 'refresh';
 
 /** A failure the engine answered, or a call on a closed handle: a code to branch on, and a message for a reader. */
 export class KarttaError extends Error {
@@ -170,7 +173,8 @@ export class Kartta {
 		this.#inFlight.set(id, method);
 		signal?.addEventListener('abort', cancel, {once: true});
 		try {
-			return answer(await handle[method](JSON.stringify({...params, id})));
+			const text = JSON.stringify({...params, id});
+			return answer(await (method === 'grep' ? handle.call(method, text) : handle[method](text)));
 		} catch (error) {
 			if (!(error instanceof KarttaError) || error.code !== `${method}_cancelled`) {
 				throw error;
@@ -289,18 +293,28 @@ export class Kartta {
 	/**
 	 * Answers the lines of the indexed files the patterns match. A pattern that does not compile rejects with
 	 * `invalid_pattern`, and a glob with `invalid_glob`.
+	 *
+	 * Once `signal` aborts, a grep that has not opened its last file, waiting for a pool thread or searching, stops and
+	 * answers what it covered, `cancelled` set and the files it did not open counted `unsearched`; one that has answers
+	 * whole. A signal aborted before the call rejects with its reason alone.
 	 */
-	async grep(params: GrepParams): Promise<Grep> {
-		return this.#ask('grep', params);
+	async grep(options: GrepOptions, {signal}: {signal?: AbortSignal} = {}): Promise<Grep> {
+		// SAFETY: the dispatch answers `grep` with the wire's grep, which the golden files pin.
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion
+		return this.#tracked('grep', options, signal) as Promise<Grep>;
 	}
 
 	/**
 	 * Answers `method` with `params`, as the wire spells both, for a method this class has no typed call for or params
-	 * its types do not hold. `build` and `refresh` run as {@link Kartta.build} and {@link Kartta.refresh} do, under an id
-	 * the handle picks in place of one their params give, so no two calls share one; `cancel` answers at once.
+	 * its types do not hold. `build`, `grep` and `refresh` run as their typed calls do, under an id the handle picks in
+	 * place of one their params give, so no two calls share one; `cancel` answers at once.
 	 */
 	async call(method: string, params: unknown = {}): Promise<unknown> {
-		if ((method === 'build' || method === 'refresh') && typeof params === 'object' && !Array.isArray(params)) {
+		if (
+			(method === 'build' || method === 'grep' || method === 'refresh') &&
+			typeof params === 'object' &&
+			!Array.isArray(params)
+		) {
 			return this.#tracked(method, {...params});
 		}
 		const handle = this.#open();
@@ -324,8 +338,9 @@ export class Kartta {
 	/**
 	 * Cancels the builds, greps and refreshes in flight and lets the engine go once the calls in flight answer. A build
 	 * this cancels rejects with `build_cancelled` and a refresh with `refresh_cancelled`, a `closed` error the cause of
-	 * each; of the builds and the refreshes that have yet to enter the library, only the last 1,024 of each it cancels
-	 * stop. Every later call rejects with `closed`. Closing a closed handle does nothing.
+	 * each, and a grep answers what it covered, `cancelled` set; of the builds, the greps and the refreshes that have yet
+	 * to enter the library, only the last 1,024 of each it cancels stop. Every later call rejects with `closed`. Closing
+	 * a closed handle does nothing.
 	 */
 	close(): void {
 		const handle = this.#handle;
