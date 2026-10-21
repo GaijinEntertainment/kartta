@@ -70,6 +70,9 @@ type Handle = {
 	close(): void;
 };
 
+/** The methods the addon runs on a thread of their own, each under an id a cancel names by the method. */
+type Tracked = 'build';
+
 /** A failure the engine answered, or a call on a closed handle: a code to branch on, and a message for a reader. */
 export class KarttaError extends Error {
 	override name = 'KarttaError';
@@ -91,8 +94,8 @@ export class KarttaError extends Error {
  */
 export class Kartta {
 	#handle: Handle | undefined;
-	#builds = 0;
-	readonly #inFlight = new Set<number>();
+	#ids = 0;
+	readonly #inFlight = new Map<number, Tracked>();
 
 	private constructor(handle: Handle) {
 		this.#handle = handle;
@@ -126,7 +129,7 @@ export class Kartta {
 	async build(options: BuildOptions = {}, {signal}: {signal?: AbortSignal} = {}): Promise<Stats> {
 		// SAFETY: the dispatch answers `build` with the wire's stats, which the golden files pin.
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion
-		return this.#build(options, signal) as Promise<Stats>;
+		return this.#tracked('build', options, signal) as Promise<Stats>;
 	}
 
 	/**
@@ -148,20 +151,20 @@ export class Kartta {
 		return this.#ask('cancel', params);
 	}
 
-	async #build(params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+	async #tracked(method: Tracked, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
 		const handle = this.#open();
 		signal?.throwIfAborted();
-		this.#builds += 1;
-		const id = this.#builds;
+		this.#ids += 1;
+		const id = this.#ids;
 		const cancel = (): void => {
-			this.#handle?.cancel(JSON.stringify({build: id}));
+			this.#handle?.cancel(JSON.stringify({[method]: id}));
 		};
-		this.#inFlight.add(id);
+		this.#inFlight.set(id, method);
 		signal?.addEventListener('abort', cancel, {once: true});
 		try {
-			return answer(await handle.build(JSON.stringify({...params, id})));
+			return answer(await handle[method](JSON.stringify({...params, id})));
 		} catch (error) {
-			if (!(error instanceof KarttaError) || error.code !== 'build_cancelled') {
+			if (!(error instanceof KarttaError) || error.code !== `${method}_cancelled`) {
 				throw error;
 			}
 			if (signal?.aborted === true) {
@@ -290,7 +293,7 @@ export class Kartta {
 	 */
 	async call(method: string, params: unknown = {}): Promise<unknown> {
 		if (method === 'build' && typeof params === 'object' && !Array.isArray(params)) {
-			return this.#build({...params});
+			return this.#tracked(method, {...params});
 		}
 		const handle = this.#open();
 		const text = JSON.stringify(params);
@@ -319,8 +322,8 @@ export class Kartta {
 			return;
 		}
 		this.#handle = undefined;
-		for (const id of this.#inFlight) {
-			handle.cancel(JSON.stringify({build: id}));
+		for (const [id, method] of this.#inFlight) {
+			handle.cancel(JSON.stringify({[method]: id}));
 		}
 		handle.cancel('{}');
 		handle.close();
