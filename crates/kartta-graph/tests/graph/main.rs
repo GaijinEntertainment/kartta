@@ -14,6 +14,7 @@ mod dependents;
 mod go_code;
 mod implementations;
 mod members;
+mod one_edit;
 mod packages;
 mod resolution;
 mod search;
