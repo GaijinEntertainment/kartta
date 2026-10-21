@@ -1476,6 +1476,81 @@ fn find_callers_names_the_floor_only_where_it_dropped_callers() {
     );
 }
 
+/// A Go package whose `Run` and `Stop` each call `helper`, and whose `Start` calls `Stop`, each from another file, a
+/// call that binds `likely`.
+const HELPER_CALLERS: [(&str, &str); 5] = [
+    ("go.mod", "module example.com/lib\n\ngo 1.22\n"),
+    ("helper.go", "package lib\n\nfunc helper() {}\n"),
+    ("run.go", "package lib\n\nfunc Run() {\n\thelper()\n}\n"),
+    ("start.go", "package lib\n\nfunc Start() {\n\tStop()\n}\n"),
+    ("stop.go", "package lib\n\nfunc Stop() {\n\thelper()\n}\n"),
+];
+
+#[test]
+fn find_call_path_counts_the_callers_below_the_floor_that_it_did_not_follow() {
+    let answers = answers_over(
+        &HELPER_CALLERS,
+        &[
+            (
+                "find_call_path",
+                json!({"from": "Run", "to": "helper", "min_confidence": "certain"}),
+            ),
+            (
+                "find_call_path",
+                json!({"from": "Run", "to": "Stop", "min_confidence": "certain"}),
+            ),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<call_path from="Run" to="helper" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" from="lib.Run" to="lib.helper" hops="0" max_hops="8" below_confidence="2" "#,
+                    r#"found="false">no call chain within 8 calls at this confidence floor - 2 callers bind below "#,
+                    r#"it, and min_confidence "any" follows them</match>"#,
+                ),
+                "</call_path>",
+            ]),
+            lines(&[
+                r#"<call_path from="Run" to="Stop" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" from="lib.Run" to="lib.Stop" hops="0" max_hops="8" below_confidence="1" "#,
+                    r#"found="false">no call chain within 8 calls at this confidence floor - 1 caller binds below "#,
+                    r#"it, and min_confidence "any" follows it</match>"#,
+                ),
+                "</call_path>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn find_call_path_names_the_floor_only_where_it_dropped_callers() {
+    let answers = answers_over(
+        &HELPER_CALLERS,
+        &[(
+            "find_call_path",
+            json!({"from": "helper", "to": "Run", "min_confidence": "certain"}),
+        )],
+    );
+
+    assert_eq!(
+        answers,
+        [lines(&[
+            r#"<call_path from="helper" to="Run" matches="1">"#,
+            concat!(
+                r#"<match lang="go" from="lib.helper" to="lib.Run" hops="0" max_hops="8" found="false">no call "#,
+                "chain within 8 calls - the graph misses dynamic and unresolved calls, so this does not show that ",
+                "the code holds none</match>",
+            ),
+            "</call_path>",
+        ])]
+    );
+}
+
 const GREET_SEED: [&str; 5] = [
     concat!(
         r#"<seed name="Greet" qn="pkg.Service.Greet" kind="method" loc="pkg/service.go:12-14" callers="1" "#,
