@@ -79,6 +79,12 @@ impl Puppet {
 const DOC_COMMENTS: DocComments =
     DocComments::lines(&["#"]).with_blocks(&[BlockComment::new("/*", "*/")]);
 
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.type_uses = TypeUses::Nowhere;
+    conventions
+};
+
 impl Language for Puppet {
     fn name(&self) -> &'static str {
         "puppet"
@@ -97,9 +103,7 @@ impl Language for Puppet {
     }
 
     fn conventions(&self) -> Conventions {
-        let mut conventions = Conventions::default();
-        conventions.type_uses = TypeUses::Nowhere;
-        conventions
+        CONVENTIONS
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {

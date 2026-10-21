@@ -82,6 +82,13 @@ impl Dshl {
     }
 }
 
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.own_members = OwnMembers::Unreached;
+    conventions.values_are_call_targets = false;
+    conventions
+};
+
 impl Language for Dshl {
     fn name(&self) -> &'static str {
         "dshl"
@@ -100,11 +107,7 @@ impl Language for Dshl {
     }
 
     fn conventions(&self) -> Conventions {
-        let mut conventions = Conventions::default();
-        conventions.own_members = OwnMembers::Unreached;
-        conventions.values_are_call_targets = false;
-
-        conventions
+        CONVENTIONS
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {

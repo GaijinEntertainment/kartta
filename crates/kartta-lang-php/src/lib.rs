@@ -94,6 +94,13 @@ impl Php {
 const DOC_COMMENTS: DocComments =
     DocComments::lines(&["//", "#"]).with_blocks(&[BlockComment::new("/*", "*/")]);
 
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.own_members = OwnMembers::Unreached;
+    conventions.type_uses = TypeUses::Nowhere;
+    conventions
+};
+
 impl Language for Php {
     fn name(&self) -> &'static str {
         "php"
@@ -114,11 +121,7 @@ impl Language for Php {
     // constraint: a bare call never reaches a method of its own class, which PHP calls only through `$this`, `self`
     // or `static`
     fn conventions(&self) -> Conventions {
-        let mut conventions = Conventions::default();
-        conventions.own_members = OwnMembers::Unreached;
-        conventions.type_uses = TypeUses::Nowhere;
-
-        conventions
+        CONVENTIONS
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {
