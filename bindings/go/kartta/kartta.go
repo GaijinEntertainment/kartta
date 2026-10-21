@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -128,22 +129,23 @@ func tracked[A any](ctx context.Context, k *Kartta, method string, named func(id
 	}
 	id := k.ids.Add(1)
 	var answer A
-	if err := k.callTracked(ctx, method, id, named(id), &answer); err != nil {
+	if err := k.callTracked(ctx, id, method, id, named(id), &answer); err != nil {
 		return nil, err
 	}
 	return &answer, nil
 }
 
-// callTracked calls method with params under id, decoding the answer into answer. Close and ctx stop the call through
-// a cancel naming method and id, and one they stop before it enters the library starts stopped. A build or a refresh
-// they stopped answers an error matching both its cancelled code and ctx's cause; a grep answers what it covered.
-func (k *Kartta) callTracked(ctx context.Context, method string, id uint64, params, answer any) error {
+// callTracked calls method with params under id, decoding the answer into answer, and holds the call in slot, a number
+// of the handle's no other call holds, until it returns. Close and ctx stop the call through a cancel naming method
+// and id, and one they stop before it enters the library starts stopped. A build or a refresh they stopped answers an
+// error matching both its cancelled code and ctx's cause; a grep answers what it covered.
+func (k *Kartta) callTracked(ctx context.Context, slot uint64, method string, id uint64, params, answer any) error {
 	ctx, stopCall := context.WithCancelCause(ctx)
 	defer stopCall(nil)
-	if !k.track(id, stopCall) {
+	if !k.track(slot, stopCall) {
 		return ErrClosed
 	}
-	defer k.untrack(id)
+	defer k.untrack(slot)
 
 	k.mu.RLock()
 	defer k.mu.RUnlock()
@@ -173,13 +175,13 @@ func (k *Kartta) callTracked(ctx context.Context, method string, id uint64, para
 	return nil
 }
 
-func (k *Kartta) track(id uint64, stop context.CancelCauseFunc) bool {
+func (k *Kartta) track(slot uint64, stop context.CancelCauseFunc) bool {
 	k.tracked.Lock()
 	defer k.tracked.Unlock()
 	if k.closing {
 		return false
 	}
-	k.stopping[id] = stop
+	k.stopping[slot] = stop
 	return true
 }
 
@@ -189,10 +191,10 @@ func (k *Kartta) closed() bool {
 	return k.closing
 }
 
-func (k *Kartta) untrack(id uint64) {
+func (k *Kartta) untrack(slot uint64) {
 	k.tracked.Lock()
 	defer k.tracked.Unlock()
-	delete(k.stopping, id)
+	delete(k.stopping, slot)
 }
 
 // Stats answers what the last build indexed, what it made of each language's files, and what each graph holds.
@@ -289,7 +291,16 @@ func (k *Kartta) Grep(ctx context.Context, params wire.GrepParams) (*wire.Grep, 
 
 // Call answers method with params, encoded as JSON, decoding the answer into answer, a pointer, or discarding it when
 // answer is nil. A failure the engine answers is a *wire.Error. Call reaches methods this package has no wrapper for.
+// A build, a grep or a refresh whose params encode as a JSON object or null runs under the id they give, or else
+// under one the handle picks, and Close stops it as it stops Build's, Grep's and Refresh's; a cancel naming its id
+// stops it too.
 func (k *Kartta) Call(method string, params, answer any) error {
+	if method == "build" || method == "grep" || method == "refresh" {
+		slot := k.ids.Add(1)
+		if body, id, ok := withID(params, slot); ok {
+			return k.callTracked(context.Background(), slot, method, id, body, answer)
+		}
+	}
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	if k.handle == nil {
@@ -325,6 +336,32 @@ func call(handle *C.KarttaHandle, method string, params, answer any) error {
 		return envelope.Err
 	}
 	return nil
+}
+
+// withID answers params, a JSON object or null, as the object the library reads, with the id it names, or else with
+// fallback added as its id; false when params are neither, or name an id that is no uint64, which the library refuses.
+func withID(params any, fallback uint64) (json.RawMessage, uint64, bool) {
+	body, err := json.Marshal(params)
+	if err != nil {
+		return nil, 0, false
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return nil, 0, false
+	}
+	if given, named := fields["id"]; named && string(given) != "null" {
+		var id uint64
+		if json.Unmarshal(given, &id) != nil {
+			return nil, 0, false
+		}
+		return body, id, true
+	}
+	if fields == nil {
+		fields = make(map[string]json.RawMessage, 1)
+	}
+	fields["id"] = strconv.AppendUint(nil, fallback, 10)
+	body, err = json.Marshal(fields)
+	return body, fallback, err == nil
 }
 
 func ask[A any](k *Kartta, method string, params any) (*A, error) {

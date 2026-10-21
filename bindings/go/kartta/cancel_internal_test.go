@@ -2,10 +2,12 @@ package kartta
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/GaijinEntertainment/kartta/bindings/go/wire"
@@ -126,6 +128,16 @@ func Test_Build_cancel(t *testing.T) {
 
 		if !errors.Is(err, wire.BuildCancelled) || !errors.Is(err, context.Canceled) {
 			t.Fatalf("Build = %v, want both %s and %v", err, wire.BuildCancelled, context.Canceled)
+		}
+	})
+
+	t.Run("a cancel naming the id a build through Call gives stops that build", func(t *testing.T) {
+		if err := k.Call("cancel", wire.CancelParams{Build: 77}, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := k.Call("build", map[string]uint64{"id": 77}, nil); !errors.Is(err, wire.BuildCancelled) {
+			t.Fatalf("Call(build) under a cancelled id = %v, want %s", err, wire.BuildCancelled)
 		}
 	})
 
@@ -253,4 +265,89 @@ func Test_Close_stops_a_refresh_in_flight(t *testing.T) {
 	if err := <-refreshed; !errors.Is(err, wire.RefreshCancelled) || !errors.Is(err, ErrClosed) {
 		t.Fatalf("Refresh beside Close = %v, want both %s and %v", err, wire.RefreshCancelled, ErrClosed)
 	}
+}
+
+func Test_withID(t *testing.T) {
+	t.Run("an id of null takes the fallback", func(t *testing.T) {
+		body, id, ok := withID(map[string]any{"id": nil, "patterns": []string{"package"}}, 9)
+
+		var got struct {
+			ID       uint64   `json:"id"`
+			Patterns []string `json:"patterns"`
+		}
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatal(err)
+		}
+		if !ok || id != 9 || got.ID != 9 || !slices.Equal(got.Patterns, []string{"package"}) {
+			t.Errorf("withID = %s, %d, %v, want the patterns under id 9", body, id, ok)
+		}
+	})
+
+	t.Run("params that are no object, or an id that is no uint64, are not named", func(t *testing.T) {
+		for _, give := range []any{[]int{1}, "grep", map[string]any{"id": -1}, map[string]any{"id": "77"}} {
+			if body, _, ok := withID(give, 9); ok {
+				t.Errorf("withID(%v) = %s, want false", give, body)
+			}
+		}
+	})
+}
+
+func closeBeside(t *testing.T, k *Kartta, run func() error) error {
+	t.Helper()
+	k.mu.Lock()
+	ran := tracking(k, k.ids.Load()+1, run)
+	closed := make(chan error, 1)
+	go func() { closed <- k.Close() }()
+	until(func(k *Kartta) bool { return k.closing }, k)
+	k.mu.Unlock()
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+	return <-ran
+}
+
+func Test_Close_stops_a_raw_call_yet_to_enter(t *testing.T) {
+	grep := func(t *testing.T, params any) {
+		k := openTree(t)
+		if _, err := k.Build(t.Context(), wire.BuildOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		var answer wire.Grep
+
+		if err := closeBeside(t, k, func() error { return k.Call("grep", params, &answer) }); err != nil {
+			t.Fatal(err)
+		}
+
+		if !answer.Cancelled || answer.Searched != 0 || answer.Unsearched != answer.Candidates {
+			t.Errorf("Call(grep) beside Close = %+v, want one cancelled with every candidate unsearched", answer)
+		}
+	}
+
+	t.Run("a grep under an id of the handle's", func(t *testing.T) {
+		grep(t, wire.GrepParams{Patterns: []string{"package"}})
+	})
+
+	t.Run("a grep under its own id", func(t *testing.T) {
+		grep(t, map[string]any{"id": 77, "patterns": []string{"package"}})
+	})
+
+	t.Run("a build", func(t *testing.T) {
+		k := openTree(t)
+
+		err := closeBeside(t, k, func() error { return k.Call("build", nil, nil) })
+
+		if !errors.Is(err, wire.BuildCancelled) || !errors.Is(err, ErrClosed) {
+			t.Fatalf("Call(build) beside Close = %v, want both %s and %v", err, wire.BuildCancelled, ErrClosed)
+		}
+	})
+
+	t.Run("a refresh", func(t *testing.T) {
+		k := openStamped(t)
+
+		err := closeBeside(t, k, func() error { return k.Call("refresh", json.RawMessage(`{}`), nil) })
+
+		if !errors.Is(err, wire.RefreshCancelled) || !errors.Is(err, ErrClosed) {
+			t.Fatalf("Call(refresh) beside Close = %v, want both %s and %v", err, wire.RefreshCancelled, ErrClosed)
+		}
+	})
 }
