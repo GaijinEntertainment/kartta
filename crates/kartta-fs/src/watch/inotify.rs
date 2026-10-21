@@ -27,6 +27,8 @@ const MASK: u32 = libc::IN_CREATE
     | libc::IN_EXCL_UNLINK;
 
 const HEADER: usize = size_of::<libc::inotify_event>();
+// constraint: an event's name is a component of a path, and PATH_MAX bounds a path and its NUL, so no event is longer
+const LONGEST_EVENT: usize = HEADER + libc::PATH_MAX.unsigned_abs() as usize;
 const MOVED_DIR: u32 = libc::IN_MOVED_FROM | libc::IN_ISDIR;
 
 #[derive(Debug)]
@@ -38,6 +40,7 @@ pub(super) struct Backend {
     unwatched: AtomicUsize,
     refused: Mutex<Option<WatchError>>,
     buffer: Box<[u8]>,
+    most_queued: usize,
 }
 
 impl Backend {
@@ -64,6 +67,7 @@ impl Backend {
             unwatched: AtomicUsize::new(0),
             refused: Mutex::default(),
             buffer: vec![0; 64 * 1024].into_boxed_slice(),
+            most_queued: most_queued(),
         })
     }
 
@@ -129,32 +133,33 @@ impl Backend {
                 Err(WatchError::Stopped { source: error })
             };
         }
-        if polled == 0 {
-            return Ok(false);
-        }
-
         // constraint: one buffer a call, so a writer faster than the reads cannot keep a wait from closing its batch
-        let read = match self.read_once() {
-            Ok(read) => read,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
-            Err(error) => return Err(WatchError::Stopped { source: error }),
+        let read = if polled == 0 {
+            0
+        } else {
+            match self.read_once() {
+                Ok(read) => read,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => 0,
+                Err(error) => return Err(WatchError::Stopped { source: error }),
+            }
         };
-        found.unread = found.unread.saturating_sub(read);
+        // constraint: a read hands over every queued event that fits, so one that leaves room for the longest event
+        // found the queue empty, with every change queued before it read
+        if read + LONGEST_EVENT <= self.buffer.len() {
+            found.unread = 0;
+        }
         self.take(read, found);
         Ok(read > 0)
     }
 
-    // constraint: inotify queues an event as the call that made it returns and hands events over in order, so the bytes
-    // FIONREAD counts hold every change made before the count, one dropped as the overflow marker among them
-    pub(super) fn queued(&self) -> Option<usize> {
-        let mut queued: libc::c_int = 0;
-        // SAFETY: FIONREAD writes one int through the pointer, alive for the whole call, and the descriptor is this
-        // backend's own.
-        let asked = unsafe { libc::ioctl(self.fd.as_raw_fd(), libc::FIONREAD, &raw mut queued) };
-        if asked < 0 {
-            return None;
-        }
-        usize::try_from(queued).ok()
+    // constraint: FIONREAD counts the queue by walking it under the lock every writer into the tree takes to queue an
+    // event, so a drain reads up to the most events the queue holds instead, and stops once a read finds it empty
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "one signature for every platform, and the limit read at the start bounds every drain"
+    )]
+    pub(super) const fn queued(&self) -> Option<usize> {
+        Some(self.most_queued)
     }
 
     fn read_once(&mut self) -> io::Result<usize> {
@@ -180,6 +185,7 @@ impl Backend {
     fn take(&mut self, len: usize, found: &mut Found) {
         let mut at = 0;
         while at + HEADER <= len {
+            found.unread = found.unread.saturating_sub(1);
             // SAFETY: the kernel hands over whole events, so a header lies at `at` within the bytes it wrote, and an
             // unaligned read takes it wherever it starts.
             let event: libc::inotify_event =
@@ -313,6 +319,15 @@ fn held<T>(mutex: &mut Mutex<T>) -> &mut T {
 fn at_or_below_one(dirs: &[String], path: &str) -> bool {
     let after = dirs.partition_point(|dir| tree_order(dir, path).is_le());
     after > 0 && (dirs[after - 1] == path || is_below(path, &dirs[after - 1]))
+}
+
+// constraint: an inotify instance takes `max_queued_events` as it starts, and holds that many events and the overflow
+// marker at most; where the limit cannot be read, a drain reads until it finds the queue empty
+fn most_queued() -> usize {
+    std::fs::read_to_string("/proc/sys/fs/inotify/max_queued_events")
+        .ok()
+        .and_then(|limit| limit.trim().parse::<usize>().ok())
+        .map_or(usize::MAX, |limit| limit.saturating_add(1))
 }
 
 fn gone(error: &io::Error) -> bool {
@@ -520,12 +535,32 @@ mod tests {
         assert_eq!(seen, ["a", "keep/b", "keep/b/deep/c.rs"]);
     }
 
+    /// The bytes `watcher`'s queue holds, as FIONREAD counts them.
+    fn queued_bytes(watcher: &Watcher) -> usize {
+        let mut queued: libc::c_int = 0;
+        // SAFETY: FIONREAD writes one int through the pointer, alive for the whole call, and the descriptor is the
+        // watcher's own.
+        let asked = unsafe {
+            libc::ioctl(
+                watcher.backend.fd.as_raw_fd(),
+                libc::FIONREAD,
+                &raw mut queued,
+            )
+        };
+        assert!(
+            asked >= 0,
+            "count the queue: {}",
+            io::Error::last_os_error()
+        );
+        usize::try_from(queued).expect("a count")
+    }
+
     /// Writes to two files of `tree` in turn, so the kernel merges none of the events, until `watcher` holds more than
     /// `bytes` of them queued.
     fn queue_past(watcher: &Watcher, tree: &Path, bytes: usize) {
         let mut files = ["a", "b"].map(|name| File::create(tree.join(name)).expect("make a file"));
         let mut at = 0;
-        while watcher.backend.queued().expect("count the queue") <= bytes {
+        while queued_bytes(watcher) <= bytes {
             files[at % 2].write_all(b"x").expect("write a file");
             at += 1;
         }
@@ -544,20 +579,64 @@ mod tests {
     }
 
     #[test]
-    fn a_drain_whose_reads_end_before_they_cover_its_count_loses_the_batch() {
+    fn a_drain_is_bounded_by_the_most_events_the_queue_can_hold() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let watcher = watched(tree.path());
+        let limit = std::fs::read_to_string("/proc/sys/fs/inotify/max_queued_events")
+            .expect("read the queue's limit");
+        let limit: usize = limit.trim().parse().expect("a limit");
+
+        assert_eq!(watcher.backend.queued(), Some(limit + 1));
+    }
+
+    #[test]
+    fn a_drain_counts_its_bound_down_by_the_events_it_reads() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let mut watcher = watched(tree.path());
+        queue_past(&watcher, tree.path(), watcher.backend.buffer.len());
+        let bound = watcher.backend.buffer.len();
+        let mut found = Found {
+            unread: bound,
+            ..Found::default()
+        };
+
+        watcher
+            .backend
+            .poll(Duration::ZERO, &mut found)
+            .expect("read");
+
+        assert_eq!(found.unread, bound - found.paths.len());
+    }
+
+    #[test]
+    fn a_read_that_leaves_room_for_the_longest_event_has_read_the_queue_empty() {
         let tree = tempfile::tempdir().expect("a tree");
         let mut watcher = watched(tree.path());
         queue_past(&watcher, tree.path(), 0);
-        let counted_past_the_queue = Found {
+        let mut found = Found {
             unread: usize::MAX,
             ..Found::default()
         };
 
-        let handed = watcher
-            .gather(Duration::ZERO, Duration::ZERO, counted_past_the_queue)
-            .expect("drain");
+        watcher
+            .backend
+            .poll(Duration::ZERO, &mut found)
+            .expect("read");
 
-        assert_eq!(handed, [""]);
+        assert_eq!(found.unread, 0);
+    }
+
+    #[test]
+    fn a_batch_closed_before_its_reads_cover_what_was_queued_is_lost() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let watcher = watched(tree.path());
+        let unread = Found {
+            paths: vec![tree.path().join("a")],
+            unread: 1,
+            ..Found::default()
+        };
+
+        assert_eq!(watcher.changes(unread), [""]);
     }
 
     #[test]
