@@ -81,6 +81,5 @@ pub use crate::graph::{
 };
 pub use crate::implementations::{Implementations, Implementor};
 pub use crate::resolution::{Miss, Misses, Resolution, Unbound};
-pub use crate::resolve::is_type_kind;
 pub use crate::search::{Hit, Search};
 pub use crate::stats::Stats;

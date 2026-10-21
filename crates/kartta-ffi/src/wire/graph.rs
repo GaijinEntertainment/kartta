@@ -7,7 +7,6 @@ use kartta::{
     Implementations, Implementor, LanguageFiles, Miss, Misses, Nearness, ReachBand, Reached,
     Reference, References, Resolution, Search, Seed, Segment, SegmentSymbol, SiteCounts, Source,
     Stats, SymbolFlags, SymbolKind, TypeUses, Unbound, Unmatched, UnmatchedKind, Walk,
-    is_type_kind,
 };
 use serde::{Serialize, Serializer};
 
@@ -320,7 +319,7 @@ impl<'g> ReferencesView<'g> {
     pub(crate) fn new(references: References<'g>, type_uses: TypeUses) -> Self {
         Self {
             type_uses_unrecorded: type_uses == TypeUses::Nowhere
-                && is_type_kind(references.symbol.kind),
+                && references.symbol.kind.is_type(),
             references: Wired(references),
         }
     }

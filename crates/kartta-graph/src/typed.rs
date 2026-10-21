@@ -1,6 +1,6 @@
 use kartta_lang::{Receivers, SymbolKind};
 
-use crate::resolve::{Cascade, derived, is_type_kind};
+use crate::resolve::{Cascade, derived};
 use crate::stored::{SymbolAt, VALUE_TYPE_SEPARATOR};
 use crate::strings::Str;
 
@@ -183,14 +183,14 @@ impl<'g> Cascade<'g> {
             .in_file(self.named(name), file)
             .iter()
             .copied()
-            .find(|&at| is_type_kind(self.graph.sym(at).kind) && self.holder(at).is_some())
+            .find(|&at| self.graph.sym(at).kind.is_type() && self.holder(at).is_some())
             .map(Value::Type)
     }
 
     fn value_of(&self, at: SymbolAt, depth: u8) -> Value<'g> {
         match self.graph.sym(at).kind {
             SymbolKind::Function | SymbolKind::Method => Value::Callable(at),
-            kind if is_type_kind(kind) => Value::Type(at),
+            kind if kind.is_type() => Value::Type(at),
             _ => self.value_type(at, 0, depth),
         }
     }
