@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::borrow::Cow;
 use std::fmt::Display;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -153,31 +153,12 @@ impl StoredErrors {
         )
     }
 
-    /// Takes in `failed`, the failures of a refresh that walked again the parts at the root-relative paths `walked`,
-    /// so these list what the tree under `root` fails now, each once: a failure under a part walked again, or one the
-    /// refresh met again, gives way to the refresh's. A failure that names no path in the tree, such as an unwritable
-    /// cache, stays until a refresh of the whole tree or until a refresh meets it again.
+    /// Takes in `failed`, the failures of a refresh that walked again the parts at the root-relative paths `walked`, as
+    /// [`kartta::replace_failures`] does, with each path read from the root `root`.
     pub(crate) fn replace(&mut self, root: &Path, walked: &[String], failed: Self) {
-        let walked: HashSet<&str> = walked.iter().map(String::as_str).collect();
-        let failed_at: Vec<Option<String>> =
-            failed.0.iter().map(|error| error.in_tree(root)).collect();
-        let failed_paths: HashSet<&str> = failed_at.iter().flatten().map(String::as_str).collect();
-        let failed_pathless: HashSet<&str> = failed
-            .0
-            .iter()
-            .zip(&failed_at)
-            .filter_map(|(error, at)| at.is_none().then_some(error.message.as_str()))
-            .collect();
-        self.0.retain(|error| {
-            error.in_tree(root).map_or_else(
-                || !walked.contains("") && !failed_pathless.contains(error.message.as_str()),
-                |path| {
-                    !failed_paths.contains(path.as_str())
-                        && !ancestors(&path).any(|part| walked.contains(part))
-                },
-            )
+        kartta::replace_failures(&mut self.0, walked, failed.0, |error| {
+            (error.in_tree(root).map(Cow::Owned), &error.message)
         });
-        self.0.extend(failed.0);
     }
 }
 
@@ -193,13 +174,6 @@ impl StoredError {
                 .join("/"),
         )
     }
-}
-
-/// The root-relative path `path`, and every directory above it up to the root, the empty path.
-fn ancestors(path: &str) -> impl Iterator<Item = &str> {
-    std::iter::once("")
-        .chain(path.match_indices('/').filter_map(|(at, _)| path.get(..at)))
-        .chain(std::iter::once(path))
 }
 
 impl Serialize for StoredErrors {

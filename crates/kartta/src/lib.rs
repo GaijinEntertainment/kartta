@@ -112,7 +112,7 @@ pub use kartta_lang::{
     Repository, Resolver, Symbol, SymbolFlags, SymbolKind, TypeUses,
 };
 
-pub use crate::engine::{Engine, EngineOutcome, EngineRefresh, Widened};
+pub use crate::engine::{Engine, EngineOutcome, EngineRefresh, Widened, replace_failures};
 pub use crate::reading::{Unmatched, UnmatchedKind, ask_reading, selects_as_callers, unmatched};
 pub use crate::source::{CutLine, Source, SourceOptions};
 pub use crate::stats::{EngineStats, LanguageFiles};
