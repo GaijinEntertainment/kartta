@@ -308,6 +308,7 @@ pub(crate) fn refresh(refreshed: &Refreshed) -> String {
             (!refresh.reconfigured.is_empty()).then(|| refresh.reconfigured.join(", ")),
         )
         .optional("widened", refresh.widened.map(|widened| widened.named))
+        .optional("parts", refresh.widened.map(|widened| widened.parts))
         .optional("limit", refresh.widened.map(|widened| widened.limit))
         .attr("elapsed_ms", refreshed.elapsed.as_millis());
     if let Some(errors) = failures(refresh.errors().count(), refresh.errors()) {
