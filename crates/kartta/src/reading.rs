@@ -1,4 +1,4 @@
-use kartta_graph::{Definition, Graph, Limits, Selector};
+use kartta_graph::{Definition, Graph, Selector};
 use kartta_lang::SymbolKind;
 
 /// The definitions a name a query selected no symbol by names, among those of the kinds the query selects, when they
@@ -72,13 +72,13 @@ pub fn unmatched<'g>(
     (outside.total > 0).then_some(outside)
 }
 
-/// Whether `named` selects a symbol in any of the `searched` graphs as [`Graph::callers`] selects one, and so as each
-/// end of [`Graph::call_path`] does: an end that selects none is one to ask [`unmatched`] about.
+/// Whether `named` selects a symbol in any of the `searched` graphs, as [`Graph::selects_as_callers`] answers for one:
+/// an end of [`Graph::call_path`] that selects none is one to ask [`unmatched`] about.
 pub fn selects_as_callers<'g>(
     mut searched: impl Iterator<Item = (&'g str, &'g Graph)>,
     named: Selector<'_>,
 ) -> bool {
-    searched.any(|(_, graph)| graph.callers(named, Limits::new(0)).is_some())
+    searched.any(|(_, graph)| graph.selects_as_callers(named))
 }
 
 /// What `ask` answers for `named` in each of the `searched` graphs that answers, or, when none does, what it answers
