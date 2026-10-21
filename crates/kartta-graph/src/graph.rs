@@ -270,28 +270,42 @@ impl Graph {
     }
 
     pub(crate) fn selected<'a>(&'a self, name: &'a str) -> impl Iterator<Item = SymbolAt> + 'a {
+        let mut tails = tails(name);
+        let ending = tails
+            .next()
+            .into_iter()
+            .flat_map(move |tail| self.ending(name, tail));
+        self.selected_with(name, ending, tails)
+    }
+
+    /// What [`Graph::selected`] answers for `name`, given `ending`, those of the definitions of its last part it
+    /// selects, and `longer`, its parts after its other separators, the shortest first.
+    pub(crate) fn selected_with<'a>(
+        &'a self,
+        name: &'a str,
+        ending: impl Iterator<Item = SymbolAt> + 'a,
+        longer: impl Iterator<Item = &'a str> + 'a,
+    ) -> impl Iterator<Item = SymbolAt> + 'a {
+        let last = self.named_as(name).iter().copied().chain(ending);
+        or_if_none(last, longer.flat_map(move |tail| self.ending(name, tail)))
+    }
+
+    /// The definitions of `tail`, a part of `name` after one of its separators, whose qualified names `name` selects.
+    fn ending<'a>(&'a self, name: &'a str, tail: &'a str) -> impl Iterator<Item = SymbolAt> + 'a {
         let at_separator =
             |head: Option<&str>| head.is_some_and(|head| head.ends_with(QUALIFIER_SEPARATORS));
-        let named = |text: &str| {
-            self.strings
-                .get(text)
-                .map_or(&[][..], |name| self.named(name))
-        };
-        let suffixed = move |tail: &'a str| {
-            named(tail).iter().copied().filter(move |&at| {
-                let own = self.strings.resolve(self.sym(at).qualified_name);
-                own == name
-                    || at_separator(own.strip_suffix(name))
-                    || (own != tail && at_separator(name.strip_suffix(own)))
-            })
-        };
+        self.named_as(tail).iter().copied().filter(move |&at| {
+            let own = self.strings.resolve(self.sym(at).qualified_name);
+            own == name
+                || at_separator(own.strip_suffix(name))
+                || (own != tail && at_separator(name.strip_suffix(own)))
+        })
+    }
 
-        let mut tails = tails(name);
-        let last = named(name)
-            .iter()
-            .copied()
-            .chain(tails.next().into_iter().flat_map(suffixed));
-        or_if_none(last, tails.flat_map(suffixed))
+    pub(crate) fn named_as(&self, text: &str) -> &[SymbolAt] {
+        self.strings
+            .get(text)
+            .map_or(&[][..], |name| self.named(name))
     }
 
     pub(crate) fn named(&self, name: Str) -> &[SymbolAt] {
