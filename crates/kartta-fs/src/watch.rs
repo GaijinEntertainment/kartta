@@ -149,10 +149,8 @@ impl Watcher {
     }
 
     fn drain_within(&mut self, longest: Duration) -> Result<Vec<String>, WatchError> {
-        let queued = self.backend.queued();
         let found = Found {
-            lost: queued.is_none(),
-            unread: queued.unwrap_or(0),
+            unread: self.backend.queued(),
             ..Found::default()
         };
         self.gather(REPORTED, longest, found)
