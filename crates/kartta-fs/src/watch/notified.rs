@@ -5,7 +5,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TrySendError};
 use std::time::Duration;
 use std::{io, iter};
 
-use notify::{Config, EventKindMask, RecommendedWatcher, RecursiveMode, Watcher as _};
+use notify::{Config, EventKindMask, PathOp, RecommendedWatcher, UpdatePathsError, Watcher as _};
 
 use super::{Found, WatchError, relative, start_error};
 
@@ -36,11 +36,16 @@ impl Backend {
             .map_or_else(|| Path::new(""), |(path, _)| path.as_path());
         let mut notifier =
             RecommendedWatcher::new(handler, config).map_err(|error| start_error(first, error))?;
-        for (path, _) in prefixes {
-            notifier
-                .watch(path, RecursiveMode::Recursive)
-                .map_err(|error| start_error(path, error))?;
-        }
+        // constraint: notify's FSEvents backend restarts its stream for each path a `watch` call adds, so every path
+        // goes in at one call
+        let paths = prefixes
+            .iter()
+            .map(|(path, _)| PathOp::watch_recursive(path.clone()));
+        notifier.update_paths(paths.collect()).map_err(
+            |UpdatePathsError { source, origin, .. }| {
+                start_error(origin.as_ref().map_or(first, PathOp::as_path), source)
+            },
+        )?;
 
         Ok(Self {
             _watcher: notifier,
@@ -144,7 +149,9 @@ fn queue(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::sync::Mutex;
+    use std::time::Instant;
 
     use notify::event::{CreateKind, Flag};
     use notify::{Event, EventHandler, EventKind};
@@ -242,6 +249,42 @@ mod tests {
 
             assert!(names(&signal, path), "{signal:?}");
         }
+    }
+
+    #[test]
+    fn a_change_under_each_path_a_root_is_watched_through_is_handed_over() {
+        let trees: Vec<_> = (0..3)
+            .map(|_| tempfile::tempdir().expect("a tree"))
+            .collect();
+        let prefixes: Vec<(PathBuf, String)> = trees
+            .iter()
+            .enumerate()
+            .map(|(at, tree)| {
+                let mut named = event_prefixes(tree.path()).expect("the paths events name");
+                let base = if at == 0 {
+                    String::new()
+                } else {
+                    format!("linked{at}")
+                };
+                (named.swap_remove(0).0, base)
+            })
+            .collect();
+        let mut watcher = Watcher {
+            backend: Backend::start(trees[0].path(), &prefixes).expect("start watching"),
+            prefixes,
+        };
+
+        for tree in &trees {
+            std::fs::write(tree.path().join("a.rs"), "a").expect("write a file");
+        }
+
+        let wanted = ["a.rs", "linked1/a.rs", "linked2/a.rs"];
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut seen = BTreeSet::new();
+        while Instant::now() < deadline && !wanted.iter().all(|path| seen.contains(*path)) {
+            seen.extend(watcher.wait(Duration::from_millis(500)).expect("wait"));
+        }
+        assert!(wanted.iter().all(|path| seen.contains(*path)), "{seen:?}");
     }
 
     #[test]
