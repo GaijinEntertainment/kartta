@@ -60,7 +60,6 @@ pub(crate) struct PathAsk<'a> {
     pub(crate) to_read_as: Option<&'a str>,
     pub(crate) languages: Option<&'a str>,
     pub(crate) hops: u32,
-    pub(crate) min_confidence: u8,
 }
 
 /// The `<candidate>` records of the symbols a name also selects, each with the count it ranked by under `count`.
@@ -152,18 +151,20 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
         return noted(element.attr("found", false), &text, passed_over);
     }
     if !path.found {
-        let floor = match confidence(ask.min_confidence) {
-            _ if ask.min_confidence == 0 => String::new(),
-            band => format!(
-                " whose every call resolves at confidence {} or stronger",
-                band.unwrap_or("certain")
-            ),
+        let text = if path.below_confidence > 0 {
+            below_the_floor(
+                &format!("no call chain within {} calls", ask.hops),
+                path.below_confidence,
+                ("caller binds", "callers bind"),
+                "min_confidence \"any\" follows",
+            )
+        } else {
+            format!(
+                "no call chain within {} calls - the graph misses dynamic and unresolved calls, so this does not show \
+                 that the code holds none",
+                ask.hops
+            )
         };
-        let text = format!(
-            "no call chain within {} calls{floor} - the graph misses dynamic and unresolved calls, so this does not \
-             show that the code holds none",
-            ask.hops
-        );
         return noted(element.attr("found", false), &text, passed_over);
     }
     let hops = path.hops.iter().map(|hop| {
@@ -753,14 +754,14 @@ fn match_of(family: &str, symbol: &Definition<'_>) -> Element {
 }
 
 /// The note of an answer the confidence floor emptied: `empty` at the floor, then the `dropped` records that bind below
-/// it, as `records` spells one and several, and `lists`, the call that lists them.
-fn below_the_floor(empty: &str, dropped: usize, records: (&str, &str), lists: &str) -> String {
+/// it, as `records` spells one and several, and `retry`, the call that lists or follows them.
+fn below_the_floor(empty: &str, dropped: usize, records: (&str, &str), retry: &str) -> String {
     let (bind, them) = if dropped == 1 {
         (records.0, "it")
     } else {
         (records.1, "them")
     };
-    format!("{empty} at this confidence floor - {dropped} {bind} below it, and {lists} {them}")
+    format!("{empty} at this confidence floor - {dropped} {bind} below it, and {retry} {them}")
 }
 
 /// Why a symbol may have no callers: the `below_confidence` callers the confidence floor dropped, else the `ambiguous`
