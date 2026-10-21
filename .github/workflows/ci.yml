@@ -40,6 +40,15 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # constraint: the target is one watch.rs gives `watch/unsupported.rs`, which no other job compiles
+  unsupported-watch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - run: rustup target add x86_64-unknown-freebsd
+      - run: cargo check --locked -p kartta-fs --features watch --target x86_64-unknown-freebsd
+
   test:
     strategy:
       fail-fast: false
@@ -136,7 +145,7 @@ jobs:
   # when every triggered job passed or was skipped — so conditional jobs never need enumerating in rulesets.
   ci-ok:
     if: always()
-    needs: [fmt, clippy, docs, test, go, node, deny, npm-audit]
+    needs: [fmt, clippy, docs, unsupported-watch, test, go, node, deny, npm-audit]
     runs-on: ubuntu-24.04
     steps:
       - name: verify all jobs succeeded
