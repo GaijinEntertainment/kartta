@@ -17,7 +17,7 @@ impl Backend {
         match *self {}
     }
 
-    pub(super) fn queued(&self) -> Option<usize> {
+    pub(super) fn queued(&self) -> usize {
         match *self {}
     }
 
