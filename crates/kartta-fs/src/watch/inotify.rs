@@ -210,7 +210,9 @@ impl Backend {
                 continue;
             }
 
-            let path = dir.join(OsStr::from_bytes(name));
+            let mut path = PathBuf::with_capacity(dir.as_os_str().len() + 1 + name.len());
+            path.push(dir);
+            path.push(OsStr::from_bytes(name));
             if event.mask & MOVED_DIR == MOVED_DIR {
                 self.unwatch_below(&path);
             }
@@ -350,6 +352,27 @@ mod tests {
         Watcher::start(tree)
             .and_then(Watcher::walked)
             .expect("start watching")
+    }
+
+    #[test]
+    fn a_path_a_read_takes_holds_its_own_bytes_and_no_more() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let mut watcher = watched(tree.path());
+        std::fs::write(tree.path().join("a"), "a").expect("write a file");
+        let mut found = Found::default();
+
+        watcher
+            .backend
+            .poll(Duration::ZERO, &mut found)
+            .expect("read");
+
+        let held: Vec<(usize, usize)> = found
+            .paths
+            .iter()
+            .map(|path| (path.as_os_str().len(), path.capacity()))
+            .collect();
+        let len = tree.path().join("a").as_os_str().len();
+        assert_eq!(held, [(len, len); 3]);
     }
 
     /// The watches the kernel holds for `watcher`, one line each in its descriptor's fdinfo.
