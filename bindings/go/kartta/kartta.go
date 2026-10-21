@@ -36,7 +36,7 @@ type Kartta struct {
 	mu      sync.RWMutex
 	handle  *C.KarttaHandle
 	cleanup runtime.Cleanup
-	builds  atomic.Uint64
+	ids     atomic.Uint64
 
 	tracked  sync.Mutex
 	closing  bool
@@ -97,19 +97,36 @@ func (k *Kartta) Close() error {
 // leaves the handle without an index until the next one finishes. A ctx done before the call answers its cause alone
 // and leaves the handle as it was.
 func (k *Kartta) Build(ctx context.Context, options wire.BuildOptions) (*wire.Stats, error) {
+	return tracked[wire.Stats](ctx, k, "build", wire.BuildCancelled, func(id uint64) (any, wire.CancelParams) {
+		options.ID = id
+		return options, wire.CancelParams{Build: id}
+	})
+}
+
+// tracked calls method under an id of its own, which named gives the params it sends and the cancel that stops it.
+// Close and ctx stop the call through that cancel, and a call they stopped answers an error matching both cancelled
+// and ctx's cause.
+func tracked[A any](
+	ctx context.Context,
+	k *Kartta,
+	method string,
+	cancelled wire.Code,
+	named func(id uint64) (any, wire.CancelParams),
+) (*A, error) {
 	if err := context.Cause(ctx); err != nil {
 		if k.closed() {
 			return nil, ErrClosed
 		}
 		return nil, err
 	}
-	options.ID = k.builds.Add(1)
-	ctx, stopBuild := context.WithCancelCause(ctx)
-	defer stopBuild(nil)
-	if !k.track(options.ID, stopBuild) {
+	id := k.ids.Add(1)
+	params, cancel := named(id)
+	ctx, stopCall := context.WithCancelCause(ctx)
+	defer stopCall(nil)
+	if !k.track(id, stopCall) {
 		return nil, ErrClosed
 	}
-	defer k.untrack(options.ID)
+	defer k.untrack(id)
 
 	k.mu.RLock()
 	defer k.mu.RUnlock()
@@ -120,21 +137,21 @@ func (k *Kartta) Build(ctx context.Context, options wire.BuildOptions) (*wire.St
 	cancelSent := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
 		defer close(cancelSent)
-		_ = call(handle, "cancel", wire.CancelParams{Build: options.ID}, nil)
+		_ = call(handle, "cancel", cancel, nil)
 	})
 	defer func() {
 		if !stop() {
 			<-cancelSent
 		}
 	}()
-	var stats wire.Stats
-	if err := call(handle, "build", options, &stats); err != nil {
-		if cause := context.Cause(ctx); cause != nil && errors.Is(err, wire.BuildCancelled) {
+	var answer A
+	if err := call(handle, method, params, &answer); err != nil {
+		if cause := context.Cause(ctx); cause != nil && errors.Is(err, cancelled) {
 			return nil, fmt.Errorf("%w: %w", err, cause)
 		}
 		return nil, err
 	}
-	return &stats, nil
+	return &answer, nil
 }
 
 func (k *Kartta) track(id uint64, stop context.CancelCauseFunc) bool {
