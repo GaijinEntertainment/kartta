@@ -1370,7 +1370,7 @@ fn path_between(suffixes: &str, start: usize, end: usize) -> &str {
 
 // constraint: `kartta-walk` sorts siblings bytewise by name, which makes depth-first order sorted by this comparison
 // and lets `Index::position` binary-search it
-fn tree_order(left: &str, right: &str) -> Ordering {
+pub(crate) fn tree_order(left: &str, right: &str) -> Ordering {
     let (left, right) = (left.as_bytes(), right.as_bytes());
     let mut at = 0;
 
@@ -1503,6 +1503,9 @@ pub struct RefreshOutcome {
     /// neither list; [`RefreshOutcome::retired`] names its old id.
     pub removed: Vec<String>,
     retired: Vec<Range<u32>>,
+    /// The directories the index held before and does not hold now, in [`Index::entries`] order, none below another.
+    #[cfg(feature = "watch")]
+    pub(crate) removed_dirs: Vec<String>,
 }
 
 impl RefreshOutcome {
@@ -1512,13 +1515,14 @@ impl RefreshOutcome {
         walked: Vec<String>,
         changed: ChangedFiles,
     ) -> Self {
-        let ChangedFiles { added, removed } = changed;
         Self {
             errors,
             walked,
-            added,
-            removed,
+            added: changed.added,
+            removed: changed.removed,
             retired,
+            #[cfg(feature = "watch")]
+            removed_dirs: changed.removed_dirs,
         }
     }
 
