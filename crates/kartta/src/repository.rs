@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use std::{fs, io, iter};
 
 use foldhash::fast::{FixedState, FoldHasher};
-use kartta_fs::{Entry, EntryKind, Index, ListOptions};
+use kartta_fs::{Entry, EntryKind, Index, ListOptions, RefreshOutcome};
 use kartta_lang::{Repository, path};
 
 pub(crate) struct IndexRepository<'i> {
@@ -141,24 +141,101 @@ fn record_answer(answer: Option<&[u8]>) {
     });
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct HashedAt {
     hash: u32,
     position: u32,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 struct FoldedPaths {
     by_hash: Box<[HashedAt]>,
     bucket_starts: Box<[u32]>,
     bucket_shift: u32,
 }
 
+/// The tables a repository finds an index's files in, by name and by path in any ASCII case, each built on the first
+/// question that needs it, in hash order: what an engine that follows its tree keeps from one refresh to the next.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct FileTables {
+    by_name: Option<Box<[HashedAt]>>,
+    folded_paths: Option<FoldedPaths>,
+}
+
 const ENTRIES_PER_BUCKET_BITS: u32 = 6;
 const MAX_BUCKET_BITS: u32 = 16;
 
+impl FileTables {
+    /// These tables as they stand for `index` after the refresh `outcome` reports: kept as they are when it kept every
+    /// position, and otherwise each file outside the parts it walked moved to its position now and the files the
+    /// parts hold now hashed in, so a refresh costs a pass over each table, not a walk of every entry.
+    pub(crate) fn refreshed(self, index: &Index, outcome: &RefreshOutcome) -> Self {
+        if outcome.kept_positions() || (self.by_name.is_none() && self.folded_paths.is_none()) {
+            return self;
+        }
+        let (mut named, mut folded) = (Vec::new(), Vec::new());
+        let mut paths = index.paths();
+        for at in outcome.walked_positions().flatten() {
+            let Ok(position) = u32::try_from(at) else {
+                break;
+            };
+            if index.kind_at(at) != EntryKind::File {
+                continue;
+            }
+            let path = paths.get(at);
+            if self.by_name.is_some() {
+                named.push(HashedAt {
+                    hash: name_hash(path::base(path)),
+                    position,
+                });
+            }
+            if self.folded_paths.is_some() {
+                folded.push(HashedAt {
+                    hash: folded_hash(path),
+                    position,
+                });
+            }
+        }
+
+        Self {
+            by_name: self
+                .by_name
+                .map(|table| moved(&table, outcome, named).into()),
+            folded_paths: self
+                .folded_paths
+                .map(|paths| FoldedPaths::bucketed(moved(&paths.by_hash, outcome, folded))),
+        }
+    }
+}
+
+/// `table`'s files outside the walked parts at their positions after `outcome`, and `fresh` merged in, in hash order.
+fn moved(table: &[HashedAt], outcome: &RefreshOutcome, mut fresh: Vec<HashedAt>) -> Vec<HashedAt> {
+    fresh.sort_unstable();
+    let mut moved = Vec::with_capacity(table.len() + fresh.len());
+    let mut fresh = fresh.into_iter().peekable();
+    let kept = table.iter().filter_map(|at| {
+        let position = outcome.position_after(at.position as usize)?;
+        Some(HashedAt {
+            position: u32::try_from(position).ok()?,
+            ..*at
+        })
+    });
+    for at in kept {
+        while let Some(first) = fresh.next_if(|first| *first < at) {
+            moved.push(first);
+        }
+        moved.push(at);
+    }
+    moved.extend(fresh);
+    moved
+}
+
 impl FoldedPaths {
     fn new(index: &Index) -> Self {
-        let by_hash = hashed_files(index, |entry| folded_hash(entry.path()));
+        Self::bucketed(hashed_files(index, |entry| folded_hash(entry.path())))
+    }
+
+    fn bucketed(by_hash: Vec<HashedAt>) -> Self {
         let bits = by_hash
             .len()
             .bit_width()
@@ -200,11 +277,24 @@ impl<'i> IndexRepository<'i> {
     }
 
     /// A repository that files each question it is asked, and each answer while a resolver is built, with whatever
-    /// [`asked_while`] or [`configured_while`] runs on the asking thread.
-    pub(crate) fn recording(index: &'i Index) -> Self {
+    /// [`asked_while`] or [`configured_while`] runs on the asking thread, and finds files in `tables` where they hold
+    /// a table: tables made for `index` as it stands.
+    pub(crate) fn recording(index: &'i Index, tables: FileTables) -> Self {
         Self {
+            index,
+            by_name: tables.by_name.map_or_else(OnceLock::new, OnceLock::from),
+            folded_paths: tables
+                .folded_paths
+                .map_or_else(OnceLock::new, OnceLock::from),
             records: true,
-            ..Self::new(index)
+        }
+    }
+
+    /// The tables this repository built or was given, for the index as it stands.
+    pub(crate) fn into_tables(self) -> FileTables {
+        FileTables {
+            by_name: self.by_name.into_inner(),
+            folded_paths: self.folded_paths.into_inner(),
         }
     }
 
@@ -370,9 +460,69 @@ fn folded_hash(path: &str) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use kartta_fs::BuildOptions;
 
     use super::*;
+
+    /// The tables of `index` a repository of it builds when it is asked by name, in another case, or both.
+    fn tables_of(index: &Index, (by_name, in_another_case): (bool, bool)) -> FileTables {
+        let repository = IndexRepository::recording(index, FileTables::default());
+        if by_name {
+            assert_eq!(repository.files_named("absent.rs").count(), 0);
+        }
+        if in_another_case {
+            assert_eq!(repository.files_ignoring_case("ABSENT.RS").count(), 0);
+        }
+        repository.into_tables()
+    }
+
+    fn write(root: &Path, path: &str) {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().expect("a parent")).expect("create the directories");
+        fs::write(path, "text").expect("write a file");
+    }
+
+    #[test]
+    fn tables_brought_through_each_refresh_are_those_of_the_index_it_left() {
+        for asked in [(true, false), (false, true), (true, true)] {
+            let dir = tempfile::tempdir().expect("create temp dir");
+            let root = dir.path();
+            for path in [
+                "a/b.rs", "a/c.rs", "d/e.rs", "f.rs", "g/h.rs", "g/i/j.rs", "z.rs",
+            ] {
+                write(root, path);
+            }
+            let mut index = Index::build(root, &BuildOptions::default())
+                .expect("build the index")
+                .index;
+            let mut tables = tables_of(&index, asked);
+            let mut refresh = |index: &mut Index, paths: &[&str]| {
+                let outcome = index
+                    .refresh_paths(paths.iter().copied(), None, None)
+                    .expect("refresh the paths");
+                tables = std::mem::take(&mut tables).refreshed(index, &outcome);
+                assert_eq!(tables, tables_of(index, asked), "{asked:?} after {paths:?}");
+                outcome.kept_positions()
+            };
+
+            fs::write(root.join("a/b.rs"), "edited").expect("edit a file");
+            assert!(refresh(&mut index, &["a/b.rs", "g"]));
+            fs::remove_file(root.join("a/c.rs")).expect("remove a file");
+            write(root, "d/new.rs");
+            write(root, "n/deep/F.rs");
+            fs::remove_dir_all(root.join("g")).expect("remove a directory");
+            assert!(!refresh(
+                &mut index,
+                &["a/c.rs", "d/new.rs", "n/deep/F.rs", "g"]
+            ));
+            write(root, "0.rs");
+            assert!(!refresh(&mut index, &["0.rs", "z.rs", "zz.rs"]));
+            write(root, "d/e2.rs");
+            assert!(!refresh(&mut index, &[""]));
+        }
+    }
 
     #[test]
     fn every_file_is_found_in_another_case_across_the_table_s_buckets() {
