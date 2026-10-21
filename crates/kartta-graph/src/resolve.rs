@@ -416,8 +416,7 @@ impl<'g> Cascade<'g> {
             .iter()
             .copied()
             .filter(|&ty| {
-                is_type_kind(self.graph.sym(ty).kind)
-                    && viewers.iter().any(|&viewer| sees(viewer, ty))
+                self.graph.sym(ty).kind.is_type() && viewers.iter().any(|&viewer| sees(viewer, ty))
             })
             .collect()
     }
@@ -1101,18 +1100,6 @@ impl ReExportWalk<'_, '_> {
         }
         None
     }
-}
-
-/// Whether a symbol of `kind` is a type, whose uses as one a graph records where its
-/// [`TypeUses`](kartta_lang::TypeUses) convention says: a class, a struct, an interface, a trait, an enum, a type alias
-/// or a defined type.
-#[must_use]
-pub const fn is_type_kind(kind: SymbolKind) -> bool {
-    derives(kind)
-        || matches!(
-            kind,
-            SymbolKind::Enum | SymbolKind::TypeAlias | SymbolKind::DefinedType
-        )
 }
 
 pub(crate) const fn derives(kind: SymbolKind) -> bool {

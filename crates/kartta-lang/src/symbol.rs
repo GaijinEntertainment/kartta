@@ -93,6 +93,23 @@ impl SymbolKind {
             Self::DefinedType => "type",
         }
     }
+
+    /// Whether a symbol of this kind is a type, whose uses as one a graph records where its
+    /// [`TypeUses`](crate::TypeUses) convention says: a class, a struct, an interface, a trait, an enum, a type alias
+    /// or a defined type.
+    #[must_use]
+    pub const fn is_type(self) -> bool {
+        matches!(
+            self,
+            Self::Class
+                | Self::Struct
+                | Self::Interface
+                | Self::Trait
+                | Self::Enum
+                | Self::TypeAlias
+                | Self::DefinedType
+        )
+    }
 }
 
 impl fmt::Display for SymbolKind {

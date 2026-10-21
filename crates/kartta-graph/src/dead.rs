@@ -6,7 +6,6 @@ use crate::calls::Calls;
 use crate::confidence;
 use crate::graph::{Definition, Graph, agree, narrow};
 use crate::implementations::Types;
-use crate::resolve::is_type_kind;
 use crate::stored::SymbolAt;
 use crate::strings::Str;
 
@@ -179,7 +178,7 @@ impl Alternatives {
 fn is_own(graph: &Graph, at: SymbolAt, far: SymbolAt) -> bool {
     let symbol = graph.sym(at);
     far == at
-        || (is_type_kind(symbol.kind)
+        || (symbol.kind.is_type()
             && graph
                 .sym(far)
                 .owner
@@ -243,7 +242,7 @@ impl Judge<'_, '_> {
         }
         match self.graph.sym(at).kind {
             SymbolKind::Function | SymbolKind::Method | SymbolKind::Macro => true,
-            kind if is_type_kind(kind) => self.graph.conventions.type_uses == TypeUses::Every,
+            kind if kind.is_type() => self.graph.conventions.type_uses == TypeUses::Every,
             _ => false,
         }
     }
@@ -256,7 +255,7 @@ impl Judge<'_, '_> {
             || self.is_an_alternative_reached(at)
             || self.is_a_counterpart_reached(at)
             || self.calls.file_scope_callers(at).next().is_some()
-            || (is_type_kind(self.graph.sym(at).kind) && self.types.is_a_parent(at))
+            || (self.graph.sym(at).kind.is_type() && self.types.is_a_parent(at))
     }
 
     // constraint: a call reaches the one definition the cascade binds, yet a build may link any other that the tier
@@ -411,8 +410,7 @@ impl Judge<'_, '_> {
             .flat_map(|key| self.graph.named(key).iter().copied())
             .filter(move |&ty| {
                 let symbol = self.graph.sym(ty);
-                is_type_kind(symbol.kind)
-                    && (symbol.qualified_name == owner || symbol.name == owner)
+                symbol.kind.is_type() && (symbol.qualified_name == owner || symbol.name == owner)
             })
     }
 
@@ -427,7 +425,7 @@ impl Judge<'_, '_> {
                     .listing_key(parent.written)
                     .into_iter()
                     .flat_map(|key| self.graph.named(key).iter().copied())
-                    .filter(|&base| is_type_kind(self.graph.sym(base).kind))
+                    .filter(|&base| self.graph.sym(base).kind.is_type())
                     .peekable();
                 bases.peek().is_none() || bases.any(|base| self.declares(base, name))
             })

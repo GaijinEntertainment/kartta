@@ -7,7 +7,7 @@ use kartta_lang::SymbolKind;
 use crate::candidates::{Candidates, INDEXED_FROM};
 use crate::confidence;
 use crate::resolve::{
-    Bound, Call, Cascade, THROUGH_INCLUDES_MAX_DEFINITIONS, UseMiss, derived, derives, is_type_kind,
+    Bound, Call, Cascade, THROUGH_INCLUDES_MAX_DEFINITIONS, UseMiss, derived, derives,
 };
 use crate::scope::Shape;
 use crate::stored::SymbolAt;
@@ -166,7 +166,7 @@ impl<'g> Cascade<'g> {
             .named(owner)
             .iter()
             .copied()
-            .filter(|&at| is_type_kind(self.graph.sym(at).kind))
+            .filter(|&at| self.graph.sym(at).kind.is_type())
             .collect();
         let Some(ty) = self.nearest_to(file, &types) else {
             return Some(Err(UseMiss::Elsewhere));
