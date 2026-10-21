@@ -1,7 +1,9 @@
+import {pbkdf2} from 'node:crypto';
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setImmediate} from 'node:timers/promises';
+import {promisify} from 'node:util';
 
 import {expect, onTestFinished, test} from 'vite-plus/test';
 
@@ -285,6 +287,63 @@ test('cancel with no id stops the refresh that entered, and leaves the index', a
 	expect(await cancelOnceEntered(kartta, refreshed)).toBe(true);
 	await expect(refreshed).rejects.toMatchObject({name: 'KarttaError', code: 'refresh_cancelled'});
 	expect(await kartta.stats()).toStrictEqual(built);
+});
+
+const derive = promisify(pbkdf2);
+
+/**
+ * Holds every thread of libuv's pool for a while, each with a key derivation, so a query called meanwhile waits for one
+ * in the pool's queue; settles once the threads are free.
+ */
+async function poolHeld(): Promise<void> {
+	const threads = Number(process.env.UV_THREADPOOL_SIZE ?? '4');
+	await Promise.all(Array.from({length: threads}, async () => derive('kartta', 'salt', 1_000_000, 64, 'sha512')));
+}
+
+test('close cancels a grep queued for a pool thread, which then answers at once', async () => {
+	const kartta = open(200);
+	await kartta.build();
+	const held = poolHeld();
+
+	const grepped = kartta.grep({patterns: ['f0\\(']});
+	kartta.close();
+
+	expect(await grepped).toMatchObject({cancelled: true, files: [], candidates: 200, searched: 0, unsearched: 200});
+	await held;
+});
+
+test('close cancels a grep through call queued for a pool thread too', async () => {
+	const kartta = open(200);
+	await kartta.build();
+	const held = poolHeld();
+
+	const grepped = kartta.call('grep', {patterns: ['f0\\('], id: 7});
+	kartta.close();
+
+	expect(await grepped).toMatchObject({cancelled: true, files: [], candidates: 200, searched: 0, unsearched: 200});
+	await held;
+});
+
+test('an abort stops a grep queued for a pool thread, and the next grep answers whole', async () => {
+	const kartta = open(200);
+	await kartta.build();
+	const held = poolHeld();
+	const controller = new AbortController();
+
+	const grepped = kartta.grep({patterns: ['f0\\(']}, {signal: controller.signal});
+	controller.abort();
+
+	expect(await grepped).toMatchObject({cancelled: true, files: [], candidates: 200, searched: 0, unsearched: 200});
+	await held;
+	expect(await kartta.grep({patterns: ['f0\\(']})).toMatchObject({cancelled: false, searched: 200, unsearched: 0});
+});
+
+test('a signal aborted before the grep rejects with its reason', async () => {
+	const kartta = open();
+	await kartta.build();
+	const reason = new Error('the caller gave up');
+
+	await expect(kartta.grep({patterns: ['f0']}, {signal: AbortSignal.abort(reason)})).rejects.toBe(reason);
 });
 
 test('every call after close rejects with closed, and closing again does nothing', async () => {
