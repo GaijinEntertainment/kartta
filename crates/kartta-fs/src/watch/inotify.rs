@@ -158,12 +158,8 @@ impl Backend {
 
     // constraint: FIONREAD counts the queue by walking it under the lock every writer into the tree takes to queue an
     // event, so a drain reads up to the most events the queue holds instead, and stops once a read finds it empty
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "one signature for every platform, and the limit read at the start bounds every drain"
-    )]
-    pub(super) const fn queued(&self) -> Option<usize> {
-        Some(self.most_queued)
+    pub(super) const fn queued(&self) -> usize {
+        self.most_queued
     }
 
     fn read_once(&mut self) -> io::Result<usize> {
@@ -597,7 +593,7 @@ mod tests {
             .expect("read the queue's limit");
         let limit: usize = limit.trim().parse().expect("a limit");
 
-        assert_eq!(watcher.backend.queued(), Some(limit + 1));
+        assert_eq!(watcher.backend.queued(), limit + 1);
     }
 
     #[test]
