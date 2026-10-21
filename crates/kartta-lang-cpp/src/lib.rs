@@ -112,7 +112,11 @@
 //! commas, comments and nested groups of the same, the initializer of `static const float weights[] = { 0.1, ... }`,
 //! keeps its braces and newlines and loses the rest before the first parse. tree-sitter holds a node for every literal,
 //! which is far more memory than the file, and such a table after a syntax error can take every definition of the file
-//! down; nothing a graph holds is written among the literals.
+//! down; nothing a graph holds is written among the literals. In a parser tree-sitter generates for a grammar, a file
+//! whose text before its first brace includes `tree_sitter/parser.h` and defines `LANGUAGE_VERSION`, the group may also
+//! hold names, macro calls, designators, strings and character literals: its parse tables spell the parser's macros and
+//! the grammar's enumerators, and would parse into twenty times the file's bytes. Its definitions, and the calls and
+//! uses of its lexer and its language function, are read as written.
 //!
 //! # Fingerprint
 //!
