@@ -8,8 +8,8 @@
 use std::alloc::{self, Layout};
 use std::ffi::c_void;
 use std::fmt::Write as _;
-use std::sync::Once;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, Once, PoisonError};
 
 use kartta_lang::Language;
 use kartta_lang_cpp::Cpp;
@@ -22,6 +22,7 @@ type SizeBytes = [u8; size_of::<usize>()];
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 static COUNTING: Once = Once::new();
+static MEASURED: Mutex<()> = Mutex::new(());
 
 fn layout(size: usize) -> Layout {
     Layout::from_size_align(size + HEADER, HEADER)
@@ -86,6 +87,7 @@ unsafe extern "C" fn counting_free(block: *mut c_void) {
 }
 
 fn peak_while(work: impl FnOnce()) -> usize {
+    let _alone = MEASURED.lock().unwrap_or_else(PoisonError::into_inner);
     COUNTING.call_once(|| {
         // SAFETY: this runs before the first tree-sitter call of the process, and once.
         unsafe {
@@ -133,5 +135,39 @@ fn a_reparse_after_recovery_never_holds_the_first_tree_beside_the_second() {
     assert!(
         extraction <= one_parse,
         "an extraction peaked at {extraction} bytes of trees, one parse at {one_parse}"
+    );
+}
+
+#[test]
+fn a_generated_parsers_tables_take_no_parse_tree() {
+    let mut tables = String::new();
+    for state in 0..2000 {
+        write!(
+            tables,
+            "  [STATE({state})] = {{\n    [sym_a] = ACTIONS({state}),\n    [sym_b] = SHIFT({state}),\n  }},\n"
+        )
+        .expect("a String takes any write");
+    }
+    let parser = |define: &str| {
+        format!(
+            "#include \"tree_sitter/parser.h\"\n#define {define} 15\n\n\
+             static const uint16_t ts_parse_table[2000][2] = {{\n{tables}}};\n\n\
+             static bool ts_lex(TSLexer *lexer, TSStateId state) {{\n  START_LEXER();\n  ADVANCE(1);\n}}\n"
+        )
+    };
+    let (generated, written) = (parser("LANGUAGE_VERSION"), parser("SCANNER_REVISION"));
+
+    let written_peak = peak_while(|| {
+        let raw = Cpp::new().extract(written.as_bytes());
+        assert_eq!(raw.symbols.len(), 2);
+    });
+    let generated_peak = peak_while(|| {
+        let raw = Cpp::new().extract(generated.as_bytes());
+        assert_eq!(raw.symbols.len(), 2);
+    });
+
+    assert!(
+        generated_peak * 10 < written_peak,
+        "the parser peaked at {generated_peak} bytes of trees, the same tables outside a parser at {written_peak}"
     );
 }
