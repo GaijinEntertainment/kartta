@@ -318,6 +318,22 @@ fn a_bound_of_0_takes_the_method_s_default() {
 }
 
 #[test]
+fn a_search_only_the_fill_up_matches_answers_the_graph_with_its_fuzzy_hits() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let search = ok(&kartta, "search", &json!({ "query": "hlpr" }));
+
+    let matched = &search["matches"][0];
+    assert_eq!(matched["graph"], "go");
+    assert_eq!(matched["total"], 0);
+    assert_eq!(matched["fuzzy_total"], 1);
+    assert_eq!(matched["hits"][0]["definition"]["name"], "helper");
+    assert_eq!(matched["hits"][0]["fuzzy"], true);
+}
+
+#[test]
 fn callers_answers_each_graph_s_walk_with_what_it_left_out() {
     let tree = tree();
     let kartta = open(tree.path());

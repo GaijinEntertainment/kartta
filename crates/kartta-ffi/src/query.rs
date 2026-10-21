@@ -183,7 +183,7 @@ fn search(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: SearchParams = wire::params(params)?;
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
         let found = graph.search(&params.query, params.limit());
-        (found.total > 0).then_some(Wired(found))
+        (!found.hits.is_empty()).then_some(Wired(found))
     })?)
 }
 
