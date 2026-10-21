@@ -937,7 +937,9 @@ impl Server {
                        confidence=likely / guess mark on a weakly resolved hop. A match without a chain carries \
                        found=false and states that an absent chain in the graph does not show one absent in the code; \
                        at_depth_bound= counts the callers at the hops limit a longer chain could pass through, and \
-                       below_confidence= the callers the floor dropped. A search the node cap (20000) stops carries \
+                       below_confidence= the callers the floor dropped. With below_confidence=, a match without a \
+                       chain that the node cap did not stop states only how many callers bind below the confidence \
+                       floor, which min_confidence \"any\" follows. A search the node cap (20000) stops carries \
                        truncated=true. When from and to resolve to one symbol, the match has hops=0 and no ref. \
                        passed_over_from= and passed_over_to= count the other symbols each name selects, the most \
                        called of them listed as up to 5 <candidate end=\"from\"|\"to\" callers=N/> records - \
@@ -996,7 +998,6 @@ impl Server {
                 to_read_as: to_read_as.as_deref(),
                 languages: languages.as_deref(),
                 hops,
-                min_confidence: floor,
             };
             Ok(render::call_path(&ask, &paths, &unmatched_ends))
         })
