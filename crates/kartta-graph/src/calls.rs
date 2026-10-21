@@ -366,6 +366,14 @@ impl Graph {
         Some(walk)
     }
 
+    /// Whether `name` selects a symbol as [`Graph::callers`] selects one, and so as [`Graph::callees`] and each end of
+    /// [`Graph::call_path`] do. It ranks none of the symbols a name selects among and resolves no call: those decide
+    /// which symbol a name selects, not whether it selects one.
+    #[must_use]
+    pub fn selects_as_callers<'s>(&self, name: impl Into<Selector<'s>>) -> bool {
+        Calls::new(self).selectable(name.into()).is_some()
+    }
+
     /// The sites that call or use the symbol `name` selects that `query` keeps, or `None` when it selects none. A name
     /// selects among every symbol a use can name, a value and a field included where calls target neither, and a bare
     /// name shared by several of them selects the one with the most sites; a path prefix narrows them as
@@ -481,6 +489,12 @@ pub(crate) type EdgesOf<'g> = for<'c> fn(&'c mut Calls<'g>, SymbolAt) -> Cow<'c,
 enum Wanted {
     Callables,
     Referents,
+}
+
+/// What a selector selects before any ranking: the symbols to rank, at least one, or the one callable they all are.
+enum Selectable {
+    Among(Vec<SymbolAt>),
+    One(SymbolAt),
 }
 
 pub(crate) struct Calls<'g> {
@@ -622,13 +636,20 @@ impl<'g> Calls<'g> {
     }
 
     fn select(&mut self, selector: Selector<'_>, rank: Rank<'g>) -> Option<SymbolAt> {
+        match self.selectable(selector)? {
+            Selectable::Among(candidates) => self.ranked_first(&candidates, rank),
+            Selectable::One(at) => Some(at),
+        }
+    }
+
+    fn selectable(&self, selector: Selector<'_>) -> Option<Selectable> {
         let within = |at: &SymbolAt| self.graph.is_within(*at, selector.path_prefix);
         let key = self.graph.strings.get(selector.name);
         if let Some(key) = key {
             let holders =
                 self.wanted_first(self.cascade.qualified_as(key).filter(within).collect());
             if !holders.is_empty() {
-                return self.ranked_first(&holders, rank);
+                return Some(Selectable::Among(holders));
             }
         }
         let named = key.map_or_else(Vec::new, |key| {
@@ -641,7 +662,7 @@ impl<'g> Calls<'g> {
         });
         let named = self.wanted_first(named);
         if !named.is_empty() {
-            return self.ranked_first(&named, rank);
+            return Some(Selectable::Among(named));
         }
         if !selector.name.contains(QUALIFIER_SEPARATORS) {
             return None;
@@ -651,7 +672,7 @@ impl<'g> Calls<'g> {
             .into_iter()
             .map(|at| self.cascade.canonical(at));
         let first = pool.next()?;
-        pool.all(|at| at == first).then_some(first)
+        pool.all(|at| at == first).then_some(Selectable::One(first))
     }
 
     fn wanted_first(&self, mut candidates: Vec<SymbolAt>) -> Vec<SymbolAt> {

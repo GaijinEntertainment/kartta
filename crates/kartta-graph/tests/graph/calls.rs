@@ -3043,6 +3043,48 @@ fn a_path_prefix_narrows_an_owner_qualified_name_several_symbols_end_with_to_one
 }
 
 #[test]
+fn a_name_selects_as_callers_where_its_callers_answer() {
+    let close = |qualified: &str| {
+        let mut symbol = Symbol::new("Close", SymbolKind::Method, 1, 2);
+        symbol.qualified_name = qualified.to_owned();
+        symbol.owner = Some("Store".to_owned());
+        symbol
+    };
+    let graph = graph(&[
+        file(
+            "a/store.go",
+            vec![close("a.Store.Close"), function("parse", 5)],
+            Vec::new(),
+        ),
+        file(
+            "b/store.go",
+            vec![close("b.Store.Close"), function("parse", 5)],
+            Vec::new(),
+        ),
+    ]);
+    let written = [
+        Selector::new("parse", None),
+        Selector::new("parse", Some("b/")),
+        Selector::new("parse", Some("c/")),
+        Selector::new("Store.Close", None),
+        Selector::new("Store.Close", Some("b/")),
+        Selector::new("missing", None),
+    ];
+
+    let selects: Vec<bool> = written
+        .iter()
+        .map(|&name| graph.selects_as_callers(name))
+        .collect();
+    let walks: Vec<bool> = written
+        .iter()
+        .map(|&name| graph.callers(name, Limits::new(1)).is_some())
+        .collect();
+
+    assert_eq!(selects, [true, true, false, false, true, false]);
+    assert_eq!(selects, walks);
+}
+
+#[test]
 fn a_call_path_takes_a_path_prefix_at_each_end() {
     let graph = copies_of_parse();
 
