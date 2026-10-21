@@ -10,6 +10,7 @@ use crate::error::{Error, ErrorCode};
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct RefreshParams {
     pub(crate) id: Option<u64>,
+    pub(crate) binding_id: Option<u64>,
     paths: Option<Vec<String>>,
 }
 

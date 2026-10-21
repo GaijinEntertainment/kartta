@@ -79,6 +79,8 @@ pub(crate) struct GrepParams {
     max_file_bytes: Option<u64>,
     #[serde(default)]
     pub(crate) id: Option<u64>,
+    #[serde(default)]
+    pub(crate) binding_id: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]

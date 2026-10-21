@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::{Deserialize, Serialize};
 
-pub(crate) use self::build::{BuildParams, CancelAnswer, CancelParams, StatsAnswer, StoredErrors};
+pub(crate) use self::build::{
+    BuildParams, By, CancelAnswer, CancelParams, StatsAnswer, StoredErrors,
+};
 pub(crate) use self::refresh::{RefreshAnswer, RefreshParams};
 use crate::error::{Error, ErrorCode, INTERNAL_ENCODE_FAILURE};
 

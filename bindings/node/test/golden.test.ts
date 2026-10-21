@@ -11,6 +11,7 @@ import callPath from '../../../crates/kartta-ffi/tests/golden/call_path.json' wi
 import callees from '../../../crates/kartta-ffi/tests/golden/callees.json' with {type: 'json'};
 import callersOneEdit from '../../../crates/kartta-ffi/tests/golden/callers-one_edit.json' with {type: 'json'};
 import callers from '../../../crates/kartta-ffi/tests/golden/callers.json' with {type: 'json'};
+import cancelBindingId from '../../../crates/kartta-ffi/tests/golden/cancel-binding_id.json' with {type: 'json'};
 import cancel from '../../../crates/kartta-ffi/tests/golden/cancel.json' with {type: 'json'};
 import deadCode from '../../../crates/kartta-ffi/tests/golden/dead_code.json' with {type: 'json'};
 import definitionsOneEdit from '../../../crates/kartta-ffi/tests/golden/definitions-one_edit.json' with {type: 'json'};
@@ -64,6 +65,7 @@ type Goldens = typeof goldens;
 const secondGoldens = {
 	call_path: callPathUnmatched,
 	callers: callersOneEdit,
+	cancel: cancelBindingId,
 	definitions: definitionsOneEdit,
 	references: referencesUnmatched,
 	refresh: refreshPaths,

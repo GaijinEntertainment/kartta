@@ -1,0 +1,12 @@
+{
+  "answer": {
+    "ok": {
+      "stopped": false
+    }
+  },
+  "method": "cancel",
+  "params": {
+    "build": 1,
+    "by": "binding_id"
+  }
+}
