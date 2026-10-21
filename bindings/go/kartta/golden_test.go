@@ -119,7 +119,9 @@ func Test_golden(t *testing.T) {
 		"list":            typed((*kartta.Kartta).List),
 		"glob":            typed((*kartta.Kartta).Glob),
 		"fuzzy":           typed((*kartta.Kartta).Fuzzy),
-		"grep":            typed((*kartta.Kartta).Grep),
+		"grep": typed(func(k *kartta.Kartta, params wire.GrepParams) (*wire.Grep, error) {
+			return k.Grep(t.Context(), params)
+		}),
 	}
 	replayed := make(map[string]bool)
 	for _, path := range paths {
