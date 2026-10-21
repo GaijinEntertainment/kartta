@@ -95,6 +95,17 @@ impl Rust {
     }
 }
 
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.own_members = OwnMembers::Unreached;
+    conventions.namespace_calls = NamespaceCalls::Unbound;
+    conventions.owner_chain_separator = Some("::");
+    conventions.runtime_methods = runtime::METHODS;
+    conventions.own_type_receivers = Some(&["other"]);
+    conventions.type_uses = TypeUses::Nowhere;
+    conventions
+};
+
 impl Language for Rust {
     fn name(&self) -> &'static str {
         "rust"
@@ -113,15 +124,7 @@ impl Language for Rust {
     }
 
     fn conventions(&self) -> Conventions {
-        let mut conventions = Conventions::default();
-        conventions.own_members = OwnMembers::Unreached;
-        conventions.namespace_calls = NamespaceCalls::Unbound;
-        conventions.owner_chain_separator = Some("::");
-        conventions.runtime_methods = runtime::METHODS;
-        conventions.own_type_receivers = Some(&["other"]);
-        conventions.type_uses = TypeUses::Nowhere;
-
-        conventions
+        CONVENTIONS
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {

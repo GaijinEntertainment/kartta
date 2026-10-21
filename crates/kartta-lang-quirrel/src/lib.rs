@@ -94,6 +94,13 @@ impl Quirrel {
 const DOC_COMMENTS: DocComments =
     DocComments::lines(&["//", "#"]).with_blocks(&[BlockComment::new("/*", "*/")]);
 
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.own_members = OwnMembers::First;
+    conventions.runtime_methods = runtime::METHODS;
+    conventions
+};
+
 impl Language for Quirrel {
     fn name(&self) -> &'static str {
         "quirrel"
@@ -112,11 +119,7 @@ impl Language for Quirrel {
     }
 
     fn conventions(&self) -> Conventions {
-        let mut conventions = Conventions::default();
-        conventions.own_members = OwnMembers::First;
-        conventions.runtime_methods = runtime::METHODS;
-
-        conventions
+        CONVENTIONS
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {

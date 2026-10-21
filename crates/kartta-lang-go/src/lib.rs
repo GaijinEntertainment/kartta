@@ -99,6 +99,16 @@ impl Go {
     }
 }
 
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.own_members = OwnMembers::Unreached;
+    conventions.directory_packages = true;
+    conventions.member_calls = MemberCalls::Members;
+    conventions.receivers = Receivers::TypePaths;
+    conventions.type_uses = TypeUses::Every;
+    conventions
+};
+
 impl Language for Go {
     fn name(&self) -> &'static str {
         "go"
@@ -113,14 +123,7 @@ impl Language for Go {
     }
 
     fn conventions(&self) -> Conventions {
-        let mut conventions = Conventions::default();
-        conventions.own_members = OwnMembers::Unreached;
-        conventions.directory_packages = true;
-        conventions.member_calls = MemberCalls::Members;
-        conventions.receivers = Receivers::TypePaths;
-        conventions.type_uses = TypeUses::Every;
-
-        conventions
+        CONVENTIONS
     }
 
     fn doc_comments(&self) -> DocComments {

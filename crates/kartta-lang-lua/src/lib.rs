@@ -95,6 +95,12 @@ const DOC_COMMENTS: DocComments = DocComments::lines(&["--"]).with_blocks(&[
     BlockComment::new("--[===[", "]===]").closed_alone(),
 ]);
 
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.own_members = OwnMembers::Unreached;
+    conventions
+};
+
 impl Language for Lua {
     fn name(&self) -> &'static str {
         "lua"
@@ -113,10 +119,7 @@ impl Language for Lua {
     }
 
     fn conventions(&self) -> Conventions {
-        let mut conventions = Conventions::default();
-        conventions.own_members = OwnMembers::Unreached;
-
-        conventions
+        CONVENTIONS
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {
