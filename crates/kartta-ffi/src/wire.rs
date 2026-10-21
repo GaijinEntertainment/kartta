@@ -2,6 +2,7 @@ mod build;
 pub(crate) mod files;
 pub(crate) mod graph;
 pub(crate) mod params;
+mod refresh;
 
 use std::path::PathBuf;
 
@@ -9,6 +10,7 @@ use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::{Deserialize, Serialize};
 
 pub(crate) use self::build::{BuildParams, CancelAnswer, CancelParams, StatsAnswer, StoredErrors};
+pub(crate) use self::refresh::{RefreshAnswer, RefreshParams};
 use crate::error::{Error, ErrorCode, INTERNAL_ENCODE_FAILURE};
 
 pub(crate) fn params<P: DeserializeOwned>(params: &[u8]) -> Result<P, Error> {

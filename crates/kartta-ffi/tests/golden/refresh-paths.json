@@ -1,0 +1,80 @@
+{
+  "answer": {
+    "ok": {
+      "added": 0,
+      "dropped": 0,
+      "errors": {
+        "listed": [],
+        "total": 0
+      },
+      "extracted": 0,
+      "rebuilt": false,
+      "reconfigured": [],
+      "removed": 0,
+      "resolved_again": 0,
+      "tree": true,
+      "walked": 1,
+      "widened": {
+        "limit": 50,
+        "named": 51,
+        "parts": 51
+      }
+    }
+  },
+  "method": "refresh",
+  "params": {
+    "paths": [
+      "new-00.go",
+      "new-01.go",
+      "new-02.go",
+      "new-03.go",
+      "new-04.go",
+      "new-05.go",
+      "new-06.go",
+      "new-07.go",
+      "new-08.go",
+      "new-09.go",
+      "new-10.go",
+      "new-11.go",
+      "new-12.go",
+      "new-13.go",
+      "new-14.go",
+      "new-15.go",
+      "new-16.go",
+      "new-17.go",
+      "new-18.go",
+      "new-19.go",
+      "new-20.go",
+      "new-21.go",
+      "new-22.go",
+      "new-23.go",
+      "new-24.go",
+      "new-25.go",
+      "new-26.go",
+      "new-27.go",
+      "new-28.go",
+      "new-29.go",
+      "new-30.go",
+      "new-31.go",
+      "new-32.go",
+      "new-33.go",
+      "new-34.go",
+      "new-35.go",
+      "new-36.go",
+      "new-37.go",
+      "new-38.go",
+      "new-39.go",
+      "new-40.go",
+      "new-41.go",
+      "new-42.go",
+      "new-43.go",
+      "new-44.go",
+      "new-45.go",
+      "new-46.go",
+      "new-47.go",
+      "new-48.go",
+      "new-49.go",
+      "new-50.go"
+    ]
+  }
+}

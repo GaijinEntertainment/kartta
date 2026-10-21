@@ -8,6 +8,7 @@
 /** Each method of the wire, its params and its answer. */
 export type Methods = {
 	build: {params: BuildParams; answer: Stats};
+	refresh: {params: RefreshParams; answer: Refresh};
 	cancel: {params: CancelParams; answer: CancelAnswer};
 	stats: {params: NoParams; answer: Stats};
 	version: {params: NoParams; answer: Version};
@@ -44,6 +45,9 @@ export type Code =
 	| 'building'
 	| 'build_failed'
 	| 'build_cancelled'
+	| 'no_stamps'
+	| 'refresh_failed'
+	| 'refresh_cancelled'
 	| 'invalid_glob'
 	| 'invalid_pattern'
 	| 'not_found'
@@ -98,22 +102,83 @@ export type SetChange = {extend: string[]} | {replace: string[]};
 export type ContentIndex = {storage: 'memory'} | {storage: 'file' | 'mapped'; dir: string};
 
 /**
- * The params of `cancel`. Naming neither a build nor a grep stops every build in flight, running or waiting its turn,
- * and every grep in flight.
+ * The params of `refresh`. Left empty, a refresh walks the whole tree again; one made from a build without `stamps`
+ * rejects with `no_stamps`.
+ */
+export type RefreshParams = {
+	/** Names the refresh for a cancel. */
+	id?: number;
+	/**
+	 * The root-relative paths that changed, spelled as the index's answers spell them; absent or null refreshes the
+	 * whole tree, and empty walks nothing.
+	 */
+	paths?: string[] | null;
+};
+
+/** The options of {@link Kartta.refresh}: the params of `refresh` but the id. */
+export type RefreshOptions = Omit<RefreshParams, 'id'>;
+
+/** The answer of `refresh`: what it walked again, and what the index and the graphs took in and let go. */
+export type Refresh = {
+	/** The parts of the tree walked again. */
+	walked: number;
+	/** Whether the part walked was the whole tree. */
+	tree: boolean;
+	/** The regular files the index holds now and did not hold before. */
+	added: number;
+	/** The regular files the index held before and does not hold now. */
+	removed: number;
+	/** The files read, new or changed, whose extraction went into a graph. */
+	extracted: number;
+	/**
+	 * The unchanged files read and resolved again, because a question their resolution asked of the tree has another
+	 * answer now, or their language's configuration changed.
+	 */
+	resolved_again: number;
+	/** The files the graphs held and hold no more; absent when every graph was built again. */
+	dropped?: number;
+	/**
+	 * The languages whose resolver read another configuration than it read before, so that every file of theirs was
+	 * resolved again.
+	 */
+	reconfigured: string[];
+	/** Whether every graph was built again from every file. */
+	rebuilt: boolean;
+	/** Present when the paths came to more parts than a refresh walks apart, so it walked the whole tree. */
+	widened?: Widened;
+	/** The failures the refresh collected; `stats` lists those the tree fails now. */
+	errors: BuildErrors;
+};
+
+/** How a refresh of named paths came to walk the whole tree. */
+export type Widened = {
+	/** The paths the refresh was named. */
+	named: number;
+	/** The parts those paths came to, more than `limit`. */
+	parts: number;
+	/** The most parts a refresh walks apart. */
+	limit: number;
+};
+
+/**
+ * The params of `cancel`. Naming no call stops every build in flight, running or waiting its turn, every grep and every
+ * refresh in flight.
  */
 export type CancelParams = {
 	/** The id of the build to stop. */
 	build?: number;
 	/** The id of the grep to stop. */
 	grep?: number;
+	/** The id of the refresh to stop. */
+	refresh?: number;
 };
 
 /** The answer of `cancel`. */
 export type CancelAnswer = {
 	/**
-	 * Whether a build or a grep in flight was stopped. A named build or grep that has not entered the library starts
-	 * stopped, unless cancels that stopped nothing named 1,024 distinct later ids of its kind before it entered; a grep
-	 * that had already opened its last file answers whole, with `cancelled` false.
+	 * Whether a call in flight was stopped. A named call that has not entered the library starts stopped, unless cancels
+	 * that stopped nothing named 1,024 distinct later ids of its kind before it entered; a grep that had already opened
+	 * its last file answers whole, with `cancelled` false, and a refresh past its walk finishes.
 	 */
 	stopped: boolean;
 };

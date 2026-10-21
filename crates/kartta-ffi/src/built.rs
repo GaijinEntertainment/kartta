@@ -1,14 +1,20 @@
-use kartta::{Engine, Graph, Unmatched};
+use kartta::{BuildError, CancelToken, Engine, Graph, Unmatched};
 use serde::Serialize;
 
 use crate::error::{Error, ErrorCode};
-use crate::wire::StoredErrors;
 use crate::wire::graph::Wired;
+use crate::wire::{self, RefreshAnswer, StoredErrors};
+
+const NO_STAMPS: &str = concat!(
+    "the build kept no stamps, so a refresh would read every file again and build every graph again while every ",
+    r#"query waits, longer than a build; call build {"stamps": true} to refresh"#,
+);
 
 #[derive(Debug)]
 pub(crate) struct Built {
     pub(crate) engine: Engine,
     pub(crate) errors: StoredErrors,
+    pub(crate) stamps: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,6 +86,42 @@ impl<'b, T> Matches<'b, T> {
 }
 
 impl Built {
+    /// Brings the engine up to the tree at the root-relative `paths`, or across the whole tree for `None`, until
+    /// `cancel` stops the walk, answers what the refresh did, and takes its failures into the stored ones.
+    pub(crate) fn refresh(
+        &mut self,
+        paths: Option<&[String]>,
+        cancel: &CancelToken,
+    ) -> Result<Vec<u8>, Error> {
+        if !self.stamps {
+            return Err(Error::new(ErrorCode::NoStamps, NO_STAMPS));
+        }
+        let refreshed = match paths {
+            None => self.engine.refresh(Some(cancel)),
+            Some(paths) => self
+                .engine
+                .refresh_paths(paths.iter().map(String::as_str), Some(cancel)),
+        };
+        let refresh = refreshed.map_err(|error| match error {
+            BuildError::Cancelled => Error::new(
+                ErrorCode::RefreshCancelled,
+                "a cancel stopped the refresh; the engine answers as it did before it",
+            ),
+            BuildError::OutsideTree { .. } => {
+                Error::new(ErrorCode::InvalidParams, error.to_string())
+            }
+            error => Error::new(
+                ErrorCode::RefreshFailed,
+                format!("{error}; the engine answers as it did before the refresh"),
+            ),
+        })?;
+        let failed = StoredErrors::new(refresh.errors());
+        let answer = wire::ok(&RefreshAnswer::new(&refresh, &failed));
+        self.errors
+            .replace(self.engine.index().root(), &refresh.index.walked, failed);
+        answer
+    }
+
     pub(crate) fn each_graph<'b, T>(
         &'b self,
         lang: Option<&str>,

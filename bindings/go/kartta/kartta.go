@@ -69,9 +69,10 @@ func Open(root string) (*Kartta, error) {
 	return k, nil
 }
 
-// Close cancels the builds and greps in flight, waits for the calls in flight to return, and frees the handle. A build
-// Close cancels answers an error matching both wire.BuildCancelled and ErrClosed; of the builds that have yet to enter
-// the library, only the last 1,024 it cancels stop. Closing a closed handle does nothing.
+// Close cancels the builds, greps and refreshes in flight, waits for the calls in flight to return, and frees the
+// handle. A build Close cancels answers an error matching both wire.BuildCancelled and ErrClosed, and a refresh one
+// matching both wire.RefreshCancelled and ErrClosed; of the builds and the refreshes that have yet to enter the
+// library, only the last 1,024 of each it cancels stop. Closing a closed handle does nothing.
 func (k *Kartta) Close() error {
 	k.tracked.Lock()
 	k.closing = true
@@ -100,6 +101,18 @@ func (k *Kartta) Build(ctx context.Context, options wire.BuildOptions) (*wire.St
 	return tracked[wire.Stats](ctx, k, "build", wire.BuildCancelled, func(id uint64) (any, wire.CancelParams) {
 		options.ID = id
 		return options, wire.CancelParams{Build: id}
+	})
+}
+
+// Refresh brings the index and the graphs up to the tree in place, walking again the paths params name, or the whole
+// tree when Paths is nil, and answers what changed. Every call waits for a refresh under way. A handle built without
+// Stamps answers wire.NoStamps. Once ctx is done, a refresh still walking stops and answers an error matching both
+// wire.RefreshCancelled and ctx's cause, leaving the index as it was; one past its walk finishes. A ctx done before the
+// call answers its cause alone.
+func (k *Kartta) Refresh(ctx context.Context, params wire.RefreshParams) (*wire.Refresh, error) {
+	return tracked[wire.Refresh](ctx, k, "refresh", wire.RefreshCancelled, func(id uint64) (any, wire.CancelParams) {
+		params.ID = id
+		return params, wire.CancelParams{Refresh: id}
 	})
 }
 
