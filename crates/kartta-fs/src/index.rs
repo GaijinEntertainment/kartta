@@ -1535,6 +1535,19 @@ impl RefreshOutcome {
             .flat_map(Clone::clone)
             .map(ContentId::from_slot)
     }
+
+    /// Whether the refresh walked again the part of the tree that holds `path`, a root-relative path spelled as
+    /// [`Index::entries`] spells one: `path` or a directory above it is among [`RefreshOutcome::walked`]. A binary
+    /// search of that list, in the order the refresh left it.
+    #[must_use]
+    pub fn walked_over(&self, path: &str) -> bool {
+        let after = self
+            .walked
+            .partition_point(|part| tree_order(part, path).is_le());
+        after
+            .checked_sub(1)
+            .is_some_and(|at| scoped::holds(&self.walked[at], path))
+    }
 }
 
 #[cfg(test)]
