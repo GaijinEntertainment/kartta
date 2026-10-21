@@ -87,7 +87,7 @@ impl Index {
                 Vec::new(),
                 Vec::new(),
                 scopes,
-                ChangedFiles::default(),
+                ChangedFiles::since(self),
             ));
         }
         if scopes[0].is_empty() {
@@ -287,7 +287,7 @@ impl Index {
             return Ok(Planned {
                 pending: None,
                 errors,
-                changed: ChangedFiles::default(),
+                changed: ChangedFiles::since(self),
             });
         }
 
@@ -309,7 +309,7 @@ impl Index {
             targets: &targets,
         };
         let replacements = facts.replacements(scopes, ranges, &found);
-        let mut changed = ChangedFiles::default();
+        let mut changed = ChangedFiles::since(self);
         for replacement in &replacements {
             changed.add_between(
                 Held::within(self, replacement.range.clone()),

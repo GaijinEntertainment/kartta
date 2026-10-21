@@ -35,7 +35,7 @@ mod refresh;
 mod scoped;
 mod splice;
 
-use changed::{ChangedFiles, Held};
+use changed::{ChangedFiles, Held, Replaced};
 
 pub(crate) use refresh::Previous;
 
@@ -190,7 +190,7 @@ impl Index {
     ) -> Result<RefreshOutcome, BuildError> {
         let (BuildOutcome { index, errors }, retired) =
             self.counting_handed(|index, handed| index.walk_again(asked, handed))?;
-        let mut changed = ChangedFiles::default();
+        let mut changed = ChangedFiles::since(self);
         changed.add_between(Held::all(self), Held::all(&index));
         *self = index;
         release_freed_memory();
@@ -766,8 +766,14 @@ impl Index {
         (candidate, here + 1)
     }
 
-    pub(crate) fn kind_at(&self, at: usize) -> EntryKind {
-        self.kinds[at]
+    /// What the entry at `position` is, a position as [`Paths`] reads one.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `position` is not below [`Index::len`].
+    #[must_use]
+    pub fn kind_at(&self, position: usize) -> EntryKind {
+        self.kinds[position]
     }
 
     pub(crate) const fn inspection(&self) -> &Inspection {
@@ -1513,6 +1519,9 @@ pub struct RefreshOutcome {
     /// The directories the index held before and does not hold now, in [`Index::entries`] order, none below another.
     #[cfg(feature = "watch")]
     pub(crate) removed_dirs: Vec<String>,
+    len_before: usize,
+    replaced: Vec<Replaced>,
+    kept_positions: bool,
 }
 
 impl RefreshOutcome {
@@ -1530,7 +1539,51 @@ impl RefreshOutcome {
             retired,
             #[cfg(feature = "watch")]
             removed_dirs: changed.removed_dirs,
+            len_before: changed.len_before,
+            replaced: changed.replaced,
+            kept_positions: !changed.reshaped,
         }
+    }
+
+    /// Whether every position holds after this refresh the entry it held before, with the same path and kind: true of
+    /// a refresh that only read files again, false of one that added, removed or retyped an entry. A position kept
+    /// from before a refresh that answers `true` still names its entry; otherwise
+    /// [`RefreshOutcome::position_after`] says where the entry went.
+    #[must_use]
+    pub const fn kept_positions(&self) -> bool {
+        self.kept_positions
+    }
+
+    /// The position after this refresh of the entry at `position` before it, or `None` for an entry inside a part the
+    /// refresh walked again, whose positions [`RefreshOutcome::walked_positions`] gives, and for a position past the
+    /// entries the index held before it. A binary search of the parts.
+    #[must_use]
+    pub fn position_after(&self, position: usize) -> Option<usize> {
+        if position >= self.len_before {
+            return None;
+        }
+        let passed = self
+            .replaced
+            .partition_point(|replaced| replaced.before.end <= position);
+        if self
+            .replaced
+            .get(passed)
+            .is_some_and(|replaced| replaced.before.start <= position)
+        {
+            return None;
+        }
+
+        Some(passed.checked_sub(1).map_or(position, |last| {
+            let last = &self.replaced[last];
+            position - last.before.end + last.after.end
+        }))
+    }
+
+    /// The positions the parts this refresh walked again hold after it, in rising order: one run for parts that lay
+    /// side by side, empty for parts that hold nothing now. What a caller that keeps something per position reads
+    /// again.
+    pub fn walked_positions(&self) -> impl ExactSizeIterator<Item = Range<usize>> + '_ {
+        self.replaced.iter().map(|replaced| replaced.after.clone())
     }
 
     /// The ids the index handed out before this refresh, including those of a refresh that returned an error or that a
