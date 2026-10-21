@@ -105,6 +105,9 @@ const replays: {[M in keyof Methods]: Replay<M>} = {
 
 const fixture = fileURLToPath(new URL('../../../crates/kartta-ffi/tests/fixture', import.meta.url));
 
+// constraint: search's scores pass through ln_1p, which Apple's libm and glibc round apart in the last bits
+const scoreTolerance = 1e-12;
+
 async function envelope(answer: Promise<unknown>): Promise<unknown> {
 	try {
 		return {ok: await answer};
@@ -114,6 +117,36 @@ async function envelope(answer: Promise<unknown>): Promise<unknown> {
 		}
 		throw error;
 	}
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
+}
+
+function scoresAgree(answer: unknown, pinned: unknown): boolean {
+	return (
+		typeof answer === 'number' &&
+		typeof pinned === 'number' &&
+		Math.abs(answer - pinned) <= scoreTolerance * Math.max(Math.abs(answer), Math.abs(pinned))
+	);
+}
+
+function pinAgreeingScores(answer: unknown, golden: unknown): unknown {
+	if (Array.isArray(answer)) {
+		return answer.map((item: unknown, index) =>
+			pinAgreeingScores(item, Array.isArray(golden) ? golden[index] : undefined),
+		);
+	}
+	if (!isJsonObject(answer)) {
+		return answer;
+	}
+	const pinned = isJsonObject(golden) ? golden : {};
+	return Object.fromEntries(
+		Object.entries(answer).map(([key, value]) => [
+			key,
+			key === 'score' && scoresAgree(value, pinned[key]) ? pinned[key] : pinAgreeingScores(value, pinned[key]),
+		]),
+	);
 }
 
 test("the goldens' fields are the ones the wire types name", () => {
@@ -147,8 +180,32 @@ test('every method answers its golden request through its typed call as pinned',
 		// oxlint-disable-next-line no-await-in-loop
 		answered[method] = await envelope(replay(kartta, golden.params));
 	}
+	const pinned = Object.fromEntries(Object.entries(goldens).map(([method, golden]) => [method, golden.answer]));
 
-	expect(answered).toStrictEqual(
-		Object.fromEntries(Object.entries(goldens).map(([method, golden]) => [method, golden.answer])),
-	);
+	expect(pinAgreeingScores(answered, pinned)).toStrictEqual(pinned);
+});
+
+const pinnedScore = 3.5799073758139874;
+const pinnedWeight = 0.7024774156511924;
+
+function hits(score: number, weight: number): unknown {
+	return {hits: [{score, weight}]};
+}
+
+test('a score that differs in its last digit agrees with the pinned one', () => {
+	const golden = hits(pinnedScore, pinnedWeight);
+
+	expect(pinAgreeingScores(hits(3.579907375813988, pinnedWeight), golden)).toStrictEqual(golden);
+});
+
+test('a score that differs in a real digit does not agree', () => {
+	const golden = hits(pinnedScore, pinnedWeight);
+
+	expect(pinAgreeingScores(hits(3.579907375913988, pinnedWeight), golden)).not.toStrictEqual(golden);
+});
+
+test('a number outside a score must match exactly', () => {
+	const golden = hits(pinnedScore, pinnedWeight);
+
+	expect(pinAgreeingScores(hits(pinnedScore, 0.7024774156511925), golden)).not.toStrictEqual(golden);
 });

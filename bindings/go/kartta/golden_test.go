@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,17 +37,50 @@ func raw(method string) replay {
 	}
 }
 
-func canonical(t *testing.T, text []byte) string {
+// constraint: search's scores pass through ln_1p, which Apple's libm and glibc round apart in the last bits
+const scoreTolerance = 1e-12
+
+func decode(t *testing.T, text []byte) any {
 	t.Helper()
 	var value any
 	if err := json.Unmarshal(text, &value); err != nil {
 		t.Fatalf("decode %s: %v", text, err)
 	}
+	return value
+}
+
+func canonical(t *testing.T, value any) string {
+	t.Helper()
 	canonical, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
 	return string(canonical)
+}
+
+func pinAgreeingScores(answer, golden any) {
+	switch answer := answer.(type) {
+	case map[string]any:
+		pinned, _ := golden.(map[string]any)
+		for key, value := range answer {
+			if key == "score" && scoresAgree(value, pinned[key]) {
+				answer[key] = pinned[key]
+			} else {
+				pinAgreeingScores(value, pinned[key])
+			}
+		}
+	case []any:
+		pinned, _ := golden.([]any)
+		for i := range min(len(answer), len(pinned)) {
+			pinAgreeingScores(answer[i], pinned[i])
+		}
+	}
+}
+
+func scoresAgree(answer, pinned any) bool {
+	a, aIsNumber := answer.(float64)
+	p, pIsNumber := pinned.(float64)
+	return aIsNumber && pIsNumber && math.Abs(a-p) <= scoreTolerance*max(math.Abs(a), math.Abs(p))
 }
 
 func Test_golden(t *testing.T) {
@@ -118,7 +152,9 @@ func Test_golden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got, want := canonical(t, got), canonical(t, golden.Answer); got != want {
+			answered, pinned := decode(t, got), decode(t, golden.Answer)
+			pinAgreeingScores(answered, pinned)
+			if got, want := canonical(t, answered), canonical(t, pinned); got != want {
 				t.Errorf("%s answered\n%s\nwant\n%s", golden.Method, got, want)
 			}
 		})
@@ -130,5 +166,47 @@ func Test_golden(t *testing.T) {
 		if !replayed[method] {
 			t.Errorf("no golden file asks %s", method)
 		}
+	}
+}
+
+func Test_pinAgreeingScores(t *testing.T) {
+	const pinnedScore, pinnedWeight = 3.5799073758139874, 0.7024774156511924
+	hits := func(score, weight float64) any {
+		return map[string]any{"hits": []any{map[string]any{"score": score, "weight": weight}}}
+	}
+	tests := []struct {
+		name       string
+		giveScore  float64
+		giveWeight float64
+		wantAgree  bool
+	}{
+		{
+			name:       "a score that differs in its last digit agrees with the pinned one",
+			giveScore:  3.579907375813988,
+			giveWeight: pinnedWeight,
+			wantAgree:  true,
+		},
+		{
+			name:       "a score that differs in a real digit does not agree",
+			giveScore:  3.579907375913988,
+			giveWeight: pinnedWeight,
+			wantAgree:  false,
+		},
+		{
+			name:       "a number outside a score must match exactly",
+			giveScore:  pinnedScore,
+			giveWeight: 0.7024774156511925,
+			wantAgree:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			answer, golden := hits(tt.giveScore, tt.giveWeight), hits(pinnedScore, pinnedWeight)
+			pinAgreeingScores(answer, golden)
+			got, want := canonical(t, answer), canonical(t, golden)
+			if agree := got == want; agree != tt.wantAgree {
+				t.Errorf("%s against %s: agree %v, want %v", got, want, agree, tt.wantAgree)
+			}
+		})
 	}
 }
