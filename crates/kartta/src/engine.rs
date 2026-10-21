@@ -266,7 +266,10 @@ impl Engine {
     /// it holds the new bytes, a file gone or no longer read as text leaves its graph, and a file whose questions the
     /// refresh answers differently, such as an include that now finds a file or a Go package that gained one, is read
     /// again and resolved again. When the configuration a resolver read as it was built changed, every file of its
-    /// language is read and resolved again. [`EngineRefresh`] counts each.
+    /// language is read and resolved again. [`EngineRefresh`] counts each. With stamps the engine also keeps the
+    /// tables a refresh's resolvers built to find files, by name and by a path in another case, eight bytes for each
+    /// regular file of each table a resolver asked for, and the next refresh moves them with the entries it kept
+    /// rather than building them again from every entry.
     ///
     /// The engine attributes a question to the file whose resolution asked it on the asking thread, so a
     /// [`Resolver`](kartta_lang::Resolver) that asks from another thread, or answers one file from what it asked for
