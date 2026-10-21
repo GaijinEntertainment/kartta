@@ -264,8 +264,8 @@ impl Backend {
             }
             !released
         });
-        // constraint: the map keeps a tombstone for each entry `retain` removes, and the next `reserve` past them
-        // doubles the table, so a release rehashes it to the watches it keeps
+        // constraint: a table keeps its buckets as its watches go, so a release shrinks it to the size the watches it
+        // keeps need
         if self.dirs.len() < watched {
             self.dirs.shrink_to_fit();
         }
@@ -300,7 +300,13 @@ impl Walked {
     }
 
     fn into_dirs(self, dirs: &mut HashMap<i32, PathBuf>) {
-        dirs.reserve(self.wds.len());
+        // constraint: a watch removed can leave a tombstone that takes its room, and a `reserve` past that room doubles
+        // a table over half full even where the watches fit without the tombstones, so a map short of room is made anew
+        if dirs.capacity() - dirs.len() < self.wds.len() {
+            let mut rebuilt = HashMap::with_capacity(dirs.len() + self.wds.len());
+            rebuilt.extend(dirs.drain());
+            *dirs = rebuilt;
+        }
         let mut start = 0;
         for (wd, end) in self.wds.into_iter().zip(self.ends) {
             dirs.insert(
@@ -653,5 +659,80 @@ mod tests {
 
         assert!(matches!(refreshed, Err(BuildError::OutsideTree { .. })));
         assert!(matches!(drained, Err(WatchError::Start { .. })));
+    }
+
+    /// Makes `a` under `root` and as many directories inside it as `a` and the root leave room for in a map of `full`.
+    fn make_a(root: &Path, full: usize) {
+        for at in 0..full - 2 {
+            std::fs::create_dir_all(root.join("a").join(at.to_string())).expect("make a directory");
+        }
+    }
+
+    /// Builds and watches a tree of `a` and the directories inside it, whose watches and the root's fill the watcher's
+    /// map, then takes directories of the tree away and brings them back as `away` and `back` do, refreshing under the
+    /// watcher what it hands over after each, as a consumer that refreshes under its watcher does. Returns the map's
+    /// capacity before and after.
+    fn map_capacity_around(
+        away: impl FnOnce(&Path),
+        back: impl FnOnce(&Path, usize),
+    ) -> (usize, usize) {
+        let tree = tempfile::tempdir().expect("a tree");
+        let full = HashMap::<i32, PathBuf>::with_capacity(500).capacity();
+        make_a(tree.path(), full);
+        let (outcome, watcher) =
+            Index::build_watched(tree.path(), &BuildOptions::default(), None, None).expect("build");
+        let (mut index, mut watcher) = (outcome.index, watcher.expect("start watching"));
+        let before = watcher.backend.dirs.capacity();
+
+        away(tree.path());
+        let gone = watcher.drain().expect("drain");
+        refresh_under(&mut index, &mut watcher, &gone);
+        back(tree.path(), full);
+        let made = watcher.drain().expect("drain");
+        refresh_under(&mut index, &mut watcher, &made);
+
+        assert_eq!((before, watcher.backend.dirs.len()), (full, full));
+        (before, watcher.backend.dirs.capacity())
+    }
+
+    #[test]
+    fn a_watched_directory_deleted_and_made_again_leaves_the_watch_map_its_size() {
+        let (before, after) = map_capacity_around(
+            |tree| std::fs::remove_dir_all(tree.join("a")).expect("delete a directory"),
+            make_a,
+        );
+
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn a_watched_directory_moved_away_and_back_leaves_the_watch_map_its_size() {
+        let outside = tempfile::tempdir().expect("a directory outside the tree");
+        let (before, after) = map_capacity_around(
+            |tree| {
+                std::fs::rename(tree.join("a"), outside.path().join("a"))
+                    .expect("move a directory away");
+            },
+            |tree, _| {
+                std::fs::rename(outside.path().join("a"), tree.join("a"))
+                    .expect("move a directory back");
+            },
+        );
+
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn watched_directories_hidden_and_shown_again_leave_the_watch_map_its_size() {
+        let fewer_than_half_of_a = "a/1*/\n";
+        let (before, after) = map_capacity_around(
+            |tree| {
+                std::fs::write(tree.join(".gitignore"), fewer_than_half_of_a)
+                    .expect("hide directories");
+            },
+            |tree, _| std::fs::write(tree.join(".gitignore"), "").expect("show them again"),
+        );
+
+        assert_eq!(after, before);
     }
 }
