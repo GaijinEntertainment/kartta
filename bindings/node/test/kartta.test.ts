@@ -152,7 +152,7 @@ test('close right after a build through call cancels it too, unless it finished'
 	]);
 });
 
-test("a build through call takes an id of the handle's, so an abort stops another", async () => {
+test('an abort stops its build and not a build through call given its binding id as an id', async () => {
 	const kartta = open(3000);
 	const controller = new AbortController();
 
@@ -162,6 +162,37 @@ test("a build through call takes an id of the handle's, so an abort stops anothe
 
 	await expect(typed).rejects.toMatchObject({name: 'KarttaError', code: 'build_cancelled'});
 	expect(await untyped).toMatchObject({entries: 3000});
+});
+
+test("a cancel naming a raw build's id stops it and not a build of the handle's in flight", async () => {
+	const kartta = open(3000);
+	const {built} = await walking(kartta);
+	const id = 1;
+
+	const raw = settled(kartta.call('build', {id}));
+	await kartta.cancel({build: id});
+
+	expect(await settled(built)).toMatchObject({entries: 3000});
+	expect(await raw).toMatchObject({name: 'KarttaError', code: 'build_cancelled'});
+});
+
+test("a cancel naming a finished raw build's id leaves the handle's next build running", async () => {
+	const kartta = open();
+	const id = 2;
+	await kartta.call('build', {id});
+
+	await kartta.cancel({build: id});
+
+	expect(await kartta.build()).toMatchObject({entries: 1});
+});
+
+test("a cancel naming the id a build's options give stops that build", async () => {
+	const kartta = open();
+	const id = 78;
+
+	await kartta.cancel({build: id});
+
+	await expect(kartta.build({id})).rejects.toMatchObject({name: 'KarttaError', code: 'build_cancelled'});
 });
 
 test('cancel with no id stops the build in flight', async () => {
