@@ -6,6 +6,7 @@ import {Kartta, KarttaError, type Methods} from '../src/kartta.ts';
 import analyzeChange from '../../../crates/kartta-ffi/tests/golden/analyze_change.json' with {type: 'json'};
 import analyzeSegment from '../../../crates/kartta-ffi/tests/golden/analyze_segment.json' with {type: 'json'};
 import build from '../../../crates/kartta-ffi/tests/golden/build.json' with {type: 'json'};
+import callPathUnmatched from '../../../crates/kartta-ffi/tests/golden/call_path-unmatched.json' with {type: 'json'};
 import callPath from '../../../crates/kartta-ffi/tests/golden/call_path.json' with {type: 'json'};
 import callees from '../../../crates/kartta-ffi/tests/golden/callees.json' with {type: 'json'};
 import callers from '../../../crates/kartta-ffi/tests/golden/callers.json' with {type: 'json'};
@@ -19,6 +20,7 @@ import grep from '../../../crates/kartta-ffi/tests/golden/grep.json' with {type:
 import implementations from '../../../crates/kartta-ffi/tests/golden/implementations.json' with {type: 'json'};
 import list from '../../../crates/kartta-ffi/tests/golden/list.json' with {type: 'json'};
 import outline from '../../../crates/kartta-ffi/tests/golden/outline.json' with {type: 'json'};
+import referencesUnmatched from '../../../crates/kartta-ffi/tests/golden/references-unmatched.json' with {type: 'json'};
 import references from '../../../crates/kartta-ffi/tests/golden/references.json' with {type: 'json'};
 import resolution from '../../../crates/kartta-ffi/tests/golden/resolution.json' with {type: 'json'};
 import search from '../../../crates/kartta-ffi/tests/golden/search.json' with {type: 'json'};
@@ -53,6 +55,14 @@ const goldens = {
 
 type Goldens = typeof goldens;
 
+/** The goldens of the second request a method has one for, which reaches keys its first golden does not, by method. */
+const secondGoldens = {
+	call_path: callPathUnmatched,
+	references: referencesUnmatched,
+};
+
+type Golden = {params: unknown; answer: {ok: unknown}};
+
 /** The paths of the fields `Wire` holds and `Typed` does not name, at any depth; `never` when it names them all. */
 type Unnamed<Wire, Typed, Path extends string> =
 	Wire extends ReadonlyArray<infer Item>
@@ -67,14 +77,21 @@ type Unnamed<Wire, Typed, Path extends string> =
 				}[keyof Wire & string]
 			: never;
 
-type UnnamedFields = {
-	[M in keyof Methods]:
-		| Unnamed<Goldens[M]['params'], Methods[M]['params'], `${M}.params`>
-		| Unnamed<Goldens[M]['answer']['ok'], Methods[M]['answer'], `${M}.answer`>;
-}[keyof Methods];
+/** The paths of the fields the goldens `G` hold, by method, that the method's types do not name. */
+type UnnamedIn<G extends Partial<Record<keyof Methods, Golden>>> = {
+	[M in keyof Methods & keyof G]:
+		| Unnamed<NonNullable<G[M]>['params'], Methods[M]['params'], `${M}.params`>
+		| Unnamed<NonNullable<G[M]>['answer']['ok'], Methods[M]['answer'], `${M}.answer`>;
+}[keyof Methods & keyof G];
 
-const typesNameEveryFieldTheGoldensHold: [UnnamedFields] extends [never] ? true : `unnamed ${UnnamedFields}` = true;
+/** `true` when `Paths`, the paths of unnamed fields, holds none, else the paths. */
+type NamesEvery<Paths extends string> = [Paths] extends [never] ? true : `unnamed ${Paths}`;
+
+const typesNameEveryFieldTheGoldensHold: NamesEvery<UnnamedIn<Goldens>> = true;
+const typesNameEveryFieldTheSecondGoldensHold: NamesEvery<UnnamedIn<typeof secondGoldens>> = true;
 const answersHoldTheirTypes: {[M in keyof Methods]: {answer: {ok: Methods[M]['answer']}}} = goldens;
+const secondAnswersHoldTheirTypes: {[M in keyof typeof secondGoldens]: {answer: {ok: Methods[M]['answer']}}} =
+	secondGoldens;
 
 type Replay<M extends keyof Methods> = (kartta: Kartta, params: Methods[M]['params']) => Promise<Methods[M]['answer']>;
 
@@ -151,7 +168,9 @@ function pinAgreeingScores(answer: unknown, golden: unknown): unknown {
 
 test("the goldens' fields are the ones the wire types name", () => {
 	expect(typesNameEveryFieldTheGoldensHold).toBe(true);
+	expect(typesNameEveryFieldTheSecondGoldensHold).toBe(true);
 	expect(answersHoldTheirTypes).toBe(goldens);
+	expect(secondAnswersHoldTheirTypes).toBe(secondGoldens);
 });
 
 test('the typed calls cover every method the library answers', async () => {
@@ -180,9 +199,22 @@ test('every method answers its golden request through its typed call as pinned',
 		// oxlint-disable-next-line no-await-in-loop
 		answered[method] = await envelope(replay(kartta, golden.params));
 	}
+	const answeredSecond: Record<string, unknown> = {};
+	for (const [method, golden] of Object.entries(secondGoldens)) {
+		// SAFETY: secondGoldens is keyed by methods, as the mapped type above requires.
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion
+		const replay = replays[method as keyof Methods] as (kartta: Kartta, params: unknown) => Promise<unknown>;
+		// The second requests ask what the build golden built, after it, one at a time.
+		// oxlint-disable-next-line no-await-in-loop
+		answeredSecond[method] = await envelope(replay(kartta, golden.params));
+	}
 	const pinned = Object.fromEntries(Object.entries(goldens).map(([method, golden]) => [method, golden.answer]));
+	const pinnedSecond = Object.fromEntries(
+		Object.entries(secondGoldens).map(([method, golden]) => [method, golden.answer]),
+	);
 
 	expect(pinAgreeingScores(answered, pinned)).toStrictEqual(pinned);
+	expect(pinAgreeingScores(answeredSecond, pinnedSecond)).toStrictEqual(pinnedSecond);
 });
 
 const pinnedScore = 3.5799073758139874;

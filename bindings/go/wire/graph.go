@@ -12,6 +12,33 @@ type Matches[T any] struct {
 	// FromReadAs and ToReadAs are the readings of a call_path's From and To, each end read on its own.
 	FromReadAs string `json:"from_read_as,omitempty"`
 	ToReadAs   string `json:"to_read_as,omitempty"`
+	// Unmatched says why Matches is empty when the name, or its reading, names definitions of the kinds the method
+	// selects and picks none of them; nil for a name that matched or that names no such definition. callers, callees,
+	// references and implementations set it.
+	Unmatched *Unmatched `json:"unmatched,omitempty"`
+	// FromUnmatched and ToUnmatched say it for a call_path's From and To, each set only for an end that selects no
+	// symbol.
+	FromUnmatched *Unmatched `json:"from_unmatched,omitempty"`
+	ToUnmatched   *Unmatched `json:"to_unmatched,omitempty"`
+}
+
+// Unmatched is what a name that selected no symbol names instead, among the definitions of the kinds the method
+// selects.
+type Unmatched struct {
+	// Kind is "several" when several definitions under the path prefix end with the name and it picks none of them, a
+	// longer name or a path prefix holding one picking one; or "outside_prefix" when the name names definitions outside
+	// the path prefix and at most one under it.
+	Kind string `json:"kind"`
+	// Total counts those definitions.
+	Total int `json:"total"`
+	// Listed is the first five of them.
+	Listed []GraphDefinition `json:"listed"`
+}
+
+// GraphDefinition is a definition and the graph that holds it.
+type GraphDefinition struct {
+	Graph      string     `json:"graph"`
+	Definition Definition `json:"definition"`
 }
 
 // WalkParams are the params of the callers and callees methods.

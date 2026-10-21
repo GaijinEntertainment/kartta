@@ -1,8 +1,9 @@
-use kartta::{Engine, Graph};
+use kartta::{Engine, Graph, Unmatched};
 use serde::Serialize;
 
 use crate::error::{Error, ErrorCode};
 use crate::wire::StoredErrors;
+use crate::wire::graph::Wired;
 
 #[derive(Debug)]
 pub(crate) struct Built {
@@ -27,12 +28,23 @@ pub(crate) struct Matches<'b, T> {
     from_read_as: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     to_read_as: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unmatched: Option<Wired<Unmatched<'b>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    from_unmatched: Option<Wired<Unmatched<'b>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_unmatched: Option<Wired<Unmatched<'b>>>,
 }
 
 impl<'b, T> Matches<'b, T> {
-    pub(crate) fn read(found: Vec<(&'b str, T)>, [read_as]: [Option<String>; 1]) -> Self {
+    pub(crate) fn read(
+        found: Vec<(&'b str, T)>,
+        [read_as]: [Option<String>; 1],
+        unmatched: Option<Unmatched<'b>>,
+    ) -> Self {
         Self {
             read_as,
+            unmatched: unmatched.map(Wired),
             ..Self::new(found)
         }
     }
@@ -40,10 +52,13 @@ impl<'b, T> Matches<'b, T> {
     pub(crate) fn read_ends(
         found: Vec<(&'b str, T)>,
         [from_read_as, to_read_as]: [Option<String>; 2],
+        [from_unmatched, to_unmatched]: [Option<Unmatched<'b>>; 2],
     ) -> Self {
         Self {
             from_read_as,
             to_read_as,
+            from_unmatched: from_unmatched.map(Wired),
+            to_unmatched: to_unmatched.map(Wired),
             ..Self::new(found)
         }
     }
@@ -57,6 +72,9 @@ impl<'b, T> Matches<'b, T> {
             read_as: None,
             from_read_as: None,
             to_read_as: None,
+            unmatched: None,
+            from_unmatched: None,
+            to_unmatched: None,
         }
     }
 }

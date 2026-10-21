@@ -194,6 +194,36 @@ export type Matches<T> = {
 	from_read_as?: string;
 	/** The reading of a `call_path`'s `to`, each end read on its own. */
 	to_read_as?: string;
+	/**
+	 * Why `matches` is empty when the name, or its reading, names definitions of the kinds the method selects and picks
+	 * none of them; absent for a name that matched or that names no such definition. `callers`, `callees`, `references`
+	 * and `implementations` carry it.
+	 */
+	unmatched?: Unmatched;
+	/** The same for a `call_path`'s `from`, carried only when that end selects no symbol. */
+	from_unmatched?: Unmatched;
+	/** The same for a `call_path`'s `to`, carried only when that end selects no symbol. */
+	to_unmatched?: Unmatched;
+};
+
+/** What a name that selected no symbol names instead, among the definitions of the kinds the method selects. */
+export type Unmatched = {
+	/**
+	 * `several` when several definitions under the path prefix end with the name and it picks none of them, a longer
+	 * name or a path prefix holding one picking one; `outside_prefix` when the name names definitions outside the path
+	 * prefix and at most one under it.
+	 */
+	kind: string;
+	/** How many definitions the name names so. */
+	total: number;
+	/** The first five of them. */
+	listed: GraphDefinition[];
+};
+
+/** A definition and the graph that holds it. */
+export type GraphDefinition = {
+	graph: string;
+	definition: Definition;
 };
 
 /** A symbol a graph holds, where it is defined. */
