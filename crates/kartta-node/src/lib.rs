@@ -87,7 +87,7 @@ impl Handle {
     }
 
     /// Lets the engine go once the calls in flight answer; every later call fails. It cancels nothing: the caller
-    /// cancels the builds and the refreshes it started first.
+    /// cancels the builds, the greps and the refreshes it started first.
     #[napi]
     pub fn close(&mut self) {
         self.kartta = None;
