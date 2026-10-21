@@ -1,5 +1,85 @@
-use kartta_graph::{Graph, Selector};
+use kartta_graph::{Definition, Graph, Limits, Selector};
 use kartta_lang::SymbolKind;
+
+/// The definitions a name a query selected no symbol by names, among those of the kinds the query selects, when they
+/// say why it selected none: `total` of them, the first `listed`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Unmatched<'g> {
+    /// Why the name selected none of them.
+    pub kind: UnmatchedKind,
+    /// How many definitions the name names so.
+    pub total: usize,
+    /// The first of them, each with the name of the graph that holds it, in the order of the graphs asked and of
+    /// [`Graph::definitions`] within each.
+    pub listed: Vec<(&'g str, Definition<'g>)>,
+}
+
+/// Why a name selected none of the definitions an [`Unmatched`] counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum UnmatchedKind {
+    /// Several definitions under the path prefix end with the name, and a query picks none of them: a longer name, or
+    /// a path prefix that holds only one of them, picks one.
+    Several,
+    /// The name names definitions outside the path prefix, and at most one under it.
+    OutsidePrefix,
+}
+
+/// What `named` names instead, for a name by which a query selected no symbol in the `searched` graphs.
+///
+/// Among the definitions of the kinds `selects` takes, it answers several under the name's path prefix, else some
+/// outside it, listing at most `limit`, and `None` when neither holds, as for a name that names no such definition.
+/// The name is looked up once in each graph, as [`Graph::definitions`] reads it; nothing is searched.
+pub fn unmatched<'g>(
+    searched: impl Iterator<Item = (&'g str, &'g Graph)>,
+    named: Selector<'_>,
+    selects: fn(SymbolKind) -> bool,
+    limit: usize,
+) -> Option<Unmatched<'g>> {
+    let tally = |kind| Unmatched {
+        kind,
+        total: 0,
+        listed: Vec::new(),
+    };
+    let (mut under, mut outside) = (
+        tally(UnmatchedKind::Several),
+        tally(UnmatchedKind::OutsidePrefix),
+    );
+    for (family, graph) in searched {
+        let found = graph.definitions(named.name, None, usize::MAX).found;
+        for definition in found.into_iter().map(|found| found.definition) {
+            if !selects(definition.kind) {
+                continue;
+            }
+            let held = if named
+                .path_prefix
+                .is_none_or(|prefix| definition.file.starts_with(prefix))
+            {
+                &mut under
+            } else {
+                &mut outside
+            };
+            held.total += 1;
+            if held.listed.len() < limit {
+                held.listed.push((family, definition));
+            }
+        }
+    }
+    if under.total > 1 {
+        return Some(under);
+    }
+    (outside.total > 0).then_some(outside)
+}
+
+/// Whether `named` selects a symbol in any of the `searched` graphs as [`Graph::callers`] selects one, and so as each
+/// end of [`Graph::call_path`] does: an end that selects none is one to ask [`unmatched`] about.
+pub fn selects_as_callers<'g>(
+    mut searched: impl Iterator<Item = (&'g str, &'g Graph)>,
+    named: Selector<'_>,
+) -> bool {
+    searched.any(|(_, graph)| graph.callers(named, Limits::new(0)).is_some())
+}
 
 /// What `ask` answers for `named` in each of the `searched` graphs that answers, or, when none does, what it answers
 /// with each name read with the other owner separator, with the readings.

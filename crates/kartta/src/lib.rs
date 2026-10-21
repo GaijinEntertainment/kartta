@@ -78,7 +78,8 @@
 //! of a file's lines reaches and searches by the words of names and paths; [`Engine::analyze_change`] answers what a
 //! change to regions across families reaches, [`Engine::stats`] what the build made of each language's files,
 //! [`Engine::resolution`] how every call site binds, and [`Engine::sources`] the text of definitions with their doc
-//! comments; [`ask_reading`] asks the graphs about a qualified name spelled with another language's owner separator.
+//! comments; [`ask_reading`] asks the graphs about a qualified name spelled with another language's owner separator,
+//! and [`unmatched`] what a name that selected no symbol names instead.
 //! The first release with a public surface will be `0.1.0`.
 
 mod engine;
@@ -112,6 +113,6 @@ pub use kartta_lang::{
 };
 
 pub use crate::engine::{Engine, EngineOutcome, EngineRefresh, Widened};
-pub use crate::reading::ask_reading;
+pub use crate::reading::{Unmatched, UnmatchedKind, ask_reading, selects_as_callers, unmatched};
 pub use crate::source::{CutLine, Source, SourceOptions};
 pub use crate::stats::{EngineStats, LanguageFiles};
