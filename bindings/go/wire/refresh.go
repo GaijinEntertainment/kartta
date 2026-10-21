@@ -2,7 +2,8 @@ package wire
 
 // RefreshParams are the params of the refresh method.
 type RefreshParams struct {
-	// ID names the refresh for a cancel. The kartta package sets it.
+	// ID names the refresh for a cancel. The kartta package's Refresh sets it; Call keeps one other than 0, and picks
+	// one in place of 0.
 	ID uint64 `json:"id,omitempty"`
 	// Paths are the root-relative paths that changed, spelled as the index's answers spell them; nil refreshes the
 	// whole tree, and an empty list walks nothing.

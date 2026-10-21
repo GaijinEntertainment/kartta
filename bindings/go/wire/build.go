@@ -3,7 +3,8 @@ package wire
 // BuildOptions are the params of the build method. The zero value builds every language kartta ships, under the
 // tree's own .gitignore files, with no content index and no cache.
 type BuildOptions struct {
-	// ID names the build for a cancel. The kartta package sets it.
+	// ID names the build for a cancel. The kartta package's Build sets it; Call keeps one other than 0, and picks one
+	// in place of 0.
 	ID uint64 `json:"id,omitempty"`
 	// Languages are the languages to build graphs of, by the names Version lists; nil builds every one, and an empty
 	// list none.
