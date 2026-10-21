@@ -5,8 +5,8 @@ use std::pin::pin;
 use std::sync::Arc;
 
 use kartta::{
-    CancelToken, Definition, Graph, Hit, Limits, Region, Search, Selector, SiteQuery,
-    SourceOptions, SymbolKind, ask_reading, is_parent, is_referent,
+    CancelToken, Graph, Hit, Limits, Region, Search, Selector, SiteQuery, SourceOptions,
+    SymbolKind, ask_reading, is_parent, is_referent, selects_as_callers,
 };
 use kartta_fs::{
     Case, Filter, FuzzyOptions, GlobOptions, GrepOptions, ListError, ListOptions, Patterns,
@@ -229,44 +229,16 @@ fn suggestions<'g>(searched: &[(&'g str, &'g Graph)], name: &str) -> Vec<Suggest
 }
 
 /// What a selector that picked no symbol in the graphs a query searched matches instead, among the definitions of
-/// the kinds `selects` takes: the several an owner-qualified name ends with, those of the name outside the path
-/// prefix, or the close alternatives a search finds.
+/// the kinds `selects` takes: what [`kartta::unmatched`] finds, or else the close alternatives a search finds.
 fn unmatched<'g>(
     searched: &[(&'g str, &'g Graph)],
     selector: Selector<'_>,
     selects: fn(SymbolKind) -> bool,
 ) -> Unmatched<'g> {
-    let mut within: (usize, Vec<(&'g str, Definition<'g>)>) = (0, Vec::new());
-    let mut elsewhere: (usize, Vec<(&'g str, Definition<'g>)>) = (0, Vec::new());
-    let matching = searched
-        .iter()
-        .flat_map(|&(family, graph)| {
-            graph
-                .definitions(selector.name, None, usize::MAX)
-                .found
-                .into_iter()
-                .map(move |found| (family, found.definition))
-        })
-        .filter(|(_, definition)| selects(definition.kind));
-    for (family, definition) in matching {
-        let under = selector
-            .path_prefix
-            .is_none_or(|prefix| definition.file.starts_with(prefix));
-        let (total, listed) = if under { &mut within } else { &mut elsewhere };
-        *total += 1;
-        if listed.len() < SUGGESTIONS {
-            listed.push((family, definition));
-        }
-    }
-    if within.0 > 1 {
-        let (total, listed) = within;
-        return Unmatched::Several { total, listed };
-    }
-    if selector.path_prefix.is_some() && elsewhere.0 > 0 {
-        let (total, listed) = elsewhere;
-        return Unmatched::Elsewhere { total, listed };
-    }
-    Unmatched::Suggested(suggestions(searched, selector.name))
+    kartta::unmatched(searched.iter().copied(), selector, selects, SUGGESTIONS).map_or_else(
+        || Unmatched::Suggested(suggestions(searched, selector.name)),
+        Unmatched::Named,
+    )
 }
 
 #[tool_router]
@@ -970,15 +942,10 @@ impl Server {
                 to_read_as.as_deref().unwrap_or(&p.to),
                 written[1].path_prefix,
             );
-            // constraint: an end selects as Graph::callers selects, so a walk of no hops tells whether it selects.
             let unmatched_ends: Vec<_> = if paths.is_empty() {
                 [("from", from), ("to", to)]
                     .into_iter()
-                    .filter(|&(_, end)| {
-                        searched
-                            .iter()
-                            .all(|(_, graph)| graph.callers(end, Limits::new(0)).is_none())
-                    })
+                    .filter(|&(_, end)| !selects_as_callers(searched.iter().copied(), end))
                     .map(|(name, end)| (name, unmatched(&searched, end, |_| true)))
                     .collect()
             } else {
