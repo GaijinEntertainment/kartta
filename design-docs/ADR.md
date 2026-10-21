@@ -105,7 +105,7 @@
   2026-10-17, revised 2026-10-19
 - [3.21 Search definitions by the words of their names and
   paths](./adr/3.21-search-definitions-by-the-words-of-their-names-and-paths.md) — initiative `03-code-graph`,
-  2026-10-17
+  2026-10-17, revised 2026-10-21
 - [3.22 Analyze what a change reaches with the walk the call queries
   take](./adr/3.22-analyze-what-a-change-reaches-with-the-walk-the-call-queries-take.md) — initiative `03-code-graph`,
   2026-10-17, revised 2026-10-20
