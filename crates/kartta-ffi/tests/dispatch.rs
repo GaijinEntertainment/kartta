@@ -703,6 +703,21 @@ fn unmatched_in(answer: &Value, key: &str) -> (Value, Value, Vec<Value>) {
     (unmatched["kind"].clone(), unmatched["total"].clone(), files)
 }
 
+/// The qualified names of the definitions an answer's `key` names in place of a match.
+fn qualified_in(answer: &Value, key: &str) -> Vec<Value> {
+    answer[key]["listed"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no {key} in {answer}"))
+        .iter()
+        .map(|listed| listed["definition"]["qualified_name"].clone())
+        .collect()
+}
+
+/// `name` as packages `a` and `b` of [`stores`] qualify it.
+fn in_each_package(name: &str) -> [Value; 2] {
+    ["a", "b"].map(|package| json!(format!("{package}.{name}")))
+}
+
 #[test]
 fn a_name_several_definitions_end_with_answers_them_in_place_of_a_match() {
     let (_tree, kartta) = stores(&["a", "b"]);
@@ -854,6 +869,57 @@ fn a_name_that_names_more_than_five_definitions_lists_the_first_five_and_counts_
                 .to_vec()
         )
     );
+}
+
+#[test]
+fn a_name_nothing_defines_answers_the_definitions_one_edit_from_it() {
+    let (_tree, kartta) = stores(&["a", "b"]);
+    let both = || {
+        (
+            json!("one_edit"),
+            json!(2),
+            vec![json!("a/store.go"), json!("b/store.go")],
+        )
+    };
+
+    for prefix in [None, Some("c/")] {
+        for (method, name, meant) in [
+            ("callers", "Stroe.Close", "Store.Close"),
+            ("callees", "Store.Clsoe", "Store.Close"),
+            ("references", "Store.Closee", "Store.Close"),
+            ("implementations", "Closr", "Closer"),
+        ] {
+            let answer = ok(
+                &kartta,
+                method,
+                &json!({ "name": name, "path_prefix": prefix }),
+            );
+
+            assert_eq!(answer["matches"], json!([]), "{method}: {answer}");
+            assert_eq!(
+                unmatched_in(&answer, "unmatched"),
+                both(),
+                "{method} {prefix:?}"
+            );
+            assert_eq!(
+                qualified_in(&answer, "unmatched"),
+                in_each_package(meant),
+                "{method} {prefix:?}"
+            );
+        }
+        let path = ok(
+            &kartta,
+            "call_path",
+            &json!({ "from": "a.Run", "to": "Rnu", "to_path_prefix": prefix }),
+        );
+        assert_eq!(keys(&path), ["matches", "to_unmatched"], "{path}");
+        assert_eq!(unmatched_in(&path, "to_unmatched"), both(), "{prefix:?}");
+        assert_eq!(
+            qualified_in(&path, "to_unmatched"),
+            in_each_package("Run"),
+            "{prefix:?}"
+        );
+    }
 }
 
 #[test]

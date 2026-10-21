@@ -270,8 +270,8 @@ export type Matches<T> = {
 	to_read_as?: string;
 	/**
 	 * Why `matches` is empty when the name, or its reading, names definitions of the kinds the method selects and picks
-	 * none of them; absent for a name that matched or that names no such definition. `callers`, `callees`, `references`
-	 * and `implementations` carry it.
+	 * none of them, or names no definition while names one edit from it do; absent for a name that matched or for which
+	 * neither holds. `callers`, `callees`, `references` and `implementations` carry it.
 	 */
 	unmatched?: Unmatched;
 	/** The same for a `call_path`'s `from`, carried only when that end selects no symbol. */
@@ -285,7 +285,9 @@ export type Unmatched = {
 	/**
 	 * `several` when several definitions under the path prefix end with the name and it picks none of them, a longer
 	 * name or a path prefix holding one picking one; `outside_prefix` when the name names definitions outside the path
-	 * prefix and at most one under it.
+	 * prefix and at most one under it; `one_edit` when the name names no definition of any kind, and these are named
+	 * one edit from it: one character swapped with the next, dropped, replaced or added, a replacing or added one being
+	 * an ASCII letter, a digit, `_` or one the name holds.
 	 */
 	kind: string;
 	/** How many definitions the name names so. */
