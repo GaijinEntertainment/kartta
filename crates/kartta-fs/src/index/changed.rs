@@ -5,11 +5,15 @@ use kartta_walk::EntryKind;
 
 use super::splice::Fresh;
 use super::{Index, Paths, tree_order};
+#[cfg(feature = "watch")]
+use crate::list::is_below;
 
 #[derive(Debug, Default)]
 pub(crate) struct ChangedFiles {
     pub(crate) added: Vec<String>,
     pub(crate) removed: Vec<String>,
+    #[cfg(feature = "watch")]
+    pub(crate) removed_dirs: Vec<String>,
 }
 
 pub(crate) trait Side {
@@ -74,11 +78,26 @@ impl ChangedFiles {
             if was == Some(EntryKind::File) && now != was {
                 self.removed.push(before.at(early).0.to_owned());
             }
+            #[cfg(feature = "watch")]
+            if was == Some(EntryKind::Dir) && now != was {
+                self.remove_dir(before.at(early).0);
+            }
             if now == Some(EntryKind::File) && was != now {
                 self.added.push(after.at(late).0.to_owned());
             }
             early += usize::from(was.is_some());
             late += usize::from(now.is_some());
+        }
+    }
+
+    #[cfg(feature = "watch")]
+    fn remove_dir(&mut self, dir: &str) {
+        if !self
+            .removed_dirs
+            .last()
+            .is_some_and(|above| is_below(dir, above))
+        {
+            self.removed_dirs.push(dir.to_owned());
         }
     }
 }

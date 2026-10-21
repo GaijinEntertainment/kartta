@@ -9,6 +9,8 @@ use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use super::{Found, WatchError, start_error};
+use crate::index::tree_order;
+use crate::list::is_below;
 use crate::lock;
 
 // constraint: no access events, so the reads of a refresh raise none; a write is seen at every write and at the close
@@ -231,6 +233,36 @@ impl Backend {
         });
     }
 
+    pub(super) fn release(&mut self, dirs: &[String]) {
+        if dirs.is_empty() {
+            return;
+        }
+        std::mem::take(held(&mut self.walked)).into_dirs(&mut self.dirs);
+        let fd = self.fd.as_raw_fd();
+        let root = self.root.as_os_str().as_bytes();
+        let watched = self.dirs.len();
+        self.dirs.retain(|&wd, path| {
+            let released = path
+                .as_os_str()
+                .as_bytes()
+                .strip_prefix(root)
+                .map(|rest| rest.strip_prefix(b"/").unwrap_or(rest))
+                .and_then(|rest| std::str::from_utf8(rest).ok())
+                .is_some_and(|rest| at_or_below_one(dirs, rest));
+            if released {
+                // SAFETY: the descriptor is this backend's own, and the kernel refuses a watch it no longer holds
+                // without changing anything.
+                unsafe { libc::inotify_rm_watch(fd, wd) };
+            }
+            !released
+        });
+        // constraint: the map keeps a tombstone for each entry `retain` removes, and the next `reserve` past them
+        // doubles the table, so a release rehashes it to the watches it keeps
+        if self.dirs.len() < watched {
+            self.dirs.shrink_to_fit();
+        }
+    }
+
     fn watch(&self, dir: &Path) -> io::Result<i32> {
         let native = CString::new(dir.as_os_str().as_bytes())?;
         // SAFETY: `native` is NUL-terminated and outlives the call, and the descriptor is this backend's own.
@@ -274,6 +306,11 @@ impl Walked {
 
 fn held<T>(mutex: &mut Mutex<T>) -> &mut T {
     mutex.get_mut().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn at_or_below_one(dirs: &[String], path: &str) -> bool {
+    let after = dirs.partition_point(|dir| tree_order(dir, path).is_le());
+    after > 0 && (dirs[after - 1] == path || is_below(path, &dirs[after - 1]))
 }
 
 fn gone(error: &io::Error) -> bool {
@@ -378,6 +415,86 @@ mod tests {
         assert_eq!(held_watches(&watcher), 7);
         assert_eq!(inside, ["target/debug/build/x/out/a.o"]);
         assert!(index.entry("target/debug/build/x/out/a.o").is_some());
+    }
+
+    /// Builds and watches a tree of ten directories, the root included, under `target/` and `sub/out/`, and writes the
+    /// `.gitignore` files of the root and of `sub/` with these texts, refreshing under the watcher what it hands over
+    /// for each, as a consumer that refreshes under its watcher does.
+    fn watched_then_ignoring(texts: &[(&str, &str)]) -> (tempfile::TempDir, Index, Watcher, usize) {
+        let tree = tempfile::tempdir().expect("a tree");
+        for dir in [
+            "target/debug/deps",
+            "target/debug/build/x/out",
+            "sub/out/deep",
+        ] {
+            std::fs::create_dir_all(tree.path().join(dir)).expect("make a directory");
+        }
+        let (outcome, watcher) =
+            Index::build_watched(tree.path(), &BuildOptions::default(), None, None).expect("build");
+        let (mut index, mut watcher) = (outcome.index, watcher.expect("start watching"));
+        let watched_at_the_start = held_watches(&watcher);
+
+        for (gitignore, text) in texts {
+            std::fs::write(tree.path().join(gitignore), text).expect("write a file");
+            let edited = watcher.drain().expect("drain");
+            refresh_under(&mut index, &mut watcher, &edited);
+        }
+
+        (tree, index, watcher, watched_at_the_start)
+    }
+
+    #[test]
+    fn a_tree_a_gitignore_edit_hides_loses_its_watches_once_a_refresh_drops_it() {
+        let (tree, _, mut watcher, watched_at_the_start) =
+            watched_then_ignoring(&[(".gitignore", "target/\n"), ("sub/.gitignore", "out/\n")]);
+
+        std::fs::write(tree.path().join("target/debug/deps/a.rlib"), "").expect("write a file");
+        std::fs::write(tree.path().join("sub/out/deep/a.o"), "").expect("write a file");
+        let inside = watcher.drain().expect("drain");
+
+        assert_eq!(watched_at_the_start, 10);
+        assert_eq!(held_watches(&watcher), 2);
+        assert_eq!(inside, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_tree_a_gitignore_edit_hid_and_a_later_edit_shows_is_watched_again() {
+        let (tree, mut index, mut watcher, _) = watched_then_ignoring(&[
+            (".gitignore", "target/\n"),
+            ("sub/.gitignore", "out/\n"),
+            (".gitignore", ""),
+            ("sub/.gitignore", ""),
+        ]);
+
+        std::fs::write(tree.path().join("target/debug/deps/a.rlib"), "").expect("write a file");
+        std::fs::write(tree.path().join("sub/out/deep/a.o"), "").expect("write a file");
+        let inside = watcher.drain().expect("drain");
+        refresh_under(&mut index, &mut watcher, &inside);
+
+        assert_eq!(held_watches(&watcher), 10);
+        assert_eq!(inside, ["sub/out/deep/a.o", "target/debug/deps/a.rlib"]);
+        assert!(index.entry("sub/out/deep/a.o").is_some());
+    }
+
+    #[test]
+    fn a_directory_moved_unread_from_a_path_a_refresh_drops_to_one_it_keeps_stays_watched() {
+        let tree = tempfile::tempdir().expect("a tree");
+        for dir in ["a/deep", "keep"] {
+            std::fs::create_dir_all(tree.path().join(dir)).expect("make a directory");
+        }
+        let (outcome, watcher) =
+            Index::build_watched(tree.path(), &BuildOptions::default(), None, None).expect("build");
+        let (mut index, mut watcher) = (outcome.index, watcher.expect("start watching"));
+
+        std::fs::write(tree.path().join(".gitignore"), "").expect("write a file");
+        let edited = watcher.drain().expect("drain");
+        std::fs::rename(tree.path().join("a"), tree.path().join("keep/b")).expect("rename");
+        refresh_under(&mut index, &mut watcher, &edited);
+        std::fs::write(tree.path().join("keep/b/deep/c.rs"), "").expect("write a file");
+        let seen = watcher.drain().expect("drain");
+
+        assert_eq!(held_watches(&watcher), 4);
+        assert_eq!(seen, ["a", "keep/b", "keep/b/deep/c.rs"]);
     }
 
     /// Writes to two files of `tree` in turn, so the kernel merges none of the events, until `watcher` holds more than

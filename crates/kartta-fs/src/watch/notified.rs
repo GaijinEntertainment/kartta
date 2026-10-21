@@ -97,6 +97,13 @@ impl Backend {
     pub(super) const fn descended(&mut self) -> Result<(), WatchError> {
         Ok(())
     }
+
+    #[expect(
+        clippy::unused_self,
+        clippy::needless_pass_by_ref_mut,
+        reason = "one signature for every platform, and the stream holds no watch a directory to release"
+    )]
+    pub(super) const fn release(&mut self, _dirs: &[String]) {}
 }
 
 // constraint: notify names the directory to scan again, with everything below it, on a drop when the system names one,
