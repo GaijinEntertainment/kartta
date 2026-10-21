@@ -153,10 +153,10 @@ export class Kartta {
 	}
 
 	/**
-	 * Stops the build, the grep or the refresh `params` names by its id, or, when it names none, every build in flight,
-	 * running or waiting its turn, and every grep and refresh in flight. A build {@link Kartta.build} started rejects
-	 * with `build_cancelled`; a grep answers what it covered, `cancelled` set; a refresh still walking rejects with
-	 * `refresh_cancelled`.
+	 * Stops the build, the grep or the refresh `params` names by its id, or by its binding id when `by` says so, or, when
+	 * it names none, every build in flight, running or waiting its turn, and every grep and refresh in flight. A build
+	 * {@link Kartta.build} started rejects with `build_cancelled`; a grep answers what it covered, `cancelled` set; a
+	 * refresh still walking rejects with `refresh_cancelled`.
 	 */
 	async cancel(params: CancelParams = {}): Promise<CancelAnswer> {
 		return this.#ask('cancel', params);
@@ -168,12 +168,12 @@ export class Kartta {
 		this.#ids += 1;
 		const id = this.#ids;
 		const cancel = (): void => {
-			this.#handle?.cancel(JSON.stringify({[method]: id}));
+			this.#handle?.cancel(JSON.stringify({[method]: id, by: 'binding_id'}));
 		};
 		this.#inFlight.set(id, method);
 		signal?.addEventListener('abort', cancel, {once: true});
 		try {
-			const text = JSON.stringify({...params, id});
+			const text = JSON.stringify({...params, binding_id: id});
 			return answer(await (method === 'grep' ? handle.call(method, text) : handle[method](text)));
 		} catch (error) {
 			if (!(error instanceof KarttaError) || error.code !== `${method}_cancelled`) {
@@ -306,8 +306,9 @@ export class Kartta {
 
 	/**
 	 * Answers `method` with `params`, as the wire spells both, for a method this class has no typed call for or params
-	 * its types do not hold. `build`, `grep` and `refresh` run as their typed calls do, under an id the handle picks in
-	 * place of one their params give, so no two calls share one; `cancel` answers at once.
+	 * its types do not hold. `build`, `grep` and `refresh` run as their typed calls do, under a binding id the handle
+	 * picks in place of any their params give, and the id their params give passes on as it is: a cancel naming it stops
+	 * the calls given that id and none the handle named alone. `cancel` answers at once.
 	 */
 	async call(method: string, params: unknown = {}): Promise<unknown> {
 		if (
@@ -349,7 +350,7 @@ export class Kartta {
 		}
 		this.#handle = undefined;
 		for (const [id, method] of this.#inFlight) {
-			handle.cancel(JSON.stringify({[method]: id}));
+			handle.cancel(JSON.stringify({[method]: id, by: 'binding_id'}));
 		}
 		handle.cancel('{}');
 		handle.close();
