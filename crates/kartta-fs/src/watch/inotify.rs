@@ -6,7 +6,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::{Found, WatchError, start_error};
 use crate::index::tree_order;
@@ -122,17 +122,21 @@ impl Backend {
             events: libc::POLLIN,
             revents: 0,
         };
-        let millis = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
-        // SAFETY: one pollfd, alive for the whole call.
-        let polled = unsafe { libc::poll(&raw mut ready, 1, millis) };
-        if polled < 0 {
+        let started = Instant::now();
+        let mut left = timeout;
+        let polled = loop {
+            let millis = i32::try_from(left.as_millis()).unwrap_or(i32::MAX);
+            // SAFETY: one pollfd, alive for the whole call.
+            let polled = unsafe { libc::poll(&raw mut ready, 1, millis) };
+            if polled >= 0 {
+                break polled;
+            }
             let error = io::Error::last_os_error();
-            return if error.kind() == io::ErrorKind::Interrupted {
-                Ok(false)
-            } else {
-                Err(WatchError::Stopped { source: error })
-            };
-        }
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(WatchError::Stopped { source: error });
+            }
+            left = timeout.saturating_sub(started.elapsed());
+        };
         // constraint: one buffer a call, so a writer faster than the reads cannot keep a wait from closing its batch
         let read = if polled == 0 {
             0
@@ -344,9 +348,10 @@ fn gone(error: &io::Error) -> bool {
 mod tests {
     use std::fs::File;
     use std::io::Write as _;
+    use std::sync::atomic::AtomicBool;
 
     use super::*;
-    use crate::watch::Watcher;
+    use crate::watch::{LONGEST, Watcher};
     use crate::{BuildError, BuildOptions, Index};
 
     #[test]
@@ -643,6 +648,71 @@ mod tests {
         };
 
         assert_eq!(watcher.changes(unread), [""]);
+    }
+
+    static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+    extern "C" fn note_interrupted(_: libc::c_int) {
+        INTERRUPTED.store(true, Ordering::SeqCst);
+    }
+
+    /// The system calls `libc::poll` makes.
+    #[cfg(target_arch = "x86_64")]
+    const POLLS: [libc::c_long; 2] = [libc::SYS_poll, libc::SYS_ppoll];
+    #[cfg(not(target_arch = "x86_64"))]
+    const POLLS: [libc::c_long; 1] = [libc::SYS_ppoll];
+
+    /// Whether the thread `tid` of this process waits in a poll, as its `syscall` file in `/proc` names the call it is
+    /// blocked in.
+    fn polling(tid: libc::pid_t) -> bool {
+        std::fs::read_to_string(format!("/proc/self/task/{tid}/syscall"))
+            .expect("read the thread's system call")
+            .split_whitespace()
+            .next()
+            .and_then(|number| number.parse().ok())
+            .is_some_and(|number| POLLS.contains(&number))
+    }
+
+    #[test]
+    fn a_drain_whose_poll_a_signal_interrupts_waits_out_the_time_left() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let mut watcher = watched(tree.path());
+        // SAFETY: a zeroed action takes no flags and blocks no signal while its handler runs.
+        let mut noting: libc::sigaction = unsafe { std::mem::zeroed() };
+        noting.sa_sigaction = note_interrupted as extern "C" fn(libc::c_int) as libc::sighandler_t;
+        // SAFETY: the action is alive for the whole call, and its handler only stores to an atomic.
+        let installed =
+            unsafe { libc::sigaction(libc::SIGUSR1, &raw const noting, std::ptr::null_mut()) };
+        assert_eq!(
+            installed,
+            0,
+            "handle the signal: {}",
+            io::Error::last_os_error()
+        );
+        let process = libc::pid_t::try_from(std::process::id()).expect("a process id");
+        // SAFETY: gettid takes nothing and cannot fail.
+        let draining = unsafe { libc::gettid() };
+        let made = tree.path().join("a");
+        let interrupter = std::thread::spawn(move || {
+            while !polling(draining) {
+                std::hint::spin_loop();
+            }
+            // SAFETY: the thread is this process's own, and waits in its poll until this one makes the file.
+            unsafe { libc::tgkill(process, draining, libc::SIGUSR1) };
+            while !INTERRUPTED.load(Ordering::SeqCst) {
+                std::hint::spin_loop();
+            }
+            File::create(made).expect("make a file");
+        });
+        let unread = Found {
+            unread: 1,
+            ..Found::default()
+        };
+
+        let drained = watcher.gather(Duration::from_secs(10), LONGEST, unread);
+        interrupter.join().expect("interrupt the drain");
+
+        assert_eq!(drained.expect("drain"), ["a"]);
     }
 
     #[test]
