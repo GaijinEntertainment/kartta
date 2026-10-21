@@ -65,13 +65,14 @@ type Addon = {
 
 type Handle = {
 	build(params: string): Promise<Uint8Array>;
+	refresh(params: string): Promise<Uint8Array>;
 	call(method: string, params: string): Promise<Uint8Array>;
 	cancel(params: string): Uint8Array;
 	close(): void;
 };
 
 /** The methods the addon runs on a thread of their own, each under an id a cancel names by the method. */
-type Tracked = 'build';
+type Tracked = 'build' | 'refresh';
 
 /** A failure the engine answered, or a call on a closed handle: a code to branch on, and a message for a reader. */
 export class KarttaError extends Error {
@@ -88,9 +89,10 @@ export class KarttaError extends Error {
  * A handle on one tree. {@link Kartta.open} names the tree; {@link Kartta.build} walks it once and builds the file
  * index and every graph; each query asks what the last finished build made.
  *
- * Every method but `open` and `close` answers a promise and runs off the event loop: a build on a thread of its own,
- * a query on libuv's thread pool. Queries run concurrently with each other; builds run one at a time, and while one
- * walks, a query rejects with `building`. A failure rejects with a {@link KarttaError} carrying the wire's code.
+ * Every method but `open` and `close` answers a promise and runs off the event loop: a build and a refresh each on a
+ * thread of its own, a query on libuv's thread pool. Queries run concurrently with each other; builds run one at a
+ * time, and while one walks, a query rejects with `building`; a query waits for a refresh under way. A failure rejects
+ * with a {@link KarttaError} carrying the wire's code.
  */
 export class Kartta {
 	#handle: Handle | undefined;
@@ -135,10 +137,16 @@ export class Kartta {
 	/**
 	 * Brings the index and the graphs up to the tree in place, walking again the paths `options` name, or the whole tree
 	 * without them, and answers what changed. Every query waits for a refresh under way. A handle built without
-	 * `stamps` rejects with `no_stamps`; a refresh that fails or is cancelled leaves the index as it was.
+	 * `stamps` rejects with `no_stamps`; a refresh that fails leaves the index as it was.
+	 *
+	 * Once `signal` aborts, a refresh still walking stops and rejects with `refresh_cancelled`, the signal's reason its
+	 * cause, and leaves the index as it was; one past its walk answers what it changed. A signal aborted before the call
+	 * rejects with its reason alone.
 	 */
-	async refresh(options: RefreshOptions = {}): Promise<Refresh> {
-		return this.#ask('refresh', options);
+	async refresh(options: RefreshOptions = {}, {signal}: {signal?: AbortSignal} = {}): Promise<Refresh> {
+		// SAFETY: the dispatch answers `refresh` with the wire's refresh, which the golden files pin.
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion
+		return this.#tracked('refresh', options, signal) as Promise<Refresh>;
 	}
 
 	/**
@@ -288,11 +296,11 @@ export class Kartta {
 
 	/**
 	 * Answers `method` with `params`, as the wire spells both, for a method this class has no typed call for or params
-	 * its types do not hold. `build` runs as {@link Kartta.build} does, under an id the handle picks in place of one its
-	 * params give, so no two builds share one; `cancel` answers at once.
+	 * its types do not hold. `build` and `refresh` run as {@link Kartta.build} and {@link Kartta.refresh} do, under an id
+	 * the handle picks in place of one their params give, so no two calls share one; `cancel` answers at once.
 	 */
 	async call(method: string, params: unknown = {}): Promise<unknown> {
-		if (method === 'build' && typeof params === 'object' && !Array.isArray(params)) {
+		if ((method === 'build' || method === 'refresh') && typeof params === 'object' && !Array.isArray(params)) {
 			return this.#tracked(method, {...params});
 		}
 		const handle = this.#open();
@@ -300,6 +308,9 @@ export class Kartta {
 		switch (method) {
 			case 'build': {
 				return answer(await handle.build(text));
+			}
+			case 'refresh': {
+				return answer(await handle.refresh(text));
 			}
 			case 'cancel': {
 				return answer(handle.cancel(text));
@@ -312,9 +323,9 @@ export class Kartta {
 
 	/**
 	 * Cancels the builds, greps and refreshes in flight and lets the engine go once the calls in flight answer. A build
-	 * this cancels rejects with `build_cancelled`, a `closed` error its cause; of the builds that have yet to enter the
-	 * library, only the last 1,024 it cancels stop. Every later call rejects with `closed`. Closing a closed handle does
-	 * nothing.
+	 * this cancels rejects with `build_cancelled` and a refresh with `refresh_cancelled`, a `closed` error the cause of
+	 * each; of the builds and the refreshes that have yet to enter the library, only the last 1,024 of each it cancels
+	 * stop. Every later call rejects with `closed`. Closing a closed handle does nothing.
 	 */
 	close(): void {
 		const handle = this.#handle;
