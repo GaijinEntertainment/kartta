@@ -995,7 +995,12 @@ pub(crate) fn or_if_none<T>(
 
 fn qualified_tail(written: &str) -> Option<&str> {
     let last = last_segment(written);
-    (!last.is_empty() && last.len() < written.len()).then_some(last)
+    if !last.is_empty() {
+        return (last.len() < written.len()).then_some(last);
+    }
+    let trimmed = written.trim_end_matches(QUALIFIER_SEPARATORS);
+    let last = last_segment(trimmed);
+    (!last.is_empty() && last.len() < trimmed.len()).then(|| &written[trimmed.len() - last.len()..])
 }
 
 fn unlist<T>(index: &mut HashMap<Str, Vec<T>, FixedState>, key: Str, keep: impl FnMut(&T) -> bool) {
