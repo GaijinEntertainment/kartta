@@ -9,7 +9,7 @@ use kartta_lang::{
 };
 
 use crate::order::PathOrder;
-use crate::scope::is_type;
+use crate::resolve::derives;
 use crate::stored::{
     Entry, Folded, Local, Occurrence, Parent, Site, StoredAssertion, StoredBinding, StoredCall,
     StoredCallable, StoredFile, StoredLocalCall, StoredReExport, StoredSymbol, StoredUse, SymbolAt,
@@ -1072,7 +1072,7 @@ pub const fn is_referent(kind: SymbolKind) -> bool {
 /// namespace.
 #[must_use]
 pub const fn is_parent(kind: SymbolKind) -> bool {
-    is_type(kind)
+    derives(kind) || matches!(kind, SymbolKind::Namespace)
 }
 
 // constraint: the order of the file index, whose `/` ranks below every other byte, so the engine inserts files in this
