@@ -48,16 +48,7 @@ impl Handle {
     /// The handle is closed, or the thread or the promise could not be made.
     #[napi]
     pub fn build<'env>(&self, env: &'env Env, params: String) -> Result<Object<'env>> {
-        let kartta = self.kartta()?;
-        let (deferred, promise) = env.create_deferred()?;
-        thread::Builder::new()
-            .name("kartta-build".to_owned())
-            .spawn(move || {
-                let answer = kartta.call("build", params.as_bytes());
-                deferred.resolve(move |_| Ok(Buffer::from(answer)));
-            })
-            .map_err(|error| Error::from_reason(format!("no thread for the build: {error}")))?;
-        Ok(promise)
+        self.on_a_thread_of_its_own(env, "build", params)
     }
 
     /// Runs any method but `build` on libuv's thread pool, answering the envelope as a promise.
@@ -89,6 +80,24 @@ impl Handle {
     #[napi]
     pub fn close(&mut self) {
         self.kartta = None;
+    }
+
+    fn on_a_thread_of_its_own<'env>(
+        &self,
+        env: &'env Env,
+        method: &'static str,
+        params: String,
+    ) -> Result<Object<'env>> {
+        let kartta = self.kartta()?;
+        let (deferred, promise) = env.create_deferred()?;
+        thread::Builder::new()
+            .name(format!("kartta-{method}"))
+            .spawn(move || {
+                let answer = kartta.call(method, params.as_bytes());
+                deferred.resolve(move |_| Ok(Buffer::from(answer)));
+            })
+            .map_err(|error| Error::from_reason(format!("no thread for the {method}: {error}")))?;
+        Ok(promise)
     }
 
     fn kartta(&self) -> Result<Arc<kartta_ffi::Kartta>> {
