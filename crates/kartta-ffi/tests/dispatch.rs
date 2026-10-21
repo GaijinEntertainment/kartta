@@ -923,6 +923,35 @@ fn a_name_nothing_defines_answers_the_definitions_one_edit_from_it() {
 }
 
 #[test]
+fn definitions_and_sources_of_a_name_nothing_defines_answer_the_definitions_one_edit_from_it() {
+    let (_tree, kartta) = stores(&["a", "b"]);
+
+    for method in ["definitions", "sources"] {
+        let misspelled = ok(&kartta, method, &json!({ "name": "Stroe.Close" }));
+        let matched = ok(&kartta, method, &json!({ "name": "Store.Close" }));
+        let unknown = ok(&kartta, method, &json!({ "name": "Missing" }));
+
+        assert_eq!(misspelled["matches"], json!([]), "{method}: {misspelled}");
+        assert_eq!(
+            unmatched_in(&misspelled, "unmatched"),
+            (
+                json!("one_edit"),
+                json!(2),
+                vec![json!("a/store.go"), json!("b/store.go")]
+            ),
+            "{method}"
+        );
+        assert_eq!(
+            qualified_in(&misspelled, "unmatched"),
+            in_each_package("Store.Close"),
+            "{method}"
+        );
+        assert_eq!(keys(&matched), ["matches"], "{method}: {matched}");
+        assert_eq!(keys(&unknown), ["matches"], "{method}: {unknown}");
+    }
+}
+
+#[test]
 fn a_name_that_matches_or_names_nothing_answers_no_unmatched_key() {
     let (_tree, kartta) = stores(&["a", "b"]);
 
