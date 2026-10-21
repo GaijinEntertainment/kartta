@@ -1,6 +1,7 @@
 //! The wire, pinned: every file under `tests/golden` is one method's request on the fixture tree under
-//! `tests/fixture` and the answer it must get, which the Go binding's tests read too. `KARTTA_FFI_BLESS=1` writes the
-//! answers the dispatch gives now in place of the pinned ones.
+//! `tests/fixture` and the answer it must get, which the Go and Node bindings' tests read too. Every value must match
+//! exactly, except a `score`, which must agree with the pinned one within a relative 1e-12. `KARTTA_FFI_BLESS=1`
+//! writes the answers the dispatch gives now in place of the pinned ones.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,8 +9,41 @@ use std::path::{Path, PathBuf};
 use kartta_ffi::Kartta;
 use serde_json::{Value, json};
 
+// constraint: search's scores pass through `ln_1p`, which Apple's libm and glibc round apart in the last bits
+const SCORE_TOLERANCE: f64 = 1e-12;
+
 fn here(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
+}
+
+fn pin_agreeing_scores(answer: &mut Value, golden: &Value) {
+    match (answer, golden) {
+        (Value::Object(answer), Value::Object(golden)) => {
+            for (key, value) in answer {
+                let Some(pinned) = golden.get(key) else {
+                    continue;
+                };
+                if key == "score" && scores_agree(value, pinned) {
+                    value.clone_from(pinned);
+                } else {
+                    pin_agreeing_scores(value, pinned);
+                }
+            }
+        }
+        (Value::Array(answer), Value::Array(golden)) => {
+            for (item, pinned) in answer.iter_mut().zip(golden) {
+                pin_agreeing_scores(item, pinned);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scores_agree(answer: &Value, pinned: &Value) -> bool {
+    let (Some(answer), Some(pinned)) = (answer.as_f64(), pinned.as_f64()) else {
+        return false;
+    };
+    (answer - pinned).abs() <= SCORE_TOLERANCE * answer.abs().max(pinned.abs())
 }
 
 #[test]
@@ -33,7 +67,7 @@ fn every_method_answers_its_golden_request_as_pinned() {
             serde_json::from_slice(&fs::read(path).expect("a golden")).expect("JSON");
         let method = golden["method"].as_str().expect("a method").to_owned();
         let params = golden["params"].to_string();
-        let answer: Value =
+        let mut answer: Value =
             serde_json::from_slice(&kartta.call(&method, params.as_bytes())).expect("JSON");
         answered.push(method.clone());
         if bless {
@@ -41,6 +75,7 @@ fn every_method_answers_its_golden_request_as_pinned() {
             let text = serde_json::to_string_pretty(&golden).expect("JSON") + "\n";
             fs::write(path, text).expect("the golden is written");
         } else {
+            pin_agreeing_scores(&mut answer, &golden["answer"]);
             assert_eq!(answer, golden["answer"], "{method}");
         }
     }
@@ -50,4 +85,29 @@ fn every_method_answers_its_golden_request_as_pinned() {
         serde_json::from_value(version["ok"]["methods"].clone()).expect("names");
     answered.sort();
     assert_eq!(answered, methods, "one golden per method");
+}
+
+const PINNED_SCORE: f64 = 3.579_907_375_813_987_4;
+const PINNED_WEIGHT: f64 = 0.702_477_415_651_192_4;
+
+fn agrees_with_golden(score: f64, weight: f64) -> bool {
+    let golden = json!({ "hits": [{ "score": PINNED_SCORE, "weight": PINNED_WEIGHT }] });
+    let mut answer = json!({ "hits": [{ "score": score, "weight": weight }] });
+    pin_agreeing_scores(&mut answer, &golden);
+    answer == golden
+}
+
+#[test]
+fn a_score_that_differs_in_its_last_digit_agrees_with_the_pinned_one() {
+    assert!(agrees_with_golden(3.579_907_375_813_988, PINNED_WEIGHT));
+}
+
+#[test]
+fn a_score_that_differs_in_a_real_digit_does_not_agree() {
+    assert!(!agrees_with_golden(3.579_907_375_913_988, PINNED_WEIGHT));
+}
+
+#[test]
+fn a_number_outside_a_score_must_match_exactly() {
+    assert!(!agrees_with_golden(PINNED_SCORE, 0.702_477_415_651_192_5));
 }
