@@ -6,7 +6,7 @@ use kartta_lang::SymbolKind;
 use crate::graph::{
     Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, is_parent, last_segment,
 };
-use crate::resolve::{Cascade, is_type_kind};
+use crate::resolve::Cascade;
 use crate::stored::{Parent, SymbolAt};
 use crate::strings::Str;
 
@@ -350,7 +350,7 @@ impl Types<'_> {
             .graph
             .named(self.graph.strings.get(last_segment(written))?);
         let mut types = named.iter().copied().filter(|&at| {
-            is_type_kind(self.graph.sym(at).kind) && self.file_names(file, type_name, at)
+            self.graph.sym(at).kind.is_type() && self.file_names(file, type_name, at)
         });
         let found = types.next()?;
         types.next().is_none().then_some(found)
@@ -433,5 +433,5 @@ fn lookup_depth(qualified: &str, enclosing: &str, written: &str, separator: &str
 }
 
 const fn is_implementor_kind(kind: SymbolKind) -> bool {
-    is_type_kind(kind) || matches!(kind, SymbolKind::Namespace)
+    kind.is_type() || matches!(kind, SymbolKind::Namespace)
 }

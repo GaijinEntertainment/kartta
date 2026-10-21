@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use kartta::{
     CallPath, Candidate, Change, Definition, DirectCalls, Hotspot, ReachBand, Reached, Reference,
-    References, Seed, Segment, SymbolKind, TypeUses, Walk, is_type_kind,
+    References, Seed, Segment, SymbolKind, TypeUses, Walk,
 };
 
 use super::{
@@ -210,7 +210,7 @@ fn reference_match(
 ) -> String {
     let symbol = &references.symbol;
     let counts = &references.counts;
-    let reads = if is_type_kind(symbol.kind) {
+    let reads = if symbol.kind.is_type() {
         "types"
     } else {
         "reads"
@@ -242,8 +242,7 @@ fn reference_match(
             .map(|&(_, note)| note),
         _ => None,
     };
-    let unrecorded =
-        (type_uses == TypeUses::Nowhere && is_type_kind(symbol.kind)).then_some(family);
+    let unrecorded = (type_uses == TypeUses::Nowhere && symbol.kind.is_type()).then_some(family);
     let passed_over = candidates(&references.candidates, "sites");
     if references.sites.is_empty() {
         let text = if references.below_confidence > 0 {
@@ -392,7 +391,7 @@ fn site_records<'g>(of: SymbolKind, sites: &[Reference<'g>]) -> Vec<SiteRecord<'
 const fn site_kind(of: SymbolKind, site: &Reference<'_>) -> &'static str {
     match site.access {
         _ if site.call => "call",
-        _ if is_type_kind(of) => "type",
+        _ if of.is_type() => "type",
         access => access.label(),
     }
 }
