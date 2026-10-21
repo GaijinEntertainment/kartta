@@ -65,6 +65,11 @@ export type NoParams = Record<string, never>;
 export type BuildParams = {
 	/** Names the build for a cancel; {@link Kartta.build} sets it. */
 	id?: number;
+	/**
+	 * Names the build for a cancel `by` `binding_id`, apart from `id`: a binding over the wire names each call it runs
+	 * by one, so the ids its callers give never stop a call of its own.
+	 */
+	binding_id?: number;
 	/** The languages to build graphs of, by the names `version` lists; absent builds every one, empty none. */
 	languages?: string[];
 	/** Bounds the threads the index runs on; absent takes every core. */
@@ -108,6 +113,11 @@ export type ContentIndex = {storage: 'memory'} | {storage: 'file' | 'mapped'; di
 export type RefreshParams = {
 	/** Names the refresh for a cancel. */
 	id?: number;
+	/**
+	 * Names the refresh for a cancel `by` `binding_id`, apart from `id`: a binding over the wire names each call it runs
+	 * by one, so the ids its callers give never stop a call of its own.
+	 */
+	binding_id?: number;
 	/**
 	 * The root-relative paths that changed, spelled as the index's answers spell them; absent or null refreshes the
 	 * whole tree, and empty walks nothing.
@@ -171,14 +181,19 @@ export type CancelParams = {
 	grep?: number;
 	/** The id of the refresh to stop. */
 	refresh?: number;
+	/**
+	 * The name of a call the ids above are compared with: its `id`, by default, or its `binding_id`. An id by one name
+	 * never stops a call by the other.
+	 */
+	by?: 'id' | 'binding_id';
 };
 
 /** The answer of `cancel`. */
 export type CancelAnswer = {
 	/**
 	 * Whether a call in flight was stopped. A named call that has not entered the library starts stopped, unless cancels
-	 * that stopped nothing named 1,024 distinct later ids of its kind before it entered; a grep that had already opened
-	 * its last file answers whole, with `cancelled` false, and a refresh past its walk finishes.
+	 * that stopped nothing named 1,024 distinct later ids of its kind by the same name before it entered; a grep that
+	 * had already opened its last file answers whole, with `cancelled` false, and a refresh past its walk finishes.
 	 */
 	stopped: boolean;
 };
@@ -928,6 +943,11 @@ export type Fuzzy = {
 export type GrepParams = {
 	/** Names the grep for a cancel; {@link Kartta.grep} sets it. */
 	id?: number;
+	/**
+	 * Names the grep for a cancel `by` `binding_id`, apart from `id`: a binding over the wire names each call it runs
+	 * by one, so the ids its callers give never stop a call of its own.
+	 */
+	binding_id?: number;
 	patterns: string[];
 	case_insensitive?: boolean;
 	/** Keep the files they match; absent keeps every file. */

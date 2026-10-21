@@ -12,7 +12,7 @@ use crate::error::{Error, ErrorCode};
 use crate::query::QUERIES;
 use crate::wire::files::{GrepParams, GrepView};
 use crate::wire::{
-    self, BuildParams, CancelAnswer, CancelParams, NoParams, OpenParams, RefreshParams,
+    self, BuildParams, By, CancelAnswer, CancelParams, NoParams, OpenParams, RefreshParams,
     StatsAnswer, StoredErrors,
 };
 
@@ -46,13 +46,24 @@ struct Calls {
     entered: u64,
     in_flight: Vec<InFlight>,
     cancelled_ahead: Vec<u64>,
+    binding_ids_cancelled_ahead: Vec<u64>,
 }
 
 #[derive(Debug)]
 struct InFlight {
     ticket: u64,
     id: Option<u64>,
+    binding_id: Option<u64>,
     token: CancelToken,
+}
+
+impl InFlight {
+    const fn named(&self, by: By) -> Option<u64> {
+        match by {
+            By::Id => self.id,
+            By::BindingId => self.binding_id,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -142,7 +153,7 @@ impl Kartta {
         let languages = params.languages()?;
         let options = params.options()?;
 
-        let (ticket, token) = lock(&self.builds).enter(params.id);
+        let (ticket, token) = lock(&self.builds).enter(params.id, params.binding_id);
         let _one_build = lock(&self.one_build_at_a_time);
         let mut refreshes = lock(&self.refreshes);
         refreshes.cancel(None);
@@ -179,7 +190,7 @@ impl Kartta {
         let built = read(&built)?;
         let index = built.engine.index();
 
-        let (ticket, token) = lock(&self.greps).enter(params.id);
+        let (ticket, token) = lock(&self.greps).enter(params.id, params.binding_id);
         let searched = panic::catch_unwind(AssertUnwindSafe(|| params.search(index, &token)));
         lock(&self.greps).leave(ticket);
 
@@ -193,7 +204,7 @@ impl Kartta {
         let paths = params.paths()?;
         let (built, (ticket, token)) = {
             let mut refreshes = lock(&self.refreshes);
-            (self.built()?, refreshes.enter(params.id))
+            (self.built()?, refreshes.enter(params.id, params.binding_id))
         };
         let refreshed = panic::catch_unwind(AssertUnwindSafe(|| {
             built.write().map_err(|_| broken())?.refresh(paths, &token)
@@ -205,10 +216,13 @@ impl Kartta {
 
     fn cancel(&self, params: &CancelParams) -> CancelAnswer {
         let every = params.build.is_none() && params.grep.is_none() && params.refresh.is_none();
-        let builds = (every || params.build.is_some()) && lock(&self.builds).cancel(params.build);
-        let greps = (every || params.grep.is_some()) && lock(&self.greps).cancel(params.grep);
-        let refreshes =
-            (every || params.refresh.is_some()) && lock(&self.refreshes).cancel(params.refresh);
+        let named = |id: Option<u64>| id.map(|id| (params.by, id));
+        let builds =
+            (every || params.build.is_some()) && lock(&self.builds).cancel(named(params.build));
+        let greps =
+            (every || params.grep.is_some()) && lock(&self.greps).cancel(named(params.grep));
+        let refreshes = (every || params.refresh.is_some())
+            && lock(&self.refreshes).cancel(named(params.refresh));
 
         CancelAnswer {
             stopped: builds || greps || refreshes,
@@ -269,18 +283,22 @@ fn methods() -> Vec<&'static str> {
 }
 
 impl Calls {
-    fn enter(&mut self, id: Option<u64>) -> (u64, CancelToken) {
+    fn enter(&mut self, id: Option<u64>, binding_id: Option<u64>) -> (u64, CancelToken) {
         let token = CancelToken::new();
-        if let Some(id) = id
-            && let Some(at) = self.cancelled_ahead.iter().position(|&ahead| ahead == id)
-        {
-            self.cancelled_ahead.remove(at);
-            token.cancel();
+        for (by, named) in [(By::Id, id), (By::BindingId, binding_id)] {
+            let remembered = self.remembered(by);
+            if let Some(named) = named
+                && let Some(at) = remembered.iter().position(|&ahead| ahead == named)
+            {
+                remembered.remove(at);
+                token.cancel();
+            }
         }
         self.entered += 1;
         self.in_flight.push(InFlight {
             ticket: self.entered,
             id,
+            binding_id,
             token: token.clone(),
         });
         (self.entered, token)
@@ -290,24 +308,32 @@ impl Calls {
         self.in_flight.retain(|build| build.ticket != ticket);
     }
 
-    fn cancel(&mut self, id: Option<u64>) -> bool {
+    fn cancel(&mut self, named: Option<(By, u64)>) -> bool {
         let mut stopped = false;
         for build in &self.in_flight {
-            if id.is_none() || build.id == id {
+            if named.is_none_or(|(by, id)| build.named(by) == Some(id)) {
                 build.token.cancel();
                 stopped = true;
             }
         }
-        if let Some(id) = id
-            && !stopped
-            && !self.cancelled_ahead.contains(&id)
-        {
-            if self.cancelled_ahead.len() == CANCELLED_AHEAD_LIMIT {
-                self.cancelled_ahead.remove(0);
+        let Some((by, id)) = named else {
+            return stopped;
+        };
+        let remembered = self.remembered(by);
+        if !stopped && !remembered.contains(&id) {
+            if remembered.len() == CANCELLED_AHEAD_LIMIT {
+                remembered.remove(0);
             }
-            self.cancelled_ahead.push(id);
+            remembered.push(id);
         }
         stopped
+    }
+
+    const fn remembered(&mut self, by: By) -> &mut Vec<u64> {
+        match by {
+            By::Id => &mut self.cancelled_ahead,
+            By::BindingId => &mut self.binding_ids_cancelled_ahead,
+        }
     }
 }
 
@@ -325,7 +351,7 @@ mod tests {
 
     use serde_json::Value;
 
-    use super::{CANCELLED_AHEAD_LIMIT, Calls, CancelParams, Kartta, lock};
+    use super::{By, CANCELLED_AHEAD_LIMIT, Calls, CancelParams, Kartta, lock};
 
     fn handle() -> (tempfile::TempDir, Kartta) {
         let tree = tempfile::tempdir().expect("a temporary directory");
@@ -389,9 +415,9 @@ mod tests {
     #[test]
     fn a_cancel_naming_no_call_stops_every_build_grep_and_refresh_in_flight() {
         let (_tree, kartta) = handle();
-        let (_, build) = lock(&kartta.builds).enter(Some(1));
-        let (_, grep) = lock(&kartta.greps).enter(Some(2));
-        let (_, refresh) = lock(&kartta.refreshes).enter(Some(3));
+        let (_, build) = lock(&kartta.builds).enter(Some(1), None);
+        let (_, grep) = lock(&kartta.greps).enter(Some(2), None);
+        let (_, refresh) = lock(&kartta.refreshes).enter(Some(3), None);
 
         let answer = kartta.cancel(&CancelParams::default());
 
@@ -402,7 +428,7 @@ mod tests {
     #[test]
     fn a_build_cancels_the_refreshes_in_flight_as_it_drops_their_engine() {
         let (_tree, kartta) = built();
-        let (_, refresh) = lock(&kartta.refreshes).enter(Some(1));
+        let (_, refresh) = lock(&kartta.refreshes).enter(Some(1), None);
 
         let rebuilt: Value = serde_json::from_slice(&kartta.call("build", b"")).expect("JSON");
 
@@ -413,8 +439,8 @@ mod tests {
     #[test]
     fn a_cancel_naming_a_grep_leaves_a_build_of_that_id_running() {
         let (_tree, kartta) = handle();
-        let (_, build) = lock(&kartta.builds).enter(Some(2));
-        let (_, grep) = lock(&kartta.greps).enter(Some(2));
+        let (_, build) = lock(&kartta.builds).enter(Some(2), None);
+        let (_, grep) = lock(&kartta.greps).enter(Some(2), None);
 
         let answer = kartta.cancel(&CancelParams {
             grep: Some(2),
@@ -429,8 +455,8 @@ mod tests {
     fn a_cancel_repeated_before_its_build_enters_is_remembered_once() {
         let mut builds = Calls::default();
 
-        builds.cancel(Some(7));
-        builds.cancel(Some(7));
+        builds.cancel(Some((By::Id, 7)));
+        builds.cancel(Some((By::Id, 7)));
 
         assert_eq!(builds.cancelled_ahead, [7]);
     }
@@ -438,11 +464,29 @@ mod tests {
     #[test]
     fn a_cancel_naming_a_call_in_flight_trips_its_token_and_remembers_nothing() {
         let mut calls = Calls::default();
-        let (_, token) = calls.enter(Some(3));
+        let (_, token) = calls.enter(Some(3), None);
 
-        assert!(calls.cancel(Some(3)), "the call was in flight");
+        assert!(calls.cancel(Some((By::Id, 3))), "the call was in flight");
         assert!(token.is_cancelled());
         assert_eq!(calls.cancelled_ahead, Vec::<u64>::new());
+    }
+
+    #[test]
+    fn a_call_in_flight_stops_by_either_of_its_names_and_not_by_its_id_under_the_other() {
+        let mut calls = Calls::default();
+        let (_, token) = calls.enter(Some(3), Some(9));
+
+        assert!(
+            !calls.cancel(Some((By::Id, 9))),
+            "9 is the call's binding id"
+        );
+        assert!(
+            !calls.cancel(Some((By::BindingId, 3))),
+            "3 is the call's id"
+        );
+        assert!(!token.is_cancelled());
+        assert!(calls.cancel(Some((By::BindingId, 9))));
+        assert!(token.is_cancelled());
     }
 
     #[test]
@@ -451,13 +495,27 @@ mod tests {
         let last_id = u64::try_from(CANCELLED_AHEAD_LIMIT).expect("the limit fits a u64") + 1;
 
         for id in 1..=last_id {
-            calls.cancel(Some(id));
+            calls.cancel(Some((By::Id, id)));
         }
 
         assert_eq!(calls.cancelled_ahead.len(), CANCELLED_AHEAD_LIMIT);
-        let (_, first) = calls.enter(Some(1));
-        let (_, last) = calls.enter(Some(last_id));
+        let (_, first) = calls.enter(Some(1), None);
+        let (_, last) = calls.enter(Some(last_id), None);
         assert!(!first.is_cancelled(), "the oldest id was forgotten");
         assert!(last.is_cancelled(), "the latest id was remembered");
+    }
+
+    #[test]
+    fn stale_cancels_by_id_past_the_limit_leave_a_binding_id_remembered() {
+        let mut calls = Calls::default();
+        let last_id = u64::try_from(CANCELLED_AHEAD_LIMIT).expect("the limit fits a u64") + 1;
+        calls.cancel(Some((By::BindingId, 1)));
+
+        for id in 1..=last_id {
+            calls.cancel(Some((By::Id, id)));
+        }
+
+        let (_, bound) = calls.enter(None, Some(1));
+        assert!(bound.is_cancelled(), "the binding id was remembered apart");
     }
 }

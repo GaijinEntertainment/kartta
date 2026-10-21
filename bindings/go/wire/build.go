@@ -6,6 +6,9 @@ type BuildOptions struct {
 	// ID names the build for a cancel. The kartta package's Build sets it; Call keeps one other than 0, and picks one
 	// in place of 0.
 	ID uint64 `json:"id,omitempty"`
+	// BindingID names the build for a cancel ByBindingID, apart from ID: a binding over the wire names each call it
+	// runs by one, so the IDs its callers give never stop a call of its own.
+	BindingID uint64 `json:"binding_id,omitempty"`
 	// Languages are the languages to build graphs of, by the names Version lists; nil builds every one, and an empty
 	// list none.
 	Languages []string `json:"languages"`
@@ -77,13 +80,28 @@ type CancelParams struct {
 	Grep uint64 `json:"grep,omitempty"`
 	// Refresh is the ID of the refresh to stop; 0 names none.
 	Refresh uint64 `json:"refresh,omitempty"`
+	// By is the name of a call the IDs above are compared with: ByID, the default, or ByBindingID.
+	By By `json:"by,omitempty"`
 }
+
+// By is the name of a build, a grep or a refresh that a cancel compares its IDs with. An ID by one name never stops a
+// call by the other.
+type By string
+
+// The names a cancel compares its IDs with.
+const (
+	// ByID compares them with the ID a call's caller gives.
+	ByID By = "id"
+	// ByBindingID compares them with the BindingID a binding gives each call it runs.
+	ByBindingID By = "binding_id"
+)
 
 // CancelAnswer is the answer of the cancel method.
 type CancelAnswer struct {
 	// Stopped reports whether the cancel stopped a call in flight. A named call that has not entered the library starts
-	// stopped, unless cancels that stopped nothing named 1,024 distinct later ids of its kind before it entered; a grep
-	// that had already opened its last file answers whole, with Cancelled false, and a refresh past its walk finishes.
+	// stopped, unless cancels that stopped nothing named 1,024 distinct later ids of its kind by the same name before
+	// it entered; a grep that had already opened its last file answers whole, with Cancelled false, and a refresh past
+	// its walk finishes.
 	Stopped bool `json:"stopped"`
 }
 

@@ -10,7 +10,8 @@
 //! language `kartta-languages` ships, or of those the params name; every query asks what the last finished build
 //! made, and `refresh` brings that up to the tree in place. Queries run concurrently; builds run one at a time, and a
 //! query waits for a refresh under way. A build, a grep and a refresh each run under a cancel of their own, which
-//! `cancel` trips by the id the call named.
+//! `cancel` trips by the `id` the call's caller gave it, or by the `binding_id` a binding gave it; an id by one name
+//! never stops a call by the other.
 //!
 //! Answers are kartta's own: each carries the counts the engine holds of what a cap, a depth bound or a confidence
 //! floor left out.

@@ -201,6 +201,10 @@ fn params_that_are_not_the_method_s_answer_invalid_params() {
         code(&kartta, "cancel", &json!({ "build": "first" })),
         "invalid_params"
     );
+    assert_eq!(
+        code(&kartta, "cancel", &json!({ "build": 1, "by": "slot" })),
+        "invalid_params"
+    );
     let not_json: Value = serde_json::from_slice(&kartta.call("version", b"{")).expect("JSON");
     assert_eq!(not_json["err"]["code"], "invalid_request");
     assert_eq!(
@@ -1110,6 +1114,26 @@ fn a_cancel_naming_a_build_leaves_a_grep_of_that_id_alone() {
     let found = ok(&kartta, "grep", &json!({ "patterns": ["func"], "id": 5 }));
 
     assert_eq!(found["cancelled"], false);
+}
+
+#[test]
+fn a_cancel_by_one_name_of_a_build_never_stops_a_build_by_the_other() {
+    let tree = tree();
+    let kartta = open(tree.path());
+
+    ok(&kartta, "cancel", &json!({ "build": 7 }));
+    ok(
+        &kartta,
+        "cancel",
+        &json!({ "build": 8, "by": "binding_id" }),
+    );
+    let by_binding_id = call(&kartta, "build", &json!({ "binding_id": 7 }));
+    let by_id = call(&kartta, "build", &json!({ "id": 8 }));
+    let by_both = call(&kartta, "build", &json!({ "id": 7, "binding_id": 8 }));
+
+    assert!(by_binding_id.get("ok").is_some(), "{by_binding_id}");
+    assert!(by_id.get("ok").is_some(), "{by_id}");
+    assert_eq!(by_both["err"]["code"], "build_cancelled");
 }
 
 #[test]
