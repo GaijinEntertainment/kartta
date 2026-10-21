@@ -28,4 +28,8 @@ impl Backend {
     pub(super) fn descended(&mut self) -> Result<(), WatchError> {
         match *self {}
     }
+
+    pub(super) fn release(&mut self, _dirs: &[String]) {
+        match *self {}
+    }
 }

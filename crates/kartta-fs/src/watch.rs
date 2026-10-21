@@ -52,10 +52,11 @@ const REPORTED: Duration = Duration::from_millis(50);
 /// of [`Index::refresh_paths_watched`], which takes in each directory made later. A directory named `.git` or in
 /// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names) is never watched, and one the ignore rules the
 /// walk reads hide is not watched until a `.gitignore` edit shows it and the refresh that takes it in watches it; one
-/// an edit hides keeps the watches it had until the watcher is replaced. On macOS the root is watched through
-/// `FSEvents` and on Windows through `ReadDirectoryChangesW`, both of which cover the whole tree, ignored and pruned
-/// parts included; a refresh of an ignored or pruned path changes nothing and costs no pass over the index, except
-/// that a changed `.gitignore` under a pruned name re-walks the directory whose rules it holds.
+/// an edit hides loses its watches, and those of every directory below it, to the refresh that drops it from the
+/// index. On macOS the root is watched through `FSEvents` and on Windows through `ReadDirectoryChangesW`, both of
+/// which cover the whole tree, ignored and pruned parts included; a refresh of an ignored or pruned path changes
+/// nothing and costs no pass over the index, except that a changed `.gitignore` under a pruned name re-walks the
+/// directory whose rules it holds.
 ///
 /// A change made before the watcher starts is not reported, but on macOS and Windows one made moments before can
 /// still arrive; refreshing its path changes nothing when the index already holds the change, as for one the walk
@@ -246,7 +247,10 @@ impl Index {
     /// On Linux the walk watches each directory it keeps before it lists it, as [`Index::build_watched`] does, at a
     /// watch call a directory, one already watched included. The ignore rules the walk reads decide what it keeps, so
     /// a directory they hide is not watched, and one a `.gitignore` edit shows is watched by the refresh that takes it
-    /// in; one an edit hides keeps the watches it had until the watcher is replaced. On macOS and Windows the watcher
+    /// in. Each directory the refresh drops from the index, such as one an edit hides, loses its watches and those of
+    /// every directory below it, at one pass over the watcher's watches for a refresh that drops any. inotify queues a
+    /// notice of each watch released, so releasing more watches than `fs.inotify.max_queued_events` leaves room for
+    /// overflows the queue, and the next [`Watcher::wait`] hands over the whole tree. On macOS and Windows the watcher
     /// already covers the whole tree, and this is [`Index::refresh_paths`].
     ///
     /// # Errors
@@ -267,7 +271,7 @@ impl Index {
         visitor: Option<&dyn ContentVisitor>,
         cancel: Option<&CancelToken>,
     ) -> Result<(RefreshOutcome, Result<(), WatchError>), BuildError> {
-        let refreshed = {
+        let mut refreshed = {
             let hook = watcher.backend.descending();
             self.refresh_paths_walking(
                 paths,
@@ -277,6 +281,9 @@ impl Index {
                 },
             )
         }?;
+        watcher
+            .backend
+            .release(&std::mem::take(&mut refreshed.removed_dirs));
         Ok((refreshed, watcher.backend.descended()))
     }
 }
