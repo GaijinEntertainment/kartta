@@ -63,11 +63,12 @@ export type NoParams = Record<string, never>;
  * files, with no content index and no cache.
  */
 export type BuildParams = {
-	/** Names the build for a cancel; {@link Kartta.build} sets it. */
+	/** Names the build for a cancel; the handle passes it on as it is. */
 	id?: number;
 	/**
 	 * Names the build for a cancel `by` `binding_id`, apart from `id`: a binding over the wire names each call it runs
-	 * by one, so the ids its callers give never stop a call of its own.
+	 * by one, so the ids its callers give never stop a call of its own. The handle sets it, in place of any the params
+	 * give.
 	 */
 	binding_id?: number;
 	/** The languages to build graphs of, by the names `version` lists; absent builds every one, empty none. */
@@ -97,8 +98,8 @@ export type BuildParams = {
 	stamps?: boolean;
 };
 
-/** The options of {@link Kartta.build}: the params of `build` but the id the binding gives each build. */
-export type BuildOptions = Omit<BuildParams, 'id'>;
+/** The options of {@link Kartta.build}: the params of `build` but the binding id the handle gives each build. */
+export type BuildOptions = Omit<BuildParams, 'binding_id'>;
 
 /** Extends a built-in set, or replaces it. */
 export type SetChange = {extend: string[]} | {replace: string[]};
@@ -111,11 +112,12 @@ export type ContentIndex = {storage: 'memory'} | {storage: 'file' | 'mapped'; di
  * rejects with `no_stamps`.
  */
 export type RefreshParams = {
-	/** Names the refresh for a cancel. */
+	/** Names the refresh for a cancel; the handle passes it on as it is. */
 	id?: number;
 	/**
 	 * Names the refresh for a cancel `by` `binding_id`, apart from `id`: a binding over the wire names each call it runs
-	 * by one, so the ids its callers give never stop a call of its own.
+	 * by one, so the ids its callers give never stop a call of its own. The handle sets it, in place of any the params
+	 * give.
 	 */
 	binding_id?: number;
 	/**
@@ -125,8 +127,8 @@ export type RefreshParams = {
 	paths?: string[] | null;
 };
 
-/** The options of {@link Kartta.refresh}: the params of `refresh` but the id. */
-export type RefreshOptions = Omit<RefreshParams, 'id'>;
+/** The options of {@link Kartta.refresh}: the params of `refresh` but the binding id the handle gives each refresh. */
+export type RefreshOptions = Omit<RefreshParams, 'binding_id'>;
 
 /** The answer of `refresh`: what it walked again, and what the index and the graphs took in and let go. */
 export type Refresh = {
@@ -941,11 +943,12 @@ export type Fuzzy = {
 
 /** The params of `grep`. */
 export type GrepParams = {
-	/** Names the grep for a cancel; {@link Kartta.grep} sets it. */
+	/** Names the grep for a cancel; the handle passes it on as it is. */
 	id?: number;
 	/**
 	 * Names the grep for a cancel `by` `binding_id`, apart from `id`: a binding over the wire names each call it runs
-	 * by one, so the ids its callers give never stop a call of its own.
+	 * by one, so the ids its callers give never stop a call of its own. The handle sets it, in place of any the params
+	 * give.
 	 */
 	binding_id?: number;
 	patterns: string[];
@@ -966,8 +969,8 @@ export type GrepParams = {
 	max_file_bytes?: number;
 };
 
-/** The options of {@link Kartta.grep}: the params of `grep` but the id the binding gives each grep. */
-export type GrepOptions = Omit<GrepParams, 'id'>;
+/** The options of {@link Kartta.grep}: the params of `grep` but the binding id the handle gives each grep. */
+export type GrepOptions = Omit<GrepParams, 'binding_id'>;
 
 /** The answer of `grep`: the files holding a match with their lines, and the account of every candidate. */
 export type Grep = {
