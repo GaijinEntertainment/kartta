@@ -8,12 +8,22 @@ use super::{Index, Paths, tree_order};
 #[cfg(feature = "watch")]
 use crate::list::is_below;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct ChangedFiles {
     pub(crate) added: Vec<String>,
     pub(crate) removed: Vec<String>,
     #[cfg(feature = "watch")]
     pub(crate) removed_dirs: Vec<String>,
+    pub(crate) len_before: usize,
+    pub(crate) replaced: Vec<Replaced>,
+    pub(crate) reshaped: bool,
+}
+
+/// A run of positions a refresh walked again: the positions it held before the refresh, and those it holds after.
+#[derive(Debug)]
+pub(crate) struct Replaced {
+    pub(crate) before: Range<usize>,
+    pub(crate) after: Range<usize>,
 }
 
 pub(crate) trait Side {
@@ -63,7 +73,28 @@ impl Side for &[Fresh] {
 }
 
 impl ChangedFiles {
-    pub(crate) fn add_between(&mut self, mut before: impl Side, mut after: impl Side) {
+    /// No change yet to `index` as it stands before a refresh.
+    pub(crate) const fn since(index: &Index) -> Self {
+        Self {
+            added: Vec::new(),
+            removed: Vec::new(),
+            #[cfg(feature = "watch")]
+            removed_dirs: Vec::new(),
+            len_before: index.len(),
+            replaced: Vec::new(),
+            reshaped: false,
+        }
+    }
+
+    /// Compares a run the index held with what replaces it, the runs taken in rising order of position.
+    pub(crate) fn add_between(&mut self, mut before: Held<'_>, mut after: impl Side) {
+        let start = self.replaced.last().map_or(before.range.start, |last| {
+            before.range.start - last.before.end + last.after.end
+        });
+        self.replaced.push(Replaced {
+            before: before.range.clone(),
+            after: start..start + after.count(),
+        });
         let (mut early, mut late) = (0, 0);
         while early < before.count() || late < after.count() {
             let order = if early == before.count() {
@@ -85,6 +116,7 @@ impl ChangedFiles {
             if now == Some(EntryKind::File) && was != now {
                 self.added.push(after.at(late).0.to_owned());
             }
+            self.reshaped |= was != now;
             early += usize::from(was.is_some());
             late += usize::from(now.is_some());
         }

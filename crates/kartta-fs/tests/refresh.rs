@@ -22,6 +22,7 @@ use common::{tree, write};
 use kartta_fs::{
     BuildError, BuildOptions, CancelToken, Case, Content, ContentId, ContentIndexStorage,
     ContentVisitor, EntryKind, GrepOptions, IgnoreSources, Index, Patterns, PrunedNames,
+    RefreshOutcome,
 };
 use tempfile::TempDir;
 
@@ -653,6 +654,114 @@ fn a_refresh_walked_over_the_paths_inside_its_parts_and_no_other() {
     );
     assert!(whole.walked_over("z/f.rs") && whole.walked_over(""));
     assert!(none.walked.is_empty() && !none.walked_over("z/f.rs") && !none.walked_over(""));
+}
+
+/// Asserts that every entry before `outcome` either sits after it where [`RefreshOutcome::position_after`] says, or lay
+/// inside a part it walked, and that every position after it holds a kept entry or lies inside a walked part.
+fn assert_placed(before: &[String], after: &[String], outcome: &RefreshOutcome) {
+    let mut placed = vec![false; after.len()];
+    for (position, path) in before.iter().enumerate() {
+        match outcome.position_after(position) {
+            Some(moved) => {
+                assert_eq!(after[moved], *path, "{path} moved to {moved}");
+                placed[moved] = true;
+            }
+            None => assert!(outcome.walked_over(path), "{path} lay in a walked part"),
+        }
+    }
+    for at in outcome.walked_positions().flatten() {
+        assert!(!placed[at], "{} is both kept and walked", after[at]);
+        placed[at] = true;
+    }
+    assert!(placed.iter().all(|&placed| placed), "{placed:?}");
+}
+
+#[test]
+fn a_refresh_says_where_each_entry_it_kept_sits_now_and_what_its_parts_hold() {
+    let dir = tree(&[
+        ("a/b.rs", "a"),
+        ("a/c.rs", "b"),
+        ("d/e.rs", "c"),
+        ("f.rs", "d"),
+        ("g/h.rs", "e"),
+        ("z.rs", "f"),
+    ]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+    let before = paths(&index);
+
+    fs::remove_file(dir.path().join("a/b.rs")).expect("remove");
+    write(dir.path(), "d/new.rs", "g");
+    write(dir.path(), "n/deep/x.rs", "h");
+    fs::remove_dir_all(dir.path().join("g")).expect("remove the directory");
+    let outcome = index
+        .refresh_paths(["a/b.rs", "d/new.rs", "n/deep/x.rs", "g"], None, None)
+        .expect("refresh the paths");
+
+    assert!(!outcome.kept_positions());
+    let after = paths(&index);
+    let walked: Vec<Vec<&str>> = outcome
+        .walked_positions()
+        .map(|run| run.map(|at| after[at].as_str()).collect())
+        .collect();
+    let gone: [&str; 0] = [];
+    assert_eq!(
+        walked,
+        [&gone[..], &["d/new.rs"], &["n", "n/deep", "n/deep/x.rs"]],
+        "a run for a/b.rs, for d/new.rs, and one for g and n, which lay side by side"
+    );
+    assert_placed(&before, &after, &outcome);
+    assert_eq!(outcome.position_after(before.len()), None);
+}
+
+#[test]
+fn an_entry_that_changed_kind_in_place_is_not_kept() {
+    let dir = tree(&[("a.rs", "a"), ("b.rs", "b"), ("c.rs", "c")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+    let before = paths(&index);
+
+    fs::remove_file(dir.path().join("b.rs")).expect("remove");
+    fs::create_dir(dir.path().join("b.rs")).expect("make a directory in its place");
+    let outcome = index
+        .refresh_paths(["b.rs"], None, None)
+        .expect("refresh the path");
+
+    assert_eq!(index.len(), before.len());
+    assert_eq!(index.kind_at(1), EntryKind::Dir);
+    assert!(!outcome.kept_positions());
+    assert_eq!(
+        outcome.position_after(1),
+        None,
+        "b.rs is not the entry it was"
+    );
+    assert_placed(&before, &paths(&index), &outcome);
+}
+
+#[test]
+fn a_refresh_that_only_read_files_again_kept_every_position() {
+    let dir = tree(&[("a/b.rs", "a"), ("c.rs", "b"), ("d/e.rs", "c")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+    let before = paths(&index);
+
+    write(dir.path(), "a/b.rs", "edited");
+    let named = index
+        .refresh_paths(["a/b.rs", "d"], None, None)
+        .expect("refresh the paths");
+    let whole = index.refresh(None, None).expect("refresh the tree");
+    write(dir.path(), "new.rs", "d");
+    let grown = index.refresh(None, None).expect("refresh the tree");
+
+    assert!(named.kept_positions() && whole.kept_positions());
+    assert_eq!(paths(&index).len(), before.len() + 1);
+    assert_placed(&before, &before, &named);
+    assert!(!grown.kept_positions());
+    assert_eq!(
+        grown.position_after(0),
+        None,
+        "a whole refresh walks every entry again"
+    );
+    let walked: Vec<usize> = grown.walked_positions().flatten().collect();
+    assert_eq!(walked, (0..=before.len()).collect::<Vec<_>>());
+    assert_eq!(grown.walked_positions().len(), 1);
 }
 
 #[test]
