@@ -7,8 +7,8 @@
  * answers.
  *
  * Threads: calls on one handle may run at once from any threads. Builds run one at a time, and a query during a build
- * answers the code "building". kartta_free must not run while a call on the same handle runs, and nothing may use the
- * handle after it.
+ * answers the code "building". A refresh holds the engine alone, so a query during a refresh waits for it to finish.
+ * kartta_free must not run while a call on the same handle runs, and nothing may use the handle after it.
  *
  * Memory: the library copies what it needs of every argument before returning, so the caller's buffers are borrowed
  * for the call only. Every KarttaString the library returns is the caller's, to be freed exactly once with

@@ -100,6 +100,9 @@ func Test_golden(t *testing.T) {
 		"build": typed(func(k *kartta.Kartta, options wire.BuildOptions) (*wire.Stats, error) {
 			return k.Build(t.Context(), options)
 		}),
+		"refresh": typed(func(k *kartta.Kartta, params wire.RefreshParams) (*wire.Refresh, error) {
+			return k.Refresh(t.Context(), params)
+		}),
 		"stats":           typed(func(k *kartta.Kartta, _ struct{}) (*wire.Stats, error) { return k.Stats() }),
 		"version":         typed(func(k *kartta.Kartta, _ struct{}) (*wire.Version, error) { return k.Version() }),
 		"callers":         typed((*kartta.Kartta).Callers),

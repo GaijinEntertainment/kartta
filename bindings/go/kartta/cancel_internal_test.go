@@ -25,13 +25,21 @@ func openTree(t *testing.T) *Kartta {
 	return k
 }
 
-func cancelAhead(t *testing.T, k *Kartta) uint64 {
+func cancelAhead(t *testing.T, k *Kartta, naming func(id uint64) wire.CancelParams) uint64 {
 	t.Helper()
 	id := k.ids.Load() + 1
-	if err := k.Call("cancel", wire.CancelParams{Build: id}, nil); err != nil {
+	if err := k.Call("cancel", naming(id), nil); err != nil {
 		t.Fatal(err)
 	}
 	return id
+}
+
+func aBuild(id uint64) wire.CancelParams {
+	return wire.CancelParams{Build: id}
+}
+
+func aRefresh(id uint64) wire.CancelParams {
+	return wire.CancelParams{Refresh: id}
 }
 
 func until(holds func(k *Kartta) bool, k *Kartta) {
@@ -46,14 +54,34 @@ func until(holds func(k *Kartta) bool, k *Kartta) {
 	}
 }
 
-func buildTracked(ctx context.Context, k *Kartta, id uint64) <-chan error {
-	built := make(chan error, 1)
-	go func() {
-		_, err := k.Build(ctx, wire.BuildOptions{})
-		built <- err
-	}()
+func tracking(k *Kartta, id uint64, run func() error) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- run() }()
 	until(func(k *Kartta) bool { _, tracked := k.stopping[id]; return tracked }, k)
-	return built
+	return done
+}
+
+func buildTracked(ctx context.Context, k *Kartta, id uint64) <-chan error {
+	return tracking(k, id, func() error {
+		_, err := k.Build(ctx, wire.BuildOptions{})
+		return err
+	})
+}
+
+func refreshTracked(ctx context.Context, k *Kartta, id uint64) <-chan error {
+	return tracking(k, id, func() error {
+		_, err := k.Refresh(ctx, wire.RefreshParams{})
+		return err
+	})
+}
+
+func openStamped(t *testing.T) *Kartta {
+	t.Helper()
+	k := openTree(t)
+	if _, err := k.Build(t.Context(), wire.BuildOptions{Stamps: true}); err != nil {
+		t.Fatal(err)
+	}
+	return k
 }
 
 func Test_Build_cancel(t *testing.T) {
@@ -76,7 +104,7 @@ func Test_Build_cancel(t *testing.T) {
 	})
 
 	t.Run("a context done once its build started answers both BuildCancelled and its cause", func(t *testing.T) {
-		id := cancelAhead(t, k)
+		id := cancelAhead(t, k, aBuild)
 		ctx, cancel := context.WithCancel(t.Context())
 		k.mu.Lock()
 		built := buildTracked(ctx, k, id)
@@ -99,7 +127,7 @@ func Test_Build_cancel(t *testing.T) {
 
 func Test_Close_stops_a_build_in_flight(t *testing.T) {
 	k := openTree(t)
-	id := cancelAhead(t, k)
+	id := cancelAhead(t, k, aBuild)
 	k.mu.Lock()
 	built := buildTracked(t.Context(), k, id)
 	closed := make(chan error, 1)
@@ -112,5 +140,51 @@ func Test_Close_stops_a_build_in_flight(t *testing.T) {
 	}
 	if err := <-built; !errors.Is(err, ErrClosed) {
 		t.Fatalf("Build beside Close = %v, want %v", err, ErrClosed)
+	}
+}
+
+func Test_Refresh_cancel(t *testing.T) {
+	k := openStamped(t)
+
+	t.Run("a context done once its refresh started answers both RefreshCancelled and its cause", func(t *testing.T) {
+		id := cancelAhead(t, k, aRefresh)
+		ctx, cancel := context.WithCancel(t.Context())
+		k.mu.Lock()
+		refreshed := refreshTracked(ctx, k, id)
+		cancel()
+		k.mu.Unlock()
+
+		err := <-refreshed
+
+		if !errors.Is(err, wire.RefreshCancelled) || !errors.Is(err, context.Canceled) {
+			t.Fatalf("Refresh = %v, want both %s and %v", err, wire.RefreshCancelled, context.Canceled)
+		}
+	})
+
+	t.Run("the index answers as it did, and the next refresh runs", func(t *testing.T) {
+		if _, err := k.Stats(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := k.Refresh(t.Context(), wire.RefreshParams{}); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func Test_Close_stops_a_refresh_in_flight(t *testing.T) {
+	k := openStamped(t)
+	id := cancelAhead(t, k, aRefresh)
+	k.mu.Lock()
+	refreshed := refreshTracked(t.Context(), k, id)
+	closed := make(chan error, 1)
+	go func() { closed <- k.Close() }()
+	until(func(k *Kartta) bool { return k.closing }, k)
+	k.mu.Unlock()
+
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-refreshed; !errors.Is(err, wire.RefreshCancelled) || !errors.Is(err, ErrClosed) {
+		t.Fatalf("Refresh beside Close = %v, want both %s and %v", err, wire.RefreshCancelled, ErrClosed)
 	}
 }

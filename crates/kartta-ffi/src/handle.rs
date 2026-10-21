@@ -12,7 +12,8 @@ use crate::error::{Error, ErrorCode};
 use crate::query::QUERIES;
 use crate::wire::files::{GrepParams, GrepView};
 use crate::wire::{
-    self, BuildParams, CancelAnswer, CancelParams, NoParams, OpenParams, StatsAnswer, StoredErrors,
+    self, BuildParams, CancelAnswer, CancelParams, NoParams, OpenParams, RefreshParams,
+    StatsAnswer, StoredErrors,
 };
 
 /// One tree, and the engine its last finished build made of it: what a C handle points to.
@@ -23,12 +24,18 @@ use crate::wire::{
 /// handle never holds two and a query during the walk answers the code `building`. A query that was already
 /// running keeps the engine it asked until it returns. A build that fails or is cancelled leaves the handle without an
 /// engine, the file index included.
+///
+/// The `refresh` method brings the engine up to the tree in place and holds it alone while it runs, so a query waits
+/// for a refresh under way, and refreshes run one at a time. A build cancels the refreshes in flight as it drops the
+/// engine they refresh, and does not wait for them: a cancel stops a refresh only before its walk ends, so one past it
+/// keeps the dropped engine until it answers, as a running query does.
 #[derive(Debug)]
 pub struct Kartta {
     root: PathBuf,
     built: RwLock<Option<Arc<RwLock<Built>>>>,
     builds: Mutex<Calls>,
     greps: Mutex<Calls>,
+    refreshes: Mutex<Calls>,
     one_build_at_a_time: Mutex<()>,
 }
 
@@ -82,6 +89,7 @@ impl Kartta {
             built: RwLock::new(None),
             builds: Mutex::default(),
             greps: Mutex::default(),
+            refreshes: Mutex::default(),
             one_build_at_a_time: Mutex::new(()),
         })
     }
@@ -104,6 +112,7 @@ impl Kartta {
             "build" => self.build(&wire::params(params)?),
             "cancel" => wire::ok(&self.cancel(&wire::params(params)?)),
             "grep" => self.grep(&wire::params(params)?),
+            "refresh" => self.refresh(&wire::params(params)?),
             "version" => {
                 let NoParams {} = wire::params(params)?;
                 wire::ok(&About {
@@ -135,7 +144,10 @@ impl Kartta {
 
         let (ticket, token) = lock(&self.builds).enter(params.id);
         let _one_build = lock(&self.one_build_at_a_time);
+        let mut refreshes = lock(&self.refreshes);
+        refreshes.cancel(None);
         *self.built.write().unwrap_or_else(PoisonError::into_inner) = None;
+        drop(refreshes);
         let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
             Engine::build(&self.root, &options, languages, Some(&token))
         }));
@@ -150,6 +162,7 @@ impl Kartta {
             Ok(Ok(outcome)) => Ok(Built {
                 errors: StoredErrors::new(&outcome.errors),
                 engine: outcome.engine,
+                stamps: options.stamps,
             }),
             Ok(Err(error)) => Err(Error::new(ErrorCode::BuildFailed, error.to_string())),
             Err(payload) => Err(Error::panicked(payload.as_ref())),
@@ -176,13 +189,29 @@ impl Kartta {
         answer
     }
 
+    fn refresh(&self, params: &RefreshParams) -> Result<Vec<u8>, Error> {
+        let paths = params.paths()?;
+        let (built, (ticket, token)) = {
+            let mut refreshes = lock(&self.refreshes);
+            (self.built()?, refreshes.enter(params.id))
+        };
+        let refreshed = panic::catch_unwind(AssertUnwindSafe(|| {
+            built.write().map_err(|_| broken())?.refresh(paths, &token)
+        }));
+        lock(&self.refreshes).leave(ticket);
+
+        refreshed.unwrap_or_else(|payload| Err(Error::panicked(payload.as_ref())))
+    }
+
     fn cancel(&self, params: &CancelParams) -> CancelAnswer {
-        let every = params.build.is_none() && params.grep.is_none();
+        let every = params.build.is_none() && params.grep.is_none() && params.refresh.is_none();
         let builds = (every || params.build.is_some()) && lock(&self.builds).cancel(params.build);
         let greps = (every || params.grep.is_some()) && lock(&self.greps).cancel(params.grep);
+        let refreshes =
+            (every || params.refresh.is_some()) && lock(&self.refreshes).cancel(params.refresh);
 
         CancelAnswer {
-            stopped: builds || greps,
+            stopped: builds || greps || refreshes,
         }
     }
 
@@ -231,7 +260,7 @@ fn broken() -> Error {
 }
 
 fn methods() -> Vec<&'static str> {
-    let mut methods: Vec<&'static str> = ["build", "cancel", "grep", "version"]
+    let mut methods: Vec<&'static str> = ["build", "cancel", "grep", "refresh", "version"]
         .into_iter()
         .chain(QUERIES.iter().map(|&(name, _)| name))
         .collect();
@@ -358,15 +387,27 @@ mod tests {
     }
 
     #[test]
-    fn a_cancel_naming_no_call_stops_every_build_and_grep_in_flight() {
+    fn a_cancel_naming_no_call_stops_every_build_grep_and_refresh_in_flight() {
         let (_tree, kartta) = handle();
         let (_, build) = lock(&kartta.builds).enter(Some(1));
         let (_, grep) = lock(&kartta.greps).enter(Some(2));
+        let (_, refresh) = lock(&kartta.refreshes).enter(Some(3));
 
         let answer = kartta.cancel(&CancelParams::default());
 
         assert!(answer.stopped);
-        assert!(build.is_cancelled() && grep.is_cancelled());
+        assert!(build.is_cancelled() && grep.is_cancelled() && refresh.is_cancelled());
+    }
+
+    #[test]
+    fn a_build_cancels_the_refreshes_in_flight_as_it_drops_their_engine() {
+        let (_tree, kartta) = built();
+        let (_, refresh) = lock(&kartta.refreshes).enter(Some(1));
+
+        let rebuilt: Value = serde_json::from_slice(&kartta.call("build", b"")).expect("JSON");
+
+        assert!(rebuilt.get("ok").is_some(), "{rebuilt}");
+        assert!(refresh.is_cancelled());
     }
 
     #[test]
@@ -376,8 +417,8 @@ mod tests {
         let (_, grep) = lock(&kartta.greps).enter(Some(2));
 
         let answer = kartta.cancel(&CancelParams {
-            build: None,
             grep: Some(2),
+            ..CancelParams::default()
         });
 
         assert!(answer.stopped);

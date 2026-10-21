@@ -1077,3 +1077,233 @@ fn a_query_racing_a_build_to_its_end_never_answers_not_built() {
 
     assert!(unexpected.is_empty(), "{unexpected:?}");
 }
+
+/// A handle over `tree`, built with stamps.
+fn stamped(tree: &Path) -> Kartta {
+    let kartta = open(tree);
+    ok(&kartta, "build", &json!({ "stamps": true }));
+    kartta
+}
+
+/// The paths of the index a glob of `globs` matches.
+fn globbed(kartta: &Kartta, globs: &[&str]) -> Value {
+    ok(kartta, "glob", &json!({ "globs": globs }))["paths"].clone()
+}
+
+#[test]
+fn a_build_with_stamps_refreshes_one_named_file_alone() {
+    let tree = tree();
+    let kartta = stamped(tree.path());
+    fs::write(
+        tree.path().join("run.go"),
+        "package main\n\nfunc run() {\n\thelper()\n}\n\nfunc helper() {}\n\nfunc extra() {}\n",
+    )
+    .expect("run.go");
+
+    let refreshed = ok(&kartta, "refresh", &json!({ "paths": ["run.go"] }));
+
+    assert_eq!(
+        (
+            &refreshed["walked"],
+            &refreshed["tree"],
+            &refreshed["extracted"]
+        ),
+        (&json!(1), &json!(false), &json!(1)),
+        "main.go is not read again: {refreshed}"
+    );
+    assert_eq!(
+        (
+            &refreshed["added"],
+            &refreshed["removed"],
+            &refreshed["dropped"]
+        ),
+        (&json!(0), &json!(0), &json!(0)),
+        "{refreshed}"
+    );
+    assert!(refreshed.get("widened").is_none(), "{refreshed}");
+    let extra = ok(&kartta, "definitions", &json!({ "name": "extra" }));
+    assert_eq!(
+        extra["matches"][0]["found"][0]["definition"]["file"], "run.go",
+        "{extra}"
+    );
+}
+
+#[test]
+fn a_refresh_without_stamps_answers_no_stamps_naming_the_fix() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    for params in [
+        json!({}),
+        json!({ "paths": ["run.go"] }),
+        json!({ "paths": [] }),
+    ] {
+        let answer = call(&kartta, "refresh", &params);
+
+        assert_eq!(answer["err"]["code"], "no_stamps", "{params}: {answer}");
+        assert!(
+            mentions(&answer["err"], r#"build {"stamps": true}"#),
+            "{answer}"
+        );
+    }
+}
+
+#[test]
+fn a_whole_refresh_counts_an_added_and_a_removed_file() {
+    let tree = tree();
+    let kartta = stamped(tree.path());
+    fs::write(
+        tree.path().join("new.go"),
+        "package main\n\nfunc fresh() {}\n",
+    )
+    .expect("new.go");
+    fs::remove_file(tree.path().join("main.go")).expect("main.go goes");
+
+    let refreshed = ok(&kartta, "refresh", &json!({}));
+
+    assert_eq!(
+        (&refreshed["walked"], &refreshed["tree"]),
+        (&json!(1), &json!(true)),
+        "{refreshed}"
+    );
+    assert_eq!(
+        (&refreshed["added"], &refreshed["removed"]),
+        (&json!(1), &json!(1)),
+        "{refreshed}"
+    );
+    assert_eq!(globbed(&kartta, &["*.go"]), json!(["new.go", "run.go"]));
+}
+
+#[test]
+fn named_paths_past_the_limit_walk_the_tree_and_say_so() {
+    let tree = tree();
+    let kartta = stamped(tree.path());
+    let named: Vec<String> = (0..51).map(|at| format!("new-{at:02}.go")).collect();
+    for path in &named {
+        fs::write(tree.path().join(path), "package main\n").expect("a new file");
+    }
+
+    let refreshed = ok(&kartta, "refresh", &json!({ "paths": named }));
+
+    assert_eq!(
+        (
+            &refreshed["walked"],
+            &refreshed["tree"],
+            &refreshed["added"]
+        ),
+        (&json!(1), &json!(true), &json!(51)),
+        "{refreshed}"
+    );
+    assert_eq!(
+        refreshed["widened"],
+        json!({ "named": 51, "parts": 51, "limit": 50 }),
+        "the fewest parts a refresh walks apart is 50"
+    );
+}
+
+#[test]
+fn an_empty_list_of_paths_walks_nothing() {
+    let tree = tree();
+    let kartta = stamped(tree.path());
+    fs::write(tree.path().join("new.go"), "package main\n").expect("new.go");
+
+    let refreshed = ok(&kartta, "refresh", &json!({ "paths": [] }));
+
+    assert_eq!(
+        (
+            &refreshed["walked"],
+            &refreshed["tree"],
+            &refreshed["added"]
+        ),
+        (&json!(0), &json!(false), &json!(0)),
+        "{refreshed}"
+    );
+    assert_eq!(globbed(&kartta, &["new.go"]), json!([]));
+}
+
+#[test]
+fn a_refresh_cancelled_ahead_answers_refresh_cancelled_and_leaves_the_index() {
+    let tree = tree();
+    let kartta = stamped(tree.path());
+    fs::write(tree.path().join("new.go"), "package main\n").expect("new.go");
+
+    let ahead = ok(&kartta, "cancel", &json!({ "refresh": 9 }));
+    let cancelled = call(&kartta, "refresh", &json!({ "id": 9 }));
+
+    assert_eq!(ahead, json!({ "stopped": false }));
+    assert_eq!(cancelled["err"]["code"], "refresh_cancelled", "{cancelled}");
+    assert_eq!(
+        globbed(&kartta, &["new.go"]),
+        json!([]),
+        "the index is as it was"
+    );
+    let next = ok(&kartta, "refresh", &json!({ "id": 10 }));
+    assert_eq!(next["added"], 1, "{next}");
+}
+
+#[test]
+fn a_cancel_naming_a_refresh_leaves_a_build_and_a_grep_of_that_id_alone() {
+    let tree = tree();
+    let kartta = stamped(tree.path());
+
+    ok(&kartta, "cancel", &json!({ "refresh": 4 }));
+    let found = ok(&kartta, "grep", &json!({ "patterns": ["func"], "id": 4 }));
+    let built = call(&kartta, "build", &json!({ "id": 4, "stamps": true }));
+
+    assert_eq!(found["cancelled"], false);
+    assert!(built.get("ok").is_some(), "{built}");
+}
+
+#[test]
+fn refresh_before_a_build_answers_not_built() {
+    let tree = tree();
+    let kartta = open(tree.path());
+
+    assert_eq!(code(&kartta, "refresh", &json!({})), "not_built");
+}
+
+#[test]
+fn absolute_or_escaping_paths_answer_invalid_params() {
+    let tree = tree();
+    let kartta = stamped(tree.path());
+    fs::write(tree.path().join("new.go"), "package main\n").expect("new.go");
+
+    for path in ["/etc", "../outside.go", "src/../../outside.go"] {
+        let answer = call(&kartta, "refresh", &json!({ "paths": ["new.go", path] }));
+
+        assert_eq!(answer["err"]["code"], "invalid_params", "{path}: {answer}");
+        assert!(mentions(&answer["err"], path), "{answer}");
+    }
+    assert_eq!(
+        globbed(&kartta, &["new.go"]),
+        json!([]),
+        "nothing was walked"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_refresh_that_reads_a_failed_file_takes_it_out_of_stats_errors() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let tree = tree();
+    let locked = tree.path().join("run.go");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("lock");
+    if fs::read(&locked).is_ok() {
+        return; // running as a user permissions do not bind, such as root
+    }
+    let kartta = stamped(tree.path());
+    let failed = ok(&kartta, "stats", &Value::Null)["errors"].clone();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).expect("unlock");
+
+    let refreshed = ok(&kartta, "refresh", &json!({ "paths": ["run.go"] }));
+
+    assert_eq!(failed["total"], 1, "{failed}");
+    assert_eq!(failed["listed"][0]["kind"], "read", "{failed}");
+    assert_eq!(refreshed["errors"], json!({ "total": 0, "listed": [] }));
+    assert_eq!(
+        ok(&kartta, "stats", &Value::Null)["errors"],
+        json!({ "total": 0, "listed": [] })
+    );
+}

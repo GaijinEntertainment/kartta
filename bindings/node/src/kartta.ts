@@ -38,6 +38,8 @@ import type {
 	OutlineParams,
 	References,
 	ReferencesParams,
+	Refresh,
+	RefreshOptions,
 	Resolution,
 	ResolutionParams,
 	Search,
@@ -128,9 +130,19 @@ export class Kartta {
 	}
 
 	/**
-	 * Stops the build or the grep `params` names by its id, or, when it names neither, every build in flight, running or
-	 * waiting its turn, and every grep in flight. A build {@link Kartta.build} started rejects with `build_cancelled`; a
-	 * grep answers what it covered, `cancelled` set.
+	 * Brings the index and the graphs up to the tree in place, walking again the paths `options` name, or the whole tree
+	 * without them, and answers what changed. Every query waits for a refresh under way. A handle built without
+	 * `stamps` rejects with `no_stamps`; a refresh that fails or is cancelled leaves the index as it was.
+	 */
+	async refresh(options: RefreshOptions = {}): Promise<Refresh> {
+		return this.#ask('refresh', options);
+	}
+
+	/**
+	 * Stops the build, the grep or the refresh `params` names by its id, or, when it names none, every build in flight,
+	 * running or waiting its turn, and every grep and refresh in flight. A build {@link Kartta.build} started rejects
+	 * with `build_cancelled`; a grep answers what it covered, `cancelled` set; a refresh still walking rejects with
+	 * `refresh_cancelled`.
 	 */
 	async cancel(params: CancelParams = {}): Promise<CancelAnswer> {
 		return this.#ask('cancel', params);
@@ -296,9 +308,10 @@ export class Kartta {
 	}
 
 	/**
-	 * Cancels the builds and greps in flight and lets the engine go once the calls in flight answer. A build this cancels
-	 * rejects with `build_cancelled`, a `closed` error its cause; of the builds that have yet to enter the library, only
-	 * the last 1,024 it cancels stop. Every later call rejects with `closed`. Closing a closed handle does nothing.
+	 * Cancels the builds, greps and refreshes in flight and lets the engine go once the calls in flight answer. A build
+	 * this cancels rejects with `build_cancelled`, a `closed` error its cause; of the builds that have yet to enter the
+	 * library, only the last 1,024 it cancels stop. Every later call rejects with `closed`. Closing a closed handle does
+	 * nothing.
 	 */
 	close(): void {
 		const handle = this.#handle;
