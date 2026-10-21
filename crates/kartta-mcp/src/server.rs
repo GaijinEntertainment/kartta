@@ -331,9 +331,10 @@ impl Server {
                        only when it is not zero - added and removed files, extracted (files parsed again), \
                        resolved_again (other files whose calls or includes bind anew), dropped (files no graph holds \
                        now), reconfigured (languages whose go.mod or tsconfig.json changed), rebuilt=true, and \
-                       widened= (the paths named) with limit= when they came to more parts than it walks apart, so \
-                       it walked the tree - the paths inside a directory the index lacks, such as an ignored one, \
-                       are one part; elapsed_ms; and <errors> for what it could not read. Requires index_repo first."
+                       widened= (the paths named) with parts= (the parts they came to) and limit= when those were \
+                       more parts than it walks apart, so it walked the tree - the paths inside a directory the \
+                       index lacks, such as an ignored one, are one part; elapsed_ms; and <errors> for what it \
+                       could not read. Requires index_repo first."
     )]
     async fn refresh(&self, Parameters(p): Parameters<RefreshParams>) -> Result<String, String> {
         if let Some(path) = p.paths.iter().find(|path| path.starts_with('/')) {

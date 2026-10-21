@@ -102,6 +102,23 @@ fn a_refresh_of_named_paths_walks_those_alone() {
 }
 
 #[test]
+fn named_paths_past_the_limit_walk_the_tree_and_say_how_many_parts_they_came_to() {
+    let tree = go_module();
+    let mut client = Client::unwatched(&[]);
+    client.index(tree.path());
+    let mut paths: Vec<String> = (0..51).map(|at| format!("pkg/gone{at}.go")).collect();
+    paths.extend(["build/out/a.o".to_owned(), "build/b.o".to_owned()]);
+
+    let answer = client.answer("refresh", &json!({ "paths": paths }));
+
+    assert!(answer.starts_with("<refresh walked=\"tree\""), "{answer}");
+    assert!(
+        answer.contains(" widened=\"53\" parts=\"52\" limit=\"50\" "),
+        "the two paths inside build/, which the index lacks, come to one part: {answer}"
+    );
+}
+
+#[test]
 fn a_refresh_that_finds_no_change_says_so() {
     let tree = go_module();
     let mut client = Client::unwatched(&[]);
