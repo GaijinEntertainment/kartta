@@ -232,11 +232,13 @@ impl Following {
         repository: &'r IndexRepository<'_>,
         (outcome, reached, handed): (&RefreshOutcome, &Reached, Vec<ToResolve>),
     ) -> (Resolvers<'r>, Plan) {
-        let mut dependents: Vec<ContentId> = if reached.keys.is_empty() {
-            Vec::new()
-        } else {
-            self.asked.reaching(reached).collect()
-        };
+        // constraint: kartta_lang::Resolver reads no file, so only a file added or removed reaches a file's keys
+        let mut dependents: Vec<ContentId> =
+            if outcome.added.is_empty() && outcome.removed.is_empty() {
+                Vec::new()
+            } else {
+                self.asked.reaching(reached).collect()
+            };
         let mut wanted = vec![false; resolving.languages.len()];
         for file in &handed {
             wanted[file.language] = true;
