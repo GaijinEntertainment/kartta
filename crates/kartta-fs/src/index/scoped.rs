@@ -621,6 +621,6 @@ fn name_of(path: &str) -> &str {
     path.rfind('/').map_or(path, |at| &path[at + 1..])
 }
 
-fn holds(dir: &str, path: &str) -> bool {
+pub(super) fn holds(dir: &str, path: &str) -> bool {
     dir.is_empty() || path == dir || is_below(path, dir)
 }
