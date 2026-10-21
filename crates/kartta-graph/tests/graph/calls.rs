@@ -460,6 +460,35 @@ fn a_callee_written_inside_a_namespace_binds_the_definition_that_scope_names() {
 }
 
 #[test]
+fn the_callers_of_an_operator_whose_name_holds_a_separator_include_a_call_written_qualified() {
+    let files = [
+        file(
+            "das/eval.cpp",
+            vec![function("divide", 30), function("shrink", 40)],
+            vec![
+                call(0, "das::operator/", 31),
+                call(1, "das::operator/=", 41),
+            ],
+        ),
+        file(
+            "das/math.h",
+            vec![
+                namespaced("das", "operator/", 12),
+                namespaced("das", "operator/=", 20),
+            ],
+            Vec::new(),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "divide"), ["das/math.h:12@90"]);
+    assert_eq!(callers(&graph, "das::operator/"), ["das/eval.cpp:30@90"]);
+    assert_eq!(callees(&graph, "shrink"), ["das/math.h:20@90"]);
+    assert_eq!(callers(&graph, "das::operator/="), ["das/eval.cpp:40@90"]);
+}
+
+#[test]
 fn a_callee_written_inside_a_namespace_binds_its_scope_s_definition_before_a_global_one() {
     let files = [
         calling_from(
