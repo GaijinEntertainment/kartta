@@ -213,10 +213,12 @@ fn named_paths_that_come_to_more_parts_than_the_limit_refresh_the_whole_tree() {
     let mut engine = build(tree.path(), true);
     let limit = engine.refresh_paths_limit();
     let vanished: Vec<String> = (0..limit).map(|at| format!("src/tmp-{at}.cpp")).collect();
+    let unheld = ["build/out/a.o", "build/out/b.o", "build/c.o"];
     let named = EDITED
         .iter()
         .copied()
-        .chain(vanished.iter().map(String::as_str));
+        .chain(vanished.iter().map(String::as_str))
+        .chain(unheld);
 
     edit(tree.path());
     let refresh = refreshed(engine.refresh_paths(named, None));
@@ -224,9 +226,11 @@ fn named_paths_that_come_to_more_parts_than_the_limit_refresh_the_whole_tree() {
     assert_eq!(
         refresh.widened,
         Some(Widened {
-            named: EDITED.len() + limit,
+            named: EDITED.len() + limit + unheld.len(),
+            parts: EDITED.len() + limit + 1,
             limit
-        })
+        }),
+        "the paths inside a directory the index does not hold come to one part"
     );
     assert_eq!(refresh.index.walked, [""]);
     assert!(!refresh.rebuilt);
