@@ -22,6 +22,13 @@ type BuildOptions struct {
 	ContentCache string `json:"content_cache,omitempty"`
 	// ContentCacheTTLSecs is the seconds after the build that computed it began that a cache entry expires; 0 is a week.
 	ContentCacheTTLSecs uint64 `json:"content_cache_ttl_secs,omitempty"`
+	// Stamps keeps the time each file the build reads last changed, so that a refresh reads again only the files that
+	// changed since and those a change reaches. It holds memory for as long as the index lives: eight bytes a file for
+	// its time, and what each file's resolution asked of the tree, most of it, 32 MiB over a tree of 182,714 entries.
+	// On unix the time is the inode change time, which no write can set back; elsewhere it is the modification time,
+	// so an edit that keeps a file's size and sets its modification time back goes unseen. A file changed within two
+	// seconds before the build began is read again by the next refresh whatever its stamp says.
+	Stamps bool `json:"stamps,omitempty"`
 }
 
 // Ignore names which ignore rules a build applies.

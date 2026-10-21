@@ -71,6 +71,7 @@
     "languages": [
       "go",
       "cpp"
-    ]
+    ],
+    "stamps": true
   }
 }

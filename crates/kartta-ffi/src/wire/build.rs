@@ -26,6 +26,7 @@ pub(crate) struct BuildParams {
     content_index: Option<ContentIndex>,
     content_cache: Option<PathBuf>,
     content_cache_ttl_secs: u64,
+    stamps: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -87,6 +88,7 @@ impl BuildParams {
         });
         options.content_cache.clone_from(&self.content_cache);
         options.content_cache_ttl = Duration::from_secs(self.content_cache_ttl_secs);
+        options.stamps = self.stamps;
         Ok(options)
     }
 }
@@ -236,5 +238,11 @@ mod tests {
             Duration::from_hours(1)
         );
         assert_eq!(options("{}").content_cache_ttl, Duration::ZERO);
+    }
+
+    #[test]
+    fn a_build_keeps_stamps_only_when_asked() {
+        assert!(options(r#"{ "stamps": true }"#).stamps);
+        assert!(!options("{}").stamps);
     }
 }
