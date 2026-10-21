@@ -272,6 +272,7 @@ impl Index {
             stamps,
             ran_out_of_ids,
             content,
+            targets,
         } = policy.into_report();
         if ran_out_of_ids {
             return Err(BuildError::ContentIdsExhausted);
@@ -305,6 +306,7 @@ impl Index {
             stamps: stamps.as_deref(),
             previous: previous.as_ref(),
             unindexed: &unindexed,
+            targets: &targets,
         };
         let replacements = facts.replacements(scopes, ranges, &found);
         let mut changed = ChangedFiles::default();
@@ -550,6 +552,7 @@ struct Facts<'a> {
     stamps: Option<&'a [Stamp]>,
     previous: Option<&'a Previous<'a>>,
     unindexed: &'a [Box<str>],
+    targets: &'a [Box<str>],
 }
 
 impl Facts<'_> {
@@ -587,9 +590,11 @@ impl Facts<'_> {
     }
 
     fn fresh(&self, path: &str, payload: &Payload) -> Fresh {
-        let mut fresh = Fresh::new(path.to_owned(), payload.kind);
-        fresh.target.clone_from(&payload.target);
-        if let Some(id) = payload.content
+        let mut fresh = Fresh::new(path.to_owned(), payload.kind());
+        if let Payload::Symlink(Some(target)) = *payload {
+            fresh.target = Some(self.targets[target.at()].clone());
+        }
+        if let Payload::File(Some(id)) = *payload
             && let Some((facts, stamp)) = self.of(id)
         {
             fresh.facts = facts;

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::time::Duration;
-use std::{io, iter};
+use std::{io, iter, mem};
 
 use kartta_walk::{CancelToken, Children, EntryKind, Tree, WalkOptions, WalkOutcome, walk};
 use rayon::{ThreadPool, ThreadPoolBuilder};
@@ -334,6 +334,7 @@ impl Index {
             stamps,
             ran_out_of_ids,
             content,
+            targets,
         } = policy.into_report();
         if ran_out_of_ids {
             return Err(BuildError::ContentIdsExhausted);
@@ -359,7 +360,7 @@ impl Index {
                 .then(|| stamps.as_deref().unwrap_or_default()),
             previous,
         };
-        let (mut index, carried_text) = Self::from_tree(base, tree, placing);
+        let (mut index, carried_text) = Self::from_tree(base, tree, targets, placing);
         if let Some(content) = content {
             let reads = ReadIds {
                 first: first_content_id,
@@ -439,7 +440,12 @@ impl Index {
         Ok((finished, unindexed))
     }
 
-    fn from_tree(base: Base, tree: Tree<Payload>, placing: Placing<'_>) -> (Self, usize) {
+    fn from_tree(
+        base: Base,
+        tree: Tree<Payload>,
+        mut targets: Vec<Box<str>>,
+        placing: Placing<'_>,
+    ) -> (Self, usize) {
         let Base {
             root,
             ignore_sources,
@@ -466,18 +472,19 @@ impl Index {
 
         depth_first(&tree, |payload, path, common| {
             let at = kinds.len();
-            if let Some(target) = &payload.target {
-                symlink_targets.push((at, target.clone()));
-            }
-            if let Some(id) = payload.content {
-                placed.place(&inspection, id, at);
+            match *payload {
+                Payload::File(Some(id)) => placed.place(&inspection, id, at),
+                Payload::Symlink(Some(target)) => {
+                    symlink_targets.push((at, mem::take(&mut targets[target.at()])));
+                }
+                _ => {}
             }
             encoder.push(
                 path,
                 path.floor_char_boundary(common),
                 at.is_multiple_of(RESTART),
             );
-            kinds.push(payload.kind);
+            kinds.push(payload.kind());
         });
         drop(tree);
 

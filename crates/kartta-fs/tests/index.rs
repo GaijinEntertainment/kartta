@@ -1166,6 +1166,33 @@ fn a_symlink_reports_the_target_it_stores_without_resolving_it() {
 
 #[cfg(unix)]
 #[test]
+fn each_symlink_of_a_directory_classified_in_parallel_reports_its_own_target() {
+    let dir = tree(&[]);
+    for at in 0..200 {
+        std::os::unix::fs::symlink(
+            format!("to{at:03}"),
+            dir.path().join(format!("link{at:03}")),
+        )
+        .expect("create a symlink");
+    }
+
+    let index = default_index(dir.path());
+
+    let targets: Vec<(String, Option<String>)> = index
+        .entries()
+        .map(|entry| (entry.path().to_owned(), entry.target().map(str::to_owned)))
+        .collect();
+    let expected: Vec<(String, Option<String>)> = (0..200)
+        .map(|at| (format!("link{at:03}"), Some(format!("to{at:03}"))))
+        .collect();
+    assert_eq!(
+        targets, expected,
+        "a directory of 64 entries or more is decided on several threads, in whatever order they read the targets"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn a_dangling_symlink_reports_the_target_that_resolves_to_nothing() {
     let dir = tree(&[]);
     std::os::unix::fs::symlink("nowhere", dir.path().join("dangling"))

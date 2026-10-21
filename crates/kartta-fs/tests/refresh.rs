@@ -1080,6 +1080,41 @@ fn a_symlink_pointed_elsewhere_shows_its_new_target() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_symlink_below_a_directory_walked_again_keeps_its_target() {
+    let dir = tree(&[("dir/a.rs", ""), ("dir/sub/b.rs", "")]);
+    std::os::unix::fs::symlink("../a.rs", dir.path().join("dir/sub/kept")).expect("link");
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "dir/new.rs", "");
+    for at in 0..100 {
+        std::os::unix::fs::symlink(
+            format!("to{at:03}"),
+            dir.path().join(format!("dir/sub/l{at:03}")),
+        )
+        .expect("link");
+    }
+    let walked = refresh_paths(&mut index, ["dir"]);
+
+    assert_eq!(walked, ["dir"]);
+    let target = |path: &str| {
+        index
+            .entry(path)
+            .and_then(|entry| entry.target().map(str::to_owned))
+    };
+    assert_eq!(target("dir/sub/kept").as_deref(), Some("../a.rs"));
+    let added: Vec<Option<String>> = (0..100)
+        .map(|at| target(&format!("dir/sub/l{at:03}")))
+        .collect();
+    let expected: Vec<Option<String>> = (0..100).map(|at| Some(format!("to{at:03}"))).collect();
+    assert_eq!(
+        added, expected,
+        "a directory of 64 entries or more is decided on several threads, in whatever order they read the targets"
+    );
+    assert_as_built(&index, &BuildOptions::default());
+}
+
 #[test]
 fn refreshing_paths_reads_only_what_they_name_and_retires_what_it_replaced() {
     let dir = tree(&[("a.rs", "a"), ("b.rs", "b"), ("c.rs", "c")]);
