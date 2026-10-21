@@ -83,11 +83,11 @@ type FuzzyMatch struct {
 
 // GrepParams are the params of the grep method.
 type GrepParams struct {
-	// ID names the grep for a cancel. The kartta package's Grep sets it; Call keeps one other than 0, and picks one
-	// in place of 0.
+	// ID names the grep for a cancel; the kartta package passes it on as it is.
 	ID uint64 `json:"id,omitempty"`
 	// BindingID names the grep for a cancel ByBindingID, apart from ID: a binding over the wire names each call it
-	// runs by one, so the IDs its callers give never stop a call of its own.
+	// runs by one, so the IDs its callers give never stop a call of its own. The kartta package's Grep and Call set
+	// it, in place of any the params give.
 	BindingID       uint64   `json:"binding_id,omitempty"`
 	Patterns        []string `json:"patterns"`
 	CaseInsensitive bool     `json:"case_insensitive,omitempty"`
