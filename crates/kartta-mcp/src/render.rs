@@ -119,14 +119,20 @@ pub(crate) struct Suggestion<'g> {
     pub(crate) hit: Hit<'g>,
 }
 
-fn suggestion(suggestion: &Suggestion<'_>) -> String {
-    let definition = &suggestion.hit.definition;
+fn suggestion(family: &str, definition: &Definition<'_>) -> String {
     named("suggestion", definition)
         .optional("role", role(definition.flags))
         .attr("kind", kind(definition.kind))
-        .attr("lang", suggestion.family)
+        .attr("lang", family)
         .attr("loc", loc(definition.file, definition.line))
         .close()
+}
+
+/// The `<suggestion>` records of the definitions named one edit from a name nothing defines, where `near` lists them.
+fn one_edit<'a>(near: &'a kartta::Unmatched<'_>) -> impl Iterator<Item = String> + 'a {
+    near.listed
+        .iter()
+        .map(|(family, definition)| suggestion(family, definition))
 }
 
 fn empty_languages_note(languages: Option<&str>) -> Option<&'static str> {
@@ -139,7 +145,7 @@ fn empty_languages_note(languages: Option<&str>) -> Option<&'static str> {
 /// What a name that selected no symbol does match, in the graphs a query searched.
 #[derive(Debug, Clone)]
 pub(crate) enum Unmatched<'g> {
-    /// The definitions the name names, which say why it selected none.
+    /// The definitions that say why the name selected none: those it names, or those named one edit from it.
     Named(kartta::Unmatched<'g>),
     /// The close alternatives a search found.
     Suggested(Vec<Suggestion<'g>>),
@@ -172,6 +178,9 @@ fn unresolved(
         return element.inline(note);
     }
     let (text, listed) = match unmatched {
+        Unmatched::Named(near) if near.kind == UnmatchedKind::OneEdit => {
+            return did_you_mean(element.count("one_edit", near.total), one_edit(near));
+        }
         Unmatched::Named(named) => {
             let total = named.total;
             let text = if named.kind == UnmatchedKind::Several {
@@ -188,9 +197,10 @@ fn unresolved(
             return element.inline("no symbol matches - find_symbols can pin the exact name");
         }
         Unmatched::Suggested(suggestions) => {
-            let mut lines = vec!["no symbol matches - did you mean:".to_owned()];
-            lines.extend(suggestions.iter().map(suggestion));
-            return element.wrap(&lines.join("\n"));
+            let records = suggestions
+                .iter()
+                .map(|suggested| suggestion(suggested.family, &suggested.hit.definition));
+            return did_you_mean(element, records);
         }
     };
     let candidates = listed
@@ -198,6 +208,13 @@ fn unresolved(
         .map(|(family, definition)| candidate(definition).attr("lang", *family).close())
         .collect();
     noted(element, &text, candidates)
+}
+
+/// `element` holding the miss and the `<suggestion>` records that answer it.
+fn did_you_mean(element: Element, suggestions: impl Iterator<Item = String>) -> String {
+    element.children(
+        std::iter::once("no symbol matches - did you mean:".to_owned()).chain(suggestions),
+    )
 }
 
 /// The `index_repo` and `index_stats` answer: the index's shape, one `<language/>` per graph that holds a file, how

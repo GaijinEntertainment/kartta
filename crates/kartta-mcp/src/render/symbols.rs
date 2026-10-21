@@ -4,8 +4,8 @@ use std::io;
 use kartta::{Definition, Dependents, Hit, Implementations, Nearness, Source, SymbolKind};
 
 use super::{
-    CallersAsk, Unmatched, candidate, empty_languages_note, flat, kind, loc, named, noted, role,
-    span, unresolved,
+    CallersAsk, Unmatched, candidate, empty_languages_note, flat, kind, loc, named, noted,
+    one_edit, role, span, unresolved,
 };
 use crate::llmxml::Element;
 use crate::state::GraphRow;
@@ -21,10 +21,13 @@ pub(crate) struct Found<'g> {
     pub(crate) unmatched: Vec<String>,
     /// The query's distinct words past the eight the search looks for.
     pub(crate) dropped_words: usize,
+    /// The definitions named one edit from the query, when some word of it no searched graph holds and the query
+    /// names nothing.
+    pub(crate) one_edit: Option<kartta::Unmatched<'g>>,
 }
 
-/// The `find_symbols` answer: ranked `<hit/>` records, and, when there is none, the searched languages whose files
-/// yielded no symbol at all.
+/// The `find_symbols` answer: the definitions named one edit from the query as `<suggestion/>` records, ranked
+/// `<hit/>` records, and, when there is no hit, the searched languages whose files yielded no symbol at all.
 pub(crate) fn hits(
     query: &str,
     languages: Option<&str>,
@@ -42,11 +45,20 @@ pub(crate) fn hits(
             "unmatched",
             (!found.unmatched.is_empty()).then(|| found.unmatched.join(", ")),
         )
-        .count("dropped_words", found.dropped_words);
+        .count("dropped_words", found.dropped_words)
+        .count(
+            "one_edit",
+            found.one_edit.as_ref().map_or(0, |near| near.total),
+        );
+    let suggested = found.one_edit.iter().flat_map(one_edit);
     if found.hits.is_empty() {
-        return element.inline(&no_hits(languages, coverage));
+        let text = no_hits(languages, coverage);
+        if found.one_edit.is_none() {
+            return element.inline(&text);
+        }
+        return element.children(std::iter::once(text).chain(suggested));
     }
-    element.children(found.hits.iter().map(|(family, hit)| {
+    element.children(suggested.chain(found.hits.iter().map(|(family, hit)| {
         let definition = &hit.definition;
         named("hit", definition)
             .optional("owner", definition.owner)
@@ -57,7 +69,7 @@ pub(crate) fn hits(
             .attr("loc", span(definition))
             .optional("sig", definition.signature.map(flat))
             .close()
-    }))
+    })))
 }
 
 fn no_hits(languages: Option<&str>, coverage: &[&GraphRow]) -> String {

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use kartta::{
     CancelToken, Graph, Hit, Limits, Region, Search, Selector, SiteQuery, SourceOptions,
-    SymbolKind, ask_reading, is_parent, is_referent, selects_as_callers,
+    SymbolKind, UnmatchedKind, ask_reading, is_parent, is_referent, selects_as_callers,
 };
 use kartta_fs::{
     Case, Filter, FuzzyOptions, GlobOptions, GrepOptions, ListError, ListOptions, Patterns,
@@ -589,12 +589,16 @@ impl Server {
                        name matches top the answer up - those records carry fuzzy=true and are not matches for the \
                        query as requested. truncated=true with total= on <symbols> means the limit cut the answer: a \
                        higher limit or a narrower query shows more; unmatched= names the query's words no definition \
-                       holds. A record carrying a 'role' attribute is a reach artifact rather than ordinary code - one \
-                       of test, entry or generated, in that precedence; an ordinary record carries none. Symbols in \
-                       GENERATED or vendored code rank below hand-written ones. An answer with NO hits says so, and \
-                       names any searched language holding files that yielded no symbols (an unsupported dialect or a \
-                       failed parse) - read that as missing coverage rather than as the symbol not existing, and call \
-                       index_stats for the per-language counts. Requires index_repo first."
+                       holds, and then up to 5 <suggestion/> records before the hits list the definitions named one \
+                       edit from the whole query - a character swapped with the next, dropped, or replaced or added \
+                       by an ASCII letter, a digit, _ or a character of the query - which one_edit= counts; ask an \
+                       unmatched word alone for those of that word. A record carrying a 'role' attribute is a reach \
+                       artifact rather than ordinary code - one of test, entry or generated, in that precedence; an \
+                       ordinary record carries none. Symbols in GENERATED or vendored code rank below hand-written \
+                       ones. An answer with NO hits says so, and names any searched language holding files that \
+                       yielded no symbols (an unsupported dialect or a failed parse) - read that as missing coverage \
+                       rather than as the symbol not existing, and call index_stats for the per-language counts. \
+                       Requires index_repo first."
     )]
     async fn find_symbols(
         &self,
@@ -637,6 +641,13 @@ impl Server {
                         .cloned()
                         .collect()
                 });
+            let one_edit = if unmatched.is_empty() {
+                None
+            } else {
+                let query = Selector::new(&p.query, None);
+                kartta::unmatched(searched.iter().copied(), query, |_| true, SUGGESTIONS)
+                    .filter(|near| near.kind == UnmatchedKind::OneEdit)
+            };
             let mut hits: Vec<(&str, Hit<'_>)> = searches
                 .into_iter()
                 .flat_map(|(family, search)| search.hits.into_iter().map(move |hit| (family, hit)))
@@ -664,6 +675,7 @@ impl Server {
                 matched,
                 unmatched,
                 dropped_words,
+                one_edit,
             };
             Ok(render::hits(
                 &p.query,
@@ -692,7 +704,8 @@ impl Server {
                        whose file could not be read has no body, carries error= with the reason and its sig when one \
                        was captured. total on a <name> counts every definition the name selects; shown=N means the \
                        limit cut the list to N. A name nothing defines answers total=0 with up to 5 close \
-                       alternatives (did you mean). Requires index_repo first."
+                       alternatives (did you mean): those named one edit from it, which one_edit= counts, or else \
+                       the best search hits. Requires index_repo first."
     )]
     async fn read_definitions(
         &self,
@@ -772,11 +785,11 @@ impl Server {
                             source,
                         })
                         .collect(),
-                    unmatched: Unmatched::Suggested(if total == 0 {
-                        suggestions(&searched, name)
+                    unmatched: if total == 0 {
+                        unmatched(&searched, Selector::new(name, None), |_| true)
                     } else {
-                        Vec::new()
-                    }),
+                        Unmatched::Suggested(Vec::new())
+                    },
                 })
                 .collect();
             Ok(render::definitions(
@@ -798,7 +811,8 @@ impl Server {
                        answered for and up to 5 <candidate/> records list the most implemented others - path_prefix \
                        picks one. A type that implements an interface without naming it, as Go's structural typing \
                        allows, is not found. A name several types end with lists them instead; an unknown name \
-                       answers with up to 5 close alternatives (did you mean). Requires index_repo first."
+                       answers with up to 5 close alternatives (did you mean): those named one edit from it, which \
+                       one_edit= counts, or else the best search hits. Requires index_repo first."
     )]
     async fn find_implementations(
         &self,
@@ -998,7 +1012,8 @@ impl Server {
                        graph does not record; with below_confidence=, it states only how many sites bind below the \
                        confidence floor, which min_confidence \"any\" lists, without access where one was asked. A \
                        name several symbols end with lists \
-                       them instead; an unknown name answers with up to 5 close alternatives (did you mean). Requires \
+                       them instead; an unknown name answers with up to 5 close alternatives (did you mean): those \
+                       named one edit from it, which one_edit= counts, or else the best search hits. Requires \
                        index_repo first."
     )]
     async fn find_references(
@@ -1219,7 +1234,8 @@ impl Server {
                        enum-variant; grep searches the text for its name\". For any other kind, it states that no \
                        call names it, and that find_references lists its recorded uses. Only the note of a floor that \
                        dropped callers names the floor. An unknown name answers with up to 5 close alternatives (did \
-                       you mean). \
+                       you mean): those named one edit from it, which one_edit= counts, or else the best search \
+                       hits. \
                        Calls through an interface may be missed - check find_implementations of the interface too. \
                        Requires index_repo first."
     )]
@@ -1281,7 +1297,8 @@ impl Server {
                        below the confidence floor, which min_confidence \"any\" lists. A call \
                        through a function value, an interface or a virtual method binds only where the graph can name \
                        its target, so a callee missing here can still run. An unknown name answers with up to 5 close \
-                       alternatives (did you mean). Requires index_repo first."
+                       alternatives (did you mean): those named one edit from it, which one_edit= counts, or else \
+                       the best search hits. Requires index_repo first."
     )]
     async fn find_callees(
         &self,

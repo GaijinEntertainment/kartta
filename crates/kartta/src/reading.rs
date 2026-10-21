@@ -1,17 +1,18 @@
 use kartta_graph::{Definition, Graph, Selector};
 use kartta_lang::SymbolKind;
 
-/// The definitions a name a query selected no symbol by names, among those of the kinds the query selects, when they
-/// say why it selected none: `total` of them, the first `listed`.
+/// The definitions that say why a query selected no symbol by a name: `total` of them, the first `listed`.
+///
+/// They are of the kinds the query selects, and the name names them, or names one edit from it do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Unmatched<'g> {
     /// Why the name selected none of them.
     pub kind: UnmatchedKind,
-    /// How many definitions the name names so.
+    /// How many there are.
     pub total: usize,
-    /// The first of them, each with the name of the graph that holds it, in the order of the graphs asked and of
-    /// [`Graph::definitions`] within each.
+    /// The first of them, each with the name of the graph that holds it, in the order of the graphs asked and, within
+    /// each, of [`Graph::definitions`], or of [`Graph::definitions_one_edit_from`] for [`UnmatchedKind::OneEdit`].
     pub listed: Vec<(&'g str, Definition<'g>)>,
 }
 
@@ -24,30 +25,32 @@ pub enum UnmatchedKind {
     Several,
     /// The name names definitions outside the path prefix, and at most one under it.
     OutsidePrefix,
+    /// The name names no definition, and names one edit from it do, as [`Graph::definitions_one_edit_from`] edits
+    /// one: one character swapped with the next, dropped, replaced or added.
+    OneEdit,
 }
 
 /// What `named` names instead, for a name by which a query selected no symbol in the `searched` graphs.
 ///
 /// Among the definitions of the kinds `selects` takes, it answers several under the name's path prefix, else some
-/// outside it, listing at most `limit`, and `None` when neither holds, as for a name that names no such definition.
-/// The name is looked up once in each graph, as [`Graph::definitions`] reads it; nothing is searched.
+/// outside it, else, for a name that names no definition of any kind, those of the names one edit from it wherever they
+/// lie, listing at most `limit`; and `None` when none holds. The name is looked up once in each graph, as
+/// [`Graph::definitions`] reads it, and a name that names nothing once more for each string one edit from it, as
+/// [`Graph::definitions_one_edit_from`] looks them up; nothing is searched.
 pub fn unmatched<'g>(
-    searched: impl Iterator<Item = (&'g str, &'g Graph)>,
+    searched: impl Iterator<Item = (&'g str, &'g Graph)> + Clone,
     named: Selector<'_>,
     selects: fn(SymbolKind) -> bool,
     limit: usize,
 ) -> Option<Unmatched<'g>> {
-    let tally = |kind| Unmatched {
-        kind,
-        total: 0,
-        listed: Vec::new(),
-    };
     let (mut under, mut outside) = (
         tally(UnmatchedKind::Several),
         tally(UnmatchedKind::OutsidePrefix),
     );
-    for (family, graph) in searched {
+    let mut names_any = false;
+    for (family, graph) in searched.clone() {
         let found = graph.definitions(named.name, None, usize::MAX).found;
+        names_any |= !found.is_empty();
         for definition in found.into_iter().map(|found| found.definition) {
             if !selects(definition.kind) {
                 continue;
@@ -69,7 +72,34 @@ pub fn unmatched<'g>(
     if under.total > 1 {
         return Some(under);
     }
-    (outside.total > 0).then_some(outside)
+    if outside.total > 0 {
+        return Some(outside);
+    }
+    if names_any {
+        return None;
+    }
+    let mut near = tally(UnmatchedKind::OneEdit);
+    for (family, graph) in searched {
+        let found = graph.definitions_one_edit_from(named.name);
+        for definition in found
+            .into_iter()
+            .filter(|definition| selects(definition.kind))
+        {
+            near.total += 1;
+            if near.listed.len() < limit {
+                near.listed.push((family, definition));
+            }
+        }
+    }
+    (near.total > 0).then_some(near)
+}
+
+const fn tally<'g>(kind: UnmatchedKind) -> Unmatched<'g> {
+    Unmatched {
+        kind,
+        total: 0,
+        listed: Vec::new(),
+    }
 }
 
 /// Whether `named` selects a symbol in any of the `searched` graphs, as [`Graph::selects_as_callers`] answers for one:

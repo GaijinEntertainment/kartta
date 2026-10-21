@@ -1,6 +1,6 @@
 //! How the symbol tools read a qualified name written with the owner separator of another language: Rust's and C++'s
-//! `::` written as `.`, and Go's `.` written as `::`; and one whose last part holds a separator, as an outline prints
-//! it.
+//! `::` written as `.`, and Go's `.` written as `::`; one whose last part holds a separator, as an outline prints it;
+//! and one a typo keeps from every definition.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and an integration test crate is built \
@@ -332,5 +332,71 @@ fn a_qualified_name_whose_last_part_holds_a_separator_is_asked_back_as_the_outli
         misspelled.contains("no symbol matches - did you mean:")
             && misspelled.contains(r##"<suggestion name="#handle" qn="Kartta.#handle""##),
         "{misspelled}"
+    );
+}
+
+/// A Go function `handle` and the private fields `#handle`, `#cache` and `#instance` of a TypeScript class.
+fn misspellable() -> (tempfile::TempDir, Client) {
+    let tree = tree(&[
+        ("go.mod", "module example.com/walk\n\ngo 1.22\n"),
+        ("walk.go", "package walk\n\nfunc handle() {}\n"),
+        (
+            "src/kartta.ts",
+            "export class Kartta {\n  #handle: number | undefined;\n  #cache = new Map<string, number>();\n\
+             \x20 #instance: Kartta | undefined;\n\n  close(): void {\n    this.#handle = undefined;\n\
+             \x20   this.#cache.clear();\n    this.#instance = undefined;\n  }\n}\n",
+        ),
+    ]);
+    let mut client = Client::unwatched(&[]);
+    client.index(tree.path());
+    (tree, client)
+}
+
+#[test]
+fn a_name_one_character_from_a_definition_suggests_that_definition_first() {
+    let (_tree, mut client) = misspellable();
+
+    for (name, meant) in [
+        (
+            "#handel",
+            r##"<suggestion name="#handle" qn="Kartta.#handle""##,
+        ),
+        (
+            "#cahce",
+            r##"<suggestion name="#cache" qn="Kartta.#cache""##,
+        ),
+        (
+            "#insatnce",
+            r##"<suggestion name="#instance" qn="Kartta.#instance""##,
+        ),
+    ] {
+        let answer = client.answer("find_references", &json!({"name": name}));
+        assert!(
+            answer.contains(r#"matches="0" one_edit="1">"#)
+                && answer.contains(&format!("no symbol matches - did you mean:\n{meant}")),
+            "{name}: {answer}"
+        );
+    }
+    let read = client.answer("read_definitions", &json!({"names": ["hadnle"]}));
+    assert!(
+        read.contains(r#"<name of="hadnle" total="0" one_edit="1">"#)
+            && read.contains(r#"<suggestion name="handle" qn="walk.handle""#),
+        "{read}"
+    );
+    let found = client.answer("find_symbols", &json!({"query": "hadnle"}));
+    assert!(
+        found.contains(r#"unmatched="hadnle" one_edit="1">"#)
+            && found.contains(r#"<suggestion name="handle" qn="walk.handle""#),
+        "{found}"
+    );
+    let owned = client.answer("find_symbols", &json!({"query": "Kartta.#handel"}));
+    let suggested = owned.find(r##"<suggestion name="#handle" qn="Kartta.#handle""##);
+    let hit = owned.find("<hit ");
+    assert!(
+        owned.contains(r#"unmatched="handel" one_edit="1">"#)
+            && suggested
+                .zip(hit)
+                .is_some_and(|(suggested, hit)| suggested < hit),
+        "{owned}"
     );
 }

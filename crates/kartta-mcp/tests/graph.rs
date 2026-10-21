@@ -129,7 +129,7 @@ fn read_definitions_answers_an_unknown_name_with_close_alternatives() {
         [
             lines(&[
                 r#"<definitions count="2">"#,
-                r#"<name of="Gret" total="0">"#,
+                r#"<name of="Gret" total="0" one_edit="1">"#,
                 "no symbol matches - did you mean:",
                 r#"<suggestion name="Greet" qn="pkg.Service.Greet" kind="method" lang="go" loc="pkg/service.go:12"/>"#,
                 "</name>",
@@ -1302,7 +1302,7 @@ fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="Gret" matches="0">"#,
+                r#"<callees of="Gret" matches="0" one_edit="1">"#,
                 "no symbol matches - did you mean:",
                 r#"<suggestion name="Greet" qn="pkg.Service.Greet" kind="method" lang="go" loc="pkg/service.go:12"/>"#,
                 "</callees>",
