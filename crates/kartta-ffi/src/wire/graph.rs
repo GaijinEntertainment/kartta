@@ -128,6 +128,7 @@ mod label {
     ) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(match kind {
             UnmatchedKind::Several => "several",
+            UnmatchedKind::OneEdit => "one_edit",
             _ => "outside_prefix",
         })
     }

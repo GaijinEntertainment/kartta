@@ -188,6 +188,160 @@ fn a_definition_of_a_kind_the_query_does_not_select_is_not_counted() {
     assert_eq!(named.listed[0].1.qualified_name, "b.Node");
 }
 
+type Instead = (UnmatchedKind, usize, Vec<(String, String)>);
+
+/// The kind and the count of what `name` names instead in `searched`, and the graph and the qualified name of each
+/// definition listed.
+fn named_instead(searched: &[(&str, &Graph)], name: &str) -> Option<Instead> {
+    unmatched(
+        searched.iter().copied(),
+        Selector::new(name, None),
+        |_| true,
+        5,
+    )
+    .map(|named| {
+        let listed = named
+            .listed
+            .iter()
+            .map(|(family, definition)| {
+                ((*family).to_owned(), definition.qualified_name.to_owned())
+            })
+            .collect();
+        (named.kind, named.total, listed)
+    })
+}
+
+#[test]
+fn a_name_nothing_defines_names_the_definitions_one_edit_from_it() {
+    let go = graph(&[(
+        "walk.go",
+        vec![qualified("handle", "walk.handle", SymbolKind::Function)],
+    )]);
+    let jsts = graph(&[(
+        "kartta.ts",
+        vec![
+            qualified("#handle", "Kartta.#handle", SymbolKind::Field),
+            qualified("#cache", "Kartta.#cache", SymbolKind::Field),
+            qualified("#instance", "Kartta.#instance", SymbolKind::Field),
+        ],
+    )]);
+    let searched = [("go", &go), ("jsts", &jsts)];
+    let one = |family: &str, qualified_name: &str| {
+        let listed = vec![(family.to_owned(), qualified_name.to_owned())];
+        Some((UnmatchedKind::OneEdit, 1, listed))
+    };
+
+    for (name, edit) in [
+        ("hadnle", "swapped"),
+        ("hnadle", "swapped"),
+        ("handel", "swapped"),
+        ("hndle", "dropped"),
+        ("hendle", "replaced"),
+        ("Handle", "replaced"),
+        ("handles", "added"),
+    ] {
+        assert_eq!(
+            named_instead(&searched, name),
+            one("go", "walk.handle"),
+            "{name}: a character {edit}"
+        );
+    }
+    for (name, field) in [
+        ("#handel", "Kartta.#handle"),
+        ("#cahce", "Kartta.#cache"),
+        ("#insatnce", "Kartta.#instance"),
+        ("Kartta.#handel", "Kartta.#handle"),
+    ] {
+        assert_eq!(named_instead(&searched, name), one("jsts", field), "{name}");
+    }
+}
+
+#[test]
+fn a_name_two_edits_from_every_definition_names_nothing_instead() {
+    let go = graph(&[(
+        "walk.go",
+        vec![qualified("handle", "walk.handle", SymbolKind::Function)],
+    )]);
+
+    for name in ["hadnel", "hnadel", "andl", "hand"] {
+        assert_eq!(
+            unmatched(
+                [("go", &go)].into_iter(),
+                Selector::new(name, None),
+                |_| true,
+                5
+            ),
+            None,
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn a_name_that_names_a_definition_of_another_kind_names_nothing_one_edit_from_it() {
+    let go = graph(&[
+        (
+            "a.go",
+            vec![qualified("Node", "a.Node", SymbolKind::Function)],
+        ),
+        (
+            "b.go",
+            vec![qualified("Nodes", "b.Nodes", SymbolKind::Struct)],
+        ),
+    ]);
+
+    let named = unmatched(
+        [("go", &go)].into_iter(),
+        Selector::new("Node", None),
+        is_parent,
+        5,
+    );
+
+    assert_eq!(named, None, "Node is no misspelling, though no parent");
+}
+
+#[test]
+fn the_definitions_one_edit_away_are_of_the_kinds_the_query_selects_and_count_past_the_limit() {
+    let mut tested = qualified("Nodes", "test.Nodes", SymbolKind::Struct);
+    tested.flags = tested.flags.with_test(true);
+    let go = graph(&[
+        (
+            "a.go",
+            vec![qualified("Nodes", "a.Nodes", SymbolKind::Function)],
+        ),
+        ("b.go", vec![tested]),
+        (
+            "c.go",
+            vec![qualified("Nodes", "c.Nodes", SymbolKind::Struct)],
+        ),
+        (
+            "d.go",
+            vec![qualified("Mode", "d.Mode", SymbolKind::Interface)],
+        ),
+    ]);
+
+    let named = unmatched(
+        [("go", &go)].into_iter(),
+        Selector::new("Node", None),
+        is_parent,
+        2,
+    )
+    .expect("Nodes and Mode are one edit from Node");
+
+    assert_eq!(named.kind, UnmatchedKind::OneEdit);
+    assert_eq!(named.total, 3, "the function is no parent");
+    let listed: Vec<&str> = named
+        .listed
+        .iter()
+        .map(|(_, definition)| definition.qualified_name)
+        .collect();
+    assert_eq!(
+        listed,
+        ["c.Nodes", "d.Mode"],
+        "test code last, then by path"
+    );
+}
+
 #[test]
 fn a_call_end_selects_where_a_walk_over_callers_would_start() {
     let go = graph(&[

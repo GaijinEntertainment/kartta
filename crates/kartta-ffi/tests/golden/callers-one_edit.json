@@ -1,0 +1,46 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [],
+      "unmatched": {
+        "kind": "one_edit",
+        "listed": [
+          {
+            "definition": {
+              "end_line": 9,
+              "exported": true,
+              "file": "cpp/circle.h",
+              "kind": "class",
+              "line": 5,
+              "name": "Circle",
+              "qualified_name": "Circle"
+            },
+            "graph": "cpp"
+          },
+          {
+            "definition": {
+              "end_line": 8,
+              "exported": true,
+              "file": "cpp/circle.h",
+              "flags": [
+                "entry"
+              ],
+              "kind": "method",
+              "line": 8,
+              "name": "Circle",
+              "owner": "Circle",
+              "qualified_name": "Circle::Circle",
+              "signature": "Circle()"
+            },
+            "graph": "cpp"
+          }
+        ],
+        "total": 2
+      }
+    }
+  },
+  "method": "callers",
+  "params": {
+    "name": "Cirlce"
+  }
+}

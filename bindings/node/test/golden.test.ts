@@ -9,6 +9,7 @@ import build from '../../../crates/kartta-ffi/tests/golden/build.json' with {typ
 import callPathUnmatched from '../../../crates/kartta-ffi/tests/golden/call_path-unmatched.json' with {type: 'json'};
 import callPath from '../../../crates/kartta-ffi/tests/golden/call_path.json' with {type: 'json'};
 import callees from '../../../crates/kartta-ffi/tests/golden/callees.json' with {type: 'json'};
+import callersOneEdit from '../../../crates/kartta-ffi/tests/golden/callers-one_edit.json' with {type: 'json'};
 import callers from '../../../crates/kartta-ffi/tests/golden/callers.json' with {type: 'json'};
 import cancel from '../../../crates/kartta-ffi/tests/golden/cancel.json' with {type: 'json'};
 import deadCode from '../../../crates/kartta-ffi/tests/golden/dead_code.json' with {type: 'json'};
@@ -61,6 +62,7 @@ type Goldens = typeof goldens;
 /** The goldens of the second request a method has one for, which reaches keys its first golden does not, by method. */
 const secondGoldens = {
 	call_path: callPathUnmatched,
+	callers: callersOneEdit,
 	references: referencesUnmatched,
 	refresh: refreshPaths,
 };

@@ -495,7 +495,7 @@ fn find_callers_offers_alternatives_to_an_unknown_name() {
 
     assert_eq!(
         client.answer("find_callers", &json!({"name": "Gret"})),
-        "<callers of=\"Gret\" matches=\"0\">\n\
+        "<callers of=\"Gret\" matches=\"0\" one_edit=\"1\">\n\
          no symbol matches - did you mean:\n\
          <suggestion name=\"Greet\" qn=\"pkg.Service.Greet\" kind=\"method\" lang=\"go\" loc=\"pkg/service.go:12\"/>\n\
          </callers>"
