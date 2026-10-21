@@ -612,6 +612,50 @@ fn paths_given_twice_out_of_order_or_below_one_another_are_walked_once() {
 }
 
 #[test]
+fn a_refresh_walked_over_the_paths_inside_its_parts_and_no_other() {
+    let dir = tree(&[
+        ("a/b/c.rs", "a"),
+        ("a/b-x/d.rs", "b"),
+        ("a/b.rs", "c"),
+        ("a/bc/e.rs", "d"),
+        ("e.rs", "e"),
+        ("z/f.rs", "f"),
+    ]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    let named = index
+        .refresh_paths(["e.rs", "a/b-x", "a/b"], None, None)
+        .expect("refresh the paths");
+    let whole = index.refresh(None, None).expect("refresh the tree");
+    let none = index
+        .refresh_paths([], None, None)
+        .expect("refresh no path");
+
+    assert_eq!(named.walked, ["a/b", "a/b-x", "e.rs"]);
+    let over: Vec<&str> = [
+        "a/b",
+        "a/b/c.rs",
+        "a/b/deep/new.rs",
+        "a/b-x/d.rs",
+        "a/b.rs",
+        "a/bc/e.rs",
+        "a",
+        "",
+        "e.rs",
+        "z/f.rs",
+    ]
+    .into_iter()
+    .filter(|path| named.walked_over(path))
+    .collect();
+    assert_eq!(
+        over,
+        ["a/b", "a/b/c.rs", "a/b/deep/new.rs", "a/b-x/d.rs", "e.rs"]
+    );
+    assert!(whole.walked_over("z/f.rs") && whole.walked_over(""));
+    assert!(none.walked.is_empty() && !none.walked_over("z/f.rs") && !none.walked_over(""));
+}
+
+#[test]
 fn the_named_files_a_refresh_reads_are_read_on_the_index_threads() {
     #[derive(Default)]
     struct Threads(Mutex<Vec<(String, ThreadId)>>);
