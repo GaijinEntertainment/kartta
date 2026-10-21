@@ -9,7 +9,7 @@ use crate::extracting::Extracted;
 use crate::following::Followed;
 use crate::repository::{Configuration, IndexRepository, asked_while, configured_while};
 
-const RESOLVED_AT_ONCE: usize = 4096;
+const RESOLVED_AT_ONCE: usize = 1024;
 
 pub(crate) struct Resolving<'b> {
     pub(crate) index: &'b Index,
