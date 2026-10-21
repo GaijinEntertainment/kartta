@@ -32,11 +32,6 @@ fn limits(
         .with_max_symbols(bound(max_symbols, defaults.1))
 }
 
-fn selector<'a>(name: &'a str, path_prefix: Option<&'a str>) -> Selector<'a> {
-    let selector = Selector::new(name);
-    path_prefix.map_or(selector, |prefix| selector.within(prefix))
-}
-
 /// `value`, or `default` when it is left out or 0.
 pub(crate) fn bound<T: Copy + Default + PartialEq>(value: Option<T>, default: T) -> T {
     value
@@ -67,7 +62,7 @@ pub(crate) struct WalkParams {
 
 impl WalkParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        selector(&self.name, self.path_prefix.as_deref())
+        Selector::new(&self.name, self.path_prefix.as_deref())
     }
 
     pub(crate) fn limits(&self, depth: u32) -> Limits {
@@ -101,11 +96,11 @@ pub(crate) struct CallPathParams {
 
 impl CallPathParams {
     pub(crate) fn from(&self) -> Selector<'_> {
-        selector(&self.from, self.from_path_prefix.as_deref())
+        Selector::new(&self.from, self.from_path_prefix.as_deref())
     }
 
     pub(crate) fn to(&self) -> Selector<'_> {
-        selector(&self.to, self.to_path_prefix.as_deref())
+        Selector::new(&self.to, self.to_path_prefix.as_deref())
     }
 
     pub(crate) fn limits(&self) -> Limits {
@@ -136,7 +131,7 @@ pub(crate) struct ReferencesParams {
 
 impl ReferencesParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        selector(&self.name, self.path_prefix.as_deref())
+        Selector::new(&self.name, self.path_prefix.as_deref())
     }
 
     pub(crate) fn query(&self) -> SiteQuery {
@@ -175,7 +170,7 @@ pub(crate) struct ImplementationsParams {
 
 impl ImplementationsParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        selector(&self.name, self.path_prefix.as_deref())
+        Selector::new(&self.name, self.path_prefix.as_deref())
     }
 
     pub(crate) fn depth(&self) -> u32 {
