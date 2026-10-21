@@ -27,7 +27,7 @@ func openTree(t *testing.T) *Kartta {
 
 func cancelAhead(t *testing.T, k *Kartta) uint64 {
 	t.Helper()
-	id := k.builds.Load() + 1
+	id := k.ids.Load() + 1
 	if err := k.Call("cancel", wire.CancelParams{Build: id}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func Test_Build_cancel(t *testing.T) {
 
 	t.Run("a cancel that reaches the engine before its build starts stops that build", func(t *testing.T) {
 		var answer wire.CancelAnswer
-		if err := k.Call("cancel", wire.CancelParams{Build: k.builds.Load() + 1}, &answer); err != nil {
+		if err := k.Call("cancel", wire.CancelParams{Build: k.ids.Load() + 1}, &answer); err != nil {
 			t.Fatal(err)
 		}
 
