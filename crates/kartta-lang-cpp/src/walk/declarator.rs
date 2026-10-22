@@ -100,8 +100,8 @@ fn declared_name_of(declarator: Node<'_>, source: &[u8]) -> Option<DeclaredName>
     }
 
     let declared = match declarator.kind() {
-        "identifier" | "field_identifier" | "operator_name" | "destructor_name"
-        | "template_function" | "template_method" => DeclaredName {
+        "identifier" | "field_identifier" | "type_identifier" | "operator_name"
+        | "destructor_name" | "template_function" | "template_method" => DeclaredName {
             name: function_base_name(declarator, source),
             scope: None,
         },
@@ -194,11 +194,18 @@ fn first_of_declarator_run(last: Node<'_>) -> Node<'_> {
     first
 }
 
+// constraint: a pointer return type after a macro, `IMGUI_API ImGuiTabItem* FindTab()`, parses as a scope joined by a
+// `::` the source does not hold to a type's pointer declarator, whose function's name reads as a type identifier
 fn unwrap_to_function_declarator(mut node: Node<'_>) -> Option<Node<'_>> {
     loop {
         match node.kind() {
             "function_declarator" => return Some(node),
-            "pointer_declarator" | "reference_declarator" => node = inner_declarator(node)?,
+            "pointer_declarator" | "reference_declarator" | "pointer_type_declarator" => {
+                node = inner_declarator(node)?;
+            }
+            "qualified_identifier" if child_nodes(node).any(|child| child.is_missing()) => {
+                node = node.child_by_field_name("name")?;
+            }
             _ => return None,
         }
     }

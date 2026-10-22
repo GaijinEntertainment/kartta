@@ -1322,6 +1322,41 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
+    fn a_macro_before_a_pointer_return_type_keeps_the_function() {
+        let raw = extract(
+            b"namespace ImGui {\n\
+              IMGUI_API ImGuiTabItem* TabBarFindTabByID(ImGuiTabBar* tab_bar, ImGuiID tab_id);\n\
+              IMGUI_API const ImGuiTabItem** TabBarTabs(ImGuiTabBar* tab_bar) { return tab_bar->Tabs; }\n\
+              static IMGUI_API ImVector<int>* const Indices(int order) { return nullptr; }\n}\n",
+        );
+
+        assert_eq!(
+            qualified_names(&raw),
+            [
+                "ImGui::TabBarTabs",
+                "ImGui::Indices",
+                "ImGui::TabBarFindTabByID"
+            ]
+        );
+        for name in ["TabBarTabs", "Indices", "TabBarFindTabByID"] {
+            assert_eq!(symbol(&raw, name).kind, SymbolKind::Function, "{name}");
+            assert_eq!(symbol(&raw, name).owner, None, "{name}");
+        }
+        let keys: Vec<&str> = raw
+            .callables
+            .iter()
+            .map(|callable| callable.key.as_str())
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "ImGui::TabBarTabs(ImGuiTabBar *)",
+                "ImGui::TabBarFindTabByID(ImGuiTabBar *,ImGuiID)"
+            ]
+        );
+    }
+
+    #[test]
     fn trailing_macros_on_ctor_dtor_keep_the_member() {
         let raw = extract(
             b"class FS {\n  FS() DAG_TS_ACQUIRE(mtx) { init(); }\n  ~FS() DAG_TS_RELEASE(mtx) { drop(); }\n};\n\
