@@ -468,6 +468,16 @@ fn a_use_or_a_let_shadows_a_block_item() {
 }
 
 #[test]
+fn self_in_a_use_list_shadows_a_block_item_of_its_module_s_name() {
+    let got = local_calls(
+        "fn outer() {\n    fn socket() {}\n    {\n        use nix::socket::{self};\n        socket();\n    }\n\
+         \x20   socket();\n}\n",
+    );
+
+    assert_eq!(got, [local("outer", SymbolKind::Function, 2)]);
+}
+
+#[test]
 fn a_struct_or_tuple_struct_pattern_shadows_the_names_it_binds() {
     let got = local_calls(
         "struct S { helper: fn(), other: W }\nstruct W(fn());\nfn outer(value: S) {\n    fn helper() {}\n\

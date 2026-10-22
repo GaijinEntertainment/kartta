@@ -34,7 +34,9 @@ A `use` of a path that may start at another crate, `use kartta_lang::tree::{self
 with the path the name reaches, and a path call through such a crate, `kartta_walk::walk::run()`, keeps its receiver
 with its path, read through the `use` of its first segment where the file has one. A name the file declares at its top
 level, or binds to two paths anywhere, keeps none; a glob, `as _`, `crate::`, `self::`, `super::`, a capitalised first
-segment and the standard library's crates keep nothing.
+segment and the standard library's crates keep nothing. A `use` inside a function body is in scope in its block alone:
+outside the blocks of the `use`s that alone bind a name, a path call reads the name as the crate it spells, and a bare
+call of the name leaves it no path.
 
 A name read where no call takes it, `items.map(helper)`, `Handler { on_event: helper }` or `SETTINGS.enabled`, is a use
 of it, and so are `Self::make` and `Service::make` of the member `make`. A name a pattern binds, a parameter, a `let`,
