@@ -5,6 +5,7 @@ use kartta_lang::path::{base, dir};
 
 pub(crate) type Aliases = Vec<(String, Vec<String>)>;
 
+#[derive(PartialEq)]
 pub(crate) struct ScopedAliases {
     pub(crate) dir: String,
     pub(crate) aliases: Aliases,

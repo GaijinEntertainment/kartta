@@ -10,6 +10,7 @@ const CONDITIONS: [&str; 7] = [
     "source", "import", "module", "default", "require", "node", "types",
 ];
 
+#[derive(PartialEq)]
 pub(crate) struct PkgExports {
     pub(crate) name: String,
     pub(crate) dir: String,

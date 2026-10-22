@@ -67,6 +67,12 @@
 //! package, is kept as an import as written. A re-export names the file its specifier resolves to by the same rules,
 //! or none.
 //!
+//! The resolver keeps only what it derived: the aliases of each `tsconfig.json`, the `imports` of each `package.json`,
+//! and each package's name, directory, `exports` and entry. A resolver built again over an edit that changes none of
+//! them, such as a `version` or `dependencies` bump in a `package.json`,
+//! [resolves as](kartta_lang::Resolver::resolves_as) the one built before, so an engine that follows the tree resolves
+//! no script again for it.
+//!
 //! # Fingerprint
 //!
 //! Each language's fingerprint holds this crate's name, version and a digest of its sources, and its grammar's
