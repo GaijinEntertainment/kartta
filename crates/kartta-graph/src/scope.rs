@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::rc::Rc;
 
 use foldhash::fast::FixedState;
@@ -10,6 +11,7 @@ use crate::graph::{agree, distinct, is_parent, last_segment};
 use crate::resolve::{Bound, Call, Cascade, derived, derives};
 use crate::stored::SymbolAt;
 use crate::strings::Str;
+use crate::twins::{Twin, kept};
 
 /// What a set of candidates offers a call: no target its shape admits, one, or several on different owners.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +26,9 @@ pub(crate) enum Scoped {
 pub(crate) enum OwnerMember {
     /// The member of a class of that name the caller's file reaches.
     Member(SymbolAt),
+    /// Classes of that name in several scopes hold the member nearest the caller's file, and the receiver's spelling
+    /// names none of them.
+    Ambiguous,
     /// No class of that name that the caller's file reaches holds the member: the name is a typedef, a class of another
     /// project, or a class that inherits the member, so the call resolves as one on an operand of no declared class.
     Elsewhere,
@@ -292,6 +297,22 @@ impl Cascade<'_> {
             .iter()
             .copied()
             .find(|&ty| derives(self.graph.sym(ty).kind) && self.body(ty).contains(file, line))
+    }
+
+    /// The class whose body declares `at`, a member, read through a declaration where the member is defined outside
+    /// its class.
+    pub(crate) fn class_of(&self, at: SymbolAt) -> Option<SymbolAt> {
+        let owner = self.owner(at)?;
+        self.body_holding(owner, self.position(at))
+            .or_else(|| {
+                self.declarations(at)
+                    .iter()
+                    .find_map(|&declaration| self.body_holding(owner, self.position(declaration)))
+            })
+            .or_else(|| {
+                self.folded_lines(at)
+                    .find_map(|line| self.body_holding(owner, (at.file, line)))
+            })
     }
 
     pub(crate) fn is_own_member(&self, reach: &Reach, at: SymbolAt) -> bool {
@@ -886,7 +907,8 @@ impl Cascade<'_> {
     // constraint: where scopes nest, as C++ namespaces do, the class an operand is declared as is one its file reaches
     // through its includes, the nearest first: its own file, the files it includes, then the files those reach, since a
     // class of that name in another namespace comes in deeper; a class of that name only elsewhere belongs to another
-    // project, so its member is not the one called
+    // project, so its member is not the one called; of namesakes equally near, the one the receiver's spelling names
+    // binds, the first of a template and its specializations alike
     pub(crate) fn member_of_a_reached_owner(
         &self,
         call: &Call,
@@ -897,23 +919,32 @@ impl Cascade<'_> {
         else {
             return OwnerMember::NotDeclared;
         };
-        let owned = candidates.with_owner(self.graph, receiver);
-        owned
-            .iter()
-            .copied()
-            .find(|&at| at.file == call.file)
-            .or_else(|| {
-                let includes = self.includes(call.file);
-                owned.iter().copied().find(|at| includes.contains(&at.file))
-            })
-            .or_else(|| {
-                let closure = self.closure(call.file);
-                owned
-                    .iter()
-                    .copied()
-                    .find(|at| closure.binary_search(&at.file).is_ok())
-            })
-            .map_or(OwnerMember::Elsewhere, OwnerMember::Member)
+        let Some(class) = self.bare_owner(receiver) else {
+            return OwnerMember::Elsewhere;
+        };
+        let owned = candidates.with_owner(self.graph, class);
+        let tier = self.reached_tier(call.file, &owned);
+        let written = self.graph.strings.resolve(receiver);
+        match self.twin(call.caller_at(), written, &tier) {
+            Some(Twin::Member(at) | Twin::Namesake(at)) => OwnerMember::Member(at),
+            Some(Twin::Unnamed(_)) => OwnerMember::Ambiguous,
+            None => OwnerMember::Elsewhere,
+        }
+    }
+
+    /// The members of `owned` in the nearest of the file itself, the files it includes and the files those reach.
+    fn reached_tier<'o>(&self, file: u32, owned: &'o [SymbolAt]) -> Cow<'o, [SymbolAt]> {
+        let in_file = kept(owned, |at| at.file == file);
+        if !in_file.is_empty() {
+            return in_file;
+        }
+        let includes = self.includes(file);
+        let through_includes = kept(owned, |at| includes.contains(&at.file));
+        if !through_includes.is_empty() {
+            return through_includes;
+        }
+        let closure = self.closure(file);
+        kept(owned, |at| closure.binary_search(&at.file).is_ok())
     }
 
     pub(crate) fn member_of_the_receiver_s_owner(

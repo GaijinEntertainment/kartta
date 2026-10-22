@@ -240,9 +240,23 @@ impl<'s, 't> Replayer<'s, 't> {
     }
 
     fn owner_named(&self, written: Node<'_>) -> Option<&'s str> {
-        owner_type(written)
-            .and_then(|owner| self.borrowed(owner))
+        let (spelled, name) = owner_type(written)?;
+        self.borrowed(name)
             .filter(|owner| !self.is_template_parameter(owner))
+            .map(|owner| self.scoped(spelled, name).unwrap_or(owner))
+    }
+
+    // constraint: a class keeps the scopes its spelling writes, `b::Widget` or `::b::Widget`, which tell namesakes of
+    // two namespaces apart; a spelling that holds anything but names and `::`, a template's arguments or a space, is
+    // left to the bare name
+    fn scoped(&self, from: Node<'_>, name: Node<'_>) -> Option<&'s str> {
+        std::str::from_utf8(&self.source[from.start_byte()..name.end_byte()])
+            .ok()
+            .filter(|spelled| {
+                spelled
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b':')
+            })
     }
 
     // constraint: a name the file's walk cannot see declared is kept, since an included file may declare it, and the
@@ -462,14 +476,17 @@ fn assignment_access(assignment: Node<'_>) -> Access {
     if plain { Access::Write } else { Access::Update }
 }
 
-fn owner_type(written: Node<'_>) -> Option<Node<'_>> {
+/// The node a class's spelling starts at, its scopes included, and the class's bare name.
+fn owner_type(written: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
     match written.kind() {
-        "type_identifier" => Some(written),
-        "qualified_identifier"
-        | "template_type"
-        | "struct_specifier"
-        | "class_specifier"
-        | "union_specifier" => written.child_by_field_name("name").and_then(owner_type),
+        "type_identifier" => Some((written, written)),
+        "qualified_identifier" => {
+            let (_, name) = owner_type(written.child_by_field_name("name")?)?;
+            Some((written, name))
+        }
+        "template_type" | "struct_specifier" | "class_specifier" | "union_specifier" => {
+            owner_type(written.child_by_field_name("name")?)
+        }
         _ => None,
     }
 }

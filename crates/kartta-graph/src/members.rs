@@ -142,9 +142,12 @@ impl<'g> Cascade<'g> {
     pub(crate) fn included_owner_member(
         &self,
         file: u32,
-        owner: Str,
+        path: Str,
         name: Str,
     ) -> Option<Result<Bound, UseMiss>> {
+        let Some(owner) = self.bare_owner(path) else {
+            return Some(Err(UseMiss::Elsewhere));
+        };
         let named = self.data_named(name);
         let declared = named.fields.with_owner(self.graph, owner);
         if let Some(found) = self.reached_owner(file, &declared) {

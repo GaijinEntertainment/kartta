@@ -56,12 +56,14 @@
 //!
 //! # Calls
 //!
-//! A bare call `f()` names `f`; a member call names the field, its template arguments dropped, with the bare name of
-//! the class its operand holds as its receiver: the caller's own class on `this`, and on a local or a parameter
-//! declared as a value of a class or a reference to it for `.`, or a pointer to it for `->`, that class, as a use's
-//! [`Receiver::Path`](kartta_lang::Receiver::Path) is. `this` outside a member keeps `this`, and any other operand
-//! records the empty receiver, because the operand of `.` or `->` is a value whose name names no type. A call through
-//! a named scope keeps the scope as written, `ns::f`, and one through the root keeps the `::`, `::f`.
+//! A bare call `f()` names `f`; a member call names the field, its template arguments dropped, with the class its
+//! operand holds as its receiver: the bare name of the caller's own class on `this`, and on a local or a parameter
+//! declared as a value of a class or a reference to it for `.`, or a pointer to it for `->`, that class as its
+//! declaration spells it: with the scopes it writes, `b::Widget` or `::b::Widget`, without its template arguments,
+//! `ns::Box` for `ns::Box<int>`, and by its bare name where a scope carries template arguments or the spelling a space.
+//! `this` outside a member keeps `this`, and any other operand records the empty receiver, because the operand of `.`
+//! or `->` is a value whose name names no type. A call through a named scope keeps the scope as written, `ns::f`, and
+//! one through the root keeps the `::`, `::f`.
 //! `new ns::Widget<T>()` is a call of `Widget`. A cast, a call spelled by a type keyword, and a call or a `new` of a
 //! parameter of an enclosing template, `Compare()` in a template over `Compare`, are not recorded. A call outside every
 //! function is a call from file scope, before the file's first symbol too.
@@ -71,10 +73,11 @@
 //! A function's initializer list and body yield uses, and so does an initializer outside every body and lambda, where
 //! a name, a table of handlers' most often, is a use at [`FILE_SCOPE`](kartta_lang::FILE_SCOPE) that keeps only the
 //! name it spells. `x.f` and `x->f` outside a call's callee use `f` on
-//! [`Receiver::Path`](kartta_lang::Receiver::Path): the class's bare name where `x` is a local or a parameter declared
-//! as a value of it or a reference to it for `.`, or a pointer to it for `->`, else empty. `this->f` and a member a
-//! constructor's initializer list sets use `f` on [`Receiver::Own`](kartta_lang::Receiver::Own), a designated
-//! initializer `.f = v` on the path of the type its declaration or compound literal spells. A bare name that no local,
+//! [`Receiver::Path`](kartta_lang::Receiver::Path): the class as a member call's receiver spells it where `x` is a
+//! local or a parameter declared as a value of it or a reference to it for `.`, or a pointer to it for `->`, else
+//! empty. `this->f` and a member a constructor's initializer list sets use `f` on
+//! [`Receiver::Own`](kartta_lang::Receiver::Own), a designated initializer `.f = v` on the path of the type its
+//! declaration or compound literal spells, spelled so too. A bare name that no local,
 //! parameter, capture or enclosing template parameter declares before it is [`Receiver::Bare`](kartta_lang::Receiver),
 //! a member of the enclosing class or a namespace's value alike, an enumerator or a macro included. A qualified name
 //! that names a value, `Config::kLimit` or `&Widget::draw`, uses its last name on the path of its scope's last

@@ -33,8 +33,12 @@ among the definitions of its name wherever a definition the call's shape rules o
 not the one callable of the name. Where a language lists the receivers it writes for a value of the caller's own type,
 as `self` and `other`, a member call binds a member of the caller's own owner only on one of them. Where
 a language's includes are transitive, as C++'s are, a call of a name at most 32 definitions share that no included file
-defines binds the one file the includes reach in turn that defines it, a member call only a member. Where a language
-says so, a member call on a value takes nothing from the callables nearest the caller. A use outside a call binds more
+defines binds the one file the includes reach in turn that defines it, a member call only a member. Where scopes nest,
+as C++'s do, a member call on an operand of a declared class binds the member of the class of that name nearest the
+caller's file, and of namesakes equally near, the one the class's spelling names from the caller's scope outward:
+namesakes of one qualified name, a template and its specializations, bind the first, and namesakes of other names it
+names none of leave the call ambiguous. Where a language says so, a member call on a value takes nothing from the
+callables nearest the caller. A use outside a call binds more
 narrowly: through the import its qualifier names, else a package-level definition of its own file, of a dot import, or
 of its package directory, and where a language's uses reach its imports, of the one included file that declares it or
 of a re-export from one. A member a use takes on a value binds a field or a method through the type path its language

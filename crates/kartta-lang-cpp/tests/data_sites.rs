@@ -53,11 +53,12 @@ void use(const Config &config, Config *pointer, T &generic, ns::Box<Item> boxed)
             path("Config"),
             path(""),
             path(""),
-            path("Box"),
+            path("ns::Box"),
             path(""),
             path(""),
         ],
-        "`.` takes a value or a reference, `->` a pointer; a deduced, generic or chained operand names no type"
+        "`.` takes a value or a reference, `->` a pointer, each with the scopes its type writes; a deduced, generic or \
+         chained operand names no type"
     );
     assert_eq!(named(&raw, "inner"), [(path("Config"), Access::Read, 6)]);
 }
