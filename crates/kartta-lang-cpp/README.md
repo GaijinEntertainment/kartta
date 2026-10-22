@@ -31,11 +31,14 @@ unresolved import when no file matches or two match equally well; and test or ge
 
 Three constructs the grammar cannot reduce — an empty trailing macro argument, `CHECK(ptr, )`, an export macro between
 a class key and the class name, `class TORRENT_EXPORT torrent : base`, and a function-like macro where a declaration
-belongs — take the declarations around them down with them, and the entries of a large table, its numbers or, in a
-parser tree-sitter generates, its macro calls and enumerators, cost far more tree than the file, so a table's data is
-blanked too. A file is read as such a parser when its text before its first brace includes `tree_sitter/parser.h` and
-defines `LANGUAGE_VERSION`. The parser reads a repaired copy of the file, the same length as the original, while every
-name and signature comes from the original bytes.
+belongs — take the declarations around them down with them, and so does a conditional whose first branch leaves a
+brace open or closes one it did not open, `#ifdef A` `if (x) {` `#else` `if (y) {` `#endif`. Where the parser reads such
+an `#else` inside the block the first branch opened, every conditional of that shape in the file is read with its first
+branch taken, whatever its condition. The entries of a large table, its numbers or, in a parser tree-sitter generates,
+its macro calls and enumerators, cost far more tree than the file, so a table's data is blanked too. A file is read as
+such a parser when its text before its first brace includes `tree_sitter/parser.h` and defines `LANGUAGE_VERSION`. The
+parser reads a repaired copy of the file, the same length as the original, while every name and signature comes from
+the original bytes.
 `design-docs/adr/3.3-repair-what-the-c-plus-plus-grammar-cannot-parse.md` records what each repair was measured to
 recover, the grammar gap left open, and why the extensions claimed are the ones they are;
 `design-docs/adr/3.31-parse-a-c-or-c-plus-plus-table-without-its-numbers.md` records the tables.
