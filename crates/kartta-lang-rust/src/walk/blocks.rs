@@ -101,9 +101,9 @@ impl Emitter<'_> {
         })
     }
 
-    pub(super) fn plain_block_calls(&self) -> impl Iterator<Item = (usize, usize, Option<usize>)> {
+    pub(super) fn bare_block_calls(&self) -> impl Iterator<Item = (usize, usize, Option<usize>)> {
         (self.block_calls.iter())
-            .filter(|call| matches!(call.form, CallForm::Plain))
+            .filter(|call| matches!(call.form, CallForm::Plain | CallForm::Macro))
             .map(|call| (call.index, call.at, call.module))
     }
 
@@ -150,14 +150,12 @@ impl Emitter<'_> {
     }
 
     pub(super) fn record_block_call(&mut self, node: Node<'_>, form: CallForm) {
-        if !self.functions.is_empty() {
-            self.block_calls.push(BlockCall {
-                index: self.raw.calls.len() - 1,
-                at: node.start_byte(),
-                module: self.modules.last().map(|module| module.end),
-                form,
-            });
-        }
+        self.block_calls.push(BlockCall {
+            index: self.raw.calls.len() - 1,
+            at: node.start_byte(),
+            module: self.modules.last().map(|module| module.end),
+            form,
+        });
     }
 
     // constraint: a `macro_rules!` is in scope textually, so it is found across an inline module boundary too
