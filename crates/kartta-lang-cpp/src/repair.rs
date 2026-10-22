@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use kartta_lang::tree::preorder;
 use tree_sitter::Tree;
 
@@ -8,6 +10,7 @@ const HEAD_GROUP_MAX: usize = 256;
 const HEAD_ATTRIBUTES: [&[u8]; 4] = [b"alignas", b"_Alignas", b"__declspec", b"__attribute__"];
 const DATA_GROUP_MIN: usize = 4096;
 const GENERATED_PARSER_MARKS: [&[u8]; 2] = [b"tree_sitter/parser.h", b"#define LANGUAGE_VERSION "];
+const RAW_DELIMITER_MAX: usize = 16;
 
 pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
     let mut repaired: Option<Vec<u8>> = None;
@@ -319,16 +322,24 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
 
-    let mut spills = spilled_error_rows(tree);
+    let Recovery {
+        mut spills,
+        misread_branch,
+    } = recovery_of(tree, source);
+    let mut repaired: Option<Vec<u8>> = None;
+    if misread_branch {
+        for directives in untaken_branches(source) {
+            blank(&mut repaired.get_or_insert_with(|| source.to_vec())[directives]);
+        }
+    }
     if spills.is_empty() {
-        return None;
+        return repaired;
     }
     let lines: Vec<&[u8]> = source.split(|byte| *byte == b'\n').collect();
     for spill in &mut spills {
         spill.0 = lead_in(&lines, spill.0);
     }
 
-    let mut repaired: Option<Vec<u8>> = None;
     let mut offset = 0;
     let mut continuation = false;
 
@@ -350,6 +361,168 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
     }
 
     repaired
+}
+
+struct Recovery {
+    spills: Vec<(usize, usize)>,
+    misread_branch: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Directive {
+    Opens,
+    Branches,
+    Closes,
+    Other,
+}
+
+fn directive_of(text: &[u8]) -> Directive {
+    let text = text.strip_prefix(b"#").unwrap_or(text);
+    let text = &text[indent_len(text)..];
+    match &text[..word_len(text)] {
+        b"if" | b"ifdef" | b"ifndef" => Directive::Opens,
+        b"elif" | b"else" | b"elifdef" | b"elifndef" => Directive::Branches,
+        b"endif" => Directive::Closes,
+        _ => Directive::Other,
+    }
+}
+
+fn indent_len(text: &[u8]) -> usize {
+    text.iter()
+        .take_while(|byte| matches!(byte, b' ' | b'\t'))
+        .count()
+}
+
+// constraint: the grammar reads a conditional's branches as runs of whole declarations or statements, and an `#else`
+// or `#elif` that follows an unclosed brace of the first branch, `#ifdef _XBOX ... {` `#else ... if (x) {` `#endif`,
+// parses as an unknown directive inside that brace's block; the later branch's code then joins the first's, its brace
+// opens a second block that the code after `#endif` never closes, and the definition runs on to the end of the file.
+// Where the first tree shows that misreading, every conditional whose first branch leaves a brace open, or closes one
+// it did not open, is read as the preprocessor reads it with the first branch taken: its directives and its later
+// branches are blanked. Every such conditional of the file, not only the misread one, because blanking one changes how
+// the grammar reads the next
+fn untaken_branches(source: &[u8]) -> Vec<Range<usize>> {
+    let mut scan = ConditionalScan::default();
+    let mut at = 0;
+    while let Some(&byte) = source.get(at) {
+        if (at == 0 || source[at - 1] == b'\n')
+            && let Some(directive) = directive_at(source, at)
+        {
+            let end = logical_line_end(source, at);
+            scan.directive(directive, at..end);
+            at = end;
+            continue;
+        }
+        at += match byte {
+            b'/' => match source.get(at + 1) {
+                Some(b'/') => logical_line_end(source, at) - at,
+                Some(b'*') => comment_len(&source[at..]).unwrap_or(source.len() - at),
+                _ => 1,
+            },
+            b'"' if source[..at].ends_with(b"R") => raw_string_len(&source[at..])
+                .or_else(|| quoted_len(&source[at..], byte))
+                .unwrap_or(1),
+            b'"' | b'\'' => quoted_len(&source[at..], byte).unwrap_or(1),
+            b'{' | b'}' => {
+                scan.brace(if byte == b'{' { 1 } else { -1 });
+                1
+            }
+            _ => 1,
+        };
+    }
+    scan.untaken
+}
+
+fn raw_string_len(text: &[u8]) -> Option<usize> {
+    let open = text
+        .iter()
+        .take(RAW_DELIMITER_MAX + 2)
+        .position(|byte| *byte == b'(')?;
+    let delimiter = &text[1..open];
+    let close = text[open..]
+        .windows(delimiter.len() + 2)
+        .position(|window| {
+            window[0] == b')' && window[1..].starts_with(delimiter) && window.ends_with(b"\"")
+        });
+    Some(close.map_or(text.len(), |close| open + close + delimiter.len() + 2))
+}
+
+fn directive_at(source: &[u8], line: usize) -> Option<Directive> {
+    let text = &source[line..];
+    text[indent_len(text)..]
+        .strip_prefix(b"#")
+        .map(directive_of)
+}
+
+fn logical_line_end(source: &[u8], from: usize) -> usize {
+    let mut end = from;
+    loop {
+        end += source[end..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .unwrap_or(source.len() - end);
+        let line = source[..end].strip_suffix(b"\r").unwrap_or(&source[..end]);
+        if end == source.len() || !line.ends_with(b"\\") {
+            return end;
+        }
+        end += 1;
+    }
+}
+
+#[derive(Default)]
+struct ConditionalScan {
+    open: Vec<OpenConditional>,
+    untaken: Vec<Range<usize>>,
+}
+
+struct OpenConditional {
+    head: Range<usize>,
+    later: Option<usize>,
+    depth: i32,
+    closes_unopened: bool,
+}
+
+impl ConditionalScan {
+    fn directive(&mut self, directive: Directive, line: Range<usize>) {
+        match directive {
+            Directive::Opens => self.open.push(OpenConditional {
+                head: line,
+                later: None,
+                depth: 0,
+                closes_unopened: false,
+            }),
+            Directive::Branches => {
+                if let Some(conditional) = self.open.last_mut() {
+                    conditional.later.get_or_insert(line.start);
+                }
+            }
+            Directive::Closes => {
+                if let Some(OpenConditional {
+                    head,
+                    later: Some(later),
+                    depth,
+                    closes_unopened,
+                }) = self.open.pop()
+                    && (depth != 0 || closes_unopened)
+                {
+                    self.untaken.extend([head, later..line.end]);
+                }
+            }
+            Directive::Other => {}
+        }
+    }
+
+    fn brace(&mut self, step: i32) {
+        let in_first_branch = self
+            .open
+            .iter_mut()
+            .rev()
+            .take_while(|conditional| conditional.later.is_none());
+        for conditional in in_first_branch {
+            conditional.depth += step;
+            conditional.closes_unopened |= conditional.depth < 0;
+        }
+    }
 }
 
 // constraint: a bare macro on a line of its own that opens a scope, `JPH_NAMESPACE_BEGIN` above a class, joins the
@@ -378,20 +551,30 @@ fn lead_in(lines: &[&[u8]], start: usize) -> usize {
     row
 }
 
-fn spilled_error_rows(tree: &Tree) -> Vec<(usize, usize)> {
-    let mut spills = Vec::new();
+fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
+    let mut recovery = Recovery {
+        spills: Vec::new(),
+        misread_branch: false,
+    };
 
     preorder(tree.root_node(), |node| {
         if node.is_error() {
             let (start, end) = (node.start_position().row, node.end_position().row);
             if end.saturating_sub(start) >= RECOVERY_SPILL_ROWS {
-                spills.push((start, end));
+                recovery.spills.push((start, end));
             }
+        }
+        if !recovery.misread_branch && node.kind() == "preproc_call" {
+            recovery.misread_branch =
+                node.child_by_field_name("directive")
+                    .is_some_and(|directive| {
+                        directive_of(&source[directive.byte_range()]) == Directive::Branches
+                    });
         }
         true
     });
 
-    spills
+    recovery
 }
 
 /// Whether a name is spelled as a macro: three or more upper-case letters, digits and underscores.
@@ -880,5 +1063,142 @@ void free_fn() {}
         assert_eq!(macro_invocation_len(b"  FIELDS"), Some("  FIELDS".len()));
         assert_eq!(macro_invocation_len(b"  FIELDS int x;"), None);
         assert_eq!(macro_invocation_len(b"  CHECK(open("), None);
+    }
+
+    #[test]
+    fn a_function_whose_conditional_branches_each_open_a_brace_ends_at_its_own_brace() {
+        const SOURCE: &[u8] = br"static bool search(int count)
+{
+  for (int i = 0; i < count; i++)
+  {
+#ifdef _XBOX
+    int axis = wide(i);
+    {
+#else
+    int axis = narrow(i);
+    if (axis)
+    {
+#endif
+      test(axis);
+    }
+  }
+  return true;
+}
+
+static bool after(int count)
+{
+  return check(count);
+}
+";
+
+        let raw = Cpp::new().extract(SOURCE);
+
+        let lines: Vec<(&str, u32, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.line, symbol.end_line))
+            .collect();
+        assert_eq!(lines, [("search", 1, 17), ("after", 19, 22)]);
+        let calls: Vec<(&str, u32)> = raw
+            .calls
+            .iter()
+            .map(|call| (call.callee.as_str(), call.line))
+            .collect();
+        assert_eq!(calls, [("wide", 6), ("test", 13), ("check", 21)]);
+    }
+
+    #[test]
+    fn a_conditional_whose_first_branch_unbalances_its_braces_is_read_with_that_branch_taken() {
+        const SOURCE: &[u8] = br"void scan(int count)
+{
+#ifdef WIDE
+  for (int i = 0; i < count; i++) {
+/* #else
+#endif */
+#else
+  for (int i = count; i > 0; i--) {
+#endif
+    step(i);
+  }
+#if defined(FAST)
+  if (count) {
+#elif defined(SLOW)
+  if (count > 1) {
+#endif
+    finish();
+  }
+}
+
+void check(int value)
+{
+  if (value == 0) {
+    zero();
+#ifdef STRICT
+  } else if (value < 0) {
+#else
+  } else if (value < -1) {
+#endif
+    negative();
+  }
+#ifdef TRACE
+  trace(value);
+#else
+  skip(value);
+#endif
+}
+";
+        let untaken = [3, 7, 8, 9, 12, 14, 15, 16, 25, 27, 28, 29];
+        let tree = parse(&grammar(), SOURCE).expect("parse");
+
+        let repaired = after_recovery(&tree, SOURCE).expect("a misread branch");
+
+        let expected: Vec<Vec<u8>> = SOURCE
+            .split(|byte| *byte == b'\n')
+            .zip(1..)
+            .map(|(line, number)| {
+                if untaken.contains(&number) {
+                    vec![b' '; line.len()]
+                } else {
+                    line.to_vec()
+                }
+            })
+            .collect();
+        assert_eq!(
+            String::from_utf8_lossy(&repaired),
+            String::from_utf8_lossy(&expected.join(&b'\n'))
+        );
+        let raw = Cpp::new().extract(SOURCE);
+        let lines: Vec<(&str, u32, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.line, symbol.end_line))
+            .collect();
+        assert_eq!(lines, [("scan", 1, 19), ("check", 21, 37)]);
+    }
+
+    #[test]
+    fn a_comment_holds_no_directive() {
+        let closed = b"#if A\n{\n#else\n{\n#endif\n/* open\n";
+        let open = b"#if A\n{\n#else\n{\n/* open\n#endif\n";
+        let continued = b"#if A\n{\n// spliced \\\n#else\n{\n#endif\n";
+
+        assert_eq!(untaken_texts(closed), ["#if A", "#else\n{\n#endif"]);
+        assert_eq!(untaken_texts(open), Vec::<&str>::new());
+        assert_eq!(untaken_texts(continued), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_raw_string_holds_no_brace() {
+        let source = b"#if A\nconst char *text = R\"x(\n\")\" {\n)x\";\n#else\n{\n#endif\n\
+                       #if B\nauto open = R\"({)\"; {\n#else\n{\n#endif\n";
+
+        assert_eq!(untaken_texts(source), ["#if B", "#else\n{\n#endif"]);
+    }
+
+    fn untaken_texts(source: &[u8]) -> Vec<&str> {
+        untaken_branches(source)
+            .into_iter()
+            .map(|range| std::str::from_utf8(&source[range]).expect("utf-8"))
+            .collect()
     }
 }
