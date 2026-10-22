@@ -134,7 +134,7 @@
   2026-10-18, revised 2026-10-22
 - [3.34 Record each read and write of a field or a value, and bind it when a query
   asks](./adr/3.34-record-each-read-and-write-of-a-field-or-a-value.md) — initiative `03-code-graph`, 2026-10-18,
-  revised 2026-10-20
+  revised 2026-10-22
 - [3.35 Pick a shared name's symbol by its path, and list the
   others](./adr/3.35-pick-a-shared-name-s-symbol-by-its-path-and-list-the-others.md) — initiative `03-code-graph`,
   2026-10-19
