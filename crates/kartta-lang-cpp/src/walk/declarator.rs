@@ -4,7 +4,7 @@ use tree_sitter::Node;
 
 use super::name::{function_base_name, is_simple_identifier, sanitize_name, type_base_name};
 use super::{child_nodes, exported_symbol};
-use crate::repair::is_macro_name;
+use crate::repair::{is_macro_name, macro_annotation_len};
 
 struct DeclaredName {
     name: String,
@@ -23,8 +23,37 @@ pub(super) fn function_symbol(node: Node<'_>, source: &[u8]) -> Option<Symbol> {
         symbol.qualified_name = format!("{scope}::{}", symbol.name);
         symbol.owner = Some(scope);
     }
-    symbol.signature = signature(node, source);
+    symbol.signature = trailing_annotation_end(node, source).map_or_else(
+        || signature(node, source),
+        |end| {
+            let written = String::from_utf8_lossy(&source[node.start_byte()..end]);
+            Some(written.trim_end().to_owned())
+        },
+    );
     Some(symbol)
+}
+
+// constraint: a macro after the parameters of a declaration without a body, `void raise(const char* format, ...)
+// PRINTF_ATTR(2, 3);`, ends the declaration at its parameters, and the grammar reads the macro on the same line as a
+// declaration or a statement of its own
+fn trailing_annotation_end(node: Node<'_>, source: &[u8]) -> Option<usize> {
+    if node.child_by_field_name("body").is_some() || !unterminated(node, source) {
+        return None;
+    }
+    let after = node.end_byte() + line_gap_len(&source[node.end_byte()..]);
+    macro_annotation_len(&source[after..]).map(|len| after + len)
+}
+
+/// Whether the declaration `node` ends without the `;` that closes it.
+pub(super) fn unterminated(node: Node<'_>, source: &[u8]) -> bool {
+    source[..node.end_byte()].last() != Some(&b';')
+}
+
+/// The spaces and tabs `text` starts with.
+pub(super) fn line_gap_len(text: &[u8]) -> usize {
+    text.iter()
+        .take_while(|byte| matches!(byte, b' ' | b'\t'))
+        .count()
 }
 
 // constraint: a conversion operator, `operator bool() const`, has no function declarator of its own: the grammar
