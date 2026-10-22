@@ -80,7 +80,7 @@
   2026-10-17
 - [3.11 Name Rust items by their module chain and resolve modules by Cargo's
   layout](./adr/3.11-name-rust-items-by-their-module-chain-and-resolve-modules-by-cargo-s-layout.md) — initiative
-  `03-code-graph`, 2026-10-16, revised 2026-10-22
+  `03-code-graph`, 2026-10-16, revised 2026-10-23
 - [3.12 Qualify Python by the module its path
   names](./adr/3.12-qualify-python-by-the-module-its-path-names.md) — initiative `03-code-graph`, 2026-10-16, revised
   2026-10-19
