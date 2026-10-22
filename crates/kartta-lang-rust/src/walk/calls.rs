@@ -55,7 +55,7 @@ impl Emitter<'_> {
 
         let index = self.raw.calls.len() - 1;
         if let Some(written) = &written {
-            self.record_written_path(index, written);
+            self.record_written_path(index, written, node.start_byte());
         }
         if names_own_type && let Some(own) = &self.raw.calls[index].receiver {
             for at in open_impls_over(&self.types, own) {

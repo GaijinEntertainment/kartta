@@ -9,12 +9,27 @@ use tree_sitter::Node;
 use super::syntax::path_text;
 use super::{Emitter, USE_FORM};
 
+// constraint: a path call's site, the byte it starts at and the inline module around it, tells which `use` inside a
+// function body is in scope there
+pub(super) struct WrittenPath {
+    call: usize,
+    directive: usize,
+    at: usize,
+    module: Option<usize>,
+}
+
 impl Emitter<'_> {
     pub(super) fn record_import(&mut self, node: Node<'_>) {
         let Some(argument) = node.child_by_field_name("argument") else {
             return;
         };
+        let first_directive = self.raw.directives.len();
         self.use_paths(argument, "", line(node.start_position().row));
+        if !self.functions.is_empty()
+            && let Some(block) = node.parent()
+        {
+            self.scope_use_to_block(block.byte_range(), first_directive);
+        }
     }
 
     // constraint: a `use` binds each name its tree ends in, an alias where one is written, and `self` in a list the
@@ -74,7 +89,8 @@ impl Emitter<'_> {
         if path.starts_with("::") {
             path.drain(.."::".len());
         }
-        self.imports.push(self.raw.directives.len());
+        self.imports
+            .push((self.raw.directives.len(), !self.functions.is_empty()));
         self.raw.directives.push(RawDirective {
             form: USE_FORM,
             spec: path,
@@ -86,10 +102,15 @@ impl Emitter<'_> {
     // constraint: a path call holds a place for the resolver only where its path may start at another crate or at a
     // name a `use` binds, a name that is neither a type, written capitalised, nor a path keyword nor the standard
     // library's crates
-    pub(super) fn record_written_path(&mut self, index: usize, written: &str) {
+    pub(super) fn record_written_path(&mut self, index: usize, written: &str, at: usize) {
         let written = written.strip_prefix("::").unwrap_or(written);
         if names_another_crate(head(written)) {
-            self.written_paths.push((index, self.raw.directives.len()));
+            self.written_paths.push(WrittenPath {
+                call: index,
+                directive: self.raw.directives.len(),
+                at,
+                module: self.modules.last().map(|module| module.end),
+            });
             self.raw.directives.push(RawDirective {
                 form: USE_FORM,
                 spec: written.to_owned(),
@@ -128,38 +149,47 @@ impl Emitter<'_> {
     }
 
     // constraint: a path call's receiver, the last segment of its path, is bound to the path where the receiver did not
-    // settle on a declaration of the file, the path's first segment read through the file's `use` of that name
+    // settle on a declaration of the file, the path's first segment read through the file's `use` of that name; a `use`
+    // inside a function body is in scope in its block alone, so where a name only such `use`s bind is out of their
+    // scope, a path from it reads as written, and a bare call of it leaves the name no path, as two paths do
     fn kept_paths(&self) -> HashMap<usize, Option<String>> {
         let directives = &self.raw.directives;
         let declared = self.declared_names();
-        let mut imported: HashMap<&str, Bound<&str>> = HashMap::new();
-        for &at in &self.imports {
-            let directive = &directives[at];
-            bind(
-                &mut imported,
-                &directive.names[0],
-                directive.spec.as_str(),
-                at,
-            );
-        }
+        let (imported, at_file_level) = self.imported_names();
+        let out_of_scope = |name: &str, at: usize, module: Option<usize>| {
+            imported.contains_key(name)
+                && !at_file_level.contains(name)
+                && !self.in_use_scope(name, at, module)
+        };
         let mut bound: HashMap<&str, Bound<Cow<'_, str>>> = (imported.iter())
             .map(|(&name, held)| (name, held.map(|(path, at)| (Cow::Borrowed(path), at))))
             .collect();
-        for &(call, at) in &self.written_paths {
-            let written = directives[at].spec.as_str();
+        for site in &self.written_paths {
+            let written = directives[site.directive].spec.as_str();
             let receiver = last(written);
-            if self.raw.calls[call].receiver.as_deref() != Some(receiver) {
+            if self.raw.calls[site.call].receiver.as_deref() != Some(receiver) {
                 continue;
             }
             let (first, rest) = written.split_once("::").unwrap_or((written, ""));
-            let path = match imported.get(first) {
+            let head = if out_of_scope(first, site.at, site.module) {
+                None
+            } else {
+                imported.get(first)
+            };
+            let path = match head {
                 Some(Some((path, _))) if rest.is_empty() => Cow::Borrowed(*path),
                 Some(Some((path, _))) => Cow::Owned(format!("{path}::{rest}")),
                 Some(None) => continue,
                 None if declared.contains(first) => continue,
                 None => Cow::Borrowed(written),
             };
-            bind(&mut bound, receiver, path, at);
+            bind(&mut bound, receiver, path, site.directive);
+        }
+        for (call, at, module) in self.plain_block_calls() {
+            let callee = self.raw.calls[call].callee.as_str();
+            if out_of_scope(callee, at, module) {
+                bound.insert(callee, None);
+            }
         }
         bound
             .into_iter()
@@ -171,6 +201,23 @@ impl Emitter<'_> {
                 })
             })
             .collect()
+    }
+
+    // constraint: a file's bindings hold one path per name, so a `use` inside a function body binds its names for the
+    // whole file too, and two paths of a name anywhere leave it none; the names a `use` outside every body binds, in
+    // scope everywhere, are set apart
+    fn imported_names(&self) -> (HashMap<&str, Bound<&str>>, HashSet<&str>) {
+        let mut imported = HashMap::new();
+        let mut at_file_level = HashSet::new();
+        for &(at, in_block) in &self.imports {
+            let directive = &self.raw.directives[at];
+            let name = directive.names[0].as_str();
+            bind(&mut imported, name, directive.spec.as_str(), at);
+            if !in_block {
+                at_file_level.insert(name);
+            }
+        }
+        (imported, at_file_level)
     }
 
     fn declared_names(&self) -> HashSet<&str> {

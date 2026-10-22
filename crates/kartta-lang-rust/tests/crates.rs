@@ -77,6 +77,38 @@ fn a_name_only_a_function_body_or_an_inline_module_declares_keeps_its_path() {
 }
 
 #[test]
+fn a_use_inside_a_function_binds_a_name_only_for_the_calls_of_its_block() {
+    let scoped = bound("fn a() {\n    use other_crate::m;\n    m::f();\n}\n");
+    let called_outside = bound(
+        "fn a() {\n    use other_crate::m::{self, f};\n    m::f();\n    f();\n}\n\n\
+         fn b() {\n    m::f();\n    f();\n}\n",
+    );
+    let after_an_inner_block = bound(
+        "fn a() {\n    {\n        use other_crate::m;\n        m::f();\n    }\n    m::f();\n}\n",
+    );
+    let in_an_inline_module = bound(
+        "fn a() {\n    use other_crate::m;\n    m::f();\n    mod inner {\n        fn g() { m::f(); }\n    }\n}\n",
+    );
+    let outside_through_it = bound(
+        "fn a() {\n    use other_crate::m;\n    m::f();\n}\n\nfn b() {\n    m::sub::g();\n}\n",
+    );
+    let also_at_file_level = bound(
+        "use other_crate::m;\n\nfn a() {\n    use other_crate::m;\n    m::f();\n}\n\n\
+         fn b() {\n    m::f();\n}\n",
+    );
+
+    assert_eq!(scoped, [path("m", "other_crate::m", 2)]);
+    assert_eq!(called_outside, []);
+    assert_eq!(after_an_inner_block, []);
+    assert_eq!(in_an_inline_module, []);
+    assert_eq!(
+        outside_through_it,
+        [path("m", "other_crate::m", 2), path("sub", "m::sub", 7)]
+    );
+    assert_eq!(also_at_file_level, [path("m", "other_crate::m", 1)]);
+}
+
+#[test]
 fn a_kept_path_includes_no_file_its_name_spells() {
     let rust = Rust::new();
     let repository = MemoryRepository::new([("src/lib.rs", ""), ("src/walk", "")]);
