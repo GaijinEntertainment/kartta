@@ -29,6 +29,7 @@ const PROBE_SUFFIXES: [&str; 19] = [
 
 const ESM_EXTENSIONS: [&str; 4] = [".js", ".mjs", ".cjs", ".jsx"];
 
+#[derive(PartialEq)]
 pub(crate) struct Configs {
     ts_aliases: Vec<ScopedAliases>,
     pkg_imports: Vec<ScopedAliases>,

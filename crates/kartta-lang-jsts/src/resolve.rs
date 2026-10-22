@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use kartta_lang::path::base;
 use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
@@ -7,6 +9,7 @@ use crate::config::is_vendored;
 use crate::generated::name_marks_generated;
 use crate::modules::{Configs, Modules};
 
+#[derive(PartialEq)]
 pub(crate) struct JstsResolver {
     configs: Configs,
 }
@@ -58,6 +61,10 @@ impl Resolver for JstsResolver {
         }
 
         extraction
+    }
+
+    fn resolves_as(&self, kept: &dyn Resolver) -> bool {
+        (kept as &dyn Any).downcast_ref::<Self>() == Some(self)
     }
 }
 

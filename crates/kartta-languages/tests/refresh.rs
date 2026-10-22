@@ -499,6 +499,28 @@ fn a_settings_blk_edit_outside_its_mount_points_resolves_no_blk_file_again() {
 }
 
 #[test]
+fn a_package_json_version_bump_resolves_no_script_again() {
+    let package = "{\"name\": \"web\", \"version\": \"1.0.0\", \"exports\": \"./app.ts\"}\n";
+    let tree = settled_tree_with(&[("web/package.json", package)]);
+    let mut engine = build(tree.path(), true);
+
+    write(
+        tree.path(),
+        "web/package.json",
+        &package.replace("1.0.0", "1.0.1"),
+    );
+    let refresh = refreshed(engine.refresh_paths(["web/package.json"], None));
+
+    assert!(
+        refresh.reconfigured.is_empty(),
+        "{:?}",
+        refresh.reconfigured
+    );
+    assert_eq!((refresh.extracted, refresh.resolved_again), (0, 0));
+    assert_eq!(answers(&engine), answers(&build(tree.path(), false)));
+}
+
+#[test]
 fn a_crate_renamed_in_its_cargo_toml_resolves_every_rust_file_again() {
     let tree = tempfile::tempdir().expect("a temporary directory");
     for (path, content) in [
