@@ -907,6 +907,32 @@ fn parts_in_sibling_directories_each_keep_their_own_rules() {
 }
 
 #[test]
+fn a_gitignore_above_the_parts_that_will_not_read_is_reported_once_a_call() {
+    let dir = tree(&[(".gitignore", "*.log\n"), ("sub/deep/a.rs", "")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    fs::create_dir(dir.path().join("sub/.gitignore")).expect("make a directory of the name");
+    for path in ["sub/deep/b.rs", "sub/deep/c.log", "sub/d.rs"] {
+        write(dir.path(), path, "");
+    }
+    let outcome = index
+        .refresh_paths(["sub/deep/b.rs", "sub/deep/c.log", "sub/d.rs"], None, None)
+        .expect("refresh the paths");
+
+    assert!(
+        matches!(
+            outcome.errors.as_slice(),
+            [BuildError::Ignore { native_path, .. }] if native_path.ends_with("sub/.gitignore")
+        ),
+        "{:?}",
+        outcome.errors
+    );
+    assert!(index.entry("sub/deep/b.rs").is_some());
+    assert!(index.entry("sub/d.rs").is_some());
+    assert!(index.entry("sub/deep/c.log").is_none());
+}
+
+#[test]
 fn a_nested_repository_walked_again_drops_the_rules_from_above_it() {
     let dir = tree(&[(".gitignore", "*.log\n"), ("nested/a.rs", "")]);
     let mut index = build(dir.path(), &BuildOptions::default(), None);
