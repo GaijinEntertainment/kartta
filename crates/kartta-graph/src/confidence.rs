@@ -3,8 +3,10 @@
 //! A call or a use is resolved by the first tier that binds it, and the answer carries that tier's confidence: a
 //! [`Limits`](crate::Limits) floor of [`INCLUDE`] keeps the calls bound through an include and every tier above it.
 
-/// A receiver that names an import binds an export of the imported directory, or a dot import binds its one export of
-/// the name.
+/// A receiver that names an import binds an export of the imported directory or file.
+///
+/// A call of a name imported from a file binds that file's export of the name, and a dot import binds its one export
+/// of the name.
 pub const IMPORT: u8 = 95;
 /// A callee written qualified binds the symbol of that qualified name.
 pub const QUALIFIED: u8 = 90;
