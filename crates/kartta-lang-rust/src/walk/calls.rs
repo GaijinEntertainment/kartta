@@ -103,7 +103,7 @@ impl Emitter<'_> {
         };
         let value = function.child_by_field_name("value");
         let receiver = value.map(|value| match value.kind() {
-            "identifier" => text(value, self.source),
+            "identifier" => value_receiver(value, self.source),
             "self" => self.enclosing_type_name().unwrap_or_default(),
             _ => String::new(),
         });
@@ -165,6 +165,23 @@ impl Emitter<'_> {
         }
         self.raw.calls.push(call);
         true
+    }
+}
+
+// constraint: a lowercase operand is a value, whose name alone would read as the module a path call names, so it
+// records its name after a `.`, `.socket`, which names no module, import or owner, while the graph can still tell the
+// one callable whose owner the name spells; a capitalised one, a unit struct or a static, names the item, and an
+// own-type receiver of the conventions, `other`, the caller's own type
+fn value_receiver(value: Node<'_>, source: &[u8]) -> String {
+    let name = String::from_utf8_lossy(&source[value.byte_range()]);
+    let names_an_item = name.starts_with(|first: char| first.is_ascii_uppercase())
+        || crate::CONVENTIONS
+            .own_type_receivers
+            .is_some_and(|own| own.iter().any(|&own| own == name));
+    if names_an_item {
+        name.into_owned()
+    } else {
+        format!(".{name}")
     }
 }
 
