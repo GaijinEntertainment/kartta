@@ -60,6 +60,23 @@ fn a_path_call_binds_its_receiver_to_the_path_through_another_crate() {
 }
 
 #[test]
+fn a_macro_invocation_through_another_crate_binds_the_macro_name_to_its_path() {
+    let got = bound(
+        "use other_crate as oc;\n\nfn run() {\n    first::mac!();\n    oc::sub::deep!();\n    std::println!();\n\
+         \x20   crate::local!();\n    $crate::inner!();\n}\n",
+    );
+
+    assert_eq!(
+        got,
+        [
+            path("oc", "other_crate", 1),
+            path("mac", "first::mac", 4),
+            path("deep", "other_crate::sub::deep", 5),
+        ]
+    );
+}
+
+#[test]
 fn a_name_only_a_function_body_or_an_inline_module_declares_keeps_its_path() {
     let got = bound(
         "use dep as client;\nuse other_crate::helper;\n\nmod inner {\n    pub fn helper() {}\n}\n\nfn run() {\n\

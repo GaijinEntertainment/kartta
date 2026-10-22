@@ -323,6 +323,21 @@ fn a_visibility_restricted_to_its_own_module_is_not_exported() {
 }
 
 #[test]
+fn a_macro_marked_macro_export_is_exported_and_keeps_its_bare_name() {
+    let raw = extract(
+        b"#[macro_export]\nmacro_rules! shared { () => {}; }\n\n\
+          #[macro_export(local_inner_macros)]\n// a comment\nmacro_rules! inner { () => {}; }\n\n\
+          macro_rules! own { () => {}; }\n\n\
+          mod nested {\n    #[macro_export]\n    macro_rules! deep { () => {}; }\n}\n",
+    );
+
+    assert!(named(&raw, "shared").exported);
+    assert!(named(&raw, "inner").exported);
+    assert!(!named(&raw, "own").exported);
+    assert!(qualified(&raw, "deep").exported);
+}
+
+#[test]
 fn a_union_is_a_struct_with_fields() {
     let raw = extract(b"pub union U {\n    pub a: u32,\n    b: f32,\n}\n");
 
