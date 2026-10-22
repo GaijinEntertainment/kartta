@@ -84,6 +84,8 @@
 
 mod engine;
 mod extracting;
+#[cfg(feature = "watch")]
+mod follow;
 mod following;
 mod reading;
 mod repository;
@@ -113,6 +115,8 @@ pub use kartta_lang::{
 };
 
 pub use crate::engine::{Engine, EngineOutcome, EngineRefresh, Widened, replace_failures};
+#[cfg(feature = "watch")]
+pub use crate::follow::{Followed, Follower, Watch};
 pub use crate::reading::{Unmatched, UnmatchedKind, ask_reading, selects_as_callers, unmatched};
 pub use crate::source::{CutLine, Source, SourceOptions};
 pub use crate::stats::{EngineStats, LanguageFiles};
