@@ -58,7 +58,9 @@
 //! `BOOL WINAPI DllMain()`. A macro between the return type and the name, `XMMATRIX XM_CALLCONV XMMatrixRotationZ()`,
 //! and a return type written with a scope after a macro, `INLINE std::string to_string()`, both read by the parser as
 //! a scope of the name, name no owner. The scope a definition writes after them, `LRESULT CALLBACK
-//! Window::wndProc()`, names its owner. A declaration that holds a parse error yields no field and no data symbol.
+//! Window::wndProc()`, names its owner. A name a space or a line break sets apart from its parameters after a macro
+//! and a return type, `GLM_FUNC_QUALIFIER typename genType::row_type row (`, which the parser evicts into an error,
+//! still names the function. A declaration that holds a parse error yields no field and no data symbol.
 //!
 //! # Calls
 //!
