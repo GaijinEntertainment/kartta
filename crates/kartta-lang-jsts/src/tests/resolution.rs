@@ -1,6 +1,6 @@
 use kartta_lang::{Extraction, MemoryRepository};
 
-use super::{SAMPLE_TS, imports, includes, resolved};
+use super::{SAMPLE_TS, imports, includes, language_of, resolved};
 
 const APP_ALIASES: &str =
     r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./src/*"] } } }"#;
@@ -582,4 +582,44 @@ export * from "react";
             "packages/common/src/index.ts"
         ]
     );
+}
+
+const PACKAGE: &str = r##"{
+    "name": "@x/app",
+    "version": "1.0.0",
+    "imports": { "#lib/*": "./lib/*.ts" },
+    "exports": { ".": "./src/index.ts" },
+    "dependencies": { "react": "^19.0.0" }
+}"##;
+
+/// Whether the resolver built over a package whose `package.json` reads `edited` resolves as the one built over the
+/// same package with [`PACKAGE`].
+fn resolves_as_before(edited: &str) -> bool {
+    let language = language_of("src/index.ts");
+    let before = MemoryRepository::new([("package.json", PACKAGE), ("src/index.ts", "")]);
+    let after = MemoryRepository::new([("package.json", edited), ("src/index.ts", "")]);
+
+    language
+        .resolver(&after)
+        .resolves_as(&*language.resolver(&before))
+}
+
+#[test]
+fn a_package_json_that_only_bumps_its_version_or_a_dependency_resolves_as_before() {
+    let bumped = PACKAGE
+        .replace("1.0.0", "1.0.1")
+        .replace("^19.0.0", "^19.1.0");
+
+    assert!(resolves_as_before(&bumped));
+}
+
+#[test]
+fn a_renamed_package_or_changed_exports_or_imports_resolve_otherwise() {
+    let renamed = PACKAGE.replace("@x/app", "@x/other");
+    let exported = PACKAGE.replace("./src/index.ts", "./src/main.ts");
+    let imported = PACKAGE.replace("./lib/*.ts", "./util/*.ts");
+
+    assert!(!resolves_as_before(&renamed));
+    assert!(!resolves_as_before(&exported));
+    assert!(!resolves_as_before(&imported));
 }
