@@ -26,7 +26,9 @@ a path, `name.clone()` or `fs::write()`, binds a member of the name and no free 
 `other` alone as the receiver of a value of the caller's own type, since a call on `self` binds through the type it
 records, so `input.parse()` inside a `parse` binds no member of the caller's own type. They say no call names a module,
 so `tree.walk()` beside a `mod walk;` binds no call to the module, and `text()` in a file that declares `mod text;`
-and `fn text` binds the function.
+and `fn text` binds the function. They let a member call bind a free function only through a lowercase receiver, a
+module's, as `walk::run()` names one, so `index.refresh_paths()`, `self.refresh_paths()` and
+`Index::refresh_paths(self)` bind no free `fn refresh_paths`, and `Poll::Ready(x)` binds no struct `Ready`.
 
 A `use` of a path that may start at another crate, `use kartta_lang::tree::{self, text}`, keeps each name it binds
 with the path the name reaches, and a path call through such a crate, `kartta_walk::walk::run()`, keeps its receiver

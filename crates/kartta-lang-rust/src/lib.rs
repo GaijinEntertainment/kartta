@@ -123,6 +123,7 @@ const CONVENTIONS: Conventions = {
     conventions.runtime_methods = runtime::METHODS;
     conventions.own_type_receivers = Some(&["other"]);
     conventions.type_uses = TypeUses::Nowhere;
+    conventions.member_calls = kartta_lang::MemberCalls::ModulePaths;
     conventions
 };
 
