@@ -12,6 +12,7 @@ use crate::resolve::{
 use crate::scope::Shape;
 use crate::stored::SymbolAt;
 use crate::strings::Str;
+use crate::twins::{Twin, kept};
 
 /// What the bases of a type hold under a name, searched in the order they are written, each before the next.
 enum Inherited {
@@ -135,22 +136,26 @@ impl<'g> Cascade<'g> {
     }
 
     // constraint: where includes paste text in place, an owner names a class by its bare name, which several classes
-    // can share, and a name the graph holds no type of names a class outside it, whose namesake fields are not meant;
-    // a member taken without a call is a field, or a method taken as a value, `&Class::draw`; a class without the
-    // field binds the field of the one base that declares it, and a type the graph holds that neither does, an alias
-    // most often, leaves the field to the tiers that read no type
+    // can share, the path's scopes telling namesakes apart, and a name the graph holds no type of names a class outside
+    // it, whose namesake fields are not meant; a member taken without a call is a field, or a method taken as a value,
+    // `&Class::draw`, which binds as a call to it does, the first of namesakes of one qualified name among them, since
+    // `find_unused` counts no ambiguous use as a call that may reach it; a class without the field binds the field of
+    // the one base that declares it, and a type the graph holds that neither does, an alias most often, leaves the
+    // field to the tiers that read no type; of namesake classes without the field, the bases searched are those of the
+    // one the spelling names, else those of the first, whose field of the name is the one meant most often (ADR 3.34)
     pub(crate) fn included_owner_member(
         &self,
-        file: u32,
+        site: SymbolAt,
         path: Str,
         name: Str,
     ) -> Option<Result<Bound, UseMiss>> {
         let Some(owner) = self.bare_owner(path) else {
             return Some(Err(UseMiss::Elsewhere));
         };
+        let written = self.spelling(path);
         let named = self.data_named(name);
         let declared = named.fields.with_owner(self.graph, owner);
-        if let Some(found) = self.reached_owner(file, &declared) {
+        if let Some(found) = self.reached_owner(site, &declared, written) {
             return Some(found);
         }
         let methods: Vec<SymbolAt> = self
@@ -162,8 +167,11 @@ impl<'g> Cascade<'g> {
                 symbol.kind == SymbolKind::Method && symbol.owner == Some(owner)
             })
             .collect();
-        if let Some(found) = self.reached_owner(file, &methods) {
-            return Some(found);
+        if !methods.is_empty() {
+            return Some(match self.nearest_to(site, &methods, written) {
+                Some(Twin::Member(at) | Twin::Namesake(at)) => Ok((at, confidence::RECEIVER)),
+                _ => Err(UseMiss::Ambiguous),
+            });
         }
         let types: Vec<SymbolAt> = self
             .named(owner)
@@ -171,10 +179,10 @@ impl<'g> Cascade<'g> {
             .copied()
             .filter(|&at| self.graph.sym(at).kind.is_type())
             .collect();
-        let Some(ty) = self.nearest_to(file, &types) else {
+        let Some(ty) = self.nearest_to(site, &types, written) else {
             return Some(Err(UseMiss::Elsewhere));
         };
-        self.inherited_by(file, ty, &named)
+        self.inherited_by(site, ty.member(), &named)
     }
 
     // constraint: past the use's own file a field binds only where it is the one field of its name in the files the
@@ -252,9 +260,11 @@ impl<'g> Cascade<'g> {
         if fields.is_empty() {
             return None;
         }
-        if let Some(found) =
-            self.reached_owner(site.file, &named.fields.with_owner(self.graph, own))
-        {
+        if let Some(found) = self.reached_owner(
+            site,
+            &named.fields.with_owner(self.graph, own),
+            self.spelling(own),
+        ) {
             return Some(found);
         }
         let call = Call {
@@ -276,7 +286,7 @@ impl<'g> Cascade<'g> {
                     targets.filter(|&at| self.admits(&inherited, at)).collect();
                 let owner = self.graph.sym(*admitted.first()?).owner;
                 if admitted.iter().all(|&at| self.graph.sym(at).owner == owner) {
-                    self.reached_owner(site.file, &admitted)
+                    self.reached_owner(site, &admitted, None)
                 } else {
                     Some(Err(UseMiss::Ambiguous))
                 }
@@ -288,7 +298,7 @@ impl<'g> Cascade<'g> {
 
     fn inherited_by(
         &self,
-        file: u32,
+        site: SymbolAt,
         ty: SymbolAt,
         named: &DataNamed<'_>,
     ) -> Option<Result<Bound, UseMiss>> {
@@ -311,7 +321,7 @@ impl<'g> Cascade<'g> {
         {
             return Some(Err(UseMiss::Ambiguous));
         }
-        self.reached_owner(file, &inherited)
+        self.reached_owner(site, &inherited, None)
     }
 
     fn one_value(&self, values: &[SymbolAt]) -> Option<SymbolAt> {
@@ -323,34 +333,63 @@ impl<'g> Cascade<'g> {
             .then_some(first)
     }
 
-    /// The field of `owned` the file reaches at the receiver's confidence, an ambiguous use where it reaches none, and
-    /// `None` where `owned` is empty.
-    fn reached_owner(&self, file: u32, owned: &[SymbolAt]) -> Option<Result<Bound, UseMiss>> {
+    /// The field of `owned` the use's file reaches at the receiver's confidence, of the class `written` names where
+    /// namesakes hold it, an ambiguous use where it reaches none or names no one class, and `None` where `owned` is
+    /// empty.
+    fn reached_owner(
+        &self,
+        site: SymbolAt,
+        owned: &[SymbolAt],
+        written: Option<&str>,
+    ) -> Option<Result<Bound, UseMiss>> {
         if owned.is_empty() {
             return None;
         }
-        Some(
-            self.nearest_to(file, owned)
-                .map(|at| (at, confidence::RECEIVER))
-                .ok_or(UseMiss::Ambiguous),
-        )
+        Some(match self.nearest_to(site, owned, written) {
+            Some(Twin::Member(at)) => Ok((at, confidence::RECEIVER)),
+            _ => Err(UseMiss::Ambiguous),
+        })
     }
 
     // constraint: owners of one bare name in several places, a vendored copy of a class beside another, are told apart
     // by what the file sees: its own definitions and its includes', then those its includes reach; one it reaches
-    // neither way is another class of the name half the time, its namesake in a copy of the library or an SDK's
-    fn nearest_to(&self, file: u32, owned: &[SymbolAt]) -> Option<SymbolAt> {
-        if let Some(&seen) = owned.iter().find(|&&at| self.sees(file, at)) {
-            return Some(seen);
-        }
+    // neither way is another class of the name half the time, its namesake in a copy of the library or an SDK's; of
+    // namesakes in the nearer of the two, the one the receiver's spelling names
+    fn nearest_to(
+        &self,
+        site: SymbolAt,
+        owned: &[SymbolAt],
+        written: Option<&str>,
+    ) -> Option<Twin> {
         if owned.is_empty() {
             return None;
         }
+        let file = site.file;
+        let Some(written) = written else {
+            if let Some(&seen) = owned.iter().find(|&&at| self.sees(file, at)) {
+                return Some(Twin::Member(seen));
+            }
+            let closure = self.closure(file);
+            return owned
+                .iter()
+                .copied()
+                .find(|at| closure.binary_search(&at.file).is_ok())
+                .map(Twin::Member);
+        };
+        let seen = kept(owned, |&at| self.sees(file, at));
+        if !seen.is_empty() {
+            return self.twin(site, written, &seen);
+        }
         let closure = self.closure(file);
-        owned
-            .iter()
-            .copied()
-            .find(|at| closure.binary_search(&at.file).is_ok())
+        let reached = kept(owned, |at| closure.binary_search(&at.file).is_ok());
+        self.twin(site, written, &reached)
+    }
+
+    /// The receiver path as written where scopes tell namesake classes apart, as C++'s do.
+    fn spelling(&self, path: Str) -> Option<&'g str> {
+        self.conventions
+            .scope_separator
+            .map(|_| self.graph.strings.resolve(path))
     }
 
     fn inherited_member(&self, ty: SymbolAt, name: Str) -> Result<Bound, UseMiss> {
