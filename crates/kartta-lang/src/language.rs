@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::fmt;
 use std::io;
 
@@ -68,11 +69,49 @@ pub trait Language: Send + Sync + fmt::Debug {
 /// `resolve` asks the repository on the thread that called it, and asks again for each file what it needs rather than
 /// answering one file from what it asked for another. It reads no file's content: the engine learns that a file's
 /// content changed only when it reads that file itself. Configuration is read by [`Language::resolver`] as it builds
-/// the resolver, which the engine watches apart, resolving every file of the family again when it changed.
-pub trait Resolver: Send + Sync {
+/// the resolver, which the engine watches apart: when a change reaches what it read, the engine builds the resolver
+/// again, and resolves every file of the family again when what the resolver derived changed, as
+/// [`Resolver::resolves_as`] tells.
+pub trait Resolver: Any + Send + Sync {
     /// The extraction of the file at `path`, from `raw`: its imports and includes resolved against `repository`, its
     /// symbols' flags completed by what the path shows.
     fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction;
+
+    /// Whether this resolver, built again over a changed tree, resolves every file as `kept`, built before the change,
+    /// still does over the same tree, so the engine resolves none of the family's files again for the change to its
+    /// configuration. A resolver that holds what it derived from its configuration answers whether `kept` is its own
+    /// type holding the same, the bytes it derived nothing from left out.
+    ///
+    /// The default answers `false`, so a change to any byte the resolver read resolves every file of its family again.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::any::Any;
+    ///
+    /// use kartta_lang::{Extraction, RawExtraction, Repository, Resolver};
+    ///
+    /// #[derive(PartialEq)]
+    /// struct Modules(Vec<String>);
+    ///
+    /// impl Resolver for Modules {
+    ///     fn resolve(&self, raw: RawExtraction, path: &str, _: &dyn Repository) -> Extraction {
+    ///         raw.into_extraction(path).0
+    ///     }
+    ///
+    ///     fn resolves_as(&self, kept: &dyn Resolver) -> bool {
+    ///         (kept as &dyn Any).downcast_ref::<Self>() == Some(self)
+    ///     }
+    /// }
+    ///
+    /// let kept = Modules(vec!["example.com/m".to_owned()]);
+    /// assert!(Modules(vec!["example.com/m".to_owned()]).resolves_as(&kept));
+    /// assert!(!Modules(vec!["example.com/n".to_owned()]).resolves_as(&kept));
+    /// ```
+    fn resolves_as(&self, kept: &dyn Resolver) -> bool {
+        let _ = kept;
+        false
+    }
 }
 
 /// The repository as a resolver sees it: the files a build indexes, and the bytes of any of them.

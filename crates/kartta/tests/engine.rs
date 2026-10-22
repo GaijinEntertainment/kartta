@@ -30,6 +30,7 @@ struct Defs {
     extension: &'static str,
     extracted: Arc<AtomicUsize>,
     resolvers: Arc<AtomicUsize>,
+    resolves_as_kept: bool,
 }
 
 impl Defs {
@@ -40,6 +41,7 @@ impl Defs {
             extension,
             extracted: Arc::default(),
             resolvers: Arc::default(),
+            resolves_as_kept: false,
         }
     }
 }
@@ -86,7 +88,11 @@ impl Language for Defs {
     fn resolver(&self, repository: &dyn Repository) -> Box<dyn Resolver> {
         self.resolvers.fetch_add(1, Ordering::Relaxed);
         let _configuration = repository.read("config.cfg");
-        Box::new(AtPath)
+        if self.resolves_as_kept {
+            Box::new(AsKept)
+        } else {
+            Box::new(AtPath)
+        }
     }
 }
 
@@ -95,6 +101,19 @@ struct AtPath;
 impl Resolver for AtPath {
     fn resolve(&self, raw: RawExtraction, path: &str, _repository: &dyn Repository) -> Extraction {
         raw.into_extraction(path).0
+    }
+}
+
+/// A resolver that derives nothing from the configuration it reads, and so resolves as any it was built again from.
+struct AsKept;
+
+impl Resolver for AsKept {
+    fn resolve(&self, raw: RawExtraction, path: &str, _repository: &dyn Repository) -> Extraction {
+        raw.into_extraction(path).0
+    }
+
+    fn resolves_as(&self, _kept: &dyn Resolver) -> bool {
+        true
     }
 }
 
@@ -370,6 +389,47 @@ fn a_changed_configuration_builds_its_family_s_resolver_again_once_and_names_the
     assert_eq!(refresh.reconfigured, ["shared"]);
     assert_eq!(refresh.resolved_again, 2, "one.alpha and two.beta");
     assert_eq!(resolvers_built(&built), (2, 0));
+}
+
+#[test]
+fn a_configuration_rebuilt_to_resolve_as_the_kept_one_resolves_nothing_again() {
+    let tree = tree(&[
+        ("config.cfg", "one"),
+        ("one.alpha", "def one\n"),
+        ("two.beta", "def two\n"),
+    ]);
+    // constraint: a stamp is trusted only when its file last changed over two seconds before the walk began
+    std::thread::sleep(Duration::from_millis(2100));
+    let alpha = Defs {
+        resolves_as_kept: true,
+        ..Defs::new("alpha", "shared", ".alpha")
+    };
+    let beta = Defs::new("beta", "shared", ".beta");
+    let built = (Arc::clone(&alpha.resolvers), Arc::clone(&beta.resolvers));
+    let mut engine = build(
+        tree.path(),
+        &stamped(),
+        vec![Box::new(alpha), Box::new(beta)],
+    );
+
+    fs::write(tree.path().join("config.cfg"), "two").expect("edit the configuration");
+    let refresh = engine
+        .refresh_paths(["config.cfg"], None)
+        .expect("refresh the configuration");
+
+    assert!(
+        refresh.reconfigured.is_empty(),
+        "{:?}",
+        refresh.reconfigured
+    );
+    assert_eq!((refresh.extracted, refresh.resolved_again), (0, 0));
+    assert_eq!(
+        resolvers_built(&built),
+        (2, 0),
+        "the resolver is built again to compare"
+    );
+    let (_, graph) = engine.graph_of("two.beta").expect("beta claims the file");
+    assert_eq!(graph.stats().files, 2);
 }
 
 fn stamped() -> BuildOptions {
