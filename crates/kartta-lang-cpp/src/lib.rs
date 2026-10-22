@@ -53,12 +53,12 @@
 //! A function-like macro is not a symbol: a definition without a return type outside a class, such as a test
 //! harness's `TEST(Suite, Case) {}`, is dropped, as is one inside a class that is not a constructor, a destructor or an
 //! operator, and a trailing annotation macro, `void load() LOCKS(mtx) {}`, never names the symbol it annotates. A macro
-//! before the return type, `JPH_INLINE float Tan(float x)`, keeps the function it annotates, as does an upper-case
-//! return type before a calling convention, `BOOL WINAPI DllMain()`. A macro between the return type and the name,
-//! `XMMATRIX XM_CALLCONV XMMatrixRotationZ()`, and a return type written with a scope after a macro, `INLINE
-//! std::string to_string()`, both read by the parser as a scope of the name, name no owner. The scope a definition
-//! writes after them, `LRESULT CALLBACK Window::wndProc()`, names its owner. A declaration that holds a parse error
-//! yields no field and no data symbol.
+//! before the return type, `JPH_INLINE float Tan(float x)`, keeps the function it annotates, pointer return types
+//! included, `IMGUI_API ImGuiTabItem* FindTab()`, as does an upper-case return type before a calling convention,
+//! `BOOL WINAPI DllMain()`. A macro between the return type and the name, `XMMATRIX XM_CALLCONV XMMatrixRotationZ()`,
+//! and a return type written with a scope after a macro, `INLINE std::string to_string()`, both read by the parser as
+//! a scope of the name, name no owner. The scope a definition writes after them, `LRESULT CALLBACK
+//! Window::wndProc()`, names its owner. A declaration that holds a parse error yields no field and no data symbol.
 //!
 //! # Calls
 //!
