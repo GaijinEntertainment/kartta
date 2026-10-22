@@ -132,6 +132,41 @@ fn a_rust_call_through_another_workspace_crate_binds_the_function_that_crate_exp
 }
 
 #[test]
+fn a_rust_call_through_a_use_binds_the_function_beside_a_struct_of_its_name() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        ("crates/sys/Cargo.toml", "[package]\nname = \"sys\"\n"),
+        (
+            "crates/sys/src/lib.rs",
+            "pub struct kevent {\n    pub ident: usize,\n}\n\npub struct timespec(pub i64);\n\n\
+             extern \"C\" {\n    pub fn kevent(kq: i32) -> i32;\n}\n",
+        ),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "use sys::{kevent, timespec};\n\nfn get_event() {\n    kevent(1);\n}\n\n\
+             fn now() {\n    timespec(0);\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        callees(&engine, "crates/app/src/lib.rs", "get_event"),
+        (
+            vec![("kevent", SymbolKind::Function, "crates/sys/src/lib.rs")],
+            0
+        )
+    );
+    assert_eq!(
+        callees(&engine, "crates/app/src/lib.rs", "now"),
+        (
+            vec![("timespec", SymbolKind::Struct, "crates/sys/src/lib.rs")],
+            0
+        )
+    );
+}
+
+#[test]
 fn a_rust_method_call_on_a_value_named_like_an_imported_module_binds_no_function_of_the_module() {
     let tree = tree_of(&[
         ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),

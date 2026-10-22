@@ -742,18 +742,21 @@ impl<'g> Cascade<'g> {
     }
 
     // constraint: a module's file can hold what its module exports through a re-export, a macro or an inline module
-    // its definitions do not show, so a name it does not define at its top level leaves the call to the tiers below
+    // its definitions do not show, so a name it does not define at its top level leaves the call to the tiers below;
+    // a type shares its name with a function only where the language keeps types apart from values, as Rust's
+    // `struct kevent` beside the `extern` function `kevent`, so the call names the function
     fn module_export(&self, call: &Call, module: u32) -> Option<Bound> {
         let defined = self.graph.in_file(self.named(call.callee), module);
         let at = self
             .call_targets(call.caller_at(), defined.iter().copied())
-            .find(|&at| {
+            .filter(|&at| {
                 let symbol = self.graph.sym(at);
                 symbol.owner.is_none()
                     && symbol.qualified_name == symbol.name
                     && self.holder(at).is_none()
                     && !self.graph.flags(at).is_test()
-            })?;
+            })
+            .min_by_key(|&at| self.graph.sym(at).kind.is_type())?;
         self.graph
             .sym(at)
             .exported
