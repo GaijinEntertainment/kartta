@@ -5,30 +5,62 @@ import path from 'node:path';
 import {setImmediate} from 'node:timers/promises';
 import {promisify} from 'node:util';
 
-import {expect, onTestFinished, test} from 'vite-plus/test';
+import {beforeEach, expect, onTestFailed, onTestFinished, test} from 'vite-plus/test';
 
 import {Kartta, KarttaError, type Stats} from '../src/kartta.ts';
 
+/**
+ * The steps the running test reached, each at the milliseconds since it started, printed when it fails. A step that
+ * holds the JS thread shows as the gap before the step after it, where a timeout names only the test.
+ */
+const reached: string[] = [];
+let started = 0;
+
+function step(name: string): void {
+	reached.push(`${name} +${(performance.now() - started).toFixed(1)} ms`);
+}
+
+beforeEach(() => {
+	started = performance.now();
+	reached.length = 0;
+	onTestFailed(() => {
+		console.error(`the steps the test reached: ${reached.join(', ')}`);
+	});
+});
+
 function tree(files: number): string {
+	step(`writing ${files} files`);
 	const root = mkdtempSync(path.join(tmpdir(), 'kartta-node-'));
 	onTestFinished(() => {
+		step('removing the tree');
 		rmSync(root, {recursive: true, force: true});
+		step('removed the tree');
 	});
 	for (let file = 0; file < files; file += 1) {
 		writeFileSync(path.join(root, `f${file}.go`), `package main\n\nfunc f${file}() {\n\tf${(file + 1) % files}()\n}\n`);
 	}
+	step('wrote the files');
 	return root;
 }
 
-function open(files = 1): Kartta {
-	const kartta = Kartta.open(tree(files));
+/** Opens a handle on `root`, which the test closes once it finishes. */
+function opened(root: string): Kartta {
+	const kartta = Kartta.open(root);
+	step('opened');
 	onTestFinished(() => {
+		step('closing');
 		kartta.close();
+		step('closed');
 	});
 	return kartta;
 }
 
+function open(files = 1): Kartta {
+	return opened(tree(files));
+}
+
 async function settled(promise: Promise<unknown>): Promise<unknown> {
+	step('awaiting');
 	try {
 		return await promise;
 	} catch (error) {
@@ -208,11 +240,9 @@ test('cancel with no id stops the build in flight', async () => {
 /** A handle built with stamps over a tree of one file, the tree's root, and what the build indexed. */
 async function stamped(): Promise<{kartta: Kartta; root: string; built: Stats}> {
 	const root = tree(1);
-	const kartta = Kartta.open(root);
-	onTestFinished(() => {
-		kartta.close();
-	});
+	const kartta = opened(root);
 	const built = await kartta.build({stamps: true});
+	step('built');
 	return {kartta, root, built};
 }
 
