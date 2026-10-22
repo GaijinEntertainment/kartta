@@ -469,6 +469,36 @@ fn a_local_replace_onto_an_imported_directory_resolves_every_go_file_again() {
 }
 
 #[test]
+fn a_settings_blk_edit_outside_its_mount_points_resolves_no_blk_file_again() {
+    let settings = "mountPoints{ \"%gameBase\"{ forSource:t=\"../gameBase\"; } }\nvideo{ mode:t=\"window\"; }\n";
+    let tree = settled_tree_with(&[
+        ("game/settings.blk", settings),
+        ("game/x.blk", "include \"%gameBase/a.blk\"\n"),
+        ("gameBase/a.blk", ""),
+    ]);
+    let mut engine = build(tree.path(), true);
+
+    write(
+        tree.path(),
+        "game/settings.blk",
+        &settings.replace("window", "fullscreen"),
+    );
+    let refresh = refreshed(engine.refresh_paths(["game/settings.blk"], None));
+
+    assert!(
+        refresh.reconfigured.is_empty(),
+        "{:?}",
+        refresh.reconfigured
+    );
+    assert_eq!(
+        (refresh.extracted, refresh.resolved_again),
+        (1, 0),
+        "settings.blk alone"
+    );
+    assert_eq!(answers(&engine), answers(&build(tree.path(), false)));
+}
+
+#[test]
 fn a_crate_renamed_in_its_cargo_toml_resolves_every_rust_file_again() {
     let tree = tempfile::tempdir().expect("a temporary directory");
     for (path, content) in [
