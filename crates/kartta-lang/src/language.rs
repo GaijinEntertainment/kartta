@@ -20,6 +20,10 @@ pub trait Language: Send + Sync + fmt::Debug {
 
     /// The family whose files resolve against each other in one graph; the language's own name unless several
     /// languages share one, as TypeScript and JavaScript files call each other.
+    ///
+    /// The languages of one family build interchangeable [resolvers](Language::resolver): an engine builds one for
+    /// the family, from the first of its languages in the order the engine was given them, and resolves every file of
+    /// the family through it.
     fn family(&self) -> &str {
         self.name()
     }
@@ -50,8 +54,9 @@ pub trait Language: Send + Sync + fmt::Debug {
     /// far as the language can read it.
     fn extract(&self, source: &[u8]) -> RawExtraction;
 
-    /// The resolver for one build over `repository`, which the build asks once and then shares between its threads.
-    /// A language that reads configuration — a `go.mod`, a `tsconfig.json` — reads it here.
+    /// The resolver for one build over `repository`, which the build asks of the first language of the
+    /// [family](Language::family) once and then shares between its threads and every file of the family. A language
+    /// that reads configuration — a `go.mod`, a `tsconfig.json` — reads it here.
     fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r>;
 }
 
@@ -62,7 +67,7 @@ pub trait Language: Send + Sync + fmt::Debug {
 /// `resolve` asks the repository on the thread that called it, and asks again for each file what it needs rather than
 /// answering one file from what it asked for another. It reads no file's content: the engine learns that a file's
 /// content changed only when it reads that file itself. Configuration is read by [`Language::resolver`] as it builds
-/// the resolver, which the engine watches apart, resolving every file of the language again when it changed.
+/// the resolver, which the engine watches apart, resolving every file of the family again when it changed.
 pub trait Resolver: Send + Sync {
     /// The extraction of the file at `path`, from `raw`: its imports and includes resolved, its symbols' flags
     /// completed by what the path shows.

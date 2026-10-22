@@ -152,14 +152,14 @@ export type Refresh = {
 	extracted: number;
 	/**
 	 * The unchanged files read and resolved again, because a question their resolution asked of the tree has another
-	 * answer now, or their language's configuration changed.
+	 * answer now, or their family's configuration changed.
 	 */
 	resolved_again: number;
 	/** The files the graphs held and hold no more; absent when every graph was built again. */
 	dropped?: number;
 	/**
-	 * The languages whose resolver read another configuration than it read before, so that every file of theirs was
-	 * resolved again.
+	 * The language families whose resolver read another configuration than it read before, such as jsts for TypeScript
+	 * and JavaScript, so that every file of theirs was resolved again.
 	 */
 	reconfigured: string[];
 	/** Whether every graph was built again from every file. */
