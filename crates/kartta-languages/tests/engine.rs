@@ -1,6 +1,8 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
-//! other languages out of the graph, no Rust call binds a module, and a Rust call into another crate of the workspace
-//! binds what that crate exports.
+//! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
+//! what that crate exports, and a Rust call on a value, on `self` or through a type binds no free function, not even
+//! through a value named like a module the file imports, while a call on a value still binds the one runtime method
+//! whose owner the value's name spells.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -127,6 +129,51 @@ fn a_rust_call_through_another_workspace_crate_binds_the_function_that_crate_exp
         callees(&engine, "crates/app/src/main.rs", "through_path"),
         exported
     );
+}
+
+#[test]
+fn a_rust_method_call_on_a_value_named_like_an_imported_module_binds_no_function_of_the_module() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        ("crates/nix/Cargo.toml", "[package]\nname = \"nix\"\n"),
+        ("crates/nix/src/lib.rs", "pub mod socket;\n"),
+        ("crates/nix/src/socket.rs", "pub fn connect() {}\n"),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "fn socketpair() {\n    use nix::socket::{self};\n    socket::connect();\n}\n\n\
+             fn timestamping(socket: UdpSocket) {\n    socket.connect();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        callees(&engine, "crates/app/src/lib.rs", "socketpair"),
+        (
+            vec![("connect", SymbolKind::Function, "crates/nix/src/socket.rs")],
+            0
+        )
+    );
+    assert_eq!(
+        callees(&engine, "crates/app/src/lib.rs", "timestamping"),
+        (vec![], 1)
+    );
+}
+
+#[test]
+fn a_rust_call_on_a_value_self_or_a_type_binds_no_free_function_of_its_name() {
+    let tree = tree_of(&[(
+        "lib.rs",
+        "struct Index;\n\nimpl Index {\n    fn scan(&self) {\n        self.refresh_paths();\n        \
+         Index::refresh_paths(self);\n    }\n}\n\nfn refresh(index: &Index) {\n    index.refresh_paths();\n}\n\n\
+         fn refresh_paths(_index: &Index) {}\n\nstruct Ready(u32);\n\nenum Poll {\n    Ready(u32),\n}\n\n\
+         fn poll() -> Poll {\n    Poll::Ready(1)\n}\n",
+    )]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(callees(&engine, "lib.rs", "poll"), (vec![], 1));
+    assert_eq!(callees(&engine, "lib.rs", "scan"), (vec![], 2));
+    assert_eq!(callees(&engine, "lib.rs", "refresh"), (vec![], 1));
 }
 
 #[test]
