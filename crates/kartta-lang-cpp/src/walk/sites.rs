@@ -278,8 +278,9 @@ impl<'s, 't> Replayer<'s, 't> {
         }
     }
 
-    // constraint: a qualified name names a member of the class or the namespace its scope spells, and the graph names a
-    // class by its bare name, so the use is on the scope's last segment; a name written from the root alone is bare
+    // constraint: a qualified name names a member of the class or the namespace its scope spells, so the use is on the
+    // scope as a declaration's class is spelled, up to the scope's last segment; a name written from the root alone is
+    // bare
     fn record_qualified(&mut self, node: Node<'t>) {
         let Some(&parent) = self.ancestors.last() else {
             return;
@@ -304,7 +305,10 @@ impl<'s, 't> Replayer<'s, 't> {
                 let Some(segment) = segment else {
                     return;
                 };
-                Receiver::Path(text(segment, self.source))
+                Receiver::Path(
+                    self.scoped(node, segment)
+                        .map_or_else(|| text(segment, self.source), str::to_owned),
+                )
             }
         };
         let access = self.access_of(node);

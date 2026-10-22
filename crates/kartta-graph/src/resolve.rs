@@ -984,7 +984,7 @@ impl<'g> Cascade<'g> {
             if self.conventions.include_reach != IncludeReach::Transitive {
                 return self.owner_member(site, owner, name);
             }
-            if let Some(found) = self.included_owner_member(site.file, owner, name) {
+            if let Some(found) = self.included_owner_member(site, owner, name) {
                 return found;
             }
         }
