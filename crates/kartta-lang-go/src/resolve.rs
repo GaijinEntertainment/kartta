@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::cmp::Reverse;
 
 use kartta_lang::path::{dir, join};
@@ -5,11 +6,13 @@ use kartta_lang::{
     Extraction, ImportBinding, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
 
+#[derive(PartialEq)]
 pub(crate) struct GoResolver {
     modules: Vec<Module>,
     vendoring: Vec<String>,
 }
 
+#[derive(PartialEq)]
 struct Module {
     prefix: String,
     dir: String,
@@ -174,6 +177,10 @@ impl Resolver for GoResolver {
         }
 
         extraction
+    }
+
+    fn resolves_as(&self, kept: &dyn Resolver) -> bool {
+        (kept as &dyn Any).downcast_ref::<Self>() == Some(self)
     }
 }
 
