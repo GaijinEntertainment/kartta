@@ -457,3 +457,41 @@ fn a_resolver_answers_from_the_repository_it_is_handed_not_the_one_it_was_built_
     assert_eq!(after.bindings[0].target_dir.as_deref(), Some("lib/store"));
     assert_eq!(after.includes[0].target, "lib/store/store.go");
 }
+
+const GO_MOD: &str = "module example.com/app\n\ngo 1.26\n\nrequire github.com/pkg/errors v0.9.0\n";
+
+/// Whether the resolver built over a module whose `go.mod` reads `edited`, with the paths `more` beside, resolves as
+/// the one built over the same module with [`GO_MOD`].
+fn resolves_as_before(edited: &str, more: &[&str]) -> bool {
+    let go = Go::new();
+    let before = MemoryRepository::new([("go.mod", GO_MOD), ("main.go", "")]);
+    let after = MemoryRepository::new([("go.mod", edited), ("main.go", "")])
+        .with_paths(more.iter().copied());
+
+    go.resolver(&after).resolves_as(&*go.resolver(&before))
+}
+
+#[test]
+fn a_go_mod_that_only_bumps_a_requirement_resolves_as_before() {
+    let bumped = GO_MOD.replace("v0.9.0", "v0.9.1");
+
+    assert!(resolves_as_before(&bumped, &[]));
+}
+
+#[test]
+fn a_vendored_go_mod_that_appears_resolves_as_before() {
+    assert!(resolves_as_before(
+        GO_MOD,
+        &["vendor/github.com/pkg/errors/go.mod"]
+    ));
+}
+
+#[test]
+fn a_changed_module_line_an_added_local_replace_or_a_vendor_list_resolves_otherwise() {
+    let renamed = GO_MOD.replace("example.com/app", "example.com/other");
+    let replaced = format!("{GO_MOD}\nreplace github.com/pkg/errors => ./third_party/errors\n");
+
+    assert!(!resolves_as_before(&renamed, &[]));
+    assert!(!resolves_as_before(&replaced, &[]));
+    assert!(!resolves_as_before(GO_MOD, &["vendor/modules.txt"]));
+}
