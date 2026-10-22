@@ -57,7 +57,8 @@ header, the form Cargo writes, or a `key = 'value'`, and a value in any other fo
 package's or else the nearest package's, and none where two are as near, and each segment after it names a module file
 by the same layout. The path imports the file of the module it ends at, or of the module that holds the lowercase item
 it ends at, so `text()` after `use kartta_lang::tree::text;` binds the `text` that `crates/kartta-lang/src/tree.rs`
-exports at its top level.
+exports at its top level. A function there wins over a type of its name, which Rust keeps apart from values, so
+`kevent()` binds the `extern` function `kevent` beside a `struct kevent`.
 
 Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is a file below a
 `tests` directory outside `src`. A `*.gen.rs` or `*_generated.rs` file, or one with a `@generated` or `DO NOT EDIT`

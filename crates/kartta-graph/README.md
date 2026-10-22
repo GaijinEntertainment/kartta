@@ -20,7 +20,8 @@ about. A call goes through a confidence-ranked cascade: the owner a receiver nam
 imports, its package, its includes and the re-export chains through them, the caller's own owner, the one callable of
 the name, and the callables nearest the caller. An import binds a package's directory, whose exports a call through it
 reaches, or a module's file: a call through such an import, or of the name it imports, binds what the file exports at
-its top level under the name, and a name the file does not define there leaves the call to the tiers below. A member
+its top level under the name, a type only where the file defines nothing else of the name there, and a name the file
+does not define there leaves the call to the tiers below. A member
 call, `x.f()`, binds a free function only where its language's conventions let one stand for what a value holds, or
 for what a module its receiver names holds, as in Rust's `walk::run()`, and `f` names no method the language's runtime
 gives its own values,
