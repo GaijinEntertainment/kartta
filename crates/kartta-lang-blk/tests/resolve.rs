@@ -553,3 +553,32 @@ fn a_path_without_a_slash_or_with_an_unmapped_name_resolves_nothing() {
         Some("gameBase/a.blk")
     );
 }
+
+const SETTINGS: &str =
+    "mountPoints{ \"%gameBase\"{ forSource:t=\"../gameBase\"; } }\nvideo{ mode:t=\"window\"; }\n";
+
+/// Whether the resolver built over a game whose `settings.blk` reads `edited` resolves as the one built over the same
+/// game with [`SETTINGS`].
+fn resolves_as_before(edited: &str) -> bool {
+    let blk = Blk::new();
+    let before = MemoryRepository::new([("game/settings.blk", SETTINGS), ("gameBase/a.blk", "")]);
+    let after = MemoryRepository::new([("game/settings.blk", edited), ("gameBase/a.blk", "")]);
+
+    blk.resolver(&after).resolves_as(&*blk.resolver(&before))
+}
+
+#[test]
+fn a_settings_edit_outside_the_mount_points_resolves_as_before() {
+    let edited = SETTINGS.replace("window", "fullscreen");
+
+    assert!(resolves_as_before(&edited));
+}
+
+#[test]
+fn a_changed_or_added_mount_resolves_otherwise() {
+    let moved = SETTINGS.replace("../gameBase", "../other");
+    let added = SETTINGS.replace("} }", "} \"%ui\"{ forSource:t=\"../ui\"; } }");
+
+    assert!(!resolves_as_before(&moved));
+    assert!(!resolves_as_before(&added));
+}

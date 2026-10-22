@@ -10,16 +10,18 @@ use crate::walk::{MOUNT_BLOCK_FORM, MOUNT_PARAMETER_FORM};
 // constraint: `MAX_MOUNT_NAME_LEN` of the engine's `dag_basePath.h`
 const MAX_MOUNT_NAME_LEN: usize = 64;
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub(crate) struct MountTable {
     mounts: HashMap<String, Vec<Mount>>,
 }
 
+#[derive(PartialEq)]
 struct Mount {
     stating_dir: String,
     dir: MountDir,
 }
 
+#[derive(PartialEq)]
 enum MountDir {
     InRepository(String),
     BelowAncestor(String),
