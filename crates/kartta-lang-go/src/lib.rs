@@ -134,7 +134,7 @@ impl Language for Go {
         kartta_lang::tree::extract(&grammar(), source, walk::raw_walk)
     }
 
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+    fn resolver(&self, repository: &dyn Repository) -> Box<dyn Resolver> {
         Box::new(GoResolver::new(repository))
     }
 }

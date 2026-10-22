@@ -64,7 +64,7 @@ use kartta_lang::{
     Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
 };
 
-use crate::resolve::Includes;
+use crate::resolve::DshlResolver;
 
 mod resolve;
 mod walk;
@@ -114,8 +114,8 @@ impl Language for Dshl {
         kartta_lang::tree::extract(&grammar(), source, walk::raw_walk)
     }
 
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(Includes { repository })
+    fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
+        Box::new(DshlResolver)
     }
 }
 

@@ -53,7 +53,7 @@ impl Language for Blocks {
         raw
     }
 
-    fn resolver<'r>(&'r self, _repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+    fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
         Box::new(AtPath)
     }
 }
@@ -61,7 +61,7 @@ impl Language for Blocks {
 struct AtPath;
 
 impl Resolver for AtPath {
-    fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
+    fn resolve(&self, raw: RawExtraction, path: &str, _repository: &dyn Repository) -> Extraction {
         raw.into_extraction(path).0
     }
 }

@@ -11,7 +11,7 @@ fn resolve(files: &[&str], source: &str, path: &str) -> Extraction {
     let repository = MemoryRepository::of_paths(files);
     let resolver = daslang.resolver(&repository);
 
-    resolver.resolve(daslang.extract(source.as_bytes()), path)
+    resolver.resolve(daslang.extract(source.as_bytes()), path, &repository)
 }
 
 fn targets(files: &[&str], spec: &str, path: &str) -> Vec<String> {

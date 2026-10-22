@@ -7,24 +7,22 @@ use crate::fold::{MARKER, substitute_markers};
 use crate::psr4::Psr4;
 use crate::walk::{INCLUDE_FORM, USE_FORM};
 
-pub(crate) struct Autoload<'r> {
-    repository: &'r dyn Repository,
+pub(crate) struct Autoload {
     psr4: Psr4,
 }
 
-impl<'r> Autoload<'r> {
-    pub(crate) fn new(repository: &'r dyn Repository) -> Self {
+impl Autoload {
+    pub(crate) fn new(repository: &dyn Repository) -> Self {
         Self {
             psr4: Psr4::read(repository),
-            repository,
         }
     }
 
     // constraint: an explicit `./` or `../` path and one under the file's own directory, which `__DIR__` folds to,
     // name a file from there; any other path names one from the root, or else the one file whose path ends in it
-    fn included_file(&self, spec: &str, path: &str) -> Option<String> {
+    fn included_file(spec: &str, path: &str, repository: &dyn Repository) -> Option<String> {
         let here = dir(path);
-        let contained = |file: &String| self.repository.contains(file);
+        let contained = |file: &String| repository.contains(file);
 
         if spec.starts_with("./") || spec.starts_with("../") {
             return join(here, spec).filter(contained);
@@ -35,31 +33,31 @@ impl<'r> Autoload<'r> {
         {
             return join("", spec).filter(contained);
         }
-        if self.repository.contains(spec) {
+        if repository.contains(spec) {
             return Some(spec.to_owned());
         }
 
         let suffix = format!("/{spec}");
         sole(
-            self.repository
+            repository
                 .files_named(base(spec))
                 .filter(|candidate| candidate.ends_with(&suffix)),
         )
     }
 
-    fn used_file(&self, form: u32, name: &str) -> Option<String> {
+    fn used_file(&self, form: u32, name: &str, repository: &dyn Repository) -> Option<String> {
         if form == USE_FORM {
-            self.psr4.class_file(name, self.repository)
+            self.psr4.class_file(name, repository)
         } else {
-            self.psr4.function_or_const_file(name, self.repository)
+            self.psr4.function_or_const_file(name, repository)
         }
     }
 }
 
-impl Resolver for Autoload<'_> {
+impl Resolver for Autoload {
     // constraint: a `use` that PSR-4 maps to a file of the repository is an include, and any other `use` an import as
     // written; an `include` names a path, which is an include or nothing
-    fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 
         let path_flags = SymbolFlags::empty()
@@ -69,7 +67,7 @@ impl Resolver for Autoload<'_> {
 
         for directive in directives {
             if directive.form != INCLUDE_FORM {
-                match self.used_file(directive.form, &directive.spec) {
+                match self.used_file(directive.form, &directive.spec, repository) {
                     Some(target) => extraction.includes.push(IncludeRef { target }),
                     None => extraction.imports.push(ImportRef {
                         module: directive.spec,
@@ -85,7 +83,7 @@ impl Resolver for Autoload<'_> {
             } else {
                 directive.spec
             };
-            let included = self.included_file(&spec, path);
+            let included = Self::included_file(&spec, path, repository);
             extraction
                 .includes
                 .extend(included.map(|target| IncludeRef { target }));

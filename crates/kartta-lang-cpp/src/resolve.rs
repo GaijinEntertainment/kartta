@@ -8,12 +8,20 @@ use crate::{EXTENSIONS, QUOTED_INCLUDE};
 
 const HEADER_EXTENSIONS: [&str; 6] = ["", ".h", ".hpp", ".c", ".cpp", ".cc"];
 
-pub(crate) struct Includes<'r> {
+pub(crate) struct CppResolver;
+
+impl Resolver for CppResolver {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
+        Includes::new(repository).resolve(raw, path)
+    }
+}
+
+struct Includes<'r> {
     repository: &'r dyn Repository,
 }
 
 impl<'r> Includes<'r> {
-    pub(crate) const fn new(repository: &'r dyn Repository) -> Self {
+    const fn new(repository: &'r dyn Repository) -> Self {
         Self { repository }
     }
 
@@ -56,7 +64,7 @@ impl<'r> Includes<'r> {
     }
 }
 
-impl Resolver for Includes<'_> {
+impl Includes<'_> {
     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 
@@ -187,7 +195,8 @@ mod tests {
     fn resolved(source: &[u8], path: &str, files: &[&'static str]) -> Extraction {
         let cpp = Cpp::new();
         let repository = MemoryRepository::of_paths(files);
-        cpp.resolver(&repository).resolve(cpp.extract(source), path)
+        cpp.resolver(&repository)
+            .resolve(cpp.extract(source), path, &repository)
     }
 
     fn targets(extraction: &Extraction) -> Vec<&str> {

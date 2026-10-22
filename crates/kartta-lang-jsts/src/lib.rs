@@ -166,7 +166,7 @@ macro_rules! flavor_language {
                 $flavor.extract(source)
             }
 
-            fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+            fn resolver(&self, repository: &dyn Repository) -> Box<dyn Resolver> {
                 Box::new(JstsResolver::new(repository))
             }
         }

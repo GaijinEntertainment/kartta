@@ -83,7 +83,7 @@ impl Language for Defs {
         raw
     }
 
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+    fn resolver(&self, repository: &dyn Repository) -> Box<dyn Resolver> {
         self.resolvers.fetch_add(1, Ordering::Relaxed);
         let _configuration = repository.read("config.cfg");
         Box::new(AtPath)
@@ -93,7 +93,7 @@ impl Language for Defs {
 struct AtPath;
 
 impl Resolver for AtPath {
-    fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
+    fn resolve(&self, raw: RawExtraction, path: &str, _repository: &dyn Repository) -> Extraction {
         raw.into_extraction(path).0
     }
 }
@@ -131,7 +131,7 @@ impl Language for Probe {
         RawExtraction::default()
     }
 
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+    fn resolver(&self, repository: &dyn Repository) -> Box<dyn Resolver> {
         let seen = Seen {
             in_src: repository.files_in_dir("src").collect(),
             in_root: repository.files_in_dir(".").collect(),
@@ -163,10 +163,10 @@ enum CancelAt {
 #[derive(Debug)]
 struct Cancelling(CancelToken, CancelAt);
 
-struct CancelOnResolve<'t>(&'t CancelToken);
+struct CancelOnResolve(CancelToken);
 
-impl Resolver for CancelOnResolve<'_> {
-    fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
+impl Resolver for CancelOnResolve {
+    fn resolve(&self, raw: RawExtraction, path: &str, _repository: &dyn Repository) -> Extraction {
         self.0.cancel();
         raw.into_extraction(path).0
     }
@@ -189,13 +189,13 @@ impl Language for Cancelling {
         RawExtraction::default()
     }
 
-    fn resolver<'r>(&'r self, _repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+    fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
         match self.1 {
             CancelAt::ResolverBuilt => {
                 self.0.cancel();
                 Box::new(AtPath)
             }
-            CancelAt::FileResolved => Box::new(CancelOnResolve(&self.0)),
+            CancelAt::FileResolved => Box::new(CancelOnResolve(self.0.clone())),
         }
     }
 }

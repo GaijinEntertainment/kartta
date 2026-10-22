@@ -73,7 +73,7 @@ fn resolve(source: &[u8], path: &str, files: &[&str]) -> Extraction {
     let lua = Lua::new();
     let repository = MemoryRepository::of_paths(files);
     let resolver = lua.resolver(&repository);
-    resolver.resolve(lua.extract(source), path)
+    resolver.resolve(lua.extract(source), path, &repository)
 }
 
 fn symbol<'r>(symbols: &'r [Symbol], name: &str) -> &'r Symbol {

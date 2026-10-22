@@ -8,7 +8,7 @@ fn resolve(files: &MemoryRepository, source: &[u8], path: &str) -> Extraction {
     let python = Python::new();
     let resolver = python.resolver(files);
 
-    resolver.resolve(python.extract(source), path)
+    resolver.resolve(python.extract(source), path, files)
 }
 
 fn includes(files: &'static [&'static str], source: &[u8], path: &str) -> Vec<String> {
@@ -403,8 +403,8 @@ fn one_extraction_resolved_at_two_paths_differs_only_by_what_the_paths_show() {
     let resolver = python.resolver(&files);
     let raw = python.extract(b"from . import util\ndef run():\n    pass\n");
 
-    let ordinary = resolver.resolve(raw.clone(), "pkg/run.py");
-    let test = resolver.resolve(raw, "tests/run.py");
+    let ordinary = resolver.resolve(raw.clone(), "pkg/run.py", &files);
+    let test = resolver.resolve(raw, "tests/run.py", &files);
 
     assert_eq!(ordinary.symbols[0].qualified_name, "pkg.run.run");
     assert_eq!(test.symbols[0].qualified_name, "tests.run.run");

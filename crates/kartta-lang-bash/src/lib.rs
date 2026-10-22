@@ -63,7 +63,7 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{DocComments, Language, RawExtraction, Repository, Resolver};
 
-use crate::resolve::Sources;
+use crate::resolve::BashResolver;
 
 mod resolve;
 mod walk;
@@ -102,8 +102,8 @@ impl Language for Bash {
         kartta_lang::tree::extract(&grammar(), source, walk::raw_walk)
     }
 
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(Sources { repository })
+    fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
+        Box::new(BashResolver)
     }
 }
 

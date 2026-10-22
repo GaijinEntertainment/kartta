@@ -3,8 +3,16 @@ use kartta_lang::{Extraction, IncludeRef, RawExtraction, Repository, Resolver, S
 
 const SOURCE_EXTENSIONS: [&str; 3] = ["", ".sh", ".bash"];
 
-pub(crate) struct Sources<'r> {
-    pub(crate) repository: &'r dyn Repository,
+pub(crate) struct BashResolver;
+
+impl Resolver for BashResolver {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
+        Sources { repository }.resolve(raw, path)
+    }
+}
+
+struct Sources<'r> {
+    repository: &'r dyn Repository,
 }
 
 impl Sources<'_> {
@@ -36,7 +44,7 @@ impl Sources<'_> {
     }
 }
 
-impl Resolver for Sources<'_> {
+impl Sources<'_> {
     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 

@@ -10,8 +10,7 @@ use kartta_lang::{
 use crate::manifest;
 use crate::walk::{MOD_TEST_FORM, USE_FORM};
 
-pub(crate) struct Crates<'r> {
-    repository: &'r dyn Repository,
+pub(crate) struct Crates {
     packages: HashSet<String>,
     libraries: HashMap<String, Vec<Library>>,
 }
@@ -23,10 +22,10 @@ struct Library {
     root: String,
 }
 
-impl<'r> Crates<'r> {
+impl Crates {
     // constraint: a package is a directory that holds a `Cargo.toml`, whose manifest is read only for the name and the
     // root of its library, so a target that it places off the conventional layout is not a crate root here
-    pub(crate) fn new(repository: &'r dyn Repository) -> Self {
+    pub(crate) fn new(repository: &dyn Repository) -> Self {
         let mut packages = HashSet::new();
         let mut libraries: HashMap<String, Vec<Library>> = HashMap::new();
         for mut manifest in repository.files_named("Cargo.toml") {
@@ -48,7 +47,6 @@ impl<'r> Crates<'r> {
         }
 
         Self {
-            repository,
             packages,
             libraries,
         }
@@ -76,15 +74,20 @@ impl<'r> Crates<'r> {
     // file Cargo's layout gives it until one names none: a path that ends at a module binds its file, and one that ends
     // a segment further, at an item named in lower case as a function is, binds the file of the module that holds it;
     // a longer rest, or a capitalised item, which is a type whose member a path call names, binds nothing
-    fn crate_binding(&self, directive: &RawDirective, package: &str) -> Option<ImportBinding> {
+    fn crate_binding(
+        &self,
+        directive: &RawDirective,
+        package: &str,
+        repository: &dyn Repository,
+    ) -> Option<ImportBinding> {
         let name = directive.names.first()?;
         let mut segments = directive.spec.split("::");
         let krate = segments.next()?;
         let library = self.library(krate, package)?;
-        if !self.repository.contains(&library.root) {
+        if !repository.contains(&library.root) {
             return None;
         }
-        let (file, last) = self.deepest_module(&library.root, krate, segments)?;
+        let (file, last) = Self::deepest_module(&library.root, krate, segments, repository)?;
         Some(ImportBinding {
             alias: (name != last).then(|| name.clone()),
             target_dir: Some(file),
@@ -93,17 +96,17 @@ impl<'r> Crates<'r> {
     }
 
     fn deepest_module<'s>(
-        &self,
         root: &str,
         krate: &'s str,
         mut segments: impl Iterator<Item = &'s str>,
+        repository: &dyn Repository,
     ) -> Option<(String, &'s str)> {
         let mut file = root.to_owned();
         let mut module_dir = String::new();
         push_module_dir(&mut module_dir, root, true);
         let mut last = krate;
         while let Some(segment) = segments.next() {
-            let Some(submodule) = self.submodule(&module_dir, segment) else {
+            let Some(submodule) = Self::submodule(&module_dir, segment, repository) else {
                 let item = segments.next().is_none()
                     && !segment.starts_with(|first: char| first.is_ascii_uppercase());
                 return item.then_some((file, segment));
@@ -116,13 +119,13 @@ impl<'r> Crates<'r> {
         Some((file, last))
     }
 
-    fn submodule(&self, module_dir: &str, name: &str) -> Option<String> {
+    fn submodule(module_dir: &str, name: &str, repository: &dyn Repository) -> Option<String> {
         let file = format!("{module_dir}{name}.rs");
-        if self.repository.contains(&file) {
+        if repository.contains(&file) {
             return Some(file);
         }
         let file = format!("{module_dir}{name}/mod.rs");
-        self.repository.contains(&file).then_some(file)
+        repository.contains(&file).then_some(file)
     }
 
     fn role<'p>(&self, path: &'p str) -> Role<'p> {
@@ -155,10 +158,10 @@ impl<'r> Crates<'r> {
     // module around the declaration; a `#[path]` override is relative to the declaring file's directory, or inside an
     // inline module to that module's directory
     fn module_file(
-        &self,
         directive: &RawDirective,
         path: &str,
         module_root: bool,
+        repository: &dyn Repository,
     ) -> Option<String> {
         if let Some(spec) = directive.names.first() {
             let mut from = String::new();
@@ -169,19 +172,19 @@ impl<'r> Crates<'r> {
                 }
                 None => from.push_str(dir(path)),
             }
-            return join(&from, spec).filter(|file| self.repository.contains(file));
+            return join(&from, spec).filter(|file| repository.contains(file));
         }
 
         let mut file = String::with_capacity(path.len() + directive.spec.len() + "/mod.rs".len());
         push_module_dir(&mut file, path, module_root);
         file.push_str(&directive.spec);
         file.push_str(".rs");
-        if self.repository.contains(&file) {
+        if repository.contains(&file) {
             return Some(file);
         }
         file.truncate(file.len() - ".rs".len());
         file.push_str("/mod.rs");
-        self.repository.contains(&file).then_some(file)
+        repository.contains(&file).then_some(file)
     }
 }
 
@@ -199,8 +202,13 @@ fn push_module_dir(into: &mut String, path: &str, module_root: bool) {
     }
 }
 
-impl Resolver for Crates<'_> {
-    fn resolve(&self, mut raw: RawExtraction, path: &str) -> Extraction {
+impl Resolver for Crates {
+    fn resolve(
+        &self,
+        mut raw: RawExtraction,
+        path: &str,
+        repository: &dyn Repository,
+    ) -> Extraction {
         let entry_candidates = std::mem::take(&mut raw.entry_candidates);
         let (mut extraction, directives) = raw.into_extraction(path);
 
@@ -219,10 +227,11 @@ impl Resolver for Crates<'_> {
             if directive.form == USE_FORM {
                 extraction
                     .bindings
-                    .extend(self.crate_binding(directive, role.package));
+                    .extend(self.crate_binding(directive, role.package, repository));
                 continue;
             }
-            let Some(target) = self.module_file(directive, path, role.module_root) else {
+            let Some(target) = Self::module_file(directive, path, role.module_root, repository)
+            else {
                 continue;
             };
             if directive.form == MOD_TEST_FORM || role.test {
