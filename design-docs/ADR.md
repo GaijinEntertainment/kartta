@@ -54,7 +54,7 @@
   published](./adr/2.3-expire-cache-entries-by-the-time-each-was-published.md) — initiative `02-shared-cache`,
   2026-10-18, revised 2026-10-19
 - [3.1 Plug languages in through a trait](./adr/3.1-plug-languages-in-through-a-trait.md) — initiative `03-code-graph`,
-  2026-10-16, revised 2026-10-21
+  2026-10-16, revised 2026-10-22
 - [3.2 Name a Go call's target only where the syntax
   spells it](./adr/3.2-name-a-go-call-s-target-only-where-the-syntax-spells-it.md) — initiative `03-code-graph`,
   2026-10-16
@@ -63,7 +63,7 @@
   2026-10-20
 - [3.4 Extract TypeScript and JavaScript as one
   family](./adr/3.4-extract-typescript-and-javascript-as-one-family.md) — initiative `03-code-graph`, 2026-10-16,
-  revised 2026-10-19
+  revised 2026-10-22
 - [3.5 Keep the graph a file at a time](./adr/3.5-keep-the-graph-a-file-at-a-time.md) — initiative `03-code-graph`,
   2026-10-16, revised 2026-10-17
 - [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md) — initiative
@@ -128,7 +128,7 @@
   revised 2026-10-22
 - [3.32 Hand an engine every shipped language from one crate, and select them by
   name](./adr/3.32-hand-an-engine-every-shipped-language-from-one-crate.md) — initiative `03-code-graph`, 2026-10-18,
-  revised 2026-10-18
+  revised 2026-10-22
 - [3.33 Follow a tree through the questions each file's resolution
   asked](./adr/3.33-follow-a-tree-through-the-questions-each-file-s-resolution-asked.md) — initiative `03-code-graph`,
   2026-10-18, revised 2026-10-22
