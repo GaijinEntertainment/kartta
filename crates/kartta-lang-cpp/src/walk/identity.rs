@@ -3,7 +3,9 @@ use std::borrow::Cow;
 use kartta_lang::tree::text;
 use tree_sitter::Node;
 
-use super::declarator::{WrittenName, qualified_terminal, real_function_declarator, written_name};
+use super::declarator::{
+    WrittenName, declarator_name, qualified_terminal, real_function_declarator, written_name,
+};
 use super::name::is_simple_identifier;
 use super::{Replayer, child_nodes};
 
@@ -13,10 +15,10 @@ impl Replayer<'_, '_> {
             return None;
         }
         let declarator = real_function_declarator(node, self.source)?;
-        let written = declarator.child_by_field_name("declarator")?;
+        let written = declarator_name(declarator, self.source)?;
         let declared = written_name(written);
-        let error_beside_the_name =
-            child_nodes(declarator).any(|child| child != written && child.has_error());
+        let error_beside_the_name = child_nodes(declarator)
+            .any(|child| child.start_byte() >= written.end_byte() && child.has_error());
         if error_beside_the_name || declared.name.has_error() {
             return None;
         }
@@ -118,7 +120,7 @@ fn member_qualifiers(
     let mut qualifiers = Vec::new();
     let mut reference = None;
     for child in child_nodes(declarator) {
-        if child == name || child == parameters || !child.is_named() {
+        if child.end_byte() <= name.end_byte() || child == parameters || !child.is_named() {
             continue;
         }
         match child.kind() {

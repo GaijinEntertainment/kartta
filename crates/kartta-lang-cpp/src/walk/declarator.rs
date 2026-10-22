@@ -86,7 +86,27 @@ fn conversion_operator(node: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
 }
 
 fn declared_name(function: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
-    declared_name_of(function.child_by_field_name("declarator")?, source)
+    declared_name_of(declarator_name(function, source)?, source)
+}
+
+// constraint: a macro before the return type reads as the type, so the return type reads as the declarator, and where
+// a space or a line break stands between the name and its parameters, `GLM_FUNC_QUALIFIER typename genType::row_type
+// row\n(`, the parser evicts the name into an error before the parameters; tree-sitter finds a node's sibling through
+// its parent, which it finds by descending from the root, so the error is looked for among the function's own children
+pub(super) fn declarator_name<'t>(function: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
+    let declarator = function.child_by_field_name("declarator")?;
+    let evicted = child_nodes(function)
+        .skip_while(|child| *child != declarator)
+        .nth(1)
+        .filter(Node::is_error)
+        .and_then(|error| {
+            let mut words = child_nodes(error);
+            let name = words.next().filter(|word| {
+                word.kind() == "identifier" && !is_macro_name(&source[word.byte_range()])
+            })?;
+            words.next().is_none().then_some(name)
+        });
+    Some(evicted.unwrap_or(declarator))
 }
 
 fn declared_name_of(declarator: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
@@ -306,7 +326,7 @@ pub(super) fn is_macro_invocation(node: Node<'_>, symbol: &Symbol) -> bool {
 /// The scope a function's declarator writes before its name where it holds more than one name, each by its base
 /// name: `A::N` of `void A::N::f() {}`.
 pub(super) fn nested_scope(node: Node<'_>, source: &[u8]) -> Option<String> {
-    let declarator = real_function_declarator(node, source)?.child_by_field_name("declarator")?;
+    let declarator = declarator_name(real_function_declarator(node, source)?, source)?;
     let WrittenName {
         name,
         stranded_scope,

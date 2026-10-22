@@ -1357,6 +1357,41 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
+    fn a_macro_before_a_name_set_apart_from_its_parameters_keeps_the_name() {
+        let raw = extract(
+            b"namespace glm {\n\
+              template<typename genType>\n\
+              GLM_FUNC_QUALIFIER typename genType::row_type row\n\
+              (genType const& m, length_t index) { return m[index]; }\n\
+              template<typename genType>\n\
+              GLM_FUNC_DECL typename genType::col_type column(genType const& m, length_t index);\n\
+              INLINE std::string label (int value) { return {}; }\n}\n\
+              struct Sound { FMOD_RESULT F_API stop (); };\n",
+        );
+
+        assert_eq!(
+            qualified_names(&raw),
+            [
+                "glm::row",
+                "glm::label",
+                "Sound",
+                "glm::column",
+                "Sound::stop"
+            ]
+        );
+        for name in ["row", "column", "label"] {
+            assert_eq!(symbol(&raw, name).kind, SymbolKind::Function, "{name}");
+            assert_eq!(symbol(&raw, name).owner, None, "{name}");
+        }
+        let keys: Vec<&str> = raw
+            .callables
+            .iter()
+            .map(|callable| callable.key.as_str())
+            .collect();
+        assert_eq!(keys, ["glm::label(int)", "Sound::stop()"]);
+    }
+
+    #[test]
     fn trailing_macros_on_ctor_dtor_keep_the_member() {
         let raw = extract(
             b"class FS {\n  FS() DAG_TS_ACQUIRE(mtx) { init(); }\n  ~FS() DAG_TS_RELEASE(mtx) { drop(); }\n};\n\
