@@ -26,12 +26,12 @@ type Refresh struct {
 	// Extracted counts the files read, new or changed, whose extraction went into a graph.
 	Extracted int `json:"extracted"`
 	// ResolvedAgain counts the unchanged files read and resolved again, because a question their resolution asked of
-	// the tree has another answer now, or their language's configuration changed.
+	// the tree has another answer now, or their family's configuration changed.
 	ResolvedAgain int `json:"resolved_again"`
 	// Dropped counts the files the graphs held and hold no more; nil when every graph was built again.
 	Dropped *int `json:"dropped,omitempty"`
-	// Reconfigured names the languages whose resolver read another configuration than it read before, so that every
-	// file of theirs was resolved again.
+	// Reconfigured names the language families whose resolver read another configuration than it read before, such
+	// as jsts for TypeScript and JavaScript, so that every file of theirs was resolved again.
 	Reconfigured []string `json:"reconfigured"`
 	// Rebuilt reports that every graph was built again from every file.
 	Rebuilt bool `json:"rebuilt"`

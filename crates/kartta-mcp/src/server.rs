@@ -330,8 +330,9 @@ impl Server {
                        Returns a <refresh> envelope: walked= the parts walked again (\"tree\" for all), then each \
                        only when it is not zero - added and removed files, extracted (files parsed again), \
                        resolved_again (other files whose calls or includes bind anew), dropped (files no graph holds \
-                       now), reconfigured (languages whose go.mod or tsconfig.json changed), rebuilt=true, and \
-                       widened= (the paths named) with parts= (the parts they came to) and limit= when those were \
+                       now), reconfigured (language families whose go.mod or tsconfig.json changed, jsts for \
+                       TypeScript and JavaScript), rebuilt=true, and widened= (the paths named) with parts= (the \
+                       parts they came to) and limit= when those were \
                        more parts than it walks apart, so it walked the tree - the paths inside a directory the \
                        index lacks, such as an ignored one, are one part; elapsed_ms; and <errors> for what it \
                        could not read. Requires index_repo first."

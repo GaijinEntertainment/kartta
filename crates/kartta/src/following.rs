@@ -12,7 +12,7 @@ use crate::repository::{
 use crate::resolving::{Resolvers, Resolving, ToResolve};
 
 /// What an engine built with stamps keeps to follow its tree: for each file its graphs hold, the questions its
-/// resolution put to the repository, for each language, what its resolver asked while it was built, and the tables the
+/// resolution put to the repository, for each family, what its resolver asked while it was built, and the tables the
 /// last refresh's repository built to find files in.
 #[derive(Debug, Default)]
 pub(crate) struct Following {
@@ -144,7 +144,7 @@ impl Following {
 
     /// Brings `engine`'s graphs up to its refreshed index: drops the files the refresh retired, inserts what its walk
     /// handed over, and resolves again from a second read every file whose questions a change answers differently,
-    /// every file of a language whose resolver now reads another configuration among them.
+    /// every file of a family whose resolver now reads another configuration among them.
     pub(crate) fn refresh(
         &mut self,
         engine: Refreshing<'_>,
@@ -219,7 +219,7 @@ impl Following {
             reconfigured: plan
                 .reconfigured
                 .iter()
-                .map(|&language| languages[language].name().to_owned())
+                .map(|&family| families[family].name.clone())
                 .collect(),
             rebuilt: false,
             widened: None,
@@ -239,15 +239,16 @@ impl Following {
             } else {
                 self.asked.reaching(reached).collect()
             };
-        let mut wanted = vec![false; resolving.languages.len()];
+        let family_of = resolving.family_of;
+        let mut wanted = vec![false; resolving.families()];
         for file in &handed {
-            wanted[file.language] = true;
+            wanted[family_of[file.language]] = true;
         }
         for id in &dependents {
-            wanted[self.files[id].language] = true;
+            wanted[family_of[self.files[id].language]] = true;
         }
-        for (language, configuration) in self.configurations.iter().enumerate() {
-            wanted[language] |= configuration
+        for (family, configuration) in self.configurations.iter().enumerate() {
+            wanted[family] |= configuration
                 .as_ref()
                 .is_some_and(|configuration| reaches(configuration, reached, outcome));
         }
@@ -257,7 +258,7 @@ impl Following {
         dependents.extend(
             self.files
                 .iter()
-                .filter(|(_, followed)| reconfigured.contains(&followed.language))
+                .filter(|(_, followed)| reconfigured.contains(&family_of[followed.language]))
                 .map(|(&id, _)| id),
         );
         dependents.sort_unstable();
@@ -298,16 +299,16 @@ impl Following {
                 .resize_with(resolvers.configurations.len(), || None);
         }
         let mut reconfigured = Vec::new();
-        for (language, built) in resolvers.configurations.iter_mut().enumerate() {
+        for (family, built) in resolvers.configurations.iter_mut().enumerate() {
             let Some(built) = built.take() else {
                 continue;
             };
-            let kept = &mut self.configurations[language];
+            let kept = &mut self.configurations[family];
             if kept
                 .as_ref()
                 .is_some_and(|kept| kept.answers != built.answers)
             {
-                reconfigured.push(language);
+                reconfigured.push(family);
             }
             *kept = Some(built);
         }

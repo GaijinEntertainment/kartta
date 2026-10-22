@@ -56,8 +56,8 @@ pub(crate) struct Inserted {
 }
 
 impl<'b> Resolving<'b> {
-    /// Each family's graph built from `extracted`, what went into it, and what each language's resolver asked as it
-    /// was built when this resolution records.
+    /// Each family's graph built from `extracted`, what went into it, and what each family's resolver asked as it was
+    /// built when this resolution records.
     pub(crate) fn graphs(
         &self,
         mut families: Vec<Family>,
@@ -67,9 +67,9 @@ impl<'b> Resolving<'b> {
             return Err(BuildError::Cancelled);
         }
         let work = self.placed(extracted);
-        let mut wanted = vec![false; self.languages.len()];
+        let mut wanted = vec![false; families.len()];
         for file in &work {
-            wanted[file.language] = true;
+            wanted[self.family_of[file.language]] = true;
         }
         let repository = if self.recording {
             IndexRepository::recording(self.index, FileTables::default())
@@ -83,6 +83,11 @@ impl<'b> Resolving<'b> {
             inserted,
             configurations: resolvers.configurations,
         })
+    }
+
+    /// How many families the languages come to.
+    pub(crate) fn families(&self) -> usize {
+        self.family_of.iter().max().map_or(0, |&last| last + 1)
     }
 
     pub(crate) fn placed(&self, extracted: Vec<Extracted>) -> Vec<ToResolve> {
@@ -100,8 +105,8 @@ impl<'b> Resolving<'b> {
             .collect()
     }
 
-    /// The resolver of each language `wanted` names, built over `repository`, and what each asked of it when this
-    /// resolution records.
+    /// The resolver of each family `wanted` names, built over `repository` by the first of its languages, and what
+    /// each asked of it when this resolution records.
     pub(crate) fn resolvers<'r>(
         &self,
         repository: &'r IndexRepository<'_>,
@@ -114,11 +119,15 @@ impl<'b> Resolving<'b> {
             resolvers: Vec::with_capacity(wanted.len()),
             configurations: Vec::with_capacity(wanted.len()),
         };
-        for (language, &wanted) in self.languages.iter().zip(wanted) {
-            let (resolver, configuration) = match (wanted, self.recording) {
-                (false, _) => (None, None),
-                (true, false) => (Some(language.resolver(repository)), None),
-                (true, true) => {
+        for (family, &wanted) in wanted.iter().enumerate() {
+            let first = wanted
+                .then(|| self.family_of.iter().position(|&of| of == family))
+                .flatten()
+                .map(|first| &self.languages[first]);
+            let (resolver, configuration) = match (first, self.recording) {
+                (None, _) => (None, None),
+                (Some(language), false) => (Some(language.resolver(repository)), None),
+                (Some(language), true) => {
                     let (resolver, configuration) =
                         configured_while(|| language.resolver(repository));
                     (Some(resolver), Some(configuration))
@@ -195,7 +204,8 @@ impl<'b> Resolving<'b> {
             batch
                 .into_par_iter()
                 .filter_map(|mut batched| {
-                    let resolver = resolvers.resolvers[batched.file.language].as_deref()?;
+                    let family = self.family_of[batched.file.language];
+                    let resolver = resolvers.resolvers[family].as_deref()?;
                     let encoded = batched.file.encoded.take();
                     let outcome = self.recorded(resolver, &batched, encoded.as_deref());
                     Some((batched, outcome))

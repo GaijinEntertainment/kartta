@@ -10,9 +10,14 @@
 use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use kartta::{BuildOptions, Engine, EngineRefresh, Limits, Widened};
+use kartta::{
+    BuildOptions, Conventions, DocComments, Engine, EngineRefresh, Language, Limits, RawExtraction,
+    Repository, Resolver, Widened,
+};
 use tempfile::TempDir;
 
 const TREE: &[(&str, &str)] = &[
@@ -70,8 +75,12 @@ fn write(root: &Path, path: &str, content: &str) {
 // constraint: a stamp is trusted only when its file last changed over two seconds before the walk began, so a tree
 // whose files a refresh is to carry over waits that out before it is built
 fn settled_tree() -> TempDir {
+    settled_tree_with(&[])
+}
+
+fn settled_tree_with(more: &[(&str, &str)]) -> TempDir {
     let tree = tempfile::tempdir().expect("a temporary directory");
-    for (path, content) in TREE {
+    for (path, content) in TREE.iter().chain(more) {
         write(tree.path(), path, content);
     }
     std::thread::sleep(Duration::from_millis(2100));
@@ -142,6 +151,7 @@ fn answers(engine: &Engine) -> String {
         "src/extra.h",
         "lib/lib.go",
         "lib/extra.go",
+        "web/button.ts",
     ] {
         let (_, graph) = engine.graph_of(path).expect("a language claims the path");
         writeln!(
@@ -428,4 +438,115 @@ fn an_engine_refreshed_again_and_again_follows_every_change() {
             "round {round}"
         );
     }
+}
+
+/// A shipped language that counts the resolvers it builds.
+#[derive(Debug)]
+struct Counted {
+    language: Box<dyn Language>,
+    resolvers: Arc<AtomicUsize>,
+}
+
+impl Language for Counted {
+    fn name(&self) -> &str {
+        self.language.name()
+    }
+
+    fn family(&self) -> &str {
+        self.language.family()
+    }
+
+    fn claims(&self, path: &str) -> bool {
+        self.language.claims(path)
+    }
+
+    fn fingerprint(&self) -> &[u8] {
+        self.language.fingerprint()
+    }
+
+    fn conventions(&self) -> Conventions {
+        self.language.conventions()
+    }
+
+    fn doc_comments(&self) -> DocComments {
+        self.language.doc_comments()
+    }
+
+    fn extract(&self, source: &[u8]) -> RawExtraction {
+        self.language.extract(source)
+    }
+
+    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+        self.resolvers.fetch_add(1, Ordering::Relaxed);
+        self.language.resolver(repository)
+    }
+}
+
+const ALIASED: &[(&str, &str)] = &[
+    (
+        "tsconfig.json",
+        "{\"compilerOptions\": {\"paths\": {\"@ui/*\": [\"./web/*\"]}}}\n",
+    ),
+    (
+        "web/page.ts",
+        "import { button } from \"@ui/button\";\n\nexport function page() {\n  return button();\n}\n",
+    ),
+    (
+        "web/view.tsx",
+        "import { page } from \"./page\";\n\nexport function View() {\n  return <div>{page()}</div>;\n}\n",
+    ),
+    (
+        "web/legacy.js",
+        "export function legacy() {\n  return 0;\n}\n",
+    ),
+];
+
+#[test]
+fn a_changed_tsconfig_resolves_the_javascript_family_through_one_resolver_built_again_once() {
+    let tree = settled_tree_with(ALIASED);
+    let resolvers = Arc::new(AtomicUsize::new(0));
+    let languages = kartta_languages::all()
+        .into_iter()
+        .map(|language| -> Box<dyn Language> {
+            if language.family() == "jsts" {
+                Box::new(Counted {
+                    language,
+                    resolvers: Arc::clone(&resolvers),
+                })
+            } else {
+                language
+            }
+        })
+        .collect();
+    let mut options = BuildOptions::default();
+    options.stamps = true;
+    let outcome = Engine::build(tree.path(), &options, languages, None).expect("the tree builds");
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    let mut engine = outcome.engine;
+    let built = resolvers.load(Ordering::Relaxed);
+    let before = answers(&engine);
+
+    write(
+        tree.path(),
+        "tsconfig.json",
+        "{\"compilerOptions\": {\"paths\": {\"@ui/*\": [\"./absent/*\"]}}}\n",
+    );
+    let refresh = refreshed(engine.refresh_paths(["tsconfig.json"], None));
+    let fresh = answers(&build(tree.path(), false));
+
+    assert_eq!(
+        built, 1,
+        "TypeScript, TSX and JavaScript share one resolver"
+    );
+    assert_eq!(resolvers.load(Ordering::Relaxed), 2);
+    assert_eq!(refresh.reconfigured, ["jsts"]);
+    assert_eq!(
+        refresh.resolved_again, 5,
+        "every file under web/, of each of the three languages"
+    );
+    assert_ne!(
+        before, fresh,
+        "web/page.ts no longer includes web/button.ts"
+    );
+    assert_eq!(answers(&engine), fresh);
 }
