@@ -1684,6 +1684,70 @@ fn a_member_call_that_calls_members_alone_binds_no_free_function_at_any_tier() {
     );
 }
 
+fn through_modules(member_calls: MemberCalls) -> Conventions {
+    let mut conventions = Conventions::default();
+    conventions.owner_chain_separator = Some("::");
+    conventions.own_type_receivers = Some(&["other"]);
+    conventions.member_calls = member_calls;
+    conventions
+}
+
+#[test]
+fn a_member_call_that_calls_free_functions_through_modules_alone_takes_one_only_through_a_module() {
+    let calling = |member_calls,
+                   receiver: &str,
+                   (mut caller_symbols, others): (Vec<Symbol>, Vec<Extraction>)| {
+        caller_symbols.insert(0, function("run", 1));
+        let mut files = vec![file(
+            "a/x.rs",
+            caller_symbols,
+            vec![member_call(0, receiver, "join", 2)],
+        )];
+        files.extend(others);
+        callees(&graph_of(through_modules(member_calls), &files), "run")
+    };
+    let elsewhere = |path: &str| file(path, vec![function("join", 1)], Vec::new());
+    let layouts = || {
+        [
+            (vec![function("join", 5)], Vec::new()),
+            (Vec::new(), vec![elsewhere("a/y.rs")]),
+            (Vec::new(), vec![elsewhere("b/y.rs")]),
+        ]
+    };
+
+    for receiver in ["", "other", "Index", "a::Widget"] {
+        for layout in layouts() {
+            assert_eq!(
+                calling(MemberCalls::ModulePaths, receiver, layout),
+                Vec::<String>::new(),
+                "{receiver}"
+            );
+        }
+    }
+    for receiver in ["walk", "a::walk"] {
+        for (layout, nearby) in layouts().into_iter().zip(layouts()) {
+            let nearby = calling(MemberCalls::NearbyFreeFunctions, receiver, nearby);
+            assert_eq!(nearby.len(), 1, "{receiver}");
+            assert_eq!(calling(MemberCalls::ModulePaths, receiver, layout), nearby);
+        }
+    }
+    assert_eq!(
+        calling(
+            MemberCalls::ModulePaths,
+            "",
+            (
+                Vec::new(),
+                vec![file(
+                    "b/y.rs",
+                    vec![member("Path", "join", SymbolKind::Method, 1)],
+                    Vec::new()
+                )]
+            )
+        ),
+        ["b/y.rs:1@60"]
+    );
+}
+
 #[test]
 fn a_member_call_takes_the_one_member_near_the_caller() {
     let graph = graph(&[

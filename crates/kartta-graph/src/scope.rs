@@ -682,7 +682,7 @@ impl Cascade<'_> {
         let any = |shape: &Shape| candidates.clone().any(|at| self.admits(shape, at));
 
         if call.receiver.is_some() {
-            return if self.conventions.member_calls == MemberCalls::Members
+            return if self.takes_a_member_alone(call)
                 || call.names_a_runtime_method
                 || any(&Shape::Member)
             {
@@ -730,6 +730,31 @@ impl Cascade<'_> {
             }
             _ => Shape::Free,
         }
+    }
+
+    fn takes_a_member_alone(&self, call: &Call) -> bool {
+        match self.conventions.member_calls {
+            MemberCalls::NearbyFreeFunctions => false,
+            MemberCalls::Members => true,
+            MemberCalls::ModulePaths => !self.receiver_names_a_module(call),
+        }
+    }
+
+    fn receiver_names_a_module(&self, call: &Call) -> bool {
+        let Some(receiver) = self.named_receiver(call) else {
+            return false;
+        };
+        let receiver = self.graph.strings.resolve(receiver);
+        let last = self
+            .conventions
+            .owner_chain_separator
+            .and_then(|separator| receiver.rsplit(separator).next())
+            .unwrap_or(receiver);
+        last.starts_with(|first: char| first.is_ascii_lowercase() || first == '_')
+            && !self
+                .conventions
+                .own_type_receivers
+                .is_some_and(|own| own.contains(&receiver))
     }
 
     fn in_own_namespace(&self, reach: &Reach) -> bool {

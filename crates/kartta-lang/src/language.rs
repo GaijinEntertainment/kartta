@@ -248,7 +248,7 @@ pub enum Receivers {
 /// What a member call, `x.f()`, can call besides a member.
 ///
 /// A free function is a definition with no owner. Beyond the caller's directory and the one above it, where only the
-/// one callable of the name outside vendored code is left to guess at, a member call takes a member alone under either,
+/// one callable of the name outside vendored code is left to guess at, a member call takes a member alone under each,
 /// so a lone free `trim` elsewhere in the tree is not guessed for `line.trim()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum MemberCalls {
@@ -260,6 +260,12 @@ pub enum MemberCalls {
     /// Nothing: a Go member call calls a method or a field of its value and reaches a package's function only through
     /// the import of the package, which binds before any tier that takes a member.
     Members,
+    /// A free function only through a receiver that names a module, a name whose last segment starts in lower case, as
+    /// the receiver of a Rust path call `walk::run()` does, and then as [`MemberCalls::NearbyFreeFunctions`] takes one.
+    /// A call on a value, the empty receiver or one of [`Conventions::own_type_receivers`], and one through a type, a
+    /// receiver written capitalised as `Poll::Ready(x)` is or as the owner a call on `self` records, take a member
+    /// alone.
+    ModulePaths,
 }
 
 /// Whether a member call on a value, `x.f()` with an `x` that names no owner, guesses the callable of its name nearest
