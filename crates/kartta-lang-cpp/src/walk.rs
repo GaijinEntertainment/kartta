@@ -17,12 +17,15 @@ use self::data::{
     alias_declarator_name, at_namespace_scope, data_declarator, data_signature, field_declarator,
     field_owner, has_qualifier, has_storage_class,
 };
-use self::declarator::{function_symbol, is_macro_invocation, is_pure_virtual, nested_scope};
+use self::declarator::{
+    function_symbol, is_macro_invocation, is_pure_virtual, line_gap_len, nested_scope, unterminated,
+};
 use self::name::{
     call_target, class_symbol, head_scope, include_spec, is_simple_identifier, template_parameters,
     type_base_name,
 };
 use self::sites::{Locals, body_start};
+use crate::repair::is_macro_name;
 
 const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT", "Code generated"])
     .with_lines(&["//"])
@@ -144,15 +147,23 @@ impl<'s, 't> Replayer<'s, 't> {
                     self.used_namespaces.push((at, name));
                 }
             }
-            "function_definition" => self.define_function(node),
+            "function_definition" => self.define_function(node, None),
             "field_declaration" if is_pure_virtual(node) => self.declare_pure_virtual(node),
             "field_declaration" => {
-                self.queue_prototype(node);
-                self.push_fields(node);
+                if let Some(body) = misread_definition_body(node, self.source) {
+                    self.define_function(node, Some(body));
+                } else {
+                    self.queue_prototype(node);
+                    self.push_fields(node);
+                }
             }
             "declaration" if self.functions.is_empty() => {
-                self.queue_prototype(node);
-                self.push_data(node);
+                if let Some(body) = misread_definition_body(node, self.source) {
+                    self.define_function(node, Some(body));
+                } else {
+                    self.queue_prototype(node);
+                    self.push_data(node);
+                }
             }
             "class_specifier" | "struct_specifier" | "union_specifier" => self.open_class(node),
             "enum_specifier" if node.child_by_field_name("body").is_some() => {
@@ -251,9 +262,19 @@ impl<'s, 't> Replayer<'s, 't> {
         });
     }
 
-    fn define_function(&mut self, node: Node<'_>) {
-        let Some(symbol) = self.callable_symbol(node) else {
+    fn define_function(&mut self, node: Node<'_>, misread_body: Option<Node<'_>>) {
+        let Some(mut symbol) = self.callable_symbol(node) else {
             return;
+        };
+        let (end, body) = match misread_body {
+            Some(body) => {
+                symbol.end_line = line(body.end_position().row);
+                let written =
+                    String::from_utf8_lossy(&self.source[node.start_byte()..body.start_byte()]);
+                symbol.signature = Some(written.trim_end().to_owned());
+                (body.end_byte(), body.start_byte())
+            }
+            None => (node.end_byte(), body_start(node)),
         };
         let key = self.callable_key(node);
         let out_of_line = symbol.owner.is_some() && self.classes.is_empty();
@@ -270,11 +291,7 @@ impl<'s, 't> Replayer<'s, 't> {
             self.written_scopes.insert(id.0 as usize, written);
         }
         self.record_callable(id, key, CallableRole::Definition);
-        self.functions.push(FunctionScope {
-            end: node.end_byte(),
-            id,
-            body: body_start(node),
-        });
+        self.functions.push(FunctionScope { end, id, body });
     }
 
     fn declare_pure_virtual(&mut self, node: Node<'_>) {
@@ -685,6 +702,50 @@ impl<'s, 't> Replayer<'s, 't> {
             self.raw.callables.push(Callable { symbol, key, role });
         }
     }
+}
+
+// constraint: the grammar can end a definition before its body and read the body apart: a macro before an out-of-line
+// constructor whose initializer list follows its parameters, `PX_INLINE Sc::Shape::Shape(bool b)\n\t: mFlags(0)\n{`,
+// reads as the type of a declaration that holds the name and the `:` in an error and the initializers as its
+// declarators, its body as a block after it; a macro call after the parameters of a function that takes a scoped type,
+// `void lock(ns::id_t token) ACQUIRE()\n{`, reads as a function of its own that owns the body
+fn misread_definition_body<'t>(declaration: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
+    if !unterminated(declaration, source) {
+        return None;
+    }
+    let after = &source[declaration.end_byte()..];
+    let opens_a_body = after[after
+        .iter()
+        .take_while(|byte| byte.is_ascii_whitespace())
+        .count()..]
+        .starts_with(b"{");
+    let on_the_line = &after[line_gap_len(after)..];
+    let word = on_the_line
+        .iter()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'_')
+        .count();
+    if !opens_a_body && !is_macro_name(&on_the_line[..word]) {
+        return None;
+    }
+    let next = declaration.next_sibling()?;
+    if next.kind() == "function_definition" {
+        let macro_call = next.child_by_field_name("type").is_none()
+            && next.start_position().row == declaration.end_position().row
+            && next
+                .child_by_field_name("declarator")
+                .filter(|declarator| declarator.kind() == "function_declarator")
+                .and_then(|declarator| declarator.child_by_field_name("declarator"))
+                .is_some_and(|name| is_macro_name(&source[name.byte_range()]));
+        return macro_call
+            .then(|| next.child_by_field_name("body"))
+            .flatten();
+    }
+    let error = child_nodes(declaration).find(Node::is_error)?;
+    let names_a_function = child_nodes(error).any(|child| child.kind() == "function_declarator");
+    let opens_initializers = child_nodes(error)
+        .next_back()
+        .is_some_and(|last| last.kind() == ":");
+    (names_a_function && opens_initializers && next.kind() == "compound_statement").then_some(next)
 }
 
 fn exported_symbol(name: String, kind: SymbolKind, node: Node<'_>) -> Symbol {
@@ -2307,6 +2368,109 @@ static int free_helper() { return 2; }
                 (crate::QUOTED_INCLUDE, "core/util.h", 1),
                 (crate::BRACKET_INCLUDE, "vector", 2)
             ]
+        );
+    }
+
+    #[test]
+    fn a_declaration_keeps_the_macro_after_its_parameters() {
+        let raw = extract(
+            b"class CompileError\n{\npublic:\n\
+              \tPX_FORCE_INLINE const Gu::GeometryUnion& geometry() const { return mShape; }\n\
+              \tstatic LUAU_NORETURN void raise(const char* format, ...) LUAU_PRINTF_ATTR(2, 3);\n\
+              \ttemplate <typename Dispatch = DISPATCHER_TYPE>\n\
+              \tVULKAN_HPP_NODISCARD Result end(Dispatch const & d DISPATCHER_ASSIGNMENT) const VULKAN_HPP_NOEXCEPT;\n\
+              };\nvoid plain(int x) VULKAN_HPP_NOEXCEPT;\n",
+        );
+
+        let signatures: Vec<(&str, Option<&str>)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.signature.as_deref()))
+            .collect();
+        assert_eq!(
+            signatures,
+            [
+                ("CompileError", None),
+                (
+                    "CompileError::geometry",
+                    Some("const Gu::GeometryUnion& geometry() const")
+                ),
+                (
+                    "CompileError::raise",
+                    Some(
+                        "static LUAU_NORETURN void raise(const char* format, ...) LUAU_PRINTF_ATTR(2, 3)"
+                    )
+                ),
+                (
+                    "CompileError::end",
+                    Some(
+                        "Result end(Dispatch const & d DISPATCHER_ASSIGNMENT) const VULKAN_HPP_NOEXCEPT"
+                    )
+                ),
+                ("plain", Some("void plain(int x) VULKAN_HPP_NOEXCEPT"))
+            ]
+        );
+    }
+
+    #[test]
+    fn a_definition_whose_body_the_grammar_reads_apart_keeps_it() {
+        let raw = extract(
+            b"namespace physx\n{\nnamespace Sc\n{\n\tclass CoreInteraction\n\t{\n\tpublic:\n\
+              \t\tPX_INLINE CoreInteraction(bool element);\n\
+              \t\tPX_FORCE_INLINE const Gu::GeometryUnion& geometry() const { return mShape; }\n\
+              \t\tDAGOR_NOINLINE void lockRead(::da_profiler::desc_id_t token) DAG_TS_ACQUIRE_SHARED()\n\
+              \t\t{\n\t\t\twait(token);\n\t\t}\n\t\tPxU16 mFlags;\n\t};\n} // namespace Sc\n\n\
+              PX_INLINE Sc::CoreInteraction::CoreInteraction(bool element)\n\t: mDirty(ALL), mFlags(0)\n{\n\
+              \tif (element)\n\t\tsetup(ELEMENT);\n}\n}\n",
+        );
+
+        let spans: Vec<(&str, u32, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.line, symbol.end_line))
+            .collect();
+        assert_eq!(
+            spans,
+            [
+                ("physx::Sc::CoreInteraction", 5, 15),
+                ("CoreInteraction::geometry", 9, 9),
+                ("CoreInteraction::lockRead", 10, 13),
+                ("CoreInteraction::mFlags", 14, 14),
+                ("CoreInteraction::CoreInteraction", 18, 23)
+            ]
+        );
+        let constructor = raw
+            .symbols
+            .iter()
+            .position(|symbol| symbol.qualified_name == "CoreInteraction::CoreInteraction")
+            .and_then(|index| u32::try_from(index).ok())
+            .map(SymbolId)
+            .expect("the constructor");
+        assert!(
+            raw.callables
+                .iter()
+                .any(|callable| callable.symbol == constructor
+                    && callable.key == "physx::Sc::CoreInteraction::CoreInteraction(bool)"
+                    && callable.role == CallableRole::Definition),
+            "{:?}",
+            raw.callables
+        );
+        assert_eq!(
+            qualified(&raw, "CoreInteraction::CoreInteraction")
+                .signature
+                .as_deref(),
+            Some(
+                "PX_INLINE Sc::CoreInteraction::CoreInteraction(bool element)\n\t: mDirty(ALL), mFlags(0)"
+            )
+        );
+        let sites: Vec<(&str, SymbolId)> = raw
+            .calls
+            .iter()
+            .map(|call| (call.callee.as_str(), call.site_of))
+            .collect();
+        assert_eq!(
+            sites,
+            [("wait", id_of(&raw, "lockRead")), ("setup", constructor)]
         );
     }
 }

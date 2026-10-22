@@ -1,7 +1,7 @@
 use std::ops::Range;
 
-use kartta_lang::tree::preorder;
-use tree_sitter::Tree;
+use kartta_lang::tree::{child_nodes, preorder};
+use tree_sitter::{Node, Tree};
 
 const RECOVERY_SPILL_ROWS: usize = 3;
 const CLASS_KEYS: [&[u8]; 3] = [b"class", b"struct", b"union"];
@@ -12,6 +12,17 @@ const DATA_GROUP_MIN: usize = 4096;
 const GENERATED_PARSER_MARKS: [&[u8]; 2] = [b"tree_sitter/parser.h", b"#define LANGUAGE_VERSION "];
 const RAW_DELIMITER_MAX: usize = 16;
 const PARENTHESES: (u8, u8) = (b'(', b')');
+const ANGLE_BRACKETS: (u8, u8) = (b'<', b'>');
+const LEADING_SPECIFIERS: [&[u8]; 7] = [
+    b"static",
+    b"inline",
+    b"virtual",
+    b"friend",
+    b"constexpr",
+    b"explicit",
+    b"extern",
+];
+const CONVERSIONLESS: [&[u8]; 3] = [b"new", b"delete", b"co_await"];
 
 pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
     let mut repaired: Option<Vec<u8>> = None;
@@ -325,6 +336,7 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
     let Recovery {
         mut spills,
         misread_branch,
+        misread_bodies: bodies,
     } = recovery_of(tree, source);
     let mut repaired: Option<Vec<u8>> = None;
     if misread_branch {
@@ -332,29 +344,41 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
             blank(&mut repaired.get_or_insert_with(|| source.to_vec())[directives]);
         }
     }
-    if spills.is_empty() {
+    if spills.is_empty() && bodies.is_empty() {
         return repaired;
     }
-    let lines: Vec<&[u8]> = source.split(|byte| *byte == b'\n').collect();
-    for spill in &mut spills {
-        spill.0 = lead_in(&lines, spill.0);
+    if !spills.is_empty() {
+        let lines: Vec<&[u8]> = source.split(|byte| *byte == b'\n').collect();
+        for spill in &mut spills {
+            spill.0 = lead_in(&lines, spill.0);
+        }
     }
 
     let mut offset = 0;
     let mut continuation = false;
 
-    for (row, line) in lines.into_iter().enumerate() {
+    for (row, line) in source.split(|byte| *byte == b'\n').enumerate() {
         let in_define = continuation;
         continuation = line.strip_suffix(b"\r").unwrap_or(line).ends_with(b"\\");
 
-        if !in_define
-            && !continuation
-            && spills
-                .iter()
-                .any(|(start, end)| row >= *start && row <= *end)
+        let blanked = if in_define || continuation {
+            None
+        } else if spills
+            .iter()
+            .any(|(start, end)| row >= *start && row <= *end)
             && let Some(len) = macro_invocation_len(line)
         {
-            repaired.get_or_insert_with(|| source.to_vec())[offset..offset + len].fill(b' ');
+            Some(0..len)
+        } else if let Some(body) = bodies.iter().find(|body| body.braced.contains(&offset)) {
+            annotation_macro(&source[offset..]).filter(|annotation| {
+                offset >= body.parsed_end || !reads_as_written(tree, offset + annotation.start)
+            })
+        } else {
+            None
+        };
+        if let Some(blanked) = blanked {
+            let start = offset + blanked.start;
+            repaired.get_or_insert_with(|| source.to_vec())[start..offset + blanked.end].fill(b' ');
         }
 
         offset += line.len() + 1;
@@ -366,6 +390,34 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
 struct Recovery {
     spills: Vec<(usize, usize)>,
     misread_branch: bool,
+    misread_bodies: Vec<MisreadBody>,
+}
+
+// constraint: a member the grammar misreads through its macro can close the class body early, `}` of a member's body
+// read as the class's, and the members after it then parse outside the class, where the same macro reads as written;
+// the body the source braces, not the body the tree holds, bounds the members to repair
+struct MisreadBody {
+    braced: Range<usize>,
+    parsed_end: usize,
+}
+
+fn closing_brace(source: &[u8], open: usize) -> usize {
+    let mut depth = 0usize;
+    let mut at = open;
+    while let Some(&byte) = source.get(at) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return at + 1;
+                }
+            }
+            _ => {}
+        }
+        at += opaque_len(source, at);
+    }
+    source.len()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -561,7 +613,9 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
     let mut recovery = Recovery {
         spills: Vec::new(),
         misread_branch: false,
+        misread_bodies: Vec::new(),
     };
+    let parsed_at_the_top = !tree.root_node().is_error();
 
     preorder(tree.root_node(), |node| {
         if node.is_error() {
@@ -570,17 +624,203 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
                 recovery.spills.push((start, end));
             }
         }
-        if !recovery.misread_branch && node.kind() == "preproc_call" {
+        let kind = node.kind();
+        if !recovery.misread_branch && kind == "preproc_call" {
             recovery.misread_branch =
                 node.child_by_field_name("directive")
                     .is_some_and(|directive| {
                         directive_of(&source[directive.byte_range()]) == Directive::Branches
                     });
         }
+        if parsed_at_the_top
+            && kind == "field_declaration_list"
+            && node
+                .children(&mut node.walk())
+                .any(|member| misreads_a_members_macro(member, source))
+        {
+            recovery.misread_bodies.push(MisreadBody {
+                braced: node.start_byte()..closing_brace(source, node.start_byte()),
+                parsed_end: node.end_byte(),
+            });
+        }
         true
     });
 
     recovery
+}
+
+fn misreads_a_members_macro(member: Node<'_>, source: &[u8]) -> bool {
+    matches!(member.kind(), "field_declaration" | "function_definition")
+        && member.child_by_field_name("type").is_some_and(|written| {
+            written.kind() == "type_identifier" && is_macro_name(&source[written.byte_range()])
+        })
+        && misreads_its_type(member)
+}
+
+fn reads_as_written(tree: &Tree, annotation: usize) -> bool {
+    tree.root_node()
+        .descendant_for_byte_range(annotation, annotation + 1)
+        .filter(|written| written.kind() == "type_identifier")
+        .and_then(|written| written.parent())
+        .is_some_and(|declaration| {
+            matches!(
+                declaration.kind(),
+                "field_declaration" | "function_definition" | "declaration"
+            ) && !misreads_its_type(declaration)
+        })
+}
+
+// constraint: the grammar reads a macro that opens a member as the member's type, so the type written after it fails
+// to reduce; a one-word type before a function's declarator fails alone in an error the walk reads past, while a
+// scoped type, a destructor, a conversion operator or a constructor's initializer list fails beyond it or reads as a
+// bit width, and the recovery loses the member, misnames it or closes the class at it
+fn misreads_its_type(declaration: Node<'_>) -> bool {
+    let body = declaration.child_by_field_name("body");
+    let declarator = declaration.child_by_field_name("declarator");
+    let mut errors = child_nodes(declaration)
+        .filter(|child| Some(*child) != body && (child.is_missing() || child.has_error()));
+    let Some(error) = errors.next() else {
+        return declarator.is_some_and(|declarator| {
+            declarator.kind() == "function_declarator"
+                && declarator
+                    .next_sibling()
+                    .is_some_and(|next| next.kind() == "bitfield_clause")
+        });
+    };
+    let one_word_before_a_function = error.is_error()
+        && errors.next().is_none()
+        && declarator.is_some_and(|declarator| {
+            error.end_byte() <= declarator.start_byte() && declares_a_function(declarator)
+        })
+        && child_nodes(error).all(|word| {
+            matches!(
+                word.kind(),
+                "identifier" | "type_identifier" | "primitive_type" | "sized_type_specifier"
+            )
+        });
+    !one_word_before_a_function
+}
+
+fn declares_a_function(mut declarator: Node<'_>) -> bool {
+    while matches!(
+        declarator.kind(),
+        "pointer_declarator" | "reference_declarator"
+    ) {
+        let Some(inner) = child_nodes(declarator).find(Node::is_named) else {
+            return false;
+        };
+        declarator = inner;
+    }
+    declarator.kind() == "function_declarator"
+}
+
+/// The macro that opens the line `text` starts with, past the specifiers before it, where it annotates the declaration
+/// after it.
+fn annotation_macro(text: &[u8]) -> Option<Range<usize>> {
+    let mut at = indent_len(text);
+    loop {
+        let len = word_len(&text[at..]);
+        let gap = whitespace_len(&text[at + len..]);
+        if gap == 0 || !LEADING_SPECIFIERS.contains(&&text[at..at + len]) {
+            break;
+        }
+        at += len + gap;
+    }
+    let annotation = at..at + word_len(&text[at..]);
+    let declaration = annotation.end + indent_len(&text[annotation.end..]);
+    (is_macro_name(&text[annotation.clone()])
+        && declaration > annotation.end
+        && annotates(&text[declaration..]))
+    .then_some(annotation)
+}
+
+// constraint: a macro before a type and a declarator, before a destructor, a conversion operator or a constructor with
+// an initializer list is no type, since each of them takes a type of its own or none; a macro before one name and its
+// parameters may be the type, `HRESULT Query()`, and one beside another macro or a compiler's own `__` word, which the
+// walk reads as written only beside a macro, stays
+fn annotates(declaration: &[u8]) -> bool {
+    let mut at = 0;
+    let mut terms = 0;
+    loop {
+        let Some(len) = term_len(&declaration[at..]) else {
+            return false;
+        };
+        let term = &declaration[at..at + len];
+        if is_macro_name(term) || term.starts_with(b"__") {
+            return false;
+        }
+        terms += 1;
+        at += term.len();
+        let next = at + whitespace_len(&declaration[at..]);
+        if term == b"operator" || term.ends_with(b"::operator") {
+            let target = &declaration[next..next + word_len(&declaration[next..])];
+            return terms > 1 || !(target.is_empty() || CONVERSIONLESS.contains(&target));
+        }
+        if declaration.get(next) == Some(&b'(') {
+            return terms > 1
+                || term.starts_with(b"~")
+                || initializes_members(&declaration[next..]);
+        }
+        let gap = declaration[at..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_whitespace() || matches!(byte, b'*' | b'&'))
+            .count();
+        if gap == 0 {
+            return false;
+        }
+        at += gap;
+    }
+}
+
+fn term_len(text: &[u8]) -> Option<usize> {
+    let mut at = 0;
+    loop {
+        at += usize::from(text.get(at) == Some(&b'~'));
+        let len = word_len(&text[at..]);
+        if len == 0 {
+            return None;
+        }
+        at += len;
+        if text.get(at) == Some(&b'<') {
+            at += group_len(&text[at..], ANGLE_BRACKETS)?;
+        }
+        if !text[at..].starts_with(b"::") {
+            return Some(at);
+        }
+        at += 2;
+    }
+}
+
+fn initializes_members(parameters: &[u8]) -> bool {
+    let Some(close) = group_len(parameters, PARENTHESES) else {
+        return false;
+    };
+    let rest = &parameters[close + whitespace_len(&parameters[close..])..];
+    let rest = rest
+        .strip_prefix(b"noexcept")
+        .map_or(rest, |rest| &rest[whitespace_len(rest)..]);
+    rest.starts_with(b":") && !rest.starts_with(b"::")
+}
+
+/// The length of the macros `text` starts with, each with or without its arguments, where the `;` that closes them
+/// follows: `PRINTF_ATTR(2, 3)` of `PRINTF_ATTR(2, 3);`.
+pub(crate) fn macro_annotation_len(text: &[u8]) -> Option<usize> {
+    let mut at = 0;
+    loop {
+        let len = word_len(&text[at..]);
+        if len == 0 {
+            return (at > 0 && text.get(at) == Some(&b';')).then_some(at);
+        }
+        if !is_macro_name(&text[at..at + len]) {
+            return None;
+        }
+        at += len;
+        let gap = whitespace_len(&text[at..]);
+        if text[at + gap..].starts_with(b"(") {
+            at += gap + group_len(&text[at + gap..], PARENTHESES)?;
+        }
+        at += whitespace_len(&text[at..]);
+    }
 }
 
 /// Whether a name is spelled as a macro: three or more upper-case letters, digits and underscores.
@@ -1206,5 +1446,91 @@ void check(int value)
             .into_iter()
             .map(|range| std::str::from_utf8(&source[range]).expect("utf-8"))
             .collect()
+    }
+
+    #[test]
+    fn a_macro_before_a_members_scoped_return_type_keeps_the_class_open() {
+        const SOURCE: &[u8] = br"namespace physx
+{
+class NpShape
+{
+public:
+	PX_FORCE_INLINE	PxGeometryType::Enum		getGeometryTypeFast()	const	{ return mShape.getGeometryType();	}
+	PX_FORCE_INLINE	const Gu::GeometryUnion&	getGeometryFast()		const	{ return mShape.getGeometryUnion();		}
+
+	PX_INLINE NpShape(PxU32 flags) : mFlags(flags) {}
+	PX_INLINE ~NpShape() {}
+	PX_FORCE_INLINE operator PxU32() const { return mFlags; }
+
+	void after() { step(); }
+	PxU32 mFlags;
+};
+}
+";
+
+        let raw = Cpp::new().extract(SOURCE);
+
+        let lines: Vec<(&str, u32, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.line, symbol.end_line))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                ("physx::NpShape", 3, 15),
+                ("NpShape::getGeometryTypeFast", 6, 6),
+                ("NpShape::getGeometryFast", 7, 7),
+                ("NpShape::NpShape", 9, 9),
+                ("NpShape::~NpShape", 10, 10),
+                ("NpShape::operator PxU32", 11, 11),
+                ("NpShape::after", 13, 13),
+                ("NpShape::mFlags", 14, 14)
+            ]
+        );
+        let signatures: Vec<&str> = [2, 3, 5]
+            .into_iter()
+            .filter_map(|index| raw.symbols[index].signature.as_deref())
+            .collect();
+        assert_eq!(
+            signatures,
+            [
+                "const Gu::GeometryUnion&\tgetGeometryFast()\t\tconst",
+                "NpShape(PxU32 flags) : mFlags(flags)",
+                "operator PxU32() const"
+            ]
+        );
+    }
+
+    #[test]
+    fn only_a_misread_classes_annotations_are_blanked() {
+        const SOURCE: &[u8] = br"struct Shape
+{
+	PX_FORCE_INLINE const Gu::GeometryUnion& geometry() const { return mGeometry; }
+	PX_FORCE_INLINE bool isValid() const { return true; }
+	HRESULT Query(int id);
+	PX_INLINE __device__ void kernel(int index);
+	PX_INLINE PX_CUDA_CALLABLE PxU32 count() const;
+};
+struct Other
+{
+	PX_FORCE_INLINE bool isValid() const { return true; }
+};
+PX_FORCE_INLINE ns::Result outside() { return {}; }
+";
+        const ANNOTATION: &[u8] = b"PX_FORCE_INLINE const Gu";
+        let tree = parse(&grammar(), SOURCE).expect("parse");
+        let start = SOURCE
+            .windows(ANNOTATION.len())
+            .position(|window| window == ANNOTATION)
+            .expect("the misread member");
+
+        let repaired = after_recovery(&tree, SOURCE).expect("a misread member");
+
+        assert_eq!(repaired.len(), SOURCE.len());
+        assert_eq!(
+            changed_offsets(&repaired, SOURCE),
+            (start..start + "PX_FORCE_INLINE".len()).collect::<Vec<_>>()
+        );
     }
 }
