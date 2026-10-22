@@ -205,6 +205,136 @@ fn an_import_binding_stops_the_cascade_where_it_binds_nothing() {
 }
 
 #[test]
+fn a_bare_call_named_like_a_package_import_binds_no_export_of_the_package() {
+    let graph = graph_of(
+        go(),
+        &[
+            importing(
+                "cmd/main.go",
+                None,
+                Some("pkg/lib"),
+                vec![call(0, "lib", 2)],
+            ),
+            package("pkg/lib/lib.go", "lib", vec![exported(function("lib", 1))]),
+            package("cmd/lib.go", "main", vec![function("lib", 1)]),
+        ],
+    );
+
+    assert_eq!(callees(&graph, "main"), ["cmd/lib.go:1@75"]);
+}
+
+fn importing_module(path: &str, name: &str, module: &str, calls: Vec<CallRef>) -> Extraction {
+    let mut extraction = file(path, vec![function("main", 1)], calls);
+    extraction.bindings = vec![ImportBinding {
+        alias: None,
+        target_dir: Some(module.to_owned()),
+        last_segment: name.to_owned(),
+    }];
+    extraction
+}
+
+#[test]
+fn a_call_that_names_an_import_of_a_module_s_file_binds_the_file_s_export() {
+    let module = file(
+        "crates/a/src/m.rs",
+        vec![exported(function("parse", 1))],
+        Vec::new(),
+    );
+    let namesake = file(
+        "crates/c/src/parse.rs",
+        vec![exported(function("parse", 1))],
+        Vec::new(),
+    );
+    let bare = graph(&[
+        importing_module(
+            "crates/b/src/lib.rs",
+            "parse",
+            "crates/a/src/m.rs",
+            vec![call(0, "parse", 2)],
+        ),
+        module.clone(),
+        namesake.clone(),
+    ]);
+    let through_the_module = graph(&[
+        importing_module(
+            "crates/b/src/lib.rs",
+            "m",
+            "crates/a/src/m.rs",
+            vec![member_call(0, "m", "parse", 2)],
+        ),
+        module,
+        namesake,
+    ]);
+
+    assert_eq!(callees(&bare, "main"), ["crates/a/src/m.rs:1@95"]);
+    assert_eq!(
+        callees(&through_the_module, "main"),
+        ["crates/a/src/m.rs:1@95"]
+    );
+}
+
+#[test]
+fn a_module_s_file_without_a_top_level_export_of_the_name_leaves_its_import_to_later_tiers() {
+    let importer = || {
+        importing_module(
+            "crates/b/src/lib.rs",
+            "parse",
+            "crates/a/src/m.rs",
+            vec![call(0, "parse", 2)],
+        )
+    };
+    let elsewhere = file(
+        "crates/c/src/parse.rs",
+        vec![exported(function("parse", 1))],
+        Vec::new(),
+    );
+    let mut nested = exported(function("parse", 2));
+    nested.qualified_name = "inner::parse".to_owned();
+
+    let absent = graph(&[
+        importer(),
+        file("crates/a/src/m.rs", Vec::new(), Vec::new()),
+        elsewhere.clone(),
+    ]);
+    let absent_through_the_module = graph(&[
+        importing_module(
+            "crates/b/src/lib.rs",
+            "m",
+            "crates/a/src/m.rs",
+            vec![member_call(0, "m", "parse", 2)],
+        ),
+        file("crates/a/src/m.rs", Vec::new(), Vec::new()),
+        elsewhere,
+    ]);
+    let private = graph(&[
+        importer(),
+        file("crates/a/src/m.rs", vec![function("parse", 1)], Vec::new()),
+    ]);
+    let in_an_inline_module = graph(&[
+        importer(),
+        file(
+            "crates/a/src/m.rs",
+            vec![
+                exported(Symbol::new("inner", SymbolKind::Namespace, 1, 3)),
+                nested,
+            ],
+            Vec::new(),
+        ),
+    ]);
+
+    assert_eq!(callees(&absent, "main"), ["crates/c/src/parse.rs:1@60"]);
+    assert_eq!(
+        callees(&absent_through_the_module, "main"),
+        ["crates/c/src/parse.rs:1@60"]
+    );
+    assert_eq!(callees(&private, "main"), ["crates/a/src/m.rs:1@60"]);
+    assert_eq!(
+        callees(&in_an_inline_module, "main"),
+        ["crates/a/src/m.rs:2@60"]
+    );
+}
+
+#[test]
 fn an_import_without_an_alias_binds_the_package_name_its_directory_declares() {
     let graph = graph_of(
         go(),
