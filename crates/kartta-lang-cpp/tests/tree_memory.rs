@@ -6,10 +6,11 @@
 )]
 
 use std::alloc::{self, Layout};
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::fmt::Write as _;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, Once, PoisonError};
+use std::sync::{Barrier, Once};
+use std::thread;
 
 use kartta_lang::Language;
 use kartta_lang_cpp::Cpp;
@@ -19,10 +20,12 @@ const HEADER: usize = 16;
 
 type SizeBytes = [u8; size_of::<usize>()];
 
-static LIVE: AtomicUsize = AtomicUsize::new(0);
-static PEAK: AtomicUsize = AtomicUsize::new(0);
 static COUNTING: Once = Once::new();
-static MEASURED: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    static LIVE: Cell<usize> = const { Cell::new(0) };
+    static PEAK: Cell<usize> = const { Cell::new(0) };
+}
 
 fn layout(size: usize) -> Layout {
     Layout::from_size_align(size + HEADER, HEADER)
@@ -35,8 +38,9 @@ fn counted(raw: *mut u8, size: usize) -> *mut c_void {
     }
     // SAFETY: `raw` is a fresh block of `HEADER + size` bytes, so its first word is writable.
     unsafe { raw.cast::<SizeBytes>().write(size.to_ne_bytes()) };
-    let live = LIVE.fetch_add(size, Ordering::Relaxed) + size;
-    PEAK.fetch_max(live, Ordering::Relaxed);
+    let live = LIVE.get() + size;
+    LIVE.set(live);
+    PEAK.set(PEAK.get().max(live));
     // SAFETY: the block is `HEADER + size` bytes long, so the caller's part starts `HEADER` bytes in.
     unsafe { raw.add(HEADER) }.cast()
 }
@@ -68,7 +72,7 @@ unsafe extern "C" fn counting_realloc(block: *mut c_void, size: usize) -> *mut c
         return unsafe { counting_malloc(size) };
     }
     let (raw, old) = header(block);
-    LIVE.fetch_sub(old, Ordering::Relaxed);
+    LIVE.set(LIVE.get() - old);
     // SAFETY: `raw` was allocated with `layout(old)`, and the new size keeps the header.
     counted(
         unsafe { alloc::realloc(raw, layout(old), size + HEADER) },
@@ -81,13 +85,12 @@ unsafe extern "C" fn counting_free(block: *mut c_void) {
         return;
     }
     let (raw, size) = header(block);
-    LIVE.fetch_sub(size, Ordering::Relaxed);
+    LIVE.set(LIVE.get() - size);
     // SAFETY: `raw` was allocated with `layout(size)` and is freed once.
     unsafe { alloc::dealloc(raw, layout(size)) };
 }
 
 fn peak_while(work: impl FnOnce()) -> usize {
-    let _alone = MEASURED.lock().unwrap_or_else(PoisonError::into_inner);
     COUNTING.call_once(|| {
         // SAFETY: this runs before the first tree-sitter call of the process, and once.
         unsafe {
@@ -99,10 +102,44 @@ fn peak_while(work: impl FnOnce()) -> usize {
             }));
         }
     });
-    let before = LIVE.load(Ordering::Relaxed);
-    PEAK.store(before, Ordering::Relaxed);
+    let before = LIVE.get();
+    PEAK.set(before);
     work();
-    PEAK.load(Ordering::Relaxed) - before
+    PEAK.get() - before
+}
+
+#[test]
+fn a_free_on_another_thread_does_not_move_a_measured_window() {
+    let parse = || {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_cpp::LANGUAGE.into())
+            .expect("the pinned grammar loads");
+        parser.parse("int a;", None).expect("a tree");
+    };
+    let alone = peak_while(parse);
+
+    let (held, window, freed) = (Barrier::new(2), Barrier::new(2), Barrier::new(2));
+    let beside_a_free = thread::scope(|scope| {
+        scope.spawn(|| {
+            let parser = Parser::new();
+            held.wait();
+            window.wait();
+            drop(parser);
+            freed.wait();
+        });
+        held.wait();
+        peak_while(|| {
+            window.wait();
+            freed.wait();
+            parse();
+        })
+    });
+
+    assert_eq!(
+        beside_a_free, alone,
+        "a parse peaked at {beside_a_free} bytes of trees beside a free on another thread, {alone} without one"
+    );
 }
 
 #[test]
