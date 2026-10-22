@@ -207,6 +207,31 @@ fn an_impl_member_is_a_method_of_its_type_and_a_free_function_is_owned_by_nothin
 }
 
 #[test]
+fn a_wasm_bindgen_method_is_a_member_of_the_type_its_this_parameter_names() {
+    let raw = extract(
+        b"#[wasm_bindgen]\nextern \"C\" {\n    pub type Dict;\n\
+          \x20   #[doc = \"Change the `b` field.\"]\n    #[wasm_bindgen(method, setter = \"b\")]\n\
+          \x20   pub fn set_b(this: &Dict, val: f64);\n\
+          \x20   #[wasm_bindgen::prelude::wasm_bindgen(catch, method)]\n    pub fn at(this: &Array<u8>, index: u32);\n\
+          \x20   #[wasm_bindgen(js_name = isNaN)]\n    pub fn is_nan(value: f64) -> bool;\n}\n\n\
+          mod web {\n    #[wasm_bindgen]\n    extern \"C\" {\n        pub type Node;\n\
+          \x20       #[wasm_bindgen(method)]\n        pub fn remove(this: &Node);\n    }\n}\n",
+    );
+    let member = |qualified_name: &str| {
+        let symbol = qualified(&raw, qualified_name);
+        (symbol.kind, symbol.owner.as_deref())
+    };
+
+    assert_eq!(member("Dict::set_b"), (SymbolKind::Method, Some("Dict")));
+    assert_eq!(member("Array::at"), (SymbolKind::Method, Some("Array")));
+    assert_eq!(
+        member("web::Node::remove"),
+        (SymbolKind::Method, Some("web::Node"))
+    );
+    assert_eq!(member("is_nan"), (SymbolKind::Function, None));
+}
+
+#[test]
 fn a_trait_impl_adds_the_trait_to_the_parents_of_the_type() {
     let raw = extract(SAMPLE);
 

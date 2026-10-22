@@ -197,6 +197,28 @@ fn atom<'s>(atoms: &mut Vec<Atom<'s>>, key: (&'s [u8], &'s [u8])) -> Cfg {
     Cfg::Atom(atoms.len() - 1)
 }
 
+pub(super) fn marks_imported_method(function: Node<'_>, source: &[u8]) -> bool {
+    outer_attributes(function).any(|item| imports_a_method(item, source))
+}
+
+// constraint: wasm-bindgen's attribute lists `method` among its arguments, `#[wasm_bindgen(method, getter = "a")]`
+fn imports_a_method(item: Node<'_>, source: &[u8]) -> bool {
+    let Some(attribute) = named_child_of_kind(item, "attribute") else {
+        return false;
+    };
+    let wasm_bindgen = attribute
+        .named_child(0)
+        .is_some_and(|path| last_segment(path, source) == "wasm_bindgen");
+    let Some(arguments) = attribute
+        .child_by_field_name("arguments")
+        .filter(|_| wasm_bindgen)
+    else {
+        return false;
+    };
+    named_child_nodes(arguments)
+        .any(|argument| argument.kind() == "identifier" && text(argument, source) == "method")
+}
+
 pub(super) fn path_attribute(module: Node<'_>, source: &[u8]) -> Option<String> {
     outer_attributes(module).find_map(|attribute| path_attribute_value(attribute, source))
 }

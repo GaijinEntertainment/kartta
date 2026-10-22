@@ -11,9 +11,10 @@ extension is `rs`, in any case.
 Every function, struct, union, enum, trait, type alias, `macro_rules!`, constant, static and inline module is a
 symbol, and so is every named field and every enum variant. A member of a `trait`, or of an `impl` whose target names a
 type, is owned by that type and qualified under it, `Service::new`; a member of an `impl` for a tuple, `dyn` or
-function type has no owner. An item of an inline module is qualified by the chain of its modules,
-`a::b::Worker`, except a `macro_rules!`, which keeps its bare name. `impl Trait for Type` adds `Trait` to the parents
-of the `Type` the file declares under that name or path.
+function type has no owner. A function of an `extern` block that `#[wasm_bindgen(method)]` marks is owned by the type
+its first parameter, `this`, refers to, since wasm-bindgen makes it that type's method. An item of an inline module is
+qualified by the chain of its modules, `a::b::Worker`, except a `macro_rules!`, which keeps its bare name.
+`impl Trait for Type` adds `Trait` to the parents of the `Type` the file declares under that name or path.
 
 A call records its callee and, where the syntax spells one, its receiver: `self.greet()` and `Self::new()` record the
 type of the `impl` around them, and `Widget::new()` records `Widget`. A macro invocation is a call of the macro. A call
