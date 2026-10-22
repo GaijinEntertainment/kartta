@@ -29,9 +29,9 @@
 //! `kartta_walk::walk::run()` for `walk`, read through the `use` of its first segment where the file has one. A name
 //! the file declares at its top level, or binds to two paths anywhere, keeps none, and a glob, `as _`, `crate::`,
 //! `self::`, `super::`, a capitalised first segment and the standard library's crates keep nothing. A `use` inside a
-//! function body is in scope in its block alone: outside the blocks of the `use`s that alone bind a name, a path call
-//! reads the name as the crate it spells, and a bare call of the name leaves it no path. The paths are among the
-//! file's directives in source order. `extern crate` adds no import.
+//! function body or an inline module is in scope in its block alone, not in a module nested in it: outside the blocks
+//! of the `use`s that alone bind a name, a path call reads the name as the crate it spells, and a bare call of the name
+//! leaves it no path. The paths are among the file's directives in source order. `extern crate` adds no import.
 //!
 //! A name read where no call takes it is a use of it: an argument, `items.map(helper)`, an element, an operand, a
 //! range's bound, a condition, an indexed value or an index, a returned, a broken-out, a block's or a closure's last

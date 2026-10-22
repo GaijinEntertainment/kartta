@@ -109,6 +109,28 @@ fn a_use_inside_a_function_binds_a_name_only_for_the_calls_of_its_block() {
 }
 
 #[test]
+fn a_use_inside_an_inline_module_binds_a_name_only_for_the_calls_of_that_module() {
+    let scoped = bound("mod tests {\n    use other_crate::m;\n\n    fn t() { m::f(); }\n}\n");
+    let called_outside = bound(
+        "mod tests {\n    use other_crate::m::{self, f};\n\n    fn t() { m::f(); f(); }\n}\n\n\
+         fn outside() {\n    m::f();\n    f();\n}\n",
+    );
+    let in_a_nested_module = bound(
+        "mod tests {\n    use other_crate::m;\n\n    fn t() { m::f(); }\n\n    mod inner {\n\
+         \x20       fn g() { m::f(); }\n    }\n}\n",
+    );
+    let also_at_file_level = bound(
+        "use other_crate::m;\n\nmod tests {\n    use other_crate::m;\n\n    fn t() { m::f(); }\n}\n\n\
+         fn outside() {\n    m::f();\n}\n",
+    );
+
+    assert_eq!(scoped, [path("m", "other_crate::m", 2)]);
+    assert_eq!(called_outside, []);
+    assert_eq!(in_a_nested_module, []);
+    assert_eq!(also_at_file_level, [path("m", "other_crate::m", 1)]);
+}
+
+#[test]
 fn a_kept_path_includes_no_file_its_name_spells() {
     let rust = Rust::new();
     let repository = MemoryRepository::new([("src/lib.rs", ""), ("src/walk", "")]);

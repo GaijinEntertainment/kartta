@@ -1,8 +1,8 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
-//! what that crate exports, through a `use` inside a function body only from that body, and a Rust call on a value, on
-//! `self` or through a type binds no free function, not even through a value named like a module the file imports,
-//! while a call on a value still binds the one runtime method whose owner the value's name spells.
+//! what that crate exports, through a `use` inside a function body or an inline module only from inside it, and a Rust
+//! call on a value, on `self` or through a type binds no free function, not even through a value named like a module
+//! the file imports, while a call on a value still binds the one runtime method whose owner the value's name spells.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -205,6 +205,38 @@ fn a_rust_use_inside_a_function_binds_no_call_outside_its_block() {
     );
     assert_eq!(
         bound_through_an_import(&engine, "crates/app/src/beside.rs", "unscoped"),
+        Vec::<&str>::new()
+    );
+}
+
+#[test]
+fn a_rust_use_inside_an_inline_module_binds_no_call_outside_the_module() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/other/Cargo.toml",
+            "[package]\nname = \"other-crate\"\n",
+        ),
+        ("crates/other/src/lib.rs", "pub mod m;\n"),
+        ("crates/other/src/m.rs", "pub fn f() {}\n"),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "mod beside;\n\nmod tests {\n    use other_crate::m;\n\n    fn inside() {\n        m::f();\n    }\n}\n",
+        ),
+        (
+            "crates/app/src/beside.rs",
+            "mod tests {\n    use other_crate::m;\n}\n\nfn outside() {\n    m::f();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/lib.rs", "inside"),
+        ["crates/other/src/m.rs"]
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/beside.rs", "outside"),
         Vec::<&str>::new()
     );
 }
