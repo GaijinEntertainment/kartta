@@ -372,6 +372,99 @@ fn a_changed_configuration_builds_its_family_s_resolver_again_once_and_names_the
     assert_eq!(resolvers_built(&built), (2, 0));
 }
 
+fn stamped() -> BuildOptions {
+    let mut options = BuildOptions::default();
+    options.stamps = true;
+    options
+}
+
+#[test]
+fn a_followed_family_reads_its_configuration_again_only_when_a_refresh_reaches_it() {
+    let tree = tree(&[
+        ("config.cfg", "one"),
+        ("one.alpha", "def one\n"),
+        ("two.beta", "def two\n"),
+    ]);
+    // constraint: a stamp is trusted only when its file last changed over two seconds before the walk began
+    std::thread::sleep(Duration::from_millis(2100));
+    let (alpha, beta) = shared_family();
+    let reads = (Arc::clone(&alpha.resolvers), Arc::clone(&beta.resolvers));
+    let mut engine = build(
+        tree.path(),
+        &stamped(),
+        vec![Box::new(alpha), Box::new(beta)],
+    );
+    let after_build = resolvers_built(&reads);
+
+    fs::write(tree.path().join("one.alpha"), "def one\ndef more\n").expect("edit a source file");
+    let source = engine
+        .refresh_paths(["one.alpha"], None)
+        .expect("refresh the source file");
+    let after_source = resolvers_built(&reads);
+    fs::write(tree.path().join("config.cfg"), "two").expect("edit the configuration");
+    let configuration = engine
+        .refresh_paths(["config.cfg"], None)
+        .expect("refresh the configuration");
+
+    assert_eq!(after_build, (1, 0), "config.cfg is read once by the build");
+    assert_eq!(
+        (after_source, source.reconfigured.len(), source.extracted),
+        ((1, 0), 0, 1),
+        "a refresh of one.alpha reads no configuration"
+    );
+    let (_, graph) = engine.graph_of("one.alpha").expect("alpha claims the file");
+    assert_eq!(
+        places(&graph.definitions("more", None, 10)),
+        ["one.alpha:2"]
+    );
+    assert_eq!(configuration.reconfigured, ["shared"]);
+    assert_eq!(configuration.resolved_again, 2, "one.alpha and two.beta");
+    assert_eq!(resolvers_built(&reads), (2, 0));
+}
+
+#[test]
+fn a_followed_family_with_no_file_at_the_build_builds_its_resolver_when_it_gains_one() {
+    let tree = tree(&[("config.cfg", "one"), ("one.alpha", "def one\n")]);
+    std::thread::sleep(Duration::from_millis(2100));
+    let alpha = Defs::new("alpha", "first", ".alpha");
+    let gamma = Defs::new("gamma", "second", ".gamma");
+    let reads = (Arc::clone(&alpha.resolvers), Arc::clone(&gamma.resolvers));
+    let mut engine = build(
+        tree.path(),
+        &stamped(),
+        vec![Box::new(alpha), Box::new(gamma)],
+    );
+    let after_build = resolvers_built(&reads);
+
+    fs::write(tree.path().join("three.gamma"), "def three\n").expect("add a gamma file");
+    let gained = engine
+        .refresh_paths(["three.gamma"], None)
+        .expect("refresh the added file");
+    let after_gained = resolvers_built(&reads);
+    fs::write(tree.path().join("three.gamma"), "def three\ndef four\n")
+        .expect("edit the gamma file");
+    engine
+        .refresh_paths(["three.gamma"], None)
+        .expect("refresh the edited file");
+
+    assert_eq!(after_build, (1, 0), "no gamma file, no gamma resolver");
+    assert_eq!((after_gained, gained.extracted), ((1, 1), 1));
+    assert!(gained.reconfigured.is_empty(), "{:?}", gained.reconfigured);
+    assert_eq!(
+        resolvers_built(&reads),
+        (1, 1),
+        "the gamma resolver is kept"
+    );
+    let (family, graph) = engine
+        .graph_of("three.gamma")
+        .expect("gamma claims the file");
+    assert_eq!(family, "second");
+    assert_eq!(
+        places(&graph.definitions("four", None, 10)),
+        ["three.gamma:2"]
+    );
+}
+
 #[test]
 fn a_change_across_families_is_analyzed_by_each_graph_and_answered_as_one() {
     let tree = tree(&[

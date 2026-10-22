@@ -8,11 +8,11 @@
 )]
 
 use std::fmt::Write as _;
-use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use std::{fs, io};
 
 use kartta::{
     BuildOptions, Conventions, DocComments, Engine, EngineRefresh, Language, Limits, RawExtraction,
@@ -586,4 +586,168 @@ fn a_changed_tsconfig_resolves_the_javascript_family_through_one_resolver_built_
         "web/page.ts no longer includes web/button.ts"
     );
     assert_eq!(answers(&engine), fresh);
+}
+
+/// The repository an engine hands a resolver it builds, counting the `.sqconfig` files read through it.
+struct CountingReads<'r> {
+    repository: &'r dyn Repository,
+    reads: &'r AtomicUsize,
+}
+
+impl Repository for CountingReads<'_> {
+    fn contains(&self, path: &str) -> bool {
+        self.repository.contains(path)
+    }
+
+    fn files_in_dir<'a>(&'a self, dir: &str) -> Box<dyn Iterator<Item = String> + 'a> {
+        self.repository.files_in_dir(dir)
+    }
+
+    fn files_named<'a>(&'a self, name: &str) -> Box<dyn Iterator<Item = String> + 'a> {
+        self.repository.files_named(name)
+    }
+
+    fn files_ignoring_case<'a>(&'a self, path: &str) -> Box<dyn Iterator<Item = String> + 'a> {
+        self.repository.files_ignoring_case(path)
+    }
+
+    fn read(&self, path: &str) -> io::Result<Vec<u8>> {
+        if path.ends_with(".sqconfig") {
+            self.reads.fetch_add(1, Ordering::Relaxed);
+        }
+        self.repository.read(path)
+    }
+}
+
+/// A shipped language whose resolvers are built over [`CountingReads`].
+#[derive(Debug)]
+struct ReadsCounted {
+    language: Box<dyn Language>,
+    reads: Arc<AtomicUsize>,
+}
+
+impl Language for ReadsCounted {
+    fn name(&self) -> &str {
+        self.language.name()
+    }
+
+    fn family(&self) -> &str {
+        self.language.family()
+    }
+
+    fn claims(&self, path: &str) -> bool {
+        self.language.claims(path)
+    }
+
+    fn fingerprint(&self) -> &[u8] {
+        self.language.fingerprint()
+    }
+
+    fn conventions(&self) -> Conventions {
+        self.language.conventions()
+    }
+
+    fn doc_comments(&self) -> DocComments {
+        self.language.doc_comments()
+    }
+
+    fn extract(&self, source: &[u8]) -> RawExtraction {
+        self.language.extract(source)
+    }
+
+    fn resolver(&self, repository: &dyn Repository) -> Box<dyn Resolver> {
+        self.language.resolver(&CountingReads {
+            repository,
+            reads: &self.reads,
+        })
+    }
+}
+
+const MOUNTED: &[(&str, &str)] = &[
+    ("game/.sqconfig", "mount = %ui=ui\n"),
+    ("tools/.sqconfig", "mount = %lib=lib\n"),
+    (
+        "game/main.nut",
+        "let w = require(\"%ui/widget.nut\")\n\nfunction main() {\n  return w.widget()\n}\n",
+    ),
+    ("game/ui/widget.nut", "function widget() {\n  return 1\n}\n"),
+    (
+        "game/alt/widget.nut",
+        "function widget() {\n  return 2\n}\n",
+    ),
+    ("tools/run.nut", "function run() {\n  return 0\n}\n"),
+];
+
+fn mounted_answers(engine: &Engine) -> String {
+    let mut answers = format!(
+        "{:#?}\n{:#?}\n",
+        engine.stats(),
+        engine.resolution(usize::MAX)
+    );
+    for path in ["game/ui/widget.nut", "game/alt/widget.nut"] {
+        let (_, graph) = engine.graph_of(path).expect("Quirrel claims the path");
+        writeln!(
+            answers,
+            "dependents of {path}: {:#?}",
+            graph.dependents(path, 3, 100)
+        )
+        .expect("write to a string");
+    }
+    answers
+}
+
+#[test]
+fn a_followed_quirrel_family_reads_its_sqconfig_files_again_only_when_a_refresh_reaches_one() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    for (path, content) in MOUNTED {
+        write(tree.path(), path, content);
+    }
+    std::thread::sleep(Duration::from_millis(2100));
+    let reads = Arc::new(AtomicUsize::new(0));
+    let languages = kartta_languages::all()
+        .into_iter()
+        .map(|language| -> Box<dyn Language> {
+            if language.family() == "quirrel" {
+                Box::new(ReadsCounted {
+                    language,
+                    reads: Arc::clone(&reads),
+                })
+            } else {
+                language
+            }
+        })
+        .collect();
+    let mut options = BuildOptions::default();
+    options.stamps = true;
+    let outcome = Engine::build(tree.path(), &options, languages, None).expect("the tree builds");
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    let mut engine = outcome.engine;
+    let after_build = reads.load(Ordering::Relaxed);
+    let before = mounted_answers(&engine);
+
+    write(
+        tree.path(),
+        "game/main.nut",
+        "let w = require(\"%ui/widget.nut\")\n\nfunction main() {\n  return w.widget() + 1\n}\n",
+    );
+    let script = refreshed(engine.refresh_paths(["game/main.nut"], None));
+    let after_script = reads.load(Ordering::Relaxed);
+    write(tree.path(), "game/.sqconfig", "mount = %ui=alt\n");
+    let sqconfig = refreshed(engine.refresh_paths(["game/.sqconfig"], None));
+    let fresh = mounted_answers(&build(tree.path(), false));
+
+    assert_eq!(after_build, 2, "the build reads each .sqconfig once");
+    assert_eq!(
+        (after_script, script.extracted, script.reconfigured.len()),
+        (2, 1, 0),
+        "a refresh of one script reads no .sqconfig"
+    );
+    assert_eq!(reads.load(Ordering::Relaxed), 4);
+    assert_eq!(sqconfig.reconfigured, ["quirrel"]);
+    assert_eq!(sqconfig.resolved_again, 4, "every script");
+    assert_ne!(
+        before, fresh,
+        "game/main.nut includes game/alt/widget.nut in place of game/ui/widget.nut"
+    );
+    assert_eq!(mounted_answers(&engine), fresh);
 }
