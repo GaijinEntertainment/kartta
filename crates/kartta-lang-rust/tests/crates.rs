@@ -131,6 +131,26 @@ fn a_use_inside_an_inline_module_binds_a_name_only_for_the_calls_of_that_module(
 }
 
 #[test]
+fn a_use_inside_a_block_binds_a_macro_name_only_for_the_invocations_of_its_block() {
+    let in_a_function = bound("fn a() { use other_crate::mac; mac!(); }\n");
+    let invoked_outside_a_function =
+        bound("fn a() { use other_crate::mac; mac!(); }\nfn outside() { mac!(); }\n");
+    let in_a_module =
+        bound("mod tests {\n    use other_crate::mac;\n\n    fn t() { mac!(); }\n}\n");
+    let invoked_outside_a_module = bound(
+        "mod tests {\n    use other_crate::mac;\n\n    fn t() { mac!(); }\n}\n\nfn outside() { mac!(); }\n",
+    );
+    let invoked_as_an_item_outside_a_module =
+        bound("mod tests {\n    use other_crate::mac;\n\n    fn t() { mac!(); }\n}\n\nmac! {}\n");
+
+    assert_eq!(in_a_function, [path("mac", "other_crate::mac", 1)]);
+    assert_eq!(invoked_outside_a_function, []);
+    assert_eq!(in_a_module, [path("mac", "other_crate::mac", 2)]);
+    assert_eq!(invoked_outside_a_module, []);
+    assert_eq!(invoked_as_an_item_outside_a_module, []);
+}
+
+#[test]
 fn a_kept_path_includes_no_file_its_name_spells() {
     let rust = Rust::new();
     let repository = MemoryRepository::new([("src/lib.rs", ""), ("src/walk", "")]);
