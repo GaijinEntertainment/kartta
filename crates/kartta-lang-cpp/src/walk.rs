@@ -1392,6 +1392,30 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
+    fn a_macro_before_a_conversion_operator_keeps_the_operator() {
+        let raw = extract(
+            b"ML_INLINE double4::operator int4() const { return int4(x, y, z, w); }\n\
+              ML_INLINE double4::operator bool() const { return x != 0; }\n\
+              EA_CONSTEXPR inline ns::int128_t::operator unsigned __int128() const { return Low(); }\n",
+        );
+
+        assert_eq!(
+            qualified_names(&raw),
+            [
+                "double4::operator int4",
+                "double4::operator bool",
+                "int128_t::operator unsigned __int128"
+            ]
+        );
+        assert!(
+            raw.symbols
+                .iter()
+                .all(|symbol| symbol.kind == SymbolKind::Method)
+        );
+        assert_eq!(callees(&raw), ["int4", "Low"]);
+    }
+
+    #[test]
     fn trailing_macros_on_ctor_dtor_keep_the_member() {
         let raw = extract(
             b"class FS {\n  FS() DAG_TS_ACQUIRE(mtx) { init(); }\n  ~FS() DAG_TS_RELEASE(mtx) { drop(); }\n};\n\
