@@ -141,7 +141,7 @@ impl Following {
 
     /// Brings `engine`'s graphs up to its refreshed index: drops the files the refresh retired, inserts what its walk
     /// handed over, and resolves again from a second read every file whose questions a change answers differently,
-    /// every file of a family whose resolver now reads another configuration among them. A family's kept resolver
+    /// every file of a family whose resolver now derives another configuration among them. A family's kept resolver
     /// resolves them unless the refresh reached what it read as it was built.
     pub(crate) fn refresh(
         &mut self,
@@ -293,7 +293,7 @@ impl Following {
     }
 
     /// Keeps each resolver of `rebuilt` in place of its family's, and answers the families whose configuration it
-    /// read changed.
+    /// read changed in what it derived: whose answers differ, and whose rebuilt resolver does not resolve as the kept.
     fn reconfigure(&mut self, rebuilt: Resolvers) -> Vec<usize> {
         let families = rebuilt.of_family.len();
         let kept = &mut self.resolvers;
@@ -310,6 +310,9 @@ impl Following {
             if kept.configurations[family]
                 .as_ref()
                 .is_some_and(|kept| kept.answers != configuration.answers)
+                && !kept.of_family[family]
+                    .as_deref()
+                    .is_some_and(|kept| resolver.resolves_as(kept))
             {
                 reconfigured.push(family);
             }

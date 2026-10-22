@@ -65,14 +65,16 @@ pub struct EngineRefresh {
     /// The files the walk read, new or changed, whose extraction went into a graph.
     pub extracted: usize,
     /// The files the walk carried over unchanged that were read and resolved again, because a question their
-    /// resolution asked of the tree has another answer now, or their family's configuration changed.
+    /// resolution asked of the tree has another answer now, or their family
+    /// [reconfigured](EngineRefresh::reconfigured).
     pub resolved_again: usize,
     /// The files the graphs held and hold no more: gone, hidden by the ignore rules, no longer read as text, or not
     /// read again where a change reached them. `None` when every graph was [rebuilt](EngineRefresh::rebuilt), which
     /// keeps no list of the files held before; [`RefreshOutcome::removed`] still names the files the tree lost.
     pub dropped: Option<usize>,
     /// The [families](Language::family) whose resolver read another configuration than it read before, a `go.mod` or
-    /// a `tsconfig.json`, so that every file of theirs was resolved again, in the order of [`Engine::graphs`].
+    /// a `tsconfig.json`, and does not [resolve as](kartta_lang::Resolver::resolves_as) it resolved before, so that
+    /// every file of theirs was resolved again, in the order of [`Engine::graphs`].
     pub reconfigured: Vec<String>,
     /// Whether every graph was built again from every file, because the engine was built without
     /// [`BuildOptions::stamps`] and kept nothing to find what a change reaches.
@@ -267,12 +269,13 @@ impl Engine {
     /// refresh answers differently, such as an include that now finds a file or a Go package that gained one, is read
     /// again and resolved again. With stamps the engine keeps each family's resolver, and builds it again only for a
     /// refresh that reaches what it asked of the tree as it was built, such as a `.sqconfig` it read; when the
-    /// configuration it read changed, every file of its family is read and resolved again. [`EngineRefresh`] counts
-    /// each. A kept resolver holds what its language derived from the configuration, 1.3 MiB for every family together
-    /// on a tree of 2.9 million entries. With stamps the engine also keeps the tables a refresh's resolvers built to
-    /// find files, by name and by a path in another case, eight bytes for each regular file of each table a resolver
-    /// asked for, and the next refresh moves them with the entries it kept rather than building them again from every
-    /// entry.
+    /// configuration it read changed and the resolver built again does not
+    /// [resolve as](kartta_lang::Resolver::resolves_as) the kept one, every file of its family is read and resolved
+    /// again. [`EngineRefresh`] counts each. A kept resolver holds what its language derived from the configuration,
+    /// 1.3 MiB for every family together on a tree of 2.9 million entries. With stamps the engine also keeps the tables
+    /// a refresh's resolvers built to find files, by name and by a path in another case, eight bytes for each regular
+    /// file of each table a resolver asked for, and the next refresh moves them with the entries it kept rather than
+    /// building them again from every entry.
     ///
     /// The engine attributes a question to the file whose resolution asked it on the asking thread, so a
     /// [`Resolver`](kartta_lang::Resolver) that asks from another thread, or answers one file from what it asked for
