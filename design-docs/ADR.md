@@ -69,7 +69,7 @@
 - [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md) — initiative
   `03-code-graph`, 2026-10-16, revised 2026-10-21
 - [3.7 Resolve calls when a query asks](./adr/3.7-resolve-calls-when-a-query-asks.md) — initiative `03-code-graph`,
-  2026-10-16, revised 2026-10-21
+  2026-10-16, revised 2026-10-22
 - [3.8 Extract only the daslang a file opts into gen2, and find modules by file
   name](./adr/3.8-extract-only-the-daslang-a-file-opts-into-gen2.md) — initiative `03-code-graph`, 2026-10-16
 - [3.9 Resolve a Quirrel import through the nearest .sqconfig, and name a function value by its
@@ -80,7 +80,7 @@
   2026-10-17
 - [3.11 Name Rust items by their module chain and resolve modules by Cargo's
   layout](./adr/3.11-name-rust-items-by-their-module-chain-and-resolve-modules-by-cargo-s-layout.md) — initiative
-  `03-code-graph`, 2026-10-16
+  `03-code-graph`, 2026-10-16, revised 2026-10-22
 - [3.12 Qualify Python by the module its path
   names](./adr/3.12-qualify-python-by-the-module-its-path-names.md) — initiative `03-code-graph`, 2026-10-16, revised
   2026-10-19
