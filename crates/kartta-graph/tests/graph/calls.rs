@@ -473,6 +473,114 @@ fn a_cpp_operand_s_class_binds_the_member_of_the_class_its_file_includes_before_
     assert_eq!(callees(&graph, "draw"), ["z/unit.h:1@85"]);
 }
 
+fn class_in(scope: &str, name: &str, line: u32, end_line: u32) -> Symbol {
+    let mut symbol = Symbol::new(name, SymbolKind::Class, line, end_line);
+    symbol.qualified_name = if scope.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{scope}::{name}")
+    };
+    symbol
+}
+
+fn widget_in(scope: &str) -> Vec<Symbol> {
+    vec![
+        class_in(scope, "Widget", 2, 5),
+        member("Widget", "draw", SymbolKind::Method, 4),
+    ]
+}
+
+#[test]
+fn a_cpp_operand_s_class_binds_the_namesake_its_declaration_s_scopes_name() {
+    let widgets = ["a/widget.h", "b/widget.h"];
+    let mut main = including(
+        "app/main.cpp",
+        &widgets,
+        vec![
+            member_call(0, "b::Widget", "draw", 4),
+            member_call(1, "a::Widget", "draw", 6),
+            member_call(2, "::b::Widget", "draw", 8),
+            member_call(3, "Widget", "draw", 10),
+        ],
+    );
+    main.symbols = vec![
+        function("paint", 3),
+        function("sketch", 5),
+        function("rooted", 7),
+        function("blind", 9),
+    ];
+    let mut frame = including(
+        "app/frame.cpp",
+        &widgets,
+        vec![
+            member_call(0, "Widget", "draw", 4),
+            member_call(1, "Widget", "draw", 7),
+        ],
+    );
+    frame.symbols = vec![
+        namespaced("b", "frame", 3),
+        namespaced("b::detail", "outline", 6),
+    ];
+    let files = [
+        file("a/widget.h", widget_in("a"), Vec::new()),
+        file("b/widget.h", widget_in("b"), Vec::new()),
+        main,
+        frame,
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "paint"), ["b/widget.h:4@85"]);
+    assert_eq!(callees(&graph, "sketch"), ["a/widget.h:4@85"]);
+    assert_eq!(callees(&graph, "rooted"), ["b/widget.h:4@85"]);
+    assert_eq!(
+        callees(&graph, "frame"),
+        ["b/widget.h:4@85"],
+        "a bare class name is looked up from the caller's namespace outward"
+    );
+    assert_eq!(
+        callees(&graph, "outline"),
+        ["b/widget.h:4@85"],
+        "a namespace that holds no class of the name passes the lookup to the one around it"
+    );
+    assert_eq!(
+        callees(&graph, "blind"),
+        Vec::<String>::new(),
+        "namesakes in two namespaces the caller is in neither of are ambiguous"
+    );
+    assert_eq!(graph.resolution(0).misses.ambiguous, 1);
+}
+
+#[test]
+fn a_cpp_operand_s_class_binds_the_first_of_namesakes_of_one_qualified_name() {
+    let files = [
+        file(
+            "box.h",
+            vec![
+                class_in("", "Box", 1, 3),
+                member("Box", "fill", SymbolKind::Method, 2),
+                class_in("", "Box", 4, 6),
+                member("Box", "fill", SymbolKind::Method, 5),
+            ],
+            Vec::new(),
+        ),
+        calling_member(
+            "use.cpp",
+            "pack",
+            &["box.h"],
+            member_call(0, "Box", "fill", 2),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(
+        callees(&graph, "pack"),
+        ["box.h:2@85"],
+        "a template and its specialization share the qualified name, and the first binds as before"
+    );
+}
+
 #[test]
 fn a_qualified_callee_two_files_define_binds_the_first_in_path_order() {
     let widget = || vec![member("Widget", "draw", SymbolKind::Method, 1)];

@@ -67,6 +67,7 @@ mod search;
 mod stats;
 mod stored;
 mod strings;
+mod twins;
 mod typed;
 mod words;
 

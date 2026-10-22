@@ -192,7 +192,9 @@ pub struct Conventions {
     /// The separator a qualified name joins its scopes with, `::` in `ns::Widget::draw`, where a member's qualified
     /// name keeps only its owner, `Widget::draw`, and an owner is a single name: a callee written with more scopes
     /// than that is read by its trailing `Widget::draw`, a callee written from the root, `::draw`, names a global
-    /// symbol, and a base written `ns::Base` names the owner `Base`. `None` where a language writes no such names.
+    /// symbol, and a base written `ns::Base` names the owner `Base`. A receiver names the owner of its last name,
+    /// `Widget` for `b::Widget`, and of the classes of that name nearest the caller, the one its spelling names from
+    /// the caller's scope outward. `None` where a language writes no such names.
     pub scope_separator: Option<&'static str>,
     /// Whether a package is the files of one directory that declare it, as a Go package is: they see each other's
     /// package-level symbols with no import, and an import names the directory.

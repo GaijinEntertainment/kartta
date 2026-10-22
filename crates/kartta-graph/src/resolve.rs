@@ -629,6 +629,7 @@ impl<'g> Cascade<'g> {
         let on_a_value;
         let call = match self.member_of_a_reached_owner(call, &candidates) {
             OwnerMember::Member(at) => return Ok((at, confidence::RECEIVER)),
+            OwnerMember::Ambiguous => return Err(Miss::Ambiguous),
             OwnerMember::Elsewhere => {
                 on_a_value = Call {
                     receiver: self.empty_receiver.or(call.receiver),
