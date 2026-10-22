@@ -192,7 +192,7 @@ impl Emitter<'_> {
             };
             bind(&mut bound, receiver, path, site.directive);
         }
-        for (call, at, module) in self.plain_block_calls() {
+        for (call, at, module) in self.bare_block_calls() {
             let callee = self.raw.calls[call].callee.as_str();
             if out_of_scope(callee, at, module) {
                 bound.insert(callee, None);
