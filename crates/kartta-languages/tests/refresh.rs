@@ -856,3 +856,31 @@ fn a_followed_quirrel_family_reads_its_sqconfig_files_again_only_when_a_refresh_
     );
     assert_eq!(mounted_answers(&engine), fresh);
 }
+
+#[test]
+fn a_sqconfig_comment_resolves_no_script_again() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    for (path, content) in MOUNTED {
+        write(tree.path(), path, content);
+    }
+    std::thread::sleep(Duration::from_millis(2100));
+    let mut engine = build(tree.path(), true);
+
+    write(
+        tree.path(),
+        "game/.sqconfig",
+        "; the game\nmount = %ui=ui\n",
+    );
+    let refresh = refreshed(engine.refresh_paths(["game/.sqconfig"], None));
+
+    assert!(
+        refresh.reconfigured.is_empty(),
+        "{:?}",
+        refresh.reconfigured
+    );
+    assert_eq!((refresh.extracted, refresh.resolved_again), (0, 0));
+    assert_eq!(
+        mounted_answers(&engine),
+        mounted_answers(&build(tree.path(), false))
+    );
+}
