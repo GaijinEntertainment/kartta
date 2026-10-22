@@ -154,8 +154,13 @@ impl Emitter<'_> {
             receiver: None,
             line: line(node.start_position().row),
         };
-        if self.push_call(call) && name.is_some_and(|name| name.kind() == "identifier") {
+        let (true, Some(name)) = (self.push_call(call), name) else {
+            return;
+        };
+        if name.kind() == "identifier" {
             self.record_block_call(node, CallForm::Macro);
+        } else if let Some(written) = path_text(name, self.source) {
+            self.record_written_path(self.raw.calls.len() - 1, &written, node.start_byte());
         }
     }
 

@@ -13,7 +13,8 @@ symbol, and so is every named field and every enum variant. A member of a `trait
 type, is owned by that type and qualified under it, `Service::new`; a member of an `impl` for a tuple, `dyn` or
 function type has no owner. A function of an `extern` block that `#[wasm_bindgen(method)]` marks is owned by the type
 its first parameter, `this`, refers to, since wasm-bindgen makes it that type's method. An item of an inline module is
-qualified by the chain of its modules, `a::b::Worker`, except a `macro_rules!`, which keeps its bare name.
+qualified by the chain of its modules, `a::b::Worker`, except a `macro_rules!`, which keeps its bare name and is
+exported only by `#[macro_export]`, at its crate's root path.
 `impl Trait for Type` adds `Trait` to the parents of the `Type` the file declares under that name or path.
 
 A call records its callee and, where the syntax spells one, its receiver: `self.greet()` and `Self::new()` record the
@@ -32,7 +33,8 @@ module's, as `walk::run()` names one, so `index.refresh_paths()`, `self.refresh_
 
 A `use` of a path that may start at another crate, `use kartta_lang::tree::{self, text}`, keeps each name it binds
 with the path the name reaches, and a path call through such a crate, `kartta_walk::walk::run()`, keeps its receiver
-with its path, read through the `use` of its first segment where the file has one. A name the file declares at its top
+with its path, as a macro invocation through one, `kartta_lang::mac!()`, keeps its macro's name, each read through the
+`use` of its first segment where the file has one. A name the file declares at its top
 level, or binds to two paths anywhere, keeps none; a glob, `as _`, `crate::`, `self::`, `super::`, a capitalised first
 segment and the standard library's crates keep nothing. A `use` inside a function body or an inline module is in scope
 in its block alone, not in a module nested in it: outside the blocks of the `use`s that alone bind a name, a path call

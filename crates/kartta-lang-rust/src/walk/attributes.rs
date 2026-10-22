@@ -197,6 +197,16 @@ fn atom<'s>(atoms: &mut Vec<Atom<'s>>, key: (&'s [u8], &'s [u8])) -> Cfg {
     Cfg::Atom(atoms.len() - 1)
 }
 
+// constraint: `#[macro_export]` places a `macro_rules!` at its crate's root path, whatever module defines it, and its
+// arguments, `local_inner_macros`, change nothing of that
+pub(super) fn marks_macro_export(definition: Node<'_>, source: &[u8]) -> bool {
+    outer_attributes(definition).any(|item| {
+        named_child_of_kind(item, "attribute")
+            .and_then(|attribute| attribute.named_child(0))
+            .is_some_and(|path| text(path, source) == "macro_export")
+    })
+}
+
 pub(super) fn marks_imported_method(function: Node<'_>, source: &[u8]) -> bool {
     outer_attributes(function).any(|item| imports_a_method(item, source))
 }

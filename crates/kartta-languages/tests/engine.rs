@@ -1,8 +1,9 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
-//! what that crate exports, through a `use` inside a function body or an inline module only from inside it, and a Rust
-//! call on a value, on `self` or through a type binds no free function, not even through a value named like a module
-//! the file imports, while a call on a value still binds the one runtime method whose owner the value's name spells.
+//! what that crate exports, a macro invocation the `#[macro_export]` macro of its root file, through a `use` inside a
+//! function body or an inline module only from inside it, and a Rust call on a value, on `self` or through a type
+//! binds no free function, not even through a value named like a module the file imports, while a call on a value
+//! still binds the one runtime method whose owner the value's name spells.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -237,6 +238,50 @@ fn a_rust_use_inside_an_inline_module_binds_no_call_outside_the_module() {
     );
     assert_eq!(
         bound_through_an_import(&engine, "crates/app/src/beside.rs", "outside"),
+        Vec::<&str>::new()
+    );
+}
+
+#[test]
+fn a_rust_macro_invocation_through_another_crate_binds_the_macro_it_exports_at_its_root() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/other/Cargo.toml",
+            "[package]\nname = \"other-crate\"\n",
+        ),
+        (
+            "crates/other/src/lib.rs",
+            "#[macro_export]\nmacro_rules! mac { () => {}; }\n\nmacro_rules! hidden { () => {}; }\n",
+        ),
+        ("crates/third/Cargo.toml", "[package]\nname = \"third\"\n"),
+        (
+            "crates/third/src/lib.rs",
+            "#[macro_export]\nmacro_rules! mac { () => {}; }\n\n#[macro_export]\nmacro_rules! hidden { () => {}; }\n",
+        ),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "mod imported;\n\nfn by_path() {\n    other_crate::mac!();\n}\n\n\
+             fn hidden_by_path() {\n    other_crate::hidden!();\n}\n",
+        ),
+        (
+            "crates/app/src/imported.rs",
+            "use other_crate::mac;\n\nfn by_use() {\n    mac!();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/lib.rs", "by_path"),
+        ["crates/other/src/lib.rs"]
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/imported.rs", "by_use"),
+        ["crates/other/src/lib.rs"]
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/lib.rs", "hidden_by_path"),
         Vec::<&str>::new()
     );
 }
