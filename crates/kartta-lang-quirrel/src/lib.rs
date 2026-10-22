@@ -39,6 +39,11 @@
 //! file a specifier names is an include; a specifier that names no file is an import, kept as written, with the names
 //! a `from` import takes.
 //!
+//! The resolver keeps only what it derived: the mounts and base paths of each `.sqconfig`. A resolver built again over
+//! an edit that changes none of them, such as a comment or another key in a `.sqconfig`,
+//! [resolves as](kartta_lang::Resolver::resolves_as) the one built before, so an engine that follows the tree resolves
+//! no script again for it.
+//!
 //! A file with a `test` or `tests` directory in its path, or whose stem ends in `_test` or starts with `test_`, is test
 //! code. A file whose name holds `.gen.` or `_gen.`, or whose leading comments carry `@generated`, `DO NOT EDIT` or
 //! `Code generated`, is generated code.

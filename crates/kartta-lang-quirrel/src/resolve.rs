@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::HashMap;
 use std::iter;
 
@@ -8,6 +9,7 @@ use kartta_lang::{
 
 use crate::sqconfig::{SQCONFIG, SqConfig};
 
+#[derive(PartialEq)]
 pub(crate) struct QuirrelResolver {
     configs: HashMap<String, SqConfig>,
 }
@@ -37,6 +39,10 @@ impl Resolver for QuirrelResolver {
             configs: &self.configs,
         };
         scripts.resolve(raw, path)
+    }
+
+    fn resolves_as(&self, kept: &dyn Resolver) -> bool {
+        (kept as &dyn Any).downcast_ref::<Self>() == Some(self)
     }
 }
 

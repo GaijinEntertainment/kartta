@@ -385,3 +385,29 @@ fn a_generated_name_marks_the_symbols_as_generated_code() {
     }
     assert!(!flags("gen/x.nut").is_generated());
 }
+
+const SQCONFIG: &str = "mount = %ui=ui\nbase_path = lib\n";
+
+/// Whether the resolver built over a game whose `.sqconfig` reads `edited` resolves as the one built over the same
+/// game with [`SQCONFIG`].
+fn resolves_as_before(edited: &str) -> bool {
+    let quirrel = Quirrel::new();
+    let before = MemoryRepository::new([("game/.sqconfig", SQCONFIG), ("game/main.nut", "")]);
+    let after = MemoryRepository::new([("game/.sqconfig", edited), ("game/main.nut", "")]);
+
+    quirrel
+        .resolver(&after)
+        .resolves_as(&*quirrel.resolver(&before))
+}
+
+#[test]
+fn a_sqconfig_comment_or_another_key_resolves_as_before() {
+    assert!(resolves_as_before(&format!("; the game\n{SQCONFIG}")));
+    assert!(resolves_as_before(&format!("{SQCONFIG}include = other\n")));
+}
+
+#[test]
+fn a_changed_mount_or_base_path_resolves_otherwise() {
+    assert!(!resolves_as_before(&SQCONFIG.replace("=ui", "=alt")));
+    assert!(!resolves_as_before(&SQCONFIG.replace("lib", "src")));
+}
