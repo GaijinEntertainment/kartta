@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fmt, fs};
 
 use kartta_fs::{BuildError, CancelToken, ContentId, Index};
 use kartta_lang::{Extraction, Language, RawExtraction, Repository, Resolver};
@@ -36,10 +36,23 @@ struct Batched {
     path: Box<str>,
 }
 
-pub(crate) struct Resolvers<'r> {
-    repository: &'r dyn Repository,
-    of_family: Vec<Option<Box<dyn Resolver>>>,
+/// The resolver of each family, and what each asked of the repository while it was built when its resolution
+/// recorded; a family no file needed a resolver for holds neither.
+#[derive(Default)]
+pub(crate) struct Resolvers {
+    pub(crate) of_family: Vec<Option<Box<dyn Resolver>>>,
     pub(crate) configurations: Vec<Option<Configuration>>,
+}
+
+impl fmt::Debug for Resolvers {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let built: Vec<bool> = self.of_family.iter().map(Option::is_some).collect();
+        formatter
+            .debug_struct("Resolvers")
+            .field("built", &built)
+            .field("configurations", &self.configurations)
+            .finish()
+    }
 }
 
 type Resolved = Result<(Extraction, Box<[u32]>), BuildError>;
@@ -47,7 +60,7 @@ type Resolved = Result<(Extraction, Box<[u32]>), BuildError>;
 pub(crate) struct Graphs {
     pub(crate) families: Vec<Family>,
     pub(crate) inserted: Inserted,
-    pub(crate) configurations: Vec<Option<Configuration>>,
+    pub(crate) resolvers: Resolvers,
 }
 
 pub(crate) struct Inserted {
@@ -57,8 +70,8 @@ pub(crate) struct Inserted {
 }
 
 impl Resolving<'_> {
-    /// Each family's graph built from `extracted`, what went into it, and what each family's resolver asked as it was
-    /// built when this resolution records.
+    /// Each family's graph built from `extracted`, what went into it, and the resolvers that resolved it, with what
+    /// each asked as it was built when this resolution records.
     pub(crate) fn graphs(
         &self,
         mut families: Vec<Family>,
@@ -78,11 +91,11 @@ impl Resolving<'_> {
             IndexRepository::new(self.index)
         };
         let resolvers = self.resolvers(&repository, &wanted);
-        let inserted = self.insert_all(work, &resolvers, &mut families)?;
+        let inserted = self.insert_all(work, (&resolvers, &repository), &mut families)?;
         Ok(Graphs {
             families,
             inserted,
-            configurations: resolvers.configurations,
+            resolvers,
         })
     }
 
@@ -108,13 +121,8 @@ impl Resolving<'_> {
 
     /// The resolver of each family `wanted` names, built over `repository` by the first of its languages, and what
     /// each asked of it when this resolution records.
-    pub(crate) fn resolvers<'r>(
-        &self,
-        repository: &'r IndexRepository<'_>,
-        wanted: &[bool],
-    ) -> Resolvers<'r> {
+    pub(crate) fn resolvers(&self, repository: &IndexRepository<'_>, wanted: &[bool]) -> Resolvers {
         let mut resolvers = Resolvers {
-            repository,
             of_family: Vec::with_capacity(wanted.len()),
             configurations: Vec::with_capacity(wanted.len()),
         };
@@ -138,12 +146,13 @@ impl Resolving<'_> {
         resolvers
     }
 
-    /// Resolves `work` in batches of the index's order, each batch on the index's threads, and inserts each extraction
-    /// into its family's graph, answering what each file asked when this resolution records.
+    /// Resolves `work` through `resolvers` against `repository` in batches of the index's order, each batch on the
+    /// index's threads, and inserts each extraction into its family's graph, answering what each file asked when this
+    /// resolution records.
     pub(crate) fn insert_all(
         &self,
         mut work: Vec<ToResolve>,
-        resolvers: &Resolvers<'_>,
+        resolvers: (&Resolvers, &dyn Repository),
         families: &mut [Family],
     ) -> Result<Inserted, BuildError> {
         work.sort_unstable_by_key(|file| file.position);
@@ -197,7 +206,7 @@ impl Resolving<'_> {
     fn resolve_batch(
         &self,
         batch: Vec<Batched>,
-        resolvers: &Resolvers<'_>,
+        (resolvers, repository): (&Resolvers, &dyn Repository),
     ) -> Vec<(Batched, Resolved)> {
         self.index.on_threads(|| {
             batch
@@ -206,11 +215,8 @@ impl Resolving<'_> {
                     let family = self.family_of[batched.file.language];
                     let resolver = resolvers.of_family[family].as_deref()?;
                     let encoded = batched.file.encoded.take();
-                    let outcome = self.recorded(
-                        (resolver, resolvers.repository),
-                        &batched,
-                        encoded.as_deref(),
-                    );
+                    let outcome =
+                        self.recorded((resolver, repository), &batched, encoded.as_deref());
                     Some((batched, outcome))
                 })
                 .collect()
