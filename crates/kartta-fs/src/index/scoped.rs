@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::atomic::AtomicU32;
+use std::time::{Duration, Instant};
 use std::{fs, io};
 
 use kartta_walk::{CancelToken, EntryKind, Tree, WalkError, WalkOptions, WalkOutcome, walk};
@@ -16,7 +17,9 @@ use crate::content::{ContentId, ContentVisitor};
 use crate::content_index::{ContentIndexes, IdPositions, Target};
 use crate::inspection::Inspection;
 use crate::list::is_below;
-use crate::policy::{DirState, Indexing, Learned, Numbering, Payload, Report, names_match};
+use crate::policy::{
+    DirRules, DirState, Indexing, Learned, Numbering, Payload, Report, names_match,
+};
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 use crate::spelling;
 use crate::stamp::{Seen, Stamp, Stamping, UNTRUSTED};
@@ -51,10 +54,12 @@ impl Index {
     ///
     /// While ignore rules apply, the rules for a part walked again come from the `.gitignore` files of the directories
     /// above it, read again once a call for each such directory, at two stats a directory and a third with the read of
-    /// a `.gitignore` it holds; the visitor is not handed those files, which lie outside the parts. Content is read,
-    /// carried over and numbered as [`Index::refresh`] does, on the index's [threads](Index::on_threads): the parts
-    /// that are files are read there once every part has been looked at, except that a call with one such part reads
-    /// it on the calling thread. What it reads is indexed in a segment of the content index of its own. Unlike
+    /// a `.gitignore` it holds, once every part has been stat'd: one directory after another on the calling thread
+    /// until one takes longer than a local disk answers, as on a network mount, and the rest side by side on the
+    /// index's threads. The visitor is not handed those files, which lie outside the parts. Content is read, carried
+    /// over and numbered as [`Index::refresh`] does, on the index's [threads](Index::on_threads): the parts that are
+    /// files are read there once every part has been looked at, except that a call with one such part reads it on the
+    /// calling thread. What it reads is indexed in a segment of the content index of its own. Unlike
     /// [`Index::refresh`], this changes the index in place: every entry outside the walked parts moves once, so a call
     /// costs one pass over the index's per-entry arrays whatever the number of paths, and the old and new arrays are
     /// held at once while it runs. A call whose parts are neither indexed nor on disk, such as ignored paths and files
@@ -65,8 +70,9 @@ impl Index {
     /// [`BuildError::OutsideTree`] for a path with a `..` component, before anything is walked, and otherwise as
     /// [`Index::refresh`]. A returned error leaves the index answering as it did. Like [`Index::refresh`], the call
     /// stops for `cancel` only while it has something left to walk or read, or a content index to finish: it looks at
-    /// `cancel` before it takes each part and reads each file, so a cancel that comes once the last files are being
-    /// read, with no content index to finish, stops nothing, and the call completes.
+    /// `cancel` before it takes each part, reads the rules of each directory above the parts and reads each file, so a
+    /// cancel that comes once the last files are being read, with no content index to finish, stops nothing, and the
+    /// call completes.
     pub fn refresh_paths<'p>(
         &mut self,
         paths: impl IntoIterator<Item = &'p str>,
@@ -259,7 +265,6 @@ impl Index {
                 .descending(asked.descending),
             cancel: asked.cancel,
             errors: Vec::new(),
-            rules: Vec::new(),
         };
         let found = rewalk.found(scopes)?;
 
@@ -392,42 +397,85 @@ struct Rewalk<'i, 'a> {
     policy: Indexing<'a>,
     cancel: Option<&'a CancelToken>,
     errors: Vec<BuildError>,
-    rules: Vec<(String, Rules)>,
 }
 
 impl Rewalk<'_, '_> {
-    fn rules_for(&mut self, dir: &str) -> Rules {
-        while self.rules.last().is_some_and(|(held, _)| !holds(held, dir)) {
-            self.rules.pop();
-        }
-        if self.rules.is_empty() {
-            let rules = self
-                .policy
-                .rules_in(&self.index.root, "", &Rules::default());
-            self.rules.push((String::new(), rules));
+    fn rules_above(&self, parts: &[Option<&str>]) -> Result<Vec<Option<Rules>>, BuildError> {
+        if self.index.ignore_sources == IgnoreSources::None {
+            return Ok(parts
+                .iter()
+                .map(|part| part.map(|_| Rules::default()))
+                .collect());
         }
 
-        while let Some((held, inherited)) = self.rules.last()
-            && held.len() < dir.len()
-        {
-            let from = if held.is_empty() { 0 } else { held.len() + 1 };
-            let end = dir[from..].find('/').map_or(dir.len(), |at| from + at);
-            let next = &dir[..end];
-            let rules = self
-                .policy
-                .rules_in(&self.index.root.join(next), next, inherited);
-            self.rules.push((next.to_owned(), rules));
+        let DirsAbove { dirs, holding } = dirs_above(parts);
+        let added = self
+            .read_rules(&dirs, ROUND_TRIP)
+            .ok_or(BuildError::Cancelled)?;
+        let none = Rules::default();
+        let mut rules: Vec<Rules> = Vec::with_capacity(dirs.len());
+        for (added, dir) in added.into_iter().zip(&dirs) {
+            let dir_rules = added.below(dir.parent.map_or(&none, |at| &rules[at]));
+            rules.push(dir_rules);
         }
-        self.rules
-            .last()
-            .map(|(_, rules)| rules.clone())
-            .unwrap_or_default()
+
+        Ok(holding
+            .into_iter()
+            .map(|at| at.map(|at| rules[at].clone()))
+            .collect())
+    }
+
+    // constraint: a local disk answers a directory faster than a hand-off to threads, a network mount in a round trip
+    fn read_rules(&self, dirs: &[DirAbove<'_>], round_trip: Duration) -> Option<Vec<DirRules>> {
+        let mut added = Vec::with_capacity(dirs.len());
+        for (at, dir) in dirs.iter().enumerate() {
+            let started = Instant::now();
+            added.push(self.dir_rules(dir.path)?);
+            let left = &dirs[at + 1..];
+            if !left.is_empty() && started.elapsed() >= round_trip {
+                added.extend(self.rules_on_threads(left)?);
+                break;
+            }
+        }
+
+        Some(added)
+    }
+
+    fn rules_on_threads(&self, dirs: &[DirAbove<'_>]) -> Option<Vec<DirRules>> {
+        self.index.on_threads(|| {
+            dirs.par_iter()
+                .map(|dir| self.dir_rules(dir.path))
+                .collect()
+        })
+    }
+
+    fn dir_rules(&self, dir: &str) -> Option<DirRules> {
+        (!self.cancelled()).then(|| self.policy.rules_in(&self.index.root.join(dir), dir))
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.is_some_and(CancelToken::is_cancelled)
     }
 
     fn found(&mut self, scopes: &[String]) -> Result<Vec<Found>, BuildError> {
+        let on_disk = scopes
+            .iter()
+            .map(|scope| self.on_disk(scope))
+            .collect::<Result<Vec<_>, BuildError>>()?;
+        let present: Vec<Option<&str>> = scopes
+            .iter()
+            .zip(&on_disk)
+            .map(|(scope, metadata)| metadata.as_ref().map(|_| scope.as_str()))
+            .collect();
+        let rules = self.rules_above(&present)?;
         let mut parts = scopes
             .iter()
-            .map(|scope| self.scope(scope))
+            .zip(on_disk)
+            .zip(rules)
+            .map(|((scope, metadata), rules)| match metadata.zip(rules) {
+                Some((metadata, rules)) => self.scope(scope, &metadata, rules),
+                None => Ok(Part::Found(Found::GONE)),
+            })
             .collect::<Result<Vec<Part>, BuildError>>()?;
         let mut files = parts.iter().filter(|part| matches!(part, Part::File(_)));
         if files.nth(1).is_some() {
@@ -459,8 +507,7 @@ impl Rewalk<'_, '_> {
         let Part::File(seen) = *part else {
             return Some(());
         };
-        let cancelled = self.cancel.is_some_and(CancelToken::is_cancelled);
-        (!cancelled).then(|| *part = Part::Found(self.file(path, seen)))
+        (!self.cancelled()).then(|| *part = Part::Found(self.file(path, seen)))
     }
 
     fn file(&self, path: &str, seen: Seen) -> Found {
@@ -470,12 +517,11 @@ impl Rewalk<'_, '_> {
         }
     }
 
-    fn scope(&mut self, scope: &str) -> Result<Part, BuildError> {
-        if self.cancel.is_some_and(CancelToken::is_cancelled) {
+    fn on_disk(&mut self, scope: &str) -> Result<Option<fs::Metadata>, BuildError> {
+        if self.cancelled() {
             return Err(BuildError::Cancelled);
         }
-        let root = &self.index.root;
-        let native_path = root.join(scope);
+        let native_path = self.index.root.join(scope);
         let metadata = match fs::symlink_metadata(&native_path) {
             Ok(metadata) => metadata,
             Err(source) => {
@@ -485,24 +531,37 @@ impl Rewalk<'_, '_> {
                         source,
                     }));
                 }
-                return Ok(Part::Found(Found::GONE));
+                return Ok(None);
             }
         };
         if spelling::on_disk(&native_path).is_some_and(|name| name != name_of(scope)) {
-            return Ok(Part::Found(Found::GONE));
+            return Ok(None);
         }
-        let rules = self.rules_for(parent_of(scope));
+
+        Ok(Some(metadata))
+    }
+
+    fn scope(
+        &mut self,
+        scope: &str,
+        metadata: &fs::Metadata,
+        rules: Rules,
+    ) -> Result<Part, BuildError> {
+        if self.cancelled() {
+            return Err(BuildError::Cancelled);
+        }
+        let native_path = self.index.root.join(scope);
         let is_dir = metadata.is_dir();
         if rules.ignores(scope, is_dir) {
             return Ok(Part::Found(Found::GONE));
         }
         if self.policy.reads()
-            && let Some(seen) = Seen::of(&metadata)
+            && let Some(seen) = Seen::of(metadata)
         {
             return Ok(Part::File(seen));
         }
 
-        let entry = self.policy.single(scope, &native_path, &metadata);
+        let entry = self.policy.single(scope, &native_path, metadata);
         let below = if is_dir {
             self.policy.descend(&native_path);
             self.below(scope, &DirState::below(rules))?
@@ -618,6 +677,60 @@ impl Facts<'_> {
     }
 }
 
+const ROUND_TRIP: Duration = Duration::from_micros(200);
+
+struct DirAbove<'p> {
+    path: &'p str,
+    parent: Option<usize>,
+}
+
+struct DirsAbove<'p> {
+    dirs: Vec<DirAbove<'p>>,
+    holding: Vec<Option<usize>>,
+}
+
+fn dirs_above<'p>(parts: &[Option<&'p str>]) -> DirsAbove<'p> {
+    let mut dirs: Vec<DirAbove<'p>> = Vec::new();
+    let mut stack: Vec<usize> = Vec::new();
+    let mut holding = Vec::with_capacity(parts.len());
+    for part in parts {
+        let Some(part) = part else {
+            holding.push(None);
+            continue;
+        };
+        let dir = parent_of(part);
+        while stack.last().is_some_and(|&at| !holds(dirs[at].path, dir)) {
+            stack.pop();
+        }
+        if stack.is_empty() {
+            stack.push(dirs.len());
+            dirs.push(DirAbove {
+                path: "",
+                parent: None,
+            });
+        }
+        while let Some(&held) = stack.last()
+            && dirs[held].path.len() < dir.len()
+        {
+            let held_path = dirs[held].path;
+            let from = if held_path.is_empty() {
+                0
+            } else {
+                held_path.len() + 1
+            };
+            let end = dir[from..].find('/').map_or(dir.len(), |at| from + at);
+            stack.push(dirs.len());
+            dirs.push(DirAbove {
+                path: &dir[..end],
+                parent: Some(held),
+            });
+        }
+        holding.push(stack.last().copied());
+    }
+
+    DirsAbove { dirs, holding }
+}
+
 fn parent_of(path: &str) -> &str {
     path.rfind('/').map_or("", |at| &path[..at])
 }
@@ -628,4 +741,52 @@ fn name_of(path: &str) -> &str {
 
 pub(super) fn holds(dir: &str, path: &str) -> bool {
     dir.is_empty() || path == dir || is_below(path, dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::build::BuildOptions;
+
+    #[test]
+    fn rules_read_on_the_threads_are_those_read_one_directory_after_another() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        for (path, text) in [
+            (".gitignore", "*.log\n"),
+            ("a/.gitignore", "*.tmp\n"),
+            ("a/b/c.rs", ""),
+            ("a/n/.git/HEAD", ""),
+            ("a/n/.gitignore", "*.rs\n"),
+            ("a/n/d/e.txt", ""),
+            ("f/g.rs", ""),
+        ] {
+            let full = dir.path().join(path);
+            fs::create_dir_all(full.parent().expect("a parent")).expect("create directory");
+            fs::write(full, text).expect("write file");
+        }
+        let index = Index::build(dir.path(), &BuildOptions::default())
+            .expect("build")
+            .index;
+        let options = index.rebuild_options();
+        let numbering = Numbering {
+            first_id: index.next_content_id,
+            handed: None,
+            stamps: None,
+            previous: None,
+        };
+        let rewalk = Rewalk {
+            index: &index,
+            policy: indexing(&index.root, &options, None, numbering).expect("a policy"),
+            cancel: None,
+            errors: Vec::new(),
+        };
+        let DirsAbove { dirs, .. } =
+            dirs_above(&[Some("a/b/c.rs"), Some("a/n/d/e.txt"), Some("f/g.rs")]);
+
+        let in_turn = rewalk.read_rules(&dirs, Duration::MAX);
+        let on_threads = rewalk.read_rules(&dirs, Duration::ZERO);
+
+        assert_eq!(dirs.len(), 6);
+        assert_eq!(format!("{in_turn:?}"), format!("{on_threads:?}"));
+    }
 }

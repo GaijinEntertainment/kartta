@@ -335,21 +335,18 @@ impl<'a> Indexing<'a> {
     // constraint: a walk learns which control files a directory holds from the listing it already made; a directory
     // above a part walked again was not listed, so it is asked for each by name, two stats a directory and a third
     // where the ignore file is read
-    pub(crate) fn rules_in(&self, native_dir: &Path, dir_path: &str, inherited: &Rules) -> Rules {
-        if self.ignore_sources == IgnoreSources::None {
-            return Rules::default();
-        }
-
-        let mut rules = if fs::symlink_metadata(native_dir.join(DOT_GIT)).is_ok() {
-            Rules::default()
-        } else {
-            inherited.clone()
-        };
+    pub(crate) fn rules_in(&self, native_dir: &Path, dir_path: &str) -> DirRules {
+        let starts_repository = fs::symlink_metadata(native_dir.join(DOT_GIT)).is_ok();
+        let mut own = Rules::default();
         let native_path = native_dir.join(GITIGNORE);
         if fs::symlink_metadata(&native_path).is_ok() {
-            _ = self.push_ignore_file(native_path, dir_path, &mut rules);
+            _ = self.push_ignore_file(native_path, dir_path, &mut own);
         }
-        rules
+
+        DirRules {
+            starts_repository,
+            own,
+        }
     }
 
     pub(crate) fn single(
@@ -848,6 +845,24 @@ fn inherited_across_repository_boundary(dir: &Dir<'_>, parent_state: &Rules) -> 
         Rules::default()
     } else {
         parent_state.clone()
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct DirRules {
+    starts_repository: bool,
+    own: Rules,
+}
+
+impl DirRules {
+    pub(crate) fn below(self, inherited: &Rules) -> Rules {
+        let mut rules = if self.starts_repository {
+            Rules::default()
+        } else {
+            inherited.clone()
+        };
+        rules.extend(self.own);
+        rules
     }
 }
 
