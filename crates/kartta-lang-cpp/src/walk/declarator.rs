@@ -61,15 +61,21 @@ fn declared_name(function: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
 }
 
 fn declared_name_of(declarator: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
+    let written = written_name(declarator);
+    if written.name != declarator {
+        let mut declared = declared_name_of(written.name, source)?;
+        if declared.scope.is_none() {
+            declared.scope = written.stranded_scope.map(|first| text(first, source));
+        }
+        return Some(declared);
+    }
+
     let declared = match declarator.kind() {
         "identifier" | "field_identifier" | "operator_name" | "destructor_name"
         | "template_function" | "template_method" => DeclaredName {
             name: function_base_name(declarator, source),
             scope: None,
         },
-        "qualified_identifier" if joins_a_macro_as_scope(declarator) => {
-            return declared_name_of(declarator.child_by_field_name("name")?, source);
-        }
         "qualified_identifier" => {
             let (terminal, scope) = qualified_terminal(declarator);
             let name = terminal
@@ -180,10 +186,51 @@ fn inner_declarator(node: Node<'_>) -> Option<Node<'_>> {
     })
 }
 
-// constraint: a macro between the return type and the name, `XMMATRIX XM_CALLCONV XMMatrixRotationZ()`, parses as a
-// scope that the parser joins to the name with a `::` the source does not hold
-pub(super) fn joins_a_macro_as_scope(qualified: Node<'_>) -> bool {
-    child_nodes(qualified).any(|child| child.is_missing())
+#[derive(Clone, Copy)]
+pub(super) struct WrittenName<'t> {
+    pub(super) name: Node<'t>,
+    pub(super) stranded_scope: Option<Node<'t>>,
+}
+
+// constraint: words before the name parse as its scope: a macro between the return type and the name, `XMMATRIX
+// XM_CALLCONV XMMatrixRotationZ()`, or a return type written with a scope after a macro, `INLINE std::string f()`,
+// joins the name by a `::` the source does not hold, and where the source writes a scope of its own, `LRESULT CALLBACK
+// Window::wndProc()`, the scope's first name is stranded in an error before its `::`; the declared name follows the
+// last such seam
+pub(super) fn written_name(declarator: Node<'_>) -> WrittenName<'_> {
+    let mut written = WrittenName {
+        name: declarator,
+        stranded_scope: None,
+    };
+    let mut qualified = declarator;
+    while qualified.kind() == "qualified_identifier"
+        && let Some(name) = qualified.child_by_field_name("name")
+    {
+        if child_nodes(qualified).any(|child| child.is_missing()) {
+            written = WrittenName {
+                name,
+                stranded_scope: None,
+            };
+        } else if let Some(first) = stranded_scope(qualified) {
+            written = WrittenName {
+                name,
+                stranded_scope: Some(first),
+            };
+        }
+        qualified = name;
+    }
+    written
+}
+
+fn stranded_scope(qualified: Node<'_>) -> Option<Node<'_>> {
+    let error = child_nodes(qualified).find(Node::is_error)?;
+    let names_only = child_nodes(error).all(|child| child.kind() == "identifier");
+    let before_a_scope = error
+        .next_sibling()
+        .is_some_and(|next| next.kind() == "::" && !next.is_missing());
+    (names_only && before_a_scope)
+        .then(|| child_nodes(error).next_back())
+        .flatten()
 }
 
 pub(super) fn qualified_terminal(qualified: Node<'_>) -> (Option<Node<'_>>, Option<Node<'_>>) {
@@ -223,12 +270,17 @@ pub(super) fn is_macro_invocation(node: Node<'_>, symbol: &Symbol) -> bool {
 /// The scope a function's declarator writes before its name where it holds more than one name, each by its base
 /// name: `A::N` of `void A::N::f() {}`.
 pub(super) fn nested_scope(node: Node<'_>, source: &[u8]) -> Option<String> {
-    let name = real_function_declarator(node, source)?.child_by_field_name("declarator")?;
+    let declarator = real_function_declarator(node, source)?.child_by_field_name("declarator")?;
+    let WrittenName {
+        name,
+        stranded_scope,
+    } = written_name(declarator);
     let scopes = std::iter::successors(Some(name), |qualified| {
         qualified.child_by_field_name("name")
     })
     .take_while(|qualified| qualified.kind() == "qualified_identifier")
     .filter_map(|qualified| qualified.child_by_field_name("scope"));
+    let scopes = stranded_scope.into_iter().chain(scopes);
     scopes.clone().nth(1)?;
     Some(
         scopes

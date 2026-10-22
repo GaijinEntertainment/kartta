@@ -1169,6 +1169,69 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
+    fn a_macro_before_a_scoped_return_type_keeps_the_namespace() {
+        let raw = extract(
+            b"#define VULKAN_HPP_INLINE inline\nstruct Widget { std::string label() const; };\n\
+              struct Window { LRESULT wndProc(HWND wnd); };\nnamespace vk {\n\
+              VULKAN_HPP_INLINE std::string to_string(int value) { return \"x\"; }\n\
+              VULKAN_HPP_INLINE std::vector<int> template_type(int value) { return {}; }\n\
+              VULKAN_HPP_INLINE Result plain_type(int value) { return {}; }\n\
+              VULKAN_HPP_INLINE const std::string& const_qualified(int value) { return s; }\n}\n\
+              VULKAN_HPP_INLINE std::string Widget::label() const { return n; }\n\
+              LRESULT CALLBACK Window::wndProc(HWND wnd) { return 0; }\n\
+              PX_INLINE void Scb::Scene::reset(PxF32 distance) {}\n",
+        );
+
+        assert_eq!(
+            qualified_names(&raw),
+            [
+                "Widget",
+                "Window",
+                "vk::to_string",
+                "vk::template_type",
+                "vk::plain_type",
+                "vk::const_qualified",
+                "Widget::label",
+                "Window::wndProc",
+                "Scene::reset"
+            ]
+        );
+        for name in ["to_string", "template_type"] {
+            assert_eq!(symbol(&raw, name).kind, SymbolKind::Function, "{name}");
+            assert_eq!(symbol(&raw, name).owner, None, "{name}");
+        }
+        for (name, owner) in [
+            ("label", "Widget"),
+            ("wndProc", "Window"),
+            ("reset", "Scene"),
+        ] {
+            assert_eq!(symbol(&raw, name).kind, SymbolKind::Method, "{name}");
+            assert_eq!(symbol(&raw, name).owner.as_deref(), Some(owner), "{name}");
+        }
+        let keys: Vec<&str> = raw
+            .callables
+            .iter()
+            .map(|callable| callable.key.as_str())
+            .collect();
+        assert!(keys.contains(&"vk::to_string(int)"), "{keys:?}");
+        assert!(keys.contains(&"Widget::label()const"), "{keys:?}");
+        assert!(keys.contains(&"Window::wndProc(HWND)"), "{keys:?}");
+        assert_eq!(
+            raw.folded_declarations,
+            [
+                FoldedDeclaration {
+                    definition: id_of(&raw, "label"),
+                    line: 2
+                },
+                FoldedDeclaration {
+                    definition: id_of(&raw, "wndProc"),
+                    line: 3
+                }
+            ]
+        );
+    }
+
+    #[test]
     fn trailing_macros_on_ctor_dtor_keep_the_member() {
         let raw = extract(
             b"class FS {\n  FS() DAG_TS_ACQUIRE(mtx) { init(); }\n  ~FS() DAG_TS_RELEASE(mtx) { drop(); }\n};\n\
