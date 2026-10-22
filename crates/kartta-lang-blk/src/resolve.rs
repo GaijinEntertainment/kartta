@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use kartta_lang::path::{base, dir, forward_slashes, join, sole};
 use kartta_lang::{Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver};
 
@@ -15,6 +17,7 @@ const MOUNT_FILE_NAMES: [&str; 4] = [
     "libs_aot_config.blk",
 ];
 
+#[derive(PartialEq)]
 pub(crate) struct BlkResolver {
     mounts: MountTable,
 }
@@ -83,6 +86,10 @@ impl Resolver for BlkResolver {
         }
 
         extraction
+    }
+
+    fn resolves_as(&self, kept: &dyn Resolver) -> bool {
+        (kept as &dyn Any).downcast_ref::<Self>() == Some(self)
     }
 }
 

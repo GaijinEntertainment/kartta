@@ -30,6 +30,11 @@
 //!
 //! Every match is case-sensitive.
 //!
+//! The resolver keeps only what it derived: the mount table. A resolver built again over an edit that changes no
+//! mount, such as a `settings.blk` setting outside its `mountPoints` block,
+//! [resolves as](kartta_lang::Resolver::resolves_as) the one built before, so an engine that follows the tree resolves
+//! no BLK file again for it.
+//!
 //! # Fingerprint
 //!
 //! [`Blk::fingerprint`] identifies this crate's name and version, a digest of its source, and the grammar: its
