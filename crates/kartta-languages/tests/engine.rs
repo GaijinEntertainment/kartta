@@ -1,5 +1,6 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
-//! other languages out of the graph, and no Rust call binds a module.
+//! other languages out of the graph, no Rust call binds a module, and a Rust call into another crate of the workspace
+//! binds what that crate exports.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -14,7 +15,10 @@ use tempfile::TempDir;
 fn tree_of(files: &[(&str, &str)]) -> TempDir {
     let tree = tempfile::tempdir().expect("a temporary directory");
     for (path, source) in files {
-        fs::write(tree.path().join(path), source).expect("the file is written");
+        let path = tree.path().join(path);
+        fs::create_dir_all(path.parent().expect("a file has a directory"))
+            .expect("the directory is made");
+        fs::write(path, source).expect("the file is written");
     }
     tree
 }
@@ -89,6 +93,40 @@ fn a_rust_call_named_like_a_module_binds_no_call_to_the_module() {
     let engine = build(&tree, &["rust"]);
 
     assert_eq!(callees(&engine, "walk.rs", "raw_walk"), (vec![], 1));
+}
+
+#[test]
+fn a_rust_call_through_another_workspace_crate_binds_the_function_that_crate_exports() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/other/Cargo.toml",
+            "[package]\nname = \"other-crate\"\n",
+        ),
+        ("crates/other/src/lib.rs", "pub mod m;\n"),
+        ("crates/other/src/m.rs", "pub fn f() {}\n"),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/main.rs",
+            "mod helpers;\n\nuse other_crate::m::f;\n\nfn through_use() {\n    f();\n}\n\n\
+             fn through_path() {\n    other_crate::m::f();\n}\n\nfn main() {}\n",
+        ),
+        ("crates/app/src/helpers.rs", "pub fn f() {}\n"),
+    ]);
+    let engine = build(&tree, &["rust"]);
+    let exported = (
+        vec![("f", SymbolKind::Function, "crates/other/src/m.rs")],
+        0,
+    );
+
+    assert_eq!(
+        callees(&engine, "crates/app/src/main.rs", "through_use"),
+        exported
+    );
+    assert_eq!(
+        callees(&engine, "crates/app/src/main.rs", "through_path"),
+        exported
+    );
 }
 
 #[test]

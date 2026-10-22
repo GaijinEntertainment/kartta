@@ -45,6 +45,15 @@ one directory deeper for each inline module around it. A directory that holds a 
 crate roots are `src/lib.rs`, `src/main.rs`, `build.rs` and each target under `src/bin/`, `examples/`, `tests/` and
 `benches/`. A top-level `fn main` in a crate root other than the library is the entry point.
 
+A package's library is named by its manifest's `[lib] name`, else by its `[package] name` with `-` read as `_`, and lies
+at its `[lib] path`, else at `src/lib.rs`; each value is read only from a `key = "value"` on one line under its table's
+header, the form Cargo writes, or a `key = 'value'`, and a value in any other form is not. A manifest without a
+`[package] name` declares no library. A kept path starts at the library its first segment names, the caller's own
+package's or else the nearest package's, and none where two are as near, and each segment after it names a module file
+by the same layout. The path imports the file of the module it ends at, or of the module that holds the lowercase item
+it ends at, so `text()` after `use kartta_lang::tree::text;` binds the `text` that `crates/kartta-lang/src/tree.rs`
+exports at its top level.
+
 Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is a file below a
 `tests` directory outside `src`. A `*.gen.rs` or `*_generated.rs` file, or one with a `@generated` or `DO NOT EDIT`
 marker in its leading comments, is generated code.

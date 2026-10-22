@@ -1,41 +1,136 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::iter;
 
-use kartta_lang::path::{base, dir, join};
+use kartta_lang::path::{base, dir, join, shared_segments};
 use kartta_lang::{
-    Extraction, IncludeRef, RawDirective, RawExtraction, Repository, Resolver, SymbolFlags,
+    Extraction, ImportBinding, IncludeRef, RawDirective, RawExtraction, Repository, Resolver,
+    SymbolFlags,
 };
 
+use crate::manifest;
 use crate::walk::{MOD_TEST_FORM, USE_FORM};
 
 pub(crate) struct Crates<'r> {
     repository: &'r dyn Repository,
     packages: HashSet<String>,
+    libraries: HashMap<String, Vec<Library>>,
+}
+
+// constraint: a library is found by the name a path into it starts with, and every package that declares a library of
+// that name holds one, as a workspace member and a vendored copy of it do
+struct Library {
+    package: String,
+    root: String,
 }
 
 impl<'r> Crates<'r> {
-    // constraint: a package is a directory that holds a `Cargo.toml`; its manifest is not read, so a target that the
-    // manifest places off the conventional layout is not a crate root here
+    // constraint: a package is a directory that holds a `Cargo.toml`, whose manifest is read only for the name and the
+    // root of its library, so a target that it places off the conventional layout is not a crate root here
     pub(crate) fn new(repository: &'r dyn Repository) -> Self {
-        let packages = repository
-            .files_named("Cargo.toml")
-            .map(|mut manifest| {
-                manifest.truncate(manifest.rfind('/').unwrap_or(0));
-                manifest
-            })
-            .collect();
+        let mut packages = HashSet::new();
+        let mut libraries: HashMap<String, Vec<Library>> = HashMap::new();
+        for mut manifest in repository.files_named("Cargo.toml") {
+            let library = repository
+                .read(&manifest)
+                .ok()
+                .and_then(|content| manifest::library(&String::from_utf8_lossy(&content)));
+            manifest.truncate(manifest.rfind('/').unwrap_or(0));
+            let package = manifest;
+            if let Some((name, path)) = library
+                && let Some(root) = join(&package, path.as_deref().unwrap_or("src/lib.rs"))
+            {
+                libraries.entry(name).or_default().push(Library {
+                    package: package.clone(),
+                    root,
+                });
+            }
+            packages.insert(package);
+        }
 
         Self {
             repository,
             packages,
+            libraries,
         }
     }
 
-    fn role(&self, path: &str) -> Role {
+    // constraint: of the packages that declare a library of the name, the caller's own is meant, else the one that
+    // shares the most leading directories with the caller's package, as a workspace member is beside a vendored copy;
+    // two as near are a guess, as the versions of one crate side by side in a cargo registry are
+    fn library(&self, name: &str, from: &str) -> Option<&Library> {
+        let nearness = |library: &&Library| {
+            if library.package == from {
+                usize::MAX
+            } else {
+                shared_segments(&library.package, from)
+            }
+        };
+        let named = self.libraries.get(name)?;
+        let nearest = named.iter().map(|library| nearness(&library)).max()?;
+        let mut nearest_ones = named.iter().filter(|library| nearness(library) == nearest);
+        let library = nearest_ones.next()?;
+        nearest_ones.next().is_none().then_some(library)
+    }
+
+    // constraint: a path into another crate starts at its library, and each segment after the crate names the module
+    // file Cargo's layout gives it until one names none: a path that ends at a module binds its file, and one that ends
+    // a segment further, at an item named in lower case as a function is, binds the file of the module that holds it;
+    // a longer rest, or a capitalised item, which is a type whose member a path call names, binds nothing
+    fn crate_binding(&self, directive: &RawDirective, package: &str) -> Option<ImportBinding> {
+        let name = directive.names.first()?;
+        let mut segments = directive.spec.split("::");
+        let krate = segments.next()?;
+        let library = self.library(krate, package)?;
+        if !self.repository.contains(&library.root) {
+            return None;
+        }
+        let (file, last) = self.deepest_module(&library.root, krate, segments)?;
+        Some(ImportBinding {
+            alias: (name != last).then(|| name.clone()),
+            target_dir: Some(file),
+            last_segment: last.to_owned(),
+        })
+    }
+
+    fn deepest_module<'s>(
+        &self,
+        root: &str,
+        krate: &'s str,
+        mut segments: impl Iterator<Item = &'s str>,
+    ) -> Option<(String, &'s str)> {
+        let mut file = root.to_owned();
+        let mut module_dir = String::new();
+        push_module_dir(&mut module_dir, root, true);
+        let mut last = krate;
+        while let Some(segment) = segments.next() {
+            let Some(submodule) = self.submodule(&module_dir, segment) else {
+                let item = segments.next().is_none()
+                    && !segment.starts_with(|first: char| first.is_ascii_uppercase());
+                return item.then_some((file, segment));
+            };
+            file = submodule;
+            module_dir.push_str(segment);
+            module_dir.push('/');
+            last = segment;
+        }
+        Some((file, last))
+    }
+
+    fn submodule(&self, module_dir: &str, name: &str) -> Option<String> {
+        let file = format!("{module_dir}{name}.rs");
+        if self.repository.contains(&file) {
+            return Some(file);
+        }
+        let file = format!("{module_dir}{name}/mod.rs");
+        self.repository.contains(&file).then_some(file)
+    }
+
+    fn role<'p>(&self, path: &'p str) -> Role<'p> {
         let mut role = Role {
             test: is_integration_test(path),
             entry: false,
             module_root: matches!(base(path), "lib.rs" | "main.rs" | "mod.rs"),
+            package: "",
         };
         let mut nearest = true;
         for package in ancestors(path).filter(|package| self.packages.contains(*package)) {
@@ -48,6 +143,7 @@ impl<'r> Crates<'r> {
                 let crate_root = is_crate_root(relative);
                 role.module_root |= crate_root;
                 role.entry = crate_root && relative != "src/lib.rs";
+                role.package = package;
                 nearest = false;
             }
             role.test |= is_integration_test(relative);
@@ -121,6 +217,9 @@ impl Resolver for Crates<'_> {
 
         for directive in &directives {
             if directive.form == USE_FORM {
+                extraction
+                    .bindings
+                    .extend(self.crate_binding(directive, role.package));
                 continue;
             }
             let Some(target) = self.module_file(directive, path, role.module_root) else {
@@ -137,11 +236,12 @@ impl Resolver for Crates<'_> {
 }
 
 // constraint: a file is an entry when it is a crate root of its nearest package other than the library, where a
-// top-level `fn main` is what the target runs
-struct Role {
+// top-level `fn main` is what the target runs; a file no package holds takes the empty path as its package
+struct Role<'p> {
     test: bool,
     entry: bool,
     module_root: bool,
+    package: &'p str,
 }
 
 // constraint: the crate roots of a package by Cargo's conventional layout: the library, the main binary, the build

@@ -49,6 +49,15 @@
 //! `build.rs`, and each target under `src/bin/`, `examples/`, `tests/` and `benches/`. A top-level `fn main` in a crate
 //! root other than the library is the entry point.
 //!
+//! A package's library is named by its manifest's `[lib] name`, else by its `[package] name` with `-` read as `_`, and
+//! lies at its `[lib] path`, else at `src/lib.rs`, each value read only from a `key = "value"` on one line under its
+//! table's header, the form Cargo writes, or a `key = 'value'`; a manifest without a `[package] name` declares no
+//! library. A path a file keeps starts at the library its first segment names:
+//! the caller's own package's, else the package that shares the most leading directories with the caller's, and none
+//! where two share as many. Each segment after it names the module file the module layout gives it, and the path
+//! imports the file of the module it ends at, or of the module that holds the lowercase item it ends at; a longer rest
+//! imports nothing. A call of the name, or through it, binds what that file exports at its top level under the name.
+//!
 //! Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is every file below
 //! a `tests` directory outside `src`, counted from the repository root or from a package. A file that a test-gated
 //! `mod` or a test file pulls in is a test include. A `*.gen.rs` or `*_generated.rs` file, or one with a `@generated`
@@ -85,6 +94,7 @@ use kartta_lang::{
 
 use crate::resolve::Crates;
 
+mod manifest;
 mod resolve;
 mod runtime;
 mod walk;
