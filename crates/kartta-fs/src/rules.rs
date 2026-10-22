@@ -39,6 +39,10 @@ impl Rules {
         Ok(())
     }
 
+    pub(crate) fn extend(&mut self, deeper: Self) {
+        self.layers.extend(deeper.layers);
+    }
+
     // constraint: git's precedence: the deepest layer with an opinion decides, and inside a layer the last matching
     // pattern wins; a negation re-includes only what the walk reaches, since an ignored directory is not descended
     pub(crate) fn ignores(&self, path: &str, is_dir: bool) -> bool {
