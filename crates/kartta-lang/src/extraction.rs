@@ -297,7 +297,9 @@ pub struct ImportBinding {
     /// The name as the import writes it — an alias, `.` for an import into the file's own scope, `_` for one that binds
     /// nothing — or `None` when the import binds the module's own name.
     pub alias: Option<String>,
-    /// The imported module's root-relative directory, or `None` when it lies outside the repository.
+    /// The imported module's root-relative directory, or its file where a module is one file, as a Rust module is, or
+    /// `None` when it lies outside the repository. A call through a file binds what that file exports at its top
+    /// level, and so does a call of the bound name itself.
     pub target_dir: Option<String>,
     /// The name the import binds when no alias is written and the module's declared name is unknown: the specifier's
     /// last path segment, or the segment before it where the language's convention skips a version suffix, `yaml` for

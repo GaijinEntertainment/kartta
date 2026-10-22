@@ -54,6 +54,7 @@ pub(crate) enum UseMiss {
 struct Bindings {
     named: Vec<(Str, Option<Str>)>,
     dot_dirs: Vec<Str>,
+    modules: bool,
 }
 
 type Derived<K, V> = RefCell<HashMap<K, V, FixedState>>;
@@ -458,6 +459,9 @@ impl<'g> Cascade<'g> {
             });
             bindings.named.retain(|&(held, _)| held != name);
             bindings.named.push((name, binding.target_dir));
+            bindings.modules |= binding
+                .target_dir
+                .is_some_and(|target| self.graph.slot_of(target).is_some());
         }
         bindings
     }
@@ -505,19 +509,8 @@ impl<'g> Cascade<'g> {
                 .ok_or(Miss::NotAdmitted);
         }
 
-        if let Some(receiver) = call.receiver
-            && let Some(target) = self.binding(call.file, receiver)
-        {
-            if target.is_none() {
-                return Err(Miss::ExternalImport);
-            }
-            return self
-                .imported(
-                    &self.candidates(call),
-                    (call.file, target),
-                    Pick::FreeTarget(caller),
-                )
-                .ok_or(Miss::NotExported);
+        if let Some(bound) = self.through_binding(call) {
+            return bound;
         }
         if self.reads_type_paths()
             && let Some(receiver) = call.receiver
@@ -709,6 +702,62 @@ impl<'g> Cascade<'g> {
             .map(|at| (at, confidence::UNIQUE))
             .or_else(|| self.resolve_by_proximity(call, &candidates, reach))
             .ok_or(Miss::Ambiguous)
+    }
+
+    fn through_binding(&self, call: &Call) -> Option<Result<Bound, Miss>> {
+        let Some(receiver) = call.receiver else {
+            return self.imported_module_export(call).map(Ok);
+        };
+        let Some(target) = self.binding(call.file, receiver)? else {
+            return Some(Err(Miss::ExternalImport));
+        };
+        if let Some(module) = self.graph.slot_of(target) {
+            return self.module_export(call, module).map(Ok);
+        }
+        Some(
+            self.imported(
+                &self.candidates(call),
+                (call.file, Some(target)),
+                Pick::FreeTarget(call.caller_at()),
+            )
+            .ok_or(Miss::NotExported),
+        )
+    }
+
+    // constraint: a bare call names an import only where its file imports a module's file, which no Go import does, so
+    // the calls of a file without one ask nothing of its bindings
+    fn imported_module_export(&self, call: &Call) -> Option<Bound> {
+        if self.graph.file(call.file).bindings.is_empty() {
+            return None;
+        }
+        let bindings = self.bindings(call.file);
+        if !bindings.modules {
+            return None;
+        }
+        let &(_, target) = bindings
+            .named
+            .iter()
+            .find(|&&(held, _)| held == call.callee)?;
+        self.module_export(call, self.graph.slot_of(target?)?)
+    }
+
+    // constraint: a module's file can hold what its module exports through a re-export, a macro or an inline module
+    // its definitions do not show, so a name it does not define at its top level leaves the call to the tiers below
+    fn module_export(&self, call: &Call, module: u32) -> Option<Bound> {
+        let defined = self.graph.in_file(self.named(call.callee), module);
+        let at = self
+            .call_targets(call.caller_at(), defined.iter().copied())
+            .find(|&at| {
+                let symbol = self.graph.sym(at);
+                symbol.owner.is_none()
+                    && symbol.qualified_name == symbol.name
+                    && self.holder(at).is_none()
+                    && !self.graph.flags(at).is_test()
+            })?;
+        self.graph
+            .sym(at)
+            .exported
+            .then_some((at, confidence::IMPORT))
     }
 
     fn unadmitted(&self, call: &Call) -> Miss {

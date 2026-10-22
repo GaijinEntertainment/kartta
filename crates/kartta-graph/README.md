@@ -18,7 +18,10 @@ Names are interned once per graph.
 A file keeps its call sites and uses as its language wrote them, and a query resolves the sites of the name it asks
 about. A call goes through a confidence-ranked cascade: the owner a receiver names, the caller's own scope, its
 imports, its package, its includes and the re-export chains through them, the caller's own owner, the one callable of
-the name, and the callables nearest the caller. A member call, `x.f()`, binds a free function only where its language's
+the name, and the callables nearest the caller. An import binds a package's directory, whose exports a call through it
+reaches, or a module's file: a call through such an import, or of the name it imports, binds what the file exports at
+its top level under the name, and a name the file does not define there leaves the call to the tiers below. A member
+call, `x.f()`, binds a free function only where its language's
 conventions let one stand for what a value holds and `f` names no method the language's runtime gives its own values,
 as `trim` in `line.trim()` does; such a runtime method binds a member of its name only where scope reaches one, never
 the nearest, and the one callable of the name only where its receiver spells that callable's owner, as
