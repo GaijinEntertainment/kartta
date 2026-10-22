@@ -108,7 +108,11 @@
 //! `class`, `struct` or `union` and the name of a class that goes on to a base list or a body, the export macros of
 //! `class TORRENT_EXPORT torrent : public base {}`, while `struct STAT st;` is left as written. Where the first tree
 //! holds an error that spills over three rows or more, the upper-case macro invocations that open its lines are blanked
-//! and the file is parsed again; a `#define` body is left as written. A re-parse that fails keeps the first tree.
+//! and the file is parsed again; a `#define` body is left as written. Where it reads an `#else` or `#elif` as a
+//! directive inside a block the first branch opened, `#ifdef A` `if (x) {` `#else` `if (y) {` `#endif`, every
+//! conditional of the file whose first branch leaves a brace open, or closes one it did not open, is read with that
+//! branch taken, whatever its condition: its directives and its later branches are blanked. A re-parse that fails
+//! keeps the first tree.
 //!
 //! A table's data is blanked too: a brace group of 4 KiB or more that holds nothing but numeric literals, signs,
 //! commas, comments and nested groups of the same, the initializer of `static const float weights[] = { 0.1, ... }`,
