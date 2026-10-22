@@ -16,7 +16,8 @@ name names no type. A bare call of a name a local, a parameter or a capture of t
 value it holds, a function pointer or a callable, and is not recorded. Callables carry an identity of scope, parameter
 types and member qualifiers wherever the walk can establish one without guessing, so a declaration and its definition
 meet in the graph and two overloads stay apart. Function-like macros, a test harness's `TEST(...)` blocks and trailing
-annotation macros included, are never mistaken for definitions.
+annotation macros included, are never mistaken for definitions; a declaration's signature keeps the macros after its
+parameters, and a definition keeps the body the parser reads apart from it after such a macro.
 
 Inside a function's body and its initializer list, each read, write and update of a value is a use: `x.f` and `x->f`
 outside a call's callee, `this->f`, a member a constructor's initializer list or a designated initializer sets, and a
@@ -37,11 +38,13 @@ a class key and the class name, `class TORRENT_EXPORT torrent : base`, and a fun
 belongs — take the declarations around them down with them, and so does a conditional whose first branch leaves a
 brace open or closes one it did not open, `#ifdef A` `if (x) {` `#else` `if (y) {` `#endif`. Where the parser reads such
 an `#else` inside the block the first branch opened, every conditional of that shape in the file is read with its first
-branch taken, whatever its condition. The entries of a large table, its numbers or, in a parser tree-sitter generates,
-its macro calls and enumerators, cost far more tree than the file, so a table's data is blanked too. A file is read as
-such a parser when its text before its first brace includes `tree_sitter/parser.h` and defines `LANGUAGE_VERSION`. The
-parser reads a repaired copy of the file, the same length as the original, while every name and signature comes from
-the original bytes.
+branch taken, whatever its condition. A macro that opens a class member, `PX_FORCE_INLINE const Gu::GeometryUnion&
+get()`, reads as the member's type and can close the class at that member; where the parser misreads one, the members
+of that class lose the macros the parser cannot read past. The entries of a large table, its numbers or, in a parser
+tree-sitter generates, its macro calls and enumerators, cost far more tree than the file, so a table's data is blanked
+too. A file is read as such a parser when its text before its first brace includes `tree_sitter/parser.h` and defines
+`LANGUAGE_VERSION`. The parser reads a repaired copy of the file, the same length as the original, while every name and
+signature comes from the original bytes.
 `design-docs/adr/3.3-repair-what-the-c-plus-plus-grammar-cannot-parse.md` records what each repair was measured to
 recover, the grammar gap left open, and why the extensions claimed are the ones they are;
 `design-docs/adr/3.31-parse-a-c-or-c-plus-plus-table-without-its-numbers.md` records the tables.

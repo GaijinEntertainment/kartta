@@ -44,6 +44,12 @@
 //! point, as is a constructor, a destructor and an operator, which the language calls for an object it makes or ends
 //! and for an expression.
 //!
+//! A declaration's signature keeps the macros after its parameters, `void raise(const char* format, ...)
+//! PRINTF_ATTR(2, 3);`, which the parser reads as a declaration of their own, and a definition keeps the body the
+//! parser reads apart from it: that of an out-of-line constructor after a macro whose initializer list follows its
+//! parameters, `PX_INLINE Sc::Shape::Shape(bool b)` `: mFlags(0)`, and that of a function with a scoped parameter type
+//! and a macro call after its parameters, `void lock(ns::id_t token) ACQUIRE()`.
+//!
 //! A function-like macro is not a symbol: a definition without a return type outside a class, such as a test
 //! harness's `TEST(Suite, Case) {}`, is dropped, as is one inside a class that is not a constructor, a destructor or an
 //! operator, and a trailing annotation macro, `void load() LOCKS(mtx) {}`, never names the symbol it annotates. A macro
@@ -115,8 +121,13 @@
 //! and the file is parsed again; a `#define` body is left as written. Where it reads an `#else` or `#elif` as a
 //! directive inside a block the first branch opened, `#ifdef A` `if (x) {` `#else` `if (y) {` `#endif`, every
 //! conditional of the file whose first branch leaves a brace open, or closes one it did not open, is read with that
-//! branch taken, whatever its condition: its directives and its later branches are blanked. A re-parse that fails
-//! keeps the first tree.
+//! branch taken, whatever its condition: its directives and its later branches are blanked. Where it reads the macro
+//! that opens a class member as the member's type and cannot read on, `PX_FORCE_INLINE const Gu::GeometryUnion& get()`
+//! or `PX_INLINE Shape() : mFlags(0) {}`, a misreading that can close the class at that member, the class's members
+//! up to the brace that closes it lose the macro that opens them before a type and a declarator, a destructor, a
+//! conversion operator or a constructor's initializer list, but where the first tree reads the member as written; the
+//! signature of such a member starts past its macro, and a file whose first tree fails at its top level is left as it
+//! is. A re-parse that fails keeps the first tree.
 //!
 //! A table's data is blanked too: a brace group of 4 KiB or more that holds nothing but numeric literals, signs,
 //! commas, comments and nested groups of the same, the initializer of `static const float weights[] = { 0.1, ... }`,
