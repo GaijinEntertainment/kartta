@@ -18,9 +18,11 @@
 //!
 //! A call records its callee and, where the syntax spells one, its receiver: `self.greet()` and `Self::new()` record
 //! the type of the `impl` or `trait` around them, `Widget::new()` records `Widget`, and `a::Worker::run()` records
-//! `a::Worker` when the file declares that module. A member call on anything but a name records the empty receiver,
-//! and a macro invocation is a call of the macro. A call of an item that a function body declares is a local call of
-//! that item.
+//! `a::Worker` when the file declares that module. A member call on anything but a name records the empty receiver, and
+//! one on a lowercase name other than `other` records the name after a `.`, `.socket` for `socket.connect()`, since
+//! alone it would read as the module that a path call, `socket::connect()`, names; `Fish.write()` records `Fish`. A
+//! macro invocation is a call of the macro. A call of an item that a function body declares is a local call of that
+//! item.
 //!
 //! A `use` of a path that may start at another crate, `use kartta_lang::tree::{self, text as at}`, keeps each name it
 //! binds with the path the name reaches, and so does a path call through such a crate for its receiver,

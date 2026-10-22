@@ -4,10 +4,11 @@
 //!
 //! C++ and JS/TS keep it, and C++ names the class a value is declared as where the walk sees the declaration, the class
 //! the value holds and not an owner its name spells. Python, Ruby, Rust, PHP, Lua, Quirrel, Puppet and daslang record a
-//! value's own name instead, which the graph's receiver tiers read (ADR 3.7). Python, Ruby, Rust and daslang list the
-//! receivers they write for a value of the caller's own type in `Conventions::own_type_receivers`, so in each no other
-//! value's name is taken for one of the caller's type. Ruby and Rust list only `other`, since each records its own
-//! receiver as the name of the caller's owner.
+//! value's own name instead, which the graph's receiver tiers read (ADR 3.7); Rust writes a lowercase one after a `.`,
+//! `.buf`, since alone it is the module that a path call names. Python, Ruby, Rust and daslang list the receivers they
+//! write for a value of the caller's own type in `Conventions::own_type_receivers`, so in each no other value's name is
+//! taken for one of the caller's type. Ruby and Rust list only `other`, since each records its own receiver as the name
+//! of the caller's owner.
 
 use kartta_lang::CallRef;
 use kartta_languages::all;

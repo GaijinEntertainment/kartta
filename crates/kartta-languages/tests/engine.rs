@@ -142,3 +142,23 @@ fn a_rust_call_binds_the_function_its_file_declares_beside_a_module_of_its_name(
         (vec![("text", SymbolKind::Function, "lib.rs")], 0)
     );
 }
+
+#[test]
+fn a_rust_call_on_a_value_binds_the_runtime_method_whose_owner_its_name_spells() {
+    let tree = tree_of(&[
+        (
+            "fs/src/watch.rs",
+            "pub struct Watcher;\n\nimpl Watcher {\n    pub fn drain(&mut self) {}\n}\n",
+        ),
+        (
+            "app/src/follow.rs",
+            "fn caught_up(watcher: &mut Watcher) {\n    watcher.drain();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        callees(&engine, "app/src/follow.rs", "caught_up"),
+        (vec![("drain", SymbolKind::Method, "fs/src/watch.rs")], 0)
+    );
+}

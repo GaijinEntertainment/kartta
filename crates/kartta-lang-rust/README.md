@@ -17,14 +17,16 @@ qualified by the chain of its modules, `a::b::Worker`, except a `macro_rules!`, 
 `impl Trait for Type` adds `Trait` to the parents of the `Type` the file declares under that name or path.
 
 A call records its callee and, where the syntax spells one, its receiver: `self.greet()` and `Self::new()` record the
-type of the `impl` around them, and `Widget::new()` records `Widget`. A macro invocation is a call of the macro. A call
-of an item that a function body declares is a local call of that item. The conventions name the methods and associated
-functions of the standard library that code calls most, so a call of one through a receiver or a path, `name.clone()`
-or `fs::write()`, binds a member of the name and no free function of the repository. They list `other` alone as the
-receiver of a value of the caller's own type, since a call on `self` binds through the type it records, so
-`input.parse()` inside a `parse` binds no member of the caller's own type. They say no call names a module, so
-`tree.walk()` beside a `mod walk;` binds no call to the module, and `text()` in a file that declares `mod text;` and
-`fn text` binds the function.
+type of the `impl` around them, and `Widget::new()` records `Widget`. A method call on a lowercase value other than
+`other` records the name after a `.`, `.socket` for `socket.connect()`, since alone it would read as the module that
+a path call, `socket::connect()`, names; `Fish.write()` records `Fish`. A macro invocation is a call
+of the macro. A call of an item that a function body declares is a local call of that item. The conventions name the
+methods and associated functions of the standard library that code calls most, so a call of one through a receiver or
+a path, `name.clone()` or `fs::write()`, binds a member of the name and no free function of the repository. They list
+`other` alone as the receiver of a value of the caller's own type, since a call on `self` binds through the type it
+records, so `input.parse()` inside a `parse` binds no member of the caller's own type. They say no call names a module,
+so `tree.walk()` beside a `mod walk;` binds no call to the module, and `text()` in a file that declares `mod text;`
+and `fn text` binds the function.
 
 A `use` of a path that may start at another crate, `use kartta_lang::tree::{self, text}`, keeps each name it binds
 with the path the name reaches, and a path call through such a crate, `kartta_walk::walk::run()`, keeps its receiver

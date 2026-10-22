@@ -479,6 +479,29 @@ fn a_member_call_on_an_unnamed_expression_keeps_an_empty_receiver() {
 }
 
 #[test]
+fn a_member_call_on_a_lowercase_value_records_its_name_after_a_dot_and_on_an_item_or_other_its_name()
+ {
+    let raw = extract(
+        b"fn f(socket: Socket, other: &Self) { socket.connect(); other.drain(); Fish.write(); SETTINGS.get(); }\n",
+    );
+    let calls: Vec<(&str, Option<&str>)> = raw
+        .calls
+        .iter()
+        .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+        .collect();
+
+    assert_eq!(
+        calls,
+        [
+            ("connect", Some(".socket")),
+            ("drain", Some("other")),
+            ("write", Some("Fish")),
+            ("get", Some("SETTINGS"))
+        ]
+    );
+}
+
+#[test]
 fn a_closure_opens_no_scope() {
     let raw = extract(
         b"fn outer() {\n    let f = |x: u32| helper(x);\n    f(1);\n}\n\nfn helper(_x: u32) {}\n",
