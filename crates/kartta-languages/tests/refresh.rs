@@ -416,6 +416,59 @@ fn a_changed_go_mod_resolves_every_go_file_again() {
 }
 
 #[test]
+fn a_go_mod_edit_that_only_bumps_a_requirement_resolves_no_go_file_again() {
+    let tree = settled_tree();
+    let mut engine = build(tree.path(), true);
+
+    write(
+        tree.path(),
+        "go.mod",
+        "module example.com/m\n\nrequire github.com/pkg/errors v0.9.1\n",
+    );
+    let refresh = refreshed(engine.refresh_paths(["go.mod"], None));
+
+    assert!(
+        refresh.reconfigured.is_empty(),
+        "{:?}",
+        refresh.reconfigured
+    );
+    assert_eq!((refresh.extracted, refresh.resolved_again), (0, 0));
+    assert_eq!(answers(&engine), answers(&build(tree.path(), false)));
+}
+
+fn callers_of_run(engine: &Engine) -> String {
+    let (_, graph) = engine.graph_of("cmd/run.go").expect("go claims the file");
+    format!("{:#?}", graph.callers("Run", Limits::new(1)))
+}
+
+#[test]
+fn a_local_replace_onto_an_imported_directory_resolves_every_go_file_again() {
+    let tree = settled_tree_with(&[
+        (
+            "cmd/run.go",
+            "package cmd\n\nimport \"example.com/dep/x\"\n\nfunc start() {\n\tx.Run()\n}\n",
+        ),
+        ("third_party/dep/x/x.go", "package x\n\nfunc Run() {}\n"),
+    ]);
+    let mut engine = build(tree.path(), true);
+    let before = callers_of_run(&engine);
+
+    write(
+        tree.path(),
+        "go.mod",
+        "module example.com/m\n\nreplace example.com/dep => ./third_party/dep\n",
+    );
+    let refresh = refreshed(engine.refresh_paths(["go.mod"], None));
+
+    assert_eq!(refresh.reconfigured, ["go"]);
+    assert_eq!(refresh.resolved_again, 4, "every Go file");
+    let fresh = build(tree.path(), false);
+    assert_ne!(callers_of_run(&engine), before, "the replace binds x.Run");
+    assert_eq!(callers_of_run(&engine), callers_of_run(&fresh));
+    assert_eq!(answers(&engine), answers(&fresh));
+}
+
+#[test]
 fn a_crate_renamed_in_its_cargo_toml_resolves_every_rust_file_again() {
     let tree = tempfile::tempdir().expect("a temporary directory");
     for (path, content) in [

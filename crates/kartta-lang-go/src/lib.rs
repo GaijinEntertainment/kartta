@@ -48,6 +48,11 @@
 //! directory holds no files, is external. A resolved import includes every Go file of the package's
 //! directory that is not a test file, except the importing file itself.
 //!
+//! The resolver keeps only what it derived: the modules, their local replaces, and which of them vendor. A resolver
+//! built again over an edit that changes none of them, such as a `require` bump or a `go.mod` added under `vendor`,
+//! [resolves as](kartta_lang::Resolver::resolves_as) the one built before, so an engine that follows the tree
+//! resolves no Go file again for it.
+//!
 //! A `_test.go` file is test code, and a file named `*.pb.go` or carrying the `// Code generated ... DO NOT EDIT.`
 //! banner is generated code. A file under a `vendor` directory is vendored code. A free `func main` in `package main`
 //! is the program's entry point, and so is a free `func init()` in any package, which the runtime calls and no code
