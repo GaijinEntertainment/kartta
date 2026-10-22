@@ -25,6 +25,12 @@ receiver of a value of the caller's own type, since a call on `self` binds throu
 `tree.walk()` beside a `mod walk;` binds no call to the module, and `text()` in a file that declares `mod text;` and
 `fn text` binds the function.
 
+A `use` of a path that may start at another crate, `use kartta_lang::tree::{self, text}`, keeps each name it binds
+with the path the name reaches, and a path call through such a crate, `kartta_walk::walk::run()`, keeps its receiver
+with its path, read through the `use` of its first segment where the file has one. A name the file declares at its top
+level, or binds to two paths anywhere, keeps none; a glob, `as _`, `crate::`, `self::`, `super::`, a capitalised first
+segment and the standard library's crates keep nothing.
+
 A name read where no call takes it, `items.map(helper)`, `Handler { on_event: helper }` or `SETTINGS.enabled`, is a use
 of it, and so are `Self::make` and `Service::make` of the member `make`. A name a pattern binds, a parameter, a `let`,
 a closure's parameter, a match arm or a `for`, hides it from the end of its binding to the end of its block, arm or

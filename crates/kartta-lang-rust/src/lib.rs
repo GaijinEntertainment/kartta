@@ -19,7 +19,14 @@
 //! the type of the `impl` or `trait` around them, `Widget::new()` records `Widget`, and `a::Worker::run()` records
 //! `a::Worker` when the file declares that module. A member call on anything but a name records the empty receiver,
 //! and a macro invocation is a call of the macro. A call of an item that a function body declares is a local call of
-//! that item. A `use` declaration and `extern crate` add no import: a module path names no file.
+//! that item.
+//!
+//! A `use` of a path that may start at another crate, `use kartta_lang::tree::{self, text as at}`, keeps each name it
+//! binds with the path the name reaches, and so does a path call through such a crate for its receiver,
+//! `kartta_walk::walk::run()` for `walk`, read through the `use` of its first segment where the file has one. A name
+//! the file declares at its top level, or binds to two paths anywhere, keeps none, and a glob, `as _`, `crate::`,
+//! `self::`, `super::`, a capitalised first segment and the standard library's crates keep nothing. The paths are
+//! among the file's directives in source order. `extern crate` adds no import.
 //!
 //! A name read where no call takes it is a use of it: an argument, `items.map(helper)`, an element, an operand, a
 //! range's bound, a condition, an indexed value or an index, a returned, a broken-out, a block's or a closure's last

@@ -21,12 +21,14 @@ const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT"])
 mod attributes;
 mod blocks;
 mod calls;
+mod imports;
 mod settle;
 mod syntax;
 mod values;
 
 pub(crate) const MOD_FORM: u32 = 0;
 pub(crate) const MOD_TEST_FORM: u32 = 1;
+pub(crate) const USE_FORM: u32 = 2;
 
 // constraint: a node is judged as a read by its parent's kind and its field there, which only the cursor holds, as
 // `Node::parent` walks down from the root
@@ -49,6 +51,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         while !cursor.goto_next_sibling() {
             if !cursor.goto_parent() {
                 emitter.settle_paths();
+                emitter.record_imports();
                 emitter.apply_pending_parents();
                 emitter.bind_block_item_calls();
                 emitter.bind_value_reads();
@@ -113,6 +116,8 @@ struct Emitter<'a> {
     modules: Vec<ModuleScope>,
     impl_owners: Vec<ImplOwner>,
     receiver_paths: Vec<(usize, String)>,
+    imports: Vec<usize>,
+    written_paths: Vec<(usize, usize)>,
     pending_parents: Vec<(String, String)>,
     generated: bool,
     test_scopes: Vec<usize>,
@@ -138,6 +143,8 @@ impl<'a> Emitter<'a> {
             modules: Vec::new(),
             impl_owners: Vec::new(),
             receiver_paths: Vec::new(),
+            imports: Vec::new(),
+            written_paths: Vec::new(),
             pending_parents: Vec::new(),
             generated: BANNER.opens(source),
             test_scopes: Vec::new(),
@@ -191,7 +198,10 @@ impl Emitter<'_> {
             "static_item" => {
                 self.item(node, SymbolKind::Variable);
             }
-            "use_declaration" => self.use_declaration(node),
+            "use_declaration" => {
+                self.use_declaration(node);
+                self.record_import(node);
+            }
             "let_declaration" => self.let_declaration(node),
             "call_expression" => self.call(node, caller),
             "macro_invocation" => self.macro_call(node, caller),
