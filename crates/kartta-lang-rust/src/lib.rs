@@ -59,7 +59,8 @@
 //! the caller's own package's, else the package that shares the most leading directories with the caller's, and none
 //! where two share as many. Each segment after it names the module file the module layout gives it, and the path
 //! imports the file of the module it ends at, or of the module that holds the lowercase item it ends at; a longer rest
-//! imports nothing. A call of the name, or through it, binds what that file exports at its top level under the name.
+//! imports nothing. A call of the name, or through it, binds what that file exports at its top level under the name, a
+//! function before a type of the name, since a call never names a type that Rust keeps apart from values.
 //!
 //! Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is every file below
 //! a `tests` directory outside `src`, counted from the repository root or from a package. A file that a test-gated
