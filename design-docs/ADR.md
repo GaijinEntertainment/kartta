@@ -149,7 +149,7 @@
   `04-consumer-surfaces`, 2026-10-18, revised 2026-10-21
 - [4.4 Follow the indexed tree, and refresh it on
   request](./adr/4.4-follow-the-indexed-tree-and-refresh-it-on-request.md) — initiative `04-consumer-surfaces`,
-  2026-10-18, revised 2026-10-21
+  2026-10-18, revised 2026-10-22
 
 ## Deprecated
 
