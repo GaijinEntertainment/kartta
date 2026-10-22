@@ -36,7 +36,7 @@
 - [1.15 Refresh an index in place from a second walk](./adr/1.15-refresh-an-index-in-place-from-a-second-walk.md) —
   initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-15
 - [1.16 Refresh the parts of a tree a caller names](./adr/1.16-refresh-the-parts-of-a-tree-a-caller-names.md) —
-  initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-21
+  initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-22
 - [1.17 Follow a tree through its change notifications](./adr/1.17-follow-a-tree-through-its-change-notifications.md) —
   initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-21
 - [1.18 Return the memory a build freed to the system](./adr/1.18-return-the-memory-a-build-freed-to-the-system.md) —
@@ -131,7 +131,7 @@
   revised 2026-10-18
 - [3.33 Follow a tree through the questions each file's resolution
   asked](./adr/3.33-follow-a-tree-through-the-questions-each-file-s-resolution-asked.md) — initiative `03-code-graph`,
-  2026-10-18, revised 2026-10-21
+  2026-10-18, revised 2026-10-22
 - [3.34 Record each read and write of a field or a value, and bind it when a query
   asks](./adr/3.34-record-each-read-and-write-of-a-field-or-a-value.md) — initiative `03-code-graph`, 2026-10-18,
   revised 2026-10-20
