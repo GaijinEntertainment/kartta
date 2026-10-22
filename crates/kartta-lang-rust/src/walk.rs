@@ -7,7 +7,8 @@ use kartta_lang::{
 use tree_sitter::{Node, Tree};
 
 use self::attributes::{
-    attribute_marks_test, mod_body_marks_test, opens_test_scope, path_attribute,
+    attribute_marks_test, marks_imported_method, mod_body_marks_test, opens_test_scope,
+    path_attribute,
 };
 use self::blocks::{BlockCall, BlockItem};
 use self::syntax::{
@@ -382,7 +383,13 @@ impl Emitter<'_> {
             .child_by_field_name("name")
             .map_or_else(String::new, |name| text(name, self.source));
         let exported = is_exported(node, self.source) || self.exported_by_scope();
-        let (owner, qualified_name) = self.qualify(&name);
+        let (owner, qualified_name) = self.imported_method_owner(node).map_or_else(
+            || self.qualify(&name),
+            |owner| {
+                let qualified_name = format!("{owner}::{name}");
+                (Some(owner), qualified_name)
+            },
+        );
         let kind = if owner.is_some() {
             SymbolKind::Method
         } else {
@@ -403,6 +410,25 @@ impl Emitter<'_> {
         let id = self.push_symbol(function);
         self.record_block_item(node, id);
         id
+    }
+
+    // constraint: wasm-bindgen makes a function of an `extern` block that its attribute marks a `method` a method of
+    // the type its first parameter, `this`, refers to, so the function is a member of that type
+    fn imported_method_owner(&self, function: Node<'_>) -> Option<String> {
+        if function.kind() != "function_signature_item"
+            || !marks_imported_method(function, self.source)
+        {
+            return None;
+        }
+        let this = function
+            .child_by_field_name("parameters")?
+            .named_child(0)
+            .filter(|parameter| parameter.kind() == "parameter")?;
+        let base = type_base(this.child_by_field_name("type")?);
+        if base.kind() != "type_identifier" {
+            return None;
+        }
+        self.module_path(&text(base, self.source))
     }
 
     // constraint: a `macro_rules!` keeps its bare name and has no owner, because it is in scope textually rather

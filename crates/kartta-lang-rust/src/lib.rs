@@ -9,8 +9,9 @@
 //! Every function, struct, union, enum, trait, type alias, `macro_rules!`, constant, static and inline module is a
 //! symbol, and so is every named field of a struct and every variant of an enum. A member of a `trait`, or of an `impl`
 //! whose target names a type, is owned by that type and qualified under it, `Service::new`; a member of an `impl` for a
-//! tuple, `dyn` or function type has no owner. An item of an inline module is qualified by the chain of its modules,
-//! `a::b::Worker`, so two modules of one file keep their same-named items apart. A `macro_rules!` keeps
+//! tuple, `dyn` or function type has no owner. A function of an `extern` block that `#[wasm_bindgen(method)]` marks is
+//! owned by the type its first parameter, `this`, refers to. An item of an inline module is qualified by the chain of
+//! its modules, `a::b::Worker`, so two modules of one file keep their same-named items apart. A `macro_rules!` keeps
 //! its bare name, because a macro is in scope by text order rather than by path. A file's own module is named by its
 //! path, which no qualified name carries. `impl Trait for Type` adds `Trait` to the parents of the `Type` the file
 //! declares under that name or path.
