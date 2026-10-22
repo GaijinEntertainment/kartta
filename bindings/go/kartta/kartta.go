@@ -3,7 +3,7 @@ package kartta
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../../crates/kartta-ffi/include
 #cgo LDFLAGS: -lkartta_ffi -lm
-#cgo darwin LDFLAGS: -liconv
+#cgo darwin LDFLAGS: -liconv -framework CoreServices -framework CoreFoundation
 #cgo linux LDFLAGS: -ldl -lpthread
 #include <stdlib.h>
 #include "kartta.h"
@@ -71,10 +71,11 @@ func Open(root string) (*Kartta, error) {
 }
 
 // Close cancels the builds, greps and refreshes in flight, waits for the calls in flight to return, and frees the
-// handle. A build Close cancels answers an error matching both wire.BuildCancelled and ErrClosed, a refresh one
-// matching both wire.RefreshCancelled and ErrClosed, and a grep what it covered, Cancelled set; a call that reaches the
-// handle only after Close freed it answers ErrClosed alone. Of the builds, the greps and the refreshes that have yet to
-// enter the library, only the last 1,024 of each it cancels stop. Closing a closed handle does nothing.
+// handle; the watch of a build that asked for one ends within about a second and lets its watcher go. A build Close
+// cancels answers an error matching both wire.BuildCancelled and ErrClosed, a refresh one matching both
+// wire.RefreshCancelled and ErrClosed, and a grep what it covered, Cancelled set; a call that reaches the handle only
+// after Close freed it answers ErrClosed alone. Of the builds, the greps and the refreshes that have yet to enter the
+// library, only the last 1,024 of each it cancels stop. Closing a closed handle does nothing.
 func (k *Kartta) Close() error {
 	k.tracked.Lock()
 	k.closing = true
@@ -94,7 +95,8 @@ func (k *Kartta) Close() error {
 	return nil
 }
 
-// Build walks the tree and builds the file index and the graphs options name, replacing what an earlier build made.
+// Build walks the tree and builds the file index and the graphs options name, replacing what an earlier build made and
+// ending its watch. With options.Watch the index then follows the tree by itself until the next Build or Close.
 // Once ctx is done, a build still running stops and answers an error matching both wire.BuildCancelled and ctx's
 // cause; one that finished first answers its stats, and the handle holds what it built. A build that fails or stops
 // leaves the handle without an index until the next one finishes. A ctx done before the call answers its cause alone

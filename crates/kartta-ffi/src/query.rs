@@ -42,7 +42,11 @@ pub(crate) const QUERIES: &[(&str, Query)] = &[
 
 fn stats(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let NoParams {} = wire::params(params)?;
-    wire::ok(&StatsAnswer::new(&built.engine, &built.errors))
+    wire::ok(&StatsAnswer::new(
+        &built.engine,
+        &built.errors,
+        built.watch.as_ref(),
+    ))
 }
 
 /// What the `searched` graphs answer for `named`, as [`ask_reading`] asks them, and, where none answers, what the name

@@ -13,7 +13,10 @@
       "removed": 0,
       "resolved_again": 0,
       "tree": true,
-      "walked": 1
+      "walked": 1,
+      "watch": {
+        "following": false
+      }
     }
   },
   "method": "refresh",

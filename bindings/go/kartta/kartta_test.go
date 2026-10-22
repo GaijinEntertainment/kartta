@@ -5,9 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/GaijinEntertainment/kartta/bindings/go/kartta"
 	"github.com/GaijinEntertainment/kartta/bindings/go/wire"
@@ -36,6 +39,38 @@ func open(t *testing.T, root string) *kartta.Kartta {
 	}
 	t.Cleanup(func() { _ = k.Close() })
 	return k
+}
+
+// eventually reports whether done answers true before 20 s pass, asking it every 20 ms.
+func eventually(done func() bool) bool {
+	deadline := time.After(20 * time.Second)
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for !done() {
+		select {
+		case <-deadline:
+			return done()
+		case <-tick.C:
+		}
+	}
+	return true
+}
+
+// watchThreads counts the threads of this process named kartta-watch, the name the library gives a watch's thread.
+func watchThreads(t *testing.T) int {
+	t.Helper()
+	tasks, err := os.ReadDir("/proc/self/task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	watching := 0
+	for _, task := range tasks {
+		name, err := os.ReadFile(filepath.Join("/proc/self/task", task.Name(), "comm"))
+		if err == nil && strings.TrimSpace(string(name)) == "kartta-watch" {
+			watching++
+		}
+	}
+	return watching
 }
 
 func Test_Kartta(t *testing.T) {
@@ -141,6 +176,53 @@ func Test_Kartta(t *testing.T) {
 		}
 		if err := k.Close(); err != nil {
 			t.Fatalf("second Close = %v", err)
+		}
+	})
+
+	t.Run("a watched build takes an edit in without a Refresh", func(t *testing.T) {
+		root := tree(t)
+		k := open(t, root)
+
+		stats, err := k.Build(t.Context(), wire.BuildOptions{Languages: []string{"go"}, Watch: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		edited := "package main\n\nfunc run() {\n\thelper()\n}\n\nfunc helper() {}\n\nfunc extra() {}\n"
+		if err := os.WriteFile(filepath.Join(root, "run.go"), []byte(edited), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		if !stats.Watch.Following {
+			t.Fatalf("Build.Watch = %+v, want following", stats.Watch)
+		}
+		defined := func() bool {
+			found, err := k.Definitions(wire.DefinitionsParams{Name: "extra"})
+			return err == nil && len(found.Matches) == 1 && len(found.Matches[0].Found) == 1
+		}
+		if !eventually(defined) {
+			t.Fatal("the watch never took the edit in")
+		}
+	})
+
+	t.Run("Close ends the watch's thread", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("only Linux lists a process's thread names, under /proc")
+		}
+		k := open(t, tree(t))
+		if _, err := k.Build(t.Context(), wire.BuildOptions{Watch: true}); err != nil {
+			t.Fatal(err)
+		}
+		watching := watchThreads(t)
+
+		if err := k.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		if watching == 0 {
+			t.Fatal("no kartta-watch thread while the build watched")
+		}
+		if !eventually(func() bool { return watchThreads(t) == 0 }) {
+			t.Fatalf("%d kartta-watch threads outlived Close", watchThreads(t))
 		}
 	})
 

@@ -1,5 +1,5 @@
 import {pbkdf2} from 'node:crypto';
-import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setImmediate} from 'node:timers/promises';
@@ -318,6 +318,46 @@ test('cancel with no id stops the refresh that entered, and leaves the index', a
 	expect(await cancelOnceEntered(kartta, refreshed)).toBe(true);
 	await expect(refreshed).rejects.toMatchObject({name: 'KarttaError', code: 'refresh_cancelled'});
 	expect(await kartta.stats()).toStrictEqual(built);
+});
+
+/** Counts the threads of this process named kartta-watch, the name the library gives a watch's thread. */
+function watchThreads(): number {
+	const tasks = '/proc/self/task';
+	return readdirSync(tasks).filter((task) => {
+		try {
+			return readFileSync(path.join(tasks, task, 'comm'), 'utf8').trim() === 'kartta-watch';
+		} catch {
+			// The thread ended between the listing and the read, so it watches nothing.
+			return false;
+		}
+	}).length;
+}
+
+test('a watched build takes an edit in without a refresh', {timeout: 30_000}, async () => {
+	const root = tree(1);
+	const kartta = Kartta.open(root);
+	onTestFinished(() => {
+		kartta.close();
+	});
+	const built = await kartta.build({watch: true});
+
+	grow(root, 1);
+
+	// FSEvents can report the tree's own making, a moment before the build, after the watch began; that names the root,
+	// which the watch takes in by a restart, so the restarts it counts vary.
+	expect(built.watch).toMatchObject({following: true});
+	await expect.poll(async () => kartta.stats(), {timeout: 20_000}).toMatchObject({entries: 2});
+});
+
+test.skipIf(process.platform !== 'linux')('close ends the watch thread', {timeout: 30_000}, async () => {
+	const kartta = Kartta.open(tree(1));
+	await kartta.build({watch: true});
+	const watching = watchThreads();
+
+	kartta.close();
+
+	expect(watching).toBeGreaterThan(0);
+	await expect.poll(watchThreads, {timeout: 20_000}).toBe(0);
 });
 
 const derive = promisify(pbkdf2);
