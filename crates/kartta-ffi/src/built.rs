@@ -1,4 +1,10 @@
-use kartta::{BuildError, CancelToken, Engine, Graph, Unmatched};
+use std::path::Path;
+use std::sync::{PoisonError, RwLock};
+
+use kartta::{
+    BuildError, BuildOptions, CancelToken, Engine, EngineRefresh, Followed, Follower, Graph,
+    Language, Unmatched, Watch,
+};
 use serde::Serialize;
 
 use crate::error::{Error, ErrorCode};
@@ -10,11 +16,96 @@ const NO_STAMPS: &str = concat!(
     r#"query waits, longer than a build; call build {"stamps": true} to refresh"#,
 );
 
+pub(crate) const BROKEN: &str =
+    "a refresh panicked partway, so the engine may hold half of it; call build to build it again";
+
 #[derive(Debug)]
 pub(crate) struct Built {
     pub(crate) engine: Engine,
     pub(crate) errors: StoredErrors,
     pub(crate) stamps: bool,
+    /// What the follow of a build that asked for one reports; `None` when the build asked for none.
+    pub(crate) watch: Option<Watch>,
+}
+
+/// A built engine as the handle shares it: every query reads it under one lock and a refresh writes it under that lock,
+/// so a query waits for a refresh under way. The follow of a build that asked for one refreshes it the same way until
+/// the build after it or the handle's drop cancels the follow's own token, which `cancel` never reaches.
+#[derive(Debug)]
+pub(crate) struct Shared {
+    pub(crate) built: RwLock<Built>,
+    follow: CancelToken,
+}
+
+impl Shared {
+    /// Builds `root` as [`Engine::build`] does.
+    pub(crate) fn build(
+        root: &Path,
+        options: &BuildOptions,
+        languages: Vec<Box<dyn Language>>,
+        cancel: &CancelToken,
+    ) -> Result<Self, BuildError> {
+        let outcome = Engine::build(root, options, languages, Some(cancel))?;
+        Ok(Self::new(outcome, options.stamps, None))
+    }
+
+    /// Builds `root` as [`Engine::build_watched`] does, with the changes its watcher holds taken in, and answers the
+    /// follower that follows the tree from there, or none once the watch is off.
+    pub(crate) fn build_watched(
+        root: &Path,
+        options: &BuildOptions,
+        languages: Vec<Box<dyn Language>>,
+        cancel: &CancelToken,
+    ) -> Result<(Self, Option<Follower>), BuildError> {
+        let (outcome, watcher) = Engine::build_watched(root, options, languages, Some(cancel))?;
+        let shared = Self::new(outcome, options.stamps, Some(Watch::default()));
+        let follower = Follower::caught_up(&shared, watcher);
+        Ok((shared, follower))
+    }
+
+    fn new(outcome: kartta::EngineOutcome, stamps: bool, watch: Option<Watch>) -> Self {
+        Self {
+            built: RwLock::new(Built {
+                errors: StoredErrors::new(&outcome.errors),
+                engine: outcome.engine,
+                stamps,
+                watch,
+            }),
+            follow: CancelToken::new(),
+        }
+    }
+
+    /// Ends the follow, if the build asked for one: a refresh of it under way stops before its walk ends, and the
+    /// follow ends at its next look.
+    pub(crate) fn unfollow(&self) {
+        self.follow.cancel();
+    }
+}
+
+impl Followed for Shared {
+    fn token(&self) -> &CancelToken {
+        &self.follow
+    }
+
+    fn refreshed<T>(
+        &self,
+        refresh: impl FnOnce(&mut Engine) -> Result<(EngineRefresh, T), BuildError>,
+    ) -> Result<T, String> {
+        let mut built = self.built.write().map_err(|_| BROKEN.to_owned())?;
+        let (refresh, walked) = refresh(&mut built.engine).map_err(|error| error.to_string())?;
+        let failed = StoredErrors::new(refresh.errors());
+        let Built { engine, errors, .. } = &mut *built;
+        errors.replace(engine.index().root(), &refresh.index.walked, failed);
+        drop(built);
+        Ok(walked)
+    }
+
+    fn watched(&self, watch: Watch) {
+        self.built
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .watch = Some(watch);
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -116,7 +207,7 @@ impl Built {
             ),
         })?;
         let failed = StoredErrors::new(refresh.errors());
-        let answer = wire::ok(&RefreshAnswer::new(&refresh, &failed));
+        let answer = wire::ok(&RefreshAnswer::new(&refresh, &failed, self.watch.as_ref()));
         self.errors
             .replace(self.engine.index().root(), &refresh.index.walked, failed);
         answer

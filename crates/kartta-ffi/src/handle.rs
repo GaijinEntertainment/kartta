@@ -3,17 +3,17 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
-use kartta::{BuildError, CancelToken, Engine};
+use kartta::{BuildError, CancelToken};
 use serde::Serialize;
 
 use crate::ABI_VERSION;
-use crate::built::Built;
+use crate::built::{BROKEN, Built, Shared};
 use crate::error::{Error, ErrorCode};
 use crate::query::QUERIES;
 use crate::wire::files::{GrepParams, GrepView};
 use crate::wire::{
     self, BuildParams, By, CancelAnswer, CancelParams, NoParams, OpenParams, RefreshParams,
-    StatsAnswer, StoredErrors,
+    StatsAnswer,
 };
 
 /// One tree, and the engine its last finished build made of it: what a C handle points to.
@@ -29,10 +29,16 @@ use crate::wire::{
 /// for a refresh under way, and refreshes run one at a time. A build cancels the refreshes in flight as it drops the
 /// engine they refresh, and does not wait for them: a cancel stops a refresh only before its walk ends, so one past it
 /// keeps the dropped engine until it answers, as a running query does.
+///
+/// A build that asks to `watch` leaves a [`kartta::Follower`] refreshing the engine from each change the operating
+/// system reports, as a refresh does, under a token of its own that `cancel` never reaches. The next build cancels it
+/// before it empties the slot, and so does dropping the handle; the follow then ends at its next look.
+///
+/// The locks are taken in one order: the refreshes' registry, then the builds', then the slot, then the engine's own.
 #[derive(Debug)]
 pub struct Kartta {
     root: PathBuf,
-    built: RwLock<Option<Arc<RwLock<Built>>>>,
+    built: RwLock<Option<Arc<Shared>>>,
     builds: Mutex<Calls>,
     greps: Mutex<Calls>,
     refreshes: Mutex<Calls>,
@@ -157,30 +163,45 @@ impl Kartta {
         let _one_build = lock(&self.one_build_at_a_time);
         let mut refreshes = lock(&self.refreshes);
         refreshes.cancel(None);
-        *self.built.write().unwrap_or_else(PoisonError::into_inner) = None;
+        let mut slot = self.built.write().unwrap_or_else(PoisonError::into_inner);
+        if let Some(replaced) = &*slot {
+            replaced.unfollow();
+        }
+        *slot = None;
+        drop(slot);
         drop(refreshes);
         let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
-            Engine::build(&self.root, &options, languages, Some(&token))
+            if params.watch {
+                Shared::build_watched(&self.root, &options, languages, &token)
+            } else {
+                Shared::build(&self.root, &options, languages, &token).map(|shared| (shared, None))
+            }
         }));
 
         let mut builds = lock(&self.builds);
         builds.leave(ticket);
-        let built = match outcome {
+        let (shared, follower) = match outcome {
             Ok(Ok(_) | Err(BuildError::Cancelled)) if token.is_cancelled() => Err(Error::new(
                 ErrorCode::BuildCancelled,
                 "a cancel stopped the build; the handle holds no index until a build finishes",
             )),
-            Ok(Ok(outcome)) => Ok(Built {
-                errors: StoredErrors::new(&outcome.errors),
-                engine: outcome.engine,
-                stamps: options.stamps,
-            }),
+            Ok(Ok(built)) => Ok(built),
             Ok(Err(error)) => Err(Error::new(ErrorCode::BuildFailed, error.to_string())),
             Err(payload) => Err(Error::panicked(payload.as_ref())),
         }?;
-        let answer = wire::ok(&StatsAnswer::new(&built.engine, &built.errors));
-        *self.built.write().unwrap_or_else(PoisonError::into_inner) =
-            Some(Arc::new(RwLock::new(built)));
+        let shared = Arc::new(shared);
+        if let Some(follower) = follower {
+            drop(follower.follow(&shared));
+        }
+        let answer = {
+            let built = read(&shared)?;
+            wire::ok(&StatsAnswer::new(
+                &built.engine,
+                &built.errors,
+                built.watch.as_ref(),
+            ))
+        };
+        *self.built.write().unwrap_or_else(PoisonError::into_inner) = Some(shared);
         drop(builds);
         answer
     }
@@ -207,7 +228,11 @@ impl Kartta {
             (self.built()?, refreshes.enter(params.id, params.binding_id))
         };
         let refreshed = panic::catch_unwind(AssertUnwindSafe(|| {
-            built.write().map_err(|_| broken())?.refresh(paths, &token)
+            built
+                .built
+                .write()
+                .map_err(|_| broken())?
+                .refresh(paths, &token)
         }));
         lock(&self.refreshes).leave(ticket);
 
@@ -229,7 +254,7 @@ impl Kartta {
         }
     }
 
-    fn built(&self) -> Result<Arc<RwLock<Built>>, Error> {
+    fn built(&self) -> Result<Arc<Shared>, Error> {
         if let Some(built) = self.finished() {
             return Ok(built);
         }
@@ -253,7 +278,7 @@ impl Kartta {
         }
     }
 
-    fn finished(&self) -> Option<Arc<RwLock<Built>>> {
+    fn finished(&self) -> Option<Arc<Shared>> {
         self.built
             .read()
             .unwrap_or_else(PoisonError::into_inner)
@@ -261,16 +286,23 @@ impl Kartta {
     }
 }
 
+/// Ends the follow of the engine the handle holds, which a query or a refresh still running may outlive the handle
+/// with.
+impl Drop for Kartta {
+    fn drop(&mut self) {
+        if let Some(shared) = &*self.built.get_mut().unwrap_or_else(PoisonError::into_inner) {
+            shared.unfollow();
+        }
+    }
+}
+
 /// The engine to answer from, or the error that names the fix once a call panicked while it changed the engine.
-fn read(built: &RwLock<Built>) -> Result<RwLockReadGuard<'_, Built>, Error> {
-    built.read().map_err(|_| broken())
+fn read(shared: &Shared) -> Result<RwLockReadGuard<'_, Built>, Error> {
+    shared.built.read().map_err(|_| broken())
 }
 
 fn broken() -> Error {
-    Error::new(
-        ErrorCode::Internal,
-        "a refresh panicked partway, so the engine may hold half of it; call build to build it again",
-    )
+    Error::new(ErrorCode::Internal, BROKEN)
 }
 
 fn methods() -> Vec<&'static str> {
@@ -345,13 +377,14 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 mod tests {
     use std::fs;
     use std::panic::{self, AssertUnwindSafe};
-    use std::sync::Barrier;
+    use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;
 
+    use kartta::Followed;
     use serde_json::Value;
 
-    use super::{By, CANCELLED_AHEAD_LIMIT, Calls, CancelParams, Kartta, lock};
+    use super::{By, CANCELLED_AHEAD_LIMIT, Calls, CancelParams, Kartta, Shared, lock};
 
     fn handle() -> (tempfile::TempDir, Kartta) {
         let tree = tempfile::tempdir().expect("a temporary directory");
@@ -371,7 +404,7 @@ mod tests {
     fn a_query_waits_while_the_engine_is_written() {
         let (tree, kartta) = built();
         let engine = kartta.finished().expect("an engine");
-        let mut written = engine.write().expect("the engine is not poisoned");
+        let mut written = engine.built.write().expect("the engine is not poisoned");
         let asking = Barrier::new(2);
 
         thread::scope(|scope| {
@@ -400,7 +433,7 @@ mod tests {
         let (_tree, kartta) = built();
         let engine = kartta.finished().expect("an engine");
         let panicked = panic::catch_unwind(AssertUnwindSafe(|| {
-            let _written = engine.write().expect("the engine is not poisoned");
+            let _written = engine.built.write().expect("the engine is not poisoned");
             panic!("halfway");
         }));
         assert!(panicked.is_err());
@@ -434,6 +467,46 @@ mod tests {
 
         assert!(rebuilt.get("ok").is_some(), "{rebuilt}");
         assert!(refresh.is_cancelled());
+    }
+
+    /// The engine of a build of `kartta` that watches its tree.
+    fn watched(kartta: &Kartta) -> Arc<Shared> {
+        let built: Value =
+            serde_json::from_slice(&kartta.call("build", br#"{"watch": true}"#)).expect("JSON");
+        assert_eq!(built["ok"]["watch"]["following"], true, "{built}");
+        kartta.finished().expect("an engine")
+    }
+
+    #[test]
+    fn a_cancel_naming_no_call_leaves_the_follow_running() {
+        let (_tree, kartta) = handle();
+        let engine = watched(&kartta);
+
+        let cancelled = kartta.call("cancel", b"{}");
+
+        assert_eq!(cancelled, br#"{"ok":{"stopped":false}}"#);
+        assert!(!engine.token().is_cancelled());
+    }
+
+    #[test]
+    fn a_build_ends_the_follow_of_the_engine_it_replaces() {
+        let (_tree, kartta) = handle();
+        let replaced = watched(&kartta);
+
+        let rebuilt = kartta.call("build", b"");
+
+        assert!(rebuilt.starts_with(br#"{"ok":"#));
+        assert!(replaced.token().is_cancelled());
+    }
+
+    #[test]
+    fn dropping_the_handle_ends_the_follow_of_its_engine() {
+        let (_tree, kartta) = handle();
+        let engine = watched(&kartta);
+
+        drop(kartta);
+
+        assert!(engine.token().is_cancelled());
     }
 
     #[test]

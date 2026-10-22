@@ -124,7 +124,8 @@ export class Kartta {
 	}
 
 	/**
-	 * Walks the tree and builds the file index and the graphs `options` name, replacing what an earlier build made.
+	 * Walks the tree and builds the file index and the graphs `options` name, replacing what an earlier build made and
+	 * ending its watch. With `watch` set, the index follows the tree until the next build or `close`.
 	 *
 	 * Once `signal` aborts, a build still running stops and rejects with `build_cancelled`, the signal's reason its
 	 * cause; one that finished first answers its stats, and the handle holds what it built. A build that fails or stops
@@ -340,8 +341,9 @@ export class Kartta {
 	 * Cancels the builds, greps and refreshes in flight and lets the engine go once the calls in flight answer. A build
 	 * this cancels rejects with `build_cancelled` and a refresh with `refresh_cancelled`, a `closed` error the cause of
 	 * each, and a grep answers what it covered, `cancelled` set; of the builds, the greps and the refreshes that have yet
-	 * to enter the library, only the last 1,024 of each it cancels stop. Every later call rejects with `closed`. Closing
-	 * a closed handle does nothing.
+	 * to enter the library, only the last 1,024 of each it cancels stop. The watch of a build that asked for one ends
+	 * within about a second of the engine going, and lets its watcher go. Every later call rejects with `closed`.
+	 * Closing a closed handle does nothing.
 	 */
 	close(): void {
 		const handle = this.#handle;

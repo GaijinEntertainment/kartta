@@ -12,6 +12,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use kartta_ffi::Kartta;
 use serde_json::{Value, json};
@@ -1441,4 +1442,65 @@ fn a_refresh_that_reads_a_failed_file_takes_it_out_of_stats_errors() {
         ok(&kartta, "stats", &Value::Null)["errors"],
         json!({ "total": 0, "listed": [] })
     );
+}
+
+/// The file `definitions` answers for `name`, once it answers one, or `Null` once 20 s pass.
+fn defined_soon(kartta: &Kartta, name: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let found = ok(kartta, "definitions", &json!({ "name": name }));
+        let file = &found["matches"][0]["found"][0]["definition"]["file"];
+        if !file.is_null() || Instant::now() > deadline {
+            return file.clone();
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn a_build_that_watches_takes_an_edit_in_without_a_refresh() {
+    let tree = tree();
+    let kartta = open(tree.path());
+
+    let built = ok(&kartta, "build", &json!({ "watch": true }));
+    fs::write(
+        tree.path().join("run.go"),
+        "package main\n\nfunc run() {\n\thelper()\n}\n\nfunc helper() {}\n\nfunc extra() {}\n",
+    )
+    .expect("run.go");
+
+    // constraint: FSEvents can report the tree's own making, a moment before the build, after the watch began; that
+    // names the root, which the watch takes in by a restart, so the restarts it counts vary
+    assert_eq!(built["watch"]["following"], true, "{built}");
+    assert_eq!(defined_soon(&kartta, "extra"), "run.go");
+    let stats = ok(&kartta, "stats", &Value::Null);
+    assert_eq!(stats["watch"]["following"], true, "{stats}");
+}
+
+#[test]
+fn a_build_that_watches_keeps_stamps_and_refuses_to_build_without_them() {
+    let tree = tree();
+    let kartta = open(tree.path());
+
+    let refused = call(&kartta, "build", &json!({ "watch": true, "stamps": false }));
+    ok(&kartta, "build", &json!({ "watch": true }));
+    let refreshed = ok(&kartta, "refresh", &json!({ "paths": [] }));
+
+    assert_eq!(refused["err"]["code"], "invalid_params", "{refused}");
+    assert!(mentions(&refused["err"], "stamps"), "{refused}");
+    assert_eq!(refreshed["watch"]["following"], true, "{refreshed}");
+}
+
+#[test]
+fn a_build_that_does_not_watch_follows_nothing_and_gives_no_reason() {
+    let tree = tree();
+    let kartta = stamped(tree.path());
+
+    let refreshed = ok(&kartta, "refresh", &json!({ "paths": [] }));
+
+    assert_eq!(
+        ok(&kartta, "stats", &Value::Null)["watch"],
+        json!({ "following": false })
+    );
+    assert_eq!(refreshed["watch"], json!({ "following": false }));
 }

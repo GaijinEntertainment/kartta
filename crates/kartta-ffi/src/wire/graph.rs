@@ -223,7 +223,7 @@ struct WalkDef<'g> {
     clippy::trivially_copy_pass_by_ref,
     reason = "serde passes a field to skip_serializing_if by reference"
 )]
-const fn is_zero(count: &usize) -> bool {
+pub(crate) const fn is_zero(count: &usize) -> bool {
     *count == 0
 }
 

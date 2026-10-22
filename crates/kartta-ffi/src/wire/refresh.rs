@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use kartta::{EngineRefresh, Widened};
+use kartta::{EngineRefresh, Watch, Widened};
 use serde::{Deserialize, Serialize};
 
-use super::build::StoredErrors;
+use super::build::{StoredErrors, WatchView};
 use crate::error::{Error, ErrorCode};
 
 #[derive(Debug, Default, Deserialize)]
@@ -50,6 +50,7 @@ pub(crate) struct RefreshAnswer<'r> {
     #[serde(skip_serializing_if = "Option::is_none")]
     widened: Option<WidenedView>,
     errors: &'r StoredErrors,
+    watch: WatchView<'r>,
 }
 
 #[derive(Serialize)]
@@ -60,8 +61,13 @@ struct WidenedView {
 }
 
 impl<'r> RefreshAnswer<'r> {
-    /// What `refresh` did, and `failed`, the failures it collected.
-    pub(crate) fn new(refresh: &'r EngineRefresh, failed: &'r StoredErrors) -> Self {
+    /// What `refresh` did, `failed`, the failures it collected, and `watch`, what the engine's follow reports, `None`
+    /// for a build that asked for none.
+    pub(crate) fn new(
+        refresh: &'r EngineRefresh,
+        failed: &'r StoredErrors,
+        watch: Option<&'r Watch>,
+    ) -> Self {
         let walked = &refresh.index.walked;
         Self {
             walked: walked.len(),
@@ -85,6 +91,7 @@ impl<'r> RefreshAnswer<'r> {
                 },
             ),
             errors: failed,
+            watch: WatchView::new(watch),
         }
     }
 }

@@ -6,11 +6,11 @@ use std::time::Duration;
 
 use kartta::{
     BinaryExtensions, BuildError, BuildOptions, ContentIndexStorage, Engine, IgnoreSources,
-    Language, LanguageFiles, PrunedNames, Stats,
+    Language, LanguageFiles, PrunedNames, Stats, Watch,
 };
 use serde::{Deserialize, Serialize, Serializer};
 
-use super::graph::Wired;
+use super::graph::{Wired, is_zero};
 use crate::error::{Error, ErrorCode};
 
 const ERRORS_LISTED: usize = 20;
@@ -28,7 +28,8 @@ pub(crate) struct BuildParams {
     content_index: Option<ContentIndex>,
     content_cache: Option<PathBuf>,
     content_cache_ttl_secs: u64,
-    stamps: bool,
+    stamps: Option<bool>,
+    pub(crate) watch: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -90,10 +91,18 @@ impl BuildParams {
         });
         options.content_cache.clone_from(&self.content_cache);
         options.content_cache_ttl = Duration::from_secs(self.content_cache_ttl_secs);
-        options.stamps = self.stamps;
+        options.stamps = match self.stamps {
+            Some(false) if self.watch => return Err(invalid(WATCH_WITHOUT_STAMPS)),
+            stamps => stamps.unwrap_or(self.watch),
+        };
         Ok(options)
     }
 }
+
+const WATCH_WITHOUT_STAMPS: &str = concat!(
+    "watch refreshes the engine from each change, and without stamps each refresh would read every file again and ",
+    "build every graph again; leave stamps out, which watch sets, or set it true"
+);
 
 impl SetChange {
     fn apply<S, E: Display>(
@@ -226,6 +235,30 @@ pub(crate) struct StatsAnswer<'e> {
     #[serde(skip_serializing_if = "Option::is_none")]
     content_index: Option<ContentIndexView>,
     errors: &'e StoredErrors,
+    watch: WatchView<'e>,
+}
+
+/// Whether the engine follows its tree: `following` while a watcher refreshes it from each change, else `reason` says
+/// why the watch a build asked for is off, and a build that asked for none carries no reason. `restarts` counts the
+/// watchers started over, absent when none was.
+#[derive(Serialize)]
+pub(crate) struct WatchView<'e> {
+    following: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'e str>,
+    #[serde(skip_serializing_if = "is_zero")]
+    restarts: usize,
+}
+
+impl<'e> WatchView<'e> {
+    /// What `watch` reports, `None` for a build that asked for no watch.
+    pub(crate) fn new(watch: Option<&'e Watch>) -> Self {
+        Self {
+            following: watch.is_some_and(|watch| watch.off.is_none()),
+            reason: watch.and_then(|watch| watch.off.as_deref()),
+            restarts: watch.map_or(0, |watch| watch.restarts),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -243,7 +276,11 @@ struct ContentIndexView {
 }
 
 impl<'e> StatsAnswer<'e> {
-    pub(crate) fn new(engine: &'e Engine, errors: &'e StoredErrors) -> Self {
+    pub(crate) fn new(
+        engine: &'e Engine,
+        errors: &'e StoredErrors,
+        watch: Option<&'e Watch>,
+    ) -> Self {
         let stats = engine.stats();
         Self {
             entries: engine.index().len(),
@@ -265,6 +302,7 @@ impl<'e> StatsAnswer<'e> {
                     bytes: index.bytes(),
                 }),
             errors,
+            watch: WatchView::new(watch),
         }
     }
 }
@@ -293,6 +331,30 @@ mod tests {
     fn a_build_keeps_stamps_only_when_asked() {
         assert!(options(r#"{ "stamps": true }"#).stamps);
         assert!(!options("{}").stamps);
+    }
+
+    #[test]
+    fn a_watch_answers_why_it_is_off_and_how_often_it_restarted_and_no_watch_says_neither() {
+        let off = Watch {
+            off: Some("the watch stopped: gone".to_owned()),
+            restarts: 2,
+        };
+        let following = Watch {
+            off: None,
+            restarts: 1,
+        };
+        let answer =
+            |watch: Option<&Watch>| serde_json::to_value(WatchView::new(watch)).expect("JSON");
+
+        assert_eq!(
+            answer(Some(&off)),
+            serde_json::json!({ "following": false, "reason": "the watch stopped: gone", "restarts": 2 })
+        );
+        assert_eq!(
+            answer(Some(&following)),
+            serde_json::json!({ "following": true, "restarts": 1 })
+        );
+        assert_eq!(answer(None), serde_json::json!({ "following": false }));
     }
 
     fn stored(failures: &[(Option<&str>, &str)]) -> StoredErrors {

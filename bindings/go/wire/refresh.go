@@ -39,6 +39,8 @@ type Refresh struct {
 	Widened *Widened `json:"widened,omitempty"`
 	// Errors are the failures the refresh collected; Stats lists those the tree fails now.
 	Errors BuildErrors `json:"errors"`
+	// Watch says whether the index follows its tree.
+	Watch Watch `json:"watch"`
 }
 
 // Widened says how a refresh of named paths came to walk the whole tree.
