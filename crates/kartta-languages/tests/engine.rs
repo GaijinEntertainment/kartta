@@ -1,8 +1,8 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
-//! what that crate exports, and a Rust call on a value, on `self` or through a type binds no free function, not even
-//! through a value named like a module the file imports, while a call on a value still binds the one runtime method
-//! whose owner the value's name spells.
+//! what that crate exports, through a `use` inside a function body only from that body, and a Rust call on a value, on
+//! `self` or through a type binds no free function, not even through a value named like a module the file imports,
+//! while a call on a value still binds the one runtime method whose owner the value's name spells.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -11,7 +11,7 @@
 
 use std::fs;
 
-use kartta::{BuildOptions, Engine, Limits, SymbolKind};
+use kartta::{BuildOptions, Engine, Limits, SymbolKind, confidence};
 use tempfile::TempDir;
 
 fn tree_of(files: &[(&str, &str)]) -> TempDir {
@@ -163,6 +163,49 @@ fn a_rust_call_through_a_use_binds_the_function_beside_a_struct_of_its_name() {
             vec![("timespec", SymbolKind::Struct, "crates/sys/src/lib.rs")],
             0
         )
+    );
+}
+
+fn bound_through_an_import<'e>(engine: &'e Engine, path: &str, name: &str) -> Vec<&'e str> {
+    let (_, graph) = engine.graph_of(path).expect("a language claims the file");
+    let callees = graph
+        .callees(name, Limits::new(1))
+        .expect("the name is defined");
+    (callees.reached.iter())
+        .filter(|reached| reached.confidence == confidence::IMPORT)
+        .map(|reached| reached.symbol.file)
+        .collect()
+}
+
+#[test]
+fn a_rust_use_inside_a_function_binds_no_call_outside_its_block() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/other/Cargo.toml",
+            "[package]\nname = \"other-crate\"\n",
+        ),
+        ("crates/other/src/lib.rs", "pub mod m;\n"),
+        ("crates/other/src/m.rs", "pub fn f() {}\n"),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "mod beside;\n\nfn scoped() {\n    use other_crate::m;\n    m::f();\n}\n",
+        ),
+        (
+            "crates/app/src/beside.rs",
+            "fn importing() {\n    use other_crate::m;\n}\n\nfn unscoped() {\n    m::f();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/lib.rs", "scoped"),
+        ["crates/other/src/m.rs"]
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/beside.rs", "unscoped"),
+        Vec::<&str>::new()
     );
 }
 

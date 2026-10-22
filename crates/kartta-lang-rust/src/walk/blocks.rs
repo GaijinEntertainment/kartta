@@ -83,19 +83,28 @@ impl Emitter<'_> {
         });
     }
 
-    pub(super) fn use_declaration(&mut self, node: Node<'_>) {
-        if self.functions.is_empty() {
-            return;
+    // constraint: the names of a `use` are its directives from `first_directive` on, each in scope in the whole block
+    pub(super) fn scope_use_to_block(&mut self, block: Range<usize>, first_directive: usize) {
+        for at in first_directive..self.raw.directives.len() {
+            let name = self.raw.directives[at].names[0].clone();
+            self.push_block_item(name, block.clone(), BlockItemKind::Import);
         }
-        let (Some(block), Some(argument)) = (node.parent(), node.child_by_field_name("argument"))
-        else {
-            return;
-        };
-        let mut names = Vec::new();
-        use_names(argument, self.source, &mut names);
-        for name in names {
-            self.push_block_item(name, block.byte_range(), BlockItemKind::Import);
-        }
+    }
+
+    pub(super) fn in_use_scope(&self, name: &str, at: usize, module: Option<usize>) -> bool {
+        self.block_items.get(name).is_some_and(|items| {
+            items.iter().any(|item| {
+                matches!(item.kind, BlockItemKind::Import)
+                    && item.module == module
+                    && item.scope.contains(&at)
+            })
+        })
+    }
+
+    pub(super) fn plain_block_calls(&self) -> impl Iterator<Item = (usize, usize, Option<usize>)> {
+        (self.block_calls.iter())
+            .filter(|call| matches!(call.form, CallForm::Plain))
+            .map(|call| (call.index, call.at, call.module))
     }
 
     pub(super) fn let_declaration(&mut self, node: Node<'_>) {
@@ -278,24 +287,6 @@ fn names_a_value(node: Node<'_>) -> bool {
         && node
             .child_by_field_name("body")
             .is_none_or(|body| body.kind() != "field_declaration_list")
-}
-
-fn use_names(node: Node<'_>, source: &[u8], names: &mut Vec<String>) {
-    let field = |name| node.child_by_field_name(name);
-    match node.kind() {
-        "identifier" => names.push(text(node, source)),
-        "scoped_identifier" => field("name")
-            .into_iter()
-            .for_each(|name| use_names(name, source, names)),
-        "use_as_clause" => field("alias")
-            .into_iter()
-            .for_each(|alias| use_names(alias, source, names)),
-        "scoped_use_list" => field("list")
-            .into_iter()
-            .for_each(|list| use_names(list, source, names)),
-        "use_list" => named_child_nodes(node).for_each(|item| use_names(item, source, names)),
-        _ => {}
-    }
 }
 
 fn pattern_names(node: Node<'_>, source: &[u8], names: &mut Vec<String>) {

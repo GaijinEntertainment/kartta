@@ -117,8 +117,8 @@ struct Emitter<'a> {
     modules: Vec<ModuleScope>,
     impl_owners: Vec<ImplOwner>,
     receiver_paths: Vec<(usize, String)>,
-    imports: Vec<usize>,
-    written_paths: Vec<(usize, usize)>,
+    imports: Vec<(usize, bool)>,
+    written_paths: Vec<imports::WrittenPath>,
     pending_parents: Vec<(String, String)>,
     generated: bool,
     test_scopes: Vec<usize>,
@@ -199,10 +199,7 @@ impl Emitter<'_> {
             "static_item" => {
                 self.item(node, SymbolKind::Variable);
             }
-            "use_declaration" => {
-                self.use_declaration(node);
-                self.record_import(node);
-            }
+            "use_declaration" => self.record_import(node),
             "let_declaration" => self.let_declaration(node),
             "call_expression" => self.call(node, caller),
             "macro_invocation" => self.macro_call(node, caller),
