@@ -51,10 +51,14 @@ a bare name in a member reads the class first, as in C++, the tiers follow the i
 receiver, and a bare name in a member, binds the own class's field, else the field of the one base the class-scope
 lookup of a bare call certainly finds; a member on a value binds the field of the class its declaration names or of the
 one base of it that declares the name, else the one field of the name in the file, then in its includes, then, for a
-name at most 32 fields share, in the files those reach; a bare name past the class binds the one namespace value of the
-name its file, else its includes, else, for a name at most 32 values share, the files those reach declare. Each tier's
-confidence is a constant of `kartta_graph::confidence`. No edge is stored, so nothing a file holds goes stale when
-another file changes.
+name at most 32 fields share, in the files those reach. Of namesake classes that hold the field, the own class is the
+method's, and a declared one is the one its spelling names from the use's scope outward; namesakes of one qualified
+name, a template and its specializations, bind none, nor do namesakes the spelling names none of; a method taken as a
+value, `&Box<T>::fill`, binds the first of namesakes of one qualified name, as a call does. Of namesakes without the
+field, the bases of the one the spelling names are searched, else those of the first. A bare name past the
+class binds the one namespace value of the name its file, else its includes, else, for a name at most 32 values share,
+the files those reach declare. Each tier's confidence is a constant of `kartta_graph::confidence`. No edge is stored, so
+nothing a file holds goes stale when another file changes.
 
 ## Answers
 

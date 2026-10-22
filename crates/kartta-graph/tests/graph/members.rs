@@ -765,6 +765,133 @@ fn a_member_on_a_declared_value_binds_the_field_of_the_class_its_declaration_nam
     assert_eq!(lines_of(&graph, "Other::size"), [(5, 80)]);
 }
 
+fn scoped_class(scope: &str, name: &str, lines: [u32; 2]) -> Symbol {
+    let mut symbol = class(name, lines, &[]);
+    symbol.qualified_name = format!("{scope}::{name}");
+    symbol
+}
+
+/// The line of the symbol `name` selects, the lines of the sites that bind it, and the sites of the name left
+/// ambiguous.
+fn selected(graph: &Graph, name: &str) -> (u32, Vec<u32>, usize) {
+    let references = graph
+        .references(name, SiteQuery::new(usize::MAX))
+        .expect("the name selects a symbol");
+    let lines = references.sites.iter().map(|site| site.line).collect();
+    (references.symbol.line, lines, references.ambiguous)
+}
+
+#[test]
+fn a_member_on_a_declared_value_binds_the_field_of_the_namesake_its_declaration_s_scopes_name() {
+    let mut framed = Symbol::new("frame", SymbolKind::Function, 4, 4);
+    framed.qualified_name = "b::frame".to_owned();
+    let mut user = file(
+        "use.cpp",
+        vec![
+            Symbol::new("packed", SymbolKind::Function, 2, 2),
+            Symbol::new("wide", SymbolKind::Function, 3, 3),
+            framed,
+            Symbol::new("blind", SymbolKind::Function, 5, 5),
+            Symbol::new("rooted", SymbolKind::Function, 6, 6),
+        ],
+        &["box.h"],
+    );
+    user.uses = vec![
+        using(0, "size", path("Box"), 2),
+        using(1, "width", path("b::Widget"), 3),
+        using(2, "width", path("Widget"), 4),
+        using(3, "width", path("Widget"), 5),
+        using(4, "width", path("::b::Widget"), 6),
+    ];
+    let boxes = file(
+        "box.h",
+        vec![
+            class("Box", [2, 2], &[]),
+            field("Box", "size", 2),
+            class("Box", [3, 3], &[]),
+            field("Box", "size", 3),
+            field("Box", "bits", 3),
+            scoped_class("a", "Widget", [4, 4]),
+            field("Widget", "width", 4),
+            scoped_class("b", "Widget", [5, 5]),
+            field("Widget", "width", 5),
+        ],
+        &[],
+    );
+
+    let graph = graph(cpp(), &[boxes, user]);
+
+    assert_eq!(
+        selected(&graph, "Widget::width"),
+        (5, vec![3, 4, 6], 1),
+        "a bare class name is looked up from the use's namespace outward, from outside both it names neither, and a \
+         rooted one names the class of its full name"
+    );
+    assert_eq!(
+        selected(&graph, "Box::size").1,
+        Vec::<u32>::new(),
+        "a template and its specialization share the qualified name, and neither binds"
+    );
+    assert_eq!(ambiguous(&graph, "Box::size"), 1);
+}
+
+#[test]
+fn a_method_taken_as_a_value_binds_the_first_of_namesakes_of_one_qualified_name() {
+    let mut user = file(
+        "use.cpp",
+        vec![Symbol::new("bind", SymbolKind::Function, 2, 2)],
+        &["box.h"],
+    );
+    user.uses = vec![using(0, "fill", path("Box"), 2)];
+    let boxes = file(
+        "box.h",
+        vec![
+            class("Box", [2, 2], &[]),
+            cpp_member("Box", "fill", SymbolKind::Method, 2),
+            class("Box", [3, 3], &[]),
+            cpp_member("Box", "fill", SymbolKind::Method, 3),
+        ],
+        &[],
+    );
+
+    let graph = graph(cpp(), &[boxes, user]);
+
+    assert_eq!(
+        selected(&graph, "Box::fill"),
+        (2, vec![2], 0),
+        "`&Box<T>::fill` binds the primary template's method, as a call to it does"
+    );
+}
+
+#[test]
+fn a_member_of_the_own_receiver_binds_the_field_of_the_own_class_among_namesakes() {
+    let a = file(
+        "a/widget.h",
+        vec![
+            scoped_class("a", "Widget", [1, 4]),
+            field("Widget", "width", 2),
+        ],
+        &[],
+    );
+    let mut b = file(
+        "b/widget.h",
+        vec![
+            scoped_class("b", "Widget", [1, 6]),
+            field("Widget", "width", 2),
+            cpp_member("Widget", "grow", SymbolKind::Method, 3),
+        ],
+        &["a/widget.h"],
+    );
+    b.uses = vec![using(2, "width", Receiver::Own, 3)];
+
+    let graph = graph(cpp(), &[a, b]);
+
+    assert_eq!(
+        lines_in(&graph, "Widget::width"),
+        ("b/widget.h", vec![(3, 85)])
+    );
+}
+
 #[test]
 fn a_member_its_declared_class_lacks_binds_the_field_of_the_one_base_that_declares_it() {
     let user = with_uses(

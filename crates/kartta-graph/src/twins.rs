@@ -16,6 +16,15 @@ pub(crate) enum Twin {
     Unnamed(SymbolAt),
 }
 
+impl Twin {
+    /// The member the pick carries, whatever it is.
+    pub(crate) const fn member(self) -> SymbolAt {
+        match self {
+            Self::Member(at) | Self::Namesake(at) | Self::Unnamed(at) => at,
+        }
+    }
+}
+
 impl<'g> Cascade<'g> {
     /// The owner a receiver names, `Widget` for `b::Widget`, since a member keeps its class's bare name as its owner;
     /// `None` where no symbol has that name.

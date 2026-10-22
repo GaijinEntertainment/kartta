@@ -64,13 +64,14 @@ void use(const Config &config, Config *pointer, T &generic, ns::Box<Item> boxed)
 }
 
 #[test]
-fn a_qualified_name_read_without_a_call_uses_its_terminal_on_the_scope_s_last_segment() {
+fn a_qualified_name_read_without_a_call_uses_its_terminal_on_its_scope_as_written() {
     let raw = extract(
         "void use() {
     register_handler(&Widget::draw, Config::kLimit, ns::Box<int>::empty);
     Config::kLimit = ::global_limit + outer::inner::value;
     Widget::draw();
     ns::Type local;
+    read(::root::Cfg::kMax, Outer<int>::Inner::kMin);
 }
 ",
     );
@@ -80,12 +81,15 @@ fn a_qualified_name_read_without_a_call_uses_its_terminal_on_the_scope_s_last_se
         [
             ("draw", path("Widget"), Access::Read),
             ("kLimit", path("Config"), Access::Read),
-            ("empty", path("Box"), Access::Read),
+            ("empty", path("ns::Box"), Access::Read),
             ("kLimit", path("Config"), Access::Write),
             ("global_limit", Receiver::Bare, Access::Read),
-            ("value", path("inner"), Access::Read),
+            ("value", path("outer::inner"), Access::Read),
+            ("kMax", path("::root::Cfg"), Access::Read),
+            ("kMin", path("Inner"), Access::Read),
         ],
-        "a callee and a type are no use, and a name written from the root is bare"
+        "a callee and a type are no use, a name written from the root is bare, and a scope with template arguments \
+         before its last segment is that segment alone"
     );
 }
 

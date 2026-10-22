@@ -80,10 +80,11 @@
 //! declaration or compound literal spells, spelled so too. A bare name that no local,
 //! parameter, capture or enclosing template parameter declares before it is [`Receiver::Bare`](kartta_lang::Receiver),
 //! a member of the enclosing class or a namespace's value alike, an enumerator or a macro included. A qualified name
-//! that names a value, `Config::kLimit` or `&Widget::draw`, uses its last name on the path of its scope's last
-//! segment, and one written from the root alone, `::limit`, is bare. A callee and a label are no use. The left side
-//! of `=` writes, of a compound assignment, `++` or `--` updates, and an initializer list or a designator writes;
-//! `a.b` in `a.b.c = v` reads. Past the class, a bare name binds as
+//! that names a value, `Config::kLimit` or `&Widget::draw`, uses its last name on the path of its scope, spelled as a
+//! member call's receiver is, `ns::Box` for `ns::Box<int>::empty` and `Inner` alone for `Outer<int>::Inner::kMin`,
+//! where a scope before the last carries template arguments, and one written from the root alone, `::limit`, is bare.
+//! A callee and a label are no use. The left side of `=` writes, of a compound assignment, `++` or `--` updates, and
+//! an initializer list or a designator writes; `a.b` in `a.b.c = v` reads. Past the class, a bare name binds as
 //! [`ValueUses::Included`] says and a member on the empty path as [`UntypedMembers::IncludedField`] says.
 //!
 //! # Includes
