@@ -6,7 +6,7 @@ use kartta_lang::{
     Extraction, IncludeRef, RawDirective, RawExtraction, Repository, Resolver, SymbolFlags,
 };
 
-use crate::walk::MOD_TEST_FORM;
+use crate::walk::{MOD_TEST_FORM, USE_FORM};
 
 pub(crate) struct Crates<'r> {
     repository: &'r dyn Repository,
@@ -120,6 +120,9 @@ impl Resolver for Crates<'_> {
         }
 
         for directive in &directives {
+            if directive.form == USE_FORM {
+                continue;
+            }
             let Some(target) = self.module_file(directive, path, role.module_root) else {
                 continue;
             };
