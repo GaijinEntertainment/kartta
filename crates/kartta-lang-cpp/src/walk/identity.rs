@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use kartta_lang::tree::text;
 use tree_sitter::Node;
 
-use super::declarator::{joins_a_macro_as_scope, qualified_terminal, real_function_declarator};
+use super::declarator::{WrittenName, qualified_terminal, real_function_declarator, written_name};
 use super::name::is_simple_identifier;
 use super::{Replayer, child_nodes};
 
@@ -14,17 +14,13 @@ impl Replayer<'_, '_> {
         }
         let declarator = real_function_declarator(node, self.source)?;
         let written = declarator.child_by_field_name("declarator")?;
-        let name = if joins_a_macro_as_scope(written) {
-            written.child_by_field_name("name")?
-        } else {
-            written
-        };
+        let declared = written_name(written);
         let error_beside_the_name =
             child_nodes(declarator).any(|child| child != written && child.has_error());
-        if error_beside_the_name || name.has_error() {
+        if error_beside_the_name || declared.name.has_error() {
             return None;
         }
-        let qualified = self.qualified_callable_name(name)?;
+        let qualified = self.qualified_callable_name(declared)?;
         let parameters = declarator.child_by_field_name("parameters")?;
         let types = parameter_types(parameters, self.source)?;
         let qualifiers = member_qualifiers(declarator, written, parameters, self.source)?;
@@ -32,14 +28,20 @@ impl Replayer<'_, '_> {
         Some(format!("{qualified}({}){qualifiers}", types.join(",")))
     }
 
-    fn qualified_callable_name(&self, name: Node<'_>) -> Option<String> {
-        let qualified_by_scope = name.kind() == "qualified_identifier";
-        let terminal = if qualified_by_scope {
+    fn qualified_callable_name(&self, declared: WrittenName<'_>) -> Option<String> {
+        let WrittenName {
+            name,
+            stranded_scope,
+        } = declared;
+        let qualified = name.kind() == "qualified_identifier";
+        let terminal = if qualified {
             qualified_terminal(name).0?
         } else {
             name
         };
-        let written = text(name, self.source);
+        let qualified_by_scope = qualified || stranded_scope.is_some();
+        let start = stranded_scope.unwrap_or(name).start_byte();
+        let written = String::from_utf8_lossy(&self.source[start..name.end_byte()]);
         let rooted = written.starts_with("::");
         let unrooted = written.trim_start_matches("::");
         let (prefix, last) = unrooted.rsplit_once("::").unwrap_or(("", unrooted));
