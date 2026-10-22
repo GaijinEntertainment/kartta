@@ -12,13 +12,13 @@ use crate::repository::{
 use crate::resolving::{Resolvers, Resolving, ToResolve};
 
 /// What an engine built with stamps keeps to follow its tree: for each file its graphs hold, the questions its
-/// resolution put to the repository, for each family, what its resolver asked while it was built, and the tables the
-/// last refresh's repository built to find files in.
+/// resolution put to the repository, for each family, its resolver and what that resolver asked while it was built,
+/// and the tables the last refresh's repository built to find files in.
 #[derive(Debug, Default)]
 pub(crate) struct Following {
     files: HashMap<ContentId, Kept, FixedState>,
     asked: Asked,
-    configurations: Vec<Option<Configuration>>,
+    resolvers: Resolvers,
     tables: FileTables,
 }
 
@@ -96,12 +96,9 @@ struct Plan {
 }
 
 impl Following {
-    pub(crate) fn new(
-        followed: Vec<(ContentId, Followed)>,
-        configurations: Vec<Option<Configuration>>,
-    ) -> Self {
+    pub(crate) fn new(followed: Vec<(ContentId, Followed)>, resolvers: Resolvers) -> Self {
         let mut following = Self {
-            configurations,
+            resolvers,
             ..Self::default()
         };
         following.keep(followed);
@@ -144,7 +141,8 @@ impl Following {
 
     /// Brings `engine`'s graphs up to its refreshed index: drops the files the refresh retired, inserts what its walk
     /// handed over, and resolves again from a second read every file whose questions a change answers differently,
-    /// every file of a family whose resolver now reads another configuration among them.
+    /// every file of a family whose resolver now reads another configuration among them. A family's kept resolver
+    /// resolves them unless the refresh reached what it read as it was built.
     pub(crate) fn refresh(
         &mut self,
         engine: Refreshing<'_>,
@@ -174,7 +172,7 @@ impl Following {
         let mut stale: Vec<Kept> = outcome.retired().filter_map(|id| self.forget(id)).collect();
         let handed = resolving.placed(extracted);
         let reached = reached(index, &outcome, &handed);
-        let (resolvers, plan) = self.plan(&resolving, &repository, (&outcome, &reached, handed));
+        let plan = self.plan(&resolving, &repository, (&outcome, &reached, handed));
         stale.extend(plan.stale);
         for followed in stale.iter().chain(&plan.reread) {
             families[family_of[followed.language]]
@@ -182,8 +180,7 @@ impl Following {
                 .remove(&followed.path);
             file_counts[followed.language].held -= 1;
         }
-        let inserted = resolving.insert_all(plan.work, &resolvers, families)?;
-        drop(resolvers);
+        let inserted = resolving.insert_all(plan.work, (&self.resolvers, &repository), families)?;
         self.tables = repository.into_tables();
         let reread: HashSet<ContentId, FixedState> = plan.reread_ids.iter().copied().collect();
         let resolved_again = inserted
@@ -226,12 +223,14 @@ impl Following {
         })
     }
 
-    fn plan<'r>(
+    /// The work of a refresh, with the resolver of each family it reaches built again: of a family whose kept resolver
+    /// read what the refresh reached, and of a family with a file to resolve and no kept resolver.
+    fn plan(
         &mut self,
-        resolving: &Resolving<'r>,
-        repository: &'r IndexRepository<'_>,
+        resolving: &Resolving<'_>,
+        repository: &IndexRepository<'_>,
         (outcome, reached, handed): (&RefreshOutcome, &Reached, Vec<ToResolve>),
-    ) -> (Resolvers<'r>, Plan) {
+    ) -> Plan {
         // constraint: kartta_lang::Resolver reads no file, so only a file added or removed reaches a file's keys
         let mut dependents: Vec<ContentId> =
             if outcome.added.is_empty() && outcome.removed.is_empty() {
@@ -247,14 +246,14 @@ impl Following {
         for id in &dependents {
             wanted[family_of[self.files[id].language]] = true;
         }
-        for (family, configuration) in self.configurations.iter().enumerate() {
-            wanted[family] |= configuration
-                .as_ref()
-                .is_some_and(|configuration| reaches(configuration, reached, outcome));
+        for (family, wanted) in wanted.iter_mut().enumerate() {
+            if let Some(Some(configuration)) = self.resolvers.configurations.get(family) {
+                *wanted = reaches(configuration, reached, outcome);
+            }
         }
 
-        let mut resolvers = resolving.resolvers(repository, &wanted);
-        let reconfigured = self.reconfigure(&mut resolvers);
+        let rebuilt = resolving.resolvers(repository, &wanted);
+        let reconfigured = self.reconfigure(rebuilt);
         dependents.extend(
             self.files
                 .iter()
@@ -290,27 +289,32 @@ impl Following {
                 None => plan.stale.push(followed),
             }
         }
-        (resolvers, plan)
+        plan
     }
 
-    fn reconfigure(&mut self, resolvers: &mut Resolvers<'_>) -> Vec<usize> {
-        if self.configurations.len() < resolvers.configurations.len() {
-            self.configurations
-                .resize_with(resolvers.configurations.len(), || None);
+    /// Keeps each resolver of `rebuilt` in place of its family's, and answers the families whose configuration it
+    /// read changed.
+    fn reconfigure(&mut self, rebuilt: Resolvers) -> Vec<usize> {
+        let families = rebuilt.of_family.len();
+        let kept = &mut self.resolvers;
+        if kept.of_family.len() < families {
+            kept.of_family.resize_with(families, || None);
+            kept.configurations.resize_with(families, || None);
         }
         let mut reconfigured = Vec::new();
-        for (family, built) in resolvers.configurations.iter_mut().enumerate() {
-            let Some(built) = built.take() else {
+        let built = rebuilt.of_family.into_iter().zip(rebuilt.configurations);
+        for (family, built) in built.enumerate() {
+            let (Some(resolver), Some(configuration)) = built else {
                 continue;
             };
-            let kept = &mut self.configurations[family];
-            if kept
+            if kept.configurations[family]
                 .as_ref()
-                .is_some_and(|kept| kept.answers != built.answers)
+                .is_some_and(|kept| kept.answers != configuration.answers)
             {
                 reconfigured.push(family);
             }
-            *kept = Some(built);
+            kept.of_family[family] = Some(resolver);
+            kept.configurations[family] = Some(configuration);
         }
         reconfigured
     }
@@ -544,7 +548,7 @@ mod tests {
                 followed(ids[2], &[7, 9]),
                 followed(ids[3], &[9]),
             ],
-            Vec::new(),
+            Resolvers::default(),
         );
 
         for _ in 0..100 {
@@ -572,7 +576,10 @@ mod tests {
                 .collect();
             followed(ids[at as usize], &asked)
         };
-        let mut following = Following::new((0..6).map(|at| file(at, at)).collect(), Vec::new());
+        let mut following = Following::new(
+            (0..6).map(|at| file(at, at)).collect(),
+            Resolvers::default(),
+        );
 
         for round in 0..60 {
             let at = round % 3;
