@@ -30,8 +30,9 @@ type Refresh struct {
 	ResolvedAgain int `json:"resolved_again"`
 	// Dropped counts the files the graphs held and hold no more; nil when every graph was built again.
 	Dropped *int `json:"dropped,omitempty"`
-	// Reconfigured names the language families whose resolver read another configuration than it read before, such
-	// as jsts for TypeScript and JavaScript, so that every file of theirs was resolved again.
+	// Reconfigured names the language families whose resolver read another configuration than it read before and
+	// derived another from it, such as jsts for TypeScript and JavaScript, so that every file of theirs was resolved
+	// again.
 	Reconfigured []string `json:"reconfigured"`
 	// Rebuilt reports that every graph was built again from every file.
 	Rebuilt bool `json:"rebuilt"`

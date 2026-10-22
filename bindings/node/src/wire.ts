@@ -158,8 +158,8 @@ export type Refresh = {
 	/** The files the graphs held and hold no more; absent when every graph was built again. */
 	dropped?: number;
 	/**
-	 * The language families whose resolver read another configuration than it read before, such as jsts for TypeScript
-	 * and JavaScript, so that every file of theirs was resolved again.
+	 * The language families whose resolver read another configuration than it read before and derived another from
+	 * it, such as jsts for TypeScript and JavaScript, so that every file of theirs was resolved again.
 	 */
 	reconfigured: string[];
 	/** Whether every graph was built again from every file. */
