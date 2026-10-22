@@ -9,7 +9,7 @@ fn resolve(files: &[(&str, &str)], source: &[u8], path: &str) -> Extraction {
     let repository = MemoryRepository::new(files.iter().copied());
     let resolver = blk.resolver(&repository);
 
-    resolver.resolve(blk.extract(source), path)
+    resolver.resolve(blk.extract(source), path, &repository)
 }
 
 fn includes(extraction: &Extraction) -> Vec<&str> {

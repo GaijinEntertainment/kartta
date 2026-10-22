@@ -20,7 +20,7 @@ pub(crate) fn resolved(path: &str, source: &str, files: &MemoryRepository) -> Ex
     let language = language_of(path);
     language
         .resolver(files)
-        .resolve(language.extract(source.as_bytes()), path)
+        .resolve(language.extract(source.as_bytes()), path, files)
 }
 
 pub(crate) fn extracted(path: &str, source: &str) -> Extraction {

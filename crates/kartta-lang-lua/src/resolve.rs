@@ -7,8 +7,16 @@ use crate::walk::REQUIRE_FORM;
 
 const MODULE_FILES: [&str; 2] = [".lua", "/init.lua"];
 
-pub(crate) struct Loaders<'r> {
-    pub(crate) repository: &'r dyn Repository,
+pub(crate) struct LuaResolver;
+
+impl Resolver for LuaResolver {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
+        Loaders { repository }.resolve(raw, path)
+    }
+}
+
+struct Loaders<'r> {
+    repository: &'r dyn Repository,
 }
 
 impl Loaders<'_> {
@@ -41,7 +49,7 @@ impl Loaders<'_> {
     }
 }
 
-impl Resolver for Loaders<'_> {
+impl Loaders<'_> {
     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 

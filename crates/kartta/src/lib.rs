@@ -44,7 +44,7 @@
 //!         raw
 //!     }
 //!
-//!     fn resolver<'r>(&'r self, _repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+//!     fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
 //!         Box::new(Paths)
 //!     }
 //! }
@@ -52,7 +52,7 @@
 //! struct Paths;
 //!
 //! impl Resolver for Paths {
-//!     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
+//!     fn resolve(&self, raw: RawExtraction, path: &str, _repository: &dyn Repository) -> Extraction {
 //!         raw.into_extraction(path).0
 //!     }
 //! }

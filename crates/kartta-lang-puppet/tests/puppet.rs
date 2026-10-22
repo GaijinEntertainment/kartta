@@ -61,7 +61,7 @@ fn resolve(source: &[u8], path: &str, files: &[&str]) -> Extraction {
     let puppet = Puppet::new();
     let repository = MemoryRepository::of_paths(files);
     let resolver = puppet.resolver(&repository);
-    resolver.resolve(puppet.extract(source), path)
+    resolver.resolve(puppet.extract(source), path, &repository)
 }
 
 fn id_of(raw: &RawExtraction, name: &str) -> SymbolId {

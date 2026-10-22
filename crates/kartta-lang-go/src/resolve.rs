@@ -5,8 +5,7 @@ use kartta_lang::{
     Extraction, ImportBinding, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
 
-pub(crate) struct GoResolver<'r> {
-    repository: &'r dyn Repository,
+pub(crate) struct GoResolver {
     modules: Vec<Module>,
     vendoring: Vec<String>,
 }
@@ -17,8 +16,8 @@ struct Module {
     replaced_in: Option<String>,
 }
 
-impl<'r> GoResolver<'r> {
-    pub(crate) fn new(repository: &'r dyn Repository) -> Self {
+impl GoResolver {
+    pub(crate) fn new(repository: &dyn Repository) -> Self {
         let mut modules = Vec::new();
         // constraint: a vendored `go.mod` belongs to a third-party package, and a checkout can hold thousands of them
         for path in repository
@@ -46,11 +45,7 @@ impl<'r> GoResolver<'r> {
         vendoring.sort_unstable();
         vendoring.dedup();
 
-        Self {
-            repository,
-            modules,
-            vendoring,
-        }
+        Self { modules, vendoring }
     }
 
     // constraint: a module with no vendor directory of its own is compiled by the module that replaces it onto its
@@ -81,12 +76,17 @@ impl<'r> GoResolver<'r> {
     // importing file sees those of the module it belongs to
     // shortcut: a replace that names a version applies to every version of the module; telling them apart needs the
     // versions the module requires
-    fn package(&self, spec: &str, owner: Option<&str>) -> Option<(String, Vec<String>)> {
+    fn package(
+        &self,
+        spec: &str,
+        owner: Option<&str>,
+        repository: &dyn Repository,
+    ) -> Option<(String, Vec<String>)> {
         let vendored = match owner {
             None | Some("") => format!("vendor/{spec}"),
             Some(module_dir) => format!("{module_dir}/vendor/{spec}"),
         };
-        let files: Vec<String> = self.repository.files_in_dir(&vendored).collect();
+        let files: Vec<String> = repository.files_in_dir(&vendored).collect();
         if !files.is_empty() {
             return Some((vendored, files));
         }
@@ -117,7 +117,7 @@ impl<'r> GoResolver<'r> {
             (dir, suffix) => format!("{dir}/{suffix}"),
         };
 
-        let files: Vec<String> = self.repository.files_in_dir(&target).collect();
+        let files: Vec<String> = repository.files_in_dir(&target).collect();
         (!files.is_empty()).then_some((target, files))
     }
 
@@ -147,8 +147,8 @@ fn includes(files: Vec<String>, path: &str, includes: &mut Vec<IncludeRef>) {
     includes.extend(package_files.map(|target| IncludeRef { target }));
 }
 
-impl Resolver for GoResolver<'_> {
-    fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
+impl Resolver for GoResolver {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 
         let path_flags = SymbolFlags::empty()
@@ -159,10 +159,12 @@ impl Resolver for GoResolver<'_> {
 
         let owner = self.main_module(self.owner(path));
         for directive in directives {
-            let target_dir = self.package(&directive.spec, owner).map(|(dir, files)| {
-                includes(files, path, &mut extraction.includes);
-                dir
-            });
+            let target_dir =
+                self.package(&directive.spec, owner, repository)
+                    .map(|(dir, files)| {
+                        includes(files, path, &mut extraction.includes);
+                        dir
+                    });
 
             extraction.bindings.push(ImportBinding {
                 alias: directive.names.into_iter().next(),

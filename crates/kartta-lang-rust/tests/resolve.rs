@@ -9,7 +9,7 @@ fn resolve(files: &'static [&'static str], source: &[u8], path: &str) -> Extract
     let repository = MemoryRepository::of_paths(files);
     let resolver = rust.resolver(&repository);
 
-    resolver.resolve(rust.extract(source), path)
+    resolver.resolve(rust.extract(source), path, &repository)
 }
 
 fn includes(files: &'static [&'static str], source: &[u8], path: &str) -> Vec<String> {
@@ -359,8 +359,8 @@ fn one_extraction_resolved_at_two_paths_differs_only_by_what_the_paths_show() {
     let resolver = rust.resolver(&files);
     let raw = rust.extract(b"mod util;\nfn main() {}\n");
 
-    let library = resolver.resolve(raw.clone(), "src/lib.rs");
-    let binary = resolver.resolve(raw, "src/bin/run.rs");
+    let library = resolver.resolve(raw.clone(), "src/lib.rs", &files);
+    let binary = resolver.resolve(raw, "src/bin/run.rs", &files);
 
     assert_eq!(library.includes[0].target, "src/util.rs");
     assert_eq!(binary.includes[0].target, "src/bin/util.rs");

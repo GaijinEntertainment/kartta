@@ -24,7 +24,7 @@ fn resolve(files: &MemoryRepository, source: &[u8], path: &str) -> Extraction {
     let go = Go::new();
     let resolver = go.resolver(files);
 
-    resolver.resolve(go.extract(source), path)
+    resolver.resolve(go.extract(source), path, files)
 }
 
 fn package_dir(files: &MemoryRepository, spec: &str) -> Option<String> {
@@ -429,8 +429,8 @@ fn one_extraction_resolved_at_two_paths_differs_only_by_what_the_paths_show() {
     let raw =
         go.extract(b"package app\n\nimport \"example.com/app/lib/cache\"\n\nfunc Handle() {}\n");
 
-    let mut handler = resolver.resolve(raw.clone(), "app/handler.go");
-    let test = resolver.resolve(raw, "app/handler_test.go");
+    let mut handler = resolver.resolve(raw.clone(), "app/handler.go", &app);
+    let test = resolver.resolve(raw, "app/handler_test.go", &app);
 
     assert_eq!(handler.file, "app/handler.go");
     assert_eq!(test.file, "app/handler_test.go");
@@ -439,4 +439,21 @@ fn one_extraction_resolved_at_two_paths_differs_only_by_what_the_paths_show() {
     handler.file.clone_from(&test.file);
     handler.symbols[0].flags = test.symbols[0].flags;
     assert_eq!(handler, test);
+}
+
+#[test]
+fn a_resolver_answers_from_the_repository_it_is_handed_not_the_one_it_was_built_over() {
+    let go = Go::new();
+    let built_over = app();
+    let resolver = go.resolver(&built_over);
+    let grown = app().with_paths(["lib/store/store.go"]);
+    let raw = go.extract(b"package main\n\nimport \"example.com/app/lib/store\"\n");
+
+    let before = resolver.resolve(raw.clone(), "main.go", &built_over);
+    let after = resolver.resolve(raw, "main.go", &grown);
+
+    assert_eq!(before.bindings[0].target_dir, None);
+    assert_eq!(before.includes, []);
+    assert_eq!(after.bindings[0].target_dir.as_deref(), Some("lib/store"));
+    assert_eq!(after.includes[0].target, "lib/store/store.go");
 }

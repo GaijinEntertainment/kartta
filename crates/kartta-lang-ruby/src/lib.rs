@@ -74,7 +74,7 @@ use kartta_lang::{
     Repository, Resolver, TypeUses,
 };
 
-use crate::resolve::Requires;
+use crate::resolve::RubyResolver;
 
 mod bindings;
 mod macros;
@@ -136,8 +136,8 @@ impl Language for Ruby {
         kartta_lang::tree::extract(&grammar(), source, walk::raw_walk)
     }
 
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(Requires { repository })
+    fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
+        Box::new(RubyResolver)
     }
 }
 

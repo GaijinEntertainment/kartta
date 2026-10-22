@@ -93,7 +93,7 @@ impl Language for Blk {
         raw_extraction(source)
     }
 
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+    fn resolver(&self, repository: &dyn Repository) -> Box<dyn Resolver> {
         Box::new(BlkResolver::new(repository))
     }
 }

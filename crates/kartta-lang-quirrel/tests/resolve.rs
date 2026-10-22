@@ -20,7 +20,7 @@ fn resolve(files: &[(&str, &str)], source: &str, path: &str) -> Extraction {
         MemoryRepository::new(readable.copied()).with_paths(unreadable.map(|&(path, _)| path));
     let resolver = quirrel.resolver(&repository);
 
-    resolver.resolve(quirrel.extract(source.as_bytes()), path)
+    resolver.resolve(quirrel.extract(source.as_bytes()), path, &repository)
 }
 
 fn includes(extraction: &Extraction) -> Vec<&str> {

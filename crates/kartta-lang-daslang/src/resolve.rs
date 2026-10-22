@@ -5,11 +5,19 @@ use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
 
-pub(crate) struct DaslangResolver<'r> {
-    pub(crate) repository: &'r dyn Repository,
+pub(crate) struct DaslangResolver;
+
+impl Resolver for DaslangResolver {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
+        Modules { repository }.resolve(raw, path)
+    }
 }
 
-impl DaslangResolver<'_> {
+struct Modules<'r> {
+    repository: &'r dyn Repository,
+}
+
+impl Modules<'_> {
     // constraint: the compiler binds a `require` to the module a file declares by name, matching letter case, and the
     // module path it searches is a compiler input no repository holds; a module almost always declares its own file
     // stem, so the file names stand in for the module index
@@ -75,7 +83,7 @@ impl DaslangResolver<'_> {
     }
 }
 
-impl Resolver for DaslangResolver<'_> {
+impl Modules<'_> {
     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 

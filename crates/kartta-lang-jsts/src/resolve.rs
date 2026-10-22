@@ -5,22 +5,26 @@ use kartta_lang::{
 
 use crate::config::is_vendored;
 use crate::generated::name_marks_generated;
-use crate::modules::Modules;
+use crate::modules::{Configs, Modules};
 
-pub(crate) struct JstsResolver<'r> {
-    modules: Modules<'r>,
+pub(crate) struct JstsResolver {
+    configs: Configs,
 }
 
-impl<'r> JstsResolver<'r> {
-    pub(crate) fn new(repository: &'r dyn Repository) -> Self {
+impl JstsResolver {
+    pub(crate) fn new(repository: &dyn Repository) -> Self {
         Self {
-            modules: Modules::read(repository),
+            configs: Configs::read(repository),
         }
     }
 }
 
-impl Resolver for JstsResolver<'_> {
-    fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
+impl Resolver for JstsResolver {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
+        let modules = Modules {
+            repository,
+            configs: &self.configs,
+        };
         let (mut extraction, directives) = raw.into_extraction(path);
 
         let path_flags = SymbolFlags::empty()
@@ -35,7 +39,7 @@ impl Resolver for JstsResolver<'_> {
         // constraint: the walk records re-exports in the order of their statements' directives
         let mut re_exports = extraction.re_exports.iter_mut().peekable();
         for directive in directives {
-            let target = self.modules.resolve(&directive.spec, path);
+            let target = modules.resolve(&directive.spec, path);
             while let Some(re_export) =
                 re_exports.next_if(|re_export| re_export.source_path == directive.spec)
             {

@@ -8,7 +8,7 @@ fn resolve(files: &MemoryRepository, source: &[u8], path: &str) -> Extraction {
     let bash = Bash::new();
     let resolver = bash.resolver(files);
 
-    resolver.resolve(bash.extract(source), path)
+    resolver.resolve(bash.extract(source), path, files)
 }
 
 fn includes(extraction: &Extraction) -> Vec<&str> {
@@ -160,8 +160,8 @@ fn one_extraction_resolved_at_two_paths_differs_only_by_what_the_paths_show() {
     let resolver = bash.resolver(&files);
     let raw = bash.extract(b"run() {\n    :\n}\nsource lib/util.sh\n");
 
-    let mut ordinary = resolver.resolve(raw.clone(), "bin/run.sh");
-    let test = resolver.resolve(raw, "tests/run.sh");
+    let mut ordinary = resolver.resolve(raw.clone(), "bin/run.sh", &files);
+    let test = resolver.resolve(raw, "tests/run.sh", &files);
 
     assert_eq!(ordinary.file, "bin/run.sh");
     assert_eq!(test.file, "tests/run.sh");
