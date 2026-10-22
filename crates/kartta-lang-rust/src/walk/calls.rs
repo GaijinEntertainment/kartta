@@ -35,7 +35,8 @@ impl Emitter<'_> {
             return;
         };
         let target = self.call_target(function);
-        let path = receiver_path(function, self.source).and_then(|path| self.module_path(&path));
+        let written = receiver_path(function, self.source);
+        let path = written.as_deref().and_then(|path| self.module_path(path));
         let names_own_type = target.names_own_type;
         let call = CallRef {
             site_of,
@@ -53,6 +54,9 @@ impl Emitter<'_> {
         }
 
         let index = self.raw.calls.len() - 1;
+        if let Some(written) = &written {
+            self.record_written_path(index, written);
+        }
         if names_own_type && let Some(own) = &self.raw.calls[index].receiver {
             for at in open_impls_over(&self.types, own) {
                 self.impl_owners[at].receivers.push(index);
