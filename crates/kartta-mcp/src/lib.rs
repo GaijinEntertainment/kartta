@@ -29,7 +29,6 @@ mod params;
 mod render;
 mod server;
 mod state;
-mod watch;
 
 pub use crate::config::Config;
 pub use crate::server::Server;
