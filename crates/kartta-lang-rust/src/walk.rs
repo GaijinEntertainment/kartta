@@ -7,8 +7,8 @@ use kartta_lang::{
 use tree_sitter::{Node, Tree};
 
 use self::attributes::{
-    attribute_marks_test, marks_imported_method, mod_body_marks_test, opens_test_scope,
-    path_attribute,
+    attribute_marks_test, marks_imported_method, marks_macro_export, mod_body_marks_test,
+    opens_test_scope, path_attribute,
 };
 use self::blocks::{BlockCall, BlockItem};
 use self::syntax::{
@@ -429,14 +429,15 @@ impl Emitter<'_> {
     }
 
     // constraint: a `macro_rules!` keeps its bare name and has no owner, because it is in scope textually rather
-    // than by path
+    // than by path, and it has no visibility modifier: it is exported only by `#[macro_export]`, at its crate's root
     fn item(&mut self, node: Node<'_>, kind: SymbolKind) -> Option<SymbolId> {
         let name = text(node.child_by_field_name("name")?, self.source);
-        let exported = is_exported(node, self.source) || self.exported_by_scope();
-        let (owner, qualified_name) = if kind == SymbolKind::Macro {
-            (None, name.clone())
+        let (owner, qualified_name, exported) = if kind == SymbolKind::Macro {
+            (None, name.clone(), marks_macro_export(node, self.source))
         } else {
-            self.qualify(&name)
+            let exported = is_exported(node, self.source) || self.exported_by_scope();
+            let (owner, qualified_name) = self.qualify(&name);
+            (owner, qualified_name, exported)
         };
 
         let mut item = symbol(name, qualified_name, kind, node);

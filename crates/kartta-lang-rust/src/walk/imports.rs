@@ -105,9 +105,9 @@ impl Emitter<'_> {
         });
     }
 
-    // constraint: a path call holds a place for the resolver only where its path may start at another crate or at a
-    // name a `use` binds, a name that is neither a type, written capitalised, nor a path keyword nor the standard
-    // library's crates
+    // constraint: a path call, the path of its receiver, or a macro invocation, the path of its macro, holds a place
+    // for the resolver only where its path may start at another crate or at a name a `use` binds, a name that is
+    // neither a type, written capitalised, nor a path keyword nor the standard library's crates
     pub(super) fn record_written_path(&mut self, index: usize, written: &str, at: usize) {
         let written = written.strip_prefix("::").unwrap_or(written);
         if names_another_crate(head(written)) {
@@ -155,7 +155,8 @@ impl Emitter<'_> {
     }
 
     // constraint: a path call's receiver, the last segment of its path, is bound to the path where the receiver did not
-    // settle on a declaration of the file, the path's first segment read through the file's `use` of that name; a `use`
+    // settle on a declaration of the file, the path's first segment read through the file's `use` of that name, and a
+    // macro invocation's path, which records no receiver, binds the macro's name the same way; a `use`
     // inside a function body or an inline module is in scope in its block alone, so where a name only such `use`s bind
     // is out of their scope, a path from it reads as written, and a bare call of it leaves the name no path, as two
     // paths do
@@ -174,7 +175,8 @@ impl Emitter<'_> {
         for site in &self.written_paths {
             let written = directives[site.directive].spec.as_str();
             let receiver = last(written);
-            if self.raw.calls[site.call].receiver.as_deref() != Some(receiver) {
+            let call = &self.raw.calls[site.call];
+            if call.receiver.as_deref().unwrap_or(&call.callee) != receiver {
                 continue;
             }
             let (first, rest) = written.split_once("::").unwrap_or((written, ""));
