@@ -558,6 +558,31 @@ fn a_crate_renamed_in_its_cargo_toml_resolves_every_rust_file_again() {
 }
 
 #[test]
+fn a_cargo_toml_dependency_bump_resolves_no_rust_file_again() {
+    let manifest = "[package]\nname = \"app\"\n\n[dependencies]\nserde = \"1.0.0\"\n";
+    let tree = settled_tree_with(&[
+        ("crates/app/Cargo.toml", manifest),
+        ("crates/app/src/lib.rs", "pub fn f() {}\n"),
+    ]);
+    let mut engine = build(tree.path(), true);
+
+    write(
+        tree.path(),
+        "crates/app/Cargo.toml",
+        &manifest.replace("1.0.0", "1.0.1"),
+    );
+    let refresh = refreshed(engine.refresh_paths(["crates/app/Cargo.toml"], None));
+
+    assert!(
+        refresh.reconfigured.is_empty(),
+        "{:?}",
+        refresh.reconfigured
+    );
+    assert_eq!((refresh.extracted, refresh.resolved_again), (0, 0));
+    assert_eq!(answers(&engine), answers(&build(tree.path(), false)));
+}
+
+#[test]
 fn an_engine_refreshed_again_and_again_follows_every_change() {
     let tree = settled_tree();
     let mut engine = build(tree.path(), true);

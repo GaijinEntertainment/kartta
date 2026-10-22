@@ -64,6 +64,11 @@
 //! imports nothing. A call of the name, or through it, binds what that file exports at its top level under the name, a
 //! function before a type of the name, since a call never names a type that Rust keeps apart from values.
 //!
+//! The resolver keeps only what it derived: the packages and the name and root of each library. A resolver built again
+//! over an edit that changes none of them, such as a dependency bump in a `Cargo.toml`,
+//! [resolves as](kartta_lang::Resolver::resolves_as) the one built before, so an engine that follows the tree resolves
+//! no Rust file again for it.
+//!
 //! Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is every file below
 //! a `tests` directory outside `src`, counted from the repository root or from a package. A file that a test-gated
 //! `mod` or a test file pulls in is a test include. A `*.gen.rs` or `*_generated.rs` file, or one with a `@generated`
