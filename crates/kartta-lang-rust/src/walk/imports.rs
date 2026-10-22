@@ -10,7 +10,7 @@ use super::syntax::path_text;
 use super::{Emitter, USE_FORM};
 
 // constraint: a path call's site, the byte it starts at and the inline module around it, tells which `use` inside a
-// function body is in scope there
+// function body or an inline module is in scope there
 pub(super) struct WrittenPath {
     call: usize,
     directive: usize,
@@ -25,11 +25,17 @@ impl Emitter<'_> {
         };
         let first_directive = self.raw.directives.len();
         self.use_paths(argument, "", line(node.start_position().row));
-        if !self.functions.is_empty()
+        if self.in_a_block()
             && let Some(block) = node.parent()
         {
             self.scope_use_to_block(block.byte_range(), first_directive);
         }
+    }
+
+    // constraint: a `use` inside a function body or an inline module is in scope in its block alone, the body of the
+    // function or of the module; one outside both is in scope in the whole file
+    const fn in_a_block(&self) -> bool {
+        !self.functions.is_empty() || !self.modules.is_empty()
     }
 
     // constraint: a `use` binds each name its tree ends in, an alias where one is written, and `self` in a list the
@@ -90,7 +96,7 @@ impl Emitter<'_> {
             path.drain(.."::".len());
         }
         self.imports
-            .push((self.raw.directives.len(), !self.functions.is_empty()));
+            .push((self.raw.directives.len(), self.in_a_block()));
         self.raw.directives.push(RawDirective {
             form: USE_FORM,
             spec: path,
@@ -150,8 +156,9 @@ impl Emitter<'_> {
 
     // constraint: a path call's receiver, the last segment of its path, is bound to the path where the receiver did not
     // settle on a declaration of the file, the path's first segment read through the file's `use` of that name; a `use`
-    // inside a function body is in scope in its block alone, so where a name only such `use`s bind is out of their
-    // scope, a path from it reads as written, and a bare call of it leaves the name no path, as two paths do
+    // inside a function body or an inline module is in scope in its block alone, so where a name only such `use`s bind
+    // is out of their scope, a path from it reads as written, and a bare call of it leaves the name no path, as two
+    // paths do
     fn kept_paths(&self) -> HashMap<usize, Option<String>> {
         let directives = &self.raw.directives;
         let declared = self.declared_names();
@@ -203,9 +210,9 @@ impl Emitter<'_> {
             .collect()
     }
 
-    // constraint: a file's bindings hold one path per name, so a `use` inside a function body binds its names for the
-    // whole file too, and two paths of a name anywhere leave it none; the names a `use` outside every body binds, in
-    // scope everywhere, are set apart
+    // constraint: a file's bindings hold one path per name, so a `use` inside a function body or an inline module binds
+    // its names for the whole file too, and two paths of a name anywhere leave it none; the names a `use` outside every
+    // body binds, in scope everywhere, are set apart
     fn imported_names(&self) -> (HashMap<&str, Bound<&str>>, HashSet<&str>) {
         let mut imported = HashMap::new();
         let mut at_file_level = HashSet::new();
