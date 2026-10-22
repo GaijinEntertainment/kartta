@@ -226,3 +226,34 @@ fn a_crate_name_several_packages_share_binds_the_nearest_one_or_none() {
     assert_eq!(nearest, [binding("app/shared/src/lib.rs", "f")]);
     assert_eq!(tied, []);
 }
+
+const MANIFEST: &str =
+    "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nserde = \"1.0.0\"\n";
+
+/// Whether the resolver built over a package whose `Cargo.toml` reads `edited`, with the paths `more` beside, resolves
+/// as the one built over the same package with [`MANIFEST`].
+fn resolves_as_before(edited: &str, more: &[&str]) -> bool {
+    let rust = Rust::new();
+    let before = MemoryRepository::new([("app/Cargo.toml", MANIFEST), ("app/src/lib.rs", "")]);
+    let after = MemoryRepository::new([("app/Cargo.toml", edited), ("app/src/lib.rs", "")])
+        .with_paths(more.iter().copied());
+
+    rust.resolver(&after).resolves_as(&*rust.resolver(&before))
+}
+
+#[test]
+fn a_cargo_toml_that_only_bumps_its_version_or_a_dependency_resolves_as_before() {
+    let bumped = MANIFEST.replace("0.1.0", "0.1.1").replace("1.0.0", "1.0.1");
+
+    assert!(resolves_as_before(&bumped, &[]));
+}
+
+#[test]
+fn a_renamed_or_moved_library_or_a_new_package_resolves_otherwise() {
+    let renamed = MANIFEST.replace("\"app\"", "\"other\"");
+    let moved = format!("{MANIFEST}\n[lib]\npath = \"lib.rs\"\n");
+
+    assert!(!resolves_as_before(&renamed, &[]));
+    assert!(!resolves_as_before(&moved, &[]));
+    assert!(!resolves_as_before(MANIFEST, &["app/tools/Cargo.toml"]));
+}

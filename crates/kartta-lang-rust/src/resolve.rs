@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::iter;
 
@@ -10,6 +11,7 @@ use kartta_lang::{
 use crate::manifest;
 use crate::walk::{MOD_TEST_FORM, USE_FORM};
 
+#[derive(PartialEq)]
 pub(crate) struct Crates {
     packages: HashSet<String>,
     libraries: HashMap<String, Vec<Library>>,
@@ -17,6 +19,7 @@ pub(crate) struct Crates {
 
 // constraint: a library is found by the name a path into it starts with, and every package that declares a library of
 // that name holds one, as a workspace member and a vendored copy of it do
+#[derive(PartialEq)]
 struct Library {
     package: String,
     root: String,
@@ -241,6 +244,10 @@ impl Resolver for Crates {
         }
 
         extraction
+    }
+
+    fn resolves_as(&self, kept: &dyn Resolver) -> bool {
+        (kept as &dyn Any).downcast_ref::<Self>() == Some(self)
     }
 }
 
