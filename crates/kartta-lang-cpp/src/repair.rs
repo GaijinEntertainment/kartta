@@ -11,6 +11,7 @@ const HEAD_ATTRIBUTES: [&[u8]; 4] = [b"alignas", b"_Alignas", b"__declspec", b"_
 const DATA_GROUP_MIN: usize = 4096;
 const GENERATED_PARSER_MARKS: [&[u8]; 2] = [b"tree_sitter/parser.h", b"#define LANGUAGE_VERSION "];
 const RAW_DELIMITER_MAX: usize = 16;
+const PARENTHESES: (u8, u8) = (b'(', b')');
 
 pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
     let mut repaired: Option<Vec<u8>> = None;
@@ -276,7 +277,7 @@ fn head_word(source: &[u8], at: usize) -> Option<(usize, HeadWord)> {
         };
         return Some((at + len, kind));
     }
-    let end = open + group_len(&source[open..])?;
+    let end = open + group_len(&source[open..], PARENTHESES)?;
     let kind = if is_macro_name(word) {
         HeadWord::MacroCall
     } else if HEAD_ATTRIBUTES.contains(&word) {
@@ -293,19 +294,18 @@ fn whitespace_len(text: &[u8]) -> usize {
         .count()
 }
 
-fn group_len(text: &[u8]) -> Option<usize> {
+fn group_len(text: &[u8], (open, close): (u8, u8)) -> Option<usize> {
     let mut depth = 0usize;
-    for (at, byte) in text.iter().take(HEAD_GROUP_MAX).enumerate() {
-        match byte {
-            b'(' => depth += 1,
-            b')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(at + 1);
-                }
+    for (at, &byte) in text.iter().take(HEAD_GROUP_MAX).enumerate() {
+        if byte == open {
+            depth += 1;
+        } else if byte == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(at + 1);
             }
-            b'{' | b'}' | b';' => return None,
-            _ => {}
+        } else if matches!(byte, b'{' | b'}' | b';') {
+            return None;
         }
     }
     None
@@ -413,24 +413,30 @@ fn untaken_branches(source: &[u8]) -> Vec<Range<usize>> {
             at = end;
             continue;
         }
-        at += match byte {
-            b'/' => match source.get(at + 1) {
-                Some(b'/') => logical_line_end(source, at) - at,
-                Some(b'*') => comment_len(&source[at..]).unwrap_or(source.len() - at),
-                _ => 1,
-            },
-            b'"' if source[..at].ends_with(b"R") => raw_string_len(&source[at..])
-                .or_else(|| quoted_len(&source[at..], byte))
-                .unwrap_or(1),
-            b'"' | b'\'' => quoted_len(&source[at..], byte).unwrap_or(1),
-            b'{' | b'}' => {
-                scan.brace(if byte == b'{' { 1 } else { -1 });
-                1
-            }
-            _ => 1,
-        };
+        match byte {
+            b'{' => scan.brace(1),
+            b'}' => scan.brace(-1),
+            _ => {}
+        }
+        at += opaque_len(source, at);
     }
     scan.untaken
+}
+
+/// The bytes from `at` that hold no brace of the code: a comment or a literal, else the one byte at `at`.
+fn opaque_len(source: &[u8], at: usize) -> usize {
+    match source[at] {
+        b'/' => match source.get(at + 1) {
+            Some(b'/') => logical_line_end(source, at) - at,
+            Some(b'*') => comment_len(&source[at..]).unwrap_or(source.len() - at),
+            _ => 1,
+        },
+        quote @ b'"' if source[..at].ends_with(b"R") => raw_string_len(&source[at..])
+            .or_else(|| quoted_len(&source[at..], quote))
+            .unwrap_or(1),
+        quote @ (b'"' | b'\'') => quoted_len(&source[at..], quote).unwrap_or(1),
+        _ => 1,
+    }
 }
 
 fn raw_string_len(text: &[u8]) -> Option<usize> {
