@@ -1,6 +1,7 @@
-//! The paths into other crates a Rust file names through its `use` declarations and path calls.
+//! The paths into other crates a Rust file names through its `use` declarations and path calls, and the module files
+//! the resolver binds them to through the packages of the workspace.
 
-use kartta_lang::Language;
+use kartta_lang::{Extraction, ImportBinding, Language, MemoryRepository};
 use kartta_lang_rust::Rust;
 
 const USE_FORM: u32 = 2;
@@ -78,7 +79,7 @@ fn a_name_only_a_function_body_or_an_inline_module_declares_keeps_its_path() {
 #[test]
 fn a_kept_path_includes_no_file_its_name_spells() {
     let rust = Rust::new();
-    let repository = kartta_lang::MemoryRepository::new([("src/lib.rs", ""), ("src/walk", "")]);
+    let repository = MemoryRepository::new([("src/lib.rs", ""), ("src/walk", "")]);
 
     let extraction = rust
         .resolver(&repository)
@@ -96,4 +97,98 @@ fn a_name_the_file_declares_or_binds_to_two_paths_binds_no_path() {
     );
 
     assert_eq!(got, [path("keep", "d::keep", 3)]);
+}
+
+fn resolve(files: &[(&str, &str)], path: &str) -> Extraction {
+    let rust = Rust::new();
+    let repository = MemoryRepository::new(files.iter().copied());
+    let source = files
+        .iter()
+        .find(|(file, _)| *file == path)
+        .map_or("", |(_, source)| source);
+    rust.resolver(&repository)
+        .resolve(rust.extract(source.as_bytes()), path)
+}
+
+fn binding(target: &str, last_segment: &str) -> ImportBinding {
+    ImportBinding {
+        alias: None,
+        target_dir: Some(target.to_owned()),
+        last_segment: last_segment.to_owned(),
+    }
+}
+
+const WORKSPACE: &[(&str, &str)] = &[
+    ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+    (
+        "crates/lang/Cargo.toml",
+        "[package]\nname = \"kartta-lang\"\n",
+    ),
+    ("crates/lang/src/lib.rs", ""),
+    ("crates/lang/src/tree.rs", ""),
+    ("crates/lang/src/path/mod.rs", ""),
+    (
+        "crates/walk/Cargo.toml",
+        "[package]\nname = \"walker\" # the package\n\n[lib]\nname = \"kartta_walk\"\npath = \"lib.rs\"\n\n\
+         [[bin]]\nname = \"walk\"\n",
+    ),
+    ("crates/walk/lib.rs", ""),
+    ("crates/walk/walk.rs", ""),
+    ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+    (
+        "crates/app/src/main.rs",
+        "use kartta_lang::tree::text;\nuse kartta_lang::path as paths;\nuse kartta_lang::Language;\n\
+         use serde::Serialize;\n\nfn main() {\n    kartta_walk::walk::run();\n    kartta_lang::tree::Node::new();\n}\n",
+    ),
+    (
+        "crates/lang/tests/it.rs",
+        "use kartta_lang::tree::text;\n\nfn check() { text(); }\n",
+    ),
+];
+
+#[test]
+fn a_path_into_a_workspace_crate_binds_the_module_file_its_segments_name() {
+    let got = resolve(WORKSPACE, "crates/app/src/main.rs").bindings;
+
+    assert_eq!(
+        got,
+        [
+            binding("crates/lang/src/tree.rs", "text"),
+            ImportBinding {
+                alias: Some("paths".to_owned()),
+                ..binding("crates/lang/src/path/mod.rs", "path")
+            },
+            binding("crates/walk/walk.rs", "walk"),
+        ]
+    );
+}
+
+#[test]
+fn a_crate_s_own_name_binds_its_library_from_its_tests() {
+    let got = resolve(WORKSPACE, "crates/lang/tests/it.rs").bindings;
+
+    assert_eq!(got, [binding("crates/lang/src/tree.rs", "text")]);
+}
+
+#[test]
+fn a_crate_name_several_packages_share_binds_the_nearest_one_or_none() {
+    let files = [
+        ("app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        ("app/src/main.rs", "use shared::f;\n\nfn main() { f(); }\n"),
+        ("app/shared/Cargo.toml", "[package]\nname = \"shared\"\n"),
+        ("app/shared/src/lib.rs", ""),
+        ("vendor/shared/Cargo.toml", "[package]\nname = \"shared\"\n"),
+        ("vendor/shared/src/lib.rs", ""),
+        ("tools/Cargo.toml", "[package]\nname = \"tools\"\n"),
+        (
+            "tools/src/main.rs",
+            "use shared::f;\n\nfn main() { f(); }\n",
+        ),
+    ];
+
+    let nearest = resolve(&files, "app/src/main.rs").bindings;
+    let tied = resolve(&files, "tools/src/main.rs").bindings;
+
+    assert_eq!(nearest, [binding("app/shared/src/lib.rs", "f")]);
+    assert_eq!(tied, []);
 }
