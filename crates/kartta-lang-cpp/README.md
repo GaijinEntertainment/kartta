@@ -9,19 +9,21 @@ C and C++ for the kartta code graph: definitions, calls and includes extracted t
 
 From the bytes alone: functions and methods, classes, structs, unions and enums, type aliases, class data members, and
 namespace-scope variables and constants, each qualified the way C++ names it — `ns::f` for a free function in a
-namespace, `Widget::area` for a member. A member call on `this` carries `this` as its receiver and one on any other
-operand the empty receiver, because a value's name names no type. Callables carry an identity of scope, parameter types
-and member qualifiers wherever the walk can establish one without guessing, so a declaration and its definition meet in
-the graph and two overloads stay apart. Function-like macros, a test harness's `TEST(...)` blocks and trailing
-annotation macros included, are never mistaken for definitions.
+namespace, `Widget::area` for a member. A member call carries the class its operand holds as its receiver: the
+caller's own class on `this`, and on a local or a parameter the class its declaration spells, with the scopes it writes,
+`b::Widget`, and without its template arguments; one on any other operand carries the empty receiver, because a value's
+name names no type. Callables carry an identity of scope, parameter types and member qualifiers wherever the walk can
+establish one without guessing, so a declaration and its definition meet in the graph and two overloads stay apart.
+Function-like macros, a test harness's `TEST(...)` blocks and trailing annotation macros included, are never mistaken
+for definitions.
 
 Inside a function's body and its initializer list, each read, write and update of a value is a use: `x.f` and `x->f`
 outside a call's callee, `this->f`, a member a constructor's initializer list or a designated initializer sets, and a
 bare name that no local, parameter, capture or enclosing template parameter of the body declares before it. A bare name
 stays bare, since C++ looks it up in the enclosing class before the namespaces. A member on `this` or in an initializer
 list is on the own receiver, and one on a local or a parameter names the type its declaration spells, a pointer's for
-`->`, as the class's bare name; any other operand names no type. A name the walk cannot place — an enumerator, a macro,
-a value of another file — is kept, for the graph to bind or leave unbound.
+`->`, as a member call's receiver names it; any other operand names no type. A name the walk cannot place — an
+enumerator, a macro, a value of another file — is kept, for the graph to bind or leave unbound.
 
 From the path and the repository: each `#include` resolved to the file of the repository it names — the path relative to
 the including file, the exact path, the one file whose path ends in it — with no compiler search path, or kept as an

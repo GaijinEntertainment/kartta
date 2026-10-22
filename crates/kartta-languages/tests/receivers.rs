@@ -78,14 +78,24 @@ fn a_cpp_member_call_on_a_value_of_a_declared_class_names_the_class() {
         (
             "void run() { Buffer buf = make(); buf.resize(); }\n",
             "resize",
+            "Buffer",
         ),
-        ("void run(Buffer* items) { items->close(); }\n", "close"),
+        (
+            "void run(Buffer* items) { items->close(); }\n",
+            "close",
+            "Buffer",
+        ),
+        (
+            "void run(io::Buffer* items) { items->close(); }\n",
+            "close",
+            "io::Buffer",
+        ),
     ];
 
-    for (source, callee) in cases {
+    for (source, callee, class) in cases {
         assert_eq!(
             call_of("cpp", source, callee).map(|call| call.receiver),
-            Some(Some("Buffer".to_owned())),
+            Some(Some(class.to_owned())),
             "{source}"
         );
     }
