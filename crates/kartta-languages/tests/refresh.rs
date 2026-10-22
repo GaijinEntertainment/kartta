@@ -416,6 +416,43 @@ fn a_changed_go_mod_resolves_every_go_file_again() {
 }
 
 #[test]
+fn a_crate_renamed_in_its_cargo_toml_resolves_every_rust_file_again() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    for (path, content) in [
+        ("crates/other/Cargo.toml", "[package]\nname = \"other\"\n"),
+        ("crates/other/src/lib.rs", "pub fn f() {}\n"),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/main.rs",
+            "fn main() {\n    other::f();\n}\n",
+        ),
+    ] {
+        write(tree.path(), path, content);
+    }
+    std::thread::sleep(Duration::from_millis(2100));
+    let callees = |engine: &Engine| {
+        let (_, graph) = engine
+            .graph_of("crates/app/src/main.rs")
+            .expect("Rust claims the file");
+        format!("{:#?}", graph.callees("main", Limits::new(1)))
+    };
+    let mut engine = build(tree.path(), true);
+    let before = callees(&engine);
+
+    write(
+        tree.path(),
+        "crates/other/Cargo.toml",
+        "[package]\nname = \"renamed\"\n",
+    );
+    let refresh = refreshed(engine.refresh_paths(["crates/other/Cargo.toml"], None));
+
+    assert_eq!(refresh.reconfigured, ["rust"]);
+    assert_eq!(refresh.resolved_again, 2, "main.rs and lib.rs");
+    assert_ne!(callees(&engine), before, "the call binds through no crate");
+    assert_eq!(callees(&engine), callees(&build(tree.path(), false)));
+}
+
+#[test]
 fn an_engine_refreshed_again_and_again_follows_every_change() {
     let tree = settled_tree();
     let mut engine = build(tree.path(), true);
