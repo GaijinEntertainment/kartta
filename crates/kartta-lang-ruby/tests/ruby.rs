@@ -62,7 +62,7 @@ fn resolve(source: &[u8], path: &str, files: &[&str]) -> Extraction {
     let ruby = Ruby::new();
     let repository = MemoryRepository::of_paths(files);
     let resolver = ruby.resolver(&repository);
-    resolver.resolve(ruby.extract(source), path)
+    resolver.resolve(ruby.extract(source), path, &repository)
 }
 
 fn symbol<'r>(symbols: &'r [Symbol], qualified: &str) -> &'r Symbol {

@@ -3,8 +3,16 @@ use kartta_lang::{Extraction, IncludeRef, RawExtraction, Repository, Resolver, S
 use crate::class::manifest;
 use crate::walk::CLASS_FORM;
 
-pub(crate) struct Manifests<'r> {
-    pub(crate) repository: &'r dyn Repository,
+pub(crate) struct PuppetResolver;
+
+impl Resolver for PuppetResolver {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
+        Manifests { repository }.resolve(raw, path)
+    }
+}
+
+struct Manifests<'r> {
+    repository: &'r dyn Repository,
 }
 
 impl Manifests<'_> {
@@ -37,7 +45,7 @@ impl Manifests<'_> {
     }
 }
 
-impl Resolver for Manifests<'_> {
+impl Manifests<'_> {
     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 

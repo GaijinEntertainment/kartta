@@ -232,7 +232,7 @@ fn a_key_names_the_implementation_and_the_resolver_adds_the_file() {
         ]
     );
     for path in ["a/api.ts", "b/api.ts"] {
-        let extraction = resolver.resolve(raw.clone(), path);
+        let extraction = resolver.resolve(raw.clone(), path, &files);
         let key = format!("{path}#2");
         assert_eq!(
             callables(&extraction),

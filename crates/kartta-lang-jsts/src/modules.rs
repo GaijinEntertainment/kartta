@@ -29,25 +29,30 @@ const PROBE_SUFFIXES: [&str; 19] = [
 
 const ESM_EXTENSIONS: [&str; 4] = [".js", ".mjs", ".cjs", ".jsx"];
 
-pub(crate) struct Modules<'r> {
-    repository: &'r dyn Repository,
+pub(crate) struct Configs {
     ts_aliases: Vec<ScopedAliases>,
     pkg_imports: Vec<ScopedAliases>,
     packages: Vec<PkgExports>,
 }
 
-impl<'r> Modules<'r> {
-    pub(crate) fn read(repository: &'r dyn Repository) -> Self {
+impl Configs {
+    pub(crate) fn read(repository: &dyn Repository) -> Self {
         let (pkg_imports, packages) = package_json::compile(repository);
 
         Self {
-            repository,
             ts_aliases: tsconfig::alias_configs(repository),
             pkg_imports,
             packages,
         }
     }
+}
 
+pub(crate) struct Modules<'r> {
+    pub(crate) repository: &'r dyn Repository,
+    pub(crate) configs: &'r Configs,
+}
+
+impl Modules<'_> {
     pub(crate) fn resolve(&self, specifier: &str, importer: &str) -> Option<String> {
         if let Some(target) = self.resolve_literal(specifier, importer) {
             return Some(target);
@@ -64,9 +69,9 @@ impl<'r> Modules<'r> {
             return self.probe(&join(dir(importer), specifier)?);
         }
         if specifier.starts_with('#') {
-            return self.resolve_alias(&self.pkg_imports, specifier, importer);
+            return self.resolve_alias(&self.configs.pkg_imports, specifier, importer);
         }
-        (self.resolve_alias(&self.ts_aliases, specifier, importer))
+        (self.resolve_alias(&self.configs.ts_aliases, specifier, importer))
             .or_else(|| self.resolve_package(specifier, importer))
     }
 
@@ -103,7 +108,7 @@ impl<'r> Modules<'r> {
 
     fn nearest_package(&self, specifier: &str, importer: &str) -> Option<&PkgExports> {
         let named = || {
-            self.packages.iter().filter(|package| {
+            self.configs.packages.iter().filter(|package| {
                 specifier
                     .strip_prefix(package.name.as_str())
                     .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))

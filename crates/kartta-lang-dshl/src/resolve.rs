@@ -1,8 +1,16 @@
 use kartta_lang::path::{base, dir, join, shared_segments};
 use kartta_lang::{Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver};
 
-pub(crate) struct Includes<'r> {
-    pub(crate) repository: &'r dyn Repository,
+pub(crate) struct DshlResolver;
+
+impl Resolver for DshlResolver {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
+        Includes { repository }.resolve(raw, path)
+    }
+}
+
+struct Includes<'r> {
+    repository: &'r dyn Repository,
 }
 
 impl Includes<'_> {
@@ -36,7 +44,7 @@ impl Includes<'_> {
     }
 }
 
-impl Resolver for Includes<'_> {
+impl Includes<'_> {
     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 

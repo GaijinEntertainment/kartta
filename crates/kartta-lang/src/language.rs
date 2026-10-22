@@ -56,8 +56,9 @@ pub trait Language: Send + Sync + fmt::Debug {
 
     /// The resolver for one build over `repository`, which the build asks of the first language of the
     /// [family](Language::family) once and then shares between its threads and every file of the family. A language
-    /// that reads configuration — a `go.mod`, a `tsconfig.json` — reads it here.
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r>;
+    /// that reads configuration — a `go.mod`, a `tsconfig.json` — reads it here, and the resolver owns what it read:
+    /// it keeps no borrow of `repository`, which each [`Resolver::resolve`] is handed again.
+    fn resolver(&self, repository: &dyn Repository) -> Box<dyn Resolver>;
 }
 
 /// Applies a file's path and the repository to what its language extracted from the bytes.
@@ -69,9 +70,9 @@ pub trait Language: Send + Sync + fmt::Debug {
 /// content changed only when it reads that file itself. Configuration is read by [`Language::resolver`] as it builds
 /// the resolver, which the engine watches apart, resolving every file of the family again when it changed.
 pub trait Resolver: Send + Sync {
-    /// The extraction of the file at `path`, from `raw`: its imports and includes resolved, its symbols' flags
-    /// completed by what the path shows.
-    fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction;
+    /// The extraction of the file at `path`, from `raw`: its imports and includes resolved against `repository`, its
+    /// symbols' flags completed by what the path shows.
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction;
 }
 
 /// The repository as a resolver sees it: the files a build indexes, and the bytes of any of them.

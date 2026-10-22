@@ -362,7 +362,7 @@ mod tests {
             RawExtraction::default()
         }
 
-        fn resolver<'r>(&'r self, _repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+        fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
             unreachable!("a language that claims nothing resolves nothing")
         }
     }

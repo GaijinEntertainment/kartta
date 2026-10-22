@@ -211,8 +211,8 @@ impl Language for Cpp {
         extract(source)
     }
 
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(resolve::Includes::new(repository))
+    fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
+        Box::new(resolve::CppResolver)
     }
 }
 

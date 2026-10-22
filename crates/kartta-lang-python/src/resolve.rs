@@ -7,18 +7,10 @@ use kartta_lang::{
 
 use crate::walk::IMPORT_FORM;
 
-pub(crate) struct Modules<'r> {
-    repository: &'r dyn Repository,
-}
+pub(crate) struct Modules;
 
-impl<'r> Modules<'r> {
-    pub(crate) const fn new(repository: &'r dyn Repository) -> Self {
-        Self { repository }
-    }
-}
-
-impl Resolver for Modules<'_> {
-    fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
+impl Resolver for Modules {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 
         let module = module_name(path);
@@ -33,7 +25,7 @@ impl Resolver for Modules<'_> {
         }
 
         let mut imports = Imports {
-            repository: self.repository,
+            repository,
             path,
             includes: Vec::new(),
         };

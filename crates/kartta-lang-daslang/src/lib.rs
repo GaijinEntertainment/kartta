@@ -127,8 +127,8 @@ impl Language for Daslang {
         kartta_lang::tree::extract(&grammar(), source, walk::raw_walk)
     }
 
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(DaslangResolver { repository })
+    fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
+        Box::new(DaslangResolver)
     }
 }
 

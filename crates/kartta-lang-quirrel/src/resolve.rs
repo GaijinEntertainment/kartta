@@ -8,15 +8,14 @@ use kartta_lang::{
 
 use crate::sqconfig::{SQCONFIG, SqConfig};
 
-pub(crate) struct QuirrelResolver<'r> {
-    repository: &'r dyn Repository,
+pub(crate) struct QuirrelResolver {
     configs: HashMap<String, SqConfig>,
 }
 
-impl<'r> QuirrelResolver<'r> {
+impl QuirrelResolver {
     // constraint: a `.sqconfig` that cannot be read still governs the scripts below it, so its mounts and base paths
     // are unknown and only the file beside a script resolves
-    pub(crate) fn new(repository: &'r dyn Repository) -> Self {
+    pub(crate) fn new(repository: &dyn Repository) -> Self {
         let mut configs = HashMap::new();
         for path in repository.files_named(SQCONFIG) {
             let config_dir = dir(&path);
@@ -27,12 +26,26 @@ impl<'r> QuirrelResolver<'r> {
             configs.insert(config_dir.to_owned(), config);
         }
 
-        Self {
-            repository,
-            configs,
-        }
+        Self { configs }
     }
+}
 
+impl Resolver for QuirrelResolver {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
+        let scripts = Scripts {
+            repository,
+            configs: &self.configs,
+        };
+        scripts.resolve(raw, path)
+    }
+}
+
+struct Scripts<'r> {
+    repository: &'r dyn Repository,
+    configs: &'r HashMap<String, SqConfig>,
+}
+
+impl Scripts<'_> {
     // constraint: the script tooling reads the `.sqconfig` nearest the script, in its directory or above it, and that
     // file alone
     fn nearest(&self, path: &str) -> Option<&SqConfig> {
@@ -114,7 +127,7 @@ impl<'r> QuirrelResolver<'r> {
     }
 }
 
-impl Resolver for QuirrelResolver<'_> {
+impl Scripts<'_> {
     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 

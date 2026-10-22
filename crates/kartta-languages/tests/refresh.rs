@@ -513,7 +513,7 @@ impl Language for Counted {
         self.language.extract(source)
     }
 
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+    fn resolver(&self, repository: &dyn Repository) -> Box<dyn Resolver> {
         self.resolvers.fetch_add(1, Ordering::Relaxed);
         self.language.resolver(repository)
     }

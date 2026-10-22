@@ -8,8 +8,16 @@ use crate::walk::REQUIRE_RELATIVE_FORM;
 
 const LOAD_ROOTS: [&str; 5] = ["lib", "", "test", "spec", "app"];
 
-pub(crate) struct Requires<'r> {
-    pub(crate) repository: &'r dyn Repository,
+pub(crate) struct RubyResolver;
+
+impl Resolver for RubyResolver {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
+        Requires { repository }.resolve(raw, path)
+    }
+}
+
+struct Requires<'r> {
+    repository: &'r dyn Repository,
 }
 
 impl Requires<'_> {
@@ -41,7 +49,7 @@ impl Requires<'_> {
     }
 }
 
-impl Resolver for Requires<'_> {
+impl Requires<'_> {
     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 

@@ -81,9 +81,11 @@ fn a_kept_path_includes_no_file_its_name_spells() {
     let rust = Rust::new();
     let repository = MemoryRepository::new([("src/lib.rs", ""), ("src/walk", "")]);
 
-    let extraction = rust
-        .resolver(&repository)
-        .resolve(rust.extract(b"use other::walk;\n"), "src/lib.rs");
+    let extraction = rust.resolver(&repository).resolve(
+        rust.extract(b"use other::walk;\n"),
+        "src/lib.rs",
+        &repository,
+    );
 
     assert_eq!(extraction.includes, []);
 }
@@ -107,7 +109,7 @@ fn resolve(files: &[(&str, &str)], path: &str) -> Extraction {
         .find(|(file, _)| *file == path)
         .map_or("", |(_, source)| source);
     rust.resolver(&repository)
-        .resolve(rust.extract(source.as_bytes()), path)
+        .resolve(rust.extract(source.as_bytes()), path, &repository)
 }
 
 fn binding(target: &str, last_segment: &str) -> ImportBinding {

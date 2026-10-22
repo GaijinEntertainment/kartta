@@ -15,13 +15,12 @@ const MOUNT_FILE_NAMES: [&str; 4] = [
     "libs_aot_config.blk",
 ];
 
-pub(crate) struct BlkResolver<'r> {
-    repository: &'r dyn Repository,
+pub(crate) struct BlkResolver {
     mounts: MountTable,
 }
 
-impl<'r> BlkResolver<'r> {
-    pub(crate) fn new(repository: &'r dyn Repository) -> Self {
+impl BlkResolver {
+    pub(crate) fn new(repository: &dyn Repository) -> Self {
         let mut mounts = MountTable::default();
         let stating_files = MOUNT_FILE_NAMES
             .into_iter()
@@ -32,43 +31,40 @@ impl<'r> BlkResolver<'r> {
             }
         }
 
-        Self { repository, mounts }
+        Self { mounts }
     }
 
     // constraint: the file layer reads `\` as `/`; a `#` path is relative to a root the application sets, and an
     // absolute path, a drive-letter one included, or one relative to the working directory (`:/`) names no
     // repository file
-    fn target(&self, read: &str, including: &str) -> Option<String> {
+    fn target(&self, read: &str, including: &str, repository: &dyn Repository) -> Option<String> {
         if read.starts_with('%') {
-            return self.mounts.resolve(read, including, self.repository);
+            return self.mounts.resolve(read, including, repository);
         }
         let read = forward_slashes(read);
         if let Some(root_relative) = read.strip_prefix('#') {
-            return self.sole_candidate(root_relative);
+            return Self::sole_candidate(root_relative, repository);
         }
         if read.starts_with('/') || read.contains(':') {
             return None;
         }
 
-        indexed(join(dir(including), &read)?, self.repository)
+        indexed(join(dir(including), &read)?, repository)
     }
 
-    fn sole_candidate(&self, root_relative: &str) -> Option<String> {
+    fn sole_candidate(root_relative: &str, repository: &dyn Repository) -> Option<String> {
         let suffix = join(".", root_relative).filter(|suffix| !suffix.is_empty())?;
-        let candidates = self
-            .repository
-            .files_named(base(&suffix))
-            .filter(|candidate| {
-                candidate
-                    .strip_suffix(suffix.as_str())
-                    .is_some_and(|root| root.is_empty() || root.ends_with('/'))
-            });
+        let candidates = repository.files_named(base(&suffix)).filter(|candidate| {
+            candidate
+                .strip_suffix(suffix.as_str())
+                .is_some_and(|root| root.is_empty() || root.ends_with('/'))
+        });
         sole(candidates)
     }
 }
 
-impl Resolver for BlkResolver<'_> {
-    fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
+impl Resolver for BlkResolver {
+    fn resolve(&self, raw: RawExtraction, path: &str, repository: &dyn Repository) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 
         for directive in directives {
@@ -76,7 +72,7 @@ impl Resolver for BlkResolver<'_> {
                 continue;
             }
             let read = directive.names.first().unwrap_or(&directive.spec);
-            match self.target(read, path) {
+            match self.target(read, path, repository) {
                 Some(target) => extraction.includes.push(IncludeRef { target }),
                 None => extraction.imports.push(ImportRef {
                     module: directive.spec,

@@ -67,7 +67,7 @@ use kartta_lang::{
     Resolver,
 };
 
-use crate::resolve::Loaders;
+use crate::resolve::LuaResolver;
 
 mod banner;
 mod resolve;
@@ -126,8 +126,8 @@ impl Language for Lua {
         kartta_lang::tree::extract(&grammar(), source, walk::raw_walk)
     }
 
-    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
-        Box::new(Loaders { repository })
+    fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
+        Box::new(LuaResolver)
     }
 }
 

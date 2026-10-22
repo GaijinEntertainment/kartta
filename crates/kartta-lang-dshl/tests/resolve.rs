@@ -22,7 +22,7 @@ fn resolve(source: &str, path: &str) -> Extraction {
     let tree = MemoryRepository::of_paths(TREE);
     let resolver = dshl.resolver(&tree);
 
-    resolver.resolve(dshl.extract(source.as_bytes()), path)
+    resolver.resolve(dshl.extract(source.as_bytes()), path, &tree)
 }
 
 fn includes(extraction: &Extraction) -> Vec<&str> {

@@ -1,7 +1,7 @@
 use std::fs;
 
 use kartta_fs::{BuildError, CancelToken, ContentId, Index};
-use kartta_lang::{Extraction, Language, RawExtraction, Resolver};
+use kartta_lang::{Extraction, Language, RawExtraction, Repository, Resolver};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::engine::Family;
@@ -37,7 +37,8 @@ struct Batched {
 }
 
 pub(crate) struct Resolvers<'r> {
-    resolvers: Vec<Option<Box<dyn Resolver + 'r>>>,
+    repository: &'r dyn Repository,
+    of_family: Vec<Option<Box<dyn Resolver>>>,
     pub(crate) configurations: Vec<Option<Configuration>>,
 }
 
@@ -55,7 +56,7 @@ pub(crate) struct Inserted {
     pub(crate) errors: Vec<BuildError>,
 }
 
-impl<'b> Resolving<'b> {
+impl Resolving<'_> {
     /// Each family's graph built from `extracted`, what went into it, and what each family's resolver asked as it was
     /// built when this resolution records.
     pub(crate) fn graphs(
@@ -111,12 +112,10 @@ impl<'b> Resolving<'b> {
         &self,
         repository: &'r IndexRepository<'_>,
         wanted: &[bool],
-    ) -> Resolvers<'r>
-    where
-        'b: 'r,
-    {
+    ) -> Resolvers<'r> {
         let mut resolvers = Resolvers {
-            resolvers: Vec::with_capacity(wanted.len()),
+            repository,
+            of_family: Vec::with_capacity(wanted.len()),
             configurations: Vec::with_capacity(wanted.len()),
         };
         for (family, &wanted) in wanted.iter().enumerate() {
@@ -133,7 +132,7 @@ impl<'b> Resolving<'b> {
                     (Some(resolver), Some(configuration))
                 }
             };
-            resolvers.resolvers.push(resolver);
+            resolvers.of_family.push(resolver);
             resolvers.configurations.push(configuration);
         }
         resolvers
@@ -205,9 +204,13 @@ impl<'b> Resolving<'b> {
                 .into_par_iter()
                 .filter_map(|mut batched| {
                     let family = self.family_of[batched.file.language];
-                    let resolver = resolvers.resolvers[family].as_deref()?;
+                    let resolver = resolvers.of_family[family].as_deref()?;
                     let encoded = batched.file.encoded.take();
-                    let outcome = self.recorded(resolver, &batched, encoded.as_deref());
+                    let outcome = self.recorded(
+                        (resolver, resolvers.repository),
+                        &batched,
+                        encoded.as_deref(),
+                    );
                     Some((batched, outcome))
                 })
                 .collect()
@@ -216,7 +219,7 @@ impl<'b> Resolving<'b> {
 
     fn recorded(
         &self,
-        resolver: &dyn Resolver,
+        resolver: (&dyn Resolver, &dyn Repository),
         batched: &Batched,
         encoded: Option<&[u8]>,
     ) -> Resolved {
@@ -231,12 +234,12 @@ impl<'b> Resolving<'b> {
 
     fn resolve(
         &self,
-        resolver: &dyn Resolver,
+        (resolver, repository): (&dyn Resolver, &dyn Repository),
         batched: &Batched,
         encoded: Option<&[u8]>,
     ) -> Result<Extraction, BuildError> {
         if let Some(raw) = encoded.and_then(RawExtraction::decode) {
-            return Ok(resolver.resolve(raw, &batched.path));
+            return Ok(resolver.resolve(raw, &batched.path, repository));
         }
 
         let native_path = self.index.root().join(&*batched.path);
@@ -245,7 +248,7 @@ impl<'b> Resolving<'b> {
             source,
         })?;
         let raw = self.languages[batched.file.language].extract(&bytes);
-        Ok(resolver.resolve(raw, &batched.path))
+        Ok(resolver.resolve(raw, &batched.path, repository))
     }
 }
 

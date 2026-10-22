@@ -69,7 +69,7 @@ fn resolve_with(source: &[u8], path: &str, files: &[&str], configs: &[(&str, &st
     let php = Php::new();
     let repository = MemoryRepository::new(configs.iter().copied()).with_paths(files);
     let resolver = php.resolver(&repository);
-    resolver.resolve(php.extract(source), path)
+    resolver.resolve(php.extract(source), path, &repository)
 }
 
 fn symbol<'r>(symbols: &'r [Symbol], name: &str) -> &'r Symbol {
