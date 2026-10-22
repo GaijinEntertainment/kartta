@@ -14,6 +14,9 @@
       "resolved_again": 0,
       "tree": true,
       "walked": 1,
+      "watch": {
+        "following": false
+      },
       "widened": {
         "limit": 50,
         "named": 51,

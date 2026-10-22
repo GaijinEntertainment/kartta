@@ -93,9 +93,17 @@ export type BuildParams = {
 	 * and what each file's resolution asked of the tree, most of it, 32 MiB over a tree of 182,714 entries. On unix the
 	 * time is the inode change time, which no write can set back; elsewhere it is the modification time, so an edit that
 	 * keeps a file's size and sets its modification time back goes unseen. A file changed within two seconds before the
-	 * build began is read again by the next refresh whatever its stamp says.
+	 * build began is read again by the next refresh whatever its stamp says. `watch` keeps stamps when this is absent,
+	 * and rejects it false with `invalid_params`.
 	 */
 	stamps?: boolean;
+	/**
+	 * Follows the tree through the operating system's change notifications: the library refreshes the index from each
+	 * change on a thread of its own, as `refresh` does, until the next build or `close`, so no refresh is needed for a
+	 * change the notifications report. The build answers once the index holds the changes reported while it was built;
+	 * one macOS reports late is taken in after. `watch` in `stats` says whether the index still follows the tree.
+	 */
+	watch?: boolean;
 };
 
 /** The options of {@link Kartta.build}: the params of `build` but the binding id the handle gives each build. */
@@ -160,6 +168,27 @@ export type Refresh = {
 	widened?: Widened;
 	/** The failures the refresh collected; `stats` lists those the tree fails now. */
 	errors: BuildErrors;
+	/** Whether the index follows its tree. */
+	watch: Watch;
+};
+
+/** Whether the index follows its tree, which decides whether an answer can be older than the tree. */
+export type Watch = {
+	/**
+	 * Whether a watcher refreshes the index from each change the operating system reports. When it is false, the index
+	 * takes a change in only through `refresh` or another build.
+	 */
+	following: boolean;
+	/**
+	 * Why the watch a build asked for is off: it could not start, or it stopped. Absent while the watch follows the
+	 * tree, and when the build asked for no watch.
+	 */
+	reason?: string;
+	/**
+	 * The watchers the watch started over a refresh of the whole tree, because the one before dropped changes, stopped,
+	 * or met the inotify limit; absent when none was.
+	 */
+	restarts?: number;
 };
 
 /** How a refresh of named paths came to walk the whole tree. */
@@ -209,6 +238,7 @@ export type Stats = {
 	/** Absent when the build made no content index. */
 	content_index?: ContentIndexStats;
 	errors: BuildErrors;
+	watch: Watch;
 };
 
 /** What a build made of one language's files. */

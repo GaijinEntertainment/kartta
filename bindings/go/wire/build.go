@@ -31,8 +31,28 @@ type BuildOptions struct {
 	// its time, and what each file's resolution asked of the tree, most of it, 32 MiB over a tree of 182,714 entries.
 	// On unix the time is the inode change time, which no write can set back; elsewhere it is the modification time,
 	// so an edit that keeps a file's size and sets its modification time back goes unseen. A file changed within two
-	// seconds before the build began is read again by the next refresh whatever its stamp says.
+	// seconds before the build began is read again by the next refresh whatever its stamp says. Watch keeps stamps
+	// whatever this says.
 	Stamps bool `json:"stamps,omitempty"`
+	// Watch follows the tree through the operating system's change notifications: the library refreshes the index
+	// from each change on a thread of its own, as Refresh does, until the next Build or Close, so no Refresh is needed
+	// for a change the notifications report. Build answers once the index holds the changes reported while it was
+	// built; one macOS or Windows reports late is taken in after. Stats.Watch says whether the index still follows the
+	// tree, and why not.
+	Watch bool `json:"watch,omitempty"`
+}
+
+// Watch says whether the index follows its tree, which decides whether an answer can be older than the tree.
+type Watch struct {
+	// Following reports that a watcher refreshes the index from each change the operating system reports. When it is
+	// false, the index takes a change in only through Refresh or another Build.
+	Following bool `json:"following"`
+	// Reason says why the watch a build asked for is off: it could not start, or it stopped. Empty while the watch
+	// follows the tree, and when the build asked for no watch.
+	Reason string `json:"reason,omitempty"`
+	// Restarts counts the watchers the watch started over a refresh of the whole tree, because the one before dropped
+	// changes, stopped, or met the inotify limit.
+	Restarts int `json:"restarts,omitempty"`
 }
 
 // Ignore names which ignore rules a build applies.
@@ -114,6 +134,7 @@ type Stats struct {
 	// ContentIndex is nil when the build made none.
 	ContentIndex *ContentIndexStats `json:"content_index,omitempty"`
 	Errors       BuildErrors        `json:"errors"`
+	Watch        Watch              `json:"watch"`
 }
 
 // LanguageFiles counts what a build made of one language's files.

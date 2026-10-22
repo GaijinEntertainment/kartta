@@ -19,6 +19,8 @@ try {
 - `build` and `refresh` each run on a thread of their own and a query on libuv's thread pool, so none holds the event
   loop. An `AbortSignal` stops a running build, grep or refresh; `close` stops every build, grep and refresh in
   flight, except that of those yet to enter the library it stops only the latest 1,024 of each.
+- `build({watch: true})` follows the tree: the library refreshes the index from each change the operating system
+  reports, on a thread of its own, until the next `build` or `close`; `stats().watch` says whether it still does.
 - A failure rejects with a `KarttaError` whose `code` is the engine's: `not_built`, `building`, `invalid_glob` and the
   rest that `src/wire.ts` lists, or `closed` for a call on a closed handle.
 - Each method of the wire has a typed call, its params and answer spelled as the wire spells them; `call(method,
