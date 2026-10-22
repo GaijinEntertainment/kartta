@@ -13,6 +13,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use kartta::{
     BuildError, BuildOptions, CancelToken, Definitions, Engine, Extraction, Language, Limits, Miss,
@@ -28,6 +29,7 @@ struct Defs {
     family: &'static str,
     extension: &'static str,
     extracted: Arc<AtomicUsize>,
+    resolvers: Arc<AtomicUsize>,
 }
 
 impl Defs {
@@ -37,6 +39,7 @@ impl Defs {
             family,
             extension,
             extracted: Arc::default(),
+            resolvers: Arc::default(),
         }
     }
 }
@@ -80,7 +83,9 @@ impl Language for Defs {
         raw
     }
 
-    fn resolver<'r>(&'r self, _repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+    fn resolver<'r>(&'r self, repository: &'r dyn Repository) -> Box<dyn Resolver + 'r> {
+        self.resolvers.fetch_add(1, Ordering::Relaxed);
+        let _configuration = repository.read("config.cfg");
         Box::new(AtPath)
     }
 }
@@ -293,6 +298,78 @@ fn languages_of_one_family_share_a_graph_and_the_first_to_claim_a_file_takes_it(
         .map(|(family, graph)| (family, graph.stats().files))
         .collect();
     assert_eq!(files, [("shared", 2), ("other", 0)]);
+}
+
+fn shared_family() -> (Defs, Defs) {
+    (
+        Defs::new("alpha", "shared", ".alpha"),
+        Defs::new("beta", "shared", ".beta"),
+    )
+}
+
+fn resolvers_built(languages: &(Arc<AtomicUsize>, Arc<AtomicUsize>)) -> (usize, usize) {
+    (
+        languages.0.load(Ordering::Relaxed),
+        languages.1.load(Ordering::Relaxed),
+    )
+}
+
+#[test]
+fn a_family_resolves_through_one_resolver_its_first_language_builds() {
+    let tree = tree(&[("one.alpha", "def one\n"), ("two.beta", "def two\n")]);
+    let (alpha, beta) = shared_family();
+    let built = (Arc::clone(&alpha.resolvers), Arc::clone(&beta.resolvers));
+
+    let engine = build(
+        tree.path(),
+        &BuildOptions::default(),
+        vec![Box::new(alpha), Box::new(beta)],
+    );
+
+    assert_eq!(resolvers_built(&built), (1, 0));
+    let (_, graph) = engine.graph_of("two.beta").expect("beta claims the file");
+    assert_eq!(graph.stats().files, 2);
+}
+
+#[test]
+fn a_family_whose_first_language_claims_no_file_resolves_the_files_of_the_others() {
+    let tree = tree(&[("two.beta", "def two\n")]);
+    let (alpha, beta) = shared_family();
+
+    let engine = build(
+        tree.path(),
+        &BuildOptions::default(),
+        vec![Box::new(alpha), Box::new(beta)],
+    );
+
+    let (family, graph) = engine.graph_of("two.beta").expect("beta claims the file");
+    assert_eq!((family, graph.stats().files), ("shared", 1));
+    assert_eq!(places(&graph.definitions("two", None, 10)), ["two.beta:1"]);
+}
+
+#[test]
+fn a_changed_configuration_builds_its_family_s_resolver_again_once_and_names_the_family_once() {
+    let tree = tree(&[
+        ("config.cfg", "one"),
+        ("one.alpha", "def one\n"),
+        ("two.beta", "def two\n"),
+    ]);
+    // constraint: a stamp is trusted only when its file last changed over two seconds before the walk began
+    std::thread::sleep(Duration::from_millis(2100));
+    let (alpha, beta) = shared_family();
+    let built = (Arc::clone(&alpha.resolvers), Arc::clone(&beta.resolvers));
+    let mut options = BuildOptions::default();
+    options.stamps = true;
+    let mut engine = build(tree.path(), &options, vec![Box::new(alpha), Box::new(beta)]);
+
+    fs::write(tree.path().join("config.cfg"), "two").expect("edit the configuration");
+    let refresh = engine
+        .refresh_paths(["config.cfg"], None)
+        .expect("refresh the configuration");
+
+    assert_eq!(refresh.reconfigured, ["shared"]);
+    assert_eq!(refresh.resolved_again, 2, "one.alpha and two.beta");
+    assert_eq!(resolvers_built(&built), (2, 0));
 }
 
 #[test]

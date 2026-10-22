@@ -39,7 +39,7 @@ pub struct Engine {
 
 #[derive(Debug)]
 pub(crate) struct Family {
-    name: String,
+    pub(crate) name: String,
     pub(crate) graph: Graph,
 }
 
@@ -65,14 +65,14 @@ pub struct EngineRefresh {
     /// The files the walk read, new or changed, whose extraction went into a graph.
     pub extracted: usize,
     /// The files the walk carried over unchanged that were read and resolved again, because a question their
-    /// resolution asked of the tree has another answer now, or their language's configuration changed.
+    /// resolution asked of the tree has another answer now, or their family's configuration changed.
     pub resolved_again: usize,
     /// The files the graphs held and hold no more: gone, hidden by the ignore rules, no longer read as text, or not
     /// read again where a change reached them. `None` when every graph was [rebuilt](EngineRefresh::rebuilt), which
     /// keeps no list of the files held before; [`RefreshOutcome::removed`] still names the files the tree lost.
     pub dropped: Option<usize>,
-    /// The languages whose resolver read another configuration than it read before, a `go.mod` or a `tsconfig.json`,
-    /// so that every file of theirs was resolved again, in the order the languages were given to [`Engine::build`].
+    /// The [families](Language::family) whose resolver read another configuration than it read before, a `go.mod` or
+    /// a `tsconfig.json`, so that every file of theirs was resolved again, in the order of [`Engine::graphs`].
     pub reconfigured: Vec<String>,
     /// Whether every graph was built again from every file, because the engine was built without
     /// [`BuildOptions::stamps`] and kept nothing to find what a change reaches.
@@ -165,9 +165,9 @@ impl Engine {
     ///
     /// Until the walk is done, the build holds each extraction in that form. The extractions are then resolved on the
     /// index's [threads](kartta_fs::Index::on_threads) in batches, each batch inserted in path order before the next is
-    /// resolved, so only one batch is held resolved at a time. A language is asked for its
-    /// [resolver](Language::resolver) only when it claimed a file the build read, so one with nothing to resolve reads
-    /// no configuration.
+    /// resolved, so only one batch is held resolved at a time. Each family's files resolve through one
+    /// [resolver](Language::resolver), which the first of its languages builds once, and only when one of them claimed
+    /// a file the build read, so a family with nothing to resolve reads no configuration.
     ///
     /// On Linux with glibc, the index build and this build both end with the trim [`kartta_fs::Index::build`]
     /// describes: the index build once its walk is done, and this build once the graphs hold every extraction, since
@@ -261,12 +261,12 @@ impl Engine {
     ///
     /// What the refresh costs depends on [`BuildOptions::stamps`] at the build. Without stamps the engine kept nothing
     /// for a refresh, every file is read again, and each graph is built again from every file. With stamps the
-    /// engine kept, for each file its graphs hold, the questions its language's [resolver](Language::resolver) asked
+    /// engine kept, for each file its graphs hold, the questions its family's [resolver](Language::resolver) asked
     /// of the tree while it resolved that file: a file read again is extracted again, through the content cache when
     /// it holds the new bytes, a file gone or no longer read as text leaves its graph, and a file whose questions the
     /// refresh answers differently, such as an include that now finds a file or a Go package that gained one, is read
     /// again and resolved again. When the configuration a resolver read as it was built changed, every file of its
-    /// language is read and resolved again. [`EngineRefresh`] counts each. With stamps the engine also keeps the
+    /// family is read and resolved again. [`EngineRefresh`] counts each. With stamps the engine also keeps the
     /// tables a refresh's resolvers built to find files, by name and by a path in another case, eight bytes for each
     /// regular file of each table a resolver asked for, and the next refresh moves them with the entries it kept
     /// rather than building them again from every entry.
