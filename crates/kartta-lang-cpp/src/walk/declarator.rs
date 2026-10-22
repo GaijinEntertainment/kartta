@@ -66,6 +66,7 @@ fn conversion_operator(node: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
             (Some(terminal), scope) if terminal.kind() == "operator_cast" => (terminal, scope),
             _ => return None,
         },
+        "function_declarator" => return misread_conversion(declarator, source),
         _ => return None,
     };
     let mut abstract_declarator = cast.child_by_field_name("declarator")?;
@@ -83,6 +84,37 @@ fn conversion_operator(node: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
             .map(|scope| type_base_name(scope, source))
             .filter(|scope| is_simple_identifier(scope)),
     })
+}
+
+// constraint: after a macro, `ML_INLINE double4::operator int4() const`, the parser reads the class and the target type
+// as one qualified name and the `operator` keyword between them as an error; a target of more than one word can pull
+// the body into that name, which then names nothing
+fn misread_conversion(function: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
+    let mut qualified = function.child_by_field_name("declarator")?;
+    while qualified.kind() == "qualified_identifier" {
+        let name = qualified.child_by_field_name("name")?;
+        let keyword = child_nodes(qualified).find(|child| {
+            child.is_error() && child_nodes(*child).any(|word| word.kind() == "operator")
+        });
+        if let Some(keyword) = keyword {
+            let written = &source[keyword.start_byte()..name.end_byte()];
+            if written
+                .iter()
+                .any(|byte| matches!(byte, b'(' | b')' | b'{' | b'}' | b';'))
+            {
+                return None;
+            }
+            return Some(DeclaredName {
+                name: sanitize_name(&String::from_utf8_lossy(written)),
+                scope: qualified
+                    .child_by_field_name("scope")
+                    .map(|scope| type_base_name(scope, source))
+                    .filter(|scope| is_simple_identifier(scope)),
+            });
+        }
+        qualified = name;
+    }
+    None
 }
 
 fn declared_name(function: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
