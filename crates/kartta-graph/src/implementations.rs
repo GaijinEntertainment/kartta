@@ -49,7 +49,7 @@ impl Graph {
     /// declare `T`, makes the interface a parent of the type it names, read from the asserting file.
     /// A name selects among classes, structs, interfaces, traits, namespaces and type aliases as [`Graph::definitions`]
     /// does: the type whose qualified name it is, else the type of that bare name, and where several share it, the one
-    /// the most types name as a parent, the first in path order on a tie; a path prefix narrows them as
+    /// the most types name as a parent, the first in path order on a tie; a path prefix and a line narrow them as
     /// [`Graph::callers`] describes.
     ///
     /// A parent written in one file names a type the way the language's scopes reach it, a type alias among them: a
@@ -166,7 +166,7 @@ impl Types<'_> {
     }
 
     fn is_selectable(&self, at: SymbolAt, selector: Selector<'_>) -> bool {
-        self.is_type_at(at) && self.graph.is_within(at, selector.path_prefix)
+        self.is_type_at(at) && self.graph.is_within(at, selector)
     }
 
     fn select(&self, selector: Selector<'_>) -> Option<Selected> {
