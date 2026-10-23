@@ -1172,13 +1172,17 @@ impl<'g> Cascade<'g> {
             UseReceiver::Bare => self
                 .class_scope_use(at, site.name)
                 .unwrap_or_else(|| self.value_use(at, site.name).ok_or(UseMiss::Elsewhere)),
-            UseReceiver::Qualifier(qualifier) => self
-                .binding(file, qualifier)
-                .and_then(|target| {
+            UseReceiver::Qualifier(qualifier) => match self.binding(file, qualifier) {
+                Some(target) => {
                     let candidates = self.referenceable(site.name);
                     self.imported(&candidates, (file, target), Pick::PackageLevel)
-                })
-                .ok_or(UseMiss::Elsewhere),
+                        .ok_or(UseMiss::Elsewhere)
+                }
+                // constraint: a walk that sees one file takes a sibling file's value for a qualifier, and Go lets no
+                // package-level name share an import's, so a qualifier no import binds names a value
+                None if self.reads_type_paths() => self.member_use(at, site.name, Some(qualifier)),
+                None => Err(UseMiss::Elsewhere),
+            },
             UseReceiver::Own => self.own_member(at, site.name),
             UseReceiver::Path(path) => self.member_use(at, site.name, path),
         }

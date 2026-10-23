@@ -544,6 +544,47 @@ fn a_member_of_a_type_outside_the_graph_or_of_one_without_it_binds_nothing() {
 }
 
 #[test]
+fn a_qualifier_no_import_binds_reads_a_member_of_the_package_value_it_names() {
+    let declaring = file(
+        "cfg/vars.go",
+        "cfg",
+        vec![yielding(
+            typed("cfg", "current", SymbolKind::Variable, 1),
+            &["Config"],
+        )],
+        Vec::new(),
+    );
+    let mut reader = file(
+        "cfg/read.go",
+        "cfg",
+        vec![function("cfg", "Read", 1)],
+        Vec::new(),
+    );
+    let qualified = |qualifier: &str, line| UseRef {
+        site_of: SymbolId(0),
+        name: "Timeout".to_owned(),
+        receiver: Receiver::Qualifier(qualifier.to_owned()),
+        access: Access::Read,
+        line,
+    };
+    reader.uses = vec![
+        qualified("current", 2),
+        qualified("http", 3),
+        qualified("absent", 4),
+    ];
+    let reader = importing(reader, &[("http", None)]);
+
+    let graph = graph(&[config_package(), declaring, reader]);
+
+    assert_eq!(
+        sites_of(&graph, "Config.Timeout"),
+        [("cfg.Read".to_owned(), 2, 85)],
+        "a package's value a sibling file declares is read through its type; an import's qualifier and a name \
+         nothing declares bind no field"
+    );
+}
+
+#[test]
 fn a_field_answers_each_access_counted_the_ones_asked_for_and_the_uses_it_could_not_tell() {
     let mut caller = file(
         "app/main.go",
