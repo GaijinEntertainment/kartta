@@ -323,8 +323,10 @@
     `Change::merge`, `ReachBand`, `Engine::analyze_change`
   - Revisit if: a large header must be analyzed faster than 0.3 s, or the per-query memo outgrows a few megabytes
 - [3.23 Judge code dead only where the graph sees it
-  used](./adr/3.23-judge-code-dead-only-where-the-graph-sees-it-used.md) — initiative `03-code-graph`, 2026-10-17,
-  revised 2026-10-23
+  used](./adr/3.23-judge-code-dead-only-where-the-graph-sees-it-used.md)
+  - Governs: `crates/kartta-graph/src/dead.rs`, `Graph::dead_code`, `crates/kartta-graph/src/calls.rs`
+    (`is_called_uncertainly`), `SymbolFlags::is_fallback`
+  - Revisit if: a sample of the dead list finds most of it used through a form no extraction records
 - [3.24 Count what a graph holds and how its calls bind when
   asked](./adr/3.24-count-what-a-graph-holds-and-how-its-calls-bind-when-asked.md) — initiative `03-code-graph`,
   2026-10-17
@@ -529,6 +531,22 @@
   - Governs: `crates/kartta-lang-python/src/walk.rs` (`assignment`, `OwnReceiver`, `attribute_assignment`,
     `declare_attributes`)
   - Revisit if: a consumer needs a field to tell declared data from state a method keeps
+- [3.110 Judge a language's data only where it records every read and
+  write](./adr/3.110-judge-a-language-s-data-only-where-it-records-every-read-and-write.md)
+  - Governs: `kartta_lang::DataUses`, `crates/kartta-graph/src/{dead,calls}.rs`, `SymbolFlags::is_reflected`,
+    `crates/kartta-lang-go/src/walk/syntax.rs`
+  - Revisit if: a language besides Go records a use wherever code reads or writes its data
+- [3.111 Mark what a runtime calls with no name as an entry
+  point](./adr/3.111-mark-what-a-runtime-calls-with-no-name-as-an-entry-point.md)
+  - Governs: `SymbolFlags::is_entry`, the walkers of `crates/kartta-lang-{cpp,python,rust,go,bash,daslang}`
+  - Revisit if: a runtime calls definitions by a convention its extraction does not mark, often enough to fill the
+    dead list
+- [3.112 Keep the names a file's top level calls and
+  uses](./adr/3.112-keep-the-names-a-file-s-top-level-calls-and-uses.md)
+  - Governs: `crates/kartta-graph/src/graph.rs` (`store_file_scope_names`), `crates/kartta-graph/src/calls.rs`
+    (`file_scope_callers`), `Walk::file_scope`, each language's walker
+  - Revisit if: the file-scope names grow past a few percent of a build's heap, or an agent needs a file-scope call's
+    line
 - [3.120 Derive a language's fingerprint from its code and its dependencies'
   versions](./adr/3.120-derive-a-language-s-fingerprint-from-its-code-and-its-dependencies-versions.md)
   - Governs: `kartta_lang::Language::fingerprint`, `crates/kartta-lang/src/fingerprint.rs` (`set_source_id`),
