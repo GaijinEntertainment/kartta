@@ -18,7 +18,8 @@ empty receiver; a type's body runs with `self` as the type, so a call there with
 receiver that is a class, `self` in a class method or a type's body, `self.class` in an instance method, or a constant,
 ends in `.`, the separator of a class method's name: `Geo::Shape.` for `self`, and `.` alone for `self.class` and for a
 constant, whose path the receiver does not keep, so a call on the class binds `Shape.build` before `Shape#build`, and
-any other receiver the reverse. A bare
+any other receiver the reverse. A bare `new` that reads no local makes, in a class method, an instance of the owner,
+so `new.getopts` there records `Geo::Shape`. A bare
 name, `setup`, is a call with no receiver unless a binding before it in its scope makes it a local variable, as Ruby
 decides. The
 conventions list `other` alone as the receiver of a value of the caller's own type, since a call on `self` binds

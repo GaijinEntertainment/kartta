@@ -278,18 +278,20 @@ impl Emitter<'_> {
         let callee = text(method, self.source);
         let site_of = self.site_of();
         let receiver_node = node.child_by_field_name("receiver");
-        let receiver = match receiver_node {
-            Some(receiver) => Some(match receiver.kind() {
-                IDENTIFIER => text(receiver, self.source),
-                "self" => self.type_of_self(site_of).unwrap_or_default(),
-                "constant" | "scope_resolution" => CLASS_MEMBER_SEPARATOR.to_owned(),
-                "call" if self.is_class_of_an_instance(receiver, site_of) => {
-                    CLASS_MEMBER_SEPARATOR.to_owned()
-                }
-                _ => String::new(),
-            }),
-            None => self.implicit_receiver(site_of),
-        };
+        let receiver = receiver_node.map_or_else(
+            || self.implicit_receiver(site_of),
+            |receiver| {
+                Some(match receiver.kind() {
+                    IDENTIFIER => self.named_receiver(receiver, site_of),
+                    "self" => self.type_of_self(site_of).unwrap_or_default(),
+                    "constant" | "scope_resolution" => CLASS_MEMBER_SEPARATOR.to_owned(),
+                    "call" if self.is_class_of_an_instance(receiver, site_of) => {
+                        CLASS_MEMBER_SEPARATOR.to_owned()
+                    }
+                    _ => String::new(),
+                })
+            },
+        );
 
         // constraint: a call with any receiver, `config.require 'x'`, is a method of its own and loads nothing
         if receiver_node.is_none()
@@ -410,6 +412,21 @@ impl Emitter<'_> {
         } else {
             owner.to_owned()
         })
+    }
+
+    // constraint: a bare `new` that no binding makes a local is `self.new`, which in a class method makes an instance
+    // of the owner. A type's body is left out: its blocks most often run with another `self`, `class_eval` or
+    // `define_method`
+    fn named_receiver(&self, receiver: Node<'_>, site_of: SymbolId) -> String {
+        let name = &self.source[receiver.byte_range()];
+        if name == b"new"
+            && !self.is_type_body(site_of)
+            && !self.locals.is_local(name)
+            && let Some((owner, true)) = self.owner_of_method(site_of)
+        {
+            return owner.to_owned();
+        }
+        text(receiver, self.source)
     }
 
     /// The owner of the method `site_of` names, and whether it is a class method.
