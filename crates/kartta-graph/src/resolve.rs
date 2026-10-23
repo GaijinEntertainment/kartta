@@ -748,7 +748,7 @@ impl<'g> Cascade<'g> {
     // `struct kevent` beside the `extern` function `kevent`, so the call names the function
     fn module_export(&self, call: &Call, module: u32) -> Option<Bound> {
         let defined = self.graph.in_file(self.named(call.callee), module);
-        let at = self
+        let Some(at) = self
             .call_targets(call.caller_at(), defined.iter().copied())
             .filter(|&at| {
                 let symbol = self.graph.sym(at);
@@ -757,10 +757,37 @@ impl<'g> Cascade<'g> {
                     && self.holder(at).is_none()
                     && !self.graph.flags(at).is_test()
             })
-            .min_by_key(|&at| self.graph.sym(at).kind.is_type())?;
+            .min_by_key(|&at| self.graph.sym(at).kind.is_type())
+        else {
+            return self.macro_exported_below(call, module);
+        };
         self.graph
             .sym(at)
             .exported
+            .then_some((at, confidence::IMPORT))
+    }
+
+    // constraint: Rust's `#[macro_export]` places a macro at its crate's root whatever module defines it, so a name the
+    // module's file does not define binds the one exported macro of the name that a file it includes, directly or
+    // through others, defines; two leave the call to the tiers below
+    fn macro_exported_below(&self, call: &Call, module: u32) -> Option<Bound> {
+        let mut closure = None;
+        let mut exported = self.named(call.callee).iter().copied().filter(|&at| {
+            let symbol = self.graph.sym(at);
+            symbol.kind == SymbolKind::Macro
+                && symbol.exported
+                && at.file != module
+                && self.holder(at).is_none()
+                && !self.graph.flags(at).is_test()
+                && closure
+                    .get_or_insert_with(|| self.closure(module))
+                    .binary_search(&at.file)
+                    .is_ok()
+        });
+        let at = exported.next()?;
+        exported
+            .next()
+            .is_none()
             .then_some((at, confidence::IMPORT))
     }
 

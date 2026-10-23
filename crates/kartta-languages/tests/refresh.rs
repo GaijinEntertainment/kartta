@@ -558,6 +558,61 @@ fn a_crate_renamed_in_its_cargo_toml_resolves_every_rust_file_again() {
 }
 
 #[test]
+fn a_rust_macro_invocation_follows_the_macro_a_submodule_of_the_other_crate_adds_renames_and_removes()
+ {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    for (path, content) in [
+        ("crates/other/Cargo.toml", "[package]\nname = \"other\"\n"),
+        ("crates/other/src/lib.rs", "mod tree;\n"),
+        ("crates/other/src/tree.rs", "pub fn f() {}\n"),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/main.rs",
+            "fn main() {\n    other::mac!();\n}\n",
+        ),
+    ] {
+        write(tree.path(), path, content);
+    }
+    std::thread::sleep(Duration::from_millis(2100));
+    let callees = |engine: &Engine| {
+        let (_, graph) = engine
+            .graph_of("crates/app/src/main.rs")
+            .expect("Rust claims the file");
+        let callees = graph
+            .callees("main", Limits::new(1))
+            .expect("main is defined");
+        let bound = (callees.reached.iter())
+            .map(|reached| (reached.symbol.file.to_owned(), reached.confidence))
+            .collect::<Vec<_>>();
+        (bound, format!("{callees:#?}"))
+    };
+    let mut engine = build(tree.path(), true);
+    let exported = "#[macro_export]\nmacro_rules! mac { () => {}; }\n";
+    let into_tree = vec![(
+        "crates/other/src/tree.rs".to_owned(),
+        kartta::confidence::IMPORT,
+    )];
+
+    for (edit, bound) in [
+        (exported, into_tree.clone()),
+        (&*exported.replace("mac", "renamed"), vec![]),
+        (exported, into_tree),
+        ("pub fn f() {}\n", vec![]),
+    ] {
+        write(tree.path(), "crates/other/src/tree.rs", edit);
+        refreshed(engine.refresh_paths(["crates/other/src/tree.rs"], None));
+
+        let (refreshed_bound, refreshed_answer) = callees(&engine);
+        assert_eq!(refreshed_bound, bound, "after writing {edit:?}");
+        assert_eq!(
+            refreshed_answer,
+            callees(&build(tree.path(), false)).1,
+            "after writing {edit:?}"
+        );
+    }
+}
+
+#[test]
 fn a_cargo_toml_dependency_bump_resolves_no_rust_file_again() {
     let manifest = "[package]\nname = \"app\"\n\n[dependencies]\nserde = \"1.0.0\"\n";
     let tree = settled_tree_with(&[
