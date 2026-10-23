@@ -19,8 +19,9 @@ A file keeps its call sites and uses as its language wrote them, and a query res
 about. A call goes through a confidence-ranked cascade: the owner a receiver names, the caller's own scope, its
 imports, its package, its includes and the re-export chains through them, the caller's own owner, the one callable of
 the name, and the callables nearest the caller. A call from outside test code binds no test definition as the one
-callable of the name, and a test definition still counts there, so where test code shares a name, most often to stub a
-builtin or a library outside the graph, no other definition of it is the one callable.
+callable of the name or the one nearest the caller, and a test definition still counts there, so where test code
+shares a name, most often to stub a builtin or a library outside the graph, no other definition of it is the one
+callable.
 An import binds a package's directory, whose exports a call through it
 reaches, or a module's file: a call through such an import, or of the name it imports, binds what the file exports at
 its top level under the name, a type only where the file defines nothing else of the name there; a call from the file

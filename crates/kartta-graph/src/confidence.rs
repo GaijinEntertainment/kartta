@@ -36,6 +36,9 @@ pub const RE_EXPORT: u8 = 65;
 /// binds no test definition here, and a test definition still counts among the definitions of its name.
 pub const UNIQUE: u8 = 60;
 /// The one callable of the name in the caller's directory binds.
+///
+/// Here and at the two steps after it, a call from outside test code binds no test definition, and a test definition
+/// still counts among the definitions of its name nearest the caller.
 pub const SAME_DIR: u8 = 50;
 /// The one callable of the name in the caller's parent directory binds.
 pub const PARENT_DIR: u8 = 30;

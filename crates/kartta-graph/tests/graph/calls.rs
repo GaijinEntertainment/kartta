@@ -1731,6 +1731,48 @@ fn proximity_binds_the_one_callable_nearest_the_caller() {
     assert_eq!(callees(&first_party, "run"), ["b/y.go:1@15"]);
 }
 
+#[test]
+fn nearness_binds_a_test_definition_only_for_test_code() {
+    let calling = |nearest: &str, other: Extraction| {
+        graph(&[
+            file(
+                "a/x/main.c",
+                vec![function("run", 1)],
+                vec![call(0, "parse", 2)],
+            ),
+            file(
+                "a/x/check.c",
+                vec![in_test(function("check", 1))],
+                vec![call(0, "parse", 2)],
+            ),
+            file(nearest, vec![in_test(function("parse", 1))], Vec::new()),
+            other,
+        ])
+    };
+    let product = |path: &str| file(path, vec![function("parse", 1)], Vec::new());
+    let vendored_parse = file(
+        "vendor/y.c",
+        vec![vendored(function("parse", 1))],
+        Vec::new(),
+    );
+    let steps = [
+        ("a/x/y.c", product("b/y.c"), "a/x/y.c:1@50"),
+        ("a/y/p.c", product("b/y.c"), "a/y/p.c:1@30"),
+        ("b/y.c", vendored_parse, "b/y.c:1@15"),
+    ];
+
+    for (nearest, other, bound) in steps {
+        let graph = calling(nearest, other);
+        assert_eq!(callees(&graph, "run"), Vec::<String>::new(), "{nearest}");
+        assert_eq!(callees(&graph, "check"), [bound]);
+        assert_eq!(
+            graph.resolution(0).misses.ambiguous,
+            1,
+            "the call from outside test code counts as one that nearness does not settle"
+        );
+    }
+}
+
 fn members_alone() -> Conventions {
     let mut conventions = go();
     conventions.member_calls = MemberCalls::Members;
