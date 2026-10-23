@@ -20,6 +20,36 @@ fn path(name: &str, path: &str, line: u32) -> (String, String, u32) {
     (name.to_owned(), path.to_owned(), line)
 }
 
+const GLOB_FORM: u32 = 3;
+
+fn globs(source: &str) -> Vec<(String, u32)> {
+    Rust::new()
+        .extract(source.as_bytes())
+        .directives
+        .into_iter()
+        .filter(|directive| directive.form == GLOB_FORM)
+        .map(|directive| (directive.spec, directive.line))
+        .collect()
+}
+
+#[test]
+fn a_glob_outside_every_block_keeps_the_module_path_it_ends_at() {
+    let got = globs(
+        "use super::*;\nuse crate::m::*;\nuse other::m::{self, sub::*};\nuse ::rooted::*;\nuse std::collections::*;\n\
+         use crate::m::Kind::*;\n\nmod tests {\n    use other::t::*;\n}\n\nfn run() {\n    use other::n::*;\n}\n",
+    );
+
+    assert_eq!(
+        got,
+        [
+            ("super".to_owned(), 1),
+            ("crate::m".to_owned(), 2),
+            ("other::m::sub".to_owned(), 3),
+            ("rooted".to_owned(), 4),
+        ]
+    );
+}
+
 #[test]
 fn a_use_binds_each_name_it_imports_from_another_crate_to_the_path_in_source_order() {
     let got = bound(
@@ -348,6 +378,29 @@ fn a_path_through_crate_self_or_super_binds_the_module_file_from_the_caller_s_mo
         top,
         [binding("src/lib.rs", "root"), binding("src/lib.rs", "up")]
     );
+}
+
+#[test]
+fn a_glob_binds_the_file_of_the_module_it_ends_at_as_a_dot_import() {
+    let got = resolve(
+        &[
+            ("Cargo.toml", "[package]\nname = \"app\"\n"),
+            ("src/lib.rs", "mod m;\n#[cfg(test)]\nmod tests;\n"),
+            ("src/m.rs", ""),
+            (
+                "src/tests.rs",
+                "use super::*;\nuse crate::m::*;\nuse crate::m::item::*;\n",
+            ),
+        ],
+        "src/tests.rs",
+    )
+    .bindings;
+
+    let glob = |target: &str, last_segment: &str| ImportBinding {
+        alias: Some(".".to_owned()),
+        ..binding(target, last_segment)
+    };
+    assert_eq!(got, [glob("src/lib.rs", "super"), glob("src/m.rs", "m")]);
 }
 
 #[test]

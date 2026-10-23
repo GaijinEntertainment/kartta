@@ -30,13 +30,15 @@
 //! `crate::m::f()` for `m`, or for its name where the path ends at `crate`, `self` or `super`, `super::f()` for `f`,
 //! and a macro invocation through one for its macro, `kartta_lang::mac!()` for `mac`, each read through the `use` of
 //! its first segment where the file has one. A name the file declares at its top level, or binds to two paths anywhere,
-//! keeps none, and a glob, `as _`, a capitalised first segment, a path through `self::` or `super::` inside an inline
-//! module and the standard library's crates keep nothing. A path that ends at a capitalised item, a type, is kept only
-//! where the file calls its name bare, as `Wrapper(1)` calls a tuple struct's constructor, since a call through a type
-//! names its member. A `use` inside a
-//! function body or an inline module is in scope in its block alone, not in a module nested in it: outside the blocks
-//! of the `use`s that alone bind a name, a path call reads the name as the crate it spells, and a bare call of the name
-//! leaves it no path. The paths are among the file's directives in source order. `extern crate` adds no import.
+//! keeps none, and `as _`, a capitalised first segment, a path through `self::` or `super::` inside an inline module
+//! and the standard library's crates keep nothing. A glob outside every function body and inline module,
+//! `use super::*;`, keeps the path of the module it ends at once, under those rules, and one inside a block, or of a
+//! capitalised item, keeps nothing. A path that ends at a capitalised item, a type, is kept only where the file calls
+//! its name bare, as `Wrapper(1)` calls a tuple struct's constructor, since a call through a type names its member. A
+//! `use` inside a function body or an inline module is in scope in its block alone, not in a module nested in it:
+//! outside the blocks of the `use`s that alone bind a name, a path call reads the name as the crate it spells, and a
+//! bare call of the name leaves it no path. The paths are among the file's directives in source order. `extern crate`
+//! adds no import.
 //!
 //! A name read where no call takes it is a use of it: an argument, `items.map(helper)`, an element, an operand, a
 //! range's bound, a condition, an indexed value or an index, a returned, a broken-out, a block's or a closure's last
@@ -75,7 +77,9 @@
 //! of the name, since a call never names a type that Rust keeps apart from values, and from the file's module or a
 //! module below it, a private item other than a macro too. A test item binds only a call from test code of its own
 //! crate, whose test build alone compiles it, and an exported one from any module of the crate; a macro the file does
-//! not export binds no call through it.
+//! not export binds no call through it. A glob imports the file of the module it ends at, and none for a path that
+//! ends past a module, so a bare call binds what that file shows it the same way, where the caller's own file declares
+//! nothing of the name.
 //!
 //! The resolver keeps only what it derived: the packages and the name and root of each library. A resolver built again
 //! over an edit that changes none of them, such as a dependency bump in a `Cargo.toml`,

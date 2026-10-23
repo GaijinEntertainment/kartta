@@ -8,7 +8,7 @@ use kartta_lang::tree::{line, named_child_nodes, text};
 use tree_sitter::Node;
 
 use super::syntax::path_text;
-use super::{Emitter, USE_FORM};
+use super::{Emitter, GLOB_FORM, USE_FORM};
 
 // constraint: a path call's site, the byte it starts at and the inline module around it, tells which `use` inside a
 // function body or an inline module is in scope there
@@ -86,8 +86,33 @@ impl Emitter<'_> {
                     self.use_paths(item, prefix, line);
                 }
             }
+            "use_wildcard" if !self.in_a_block() => {
+                let path = named_child_nodes(node)
+                    .next()
+                    .and_then(|path| path_text(path, source))
+                    .map_or_else(|| prefix.to_owned(), |path| joined(&path));
+                self.push_glob(path, line);
+            }
             _ => {}
         }
+    }
+
+    // constraint: a glob outside every function body and inline module binds the items of the module it ends at for
+    // the whole file, as one directive; the file's bindings cannot scope one to a block, and a glob of a type, its
+    // variants or members, of the standard library or of a path that leaves the tree binds no module of it
+    fn push_glob(&mut self, mut path: String, line: u32) {
+        if path.starts_with("::") {
+            path.drain(.."::".len());
+        }
+        if !names_a_module(head(&path)) || names_a_type(last(&path)) {
+            return;
+        }
+        self.raw.directives.push(RawDirective {
+            form: GLOB_FORM,
+            spec: path,
+            names: Vec::new(),
+            line,
+        });
     }
 
     // constraint: each name a `use` binds holds its place among the file's directives until the walk ends and tells

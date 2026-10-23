@@ -2,7 +2,7 @@
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
 //! what that crate exports, one through `crate::`, `self::` or `super::` the item of the module it names, a private one
 //! only from that module or below and a test one only from its crate's test code, a tuple struct's constructor the
-//! struct its `use` names, a macro invocation the
+//! struct its `use` names, a bare call through a glob what the glob's module shows it, a macro invocation the
 //! `#[macro_export]` macro of its root file or the one of the files that file includes, through a `use` inside a
 //! function body or an inline module only from inside it, and no macro of a name the crate also answers with a
 //! function or a `use`, as a call does not say it invokes a macro, and a Rust call on a value, on `self` or through a
@@ -210,6 +210,66 @@ fn a_rust_tuple_struct_s_constructor_binds_the_struct_its_use_names_among_namesa
         ),
         ["crates/other/src/m.rs"]
     );
+}
+
+#[test]
+fn a_rust_glob_binds_the_items_its_module_s_file_shows_the_caller() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/other/Cargo.toml",
+            "[package]\nname = \"other_crate\"\n",
+        ),
+        ("crates/other/src/lib.rs", "pub mod m;\n"),
+        (
+            "crates/other/src/m.rs",
+            "pub fn shared() {}\n\npub fn wide() {}\n\nfn hidden() {}\n",
+        ),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "mod dup;\nmod n;\nmod util;\n\nfn helper() {}\n\nfn local() {}\n\n#[cfg(test)]\nmod tests;\n",
+        ),
+        ("crates/app/src/dup.rs", "pub fn wide() {}\n"),
+        (
+            "crates/app/src/util.rs",
+            "pub fn tool() {}\n\nfn own() {}\n",
+        ),
+        (
+            "crates/app/src/n.rs",
+            "pub fn helper() {}\n\npub fn shared() {}\n\npub fn hidden() {}\n\npub fn tool() {}\n\n\
+             pub fn own() {}\n",
+        ),
+        (
+            "crates/app/src/tests.rs",
+            "use super::*;\nuse crate::dup::*;\nuse crate::util::*;\nuse other_crate::m::*;\n\nfn local() {}\n\n\
+             #[test]\nfn t() {\n    helper();\n    tool();\n    own();\n    shared();\n    hidden();\n    local();\n\
+             \x20   wide();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+    let (_, graph) = engine
+        .graph_of("crates/app/src/tests.rs")
+        .expect("a language claims the file");
+    let callees = graph.callees("t", Limits::new(1)).expect("t is defined");
+    let bound_at = |level: u8| -> Vec<(&str, &str)> {
+        (callees.reached.iter())
+            .filter(|reached| reached.confidence == level)
+            .map(|reached| (reached.symbol.name, reached.symbol.file))
+            .collect()
+    };
+    let bound = bound_at(confidence::IMPORT);
+    let own_file = bound_at(confidence::SAME_FILE);
+
+    assert_eq!(
+        bound,
+        [
+            ("helper", "crates/app/src/lib.rs"),
+            ("tool", "crates/app/src/util.rs"),
+            ("shared", "crates/other/src/m.rs")
+        ]
+    );
+    assert_eq!(own_file, [("local", "crates/app/src/tests.rs")]);
 }
 
 fn bound_through_an_import<'e>(engine: &'e Engine, path: &str, name: &str) -> Vec<&'e str> {
