@@ -1165,7 +1165,7 @@ impl Cascade<'_> {
             .symbols
             .get(call.caller as usize)?
             .owner?;
-        let at = *candidates.with_owner(self.graph, caller_owner).first()?;
+        let at = self.nearest(call, &candidates.with_owner(self.graph, caller_owner))?;
         Some((at, confidence::SAME_FILE))
     }
 
