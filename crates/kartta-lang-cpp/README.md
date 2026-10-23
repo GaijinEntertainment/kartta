@@ -53,8 +53,9 @@ tree-sitter generates, its macro calls and enumerators, cost far more tree than 
 too. A file is read as such a parser when its text before its first brace includes `tree_sitter/parser.h` and defines
 `LANGUAGE_VERSION`. The parser reads a repaired copy of the file, the same length as the original, while every name and
 signature comes from the original bytes.
-`design-docs/adr/3.3-repair-what-the-c-plus-plus-grammar-cannot-parse.md` records what each repair was measured to
-recover, the grammar gap left open, and why the extensions claimed are the ones they are;
+`design-docs/adr/3.3-repair-what-the-c-plus-plus-grammar-cannot-parse.md` records each repair, the grammar gap left
+open, and why the extensions claimed are the ones they are, and ADRs 3.70 to 3.76 beside it the rules the walk keeps
+over the parse; their History lines lead to the PRs that measured what each recovers;
 `design-docs/adr/3.31-parse-a-c-or-c-plus-plus-table-without-its-numbers.md` records the tables.
 
 Status: the API is new and is not published yet.

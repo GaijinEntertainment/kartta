@@ -49,7 +49,7 @@ The weights are fixed: fzy's, scaled by 1000, plus a basename bonus per matched 
 penalties, so alignment quality decides the rank and gaps only break near-ties. A skipped character costs less before
 the first match or after the last than between two, so a file extension costs a candidate little. The tests pin the orderings they
 produce — a contiguous run beating a gapped one, a filename hit beating a directory hit — not the values. Nothing is
-configurable: no caller needed another point in that space, and ADR 1.2 records what keeping it open cost.
+configurable: no caller needed another point in that space, and ADR 1.51 records what keeping it open cost.
 
 A ranking takes candidates one at a time with their positions, so they need never be alive together, and answers with
 positions:
