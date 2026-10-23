@@ -30,6 +30,7 @@ impl Emitter<'_> {
             }
             "pointer_type" | "parenthesized_type" => self.type_path(first_operand(node)?),
             "generic_type" => self.type_path(node.child_by_field_name("type")?),
+            "struct_type" => self.anonymous_name(node),
             _ if is_container_type(node) => {
                 let element = self.type_path(node.child_by_field_name("element")?)?;
                 bounded(format!("{CONTAINER}{element}"))
@@ -167,6 +168,6 @@ pub(super) fn element_of(path: &str) -> Option<String> {
     )
 }
 
-fn bounded(path: String) -> Option<String> {
+pub(super) fn bounded(path: String) -> Option<String> {
     (path.len() <= MAX_PATH).then_some(path)
 }

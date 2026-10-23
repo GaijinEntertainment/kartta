@@ -526,6 +526,185 @@ type Padded struct {
     );
 }
 
+fn owned(raw: &RawExtraction, qualified_name: &str) -> (SymbolKind, Option<String>, Vec<String>) {
+    let symbol = qualified(raw, qualified_name);
+    (
+        symbol.kind,
+        symbol.owner.clone(),
+        symbol.value_types.clone(),
+    )
+}
+
+const ANONYMOUS_FIELDS: &[u8] = br"package app
+
+type Server struct {
+	Limits struct {
+		MaxConns int
+		Codec    Codec
+	}
+	Name string
+}
+
+type Table struct {
+	Rows []struct {
+		ID   int
+		Meta *struct{ Tag string }
+	}
+	ByKey    map[string]struct{ base; N int }
+	Done     chan struct{}
+	_, Spare struct{ X int }
+}
+
+func Run(s *Server) int {
+	return s.Limits.MaxConns
+}
+";
+
+#[test]
+fn a_field_of_an_anonymous_struct_a_field_declares_is_owned_by_the_struct_s_own_name() {
+    let raw = extract(ANONYMOUS_FIELDS);
+
+    assert_eq!(
+        owned(&raw, "app.Server.Limits"),
+        (
+            SymbolKind::Field,
+            Some("Server".to_owned()),
+            vec!["{Server·Limits}".to_owned()]
+        ),
+        "the field keeps its name and its owner, and its value is of the struct's name"
+    );
+    assert_eq!(
+        owned(&raw, "app.{Server·Limits}"),
+        (SymbolKind::Struct, None, Vec::new())
+    );
+    assert_eq!(
+        owned(&raw, "app.Server.Limits.MaxConns"),
+        (
+            SymbolKind::Field,
+            Some("{Server·Limits}".to_owned()),
+            vec!["int".to_owned()]
+        )
+    );
+    assert_eq!(
+        owned(&raw, "app.Server.Limits.Codec").2,
+        ["Codec"],
+        "a field of an anonymous struct records its value's type"
+    );
+    assert_eq!(owned(&raw, "app.Server.Name").1.as_deref(), Some("Server"));
+    let site = raw
+        .uses
+        .iter()
+        .find(|site| site.name == "MaxConns")
+        .map(|site| &site.receiver);
+    assert_eq!(
+        site,
+        Some(&Receiver::Path("Server.Limits".to_owned())),
+        "the member names the type path the graph follows through the field's value type"
+    );
+}
+
+#[test]
+fn an_anonymous_struct_behind_a_pointer_or_a_container_or_inside_another_is_named_after_its_fields()
+{
+    let raw = extract(ANONYMOUS_FIELDS);
+
+    assert_eq!(owned(&raw, "app.Table.Rows").2, ["[]{Table·Rows}"]);
+    assert_eq!(
+        owned(&raw, "app.Table.Rows.ID").1.as_deref(),
+        Some("{Table·Rows}")
+    );
+    assert_eq!(owned(&raw, "app.Table.Rows.Meta").2, ["{Table·Rows·Meta}"]);
+    assert_eq!(
+        owned(&raw, "app.Table.Rows.Meta.Tag").1.as_deref(),
+        Some("{Table·Rows·Meta}")
+    );
+    assert_eq!(owned(&raw, "app.Table.ByKey").2, ["[]{Table·ByKey}"]);
+    assert_eq!(
+        qualified(&raw, "app.{Table·ByKey}").parents,
+        ["base"],
+        "an embedded field is a parent of the anonymous struct"
+    );
+    assert_eq!(
+        owned(&raw, "app.Table.Spare.X").1.as_deref(),
+        Some("{Table·Spare}"),
+        "the names of one declaration share its struct, named after the first that is not blank"
+    );
+}
+
+#[test]
+fn an_anonymous_struct_without_a_field_takes_no_name() {
+    let raw = extract(ANONYMOUS_FIELDS);
+
+    assert_eq!(owned(&raw, "app.Table.Done").2, Vec::<String>::new());
+    assert!(
+        !raw.symbols
+            .iter()
+            .any(|symbol| symbol.name.contains("Done") && symbol.kind == SymbolKind::Struct),
+        "struct{{}} holds nothing to name"
+    );
+}
+
+#[test]
+fn a_name_the_file_has_given_an_anonymous_struct_takes_a_count() {
+    let raw = extract(
+        b"package app
+
+func A() {
+	type row struct{ Cell struct{ a int } }
+}
+
+func B() {
+	type row struct{ Cell struct{ b int } }
+}
+",
+    );
+
+    assert_eq!(
+        owned(&raw, "app.row.Cell.a").1.as_deref(),
+        Some("{row·Cell}")
+    );
+    assert_eq!(
+        owned(&raw, "app.row.Cell.b").1.as_deref(),
+        Some("{row·Cell·2}")
+    );
+    let cells: Vec<Vec<String>> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.name == "Cell")
+        .map(|symbol| symbol.value_types.clone())
+        .collect();
+    assert_eq!(cells, [["{row·Cell}"], ["{row·Cell·2}"]]);
+}
+
+#[test]
+fn an_anonymous_struct_whose_name_would_pass_a_type_path_s_bound_takes_none() {
+    let long = "F".repeat(160);
+    let source = format!("package app\n\ntype T struct {{\n\t{long} struct{{ X int }}\n}}\n");
+    let raw = extract(source.as_bytes());
+
+    assert_eq!(
+        owned(&raw, &format!("app.T.{long}")).2,
+        Vec::<String>::new()
+    );
+    assert!(
+        !raw.symbols.iter().any(|symbol| symbol.name == "X"),
+        "no path could reach the struct's fields"
+    );
+}
+
+#[test]
+fn a_use_inside_an_anonymous_struct_a_field_declares_is_the_field_s_once() {
+    let raw = extract(ANONYMOUS_FIELDS);
+
+    assert_eq!(
+        uses(&raw)
+            .into_iter()
+            .filter(|(name, ..)| *name == "Codec")
+            .collect::<Vec<_>>(),
+        [("Codec", None, "Limits", 6)]
+    );
+}
+
 #[test]
 fn a_field_whose_first_rune_is_unicode_upper_case_is_exported() {
     let raw = extract("package sample\n\ntype T struct {\n\tÄ int\n\té string\n}\n".as_bytes());
