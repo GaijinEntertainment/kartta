@@ -111,6 +111,10 @@ fn calls(raw: &RawExtraction) -> Vec<(&str, Option<&str>)> {
         .collect()
 }
 
+fn used_names(raw: &RawExtraction) -> Vec<&str> {
+    raw.uses.iter().map(|used| used.name.as_str()).collect()
+}
+
 fn specs(raw: &RawExtraction) -> Vec<&str> {
     raw.directives
         .iter()
@@ -555,6 +559,151 @@ fn a_macro_splice_in_call_position_records_no_call() {
     let raw = extract("options gen2\ndef emit() {\n  var e = qmacro($c(fn_name)(1))\n}\n");
 
     assert_eq!(calls(&raw), [("qmacro", None)]);
+}
+
+#[test]
+fn quoted_code_records_a_call_as_a_use_of_its_name_and_no_call() {
+    let raw = extract(
+        "options gen2\n\
+         def shapes() {\n\
+           var shape = quote(foo(1 + 2, \"bar\"))\n\
+           var piped = quote() { baz(@@_::handler) }\n\
+           var scoped = shell::quote(path)\n\
+           var here = qmacro(_::helper(1) + mod::other())\n\
+           var made = qmacro(Widget(size = 1))\n\
+           var fresh = qmacro(new Gadget())\n\
+         }\n",
+    );
+
+    assert_eq!(
+        calls(&raw),
+        [
+            ("quote", None),
+            ("quote", None),
+            ("quote", Some("shell")),
+            ("qmacro", None),
+            ("qmacro", None),
+            ("qmacro", None)
+        ]
+    );
+    let in_mod = Receiver::Qualifier("mod".to_owned());
+    let uses: Vec<(&str, &Receiver, u32)> = raw
+        .uses
+        .iter()
+        .map(|used| (used.name.as_str(), &used.receiver, used.line))
+        .collect();
+    assert_eq!(
+        uses,
+        [
+            ("foo", &Receiver::Bare, 3),
+            ("baz", &Receiver::Bare, 4),
+            ("handler", &Receiver::Bare, 4),
+            ("helper", &Receiver::Bare, 6),
+            ("other", &in_mod, 6),
+            ("Widget", &Receiver::Bare, 7),
+            ("Gadget", &Receiver::Bare, 8)
+        ]
+    );
+    let shapes = id_of(&raw, "shapes");
+    assert!(raw.uses.iter().all(|used| used.site_of == shapes));
+}
+
+#[test]
+fn a_qmatch_pattern_records_no_call_but_the_matched_expression_runs() {
+    let raw = extract(
+        "options gen2\n\
+         def check(e : Expression?) {\n\
+           let r = qmatch(first_of(e), foo($e(cap), bar()))\n\
+           let b = qmatch_block(e) $ {\n\
+             if (a < limit()) {\n\
+               return b\n\
+             }\n\
+           }\n\
+           let f = qmatch_function(find(name)) $(x : int) : int {\n\
+             return x + helper()\n\
+           }\n\
+         }\n",
+    );
+
+    assert_eq!(
+        calls(&raw),
+        [
+            ("qmatch", None),
+            ("first_of", None),
+            ("qmatch_block", None),
+            ("qmatch_function", None),
+            ("find", None)
+        ]
+    );
+    assert_eq!(used_names(&raw), ["foo", "bar", "limit", "helper"]);
+}
+
+#[test]
+fn a_qmacro_records_the_calls_of_its_splices_and_none_of_the_rest() {
+    let raw = extract(
+        "options gen2\n\
+         def emit(arg : Expression?) {\n\
+           var plain = qmacro(helper($e(arg), $v(count())))\n\
+           var stmts = qmacro_block() {\n\
+             var x = make($i(name_of(arg)))\n\
+             run($e(clone_expression(arg)))\n\
+           }\n\
+           var fn = qmacro_function(fn_name()) $(a : int) : int {\n\
+             return compute(a, $v(limit()))\n\
+           }\n\
+           var callee = qmacro($c(callee_name())(arg_of()))\n\
+           var nested = qmacro($e(qmacro(inner())) + outer())\n\
+           var method = qmacro_method(method_name(), cls()) $(self : Foo) {\n\
+             self.do_it($v(amount()))\n\
+           }\n\
+           var typed <- qmacro_variable(var_name(), type<$t(var_type())>)\n\
+           var arr = qmacro_block_to_array() {\n\
+             $b(body_of())\n\
+             run_it()\n\
+           }\n\
+           var expr = qmacro_expr(${ run($a(args_of()), obj.$f(field_name())); })\n\
+           var kind = qmacro_type(type<$t(elem_of())>)\n\
+         }\n",
+    );
+
+    let expected = [
+        "qmacro",
+        "count",
+        "qmacro_block",
+        "name_of",
+        "clone_expression",
+        "qmacro_function",
+        "fn_name",
+        "limit",
+        "qmacro",
+        "callee_name",
+        "qmacro",
+        "qmacro",
+        "qmacro_method",
+        "method_name",
+        "cls",
+        "amount",
+        "qmacro_variable",
+        "var_name",
+        "var_type",
+        "qmacro_block_to_array",
+        "body_of",
+        "qmacro_expr",
+        "args_of",
+        "field_name",
+        "qmacro_type",
+        "elem_of",
+    ];
+    let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+    assert_eq!(callees, expected);
+    let emit = id_of(&raw, "emit");
+    assert!(raw.calls.iter().all(|call| call.site_of == emit));
+    assert_eq!(
+        used_names(&raw),
+        [
+            "helper", "make", "run", "compute", "arg_of", "inner", "outer", "run_it", "run"
+        ]
+    );
 }
 
 #[test]

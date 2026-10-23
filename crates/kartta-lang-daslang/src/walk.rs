@@ -3,7 +3,7 @@ use kartta_lang::{
     Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol,
     SymbolFlags, SymbolId, SymbolKind, UseRef,
 };
-use tree_sitter::{Node, Tree};
+use tree_sitter::{Node, Tree, TreeCursor};
 
 const REQUIRE_FORM: u32 = 0;
 
@@ -112,10 +112,44 @@ struct TypeScope {
     name: String,
 }
 
+#[derive(Clone, Copy)]
+struct DataMacro {
+    first_data: usize,
+    splices_run: bool,
+}
+
+struct DataSpan {
+    start: usize,
+    end: usize,
+    splices_run: bool,
+}
+
+// constraint: `quote` and the `qmatch*` and `qmacro*` call macros of daScript's `daslib/ast_match` and
+// `daslib/templates_boost` read the arguments from `first_data` on as syntax, and none of it runs where it is written;
+// in a `qmacro*` argument a splice such as `$e(x)` is the exception, because its expression runs there
+fn data_macro(macro_name: &str) -> Option<DataMacro> {
+    let (first_data, splices_run) = match macro_name {
+        "quote" => (0, false),
+        "qmatch" | "qmatch_block" | "qmatch_function" => (1, false),
+        "qmacro" | "qmacro_block" | "qmacro_block_to_array" | "qmacro_expr" | "qmacro_type" => {
+            (0, true)
+        }
+        "qmacro_function" | "qmacro_variable" => (1, true),
+        "qmacro_method" => (2, true),
+        _ => return None,
+    };
+
+    Some(DataMacro {
+        first_data,
+        splices_run,
+    })
+}
+
 struct Emitter<'a> {
     source: &'a [u8],
     scopes: Vec<Scope>,
     types: Vec<TypeScope>,
+    data_spans: Vec<DataSpan>,
     flags: SymbolFlags,
     raw: RawExtraction,
 }
@@ -126,6 +160,7 @@ impl<'a> Emitter<'a> {
             source,
             scopes: Vec::new(),
             types: Vec::new(),
+            data_spans: Vec::new(),
             flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
             raw: RawExtraction::default(),
         }
@@ -138,6 +173,17 @@ impl<'a> Emitter<'a> {
         }
         while self.types.last().is_some_and(|scope| scope.end <= start) {
             self.types.pop();
+        }
+        while self.data_spans.last().is_some_and(|data| data.end <= start) {
+            self.data_spans.pop();
+        }
+        if self
+            .data_spans
+            .last()
+            .is_some_and(|data| data.start <= start)
+        {
+            self.data(node);
+            return;
         }
 
         match node.kind() {
@@ -168,7 +214,10 @@ impl<'a> Emitter<'a> {
             "make_struct" => self.constructor(node),
             "new_expression" => self.new_call(node),
             "invoke" => self.member_call(node),
-            "pipe" => self.block_call(node),
+            "pipe" => {
+                self.block_call(node);
+                self.data_block(node);
+            }
             "make_block" => self.anonymous_scope(node),
             "address" => self.address(node),
             _ => {}
@@ -365,8 +414,104 @@ impl<'a> Emitter<'a> {
 
     fn plain_call(&mut self, node: Node<'_>) {
         if let Some(callee) = node.child_by_field_name("name") {
+            self.data_arguments(node, callee);
             let (callee, receiver) = callee_parts(callee, self.source);
             self.push_call(callee, receiver, node);
+        }
+    }
+
+    fn data_arguments(&mut self, call: Node<'_>, name: Node<'_>) {
+        if call.kind() != "call" {
+            return;
+        }
+        let Some(data_macro) = data_macro_named(name, self.source) else {
+            return;
+        };
+
+        let mut cursor = call.walk();
+        let mut data = named_arguments(&call, &mut cursor).skip(data_macro.first_data);
+        if let Some(first) = data.next() {
+            let end = data.last().unwrap_or(first).end_byte();
+            self.data_spans.push(DataSpan {
+                start: first.start_byte(),
+                end,
+                splices_run: data_macro.splices_run,
+            });
+        }
+    }
+
+    // constraint: `macro(args) <| data` and `macro(args) { data }` pass the piped block after the call's own arguments,
+    // so it is data when the arguments before it reach `first_data`; `data |> macro(args)` passes it first and is not
+    // read as data
+    fn data_block(&mut self, pipe: Node<'_>) {
+        let Some(head) = pipe
+            .child_by_field_name("function_call")
+            .filter(|head| head.kind() == "call")
+        else {
+            return;
+        };
+        let Some(data_macro) = head
+            .child_by_field_name("name")
+            .and_then(|name| data_macro_named(name, self.source))
+        else {
+            return;
+        };
+        let Some(block) = pipe
+            .child_by_field_name("argument")
+            .filter(|block| block.start_byte() >= head.end_byte())
+        else {
+            return;
+        };
+
+        if named_arguments(&head, &mut head.walk()).count() >= data_macro.first_data {
+            self.data_spans.push(DataSpan {
+                start: block.start_byte(),
+                end: block.end_byte(),
+                splices_run: data_macro.splices_run,
+            });
+        }
+    }
+
+    // constraint: what a data span calls, constructs or takes the address of is named by the code compiled from it, so
+    // each name is a use
+    fn data(&mut self, node: Node<'_>) {
+        match node.kind() {
+            "call" => self.data_name(node.child_by_field_name("name"), node),
+            "named_call" if node.child_by_field_name("value").is_none() => {
+                self.data_name(node.child_by_field_name("name"), node);
+            }
+            "make_struct" if has_child_token(node, "(") => {
+                self.data_name(
+                    node.child_by_field_name("make_type").and_then(nominal_type),
+                    node,
+                );
+            }
+            "new_expression" => self.data_name(
+                node.child_by_field_name("type_expression")
+                    .and_then(nominal_type),
+                node,
+            ),
+            "address" => self.address(node),
+            "tag" => self.splice(node),
+            _ => {}
+        }
+    }
+
+    fn data_name(&mut self, name: Option<Node<'_>>, node: Node<'_>) {
+        if let Some(name) = name {
+            let (name, module) = callee_parts(name, self.source);
+            self.push_use(name, module, node);
+        }
+    }
+
+    // constraint: a splice's expression is the one part of a data span that runs where the macro is written, so the
+    // span is data again only from the end of that expression
+    fn splice(&mut self, tag: Node<'_>) {
+        let Some(run) = tag.child_by_field_name("subexpression") else {
+            return;
+        };
+        if let Some(data) = self.data_spans.last_mut().filter(|data| data.splices_run) {
+            data.start = run.end_byte();
         }
     }
 
@@ -483,6 +628,7 @@ impl<'a> Emitter<'a> {
         });
     }
 
+    // constraint: `_::f` is the compiler's spelling of the scope that compiles the code, which a bare `f` names too
     fn push_use(&mut self, name: String, module: Option<String>, node: Node<'_>) {
         if name.is_empty() {
             return;
@@ -492,7 +638,9 @@ impl<'a> Emitter<'a> {
         self.raw.uses.push(UseRef {
             site_of,
             name,
-            receiver: module.map_or(Receiver::Bare, Receiver::Qualifier),
+            receiver: module
+                .filter(|module| module != "_")
+                .map_or(Receiver::Bare, Receiver::Qualifier),
             access: Access::Read,
             line: start_line(node),
         });
@@ -516,6 +664,23 @@ impl<'a> Emitter<'a> {
 // constraint: `def f() => expr` keeps the expression as its body, so the signature would end in a dangling `=>`
 fn arrow_trimmed_signature(node: Node<'_>, source: &[u8]) -> Option<String> {
     signature(node, source).map(|header| header.trim_end_matches("=>").trim_end().to_owned())
+}
+
+fn data_macro_named(name: Node<'_>, source: &[u8]) -> Option<DataMacro> {
+    if name.kind() != "identifier" {
+        return None;
+    }
+
+    name.utf8_text(source).ok().and_then(data_macro)
+}
+
+// constraint: the grammar labels the commas between arguments as `arguments` too
+fn named_arguments<'tree, 'cursor>(
+    call: &'cursor Node<'tree>,
+    cursor: &'cursor mut TreeCursor<'tree>,
+) -> impl Iterator<Item = Node<'tree>> + 'cursor {
+    call.children_by_field_name("arguments", cursor)
+        .filter(Node::is_named)
 }
 
 fn member_receiver(object: Node<'_>, source: &[u8]) -> String {
