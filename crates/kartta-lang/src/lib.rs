@@ -83,7 +83,7 @@ pub use crate::extraction::{
     ReExport, Receiver, UseRef,
 };
 pub use crate::language::{
-    CallsOnValues, Conventions, IncludeReach, InheritedMembers, Language, MemberCalls,
+    CallsOnValues, Conventions, DataUses, IncludeReach, InheritedMembers, Language, MemberCalls,
     NamespaceCalls, OwnMembers, Receivers, Repository, Resolver, TypeUses, UntypedMembers,
     ValueUses,
 };
