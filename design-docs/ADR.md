@@ -290,8 +290,8 @@
     include paths
 - [3.15 Qualify a Ruby member by its whole namespace
   chain](./adr/3.15-qualify-a-ruby-member-by-its-whole-namespace-chain.md)
-  - Governs: `crates/kartta-lang-ruby/src/{owner,macros,bindings}.rs`, `crates/kartta-lang-ruby/src/walk.rs`
-    (definitions, receivers)
+  - Governs: `crates/kartta-lang-ruby/src/{owner,macros,bindings,locals}.rs`, `crates/kartta-lang-ruby/src/walk.rs`
+    (definitions, receivers, bare names)
   - Revisit if: the extraction runs code, or reads what a type gains at run time through `define_method` or
     `class_eval`
 - [3.16 Load a Lua module only from a literal name](./adr/3.16-load-a-lua-module-only-from-a-literal-name.md)
