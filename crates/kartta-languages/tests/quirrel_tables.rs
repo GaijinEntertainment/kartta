@@ -105,3 +105,50 @@ fn a_member_call_reaches_a_module_table_s_method_through_the_table_s_name_or_fro
         "and a member of the table reaches its sibling through `this`"
     );
 }
+
+const PANEL: &str = "let PanelSettings = class {
+  function setValue(name, value) {
+    return value
+  }
+}
+
+let g_live_panel = {
+  function show(doShow) {
+    return doShow
+  }
+}
+
+function openPanelSettings() {
+  return PanelSettings()
+}
+
+return {
+  openPanelSettings
+  g_live_panel
+}
+";
+
+#[test]
+fn a_runtime_method_s_call_on_a_value_binds_no_member_of_an_imported_file() {
+    let (_tree, engine) = build(&[
+        ("options/panelSettings.nut", PANEL),
+        (
+            "options/optionsView.nut",
+            "from \"panelSettings.nut\" import openPanelSettings, g_live_panel\n\
+             function onSelect(obj) {\n  obj.setValue(1)\n  obj.show(true)\n  \
+             openPanelSettings()\n}\n\
+             function onPanel(panelSettings) {\n  panelSettings.setValue(1)\n  \
+             g_live_panel.show(true)\n}\n",
+        ),
+    ]);
+
+    assert_eq!(
+        callees(&engine, "options/optionsView.nut", "onSelect"),
+        ["openPanelSettings"]
+    );
+    assert_eq!(
+        callees(&engine, "options/optionsView.nut", "onPanel"),
+        ["PanelSettings.setValue", "g_live_panel.show"],
+        "a receiver that spells the class or the table still reaches its member"
+    );
+}
