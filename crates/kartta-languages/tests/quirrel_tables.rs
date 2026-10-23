@@ -109,3 +109,50 @@ fn a_member_call_reaches_a_module_table_s_method_through_the_table_s_name_or_fro
         "and a member of the table reaches its sibling through `this`"
     );
 }
+
+const POST_FX: &str = "let PostFxSettings = class {
+  function setValue(name, value) {
+    return value
+  }
+}
+
+let g_hud_live_stats = {
+  function show(doShow) {
+    return doShow
+  }
+}
+
+function guiStartPostfxSettings() {
+  return PostFxSettings()
+}
+
+return {
+  guiStartPostfxSettings
+  g_hud_live_stats
+}
+";
+
+#[test]
+fn a_runtime_method_s_call_on_a_value_binds_no_member_of_an_imported_file() {
+    let (_tree, engine) = build(&[
+        ("options/postFxSettings.nut", POST_FX),
+        (
+            "options/optionsWnd.nut",
+            "from \"postFxSettings.nut\" import guiStartPostfxSettings, g_hud_live_stats\n\
+             function onGroupSelect(obj) {\n  obj.setValue(1)\n  obj.show(true)\n  \
+             guiStartPostfxSettings()\n}\n\
+             function onPostFx(postFxSettings) {\n  postFxSettings.setValue(1)\n  \
+             g_hud_live_stats.show(true)\n}\n",
+        ),
+    ]);
+
+    assert_eq!(
+        callees(&engine, "options/optionsWnd.nut", "onGroupSelect"),
+        ["guiStartPostfxSettings"]
+    );
+    assert_eq!(
+        callees(&engine, "options/optionsWnd.nut", "onPostFx"),
+        ["PostFxSettings.setValue", "g_hud_live_stats.show"],
+        "a receiver that spells the class or the table still reaches its member"
+    );
+}
