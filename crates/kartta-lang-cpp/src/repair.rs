@@ -25,7 +25,7 @@ const LEADING_SPECIFIERS: [&[u8]; 7] = [
 const CONVERSIONLESS: [&[u8]; 3] = [b"new", b"delete", b"co_await"];
 
 pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
-    let mut repaired: Option<Vec<u8>> = None;
+    let mut repaired = Repaired::of(source);
 
     let tables = Tables::of(source);
     let mut judged_to = 0;
@@ -35,7 +35,7 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
         if source[at] == b'{' && at >= judged_to {
             let scan = scan_data(source, at, tables);
             for &(start, end) in &scan.tables {
-                blank(&mut repaired.get_or_insert_with(|| source.to_vec())[start..end]);
+                repaired.blank(start..end);
             }
             judged_to = scan.end;
             if scan.closed {
@@ -50,14 +50,32 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
         };
         at = match blanked {
             Some((start, end)) => {
-                blank(&mut repaired.get_or_insert_with(|| source.to_vec())[start..end]);
+                repaired.blank(start..end);
                 end
             }
             None => at + 1,
         };
     }
 
-    repaired
+    repaired.copy
+}
+
+/// The copy of a source that a repair blanks, made at its first blank, so a source with nothing to repair costs no
+/// allocation.
+struct Repaired<'s> {
+    source: &'s [u8],
+    copy: Option<Vec<u8>>,
+}
+
+impl<'s> Repaired<'s> {
+    const fn of(source: &'s [u8]) -> Self {
+        Self { source, copy: None }
+    }
+
+    fn blank(&mut self, range: Range<usize>) {
+        let source = self.source;
+        blank(&mut self.copy.get_or_insert_with(|| source.to_vec())[range]);
+    }
 }
 
 // constraint: tree-sitter keeps a node for each literal of an initializer, 20 to 60 bytes of tree for each byte of a
@@ -338,14 +356,14 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
         misread_branch,
         misread_bodies: bodies,
     } = recovery_of(tree, source);
-    let mut repaired: Option<Vec<u8>> = None;
+    let mut repaired = Repaired::of(source);
     if misread_branch {
         for directives in untaken_branches(source) {
-            blank(&mut repaired.get_or_insert_with(|| source.to_vec())[directives]);
+            repaired.blank(directives);
         }
     }
     if spills.is_empty() && bodies.is_empty() {
-        return repaired;
+        return repaired.copy;
     }
     if !spills.is_empty() {
         let lines: Vec<&[u8]> = source.split(|byte| *byte == b'\n').collect();
@@ -377,14 +395,13 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
             None
         };
         if let Some(blanked) = blanked {
-            let start = offset + blanked.start;
-            repaired.get_or_insert_with(|| source.to_vec())[start..offset + blanked.end].fill(b' ');
+            repaired.blank(offset + blanked.start..offset + blanked.end);
         }
 
         offset += line.len() + 1;
     }
 
-    repaired
+    repaired.copy
 }
 
 struct Recovery {
