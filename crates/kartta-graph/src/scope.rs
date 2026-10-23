@@ -7,7 +7,7 @@ use kartta_lang::{CallsOnValues, InheritedMembers, MemberCalls, SymbolKind};
 
 use crate::candidates::Candidates;
 use crate::confidence;
-use crate::graph::{agree, distinct, is_parent, last_segment};
+use crate::graph::{agree, distinct, last_segment};
 use crate::resolve::{Bound, Call, Cascade, derived, derives};
 use crate::stored::SymbolAt;
 use crate::strings::Str;
@@ -448,7 +448,15 @@ impl Cascade<'_> {
         }
     }
 
-    pub(crate) fn base_owner(&self, child: SymbolAt, written: &str) -> Option<Str> {
+    /// What a base written in `child`'s scope names: where a language joins an owner chain, the qualified name of the
+    /// symbol of a kind `base_kind` admits that the lookup from that scope outward reaches first; elsewhere the base's
+    /// last segment, whatever it names.
+    pub(crate) fn base_owner(
+        &self,
+        child: SymbolAt,
+        written: &str,
+        base_kind: fn(SymbolKind) -> bool,
+    ) -> Option<Str> {
         let Some(separator) = self.conventions.owner_chain_separator else {
             return self.graph.strings.get(last_segment(written));
         };
@@ -459,19 +467,19 @@ impl Cascade<'_> {
 
         loop {
             let Some(at) = scope else {
-                return self.parent_named(name);
+                return self.base_named(name, base_kind);
             };
-            if let Some(owner) = self.parent_named(&format!("{at}{separator}{name}")) {
+            if let Some(owner) = self.base_named(&format!("{at}{separator}{name}"), base_kind) {
                 return Some(owner);
             }
             scope = at.rsplit_once(separator).map(|(outer, _)| outer);
         }
     }
 
-    fn parent_named(&self, qualified: &str) -> Option<Str> {
+    fn base_named(&self, qualified: &str, base_kind: fn(SymbolKind) -> bool) -> Option<Str> {
         let qualified = self.graph.strings.get(qualified)?;
         let at = self.qualified(qualified)?;
-        is_parent(self.graph.sym(at).kind).then_some(qualified)
+        base_kind(self.graph.sym(at).kind).then_some(qualified)
     }
 
     fn located_types(
@@ -554,7 +562,7 @@ impl Cascade<'_> {
             .filter_map(|parent| {
                 let written = self.graph.strings.resolve(parent.written);
                 Some(DeclaredBase {
-                    owner: self.base_owner(child, written)?,
+                    owner: self.base_owner(child, written, hands_members_on)?,
                     written: parent.written,
                     written_from_root: parent.written_from_root,
                 })
@@ -1073,6 +1081,12 @@ impl Cascade<'_> {
         let first = constructors.next()?;
         (nearby.clone().all(outside) && self.is_one_callable(first, constructors)).then_some(first)
     }
+}
+
+/// Whether a base of `kind` hands its members on to the types that name it: a class, a struct, an interface, a trait or
+/// a namespace.
+const fn hands_members_on(kind: SymbolKind) -> bool {
+    derives(kind) || matches!(kind, SymbolKind::Namespace)
 }
 
 pub(crate) const fn is_value(kind: SymbolKind) -> bool {
