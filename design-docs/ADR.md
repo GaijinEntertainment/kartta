@@ -48,8 +48,10 @@
   - Governs: `crates/kartta-fs/src/{policy,content}.rs`, `Index::build_with`, `ContentVisitor`, `ContentId`,
     `Index::content_position`, `crates/kartta-walk/src/walk.rs` (`WalkOutcome::cancelled`)
   - Revisit if: a consumer needs content in pieces rather than whole
-- [1.13 Let the caller bound the index's threads](./adr/1.13-let-the-caller-bound-the-index-s-threads.md) — initiative
-  `01-kartta-fs-port`, 2026-10-14, revised 2026-10-18
+- [1.13 Let the caller bound the index's threads](./adr/1.13-let-the-caller-bound-the-index-s-threads.md)
+  - Governs: `kartta_fs::BuildOptions::threads`, `kartta_fs::Index::threads`, `kartta_fs::Index::on_threads`,
+    `crates/kartta-walk/src/walk.rs`
+  - Revisit if: searches and builds need different bounds
 - [1.14 Narrow content search with a trigram index built from the walk's
   reads](./adr/1.14-narrow-content-search-with-a-trigram-index.md) — initiative `01-kartta-fs-port`, 2026-10-14,
   revised 2026-10-15
