@@ -255,9 +255,9 @@
   - Governs: `crates/kartta-graph/src/{resolve,scope,calls,candidates,confidence}.rs`, `kartta_lang::Conventions`
   - Revisit if: a lazy `callers` of one name exceeds a second, or agents repeat names often enough that a memo pays for
     its invalidation
-- [3.8 Extract only the daslang a file opts into gen2, and find modules by file
-  name](./adr/3.8-extract-only-the-daslang-a-file-opts-into-gen2.md) — initiative `03-code-graph`, 2026-10-16, revised
-  2026-10-23
+- [3.8 Extract only the daslang a file opts into gen2](./adr/3.8-extract-only-the-daslang-a-file-opts-into-gen2.md)
+  - Governs: `crates/kartta-lang-daslang/src/walk.rs` (`opts_into_gen2`)
+  - Revisit if: first-generation files appear in reviews as often as second-generation ones
 - [3.9 Resolve a Quirrel import through the nearest .sqconfig, and name a function value by its
   binding](./adr/3.9-resolve-a-quirrel-import-through-the-nearest-sqconfig.md) — initiative `03-code-graph`, 2026-10-16,
   revised 2026-10-23
@@ -448,6 +448,15 @@
   time](./adr/3.124-resolve-a-build-s-extractions-1-024-files-at-a-time.md)
   - Governs: `crates/kartta/src/resolving.rs` (`RESOLVED_AT_ONCE`, `Resolving::insert_all`)
   - Revisit if: the call graph or a tree of uneven files moves the build's peak away from a 1,024-file batch
+- [3.140 Find a daslang module by its file name](./adr/3.140-find-a-daslang-module-by-its-file-name.md)
+  - Governs: `crates/kartta-lang-daslang/src/resolve.rs`, `crates/kartta-lang-daslang/src/walk.rs` (`require`,
+    `include`)
+  - Revisit if: `module` clauses that differ from their file stems pay for a pass over every file, or a project's
+    `include_get` can be read
+- [3.141 Give a daslang call to the code that runs it](./adr/3.141-give-a-daslang-call-to-the-code-that-runs-it.md)
+  - Governs: `crates/kartta-lang-daslang/src/walk.rs` (`anonymous_scope`, `block_call`, `constructor`, `new_call`,
+    `data_macro`, `data_arguments`, `data_block`, `splice`)
+  - Revisit if: the daScript macro library adds a macro whose compiler class reads an argument as syntax
 - [3.150 Resolve a Go import to the package the go command
   builds](./adr/3.150-resolve-a-go-import-to-the-package-the-go-command-builds.md)
   - Governs: `crates/kartta-lang-go/src/resolve.rs`, `crates/kartta-graph/src/resolve.rs` (`read_bindings`,
