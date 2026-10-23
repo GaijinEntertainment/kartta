@@ -45,7 +45,10 @@ for what a module its receiver names holds, as in Rust's `walk::run()`, and `f` 
 gives its own values,
 as `trim` in `line.trim()` does; such a runtime method binds a member of its name only where scope reaches one, never
 the nearest, and the one callable of the name only where its receiver spells that callable's owner, as
-`session.seek()` binds `Session.seek`. A member call binds no free variable or constant, whose name no property of a
+`session.seek()` binds `Session.seek`. Where a language writes a bare receiver only for a class, as PHP's
+`Mockery::mock()` does, a call on a bare name that no type of the graph is named binds through the file's imports,
+includes and re-exports alone, never the caller's own file or owner, the one callable or the nearest.
+A member call binds no free variable or constant, whose name no property of a
 value reads. Where a language says its calls never name a namespace, no call binds one; the namespace still counts
 among the definitions of its name wherever a definition the call's shape rules out does, so a function named like it is
 not the one callable of the name. Where a language lists the receivers it writes for a value of the caller's own type,

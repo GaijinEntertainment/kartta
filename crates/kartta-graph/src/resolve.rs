@@ -5,8 +5,8 @@ use std::rc::Rc;
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    CallableRole, Conventions, IncludeReach, IncludedRuntimeMembers, InheritedMembers,
-    NamespaceCalls, OwnMembers, SymbolKind, UntypedMembers, ValueUses,
+    BareReceivers, CallableRole, Conventions, IncludeReach, IncludedRuntimeMembers,
+    InheritedMembers, NamespaceCalls, OwnMembers, SymbolKind, UntypedMembers, ValueUses,
 };
 
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
@@ -668,12 +668,17 @@ impl<'g> Cascade<'g> {
         let reach = reach.as_ref();
         let path = (call, self.module_path(call));
 
-        if let Some(at) = self.scoped_target(
-            call,
-            (candidates.in_file(self.graph, call.file).iter().copied())
-                .filter(|&at| self.path_names(path, at)),
-            reach,
-        ) {
+        // constraint: a class outside the graph has no member in the caller's file or class, and a bare name reaches a
+        // class the graph holds under another name only through the file's imports, as an alias does
+        let outside = self.names_a_class_outside_the_graph(call);
+        if !outside
+            && let Some(at) = self.scoped_target(
+                call,
+                (candidates.in_file(self.graph, call.file).iter().copied())
+                    .filter(|&at| self.path_names(path, at)),
+                reach,
+            )
+        {
             return Ok((at, confidence::SAME_FILE));
         }
         if call.receiver.is_none() && self.imports_from_outside(call) {
@@ -715,6 +720,9 @@ impl<'g> Cascade<'g> {
             && let Some(at) = self.re_exported(call)
         {
             return Ok((at, confidence::RE_EXPORT));
+        }
+        if outside {
+            return Err(self.unadmitted(call));
         }
         self.resolve_outside_scope(call, &candidates, reach)
             .and_then(|bound| {
@@ -778,6 +786,28 @@ impl<'g> Cascade<'g> {
         !self.conventions.directory_packages
             && !self.graph.file(call.file).bindings.is_empty()
             && self.binding(call.file, call.callee) == Some(None)
+    }
+
+    /// Whether the call's receiver is a bare name that the language writes only for a class, and no type the graph
+    /// holds is named.
+    fn names_a_class_outside_the_graph(&self, call: &Call) -> bool {
+        let (BareReceivers::Classes(keywords), Some(receiver)) =
+            (self.conventions.bare_receivers, call.receiver)
+        else {
+            return false;
+        };
+        let written = self.graph.strings.resolve(receiver);
+        !written.is_empty()
+            && written
+                .bytes()
+                .all(|byte| !byte.is_ascii() || byte.is_ascii_alphanumeric() || byte == b'_')
+            && !keywords
+                .iter()
+                .any(|keyword| keyword.eq_ignore_ascii_case(written))
+            && !self
+                .named(receiver)
+                .iter()
+                .any(|&at| self.graph.sym(at).kind.is_type())
     }
 
     // constraint: test code is built apart from the code it tests, so of the definitions a call reaches by name alone,

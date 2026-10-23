@@ -19,6 +19,9 @@ pub const QUALIFIED_TAIL: u8 = 88;
 pub const RECEIVER: u8 = 85;
 /// A local, or a definition in the caller's own file, binds; so does a member of the caller's owner when the receiver
 /// names no owner.
+///
+/// A call on a bare name that the language writes only for a class, of which the graph holds no type, binds neither
+/// here nor at any tier below the include tiers.
 pub const SAME_FILE: u8 = 80;
 /// A definition in the caller's package directory binds, where a language's packages are directories.
 pub const PACKAGE: u8 = 75;
