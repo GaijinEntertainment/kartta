@@ -90,7 +90,8 @@ impl Crates {
         if !repository.contains(&library.root) {
             return None;
         }
-        let (file, last) = Self::deepest_module(&library.root, krate, segments, repository)?;
+        let (file, last) =
+            Self::deepest_module(Module::of(&library.root, true), krate, segments, repository)?;
         Some(ImportBinding {
             alias: (name != last).then(|| name.clone()),
             target_dir: Some(file),
@@ -99,27 +100,23 @@ impl Crates {
     }
 
     fn deepest_module<'s>(
-        root: &str,
-        krate: &'s str,
+        mut module: Module,
+        mut last: &'s str,
         mut segments: impl Iterator<Item = &'s str>,
         repository: &dyn Repository,
     ) -> Option<(String, &'s str)> {
-        let mut file = root.to_owned();
-        let mut module_dir = String::new();
-        push_module_dir(&mut module_dir, root, true);
-        let mut last = krate;
         while let Some(segment) = segments.next() {
-            let Some(submodule) = Self::submodule(&module_dir, segment, repository) else {
+            let Some(submodule) = Self::submodule(&module.dir, segment, repository) else {
                 let item = segments.next().is_none()
                     && !segment.starts_with(|first: char| first.is_ascii_uppercase());
-                return item.then_some((file, segment));
+                return item.then_some((module.file, segment));
             };
-            file = submodule;
-            module_dir.push_str(segment);
-            module_dir.push('/');
+            module.file = submodule;
+            module.dir.push_str(segment);
+            module.dir.push('/');
             last = segment;
         }
-        Some((file, last))
+        Some((module.file, last))
     }
 
     fn submodule(module_dir: &str, name: &str, repository: &dyn Repository) -> Option<String> {
@@ -188,6 +185,23 @@ impl Crates {
         file.truncate(file.len() - ".rs".len());
         file.push_str("/mod.rs");
         repository.contains(&file).then_some(file)
+    }
+}
+
+// constraint: a module is the file that holds it and the directory that holds its submodules' files
+struct Module {
+    file: String,
+    dir: String,
+}
+
+impl Module {
+    fn of(file: &str, module_root: bool) -> Self {
+        let mut dir = String::new();
+        push_module_dir(&mut dir, file, module_root);
+        Self {
+            file: file.to_owned(),
+            dir,
+        }
     }
 }
 
