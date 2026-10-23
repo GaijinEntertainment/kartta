@@ -28,8 +28,9 @@
   - Governs: `crates/kartta-fs/src/binary.rs` (`BinaryExtensions`, `BinaryExtensionsError`),
     `BuildOptions::binary_extensions`
   - Revisit if: a caller needs a classification rule richer than a name's last extension
-- [1.8 Count what a listing leaves out](./adr/1.8-count-what-a-listing-leaves-out.md) — initiative `01-kartta-fs-port`,
-  2026-10-13
+- [1.8 Count what a listing leaves out](./adr/1.8-count-what-a-listing-leaves-out.md)
+  - Governs: `crates/kartta-fs/src/list.rs` (`ListOptions`, `Listing`, `Listed::unlisted`, `Index::list`)
+  - Revisit if: counting stops being free, as in an index layout without contiguous subtrees
 - [1.9 Front-code the stored paths](./adr/1.9-front-code-the-stored-paths.md) — initiative `01-kartta-fs-port`,
   2026-10-14, revised 2026-10-21
 - [1.10 Search content through ripgrep's engine](./adr/1.10-search-content-through-ripgrep-s-engine.md) — initiative
