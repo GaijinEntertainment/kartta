@@ -46,7 +46,12 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
         }
         let blanked = match source[at] {
             b',' if opens_an_empty_slot(source, at) => Some((at, at + 1)),
-            b'c' | b's' | b'u' if is_class_key(source, at) => head_macros(source, at),
+            b'c' | b's' | b'u' if is_class_key(source, at) => {
+                head_macros(source, at).map(|[before, after]| {
+                    repaired.blank(before);
+                    (after.start, after.end)
+                })
+            }
             _ if at == 0 || source[at - 1] == b'\n' => {
                 lone_macro_above_a_head(source, at, &mut macro_run)
             }
@@ -251,10 +256,15 @@ enum HeadWord {
 }
 
 // constraint: an export, visibility or alignment macro between the key and the class name, `class TORRENT_EXPORT
-// torrent : base` or `struct DECLSPEC_ALIGN(16) N {`, parses as the class name and takes the head and the body down
-// with it; a head that goes on to a body or a base list with such macros, and the attributes the grammar reads, before
-// its last name holds them, while `struct STAT st;` declares a variable and `class DECLARE(Foo) {}` names no class
-fn head_macros(source: &[u8], key: usize) -> Option<(usize, usize)> {
+// torrent : base` or `struct DECLSPEC_ALIGN(16) N {`, parses as the class name, and one between the name and the body,
+// `class Builder FLATBUFFERS_FINAL_CLASS {`, as the declarator of a function whose body the class body becomes; either
+// takes the head and the body down with it. A head that goes on to a body or a base list with such macros, and the
+// attributes the grammar reads, around its one name holds them, while `struct STAT st;` declares a variable and
+// `class DECLARE(Foo) {}` names no class. The macros after a name count only where the name shares the key's line: a
+// key that ends a comment, `// a list class`, would read the key of the line below as the name and that class's name as
+// a macro
+/// The macros of a class head before its name and after it, either one empty where the head holds none there.
+fn head_macros(source: &[u8], key: usize) -> Option<[Range<usize>; 2]> {
     let mut words = [(0, 0, HeadWord::Name); HEAD_WORDS_MAX];
     let mut count = 0;
     let mut at = key + word_len(&source[key..]);
@@ -276,19 +286,40 @@ fn head_macros(source: &[u8], key: usize) -> Option<(usize, usize)> {
         }
         all => (all, next == Some(b'{') || base_list),
     };
+    if !opens_a_body {
+        return None;
+    }
+    let trailing = names
+        .iter()
+        .rev()
+        .take_while(|(_, _, kind)| *kind == HeadWord::Macro)
+        .count();
+    let (names, after) = match names.split_at(names.len() - trailing) {
+        (up_to_the_name @ [.., (name, _, HeadWord::Name)], [first, .., last] | [first @ last])
+            if !source[key..*name].contains(&b'\n') =>
+        {
+            (up_to_the_name, Some(first.0..last.1))
+        }
+        _ => (names, None),
+    };
     let [prefix @ .., (_, _, HeadWord::Name | HeadWord::Macro)] = names else {
         return None;
     };
+    if prefix.iter().any(|(_, _, kind)| *kind == HeadWord::Name) {
+        return None;
+    }
     let mut macros = prefix
         .iter()
         .filter(|(_, _, kind)| matches!(kind, HeadWord::Macro | HeadWord::MacroCall));
-    let prefix_reads = prefix.iter().all(|(_, _, kind)| *kind != HeadWord::Name);
-
-    if !(opens_a_body && prefix_reads) {
-        return None;
+    let before = macros
+        .next()
+        .map(|first| first.0..macros.next_back().unwrap_or(first).1);
+    match (before, after) {
+        (None, None) => None,
+        (Some(before), None) => Some([before.clone(), before.end..before.end]),
+        (None, Some(after)) => Some([after.start..after.start, after]),
+        (Some(before), Some(after)) => Some([before, after]),
     }
-    let first = macros.next()?;
-    Some((first.0, macros.next_back().unwrap_or(first).1))
 }
 
 fn head_word(source: &[u8], at: usize) -> Option<(usize, HeadWord)> {
@@ -1338,6 +1369,37 @@ void free_fn() {}
                 .iter()
                 .all(|call| call.site_of != FILE_SCOPE)
         );
+    }
+
+    #[test]
+    fn a_class_head_macro_after_the_name_is_blanked_beside_one_before_it() {
+        const SOURCE: &[u8] = b"class Builder FLATBUFFERS_FINAL_CLASS {};\n\
+                                struct TORRENT_EXPORT alert TORRENT_FINAL : base {};\n\
+                                class Two FIRST_MACRO SECOND_MACRO final {};\nstruct STAT st;\n\
+                                class Mixed API Name {};\nclass ALL_CAPS {};\n\
+                                // the element of a list class\nstruct FSA_ELEMENT {};\n";
+
+        let repaired = for_parse(SOURCE).expect("class heads with macros");
+
+        assert_eq!(repaired.len(), SOURCE.len());
+        let mut macros: Vec<usize> = [
+            "FLATBUFFERS_FINAL_CLASS",
+            "TORRENT_EXPORT",
+            "TORRENT_FINAL",
+            "FIRST_MACRO",
+            "SECOND_MACRO",
+        ]
+        .iter()
+        .flat_map(|word| {
+            let start = SOURCE
+                .windows(word.len())
+                .position(|window| window == word.as_bytes())
+                .expect("the macro is in the source");
+            start..start + word.len()
+        })
+        .collect();
+        macros.sort_unstable();
+        assert_eq!(changed_offsets(&repaired, SOURCE), macros);
     }
 
     #[test]
