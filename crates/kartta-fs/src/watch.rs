@@ -115,10 +115,13 @@ impl Watcher {
     /// The changes are root-relative forward-slash paths, each once, for [`Index::refresh_paths_watched`]. A path is
     /// named as the operating system reported it, so it may be ignored, pruned, inside `.git`, or gone again;
     /// [`Index::refresh_paths`] skips or widens each as it does any path. A name that is not valid UTF-8 is named by
-    /// the directory that holds it. The batch is the empty path alone, the whole tree, when changes were dropped before
-    /// they could be handed over: an inotify queue that overflowed, an `FSEvents` stream that dropped events at the
-    /// root or at a directory above it, a `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that
-    /// piled up while the caller was not waiting. Events `FSEvents` dropped below the root are named by the directory
+    /// the directory that holds it, and one directly below the root names nothing, since the index holds no such name
+    /// and nothing below it. A notification for the root itself, such as `FSEvents` raises for a change of its times,
+    /// names nothing either: a change of an entry inside it is reported for that entry. The batch is the empty path
+    /// alone, the whole tree, when the root was deleted or moved, and when changes were dropped before they could be
+    /// handed over: an inotify queue that overflowed, an `FSEvents` stream that dropped events at the root or at a
+    /// directory above it, a `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that piled up
+    /// while the caller was not waiting. Events `FSEvents` dropped below the root are named by the directory
     /// it names for them, which [`Index::refresh_paths`] walks again with everything below it. On Linux the notice of
     /// a directory moved while inotify dropped changes went with them, so the watcher would go on naming its changes by
     /// the path it had, and a caller takes the whole tree in through [`Index::refresh_watched`] and follows it with the
@@ -186,6 +189,9 @@ impl Watcher {
             .paths
             .into_iter()
             .filter_map(|path| relative(&path, &self.prefixes))
+            // constraint: the root's own path, and a name directly below it that is not valid UTF-8, name no entry the
+            // index holds, and the root's deletion or move has lost the batch already
+            .filter(|named| !named.is_empty())
             .collect();
 
         paths.into_iter().collect()
@@ -522,6 +528,37 @@ mod tests {
             relative(Path::new("/tree/src/a.rs"), &prefixes).as_deref(),
             Some("src/a.rs")
         );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn a_notification_for_the_root_itself_names_nothing_in_the_batch() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let watcher = Watcher::start(tree.path()).expect("start watching");
+        let root = watcher.prefixes[0].0.clone();
+        let found = Found {
+            paths: vec![root.clone(), root.join("a.rs")],
+            ..Found::default()
+        };
+
+        assert_eq!(watcher.changes(found), ["a.rs"]);
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_name_directly_below_the_root_that_is_not_utf8_names_nothing_in_the_batch() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let tree = tempfile::tempdir().expect("a tree");
+        let watcher = Watcher::start(tree.path()).expect("start watching");
+        let root = watcher.prefixes[0].0.clone();
+        let found = Found {
+            paths: vec![root.join(OsStr::from_bytes(b"bad\xff")), root.join("a.rs")],
+            ..Found::default()
+        };
+
+        assert_eq!(watcher.changes(found), ["a.rs"]);
     }
 
     #[test]

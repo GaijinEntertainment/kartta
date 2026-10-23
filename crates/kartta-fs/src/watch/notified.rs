@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
-use notify::{Config, EventKindMask, PathOp, RecommendedWatcher, UpdatePathsError, Watcher as _};
+use notify::{
+    Config, EventKind, EventKindMask, PathOp, RecommendedWatcher, UpdatePathsError, Watcher as _,
+};
 
 use super::{Found, WatchError, relative, start_error};
 use crate::lock;
@@ -137,10 +139,24 @@ impl Backend {
 // Windows buffer that overflowed does; an error from the stream may have cost a change, so it counts as a loss too
 fn signal(event: notify::Result<notify::Event>, prefixes: &[(PathBuf, String)]) -> Signal {
     match event {
-        Ok(event) if rescans_whole_tree(&event, prefixes) => Signal::Lost,
+        Ok(event) if rescans_whole_tree(&event, prefixes) || root_went(&event, prefixes) => {
+            Signal::Lost
+        }
         Ok(event) => Signal::Changed(event.paths),
         Err(_) => Signal::Lost,
     }
+}
+
+// constraint: notify marks the root's deletion or move that `FSEvents` reports as "root changed", and reports a
+// deleted root on Windows as its removal before the watch ends; `FSEvents` keeps the creation and rename flags of the
+// root's own path on each later notification for it, such as a change of its times, so neither tells that it went
+fn root_went(event: &notify::Event, prefixes: &[(PathBuf, String)]) -> bool {
+    (matches!(event.kind, EventKind::Remove(_)) || event.info() == Some("root changed"))
+        && event.paths.iter().any(|path| {
+            prefixes
+                .iter()
+                .any(|(prefix, base)| base.is_empty() && path == prefix)
+        })
 }
 
 fn rescans_whole_tree(event: &notify::Event, prefixes: &[(PathBuf, String)]) -> bool {
@@ -196,8 +212,8 @@ mod tests {
     use std::collections::BTreeSet;
     use std::time::Instant;
 
-    use notify::event::{CreateKind, Flag};
-    use notify::{Event, EventHandler, EventKind};
+    use notify::event::{CreateKind, Flag, MetadataKind, ModifyKind, RemoveKind, RenameMode};
+    use notify::{Event, EventHandler};
 
     use super::*;
     use crate::index::{Asked, Index};
@@ -280,6 +296,148 @@ mod tests {
 
             assert!(matches!(signal, Signal::Lost), "{path}: {signal:?}");
         }
+    }
+
+    #[test]
+    fn the_root_deleted_or_moved_loses_the_batch() {
+        let went = [
+            Event::new(EventKind::Remove(RemoveKind::Folder)),
+            Event::new(EventKind::Remove(RemoveKind::Any)).set_info("root changed"),
+            Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
+                .set_info("root changed"),
+        ];
+        for event in went {
+            let event = event.add_path(PathBuf::from("/parent/tree"));
+
+            let signal = signal(Ok(event.clone()), &tree());
+
+            assert!(matches!(signal, Signal::Lost), "{event:?}: {signal:?}");
+        }
+    }
+
+    #[test]
+    fn any_other_notification_for_the_root_and_a_removal_below_it_name_their_paths() {
+        let named = [
+            ("/parent/tree", EventKind::Create(CreateKind::Folder)),
+            (
+                "/parent/tree",
+                EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)),
+            ),
+            (
+                "/parent/tree",
+                EventKind::Modify(ModifyKind::Name(RenameMode::Any)),
+            ),
+            ("/parent/tree/src", EventKind::Remove(RemoveKind::Folder)),
+        ];
+        for (path, kind) in named {
+            let event = Event::new(kind).add_path(PathBuf::from(path));
+
+            let signal = signal(Ok(event), &tree());
+
+            assert!(names(&signal, path), "{path} {kind:?}: {signal:?}");
+        }
+    }
+
+    /// Every batch `watcher` hands over until one names `path`, or 10 s pass.
+    #[cfg(target_os = "macos")]
+    fn batches_until(watcher: &mut Watcher, path: &str) -> Vec<Vec<String>> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut batches: Vec<Vec<String>> = Vec::new();
+        while Instant::now() < deadline && !batches.iter().flatten().any(|seen| seen == path) {
+            batches.push(watcher.wait(Duration::from_millis(500)).expect("wait"));
+        }
+        batches
+    }
+
+    #[cfg(target_os = "macos")]
+    fn watching(tree: &Path) -> Watcher {
+        let prefixes = event_prefixes(tree).expect("the paths events name");
+        Watcher {
+            backend: Backend::start(tree, &prefixes).expect("start watching"),
+            prefixes,
+        }
+    }
+
+    /// Touches `tree`, writes a file into it and answers every batch `watcher` handed over until one named the file.
+    #[cfg(target_os = "macos")]
+    fn touched(tree: &Path, watcher: &mut Watcher) -> Vec<Vec<String>> {
+        let root = std::fs::File::open(tree).expect("open the root");
+        root.set_modified(std::time::SystemTime::now())
+            .expect("touch the root");
+        std::fs::write(tree.join("a.rs"), "a").expect("write a file");
+        batches_until(watcher, "a.rs")
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_touch_of_the_root_hands_over_the_change_after_it_and_nothing_for_the_root() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let mut watcher = watching(tree.path());
+
+        let batches = touched(tree.path(), &mut watcher);
+
+        assert!(
+            batches.iter().flatten().any(|seen| seen == "a.rs"),
+            "{batches:?}"
+        );
+        assert!(
+            batches.iter().flatten().all(|seen| !seen.is_empty()),
+            "{batches:?}"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_touch_of_a_root_moved_into_place_names_nothing_for_the_root() {
+        let parent = tempfile::tempdir().expect("a parent");
+        let made = parent.path().join("made");
+        let tree = parent.path().join("tree");
+        std::fs::create_dir(&made).expect("make the tree");
+        std::fs::rename(&made, &tree).expect("move the tree into place");
+        let mut watcher = watching(&tree);
+
+        let batches = touched(&tree, &mut watcher);
+
+        assert!(
+            batches.iter().flatten().any(|seen| seen == "a.rs"),
+            "{batches:?}"
+        );
+        assert!(
+            batches.iter().flatten().all(|seen| !seen.is_empty()),
+            "{batches:?}"
+        );
+    }
+
+    /// Every batch a watcher of a new tree hands over once `went` took the tree away, until one names the whole tree.
+    #[cfg(target_os = "macos")]
+    fn batches_once_the_root(went: impl FnOnce(&Path, &Path)) -> Vec<Vec<String>> {
+        let parent = tempfile::tempdir().expect("a parent");
+        let tree = parent.path().join("tree");
+        std::fs::create_dir(&tree).expect("make the tree");
+        let mut watcher = watching(&tree);
+
+        went(&tree, parent.path());
+        batches_until(&mut watcher, "")
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_root_deleted_loses_the_batch() {
+        let batches = batches_once_the_root(|tree, _| {
+            std::fs::remove_dir(tree).expect("delete the tree");
+        });
+
+        assert!(batches.iter().any(|batch| batch == &[""]), "{batches:?}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_root_moved_away_loses_the_batch() {
+        let batches = batches_once_the_root(|tree, parent| {
+            std::fs::rename(tree, parent.join("moved")).expect("move the tree away");
+        });
+
+        assert!(batches.iter().any(|batch| batch == &[""]), "{batches:?}");
     }
 
     #[test]

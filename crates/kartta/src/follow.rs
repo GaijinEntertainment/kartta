@@ -276,6 +276,7 @@ mod tests {
         engine: RwLock<Engine>,
         token: CancelToken,
         watch: RwLock<Watch>,
+        walked: RwLock<Vec<Vec<String>>>,
     }
 
     impl Followed for Owner {
@@ -288,7 +289,8 @@ mod tests {
             refresh: impl FnOnce(&mut Engine) -> Result<(EngineRefresh, T), BuildError>,
         ) -> Result<T, String> {
             let mut engine = self.engine.write().unwrap();
-            let (_, walked) = refresh(&mut engine).map_err(|error| error.to_string())?;
+            let (refreshed, walked) = refresh(&mut engine).map_err(|error| error.to_string())?;
+            self.walked.write().unwrap().push(refreshed.index.walked);
             Ok(walked)
         }
 
@@ -377,6 +379,7 @@ mod tests {
             engine: RwLock::new(outcome.engine),
             token: CancelToken::new(),
             watch: RwLock::default(),
+            walked: RwLock::default(),
         };
         let follower = Follower::caught_up(&owner, watcher);
         (owner, follower)
@@ -483,6 +486,56 @@ mod tests {
 
         following.join().unwrap();
         assert_eq!(owner.watch.read().unwrap().off, None);
+    }
+
+    /// Follows a tree of one file, makes the change `change` makes at its root, then a file after it, and answers what
+    /// the follow reported of its watch and the parts each refresh walked once it took that file in.
+    #[cfg(unix)]
+    fn followed_past(change: impl FnOnce(&Path)) -> (Watch, Vec<Vec<String>>) {
+        let tree = tempfile::tempdir().unwrap();
+        std::fs::write(tree.path().join("a.txt"), "a").unwrap();
+        let (owner, follower) = caught_up_on(tree.path(), Vec::new());
+        let owner = Arc::new(owner);
+        let following = follower.unwrap().follow(&owner).unwrap();
+
+        change(tree.path());
+        std::fs::write(tree.path().join("b.txt"), "b").unwrap();
+        assert!(
+            owner.holds_soon("b.txt"),
+            "the follow took in the file made after the change"
+        );
+        owner.token.cancel();
+        following.join().unwrap();
+
+        let watch = owner.watch.read().unwrap().clone();
+        let walked = owner.walked.read().unwrap().clone();
+        (watch, walked)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_touch_of_the_root_keeps_the_watch_and_walks_no_whole_tree() {
+        let (watch, walked) = followed_past(|root| {
+            let root = std::fs::File::open(root).unwrap();
+            root.set_modified(std::time::SystemTime::now()).unwrap();
+        });
+
+        assert_eq!(watch, Watch::default());
+        assert!(walked.iter().all(|walked| walked != &[""]), "{walked:?}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_name_that_is_not_utf8_made_at_the_root_keeps_the_watch_and_walks_no_whole_tree() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let (watch, walked) = followed_past(|root| {
+            std::fs::write(root.join(OsStr::from_bytes(b"bad\xff")), "x").unwrap();
+        });
+
+        assert_eq!(watch, Watch::default());
+        assert!(walked.iter().all(|walked| walked != &[""]), "{walked:?}");
     }
 
     #[test]
