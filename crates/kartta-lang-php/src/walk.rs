@@ -278,7 +278,7 @@ impl Emitter<'_> {
             return;
         };
         let name = text(name, self.source);
-        let owner = enclosing_type(node, self.source, Callables::Detach);
+        let owner = self.enclosing_type(node, Callables::Detach);
         let qualified = owner
             .as_deref()
             .map_or_else(|| name.clone(), |owner| self.qualify_member(owner, &name));
@@ -310,7 +310,7 @@ impl Emitter<'_> {
     // constraint: `private int $x, $y;` declares one member per element, each with the declaration's visibility
     fn members(&mut self, node: Node<'_>, element_kind: &str, kind: SymbolKind) {
         let member = Member {
-            owner: enclosing_type(node, self.source, Callables::Detach),
+            owner: self.enclosing_type(node, Callables::Detach),
             kind,
             exported: !is_private(node, self.source),
         };
@@ -339,7 +339,7 @@ impl Emitter<'_> {
             return;
         };
         let member = Member {
-            owner: enclosing_type(node, self.source, Callables::Cross),
+            owner: self.enclosing_type(node, Callables::Cross),
             kind: SymbolKind::Field,
             exported: !is_private(node, self.source),
         };
@@ -351,7 +351,7 @@ impl Emitter<'_> {
             return;
         };
         let member = Member {
-            owner: enclosing_type(node, self.source, Callables::Detach),
+            owner: self.enclosing_type(node, Callables::Detach),
             kind: SymbolKind::EnumVariant,
             exported: true,
         };
@@ -374,7 +374,7 @@ impl Emitter<'_> {
     // constraint: a `use` in the body of an anonymous class has no named type to take its parents, and the walk keeps
     // no scope for one, so the type the scopes name is that of an outer class
     fn trait_use(&mut self, node: Node<'_>) {
-        if enclosing_type(node, self.source, Callables::Detach).is_none() {
+        if self.enclosing_type(node, Callables::Detach).is_none() {
             return;
         }
         let Some(&open) = self.types.last() else {
@@ -509,6 +509,39 @@ impl Emitter<'_> {
         }
     }
 
+    // constraint: a member's type is the class, interface, trait or enum around it; an anonymous class is a type
+    // without a name, so its members have no owner, and a function or closure between the member and the type
+    // detaches it unless `callables` says to cross it
+    fn enclosing_type(&self, node: Node<'_>, callables: Callables) -> Option<String> {
+        let mut ancestor = node.parent();
+        while let Some(current) = ancestor {
+            match current.kind() {
+                "class_declaration"
+                | "interface_declaration"
+                | "trait_declaration"
+                | "enum_declaration"
+                | "anonymous_class" => {
+                    return current
+                        .child_by_field_name("name")
+                        .map(|name| text(name, self.source))
+                        .filter(|name| !name.is_empty());
+                }
+                "function_definition"
+                | "method_declaration"
+                | "anonymous_function"
+                | "arrow_function"
+                    if callables == Callables::Detach =>
+                {
+                    return None;
+                }
+                _ => {}
+            }
+            ancestor = current.parent();
+        }
+
+        None
+    }
+
     fn call(&mut self, callee: String, receiver: Option<String>, node: Node<'_>) {
         if callee.is_empty() {
             return;
@@ -582,39 +615,6 @@ fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
         });
 
     (text(name, source), receiver)
-}
-
-// constraint: a member's type is the class, interface, trait or enum around it; an anonymous class is a type without
-// a name, so its members have no owner, and a function or closure between the member and the type detaches it unless
-// `callables` says to cross it
-fn enclosing_type(node: Node<'_>, source: &[u8], callables: Callables) -> Option<String> {
-    let mut ancestor = node.parent();
-    while let Some(current) = ancestor {
-        match current.kind() {
-            "class_declaration"
-            | "interface_declaration"
-            | "trait_declaration"
-            | "enum_declaration"
-            | "anonymous_class" => {
-                return current
-                    .child_by_field_name("name")
-                    .map(|name| text(name, source))
-                    .filter(|name| !name.is_empty());
-            }
-            "function_definition"
-            | "method_declaration"
-            | "anonymous_function"
-            | "arrow_function"
-                if callables == Callables::Detach =>
-            {
-                return None;
-            }
-            _ => {}
-        }
-        ancestor = current.parent();
-    }
-
-    None
 }
 
 // constraint: a class takes its `extends` and `implements` names as parents, and an interface its `extends` names,
