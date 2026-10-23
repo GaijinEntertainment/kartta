@@ -517,6 +517,106 @@ fn a_member_call_on_a_lowercase_value_records_its_name_after_a_dot_and_on_an_ite
 }
 
 #[test]
+fn a_method_call_on_a_parameter_records_the_type_the_parameter_is_declared_as() {
+    let raw = extract(
+        b"use kartta_lang::Repository;\nstruct Ranking;\nstruct Entry<'a>(&'a str);\n\
+          impl Ranking {\n    fn same(&self, other: &Self) { other.offer(); }\n}\n\
+          fn offer(ranking: &mut Ranking) { ranking.offer(); }\n\
+          fn shapes(mut by: a::Order, plain: Ranking, entry: &Entry<'_>, boxed: Box<Ranking>, shared: Arc<Ranking>, \
+          counted: Rc<Ranking>) {\n\
+          \x20   by.sort();\n    plain.offer();\n    entry.kind();\n    boxed.offer();\n    shared.offer();\n\
+          \x20   counted.offer();\n    assert!(plain.offer());\n}\n\
+          fn traits(repository: &dyn Repository, read: impl Repository) { repository.read(); read.read(); }\n",
+    );
+
+    assert_eq!(
+        calls_with_receivers(&raw),
+        [
+            ("offer", Some("Ranking")),
+            ("offer", Some("Ranking")),
+            ("sort", Some("Order")),
+            ("offer", Some("Ranking")),
+            ("kind", Some("Entry")),
+            ("offer", Some("Ranking")),
+            ("offer", Some("Ranking")),
+            ("offer", Some("Ranking")),
+            ("assert", None),
+            ("offer", Some("Ranking")),
+            ("read", Some("Repository")),
+            ("read", Some("Repository")),
+        ]
+    );
+}
+
+#[test]
+fn a_method_call_on_a_parameter_keeps_the_value_s_receiver_where_the_file_cannot_tell_its_type_is_the_tree_s()
+ {
+    let raw = extract(
+        b"use std::fs::File;\nuse std::io;\nuse other::*;\nstruct Ranking;\n\
+          fn f<T: Clone>(file: File, error: io::Error, names: Vec<u8>, generic: T, assoc: T::Item, glob: Globbed) {\n\
+          \x20   file.sync_data();\n    error.kind();\n    names.len();\n    generic.clone();\n    assoc.next();\n\
+          \x20   glob.run();\n}\n\
+          fn g(ranking: Ranking, (left, right): (Ranking, Ranking), many: impl Ranked + Send) {\n\
+          \x20   let ranking = Other::new();\n    ranking.offer();\n    left.offer();\n    many.rank();\n\
+          \x20   [1].iter().for_each(|ranking| ranking.offer());\n\
+          \x20   assert!(Some(1).map(|ranking| ranking.offer()));\n}\n",
+    );
+
+    assert_eq!(
+        calls_with_receivers(&raw),
+        [
+            ("sync_data", Some(".file")),
+            ("kind", Some(".error")),
+            ("len", Some(".names")),
+            ("clone", Some(".generic")),
+            ("next", Some(".assoc")),
+            ("run", Some("Globbed")),
+            ("new", Some("Other")),
+            ("offer", Some(".ranking")),
+            ("offer", Some(".left")),
+            ("rank", Some(".many")),
+            ("for_each", Some("")),
+            ("iter", Some("")),
+            ("offer", Some(".ranking")),
+            ("assert", None),
+            ("Some", None),
+            ("map", Some("")),
+            ("offer", Some(".ranking")),
+        ]
+    );
+
+    let standard_glob =
+        extract(b"use std::collections::*;\nfn f(map: HashMap<u8, u8>) {\n    map.len();\n}\n");
+
+    assert_eq!(
+        calls_with_receivers(&standard_glob),
+        [("len", Some(".map"))]
+    );
+}
+
+#[test]
+fn the_use_of_a_parameter_s_module_decides_its_type_before_a_namesake_or_a_function_body_s_use() {
+    let raw = extract(
+        b"use std::fs::File;\nuse parent::*;\nstruct Ranking;\nmod inner {\n    pub struct File;\n\
+          \x20   use std::fs::File as Ranking;\n    fn g(ranking: Ranking) {\n        ranking.offer();\n    }\n}\n\
+          fn f(file: File, rooted: ::std::fs::File, local: Local, ranking: Ranking) {\n\
+          \x20   use std::fs::File as Local;\n    file.sync_data();\n    rooted.sync_data();\n    local.run();\n\
+          \x20   ranking.offer();\n}\n",
+    );
+
+    assert_eq!(
+        calls_with_receivers(&raw),
+        [
+            ("offer", Some(".ranking")),
+            ("sync_data", Some(".file")),
+            ("sync_data", Some(".rooted")),
+            ("run", Some("Local")),
+            ("offer", Some("Ranking")),
+        ]
+    );
+}
+
+#[test]
 fn a_closure_opens_no_scope() {
     let raw = extract(
         b"fn outer() {\n    let f = |x: u32| helper(x);\n    f(1);\n}\n\nfn helper(_x: u32) {}\n",

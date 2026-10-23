@@ -3,6 +3,7 @@ use kartta_lang::{CallRef, SymbolId};
 use tree_sitter::Node;
 
 use super::blocks::{CallForm, path_segments};
+use super::declared::DeclaredReceiver;
 use super::syntax::{last_segment, path_text, type_base};
 use super::{Emitter, open_impls_over};
 
@@ -10,6 +11,7 @@ pub(super) struct Target {
     pub(super) callee: String,
     pub(super) receiver: Option<String>,
     pub(super) names_own_type: bool,
+    pub(super) declared: Option<DeclaredReceiver>,
 }
 
 // constraint: `written` is the path of a scoped call's receiver as written, and `form` the shape a call inside a
@@ -33,6 +35,7 @@ impl Target {
             callee,
             receiver,
             names_own_type: false,
+            declared: None,
         }
     }
 
@@ -70,6 +73,7 @@ impl Emitter<'_> {
         } = called;
         let path = written.as_deref().and_then(|path| self.module_path(path));
         let names_own_type = target.names_own_type;
+        let declared = target.declared;
         let call = CallRef {
             site_of,
             callee: target.callee,
@@ -86,6 +90,9 @@ impl Emitter<'_> {
         }
 
         let index = self.raw.calls.len() - 1;
+        if let Some(declared) = declared {
+            self.declared_receivers.push((index, declared));
+        }
         if let Some(written) = written {
             let call = &self.raw.calls[index];
             let written = if call.receiver.is_none()
@@ -129,6 +136,7 @@ impl Emitter<'_> {
                     callee,
                     receiver,
                     names_own_type,
+                    declared: None,
                 }
             }
             "generic_function" => function
@@ -144,8 +152,10 @@ impl Emitter<'_> {
             return Target::none();
         };
         let value = function.child_by_field_name("value");
+        if let Some(value) = value.filter(|value| value.kind() == "identifier") {
+            return self.named_target(text(field, self.source), value);
+        }
         let receiver = value.map(|value| match value.kind() {
-            "identifier" => value_receiver(&self.source[value.byte_range()]),
             "self" => self.enclosing_type_name().unwrap_or_default(),
             _ => String::new(),
         });
@@ -154,6 +164,24 @@ impl Emitter<'_> {
             callee: text(field, self.source),
             receiver,
             names_own_type: value.is_some_and(|value| value.kind() == "self"),
+            declared: None,
+        }
+    }
+
+    // constraint: a method call on a name takes the type the name's parameter is declared as, and else the value's
+    // receiver
+    pub(super) fn named_target(&self, callee: String, value: Node<'_>) -> Target {
+        match self.declared_receiver(value) {
+            Some((receiver, names_own_type, declared)) => Target {
+                callee,
+                receiver: Some(receiver),
+                names_own_type,
+                declared,
+            },
+            None => Target::new(
+                callee,
+                Some(value_receiver(&self.source[value.byte_range()])),
+            ),
         }
     }
 

@@ -160,7 +160,8 @@ fn a_member_call_on_a_value_of_the_caller_s_type_records_a_receiver_its_language
         ),
         (
             "rust",
-            "struct Pool;\nimpl Pool {\n    fn eq(&self, other: &Self) -> bool {\n        other.drain()\n    }\n}\n",
+            "struct Pool;\nimpl Pool {\n    fn eq(&self, others: &[Self]) -> bool {\n        \
+             others.iter().all(|other| other.drain())\n    }\n}\n",
         ),
         (
             "ruby",

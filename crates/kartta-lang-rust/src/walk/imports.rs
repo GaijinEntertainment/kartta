@@ -11,11 +11,13 @@ use super::syntax::path_text;
 use super::{Emitter, GLOB_FORM, USE_FORM};
 
 // constraint: a name a `use` binds, its directive, whether the `use` is inside a function body or an inline module,
-// and the chain of the inline module around it, whose modules its first segment can name
+// whether inside a function body, which no signature sees, and the chain of the inline module around it, whose
+// modules its first segment can name
 pub(super) struct Import {
-    directive: usize,
-    in_block: bool,
-    module: Option<String>,
+    pub(super) directive: usize,
+    pub(super) in_block: bool,
+    pub(super) in_body: bool,
+    pub(super) module: Option<String>,
 }
 
 // constraint: a path call's site, the byte it starts at and the inline module around it, tells which `use` inside a
@@ -135,6 +137,7 @@ impl Emitter<'_> {
         self.imports.push(Import {
             directive: self.raw.directives.len(),
             in_block: self.in_a_block(),
+            in_body: !self.functions.is_empty(),
             module: self.modules.last().map(|module| module.chain.clone()),
         });
         self.raw.directives.push(RawDirective {
