@@ -6,10 +6,16 @@ use serde_json::Value;
 
 use crate::config::{self, Aliases, ScopedAliases, config_dir, is_json};
 
-pub(crate) fn alias_configs(repository: &dyn Repository) -> Vec<ScopedAliases> {
+/// The aliases of every `tsconfig.json` and the bundler aliases, the most nested first, where a `tsconfig.json`
+/// comes before a bundler alias of its directory.
+pub(crate) fn alias_configs(
+    repository: &dyn Repository,
+    bundler_aliases: Vec<ScopedAliases>,
+) -> Vec<ScopedAliases> {
     let mut compiled: Vec<ScopedAliases> = config::named(repository, "tsconfig.json")
         .filter_map(|(path, contents)| compile(&path, &contents, repository))
         .collect();
+    compiled.extend(bundler_aliases);
 
     compiled.sort_by_key(|compiled| Reverse(compiled.dir.len()));
     compiled
@@ -200,7 +206,7 @@ mod tests {
     use kartta_lang::MemoryRepository;
 
     fn compiled(files: &[(&str, &str)]) -> Vec<(String, Aliases)> {
-        (alias_configs(&MemoryRepository::new(files.iter().copied())).into_iter())
+        (alias_configs(&MemoryRepository::new(files.iter().copied()), Vec::new()).into_iter())
             .map(|compiled| (compiled.dir, compiled.aliases))
             .collect()
     }
