@@ -139,8 +139,8 @@ impl<'g> Cascade<'g> {
     // constraint: where includes paste text in place, an owner names a class by its bare name, which several classes
     // can share, the path's scopes telling namesakes apart, and a name the graph holds no type of names a class outside
     // it, whose namesake fields are not meant; a member taken without a call is a field, or a method taken as a value,
-    // `&Class::draw`, which binds as a call to it does, the first of namesakes of one qualified name among them, since
-    // `find_unused` counts no ambiguous use as a call that may reach it; a class without the field binds the field of
+    // `&Class::draw`, which binds as a call to it does, the first of namesakes of one qualified name among them, so the
+    // use keeps an edge to the method where namesakes would leave it none; a class without the field binds the field of
     // the one base that declares it, and a type the graph holds that neither does, an alias most often, leaves the
     // field to the tiers that read no type; of namesake classes without the field, the bases searched are those of the
     // one the spelling names, else those of the first, whose field of the name is the one meant most often (ADR 3.65)
@@ -194,7 +194,7 @@ impl<'g> Cascade<'g> {
         let fields = named.fields.targets.as_slice();
         let one = |found: &[SymbolAt]| match found {
             [at] => Ok((*at, confidence::INCLUDE)),
-            _ => Err(UseMiss::Ambiguous),
+            _ => Err(UseMiss::AmbiguousField),
         };
         let included: Vec<SymbolAt> = self
             .includes(file)
@@ -289,10 +289,10 @@ impl<'g> Cascade<'g> {
                 if admitted.iter().all(|&at| self.graph.sym(at).owner == owner) {
                     self.reached_owner(site, &admitted, None)
                 } else {
-                    Some(Err(UseMiss::Ambiguous))
+                    Some(Err(UseMiss::AmbiguousField))
                 }
             }
-            Shape::FreeOrInherited(_) => Some(Err(UseMiss::Ambiguous)),
+            Shape::FreeOrInherited(_) => Some(Err(UseMiss::AmbiguousField)),
             _ => None,
         }
     }
@@ -320,7 +320,7 @@ impl<'g> Cascade<'g> {
             .iter()
             .all(|&at| self.graph.sym(at).owner == owner)
         {
-            return Some(Err(UseMiss::Ambiguous));
+            return Some(Err(UseMiss::AmbiguousField));
         }
         self.reached_owner(site, &inherited, None)
     }
@@ -348,7 +348,7 @@ impl<'g> Cascade<'g> {
         }
         Some(match self.nearest_to(site, owned, written) {
             Some(Twin::Member(at)) => Ok((at, confidence::RECEIVER)),
-            _ => Err(UseMiss::Ambiguous),
+            _ => Err(UseMiss::AmbiguousField),
         })
     }
 

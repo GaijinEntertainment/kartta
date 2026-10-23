@@ -48,6 +48,8 @@ pub(crate) enum UseMiss {
     Elsewhere,
     /// Definitions of the name may be meant, and no tier picks one.
     Ambiguous,
+    /// Fields of the name may be meant, and no tier picks one; no other member of the name is a candidate.
+    AmbiguousField,
 }
 
 // constraint: a named binding is the name it binds, the directory or file it imports, and the name the import reaches
@@ -1245,7 +1247,8 @@ impl<'g> Cascade<'g> {
             (None, _) if self.conventions.untyped_members == UntypedMembers::IncludedField => {
                 self.included_field(site.file, name)
             }
-            _ => Err(UseMiss::Ambiguous),
+            (None, _) => Err(UseMiss::Ambiguous),
+            (Some(_), Some(_)) => Err(UseMiss::AmbiguousField),
         }
     }
 
