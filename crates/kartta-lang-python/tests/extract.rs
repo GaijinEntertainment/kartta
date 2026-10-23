@@ -568,6 +568,50 @@ fn a_class_body_reads_the_module_values_it_names() {
 }
 
 #[test]
+fn module_level_code_reads_the_module_values_it_names() {
+    let raw = extract(
+        b"import config\nLIMIT = 3\nprint(LIMIT)\nLIMIT += 1\nfor step in range(LIMIT):\n    pass\n\
+          shown, hidden = config.SIZE, LIMIT\n\ndef register(f):\n    return f\n\n@register\ndef run():\n    pass\n\n\
+          DEFAULT: run = run\nprint(LIMIT := 5)\n",
+    );
+    let uses: Vec<(SymbolId, &str, Receiver, Access, u32)> = raw
+        .uses
+        .iter()
+        .map(|site| {
+            (
+                site.site_of,
+                site.name.as_str(),
+                site.receiver.clone(),
+                site.access,
+                site.line,
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        uses,
+        [
+            (FILE_SCOPE, "LIMIT", Receiver::Bare, Access::Read, 3),
+            (FILE_SCOPE, "LIMIT", Receiver::Bare, Access::Update, 4),
+            (FILE_SCOPE, "LIMIT", Receiver::Bare, Access::Read, 5),
+            (
+                FILE_SCOPE,
+                "SIZE",
+                Receiver::Path("config".to_owned()),
+                Access::Read,
+                7
+            ),
+            (FILE_SCOPE, "LIMIT", Receiver::Bare, Access::Read, 7),
+            (FILE_SCOPE, "register", Receiver::Bare, Access::Read, 12),
+            (FILE_SCOPE, "run", Receiver::Bare, Access::Type, 16),
+            (FILE_SCOPE, "run", Receiver::Bare, Access::Read, 16),
+        ],
+        "code outside every definition reads the module's names at file scope, an annotation there names a type, and \
+         binding a name is no use of it"
+    );
+}
+
+#[test]
 fn a_nonlocal_name_reaches_the_definition_around_it() {
     let raw = extract(
         b"def outer():\n    def helper():\n        pass\n    def inner():\n        nonlocal helper\n        \
