@@ -1224,7 +1224,12 @@ impl Server {
                        the name and sees the symbol is a direct caller that no symbol holds: file_scope=N counts \
                        them, and after the refs each is a <file_scope path=../> record with the same confidence \
                        mark. It has no line, because the graph keeps only the names a top level spells, and the walk \
-                       does not go past it; 'role' lists none of them. A <match> also counts what the walk left out, \
+                       does not go past it; 'role' lists none of them. A call of the symbol from its own body - a \
+                       recursion, or a call of a namesake the graph bound to the symbol itself - is one <self_call \
+                       at=../> record ahead of the refs, with the same confidence mark, whatever 'role' keeps; count= \
+                       and the reach band leave it out, and a caller further out that calls itself is listed once, as \
+                       every caller is. \
+                       A <match> also counts what the walk left out, \
                        each only when it is not zero: passed_over= the other symbols the name selects (the most \
                        called listed as up to 5 <candidate callers=N/> records; path_prefix picks one), unexpanded= \
                        the callers whose own callers were not followed, at the hops limit or left when the node cap \
@@ -1232,8 +1237,10 @@ impl Server {
                        because several definitions of the name may be meant - a call on a value whose type the graph \
                        does not follow, or a call split between same-named methods or functions - and any of which \
                        may call it, counted for the symbol alone whatever hops and role say, below_confidence= the \
-                       callers and files the floor dropped, and turned_away= with truncated=true when the node cap \
-                       (500) stopped the walk. A match without callers or file_scope records states why. With \
+                       callers and files the floor dropped, a self-call among them, and turned_away= with \
+                       truncated=true when the node cap (500) stopped the walk. A match without callers or file_scope \
+                       records states why, as \"no callers but itself\" or \"no call but its own binds it\" beside a \
+                       <self_call>. With \
                        below_confidence=, it states only how many callers bind below the confidence floor, which \
                        min_confidence \"any\" lists. Otherwise, with ambiguous=, it states first that no call binds it \
                        while those calls may, which grep finds. For a function, a method, or a macro, it then names an \
@@ -1294,15 +1301,20 @@ impl Server {
                        callee count within the hops limit (default 1, direct callees only), and flat <ref hops=N> \
                        records nearest first carrying the callee's loc, an explicit role= (\"consumer\", or \
                        test/entry/generated), confidence=likely / guess on a weakly resolved call, and, on a direct \
-                       callee, at= for the line of the call. A <match> also counts what the walk left out, each only \
-                       when it is not zero: unresolved= the calls in the bodies walked that bound no definition the \
+                       callee, at= for the line of the call. A call of the symbol from its own body - a recursion, or \
+                       a call of a namesake the graph bound to the symbol itself - is one <self_call at=../> record \
+                       ahead of the refs, with the same confidence mark; count= leaves it out, and a callee further \
+                       out that calls itself is listed once, as every callee is. A <match> also counts what the walk \
+                       left out, each only when it is not zero: unresolved= the calls in the bodies walked that bound \
+                       no definition the \
                        graph holds (a library, a builtin, or a name the resolver could not tell apart - read the body \
                        for those), passed_over= the other symbols the name selects (the most called listed as up to 5 \
                        <candidate callers=N/> records; path_prefix picks one), unexpanded= the callees whose own \
                        callees were not followed, at the hops limit or left when the node cap stopped the walk, \
-                       below_confidence= the callees the floor dropped, and turned_away= with truncated=true when the \
-                       node cap (500) stopped the walk. A match without callees states that no call in its body binds \
-                       a definition the graph holds; with below_confidence=, it states only how many callees bind \
+                       below_confidence= the callees the floor dropped, a self-call among them, and turned_away= with \
+                       truncated=true when the node cap (500) stopped the walk. A match without callees states that no \
+                       call in its body binds a definition the graph holds, or \"no callees but itself\" beside a \
+                       <self_call>; with below_confidence=, it states only how many callees bind \
                        below the confidence floor, which min_confidence \"any\" lists. A call \
                        through a function value, an interface or a virtual method binds only where the graph can name \
                        its target, so a callee missing here can still run. An unknown name answers with up to 5 close \
