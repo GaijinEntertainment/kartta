@@ -247,8 +247,10 @@
     `Graph::definitions`, `find_test_modules`), `crates/kartta-graph/src/strings.rs`, `kartta_lang::Extraction`
     (`test_includes`)
   - Revisit if: a refresh's leftover strings or the name index's per-name lists are a measurable share of a graph
-- [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md) — initiative
-  `03-code-graph`, 2026-10-16, revised 2026-10-21
+- [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md)
+  - Governs: `crates/kartta/src/extracting.rs` (`Extracting`, `claimant`), `crates/kartta/src/resolving.rs`
+    (`Resolving::graphs`, `Resolving::insert_all`), `kartta::Engine::build`
+  - Revisit if: decoding grows well past a tenth of a build's CPU, or the build hosts stop being bound by memory
 - [3.7 Resolve calls when a query asks](./adr/3.7-resolve-calls-when-a-query-asks.md)
   - Governs: `crates/kartta-graph/src/{resolve,scope,calls,candidates,confidence}.rs`, `kartta_lang::Conventions`
   - Revisit if: a lazy `callers` of one name exceeds a second, or agents repeat names often enough that a memo pays for
@@ -442,6 +444,10 @@
   - Governs: `kartta_lang::Language::resolver`, `kartta_lang::Resolver::resolve`, each
     `crates/kartta-lang-*/src/resolve.rs`
   - Revisit if: the view a resolver builds inside `resolve` shows in a build's profile
+- [3.124 Resolve a build's extractions 1,024 files at a
+  time](./adr/3.124-resolve-a-build-s-extractions-1-024-files-at-a-time.md)
+  - Governs: `crates/kartta/src/resolving.rs` (`RESOLVED_AT_ONCE`, `Resolving::insert_all`)
+  - Revisit if: the call graph or a tree of uneven files moves the build's peak away from a 1,024-file batch
 - [3.150 Resolve a Go import to the package the go command
   builds](./adr/3.150-resolve-a-go-import-to-the-package-the-go-command-builds.md)
   - Governs: `crates/kartta-lang-go/src/resolve.rs`, `crates/kartta-graph/src/resolve.rs` (`read_bindings`,
