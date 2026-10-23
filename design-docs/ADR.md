@@ -204,8 +204,11 @@
   - Revisit if: a store has to sit on a filesystem without hard links, or cold builds are frequent enough that the
     shared writer's lock matters
 - [2.2 Take per-file data from the shared cache in the walk's
-  read](./adr/2.2-take-per-file-data-from-the-cache-in-the-walk-s-read.md) — initiative `02-shared-cache`, 2026-10-16,
-  revised 2026-10-18
+  read](./adr/2.2-take-per-file-data-from-the-cache-in-the-walk-s-read.md)
+  - Governs: `kartta_fs::BuildOptions::content_cache`, `kartta_fs::Content::{cached, cache}`,
+    `crates/kartta-fs/src/cache.rs`, `crates/kartta-fs/src/policy.rs` (`stream_text`, `stream_cached`),
+    `crates/kartta-fs/src/trigram.rs` (`fingerprint`, `encode`)
+  - Revisit if: the content index's per-build sort and merge limit the nodes, or a hit's hashing nears the scan it skips
 - [2.3 Expire cache entries by the time each was
   published](./adr/2.3-expire-cache-entries-by-the-time-each-was-published.md) — initiative `02-shared-cache`,
   2026-10-18, revised 2026-10-19
