@@ -279,8 +279,11 @@
   - Governs: `crates/kartta-lang-bash/src/walk.rs`, `crates/kartta-lang-bash/src/resolve.rs`
   - Revisit if: a checkout shows sourced siblings that fail to resolve because their tails are ambiguous
 - [3.14 Fold a PHP include path and map a use through
-  PSR-4](./adr/3.14-fold-a-php-include-path-and-map-a-use-through-psr-4.md) — initiative `03-code-graph`, 2026-10-16,
-  revised 2026-10-23
+  PSR-4](./adr/3.14-fold-a-php-include-path-and-map-a-use-through-psr-4.md)
+  - Governs: `crates/kartta-lang-php/src/{fold,resolve,psr4}.rs`, `crates/kartta-lang-php/src/walk.rs` (`include`,
+    `namespace_use`)
+  - Revisit if: the extraction reads PSR-0, `classmap` or `files` autoload, or the constants a project defines for its
+    include paths
 - [3.15 Qualify a Ruby member by its whole namespace
   chain](./adr/3.15-qualify-a-ruby-member-by-its-whole-namespace-chain.md) — initiative `03-code-graph`, 2026-10-16,
   revised 2026-10-23
@@ -571,6 +574,15 @@
   - Governs: `crates/kartta-lang-go/src/resolve.rs`, `crates/kartta-graph/src/resolve.rs` (`read_bindings`,
     `in_package_of`, `is_external_test_of`, `in_tested_package`)
   - Revisit if: the indexed Go trees build through files the resolver does not read, a `go.work` or a replace by version
+- [3.155 Own a PHP member by its type's bare name](./adr/3.155-own-a-php-member-by-its-type-s-bare-name.md)
+  - Governs: `crates/kartta-lang-php/src/walk.rs` (qualification, `call_target`, `closure_binding`,
+    `object_creation`), `crates/kartta-lang-php/src/lib.rs` (`Conventions`)
+  - Revisit if: two classes of one name in different namespaces join their members on a real tree
+- [3.156 Name a PHP anonymous class by the names that lead to
+  it](./adr/3.156-name-a-php-anonymous-class-by-the-names-that-lead-to-it.md)
+  - Governs: `crates/kartta-lang-php/src/walk.rs` (`anonymous_class`, `forget_holder`, `held_receiver`,
+    `enclosing_type`)
+  - Revisit if: the tier binding through the caller's owner prefers the caller's file
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md) — initiative
   `04-consumer-surfaces`, 2026-10-18, revised 2026-10-23
