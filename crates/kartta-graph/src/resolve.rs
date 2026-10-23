@@ -50,9 +50,11 @@ pub(crate) enum UseMiss {
     Ambiguous,
 }
 
+// constraint: a named binding is the name it binds, the directory or file it imports, and the name the import reaches
+// there, which differs from the bound name under an alias
 #[derive(Debug, Default)]
 struct Bindings {
-    named: Vec<(Str, Option<Str>)>,
+    named: Vec<(Str, Option<Str>, Str)>,
     dot_dirs: Vec<Str>,
     modules: bool,
 }
@@ -466,8 +468,10 @@ impl<'g> Cascade<'g> {
                     .and_then(|dir| self.package_name(dir))
                     .unwrap_or(binding.last_segment)
             });
-            bindings.named.retain(|&(held, _)| held != name);
-            bindings.named.push((name, binding.target_dir));
+            bindings.named.retain(|&(held, _, _)| held != name);
+            bindings
+                .named
+                .push((name, binding.target_dir, binding.last_segment));
             bindings.modules |= binding
                 .target_dir
                 .is_some_and(|target| self.graph.slot_of(target).is_some());
@@ -483,11 +487,15 @@ impl<'g> Cascade<'g> {
     }
 
     pub(crate) fn binding(&self, file: u32, name: Str) -> Option<ImportedDir> {
+        self.binding_and_source(file, name).map(|(dir, _)| dir)
+    }
+
+    fn binding_and_source(&self, file: u32, name: Str) -> Option<(ImportedDir, Str)> {
         self.bindings(file)
             .named
             .iter()
-            .find(|&&(held, _)| held == name)
-            .map(|&(_, dir)| dir)
+            .find(|&&(held, _, _)| held == name)
+            .map(|&(_, dir, source)| (dir, source))
     }
 
     pub(crate) fn dot_imported_dirs(&self, file: u32) -> Vec<Str> {
@@ -789,24 +797,34 @@ impl<'g> Cascade<'g> {
         if !bindings.modules {
             return None;
         }
-        let &(_, target) = bindings
+        let &(_, target, _) = bindings
             .named
             .iter()
-            .find(|&&(held, _)| held == call.callee)?;
+            .find(|&&(held, _, _)| held == call.callee)?;
         self.module_export(call, self.graph.slot_of(target?)?)
     }
 
-    // constraint: a module's file can hold what its module exports through a re-export, a macro or an inline module
-    // its definitions do not show, so a name it does not define at its top level goes on to a macro that a file below
-    // exports and then to the tiers below; a type shares its name with a function only where the language keeps types
-    // apart from values, as Rust's `struct kevent` beside the `extern` function `kevent`, so the call names the
-    // function; a call does not say whether it was written `mac()` or `mac!()`, which in Rust name a function and a
-    // macro apart, so a name the file exports as both binds neither; no path reaches a macro the file does not export,
-    // and a call from the module or a module below it, the files its file includes, sees its other private definitions
-    // too; a test definition is compiled into its crate's test build alone, where the crate's test code sees it through
-    // a path, so test code that shares an include root with the file sees it from any module, and other code from none
     fn module_export(&self, call: &Call, module: u32) -> Option<Bound> {
-        let defined = self.graph.in_file(self.named(call.callee), module);
+        self.module_item(call, (module, call.callee), &mut Vec::new())
+    }
+
+    // constraint: a module's file can hold what its module exports through a re-export, a macro or an inline module
+    // its definitions do not show, so a name it does not define at its top level goes on to the module's `use`s and
+    // globs, to a macro that a file below exports and then to the tiers below; a type shares its name with a function
+    // only where the language keeps types apart from values, as Rust's `struct kevent` beside the `extern` function
+    // `kevent`, so the call names the function; a call does not say whether it was written `mac()` or `mac!()`, which
+    // in Rust name a function and a macro apart, so a name the file exports as both binds neither; no path reaches a
+    // macro the file does not export, and a call from the module or a module below it, the files its file includes,
+    // sees its other private definitions too; a test definition is compiled into its crate's test build alone, where
+    // the crate's test code sees it through a path, so test code that shares an include root with the file sees it from
+    // any module, and other code from none
+    fn module_item(
+        &self,
+        call: &Call,
+        (module, name): (u32, Str),
+        visited: &mut Vec<(u32, Str)>,
+    ) -> Option<Bound> {
+        let defined = self.graph.in_file(self.named(name), module);
         let within = OnceCell::new();
         let within = || *within.get_or_init(|| self.is_within_module(call.file, module));
         let tests_seen = self.graph.flags(call.caller_at()).is_test();
@@ -825,11 +843,77 @@ impl<'g> Cascade<'g> {
             .clone()
             .min_by_key(|&at| self.graph.sym(at).kind.is_type())
         else {
-            return self.macro_exported_below(call, module);
+            return self.used_by_module(call, (module, name), visited);
         };
         let exported = |at: SymbolAt| self.graph.sym(at).exported || within();
         (exported(at) && !answers.any(|other| exported(other) && is_macro(other) != is_macro(at)))
             .then_some((at, confidence::IMPORT))
+    }
+
+    // constraint: a Rust module answers a name it does not define through its `use` of the name, read whether written
+    // `pub use` or not, since code that compiles reaches no private `use` from outside the module; else through its
+    // globs, which its own names shadow, one answer among them; else through a macro a file below exports; a call does
+    // not say it invokes a macro, so a function a `use` or a glob reaches beside such a macro binds neither; each
+    // module is read once under each name, so a chain or a cycle of re-exports ends
+    fn used_by_module(
+        &self,
+        call: &Call,
+        (module, name): (u32, Str),
+        visited: &mut Vec<(u32, Str)>,
+    ) -> Option<Bound> {
+        if visited.contains(&(module, name)) {
+            return None;
+        }
+        visited.push((module, name));
+        let reached = if let Some((target, source)) = self.binding_and_source(module, name) {
+            let target = self.graph.slot_of(target?)?;
+            self.module_item(call, (target, source), visited)?
+        } else if let Some(reached) = self.globbed_by_module(call, (module, name), visited) {
+            reached
+        } else {
+            return self.macro_exported_below(module, name);
+        };
+        let is_macro = self.graph.sym(reached.0).kind == SymbolKind::Macro;
+        (is_macro || !self.exports_a_macro_below(module, name)).then_some(reached)
+    }
+
+    fn globbed_by_module(
+        &self,
+        call: &Call,
+        (module, name): (u32, Str),
+        visited: &mut Vec<(u32, Str)>,
+    ) -> Option<Bound> {
+        let bindings = self.bindings(module);
+        let mut unique: Option<Bound> = None;
+        for &target in &bindings.dot_dirs {
+            let Some(bound) = (self.graph.slot_of(target))
+                .and_then(|target| self.module_item(call, (target, name), visited))
+            else {
+                continue;
+            };
+            if unique.is_some_and(|(at, _)| at != bound.0) {
+                return None;
+            }
+            unique = Some(bound);
+        }
+        unique
+    }
+
+    fn exports_a_macro_below(&self, module: u32, name: Str) -> bool {
+        let mut exported = (self.named(name).iter().copied())
+            .filter(|&at| {
+                let symbol = self.graph.sym(at);
+                symbol.kind == SymbolKind::Macro
+                    && symbol.exported
+                    && at.file != module
+                    && self.at_top_level(at)
+            })
+            .peekable();
+        if exported.peek().is_none() {
+            return false;
+        }
+        let closure = self.closure(module);
+        exported.any(|at| closure.binary_search(&at.file).is_ok())
     }
 
     fn is_within_module(&self, file: u32, module: u32) -> bool {
@@ -871,8 +955,8 @@ impl<'g> Cascade<'g> {
     // constraint: Rust's `#[macro_export]` places a macro at its crate's root whatever module defines it, so a name the
     // module's file does not define binds the one exported macro of the name that a file it includes, directly or
     // through others, defines; two leave the call to the tiers below, and so does a name the module answers otherwise,
-    // as a function of an included file or a `use` of the file does, since a call does not say it invokes a macro
-    fn macro_exported_below(&self, call: &Call, module: u32) -> Option<Bound> {
+    // as a function of an included file does, since a call does not say it invokes a macro
+    fn macro_exported_below(&self, module: u32, name: Str) -> Option<Bound> {
         let closure = OnceCell::new();
         let below = |at: SymbolAt| {
             self.at_top_level(at)
@@ -881,13 +965,13 @@ impl<'g> Cascade<'g> {
                     .binary_search(&at.file)
                     .is_ok()
         };
-        let named = self.named(call.callee).iter().copied();
+        let named = self.named(name).iter().copied();
         let mut exported = named.clone().filter(|&at| {
             let symbol = self.graph.sym(at);
             symbol.kind == SymbolKind::Macro && symbol.exported && at.file != module && below(at)
         });
         let at = exported.next()?;
-        if exported.next().is_some() || self.binding(module, call.callee).is_some() {
+        if exported.next().is_some() {
             return None;
         }
         let answered_otherwise = named.clone().any(|other| {
