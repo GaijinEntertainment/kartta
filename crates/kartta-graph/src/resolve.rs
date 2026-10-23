@@ -734,7 +734,11 @@ impl<'g> Cascade<'g> {
                 .ok_or(Miss::NotAdmitted);
         }
         match self.one_callable(&shape, targets.clone()) {
-            Some(at) if self.can_bind_by_name(call, at) => Ok((at, confidence::UNIQUE)),
+            Some(at)
+                if self.can_bind_by_name(call, at) && self.is_pasted_where_called(call, at) =>
+            {
+                Ok((at, confidence::UNIQUE))
+            }
             Some(_) => Err(Miss::NotAdmitted),
             None => self
                 .one_type_outside_tests(call, &shape, targets)
@@ -752,6 +756,26 @@ impl<'g> Cascade<'g> {
     // stub of a builtin or of a library outside the graph, is no surer to mean another definition of it
     fn can_bind_by_name(&self, call: &Call, at: SymbolAt) -> bool {
         !self.graph.flags(at).is_test() || self.graph.flags(call.caller_at()).is_test()
+    }
+
+    // constraint: where includes paste text, a call sees only what its translation unit pastes in, so the one callable
+    // of a name binds where the caller's file, or a file that includes it directly, reaches that callable or a
+    // declaration of it; elsewhere the name is most often one the platform or the toolchain declares, an SSE intrinsic
+    // or a C library function, of which the tree holds a shim
+    fn is_pasted_where_called(&self, call: &Call, at: SymbolAt) -> bool {
+        if self.conventions.include_reach != IncludeReach::Transitive
+            || self.reaches(call.file, at.file)
+        {
+            return true;
+        }
+        let declarations = self.declarations(at);
+        let reaches = |file: u32| {
+            self.reaches(file, at.file)
+                || declarations
+                    .iter()
+                    .any(|declaration| self.reaches(file, declaration.file))
+        };
+        reaches(call.file) || self.graph.includers_of(call.file).any(reaches)
     }
 
     // constraint: a type test code defines stands in for the type outside test code that it shares the name of, or
