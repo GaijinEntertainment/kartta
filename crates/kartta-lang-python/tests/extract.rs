@@ -473,16 +473,98 @@ fn a_call_in_a_class_body_sees_the_names_that_body_binds() {
         })
         .collect();
 
-    assert_eq!(calls, [("outer", 5), ("outer", 2)]);
+    assert_eq!(calls, [("Local", 5), ("outer", 2)]);
 }
 
 #[test]
 fn a_call_in_a_class_body_at_module_level_stays_a_call_of_its_method() {
     let raw = extract(b"class Table:\n    def column():\n        pass\n    made = column()\n");
-    let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
 
     assert_eq!(raw.local_calls, Vec::<LocalCall>::new());
-    assert_eq!(callees, ["column"]);
+    assert_eq!(callers_of(&raw, "column"), ["Table"]);
+}
+
+#[test]
+fn a_call_in_a_class_body_is_made_by_the_class() {
+    let raw = extract(
+        b"def make_default():\n    return 1\n\ndef register(cls):\n    return cls\n\nclass Settings:\n    \
+          limit = make_default()\n    register(object)\n    sizes = [make_default() for _ in range(2)]\n\n    \
+          def read(self):\n        return make_default()\n\nregister(Settings)\n",
+    );
+    let mut calls: Vec<(&str, &str, u32)> = raw
+        .calls
+        .iter()
+        .map(|call| {
+            let site = if call.site_of == FILE_SCOPE {
+                ""
+            } else {
+                raw.symbols[call.site_of.0 as usize].name.as_str()
+            };
+            (site, call.callee.as_str(), call.line)
+        })
+        .collect();
+    calls.sort_by_key(|&(_, callee, line)| (line, callee));
+
+    assert_eq!(
+        calls,
+        [
+            ("Settings", "make_default", 8),
+            ("Settings", "register", 9),
+            ("Settings", "make_default", 10),
+            ("Settings", "range", 10),
+            ("read", "make_default", 13),
+            ("", "register", 15),
+        ]
+    );
+}
+
+#[test]
+fn a_class_evaluates_its_bases_in_the_scope_around_it() {
+    let raw = extract(
+        b"def outer():\n    def mixin():\n        pass\n    class Local(mixin()):\n        \
+          def mixin(self):\n            pass\n        made = mixin()\n    return Local\n",
+    );
+    let mut lines: Vec<(&str, u32)> = raw
+        .local_calls
+        .iter()
+        .map(|call| {
+            (
+                raw.symbols[call.site_of.0 as usize].name.as_str(),
+                raw.symbols[call.local.0 as usize].line,
+            )
+        })
+        .collect();
+    lines.sort_unstable();
+
+    assert_eq!(lines, [("Local", 2), ("Local", 5)]);
+}
+
+#[test]
+fn a_class_body_reads_the_module_values_it_names() {
+    let raw = extract(
+        b"import tools\nDEFAULT = 1\n\ndef on_update():\n    pass\n\nclass Panel(tools.Base):\n    \
+          size = DEFAULT\n    hook = on_update\n",
+    );
+    let uses: Vec<(&str, &str, Receiver)> = raw
+        .uses
+        .iter()
+        .map(|site| {
+            (
+                raw.symbols[site.site_of.0 as usize].name.as_str(),
+                site.name.as_str(),
+                site.receiver.clone(),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        uses,
+        [
+            ("Panel", "Base", Receiver::Path("tools".to_owned())),
+            ("Panel", "DEFAULT", Receiver::Bare),
+            ("Panel", "on_update", Receiver::Bare),
+        ]
+    );
 }
 
 #[test]
