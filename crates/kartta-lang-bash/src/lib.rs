@@ -61,9 +61,17 @@
 //! ```
 
 use kartta_lang::path::has_extension;
-use kartta_lang::{DocComments, Language, RawExtraction, Repository, Resolver};
+use kartta_lang::{
+    Conventions, DocComments, Language, RawExtraction, Repository, Resolver, SymbolKind,
+};
 
 use crate::resolve::BashResolver;
+
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.unrecorded_data = &[SymbolKind::Variable];
+    conventions
+};
 
 mod resolve;
 mod walk;
@@ -92,6 +100,10 @@ impl Language for Bash {
 
     fn fingerprint(&self) -> &[u8] {
         kartta_lang::tree_sitter_fingerprint!(grammar(), tree_sitter_bash::NODE_TYPES)
+    }
+
+    fn conventions(&self) -> Conventions {
+        CONVENTIONS
     }
 
     fn doc_comments(&self) -> DocComments {

@@ -789,6 +789,11 @@
     `index_at_launch`, `stop_on`), `crates/kartta-mcp/src/main.rs`
   - Revisit if: agents work across several repositories in one session often enough that rebuilds cost more than a
     second engine's memory
+- [4.22 Name a language that records no read or write of a data kind in its
+  references](./adr/4.22-name-a-language-that-records-no-read-or-write-of-a-data-kind-in-its-references.md)
+  - Governs: `crates/kartta-mcp/src/render/calls.rs` (`reference_match`, `Unrecorded`, `no_sites`,
+    `PARTIAL_DATA_ACCESS`), `kartta_lang::Conventions::unrecorded_data`, the `find_references` tool
+  - Revisit if: every shipped language records the reads and writes of every data kind it extracts
 - [4.30 Cancel a build, a grep or a refresh by the id it names, even before it
   enters](./adr/4.30-cancel-a-build-a-grep-or-a-refresh-by-the-id-it-names-even-before-it-enters.md)
   - Governs: `crates/kartta-ffi/src/handle.rs` (`Calls`, `Kartta::cancel`), `crates/kartta-ffi/src/wire/build.rs`

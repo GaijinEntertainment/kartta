@@ -78,7 +78,7 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{
     BlockComment, Conventions, DocComments, InheritedMembers, Language, OwnMembers, RawExtraction,
-    Repository, Resolver, TypeUses,
+    Repository, Resolver, SymbolKind, TypeUses,
 };
 
 use crate::resolve::RubyResolver;
@@ -113,6 +113,7 @@ const CONVENTIONS: Conventions = {
     conventions.owner_chain_separator = Some("::");
     conventions.own_type_receivers = Some(&["other"]);
     conventions.type_uses = TypeUses::Nowhere;
+    conventions.unrecorded_data = &[SymbolKind::Constant];
     conventions
 };
 

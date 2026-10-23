@@ -73,7 +73,7 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{
     BlockComment, Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository,
-    Resolver, TypeUses,
+    Resolver, SymbolKind, TypeUses,
 };
 
 use crate::resolve::Autoload;
@@ -104,6 +104,7 @@ const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.own_members = OwnMembers::Unreached;
     conventions.type_uses = TypeUses::Nowhere;
+    conventions.unrecorded_data = &[SymbolKind::Field, SymbolKind::Constant];
     conventions
 };
 

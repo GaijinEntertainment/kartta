@@ -61,7 +61,7 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
+    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver, SymbolKind,
 };
 
 use crate::resolve::DshlResolver;
@@ -86,6 +86,7 @@ const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.own_members = OwnMembers::Unreached;
     conventions.values_are_call_targets = false;
+    conventions.unrecorded_data = &[SymbolKind::Field];
     conventions
 };
 
