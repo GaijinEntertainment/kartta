@@ -210,12 +210,20 @@
     `crates/kartta-fs/src/trigram.rs` (`fingerprint`, `encode`)
   - Revisit if: the content index's per-build sort and merge limit the nodes, or a hit's hashing nears the scan it skips
 - [2.3 Expire cache entries by the time each was
-  published](./adr/2.3-expire-cache-entries-by-the-time-each-was-published.md) — initiative `02-shared-cache`,
-  2026-10-18, revised 2026-10-19
+  published](./adr/2.3-expire-cache-entries-by-the-time-each-was-published.md)
+  - Governs: `crates/kartta-cache/src/pack.rs` (`Published`, `expired_before`), `kartta_cache::Store::merge`,
+    `kartta_cache::DEFAULT_TTL`, `kartta_fs::BuildOptions::content_cache_ttl`
+  - Revisit if: a store fills its disk within one time to live, or rewriting a pack past half expired costs a build
+    more than recomputing what it held
 - [2.4 Merge a cache's packs once they pass eight](./adr/2.4-merge-a-cache-s-packs-once-they-pass-eight.md)
   - Governs: `kartta_cache::Store::merge`, `kartta_cache::Merged`, `crates/kartta-cache/src/store.rs` (`merge_inputs`,
     `open_listed`), `crates/kartta-cache/src/pack.rs` (`ranges_tile_the_index`)
   - Revisit if: the merges of many processes finishing at once cost more than a lock on merging would
+- [2.5 Remove what killed writers and older formats leave in a
+  cache](./adr/2.5-remove-what-killed-writers-and-older-formats-leave-in-a-cache.md)
+  - Governs: `crates/kartta-cache/src/store.rs` (`sweep`), `kartta_cache::Merged`, `crates/kartta-fs/src/cache.rs`
+    (`unremoved`)
+  - Revisit if: a cache directory sits on a filesystem without file locks while its builds stay idle for an hour
 - [3.1 Plug languages in through a trait](./adr/3.1-plug-languages-in-through-a-trait.md) — initiative `03-code-graph`,
   2026-10-16, revised 2026-10-22
 - [3.2 Name a Go call's target only where the syntax
