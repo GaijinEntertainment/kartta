@@ -447,27 +447,41 @@ fn a_use_that_binds_nothing_leaves_each_field_of_its_name_and_each_value_its_fil
 }
 
 #[test]
-fn a_call_through_a_receiver_that_spells_a_value_leaves_it_uncertain_where_the_call_s_file_sees_it()
-{
+fn a_value_a_call_goes_through_is_kept_by_the_read_of_it_and_not_by_the_call_s_receiver() {
     let mut view = file("pkg/view.go", vec![function("View", 1)], Vec::new());
     view.calls.push(member_call("style", "Render", 2));
-    let style = |path| {
-        file(
-            path,
-            vec![Symbol::new("style", SymbolKind::Variable, 1, 1)],
-            Vec::new(),
-        )
+    view.uses
+        .push(use_of("style", Receiver::Bare, Access::Read, 2));
+    view.calls.push(member_call("palette", "Render", 3));
+    let values = |path, names: &[&str]| {
+        let symbols = names
+            .iter()
+            .map(|&name| Symbol::new(name, SymbolKind::Variable, 1, 1))
+            .collect();
+        file(path, symbols, Vec::new())
     };
     let graph = graph_of(
         go(),
-        &[view, style("pkg/styles.go"), style("other/styles.go")],
+        &[
+            view,
+            values("pkg/styles.go", &["style", "palette"]),
+            values("other/styles.go", &["style"]),
+        ],
     );
 
     let dead = graph.dead_code(&DATA, None, 10);
 
-    assert_eq!(names(&dead), ["style"]);
-    assert_eq!(dead.found[0].definition.file, "other/styles.go");
-    assert_eq!(dead.excluded.uncertain, 1);
+    let found: Vec<(&str, &str)> = dead
+        .found
+        .iter()
+        .map(|found| (found.definition.file, found.definition.name))
+        .collect();
+    assert_eq!(
+        found,
+        [("other/styles.go", "style"), ("pkg/styles.go", "palette")],
+        "a call's receiver alone reads no value; Go records the read of a value it calls through"
+    );
+    assert_eq!((dead.live, dead.excluded.uncertain), (1, 0));
 }
 
 #[test]
