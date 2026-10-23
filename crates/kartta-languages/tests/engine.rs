@@ -1,6 +1,7 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
-//! what that crate exports, a macro invocation the `#[macro_export]` macro of its root file or the one of the files
+//! what that crate exports, one through `crate::`, `self::` or `super::` the item of the module it names, a macro
+//! invocation the `#[macro_export]` macro of its root file or the one of the files
 //! that file includes, through a `use` inside a function body or an inline module only from inside it, and no macro
 //! of a name the crate also answers with a function or a `use`, as a call does not say it invokes a macro, and a Rust
 //! call on a value, on `self` or through a type binds no free function, not even through a value named like a module
@@ -177,6 +178,42 @@ fn bound_through_an_import<'e>(engine: &'e Engine, path: &str, name: &str) -> Ve
         .filter(|reached| reached.confidence == confidence::IMPORT)
         .map(|reached| reached.symbol.file)
         .collect()
+}
+
+#[test]
+fn a_rust_path_through_crate_self_or_super_binds_the_item_of_the_module_it_names() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[package]\nname = \"app\"\n"),
+        ("src/lib.rs", "mod a;\nmod b;\n\npub fn root() {}\n"),
+        (
+            "src/a.rs",
+            "mod c;\n\npub fn f() {}\n\npub fn g() {}\n\n\
+             fn through_paths() {\n    crate::b::g();\n    super::root();\n}\n",
+        ),
+        (
+            "src/a/c.rs",
+            "pub fn root() {}\n\nfn up() {\n    super::f();\n}\n",
+        ),
+        (
+            "src/b.rs",
+            "use crate::a;\nuse crate::a::f;\n\npub fn g() {}\n\n\
+             fn through_use() {\n    f();\n    a::g();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        bound_through_an_import(&engine, "src/a.rs", "through_paths"),
+        ["src/b.rs", "src/lib.rs"]
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "src/a/c.rs", "up"),
+        ["src/a.rs"]
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "src/b.rs", "through_use"),
+        ["src/a.rs", "src/a.rs"]
+    );
 }
 
 #[test]

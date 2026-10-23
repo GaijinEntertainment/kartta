@@ -94,6 +94,8 @@ impl Emitter<'_> {
     fn push_import(&mut self, name: String, mut path: String, line: u32) {
         if path.starts_with("::") {
             path.drain(.."::".len());
+        } else if self.starts_inside_the_file(&path) {
+            path.clear();
         }
         self.imports
             .push((self.raw.directives.len(), self.in_a_block()));
@@ -106,11 +108,13 @@ impl Emitter<'_> {
     }
 
     // constraint: a path call, the path of its receiver, or a macro invocation, the path of its macro, holds a place
-    // for the resolver only where its path may start at another crate or at a name a `use` binds, a name that is
-    // neither a type, written capitalised, nor a path keyword nor the standard library's crates
-    pub(super) fn record_written_path(&mut self, index: usize, written: &str, at: usize) {
-        let written = written.strip_prefix("::").unwrap_or(written);
-        if names_another_crate(head(written)) {
+    // for the resolver only where its path may start at another crate, at the caller's crate or module, or at a name a
+    // `use` binds, a name that is neither a type, written capitalised, nor the standard library's crates
+    pub(super) fn record_written_path(&mut self, index: usize, mut written: String, at: usize) {
+        if written.starts_with("::") {
+            written.drain(..2);
+        }
+        if names_a_module(head(&written)) && !self.starts_inside_the_file(&written) {
             self.written_paths.push(WrittenPath {
                 call: index,
                 directive: self.raw.directives.len(),
@@ -119,11 +123,17 @@ impl Emitter<'_> {
             });
             self.raw.directives.push(RawDirective {
                 form: USE_FORM,
-                spec: written.to_owned(),
+                spec: written,
                 names: Vec::new(),
                 line: self.raw.calls[index].line,
             });
         }
+    }
+
+    // constraint: the resolver walks a path through `self::` or `super::` from the file's own module, so inside an
+    // inline module such a path keeps none, and a `use` of one binds its name to the empty path, which keeps none
+    fn starts_inside_the_file(&self, path: &str) -> bool {
+        !self.modules.is_empty() && matches!(head(path), "self" | "super")
     }
 
     // constraint: a name the file binds through another crate keeps the place of the first directive that binds it,
@@ -204,7 +214,7 @@ impl Emitter<'_> {
             .into_iter()
             .filter_map(|(name, held)| {
                 let (path, at) = held?;
-                (!declared.contains(name) && names_another_crate(head(&path))).then(|| {
+                (!declared.contains(name) && keeps(&path)).then(|| {
                     let changed = (path != directives[at].spec.as_str()).then(|| path.into_owned());
                     (at, changed)
                 })
@@ -275,10 +285,18 @@ fn last(path: &str) -> &str {
     path.rsplit_once("::").map_or(path, |(_, last)| last)
 }
 
-fn names_another_crate(head: &str) -> bool {
+// constraint: a path through the caller's own crate or module that ends at a capitalised item, a type, binds nothing,
+// so it is not kept
+fn keeps(path: &str) -> bool {
+    let head = head(path);
+    names_a_module(head)
+        && !(matches!(head, "crate" | "self" | "super")
+            && last(path).starts_with(|first: char| first.is_ascii_uppercase()))
+}
+
+// constraint: a path starts at a module of the tree where its first segment names a crate other than the standard
+// library's, or the caller's own crate or module through `crate`, `self` or `super`
+fn names_a_module(head: &str) -> bool {
     head.starts_with(|first: char| first.is_ascii_lowercase() || first == '_')
-        && !matches!(
-            head,
-            "crate" | "self" | "super" | "std" | "core" | "alloc" | "_"
-        )
+        && !matches!(head, "std" | "core" | "alloc" | "_")
 }

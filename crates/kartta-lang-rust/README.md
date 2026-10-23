@@ -31,12 +31,14 @@ and `fn text` binds the function. They let a member call bind a free function on
 module's, as `walk::run()` names one, so `index.refresh_paths()`, `self.refresh_paths()` and
 `Index::refresh_paths(self)` bind no free `fn refresh_paths`, and `Poll::Ready(x)` binds no struct `Ready`.
 
-A `use` of a path that may start at another crate, `use kartta_lang::tree::{self, text}`, keeps each name it binds
-with the path the name reaches, and a path call through such a crate, `kartta_walk::walk::run()`, keeps its receiver
-with its path, as a macro invocation through one, `kartta_lang::mac!()`, keeps its macro's name, each read through the
-`use` of its first segment where the file has one. A name the file declares at its top
-level, or binds to two paths anywhere, keeps none; a glob, `as _`, `crate::`, `self::`, `super::`, a capitalised first
-segment and the standard library's crates keep nothing. A `use` inside a function body or an inline module is in scope
+A `use` of a path that may start at another crate or at the file's own crate or module, `use kartta_lang::tree::{self,
+text}` or `use super::helper`, keeps each name it binds with the path the name reaches, and a path call through such a
+path, `kartta_walk::walk::run()` or `crate::m::f()`, keeps its receiver with its path, or its name where the path ends
+at `crate`, `self` or `super`, as `super::f()` does, as a macro invocation through one, `kartta_lang::mac!()`, keeps
+its macro's name, each read through the `use` of its first segment where the file has one. A name the file declares at
+its top level, or binds to two paths anywhere, keeps none; a glob, `as _`, a capitalised first segment, a path through
+the file's own crate or module that ends at a capitalised item, a path through `self::` or `super::` inside an inline
+module and the standard library's crates keep nothing. A `use` inside a function body or an inline module is in scope
 in its block alone, not in a module nested in it: outside the blocks of the `use`s that alone bind a name, a path call
 reads the name as the crate it spells, and a bare call of the name leaves it no path.
 
@@ -58,11 +60,14 @@ A package's library is named by its manifest's `[lib] name`, else by its `[packa
 at its `[lib] path`, else at `src/lib.rs`; each value is read only from a `key = "value"` on one line under its table's
 header, the form Cargo writes, or a `key = 'value'`, and a value in any other form is not. A manifest without a
 `[package] name` declares no library. A kept path starts at the library its first segment names, the caller's own
-package's or else the nearest package's, and none where two are as near, and each segment after it names a module file
-by the same layout. The path imports the file of the module it ends at, or of the module that holds the lowercase item
-it ends at, so `text()` after `use kartta_lang::tree::text;` binds the `text` that `crates/kartta-lang/src/tree.rs`
-exports at its top level. A function there wins over a type of its name, which Rust keeps apart from values, so
-`kevent()` binds the `extern` function `kevent` beside a `struct kevent`.
+package's or else the nearest package's, and none where two are as near. A path through `crate::` starts at the
+caller's crate root, the file itself or the target's `main.rs`, else the nearer of the library and the main binary
+whose directories hold it; one through `self::` at the caller's module, beside the file where the file is its crate's
+root as a `[lib] path` names one, and each `super::` at the module above. Each segment after the first names a module
+file by the same layout. The path imports the file of the module it ends at, or of the module that holds the
+lowercase item it ends at, so `text()` after `use kartta_lang::tree::text;` binds the `text` that
+`crates/kartta-lang/src/tree.rs` exports at its top level. A function there wins over a type of its name, which Rust
+keeps apart from values, so `kevent()` binds the `extern` function `kevent` beside a `struct kevent`.
 
 Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is a file below a
 `tests` directory outside `src`. A `*.gen.rs` or `*_generated.rs` file, or one with a `@generated` or `DO NOT EDIT`
