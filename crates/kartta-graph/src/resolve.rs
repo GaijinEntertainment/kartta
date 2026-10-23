@@ -642,7 +642,6 @@ impl<'g> Cascade<'g> {
         if let Some(at) = self.member_of_the_receiver_s_owner(call, &candidates) {
             return Ok((at, confidence::RECEIVER));
         }
-        let targets = candidates.targets.iter().copied();
         let reach = self.reach(call, &candidates);
         let reach = reach.as_ref();
 
@@ -687,12 +686,21 @@ impl<'g> Cascade<'g> {
         {
             return Ok((at, confidence::RE_EXPORT));
         }
+        self.resolve_outside_scope(call, &candidates, reach)
+    }
 
+    fn resolve_outside_scope(
+        &self,
+        call: &Call,
+        candidates: &Candidates<'_>,
+        reach: Option<&Reach>,
+    ) -> Result<Bound, Miss> {
+        let targets = candidates.targets.iter().copied();
         let shape = self.shape(call, &targets, reach);
         if !targets.clone().any(|at| self.admits(&shape, at)) {
             return Err(self.unadmitted(call));
         }
-        if let Some(bound) = self.member_of_the_caller_s_owner(call, &candidates) {
+        if let Some(bound) = self.member_of_the_caller_s_owner(call, candidates) {
             return Ok(bound);
         }
         // constraint: a runtime method's name says nothing of which type the value is, so a member of the name binds
@@ -704,9 +712,9 @@ impl<'g> Cascade<'g> {
                 .map(|at| (at, confidence::UNIQUE))
                 .ok_or(Miss::NotAdmitted);
         }
-        self.one_callable(&shape, targets.clone())
+        self.one_callable(&shape, targets)
             .map(|at| (at, confidence::UNIQUE))
-            .or_else(|| self.resolve_by_proximity(call, &candidates, reach))
+            .or_else(|| self.resolve_by_proximity(call, candidates, reach))
             .ok_or(Miss::Ambiguous)
     }
 
