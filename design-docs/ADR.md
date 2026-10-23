@@ -263,9 +263,9 @@
   - Governs: `crates/kartta-lang-quirrel/src/{resolve,sqconfig}.rs`, `crates/kartta-lang-quirrel/src/walk.rs`
     (`BANNER`)
   - Revisit if: a script tree mounts its roots somewhere other than a `.sqconfig`
-- [3.10 Resolve a BLK include as the engine loads it, and read the mount table from the files that state it by
-  name](./adr/3.10-resolve-a-blk-include-as-the-engine-loads-it.md) — initiative `03-code-graph`, 2026-10-16, revised
-  2026-10-17
+- [3.10 Resolve a BLK include as the engine loads it](./adr/3.10-resolve-a-blk-include-as-the-engine-loads-it.md)
+  - Governs: `crates/kartta-lang-blk/src/{lib,text,walk,resolve}.rs`
+  - Revisit if: the engine's `DataBlock` reader changes how it reads an include's path
 - [3.11 Name Rust items by their module chain and resolve modules by Cargo's
   layout](./adr/3.11-name-rust-items-by-their-module-chain-and-resolve-modules-by-cargo-s-layout.md) — initiative
   `03-code-graph`, 2026-10-16, revised 2026-10-23
@@ -461,8 +461,9 @@
   - Revisit if: the daScript macro library adds a macro whose compiler class reads an argument as syntax
 - [3.142 Take the one file that differs only in case where a game's vromfs loads
   it](./adr/3.142-take-the-one-file-that-differs-only-in-case-where-a-game-s-vromfs-loads-it.md)
-  - Governs: `crates/kartta-lang-quirrel/src/resolve.rs` (`loaded`)
-  - Revisit if: a script no `.sqconfig` governs names a file in another case alone
+  - Governs: `crates/kartta-lang-quirrel/src/resolve.rs` (`loaded`), `crates/kartta-lang-blk/src/resolve.rs`
+    (`indexed`), `crates/kartta-lang-blk/src/mounts.rs` (`Mount::place`)
+  - Revisit if: a Quirrel script no `.sqconfig` governs, or a BLK `#` include, names a file in another case alone
 - [3.143 Name a Quirrel function value by its binding](./adr/3.143-name-a-quirrel-function-value-by-its-binding.md)
   - Governs: `crates/kartta-lang-quirrel/src/walk.rs` (`function_value`, `value_binding`, `module_table_name`,
     `data_field`, `class_name`, `assignment_target`, `is_squirrel_extends`)
@@ -475,6 +476,12 @@
   values](./adr/3.145-list-the-methods-the-game-engine-binds-on-quirrel-s-native-values.md)
   - Governs: `crates/kartta-lang-quirrel/src/runtime.rs`, `crates/kartta-lang-quirrel/src/lib.rs` (`CONVENTIONS`)
   - Revisit if: the Quirrel extraction records the type a value holds for its member calls
+- [3.146 Read the BLK mount table from the files that state it by
+  name](./adr/3.146-read-the-blk-mount-table-from-the-files-that-state-it-by-name.md)
+  - Governs: `crates/kartta-lang-blk/src/mounts.rs`, `crates/kartta-lang-blk/src/resolve.rs` (`MOUNT_FILE_NAMES`),
+    `crates/kartta-lang-blk/src/walk.rs` (`record_mounts`)
+  - Revisit if: a resolver can see the extractions of the files its language claims, or a tree states the mounts its
+    includes need in a file of another name
 - [3.150 Resolve a Go import to the package the go command
   builds](./adr/3.150-resolve-a-go-import-to-the-package-the-go-command-builds.md)
   - Governs: `crates/kartta-lang-go/src/resolve.rs`, `crates/kartta-graph/src/resolve.rs` (`read_bindings`,
