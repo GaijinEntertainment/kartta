@@ -3314,6 +3314,128 @@ fn a_call_of_a_declaration_reaches_the_definition_it_links_to() {
     assert_eq!(callees(&graph, "run"), ["w.cpp:3@70"]);
 }
 
+fn with_callables(
+    mut extraction: Extraction,
+    role: CallableRole,
+    keys: &[(u32, &str)],
+) -> Extraction {
+    extraction.callables = keys
+        .iter()
+        .map(|&(symbol, key)| Callable {
+            symbol: SymbolId(symbol),
+            key: key.to_owned(),
+            role,
+        })
+        .collect();
+    extraction
+}
+
+/// `net/uri.hpp` declares the class and includes each of `included` at its end, and each of those and of `elsewhere`
+/// defines the members; `main.cpp` includes the class header and calls `parse`.
+fn inline_header_tree(included: &[&str], elsewhere: &[&str]) -> Vec<Extraction> {
+    let mut class_header = file(
+        "net/uri.hpp",
+        vec![
+            Symbol::new("uri", SymbolKind::Class, 3, 8),
+            member("uri", "parse", SymbolKind::Method, 5),
+            member("uri", "reset", SymbolKind::Method, 6),
+        ],
+        Vec::new(),
+    );
+    class_header.includes = included
+        .iter()
+        .map(|&target| IncludeRef {
+            target: target.to_owned(),
+        })
+        .collect();
+    let keys = [
+        (1, "net::uri::parse(const char *)"),
+        (2, "net::uri::reset()"),
+    ];
+    let mut tree = vec![with_callables(
+        class_header,
+        CallableRole::Declaration,
+        &keys,
+    )];
+    for &path in included.iter().chain(elsewhere) {
+        let definitions = file(
+            path,
+            vec![
+                member("uri", "reset", SymbolKind::Method, 3),
+                member("uri", "parse", SymbolKind::Method, 4),
+            ],
+            vec![call(1, "reset", 4), member_call(1, "uri", "reset", 4)],
+        );
+        let keys = [
+            (1, "net::uri::parse(const char *)"),
+            (0, "net::uri::reset()"),
+        ];
+        tree.push(with_callables(definitions, CallableRole::Definition, &keys));
+    }
+    let mut caller = including(
+        "main.cpp",
+        &["net/uri.hpp"],
+        vec![member_call(0, "uri", "parse", 2)],
+    );
+    caller.symbols = vec![function("connect", 2)];
+    tree.push(caller);
+    tree
+}
+
+#[test]
+fn a_declaration_links_to_the_definition_in_a_header_its_own_file_includes() {
+    let graph = graph_of(
+        cpp(),
+        &inline_header_tree(&["net/details/uri.hpp"], &["copy/net/details/uri.hpp"]),
+    );
+
+    let parse = graph
+        .callees("uri::parse", Limits::new(1))
+        .expect("uri::parse is defined");
+    assert_eq!(
+        (parse.root.file, parse.root.line),
+        ("net/details/uri.hpp", 4)
+    );
+    assert_eq!(reached(&parse), ["net/details/uri.hpp:3@85"]);
+    assert_eq!(callees(&graph, "connect"), ["net/details/uri.hpp:4@85"]);
+}
+
+#[test]
+fn a_declaration_links_to_the_definition_in_a_header_its_own_file_reaches_through_another() {
+    let mut tree = inline_header_tree(&["net/uri_impl.hpp"], &["net/details/uri.hpp"]);
+    tree.push(including(
+        "net/uri_impl.hpp",
+        &["net/details/uri.hpp"],
+        Vec::new(),
+    ));
+    let graph = graph_of(cpp(), &tree);
+
+    assert_eq!(callees(&graph, "connect"), ["net/details/uri.hpp:4@85"]);
+}
+
+#[test]
+fn a_definition_in_a_header_no_file_of_the_class_includes_links_to_nothing() {
+    let graph = graph_of(
+        cpp(),
+        &inline_header_tree(&[], &["copy/net/details/uri.hpp"]),
+    );
+
+    assert_eq!(callees(&graph, "connect"), ["net/uri.hpp:5@85"]);
+}
+
+#[test]
+fn a_declaration_whose_file_includes_two_definitions_links_to_neither() {
+    let graph = graph_of(
+        cpp(),
+        &inline_header_tree(
+            &["net/details/uri_posix.hpp", "net/details/uri_win.hpp"],
+            &[],
+        ),
+    );
+
+    assert_eq!(callees(&graph, "connect"), ["net/uri.hpp:5@85"]);
+}
+
 #[test]
 fn a_body_s_calls_are_found_wherever_the_extraction_lists_them() {
     let graph = graph(&[file(
