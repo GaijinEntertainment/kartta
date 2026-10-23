@@ -354,8 +354,9 @@
     `crates/kartta-lang-cpp/src/lib.rs` (`extract`)
   - Revisit if: a served tree peaks again at the parse tree of a table that spells names outside a generated parser
 - [3.32 Hand an engine every shipped language from one crate, and select them by
-  name](./adr/3.32-hand-an-engine-every-shipped-language-from-one-crate.md) — initiative `03-code-graph`, 2026-10-18,
-  revised 2026-10-22
+  name](./adr/3.32-hand-an-engine-every-shipped-language-from-one-crate.md)
+  - Governs: `crates/kartta-languages/src/lib.rs` (`all`, `select`, `NAMES`, `UnknownLanguages`)
+  - Revisit if: a consumer needs a build without some grammars, or two shipped languages claim the same file
 - [3.33 Follow a tree through the questions each file's resolution
   asked](./adr/3.33-follow-a-tree-through-the-questions-each-file-s-resolution-asked.md) — initiative `03-code-graph`,
   2026-10-18, revised 2026-10-22
