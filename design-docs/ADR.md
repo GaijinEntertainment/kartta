@@ -697,8 +697,9 @@
   - Revisit if: a generated `parser.c` no longer includes `tree_sitter/parser.h` and defines `LANGUAGE_VERSION` before
     its first brace, or its tables spell a definition a graph holds
 - [4.1 Answer agents through an MCP server with the tools their prompts already
-  name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md) — initiative
-  `04-consumer-surfaces`, 2026-10-18, revised 2026-10-23
+  name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
+  - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
+  - Revisit if: a consumer needs a transport other than stdio
 - [4.2 Reach the engine through one JSON call over a small C
   ABI](./adr/4.2-reach-the-engine-through-one-json-call.md) — initiative `04-consumer-surfaces`, 2026-10-18, revised
   2026-10-23
@@ -708,6 +709,57 @@
 - [4.4 Follow the indexed tree, and refresh it on
   request](./adr/4.4-follow-the-indexed-tree-and-refresh-it-on-request.md) — initiative `04-consumer-surfaces`,
   2026-10-18, revised 2026-10-22
+- [4.10 Close a cut path list with a line no path can read
+  as](./adr/4.10-close-a-cut-path-list-with-a-line-no-path-can-read-as.md)
+  - Governs: `crates/kartta-mcp/src/llmxml.rs` (`line`, `List`), `crates/kartta-mcp/src/render/files.rs`
+  - Revisit if: a consumer reads the path lists as data rather than as text
+- [4.11 Group a symbol's references by file, the busiest
+  first](./adr/4.11-group-a-symbol-s-references-by-file-the-busiest-first.md)
+  - Governs: `crates/kartta-mcp/src/render/calls.rs` (`references`, `Listing`, `site_records`)
+  - Revisit if: agents need the sites of a file past the 50 named often enough that the answer should name more
+- [4.12 Count the calls of a symbol's name that several definitions leave
+  unbound](./adr/4.12-count-the-calls-of-a-symbol-s-name-that-several-definitions-leave-unbound.md)
+  - Governs: `crates/kartta-mcp/src/render/calls.rs` (`caller_match`, `no_callers`, `impact`, `seed`),
+    `Walk::ambiguous`
+  - Revisit if: an agent's next call depends on how many definitions split the ambiguous calls
+- [4.13 Count what the confidence floor dropped in place of an empty answer's
+  verdict](./adr/4.13-count-what-the-confidence-floor-dropped-in-place-of-an-empty-answer-s-verdict.md)
+  - Governs: `crates/kartta-mcp/src/render/calls.rs` (`below_the_floor`, `no_callers`, `callee_match`,
+    `reference_match`, `path_match`)
+  - Revisit if: a walk records the band of each record it drops
+- [4.14 List a symbol's call of itself apart from its callers and
+  callees](./adr/4.14-list-a-symbol-s-call-of-itself-apart-from-its-callers-and-callees.md)
+  - Governs: `crates/kartta-mcp/src/render/calls.rs` (`self_call`, `caller_match`, `callee_match`), `Walk::self_call`
+  - Revisit if: the graph binds a call on a value to the type the value holds, so few self-edges are false
+- [4.15 Name the definition that holds an unowned symbol in an
+  outline](./adr/4.15-name-the-definition-that-holds-an-unowned-symbol-in-an-outline.md)
+  - Governs: `crates/kartta-mcp/src/render/symbols.rs` (`outline`, `holder`, `holds`)
+  - Revisit if: an extraction records holders, so the outline can read them in place of judging by lines
+- [4.16 Read a qualified name with the other owner separator when it selects
+  nothing](./adr/4.16-read-a-qualified-name-with-the-other-owner-separator-when-it-selects-nothing.md)
+  - Governs: `crates/kartta/src/reading.rs` (`ask_reading`), the name parameters of `crates/kartta-mcp/src/params.rs`
+  - Revisit if: a shipped language mixes `.` and `::` within its qualified names
+- [4.17 Select a name whose last part holds a separator by its longer
+  parts](./adr/4.17-select-a-name-whose-last-part-holds-a-separator-by-its-longer-parts.md)
+  - Governs: `crates/kartta-graph/src/graph.rs` (`Graph::definitions`)
+  - Revisit if: a miss's longer-part lookups show in a profile of a symbol query
+- [4.18 Answer a name that selects nothing with what it does
+  match](./adr/4.18-answer-a-name-that-selects-nothing-with-what-it-does-match.md)
+  - Governs: `crates/kartta/src/reading.rs` (`unmatched`, `selects_as_callers`), `crates/kartta-mcp/src/render.rs`
+    (`unresolved`)
+  - Revisit if: agents' misses are mostly other than a shared name, a prefix or a single edit
+- [4.19 Name a language that records no use of a type in a type's
+  references](./adr/4.19-name-a-language-that-records-no-use-of-a-type-in-a-type-s-references.md)
+  - Governs: `crates/kartta-mcp/src/render/calls.rs` (`reference_match`, `no_sites`), `kartta_lang::TypeUses`
+  - Revisit if: every shipped language records the uses of a type where code names it as one
+- [4.20 Read a change from the new side of a unified
+  diff](./adr/4.20-read-a-change-from-the-new-side-of-a-unified-diff.md)
+  - Governs: `crates/kartta-mcp/src/diff.rs`, `crates/kartta-mcp/src/server.rs` (`changed_regions`)
+  - Revisit if: agents hand changes in a form other than a unified diff often enough to pay for a second reader
+- [4.21 Hold one repository's engine per process](./adr/4.21-hold-one-repository-s-engine-per-process.md)
+  - Governs: `crates/kartta-mcp/src/state.rs` (`Slot`, `release`), `crates/kartta-mcp/src/main.rs`
+  - Revisit if: agents work across several repositories in one session often enough that rebuilds cost more than a
+    second engine's memory
 
 ## Deprecated
 
