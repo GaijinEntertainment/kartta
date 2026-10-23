@@ -941,10 +941,11 @@ impl Cascade<'_> {
         self.member_of_a_reached_class(call, candidates, (class, written))
     }
 
-    // constraint: C++ finds a name a member's body does not declare in the member's class before any namespace, so a
-    // field of the caller's class that the caller's file reaches is the operand, and the class its declaration names,
-    // through `.` for a value and `->` for a pointer, holds the member called; reached copies of the class that declare
-    // the field as different classes leave the call to the tiers that read no class, as a name no field answers does
+    // constraint: C++ finds a name a member's body does not declare in the member's class before any namespace, then in
+    // its bases, so a field of the caller's class, else of a class it derives from, that the caller's file reaches is
+    // the operand, and the class its declaration names, through `.` for a value and `->` for a pointer, holds the
+    // member called; reached fields that name different classes leave the call to the tiers that read no class, as a
+    // name no field answers does
     fn class_of_own_field<'s>(
         &'s self,
         call: &Call,
@@ -958,10 +959,13 @@ impl Cascade<'_> {
             .symbols
             .get(call.caller as usize)?
             .owner?;
-        let fields = kept(self.named(name), |&at| {
-            let symbol = self.graph.sym(at);
-            symbol.kind == SymbolKind::Field && symbol.owner == Some(own)
-        });
+        let named = self.named(name);
+        let own_fields = kept(named, |&at| self.is_field_of(at, |owner| owner == own));
+        let fields = if own_fields.is_empty() {
+            self.nearest_base_fields(own, named)?
+        } else {
+            own_fields
+        };
         let tier = self.reached_tier(call.file, &fields);
         let mut declared = tier
             .iter()
@@ -982,6 +986,53 @@ impl Cascade<'_> {
             .and_then(|separator| class.rsplit_once(separator))
             .map_or(class, |(_, bare)| bare);
         Some((strings.get(bare)?, class))
+    }
+
+    fn is_field_of(&self, at: SymbolAt, owned: impl Fn(Str) -> bool) -> bool {
+        let symbol = self.graph.sym(at);
+        symbol.kind == SymbolKind::Field && symbol.owner.is_some_and(owned)
+    }
+
+    // constraint: a base's field hides a field of the same name further up, and fields of one name in two bases of one
+    // distance make the name ambiguous, which C++ rejects rather than picking one
+    /// The fields among `named` that the nearest bases of `own` declare, where one base declares them all.
+    fn nearest_base_fields<'n>(
+        &self,
+        own: Str,
+        named: &'n [SymbolAt],
+    ) -> Option<Cow<'n, [SymbolAt]>> {
+        if self.conventions.inherited_members == InheritedMembers::Unreached
+            || !named
+                .iter()
+                .any(|&at| self.graph.sym(at).kind == SymbolKind::Field)
+        {
+            return None;
+        }
+        let mut walked: HashSet<Str, FixedState> = HashSet::default();
+        walked.insert(own);
+        let mut level = vec![own];
+        while !level.is_empty() {
+            let bases: Vec<Str> = level
+                .iter()
+                .flat_map(|&owner| self.named(owner).iter().copied())
+                .filter(|&ty| derives(self.graph.sym(ty).kind))
+                .flat_map(|ty| self.declared_bases(ty))
+                .map(|base| base.owner)
+                .filter(|&base| walked.insert(base))
+                .collect();
+            let fields = kept(named, |&at| {
+                self.is_field_of(at, |owner| bases.contains(&owner))
+            });
+            if let Some(&first) = fields.first() {
+                let owner = self.owner(first);
+                return fields
+                    .iter()
+                    .all(|&at| self.owner(at) == owner)
+                    .then_some(fields);
+            }
+            level = bases;
+        }
+        None
     }
 
     /// The member of the class of the bare name `class` that the call's file reaches, of namesakes the one `written`
