@@ -285,8 +285,11 @@
   - Revisit if: the extraction reads PSR-0, `classmap` or `files` autoload, or the constants a project defines for its
     include paths
 - [3.15 Qualify a Ruby member by its whole namespace
-  chain](./adr/3.15-qualify-a-ruby-member-by-its-whole-namespace-chain.md) — initiative `03-code-graph`, 2026-10-16,
-  revised 2026-10-23
+  chain](./adr/3.15-qualify-a-ruby-member-by-its-whole-namespace-chain.md)
+  - Governs: `crates/kartta-lang-ruby/src/{owner,macros,bindings}.rs`, `crates/kartta-lang-ruby/src/walk.rs`
+    (definitions, receivers)
+  - Revisit if: the extraction runs code, or reads what a type gains at run time through `define_method` or
+    `class_eval`
 - [3.16 Load a Lua module only from a literal name](./adr/3.16-load-a-lua-module-only-from-a-literal-name.md) —
   initiative `03-code-graph`, 2026-10-16, revised 2026-10-19
 - [3.17 Resolve a Puppet class through the autoloader's
@@ -583,6 +586,15 @@
   - Governs: `crates/kartta-lang-php/src/walk.rs` (`anonymous_class`, `forget_holder`, `held_receiver`,
     `enclosing_type`)
   - Revisit if: the tier binding through the caller's owner prefers the caller's file
+- [3.157 Resolve a Ruby require under the load roots projects
+  set](./adr/3.157-resolve-a-ruby-require-under-the-load-roots-projects-set.md)
+  - Governs: `crates/kartta-lang-ruby/src/resolve.rs`, `crates/kartta-lang-ruby/src/walk.rs` (`require_form`,
+    `first_string_argument`)
+  - Revisit if: the extraction reads a `Gemfile` or the `$LOAD_PATH` additions of a project
+- [3.158 Credit a Ruby call in a type's body to the
+  type](./adr/3.158-credit-a-ruby-call-in-a-type-s-body-to-the-type.md)
+  - Governs: `crates/kartta-lang-ruby/src/walk.rs` (`site_of`, `is_type_body`, `type_of_self`, `call`)
+  - Revisit if: a sample of the pairs the type's receiver binds at 60 and above falls well under 85% right
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md) — initiative
   `04-consumer-surfaces`, 2026-10-18, revised 2026-10-23
