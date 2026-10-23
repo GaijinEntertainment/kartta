@@ -14,26 +14,10 @@ impl Emitter<'_> {
         }
     }
 
-    // constraint: an import binds its default name, its namespace's name, and each named import by its alias, else by
-    // its name
     pub(super) fn declare_imported(&mut self, node: Node<'_>) {
-        match node.kind() {
-            "identifier" => self.declare(node.byte_range(), usize::MAX, Binding::Imported),
-            "import_specifier" => {
-                let bound = node
-                    .child_by_field_name("alias")
-                    .or_else(|| node.child_by_field_name("name"));
-                if let Some(bound) = bound {
-                    self.declare(bound.byte_range(), usize::MAX, Binding::Imported);
-                }
-            }
-            "import_statement" | "import_clause" | "namespace_import" | "named_imports" => {
-                for child in child_nodes(node) {
-                    self.declare_imported(child);
-                }
-            }
-            _ => {}
-        }
+        imported_names(node, &mut |name| {
+            self.declare(name.byte_range(), usize::MAX, Binding::Imported);
+        });
     }
 
     pub(super) fn export_statement(&mut self, node: Node<'_>) {
@@ -112,6 +96,28 @@ impl Emitter<'_> {
         } else {
             self.raw.push_symbol(symbol);
         }
+    }
+}
+
+// constraint: an import binds its default name, its namespace's name, and each named import by its alias, else by
+// its name
+fn imported_names(node: Node<'_>, bound: &mut impl FnMut(Node<'_>)) {
+    match node.kind() {
+        "identifier" => bound(node),
+        "import_specifier" => {
+            if let Some(name) = node
+                .child_by_field_name("alias")
+                .or_else(|| node.child_by_field_name("name"))
+            {
+                bound(name);
+            }
+        }
+        "import_statement" | "import_clause" | "namespace_import" | "named_imports" => {
+            for child in child_nodes(node) {
+                imported_names(child, bound);
+            }
+        }
+        _ => {}
     }
 }
 
