@@ -39,8 +39,12 @@ text}` or `use super::helper`, keeps each name it binds with the path the name r
 path, `kartta_walk::walk::run()` or `crate::m::f()`, keeps its receiver with its path, or its name where the path ends
 at `crate`, `self` or `super`, as `super::f()` does, as a macro invocation through one, `kartta_lang::mac!()`, keeps
 its macro's name, each read through the `use` of its first segment where the file has one. A name the file declares at
-its top level, or binds to two paths anywhere, keeps none; `as _`, a capitalised first segment, a path through
-`self::` or `super::` inside an inline module and the standard library's crates keep nothing. A glob outside every
+its top level, or binds to two paths anywhere, keeps none, though a `use` keeps a name the file declares only as a
+module, which Rust keeps apart from what the `use` binds, as `use parse::parse;` beside `mod parse;`; `as _`, a
+capitalised first segment, a path through `self::` or `super::` inside an inline module and the standard library's
+crates keep nothing. A `use` or a glob whose first segment is a module the file declares where it is written starts at
+the file's own module, so `use m::helper;` beside `mod m;` keeps `self::m::helper`, and inside an inline module, as a
+path through `self::` there, keeps nothing. A glob outside every
 function body and inline module, `use super::*;`, keeps the path of the module it ends at once, under those rules, and
 one inside a block, or of a capitalised item, keeps nothing. A path that ends at a capitalised item, a type, is kept
 only where the file calls its name bare, as `Wrapper(1)` calls a tuple struct's constructor, since a call through a

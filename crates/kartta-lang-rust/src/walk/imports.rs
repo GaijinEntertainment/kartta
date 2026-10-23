@@ -3,12 +3,20 @@ use std::cell::OnceCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
-use kartta_lang::RawDirective;
 use kartta_lang::tree::{line, named_child_nodes, text};
+use kartta_lang::{RawDirective, Symbol, SymbolKind};
 use tree_sitter::Node;
 
 use super::syntax::path_text;
 use super::{Emitter, GLOB_FORM, USE_FORM};
+
+// constraint: a name a `use` binds, its directive, whether the `use` is inside a function body or an inline module,
+// and the chain of the inline module around it, whose modules its first segment can name
+pub(super) struct Import {
+    directive: usize,
+    in_block: bool,
+    module: Option<String>,
+}
 
 // constraint: a path call's site, the byte it starts at and the inline module around it, tells which `use` inside a
 // function body or an inline module is in scope there
@@ -107,6 +115,7 @@ impl Emitter<'_> {
         if !names_a_module(head(&path)) || names_a_type(last(&path)) {
             return;
         }
+        self.globs.push(self.raw.directives.len());
         self.raw.directives.push(RawDirective {
             form: GLOB_FORM,
             spec: path,
@@ -123,8 +132,11 @@ impl Emitter<'_> {
         } else if self.starts_inside_the_file(&path) {
             path.clear();
         }
-        self.imports
-            .push((self.raw.directives.len(), self.in_a_block()));
+        self.imports.push(Import {
+            directive: self.raw.directives.len(),
+            in_block: self.in_a_block(),
+            module: self.modules.last().map(|module| module.chain.clone()),
+        });
         self.raw.directives.push(RawDirective {
             form: USE_FORM,
             spec: path,
@@ -164,8 +176,12 @@ impl Emitter<'_> {
 
     // constraint: a name the file binds through another crate keeps the place of the first directive that binds it,
     // with the path it reaches; a name the file declares at its top level, or binds to two paths, is the file's own or
-    // cannot be told apart, so every directive of it is dropped
+    // cannot be told apart, so every directive of it is dropped, but for a `use` of a name the file declares only as a
+    // module
     pub(super) fn record_imports(&mut self) {
+        if !self.imports.is_empty() || !self.globs.is_empty() {
+            self.start_at_declared_modules();
+        }
         if self.imports.is_empty() && self.written_paths.is_empty() {
             return;
         }
@@ -225,7 +241,7 @@ impl Emitter<'_> {
                 Some(Some((path, _))) if rest.is_empty() => Cow::Borrowed(*path),
                 Some(Some((path, _))) => Cow::Owned(format!("{path}::{rest}")),
                 Some(None) => continue,
-                None if declared.contains(first) => continue,
+                None if declared.contains_key(first) => continue,
                 None => Cow::Borrowed(written),
             };
             bind(&mut bound, receiver, path, site.directive);
@@ -253,7 +269,10 @@ impl Emitter<'_> {
                 let (path, at) = held?;
                 let keeps = names_a_module(head(&path))
                     && (!names_a_type(last(&path)) || called_bare(name));
-                (!declared.contains(name) && keeps).then(|| {
+                let own = declared
+                    .get(name)
+                    .is_some_and(|&only_modules| !only_modules || directives[at].names.is_empty());
+                (!own && keeps).then(|| {
                     let changed = (path != directives[at].spec.as_str()).then(|| path.into_owned());
                     (at, changed)
                 })
@@ -267,28 +286,80 @@ impl Emitter<'_> {
     fn imported_names(&self) -> (HashMap<&str, Bound<&str>>, HashSet<&str>) {
         let mut imported = HashMap::new();
         let mut at_file_level = HashSet::new();
-        for &(at, in_block) in &self.imports {
-            let directive = &self.raw.directives[at];
+        for import in &self.imports {
+            let directive = &self.raw.directives[import.directive];
             let name = directive.names[0].as_str();
-            bind(&mut imported, name, directive.spec.as_str(), at);
-            if !in_block {
+            bind(
+                &mut imported,
+                name,
+                directive.spec.as_str(),
+                import.directive,
+            );
+            if !import.in_block {
                 at_file_level.insert(name);
             }
         }
         (imported, at_file_level)
     }
 
-    fn declared_names(&self) -> HashSet<&str> {
+    // constraint: since the 2018 edition a path's first segment names an item of the module the path is written in
+    // before it names a crate, so a `use` or a glob whose first segment is a module the file declares there starts at
+    // the file's own module, `self::`, which inside an inline module keeps nothing, as a `self::` path there does
+    fn start_at_declared_modules(&mut self) {
+        let modules: HashSet<&str> = self
+            .file_items()
+            .filter(|symbol| symbol.kind == SymbolKind::Namespace)
+            .map(|symbol| symbol.qualified_name.as_str())
+            .collect();
+        if modules.is_empty() {
+            return;
+        }
+        let directives = &self.raw.directives;
+        let declares = |spec: &str, module: Option<&str>| {
+            let first = head(spec);
+            module.map_or_else(
+                || modules.contains(first),
+                |chain| modules.contains(format!("{chain}::{first}").as_str()),
+            )
+        };
+        let starts: Vec<(usize, bool)> = (self.imports.iter())
+            .filter(|import| declares(&directives[import.directive].spec, import.module.as_deref()))
+            .map(|import| (import.directive, import.module.is_none()))
+            .chain(
+                (self.globs.iter())
+                    .filter(|&&at| declares(&directives[at].spec, None))
+                    .map(|&at| (at, true)),
+            )
+            .collect();
+        for (at, at_the_root) in starts {
+            let spec = &mut self.raw.directives[at].spec;
+            if at_the_root {
+                spec.insert_str(0, "self::");
+            } else {
+                spec.clear();
+            }
+        }
+    }
+
+    // constraint: a name declared at the file's top level maps to whether every such declaration is a module, which
+    // Rust keeps apart from the functions and types a `use` of the name can bind
+    fn declared_names(&self) -> HashMap<&str, bool> {
+        let mut declared = HashMap::new();
+        for symbol in self.file_items() {
+            if symbol.qualified_name == symbol.name {
+                let only_modules = declared.entry(symbol.name.as_str()).or_insert(true);
+                *only_modules &= symbol.kind == SymbolKind::Namespace;
+            }
+        }
+        declared
+    }
+
+    fn file_items(&self) -> impl Iterator<Item = &Symbol> {
         let local: HashSet<u32> = self.raw.local_symbols.iter().map(|id| id.0).collect();
         (0..)
             .zip(&self.raw.symbols)
-            .filter(|(id, symbol)| {
-                symbol.owner.is_none()
-                    && symbol.qualified_name == symbol.name
-                    && !local.contains(id)
-            })
-            .map(|(_, symbol)| symbol.name.as_str())
-            .collect()
+            .filter(move |(id, symbol)| symbol.owner.is_none() && !local.contains(id))
+            .map(|(_, symbol)| symbol)
     }
 }
 

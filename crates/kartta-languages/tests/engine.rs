@@ -1,6 +1,7 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
-//! what that crate exports, one through `crate::`, `self::` or `super::` the item of the module it names, a private one
+//! what that crate exports, one through `crate::`, `self::` or `super::` the item of the module it names, as does a
+//! `use` or a glob whose first segment is a module the file declares, a private one
 //! only from that module or below and a test one only from its crate's test code, a tuple struct's constructor the
 //! struct its `use` names, a bare call through a glob what the glob's module shows it, a macro invocation the
 //! `#[macro_export]` macro of its root file or the one of the files that file includes, through a `use` inside a
@@ -271,6 +272,44 @@ fn a_rust_glob_binds_the_items_its_module_s_file_shows_the_caller() {
         ]
     );
     assert_eq!(own_file, [("local", "crates/app/src/tests.rs")]);
+}
+
+#[test]
+fn a_rust_use_through_a_module_the_file_declares_binds_that_module_s_item() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/other/Cargo.toml",
+            "[package]\nname = \"other_crate\"\n",
+        ),
+        ("crates/other/src/lib.rs", "pub fn shared() {}\n"),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "mod m;\nmod n;\nmod spread;\n\nuse m::helper;\nuse other_crate::shared;\n\n\
+             fn run() {\n    helper();\n    shared();\n}\n",
+        ),
+        ("crates/app/src/m.rs", "pub fn helper() {}\n"),
+        (
+            "crates/app/src/n.rs",
+            "pub fn helper() {}\n\npub fn deep() {}\n",
+        ),
+        (
+            "crates/app/src/spread.rs",
+            "mod inner;\n\npub use inner::*;\n\nfn reach() {\n    deep();\n}\n",
+        ),
+        ("crates/app/src/spread/inner.rs", "pub fn deep() {}\n"),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/lib.rs", "run"),
+        ["crates/app/src/m.rs", "crates/other/src/lib.rs"]
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/spread.rs", "reach"),
+        ["crates/app/src/spread/inner.rs"]
+    );
 }
 
 #[test]
