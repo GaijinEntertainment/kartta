@@ -9,10 +9,12 @@
 //! package clause: `api.Serve`, and `api.Server.Close` for a member of `Server`. A struct body gives one field symbol
 //! per named field, an interface body one method symbol per member, whether the type is defined (`type T struct{}`)
 //! or a literal alias (`type T = struct{}`); any other alias, `type X = Y`, is a type alias, and any other defined
-//! type, `type H func()`, a defined type. An anonymous struct with a field that a struct field's type spells, behind
-//! pointers and containers too, is a struct named by the names that lead to it, `{Server·Limits}` for the field
-//! `Limits` of `Server`: its fields are owned by that name and qualified by those names, `api.Server.Limits.MaxConns`,
-//! and the field's value is of that name, so a type path through the field reaches them. An
+//! type, `type H func()`, a defined type. An anonymous struct with a field that a struct field's or a variable's type
+//! spells, behind pointers and containers too, is a struct named by the names that lead to it, `{Server·Limits}` for
+//! the field `Limits` of `Server` and `{settings}` for `var settings struct{...}`: its fields are owned by that name
+//! and qualified by those names, `api.Server.Limits.MaxConns`, and the field's or the variable's value is of that
+//! name, so a type path through it reaches them. A variable a body declares names its struct after the callable too,
+//! `{Run·limits}`, since one file's bodies often declare one name. An
 //! embedded field or interface is a parent of its type, and so is the interface of a compile-time assertion
 //! (`var _ I = T{}`, `&T{}`, `new(T)` or `(*T)(nil)`). An assertion whose type the file does not declare is recorded as
 //! an assertion, for the graph to apply where it sees the whole package.
