@@ -4,8 +4,9 @@
 
 use kartta_graph::{Graph, SiteQuery};
 use kartta_lang::{
-    Access, CallsOnValues, Conventions, Extraction, IncludeReach, InheritedMembers, OwnMembers,
-    ReExport, Receiver, Symbol, SymbolId, SymbolKind, UntypedMembers, UseRef, ValueUses,
+    Access, Callable, CallableRole, CallsOnValues, Conventions, Extraction, IncludeReach,
+    InheritedMembers, OwnMembers, ReExport, Receiver, Symbol, SymbolId, SymbolKind, UntypedMembers,
+    UseRef, ValueUses,
 };
 
 use crate::{graph_of as graph, including};
@@ -482,6 +483,72 @@ fn a_class_the_file_neither_includes_nor_reaches_binds_none_of_its_fields() {
     assert_eq!(ambiguous(&graph, "Widget::width"), 1);
     assert_eq!(lines_of(&graph, "Config::limit"), []);
     assert_eq!(ambiguous(&graph, "Config::limit"), 1);
+}
+
+fn callables(mut extraction: Extraction, role: CallableRole, keys: &[(u32, &str)]) -> Extraction {
+    extraction.callables = keys
+        .iter()
+        .map(|&(symbol, key)| Callable {
+            symbol: SymbolId(symbol),
+            key: key.to_owned(),
+            role,
+        })
+        .collect();
+    extraction
+}
+
+#[test]
+fn a_member_defined_in_a_header_its_class_s_header_includes_binds_the_class_s_field() {
+    let class_header = callables(
+        file(
+            "net/uri.hpp",
+            vec![
+                class("uri", [3, 8], &[]),
+                cpp_member("uri", "reset", SymbolKind::Method, 6),
+                field("uri", "port_", 7),
+            ],
+            &["net/details/uri.hpp"],
+        ),
+        CallableRole::Declaration,
+        &[(1, "net::uri::reset()")],
+    );
+    let namesake = file(
+        "io/socket.hpp",
+        vec![class("Socket", [1, 1], &[]), field("Socket", "port_", 1)],
+        &[],
+    );
+    let definitions = |path| {
+        let mut definitions = callables(
+            file(
+                path,
+                vec![cpp_member("uri", "reset", SymbolKind::Method, 3)],
+                &[],
+            ),
+            CallableRole::Definition,
+            &[(0, "net::uri::reset()")],
+        );
+        definitions.uses = vec![UseRef {
+            access: Access::Write,
+            ..using(0, "port_", Receiver::Bare, 3)
+        }];
+        definitions
+    };
+
+    let graph = graph(
+        cpp(),
+        &[
+            class_header,
+            namesake,
+            definitions("net/details/uri.hpp"),
+            definitions("copy/net/details/uri.hpp"),
+        ],
+    );
+
+    assert_eq!(
+        sites_of(&graph, "uri::port_"),
+        (vec![("uri::reset".to_owned(), 3, 85)], 1),
+        "the copy no file of the class includes reaches no class of the name"
+    );
 }
 
 fn hierarchy(bases: &[&str]) -> Vec<Symbol> {
