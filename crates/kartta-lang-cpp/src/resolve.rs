@@ -128,22 +128,38 @@ fn has_c_external_linkage(symbol: &Symbol) -> bool {
 // the include path its build sets, so the copy whose root holds the including file is meant, the deepest root if
 // roots nest; a file under no copy's root names none of them, as a system header the repository vendors twice
 fn enclosing_copy(candidates: &[String], spec: &str, path: &str) -> Option<String> {
-    let mut roots = candidates
+    sole_highest(
+        copies(candidates, spec)
+            .filter(|(root, _)| path.starts_with(root))
+            .map(|(root, candidate)| (root.len(), candidate)),
+    )
+}
+
+/// Each candidate that ends in `spec` at a segment, with its root: its path less the specifier.
+fn copies<'c>(candidates: &'c [String], spec: &str) -> impl Iterator<Item = (&'c str, &'c String)> {
+    candidates
         .iter()
-        .filter(|candidate| ends_at_segment(candidate, spec))
-        .map(|candidate| (&candidate[..candidate.len() - spec.len()], candidate))
-        .filter(|(root, _)| path.starts_with(root));
-    let mut deepest = roots.next()?;
+        .filter(move |candidate| ends_at_segment(candidate, spec))
+        .map(move |candidate| (&candidate[..candidate.len() - spec.len()], candidate))
+}
+
+/// The candidate ranked highest, or none where two share the highest rank.
+fn sole_highest<'c>(ranked: impl Iterator<Item = (usize, &'c String)>) -> Option<String> {
+    let mut highest: Option<(usize, &String)> = None;
     let mut tied = false;
-    for (root, candidate) in roots {
-        if root.len() > deepest.0.len() {
-            deepest = (root, candidate);
-            tied = false;
-        } else if root.len() == deepest.0.len() {
-            tied = true;
+    for (rank, candidate) in ranked {
+        match highest {
+            Some((held, _)) if rank < held => {}
+            Some((held, _)) if rank == held => tied = true,
+            _ => {
+                highest = Some((rank, candidate));
+                tied = false;
+            }
         }
     }
-    (!tied).then(|| deepest.1.clone())
+    highest
+        .filter(|_| !tied)
+        .map(|(_, candidate)| candidate.clone())
 }
 
 fn ends_at_segment(path: &str, spec: &str) -> bool {
