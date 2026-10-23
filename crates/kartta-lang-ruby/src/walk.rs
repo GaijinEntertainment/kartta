@@ -243,13 +243,17 @@ impl Emitter<'_> {
             return;
         };
         let callee = text(method, self.source);
-        let site_of = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
+        let site_of = self.site_of();
         let receiver_node = node.child_by_field_name("receiver");
-        let receiver = receiver_node.map(|receiver| match receiver.kind() {
-            IDENTIFIER => text(receiver, self.source),
-            "self" => self.owner_of(site_of).unwrap_or_default(),
-            _ => String::new(),
-        });
+        let receiver = match receiver_node {
+            Some(receiver) => Some(match receiver.kind() {
+                IDENTIFIER => text(receiver, self.source),
+                "self" => self.type_of_self(site_of).unwrap_or_default(),
+                _ => String::new(),
+            }),
+            None if self.is_type_body(site_of) => Some(self.qualified_name(site_of)),
+            None => None,
+        };
 
         // constraint: a call with any receiver, `config.require 'x'`, is a method of its own and loads nothing
         if receiver_node.is_none()
@@ -308,9 +312,7 @@ impl Emitter<'_> {
             }
             Some(_) => return,
         };
-        let class = (site_of == FILE_SCOPE)
-            .then(|| self.open_types.last().map(|class| class.id))
-            .flatten();
+        let class = self.is_type_body(site_of).then_some(site_of);
         if callee == "singleton_method" && receiver == Receiver::Own && class.is_none() {
             return;
         }
@@ -333,6 +335,33 @@ impl Emitter<'_> {
             access: Access::Read,
             line: line(symbol.start_position().row),
         });
+    }
+
+    // constraint: a call or a use outside every method is made by the class or the module whose body holds it, which
+    // runs it with `self` as the type itself; outside every type it is made from file scope
+    fn site_of(&self) -> SymbolId {
+        let method = self.scopes.last();
+        let body = self
+            .open_types
+            .last()
+            .filter(|body| method.is_none_or(|method| body.end < method.end));
+        body.or(method).map_or(FILE_SCOPE, |scope| scope.id)
+    }
+
+    fn is_type_body(&self, site_of: SymbolId) -> bool {
+        site_of != FILE_SCOPE
+            && self
+                .open_types
+                .last()
+                .is_some_and(|body| body.id == site_of)
+    }
+
+    fn type_of_self(&self, site_of: SymbolId) -> Option<String> {
+        if self.is_type_body(site_of) {
+            Some(self.qualified_name(site_of))
+        } else {
+            self.owner_of(site_of)
+        }
     }
 
     fn symbol(&self, id: SymbolId) -> Option<&Symbol> {

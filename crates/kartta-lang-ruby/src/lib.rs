@@ -19,10 +19,12 @@
 //! An alias of a method that the file declares before it in the same type is one callable with the body the original
 //! names there.
 //!
-//! A call inside a method is a call made by it, and records its receiver: a plain name as written, `self` as the
-//! caller's own type, and any other expression as the empty receiver. A call outside every method is a call from file
-//! scope, before the file's first symbol too. A call with no receiver and no arguments, `setup`, parses as a name, so
-//! it records nothing.
+//! A call inside a method is a call made by it, and a call in the body of a class or a module outside every method is
+//! a call made by that type. A call records its receiver: a plain name as written, `self` as the caller's own type,
+//! which in a type's body is the type itself, and any other expression as the empty receiver; a type's body runs with
+//! `self` as the type, so a call there with no receiver, `track :size`, records the type as its receiver. A call
+//! outside every method and type is a call from file scope, before the file's first symbol too. A call with no
+//! receiver and no arguments, `setup`, parses as a name, so it records nothing.
 //!
 //! A method named by a symbol is a use of it: `method(:render)`, `public_method`, `singleton_method`, `send(:render)`,
 //! `public_send` and `__send__` name a method of the object's own type where they have no receiver or `self`, and one
