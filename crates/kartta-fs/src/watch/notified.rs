@@ -34,6 +34,7 @@ struct Queue {
 struct Held {
     signals: Vec<Signal>,
     overflowed: bool,
+    root_went_past_full: bool,
     ended: bool,
 }
 
@@ -41,6 +42,7 @@ struct Held {
 enum Signal {
     Changed(Vec<PathBuf>),
     Lost,
+    RootWent,
 }
 
 impl Backend {
@@ -88,11 +90,13 @@ impl Backend {
         }
         let signals = std::mem::take(&mut held.signals);
         found.lost |= std::mem::take(&mut held.overflowed);
+        found.root_went |= std::mem::take(&mut held.root_went_past_full);
         drop(held);
         for signal in signals {
             match signal {
                 Signal::Changed(paths) => found.paths.extend(paths),
                 Signal::Lost => found.lost = true,
+                Signal::RootWent => found.root_went = true,
             }
         }
         Ok(true)
@@ -139,9 +143,8 @@ impl Backend {
 // Windows buffer that overflowed does; an error from the stream may have cost a change, so it counts as a loss too
 fn signal(event: notify::Result<notify::Event>, prefixes: &[(PathBuf, String)]) -> Signal {
     match event {
-        Ok(event) if rescans_whole_tree(&event, prefixes) || root_went(&event, prefixes) => {
-            Signal::Lost
-        }
+        Ok(event) if root_went(&event, prefixes) => Signal::RootWent,
+        Ok(event) if rescans_whole_tree(&event, prefixes) => Signal::Lost,
         Ok(event) => Signal::Changed(event.paths),
         Err(_) => Signal::Lost,
     }
@@ -182,6 +185,7 @@ impl notify::EventHandler for Queuing {
             held.signals.push(signal);
         } else {
             held.overflowed = true;
+            held.root_went_past_full |= matches!(signal, Signal::RootWent);
         }
         drop(held);
         if was_empty {
@@ -299,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn the_root_deleted_or_moved_loses_the_batch() {
+    fn the_root_deleted_or_moved_is_told_as_the_root_gone() {
         let went = [
             Event::new(EventKind::Remove(RemoveKind::Folder)),
             Event::new(EventKind::Remove(RemoveKind::Any)).set_info("root changed"),
@@ -311,7 +315,7 @@ mod tests {
 
             let signal = signal(Ok(event.clone()), &tree());
 
-            assert!(matches!(signal, Signal::Lost), "{event:?}: {signal:?}");
+            assert!(matches!(signal, Signal::RootWent), "{event:?}: {signal:?}");
         }
     }
 
@@ -408,36 +412,53 @@ mod tests {
         );
     }
 
-    /// Every batch a watcher of a new tree hands over once `went` took the tree away, until one names the whole tree.
+    /// The first error a watcher of a new tree hands over once `went` took the tree away, with every batch before it,
+    /// or no error once 10 s pass.
     #[cfg(target_os = "macos")]
-    fn batches_once_the_root(went: impl FnOnce(&Path, &Path)) -> Vec<Vec<String>> {
+    fn told_once_the_root(
+        went: impl FnOnce(&Path, &Path),
+    ) -> (Option<WatchError>, Vec<Vec<String>>) {
         let parent = tempfile::tempdir().expect("a parent");
         let tree = parent.path().join("tree");
         std::fs::create_dir(&tree).expect("make the tree");
         let mut watcher = watching(&tree);
 
         went(&tree, parent.path());
-        batches_until(&mut watcher, "")
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut batches = Vec::new();
+        while Instant::now() < deadline {
+            match watcher.wait(Duration::from_millis(500)) {
+                Ok(batch) => batches.push(batch),
+                Err(error) => return (Some(error), batches),
+            }
+        }
+        (None, batches)
     }
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn the_root_deleted_loses_the_batch() {
-        let batches = batches_once_the_root(|tree, _| {
+    fn the_root_deleted_is_told_as_the_root_gone() {
+        let (told, batches) = told_once_the_root(|tree, _| {
             std::fs::remove_dir(tree).expect("delete the tree");
         });
 
-        assert!(batches.iter().any(|batch| batch == &[""]), "{batches:?}");
+        assert!(
+            matches!(told, Some(WatchError::RootGone)),
+            "{told:?} after {batches:?}"
+        );
     }
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn the_root_moved_away_loses_the_batch() {
-        let batches = batches_once_the_root(|tree, parent| {
+    fn the_root_moved_away_is_told_as_the_root_gone() {
+        let (told, batches) = told_once_the_root(|tree, parent| {
             std::fs::rename(tree, parent.join("moved")).expect("move the tree away");
         });
 
-        assert!(batches.iter().any(|batch| batch == &[""]), "{batches:?}");
+        assert!(
+            matches!(told, Some(WatchError::RootGone)),
+            "{told:?} after {batches:?}"
+        );
     }
 
     #[test]
@@ -569,6 +590,31 @@ mod tests {
 
         assert_eq!((full.paths.len(), full.lost), (QUEUED, false));
         assert_eq!((next.paths.len(), next.lost), (1, false));
+    }
+
+    #[test]
+    fn the_root_gone_past_a_full_queue_is_told_beside_its_overflow() {
+        let (mut handler, queue) = queue(&tree());
+        let unwatched = RecommendedWatcher::new(|_: notify::Result<Event>| {}, Config::default())
+            .expect("a watcher");
+        let backend = Backend {
+            _watcher: unwatched,
+            queue,
+        };
+        for at in 0..QUEUED {
+            let path = PathBuf::from(format!("/parent/tree/{at}.rs"));
+            handler.handle_event(Ok(
+                Event::new(EventKind::Create(CreateKind::File)).add_path(path)
+            ));
+        }
+
+        let went = Event::new(EventKind::Remove(RemoveKind::Folder))
+            .add_path(PathBuf::from("/parent/tree"));
+        handler.handle_event(Ok(went));
+        let mut found = Found::default();
+        backend.poll(Duration::ZERO, &mut found).expect("poll");
+
+        assert_eq!((found.lost, found.root_went), (true, true));
     }
 
     #[test]

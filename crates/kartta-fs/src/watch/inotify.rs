@@ -210,9 +210,8 @@ impl Backend {
                 continue;
             };
             if name.is_empty() {
-                let root_went = event.mask & (libc::IN_DELETE_SELF | libc::IN_MOVE_SELF) != 0
+                found.root_went |= event.mask & (libc::IN_DELETE_SELF | libc::IN_MOVE_SELF) != 0
                     && *dir == self.root;
-                found.lost |= root_went;
                 continue;
             }
 
@@ -374,6 +373,30 @@ mod tests {
         Watcher::start(tree)
             .and_then(Watcher::walked)
             .expect("start watching")
+    }
+
+    /// What a drain of a watcher of a new tree answers once `went` took the tree away.
+    fn drained_once_the_root(went: impl FnOnce(&Path, &Path)) -> Result<Vec<String>, WatchError> {
+        let parent = tempfile::tempdir().expect("a parent");
+        let tree = parent.path().join("tree");
+        std::fs::create_dir_all(tree.join("src")).expect("make the tree");
+        let mut watcher = watched(&tree);
+
+        went(&tree, parent.path());
+        watcher.drain()
+    }
+
+    #[test]
+    fn the_root_deleted_or_moved_away_is_told_as_the_root_gone() {
+        let deleted = drained_once_the_root(|tree, _| {
+            std::fs::remove_dir_all(tree).expect("delete the tree");
+        });
+        let moved = drained_once_the_root(|tree, parent| {
+            std::fs::rename(tree, parent.join("moved")).expect("move the tree away");
+        });
+
+        assert!(matches!(deleted, Err(WatchError::RootGone)), "{deleted:?}");
+        assert!(matches!(moved, Err(WatchError::RootGone)), "{moved:?}");
     }
 
     #[test]
@@ -643,7 +666,7 @@ mod tests {
             ..Found::default()
         };
 
-        assert_eq!(watcher.changes(unread), [""]);
+        assert_eq!(watcher.changes(unread).expect("the root is there"), [""]);
     }
 
     static INTERRUPTED: AtomicBool = AtomicBool::new(false);
