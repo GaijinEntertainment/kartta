@@ -1641,6 +1641,55 @@ FMT_END_EXPORT
     }
 
     #[test]
+    fn a_macro_between_a_class_name_and_its_body_keeps_the_class_and_its_members() {
+        let raw = extract(
+            br"namespace flexbuffers {
+class Vector {
+ public:
+  int size() const { return 0; }
+};
+
+class Builder FLATBUFFERS_FINAL_CLASS {
+ public:
+  Builder(int initial_size = 256) : size_(initial_size) {}
+  int StartVector() { return size_; }
+  int Vector() { return 1; }
+
+ private:
+  int size_;
+};
+}
+
+namespace libtorrent {
+struct TORRENT_EXPORT torrent_removed_alert TORRENT_FINAL : torrent_alert
+{
+	int type() const { return 1; }
+};
+}
+",
+        );
+
+        assert_eq!(
+            spans(&raw),
+            [
+                ("flexbuffers::Vector", 2, 5),
+                ("Vector::size", 4, 4),
+                ("flexbuffers::Builder", 7, 15),
+                ("Builder::Builder", 9, 9),
+                ("Builder::StartVector", 10, 10),
+                ("Builder::Vector", 11, 11),
+                ("Builder::size_", 14, 14),
+                ("libtorrent::torrent_removed_alert", 19, 22),
+                ("torrent_removed_alert::type", 21, 21)
+            ]
+        );
+        assert_eq!(
+            symbol(&raw, "torrent_removed_alert").parents,
+            ["torrent_alert"]
+        );
+    }
+
+    #[test]
     fn an_out_of_line_definition_through_a_namespace_is_a_free_function() {
         let raw = extract(
             b"namespace ImGui { static void NavUpdate(); void EndGroup(); }\nvoid ImGui::EndGroup() {}\n\
