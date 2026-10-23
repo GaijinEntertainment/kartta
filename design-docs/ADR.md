@@ -299,7 +299,9 @@
     `crates/kartta-lang-puppet/src/resolve.rs`
   - Revisit if: the extraction reads `environment.conf` or a `Puppetfile`, which name the module path
 - [3.18 Extract DSHL as one namespace that its includes
-  join](./adr/3.18-extract-dshl-as-one-namespace-its-includes-join.md) — initiative `03-code-graph`, 2026-10-16
+  join](./adr/3.18-extract-dshl-as-one-namespace-its-includes-join.md)
+  - Governs: `crates/kartta-lang-dshl/src/{lib,walk}.rs`
+  - Revisit if: a DSHL use is measured under a use tier that reads includes
 - [3.19 Find the files that include a file through an index of
   includers](./adr/3.19-find-the-files-that-include-a-file-through-an-index-of-includers.md) — initiative
   `03-code-graph`, 2026-10-17
@@ -576,6 +578,11 @@
     `crates/kartta-lang-blk/src/walk.rs` (`record_mounts`)
   - Revisit if: a resolver can see the extractions of the files its language claims, or a tree states the mounts its
     includes need in a file of another name
+- [3.147 Resolve a DSHL include to the nearest file of its
+  spelling](./adr/3.147-resolve-a-dshl-include-to-the-nearest-file-of-its-spelling.md)
+  - Governs: `crates/kartta-lang-dshl/src/resolve.rs`, `crates/kartta-lang-dshl/src/walk.rs` (`include`,
+    `hlsl_includes`)
+  - Revisit if: the build configuration becomes an input of the graph, or the contract can mark edges as alternatives
 - [3.150 Resolve a Go import to the package the go command
   builds](./adr/3.150-resolve-a-go-import-to-the-package-the-go-command-builds.md)
   - Governs: `crates/kartta-lang-go/src/resolve.rs`, `crates/kartta-graph/src/resolve.rs` (`read_bindings`,
