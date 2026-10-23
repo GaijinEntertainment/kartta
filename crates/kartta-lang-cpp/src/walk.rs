@@ -1641,6 +1641,31 @@ FMT_END_EXPORT
     }
 
     #[test]
+    fn a_macro_that_takes_the_class_key_keeps_the_class_and_its_members() {
+        let raw = extract(
+            b"ATTRIBUTE_ALIGNED16(class)\nbtCollisionObject\n{\npublic:\n\
+              \tconst btBroadphaseProxy *getBroadphaseHandle() const { return m_broadphaseHandle; }\n\n\
+              protected:\n\tbtBroadphaseProxy *m_broadphaseHandle;\n};\n\n\
+              ATTRIBUTE_ALIGNED16(struct) b3Contact4\n{\n\tint m_x;\n\tint get() const { return m_x; }\n};\n\n\
+              class btPlain\n{\npublic:\n\tint get() const { return 1; }\n};\n",
+        );
+
+        assert_eq!(
+            spans(&raw),
+            [
+                ("btCollisionObject", 1, 9),
+                ("btCollisionObject::getBroadphaseHandle", 5, 5),
+                ("btCollisionObject::m_broadphaseHandle", 8, 8),
+                ("b3Contact4", 11, 15),
+                ("b3Contact4::m_x", 13, 13),
+                ("b3Contact4::get", 14, 14),
+                ("btPlain", 17, 21),
+                ("btPlain::get", 20, 20)
+            ]
+        );
+    }
+
+    #[test]
     fn a_macro_between_a_class_name_and_its_body_keeps_the_class_and_its_members() {
         let raw = extract(
             br"namespace flexbuffers {
