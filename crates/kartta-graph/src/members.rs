@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use foldhash::fast::FixedState;
 use hashbrown::HashSet;
-use kartta_lang::SymbolKind;
+use kartta_lang::{IncludeReach, SymbolKind};
 
 use crate::candidates::{Candidates, INDEXED_FROM};
 use crate::confidence;
@@ -69,7 +69,7 @@ impl<'g> Cascade<'g> {
                 .unwrap_or(Err(UseMiss::Elsewhere));
         }
         let owner = owner.ok_or(UseMiss::Ambiguous)?;
-        if let Some(at) = self.member_in(site.file, owner, name) {
+        if let Some(at) = self.member_in(site.file, (owner, false), name) {
             return Ok((at, confidence::RECEIVER));
         }
         let class = self.class_around(site, owner).ok_or(UseMiss::Ambiguous)?;
@@ -97,21 +97,43 @@ impl<'g> Cascade<'g> {
         })
     }
 
-    // constraint: a receiver path names the owner of the member, as a call's receiver names one, declared in the
-    // use's file or in the one file of those it includes that declares a member of the name under it
-    pub(crate) fn owner_member(
+    /// The member of the owner a receiver path names, a class's own method first for a path on the class, or `None`
+    /// where the path leaves the use to the tiers that read no owner.
+    pub(crate) fn path_member(
         &self,
         site: SymbolAt,
-        owner: Str,
+        path: Str,
+        name: Str,
+    ) -> Option<Result<Bound, UseMiss>> {
+        let strings = &self.graph.strings;
+        let owned = match self.graph.class_named(strings.resolve(path)) {
+            Some(class) => match strings.get(class) {
+                Some(class) => (class, true),
+                None => return Some(Err(UseMiss::Elsewhere)),
+            },
+            None => (path, false),
+        };
+        if self.conventions.include_reach != IncludeReach::Transitive {
+            return Some(self.owner_member(site, owned, name));
+        }
+        self.included_owner_member(site, owned, name)
+    }
+
+    // constraint: a receiver path names the owner of the member, as a call's receiver names one, declared in the
+    // use's file or in the one file of those it includes that declares a member of the name under it
+    fn owner_member(
+        &self,
+        site: SymbolAt,
+        (owner, on_a_class): (Str, bool),
         name: Str,
     ) -> Result<Bound, UseMiss> {
-        if let Some(at) = self.member_in(site.file, owner, name) {
+        if let Some(at) = self.member_in(site.file, (owner, on_a_class), name) {
             return Ok((at, confidence::RECEIVER));
         }
         let includes = self.includes(site.file);
         let mut declared = includes
             .iter()
-            .filter_map(|&included| self.member_in(included, owner, name));
+            .filter_map(|&included| self.member_in(included, (owner, on_a_class), name));
         match (declared.next(), declared.next()) {
             (Some(at), None) => return Ok((at, confidence::RECEIVER)),
             (Some(_), Some(_)) => return Err(UseMiss::Ambiguous),
@@ -144,10 +166,10 @@ impl<'g> Cascade<'g> {
     // the one base that declares it, and a type the graph holds that neither does, an alias most often, leaves the
     // field to the tiers that read no type; of namesake classes without the field, the bases searched are those of the
     // one the spelling names, else those of the first, whose field of the name is the one meant most often (ADR 3.65)
-    pub(crate) fn included_owner_member(
+    fn included_owner_member(
         &self,
         site: SymbolAt,
-        path: Str,
+        (path, on_a_class): (Str, bool),
         name: Str,
     ) -> Option<Result<Bound, UseMiss>> {
         let Some(owner) = self.bare_owner(path) else {
@@ -159,7 +181,7 @@ impl<'g> Cascade<'g> {
         if let Some(found) = self.reached_owner(site, &declared, written) {
             return Some(found);
         }
-        let methods: Vec<SymbolAt> = self
+        let mut methods: Vec<SymbolAt> = self
             .named(name)
             .iter()
             .copied()
@@ -168,6 +190,12 @@ impl<'g> Cascade<'g> {
                 symbol.kind == SymbolKind::Method && symbol.owner == Some(owner)
             })
             .collect();
+        if methods
+            .iter()
+            .any(|&at| self.is_of_the_kind(on_a_class, at))
+        {
+            methods.retain(|&at| self.is_of_the_kind(on_a_class, at));
+        }
         if !methods.is_empty() {
             return Some(match self.nearest_to(site, &methods, written) {
                 Some(Twin::Member(at) | Twin::Namesake(at)) => Ok((at, confidence::RECEIVER)),
@@ -275,6 +303,7 @@ impl<'g> Cascade<'g> {
             receiver: None,
             written_from_root: false,
             names_a_runtime_method: false,
+            on_a_class: false,
             local: None,
             line: 0,
         };
@@ -421,12 +450,19 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    fn member_in(&self, file: u32, owner: Str, name: Str) -> Option<SymbolAt> {
-        self.graph
+    fn member_in(
+        &self,
+        file: u32,
+        (owner, on_a_class): (Str, bool),
+        name: Str,
+    ) -> Option<SymbolAt> {
+        let members = self
+            .graph
             .in_file(self.named(name), file)
             .iter()
             .copied()
-            .find(|&at| self.graph.sym(at).owner == Some(owner))
+            .filter(|&at| self.graph.sym(at).owner == Some(owner));
+        self.first_of_the_kind(on_a_class, members)
     }
 
     // constraint: a base reached twice, through two of its subclasses or a cycle of bases, was searched in full the

@@ -4615,3 +4615,175 @@ fn the_confidence_floor_counts_a_self_call_it_drops() {
     );
     assert_eq!((self_call(&downward), downward.below_confidence), (None, 1));
 }
+
+fn class_members() -> Conventions {
+    let mut conventions = Conventions::default();
+    conventions.own_members = OwnMembers::First;
+    conventions.inherited_members = InheritedMembers::Admitted;
+    conventions.owner_chain_separator = Some("::");
+    conventions.class_member_separator = Some(".");
+    conventions.own_type_receivers = Some(&["other"]);
+    conventions
+}
+
+fn joined(owner: &str, separator: &str, name: &str, lines: [u32; 2]) -> Symbol {
+    let mut symbol = Symbol::new(name, SymbolKind::Method, lines[0], lines[1]);
+    symbol.qualified_name = format!("{owner}{separator}{name}");
+    symbol.owner = Some(owner.to_owned());
+    symbol
+}
+
+/// A file whose class `Formula` declares `build` joined with each of `separators`, in that order, and whose methods
+/// call it on `self` in an instance method, on `self` in a class method, on a constant, a value and an expression, and
+/// use it on a constant.
+fn formula(separators: &[&str]) -> Extraction {
+    let mut symbols = vec![Symbol::new("Formula", SymbolKind::Class, 1, 11)];
+    for (line, separator) in (2..).zip(separators) {
+        symbols.push(joined("Formula", separator, "build", [line, line]));
+    }
+    let first_caller = u32::try_from(symbols.len()).expect("a few symbols");
+    symbols.extend([
+        joined("Formula", "#", "install", [8, 8]),
+        joined("Formula", ".", "make", [9, 9]),
+        Symbol::new("Installer", SymbolKind::Class, 12, 20),
+        joined("Installer", "#", "run", [13, 13]),
+        joined("Installer", "#", "rerun", [14, 14]),
+        joined("Installer", "#", "retry", [15, 15]),
+    ]);
+    let calls = [
+        (0, "Formula"),
+        (1, "Formula."),
+        (3, "."),
+        (4, "formula"),
+        (5, ""),
+    ]
+    .into_iter()
+    .map(|(caller, receiver)| {
+        let caller = first_caller + caller;
+        member_call(caller, receiver, "build", symbols[caller as usize].line)
+    })
+    .collect();
+    let mut extraction = file("formula.rb", symbols, calls);
+    extraction.uses = vec![UseRef {
+        site_of: SymbolId(first_caller + 3),
+        name: "build".to_owned(),
+        receiver: Receiver::Path("Formula.".to_owned()),
+        access: Access::Read,
+        line: 13,
+    }];
+    extraction
+}
+
+fn sites(graph: &Graph, name: &str) -> Vec<(String, bool, u8)> {
+    graph
+        .references(name, SiteQuery::new(usize::MAX))
+        .expect("the name selects a symbol")
+        .sites
+        .iter()
+        .map(|site| {
+            (
+                site.site_of.qualified_name.to_owned(),
+                site.call,
+                site.confidence,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_receiver_on_a_class_reaches_its_own_method_first_and_any_other_receiver_the_instance_method() {
+    for separators in [["#", "."], [".", "#"]] {
+        let graph = graph_of(class_members(), &[formula(&separators)]);
+
+        assert_eq!(
+            (
+                sites(&graph, "Formula.build"),
+                sites(&graph, "Formula#build")
+            ),
+            (
+                vec![
+                    ("Formula.make".to_owned(), true, 85),
+                    ("Installer#run".to_owned(), true, 80),
+                    ("Installer#run".to_owned(), false, 85),
+                ],
+                vec![
+                    ("Formula#install".to_owned(), true, 85),
+                    ("Installer#rerun".to_owned(), true, 80),
+                    ("Installer#retry".to_owned(), true, 80),
+                ]
+            ),
+            "{separators:?}"
+        );
+    }
+}
+
+#[test]
+fn an_owner_that_holds_one_kind_offers_it_to_every_receiver() {
+    for (separator, name) in [("#", "Formula#build"), (".", "Formula.build")] {
+        let graph = graph_of(class_members(), &[formula(&[separator])]);
+
+        assert_eq!(
+            sites(&graph, name),
+            [
+                ("Formula#install".to_owned(), true, 85),
+                ("Formula.make".to_owned(), true, 85),
+                ("Installer#run".to_owned(), true, 80),
+                ("Installer#run".to_owned(), false, 85),
+                ("Installer#rerun".to_owned(), true, 80),
+                ("Installer#retry".to_owned(), true, 80),
+            ],
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn a_use_on_a_class_takes_its_own_method_where_includes_are_transitive_too() {
+    let mut conventions = class_members();
+    conventions.include_reach = IncludeReach::Transitive;
+    for separators in [["#", "."], [".", "#"]] {
+        let graph = graph_of(conventions, &[formula(&separators)]);
+
+        assert_eq!(
+            sites(&graph, "Formula.build")
+                .into_iter()
+                .filter(|(_, call, _)| !call)
+                .collect::<Vec<_>>(),
+            [("Installer#run".to_owned(), false, 85)],
+            "{separators:?}"
+        );
+    }
+}
+
+#[test]
+fn a_class_reopened_in_another_file_offers_the_kind_its_receiver_reaches_before_a_nearer_one() {
+    let reopened = |path: &str, separator: &str, caller: (&str, &str)| {
+        file(
+            path,
+            vec![
+                Symbol::new("Formula", SymbolKind::Class, 1, 9),
+                joined("Formula", separator, "build", [2, 2]),
+                joined("Formula", caller.0, "run", [4, 4]),
+            ],
+            vec![member_call(2, caller.1, "build", 4)],
+        )
+    };
+    let graph = graph_of(
+        class_members(),
+        &[
+            reopened("a/formula.rb", "#", (".", "Formula.")),
+            reopened("b/formula/class.rb", ".", ("#", "Formula")),
+        ],
+    );
+
+    assert_eq!(
+        (
+            sites(&graph, "Formula.build"),
+            sites(&graph, "Formula#build")
+        ),
+        (
+            vec![("Formula.run".to_owned(), true, 85)],
+            vec![("Formula#run".to_owned(), true, 85)]
+        )
+    );
+}
