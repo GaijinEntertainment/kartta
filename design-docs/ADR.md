@@ -242,8 +242,11 @@
   - Governs: `crates/kartta-lang-jsts/src/{walk,syntax,generated,flavor,lib}.rs`,
     `crates/kartta-lang-jsts/src/walk/{calls,exports}.rs`
   - Revisit if: a consumer needs the export surface of CommonJS modules
-- [3.5 Keep the graph a file at a time](./adr/3.5-keep-the-graph-a-file-at-a-time.md) — initiative `03-code-graph`,
-  2026-10-16, revised 2026-10-17
+- [3.5 Keep the graph a file at a time](./adr/3.5-keep-the-graph-a-file-at-a-time.md)
+  - Governs: `crates/kartta-graph/src/graph.rs` (`Graph::insert`, `Graph::remove`, `Graph::outline`,
+    `Graph::definitions`, `find_test_modules`), `crates/kartta-graph/src/strings.rs`, `kartta_lang::Extraction`
+    (`test_includes`)
+  - Revisit if: a refresh's leftover strings or the name index's per-name lists are a measurable share of a graph
 - [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md) — initiative
   `03-code-graph`, 2026-10-16, revised 2026-10-21
 - [3.7 Resolve calls when a query asks](./adr/3.7-resolve-calls-when-a-query-asks.md)
