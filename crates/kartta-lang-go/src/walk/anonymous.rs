@@ -82,6 +82,26 @@ impl<'a> Emitter<'a> {
         Some((struct_type, scope))
     }
 
+    // constraint: a literal's type is the type of a name only where the values line up with the names
+    pub(super) fn name_literal_structs<'t>(
+        &mut self,
+        names: &[Node<'t>],
+        values: &[Node<'t>],
+    ) -> Vec<(Node<'t>, String)> {
+        if names.len() != values.len() {
+            return Vec::new();
+        }
+        let mut found = Vec::new();
+        for (&name, &value) in names.iter().zip(values) {
+            let name = self.borrowed(name);
+            let Some(written) = literal_type(value).filter(|_| name != "_") else {
+                continue;
+            };
+            found.extend(self.name_value_struct(written, name));
+        }
+        found
+    }
+
     pub(super) fn declare_anonymous(&mut self, struct_type: Node<'_>, scope: &str) {
         let Some(name) = self.anonymous_name(struct_type) else {
             return;
@@ -93,6 +113,17 @@ impl<'a> Emitter<'a> {
         for field in fields {
             self.field_names(field, (&name, scope));
         }
+    }
+}
+
+pub(super) fn literal_type(value: Node<'_>) -> Option<Node<'_>> {
+    match value.kind() {
+        "composite_literal" => value.child_by_field_name("type"),
+        "parenthesized_expression" => literal_type(first_operand(value)?),
+        "unary_expression" if value.child_by_field_name("operator")?.kind() == "&" => {
+            literal_type(value.child_by_field_name("operand")?)
+        }
+        _ => None,
     }
 }
 
