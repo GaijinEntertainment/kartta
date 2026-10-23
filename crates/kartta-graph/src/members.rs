@@ -355,7 +355,9 @@ impl<'g> Cascade<'g> {
     // constraint: owners of one bare name in several places, a vendored copy of a class beside another, are told apart
     // by what the file sees: its own definitions and its includes', then those its includes reach; one it reaches
     // neither way is another class of the name half the time, its namesake in a copy of the library or an SDK's; of
-    // namesakes in the nearer of the two, the one the receiver's spelling names
+    // namesakes in the nearer of the two, the one the receiver's spelling names; a member defined in a file its class's
+    // header includes, an inline implementation header, sees what the file of its declaration sees as well, as the
+    // translation unit holds the class header's text before it
     fn nearest_to(
         &self,
         site: SymbolAt,
@@ -367,12 +369,26 @@ impl<'g> Cascade<'g> {
         }
         let file = site.file;
         let closure = OnceCell::new();
-        let sees = |at: SymbolAt| self.sees(file, at);
-        let reaches = |at: &SymbolAt| {
+        let in_closure = |target: u32| {
             closure
                 .get_or_init(|| self.closure(file))
-                .binary_search(&at.file)
+                .binary_search(&target)
                 .is_ok()
+        };
+        let declared: Vec<u32> = self
+            .declarations(site)
+            .iter()
+            .map(|declaration| declaration.file)
+            .filter(|&declared| !in_closure(declared))
+            .collect();
+        let sees = |at: SymbolAt| {
+            self.sees(file, at) || declared.iter().any(|&declared| self.sees(declared, at))
+        };
+        let reaches = |at: &SymbolAt| {
+            in_closure(at.file)
+                || declared
+                    .iter()
+                    .any(|&declared| self.reaches(declared, at.file))
         };
         let Some(written) = written else {
             if let Some(&member) = owned.iter().find(|&&at| sees(at)) {
