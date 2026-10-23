@@ -927,11 +927,61 @@ impl Cascade<'_> {
         else {
             return OwnerMember::NotDeclared;
         };
+        let written = self.graph.strings.resolve(receiver);
+        if let Some(field) = field_spelled(written) {
+            return self
+                .class_of_own_field(call, field)
+                .map_or(OwnerMember::Elsewhere, |class| {
+                    self.member_of_a_reached_class(call, candidates, class)
+                });
+        }
         let Some(class) = self.bare_owner(receiver) else {
             return OwnerMember::Elsewhere;
         };
-        let written = self.graph.strings.resolve(receiver);
         self.member_of_a_reached_class(call, candidates, (class, written))
+    }
+
+    // constraint: C++ finds a name a member's body does not declare in the member's class before any namespace, so a
+    // field of the caller's class that the caller's file reaches is the operand, and the class its declaration names,
+    // through `.` for a value and `->` for a pointer, holds the member called; reached copies of the class that declare
+    // the field as different classes leave the call to the tiers that read no class, as a name no field answers does
+    fn class_of_own_field<'s>(
+        &'s self,
+        call: &Call,
+        (arrow, name): (bool, &str),
+    ) -> Option<(Str, &'s str)> {
+        let strings = &self.graph.strings;
+        let name = strings.get(name)?;
+        let own = self
+            .graph
+            .file(call.file)
+            .symbols
+            .get(call.caller as usize)?
+            .owner?;
+        let fields = kept(self.named(name), |&at| {
+            let symbol = self.graph.sym(at);
+            symbol.kind == SymbolKind::Field && symbol.owner == Some(own)
+        });
+        let tier = self.reached_tier(call.file, &fields);
+        let mut declared = tier
+            .iter()
+            .map(|at| self.graph.file(at.file).value_types(at.index));
+        let first = declared.next()??;
+        if !declared.all(|other| other == Some(first)) {
+            return None;
+        }
+        let spelled = strings.resolve(first);
+        let class = match (spelled.strip_prefix('*'), arrow) {
+            (Some(pointee), true) => pointee,
+            (None, false) => spelled,
+            _ => return None,
+        };
+        let bare = self
+            .conventions
+            .scope_separator
+            .and_then(|separator| class.rsplit_once(separator))
+            .map_or(class, |(_, bare)| bare);
+        Some((strings.get(bare)?, class))
     }
 
     /// The member of the class of the bare name `class` that the call's file reaches, of namesakes the one `written`
@@ -1098,6 +1148,14 @@ impl Cascade<'_> {
 /// a namespace.
 const fn hands_members_on(kind: SymbolKind) -> bool {
     derives(kind) || matches!(kind, SymbolKind::Namespace)
+}
+
+/// The field a receiver spells after the operator that takes the member, `.lock` or `->lock`, and whether it is `->`.
+fn field_spelled(receiver: &str) -> Option<(bool, &str)> {
+    receiver
+        .strip_prefix("->")
+        .map(|name| (true, name))
+        .or_else(|| receiver.strip_prefix('.').map(|name| (false, name)))
 }
 
 pub(crate) const fn is_value(kind: SymbolKind) -> bool {
