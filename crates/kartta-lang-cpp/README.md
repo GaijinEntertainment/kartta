@@ -12,10 +12,11 @@ namespace-scope variables and constants, each qualified the way C++ names it —
 namespace, `Widget::area` for a member. A member call carries the class its operand holds as its receiver: the
 caller's own class on `this`, and on a local or a parameter the class its declaration spells, with the scopes it writes,
 `b::Widget`, and without its template arguments; one on any other operand carries the empty receiver, because a value's
-name names no type. Callables carry an identity of scope, parameter types and member qualifiers wherever the walk can
-establish one without guessing, so a declaration and its definition meet in the graph and two overloads stay apart.
-Function-like macros, a test harness's `TEST(...)` blocks and trailing annotation macros included, are never mistaken
-for definitions.
+name names no type. A bare call of a name a local, a parameter or a capture of the body declares calls through the
+value it holds, a function pointer or a callable, and is not recorded. Callables carry an identity of scope, parameter
+types and member qualifiers wherever the walk can establish one without guessing, so a declaration and its definition
+meet in the graph and two overloads stay apart. Function-like macros, a test harness's `TEST(...)` blocks and trailing
+annotation macros included, are never mistaken for definitions.
 
 Inside a function's body and its initializer list, each read, write and update of a value is a use: `x.f` and `x->f`
 outside a call's callee, `this->f`, a member a constructor's initializer list or a designated initializer sets, and a
