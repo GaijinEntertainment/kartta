@@ -14,13 +14,18 @@ chain of their type: `Geo::Shape#area` for an instance method, `Geo::Shape.build
 `private` modifier covers it. An alias of a method the file declares before it is one callable with that method's body.
 A call belongs to the method around it, and outside every method to the class or the module whose body holds it. A
 call records its receiver: a plain name as written, `self` as the caller's own type, and any other expression as the
-empty receiver; a type's body runs with `self` as the type, so a call there with no receiver records the type. A bare
+empty receiver; a type's body runs with `self` as the type, so a call there with no receiver records the type. A
+receiver that is a class, `self` in a class method or a type's body, `self.class` in an instance method, or a constant,
+ends in `.`, the separator of a class method's name: `Geo::Shape.` for `self`, and `.` alone for `self.class` and for a
+constant, whose path the receiver does not keep, so a call on the class binds `Shape.build` before `Shape#build`, and
+any other receiver the reverse. A bare
 name, `setup`, is a call with no receiver unless a binding before it in its scope makes it a local variable, as Ruby
 decides. The
 conventions list `other` alone as the receiver of a value of the caller's own type, since a call on `self` binds
 through the type it records, so `path.to_s` inside `Keg#to_s` binds no member of the caller's own class.
 A method named by a symbol, `method(:render)` or `send(:render)`, is a use of the method of the
-object's own type, or of a class's for a constant receiver, `Cache.send(:flush)` or `Cache::Store.send(:flush)`.
+object's own type, or of a class's for a constant receiver, `Cache.send(:flush)` or `Cache::Store.send(:flush)`, its
+class method of the name first.
 At a site no class owns, the symbol names a top-level method, a private method of `Object` that every object reaches.
 
 ## Resolution
