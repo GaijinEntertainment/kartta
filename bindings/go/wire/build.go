@@ -51,7 +51,7 @@ type Watch struct {
 	// follows the tree, and when the build asked for no watch.
 	Reason string `json:"reason,omitempty"`
 	// Restarts counts the watchers the watch started over a refresh of the whole tree, because the one before dropped
-	// changes, stopped, or met the inotify limit.
+	// changes, stopped, met the inotify limit, or saw the root deleted or moved.
 	Restarts int `json:"restarts,omitempty"`
 }
 

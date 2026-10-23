@@ -186,7 +186,7 @@ export type Watch = {
 	reason?: string;
 	/**
 	 * The watchers the watch started over a refresh of the whole tree, because the one before dropped changes, stopped,
-	 * or met the inotify limit; absent when none was.
+	 * met the inotify limit, or saw the root deleted or moved; absent when none was.
 	 */
 	restarts?: number;
 };
