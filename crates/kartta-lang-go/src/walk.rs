@@ -552,7 +552,7 @@ impl<'a> Emitter<'a> {
         let fields = child_nodes(struct_type).filter(|field| field.kind() == "field_declaration");
         for field in fields {
             let first_field = SymbolId(self.symbol_count);
-            self.field_names(field, owner);
+            self.field_names(field, (owner, owner));
             let site_of = if self.symbol_count > first_field.0 {
                 first_field
             } else {
@@ -564,16 +564,18 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn field_names(&mut self, field: Node<'_>, owner: &str) {
+    fn field_names(&mut self, field: Node<'_>, (owner, scope): (&str, &str)) {
         let type_path = field
             .child_by_field_name("type")
             .and_then(|written| self.type_path(written));
+        let own_owner = (owner != scope).then(|| owner.to_owned());
         let mut cursor = field.walk();
         for name_node in field.children_by_field_name("name", &mut cursor) {
             let name = text(name_node, self.source);
             if name != "_" {
                 let mut symbol =
-                    self.declared(SymbolKind::Field, field, (Some(owner.to_owned()), name));
+                    self.declared(SymbolKind::Field, field, (Some(scope.to_owned()), name));
+                symbol.owner = own_owner.clone().or(symbol.owner);
                 symbol.value_types = type_path.clone().into_iter().collect();
                 self.push_symbol(symbol);
             }
