@@ -350,6 +350,10 @@ impl<'g> Cascade<'g> {
         })
     }
 
+    // constraint: where includes paste text in place, a definition the declaration's own file reaches, as in an inline
+    // implementation header a class header includes at its end, is in every translation unit that declares it; of
+    // several definitions either way none is meant, a platform's conditional alternatives or a library's copies most
+    // often
     fn linked_definition(&self, declaration: SymbolAt) -> Option<SymbolAt> {
         let callable = self
             .graph
@@ -358,13 +362,17 @@ impl<'g> Cascade<'g> {
         if callable.role != CallableRole::Declaration {
             return None;
         }
+        let pasted = self.conventions.include_reach == IncludeReach::Transitive;
         let mut definitions = self
             .graph
             .occurrences(callable.key)
             .iter()
             .filter(|occurrence| occurrence.role == CallableRole::Definition)
             .map(|occurrence| occurrence.at)
-            .filter(|definition| self.reaches(definition.file, declaration.file));
+            .filter(|definition| {
+                self.reaches(definition.file, declaration.file)
+                    || (pasted && self.reaches(declaration.file, definition.file))
+            });
         let definition = definitions.next()?;
         definitions.next().is_none().then_some(definition)
     }
