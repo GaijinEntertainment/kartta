@@ -1091,20 +1091,22 @@ impl Cascade<'_> {
     /// Whether the call's receiver, at its last segment, spells the owner of `at` in any case: `session` or
     /// `self.session` spells `Session`.
     pub(crate) fn receiver_spells_owner(&self, call: &Call, at: SymbolAt) -> bool {
+        self.named_receiver(call)
+            .zip(self.owner(at))
+            .is_some_and(|(receiver, owner)| self.spells(receiver, owner))
+    }
+
+    /// Whether `receiver`, at its last segment, spells the last segment of `owner` in any case.
+    fn spells(&self, receiver: Str, owner: Str) -> bool {
         let strings = &self.graph.strings;
-        let Some(receiver) = self.named_receiver(call) else {
-            return false;
-        };
         let Some(spelled) = strings.resolve(receiver).rsplit(['.', ':']).next() else {
             return false;
         };
+        let name = strings.resolve(owner).rsplit(['.', ':']).next();
         spelled
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-            && self.owner(at).is_some_and(|owner| {
-                let name = strings.resolve(owner).rsplit(['.', ':']).next();
-                name.is_some_and(|name| name.eq_ignore_ascii_case(spelled))
-            })
+            && name.is_some_and(|name| name.eq_ignore_ascii_case(spelled))
     }
 
     pub(crate) fn member_of_the_caller_s_owner(
