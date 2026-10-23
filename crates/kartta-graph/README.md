@@ -39,7 +39,9 @@ none, leave the call to the tiers below. A call does not say whether it invokes 
 answers the name otherwise, through an exported definition of the file or of the files it includes or through a
 `use` of the name that the file binds, this tier binds neither and leaves the call to the tiers below. A dot import of
 a module's file, a Rust glob, binds a bare call the same way below the caller's own file, which shadows it, where one
-such import answers the name. A member
+such import answers the name. Where no import binds a receiver and the receiver names the module that a file the
+caller's file includes directly declares, the call binds that file's definition of the name ahead of the caller's own
+file, as daslang's `checks::f()` beside `require checks` does, and a use qualified so binds it too. A member
 call, `x.f()`, binds a free function only where its language's conventions let one stand for what a value holds, or
 for what a module its receiver names holds, as in Rust's `walk::run()`, and `f` names no method the language's runtime
 gives its own values,
