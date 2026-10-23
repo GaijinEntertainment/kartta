@@ -175,7 +175,6 @@ impl Emitter<'_> {
         match node.kind() {
             "function_item" => {
                 let id = self.function(node);
-                self.function_parameters(node, id);
                 self.functions.push(Scope {
                     end: node.end_byte(),
                     id,
@@ -202,7 +201,6 @@ impl Emitter<'_> {
                 self.item(node, SymbolKind::Variable);
             }
             "use_declaration" => self.record_import(node),
-            "let_declaration" => self.let_declaration(node),
             "call_expression" => self.call(node, caller),
             "macro_invocation" => self.macro_call(node, caller),
             "identifier" | "shorthand_field_identifier" => self.name(node, parent),

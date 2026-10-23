@@ -22,7 +22,9 @@
 //! one on a lowercase name other than `other` records the name after a `.`, `.socket` for `socket.connect()`, since
 //! alone it would read as the module that a path call, `socket::connect()`, names; `Fish.write()` records `Fish`. A
 //! macro invocation is a call of the macro. A call of an item that a function body declares is a local call of that
-//! item.
+//! item. A bare call of a name that a pattern binds, a parameter, a `let`, a closure's parameter, a match arm, a `for`
+//! or an `if let`, as `helper()` in `fn f(helper: fn())` or `run()` after `let run = || {};`, calls the value the name
+//! holds and is no call, whatever the file imports or declares under the name.
 //!
 //! A `use` of a path that may start at another crate or at the file's own crate or module,
 //! `use kartta_lang::tree::{self, text as at}` or `use super::helper`, keeps each name it binds with the path the name
