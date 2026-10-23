@@ -268,7 +268,9 @@ pub enum IncludeReach {
     #[default]
     Direct,
     /// Every file it reaches through includes, however deep, as a C or C++ `#include` pastes the included text in
-    /// place. A call whose receiver names an owner or an import binds through that name, not through includes.
+    /// place. A call whose receiver names an owner or an import binds through that name, not through includes. A
+    /// name's one callable binds a call only where the caller's file, or a file that includes it directly, reaches that
+    /// callable or a declaration of it.
     Transitive,
 }
 
