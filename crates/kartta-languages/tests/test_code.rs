@@ -51,3 +51,26 @@ fn a_name_only_test_code_defines_binds_no_call_from_outside_test_code() {
         (vec!["tests/helpers.py"], 0)
     );
 }
+
+#[test]
+fn a_name_test_code_shares_binds_no_test_definition_nearest_a_call_from_outside_test_code() {
+    let (_tree, engine) = build(&[
+        ("app/main.py", "def run():\n    helper()\n"),
+        (
+            "app/test_main.py",
+            "def helper():\n    pass\n\n\ndef test_run():\n    helper()\n",
+        ),
+        ("lib/util.py", "def helper():\n    pass\n"),
+        ("lib/test_util.py", "def test_helper():\n    helper()\n"),
+    ]);
+
+    assert_eq!(callees(&engine, "app/main.py", "run"), (vec![], 1));
+    assert_eq!(
+        callees(&engine, "app/test_main.py", "test_run"),
+        (vec!["app/test_main.py"], 0)
+    );
+    assert_eq!(
+        callees(&engine, "lib/test_util.py", "test_helper"),
+        (vec!["lib/util.py"], 0)
+    );
+}

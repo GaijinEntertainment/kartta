@@ -20,7 +20,8 @@ pub enum Miss {
     /// a definition local to another body, a member of an owner the call does not reach, or, for a call from outside
     /// test code, a test definition that is the one callable of the name.
     NotAdmitted,
-    /// Several definitions of the name may be meant, and neither scope nor nearness picks one.
+    /// Several definitions of the name may be meant, and neither scope nor nearness picks one, or, for a call from
+    /// outside test code, nearness picks a test definition.
     Ambiguous,
 }
 
