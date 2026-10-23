@@ -115,6 +115,55 @@ pub(crate) fn first_string_argument(call: Node<'_>, source: &[u8]) -> Option<Str
         .map(|argument| text(argument, source))
 }
 
+/// The statements outside every body whose blocks can declare a `var`, each holding its blocks among its named
+/// children.
+pub(crate) const BLOCK_STATEMENTS: [&str; 16] = [
+    "statement_block",
+    "if_statement",
+    "else_clause",
+    "try_statement",
+    "catch_clause",
+    "finally_clause",
+    "for_statement",
+    "for_in_statement",
+    "while_statement",
+    "do_statement",
+    "labeled_statement",
+    "with_statement",
+    "switch_statement",
+    "switch_body",
+    "switch_case",
+    "switch_default",
+];
+
+/// The left side of a `for (var … in …)` or `for (var … of …)`.
+pub(crate) fn declared_var(for_in: Node<'_>) -> Option<Node<'_>> {
+    for_in
+        .child_by_field_name("kind")
+        .filter(|kind| kind.kind() == "var")
+        .and_then(|_| for_in.child_by_field_name("left"))
+}
+
+// constraint: a module is strict code, and so is a script whose directive prologue, the string statements it opens
+// with, holds `"use strict"`
+pub(crate) fn is_strict(program: Node<'_>, source: &[u8]) -> bool {
+    let mut prologue = named_child_nodes(program)
+        .filter(|statement| !matches!(statement.kind(), "comment" | "hash_bang_line"))
+        .map_while(|statement| {
+            (statement.kind() == "expression_statement")
+                .then(|| statement.named_child(0))
+                .flatten()
+                .filter(|directive| directive.kind() == "string")
+        });
+    let use_strict = prologue.any(|directive| {
+        let literal = &source[directive.byte_range()];
+        literal.get(1..literal.len().saturating_sub(1)) == Some(b"use strict".as_slice())
+    });
+    use_strict
+        || named_child_nodes(program)
+            .any(|statement| matches!(statement.kind(), "import_statement" | "export_statement"))
+}
+
 pub(crate) fn declarator_kind(declaration: Node<'_>) -> SymbolKind {
     if declaration.kind() == "lexical_declaration"
         && child_nodes(declaration).any(|child| child.kind() == "const")

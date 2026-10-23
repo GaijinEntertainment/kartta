@@ -14,8 +14,9 @@ use tree_sitter::{Node, Tree};
 use self::uses::{annotated_type, constructed_type, names_a_value};
 use crate::generated::is_generated_source;
 use crate::syntax::{
-    declaration_start_line, declarator_kind, end_line, function_value, is_function_type,
-    is_member_exported, member_name, named_child_nodes, parents, trim_quotes, type_name,
+    BLOCK_STATEMENTS, declaration_start_line, declarator_kind, declared_var, end_line,
+    function_value, is_function_type, is_member_exported, is_strict, member_name,
+    named_child_nodes, parents, trim_quotes, type_name,
 };
 
 pub(crate) fn walk(tree: &Tree, source: &[u8]) -> RawExtraction {
@@ -259,6 +260,7 @@ impl<'s> Emitter<'s> {
                 Some(statement)
             }
         });
+        let (mut statements, mut strict) = (Vec::new(), None);
         for declaration in declarations {
             match declaration.kind() {
                 "lexical_declaration" | "variable_declaration" => named_child_nodes(declaration)
@@ -268,10 +270,58 @@ impl<'s> Emitter<'s> {
                 | "generator_function_declaration"
                 | "class_declaration"
                 | "abstract_class_declaration" => self.declare_module_name(declaration),
+                kind if BLOCK_STATEMENTS.contains(&kind) => {
+                    statements.push(declaration);
+                    self.hoist_blocks(&mut statements, program, &mut strict);
+                }
                 _ => {}
             }
         }
         self.module_bindings = std::mem::take(&mut self.bindings);
+    }
+
+    // constraint: a `var` that a block outside every body declares belongs to the module, and in a script that is not
+    // strict code so does a function the block declares, as ECMAScript's Annex B.3.3 scopes it; a `let`, a `const` and
+    // a class stay the block's
+    fn hoist_blocks<'t>(
+        &mut self,
+        statements: &mut Vec<Node<'t>>,
+        program: Node<'t>,
+        strict: &mut Option<bool>,
+    ) {
+        while let Some(statement) = statements.pop() {
+            match statement.kind() {
+                "variable_declaration" => named_child_nodes(statement)
+                    .for_each(|declarator| self.declare_declarator(declarator)),
+                "for_in_statement" => statements.extend(self.hoist_for_in(statement)),
+                "function_declaration" | "generator_function_declaration"
+                    if !*strict.get_or_insert_with(|| is_strict(program, self.source)) =>
+                {
+                    self.declare_module_name(statement);
+                }
+                kind if BLOCK_STATEMENTS.contains(&kind) => {
+                    statements.extend(named_child_nodes(statement).rev());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn hoist_for_in<'t>(&mut self, for_in: Node<'t>) -> Option<Node<'t>> {
+        if let Some(left) = declared_var(for_in) {
+            self.declare_pattern(left, usize::MAX, Binding::Module);
+        }
+        for_in.child_by_field_name("body")
+    }
+
+    // constraint: a `var` outside every body and namespace is the module's value inside its block too, as the hoist
+    // made it for the rest of the file
+    fn value_binding(&self, is_var: bool) -> ValueBinding {
+        if is_var && self.function_ends.is_empty() && self.types.is_empty() {
+            Binding::Module
+        } else {
+            Binding::Value
+        }
     }
 
     fn close_scopes(&mut self, start: usize) {
@@ -315,7 +365,8 @@ impl<'s> Emitter<'s> {
             _ => None,
         };
         if let Some(bound) = bound {
-            self.declare_pattern(bound, node.end_byte(), Binding::Value);
+            let value = self.value_binding(declared_var(node).is_some());
+            self.declare_pattern(bound, node.end_byte(), value);
         }
     }
 
@@ -392,14 +443,20 @@ impl<'s> Emitter<'s> {
             .is_some_and(|value| value.kind() == "class");
         if binds_a_class && name.kind() == "identifier" {
             self.declare(name.byte_range(), self.scope_end(), Binding::Type);
-        } else if name.kind() == "identifier" {
+            return;
+        }
+        let is_var = declarator
+            .parent()
+            .is_some_and(|declaration| declaration.kind() == "variable_declaration");
+        let value = self.value_binding(is_var);
+        if name.kind() == "identifier" {
             let typed = declarator
                 .child_by_field_name("type")
                 .and_then(annotated_type)
                 .or_else(|| constructed_type(declarator));
-            self.declare(name.byte_range(), self.scope_end(), Binding::Value(typed));
+            self.declare(name.byte_range(), self.scope_end(), value(typed));
         } else {
-            self.declare_pattern(name, self.scope_end(), Binding::Value);
+            self.declare_pattern(name, self.scope_end(), value);
         }
     }
 
