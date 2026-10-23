@@ -124,7 +124,8 @@ pub struct Extraction {
     /// The definitions in the file, flags complete.
     pub symbols: Vec<Symbol>,
     /// Identities of callables. A declaration joins only the one definition with the same key whose file includes the
-    /// declaration's file, directly or not; a file's includes start with itself.
+    /// declaration's file, directly or not, or, where includes are transitive, that the declaration's file includes;
+    /// a file's includes start with itself.
     pub callables: Vec<Callable>,
     /// In-class declarations folded into out-of-line definitions in the file.
     pub folded_declarations: Vec<FoldedDeclaration>,
