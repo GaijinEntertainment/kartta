@@ -11,7 +11,7 @@ use super::types::{bounded, is_container_type};
 // holds and no path step starts with, and its braces keep it apart from the variable it types: `{Server·Limits}`
 const JOIN: &str = "\u{b7}";
 
-impl Emitter<'_> {
+impl<'a> Emitter<'a> {
     pub(super) fn anonymous_name(&self, struct_type: Node<'_>) -> Option<String> {
         self.anonymous.get(&struct_type.id()).cloned()
     }
@@ -49,6 +49,37 @@ impl Emitter<'_> {
         let field_scope = format!("{scope}.{first}");
         self.name_anonymous(struct_type, &field_scope);
         Some((struct_type, field_scope))
+    }
+
+    pub(super) fn first_named(&self, names: &[Node<'_>]) -> Option<&'a str> {
+        names
+            .iter()
+            .map(|&name| self.borrowed(name))
+            .find(|&name| name != "_")
+    }
+
+    // constraint: the graph finds a type local to a body by its name in the file, and two bodies of a file often
+    // declare one name, `tests`, so a value a body declares is named after the callable that holds it too
+    pub(super) fn name_value_struct<'t>(
+        &mut self,
+        written: Node<'t>,
+        name: &str,
+    ) -> Option<(Node<'t>, String)> {
+        let struct_type = anonymous_struct(written)?;
+        let caller = self
+            .callers
+            .last()
+            .filter(|_| !self.blocks.is_empty())
+            .map(|scope| {
+                self.raw.symbols[scope.id.0 as usize]
+                    .qualified_name
+                    .as_str()
+            })
+            .and_then(|qualified| qualified.strip_prefix(self.package.as_str()))
+            .and_then(|qualified| qualified.strip_prefix('.'));
+        let scope = caller.map_or_else(|| name.to_owned(), |caller| format!("{caller}.{name}"));
+        self.name_anonymous(struct_type, &scope);
+        Some((struct_type, scope))
     }
 
     pub(super) fn declare_anonymous(&mut self, struct_type: Node<'_>, scope: &str) {
