@@ -109,10 +109,10 @@
   2026-10-17, revised 2026-10-21
 - [3.22 Analyze what a change reaches with the walk the call queries
   take](./adr/3.22-analyze-what-a-change-reaches-with-the-walk-the-call-queries-take.md) — initiative `03-code-graph`,
-  2026-10-17, revised 2026-10-20
+  2026-10-17, revised 2026-10-23
 - [3.23 Judge code dead only where the graph sees it
   used](./adr/3.23-judge-code-dead-only-where-the-graph-sees-it-used.md) — initiative `03-code-graph`, 2026-10-17,
-  revised 2026-10-19
+  revised 2026-10-23
 - [3.24 Count what a graph holds and how its calls bind when
   asked](./adr/3.24-count-what-a-graph-holds-and-how-its-calls-bind-when-asked.md) — initiative `03-code-graph`,
   2026-10-17
@@ -142,10 +142,10 @@
   2026-10-19
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md) — initiative
-  `04-consumer-surfaces`, 2026-10-18, revised 2026-10-21
+  `04-consumer-surfaces`, 2026-10-18, revised 2026-10-23
 - [4.2 Reach the engine through one JSON call over a small C
   ABI](./adr/4.2-reach-the-engine-through-one-json-call.md) — initiative `04-consumer-surfaces`, 2026-10-18, revised
-  2026-10-22
+  2026-10-23
 - [4.3 Reach the engine from Node through an addon over the same
   dispatch](./adr/4.3-reach-the-engine-from-node-through-an-addon-over-the-same-dispatch.md) — initiative
   `04-consumer-surfaces`, 2026-10-18, revised 2026-10-22
