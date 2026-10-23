@@ -2563,6 +2563,67 @@ fn the_caller_s_owner_binds_the_copy_of_its_member_nearest_the_caller() {
 }
 
 #[test]
+fn the_caller_s_owner_binds_a_namesake_class_only_where_its_own_class_declares_a_base() {
+    let qualified = |namespace: &str, name: &str, line: u32| {
+        let mut symbol = member("App", name, SymbolKind::Method, line);
+        symbol.qualified_name = format!("{namespace}\\App::{name}");
+        symbol
+    };
+    let class = |parents: &[&str]| {
+        let mut class = Symbol::new("App", SymbolKind::Class, 1, 10);
+        class.qualified_name = "A\\App".to_owned();
+        class.parents = parents.iter().map(|&parent| parent.to_owned()).collect();
+        class
+    };
+    let calling = |parents: Option<&[&str]>, elsewhere: Vec<Symbol>| {
+        let mut own = parents.map(class).into_iter().collect::<Vec<_>>();
+        let caller = u32::try_from(own.len()).expect("one class at most");
+        own.push(qualified("A", "f", 2));
+        let graph = graph(&[
+            file("a/app.php", own, vec![member_call(caller, "$this", "m", 3)]),
+            file("b/app.php", elsewhere, Vec::new()),
+            file(
+                "c/other.php",
+                vec![member("Other", "m", SymbolKind::Method, 1)],
+                Vec::new(),
+            ),
+        ]);
+        callees(&graph, "A\\App::f")
+    };
+
+    assert_eq!(
+        calling(Some(&[]), vec![qualified("B", "m", 1)]),
+        Vec::<String>::new(),
+        "a class that declares no base has no member of another scope's class of its name"
+    );
+    assert_eq!(
+        calling(Some(&["BaseApp"]), vec![qualified("B", "m", 1)]),
+        ["b/app.php:1@80"],
+        "a base written as an alias can be the class of the caller's owner's name in another scope"
+    );
+    assert_eq!(
+        calling(
+            Some(&["BaseApp"]),
+            vec![class(&[]), qualified("B", "m", 12)]
+        ),
+        ["b/app.php:12@80"],
+        "the caller's own class declares the base, not a copy of it elsewhere"
+    );
+    assert_eq!(
+        calling(None, vec![qualified("B", "m", 1)]),
+        ["b/app.php:1@80"],
+        "a caller's class the graph does not hold may declare a base"
+    );
+    assert_eq!(
+        calling(
+            Some(&[]),
+            vec![qualified("B", "m", 1), qualified("A", "m", 5)]
+        ),
+        ["b/app.php:5@80"]
+    );
+}
+
+#[test]
 fn a_language_that_lists_its_own_type_receivers_binds_the_caller_s_owner_only_on_one() {
     let drain = |owner: &str| member(owner, "drain", SymbolKind::Method, 1);
     let calling = |own_type_receivers, receiver: &str| {
