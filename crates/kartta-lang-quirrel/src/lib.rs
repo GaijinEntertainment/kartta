@@ -9,12 +9,12 @@
 //! bound to a name. A function value takes the name of its binding, the name its callers use: a table slot, a `let`
 //! or `local`, or the target of an `=` or `<-`. A member of a named or bound class is a method of the class, and an
 //! assignment to a field access binds a method of the whole receiver expression, `gui.Widget.build` one of
-//! `gui.Widget`. Any other function is free; a function value with no binding and no name of its own belongs to no
-//! symbol, and its calls have no caller. A data slot with a plain name, `count = 0`, of a class or of a table that a
-//! file-scope `let` or `local` binds, is a field of that class or binding, with the slot as its signature when the
-//! value is a literal, a name or a unary expression; a computed `[k] = v` or quoted `"k": v` slot is none.
-//! `class C(Base)` names `Base` as a parent. A callable's signature is its header, from its declaration or binding to
-//! its body.
+//! `gui.Widget`. Any other function is free; a function value with no binding and no name of its own is no symbol,
+//! and its calls and uses belong to the function around it, or to the file at its top level. A data slot with a plain
+//! name, `count = 0`, of a class or of a table that a file-scope `let` or `local` binds, is a field of that class or
+//! binding, with the slot as its signature when the value is a literal, a name or a unary expression; a computed
+//! `[k] = v` or quoted `"k": v` slot is none. `class C(Base)` names `Base` as a parent. A callable's signature is its
+//! header, from its declaration or binding to its body.
 //!
 //! A call records its callee: a bare name, a root-table `::f`, or the field of a member call, whose receiver is the
 //! whole receiver expression as written. A computed callee, `a[k]()` or `f()()`, records nothing, and neither does a
