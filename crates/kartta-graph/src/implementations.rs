@@ -282,7 +282,7 @@ impl Types<'_> {
             return self.names_in_packages(child.file, written, ty);
         }
         if conventions.owner_chain_separator.is_some() {
-            if let Some(owner) = self.cascade.base_owner(child, as_written) {
+            if let Some(owner) = self.cascade.base_owner(child, as_written, is_parent) {
                 return owner == self.graph.sym(ty).qualified_name;
             }
             if !written.contains(QUALIFIER_SEPARATORS) {
