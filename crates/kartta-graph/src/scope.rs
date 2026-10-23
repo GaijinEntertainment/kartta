@@ -9,7 +9,7 @@ use crate::candidates::Candidates;
 use crate::confidence;
 use crate::graph::{agree, distinct, last_segment};
 use crate::resolve::{Bound, Call, Cascade, derived, derives};
-use crate::stored::SymbolAt;
+use crate::stored::{SymbolAt, VALUE_TYPE_SEPARATOR};
 use crate::strings::Str;
 use crate::twins::{Twin, kept};
 
@@ -974,12 +974,14 @@ impl Cascade<'_> {
         if !declared.all(|other| other == Some(first)) {
             return None;
         }
-        let spelled = strings.resolve(first);
-        let class = match (spelled.strip_prefix('*'), arrow) {
-            (Some(pointee), true) => pointee,
-            (None, false) => spelled,
-            _ => return None,
-        };
+        let class = strings
+            .resolve(first)
+            .split(VALUE_TYPE_SEPARATOR)
+            .find_map(|spelled| match (spelled.strip_prefix('*'), arrow) {
+                (Some(pointee), true) => Some(pointee),
+                (None, false) => Some(spelled),
+                _ => None,
+            })?;
         let bare = self
             .conventions
             .scope_separator

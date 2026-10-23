@@ -88,12 +88,21 @@ pub(super) fn field_declarator(mut node: Node<'_>) -> Option<(Node<'_>, Option<b
     }
 }
 
-/// The value type of a field of `class`, a pointer's after a `*`.
-pub(super) fn field_value_type((class, pointer): (&str, bool)) -> String {
-    if pointer {
-        format!("*{class}")
-    } else {
-        class.to_owned()
+/// The value types of a field of `class`: the class, a pointer's after a `*`, and for a value of a class template
+/// the class its `operator->` reaches, `arrow`, after a `*`.
+pub(super) fn field_value_types(
+    class: Option<&str>,
+    pointer: Option<bool>,
+    arrow: Option<&str>,
+) -> Vec<String> {
+    match (class, pointer) {
+        (Some(class), Some(true)) => vec![format!("*{class}")],
+        (Some(class), Some(false)) => {
+            let mut types = vec![class.to_owned()];
+            types.extend(arrow.map(|reached| format!("*{reached}")));
+            types
+        }
+        _ => Vec::new(),
     }
 }
 
