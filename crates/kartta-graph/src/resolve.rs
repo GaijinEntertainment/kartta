@@ -29,6 +29,7 @@ pub(crate) struct Call {
     pub(crate) receiver: Option<Str>,
     pub(crate) written_from_root: bool,
     pub(crate) names_a_runtime_method: bool,
+    pub(crate) on_a_class: bool,
     pub(crate) local: Option<u32>,
     pub(crate) line: u32,
 }
@@ -130,6 +131,7 @@ impl<'g> Cascade<'g> {
                     written_from_root: call.is_written_from_root(),
                     names_a_runtime_method: call.receiver.is_some()
                         && self.is_runtime_method(call.callee),
+                    on_a_class: call.is_on_a_class(),
                     local: None,
                     line: call.line,
                 }
@@ -143,6 +145,7 @@ impl<'g> Cascade<'g> {
                     receiver: None,
                     written_from_root: false,
                     names_a_runtime_method: false,
+                    on_a_class: false,
                     local: Some(call.local),
                     line: call.line,
                 }
@@ -1245,13 +1248,9 @@ impl<'g> Cascade<'g> {
             }
         } else if let Some(owner) =
             path.filter(|&path| !self.graph.strings.resolve(path).is_empty())
+            && let Some(found) = self.path_member(site, owner, name)
         {
-            if self.conventions.include_reach != IncludeReach::Transitive {
-                return self.owner_member(site, owner, name);
-            }
-            if let Some(found) = self.included_owner_member(site, owner, name) {
-                return found;
-            }
+            return found;
         }
         if self.conventions.untyped_members == UntypedMembers::Unbound {
             return Err(UseMiss::Ambiguous);

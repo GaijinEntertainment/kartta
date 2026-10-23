@@ -373,6 +373,27 @@ impl Cascade<'_> {
         self.graph.qualifier(at)?.strip_prefix(owner)
     }
 
+    /// Whether `at` is a member of the kind a receiver reaches first: a class's own method for a receiver on the class,
+    /// and any other member for any other receiver. Every member is, where the language keeps no class's own methods
+    /// apart.
+    pub(crate) fn is_of_the_kind(&self, on_a_class: bool, at: SymbolAt) -> bool {
+        self.conventions
+            .class_member_separator
+            .is_none_or(|separator| (self.member_separator(at) == Some(separator)) == on_a_class)
+    }
+
+    /// Of `owned`, the first member of the kind a receiver reaches first, else the first.
+    pub(crate) fn first_of_the_kind(
+        &self,
+        on_a_class: bool,
+        mut owned: impl Iterator<Item = SymbolAt> + Clone,
+    ) -> Option<SymbolAt> {
+        owned
+            .clone()
+            .find(|&at| self.is_of_the_kind(on_a_class, at))
+            .or_else(|| owned.next())
+    }
+
     fn declares_inherited(&self, up: &Ancestors, at: SymbolAt) -> bool {
         let Some(owner) = self.owner(at) else {
             return false;
@@ -845,6 +866,10 @@ impl Cascade<'_> {
                     .find(|&at| self.declares_own(reach, at))
                     .unwrap_or(first)
             }
+            _ if call.receiver.is_some() => std::iter::once(first)
+                .chain(admitted)
+                .find(|&at| self.is_of_the_kind(call.on_a_class, at))
+                .unwrap_or(first),
             _ => first,
         })
     }
@@ -940,8 +965,22 @@ impl Cascade<'_> {
     }
 
     // constraint: owners of one name in several directories, a package's own type and a copy of it elsewhere, are told
-    // apart by nearness: the caller's file, then its directory, then the first in path order
+    // apart by nearness: the caller's file, then its directory, then the first in path order; one class reopened in
+    // several files holds both kinds of member where any of its bodies does, so the kind the receiver reaches first
+    // is told apart before nearness
     fn nearest(
+        &self,
+        call: &Call,
+        owned: impl Iterator<Item = SymbolAt> + Clone,
+    ) -> Option<SymbolAt> {
+        let of_the_kind = owned
+            .clone()
+            .filter(|&at| self.is_of_the_kind(call.on_a_class, at));
+        self.nearest_of(call, of_the_kind)
+            .or_else(|| self.nearest_of(call, owned))
+    }
+
+    fn nearest_of(
         &self,
         call: &Call,
         mut owned: impl Iterator<Item = SymbolAt> + Clone,
@@ -1130,7 +1169,13 @@ impl Cascade<'_> {
         });
         let first = ending.next()?;
         let owner = self.owner(first);
-        ending.all(|at| self.owner(at) == owner).then_some(first)
+        if !ending.clone().all(|at| self.owner(at) == owner) {
+            return None;
+        }
+        std::iter::once(first)
+            .chain(ending)
+            .find(|&at| self.is_of_the_kind(call.on_a_class, at))
+            .or(Some(first))
     }
 
     /// Whether the call's receiver, at its last segment, spells the owner of `at` in any case: `session` or
@@ -1213,7 +1258,7 @@ impl Cascade<'_> {
             let symbol = self.graph.sym(ty);
             derives(symbol.kind) && self.graph.strings.resolve(symbol.qualified_name) == qualified
         });
-        self.nearest(call, types)
+        self.nearest_of(call, types)
             .is_some_and(|ty| self.graph.file(ty.file).parents_of(ty.index).is_empty())
     }
 

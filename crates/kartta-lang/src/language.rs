@@ -187,6 +187,13 @@ pub struct Conventions {
     /// is such a chain: a receiver that spells the chain's end at a separator, `Worker` or `m::Worker` for
     /// `a::m::Worker`, names that owner. `None` where an owner is a single name.
     pub owner_chain_separator: Option<&'static str>,
+    /// The separator that joins a class's own methods to their owner, `.` in Ruby's `Formula.build`, where one owner
+    /// can hold a class method and an instance method of one name, `Formula.build` beside `Formula#build`. A member
+    /// call's receiver or a use's receiver path that ends in it is the class itself: `Formula.` names the owner
+    /// `Formula`, and `.` alone a class the language cannot name. Of an owner's methods of the name, a receiver on the
+    /// class reaches those joined with this separator first, and any other receiver the others first; an owner that
+    /// holds only one kind offers it to both. `None` where the language keeps no such methods apart.
+    pub class_member_separator: Option<&'static str>,
     /// Whether a bare call reaches a member of an owner whose chain encloses the caller's own owner at
     /// [`Conventions::owner_chain_separator`], as a TypeScript `namespace` is a lexical scope of what it holds.
     pub bare_call_reaches_enclosing_owners: bool,
@@ -246,6 +253,7 @@ impl Conventions {
         values_are_call_targets: true,
         namespace_calls: NamespaceCalls::Bound,
         owner_chain_separator: None,
+        class_member_separator: None,
         bare_call_reaches_enclosing_owners: false,
         scope_separator: None,
         directory_packages: false,

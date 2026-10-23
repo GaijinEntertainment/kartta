@@ -652,6 +652,12 @@ impl Graph {
             .flatten()
     }
 
+    /// The owner a receiver on a class spells before the language's class member separator, empty where it names
+    /// none, and `None` for a receiver on anything else.
+    pub(crate) fn class_named<'a>(&self, receiver: &'a str) -> Option<&'a str> {
+        receiver.strip_suffix(self.conventions.class_member_separator?)
+    }
+
     fn store_parents(&mut self, symbols: &[Symbol]) -> Box<[Parent]> {
         let mut parents = Vec::new();
         for (index, symbol) in symbols.iter().enumerate() {
@@ -703,11 +709,13 @@ impl Graph {
             .map(|call| {
                 let rooted = self.written_from_root(&call.callee);
                 let callee = rooted.unwrap_or(&call.callee);
+                let receiver = call.receiver.as_deref();
+                let class = receiver.and_then(|receiver| self.class_named(receiver));
                 let mut stored = StoredCall::new(
                     call.site_of.0,
                     self.strings.intern(callee),
-                    call.receiver
-                        .as_deref()
+                    class
+                        .or(receiver)
                         .map(|receiver| self.strings.intern(receiver)),
                     call.line,
                 );
@@ -716,6 +724,9 @@ impl Graph {
                 }
                 if callee.contains(QUALIFIER_SEPARATORS) {
                     stored = stored.qualified();
+                }
+                if class.is_some() {
+                    stored = stored.on_a_class();
                 }
                 stored
             })
