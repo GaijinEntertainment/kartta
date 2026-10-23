@@ -659,6 +659,11 @@ impl<'g> Cascade<'g> {
         {
             return Ok((at, confidence::IMPORT));
         }
+        if call.receiver.is_none()
+            && let Some(bound) = self.glob_imported(call)
+        {
+            return Ok(bound);
+        }
         if self.conventions.directory_packages
             && let Some(at) = self.scoped_target(
                 call,
@@ -910,6 +915,25 @@ impl<'g> Cascade<'g> {
                 return None;
             }
             unique = Some(at);
+        }
+        unique
+    }
+
+    // constraint: a dot import of a module's file, a Rust glob, binds what that file shows the call as a named import
+    // of it does, below the caller's own file, which shadows a glob; two such imports that answer leave the call to
+    // the tiers below
+    fn glob_imported(&self, call: &Call) -> Option<Bound> {
+        let mut unique = None;
+        for &target in &self.bindings(call.file).dot_dirs {
+            let Some(bound) =
+                (self.graph.slot_of(target)).and_then(|module| self.module_export(call, module))
+            else {
+                continue;
+            };
+            if unique.is_some() {
+                return None;
+            }
+            unique = Some(bound);
         }
         unique
     }
