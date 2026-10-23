@@ -292,11 +292,35 @@ fn a_const_function_is_a_function_that_owns_its_calls() {
 }
 
 #[test]
-fn table_methods_are_free_functions() {
-    let raw = extract("let t = {\n  function tm() { body() }\n}\n");
+fn a_module_table_owns_its_declared_functions_and_no_other_table_does() {
+    let raw = extract(
+        "let t = {\n  key = 1, function tm() { body() }\n  slot = function() {}\n}\n\
+         function f() {\n  let inner = { function im() {} }\n}\nreturn { function rm() {} }\n",
+    );
 
-    assert_eq!(kinds(&raw), [("tm", SymbolKind::Function)]);
-    assert_eq!(callers(&raw), [("body", SymbolId(0))]);
+    let owned: Vec<(&str, SymbolKind, Option<&str>)> = raw
+        .symbols
+        .iter()
+        .map(|symbol| {
+            (
+                symbol.qualified_name.as_str(),
+                symbol.kind,
+                symbol.owner.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        owned,
+        [
+            ("t.key", SymbolKind::Field, Some("t")),
+            ("t.tm", SymbolKind::Method, Some("t")),
+            ("slot", SymbolKind::Function, None),
+            ("f", SymbolKind::Function, None),
+            ("im", SymbolKind::Function, None),
+            ("rm", SymbolKind::Function, None),
+        ]
+    );
+    assert_eq!(callers(&raw), [("body", id_of(&raw, "t.tm"))]);
 }
 
 #[test]
