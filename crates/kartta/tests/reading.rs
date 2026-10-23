@@ -1,8 +1,8 @@
 //! What a name that selected no symbol names instead, across the graphs a query searched.
 
 use kartta::{
-    Conventions, Extraction, Graph, Selector, Symbol, SymbolKind, UnmatchedKind, is_parent,
-    selects_as_callers, unmatched,
+    Conventions, Extraction, Graph, Limits, Selector, Symbol, SymbolKind, UnmatchedKind,
+    ask_reading, is_parent, selects_as_callers, unmatched,
 };
 
 fn graph(files: &[(&str, Vec<Symbol>)]) -> Graph {
@@ -161,6 +161,53 @@ fn a_name_with_one_definition_under_its_prefix_and_others_outside_names_only_tho
         .map(|(_, definition)| definition.file)
         .collect();
     assert_eq!(files, ["lib/parse.go"]);
+}
+
+fn overloads(qualified_name: &str) -> Graph {
+    let at = |line| {
+        let mut symbol = qualified("parse", qualified_name, SymbolKind::Function);
+        (symbol.line, symbol.end_line) = (line, line + 1);
+        symbol
+    };
+    graph(&[("app/parse.cpp", vec![at(1), at(5)])])
+}
+
+#[test]
+fn a_line_no_definition_starts_on_names_the_definitions_of_its_file_as_outside() {
+    let cpp = overloads("app::parse");
+    let ask = |line| {
+        unmatched(
+            [("cpp", &cpp)].into_iter(),
+            Selector::new("parse", Some("app/parse.cpp")).with_line(line),
+            |_| true,
+            5,
+        )
+    };
+
+    let off = ask(Some(9)).expect("two definitions lie off line 9");
+    let beside = ask(Some(5)).expect("one definition lies off line 5");
+
+    assert_eq!((off.kind, off.total), (UnmatchedKind::OutsidePrefix, 2));
+    assert_eq!((beside.total, beside.listed[0].1.line), (1, 1));
+}
+
+#[test]
+fn a_name_read_with_the_other_separator_keeps_its_line() {
+    let cpp = overloads("app::parse");
+
+    let (found, [read_as]) = ask_reading(
+        [("cpp", &cpp)].into_iter(),
+        [Selector::new("app.parse", Some("app/")).with_line(Some(5))],
+        |_| true,
+        |(_, graph), [named]| {
+            graph
+                .callers(named, Limits::new(1))
+                .map(|walk| walk.root.line)
+        },
+    );
+
+    assert_eq!(read_as.as_deref(), Some("app::parse"));
+    assert_eq!(found, [5]);
 }
 
 #[test]

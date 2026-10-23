@@ -20,10 +20,10 @@ pub struct Unmatched<'g> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum UnmatchedKind {
-    /// Several definitions under the path prefix end with the name, and a query picks none of them: a longer name, or
-    /// a path prefix that holds only one of them, picks one.
+    /// Several definitions the selector looks at end with the name, and a query picks none of them: a longer name, or
+    /// a path prefix and a line that look at only one of them, picks one.
     Several,
-    /// The name names definitions outside the path prefix, and at most one under it.
+    /// The name names definitions outside the path prefix or off the line, and at most one the selector looks at.
     OutsidePrefix,
     /// The name names no definition, and names one edit from it do, as [`Graph::definitions_one_edit_from`] edits
     /// one: one character swapped with the next, dropped, replaced or added.
@@ -32,9 +32,9 @@ pub enum UnmatchedKind {
 
 /// What `named` names instead, for a name by which a query selected no symbol in the `searched` graphs.
 ///
-/// Among the definitions of the kinds `selects` takes, it answers several under the name's path prefix, else some
-/// outside it, else, for a name that names no definition of any kind, those of the names one edit from it wherever they
-/// lie, listing at most `limit`; and `None` when none holds. The name is looked up once in each graph, as
+/// Among the definitions of the kinds `selects` takes, it answers several under the name's path prefix and on its line,
+/// else some outside them, else, for a name that names no definition of any kind, those of the names one edit from it
+/// wherever they lie, listing at most `limit`; and `None` when none holds. The name is looked up once in each graph, as
 /// [`Graph::definitions`] reads it, and a name that names nothing once more for each string one edit from it, as
 /// [`Graph::definitions_one_edit_from`] looks them up; nothing is searched.
 pub fn unmatched<'g>(
@@ -55,10 +55,7 @@ pub fn unmatched<'g>(
             if !selects(definition.kind) {
                 continue;
             }
-            let held = if named
-                .path_prefix
-                .is_none_or(|prefix| definition.file.starts_with(prefix))
-            {
+            let held = if named.admits(definition.file, definition.line) {
                 &mut under
             } else {
                 &mut outside
@@ -144,7 +141,7 @@ pub fn ask_reading<'g, T, const N: usize>(
     let read = std::array::from_fn(|at| {
         readings[at]
             .as_deref()
-            .map_or(named[at], |read| Selector::new(read, named[at].path_prefix))
+            .map_or(named[at], |read| named[at].with_name(read))
     });
     let found = searched.filter_map(|graph| ask(graph, read)).collect();
     (found, readings)
@@ -167,13 +164,7 @@ fn reading<'g>(
         .into_iter()
         .filter(|(written, _)| name.contains(written))
         .map(|(written, read)| name.replace(written, read))
-        .find(|read| {
-            selects_any(
-                searched.clone(),
-                Selector::new(read, named.path_prefix),
-                selects,
-            )
-        })
+        .find(|read| selects_any(searched.clone(), named.with_name(read), selects))
 }
 
 /// Whether `named` selects a definition of the kinds `selects` takes, in the files it looks in, in the graphs a query
@@ -187,9 +178,7 @@ fn selects_any<'g>(
         let selected = graph.definitions(named.name, None, usize::MAX).found;
         selected.iter().any(|found| {
             selects(found.definition.kind)
-                && named
-                    .path_prefix
-                    .is_none_or(|prefix| found.definition.file.starts_with(prefix))
+                && named.admits(found.definition.file, found.definition.line)
         })
     })
 }
