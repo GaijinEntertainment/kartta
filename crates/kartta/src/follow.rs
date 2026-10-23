@@ -42,7 +42,7 @@ pub struct Watch {
     /// while one does.
     pub off: Option<String>,
     /// How many times the follow let its watcher go and started a new one over a refresh of the whole tree, because the
-    /// watcher dropped changes, stopped, or met the inotify limit.
+    /// watcher dropped changes, stopped, met the inotify limit, or saw its root deleted or moved.
     pub restarts: usize,
 }
 
@@ -55,10 +55,11 @@ pub struct Watch {
 ///
 /// A batch of changed paths is refreshed under the watcher, as [`Engine::refresh_paths_watched`] does, so the watcher
 /// watches a directory the refresh takes in. A batch that names the whole tree, because the operating system dropped
-/// changes, a watcher that stopped, and a refresh under it that met the inotify limit each let the watcher go and start
-/// a new one over a refresh of the whole tree, as [`Engine::refresh_watched`] does: on Linux the move of a directory
-/// went with the dropped changes, so the old watcher would go on naming that directory's changes by the path it had,
-/// and inotify counts every watch the user holds, so the old watcher goes first. Any other failure ends the follow, and
+/// changes, a root deleted or moved, a watcher that stopped, and a refresh under it that met the inotify limit each let
+/// the watcher go and start a new one over a refresh of the whole tree, as [`Engine::refresh_watched`] does: on Linux
+/// the move of a directory went with the dropped changes, so the old watcher would go on naming that directory's
+/// changes by the path it had, and inotify counts every watch the user holds, so the old watcher goes first. Any other
+/// failure ends the follow, a restart that fails because nothing is at the root's path any more included, and
 /// [`Watch::off`] says why.
 ///
 /// An engine built without [`BuildOptions::stamps`](kartta_fs::BuildOptions::stamps) reads every file again and builds
@@ -198,16 +199,17 @@ enum Next {
 
 // constraint: a batch that names the whole tree is one the watcher dropped changes from, and on Linux the notice of a
 // directory moved meanwhile went with them, so the watcher would go on naming its changes by the path it had, and only
-// a new watcher over a refresh of the whole tree follows the tree as it is
+// a new watcher over a refresh of the whole tree follows the tree as it is; a root deleted or moved may have a tree
+// moved into its place, which only such a restart finds
 fn next(batch: Result<Vec<String>, WatchError>) -> Next {
     match batch {
         Ok(changes) if changes.iter().any(String::is_empty) => {
             Next::Restart("the notifications dropped changes".to_owned())
         }
         Ok(changes) => Next::Refresh(changes),
-        Err(error @ (WatchError::Stopped { .. } | WatchError::Limit { .. })) => {
-            Next::Restart(error.to_string())
-        }
+        Err(
+            error @ (WatchError::RootGone | WatchError::Stopped { .. } | WatchError::Limit { .. }),
+        ) => Next::Restart(error.to_string()),
         Err(error) => Next::Stop(error.to_string()),
     }
 }
@@ -538,6 +540,85 @@ mod tests {
         assert!(walked.iter().all(|walked| walked != &[""]), "{walked:?}");
     }
 
+    /// Follows `root`, makes the change `went` makes to it, and answers what the follow reported of its watch once it
+    /// stopped, or after 10 s.
+    fn stopped_once(root: &Path, went: impl FnOnce(&Path)) -> Watch {
+        let (owner, follower) = caught_up_on(root, Vec::new());
+        let owner = Arc::new(owner);
+        let following = follower.unwrap().follow(&owner).unwrap();
+
+        went(root);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !following.is_finished() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+        owner.token.cancel();
+        following.join().unwrap();
+        owner.watch.read().unwrap().clone()
+    }
+
+    /// A tree of one file at `tree` below `parent`.
+    fn tree_below(parent: &Path) -> PathBuf {
+        let root = parent.join("tree");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.txt"), "a").unwrap();
+        root
+    }
+
+    #[test]
+    fn a_follow_whose_root_was_deleted_or_moved_away_names_it_and_stops_once_no_restart_finds_the_root()
+     {
+        let parent = tempfile::tempdir().unwrap();
+        let deleted = tree_below(&parent.path().join("deleted"));
+        let moved = tree_below(&parent.path().join("moved"));
+
+        let watches = [
+            stopped_once(&deleted, |root| std::fs::remove_dir_all(root).unwrap()),
+            stopped_once(&moved, |root| {
+                std::fs::rename(root, root.with_file_name("away")).unwrap();
+            }),
+        ];
+
+        for watch in watches {
+            let off = watch.off.as_deref().unwrap_or_default();
+            assert!(
+                off.starts_with("the root was deleted or moved, and a new watch failed: "),
+                "{watch:?}"
+            );
+            assert_eq!(watch.restarts, 0, "{watch:?}");
+        }
+    }
+
+    #[test]
+    fn a_follow_whose_root_was_replaced_restarts_over_the_tree_now_at_its_path() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = tree_below(parent.path());
+        let next = parent.path().join("next");
+        std::fs::create_dir(&next).unwrap();
+        std::fs::write(next.join("b.txt"), "b").unwrap();
+        let (owner, follower) = caught_up_on(&root, Vec::new());
+        let owner = Arc::new(owner);
+        let following = follower.unwrap().follow(&owner).unwrap();
+
+        std::fs::rename(&root, parent.path().join("old")).unwrap();
+        std::fs::rename(&next, &root).unwrap();
+        assert!(
+            owner.holds_soon("b.txt"),
+            "the restart took the new tree in"
+        );
+        std::fs::write(root.join("c.txt"), "c").unwrap();
+        assert!(
+            owner.holds_soon("c.txt"),
+            "the new watcher follows the new tree"
+        );
+        owner.token.cancel();
+        following.join().unwrap();
+
+        let watch = owner.watch.read().unwrap().clone();
+        assert_eq!(watch.off, None);
+        assert!(watch.restarts >= 1, "{watch:?}");
+    }
+
     #[test]
     fn a_follow_ends_once_nothing_else_holds_its_engine() {
         let tree = tempfile::tempdir().unwrap();
@@ -597,7 +678,8 @@ mod tests {
     }
 
     #[test]
-    fn a_watcher_that_dropped_changes_stopped_or_met_the_limit_is_restarted() {
+    fn a_watcher_that_dropped_changes_lost_its_root_stopped_or_met_the_limit_is_restarted_with_that_reason()
+     {
         let stopped = WatchError::Stopped {
             source: io::Error::other("the notification thread ended"),
         };
@@ -609,6 +691,10 @@ mod tests {
         assert_eq!(
             next(Ok(vec![String::new()])),
             Next::Restart("the notifications dropped changes".to_owned())
+        );
+        assert_eq!(
+            next(Err(WatchError::RootGone)),
+            Next::Restart("the root was deleted or moved".to_owned())
         );
         assert_eq!(
             next(Err(stopped)),
