@@ -486,8 +486,8 @@
   - Revisit if: the type tier takes a field or a variable as the owner of its anonymous struct's fields
 - [3.62 Record TypeScript and JavaScript data sites through what a value
   declares](./adr/3.62-record-typescript-and-javascript-data-sites-through-what-a-value-declares.md)
-  - Governs: `crates/kartta-lang-jsts/src/walk.rs`, `crates/kartta-lang-jsts/src/walk/uses.rs`, the TS/JS
-    `Conventions`
+  - Governs: `crates/kartta-lang-jsts/src/walk.rs`, `crates/kartta-lang-jsts/src/walk/uses.rs`,
+    `crates/kartta-lang-jsts/src/walk/context.rs`, the TS/JS `Conventions`
   - Revisit if: the extraction records the type a value holds where no declaration spells it
 - [3.63 Record Python data sites in the scope that binds
   them](./adr/3.63-record-python-data-sites-in-the-scope-that-binds-them.md)
@@ -581,8 +581,8 @@
 - [3.101 Name no type for a TypeScript or JavaScript call on a value the file
   declares](./adr/3.101-name-no-type-for-a-typescript-or-javascript-call-on-a-value-the-file-declares.md)
   - Governs: `crates/kartta-lang-jsts/src/walk.rs` (`Binding`, `Declared`), `crates/kartta-lang-jsts/src/walk/calls.rs`
-    (`value_receiver`, `this_class`)
-  - Revisit if: the walk learns the type a value's declaration spells for its calls (#475, #319)
+    (`value_receiver`, `this_class`), `crates/kartta-lang-jsts/src/walk/context.rs`
+  - Revisit if: the walk learns the type a value's declaration spells for its calls (#475)
 - [3.102 Bind a Python bare call by the scope that binds its
   name](./adr/3.102-bind-a-python-bare-call-by-the-scope-that-binds-its-name.md)
   - Governs: `crates/kartta-lang-python/src/walk.rs` (`Frame`, `Binding`, `close`, `scope_frame`)
