@@ -1,7 +1,8 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
 //! what that crate exports, a macro invocation the `#[macro_export]` macro of its root file or the one of the files
-//! that file includes, through a `use` inside a function body or an inline module only from inside it, and a Rust
+//! that file includes, through a `use` inside a function body or an inline module only from inside it, and no macro
+//! of a name the crate also answers with a function or a `use`, as a call does not say it invokes a macro, and a Rust
 //! call on a value, on `self` or through a type binds no free function, not even through a value named like a module
 //! the file imports, while a call on a value still binds the one runtime method whose owner the value's name spells.
 #![expect(
@@ -382,6 +383,95 @@ fn a_rust_macro_two_submodules_export_binds_neither_through_the_import() {
         bound_through_an_import(&engine, "crates/app/src/unique.rs", "unique"),
         ["crates/other/src/unix.rs"]
     );
+}
+
+/// What binds through an import from `by_path`, `by_use` and `by_call`, which calls `other_crate::mac()` as a function,
+/// where `other-crate` is made of `modules`.
+fn called_and_invoked_through_an_import(modules: &[(&str, &str)]) -> [Vec<String>; 3] {
+    let mut files = modules.to_vec();
+    files.push((
+        "crates/app/src/called.rs",
+        "fn by_call() {\n    other_crate::mac();\n}\n",
+    ));
+    let engine = invoking_a_macro_of(&files);
+    let [by_path, by_use] = macro_bound_through_an_import(&engine);
+    let by_call = bound_through_an_import(&engine, "crates/app/src/called.rs", "by_call");
+    [by_path, by_use, by_call].map(|files| files.into_iter().map(str::to_owned).collect())
+}
+
+const NOTHING_THROUGH_AN_IMPORT: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+
+#[test]
+fn a_rust_name_the_root_file_exports_as_a_function_and_a_macro_binds_neither_through_the_import() {
+    let bound = called_and_invoked_through_an_import(&[(
+        "crates/other/src/lib.rs",
+        "#[macro_export]\nmacro_rules! mac { () => {}; }\n\npub fn mac() {}\n",
+    )]);
+
+    assert_eq!(bound, NOTHING_THROUGH_AN_IMPORT);
+}
+
+#[test]
+fn a_rust_name_a_submodule_exports_as_a_function_binds_no_macro_of_it_through_the_import() {
+    for re_export in ["pub use inner::mac;\n", "pub use crate::inner::mac;\n", ""] {
+        let bound = called_and_invoked_through_an_import(&[
+            (
+                "crates/other/src/lib.rs",
+                &format!("mod inner;\nmod macros;\n{re_export}"),
+            ),
+            ("crates/other/src/inner.rs", "pub fn mac() {}\n"),
+            (
+                "crates/other/src/macros.rs",
+                "#[macro_export]\nmacro_rules! mac { () => {}; }\n",
+            ),
+        ]);
+
+        assert_eq!(
+            bound, NOTHING_THROUGH_AN_IMPORT,
+            "re-exported by {re_export:?}"
+        );
+    }
+}
+
+#[test]
+fn a_rust_name_the_root_file_re_exports_from_another_crate_binds_no_macro_of_it_through_the_import()
+{
+    let bound = called_and_invoked_through_an_import(&[
+        (
+            "crates/other/src/lib.rs",
+            "mod macros;\npub use dep::mac;\n",
+        ),
+        (
+            "crates/other/src/macros.rs",
+            "#[macro_export]\nmacro_rules! mac { () => {}; }\n",
+        ),
+        ("crates/dep/Cargo.toml", "[package]\nname = \"dep\"\n"),
+        ("crates/dep/src/lib.rs", "pub fn mac() {}\n"),
+    ]);
+
+    assert_eq!(bound, NOTHING_THROUGH_AN_IMPORT);
+}
+
+#[test]
+fn a_rust_macro_a_submodule_exports_binds_beside_re_exports_of_other_names_and_a_private_namesake()
+{
+    let bound = called_and_invoked_through_an_import(&[
+        (
+            "crates/other/src/lib.rs",
+            "pub mod tree;\nmod banner;\n\npub use crate::banner::Banner;\npub use dep::Other;\n",
+        ),
+        (
+            "crates/other/src/tree.rs",
+            "#[macro_export]\nmacro_rules! mac { () => {}; }\n\npub fn line() {}\n",
+        ),
+        (
+            "crates/other/src/banner.rs",
+            "pub struct Banner;\n\nfn mac() {}\n",
+        ),
+    ]);
+
+    let tree = vec!["crates/other/src/tree.rs".to_owned()];
+    assert_eq!(bound, [tree.clone(), tree.clone(), tree]);
 }
 
 #[test]

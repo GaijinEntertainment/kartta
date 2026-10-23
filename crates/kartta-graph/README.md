@@ -23,7 +23,9 @@ reaches, or a module's file: a call through such an import, or of the name it im
 its top level under the name, a type only where the file defines nothing else of the name there. A name the file does
 not define there binds the one exported macro of the name that the files it includes define, directly or through
 others, as Rust's `#[macro_export]` places a macro at its crate's root whatever module defines it; two such macros, or
-none, leave the call to the tiers below. A member
+none, leave the call to the tiers below. A call does not say whether it invokes a macro, so where the module also
+answers the name otherwise, through an exported definition of the file or of the files it includes or through a
+`use` of the name that the file binds, this tier binds neither and leaves the call to the tiers below. A member
 call, `x.f()`, binds a free function only where its language's conventions let one stand for what a value holds, or
 for what a module its receiver names holds, as in Rust's `walk::run()`, and `f` names no method the language's runtime
 gives its own values,
