@@ -259,10 +259,11 @@ enum HeadWord {
 // torrent : base` or `struct DECLSPEC_ALIGN(16) N {`, parses as the class name, and one between the name and the body,
 // `class Builder FLATBUFFERS_FINAL_CLASS {`, as the declarator of a function whose body the class body becomes; either
 // takes the head and the body down with it. A head that goes on to a body or a base list with such macros, and the
-// attributes the grammar reads, around its one name holds them, while `struct STAT st;` declares a variable and
-// `class DECLARE(Foo) {}` names no class. The macros after a name count only where the name shares the key's line: a
-// key that ends a comment, `// a list class`, would read the key of the line below as the name and that class's name as
-// a macro
+// attributes the grammar reads, around its one name holds them, and so does a specialization's, `struct
+// RTM_DEPRECATED("...") float_traits<float> {`, whose arguments follow the name; while `struct STAT st;` declares a
+// variable and `class DECLARE(Foo) {}` names no class. The macros after a name count only where the name shares the
+// key's line: a key that ends a comment, `// a list class`, would read the key of the line below as the name and that
+// class's name as a macro
 /// The macros of a class head before its name and after it, either one empty where the head holds none there.
 fn head_macros(source: &[u8], key: usize) -> Option<[Range<usize>; 2]> {
     let mut words = [(0, 0, HeadWord::Name); HEAD_WORDS_MAX];
@@ -276,6 +277,11 @@ fn head_macros(source: &[u8], key: usize) -> Option<[Range<usize>; 2]> {
         words[count] = (at, end, kind);
         count += 1;
         at = end;
+    }
+    let specializes =
+        count > 0 && words[count - 1].2 == HeadWord::Name && source.get(at) == Some(&b'<');
+    if specializes && let Some(arguments) = group_len(&source[at..], ANGLE_BRACKETS) {
+        at += arguments + whitespace_len(&source[at + arguments..]);
     }
 
     let next = source.get(at).copied();
@@ -393,18 +399,25 @@ fn whitespace_len(text: &[u8]) -> usize {
         .count()
 }
 
+/// The length of the group `text` opens, up to its closing byte; a parenthesized expression inside an angle group,
+/// `Foo<(1 > 2)>`, holds its own `<` and `>`.
 fn group_len(text: &[u8], (open, close): (u8, u8)) -> Option<usize> {
     let mut depth = 0usize;
+    let mut parentheses = 0usize;
     for (at, &byte) in text.iter().take(HEAD_GROUP_MAX).enumerate() {
-        if byte == open {
-            depth += 1;
-        } else if byte == close {
-            depth -= 1;
-            if depth == 0 {
-                return Some(at + 1);
+        match byte {
+            b'{' | b'}' | b';' => return None,
+            b'(' if open != b'(' => parentheses += 1,
+            b')' if open != b'(' => parentheses = parentheses.checked_sub(1)?,
+            _ if parentheses > 0 => {}
+            _ if byte == open => depth += 1,
+            _ if byte == close => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(at + 1);
+                }
             }
-        } else if matches!(byte, b'{' | b'}' | b';') {
-            return None;
+            _ => {}
         }
     }
     None
@@ -1434,6 +1447,29 @@ void free_fn() {}
         })
         .collect();
         macros.sort_unstable();
+        assert_eq!(changed_offsets(&repaired, SOURCE), macros);
+    }
+
+    #[test]
+    fn a_class_head_macro_before_a_specialization_is_blanked_up_to_its_arguments() {
+        const SOURCE: &[u8] = b"template<> struct RTM_DEPRECATED(\"x\") float_traits<float> {};\n\
+                                template <> struct OZZ_BASE_DLL Extern<math::Float2> : Base<1> {};\n\
+                                template <> struct MATH_API Less<(1 > 2)> {};\n\
+                                struct EXPORT name<int> value;\ntemplate <> struct hash<Key> {};\n";
+
+        let repaired = for_parse(SOURCE).expect("specialization heads with macros");
+
+        assert_eq!(repaired.len(), SOURCE.len());
+        let macros: Vec<usize> = ["RTM_DEPRECATED(\"x\")", "OZZ_BASE_DLL", "MATH_API"]
+            .iter()
+            .flat_map(|word| {
+                let start = SOURCE
+                    .windows(word.len())
+                    .position(|window| window == word.as_bytes())
+                    .expect("the macro is in the source");
+                start..start + word.len()
+            })
+            .collect();
         assert_eq!(changed_offsets(&repaired, SOURCE), macros);
     }
 
