@@ -34,7 +34,11 @@ pub(super) fn alias_declarator_name(mut node: Node<'_>) -> Option<Node<'_>> {
 pub(super) fn field_owner(node: Node<'_>, source: &[u8]) -> Option<String> {
     let mut member = node;
     loop {
-        let class = member.parent()?.parent()?;
+        let mut list = member.parent()?;
+        while list.kind().starts_with("preproc_") {
+            list = list.parent()?;
+        }
+        let class = list.parent()?;
         if !matches!(
             class.kind(),
             "class_specifier" | "struct_specifier" | "union_specifier"
