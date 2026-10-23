@@ -2430,7 +2430,7 @@ fn a_call_path_lists_each_ends_passed_over_symbols_and_what_an_unselected_end_ma
                 "<from>",
                 concat!(
                     "2 definitions end with this name and it picks none of them - a longer name, or ",
-                    "from_path_prefix with one's file, picks one:",
+                    "from_path_prefix with one's file and from_line with its line, picks one:",
                 ),
                 r#"<candidate name="Close" qn="alpha.Store.Close" kind="method" loc="a/alpha/store.go:9" lang="go"/>"#,
                 r#"<candidate name="Close" qn="beta.Store.Close" kind="method" loc="b/beta/store.go:7" lang="go"/>"#,
@@ -2529,6 +2529,176 @@ fn a_name_several_symbols_share_lists_the_others_and_a_path_prefix_picks_one() {
                 "</callers>",
             ]),
         ]
+    );
+}
+
+/// The answers to `calls` over one C++ file and one Rust file, each defining a name twice: `ns::f` overloads, of which
+/// the first calls `a` and the second `b`, and two `S::m` methods.
+fn answers_over_overloads(calls: &[(&str, Value)]) -> Vec<String> {
+    answers_over(
+        &[
+            (
+                "o.cpp",
+                "void a() {}\nvoid b() {}\nnamespace ns {\nvoid f(int x) { a(); }\nvoid f(double x) { b(); }\n}\n\
+                 namespace p {\nstruct S {\nvoid m() {}\n};\n}\nnamespace q {\nstruct S {\nvoid m() {}\n};\n}\n",
+            ),
+            (
+                "src/lib.rs",
+                "pub mod a { pub struct S; impl S { pub fn m(&self) {} } }\n\
+                 pub mod b { pub struct S; impl S { pub fn m(&self) {} } }\n",
+            ),
+        ],
+        calls,
+    )
+}
+
+#[test]
+fn a_line_picks_one_of_several_symbols_of_a_name_in_one_file() {
+    let answers = answers_over_overloads(&[
+        (
+            "find_callees",
+            json!({"name": "ns::f", "path_prefix": "o.cpp"}),
+        ),
+        (
+            "find_callees",
+            json!({"name": "ns::f", "path_prefix": "o.cpp", "line": 5}),
+        ),
+        (
+            "find_callees",
+            json!({"name": "ns::f", "path_prefix": "o.cpp", "line": 3}),
+        ),
+        ("find_callees", json!({"name": "ns::f", "line": 5})),
+        (
+            "find_callers",
+            json!({"name": "S::m", "languages": ["cpp"], "path_prefix": "o.cpp", "line": 14}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<callees of="ns::f" matches="1">"#,
+                concat!(
+                    r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:4" count="1" unexpanded="1" "#,
+                    r#"passed_over="1">"#,
+                ),
+                r#"<ref name="a" loc="o.cpp:1" role="consumer" hops="1" at="o.cpp:4"/>"#,
+                r#"<candidate name="f" qn="ns::f" kind="function" loc="o.cpp:5" callers="0"/>"#,
+                "</match>",
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<callees of="ns::f" matches="1">"#,
+                r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:5" count="1" unexpanded="1">"#,
+                r#"<ref name="b" loc="o.cpp:2" role="consumer" hops="1" at="o.cpp:5"/>"#,
+                "</match>",
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<callees of="ns::f" matches="0">"#,
+                "no definition of this name under path_prefix starts on line 3 - 2 are elsewhere:",
+                r#"<candidate name="f" qn="ns::f" kind="function" loc="o.cpp:4" lang="cpp"/>"#,
+                r#"<candidate name="f" qn="ns::f" kind="function" loc="o.cpp:5" lang="cpp"/>"#,
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<callees of="ns::f" matches="1">"#,
+                r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:5" count="1" unexpanded="1">"#,
+                r#"<ref name="b" loc="o.cpp:2" role="consumer" hops="1" at="o.cpp:5"/>"#,
+                "</match>",
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<callers of="S::m" languages="cpp" matches="1">"#,
+                concat!(
+                    r#"<match lang="cpp" of="m" qn="S::m" loc="o.cpp:14" count="0" reach_band="low">"#,
+                    "no callers - entry point, dead code, or dynamic dispatch</match>",
+                ),
+                "</callers>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn a_line_picks_the_symbol_of_each_tool_that_selects_one() {
+    let answers = answers_over_overloads(&[
+        (
+            "find_references",
+            json!({"name": "ns::f", "path_prefix": "o.cpp", "line": 5}),
+        ),
+        (
+            "find_implementations",
+            json!({"name": "S", "languages": ["cpp"], "path_prefix": "o.cpp", "line": 13}),
+        ),
+        (
+            "find_call_path",
+            json!({"from": "ns::f", "from_path_prefix": "o.cpp", "from_line": 5, "to": "b", "to_line": 2}),
+        ),
+        (
+            "find_call_path",
+            json!({"from": "ns::f", "from_path_prefix": "o.cpp", "from_line": 5, "to": "b", "to_line": 3}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="ns::f" matches="1">"#,
+                concat!(
+                    r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:5" kind="function" count="0">no recorded "#,
+                    "site - resolved calls can omit dynamic or unresolved ones, and uses other than calls are ",
+                    "recorded only where the graph records them, so this does not show that nothing uses the ",
+                    "symbol</match>",
+                ),
+                "</references>",
+            ]),
+            concat!(
+                r#"<implementations of="S" languages="cpp" count="0">the symbol is indexed but nothing "#,
+                "implements or extends it</implementations>",
+            )
+            .to_owned(),
+            lines(&[
+                r#"<call_path from="ns::f" to="b" matches="1">"#,
+                r#"<match lang="cpp" from="ns::f" to="b" hops="1" max_hops="8">"#,
+                r#"<ref name="f" qn="ns::f" loc="o.cpp:5" role="consumer" call="o.cpp:5"/>"#,
+                "</match>",
+                "</call_path>",
+            ]),
+            lines(&[
+                r#"<call_path from="ns::f" to="b" matches="0">"#,
+                "<to>",
+                "no definition of this name starts on to_line 3 - 2 are elsewhere:",
+                r#"<candidate name="b" kind="function" loc="o.cpp:2" lang="cpp"/>"#,
+                r#"<candidate name="b" kind="namespace" loc="src/lib.rs:2" lang="rust"/>"#,
+                "</to>",
+                "</call_path>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn a_name_several_symbols_of_one_file_end_with_names_the_line_that_picks_one() {
+    let answers = answers_over_overloads(&[(
+        "find_callers",
+        json!({"name": "S::m", "languages": ["rust"]}),
+    )]);
+
+    assert_eq!(
+        answers,
+        [lines(&[
+            r#"<callers of="S::m" languages="rust" matches="0">"#,
+            concat!(
+                "2 definitions end with this name and it picks none of them - a longer name, or path_prefix ",
+                "with one's file and line with its line, picks one:",
+            ),
+            r#"<candidate name="m" qn="a::S::m" kind="method" loc="src/lib.rs:1" lang="rust"/>"#,
+            r#"<candidate name="m" qn="b::S::m" kind="method" loc="src/lib.rs:2" lang="rust"/>"#,
+            "</callers>",
+        ])]
     );
 }
 
@@ -2744,7 +2914,7 @@ fn a_name_that_picks_no_one_of_several_lists_them_and_implementations_name_the_t
                 r#"<references of="Store.Close" matches="0">"#,
                 concat!(
                     "2 definitions end with this name and it picks none of them - a longer name, or path_prefix ",
-                    "with one's file, picks one:",
+                    "with one's file and line with its line, picks one:",
                 ),
                 r#"<candidate name="Close" qn="alpha.Store.Close" kind="method" loc="a/alpha/store.go:9" lang="go"/>"#,
                 r#"<candidate name="Close" qn="beta.Store.Close" kind="method" loc="b/beta/store.go:7" lang="go"/>"#,
