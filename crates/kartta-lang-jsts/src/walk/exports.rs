@@ -105,7 +105,9 @@ impl Emitter<'_> {
             self.scopes
                 .push(Scope::spanning(target, target, id, this_of));
         } else {
-            self.raw.push_symbol(symbol);
+            let id = self.raw.push_symbol(symbol);
+            self.scopes
+                .push(Scope::spanning(target, target, id, Some(id)));
         }
     }
 }

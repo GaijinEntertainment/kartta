@@ -135,10 +135,16 @@ impl Emitter<'_> {
 
     // constraint: `this` is the instance of the class around the member whose body holds the use, an arrow function
     // keeping the `this` of the scope it is written in; a function expression or a function outside a class gives a
-    // `this` of no known type
+    // `this` of no known type; in a class body outside every member, `this` is an instance of the class in a field's
+    // initializer and the class itself in a static one, both named by the class
     pub(super) fn this_class(&self) -> Option<String> {
         let this_of = self.scopes.last()?.this_of?;
-        self.raw.symbols.get(this_of.0 as usize)?.owner.clone()
+        let symbol = self.raw.symbols.get(this_of.0 as usize)?;
+        if symbol.kind == SymbolKind::Class {
+            Some(symbol.qualified_name.clone())
+        } else {
+            symbol.owner.clone()
+        }
     }
 
     fn test_registration(&mut self, node: Node<'_>, callee: &str, receiver: Option<&str>) {

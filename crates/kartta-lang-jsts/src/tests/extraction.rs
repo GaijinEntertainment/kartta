@@ -1,4 +1,4 @@
-use kartta_lang::{Extraction, Language, OwnMembers, SymbolKind};
+use kartta_lang::{Extraction, Language, OwnMembers, Receiver, SymbolKind};
 
 use super::{
     LANGUAGES, SAMPLE_TS, attributed, caller_of, extracted, imports, language_of, names, symbol,
@@ -908,6 +908,84 @@ fn a_call_on_this_names_the_enclosing_class() {
             ("register", None),
             ("step", Some("")),
         ]
+    );
+}
+
+#[test]
+fn a_call_in_a_class_body_is_made_by_the_class() {
+    let extraction = extracted(
+        "src/widget.ts",
+        r"export function makeDefault(): number { return 1; }
+export function initRegistry(): void {}
+export class Widget {
+  @Input() limit = makeDefault();
+  static shared = makeDefault();
+  static {
+    initRegistry();
+  }
+  onClick = () => track();
+  read(): number {
+    return makeDefault();
+  }
+}
+export function build() {
+  class Local {
+    made = makeDefault();
+  }
+  return Local;
+}
+export default class {
+  ready = initRegistry();
+}
+boot();
+",
+    );
+
+    assert_eq!(
+        attributed(&extraction),
+        [
+            ("Widget", "Input"),
+            ("Widget", "makeDefault"),
+            ("Widget", "makeDefault"),
+            ("Widget", "initRegistry"),
+            ("onClick", "track"),
+            ("read", "makeDefault"),
+            ("Local", "makeDefault"),
+            ("default", "initRegistry"),
+            ("", "boot"),
+        ]
+    );
+}
+
+#[test]
+fn this_in_a_class_body_names_the_class() {
+    let extraction = extracted(
+        "src/filters.ts",
+        r"export class Filters {
+  table = { fav: this.favFilter, run: () => this.apply() };
+  static instance = this.create();
+  favFilter() {}
+}
+",
+    );
+    let uses: Vec<(&str, &str, &Receiver)> = (extraction.uses.iter())
+        .map(|site| {
+            let site_of = extraction.symbols[site.site_of.0 as usize].name.as_str();
+            (site_of, site.name.as_str(), &site.receiver)
+        })
+        .collect();
+
+    assert_eq!(
+        calls(&extraction),
+        [("apply", Some("Filters")), ("create", Some("Filters"))]
+    );
+    assert_eq!(
+        uses,
+        [(
+            "Filters",
+            "favFilter",
+            &Receiver::Path("Filters".to_owned())
+        )]
     );
 }
 
