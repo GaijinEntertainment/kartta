@@ -210,7 +210,7 @@ impl<'a> Emitter<'a> {
     fn declared_function(&mut self, node: Node<'_>) {
         let id = field_text(node, "name", self.source).map_or(FILE_SCOPE, |name| {
             let owner = (node.kind() == "method")
-                .then(|| self.member_owner())
+                .then(|| self.field_owner())
                 .flatten()
                 .map(str::to_owned);
             let header_start = node.start_byte();
@@ -328,6 +328,8 @@ impl<'a> Emitter<'a> {
         field_text(variable, "name", self.source)
     }
 
+    // constraint: a function a module table's slot binds stays free, unlike a function the table declares: such slots
+    // are a module's API, which an importer calls by its bare name, and a bare call outside a table reaches no member
     fn value_binding(&self, value: Node<'_>) -> Option<Binding> {
         let parent = value.parent()?;
         let (name, owner, header_start) = match parent.kind() {
