@@ -154,6 +154,32 @@ fn a_lib_rs_its_manifest_places_off_the_layout_keeps_its_modules_beside_it() {
 }
 
 #[test]
+fn the_library_root_a_manifest_names_keeps_its_modules_beside_it_and_is_no_entry() {
+    let rust = Rust::new();
+    let repository = MemoryRepository::new([
+        (
+            "Cargo.toml",
+            "[package]\nname = \"cli\"\n\n[lib]\npath = \"src/cli.rs\"\n",
+        ),
+        ("src/fuzz.rs", ""),
+        ("src/tests.rs", ""),
+        ("src/cli/fuzz.rs", ""),
+    ]);
+    let source = b"pub mod fuzz;\n\n#[cfg(test)]\nmod tests;\n\nfn main() {}\n";
+
+    let extraction =
+        rust.resolver(&repository)
+            .resolve(rust.extract(source), "src/cli.rs", &repository);
+    let includes: Vec<String> = (extraction.includes.into_iter())
+        .map(|include| include.target)
+        .collect();
+
+    assert_eq!(includes, ["src/fuzz.rs", "src/tests.rs"]);
+    assert_eq!(extraction.test_includes, ["src/tests.rs"]);
+    assert!((extraction.symbols.iter()).all(|symbol| !symbol.flags.is_entry()));
+}
+
+#[test]
 fn an_inline_module_or_a_missing_file_adds_no_include() {
     let inline = includes(
         &["src/lib.rs", "src/widgets.rs"],
