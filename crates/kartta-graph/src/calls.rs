@@ -343,8 +343,9 @@ impl Graph {
     /// tie. A declaration and the definition it links to are one callable, and a call of either is a call of that
     /// definition.
     ///
-    /// A selector's path prefix keeps only the symbols in the files under it, before any of these rules: it reaches
-    /// one of several copies that share a qualified name.
+    /// A selector's path prefix keeps only the symbols in the files under it, and its line only those that start on
+    /// it, before any of these rules: the prefix reaches one of several copies that share a qualified name, and the
+    /// line one of several symbols of the name in one file.
     ///
     /// Calls are resolved when this asks, from the call sites the graph keeps: the cost grows with the call sites of
     /// each name the walk reaches. The walk also lists the files whose top level names the root and sees it, which the
@@ -400,8 +401,8 @@ impl Graph {
 
     /// The sites that call or use the symbol `name` selects that `query` keeps, or `None` when it selects none. A name
     /// selects among every symbol a use can name, a value and a field included where calls target neither, and a bare
-    /// name shared by several of them selects the one with the most sites; a path prefix narrows them as
-    /// [`Graph::callers`] describes.
+    /// name shared by several of them selects the one with the most sites; a path prefix and a line narrow them
+    /// as [`Graph::callers`] describes.
     ///
     /// The uses are those the language records. A member taken on a value binds through the type the language spells
     /// for the value, else the one field of the name in the use's own file, and where the language says so, in the
@@ -692,7 +693,7 @@ impl<'g> Calls<'g> {
     }
 
     fn selectable(&self, selector: Selector<'_>) -> Option<Selectable> {
-        let within = |at: &SymbolAt| self.graph.is_within(*at, selector.path_prefix);
+        let within = |at: &SymbolAt| self.graph.is_within(*at, selector);
         let key = self.graph.strings.get(selector.name);
         if let Some(key) = key {
             let holders =
@@ -758,7 +759,7 @@ impl<'g> Calls<'g> {
         let selected = self
             .graph
             .selected(selector.name)
-            .filter(|&at| self.graph.is_within(at, selector.path_prefix))
+            .filter(|&at| self.graph.is_within(at, selector))
             .collect();
         let others = self
             .wanted_first(selected)

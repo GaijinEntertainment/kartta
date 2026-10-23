@@ -111,7 +111,7 @@ pub struct Definitions<'g> {
     pub found: Vec<Found<'g>>,
 }
 
-/// A name a query selects a symbol by, and the files it looks for the symbol in.
+/// A name a query selects a symbol by, and the files and the line it looks for the symbol in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Selector<'s> {
@@ -121,13 +121,49 @@ pub struct Selector<'s> {
     /// its closing `/`. Copies of one symbol that share its qualified name, as a vendored package and the same
     /// package in a second checkout, are told apart by it. `None` looks in every file.
     pub path_prefix: Option<&'s str>,
+    /// The one-based line the symbol starts on, as [`Definition::line`] gives it. Definitions of one name in one
+    /// file, as C++ overloads or a declaration beside its out-of-line definition, are told apart by it. `None` looks
+    /// at every line.
+    pub line: Option<u32>,
 }
 
 impl<'s> Selector<'s> {
-    /// The symbol `name` selects in the files whose path starts with `path_prefix`, or in any file for `None`.
+    /// The symbol `name` selects in the files whose path starts with `path_prefix`, or in any file for `None`, on any
+    /// line.
     #[must_use]
     pub const fn new(name: &'s str, path_prefix: Option<&'s str>) -> Self {
-        Self { name, path_prefix }
+        Self {
+            name,
+            path_prefix,
+            line: None,
+        }
+    }
+
+    /// This selector, looking only at the symbols that start on `line`, or on any line for `None`.
+    #[must_use]
+    pub const fn with_line(self, line: Option<u32>) -> Self {
+        Self { line, ..self }
+    }
+
+    /// This selector with `name` in place of its own, looking in the same files and at the same line.
+    #[must_use]
+    pub const fn with_name<'n>(self, name: &'n str) -> Selector<'n>
+    where
+        's: 'n,
+    {
+        Selector {
+            name,
+            path_prefix: self.path_prefix,
+            line: self.line,
+        }
+    }
+
+    /// Whether a definition that starts on `line` of the file at the root-relative `path` is one the selector looks at.
+    #[must_use]
+    pub fn admits(&self, path: &str, line: u32) -> bool {
+        self.path_prefix
+            .is_none_or(|prefix| path.starts_with(prefix))
+            && self.line.is_none_or(|own| own == line)
     }
 }
 
@@ -312,12 +348,14 @@ impl Graph {
         listed(&self.by_name, &name)
     }
 
-    pub(crate) fn is_within(&self, at: SymbolAt, path_prefix: Option<&str>) -> bool {
-        path_prefix.is_none_or(|prefix| {
-            self.strings
-                .resolve(self.file(at.file).path)
-                .starts_with(prefix)
-        })
+    /// Whether the symbol at `at` lies in the files and on the line `selector` looks at.
+    pub(crate) fn is_within(&self, at: SymbolAt, selector: Selector<'_>) -> bool {
+        selector.line.is_none_or(|line| self.sym(at).line == line)
+            && selector.path_prefix.is_none_or(|prefix| {
+                self.strings
+                    .resolve(self.file(at.file).path)
+                    .starts_with(prefix)
+            })
     }
 
     /// The symbols a query passed over, `others` each with its count, ranked by count and then path order, at most

@@ -4074,6 +4074,68 @@ fn a_path_prefix_narrows_an_owner_qualified_name_several_symbols_end_with_to_one
     assert_eq!(narrowed.root.qualified_name, "b.Store.Close");
 }
 
+fn overloads_of_f() -> Graph {
+    graph_of(
+        cpp(),
+        &[file(
+            "o.cpp",
+            vec![
+                function("a", 1),
+                function("b", 2),
+                member("ns", "f", SymbolKind::Function, 4),
+                member("ns", "f", SymbolKind::Function, 5),
+            ],
+            vec![call(2, "a", 4), call(3, "b", 5)],
+        )],
+    )
+}
+
+#[test]
+fn a_line_selects_one_of_several_symbols_of_a_name_in_one_file() {
+    let graph = overloads_of_f();
+    let on = |line| Selector::new("ns::f", Some("o.cpp")).with_line(line);
+
+    let by_file = graph
+        .callees(on(None), Limits::new(1))
+        .expect("ns::f is defined in o.cpp");
+    let by_line = graph
+        .callees(on(Some(5)), Limits::new(1))
+        .expect("an ns::f starts on line 5");
+    let callers = graph
+        .callers(on(Some(5)), Limits::new(1))
+        .expect("an ns::f starts on line 5");
+    let references = graph
+        .references(on(Some(5)), SiteQuery::new(usize::MAX))
+        .expect("an ns::f starts on line 5");
+    let path = graph
+        .call_path(on(Some(5)), Selector::new("b", None), Limits::new(1))
+        .expect("both ends select");
+    let bare = graph
+        .callees(
+            Selector::new("f", Some("o.cpp")).with_line(Some(5)),
+            Limits::new(1),
+        )
+        .expect("an f starts on line 5");
+
+    assert_eq!((bare.root.line, bare.passed_over), (5, 0));
+    assert_eq!(
+        (by_file.root.line, by_file.passed_over, reached(&by_file)),
+        (4, 1, vec!["o.cpp:1@80".to_owned()])
+    );
+    assert_eq!(
+        (by_line.root.line, by_line.passed_over, reached(&by_line)),
+        (5, 0, vec!["o.cpp:2@80".to_owned()])
+    );
+    assert_eq!((callers.root.line, callers.passed_over), (5, 0));
+    assert_eq!((references.symbol.line, references.passed_over), (5, 0));
+    assert!(path.found);
+    assert_eq!((path.from.line, path.passed_over), (5, (0, 0)));
+    assert!(
+        graph.callees(on(Some(3)), Limits::new(1)).is_none(),
+        "no ns::f starts on line 3"
+    );
+}
+
 #[test]
 fn a_name_selects_as_callers_where_its_callers_answer() {
     let close = |qualified: &str| {

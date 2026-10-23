@@ -538,6 +538,29 @@ fn the_types_a_name_passes_over_are_listed_the_most_implemented_first() {
 }
 
 #[test]
+fn a_line_selects_one_of_several_types_of_a_name_in_one_file() {
+    let graph = graph(
+        cpp(),
+        &[file(
+            "box.h",
+            vec![
+                ty("Box", "Box", 1, &[]),
+                ty("Box", "Box", 9, &[]),
+                ty("Crate", "Crate", 17, &["Box"]),
+            ],
+        )],
+    );
+    let on = |line| Selector::new("Box", Some("box.h")).with_line(line);
+
+    let by_file = graph.implementations(on(None), 1, 10).expect("a type");
+    let by_line = graph.implementations(on(Some(9)), 1, 10).expect("a type");
+
+    assert_eq!((by_file.root.line, by_file.passed_over), (1, 1));
+    assert_eq!((by_line.root.line, by_line.passed_over), (9, 0));
+    assert!(graph.implementations(on(Some(17)), 1, 10).is_none());
+}
+
+#[test]
 fn types_named_as_a_parent_equally_often_select_the_first_in_path_order() {
     let graph = graph(
         cpp(),
