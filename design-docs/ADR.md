@@ -709,8 +709,11 @@
   - Governs: `crates/kartta-node/src/lib.rs`, `bindings/node/src/{kartta,wire}.ts`
   - Revisit if: Node gains a stable, asynchronous FFI that can call the C ABI without an addon
 - [4.4 Follow the indexed tree, and refresh it on
-  request](./adr/4.4-follow-the-indexed-tree-and-refresh-it-on-request.md) — initiative `04-consumer-surfaces`,
-  2026-10-18, revised 2026-10-22
+  request](./adr/4.4-follow-the-indexed-tree-and-refresh-it-on-request.md)
+  - Governs: `crates/kartta/src/follow.rs` (`Follower`), `crates/kartta-mcp/src/{state,config}.rs`,
+    `crates/kartta-mcp/src/render.rs` (`index`)
+  - Revisit if: a tree raises more notifications while it is built than the system's queue holds, as a matter of
+    course
 - [4.10 Close a cut path list with a line no path can read
   as](./adr/4.10-close-a-cut-path-list-with-a-line-no-path-can-read-as.md)
   - Governs: `crates/kartta-mcp/src/llmxml.rs` (`line`, `List`), `crates/kartta-mcp/src/render/files.rs`
@@ -809,6 +812,16 @@
   - Governs: `bindings/node/src/kartta.ts` (`Kartta.build`, `Kartta.refresh`, `Kartta.grep`, `Kartta.call`,
     `Kartta.close`)
   - Revisit if: a consumer keeps more than 1,024 calls of one kind waiting to enter the library at once
+- [4.43 Run the follow in the engine's crate over a lock its owner
+  lends](./adr/4.43-run-the-follow-in-the-engine-s-crate-over-a-lock-its-owner-lends.md)
+  - Governs: `crates/kartta/src/follow.rs` (`Followed`, `Watch`), `crates/kartta/Cargo.toml` (`watch`),
+    `crates/kartta-ffi/src/built.rs` (`Shared`), `crates/kartta-mcp/src/state.rs` (`Served`)
+  - Revisit if: an owner needs to follow a tree under a lock it cannot lend for the length of a refresh
+- [4.44 Refresh on request, and list what the tree fails
+  now](./adr/4.44-refresh-on-request-and-list-what-the-tree-fails-now.md)
+  - Governs: the `refresh` tool of `crates/kartta-mcp/src/server.rs`, `crates/kartta-mcp/src/render.rs` (`refresh`),
+    `kartta::replace_failures`
+  - Revisit if: notifications reach every place a followed tree lives, and a watch can no longer be off
 
 ## Deprecated
 
