@@ -102,10 +102,53 @@ namespace A {
             identity("A.make", Some("A")),
             identity("Local", None),
             identity("Local.run", Some("Local")),
-            identity("Impl", None),
+            identity("A.Impl", Some("A")),
             identity("Named.run", Some("Named")),
-            identity("Anon", None),
-            identity("Anon.run", Some("Anon")),
+            identity("A.Anon", Some("A")),
+            identity("A.Anon.run", Some("A.Anon")),
+        ]
+    );
+}
+
+#[test]
+fn a_variable_a_namespace_declares_is_owned_by_it() {
+    let got = identities(
+        "\
+const top = 1;
+namespace Ns {
+  export const inNs = 1;
+  let hidden = 2;
+  export const make = () => { const local = 3; return local; };
+  export function nsFn() { const inner = 4; return inner; }
+  export namespace Deep { export var depth = 5; }
+}
+declare module \"ext\" {
+  export const version: string;
+}
+class Box {
+  static { const once = 6; function setup() {} }
+}
+",
+    );
+
+    assert_eq!(
+        got,
+        [
+            identity("top", None),
+            identity("Ns", None),
+            identity("Ns.inNs", Some("Ns")),
+            identity("Ns.hidden", Some("Ns")),
+            identity("Ns.make", Some("Ns")),
+            identity("local", None),
+            identity("Ns.nsFn", Some("Ns")),
+            identity("inner", None),
+            identity("Ns.Deep", Some("Ns")),
+            identity("Ns.Deep.depth", Some("Ns.Deep")),
+            identity("ext", None),
+            identity("ext.version", Some("ext")),
+            identity("Box", None),
+            identity("once", None),
+            identity("setup", None),
         ]
     );
 }
