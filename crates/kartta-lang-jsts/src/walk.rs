@@ -1,4 +1,5 @@
 mod calls;
+mod context;
 mod exports;
 mod uses;
 
@@ -11,6 +12,7 @@ use kartta_lang::{
 };
 use tree_sitter::{Node, Tree};
 
+use self::context::{parameters_of, untyped_name};
 use self::uses::{annotated_type, constructed_type, names_a_value};
 use crate::generated::is_generated_source;
 use crate::syntax::{
@@ -117,6 +119,8 @@ type ValueBinding = fn(Option<Span>) -> Binding;
 enum Binding {
     Value(Option<Span>),
     Module(Option<Span>),
+    /// A parameter that no annotation types, of the one type the function type of its context spells.
+    Contextual(Span),
     Imported,
     Type,
     /// A function or a class the module declares at its top level, which a name taken as a value uses.
@@ -144,6 +148,8 @@ struct Emitter<'s> {
     bindings: HashMap<&'s [u8], Binding>,
     /// What each name the module declares or imports at its top level stands for, wherever in the file a use spells it.
     module_bindings: HashMap<&'s [u8], Binding>,
+    /// The span of each type alias and interface the module declares at its top level, by its name.
+    type_declarations: HashMap<&'s [u8], Range<usize>>,
     exported_ids: (Option<usize>, Option<usize>),
     exported_names: Vec<String>,
     file_is_generated: bool,
@@ -163,6 +169,7 @@ impl<'s> Emitter<'s> {
             declared: Vec::new(),
             bindings: HashMap::new(),
             module_bindings: HashMap::new(),
+            type_declarations: HashMap::new(),
             exported_ids: (None, None),
             exported_names: Vec::new(),
             file_is_generated: is_generated_source(source),
@@ -272,6 +279,9 @@ impl<'s> Emitter<'s> {
                 | "generator_function_declaration"
                 | "class_declaration"
                 | "abstract_class_declaration" => self.declare_module_name(declaration),
+                "type_alias_declaration" | "interface_declaration" => {
+                    self.declare_type_name(declaration);
+                }
                 kind if BLOCK_STATEMENTS.contains(&kind) => {
                     statements.push(declaration);
                     self.hoist_blocks(&mut statements, program, &mut strict);
@@ -394,6 +404,13 @@ impl<'s> Emitter<'s> {
         }
     }
 
+    fn declare_type_name(&mut self, declaration: Node<'_>) {
+        if let Some(name) = declaration.child_by_field_name("name") {
+            let source = self.source;
+            (self.type_declarations).insert(&source[name.byte_range()], declaration.byte_range());
+        }
+    }
+
     // constraint: a class at the module's top level keeps the binding the hoist gave it, which a value taken of the
     // name uses; one in a nearer scope is a type binding of that scope
     fn class_declaration(&mut self, node: Node<'_>) {
@@ -431,9 +448,24 @@ impl<'s> Emitter<'s> {
         }
         self.function_ends.push(function.end_byte());
         self.scope_ends.push(function.end_byte());
-        for field in ["parameter", "parameters"] {
-            if let Some(parameters) = function.child_by_field_name(field) {
-                self.declare_pattern(parameters, function.end_byte(), Binding::Value);
+        let until = function.end_byte();
+        let parameters = (function.child_by_field_name("parameters").into_iter())
+            .flat_map(parameters_of)
+            .chain(function.child_by_field_name("parameter"));
+        let mut context = None;
+        for (at, parameter) in parameters.enumerate() {
+            let name = untyped_name(parameter);
+            if name.is_some() && context.is_none() {
+                let contextual = self.contextual_parameters(function);
+                context = Some(contextual.map(|list| parameters_of(list).skip(at)));
+            }
+            let slot = context.as_mut().and_then(|rest| rest.as_mut()?.next());
+            let typed = name.zip(slot.and_then(|slot| self.contextual_type(slot)));
+            match typed {
+                Some((name, typed)) => {
+                    self.declare(name.byte_range(), until, Binding::Contextual(typed));
+                }
+                None => self.declare_pattern(parameter, until, Binding::Value),
             }
         }
     }

@@ -2,7 +2,7 @@ use kartta_lang::tree::{signature_from, text};
 use kartta_lang::{CallRef, SymbolId, SymbolKind};
 use tree_sitter::Node;
 
-use super::{Emitter, Scope};
+use super::{Binding, Emitter, Scope};
 use crate::syntax::{
     call_target, first_string_argument, function_value, named_child_nodes, start_line, trim_quotes,
     unquote,
@@ -117,11 +117,14 @@ impl Emitter<'_> {
     }
 
     // constraint: a receiver the caller declares as a value names no type, so it is the empty receiver of a member call
-    // on a value of no known type; an import binding, a class and a namespace keep their name
+    // on a value of no known type, unless it is a parameter its context types; an import binding, a class and a
+    // namespace keep their name
     fn value_receiver(&self, receiver: Option<String>) -> Option<String> {
-        match receiver {
-            Some(name) if self.names_a_declared_value(&name) => Some(String::new()),
-            receiver => receiver,
+        let name = receiver?;
+        match self.bindings.get(name.as_bytes()) {
+            Some(Binding::Contextual(typed)) => Some(self.spelled(*typed)),
+            _ if self.names_a_declared_value(&name) => Some(String::new()),
+            _ => Some(name),
         }
     }
 

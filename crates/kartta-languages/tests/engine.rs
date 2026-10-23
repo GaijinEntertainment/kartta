@@ -982,3 +982,54 @@ fn a_rust_call_on_a_parameter_binds_the_method_of_the_type_the_parameter_is_decl
         [("offer", 13, confidence::RECEIVER)]
     );
 }
+
+#[test]
+fn a_typescript_call_on_a_parameter_typed_by_its_context_binds_the_method_of_that_type() {
+    let tree = tree_of(&[
+        (
+            "src/kartta.ts",
+            "export class Kartta {\n  dependents(p: number) { return p; }\n  grep(p: number) { return p; }\n}\n",
+        ),
+        (
+            "test/golden.test.ts",
+            "import { Kartta } from \"../src/kartta\";\n\n\
+             type Replay<M> = (kartta: Kartta, params: M) => Promise<unknown>;\n\n\
+             const replays: { [M in keyof Methods]: Replay<M> } = {\n\
+             \x20 dependents: async (kartta, params) => kartta.dependents(params),\n\
+             };\n\n\
+             const grep: Replay<number> = async (kartta, params) => kartta.grep(params);\n",
+        ),
+    ]);
+    let engine = build(&tree, &["typescript"]);
+    let (_, graph) = engine
+        .graph_of("src/kartta.ts")
+        .expect("a language claims the file");
+    let callers_of = |name: &str| {
+        let callers = graph
+            .callers(name, Limits::new(1))
+            .expect("the name is defined");
+        (callers.reached.iter())
+            .map(|reached| (reached.symbol.name, reached.symbol.line, reached.confidence))
+            .collect::<Vec<_>>()
+    };
+    let self_call = |name: &str| {
+        graph
+            .callers(
+                Selector::new(name, Some("test/golden.test.ts")),
+                Limits::new(1),
+            )
+            .expect("the name is defined")
+            .self_call
+    };
+
+    assert_eq!(
+        callers_of("Kartta.dependents"),
+        [("dependents", 6, confidence::RECEIVER)]
+    );
+    assert_eq!(
+        callers_of("Kartta.grep"),
+        [("grep", 9, confidence::RECEIVER)]
+    );
+    assert_eq!(self_call("dependents"), None);
+    assert_eq!(self_call("grep"), None);
+}

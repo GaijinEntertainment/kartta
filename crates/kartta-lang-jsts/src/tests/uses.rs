@@ -68,6 +68,19 @@ fn a_member_use_names_its_class_through_this_an_annotation_or_a_constructor() {
 }
 
 #[test]
+fn a_member_use_names_the_type_a_parameter_s_context_spells() {
+    let extraction = extracted(
+        "src/replay.ts",
+        "type Replay = (pool: Pool) => number;\nconst size: Replay = (pool) => pool.size;\n",
+    );
+
+    assert_eq!(
+        uses(&extraction),
+        [("size", "size", path("Pool"), Access::Read, 2)]
+    );
+}
+
+#[test]
 fn a_shorthand_a_default_and_an_early_use_read_a_module_value_and_a_cast_literal_writes() {
     let extraction = extracted(
         "src/limits.ts",
