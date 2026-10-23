@@ -36,7 +36,10 @@
 //!   on a class or an import by its name, and on anything else as a member of a value of no known type, which binds
 //!   nothing; and a use of a module-level variable or constant the file imports or declares, or of a function or
 //!   class it declares at its top level taken as a value, before its declaration too, which binds the declaration in
-//!   the file, in the one module it imports that declares it, or through a re-export.
+//!   the file, in the one module it imports that declares it, or through a re-export. A `var` that a block outside
+//!   every body declares, `if (ready) { var root = window; }`, is a module-level variable, and so is a function such
+//!   a block declares in a script that is not strict code, one with no `import`, no `export` and no `"use strict"`,
+//!   as ECMAScript's Annex B.3.3 scopes it; a `let`, a `const` and a class stay their block's.
 //! - Overload signatures joined to the implementation that follows them, as one callable.
 //! - Imports, `require` and dynamic `import()` of a string, and `export … from` re-exports, a type-only one included.
 //!

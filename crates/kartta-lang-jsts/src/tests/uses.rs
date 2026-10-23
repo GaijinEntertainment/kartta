@@ -163,6 +163,81 @@ fn a_function_or_a_class_the_module_declares_taken_as_a_value_is_used() {
     );
 }
 
+const BLOCKS: &str = r#"var top = 1;
+try {
+  var config = load();
+} catch (e) {}
+if (typeof window !== "undefined") {
+  var root = window, { width } = root;
+  function helper() { return width; }
+  let scoped = 1;
+  class Local {}
+}
+for (var key in config) {}
+for (var [item] of [config]) {}
+function read() {
+  config.load();
+  return top + config + root + helper + key + item + scoped + Local + width;
+}
+"#;
+
+fn bare_reads<'e>(extraction: &'e Extraction, site: &str) -> Vec<&'e str> {
+    (uses(extraction).into_iter())
+        .filter(|&(of, _, ref receiver, _, _)| of == site && *receiver == Receiver::Bare)
+        .map(|(_, name, ..)| name)
+        .collect()
+}
+
+#[test]
+fn a_var_a_top_level_block_declares_is_the_module_s_value() {
+    let extraction = extracted("lib.js", BLOCKS);
+
+    assert_eq!(
+        bare_reads(&extraction, "read"),
+        [
+            "config", "top", "config", "root", "helper", "key", "item", "width"
+        ],
+        "a `let` and a class stay their block's; a script's block function is the module's"
+    );
+    assert_eq!(bare_reads(&extraction, "helper"), ["width"]);
+}
+
+#[test]
+fn a_strict_file_keeps_a_block_s_function_to_its_block() {
+    for prefix in [
+        "\"use strict\";\n",
+        "// a script\n'use strict';\n",
+        "export {};\n",
+    ] {
+        let extraction = extracted("lib.js", &format!("{prefix}{BLOCKS}"));
+
+        assert_eq!(
+            bare_reads(&extraction, "read"),
+            ["config", "top", "config", "root", "key", "item", "width"],
+            "{prefix}"
+        );
+    }
+}
+
+#[test]
+fn a_var_in_a_block_keeps_its_name_as_a_receiver_after_the_block_and_names_no_type_for_a_member() {
+    let extraction = extracted(
+        "lib.js",
+        "if (ready) {\n  var config = load();\n  function early() { config.load(); }\n}\n\
+         function late() { config.load(); return config.port; }\n",
+    );
+
+    let receivers: Vec<_> = (extraction.calls.iter())
+        .filter(|call| call.callee == "load" && call.receiver.is_some())
+        .map(|call| call.receiver.as_deref())
+        .collect();
+    assert_eq!(receivers, [Some(""), Some("config")]);
+    let members: Vec<_> = (uses(&extraction).into_iter())
+        .filter(|&(_, name, ..)| name == "port")
+        .collect();
+    assert_eq!(members, [("late", "port", path(""), Access::Read, 5)]);
+}
+
 #[test]
 fn a_type_named_as_one_is_no_use_of_it() {
     let extraction = extracted(
