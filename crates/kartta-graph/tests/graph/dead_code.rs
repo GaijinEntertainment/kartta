@@ -5,7 +5,7 @@ use kartta_graph::DeadCode;
 use kartta_lang::{
     Access, CallRef, Callable, CallableRole, Conventions, DataUses, Extraction, FILE_SCOPE,
     IncludeRef, OwnMembers, Receiver, Receivers, Symbol, SymbolFlags, SymbolId, SymbolKind,
-    TypeUses, UseRef,
+    TypeUses, UntypedMembers, UseRef,
 };
 
 use crate::{call, function, graph, graph_of, member_call};
@@ -444,6 +444,84 @@ fn a_use_that_binds_nothing_leaves_each_field_of_its_name_and_each_value_its_fil
     assert_eq!(names(&dead), ["limit"]);
     assert_eq!(dead.found[0].definition.file, "other/model.go");
     assert_eq!(dead.excluded.uncertain, 3);
+}
+
+#[test]
+fn an_ambiguous_use_leaves_each_member_of_its_name_uncertain() {
+    let mut user = file("pkg/run.go", vec![function("Run", 1)], Vec::new());
+    user.uses.push(use_of(
+        "Handle",
+        Receiver::Path(String::new()),
+        Access::Read,
+        2,
+    ));
+    let handlers = file(
+        "pkg/handlers.go",
+        vec![
+            Symbol::new("Get", SymbolKind::Struct, 1, 3),
+            member("Get", "Handle", 2),
+            Symbol::new("Put", SymbolKind::Struct, 4, 6),
+            member("Put", "Handle", 5),
+            function("Handle", 7),
+        ],
+        Vec::new(),
+    );
+    let graph = graph_of(go(), &[user, handlers]);
+
+    let dead = graph.dead_code(&[SymbolKind::Method, SymbolKind::Function], None, 10);
+
+    assert_eq!(names(&dead), ["Handle", "Run"]);
+    assert_eq!(dead.found[0].definition.qualified_name, "Handle");
+    assert_eq!(dead.excluded.uncertain, 2);
+}
+
+#[test]
+fn a_use_ambiguous_among_fields_alone_leaves_a_method_of_its_name_dead() {
+    let mut user = file("src/main.cpp", vec![function("run", 1)], Vec::new());
+    user.uses.push(use_of(
+        "count",
+        Receiver::Path(String::new()),
+        Access::Read,
+        2,
+    ));
+    user.includes
+        .extend(["src/box.h", "src/bag.h"].map(|target| IncludeRef {
+            target: target.to_owned(),
+        }));
+    let holder = |path, owner| {
+        file(
+            path,
+            vec![
+                Symbol::new(owner, SymbolKind::Struct, 1, 3),
+                field(owner, "count", 2),
+            ],
+            Vec::new(),
+        )
+    };
+    let counter = file(
+        "src/counter.cpp",
+        vec![
+            Symbol::new("Counter", SymbolKind::Class, 1, 3),
+            member("Counter", "count", 2),
+        ],
+        Vec::new(),
+    );
+    let mut conventions = Conventions::default();
+    conventions.untyped_members = UntypedMembers::IncludedField;
+    let graph = graph_of(
+        conventions,
+        &[
+            user,
+            holder("src/box.h", "Box"),
+            holder("src/bag.h", "Bag"),
+            counter,
+        ],
+    );
+
+    let dead = graph.dead_code(&[SymbolKind::Method], None, 10);
+
+    assert_eq!(names(&dead), ["count"]);
+    assert_eq!(dead.excluded.uncertain, 0);
 }
 
 #[test]

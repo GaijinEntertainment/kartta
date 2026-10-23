@@ -527,6 +527,7 @@ pub(crate) struct Calls<'g> {
     uses: HashMap<SymbolAt, Vec<(Edge, Access)>, FixedState>,
     used_names: HashSet<Str, FixedState>,
     ambiguous: HashMap<Str, usize, FixedState>,
+    ambiguous_members: HashSet<Str, FixedState>,
     unbound_use_files: HashMap<Str, Vec<u32>, FixedState>,
 }
 
@@ -618,13 +619,18 @@ impl<'g> Calls<'g> {
     }
 
     // constraint: a use that binds no definition, as one of a member on a value whose type the graph could not follow,
-    // may be meant for a member of its name wherever that member is, and for a free value in a file that sees it
+    // may be meant for a member of its name wherever that member is, and for a free value in a file that sees it; one
+    // left ambiguous among members of every kind, as a method taken as a value on such a value is, for a member of any
+    // kind wherever it is, and one left ambiguous among fields alone for a field alone
     pub(crate) fn is_used_uncertainly(&mut self, at: SymbolAt) -> bool {
         let symbol = self.graph.sym(at);
+        self.resolve_uses(symbol.name);
+        if symbol.owner.is_some() && self.ambiguous_members.contains(&symbol.name) {
+            return true;
+        }
         if !is_data_kind(symbol.kind) {
             return false;
         }
-        self.resolve_uses(symbol.name);
         let cascade = &self.cascade;
         self.unbound_use_files
             .get(&symbol.name)
@@ -668,6 +674,7 @@ impl<'g> Calls<'g> {
             uses: HashMap::default(),
             used_names: HashSet::default(),
             ambiguous: HashMap::default(),
+            ambiguous_members: HashSet::default(),
             unbound_use_files: HashMap::default(),
         }
     }
@@ -954,6 +961,7 @@ impl<'g> Calls<'g> {
         let mut best: HashMap<(SymbolAt, SymbolAt, u32, Access), u8, FixedState> =
             HashMap::default();
         let mut ambiguous = 0;
+        let mut among_members = false;
         let judges_data = self.graph.conventions.data_uses == DataUses::Every;
         let mut unbound_files: Vec<u32> = Vec::new();
         let renamings = self.renamings(name);
@@ -961,7 +969,8 @@ impl<'g> Calls<'g> {
             let (used, confidence) = match self.cascade.resolve_use(site.file, site.index) {
                 Ok(bound) => bound,
                 Err(missed) => {
-                    ambiguous += usize::from(missed == UseMiss::Ambiguous);
+                    ambiguous += usize::from(missed != UseMiss::Elsewhere);
+                    among_members |= missed == UseMiss::Ambiguous;
                     unbound_files.extend(judges_data.then_some(site.file));
                     continue;
                 }
@@ -979,6 +988,9 @@ impl<'g> Calls<'g> {
         }
         if ambiguous > 0 {
             self.ambiguous.insert(name, ambiguous);
+        }
+        if among_members {
+            self.ambiguous_members.insert(name);
         }
         if !unbound_files.is_empty() {
             unbound_files.sort_unstable();
