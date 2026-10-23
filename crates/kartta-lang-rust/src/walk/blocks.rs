@@ -1,14 +1,13 @@
 use std::ops::Range;
 
-use kartta_lang::tree::{named_child_nodes, text};
+use kartta_lang::tree::text;
 use kartta_lang::{LocalCall, SymbolId, SymbolKind};
 use tree_sitter::Node;
 
 use super::Emitter;
-use super::bindings::pattern_bindings;
 
-// constraint: an item a function body declares is in scope in its whole block, a `macro_rules!` only after its
-// definition and a `let` binding after its statement; an item is keyed by the inline module around it, because a
+// constraint: an item a function body declares is in scope in its whole block, and a `macro_rules!` only after its
+// definition; an item is keyed by the inline module around it, because a
 // module is a scope of its own
 pub(super) struct BlockItem {
     scope: Range<usize>,
@@ -22,7 +21,6 @@ enum BlockItemKind {
     Macro(SymbolId),
     Module(usize),
     Import,
-    Binding(SymbolId),
 }
 
 pub(super) struct BlockCall {
@@ -108,48 +106,6 @@ impl Emitter<'_> {
             .map(|call| (call.index, call.at, call.module))
     }
 
-    pub(super) fn let_declaration(&mut self, node: Node<'_>) {
-        let Some(function) = self.functions.last().map(|scope| scope.id) else {
-            return;
-        };
-        let (Some(block), Some(pattern)) = (node.parent(), node.child_by_field_name("pattern"))
-        else {
-            return;
-        };
-        let mut names = Vec::new();
-        pattern_names(pattern, self.source, &mut names);
-        for name in names {
-            self.push_block_item(
-                name,
-                node.end_byte()..block.end_byte(),
-                BlockItemKind::Binding(function),
-            );
-        }
-    }
-
-    // constraint: only a function inside a function body sees an item of a block around it, so only its parameters can
-    // shadow one, and they do for the calls of its own body
-    pub(super) fn function_parameters(&mut self, node: Node<'_>, function: SymbolId) {
-        if self.functions.is_empty() {
-            return;
-        }
-        let (Some(parameters), Some(body)) = (
-            node.child_by_field_name("parameters"),
-            node.child_by_field_name("body"),
-        ) else {
-            return;
-        };
-        let mut names = Vec::new();
-        for parameter in named_child_nodes(parameters) {
-            if let Some(pattern) = parameter.child_by_field_name("pattern") {
-                pattern_names(pattern, self.source, &mut names);
-            }
-        }
-        for name in names {
-            self.push_block_item(name, body.byte_range(), BlockItemKind::Binding(function));
-        }
-    }
-
     pub(super) fn record_block_call(&mut self, node: Node<'_>, form: CallForm) {
         self.block_calls.push(BlockCall {
             index: self.raw.calls.len() - 1,
@@ -210,18 +166,13 @@ impl Emitter<'_> {
             })
     }
 
-    // constraint: a `let` binding of the name shadows an item only for calls in the function that binds it, and a
-    // `use` of the name shadows it everywhere in its block; either leaves the call unbound
+    // constraint: a `use` of the name shadows an item everywhere in its block and leaves the call unbound
     fn block_item_of(&self, call: &BlockCall) -> Option<SymbolId> {
         let site = &self.raw.calls[call.index];
         let found = match &call.form {
-            CallForm::Plain => {
-                self.innermost_block_item(&site.callee, call, |kind| match kind {
-                    BlockItemKind::Value(_) | BlockItemKind::Import => true,
-                    BlockItemKind::Binding(function) => function == site.site_of,
-                    _ => false,
-                })?
-            }
+            CallForm::Plain => self.innermost_block_item(&site.callee, call, |kind| {
+                matches!(kind, BlockItemKind::Value(_) | BlockItemKind::Import)
+            })?,
             CallForm::Macro => self.innermost_block_item(&site.callee, call, |kind| {
                 matches!(kind, BlockItemKind::Macro(_) | BlockItemKind::Import)
             })?,
@@ -286,10 +237,6 @@ fn names_a_value(node: Node<'_>) -> bool {
         && node
             .child_by_field_name("body")
             .is_none_or(|body| body.kind() != "field_declaration_list")
-}
-
-fn pattern_names(node: Node<'_>, source: &[u8], names: &mut Vec<String>) {
-    pattern_bindings(node, &mut |name| names.push(text(name, source)));
 }
 
 pub(super) fn path_segments(path: Node<'_>, source: &[u8]) -> Option<Vec<PathSegment>> {

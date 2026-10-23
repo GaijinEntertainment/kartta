@@ -21,7 +21,10 @@ A call records its callee and, where the syntax spells one, its receiver: `self.
 type of the `impl` around them, and `Widget::new()` records `Widget`. A method call on a lowercase value other than
 `other` records the name after a `.`, `.socket` for `socket.connect()`, since alone it would read as the module that
 a path call, `socket::connect()`, names; `Fish.write()` records `Fish`. A macro invocation is a call
-of the macro. A call of an item that a function body declares is a local call of that item. The conventions name the
+of the macro. A call of an item that a function body declares is a local call of that item. A bare call of a name
+that a pattern binds, a parameter, a `let`, a closure's parameter, a match arm, a `for` or an `if let`, as
+`helper()` in `fn f(helper: fn())` or `run()` after `let run = || {};`, calls the value the name holds and is no call,
+whatever the file imports or declares under the name. The conventions name the
 methods and associated functions of the standard library that code calls most, so a call of one through a receiver or
 a path, `name.clone()` or `fs::write()`, binds a member of the name and no free function of the repository. They list
 `other` alone as the receiver of a value of the caller's own type, since a call on `self` binds through the type it
