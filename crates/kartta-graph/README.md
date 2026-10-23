@@ -63,8 +63,9 @@ defines binds the one file the includes reach in turn that defines it, a member 
 as C++'s do, a member call on an operand of a declared class binds the member of the class of that name nearest the
 caller's file, and of namesakes equally near, the one the class's spelling names from the caller's scope outward:
 namesakes of one qualified name, a template and its specializations, bind the first, and namesakes of other names it
-names none of leave the call ambiguous. Where a language says so, a member call on a value takes nothing from the
-callables nearest the caller. A use outside a call binds more
+names none of leave the call ambiguous; where that class declares no member of the name, the call binds the member
+of its bases that the lookup of a bare call in its member finds. Where a language says so, a member call on a value
+takes nothing from the callables nearest the caller. A use outside a call binds more
 narrowly: through the import its qualifier names, else a package-level definition of its own file, of a dot import, or
 of its package directory, and where a language's uses reach its imports, of the one included file that declares it or
 of a re-export from one. A member a use takes on a value binds a field or a method through the type path its language
