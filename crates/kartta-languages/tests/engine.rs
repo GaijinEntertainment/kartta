@@ -11,7 +11,8 @@
 //! own file that the path does not name, and a Rust call on a value, on `self` or through a
 //! type binds no free function, not even through a value named like a module the file imports, while a call on a
 //! value still binds the one runtime method whose owner the value's name spells, one on a parameter the method of the
-//! type the parameter is declared as, and a bare call through a parameter or a local binds nothing.
+//! type the parameter is declared as, and a bare call through a parameter or a local binds nothing. A JavaScript bare
+//! call of a name imported from a package binds no namesake of the project, unless the caller's file defines it.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -20,7 +21,7 @@
 
 use std::fs;
 
-use kartta::{BuildOptions, Engine, Limits, Selector, SymbolKind, confidence};
+use kartta::{BuildOptions, Engine, Limits, Miss, Selector, SymbolKind, confidence};
 use tempfile::TempDir;
 
 fn tree_of(files: &[(&str, &str)]) -> TempDir {
@@ -1188,4 +1189,49 @@ fn a_typescript_call_on_a_parameter_typed_by_its_context_binds_the_method_of_tha
     );
     assert_eq!(self_call("dependents"), None);
     assert_eq!(self_call("grep"), None);
+}
+
+#[test]
+fn a_javascript_bare_call_of_a_name_imported_from_a_package_binds_no_namesake_of_the_project() {
+    let tree = tree_of(&[
+        ("package.json", "{\"name\":\"app\"}\n"),
+        (
+            "src/app.js",
+            "import { useState } from \"react\";\nimport { useHook } from \"./hooks\";\n\n\
+             export function run() { useState(0); }\n\nexport function hook() { useHook(); }\n",
+        ),
+        ("src/hooks.js", "export function useHook() {}\n"),
+        (
+            "src/app.test.js",
+            "import { beforeEach, describe } from \"vitest\";\n\n\
+             describe(\"app\", () => {\n  beforeEach(() => {});\n});\n",
+        ),
+        (
+            "other/lib.js",
+            "export function useState(v) {}\n\nexport function useHook() {}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["javascript"]);
+
+    assert_eq!(callees(&engine, "src/app.js", "run"), (vec![], 1));
+    assert_eq!(
+        callees(&engine, "src/app.js", "hook"),
+        (vec![("useHook", SymbolKind::Function, "src/hooks.js")], 0)
+    );
+    assert_eq!(
+        callees(&engine, "src/app.test.js", "app"),
+        (
+            vec![("beforeEach", SymbolKind::Function, "src/app.test.js")],
+            0
+        ),
+        "the caller's file answers the name ahead of its import"
+    );
+    let [(_, resolution)] = engine
+        .resolution(usize::MAX)
+        .try_into()
+        .expect("one family");
+    let misses: Vec<_> = (resolution.unbound.iter())
+        .map(|unbound| (unbound.callee, unbound.miss))
+        .collect();
+    assert_eq!(misses, [("useState", Miss::ExternalImport)]);
 }
