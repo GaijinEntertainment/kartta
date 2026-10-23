@@ -402,7 +402,11 @@ impl<'s> Emitter<'s> {
         {
             self.declare(name.byte_range(), self.scope_end(), Binding::Type);
         }
-        self.type_with_members(node, SymbolKind::Class);
+        let id = self.type_declaration(node, SymbolKind::Class, parents(node, self.source));
+        self.push_type_scope(node);
+        if let Some(id) = id {
+            self.scopes.push(Scope::spanning(node, node, id, Some(id)));
+        }
     }
 
     // constraint: a function declared inside a function body names a value of its scope, while one at module or

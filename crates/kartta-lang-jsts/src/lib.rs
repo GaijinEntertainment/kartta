@@ -19,7 +19,9 @@
 //!   wrapped in `memo`, `forwardRef`, `useCallback`, `useMemo`, `observer` or `debounce`, an object property
 //!   `{ onClick: () => {} }`, a class field `handler = () => {}`, and an anonymous `export default` function, named
 //!   `default`. An anonymous callback such as an inline JSX prop opens no scope: its calls belong to the function
-//!   around it.
+//!   around it. A declared class, an anonymous `export default class` included, owns the calls of its body outside
+//!   every such function, a field's initializer, a decorator and a static block, and `this` there names the class; a
+//!   class expression, `const Box = class {}`, leaves them to the scope around it.
 //! - A test registration — `describe`, `it` and `test` with their `x` and `f` forms, `suite`, `bench`, and their
 //!   `.skip`, `.only`, `.todo`, `.concurrent`, `.sequential` and `.failing` modifiers — is a function named by its
 //!   description, and a lifecycle hook one named by the hook. A registration whose description is not a plain string
