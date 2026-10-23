@@ -781,6 +781,104 @@ fn a_variable_a_body_declares_names_its_anonymous_struct_after_the_callable_too(
     assert!(!local("app.{settings}"));
 }
 
+const ANONYMOUS_LITERALS: &[u8] = br#"package app
+
+var cases = []struct{ in, want string }{
+	{in: "a", want: "A"},
+}
+
+var byName map[string][]struct{ ID int }
+
+func TestRun(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func() int
+	}{
+		{name: "one"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, nil)
+	}
+	point, n := &struct{ X, Y int }{X: 1}, 2
+	_ = point.Y
+	print(struct{ Z int }{Z: n})
+	wrapped := (struct{ W int }{})
+	_ = wrapped
+}
+"#;
+
+#[test]
+fn a_literal_assigned_to_a_name_declares_its_anonymous_struct_s_fields() {
+    let raw = extract(ANONYMOUS_LITERALS);
+
+    assert_eq!(owned(&raw, "app.cases").2, ["[]{cases}"]);
+    assert_eq!(owned(&raw, "app.cases.want").1.as_deref(), Some("{cases}"));
+    assert_eq!(
+        owned(&raw, "app.byName").2,
+        ["[][]{byName}"],
+        "a variable's written type names its struct through containers"
+    );
+    assert_eq!(owned(&raw, "app.byName.ID").1.as_deref(), Some("{byName}"));
+    assert_eq!(
+        owned(&raw, "app.TestRun.tests.run").1.as_deref(),
+        Some("{TestRun·tests}")
+    );
+    assert_eq!(
+        owned(&raw, "app.TestRun.point.Y").1.as_deref(),
+        Some("{TestRun·point}"),
+        "a literal behind & is the value's too"
+    );
+    assert_eq!(
+        owned(&raw, "app.TestRun.wrapped.W").1.as_deref(),
+        Some("{TestRun·wrapped}"),
+        "and so is one in parentheses"
+    );
+    assert!(
+        !raw.symbols.iter().any(|symbol| symbol.name == "Z"),
+        "a literal assigned to no name declares nothing"
+    );
+    let structs: Vec<&str> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Struct)
+        .map(|symbol| symbol.name.as_str())
+        .collect();
+    assert_eq!(
+        structs,
+        [
+            "{cases}",
+            "{byName}",
+            "{TestRun·tests}",
+            "{TestRun·point}",
+            "{TestRun·wrapped}"
+        ],
+        "nor does it take a name"
+    );
+}
+
+#[test]
+fn a_key_of_a_literal_assigned_to_a_name_writes_its_anonymous_struct_s_field() {
+    let raw = extract(ANONYMOUS_LITERALS);
+
+    assert_eq!(
+        members(&raw),
+        [
+            ("in", "{cases}", Access::Write, 4),
+            ("want", "{cases}", Access::Write, 4),
+            ("name", "{TestRun·tests}", Access::Write, 14),
+            ("name", "{TestRun·tests}", Access::Read, 17),
+            ("X", "{TestRun·point}", Access::Write, 19),
+            ("Y", "{TestRun·point}", Access::Read, 20),
+        ],
+        "an element's struct comes from its slice, a range's element reads it, and a literal assigned to no name \
+         keeps no key"
+    );
+    assert!(
+        !raw.uses.iter().any(|site| site.name == "Z"),
+        "nor is its key a use of another kind"
+    );
+}
+
 #[test]
 fn a_field_whose_first_rune_is_unicode_upper_case_is_exported() {
     let raw = extract("package sample\n\ntype T struct {\n\tÄ int\n\té string\n}\n".as_bytes());
@@ -1876,7 +1974,7 @@ fn a_member_taken_on_a_value_is_a_use_spelled_with_its_type_and_how_it_is_touche
             ("Reset", "Config", Access::Read, 26),
         ],
         "a key of a struct literal writes its field, an element's type comes from its slice or map; a method value \
-         is a use and a called method is not; an anonymous struct's keys name no field"
+         is a use and a called method is not; the keys of an anonymous struct assigned to no name name no field"
     );
     assert!(
         !raw.uses.iter().any(|site| site.receiver == Receiver::Bare

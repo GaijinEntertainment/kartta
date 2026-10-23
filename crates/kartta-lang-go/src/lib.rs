@@ -10,14 +10,15 @@
 //! per named field, an interface body one method symbol per member, whether the type is defined (`type T struct{}`)
 //! or a literal alias (`type T = struct{}`); any other alias, `type X = Y`, is a type alias, and any other defined
 //! type, `type H func()`, a defined type. An anonymous struct with a field that a struct field's or a variable's type
-//! spells, behind pointers and containers too, is a struct named by the names that lead to it, `{Server·Limits}` for
-//! the field `Limits` of `Server` and `{settings}` for `var settings struct{...}`: its fields are owned by that name
-//! and qualified by those names, `api.Server.Limits.MaxConns`, and the field's or the variable's value is of that
-//! name, so a type path through it reaches them. A variable a body declares names its struct after the callable too,
-//! `{Run·limits}`, since one file's bodies often declare one name. An
-//! embedded field or interface is a parent of its type, and so is the interface of a compile-time assertion
-//! (`var _ I = T{}`, `&T{}`, `new(T)` or `(*T)(nil)`). An assertion whose type the file does not declare is recorded as
-//! an assertion, for the graph to apply where it sees the whole package.
+//! spells, behind pointers and containers too, or that a literal `:=` or `var` assigns to a name spells,
+//! `tests := []struct{...}{...}`, is a struct named by the names that lead to it, `{Server·Limits}` for the field
+//! `Limits` of `Server` and `{settings}` for `var settings struct{...}`: its fields are owned by that name and
+//! qualified by those names, `api.Server.Limits.MaxConns`, and the field's or the variable's value is of that name, so
+//! a type path through it reaches them. A value a body declares names its struct after the callable too,
+//! `{TestRun·tests}`, since one file's bodies often declare one name. An embedded field or interface is a parent of its
+//! type, and so is the interface of a compile-time assertion (`var _ I = T{}`, `&T{}`, `new(T)` or `(*T)(nil)`). An
+//! assertion whose type the file does not declare is recorded as an assertion, for the graph to apply where it sees the
+//! whole package.
 //!
 //! A call records its callee and, for a member call, its receiver as a type path
 //! ([`Receivers::TypePaths`]): the type of the operand's value, as far as the
@@ -36,8 +37,10 @@
 //!
 //! A name outside a call that names a package-level type or a member of an imported package — a type in a signature or
 //! a declaration, a conversion, `pkg.Member` — is a use, attributed to the symbol whose declaration holds it. A field
-//! or method selected from a value, `c.Limit`, is not: which type declares it is the value's type, which extraction
-//! does not know. A name a local binding covers is no use of what it would otherwise name.
+//! or method selected from a value without a call, `c.Limit`, and a key of a struct literal, `Config{Limit: 5}`, are
+//! uses whose receiver is the value's type path, as a member call's is; the keys of a literal of an anonymous struct
+//! assigned to no name, an argument or a returned value, name no field. A name a local binding covers is no use of
+//! what it would otherwise name.
 //!
 //! A function bound to a package-level variable, `var Handler = func() {}`, is the variable alone, and the calls of a
 //! package-level `var` or `const` initializer, a function literal's body among them, are calls of the name the value

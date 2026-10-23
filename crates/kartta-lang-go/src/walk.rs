@@ -7,6 +7,7 @@ use kartta_lang::{
 };
 use tree_sitter::{Node, Tree};
 
+use self::anonymous::literal_type;
 use self::locals::{Block, Local, LocalKind, declares_left, header_statement};
 use self::syntax::{
     assertion_value_type, default_name_candidates, is_exported, is_generated_source, parents_of,
@@ -275,30 +276,45 @@ impl<'a> Emitter<'a> {
                 .map(Block::of)
                 .or_else(|| self.blocks.last().copied())
         {
-            let mut paths = self.declared_paths(node, left);
+            let values = if node.kind() == "range_clause" {
+                Vec::new()
+            } else {
+                right_values(node)
+            };
+            let has_literal = values.iter().any(|&value| literal_type(value).is_some());
+            let literals = if has_literal && node.kind() == "short_var_declaration" {
+                let names: Vec<Node<'_>> = named_child_nodes(left).collect();
+                self.name_literal_structs(&names, &values)
+            } else {
+                Vec::new()
+            };
+            let mut paths = self.declared_paths(node, left, &values);
             self.push_locals(left, (node.end_byte(), block), &mut |position| {
                 paths.get_mut(position).and_then(Option::take)
             });
+            for (struct_type, scope) in literals {
+                self.declare_anonymous(struct_type, &scope);
+            }
         }
     }
 
     // constraint: a range yields an index or a key first, which no path names, and an element second
-    fn declared_paths(&self, node: Node<'_>, left: Node<'_>) -> Vec<Option<String>> {
+    fn declared_paths(
+        &self,
+        node: Node<'_>,
+        left: Node<'_>,
+        values: &[Node<'_>],
+    ) -> Vec<Option<String>> {
         let names = left.named_child_count();
-        let right = node.child_by_field_name("right");
         if node.kind() == "range_clause" {
-            let element = right
+            let element = node
+                .child_by_field_name("right")
                 .and_then(|ranged| self.value_path(ranged))
                 .and_then(|ranged| element_of(&ranged));
             return vec![None, element];
         }
-        let values: Vec<Node<'_>> = match right {
-            Some(list) if list.kind() == "expression_list" => named_child_nodes(list).collect(),
-            Some(value) => vec![value],
-            None => Vec::new(),
-        };
         (0..names)
-            .map(|position| self.value_path_at(&values, names, position))
+            .map(|position| self.value_path_at(values, names, position))
             .collect()
     }
 
@@ -613,9 +629,12 @@ impl<'a> Emitter<'a> {
             Some(list) if written.is_none() => named_child_nodes(list).collect(),
             _ => Vec::new(),
         };
-        let nested = written
-            .zip(self.first_named(&names))
-            .and_then(|(written, first)| self.name_value_struct(written, first));
+        let mut nested = self.name_literal_structs(&names, &values);
+        nested.extend(
+            written
+                .zip(self.first_named(&names))
+                .and_then(|(written, first)| self.name_value_struct(written, first)),
+        );
         for (position, &name_node) in names.iter().enumerate() {
             let name = text(name_node, self.source);
             if name == "_" {
@@ -628,7 +647,7 @@ impl<'a> Emitter<'a> {
                 self.spec_name(spec, kind, (name, type_path));
             }
         }
-        if let Some((struct_type, scope)) = nested {
+        for (struct_type, scope) in nested {
             self.declare_anonymous(struct_type, &scope);
         }
     }
@@ -680,5 +699,13 @@ impl<'a> Emitter<'a> {
 
         self.pending_parents
             .push((type_name, text(iface_node, self.source)));
+    }
+}
+
+fn right_values(statement: Node<'_>) -> Vec<Node<'_>> {
+    match statement.child_by_field_name("right") {
+        Some(list) if list.kind() == "expression_list" => named_child_nodes(list).collect(),
+        Some(value) => vec![value],
+        None => Vec::new(),
     }
 }

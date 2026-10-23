@@ -9,11 +9,12 @@ extension is `go`, in any case.
 
 Every function, method, type, interface member, struct field, constant and `var`-declared variable is a symbol,
 qualified by the package clause: `api.Serve`, and `api.Server.Close` for a member of `Server`; a `:=` declaration is a
-local binding, not a symbol. An anonymous struct with a field that a struct field's or a variable's type spells is a
-struct named by the names that lead to it, `{Server·Limits}` for the field `Limits` of `Server` and `{settings}` for
-`var settings struct{...}`; its fields are owned by that name and qualified by those names,
-`api.Server.Limits.MaxConns`. An embedded type is a parent of the type
-that embeds it, and so is the interface of a compile-time assertion such as `var _ io.Reader = (*File)(nil)`.
+local binding, not a symbol. An anonymous struct with a field that a struct field's or a variable's type spells, behind
+pointers and containers too, or that a literal `:=` or `var` assigns to a name spells, `tests := []struct{...}{...}`, is
+a struct named by the names that lead to it, `{Server·Limits}` for the field `Limits` of `Server`, `{settings}` for
+`var settings struct{...}` and `{TestRun·tests}` for a body's `tests`; its fields are owned by that name and qualified
+by those names, `api.Server.Limits.MaxConns`. An embedded type is a parent of the type that embeds it, and so is the
+interface of a compile-time assertion such as `var _ io.Reader = (*File)(nil)`.
 
 A call records its callee and, for a member call, its receiver as a type path: the type of the operand's value, as far
 as the file's declarations spell it. `s.client.Do()` in `func f(s *Server)` records `Server.client`, and `w.draw()` in
@@ -22,8 +23,8 @@ a field's type or a function's results, to the method the call reaches. A name o
 type in a signature, a field, a conversion, a package-level value or function — is a use of what it names, unless a
 local binding covers it. A member taken on a value without a call, `s.client` or the method value `w.draw`, is a use
 whose receiver is the same type path, and so is each key of a struct literal, `Config{Timeout: 5}`; a literal of an
-anonymous struct keeps none. Each use is marked a read, a write — the left side of `=`, a literal's key — or an update,
-`+=` or `++`.
+anonymous struct assigned to no name keeps none. Each use is marked a read, a write — the left side of `=`, a literal's
+key — or an update, `+=` or `++`.
 
 ## Resolution
 
