@@ -1,3 +1,4 @@
+use std::cell::OnceCell;
 use std::rc::Rc;
 
 use foldhash::fast::FixedState;
@@ -365,24 +366,26 @@ impl<'g> Cascade<'g> {
             return None;
         }
         let file = site.file;
-        let Some(written) = written else {
-            if let Some(&seen) = owned.iter().find(|&&at| self.sees(file, at)) {
-                return Some(Twin::Member(seen));
-            }
-            let closure = self.closure(file);
-            return owned
-                .iter()
-                .copied()
-                .find(|at| closure.binary_search(&at.file).is_ok())
-                .map(Twin::Member);
+        let closure = OnceCell::new();
+        let sees = |at: SymbolAt| self.sees(file, at);
+        let reaches = |at: &SymbolAt| {
+            closure
+                .get_or_init(|| self.closure(file))
+                .binary_search(&at.file)
+                .is_ok()
         };
-        let seen = kept(owned, |&at| self.sees(file, at));
-        if !seen.is_empty() {
-            return self.twin(site, written, &seen);
+        let Some(written) = written else {
+            if let Some(&member) = owned.iter().find(|&&at| sees(at)) {
+                return Some(Twin::Member(member));
+            }
+            return owned.iter().copied().find(reaches).map(Twin::Member);
+        };
+        let in_view = kept(owned, |&at| sees(at));
+        if !in_view.is_empty() {
+            return self.twin(site, written, &in_view);
         }
-        let closure = self.closure(file);
-        let reached = kept(owned, |at| closure.binary_search(&at.file).is_ok());
-        self.twin(site, written, &reached)
+        let in_reach = kept(owned, reaches);
+        self.twin(site, written, &in_reach)
     }
 
     /// The receiver path as written where scopes tell namesake classes apart, as C++'s do.
