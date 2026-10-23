@@ -142,7 +142,7 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{
     Conventions, DocComments, Language, NamespaceCalls, OwnMembers, RawExtraction, Repository,
-    Resolver, TypeUses,
+    Resolver, SymbolKind, TypeUses,
 };
 
 use crate::resolve::Crates;
@@ -174,6 +174,7 @@ const CONVENTIONS: Conventions = {
     conventions.own_type_receivers = Some(&["other"]);
     conventions.type_uses = TypeUses::Nowhere;
     conventions.member_calls = kartta_lang::MemberCalls::ModulePaths;
+    conventions.unrecorded_data = &[SymbolKind::Field];
     conventions
 };
 

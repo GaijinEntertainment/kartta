@@ -3,8 +3,8 @@ use std::iter;
 use std::ops::Range;
 
 use kartta::{
-    CallPath, Candidate, Change, Definition, DirectCalls, Hotspot, ReachBand, Reached, Reference,
-    References, Seed, Segment, SelfCall, SymbolKind, TypeUses, Walk,
+    CallPath, Candidate, Change, Conventions, Definition, DirectCalls, Hotspot, ReachBand, Reached,
+    Reference, References, Seed, Segment, SelfCall, SymbolKind, TypeUses, Walk,
 };
 
 use super::{
@@ -20,18 +20,11 @@ const SEED_CALLERS: usize = 10;
 const METHOD_NOTE: &str = "a call through a value of the owner's type resolves only where the graph can name that \
                            type, so some of those calls can be missing";
 
-/// The blind spot of a field's sites in a language whose extraction records no access to a field.
-const FIELD_NOTE: &str = "this language's extraction records no access to a field yet, so every use of it is missing \
-                          from this answer";
-
 /// What a type's sites leave out in a family whose graph records no use of a type, after the name of that graph.
 const NO_TYPE_USES: &str = "graph records no use of a type where code names it as one, such as a declaration, a \
                             signature, a generic argument or an import";
 
-/// The families whose extraction records field accesses and reads of package-level values.
-const RECORDS_DATA_ACCESS: &[&str] = &["cpp", "go", "jsts", "python"];
-
-/// What a field's sites leave out in a family that records field accesses, where it leaves out more than the
+/// What a field's sites leave out in a family that records some field accesses, where it leaves out more than the
 /// `ambiguous` count says.
 const PARTIAL_DATA_ACCESS: &[(&str, &str)] = &[
     (
@@ -47,6 +40,11 @@ const PARTIAL_DATA_ACCESS: &[(&str, &str)] = &[
         "python",
         "an attribute of a value whose class the extraction cannot name binds only where one field of the name is in \
          its own file; ambiguous counts the rest",
+    ),
+    (
+        "quirrel",
+        "a field is recorded only where a method of its owner names it bare, so its uses through this.x or a value's \
+         x are missing from this answer",
     ),
 ];
 
@@ -175,12 +173,12 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
     element.children(hops.chain(passed_over))
 }
 
-/// The `find_references` answer: one `<match>` per family graph the name selects a symbol in, with where that family
-/// records a use of a type. `keeps_one_access` says that the call kept the sites of one access.
+/// The `find_references` answer: one `<match>` per family graph the name selects a symbol in, with the conventions
+/// that say which uses that family records. `keeps_one_access` says that the call kept the sites of one access.
 pub(crate) fn references(
     ask: &CallersAsk<'_>,
     keeps_one_access: bool,
-    found: &[(&str, TypeUses, References<'_>)],
+    found: &[(&str, &Conventions, References<'_>)],
     unmatched: &Unmatched<'_>,
 ) -> String {
     let element = Element::new("references")
@@ -191,8 +189,8 @@ pub(crate) fn references(
     if found.is_empty() {
         return unresolved(element, ask.languages, "path_prefix", unmatched);
     }
-    element.children(found.iter().map(|(family, type_uses, references)| {
-        reference_match(keeps_one_access, family, *type_uses, references)
+    element.children(found.iter().map(|(family, conventions, references)| {
+        reference_match(keeps_one_access, family, conventions, references)
     }))
 }
 
@@ -205,7 +203,7 @@ const COUNTED_FILES: usize = 50;
 fn reference_match(
     keeps_one_access: bool,
     family: &str,
-    type_uses: TypeUses,
+    conventions: &Conventions,
     references: &References<'_>,
 ) -> String {
     let symbol = &references.symbol;
@@ -231,14 +229,13 @@ fn reference_match(
         .count("passed_over", references.passed_over);
     let member_note = match symbol.kind.label() {
         "method" => Some(METHOD_NOTE),
-        "field" if !RECORDS_DATA_ACCESS.contains(&family) => Some(FIELD_NOTE),
         "field" => PARTIAL_DATA_ACCESS
             .iter()
             .find(|(partial, _)| *partial == family)
             .map(|&(_, note)| note),
         _ => None,
     };
-    let unrecorded = (type_uses == TypeUses::Nowhere && symbol.kind.is_type()).then_some(family);
+    let unrecorded = Unrecorded::of(conventions, symbol.kind);
     let passed_over = candidates(&references.candidates, "sites");
     if references.sites.is_empty() {
         let text = if references.below_confidence > 0 {
@@ -254,12 +251,15 @@ fn reference_match(
                 lists,
             )
         } else {
-            no_sites(unrecorded, member_note)
+            no_sites(family, unrecorded, member_note)
         };
         return noted(element, &text, passed_over);
     }
-    let missing = unrecorded.map(|family| {
-        format!("the {family} {NO_TYPE_USES}, so every such use is missing from this answer")
+    let missing = unrecorded.map(|gap| {
+        format!(
+            "{}, so every such use is missing from this answer",
+            gap.statement(family)
+        )
     });
     let note = (missing.as_deref())
         .or(member_note)
@@ -267,13 +267,50 @@ fn reference_match(
     element.children(note.into_iter().chain(listing.records).chain(passed_over))
 }
 
-/// Why a match lists no site at any confidence: that the graph of the family `unrecorded` names records no use of a
-/// type, else the caveat that fits any language with the `member_note` of a method's or a field's sites.
-fn no_sites(unrecorded: Option<&str>, member_note: Option<&str>) -> String {
-    if let Some(family) = unrecorded {
+/// The uses of a symbol that its family's graph records nowhere, as the family's conventions state them.
+#[derive(Clone, Copy)]
+enum Unrecorded {
+    /// A type's uses as one, where the graph records no use of a type.
+    TypeUses,
+    /// The reads and writes of a field, a variable or a constant, by the word for its kind, where the graph records
+    /// none of that kind.
+    DataUses(&'static str),
+}
+
+impl Unrecorded {
+    fn of(conventions: &Conventions, of: SymbolKind) -> Option<Self> {
+        if conventions.type_uses == TypeUses::Nowhere && of.is_type() {
+            return Some(Self::TypeUses);
+        }
+        (conventions.unrecorded_data.contains(&of)).then(|| Self::DataUses(kind(of)))
+    }
+
+    /// The statement that the graph of `family` records none of these uses.
+    fn statement(self, family: &str) -> String {
+        match self {
+            Self::TypeUses => format!("the {family} {NO_TYPE_USES}"),
+            Self::DataUses(what) => {
+                format!("the {family} graph records no read or write of a {what}")
+            }
+        }
+    }
+
+    const fn what(self) -> &'static str {
+        match self {
+            Self::TypeUses => "type",
+            Self::DataUses(what) => what,
+        }
+    }
+}
+
+/// Why a match lists no site at any confidence: what the graph of `family` records none of, else the caveat that fits
+/// any language with the `member_note` of a method's or a field's sites.
+fn no_sites(family: &str, unrecorded: Option<Unrecorded>, member_note: Option<&str>) -> String {
+    if let Some(gap) = unrecorded {
         return format!(
-            "no recorded site - the {family} {NO_TYPE_USES}, so this does not show that nothing uses the type; grep \
-             finds where code names it"
+            "no recorded site - {}, so this does not show that nothing uses the {}; grep finds where code names it",
+            gap.statement(family),
+            gap.what()
         );
     }
     let mut text = "no recorded site - resolved calls can omit dynamic or unresolved ones, and uses other than calls \

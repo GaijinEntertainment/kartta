@@ -998,10 +998,10 @@ impl Server {
                        a type, EventType.Created, reading the type; write; or update for += and ++), at= the lines \
                        where it touches the symbol, \
                        and a confidence=likely / guess mark on a weakly resolved site. A caller is one site, at one of \
-                       its calls; every other use is one site per line and kind. Field accesses are recorded only for \
-                       Go, C/C++, TypeScript, JavaScript and Python so far, value reads also for Rust, DSHL and \
-                       Quirrel, and uses as a type only in some languages, a type's match saying so where its \
-                       language, Rust among them, records none; ambiguous= counts the \
+                       its calls; every other use is one site per line and kind. Languages record uses other than \
+                       calls to different extents, and a match names its language where that language records none \
+                       of its symbol's uses: no use as a type of a type, as Rust records none, and no read or write \
+                       of a field, a variable or a constant, as Rust records none of a field; ambiguous= counts the \
                        calls of its name that bound no definition because several definitions of the name may be \
                        meant, as find_callers counts them, and the uses of a member's name on a value whose type the \
                        graph could not follow: any of them may be this symbol, and none is listed. A method's calls \
@@ -1039,8 +1039,7 @@ impl Server {
                     let query = p
                         .access
                         .map_or(query, |access| query.with_access(access.access()));
-                    let type_uses = graph.conventions().type_uses;
-                    Some((family, type_uses, graph.references(named, query)?))
+                    Some((family, graph.conventions(), graph.references(named, query)?))
                 },
             );
             let named = Selector::new(read_as.as_deref().unwrap_or(&p.name), path_prefix);

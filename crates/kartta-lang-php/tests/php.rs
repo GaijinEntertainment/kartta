@@ -1317,3 +1317,39 @@ class Circle extends Shape implements Drawable {
     assert_eq!(uses(&raw), []);
     assert_eq!(Php::new().conventions().type_uses, TypeUses::Nowhere);
 }
+
+#[test]
+fn a_read_or_a_write_of_a_property_or_a_constant_is_no_use_of_it() {
+    let raw = extract(
+        b"<?php
+const TOP = 1;
+class Feed {
+    const MAX = 10;
+    private $count = 0;
+    public function bump() {
+        $this->count += self::MAX + TOP;
+        return Feed::MAX;
+    }
+}
+",
+    );
+
+    for (name, kind) in [
+        ("TOP", SymbolKind::Constant),
+        ("Feed::MAX", SymbolKind::Constant),
+        ("Feed::count", SymbolKind::Field),
+    ] {
+        assert!(
+            raw.symbols
+                .iter()
+                .any(|symbol| symbol.qualified_name == name && symbol.kind == kind),
+            "{name} in {:?}",
+            names(&raw.symbols)
+        );
+    }
+    assert_eq!(uses(&raw), []);
+    assert_eq!(
+        Php::new().conventions().unrecorded_data,
+        [SymbolKind::Field, SymbolKind::Constant]
+    );
+}

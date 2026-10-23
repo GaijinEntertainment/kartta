@@ -6,7 +6,7 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
-use kartta_lang::{FILE_SCOPE, Language, OwnMembers, RawExtraction, Symbol, SymbolKind};
+use kartta_lang::{FILE_SCOPE, Language, OwnMembers, RawExtraction, Receiver, Symbol, SymbolKind};
 use kartta_lang_dshl::Dshl;
 
 fn extract(source: &str) -> RawExtraction {
@@ -338,4 +338,21 @@ fn doc_line(name: &str) -> u32 {
 fn line_and_block_comments_above_a_definition_document_it() {
     assert_eq!(doc_line("fog_tex"), 3);
     assert_eq!(doc_line("fog_shader"), 6);
+}
+
+#[test]
+fn a_shader_s_own_value_is_read_by_a_bare_name_which_binds_no_field() {
+    let raw = extract("shader s { int mode = 1; if (mode == 1) { dont_render; } }\n");
+
+    assert_eq!(symbol(&raw, "s.mode").kind, SymbolKind::Field);
+    assert!(
+        raw.uses.iter().all(|site| site.receiver == Receiver::Bare),
+        "{:?}",
+        raw.uses
+    );
+    assert_eq!(uses(&raw), [(Some("s"), "mode")]);
+    assert_eq!(
+        Dshl::new().conventions().unrecorded_data,
+        [SymbolKind::Field]
+    );
 }
