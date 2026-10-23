@@ -358,8 +358,11 @@
   - Governs: `crates/kartta-languages/src/lib.rs` (`all`, `select`, `NAMES`, `UnknownLanguages`)
   - Revisit if: a consumer needs a build without some grammars, or two shipped languages claim the same file
 - [3.33 Follow a tree through the questions each file's resolution
-  asked](./adr/3.33-follow-a-tree-through-the-questions-each-file-s-resolution-asked.md) — initiative `03-code-graph`,
-  2026-10-18, revised 2026-10-22
+  asked](./adr/3.33-follow-a-tree-through-the-questions-each-file-s-resolution-asked.md)
+  - Governs: `crates/kartta/src/{following,repository,resolving}.rs`, `kartta::Engine::refresh`,
+    `kartta::Engine::refresh_paths`, `kartta::EngineRefresh`, `kartta_lang::Resolver`
+  - Revisit if: the files a change reaches grow to a large share of the tree, past what holding the raw extractions
+    would cost
 - [3.34 Record each read and write of a field or a value, and bind it when a query
   asks](./adr/3.34-record-each-read-and-write-of-a-field-or-a-value.md)
   - Governs: `kartta_lang::{UseRef, Receiver, Access, ValueUses, UntypedMembers, OwnMembers, DataUses}`,
@@ -522,6 +525,26 @@
   span](./adr/3.76-count-a-generated-code-marker-only-outside-a-code-span.md)
   - Governs: `crates/kartta-lang/src/banner.rs` (`kartta_lang::Banner`)
   - Revisit if: a generator in the trees kartta serves writes its banner inside backticks
+- [3.80 Widen a named refresh to the whole tree past one part for every 30
+  entries](./adr/3.80-widen-a-named-refresh-to-the-whole-tree-past-one-part-for-every-30-entries.md)
+  - Governs: `crates/kartta/src/engine.rs` (`refresh_parts`), `kartta::Engine::refresh_paths_limit`,
+    `kartta::EngineRefresh::widened`, `kartta::Widened`
+  - Revisit if: the index takes the parts themselves on its threads, or a followed tree's whole refresh costs far more
+    an entry, as on a network mount
+- [3.81 Find the files a refresh reaches by one pass over a buffer of their
+  keys](./adr/3.81-find-the-files-a-refresh-reaches-by-one-pass-over-a-buffer-of-their-keys.md)
+  - Governs: `crates/kartta/src/following.rs` (`Asked`, `Reached`)
+  - Revisit if: the pass is again a large part of a refresh a consumer waits on
+- [3.82 Build a followed family's resolver again only when a refresh reaches what it
+  read](./adr/3.82-build-a-followed-family-s-resolver-again-only-when-a-refresh-reaches-what-it-read.md)
+  - Governs: `crates/kartta/src/following.rs` (`plan`, `reconfigure`), `kartta::EngineRefresh::reconfigured`,
+    `kartta_lang::Resolver::resolves_as`
+  - Revisit if: most edits to a configuration change what its resolver derives, or a kept resolver grows to a share of
+    the heap
+- [3.83 Keep the tables a followed engine's resolvers find files in across
+  refreshes](./adr/3.83-keep-the-tables-a-followed-engine-s-resolvers-find-files-in-across-refreshes.md)
+  - Governs: `crates/kartta/src/repository.rs` (`FileTables`)
+  - Revisit if: most refreshes stop asking by name
 - [3.100 Resolve a TypeScript or JavaScript import as the compiler and bundlers
   do](./adr/3.100-resolve-a-typescript-or-javascript-import-as-the-compiler-and-bundlers-do.md)
   - Governs: `crates/kartta-lang-jsts/src/{resolve,modules,tsconfig,package_json,config}.rs`,
