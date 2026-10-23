@@ -409,7 +409,7 @@
 - [3.42 Read transitive includes for a name few definitions
   share](./adr/3.42-read-transitive-includes-for-a-name-few-definitions-share.md)
   - Governs: `kartta_lang::IncludeReach`, `crates/kartta-graph/src/resolve.rs` (`included`, `through_includes`,
-    `closure`, `THROUGH_INCLUDES_MAX_DEFINITIONS`), `crates/kartta-lang-cpp/src/lib.rs`
+    `closure`, `THROUGH_INCLUDES_MAX_DEFINITIONS`, `is_pasted_where_called`), `crates/kartta-lang-cpp/src/lib.rs`
   - Revisit if: the C++ extraction reads `INLINE`-hidden templates and every class head
 - [3.43 Guess no member near the caller for a C++ call on a
   value](./adr/3.43-guess-no-member-near-the-caller-for-a-c-plus-plus-call-on-a-value.md)
