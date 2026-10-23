@@ -239,6 +239,35 @@ fn a_path_through_self_or_super_is_kept_only_outside_every_inline_module() {
 }
 
 #[test]
+fn a_path_through_crate_or_super_to_a_name_the_file_declares_binds_its_module_keyword() {
+    let source = "pub fn new() {\n    super::new();\n    crate::new();\n    self::new();\n    super::other();\n}\n";
+    let receivers: Vec<Option<String>> = Rust::new()
+        .extract(source.as_bytes())
+        .calls
+        .into_iter()
+        .map(|call| call.receiver)
+        .collect();
+
+    assert_eq!(
+        bound(source),
+        [
+            path("super", "super", 2),
+            path("crate", "crate", 3),
+            path("other", "super::other", 5),
+        ]
+    );
+    assert_eq!(
+        receivers,
+        [
+            Some("super".to_owned()),
+            Some("crate".to_owned()),
+            None,
+            None
+        ]
+    );
+}
+
+#[test]
 fn a_path_that_ends_at_a_capitalised_item_is_kept_only_for_a_bare_call_of_its_name() {
     let got = bound(
         "use other::m::Wrapper;\nuse other::m::Kind;\nuse crate::m::Pair as P;\nuse super::Unit;\n\n\

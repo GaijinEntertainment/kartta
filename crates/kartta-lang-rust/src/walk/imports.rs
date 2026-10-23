@@ -188,6 +188,7 @@ impl Emitter<'_> {
         if self.imports.is_empty() && self.written_paths.is_empty() {
             return;
         }
+        self.reach_own_names_through_their_module();
         let mut kept = self.kept_paths();
         let mut index = 0;
         self.raw.directives.retain_mut(|directive| {
@@ -207,6 +208,38 @@ impl Emitter<'_> {
             }
             true
         });
+    }
+
+    // constraint: a path call through `crate` or `super` that then ends at a name the file declares at its top level,
+    // `super::new()` beside `fn new`, cannot bind the name, which is the file's own; it takes the path's last keyword
+    // as its receiver, bound to the module the path names, so the call reaches that module's item; `self::new()`
+    // names the file's own item, which the name already is
+    fn reach_own_names_through_their_module(&mut self) {
+        let directives = &self.raw.directives;
+        let calls = &self.raw.calls;
+        let mut through: Vec<(usize, usize, usize)> = (self.written_paths.iter())
+            .filter_map(|site| {
+                let call = &calls[site.call];
+                let (module, name) = directives[site.directive].spec.rsplit_once("::")?;
+                (call.receiver.is_none()
+                    && name == call.callee
+                    && module != "self"
+                    && module
+                        .split("::")
+                        .all(|segment| matches!(segment, "crate" | "self" | "super")))
+                .then_some((site.call, site.directive, module.len()))
+            })
+            .collect();
+        if through.is_empty() {
+            return;
+        }
+        let declared = self.declared_names();
+        through.retain(|&(call, _, _)| declared.contains_key(calls[call].callee.as_str()));
+        for (call, directive, module) in through {
+            let spec = &mut self.raw.directives[directive].spec;
+            spec.truncate(module);
+            self.raw.calls[call].receiver = Some(last(spec).to_owned());
+        }
     }
 
     // constraint: a path call's receiver, the last segment of its path, is bound to the path where the receiver did not

@@ -50,7 +50,9 @@
 //! and a macro invocation through one for its macro, `kartta_lang::mac!()` for `mac`, each read through the `use` of
 //! its first segment where the file has one. A name the file declares at its top level, or binds to two paths anywhere,
 //! keeps none, though a `use` keeps a name the file declares only as a module, which Rust keeps apart from what the
-//! `use` binds, as `use parse::parse;` beside `mod parse;`; `as _`, a capitalised first segment, a path through
+//! `use` binds, as `use parse::parse;` beside `mod parse;`, and a path call through `crate` or `super` that ends at a
+//! name the file declares, `super::new()` beside `fn new`, records the path's last keyword as its receiver and keeps
+//! the keyword with the path, `super` for `super`; `as _`, a capitalised first segment, a path through
 //! `self::` or `super::` inside an inline module and the standard library's crates keep nothing. A `use` or a glob
 //! whose first segment is a module the file declares where it is written starts at the file's own module, so
 //! `use m::helper;` beside `mod m;` keeps `self::m::helper`, and inside an inline module, as a path through `self::`
