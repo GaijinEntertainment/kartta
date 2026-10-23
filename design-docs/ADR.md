@@ -318,8 +318,10 @@
   - Revisit if: a family's first search outgrows a query's latency, or refreshes make re-splitting cost more than
     sets kept at insert
 - [3.22 Analyze what a change reaches with the walk the call queries
-  take](./adr/3.22-analyze-what-a-change-reaches-with-the-walk-the-call-queries-take.md) — initiative `03-code-graph`,
-  2026-10-17, revised 2026-10-23
+  take](./adr/3.22-analyze-what-a-change-reaches-with-the-walk-the-call-queries-take.md)
+  - Governs: `crates/kartta-graph/src/{analyze,change}.rs`, `Graph::analyze_segment`, `Graph::analyze_change`,
+    `Change::merge`, `ReachBand`, `Engine::analyze_change`
+  - Revisit if: a large header must be analyzed faster than 0.3 s, or the per-query memo outgrows a few megabytes
 - [3.23 Judge code dead only where the graph sees it
   used](./adr/3.23-judge-code-dead-only-where-the-graph-sees-it-used.md) — initiative `03-code-graph`, 2026-10-17,
   revised 2026-10-23
@@ -561,6 +563,15 @@
   - Governs: `crates/kartta-graph/src/one_edit.rs`, `Graph::definitions_one_edit_from`
   - Revisit if: the meant definition falls outside one edit for more than a few of 500 typos, or a miss outgrows tens
     of milliseconds at p99
+- [3.132 Walk from a field, a variable or a constant to its
+  users](./adr/3.132-walk-from-a-field-a-variable-or-a-constant-to-its-users.md)
+  - Governs: `crates/kartta-graph/src/calls.rs` (`dependents_of`, `user_edges`), `SegmentSymbol::users`,
+    `Seed::user_count`, `Seed::consumers`
+  - Revisit if: a sample of the users a data symbol's walk takes finds more than one in ten wrong
+- [3.133 Count a blast's files from its callers and its file's includers
+  apart](./adr/3.133-count-a-blast-s-files-from-its-callers-and-its-file-s-includers-apart.md)
+  - Governs: `crates/kartta-graph/src/analyze.rs` (`includers_within`, `Blast::affected_files`)
+  - Revisit if: a consumer needs the affected files listed, not counted
 - [3.140 Find a daslang module by its file name](./adr/3.140-find-a-daslang-module-by-its-file-name.md)
   - Governs: `crates/kartta-lang-daslang/src/resolve.rs`, `crates/kartta-lang-daslang/src/walk.rs` (`require`,
     `include`)
