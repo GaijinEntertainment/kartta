@@ -20,8 +20,10 @@
   - Governs: `crates/kartta-fs/src/glob.rs` (`Capped::truncated`), `crates/kartta-fs/src/list.rs`
     (`Listing::truncated`), `crates/kartta-fs/src/fuzzy.rs` (`FuzzyMatches`), `Index::entries`
   - Revisit if: a caller needs the count of what a cap cut on an index-order surface
-- [1.6 Read a file's own facts on demand](./adr/1.6-read-a-file-s-own-facts-on-demand.md) — initiative
-  `01-kartta-fs-port`, 2026-08-24, revised 2026-10-18
+- [1.6 Read a file's own facts on demand, not during the walk](./adr/1.6-read-a-file-s-own-facts-on-demand.md)
+  - Governs: `crates/kartta-fs/src/inspection.rs`, `Index::size`, `Index::is_binary`, `Listed::size`,
+    `Listed::is_binary`
+  - Revisit if: a caller needs file facts coherent with the walk for files a build did not read
 - [1.7 Let a caller compose the binary extension set](./adr/1.7-let-a-caller-compose-the-binary-extension-set.md) —
   initiative `01-kartta-fs-port`, 2026-10-13, revised 2026-10-18
 - [1.8 Count what a listing leaves out](./adr/1.8-count-what-a-listing-leaves-out.md) — initiative `01-kartta-fs-port`,
@@ -75,6 +77,11 @@
   - Governs: `crates/kartta-fs/src/fuzzy.rs` (`FuzzyMatches::matched`), `crates/kartta-fuzz/src/ranking.rs`
     (`Ranking::matched`, `Ranking::merge`)
   - Revisit if: the ranking stops scoring every candidate the filter and the exclusion leave
+- [1.60 Settle a file as binary by its extension, else by a NUL in its first 64
+  KiB](./adr/1.60-settle-a-file-as-binary-by-its-extension-else-by-a-nul-in-its-first-64-kib.md)
+  - Governs: `Index::is_binary`, `crates/kartta-fs/src/inspection.rs` (`PROBE`), `crates/kartta-fs/src/binary.rs`
+    (`BUILTIN`), `crates/kartta-fs/src/scan.rs`
+  - Revisit if: a tree shows that the extension set's shape is wrong, not only its contents
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-18
