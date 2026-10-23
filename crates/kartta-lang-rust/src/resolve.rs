@@ -10,7 +10,7 @@ use kartta_lang::{
 };
 
 use crate::manifest;
-use crate::walk::{MOD_TEST_FORM, USE_FORM};
+use crate::walk::{GLOB_FORM, MOD_TEST_FORM, USE_FORM};
 
 // constraint: each package maps to the root of its library, where its manifest names one
 #[derive(PartialEq)]
@@ -82,14 +82,15 @@ impl Crates {
     // one through `self::` at the caller's module and one through `super::` at the module above, and each segment
     // after names the module file Cargo's layout gives it until one names none: a path that ends at a module binds its
     // file, and one that ends a segment further, at an item, binds the file of the module that holds it; a longer rest
-    // binds nothing
+    // binds nothing; a glob binds the file of the module it ends at as a dot import, and none past it
     fn crate_binding(
         &self,
         directive: &RawDirective,
         caller: &Caller<'_>,
         repository: &dyn Repository,
     ) -> Option<ImportBinding> {
-        let name = directive.names.first()?;
+        let glob = directive.form == GLOB_FORM;
+        let name = if glob { "." } else { directive.names.first()? };
         let mut segments = directive.spec.split("::").peekable();
         let head = segments.next()?;
         let start = match head {
@@ -112,10 +113,11 @@ impl Crates {
         };
         let (file, last) = match Self::reach(start, head, segments, repository)? {
             Reached::Module { file, name } => (file, name),
-            Reached::Item { holder, name } => (holder, name),
+            Reached::Item { holder, name } if !glob => (holder, name),
+            Reached::Item { .. } => return None,
         };
         Some(ImportBinding {
-            alias: (name != last).then(|| name.clone()),
+            alias: (name != last).then(|| name.to_owned()),
             target_dir: Some(file),
             last_segment: last.to_owned(),
         })
@@ -361,7 +363,7 @@ impl Resolver for Crates {
         }
 
         for directive in &directives {
-            if directive.form == USE_FORM {
+            if matches!(directive.form, USE_FORM | GLOB_FORM) {
                 extraction
                     .bindings
                     .extend(self.crate_binding(directive, &caller, repository));

@@ -30,6 +30,7 @@ mod values;
 pub(crate) const MOD_FORM: u32 = 0;
 pub(crate) const MOD_TEST_FORM: u32 = 1;
 pub(crate) const USE_FORM: u32 = 2;
+pub(crate) const GLOB_FORM: u32 = 3;
 
 // constraint: a node is judged as a read by its parent's kind and its field there, which only the cursor holds, as
 // `Node::parent` walks down from the root
