@@ -1637,6 +1637,59 @@ fn a_test_definition_counts_against_the_one_callable_of_its_name() {
 }
 
 #[test]
+fn a_call_outside_test_code_binds_the_one_type_that_a_test_type_stands_in_for() {
+    let class = |name: &str| Symbol::new(name, SymbolKind::Class, 1, 3);
+    let declared = graph(&[
+        file(
+            "a/x.c",
+            vec![function("run", 1)],
+            vec![call(0, "Point", 2), call(0, "parse", 3)],
+        ),
+        file(
+            "b/c/point.h",
+            vec![class("Point"), function("parse", 5)],
+            Vec::new(),
+        ),
+        file(
+            "d/e/stub.h",
+            vec![in_test(class("Point")), in_test(function("parse", 5))],
+            Vec::new(),
+        ),
+        file(
+            "d/e/check.c",
+            vec![in_test(function("check", 1))],
+            vec![call(0, "Point", 2)],
+        ),
+    ]);
+
+    assert_eq!(
+        callees(&declared, "run"),
+        ["b/c/point.h:1@60"],
+        "a function that test code shares binds none"
+    );
+    assert_eq!(
+        callees(&declared, "check"),
+        ["d/e/stub.h:1@50"],
+        "test code takes the type nearest it"
+    );
+
+    let constructed = graph(&[
+        file("a/x.c", vec![function("run", 1)], vec![call(0, "Point", 2)]),
+        file(
+            "b/c/point.cpp",
+            vec![member("Point", "Point", SymbolKind::Method, 1)],
+            Vec::new(),
+        ),
+        file("d/e/stub.h", vec![in_test(class("Point"))], Vec::new()),
+    ]);
+    assert_eq!(
+        callees(&constructed, "run"),
+        ["b/c/point.cpp:1@60"],
+        "a constructor outside test code stands for its type"
+    );
+}
+
+#[test]
 fn a_runtime_method_binds_no_test_definition_as_the_one_callable_for_a_call_outside_test_code() {
     let mut conventions = Conventions::default();
     conventions.runtime_methods = &["push"];
