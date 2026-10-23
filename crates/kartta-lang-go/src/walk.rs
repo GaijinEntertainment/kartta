@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use kartta_lang::tree::{child_nodes, line, named_child_nodes, preorder, signature, text};
 use kartta_lang::{
@@ -14,6 +14,7 @@ use self::syntax::{
 };
 use self::types::{element_of, is_container_type};
 
+mod anonymous;
 mod calls;
 mod locals;
 mod syntax;
@@ -84,6 +85,8 @@ struct Emitter<'a> {
     literal_key: Option<usize>,
     import_names: Vec<String>,
     pending_parents: Vec<(String, String)>,
+    anonymous: HashMap<usize, String>,
+    anonymous_counts: HashMap<String, u32>,
     file_is_generated: bool,
     symbol_count: u32,
     raw: RawExtraction,
@@ -108,6 +111,8 @@ impl<'a> Emitter<'a> {
             literal_key: None,
             import_names: Vec::new(),
             pending_parents: Vec::new(),
+            anonymous: HashMap::new(),
+            anonymous_counts: HashMap::new(),
             file_is_generated: is_generated_source(source),
             symbol_count: 0,
             raw,
@@ -565,6 +570,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn field_names(&mut self, field: Node<'_>, (owner, scope): (&str, &str)) {
+        let nested = self.name_field_struct(field, scope);
         let type_path = field
             .child_by_field_name("type")
             .and_then(|written| self.type_path(written));
@@ -579,6 +585,9 @@ impl<'a> Emitter<'a> {
                 symbol.value_types = type_path.clone().into_iter().collect();
                 self.push_symbol(symbol);
             }
+        }
+        if let Some((struct_type, nested_scope)) = nested {
+            self.declare_anonymous(struct_type, &nested_scope);
         }
     }
 
