@@ -247,12 +247,13 @@ fn a_trait_use_lands_on_the_class_not_a_member_of_its_name() {
 }
 
 #[test]
-fn a_trait_use_in_an_anonymous_class_leaves_the_outer_class_alone() {
+fn a_trait_use_in_an_anonymous_class_is_a_parent_of_that_class_alone() {
     let raw = extract(
         b"<?php\nclass Outer {\n    public function make() {\n        return new class { use Inner; };\n    }\n}\n",
     );
 
     assert_eq!(symbol(&raw.symbols, "Outer").parents, Vec::<String>::new());
+    assert_eq!(symbol(&raw.symbols, "{Outer\u{b7}make}").parents, ["Inner"]);
 }
 
 #[test]
@@ -539,29 +540,132 @@ fn a_constant_at_file_scope_has_no_owner() {
 }
 
 #[test]
-fn a_member_of_an_anonymous_class_has_no_owner() {
+fn a_member_of_an_anonymous_class_is_owned_by_the_class_the_walk_names() {
     let raw = extract(
         br"<?php
 namespace App;
 
 class Factory {
     public function make(): object {
-        return new class(5) {
+        return new class(5) extends Base implements Tagged {
+            public $label;
             public function __construct(public int $tag) {}
+            public function run() { $this->label(); }
         };
     }
 }
 ",
     );
 
-    let tag = symbol(&raw.symbols, "tag");
-    assert_eq!(tag.kind, SymbolKind::Field);
-    assert_eq!(tag.owner, None);
-    assert!(
-        raw.symbols
-            .iter()
-            .all(|symbol| symbol.qualified_name != "App\\Factory::tag")
+    let class = symbol(&raw.symbols, "{Factory\u{b7}make}");
+    assert_eq!(class.kind, SymbolKind::Class);
+    assert_eq!(class.qualified_name, "App\\{Factory\u{b7}make}");
+    assert_eq!(class.parents, ["Base", "Tagged"]);
+    assert!(!class.exported);
+    for (member, kind) in [
+        ("label", SymbolKind::Field),
+        ("tag", SymbolKind::Field),
+        ("run", SymbolKind::Method),
+    ] {
+        let member = symbol(&raw.symbols, member);
+        assert_eq!(member.kind, kind);
+        assert_eq!(member.owner.as_deref(), Some("{Factory\u{b7}make}"));
+        assert_eq!(
+            member.qualified_name,
+            format!("App\\{{Factory\u{b7}make}}::{}", member.name)
+        );
+    }
+    let own = call(&raw.calls, "label");
+    assert_eq!(own.receiver.as_deref(), Some("$this"));
+    assert_eq!(
+        own.site_of,
+        id_of(&raw.symbols, "App\\{Factory\u{b7}make}::run")
     );
+}
+
+#[test]
+fn an_anonymous_class_is_named_by_its_creator_and_the_name_it_is_assigned_to() {
+    let raw = extract(
+        br"<?php
+$top = new class {};
+return new class {};
+
+class Suite {
+    public function testRun() {
+        $job = new class {};
+        $this->handler = new class {};
+        $job = new class {
+            public function make() { return new class {}; }
+        };
+        register(new class {}, new class {});
+    }
+}
+
+function boot() { return new class {}; }
+",
+    );
+
+    let classes: Vec<&str> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.name.starts_with('{'))
+        .map(|symbol| symbol.name.as_str())
+        .collect();
+    assert_eq!(
+        classes,
+        [
+            "{top}",
+            "{class}",
+            "{Suite\u{b7}testRun\u{b7}job}",
+            "{Suite\u{b7}testRun\u{b7}handler}",
+            "{Suite\u{b7}testRun\u{b7}job\u{b7}2}",
+            "{Suite\u{b7}testRun\u{b7}job\u{b7}2\u{b7}make}",
+            "{Suite\u{b7}testRun}",
+            "{Suite\u{b7}testRun\u{b7}2}",
+            "{boot}",
+        ]
+    );
+}
+
+#[test]
+fn an_anonymous_class_is_constructed_by_the_callable_that_creates_it() {
+    let raw = extract(
+        b"<?php\nclass Factory {\n    public function make() { return new class {}; }\n}\n",
+    );
+
+    let construction = call(&raw.calls, "{Factory\u{b7}make}");
+    assert_eq!(construction.receiver, None);
+    assert_eq!(construction.site_of, id_of(&raw.symbols, "Factory::make"));
+}
+
+#[test]
+fn a_call_on_a_variable_holding_an_anonymous_class_names_the_class_as_its_receiver() {
+    let raw = extract(
+        br"<?php
+class Suite {
+    public function testRun() {
+        $job = new class { public function handle() {} public function make() {} };
+        $job->handle();
+        $job::make();
+        $job = new Job();
+        $job->dispatch();
+    }
+
+    public function testOther() {
+        $job->retry();
+    }
+}
+",
+    );
+
+    let job = Some("{Suite\u{b7}testRun\u{b7}job}");
+    assert_eq!(call(&raw.calls, "handle").receiver.as_deref(), job);
+    assert_eq!(call(&raw.calls, "make").receiver.as_deref(), job);
+    assert_eq!(
+        call(&raw.calls, "dispatch").receiver.as_deref(),
+        Some("$job")
+    );
+    assert_eq!(call(&raw.calls, "retry").receiver.as_deref(), Some("$job"));
 }
 
 #[test]

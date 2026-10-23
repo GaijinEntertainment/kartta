@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use kartta_lang::tree::{
     child_nodes, line, named_child_nodes, preorder, signature, signature_from, text,
 };
@@ -16,11 +18,18 @@ pub(crate) const FUNCTION_OR_CONST_USE_FORM: u32 = 2;
 
 const NAMES: [&str; 3] = ["name", "qualified_name", "relative_name"];
 
+// constraint: an anonymous class is named by the names that lead to it, joined by `·` as a Go anonymous struct is, in
+// braces, which no PHP name holds, so the name stays apart from a class and a variable of those names:
+// `{Factory·make·job}`
+const JOIN: &str = "\u{b7}";
+
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter {
         source,
         scopes: Vec::new(),
         types: Vec::new(),
+        anonymous_counts: HashMap::new(),
+        holders: Vec::new(),
         namespace: String::new(),
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
         raw: RawExtraction::default(),
@@ -48,6 +57,13 @@ struct Member {
     exported: bool,
 }
 
+// constraint: a variable is the callable's own, so one of a name in another callable holds another value
+struct Holder {
+    scope: SymbolId,
+    variable: String,
+    class: String,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Callables {
     Detach,
@@ -60,6 +76,8 @@ struct Emitter<'s> {
     // constraint: a class-body `use Trait;` adds a parent to the type whose body is open, found by its id, so a member
     // that shares the type's name never takes the parent
     types: Vec<Scope>,
+    anonymous_counts: HashMap<String, u32>,
+    holders: Vec<Holder>,
     // constraint: every `namespace` declaration replaces the namespace and `namespace { }` clears it; PHP admits no
     // declaration outside the braces of a file that uses the braced form, so a namespace needs no end
     namespace: String,
@@ -98,7 +116,10 @@ impl Emitter<'_> {
             | "require_once_expression" => {
                 self.include(node);
             }
-            "assignment_expression" => self.closure_binding(node),
+            "assignment_expression" => {
+                self.forget_holder(node);
+                self.closure_binding(node);
+            }
             "object_creation_expression" => self.object_creation(node),
             "function_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
@@ -109,6 +130,7 @@ impl Emitter<'_> {
             | "nullsafe_member_call_expression"
             | "scoped_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
+                let receiver = self.held_receiver(receiver);
                 self.call(callee, receiver, node);
             }
             "array_creation_expression" => self.array_callable(node),
@@ -272,7 +294,8 @@ impl Emitter<'_> {
         self.open_scope(symbol, node.end_byte());
     }
 
-    // constraint: a method outside a named type, one of an anonymous class, is qualified by its name alone
+    // constraint: a method of a type without a name, which only a declaration the grammar cannot read leaves, is
+    // qualified by its name alone
     fn method(&mut self, node: Node<'_>) {
         let Some(name) = node.child_by_field_name("name") else {
             return;
@@ -305,6 +328,83 @@ impl Emitter<'_> {
             end: node.end_byte(),
             id,
         });
+    }
+
+    // constraint: an anonymous class is a class the walk names, by the callable that creates it, its owner first,
+    // and by the variable or the property it is assigned to, `{class}` where no name leads to it; one file's
+    // callables often create two of one name, so a name the file has given already takes a count, `{Factory·make·2}`
+    fn anonymous_class(&mut self, creation: Node<'_>, class: Node<'_>) -> String {
+        let mut leading = String::new();
+        if let Some(callable) = self.scopes.last() {
+            let callable = &self.raw.symbols[callable.id.0 as usize];
+            for name in callable.owner.iter().chain([&callable.name]) {
+                leading.push_str(name.trim_start_matches('{').trim_end_matches('}'));
+                leading.push_str(JOIN);
+            }
+        }
+        let target = assignment_target(creation);
+        if let Some(name) = target.and_then(|target| target_name(target, self.source)) {
+            leading.push_str(&name);
+            leading.push_str(JOIN);
+        }
+        let leading = leading.strip_suffix(JOIN).unwrap_or("class");
+        let name = if let Some(count) = self.anonymous_counts.get_mut(leading) {
+            *count += 1;
+            format!("{{{leading}{JOIN}{count}}}")
+        } else {
+            self.anonymous_counts.insert(leading.to_owned(), 1);
+            format!("{{{leading}}}")
+        };
+
+        let mut symbol = declared(name.clone(), self.qualify(&name), SymbolKind::Class, class);
+        symbol.parents = parents(class, self.source);
+        let id = self.push(symbol);
+        self.types.push(Scope {
+            end: class.end_byte(),
+            id,
+        });
+        if let Some(variable) = target.filter(|target| target.kind() == "variable_name") {
+            self.holders.push(Holder {
+                scope: self.scope(),
+                variable: text(variable, self.source),
+                class: name.clone(),
+            });
+        }
+        name
+    }
+
+    // constraint: an assignment to a variable ends what it held before; the walk visits the assignment before the
+    // value it assigns, so a variable assigned an anonymous class holds the new one
+    fn forget_holder(&mut self, assignment: Node<'_>) {
+        if self.holders.is_empty() {
+            return;
+        }
+        let Some(variable) = assignment
+            .child_by_field_name("left")
+            .filter(|left| left.kind() == "variable_name")
+        else {
+            return;
+        };
+        let scope = self.scope();
+        let variable = &self.source[variable.byte_range()];
+        self.holders
+            .retain(|holder| holder.scope != scope || holder.variable.as_bytes() != variable);
+    }
+
+    // constraint: a call on a variable the same callable assigned an anonymous class to is a call on that class, so
+    // its receiver is the class's name, as a static call's is
+    fn held_receiver(&self, receiver: Option<String>) -> Option<String> {
+        let held = receiver.as_deref().and_then(|receiver| {
+            let scope = self.scope();
+            self.holders
+                .iter()
+                .rfind(|holder| holder.scope == scope && holder.variable == receiver)
+        });
+        held.map_or(receiver, |holder| Some(holder.class.clone()))
+    }
+
+    fn scope(&self) -> SymbolId {
+        self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id)
     }
 
     // constraint: `private int $x, $y;` declares one member per element, each with the declaration's visibility
@@ -371,12 +471,7 @@ impl Emitter<'_> {
         self.push(symbol);
     }
 
-    // constraint: a `use` in the body of an anonymous class has no named type to take its parents, and the walk keeps
-    // no scope for one, so the type the scopes name is that of an outer class
     fn trait_use(&mut self, node: Node<'_>) {
-        if self.enclosing_type(node, Callables::Detach).is_none() {
-            return;
-        }
         let Some(&open) = self.types.last() else {
             return;
         };
@@ -495,6 +590,12 @@ impl Emitter<'_> {
 
     // constraint: `new self`, `new static` and `new parent` name no class; the grammar parses `static` as a plain name
     fn object_creation(&mut self, node: Node<'_>) {
+        if let Some(class) = named_child_nodes(node).find(|child| child.kind() == "anonymous_class")
+        {
+            let name = self.anonymous_class(node, class);
+            self.call(name, None, node);
+            return;
+        }
         let class = named_child_nodes(node).find_map(|child| match child.kind() {
             "name" => {
                 let name = text(child, self.source);
@@ -509,9 +610,9 @@ impl Emitter<'_> {
         }
     }
 
-    // constraint: a member's type is the class, interface, trait or enum around it; an anonymous class is a type
-    // without a name, so its members have no owner, and a function or closure between the member and the type
-    // detaches it unless `callables` says to cross it
+    // constraint: a member's type is the class, interface, trait or enum around it, or the anonymous class, which
+    // goes by the name the walk gave it as it opened; a function or closure between the member and the type detaches
+    // it unless `callables` says to cross it
     fn enclosing_type(&self, node: Node<'_>, callables: Callables) -> Option<String> {
         let mut ancestor = node.parent();
         while let Some(current) = ancestor {
@@ -519,12 +620,18 @@ impl Emitter<'_> {
                 "class_declaration"
                 | "interface_declaration"
                 | "trait_declaration"
-                | "enum_declaration"
-                | "anonymous_class" => {
+                | "enum_declaration" => {
                     return current
                         .child_by_field_name("name")
                         .map(|name| text(name, self.source))
                         .filter(|name| !name.is_empty());
+                }
+                "anonymous_class" => {
+                    return self
+                        .types
+                        .iter()
+                        .rfind(|open| open.end == current.end_byte())
+                        .map(|open| self.raw.symbols[open.id.0 as usize].name.clone());
                 }
                 "function_definition"
                 | "method_declaration"
@@ -615,6 +722,27 @@ fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
         });
 
     (text(name, source), receiver)
+}
+
+fn assignment_target(value: Node<'_>) -> Option<Node<'_>> {
+    value
+        .parent()
+        .filter(|parent| parent.kind() == "assignment_expression")
+        .filter(|assignment| assignment.child_by_field_name("right") == Some(value))?
+        .child_by_field_name("left")
+}
+
+// constraint: a value is assigned to a name where the assignment's target is a variable, `$job`, or a property,
+// `$this->job`
+fn target_name(target: Node<'_>, source: &[u8]) -> Option<String> {
+    match target.kind() {
+        "variable_name" => variable_identifier(target, source),
+        "member_access_expression" => target
+            .child_by_field_name("name")
+            .filter(|name| name.kind() == "name")
+            .map(|name| text(name, source)),
+        _ => None,
+    }
 }
 
 // constraint: a class takes its `extends` and `implements` names as parents, and an interface its `extends` names,
