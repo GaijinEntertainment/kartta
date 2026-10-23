@@ -1,6 +1,7 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
-//! what that crate exports, one through `crate::`, `self::` or `super::` the item of the module it names, as does a
+//! what that crate exports, through its `use`s and globs the item they name, one through `crate::`, `self::` or
+//! `super::` the item of the module it names, as does a
 //! `use` or a glob whose first segment is a module the file declares, a private one
 //! only from that module or below and a test one only from its crate's test code, a tuple struct's constructor the
 //! struct its `use` names, a bare call through a glob what the glob's module shows it, a macro invocation the
@@ -135,6 +136,99 @@ fn a_rust_call_through_another_workspace_crate_binds_the_function_that_crate_exp
     assert_eq!(
         callees(&engine, "crates/app/src/main.rs", "through_path"),
         exported
+    );
+}
+
+#[test]
+fn a_rust_call_through_a_re_export_binds_the_function_the_re_export_names() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/other/Cargo.toml",
+            "[package]\nname = \"other-crate\"\n",
+        ),
+        (
+            "crates/other/src/lib.rs",
+            "mod cycle;\nmod outer;\nmod reading;\nmod walking;\n\n\
+             pub use crate::reading::{matched, unmatched as gone};\npub use outer::deep;\npub use walking::*;\n\
+             pub use cycle::*;\n",
+        ),
+        (
+            "crates/other/src/reading.rs",
+            "pub fn matched() {}\n\npub fn unmatched() {}\n",
+        ),
+        (
+            "crates/other/src/outer.rs",
+            "mod inner;\n\npub use inner::deep;\n",
+        ),
+        ("crates/other/src/outer/inner.rs", "pub fn deep() {}\n"),
+        ("crates/other/src/walking.rs", "pub fn walk_all() {}\n"),
+        ("crates/other/src/cycle.rs", "pub use crate::*;\n"),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "mod child;\n\nuse other_crate::matched;\n\nfn through_use() {\n    matched();\n}\n\n\
+             fn through_paths() {\n    other_crate::gone();\n    other_crate::deep();\n    \
+             other_crate::walk_all();\n}\n\nfn nowhere() {\n    other_crate::missing();\n}\n",
+        ),
+        (
+            "crates/app/src/child.rs",
+            "fn through_the_parent_s_private_use() {\n    super::matched();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/lib.rs", "through_use"),
+        ["crates/other/src/reading.rs"]
+    );
+    assert_eq!(
+        bound_through_an_import(
+            &engine,
+            "crates/app/src/child.rs",
+            "through_the_parent_s_private_use"
+        ),
+        ["crates/other/src/reading.rs"]
+    );
+    let mut through_paths =
+        bound_through_an_import(&engine, "crates/app/src/lib.rs", "through_paths");
+    through_paths.sort_unstable();
+    assert_eq!(
+        through_paths,
+        [
+            "crates/other/src/outer/inner.rs",
+            "crates/other/src/reading.rs",
+            "crates/other/src/walking.rs",
+        ]
+    );
+    let (mut named, unresolved) = callees(&engine, "crates/app/src/lib.rs", "through_paths");
+    named.sort_unstable();
+    assert_eq!(
+        (named, unresolved),
+        (
+            vec![
+                (
+                    "deep",
+                    SymbolKind::Function,
+                    "crates/other/src/outer/inner.rs"
+                ),
+                (
+                    "unmatched",
+                    SymbolKind::Function,
+                    "crates/other/src/reading.rs"
+                ),
+                (
+                    "walk_all",
+                    SymbolKind::Function,
+                    "crates/other/src/walking.rs"
+                ),
+            ],
+            0
+        )
+    );
+    assert_eq!(
+        callees(&engine, "crates/app/src/lib.rs", "nowhere"),
+        (vec![], 1)
     );
 }
 
