@@ -369,8 +369,10 @@
     `crates/kartta-graph/src/{resolve,members,typed,calls}.rs`, `Graph::references`, `SiteQuery`
   - Revisit if: binding a name's uses when asked grows past the answer's budget
 - [3.35 Pick a shared name's symbol by its path, and list the
-  others](./adr/3.35-pick-a-shared-name-s-symbol-by-its-path-and-list-the-others.md) — initiative `03-code-graph`,
-  2026-10-19
+  others](./adr/3.35-pick-a-shared-name-s-symbol-by-its-path-and-list-the-others.md)
+  - Governs: `kartta_graph::Selector`, `kartta_graph::Candidate`, `is_referent`, `is_parent`,
+    `crates/kartta-graph/src/{calls,implementations}.rs` (`select`, `passed_over`)
+  - Revisit if: agents often pick a copy past the fifth candidate
 - [3.36 Keep a graph's files in path order through labelled
   blocks](./adr/3.36-keep-a-graph-s-files-in-path-order-through-labelled-blocks.md)
   - Governs: `crates/kartta-graph/src/order.rs`, `crates/kartta-graph/src/graph.rs` (`tree_order`, `path_rank`)
