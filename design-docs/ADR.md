@@ -453,8 +453,8 @@
 - [3.51 Start a Rust path through `crate::`, `self::` or `super::` at the caller's crate root or
   module](./adr/3.51-start-a-rust-path-through-crate-self-or-super-at-the-caller-s-crate-root-or-module.md)
   - Governs: `crates/kartta-lang-rust/src/walk/imports.rs` (`starts_inside_the_file`, `start_at_declared_modules`,
-    `kept_paths`), `crates/kartta-lang-rust/src/walk/calls.rs` (`record_call`), `crates/kartta-lang-rust/src/resolve.rs`
-    (`Crates::crate_root`, `Caller`)
+    `reach_own_names_through_their_module`, `kept_paths`), `crates/kartta-lang-rust/src/walk/calls.rs`
+    (`record_call`), `crates/kartta-lang-rust/src/resolve.rs` (`Crates::crate_root`, `Caller`)
   - Revisit if: the extraction places each inline module in its file's module tree
 - [3.52 Scope a Rust `use` inside a block to that block](./adr/3.52-scope-a-rust-use-inside-a-block-to-that-block.md)
   - Governs: `crates/kartta-lang-rust/src/walk/imports.rs`, `crates/kartta-lang-rust/src/walk/blocks.rs`
