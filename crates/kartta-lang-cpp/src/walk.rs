@@ -2624,6 +2624,29 @@ template<> struct Traits<int> { int size; };
     }
 
     #[test]
+    fn a_field_a_preprocessor_conditional_holds_is_a_field_of_its_class() {
+        let raw = extract(
+            b"struct Peer {\n#ifdef __clang__\n#pragma clang diagnostic push\n#endif\n  Buffer recv;\n\
+              #if defined(LOGGING)\n  Log log;\n#else\n  int quiet;\n#endif\n};\n",
+        );
+
+        let fields: Vec<String> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.kind == SymbolKind::Field)
+            .map(|symbol| format!("{} {:?}", symbol.qualified_name, symbol.value_types))
+            .collect();
+        assert_eq!(
+            fields,
+            [
+                r#"Peer::recv ["Buffer"]"#,
+                r#"Peer::log ["Log"]"#,
+                "Peer::quiet []"
+            ]
+        );
+    }
+
+    #[test]
     fn a_field_of_a_class_template_names_the_class_its_arrow_reaches() {
         let raw = extract(
             b"struct Cache {\n  eastl::unique_ptr<Lock> owned;\n  Ptr<const ns::Lock> shared;\n  Box<int> box;\n\
