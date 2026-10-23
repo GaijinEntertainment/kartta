@@ -68,8 +68,10 @@
   2026-10-16, revised 2026-10-17
 - [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md) — initiative
   `03-code-graph`, 2026-10-16, revised 2026-10-21
-- [3.7 Resolve calls when a query asks](./adr/3.7-resolve-calls-when-a-query-asks.md) — initiative `03-code-graph`,
-  2026-10-16, revised 2026-10-23
+- [3.7 Resolve calls when a query asks](./adr/3.7-resolve-calls-when-a-query-asks.md)
+  - Governs: `crates/kartta-graph/src/{resolve,scope,calls,candidates,confidence}.rs`, `kartta_lang::Conventions`
+  - Revisit if: a lazy `callers` of one name exceeds a second, or agents repeat names often enough that a memo pays for
+    its invalidation
 - [3.8 Extract only the daslang a file opts into gen2, and find modules by file
   name](./adr/3.8-extract-only-the-daslang-a-file-opts-into-gen2.md) — initiative `03-code-graph`, 2026-10-16, revised
   2026-10-23
@@ -142,6 +144,58 @@
 - [3.35 Pick a shared name's symbol by its path, and list the
   others](./adr/3.35-pick-a-shared-name-s-symbol-by-its-path-and-list-the-others.md) — initiative `03-code-graph`,
   2026-10-19
+- [3.36 Keep a graph's files in path order through labelled
+  blocks](./adr/3.36-keep-a-graph-s-files-in-path-order-through-labelled-blocks.md)
+  - Governs: `crates/kartta-graph/src/order.rs`, `crates/kartta-graph/src/graph.rs` (`tree_order`, `path_rank`)
+  - Revisit if: a followed tree inserts at one place in runs long enough that full relabels show in a refresh's profile
+- [3.37 Count what a call walk leaves out](./adr/3.37-count-what-a-call-walk-leaves-out.md)
+  - Governs: `crates/kartta-graph/src/calls.rs`, `Graph::callers`, `Graph::callees`, `Graph::references`,
+    `Graph::call_path`, `Walk::self_call`
+  - Revisit if: a count takes a second pass over the walk or a resolution the answer does not need
+- [3.38 List a call under the last part of its callee's own
+  name](./adr/3.38-list-a-call-under-the-last-part-of-its-callee-s-own-name.md)
+  - Governs: `crates/kartta-graph/src/graph.rs` (`qualified_tail`, `listing_key`, `intern_listing_key`)
+  - Revisit if: a language's callable names hold a separator inside them, not only at their end
+- [3.39 Bind a member call to a free function only where a value can hold
+  one](./adr/3.39-bind-a-member-call-to-a-free-function-only-where-a-value-can-hold-one.md)
+  - Governs: `kartta_lang::MemberCalls`, `crates/kartta-graph/src/scope.rs`, the Go and Rust `Conventions`
+  - Revisit if: the C++ extraction reads every class head, so no member reaches the graph as a free function
+- [3.40 Bind a runtime method's call only to a member that scope
+  reaches](./adr/3.40-bind-a-runtime-method-s-call-only-to-a-member-that-scope-reaches.md)
+  - Governs: `kartta_lang::Conventions::runtime_methods`, `crates/kartta-graph/src/resolve.rs`, each language's
+    `runtime.rs`
+  - Revisit if: a language's extraction records the type a value holds for its member calls
+- [3.41 Bind the caller's own owner only on the receivers a language
+  lists](./adr/3.41-bind-the-caller-s-own-owner-only-on-the-receivers-a-language-lists.md)
+  - Governs: `kartta_lang::Conventions::own_type_receivers`, `crates/kartta-graph/src/scope.rs`
+    (`member_of_the_caller_s_owner`)
+  - Revisit if: `parent::m()` and `super.m()` bind the base's member (#186)
+- [3.42 Read transitive includes for a name few definitions
+  share](./adr/3.42-read-transitive-includes-for-a-name-few-definitions-share.md)
+  - Governs: `kartta_lang::IncludeReach`, `crates/kartta-graph/src/resolve.rs` (`through_includes`)
+  - Revisit if: the C++ extraction reads `INLINE`-hidden templates and every class head
+- [3.43 Guess no member near the caller for a C++ call on a
+  value](./adr/3.43-guess-no-member-near-the-caller-for-a-c-plus-plus-call-on-a-value.md)
+  - Governs: `kartta_lang::CallsOnValues`, `crates/kartta-graph/src/scope.rs` (`resolve_by_proximity`)
+  - Revisit if: a sample taken after the declared-class receivers shows nearness right far more often than 15%
+- [3.44 Bind no call to a namespace where a language's calls name
+  none](./adr/3.44-bind-no-call-to-a-namespace-where-a-language-s-calls-name-none.md)
+  - Governs: `kartta_lang::NamespaceCalls`, `crates/kartta-graph/src/resolve.rs`, `crates/kartta-graph/src/scope.rs`
+  - Revisit if: a language that sets `Unbound` gains a construct through which a call names a namespace
+- [3.45 Bind a call through a module's file as the module's paths see
+  it](./adr/3.45-bind-a-call-through-a-module-s-file-as-the-module-s-paths-see-it.md)
+  - Governs: `crates/kartta-graph/src/resolve.rs` (`through_binding`, `module_export`, `macro_exported_below`,
+    `glob_imported`), `kartta_lang::ImportBinding`
+  - Revisit if: the extraction follows `pub use` (#217)
+- [3.46 Bind no test definition by name for a call from outside test
+  code](./adr/3.46-bind-no-test-definition-by-name-for-a-call-from-outside-test-code.md)
+  - Governs: `crates/kartta-graph/src/resolve.rs` (`can_bind_by_name`, `one_type_outside_tests`)
+  - Revisit if: every language's test rule reads its test-support files and test directories in any case (#430, #432)
+- [3.47 Bind a C++ call on a field through the class the field is declared
+  as](./adr/3.47-bind-a-c-plus-plus-call-on-a-field-through-the-class-the-field-is-declared-as.md)
+  - Governs: `crates/kartta-graph/src/scope.rs` (`member_of_a_reached_owner`, `class_of_own_field`,
+    `nearest_base_fields`), `kartta_lang::Receivers`
+  - Revisit if: a sample of the pairs the field tier binds finds the field's class wrong more than once in ten
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md) — initiative
   `04-consumer-surfaces`, 2026-10-18, revised 2026-10-23
