@@ -70,8 +70,9 @@
   - Governs: `crates/kartta-fs/src/watch.rs`, `crates/kartta-fs/src/watch/`, `kartta_fs::Watcher`,
     `Index::{build,refresh,refresh_paths}_watched`, `crates/kartta/src/follow.rs`
   - Revisit if: a consumer that cannot run a loop of its own needs to follow a tree
-- [1.18 Return the memory a build freed to the system](./adr/1.18-return-the-memory-a-build-freed-to-the-system.md) —
-  initiative `01-kartta-fs-port`, 2026-10-17, revised 2026-10-21
+- [1.18 Return the memory a build freed to the system](./adr/1.18-return-the-memory-a-build-freed-to-the-system.md)
+  - Governs: `crates/kartta-fs/src/index.rs`, `crates/kartta/src/engine.rs` (`release_freed_memory`)
+  - Revisit if: a consumer's resident memory grows across scoped refreshes
 - [1.19 Prune editor and OS clutter by name during the
   walk](./adr/1.19-prune-editor-and-os-clutter-by-name-during-the-walk.md) — initiative `01-kartta-fs-port`, 2026-10-17,
   revised 2026-10-18
@@ -171,6 +172,9 @@
   tree](./adr/1.66-keep-a-symlink-s-target-in-a-list-beside-the-walk-s-tree.md)
   - Governs: `crates/kartta-fs/src/policy.rs` (`Payload`, `TargetId`, `Report::targets`)
   - Revisit if: a node must carry a second id beside its kind
+- [1.67 Hold each extraction at its exact size](./adr/1.67-hold-each-extraction-at-its-exact-size.md)
+  - Governs: `crates/kartta/src/extracting.rs` (`Extracting::extract`, `encoding_buffers`)
+  - Revisit if: the build stops holding every encoding until resolution
 - [1.70 Search content in batches folded in index
   order](./adr/1.70-search-content-in-batches-folded-in-index-order.md)
   - Governs: `crates/kartta-fs/src/grep.rs` (`BATCH`, `MIN_FILES_PER_SCANNER`, `Fold`), `crates/kartta-fs/src/scan.rs`
