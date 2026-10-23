@@ -185,6 +185,7 @@ impl<'s> Emitter<'s> {
                 self.anonymous_function(node, caller);
             }
             "class_declaration" | "abstract_class_declaration" => self.class_declaration(node),
+            "class_static_block" => self.push_type_barrier(node),
             "statement_block" | "switch_body" | "for_statement" | "catch_clause"
             | "for_in_statement" => {
                 self.open_scope(node);
@@ -504,7 +505,7 @@ impl<'s> Emitter<'s> {
         let value = node.child_by_field_name("value");
         let function = value.and_then(|value| function_value(value, self.source));
 
-        let mut symbol = self.unowned(
+        let mut symbol = self.member(
             name,
             if function.is_some() {
                 SymbolKind::Function
@@ -682,7 +683,7 @@ impl<'s> Emitter<'s> {
             .filter(|parent| parent.kind() == "variable_declarator")?;
         let name = declarator.child_by_field_name("name")?;
         (name.kind() == "identifier" && declarator.child_by_field_name("value") == Some(class))
-            .then(|| text(name, self.source))
+            .then(|| self.qualified(&text(name, self.source)))
     }
 
     fn push_type_barrier(&mut self, node: Node<'_>) {
