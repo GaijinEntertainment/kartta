@@ -20,8 +20,9 @@ A call records its callee and, for a member call, the whole receiver expression 
 or a local of an enclosing function, `cb()` in `function run(cb)`, calls whatever value the name holds and is no call,
 unless the file defines a free function or a class of the name, which is most often the value it passes; a local that
 destructures a table, `let { build } = cfg`, takes the slot of its name and keeps its call. The conventions name the
-methods of Quirrel's built-in types, so a member call of one, `list.len()` or `t.rawin()`, binds a member of the name
-and no free function of the repository.
+methods of Quirrel's built-in types and of the native values the game engine binds for its scripts, its watched state,
+`DataBlock`, the ECS entity manager and templates and the GUI object a game binds, so a member call of one, `list.len()`,
+`state.get()` or `blk.getBlockByName()`, binds a member of the name and no free function of the repository.
 
 A name read where no call takes it, `subscribe("evt", onEvent)` or `{ onClick = handler }`, and that no parameter or
 local of an enclosing function declares, is a use of it. It binds a definition of its own file only: the graph does not
