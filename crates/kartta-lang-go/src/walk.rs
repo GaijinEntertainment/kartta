@@ -1,3 +1,4 @@
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use kartta_lang::tree::{child_nodes, line, named_child_nodes, preorder, signature, text};
@@ -26,11 +27,10 @@ pub(crate) const IMPORT_FORM: u32 = 0;
 
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let package = package_name(tree, source);
-    let mut emitter = Emitter::new(source, package, package_values(tree, source));
+    let root = tree.root_node();
+    let mut emitter = Emitter::new((source, root), package, package_values(tree, source));
 
-    preorder(tree.root_node(), |node| {
-        !node.is_named() || emitter.handle(node)
-    });
+    preorder(root, |node| !node.is_named() || emitter.handle(node));
 
     emitter.apply_pending_parents();
     emitter.raw
@@ -80,6 +80,8 @@ struct Emitter<'a> {
     type_params: Vec<(usize, String)>,
     locals: Vec<Local>,
     package_values: HashSet<&'a str>,
+    root: Node<'a>,
+    package_types: OnceCell<HashMap<&'a str, Node<'a>>>,
     blocks: Vec<Block>,
     spec_owners: VecDeque<(usize, SymbolId)>,
     named_by_call: Option<usize>,
@@ -97,7 +99,11 @@ struct Emitter<'a> {
 }
 
 impl<'a> Emitter<'a> {
-    fn new(source: &'a [u8], package: String, package_values: HashSet<&'a str>) -> Self {
+    fn new(
+        (source, root): (&'a [u8], Node<'a>),
+        package: String,
+        package_values: HashSet<&'a str>,
+    ) -> Self {
         let mut raw = RawExtraction::default();
         raw.package = (!package.is_empty()).then(|| package.clone());
 
@@ -109,6 +115,8 @@ impl<'a> Emitter<'a> {
             type_params: Vec::new(),
             locals: Vec::new(),
             package_values,
+            root,
+            package_types: OnceCell::new(),
             blocks: Vec::new(),
             spec_owners: VecDeque::new(),
             named_by_call: None,
@@ -149,7 +157,7 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn handle(&mut self, node: Node<'_>) -> bool {
+    fn handle(&mut self, node: Node<'a>) -> bool {
         self.close_scopes(node.start_byte());
         let caller = self.callers.last().map_or(FILE_SCOPE, |scope| scope.id);
 
@@ -184,6 +192,7 @@ impl<'a> Emitter<'a> {
             }
             "identifier" => self.record_identifier(node, self.use_owner()),
             "keyed_element" => self.record_literal_key(node, self.use_owner()),
+            "composite_literal" => self.record_positional_literal(node, self.use_owner()),
             "import_declaration" => {
                 self.import_declaration(node);
                 return false;

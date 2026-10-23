@@ -22,9 +22,10 @@ as the file's declarations spell it. `s.client.Do()` in `func f(s *Server)` reco
 a field's type or a function's results, to the method the call reaches. A name outside a call — a
 type in a signature, a field, a conversion, a package-level value or function — is a use of what it names, unless a
 local binding covers it. A member taken on a value without a call, `s.client` or the method value `w.draw`, is a use
-whose receiver is the same type path, and so is each key of a struct literal, `Config{Timeout: 5}`; a literal of an
-anonymous struct assigned to no name keeps none. Each use is marked a read, a write — the left side of `=`, a literal's
-key — or an update, `+=` or `++`.
+whose receiver is the same type path, and so is each key of a struct literal, `Config{Timeout: 5}`, and each element of
+one without keys whose struct the file declares, `Config{5, 3}`; a literal of an anonymous struct assigned to no name
+keeps none. Each use is marked a read, a write — the left side of `=`, a literal's key or element — or an update,
+`+=` or `++`.
 
 ## Resolution
 

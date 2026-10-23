@@ -1,11 +1,15 @@
-use kartta_lang::tree::{line, preorder, text};
+use std::collections::HashMap;
+
+use kartta_lang::tree::{child_nodes, line, named_child_nodes, preorder, text};
 use kartta_lang::{Access, FILE_SCOPE, Receiver, SymbolId, UseRef};
 use tree_sitter::Node;
 
 use super::Emitter;
-use super::locals::declares_left;
+use super::locals::{Local, LocalKind, declares_left};
 use super::syntax::{PREDECLARED, first_operand, is_pointer_indirection};
 use super::types::{element_of, is_container_path, is_container_type};
+
+const MAX_NAMES_FOLLOWED: usize = 8;
 
 impl<'a> Emitter<'a> {
     pub(super) fn record_use(&mut self, node: Node<'_>, owner: SymbolId) -> bool {
@@ -131,15 +135,148 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn element_keys(&self, outer: Node<'_>) -> Keys {
-        match self.keys_of(outer) {
-            Keys::Fields(path) | Keys::Values(Some(path)) => match element_of(&path) {
-                Some(element) if is_container_path(&element) => Keys::Values(Some(element)),
-                Some(element) => Keys::Fields(element),
-                None => Keys::Unknown,
-            },
-            Keys::Values(None) | Keys::Unknown => Keys::Unknown,
+    // constraint: a struct literal that names no field sets every field in the order its type declares them, which only
+    // the declaring file holds, so a type declared elsewhere records none; the literal is read from its written type
+    // down through the elements whose type it elides, since a table holds thousands of them and each node's parent is
+    // found from the root
+    pub(super) fn record_positional_literal(&mut self, literal: Node<'a>, owner: SymbolId) {
+        let (Some(written), Some(value)) = (
+            literal.child_by_field_name("type"),
+            literal.child_by_field_name("value"),
+        ) else {
+            return;
+        };
+        if !named_child_nodes(value).any(|element| elided_or_positional(element).is_some()) {
+            return;
         }
+        let Some(declared) = self.declared_type(written, literal.start_byte()) else {
+            return;
+        };
+        let keys = if is_container_type(written) {
+            Keys::Values(self.type_path(written))
+        } else {
+            self.type_path(written).map_or(Keys::Unknown, Keys::Fields)
+        };
+        self.record_positional_level((value, declared), &keys, owner);
+    }
+
+    fn record_positional_level(
+        &mut self,
+        (value, declared): (Node<'a>, Node<'a>),
+        keys: &Keys,
+        owner: SymbolId,
+    ) {
+        if declared.kind() == "struct_type" {
+            if let Keys::Fields(path) = keys {
+                self.record_positional_fields((value, declared), path, owner);
+            }
+            return;
+        }
+        let element_keys = elements_of(keys);
+        let element = is_container_type(declared)
+            .then(|| declared.child_by_field_name("element"))
+            .flatten()
+            .filter(|_| !matches!(element_keys, Keys::Unknown))
+            .and_then(|element| self.declared_type(element, value.start_byte()))
+            .filter(|element| element.kind() == "struct_type" || is_container_type(*element));
+        let Some(element) = element else {
+            return;
+        };
+        let elided = named_child_nodes(value)
+            .filter_map(elided_or_positional)
+            .filter(|elided| elided.kind() == "literal_value");
+        for elided in elided {
+            self.record_positional_level((elided, element), &element_keys, owner);
+        }
+    }
+
+    // constraint: an embedded or blank field takes a place and names no field the walk declares
+    fn record_positional_fields(
+        &mut self,
+        (value, fields): (Node<'a>, Node<'a>),
+        path: &str,
+        owner: SymbolId,
+    ) {
+        let mut elements = named_child_nodes(value).filter(|element| element.kind() != "comment");
+        if elements
+            .next()
+            .is_none_or(|first| first.kind() == "keyed_element")
+            || field_places(fields).count() != elements.count() + 1
+        {
+            return;
+        }
+        let elements = named_child_nodes(value).filter(|element| element.kind() != "comment");
+        for (element, field) in elements.zip(field_places(fields)) {
+            if let Some(field) = field.filter(|field| self.borrowed(*field) != "_") {
+                let write = (
+                    text(field, self.source),
+                    Receiver::Path(path.to_owned()),
+                    Access::Write,
+                );
+                self.push_site(owner, element, write);
+            }
+        }
+    }
+
+    // constraint: a type the file declares under a name, an alias or a defined type, has the fields or the elements of
+    // the type it is declared as; Go forbids a cycle, which a bound on the names followed stops all the same
+    fn declared_type(&self, written: Node<'a>, at: usize) -> Option<Node<'a>> {
+        let (mut declared, mut names) = (written, 0);
+        loop {
+            declared = match declared.kind() {
+                "pointer_type" | "parenthesized_type" => first_operand(declared)?,
+                "generic_type" => declared.child_by_field_name("type")?,
+                "type_identifier" if names < MAX_NAMES_FOLLOWED => {
+                    names += 1;
+                    self.declaration_of(self.borrowed(declared), at)?
+                }
+                "type_identifier" => return None,
+                _ => return Some(declared),
+            };
+        }
+    }
+
+    fn declaration_of(&self, name: &str, at: usize) -> Option<Node<'a>> {
+        match self.innermost_local(name, at) {
+            Some(Local {
+                kind: LocalKind::TypeSymbol(_),
+                from,
+                ..
+            }) => {
+                let local = self.root.descendant_for_byte_range(*from, from + 1);
+                std::iter::successors(local, Node::parent)
+                    .find(|node| matches!(node.kind(), "type_definition" | "alias_declaration"))?
+                    .child_by_field_name("type")
+            }
+            Some(_) => None,
+            None => self
+                .package_types
+                .get_or_init(|| self.package_types())
+                .get(name)
+                .copied(),
+        }
+    }
+
+    // constraint: a file's composite literals look the types they name up among its package-level declarations, so the
+    // declarations are indexed once, at the first such literal
+    fn package_types(&self) -> HashMap<&'a str, Node<'a>> {
+        let specs = child_nodes(self.root)
+            .filter(|declaration| declaration.kind() == "type_declaration")
+            .flat_map(child_nodes);
+        let mut types = HashMap::new();
+        for spec in specs {
+            if let (Some(name), Some(written)) = (
+                spec.child_by_field_name("name"),
+                spec.child_by_field_name("type"),
+            ) {
+                types.entry(self.borrowed(name)).or_insert(written);
+            }
+        }
+        types
+    }
+
+    fn element_keys(&self, outer: Node<'_>) -> Keys {
+        elements_of(&self.keys_of(outer))
     }
 
     pub(super) fn record_type_operand(&mut self, node: Node<'_>, owner: SymbolId) {
@@ -267,6 +404,43 @@ enum Keys {
     Fields(String),
     Values(Option<String>),
     Unknown,
+}
+
+// constraint: only an element without a key, or a key's literal whose type its container elides, can hold a positional
+// struct literal
+fn elided_or_positional(element: Node<'_>) -> Option<Node<'_>> {
+    match element.kind() {
+        "comment" => None,
+        "keyed_element" => element
+            .child_by_field_name("element")
+            .filter(|value| value.kind() == "literal_value"),
+        _ => Some(element),
+    }
+}
+
+fn elements_of(keys: &Keys) -> Keys {
+    match keys {
+        Keys::Fields(path) | Keys::Values(Some(path)) => match element_of(path) {
+            Some(element) if is_container_path(&element) => Keys::Values(Some(element)),
+            Some(element) => Keys::Fields(element),
+            None => Keys::Unknown,
+        },
+        Keys::Values(None) | Keys::Unknown => Keys::Unknown,
+    }
+}
+
+fn field_places(struct_type: Node<'_>) -> impl Iterator<Item = Option<Node<'_>>> {
+    child_nodes(struct_type)
+        .filter(|field| field.kind() == "field_declaration")
+        .flat_map(|field| {
+            let names = (0..field.child_count()).filter_map(move |index| {
+                (field.field_name_for_child(index) == Some("name"))
+                    .then(|| field.child(index))
+                    .flatten()
+            });
+            let embedded = field.child_by_field_name("name").is_none();
+            names.map(Some).chain(embedded.then_some(None))
+        })
 }
 
 fn declares(name: Node<'_>, parent: Node<'_>) -> bool {
