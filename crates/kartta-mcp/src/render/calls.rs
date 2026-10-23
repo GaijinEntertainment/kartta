@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use kartta::{
     CallPath, Candidate, Change, Definition, DirectCalls, Hotspot, ReachBand, Reached, Reference,
-    References, Seed, Segment, SymbolKind, TypeUses, Walk,
+    References, Seed, Segment, SelfCall, SymbolKind, TypeUses, Walk,
 };
 
 use super::{
@@ -662,9 +662,19 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
         }
     }
     let passed_over = candidates(&walk.candidates, "callers");
+    let itself = walk.self_call.map(|call| self_call(root, call));
     if walk.reached.is_empty() && walk.file_scope.is_empty() {
-        let text = no_callers(root.kind, walk.ambiguous, walk.below_confidence);
-        return noted(element, &text, passed_over);
+        let text = no_callers(
+            root.kind,
+            walk.ambiguous,
+            walk.below_confidence,
+            itself.is_some(),
+        );
+        return noted(
+            element,
+            &text,
+            itself.into_iter().chain(passed_over).collect(),
+        );
     }
     let refs = walk
         .reached
@@ -689,7 +699,13 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
                 .optional("confidence", confidence(caller.confidence))
                 .close()
         });
-    element.children(refs.chain(file_scope).chain(passed_over))
+    element.children(
+        itself
+            .into_iter()
+            .chain(refs)
+            .chain(file_scope)
+            .chain(passed_over),
+    )
 }
 
 /// The `find_callees` answer: one `<match>` per family graph the name selects a symbol in, or the alternatives to a
@@ -727,20 +743,31 @@ fn callee_match(family: &str, walk: &Walk<'_>) -> String {
         .count("unresolved", walk.unresolved)
         .count("passed_over", walk.passed_over);
     let passed_over = candidates(&walk.candidates, "callers");
+    let itself = walk.self_call.map(|call| self_call(root, call));
     if walk.reached.is_empty() {
+        let (none, other) = if itself.is_some() {
+            ("no callees but itself", "no other call")
+        } else {
+            ("no callees", "no call")
+        };
         let text = if walk.below_confidence > 0 {
             below_the_floor(
-                "no callees",
+                none,
                 walk.below_confidence,
                 ("callee binds", "callees bind"),
                 "min_confidence \"any\" lists",
             )
         } else {
-            "no callees - no call in its body binds a definition the graph holds; a call into a library or a builtin, \
-             through a function value, or by dynamic dispatch binds none"
-                .to_owned()
+            format!(
+                "{none} - {other} in its body binds a definition the graph holds; a call into a library or a builtin, \
+                 through a function value, or by dynamic dispatch binds none"
+            )
         };
-        return noted(element, &text, passed_over);
+        return noted(
+            element,
+            &text,
+            itself.into_iter().chain(passed_over).collect(),
+        );
     }
     let refs = walk.reached.iter().map(|reached| {
         edge("ref", reached)
@@ -751,7 +778,7 @@ fn callee_match(family: &str, walk: &Walk<'_>) -> String {
             )
             .close()
     });
-    element.children(refs.chain(passed_over))
+    element.children(itself.into_iter().chain(refs).chain(passed_over))
 }
 
 /// Starts a `<match>`: the family graph, and the symbol a name selected in it with its place.
@@ -774,12 +801,25 @@ fn below_the_floor(empty: &str, dropped: usize, records: (&str, &str), retry: &s
     format!("{empty} at this confidence floor - {dropped} {bind} below it, and {retry} {them}")
 }
 
+/// The `<self_call>` record of a symbol's call of itself, at the line of the call in the symbol's own file.
+fn self_call(root: &Definition<'_>, call: SelfCall) -> String {
+    Element::new("self_call")
+        .attr("at", loc(root.file, call.line))
+        .optional("confidence", confidence(call.confidence))
+        .close()
+}
+
 /// Why a symbol may have no callers: the `below_confidence` callers the confidence floor dropped, else the `ambiguous`
-/// calls of its name that may call it, else what it is.
-fn no_callers(of: SymbolKind, ambiguous: usize, below_confidence: usize) -> String {
+/// calls of its name that may call it, else what it is; a symbol that calls `itself` has no caller but itself.
+fn no_callers(of: SymbolKind, ambiguous: usize, below_confidence: usize, itself: bool) -> String {
+    let none = if itself {
+        "no callers but itself"
+    } else {
+        "no callers"
+    };
     if below_confidence > 0 {
         return below_the_floor(
-            "no callers",
+            none,
             below_confidence,
             ("caller binds", "callers bind"),
             "min_confidence \"any\" lists",
@@ -793,15 +833,18 @@ fn no_callers(of: SymbolKind, ambiguous: usize, below_confidence: usize) -> Stri
         } else {
             "find_references lists its recorded uses"
         };
+        let binds = if itself {
+            "no call but its own binds it"
+        } else {
+            "no call binds it"
+        };
         return format!(
-            "no call binds it - ambiguous counts the calls of its name that bound none because several definitions of \
-             the name may be meant, and any of them may call this {kind}; grep finds them, and {otherwise}"
+            "{binds} - ambiguous counts the calls of its name that bound none because several definitions of the name \
+             may be meant, and any of them may call this {kind}; grep finds them, and {otherwise}"
         );
     }
     match label {
-        "func" | "method" | "macro" => {
-            "no callers - entry point, dead code, or dynamic dispatch".to_owned()
-        }
+        "func" | "method" | "macro" => format!("{none} - entry point, dead code, or dynamic dispatch"),
         "field" => "no callers - a field is read and written, not called; find_references lists its reads and \
                     writes"
             .to_owned(),
