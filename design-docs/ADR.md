@@ -10,8 +10,9 @@
   - Governs: `crates/kartta-fuzz`, `kartta_fuzz::Ranking`
   - Revisit if: an interactive consumer appears and tens of milliseconds bind, or either matcher grows a per-position
     or per-segment scoring hook
-- [1.3 Make the ignore source set explicit](./adr/1.3-make-the-ignore-source-set-explicit.md) — initiative
-  `01-kartta-fs-port`, 2026-08-24, revised 2026-10-20
+- [1.3 Make the ignore source set explicit](./adr/1.3-make-the-ignore-source-set-explicit.md)
+  - Governs: `crates/kartta-fs/src/build.rs`, `kartta_fs::IgnoreSources`, `kartta_fs::BuildOptions::ignore_sources`
+  - Revisit if: a consumer needs full git fidelity by default
 - [1.4 Take the query glob dialect from globset](./adr/1.4-take-the-query-glob-dialect-from-globset.md) — initiative
   `01-kartta-fs-port`, 2026-08-24, revised 2026-10-20
 - [1.5 Announce a cap unless the order already explains
@@ -54,6 +55,16 @@
 - [1.51 Score paths with fixed weights](./adr/1.51-score-paths-with-fixed-weights.md)
   - Governs: `crates/kartta-fuzz/src/score.rs`, `crates/kartta-fuzz/src/class.rs`, `crates/kartta-fuzz/src/ranking.rs`
   - Revisit if: a caller needs another point in the scoring space
+- [1.52 Name the ignore files an index applied](./adr/1.52-name-the-ignore-files-an-index-applied.md)
+  - Governs: `crates/kartta-mcp/src/state.rs` (`Gitignore`), `crates/kartta-mcp/src/render.rs` (`index`)
+  - Revisit if: kartta reads the `.gitignore` files above a root
+- [1.53 Find git's machine-local ignore files through git
+  itself](./adr/1.53-find-git-s-machine-local-ignore-files-through-git-itself.md)
+  - Governs: `kartta_fs::IgnoreSources` (the levels above `InTree`, not implemented yet)
+  - Revisit if: `gix-ignore` resolves `core.excludesFile` itself without the configuration dependency tree
+- [1.54 Model git's ignore rules, not git's index](./adr/1.54-model-git-s-ignore-rules-not-git-s-index.md)
+  - Governs: `crates/kartta-fs/src/policy.rs`, `crates/kartta-fs/src/rules.rs`
+  - Revisit if: repositories whose rules were added after their files turn out common
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-18
