@@ -32,7 +32,8 @@ pub const RE_EXPORT: u8 = 65;
 /// The one callable of the name binds from anywhere.
 ///
 /// A call of a method the language's runtime gives its values binds here only where its receiver spells that
-/// callable's owner in any case: `session.seek()` binds the one `seek`, `Session.seek`.
+/// callable's owner in any case: `session.seek()` binds the one `seek`, `Session.seek`. A call from outside test code
+/// binds no test definition here, and a test definition still counts among the definitions of its name.
 pub const UNIQUE: u8 = 60;
 /// The one callable of the name in the caller's directory binds.
 pub const SAME_DIR: u8 = 50;

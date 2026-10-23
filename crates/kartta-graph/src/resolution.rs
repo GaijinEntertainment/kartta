@@ -17,7 +17,8 @@ pub enum Miss {
     /// No definition the graph holds has the name as the call writes it: a builtin, or code outside the graph.
     Undefined,
     /// Definitions of the name exist, and the call can bind none of them: a field, a value where calls bind no value,
-    /// a definition local to another body, or a member of an owner the call does not reach.
+    /// a definition local to another body, a member of an owner the call does not reach, or, for a call from outside
+    /// test code, a test definition that is the one callable of the name.
     NotAdmitted,
     /// Several definitions of the name may be meant, and neither scope nor nearness picks one.
     Ambiguous,

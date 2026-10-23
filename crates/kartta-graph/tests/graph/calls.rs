@@ -1598,6 +1598,70 @@ fn the_one_callable_of_a_name_binds_from_anywhere() {
     assert_eq!(callees(&graph, "run"), ["b/c/y.go:1@60"]);
 }
 
+const fn in_test(mut symbol: Symbol) -> Symbol {
+    symbol.flags = SymbolFlags::empty().with_test(true);
+    symbol
+}
+
+#[test]
+fn the_one_callable_of_a_name_binds_a_test_definition_only_for_test_code() {
+    let graph = graph(&[
+        file("a/x.c", vec![function("run", 1)], vec![call(0, "parse", 2)]),
+        file("b/c/y.c", vec![in_test(function("parse", 1))], Vec::new()),
+        file(
+            "d/e/z.c",
+            vec![in_test(function("check", 1))],
+            vec![call(0, "parse", 2)],
+        ),
+    ]);
+
+    assert_eq!(callees(&graph, "run"), Vec::<String>::new());
+    assert_eq!(callees(&graph, "check"), ["b/c/y.c:1@60"]);
+    assert_eq!(
+        graph.resolution(0).misses.not_admitted,
+        1,
+        "the call from outside test code counts as one that binds no definition it may"
+    );
+}
+
+#[test]
+fn a_test_definition_counts_against_the_one_callable_of_its_name() {
+    let graph = graph(&[
+        file("a/x.c", vec![function("run", 1)], vec![call(0, "parse", 2)]),
+        file("b/c/y.c", vec![function("parse", 1)], Vec::new()),
+        file("d/e/z.c", vec![in_test(function("parse", 1))], Vec::new()),
+    ]);
+
+    assert_eq!(callees(&graph, "run"), Vec::<String>::new());
+    assert_eq!(graph.resolution(0).misses.ambiguous, 1);
+}
+
+#[test]
+fn a_runtime_method_binds_no_test_definition_as_the_one_callable_for_a_call_outside_test_code() {
+    let mut conventions = Conventions::default();
+    conventions.runtime_methods = &["push"];
+    let stack = in_test(member("Stack", "push", SymbolKind::Method, 1));
+    let graph = graph_of(
+        conventions,
+        &[
+            file(
+                "a/x.js",
+                vec![function("run", 1)],
+                vec![member_call(0, "stack", "push", 2)],
+            ),
+            file("b/y.js", vec![stack], Vec::new()),
+            file(
+                "c/z.js",
+                vec![in_test(function("check", 1))],
+                vec![member_call(0, "stack", "push", 2)],
+            ),
+        ],
+    );
+
+    assert_eq!(callees(&graph, "run"), Vec::<String>::new());
+    assert_eq!(callees(&graph, "check"), ["b/y.js:1@60"]);
+}
+
 #[test]
 fn a_call_binds_no_namespace_where_the_language_binds_none_and_the_namespace_still_counts() {
     let files = [

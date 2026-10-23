@@ -708,14 +708,26 @@ impl<'g> Cascade<'g> {
         if call.names_a_runtime_method {
             return self
                 .one_callable(&shape, targets.clone())
-                .filter(|&at| self.receiver_spells_owner(call, at))
+                .filter(|&at| {
+                    self.receiver_spells_owner(call, at) && self.can_bind_by_name(call, at)
+                })
                 .map(|at| (at, confidence::UNIQUE))
                 .ok_or(Miss::NotAdmitted);
         }
-        self.one_callable(&shape, targets)
-            .map(|at| (at, confidence::UNIQUE))
-            .or_else(|| self.resolve_by_proximity(call, candidates, reach))
-            .ok_or(Miss::Ambiguous)
+        match self.one_callable(&shape, targets) {
+            Some(at) if self.can_bind_by_name(call, at) => Ok((at, confidence::UNIQUE)),
+            Some(_) => Err(Miss::NotAdmitted),
+            None => self
+                .resolve_by_proximity(call, candidates, reach)
+                .ok_or(Miss::Ambiguous),
+        }
+    }
+
+    // constraint: test code is built apart from the code it tests, so of the definitions a call reaches by name alone,
+    // a test one binds a call from test code alone; it still counts among them, so a name test code shares, often a
+    // stub of a builtin or of a library outside the graph, is no surer to mean another definition of it
+    fn can_bind_by_name(&self, call: &Call, at: SymbolAt) -> bool {
+        !self.graph.flags(at).is_test() || self.graph.flags(call.caller_at()).is_test()
     }
 
     fn through_binding(&self, call: &Call) -> Option<Result<Bound, Miss>> {
