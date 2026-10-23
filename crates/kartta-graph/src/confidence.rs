@@ -6,7 +6,7 @@
 /// A receiver that names an import binds an export of the imported directory or file.
 ///
 /// A call of a name imported from a file binds that file's export of the name, and a dot import binds its one export
-/// of the name.
+/// of the name. A receiver that names the module an included file declares binds that file's definition of the name.
 pub const IMPORT: u8 = 95;
 /// A callee written qualified binds the symbol of that qualified name.
 pub const QUALIFIED: u8 = 90;

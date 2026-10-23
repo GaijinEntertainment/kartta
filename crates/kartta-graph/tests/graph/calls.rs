@@ -4972,3 +4972,45 @@ fn a_class_reopened_in_another_file_offers_the_kind_its_receiver_reaches_before_
         )
     );
 }
+
+fn script_module(path: &str, module: &str, names: &[&str], calls: Vec<CallRef>) -> Extraction {
+    let mut symbols = vec![exported(Symbol::new(module, SymbolKind::Namespace, 1, 1))];
+    symbols.extend(names.iter().zip(2..).map(|(&name, line)| {
+        let mut symbol = exported(function(name, line * 10));
+        symbol.qualified_name = format!("{module}.{name}");
+        symbol
+    }));
+    let mut extraction = file(path, symbols, calls);
+    extraction.package = Some(module.to_owned());
+    extraction
+}
+
+#[test]
+fn a_call_qualified_by_a_required_module_binds_that_module_s_function_over_its_file_s_namesake() {
+    let checks = script_module("game/checks.das", "checks", &["has_volume"], Vec::new());
+    let binds = crate::including(
+        script_module(
+            "game/client/binds.das",
+            "binds",
+            &["has_volume", "own"],
+            vec![
+                member_call(1, "checks", "has_volume", 21),
+                member_call(2, "binds", "has_volume", 31),
+            ],
+        ),
+        &["game/checks.das"],
+    );
+    let graph = graph_of(Conventions::default(), &[checks, binds]);
+
+    assert_eq!(
+        (
+            callees(&graph, "binds.has_volume"),
+            callees(&graph, "binds.own")
+        ),
+        (
+            vec!["game/checks.das:20@95".to_owned()],
+            vec!["game/client/binds.das:20@80".to_owned()]
+        ),
+        "the module a qualifier names is the file that declares it, so the file's own module stays its own"
+    );
+}
