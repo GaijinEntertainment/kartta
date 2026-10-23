@@ -199,14 +199,20 @@
     `crates/kartta-fs/src/policy.rs` (the reading lock)
   - Revisit if: the id lock shows on a build's wall time
 - [2.1 Share per-file data through content-addressed
-  packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
-  revised 2026-10-18
+  packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md)
+  - Governs: `crates/kartta-cache/src/{key,pack,writer}.rs`, `kartta_cache::Store::{open, get, stats}`
+  - Revisit if: a store has to sit on a filesystem without hard links, or cold builds are frequent enough that the
+    shared writer's lock matters
 - [2.2 Take per-file data from the shared cache in the walk's
   read](./adr/2.2-take-per-file-data-from-the-cache-in-the-walk-s-read.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-18
 - [2.3 Expire cache entries by the time each was
   published](./adr/2.3-expire-cache-entries-by-the-time-each-was-published.md) — initiative `02-shared-cache`,
   2026-10-18, revised 2026-10-19
+- [2.4 Merge a cache's packs once they pass eight](./adr/2.4-merge-a-cache-s-packs-once-they-pass-eight.md)
+  - Governs: `kartta_cache::Store::merge`, `kartta_cache::Merged`, `crates/kartta-cache/src/store.rs` (`merge_inputs`,
+    `open_listed`), `crates/kartta-cache/src/pack.rs` (`ranges_tile_the_index`)
+  - Revisit if: the merges of many processes finishing at once cost more than a lock on merging would
 - [3.1 Plug languages in through a trait](./adr/3.1-plug-languages-in-through-a-trait.md) — initiative `03-code-graph`,
   2026-10-16, revised 2026-10-22
 - [3.2 Name a Go call's target only where the syntax
