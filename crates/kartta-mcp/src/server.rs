@@ -1162,14 +1162,15 @@ impl Server {
     #[tool(
         description = "Find definitions nothing in the repository calls or uses - candidates for deletion in a \
                        clean-up. Judges only what the graph can see used: functions, methods and macros through their \
-                       calls, and Go types through their uses. Judges every indexed language unless narrowed with \
-                       'languages'; path_prefix narrows it to a subtree, and on a large repository an unscoped call \
-                       takes seconds, so scope it to the code you are cleaning. Returns an <unused> envelope: count= \
-                       the definitions listed, total= with truncated=true when 'limit' (default 50) cut the list, \
-                       live= the definitions judged and found used, then an <excluded/> record counting what was not \
-                       judged, each only when it is not zero - test, generated, entry (main, registered handlers, \
-                       constructors, operators), vendored, unobservable (fields, values, locals, and types outside \
-                       Go), uncertain (a call of the name bound nothing certain, so it may reach this one), and \
+                       calls, and Go types, fields, variables and constants through their uses. Judges every indexed \
+                       language unless narrowed with 'languages'; path_prefix narrows it to a subtree, and on a large \
+                       repository an unscoped call takes seconds, so scope it to the code you are cleaning. Returns an \
+                       <unused> envelope: count= the definitions listed, total= with truncated=true when 'limit' \
+                       (default 50) cut the list, live= the definitions judged and found used, then an <excluded/> \
+                       record counting what was not judged, each only when it is not zero - test, generated, entry \
+                       (main, registered handlers, constructors, operators), vendored, unobservable (locals, and \
+                       fields, values and types outside Go), uncertain (a call or a use of the name bound nothing \
+                       certain, or a call's receiver spells a value's name, so it may reach this one), and \
                        dispatched (a method an interface, a trait or a parent can route a call to). Then one \
                        <symbol/> record per unused definition in path order: name, qn, kind, lang, loc \
                        (file:start-end), and name_used_elsewhere=true when calls or uses spell its name but bind to \

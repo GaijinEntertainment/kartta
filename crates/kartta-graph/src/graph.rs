@@ -1075,6 +1075,13 @@ pub(crate) const fn is_call_target_kind(kind: SymbolKind) -> bool {
     !matches!(kind, SymbolKind::Field | SymbolKind::EnumVariant)
 }
 
+pub(crate) const fn is_data_kind(kind: SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::Field | SymbolKind::Variable | SymbolKind::Constant
+    )
+}
+
 /// Whether [`Graph::references`] selects a symbol of `kind`: every kind a use names, which is all but an enum's
 /// variants.
 #[must_use]

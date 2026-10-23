@@ -222,6 +222,8 @@ pub struct Conventions {
     pub own_type_receivers: Option<&'static [&'static str]>,
     /// Where the language records a use of a type.
     pub type_uses: TypeUses,
+    /// Where the language records a read or a write of a field, a variable or a constant.
+    pub data_uses: DataUses,
     /// Where a bare use of a name that its own file does not declare binds.
     pub value_uses: ValueUses,
     /// What a member use on a value of a type the language cannot name binds.
@@ -246,6 +248,7 @@ impl Conventions {
         receivers: Receivers::Owners,
         own_type_receivers: None,
         type_uses: TypeUses::Partial,
+        data_uses: DataUses::Partial,
         value_uses: ValueUses::Declared,
         untyped_members: UntypedMembers::FileField,
     };
@@ -350,6 +353,21 @@ pub enum TypeUses {
     /// Wherever code names a type that is not local to a body, as Go's extraction records a use in a declaration or a
     /// composite literal and a call in a conversion: such a type that no call and no use names is named nowhere the
     /// language reads. A local type stays unjudged, because no use binds a local.
+    Every,
+}
+
+/// Where a language records a read or a write of a field, a variable or a constant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DataUses {
+    /// Where some code reads or writes one, or nowhere: code can read or write one where the language records no use,
+    /// as a Python module's top level reads a variable and a C macro's expansion a field, so such a definition that no
+    /// use names may still be used.
+    #[default]
+    Partial,
+    /// Wherever code reads or writes one that is not local to a body, as Go's extraction records a selector, a
+    /// composite literal's key and a package-level name: such a definition that no use names is read and written
+    /// nowhere the language reads but through a call on it, which the extraction records as a call, or by its
+    /// runtime's reflection. A local stays unjudged, because no use binds a local.
     Every,
 }
 

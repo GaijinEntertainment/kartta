@@ -6,7 +6,7 @@
 )]
 
 use kartta_lang::{
-    Access, Language, MemberCalls, OwnMembers, RawExtraction, Receiver, Symbol, SymbolId,
+    Access, DataUses, Language, MemberCalls, OwnMembers, RawExtraction, Receiver, Symbol, SymbolId,
     SymbolKind, TypeUses, UseRef,
 };
 use kartta_lang_go::Go;
@@ -143,6 +143,32 @@ fn a_bare_call_never_reaches_a_member_and_a_value_is_callable() {
     assert!(conventions.values_are_call_targets);
     assert_eq!(conventions.owner_chain_separator, None);
     assert_eq!(conventions.member_calls, MemberCalls::Members);
+}
+
+#[test]
+fn a_selector_a_literal_s_key_and_a_package_level_name_use_the_field_or_value_they_name() {
+    let raw = extract(
+        b"package p\n\ntype T struct{ N int }\n\nconst C = 1\n\nvar v T\n\nfunc f() int {\n\tv = T{N: C}\n\t\
+          return v.N\n}\n",
+    );
+    let used: Vec<(&str, Access)> = raw
+        .uses
+        .iter()
+        .filter(|site| site.name != "T")
+        .map(|site| (site.name.as_str(), site.access))
+        .collect();
+
+    assert_eq!(
+        used,
+        [
+            ("v", Access::Write),
+            ("N", Access::Write),
+            ("C", Access::Read),
+            ("N", Access::Read),
+            ("v", Access::Read),
+        ]
+    );
+    assert_eq!(Go::new().conventions().data_uses, DataUses::Every);
 }
 
 #[test]

@@ -3,11 +3,12 @@
 
 use kartta_graph::DeadCode;
 use kartta_lang::{
-    Access, CallRef, Callable, CallableRole, Conventions, Extraction, FILE_SCOPE, IncludeRef,
-    OwnMembers, Receiver, Receivers, Symbol, SymbolFlags, SymbolId, SymbolKind, TypeUses, UseRef,
+    Access, CallRef, Callable, CallableRole, Conventions, DataUses, Extraction, FILE_SCOPE,
+    IncludeRef, OwnMembers, Receiver, Receivers, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    TypeUses, UseRef,
 };
 
-use crate::{call, function, graph, graph_of};
+use crate::{call, function, graph, graph_of, member_call};
 
 fn member(owner: &str, name: &str, line: u32) -> Symbol {
     let mut symbol = Symbol::new(name, SymbolKind::Method, line, line + 1);
@@ -32,13 +33,38 @@ fn file(path: &str, symbols: Vec<Symbol>, calls: Vec<CallRef>) -> Extraction {
     extraction
 }
 
+fn field(owner: &str, name: &str, line: u32) -> Symbol {
+    let mut symbol = Symbol::new(name, SymbolKind::Field, line, line);
+    symbol.qualified_name = format!("{owner}.{name}");
+    symbol.owner = Some(owner.to_owned());
+    symbol
+}
+
+fn use_of(name: &str, receiver: Receiver, access: Access, line: u32) -> UseRef {
+    UseRef {
+        site_of: SymbolId(0),
+        name: name.to_owned(),
+        receiver,
+        access,
+        line,
+    }
+}
+
 fn go() -> Conventions {
     let mut conventions = Conventions::default();
     conventions.own_members = OwnMembers::Unreached;
     conventions.directory_packages = true;
+    conventions.receivers = Receivers::TypePaths;
     conventions.type_uses = TypeUses::Every;
+    conventions.data_uses = DataUses::Every;
     conventions
 }
+
+const DATA: [SymbolKind; 3] = [
+    SymbolKind::Field,
+    SymbolKind::Variable,
+    SymbolKind::Constant,
+];
 
 fn names<'g>(dead: &DeadCode<'g>) -> Vec<&'g str> {
     dead.found
@@ -350,6 +376,101 @@ fn fields_values_and_types_are_unobservable_where_uses_name_no_type() {
 }
 
 #[test]
+fn fields_and_values_are_judged_by_their_reads_and_writes_where_the_language_records_each_one() {
+    let mut user = file("pkg/run.go", vec![function("Run", 1)], Vec::new());
+    user.uses.extend([
+        use_of("Port", Receiver::Path("Config".to_owned()), Access::Read, 2),
+        use_of("limit", Receiver::Bare, Access::Write, 3),
+    ]);
+    let config = file(
+        "pkg/config.go",
+        vec![
+            Symbol::new("Config", SymbolKind::Struct, 1, 4),
+            field("Config", "Port", 2),
+            field("Config", "Host", 3),
+            Symbol::new("limit", SymbolKind::Variable, 5, 5),
+            Symbol::new("Retries", SymbolKind::Constant, 6, 6),
+        ],
+        Vec::new(),
+    );
+    let graph = graph_of(go(), &[user, config]);
+
+    let dead = graph.dead_code(&DATA, None, 10);
+
+    assert_eq!(names(&dead), ["Host", "Retries"]);
+    assert_eq!(dead.live, 2);
+    assert_eq!(dead.excluded.unobservable, 0);
+}
+
+#[test]
+fn a_use_that_binds_nothing_leaves_each_field_of_its_name_and_each_value_its_file_sees_uncertain() {
+    let mut user = file("pkg/run.go", vec![function("Run", 1)], Vec::new());
+    user.uses.extend([
+        use_of("Port", Receiver::Path(String::new()), Access::Read, 2),
+        use_of(
+            "limit",
+            Receiver::Qualifier("ext".to_owned()),
+            Access::Read,
+            3,
+        ),
+    ]);
+    let graph = graph_of(
+        go(),
+        &[
+            user,
+            file(
+                "pkg/config.go",
+                vec![
+                    Symbol::new("Config", SymbolKind::Struct, 1, 3),
+                    field("Config", "Port", 2),
+                    Symbol::new("limit", SymbolKind::Variable, 4, 4),
+                ],
+                Vec::new(),
+            ),
+            file(
+                "other/model.go",
+                vec![
+                    Symbol::new("Model", SymbolKind::Struct, 1, 3),
+                    field("Model", "Port", 2),
+                    Symbol::new("limit", SymbolKind::Variable, 4, 4),
+                ],
+                Vec::new(),
+            ),
+        ],
+    );
+
+    let dead = graph.dead_code(&DATA, None, 10);
+
+    assert_eq!(names(&dead), ["limit"]);
+    assert_eq!(dead.found[0].definition.file, "other/model.go");
+    assert_eq!(dead.excluded.uncertain, 3);
+}
+
+#[test]
+fn a_call_through_a_receiver_that_spells_a_value_leaves_it_uncertain_where_the_call_s_file_sees_it()
+{
+    let mut view = file("pkg/view.go", vec![function("View", 1)], Vec::new());
+    view.calls.push(member_call("style", "Render", 2));
+    let style = |path| {
+        file(
+            path,
+            vec![Symbol::new("style", SymbolKind::Variable, 1, 1)],
+            Vec::new(),
+        )
+    };
+    let graph = graph_of(
+        go(),
+        &[view, style("pkg/styles.go"), style("other/styles.go")],
+    );
+
+    let dead = graph.dead_code(&DATA, None, 10);
+
+    assert_eq!(names(&dead), ["style"]);
+    assert_eq!(dead.found[0].definition.file, "other/styles.go");
+    assert_eq!(dead.excluded.uncertain, 1);
+}
+
+#[test]
 fn a_method_taken_only_as_a_value_is_live() {
     let mut user = file("pkg/user.go", vec![function("Run", 1)], Vec::new());
     user.uses.push(UseRef {
@@ -359,8 +480,7 @@ fn a_method_taken_only_as_a_value_is_live() {
         access: Access::Read,
         line: 2,
     });
-    let mut conventions = go();
-    conventions.receivers = Receivers::TypePaths;
+    let conventions = go();
     let server = file(
         "pkg/server.go",
         vec![
