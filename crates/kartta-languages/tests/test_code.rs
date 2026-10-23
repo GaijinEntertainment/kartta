@@ -11,7 +11,7 @@ use std::fs;
 use kartta::{BuildOptions, Engine, Limits};
 use tempfile::TempDir;
 
-fn build(files: &[(&str, &str)]) -> (TempDir, Engine) {
+fn build(language: &str, files: &[(&str, &str)]) -> (TempDir, Engine) {
     let tree = tempfile::tempdir().expect("a temporary directory");
     for (path, source) in files {
         let path = tree.path().join(path);
@@ -19,7 +19,7 @@ fn build(files: &[(&str, &str)]) -> (TempDir, Engine) {
             .expect("the directory is made");
         fs::write(path, source).expect("the file is written");
     }
-    let languages = kartta_languages::select(["python"]).expect("python is known");
+    let languages = kartta_languages::select([language]).expect("the language is known");
     let outcome = Engine::build(tree.path(), &BuildOptions::default(), languages, None)
         .expect("the tree builds");
     assert!(outcome.errors.is_empty());
@@ -39,11 +39,14 @@ fn callees<'e>(engine: &'e Engine, path: &str, name: &str) -> (Vec<&'e str>, usi
 
 #[test]
 fn a_name_only_test_code_defines_binds_no_call_from_outside_test_code() {
-    let (_tree, engine) = build(&[
-        ("app/main.py", "def run():\n    helper()\n"),
-        ("tests/helpers.py", "def helper():\n    pass\n"),
-        ("tests/test_main.py", "def test_run():\n    helper()\n"),
-    ]);
+    let (_tree, engine) = build(
+        "python",
+        &[
+            ("app/main.py", "def run():\n    helper()\n"),
+            ("tests/helpers.py", "def helper():\n    pass\n"),
+            ("tests/test_main.py", "def test_run():\n    helper()\n"),
+        ],
+    );
 
     assert_eq!(callees(&engine, "app/main.py", "run"), (vec![], 1));
     assert_eq!(
@@ -54,15 +57,18 @@ fn a_name_only_test_code_defines_binds_no_call_from_outside_test_code() {
 
 #[test]
 fn a_name_test_code_shares_binds_no_test_definition_nearest_a_call_from_outside_test_code() {
-    let (_tree, engine) = build(&[
-        ("app/main.py", "def run():\n    helper()\n"),
-        (
-            "app/test_main.py",
-            "def helper():\n    pass\n\n\ndef test_run():\n    helper()\n",
-        ),
-        ("lib/util.py", "def helper():\n    pass\n"),
-        ("lib/test_util.py", "def test_helper():\n    helper()\n"),
-    ]);
+    let (_tree, engine) = build(
+        "python",
+        &[
+            ("app/main.py", "def run():\n    helper()\n"),
+            (
+                "app/test_main.py",
+                "def helper():\n    pass\n\n\ndef test_run():\n    helper()\n",
+            ),
+            ("lib/util.py", "def helper():\n    pass\n"),
+            ("lib/test_util.py", "def test_helper():\n    helper()\n"),
+        ],
+    );
 
     assert_eq!(callees(&engine, "app/main.py", "run"), (vec![], 1));
     assert_eq!(
@@ -72,5 +78,29 @@ fn a_name_test_code_shares_binds_no_test_definition_nearest_a_call_from_outside_
     assert_eq!(
         callees(&engine, "lib/test_util.py", "test_helper"),
         (vec!["lib/util.py"], 0)
+    );
+}
+
+#[test]
+fn a_stub_of_the_quirrel_compiler_s_test_data_binds_no_call_from_outside_test_code() {
+    let (_tree, engine) = build(
+        "quirrel",
+        &[
+            ("ui/menu.nut", "function show() {\n  Computed(1)\n}\n"),
+            (
+                "quirrel/testData/static_analyzer/w259.nut",
+                "function Computed(_p) {}\n\nfunction check() {\n  Computed(1)\n}\n",
+            ),
+        ],
+    );
+
+    assert_eq!(callees(&engine, "ui/menu.nut", "show"), (vec![], 1));
+    assert_eq!(
+        callees(
+            &engine,
+            "quirrel/testData/static_analyzer/w259.nut",
+            "check"
+        ),
+        (vec!["quirrel/testData/static_analyzer/w259.nut"], 0)
     );
 }
