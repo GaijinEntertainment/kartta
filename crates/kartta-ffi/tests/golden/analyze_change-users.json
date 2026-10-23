@@ -1,0 +1,64 @@
+{
+  "answer": {
+    "ok": {
+      "changed_files": 1,
+      "changed_symbols": 1,
+      "footprint": 1,
+      "footprint_files": 1,
+      "hotspots": [],
+      "regions_outside_symbols": 0,
+      "seeds": [
+        {
+          "band": "low",
+          "below_confidence": 0,
+          "caller_count": 0,
+          "consumer_dirs": [],
+          "consumers": [
+            {
+              "confidence": 80,
+              "depth": 1,
+              "line": 5,
+              "symbol": {
+                "end_line": 5,
+                "exported": false,
+                "file": "go/limit.go",
+                "kind": "var",
+                "line": 5,
+                "name": "budget",
+                "qualified_name": "main.budget"
+              }
+            }
+          ],
+          "reach": 1,
+          "symbol": {
+            "end_line": 3,
+            "exported": false,
+            "file": "go/limit.go",
+            "kind": "const",
+            "line": 3,
+            "name": "limit",
+            "qualified_name": "main.limit"
+          },
+          "truncated": false,
+          "turned_away": 0,
+          "unexpanded": 0,
+          "user_count": 1
+        }
+      ],
+      "total_hotspots": 0,
+      "transitive_sum": 1,
+      "truncated_seeds": 0,
+      "unheld_regions": 0
+    }
+  },
+  "method": "analyze_change",
+  "params": {
+    "regions": [
+      {
+        "end_line": 3,
+        "file": "go/limit.go",
+        "start_line": 3
+      }
+    ]
+  }
+}

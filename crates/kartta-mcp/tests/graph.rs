@@ -1246,6 +1246,90 @@ fn the_impact_tools_count_the_calls_find_callers_could_not_bind() {
 }
 
 #[test]
+fn the_impact_tools_reach_the_symbols_that_read_or_write_a_field() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "wire/errors.go",
+            "package wire\n\ntype Error struct {\n\tCode string\n}\n\nfunc (e *Error) Error() string {\n\t\
+             return e.Code\n}\n\nfunc (e *Error) Unwrap() string {\n\treturn e.Code\n}\n",
+        ),
+        (
+            "wire/call.go",
+            "package wire\n\nfunc call() error {\n\treturn &Error{Code: \"x\"}\n}\n\nfunc Run() {\n\tcall()\n}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answers = [
+        client.answer(
+            "impact_of_edit",
+            &json!({"file": "wire/errors.go", "start_line": 4, "end_line": 4}),
+        ),
+        client.answer(
+            "impact_of_change",
+            &json!({"regions": [{"file": "wire/errors.go", "start_line": 4, "end_line": 4}]}),
+        ),
+    ];
+
+    let impact = [
+        &[
+            r#"<impact of="wire/errors.go" start_line="4" end_line="4" symbols="2">"#,
+            concat!(
+                r#"<symbol name="Error" qn="wire.Error" kind="struct" lines="3-5" callers="0" callees="0" "#,
+                r#"reach="0" reach_files="0" reach_band="low"/>"#,
+            ),
+            concat!(
+                r#"<symbol name="Code" qn="wire.Error.Code" kind="field" lines="4-4" callers="0" users="3" "#,
+                r#"callees="0" reach="4" reach_files="1" reach_band="low">"#,
+            ),
+        ][..],
+        &CODE_USERS,
+        &[
+            "</symbol>",
+            r#"<includes count="0"/>"#,
+            r#"<included-by count="0"/>"#,
+            "</impact>",
+        ],
+    ];
+    let change = [
+        &[
+            concat!(
+                r#"<change regions="1" changed_symbols="2" changed_files="1" footprint="4" "#,
+                r#"footprint_files="2">"#,
+            ),
+            r#"<seeds shown="2" of="2">"#,
+            concat!(
+                r#"<seed name="Code" qn="wire.Error.Code" kind="field" loc="wire/errors.go:4" callers="0" "#,
+                r#"users="3" reach="4" reach_band="low">"#,
+            ),
+        ][..],
+        &CODE_USERS,
+        &[
+            "</seed>",
+            concat!(
+                r#"<seed name="Error" qn="wire.Error" kind="struct" loc="wire/errors.go:3-5" callers="0" "#,
+                r#"reach="0" reach_band="low"/>"#,
+            ),
+            "</seeds>",
+            "</change>",
+        ],
+    ];
+
+    assert_eq!(answers, [lines(&impact.concat()), lines(&change.concat())]);
+}
+
+/// The users of `wire.Error.Code` the impact tools list: the function that writes it and the two methods that read it.
+const CODE_USERS: [&str; 5] = [
+    r#"<users shown="3" of="3">"#,
+    r#"<ref name="call" qn="wire.call" loc="wire/call.go:3" role="consumer" at="wire/call.go:4"/>"#,
+    r#"<ref name="Error" qn="wire.Error.Error" loc="wire/errors.go:7" role="consumer" at="wire/errors.go:8"/>"#,
+    r#"<ref name="Unwrap" qn="wire.Error.Unwrap" loc="wire/errors.go:11" role="consumer" at="wire/errors.go:12"/>"#,
+    "</users>",
+];
+
+#[test]
 fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
     let answers = answers(&[
         ("find_callees", json!({"name": "main"})),

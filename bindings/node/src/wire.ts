@@ -797,6 +797,12 @@ export type SegmentSymbol = {
 	definition: Definition;
 	callers: DirectCalls;
 	/**
+	 * A field's, a variable's or a constant's direct users: the symbols that call it or whose code reads or writes it,
+	 * which `blast` walks from as it walks from a function's callers; absent for any other kind, and for one with no
+	 * user.
+	 */
+	users?: DirectCalls;
+	/**
 	 * The calls of its name a walk over its callers counts as {@link Walk}'s `ambiguous`: any of them may call it, and
 	 * neither `callers` nor `blast` holds them; absent when none.
 	 */
@@ -881,13 +887,22 @@ export type Seed = {
 	/** Its direct callers that pass the confidence floor. */
 	caller_count: number;
 	/**
+	 * A field's, a variable's or a constant's direct users that pass the confidence floor: the symbols that call it or
+	 * whose code reads or writes it, which the walk takes as a function's callers; absent when none, and for any other
+	 * kind.
+	 */
+	user_count?: number;
+	/**
 	 * The calls of its name a walk over its callers counts as {@link Walk}'s `ambiguous`: any of them may call it, and
 	 * neither `caller_count` nor `reach` counts them; absent when none.
 	 */
 	ambiguous?: number;
-	/** Those direct callers when there are 30 or fewer; empty otherwise. */
+	/**
+	 * Its direct users for a field, a variable or a constant, and its direct callers for any other kind, when there are
+	 * 30 or fewer; empty otherwise.
+	 */
 	consumers: Reached[];
-	/** Those direct callers by directory, the most first, when there are more than 30. */
+	/** Those direct users or callers by directory, the most first, when there are more than 30. */
 	consumer_dirs: Array<{dir: string; count: number}>;
 	truncated: boolean;
 	turned_away: number;

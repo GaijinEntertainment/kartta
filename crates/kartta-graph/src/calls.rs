@@ -818,6 +818,36 @@ impl<'g> Calls<'g> {
         Cow::Borrowed(self.caller_edges(target))
     }
 
+    /// What a change to `target` reaches first: its callers, and for a field, a variable or a constant, its users.
+    pub(crate) fn dependents_of(&mut self, target: SymbolAt) -> Cow<'_, [Edge]> {
+        if is_data_kind(self.graph.sym(target).kind) {
+            Cow::Owned(self.user_edges(target))
+        } else {
+            Cow::Borrowed(self.caller_edges(target))
+        }
+    }
+
+    /// The users of a field, a variable or a constant: the symbols that call it, or whose code reads or writes it, each
+    /// once, at its most confident site, in path order; none for a symbol of any other kind.
+    pub(crate) fn user_edges(&mut self, target: SymbolAt) -> Vec<Edge> {
+        let name = self.graph.sym(target).name;
+        if !is_data_kind(self.graph.sym(target).kind) {
+            return Vec::new();
+        }
+        self.resolve_callers(name);
+        self.resolve_uses(name);
+        let uses = listed(&self.uses, &target).iter().map(|&(edge, _)| edge);
+        let mut strongest: HashMap<SymbolAt, Edge, FixedState> = HashMap::default();
+        for edge in listed(&self.callers, &target).iter().copied().chain(uses) {
+            if edge.far != target {
+                keep_stronger(&mut strongest, edge.far, edge);
+            }
+        }
+        let mut edges: Vec<Edge> = strongest.into_values().collect();
+        self.sort(&mut edges);
+        edges
+    }
+
     /// The files whose top level calls or uses the name of the definition at `at` and see it, in the order the graph
     /// indexes them, each with how sure the name is to mean it. A file keeps only the names its top level spells, so
     /// neither the line nor whether a call or a use spelled it is known.

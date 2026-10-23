@@ -5,7 +5,8 @@ use std::ops::RangeInclusive;
 
 use kartta_graph::{Change, DirCount, DirectCalls, Graph, Limits, ReachBand, Region, Segment};
 use kartta_lang::{
-    Callable, CallableRole, Extraction, IncludeRef, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    Access, Callable, CallableRole, Conventions, Extraction, IncludeRef, Receiver, Symbol,
+    SymbolFlags, SymbolId, SymbolKind, UseRef, ValueUses,
 };
 
 struct File {
@@ -26,8 +27,26 @@ impl File {
         self
     }
 
+    fn constant(mut self, name: &str, line: u32) -> Self {
+        self.extraction
+            .symbols
+            .push(Symbol::new(name, SymbolKind::Constant, line, line));
+        self
+    }
+
     fn calls(mut self, from: u32, name: &str, line: u32) -> Self {
         self.extraction.calls.push(crate::call(from, name, line));
+        self
+    }
+
+    fn uses(mut self, from: u32, name: &str, (line, access): (u32, Access)) -> Self {
+        self.extraction.uses.push(UseRef {
+            site_of: SymbolId(from),
+            name: name.to_owned(),
+            receiver: Receiver::Bare,
+            access,
+            line,
+        });
         self
     }
 
@@ -58,6 +77,13 @@ impl File {
 fn graph(files: Vec<File>) -> Graph {
     let extractions: Vec<Extraction> = files.into_iter().map(|file| file.extraction).collect();
     crate::graph(&extractions)
+}
+
+fn graph_reading_included_values(files: Vec<File>) -> Graph {
+    let extractions: Vec<Extraction> = files.into_iter().map(|file| file.extraction).collect();
+    let mut conventions = Conventions::default();
+    conventions.value_uses = ValueUses::Included;
+    crate::graph_of(conventions, &extractions)
 }
 
 fn names<'g>(segment: &Segment<'g>) -> Vec<&'g str> {
@@ -267,6 +293,83 @@ fn the_blast_counts_the_callers_reached_by_depth_and_the_files_around_them() {
     );
 }
 
+fn limit_read_and_written() -> Graph {
+    graph_reading_included_values(vec![
+        File::new("lib/limits.h").constant("LIMIT", 1),
+        File::new("app/check.c")
+            .includes("lib/limits.h")
+            .function("check", (1, 3))
+            .uses(0, "LIMIT", (2, Access::Read))
+            .uses(0, "LIMIT", (3, Access::Read))
+            .function("reset", (4, 6))
+            .uses(1, "LIMIT", (5, Access::Write)),
+        File::new("app/main.c")
+            .function("main", (1, 3))
+            .calls(0, "check", 2),
+    ])
+}
+
+fn listed<'g>(calls: &DirectCalls<'g>) -> Vec<(&'g str, u32)> {
+    calls
+        .listed
+        .iter()
+        .map(|reached| (reached.symbol.name, reached.line))
+        .collect()
+}
+
+#[test]
+fn a_constant_lists_the_symbols_that_read_or_write_it_and_its_blast_walks_on_from_them() {
+    let graph = limit_read_and_written();
+
+    let segment = graph
+        .analyze_segment("lib/limits.h", 1..=1, Limits::new(3))
+        .expect("held");
+    let limit = &segment.symbols[0];
+
+    assert_eq!(limit.callers.total, 0);
+    assert_eq!(listed(&limit.users), [("check", 2), ("reset", 5)]);
+    assert_eq!(limit.users.total, 2);
+    assert_eq!(limit.blast.reach, 3);
+    assert_eq!(limit.blast.by_depth, [2, 1]);
+    assert_eq!(limit.blast.affected_files, 2);
+}
+
+#[test]
+fn a_seed_of_a_constant_lists_its_users_and_reaches_their_callers() {
+    let graph = limit_read_and_written();
+
+    let change = graph.analyze_change(&[Region::new("lib/limits.h", 1..=1)], Limits::new(3));
+    let seed = &change.seeds[0];
+    let consumers: Vec<&str> = seed
+        .consumers
+        .iter()
+        .map(|reached| reached.symbol.name)
+        .collect();
+
+    assert_eq!((seed.caller_count, seed.user_count), (0, 2));
+    assert_eq!(consumers, ["check", "reset"]);
+    assert_eq!(seed.reach, 3);
+    assert_eq!(change.footprint, 3);
+}
+
+#[test]
+fn a_function_has_no_users_however_its_name_is_read() {
+    let graph = graph_reading_included_values(vec![
+        File::new("lib/run.c").function("run", (1, 2)),
+        File::new("app/main.c")
+            .includes("lib/run.c")
+            .function("main", (1, 3))
+            .uses(0, "run", (2, Access::Read)),
+    ]);
+
+    let segment = graph
+        .analyze_segment("lib/run.c", 1..=2, Limits::new(3))
+        .expect("held");
+
+    assert_eq!(segment.symbols[0].users.total, 0);
+    assert_eq!(segment.symbols[0].blast.reach, 0);
+}
+
 #[test]
 fn the_symbol_cap_stops_the_blast_and_counts_what_it_turned_away() {
     let mut target = File::new("lib/target.c").function("target", (1, 2));
@@ -457,6 +560,33 @@ fn a_seed_lists_up_to_thirty_direct_callers_and_counts_more_by_directory() {
     assert_eq!(few.seeds[0].consumer_dirs, Vec::<DirCount<'_>>::new());
     assert_eq!(many.seeds[0].caller_count, 31);
     assert_eq!(many.seeds[0].consumers, Vec::new());
+    assert_eq!(dirs, [("app", 20), ("tools", 10), (".", 1)]);
+}
+
+#[test]
+fn a_seed_of_a_constant_counts_more_than_thirty_users_by_directory() {
+    let mut files = vec![File::new("lib/limits.h").constant("LIMIT", 1)];
+    for (path, count) in [("app/a.c", 20), ("tools/t.c", 10), ("main.c", 1)] {
+        let mut file = File::new(path).includes("lib/limits.h");
+        for index in 0..count {
+            file = file
+                .function(&format!("reader{index:02}"), (index * 3 + 1, index * 3 + 2))
+                .uses(index, "LIMIT", (index * 3 + 1, Access::Read));
+        }
+        files.push(file);
+    }
+    let graph = graph_reading_included_values(files);
+
+    let change = graph.analyze_change(&[Region::new("lib/limits.h", 1..=1)], Limits::new(1));
+    let seed = &change.seeds[0];
+    let dirs: Vec<(&str, usize)> = seed
+        .consumer_dirs
+        .iter()
+        .map(|dir| (dir.dir, dir.count))
+        .collect();
+
+    assert_eq!((seed.caller_count, seed.user_count), (0, 31));
+    assert_eq!(seed.consumers, Vec::new());
     assert_eq!(dirs, [("app", 20), ("tools", 10), (".", 1)]);
 }
 
