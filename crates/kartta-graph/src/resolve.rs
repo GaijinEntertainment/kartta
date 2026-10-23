@@ -14,7 +14,7 @@ use crate::confidence;
 use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind, or_if_none, tails};
 use crate::members::DataNamed;
 use crate::resolution::Miss;
-use crate::scope::{Ancestors, OwnerMember, Reach, Scoped, is_value};
+use crate::scope::{Ancestors, OwnerMember, Reach, Scoped, Shape, is_value};
 use crate::stored::{Entry, Site, SymbolAt, UseReceiver};
 use crate::strings::Str;
 use crate::typed::{Typed, Value};
@@ -714,12 +714,16 @@ impl<'g> Cascade<'g> {
                 .map(|at| (at, confidence::UNIQUE))
                 .ok_or(Miss::NotAdmitted);
         }
-        match self.one_callable(&shape, targets) {
+        match self.one_callable(&shape, targets.clone()) {
             Some(at) if self.can_bind_by_name(call, at) => Ok((at, confidence::UNIQUE)),
             Some(_) => Err(Miss::NotAdmitted),
             None => self
-                .resolve_by_proximity(call, candidates, reach)
-                .filter(|&(at, _)| self.can_bind_by_name(call, at))
+                .one_type_outside_tests(call, &shape, targets)
+                .map(|at| (at, confidence::UNIQUE))
+                .or_else(|| {
+                    self.resolve_by_proximity(call, candidates, reach)
+                        .filter(|&(at, _)| self.can_bind_by_name(call, at))
+                })
                 .ok_or(Miss::Ambiguous),
         }
     }
@@ -729,6 +733,21 @@ impl<'g> Cascade<'g> {
     // stub of a builtin or of a library outside the graph, is no surer to mean another definition of it
     fn can_bind_by_name(&self, call: &Call, at: SymbolAt) -> bool {
         !self.graph.flags(at).is_test() || self.graph.flags(call.caller_at()).is_test()
+    }
+
+    // constraint: a type test code defines stands in for the type outside test code that it shares the name of, or
+    // holds a test's fixture, which code outside test code never constructs
+    fn one_type_outside_tests(
+        &self,
+        call: &Call,
+        shape: &Shape,
+        targets: impl Iterator<Item = SymbolAt> + Clone,
+    ) -> Option<SymbolAt> {
+        if self.graph.flags(call.caller_at()).is_test() {
+            return None;
+        }
+        self.one_callable(shape, targets.filter(|&at| !self.graph.flags(at).is_test()))
+            .filter(|&at| self.graph.sym(at).kind.is_type() || self.constructor_types(at).is_some())
     }
 
     fn through_binding(&self, call: &Call) -> Option<Result<Bound, Miss>> {
