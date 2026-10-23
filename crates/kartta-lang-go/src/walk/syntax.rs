@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use kartta_lang::tree::{child_nodes, named_child_nodes, text};
 use tree_sitter::Node;
 
@@ -72,6 +74,56 @@ pub(super) fn is_generated_source(source: &[u8]) -> bool {
     }
 
     false
+}
+
+// constraint: `reflect.StructTag` reads a tag as space-separated `key:"value"` pairs, and a value of `-` makes
+// `encoding/json`, `encoding/xml` and their kin skip the field, so a tag hands its field to some library where one
+// pair's value is anything else; a tag that holds no such pair hands it over too, since a library may read it whole
+pub(super) fn tag_hands_over_its_field(literal: &str) -> bool {
+    let tag = tag_text(literal);
+    let mut rest = tag.trim_start();
+    let mut paired = false;
+    while let Some((key, after)) = rest.split_once(":\"") {
+        let Some(end) = after.find('"') else {
+            break;
+        };
+        if key.is_empty() || key.contains(|c: char| c.is_whitespace() || c == '"') {
+            break;
+        }
+        if &after[..end] != "-" {
+            return true;
+        }
+        paired = true;
+        rest = after[end + 1..].trim_start();
+    }
+    !paired
+}
+
+// constraint: a tag is a raw string literal, read as written, or an interpreted one, whose escapes stand for the
+// quotes and backslashes of its pairs
+fn tag_text(literal: &str) -> Cow<'_, str> {
+    if let Some(raw) = literal
+        .strip_prefix('`')
+        .and_then(|tag| tag.strip_suffix('`'))
+    {
+        return Cow::Borrowed(raw);
+    }
+    let Some(interpreted) = literal
+        .strip_prefix('"')
+        .and_then(|tag| tag.strip_suffix('"'))
+    else {
+        return Cow::Borrowed(literal);
+    };
+    let mut text = String::with_capacity(interpreted.len());
+    let mut chars = interpreted.chars();
+    while let Some(c) = chars.next() {
+        text.push(if c == '\\' {
+            chars.next().unwrap_or(c)
+        } else {
+            c
+        });
+    }
+    Cow::Owned(text)
 }
 
 pub(super) fn trim_quotes(mut spec: String) -> String {

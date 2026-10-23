@@ -118,12 +118,15 @@ impl fmt::Display for SymbolKind {
     }
 }
 
-/// What a symbol is for besides its kind: test code, generated code, vendored code, an entry point, a fallback.
+/// What a symbol is for besides its kind: test code, generated code, vendored code, an entry point, a fallback, a
+/// definition reflection reaches.
 ///
 /// A language sets these by its own conventions — a Go `_test.go` file, a Rust `#[test]`, a generated-code banner, a
 /// `vendor` directory — so they are heuristic: they rank answers, a caller that is test code below one that is not,
 /// and a query that leaves flagged symbols out, as a dead-code query does, counts what it left out. A fallback does
-/// neither: it makes a call bound to it uncertain, so the namesakes such a call may run are not judged dead.
+/// neither: it makes a call bound to it uncertain, so the namesakes such a call may run are not judged dead. A
+/// definition reflection reaches ranks nothing either: a dead-code query counts it as reflected where no recorded use
+/// reaches it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct SymbolFlags(u8);
 
@@ -133,6 +136,7 @@ impl SymbolFlags {
     const GENERATED: u8 = 1 << 2;
     const VENDORED: u8 = 1 << 3;
     const FALLBACK: u8 = 1 << 4;
+    const REFLECTED: u8 = 1 << 5;
 
     /// No flag set: an ordinary definition.
     #[must_use]
@@ -174,6 +178,13 @@ impl SymbolFlags {
         self.0 & Self::FALLBACK != 0
     }
 
+    /// Whether the language's runtime reads or writes the symbol by its name, through reflection, as Go's
+    /// `encoding/json` does a field its struct tag names, so the uses the extraction records are not all of them.
+    #[must_use]
+    pub const fn is_reflected(self) -> bool {
+        self.0 & Self::REFLECTED != 0
+    }
+
     /// These flags with test code set to `yes`.
     #[must_use]
     pub const fn with_test(self, yes: bool) -> Self {
@@ -204,6 +215,12 @@ impl SymbolFlags {
         self.set(Self::FALLBACK, yes)
     }
 
+    /// These flags with reflection set to `yes`.
+    #[must_use]
+    pub const fn with_reflected(self, yes: bool) -> Self {
+        self.set(Self::REFLECTED, yes)
+    }
+
     /// The flags set in either: how a resolver adds what a file's path shows to what its bytes showed.
     #[must_use]
     pub const fn union(self, other: Self) -> Self {
@@ -214,8 +231,12 @@ impl SymbolFlags {
         self.0
     }
 
-    pub(crate) const ALL: u8 =
-        Self::TEST | Self::ENTRY | Self::GENERATED | Self::VENDORED | Self::FALLBACK;
+    pub(crate) const ALL: u8 = Self::TEST
+        | Self::ENTRY
+        | Self::GENERATED
+        | Self::VENDORED
+        | Self::FALLBACK
+        | Self::REFLECTED;
 
     pub(crate) const fn from_bits(bits: u8) -> Self {
         Self(bits & Self::ALL)

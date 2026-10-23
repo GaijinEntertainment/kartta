@@ -1170,9 +1170,10 @@ impl Server {
                        record counting what was not judged, each only when it is not zero - test, generated, entry \
                        (main, registered handlers, constructors, operators), vendored, unobservable (locals, and \
                        fields, values and types outside Go), uncertain (a call or a use of the name bound nothing \
-                       certain, or a call's receiver spells a value's name, so it may reach this one), and \
-                       dispatched (a method an interface, a trait or a parent can route a call to). Then one \
-                       <symbol/> record per unused definition in path order: name, qn, kind, lang, loc \
+                       certain, or a call's receiver spells a value's name, so it may reach this one), dispatched (a \
+                       method an interface, a trait or a parent can route a call to), and reflected (no use reaches \
+                       it, and reflection reads it by name, as encoding/json does a Go field its struct tag names). \
+                       Then one <symbol/> record per unused definition in path order: name, qn, kind, lang, loc \
                        (file:start-end), and name_used_elsewhere=true when calls or uses spell its name but bind to \
                        other definitions. A definition listed is a candidate, not a proof: a call through a function \
                        value or a callback, a caller outside the repository (another service, a script, reflection, \
