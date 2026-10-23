@@ -707,7 +707,7 @@
   it](./adr/3.156-name-a-php-anonymous-class-by-the-names-that-lead-to-it.md)
   - Governs: `crates/kartta-lang-php/src/walk.rs` (`anonymous_class`, `forget_holder`, `held_receiver`,
     `enclosing_type`)
-  - Revisit if: the tier binding through the caller's owner prefers the caller's file
+  - Revisit if: a shorter name keeps a file's anonymous classes apart
 - [3.157 Resolve a Ruby require under the load roots projects
   set](./adr/3.157-resolve-a-ruby-require-under-the-load-roots-projects-set.md)
   - Governs: `crates/kartta-lang-ruby/src/resolve.rs`, `crates/kartta-lang-ruby/src/walk.rs` (`require_form`,

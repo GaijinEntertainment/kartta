@@ -2406,6 +2406,43 @@ fn a_member_call_of_a_runtime_method_binds_a_member_only_where_scope_reaches_it(
 }
 
 #[test]
+fn the_caller_s_owner_binds_the_copy_of_its_member_nearest_the_caller() {
+    let mut conventions = Conventions::default();
+    conventions.own_type_receivers = Some(&["cls", "other", "self"]);
+    let graph = graph_of(
+        conventions,
+        &[
+            file(
+                "a/x.py",
+                vec![member("A", "m", SymbolKind::Method, 1)],
+                Vec::new(),
+            ),
+            file(
+                "b/a.py",
+                vec![member("A", "m", SymbolKind::Method, 1)],
+                Vec::new(),
+            ),
+            file(
+                "b/y.py",
+                vec![
+                    member("A", "f", SymbolKind::Method, 1),
+                    member("A", "m", SymbolKind::Method, 3),
+                    member("Inner", "m", SymbolKind::Method, 5),
+                ],
+                vec![member_call(0, "self", "m", 2)],
+            ),
+        ],
+    );
+
+    assert_eq!(
+        callees(&graph, "A::f"),
+        ["b/y.py:3@80"],
+        "the caller's own file holds its owner's member, though another owner's member of the name leaves the file's \
+         scope ambiguous"
+    );
+}
+
+#[test]
 fn a_language_that_lists_its_own_type_receivers_binds_the_caller_s_owner_only_on_one() {
     let drain = |owner: &str| member(owner, "drain", SymbolKind::Method, 1);
     let calling = |own_type_receivers, receiver: &str| {
