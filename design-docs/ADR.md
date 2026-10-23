@@ -327,8 +327,10 @@
   asked](./adr/3.33-follow-a-tree-through-the-questions-each-file-s-resolution-asked.md) — initiative `03-code-graph`,
   2026-10-18, revised 2026-10-22
 - [3.34 Record each read and write of a field or a value, and bind it when a query
-  asks](./adr/3.34-record-each-read-and-write-of-a-field-or-a-value.md) — initiative `03-code-graph`, 2026-10-18,
-  revised 2026-10-23
+  asks](./adr/3.34-record-each-read-and-write-of-a-field-or-a-value.md)
+  - Governs: `kartta_lang::{UseRef, Receiver, Access, ValueUses, UntypedMembers, OwnMembers, DataUses}`,
+    `crates/kartta-graph/src/{resolve,members,typed,calls}.rs`, `Graph::references`, `SiteQuery`
+  - Revisit if: binding a name's uses when asked grows past the answer's budget
 - [3.35 Pick a shared name's symbol by its path, and list the
   others](./adr/3.35-pick-a-shared-name-s-symbol-by-its-path-and-list-the-others.md) — initiative `03-code-graph`,
   2026-10-19
@@ -413,6 +415,46 @@
   it](./adr/3.56-name-a-rust-call-s-receiver-only-where-its-syntax-spells-it.md)
   - Governs: `crates/kartta-lang-rust/src/walk/calls.rs`, `crates/kartta-lang-rust/src/walk/settle.rs`
   - Revisit if: the walk learns the type a local, a field or a chain holds (#484, #248, #485)
+- [3.60 Record every Go data site its walk can place](./adr/3.60-record-every-go-data-site-its-walk-can-place.md)
+  - Governs: `crates/kartta-lang-go/src/walk/uses.rs`, `crates/kartta-lang-go/src/walk/syntax.rs`, the Go
+    `Conventions`, `SymbolFlags::is_reflected`
+  - Revisit if: a Go file's walk can see its package's other files
+- [3.61 Name a Go anonymous struct by the names that lead to
+  it](./adr/3.61-name-a-go-anonymous-struct-by-the-names-that-lead-to-it.md)
+  - Governs: `crates/kartta-lang-go/src/walk/{anonymous,types}.rs`, `crates/kartta-graph/src/typed.rs`
+  - Revisit if: the type tier takes a field or a variable as the owner of its anonymous struct's fields
+- [3.62 Record TypeScript and JavaScript data sites through what a value
+  declares](./adr/3.62-record-typescript-and-javascript-data-sites-through-what-a-value-declares.md)
+  - Governs: `crates/kartta-lang-jsts/src/walk.rs`, `crates/kartta-lang-jsts/src/walk/uses.rs`, the TS/JS
+    `Conventions`
+  - Revisit if: the extraction records the type a value holds where no declaration spells it
+- [3.63 Record Python data sites in the scope that binds
+  them](./adr/3.63-record-python-data-sites-in-the-scope-that-binds-them.md)
+  - Governs: `crates/kartta-lang-python/src/walk.rs`, `crates/kartta-lang-python/src/walk/uses.rs`, the Python
+    `Conventions`
+  - Revisit if: the file's one field stops binding right for most Python values
+- [3.64 Record C++ data sites and bind them as class-scope lookup
+  does](./adr/3.64-record-c-plus-plus-data-sites-and-bind-them-as-class-scope-lookup-does.md)
+  - Governs: `crates/kartta-lang-cpp/src/walk/sites.rs`, `crates/kartta-lang-cpp/src/walk.rs`, the C++ `Conventions`,
+    `crates/kartta-graph/src/{members,resolve}.rs`, `crates/kartta-mcp/src/render/calls.rs`
+  - Revisit if: the extraction parses every class head and the operand's type where no declaration spells it
+- [3.65 Tell C++ namesake classes apart by the scopes a use
+  writes](./adr/3.65-tell-c-plus-plus-namesake-classes-apart-by-the-scopes-a-use-writes.md)
+  - Governs: `crates/kartta-graph/src/{twins,members}.rs`, `crates/kartta-lang-cpp/src/walk/sites.rs`
+  - Revisit if: the extraction keeps a template's arguments or the vendored copy a file belongs to
+- [3.66 Record a name a script or Rust reads without a call as a
+  use](./adr/3.66-record-a-name-a-script-or-rust-reads-without-a-call-as-a-use.md)
+  - Governs: the walks of `crates/kartta-lang-{daslang,quirrel,lua}`,
+    `crates/kartta-lang-rust/src/walk/{values,bindings}.rs`
+  - Revisit if: a language here gains imports the walk follows
+- [3.67 Record a function a string or a symbol names as a
+  use](./adr/3.67-record-a-function-a-string-or-a-symbol-names-as-a-use.md)
+  - Governs: the walks of `crates/kartta-lang-{php,ruby,bash}`
+  - Revisit if: a corpus with Rails' callbacks shows them as a share of the dead answers worth reading
+- [3.68 Keep a use in 16 bytes and spell its text once a
+  file](./adr/3.68-keep-a-use-in-16-bytes-and-spell-its-text-once-a-file.md)
+  - Governs: `crates/kartta-lang/src/codec.rs`, `crates/kartta-graph/src/{stored,graph}.rs`, `kartta_lang::FINGERPRINT`
+  - Revisit if: a use needs more than four receiver forms and three accesses, or a file holds 2^28 definitions
 - [3.70 Read a declarator a macro misjoins in the walk](./adr/3.70-read-a-declarator-a-macro-misjoins-in-the-walk.md)
   - Governs: `crates/kartta-lang-cpp/src/walk/declarator.rs`, `crates/kartta-lang-cpp/src/walk.rs`
     (`misread_definition_body`)
