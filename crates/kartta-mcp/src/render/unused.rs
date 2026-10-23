@@ -45,7 +45,8 @@ pub(crate) fn unused(ask: &UnusedAsk<'_>, judged: &[(&str, DeadCode<'_>)]) -> St
              paths"
         }
         (None, 0) => "no code graph holds a definition",
-        _ => "no unused definition among those judged - what was not judged is counted in <excluded>",
+        (None, _) => "no unused definition - every definition was judged, and a call or a use reaches each",
+        (Some(_), _) => "no unused definition among those judged - what was not judged is counted in <excluded>",
     });
     match excluded {
         Some(excluded) => element.wrap(&format!("{excluded}\n{note}")),

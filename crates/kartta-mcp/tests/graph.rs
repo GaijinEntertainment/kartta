@@ -1825,6 +1825,30 @@ fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
 }
 
 #[test]
+fn find_unused_that_judged_everything_and_found_it_reached_points_at_no_exclusion() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "pkg/a.go",
+            "package pkg\n\nfunc A() {\n\tb()\n}\n\nfunc b() {}\n",
+        ),
+        ("pkg/c.go", "package pkg\n\nfunc C() {\n\tA()\n}\n"),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_unused", &json!({"path_prefix": "pkg/a.go"}));
+
+    assert_eq!(
+        answer,
+        concat!(
+            r#"<unused path_prefix="pkg/a.go" count="0" live="2">no unused definition - every definition was "#,
+            "judged, and a call or a use reaches each</unused>",
+        )
+    );
+}
+
+#[test]
 fn find_unused_judges_go_fields_by_their_uses_and_counts_those_a_struct_tag_hands_to_reflection() {
     let tree = tree(&[
         ("go.mod", "module example.com/app\n\ngo 1.22\n"),
