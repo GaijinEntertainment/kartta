@@ -5,7 +5,7 @@ use kartta_lang::{
     Access, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, FILE_SCOPE,
     ImportBinding, IncludeReach, IncludeRef, InheritedMembers, LocalCall, MemberCalls,
     NamespaceCalls, OwnMembers, ReExport, Receiver, Symbol, SymbolFlags, SymbolId, SymbolKind,
-    UseRef,
+    UntypedOwners, UseRef,
 };
 
 use crate::{call, function, graph, graph_of};
@@ -2482,6 +2482,56 @@ fn a_member_call_of_a_runtime_method_binds_the_one_callable_whose_owner_its_rece
         calling("stack", queue_too),
         Vec::<String>::new(),
         "beside another callable of the name, the spelling alone binds nothing"
+    );
+}
+
+#[test]
+fn a_member_call_binds_past_a_namesake_of_a_table_it_does_not_reach() {
+    let get = |owner: &str, line: u32| member(owner, "get", SymbolKind::Method, line);
+    let calling = |untyped_owners, receiver: &str, included: Vec<Symbol>| {
+        let mut conventions = Conventions::default();
+        conventions.untyped_owners = untyped_owners;
+        let graph = graph_of(
+            conventions,
+            &[
+                including(
+                    "app/main.nut",
+                    &["lib/events.nut"],
+                    vec![member_call(0, receiver, "get", 2)],
+                ),
+                file("lib/events.nut", included, Vec::new()),
+            ],
+        );
+        callees(&graph, "run")
+    };
+    let class_and_table = || {
+        vec![
+            Symbol::new("Events", SymbolKind::Class, 1, 9),
+            get("Events", 2),
+            get("scores", 12),
+        ]
+    };
+
+    let tables = UntypedOwners::Tables;
+
+    assert_eq!(
+        calling(tables, "events", class_and_table()),
+        ["lib/events.nut:2@70"]
+    );
+    assert_eq!(
+        calling(UntypedOwners::Types, "events", class_and_table()),
+        Vec::<String>::new(),
+        "where an owner no type declares can be a type outside the graph, the two owners tie"
+    );
+    assert_eq!(
+        calling(tables, "events", vec![get("scores", 2), get("ranks", 12)]),
+        Vec::<String>::new(),
+        "two tables the receiver does not spell tie"
+    );
+    assert_eq!(
+        calling(tables, "sc", vec![get("scores", 2)]),
+        ["lib/events.nut:2@70"],
+        "a table's member alone binds a call on a name that renames the table"
     );
 }
 
