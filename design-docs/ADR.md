@@ -349,8 +349,10 @@
     `crates/kartta-lang-quirrel/src/resolve.rs` (`loaded`)
   - Revisit if: the BLK and Quirrel resolvers' misses show in a build's time, or a third language's loader ignores case
 - [3.31 Parse a C or C++ table without its numbers, and hold one tree at a
-  time](./adr/3.31-parse-a-c-or-c-plus-plus-table-without-its-numbers.md) — initiative `03-code-graph`, 2026-10-18,
-  revised 2026-10-22
+  time](./adr/3.31-parse-a-c-or-c-plus-plus-table-without-its-numbers.md)
+  - Governs: `crates/kartta-lang-cpp/src/repair.rs` (`for_parse`, `scan_data`, `DATA_GROUP_MIN`),
+    `crates/kartta-lang-cpp/src/lib.rs` (`extract`)
+  - Revisit if: a served tree peaks again at the parse tree of a table that spells names outside a generated parser
 - [3.32 Hand an engine every shipped language from one crate, and select them by
   name](./adr/3.32-hand-an-engine-every-shipped-language-from-one-crate.md) — initiative `03-code-graph`, 2026-10-18,
   revised 2026-10-22
@@ -663,6 +665,11 @@
   type](./adr/3.158-credit-a-ruby-call-in-a-type-s-body-to-the-type.md)
   - Governs: `crates/kartta-lang-ruby/src/walk.rs` (`site_of`, `is_type_body`, `type_of_self`, `call`)
   - Revisit if: a sample of the pairs the type's receiver binds at 60 and above falls well under 85% right
+- [3.165 Blank a generated tree-sitter parser's tables before the C
+  parse](./adr/3.165-blank-a-generated-tree-sitter-parser-s-tables.md)
+  - Governs: `crates/kartta-lang-cpp/src/repair.rs` (`Tables`, `GENERATED_PARSER_MARKS`, `data_token_len`)
+  - Revisit if: a generated `parser.c` no longer includes `tree_sitter/parser.h` and defines `LANGUAGE_VERSION` before
+    its first brace, or its tables spell a definition a graph holds
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md) — initiative
   `04-consumer-surfaces`, 2026-10-18, revised 2026-10-23
