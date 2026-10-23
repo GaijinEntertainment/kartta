@@ -6,8 +6,10 @@
   - Governs: `crates/kartta-walk`, `kartta_walk::walk`, `kartta_walk::Policy`, `kartta_walk::Tree`
   - Revisit if: the walk falls behind on a real tree, a maintained crate returns grouped results with inherited state,
     or a re-walk needs what the seed state cannot express
-- [1.2 Own the path scorer](./adr/1.2-own-the-path-scorer.md) — initiative `01-kartta-fs-port`, 2026-08-11, revised
-  2026-10-18
+- [1.2 Own the path scorer](./adr/1.2-own-the-path-scorer.md)
+  - Governs: `crates/kartta-fuzz`, `kartta_fuzz::Ranking`
+  - Revisit if: an interactive consumer appears and tens of milliseconds bind, or either matcher grows a per-position
+    or per-segment scoring hook
 - [1.3 Make the ignore source set explicit](./adr/1.3-make-the-ignore-source-set-explicit.md) — initiative
   `01-kartta-fs-port`, 2026-08-24, revised 2026-10-20
 - [1.4 Take the query glob dialect from globset](./adr/1.4-take-the-query-glob-dialect-from-globset.md) — initiative
@@ -49,6 +51,9 @@
 - [1.50 Match gitignore rules with gix-ignore](./adr/1.50-match-gitignore-rules-with-gix-ignore.md)
   - Governs: `crates/kartta-fs/src/rules.rs`
   - Revisit if: `gix-ignore` stops being maintained or diverges from git's matching
+- [1.51 Score paths with fixed weights](./adr/1.51-score-paths-with-fixed-weights.md)
+  - Governs: `crates/kartta-fuzz/src/score.rs`, `crates/kartta-fuzz/src/class.rs`, `crates/kartta-fuzz/src/ranking.rs`
+  - Revisit if: a caller needs another point in the scoring space
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-18
