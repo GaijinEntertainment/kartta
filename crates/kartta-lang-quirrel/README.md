@@ -11,8 +11,10 @@ Every named function, class, enum, enum member and constant is a symbol, and so 
 bound to a name: a function value takes the name its callers use, from a table slot, a `let` or `local`, or the target
 of an `=` or `<-`. A member of a named or bound class is a method of the class, and `gui.Widget.build <- function() {}`
 is a method of `gui.Widget`. A data slot with a plain name, of a class or of a table a file-scope `let` or `local`
-binds, is a field. A function value with no binding and no name of its own is no symbol: its calls and uses belong to
-the function around it, or to the file at its top level.
+binds, is a field, and a function such a table declares, `let t = { function f() {} }`, is a method of it; a function a
+slot of that table binds, `{ f = @() 1 }`, stays a free function, as an importer calls it by its bare name. A function
+value with no binding and no name of its own is no symbol: its calls and uses belong to the function around it, or to
+the file at its top level.
 
 A call records its callee and, for a member call, the whole receiver expression as written. The conventions name the
 methods of Quirrel's built-in types, so a member call of one, `list.len()` or `t.rawin()`, binds a member of the name
