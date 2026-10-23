@@ -18,7 +18,7 @@
 
 use std::fs;
 
-use kartta::{BuildOptions, Engine, Limits, SymbolKind, confidence};
+use kartta::{BuildOptions, Engine, Limits, Selector, SymbolKind, confidence};
 use tempfile::TempDir;
 
 fn tree_of(files: &[(&str, &str)]) -> TempDir {
@@ -392,6 +392,42 @@ fn a_rust_path_through_crate_self_or_super_binds_the_item_of_the_module_it_names
     assert_eq!(
         bound_through_an_import(&engine, "src/b.rs", "through_use"),
         ["src/a.rs", "src/a.rs"]
+    );
+}
+
+#[test]
+fn a_rust_path_call_ending_at_a_name_the_file_declares_binds_the_item_the_path_names() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[package]\nname = \"app\"\n"),
+        ("src/lib.rs", "mod a;\nmod b;\n\npub fn new() {}\n"),
+        (
+            "src/a.rs",
+            "pub fn new() {\n    super::new();\n}\n\nfn own() {\n    new();\n}\n",
+        ),
+        ("src/b.rs", "pub fn new() {\n    crate::new();\n}\n"),
+    ]);
+    let engine = build(&tree, &["rust"]);
+    let bound = |path: &str, name: &str| {
+        let (_, graph) = engine.graph_of(path).expect("a language claims the file");
+        let callees = graph
+            .callees(Selector::new(name, Some(path)), Limits::new(1))
+            .expect("the name is defined");
+        (callees.reached.iter())
+            .map(|reached| (reached.symbol.file, reached.symbol.line, reached.confidence))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        bound("src/a.rs", "new"),
+        [("src/lib.rs", 4, confidence::IMPORT)]
+    );
+    assert_eq!(
+        bound("src/b.rs", "new"),
+        [("src/lib.rs", 4, confidence::IMPORT)]
+    );
+    assert_eq!(
+        bound("src/a.rs", "own"),
+        [("src/a.rs", 1, confidence::SAME_FILE)]
     );
 }
 
