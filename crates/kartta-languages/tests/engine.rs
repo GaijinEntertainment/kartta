@@ -1,7 +1,8 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
 //! what that crate exports, one through `crate::`, `self::` or `super::` the item of the module it names, a private one
-//! only from that module or below and a test one only from its crate's test code, a macro invocation the
+//! only from that module or below and a test one only from its crate's test code, a tuple struct's constructor the
+//! struct its `use` names, a macro invocation the
 //! `#[macro_export]` macro of its root file or the one of the files that file includes, through a `use` inside a
 //! function body or an inline module only from inside it, and no macro of a name the crate also answers with a
 //! function or a `use`, as a call does not say it invokes a macro, and a Rust call on a value, on `self` or through a
@@ -167,6 +168,47 @@ fn a_rust_call_through_a_use_binds_the_function_beside_a_struct_of_its_name() {
             vec![("timespec", SymbolKind::Struct, "crates/sys/src/lib.rs")],
             0
         )
+    );
+}
+
+#[test]
+fn a_rust_tuple_struct_s_constructor_binds_the_struct_its_use_names_among_namesakes() {
+    let own_crate = tree_of(&[
+        ("Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "src/lib.rs",
+            "mod m;\nmod n;\n\nuse crate::m::Wrapper;\n\nfn run() {\n    Wrapper(1);\n}\n",
+        ),
+        ("src/m.rs", "pub struct Wrapper(pub u32);\n"),
+        ("src/n.rs", "pub struct Wrapper(pub u32);\n"),
+    ]);
+    let other_crate = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/other/Cargo.toml",
+            "[package]\nname = \"other_crate\"\n",
+        ),
+        ("crates/other/src/lib.rs", "pub mod m;\n"),
+        ("crates/other/src/m.rs", "pub struct Wrapper(pub u32);\n"),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "mod n;\n\nuse other_crate::m::Wrapper;\n\nfn run() {\n    Wrapper(1);\n}\n",
+        ),
+        ("crates/app/src/n.rs", "pub struct Wrapper(pub u32);\n"),
+    ]);
+
+    assert_eq!(
+        bound_through_an_import(&build(&own_crate, &["rust"]), "src/lib.rs", "run"),
+        ["src/m.rs"]
+    );
+    assert_eq!(
+        bound_through_an_import(
+            &build(&other_crate, &["rust"]),
+            "crates/app/src/lib.rs",
+            "run"
+        ),
+        ["crates/other/src/m.rs"]
     );
 }
 

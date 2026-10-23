@@ -740,14 +740,14 @@ fn find_references_says_the_rust_graph_records_no_use_of_a_type_as_one() {
                     "this answer</note>",
                 ),
                 r#"<file path="src/run.rs" sites="1">"#,
-                r#"<ref name="start" line="3" role="consumer" site="call" at="4" confidence="likely"/>"#,
+                r#"<ref name="start" line="3" role="consumer" site="call" at="4"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
             ]),
         ],
         "a type named only in a signature and an import has no recorded site, and a tuple struct's constructor call \
-         is one"
+         is one, certain through the import"
     );
 }
 

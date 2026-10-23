@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::cell::OnceCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
@@ -210,11 +211,24 @@ impl Emitter<'_> {
                 bound.insert(callee, None);
             }
         }
+        let bare_calls = OnceCell::new();
+        let called_bare = |name: &str| {
+            bare_calls
+                .get_or_init(|| {
+                    (self.raw.calls.iter())
+                        .filter(|call| call.receiver.is_none())
+                        .map(|call| call.callee.as_str())
+                        .collect::<HashSet<_>>()
+                })
+                .contains(name)
+        };
         bound
             .into_iter()
             .filter_map(|(name, held)| {
                 let (path, at) = held?;
-                (!declared.contains(name) && keeps(&path)).then(|| {
+                let keeps = names_a_module(head(&path))
+                    && (!names_a_type(last(&path)) || called_bare(name));
+                (!declared.contains(name) && keeps).then(|| {
                     let changed = (path != directives[at].spec.as_str()).then(|| path.into_owned());
                     (at, changed)
                 })
@@ -285,13 +299,11 @@ fn last(path: &str) -> &str {
     path.rsplit_once("::").map_or(path, |(_, last)| last)
 }
 
-// constraint: a path through the caller's own crate or module that ends at a capitalised item, a type, binds nothing,
-// so it is not kept
-fn keeps(path: &str) -> bool {
-    let head = head(path);
-    names_a_module(head)
-        && !(matches!(head, "crate" | "self" | "super")
-            && last(path).starts_with(|first: char| first.is_ascii_uppercase()))
+// constraint: a path that ends at a capitalised item, a type or a function named so, binds only a bare call of its
+// name, as a tuple struct's constructor is, since a call through it names a member of the type rather than an item of
+// the module that holds it; so it is kept only where the file calls the name bare
+fn names_a_type(item: &str) -> bool {
+    item.starts_with(|first: char| first.is_ascii_uppercase())
 }
 
 // constraint: a path starts at a module of the tree where its first segment names a crate other than the standard
