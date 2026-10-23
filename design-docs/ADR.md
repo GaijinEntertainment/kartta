@@ -730,6 +730,11 @@
   - Governs: `kartta_lang::UntypedOwners`, `crates/kartta-graph/src/scope.rs` (`scoped`, `one_owner_reached_by_name`,
     `spells`), `crates/kartta-lang-quirrel/src/lib.rs` (`CONVENTIONS`)
   - Revisit if: the Quirrel walk records the type a file-scope binding holds
+- [3.167 Bind a PHP static call on a class outside the graph through imports
+  alone](./adr/3.167-bind-a-php-static-call-on-a-class-outside-the-graph-through-imports-alone.md)
+  - Governs: `kartta_lang::BareReceivers`, `crates/kartta-graph/src/resolve.rs` (`resolve_by_name`,
+    `names_a_class_outside_the_graph`), `crates/kartta-lang-php/src/lib.rs` (`CONVENTIONS`)
+  - Revisit if: the PHP extraction reads a `use … as` alias
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
   - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
