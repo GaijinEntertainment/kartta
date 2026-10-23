@@ -1641,6 +1641,27 @@ FMT_END_EXPORT
     }
 
     #[test]
+    fn a_specialization_whose_head_holds_a_macro_keeps_its_members() {
+        let raw = extract(
+            b"namespace rtm {\ntemplate<>\nstruct RTM_DEPRECATED(\"Use 'related_types'\") float_traits<float>\n\
+              {\n\tusing mask4 = mask4f;\n\tstatic float zero() { return 0.0f; }\n};\n}\n\
+              namespace ozz {\ntemplate <>\nstruct OZZ_BASE_DLL Extern<math::Float2> {\n\
+              \tstatic void Save(OArchive& _archive, const math::Float2* _values, size_t _count);\n};\n}\n",
+        );
+
+        assert_eq!(
+            spans(&raw),
+            [
+                ("rtm::float_traits", 3, 7),
+                ("rtm::float_traits::mask4", 5, 5),
+                ("float_traits::zero", 6, 6),
+                ("ozz::Extern", 11, 13),
+                ("Extern::Save", 12, 12)
+            ]
+        );
+    }
+
+    #[test]
     fn a_macro_that_takes_the_class_key_keeps_the_class_and_its_members() {
         let raw = extract(
             b"ATTRIBUTE_ALIGNED16(class)\nbtCollisionObject\n{\npublic:\n\
