@@ -45,7 +45,8 @@ files, the ESM `./m.js` spelling of a `.ts` source, `tsconfig` `paths` and `base
 the `exports` of the repository's own packages, Vue CLI's `@` alias, and Vite's `?query` suffixes. A re-export names
 the file its specifier resolves to. A name that an `import` of a package outside the repository binds holds that
 package's code, so a member call through it, `<Dialog.Footer>` with `Dialog` from `@chakra-ui/react` or
-`path.extname()` with `path` from `node:path`, binds no definition of the repository; a specifier that starts with `.`,
-`/` or `#` names a file of the repository whether it resolves or not.
+`path.extname()` with `path` from `node:path`, and a call of the name itself, `useState()` with `useState` from
+`react`, bind no definition of the repository outside the caller's file; a specifier that starts with `.`, `/` or `#`
+names a file of the repository whether it resolves or not.
 
 Status: the API is new and is not published yet.

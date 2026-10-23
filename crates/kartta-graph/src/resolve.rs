@@ -676,6 +676,9 @@ impl<'g> Cascade<'g> {
         ) {
             return Ok((at, confidence::SAME_FILE));
         }
+        if call.receiver.is_none() && self.imports_from_outside(call) {
+            return Err(Miss::ExternalImport);
+        }
         if call.receiver.is_none()
             && let Some(at) =
                 self.dot_imported(&candidates, call.file, Pick::FreeTarget(call.caller_at()))
@@ -764,6 +767,17 @@ impl<'g> Cascade<'g> {
                 })
                 .ok_or(Miss::Ambiguous),
         }
+    }
+
+    // constraint: a name an import of code outside the repository binds holds that code, so a bare call of it that the
+    // caller's own file does not answer binds nothing the graph holds, as `useState()` with `useState` from `react`;
+    // the file answers it where a definition nested in the caller shadows the import, or where a test hook such as
+    // `beforeEach` is named for itself; where a package is a directory, an import binds the package and never a name a
+    // bare call spells
+    fn imports_from_outside(&self, call: &Call) -> bool {
+        !self.conventions.directory_packages
+            && !self.graph.file(call.file).bindings.is_empty()
+            && self.binding(call.file, call.callee) == Some(None)
     }
 
     // constraint: test code is built apart from the code it tests, so of the definitions a call reaches by name alone,
