@@ -111,7 +111,8 @@
   - Revisit if: a consumer raises `fs.inotify.max_queued_events` far past a million
 - [1.40 Carry an unchanged file over by its size and change
   time](./adr/1.40-carry-an-unchanged-file-over-by-its-size-and-change-time.md)
-  - Governs: `crates/kartta-fs/src/stamp.rs`, `BuildOptions::stamps`, `kartta_walk::WalkOptions::listed_stats`
+  - Governs: `crates/kartta-fs/src/stamp.rs`, `crates/kartta-fs/src/index/refresh.rs` (`Previous::carry`),
+    `BuildOptions::stamps`, `kartta_walk::WalkOptions::listed_stats`
   - Revisit if: a consumer refreshes a part small enough for the vnode cache so often that an lstat costs less than the
     listing
 - [1.41 Index what a refresh reads in a segment of its
@@ -128,7 +129,8 @@
     network mount
 - [1.44 Answer where a refresh walked and where its kept entries
   went](./adr/1.44-answer-where-a-refresh-walked-and-where-its-kept-entries-went.md)
-  - Governs: `RefreshOutcome`, `crates/kartta-fs/src/index/changed.rs`
+  - Governs: `crates/kartta-fs/src/index.rs` (`RefreshOutcome::walked_over`, `RefreshOutcome::kept_positions`,
+    `RefreshOutcome::position_after`, `RefreshOutcome::walked_positions`), `crates/kartta-fs/src/index/changed.rs`
   - Revisit if: a consumer needs to know which entries inside a walked part kept their position
 - [1.45 Read a named refresh's files on the index's
   threads](./adr/1.45-read-a-named-refresh-s-files-on-the-index-s-threads.md)
@@ -177,7 +179,8 @@
   - Revisit if: the per-block search shows in the profile of reads by position
 - [1.66 Keep a symlink's target in a list beside the walk's
   tree](./adr/1.66-keep-a-symlink-s-target-in-a-list-beside-the-walk-s-tree.md)
-  - Governs: `crates/kartta-fs/src/policy.rs` (`Payload`, `TargetId`, `Report::targets`)
+  - Governs: `crates/kartta-fs/src/policy.rs` (`Payload`, `TargetId`, `Report::targets`),
+    `crates/kartta-fs/src/index.rs` (`symlink_targets`)
   - Revisit if: a node must carry a second id beside its kind
 - [1.67 Hold each extraction at its exact size](./adr/1.67-hold-each-extraction-at-its-exact-size.md)
   - Governs: `crates/kartta/src/extracting.rs` (`Extracting::extract`, `encoding_buffers`)
@@ -221,8 +224,9 @@
   - Revisit if: the merges of many processes finishing at once cost more than a lock on merging would
 - [2.5 Remove what killed writers and older formats leave in a
   cache](./adr/2.5-remove-what-killed-writers-and-older-formats-leave-in-a-cache.md)
-  - Governs: `crates/kartta-cache/src/store.rs` (`sweep`), `kartta_cache::Merged`, `crates/kartta-fs/src/cache.rs`
-    (`unremoved`)
+  - Governs: `crates/kartta-cache/src/store.rs` (`sweep`, `is_being_written`, `written_before`),
+    `crates/kartta-cache/src/writer.rs` (`Writing::start`), `kartta_cache::Merged` (`orphans`, `orphans_left`,
+    `unreadable`, `unreadable_left`, `left_in_place`), `crates/kartta-fs/src/cache.rs` (`unremoved`)
   - Revisit if: a cache directory sits on a filesystem without file locks while its builds stay idle for an hour
 - [3.1 Plug languages in through a trait](./adr/3.1-plug-languages-in-through-a-trait.md)
   - Governs: `crates/kartta-lang/src/language.rs` (`Language`, `Resolver`, `Repository`, `Conventions`),
@@ -387,12 +391,15 @@
   - Revisit if: a language's callable names hold a separator inside them, not only at their end
 - [3.39 Bind a member call to a free function only where a value can hold
   one](./adr/3.39-bind-a-member-call-to-a-free-function-only-where-a-value-can-hold-one.md)
-  - Governs: `kartta_lang::MemberCalls`, `crates/kartta-graph/src/scope.rs`, the Go and Rust `Conventions`
+  - Governs: `kartta_lang::MemberCalls`, `crates/kartta-graph/src/scope.rs` (`shape`, `takes_a_member_alone`,
+    `receiver_names_a_module`, `one_callable`, `resolve_by_proximity`), `crates/kartta-lang-go/src/lib.rs`,
+    `crates/kartta-lang-rust/src/lib.rs`
   - Revisit if: the C++ extraction reads every class head, so no member reaches the graph as a free function
 - [3.40 Bind a runtime method's call only to a member that scope
   reaches](./adr/3.40-bind-a-runtime-method-s-call-only-to-a-member-that-scope-reaches.md)
-  - Governs: `kartta_lang::Conventions::runtime_methods`, `crates/kartta-graph/src/resolve.rs`, each language's
-    `runtime.rs`
+  - Governs: `kartta_lang::Conventions::runtime_methods`, `crates/kartta-graph/src/resolve.rs` (`is_runtime_method`,
+    `resolve_by_name`, `resolve_outside_scope`), `crates/kartta-graph/src/scope.rs` (`receiver_spells_owner`), the
+    `runtime.rs` of `kartta-lang-jsts`, `kartta-lang-quirrel`, `kartta-lang-python` and `kartta-lang-rust`
   - Revisit if: a language's extraction records the type a value holds for its member calls
 - [3.41 Bind the caller's own owner only on the receivers a language
   lists](./adr/3.41-bind-the-caller-s-own-owner-only-on-the-receivers-a-language-lists.md)
@@ -401,15 +408,18 @@
   - Revisit if: `parent::m()` and `super.m()` bind the base's member (#186)
 - [3.42 Read transitive includes for a name few definitions
   share](./adr/3.42-read-transitive-includes-for-a-name-few-definitions-share.md)
-  - Governs: `kartta_lang::IncludeReach`, `crates/kartta-graph/src/resolve.rs` (`through_includes`)
+  - Governs: `kartta_lang::IncludeReach`, `crates/kartta-graph/src/resolve.rs` (`included`, `through_includes`,
+    `closure`, `THROUGH_INCLUDES_MAX_DEFINITIONS`), `crates/kartta-lang-cpp/src/lib.rs`
   - Revisit if: the C++ extraction reads `INLINE`-hidden templates and every class head
 - [3.43 Guess no member near the caller for a C++ call on a
   value](./adr/3.43-guess-no-member-near-the-caller-for-a-c-plus-plus-call-on-a-value.md)
-  - Governs: `kartta_lang::CallsOnValues`, `crates/kartta-graph/src/scope.rs` (`resolve_by_proximity`)
+  - Governs: `kartta_lang::CallsOnValues`, `crates/kartta-graph/src/scope.rs` (`resolve_by_proximity`),
+    `crates/kartta-lang-cpp/src/lib.rs`
   - Revisit if: a sample taken after the declared-class receivers shows nearness right far more often than 15%
 - [3.44 Bind no call to a namespace where a language's calls name
   none](./adr/3.44-bind-no-call-to-a-namespace-where-a-language-s-calls-name-none.md)
-  - Governs: `kartta_lang::NamespaceCalls`, `crates/kartta-graph/src/resolve.rs`, `crates/kartta-graph/src/scope.rs`
+  - Governs: `kartta_lang::NamespaceCalls`, `crates/kartta-graph/src/resolve.rs` (`is_unbound_namespace`,
+    `resolve_call`), `crates/kartta-graph/src/scope.rs` (`admits`), `crates/kartta-lang-rust/src/lib.rs`
   - Revisit if: a language that sets `Unbound` gains a construct through which a call names a namespace
 - [3.45 Bind a call through a module's file as the module's paths see
   it](./adr/3.45-bind-a-call-through-a-module-s-file-as-the-module-s-paths-see-it.md)
@@ -418,7 +428,8 @@
   - Revisit if: the extraction follows `pub use` (#217)
 - [3.46 Bind no test definition by name for a call from outside test
   code](./adr/3.46-bind-no-test-definition-by-name-for-a-call-from-outside-test-code.md)
-  - Governs: `crates/kartta-graph/src/resolve.rs` (`can_bind_by_name`, `one_type_outside_tests`)
+  - Governs: `crates/kartta-graph/src/resolve.rs` (`can_bind_by_name`, `one_type_outside_tests`,
+    `resolve_outside_scope`), `crates/kartta-graph/src/confidence.rs` (`UNIQUE`, `SAME_DIR`)
   - Revisit if: every language's test rule reads its test-support files and test directories in any case (#430, #432)
 - [3.47 Bind a C++ call on a field through the class the field is declared
   as](./adr/3.47-bind-a-c-plus-plus-call-on-a-field-through-the-class-the-field-is-declared-as.md)
@@ -427,7 +438,8 @@
   - Revisit if: a sample of the pairs the field tier binds finds the field's class wrong more than once in ten
 - [3.48 Read a qualified name with the other owner separator when it selects
   nothing](./adr/3.48-read-a-qualified-name-with-the-other-owner-separator-when-it-selects-nothing.md)
-  - Governs: `crates/kartta/src/reading.rs` (`ask_reading`), the name parameters of `crates/kartta-mcp/src/params.rs`
+  - Governs: `crates/kartta/src/reading.rs` (`ask_reading`), `crates/kartta-mcp/src/server.rs`, the name parameters
+    of `crates/kartta-mcp/src/params.rs`
   - Revisit if: a shipped language mixes `.` and `::` within its qualified names
 - [3.49 Select a name whose last part holds a separator by its longer
   parts](./adr/3.49-select-a-name-whose-last-part-holds-a-separator-by-its-longer-parts.md)
@@ -440,8 +452,9 @@
   - Revisit if: the call record carries a path per call (#236)
 - [3.51 Start a Rust path through `crate::`, `self::` or `super::` at the caller's crate root or
   module](./adr/3.51-start-a-rust-path-through-crate-self-or-super-at-the-caller-s-crate-root-or-module.md)
-  - Governs: `crates/kartta-lang-rust/src/walk/imports.rs`, `crates/kartta-lang-rust/src/resolve.rs` (`crate_root`,
-    `Caller`)
+  - Governs: `crates/kartta-lang-rust/src/walk/imports.rs` (`starts_inside_the_file`, `start_at_declared_modules`,
+    `kept_paths`), `crates/kartta-lang-rust/src/walk/calls.rs` (`record_call`), `crates/kartta-lang-rust/src/resolve.rs`
+    (`Crates::crate_root`, `Caller`)
   - Revisit if: the extraction places each inline module in its file's module tree
 - [3.52 Scope a Rust `use` inside a block to that block](./adr/3.52-scope-a-rust-use-inside-a-block-to-that-block.md)
   - Governs: `crates/kartta-lang-rust/src/walk/imports.rs`, `crates/kartta-lang-rust/src/walk/blocks.rs`
@@ -457,6 +470,7 @@
 - [3.55 Name a Rust method call's receiver by its parameter's declared
   type](./adr/3.55-name-a-rust-method-call-s-receiver-by-its-parameter-s-declared-type.md)
   - Governs: `crates/kartta-lang-rust/src/walk/declared.rs`, `crates/kartta-lang-rust/src/walk/bindings.rs`
+    (`declared_type`), `crates/kartta-lang-rust/src/walk/calls.rs` (`named_target`)
   - Revisit if: the owner tier tells crates apart (#202)
 - [3.56 Name a Rust call's receiver only where its syntax spells
   it](./adr/3.56-name-a-rust-call-s-receiver-only-where-its-syntax-spells-it.md)
@@ -547,13 +561,16 @@
   - Revisit if: the pass is again a large part of a refresh a consumer waits on
 - [3.82 Build a followed family's resolver again only when a refresh reaches what it
   read](./adr/3.82-build-a-followed-family-s-resolver-again-only-when-a-refresh-reaches-what-it-read.md)
-  - Governs: `crates/kartta/src/following.rs` (`plan`, `reconfigure`), `kartta::EngineRefresh::reconfigured`,
-    `kartta_lang::Resolver::resolves_as`
+  - Governs: `crates/kartta/src/following.rs` (`Following::plan`, `Following::reconfigure`, `reaches`),
+    `crates/kartta/src/resolving.rs` (`Resolvers`), `crates/kartta/src/repository.rs` (`Configuration`,
+    `configured_while`), `kartta::EngineRefresh::reconfigured`, `kartta_lang::Resolver::resolves_as`, the `resolves_as`
+    of `crates/kartta-lang-{go,blk,jsts,quirrel,rust}/src/resolve.rs`
   - Revisit if: most edits to a configuration change what its resolver derives, or a kept resolver grows to a share of
     the heap
 - [3.83 Keep the tables a followed engine's resolvers find files in across
   refreshes](./adr/3.83-keep-the-tables-a-followed-engine-s-resolvers-find-files-in-across-refreshes.md)
-  - Governs: `crates/kartta/src/repository.rs` (`FileTables`)
+  - Governs: `crates/kartta/src/repository.rs` (`FileTables`, `IndexRepository::recording`,
+    `IndexRepository::into_tables`), `crates/kartta/src/following.rs` (`Following::refresh`)
   - Revisit if: most refreshes stop asking by name
 - [3.100 Resolve a TypeScript or JavaScript import as the compiler and bundlers
   do](./adr/3.100-resolve-a-typescript-or-javascript-import-as-the-compiler-and-bundlers-do.md)
@@ -751,7 +768,7 @@
 - [4.18 Answer a name that selects nothing with what it does
   match](./adr/4.18-answer-a-name-that-selects-nothing-with-what-it-does-match.md)
   - Governs: `crates/kartta/src/reading.rs` (`unmatched`, `selects_as_callers`), `crates/kartta-mcp/src/render.rs`
-    (`unresolved`)
+    (`unresolved`, `did_you_mean`), `crates/kartta-mcp/src/server.rs` (`unmatched`, `suggestions`)
   - Revisit if: agents' misses are mostly other than a shared name, a prefix or a single edit
 - [4.19 Name a language that records no use of a type in a type's
   references](./adr/4.19-name-a-language-that-records-no-use-of-a-type-in-a-type-s-references.md)
@@ -762,7 +779,8 @@
   - Governs: `crates/kartta-mcp/src/diff.rs`, `crates/kartta-mcp/src/server.rs` (`changed_regions`)
   - Revisit if: agents hand changes in a form other than a unified diff often enough to pay for a second reader
 - [4.21 Hold one repository's engine per process](./adr/4.21-hold-one-repository-s-engine-per-process.md)
-  - Governs: `crates/kartta-mcp/src/state.rs` (`Slot`, `release`), `crates/kartta-mcp/src/main.rs`
+  - Governs: `crates/kartta-mcp/src/state.rs` (`Slot`, `release`), `crates/kartta-mcp/src/server.rs` (`index_repo`,
+    `index_at_launch`, `stop_on`), `crates/kartta-mcp/src/main.rs`
   - Revisit if: agents work across several repositories in one session often enough that rebuilds cost more than a
     second engine's memory
 - [4.30 Cancel a build, a grep or a refresh by the id it names, even before it
@@ -781,13 +799,15 @@
   - Revisit if: a refresh without stamps comes to cost a fraction of a build, or queries cannot wait behind a refresh
 - [4.33 Follow the tree over the wire only when a build
   asks](./adr/4.33-follow-the-tree-over-the-wire-only-when-a-build-asks.md)
-  - Governs: `crates/kartta-ffi/src/built.rs` (`Shared::build_watched`), `crates/kartta-ffi/src/handle.rs`
-    (`Kartta::build`, `Drop for Kartta`), `crates/kartta-ffi/src/wire/build.rs` (`WatchView`)
+  - Governs: `crates/kartta-ffi/src/built.rs` (`Shared::build_watched`, `Followed for Shared`),
+    `crates/kartta-ffi/src/handle.rs` (`Kartta::build`, `Drop for Kartta`), `crates/kartta-ffi/src/wire/build.rs`
+    (`WatchView`), `bindings/go/kartta/kartta.go` (cgo flags)
   - Revisit if: a wire consumer edits the trees it builds, so a watch would pay for itself by default
 - [4.34 Say how a symbol method read a name, and why it matched
   nothing](./adr/4.34-say-how-a-symbol-method-read-a-name-and-why-it-matched-nothing.md)
-  - Governs: `crates/kartta-ffi/src/query.rs` (`ask_named`, `call_path`), `crates/kartta/src/reading.rs`,
-    `bindings/go/wire/graph.go` (`Matches`, `Unmatched`)
+  - Governs: `crates/kartta-ffi/src/query.rs` (`ask_named`, `call_path`), `crates/kartta-ffi/src/built.rs` (`Matches`),
+    `crates/kartta/src/reading.rs` (`ask_reading`, `unmatched`, `selects_as_callers`), `bindings/go/wire/graph.go`
+    (`Matches`, `Unmatched`, `GraphDefinition`)
   - Revisit if: consumers need alternatives for a name no case holds often enough that a search on every such miss pays
 - [4.35 Flag a type's references where its language records no use as a
   type](./adr/4.35-flag-a-type-s-references-where-its-language-records-no-use-as-a-type.md)
@@ -795,7 +815,8 @@
   - Revisit if: no shipped language states `TypeUses::Nowhere`
 - [4.36 Pin each wire method in a golden file both bindings
   replay](./adr/4.36-pin-each-wire-method-in-a-golden-file-both-bindings-replay.md)
-  - Governs: `crates/kartta-ffi/tests/golden/`, `crates/kartta-ffi/tests/golden.rs`, `bindings/go/kartta/golden_test.go`
+  - Governs: `crates/kartta-ffi/tests/golden/`, `crates/kartta-ffi/tests/fixture/`, `crates/kartta-ffi/tests/golden.rs`,
+    `bindings/go/kartta/golden_test.go`
   - Revisit if: a score other than through `ln_1p` differs between platforms by more than a relative 1e-12
 - [4.40 Ship the Node addon as one npm package per
   target](./adr/4.40-ship-the-node-addon-as-one-npm-package-per-target.md)
