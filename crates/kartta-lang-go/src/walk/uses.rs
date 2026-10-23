@@ -47,7 +47,8 @@ impl<'a> Emitter<'a> {
     }
 
     // constraint: a name the file's walk cannot see declared is kept, since a sibling file of the package may declare
-    // it, and the graph binds only the ones some file declares
+    // it, and the graph binds only the ones some file declares; a selector's operand that names no import is such a
+    // name, since Go lets no package-level name share an import's
     pub(super) fn record_identifier(&mut self, node: Node<'_>, owner: SymbolId) {
         let name = self.borrowed(node);
         let skipped = name == "_"
@@ -62,8 +63,8 @@ impl<'a> Emitter<'a> {
         let Some(parent) = node.parent() else {
             return;
         };
-        let names_an_import =
-            parent.kind() == "selector_expression" && self.import_qualifier(parent).is_some();
+        let names_an_import = parent.kind() == "selector_expression"
+            && self.import_names.iter().any(|import| import == name);
         if !names_an_import && !declares(node, parent) {
             let access = access_of(node, Some(parent));
             self.push_site(owner, node, (name.to_owned(), Receiver::Bare, access));
