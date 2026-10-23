@@ -38,11 +38,15 @@ pub(crate) struct Configs {
 
 impl Configs {
     pub(crate) fn read(repository: &dyn Repository) -> Self {
-        let (pkg_imports, packages) = package_json::compile(repository);
+        let package_json::Compiled {
+            imports,
+            packages,
+            vue_cli_aliases,
+        } = package_json::compile(repository);
 
         Self {
-            ts_aliases: tsconfig::alias_configs(repository),
-            pkg_imports,
+            ts_aliases: tsconfig::alias_configs(repository, vue_cli_aliases),
+            pkg_imports: imports,
             packages,
         }
     }

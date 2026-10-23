@@ -18,9 +18,16 @@ pub(crate) struct PkgExports {
     pub(crate) main: Vec<String>,
 }
 
-pub(crate) fn compile(repository: &dyn Repository) -> (Vec<ScopedAliases>, Vec<PkgExports>) {
+pub(crate) struct Compiled {
+    pub(crate) imports: Vec<ScopedAliases>,
+    pub(crate) packages: Vec<PkgExports>,
+    pub(crate) vue_cli_aliases: Vec<ScopedAliases>,
+}
+
+pub(crate) fn compile(repository: &dyn Repository) -> Compiled {
     let mut imports = Vec::new();
     let mut packages = Vec::new();
+    let mut vue_cli_aliases = Vec::new();
 
     for (path, contents) in config::named(repository, "package.json") {
         let Ok(value) = serde_json::from_str::<Value>(&contents) else {
@@ -40,11 +47,31 @@ pub(crate) fn compile(repository: &dyn Repository) -> (Vec<ScopedAliases>, Vec<P
             aliases,
         });
         packages.extend(package(&value, dir));
+        vue_cli_aliases.extend(vue_cli_alias(&value, dir));
     }
 
     imports.sort_by_key(|imports| Reverse(imports.dir.len()));
     packages.sort_by_key(|package| Reverse(package.name.len()));
-    (imports, packages)
+    Compiled {
+        imports,
+        packages,
+        vue_cli_aliases,
+    }
+}
+
+// constraint: Vue CLI's webpack config aliases `@` to the project's `src` with no configuration of the project's own
+fn vue_cli_alias(value: &Value, dir: &str) -> Option<ScopedAliases> {
+    let uses_vue_cli = ["dependencies", "devDependencies"].iter().any(|key| {
+        value
+            .get(*key)
+            .and_then(|deps| deps.get("@vue/cli-service"))
+            .is_some()
+    });
+
+    uses_vue_cli.then(|| ScopedAliases {
+        dir: dir.to_owned(),
+        aliases: vec![("@/*".to_owned(), join(dir, "src/*").into_iter().collect())],
+    })
 }
 
 fn package(value: &Value, dir: &str) -> Option<PkgExports> {
@@ -146,7 +173,9 @@ mod tests {
             ("packages/common/tsconfig.json", "not a package.json"),
         ]);
 
-        let (imports, packages) = compile(&files);
+        let Compiled {
+            imports, packages, ..
+        } = compile(&files);
 
         let imports: Vec<_> = (imports.iter())
             .map(|imports| (imports.dir.as_str(), &imports.aliases))
