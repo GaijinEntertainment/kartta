@@ -54,12 +54,14 @@ pub(crate) enum UseMiss {
 }
 
 // constraint: a named binding is the name it binds, the directory or file it imports, and the name the import reaches
-// there, which differs from the bound name under an alias
+// there, which differs from the bound name under an alias; a required module is the module an included file declares,
+// beside that file
 #[derive(Debug, Default)]
 struct Bindings {
     named: Vec<(Str, Option<Str>, Str)>,
     dot_dirs: Vec<Str>,
     modules: bool,
+    required: Vec<(Str, u32)>,
 }
 
 type Derived<K, V> = RefCell<HashMap<K, V, FixedState>>;
@@ -481,7 +483,31 @@ impl<'g> Cascade<'g> {
                 .target_dir
                 .is_some_and(|target| self.graph.slot_of(target).is_some());
         }
+        bindings.required = self
+            .includes(file)
+            .iter()
+            .filter_map(|&slot| Some((self.graph.file(slot).package?, slot)))
+            .collect();
         bindings
+    }
+
+    // constraint: a script module is the file that declares it, so a qualifier no import binds names the module of a
+    // file its own file requires; code that compiles qualifies no definition the module keeps private
+    fn required_definition(
+        &self,
+        file: u32,
+        (qualifier, name): (Str, Str),
+        pick: Pick,
+    ) -> Option<SymbolAt> {
+        let &(_, module) = self
+            .bindings(file)
+            .required
+            .iter()
+            .find(|&&(declared, _)| declared == qualifier)?;
+        self.pick(
+            pick,
+            self.graph.in_file(self.named(name), module).iter().copied(),
+        )
     }
 
     fn package_name(&self, dir: Str) -> Option<Str> {
@@ -856,7 +882,16 @@ impl<'g> Cascade<'g> {
         let Some(receiver) = call.receiver else {
             return self.imported_module_export(call).map(Ok);
         };
-        let Some(target) = self.binding(call.file, receiver)? else {
+        let Some(binding) = self.binding(call.file, receiver) else {
+            return self
+                .required_definition(
+                    call.file,
+                    (receiver, call.callee),
+                    Pick::FreeTarget(call.caller_at()),
+                )
+                .map(|at| Ok((at, confidence::IMPORT)));
+        };
+        let Some(target) = binding else {
             return Some(Err(Miss::ExternalImport));
         };
         if let Some(module) = self.graph.slot_of(target) {
@@ -1372,7 +1407,10 @@ impl<'g> Cascade<'g> {
                 None if self.graph.file(file).package == Some(qualifier) => {
                     self.bare_use(file, site.name).ok_or(UseMiss::Elsewhere)
                 }
-                None => Err(UseMiss::Elsewhere),
+                None => self
+                    .required_definition(file, (qualifier, site.name), Pick::PackageLevel)
+                    .map(|at| (at, confidence::IMPORT))
+                    .ok_or(UseMiss::Elsewhere),
             },
             UseReceiver::Own => self.own_member(at, site.name),
             UseReceiver::Path(path) => self.member_use(at, site.name, path),

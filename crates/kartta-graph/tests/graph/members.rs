@@ -391,6 +391,35 @@ fn a_qualifier_that_names_the_file_s_own_module_binds_its_file_s_definition() {
     );
 }
 
+#[test]
+fn a_qualifier_that_names_a_module_the_file_requires_binds_that_module_s_definition() {
+    let module = |path: &str, module: &str, includes: &[&str]| {
+        let mut defined = free("create", SymbolKind::Function, [1, 3]);
+        defined.qualified_name = format!("{module}.create");
+        defined.exported = true;
+        let mut extraction = file(path, vec![defined], includes);
+        extraction.package = Some(module.to_owned());
+        extraction
+    };
+    let decs = module("daslib/decs.das", "decs", &[]);
+    let other = module("daslib/other.das", "other", &[]);
+    let mut boost = module("daslib/decs_boost.das", "decs_boost", &["daslib/decs.das"]);
+    boost.uses = ["decs", "other"]
+        .into_iter()
+        .map(|qualifier| using(0, "create", Receiver::Qualifier(qualifier.to_owned()), 2))
+        .collect();
+    let graph = graph(script(), &[decs, other, boost]);
+
+    assert_eq!(
+        (
+            sites_of(&graph, "decs.create").0,
+            sites_of(&graph, "other.create").0
+        ),
+        (vec![("decs_boost.create".to_owned(), 2, 95)], Vec::new()),
+        "a module the file does not require stays unbound"
+    );
+}
+
 fn cpp() -> Conventions {
     let mut conventions = Conventions::default();
     conventions.own_members = OwnMembers::First;
