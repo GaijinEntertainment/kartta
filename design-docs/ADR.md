@@ -63,7 +63,7 @@
   2026-10-23
 - [3.4 Extract TypeScript and JavaScript as one
   family](./adr/3.4-extract-typescript-and-javascript-as-one-family.md) — initiative `03-code-graph`, 2026-10-16,
-  revised 2026-10-22
+  revised 2026-10-23
 - [3.5 Keep the graph a file at a time](./adr/3.5-keep-the-graph-a-file-at-a-time.md) — initiative `03-code-graph`,
   2026-10-16, revised 2026-10-17
 - [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md) — initiative
@@ -134,7 +134,7 @@
   2026-10-18, revised 2026-10-22
 - [3.34 Record each read and write of a field or a value, and bind it when a query
   asks](./adr/3.34-record-each-read-and-write-of-a-field-or-a-value.md) — initiative `03-code-graph`, 2026-10-18,
-  revised 2026-10-22
+  revised 2026-10-23
 - [3.35 Pick a shared name's symbol by its path, and list the
   others](./adr/3.35-pick-a-shared-name-s-symbol-by-its-path-and-list-the-others.md) — initiative `03-code-graph`,
   2026-10-19
