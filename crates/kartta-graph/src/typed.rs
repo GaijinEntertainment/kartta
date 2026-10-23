@@ -24,7 +24,7 @@ pub(crate) enum Value<'g> {
     Package(Str),
     Type(SymbolAt),
     Callable(SymbolAt),
-    Container { file: u32, element: &'g str },
+    Container { body: SymbolAt, element: &'g str },
     Imported,
     Undeclared,
     Unknown,
@@ -68,11 +68,11 @@ impl<'g> Cascade<'g> {
 
     pub(crate) fn typed_member(
         &self,
-        (file, path): (u32, Str),
+        (reader, path): (SymbolAt, Str),
         name: Str,
         binds: impl Fn(SymbolKind) -> bool,
     ) -> Typed {
-        match self.receiver_type(file, path) {
+        match self.receiver_type(self.body_of(reader), path) {
             Value::Type(ty) => match self.member(ty, name, 0) {
                 Found::Member(at) if binds(self.graph.sym(at).kind) => Typed::Member(at),
                 Found::Member(_) | Found::Nothing => Typed::NoMethod,
@@ -87,21 +87,27 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    fn receiver_type(&self, file: u32, receiver: Str) -> Value<'g> {
-        derived(&self.receiver_types, (file, receiver), || {
-            self.evaluate(file, self.graph.strings.resolve(receiver), 0)
+    // constraint: a local's holder is the outermost declaration around it, so a closure's body is its enclosing
+    // function's
+    fn body_of(&self, at: SymbolAt) -> SymbolAt {
+        self.holder(at).unwrap_or(at)
+    }
+
+    fn receiver_type(&self, body: SymbolAt, receiver: Str) -> Value<'g> {
+        derived(&self.receiver_types, (body, receiver), || {
+            self.evaluate(body, self.graph.strings.resolve(receiver), 0)
         })
     }
 
-    fn evaluate(&self, file: u32, path: &'g str, depth: u8) -> Value<'g> {
+    fn evaluate(&self, body: SymbolAt, path: &'g str, depth: u8) -> Value<'g> {
         if depth > MAX_DEPTH || path.is_empty() {
             return Value::Unknown;
         }
         if let Some(element) = path.strip_prefix("[]") {
-            return Value::Container { file, element };
+            return Value::Container { body, element };
         }
         let (name, mut rest) = head(path);
-        let mut value = self.in_scope(file, name);
+        let mut value = self.in_scope(body, name);
         while !rest.is_empty() {
             let Some((step, after)) = step(rest) else {
                 return Value::Unknown;
@@ -121,7 +127,8 @@ impl<'g> Cascade<'g> {
 
     // constraint: a name of a type position that neither the file's package nor an import declares is predeclared,
     // from a dot import of code outside the graph, or from a file the graph does not hold
-    fn in_scope(&self, file: u32, name: &str) -> Value<'g> {
+    fn in_scope(&self, body: SymbolAt, name: &str) -> Value<'g> {
+        let file = body.file;
         let Some(key) = self.graph.strings.get(name) else {
             return Value::Undeclared;
         };
@@ -137,7 +144,7 @@ impl<'g> Cascade<'g> {
                 return declared;
             }
         }
-        self.local_type(file, key).unwrap_or(Value::Undeclared)
+        self.local_type(body, key).unwrap_or(Value::Undeclared)
     }
 
     // constraint: a file sees the package its own package clause names, its test files only from a test file; an
@@ -176,14 +183,14 @@ impl<'g> Cascade<'g> {
         Some(self.value_of(declared, 0))
     }
 
-    // constraint: a type declared in a body is named only inside that body's file, and a file rarely declares two
-    // local types of one name
-    fn local_type(&self, file: u32, name: Str) -> Option<Value<'g>> {
+    // constraint: a type declared in a body is named only inside that body, and a body rarely declares two types of one
+    // name
+    fn local_type(&self, body: SymbolAt, name: Str) -> Option<Value<'g>> {
         self.graph
-            .in_file(self.named(name), file)
+            .in_file(self.named(name), body.file)
             .iter()
             .copied()
-            .find(|&at| self.graph.sym(at).kind.is_type() && self.holder(at).is_some())
+            .find(|&at| self.graph.sym(at).kind.is_type() && self.holder(at) == Some(body))
             .map(Value::Type)
     }
 
@@ -204,7 +211,7 @@ impl<'g> Cascade<'g> {
             .split(VALUE_TYPE_SEPARATOR)
             .nth(index)
             .map_or(Value::Unknown, |path| {
-                self.evaluate(at.file, path, depth + 1)
+                self.evaluate(self.body_of(at), path, depth + 1)
             })
     }
 
@@ -247,9 +254,9 @@ impl<'g> Cascade<'g> {
 
     fn element(&self, value: Value<'g>, depth: u8) -> Value<'g> {
         match value {
-            Value::Container { file, element } => self.evaluate(file, element, depth + 1),
+            Value::Container { body, element } => self.evaluate(body, element, depth + 1),
             Value::Type(ty) => match self.value_type(ty, 0, depth) {
-                Value::Container { file, element } => self.evaluate(file, element, depth + 1),
+                Value::Container { body, element } => self.evaluate(body, element, depth + 1),
                 _ => Value::Unknown,
             },
             Value::Imported | Value::Undeclared => value,
@@ -280,7 +287,7 @@ impl<'g> Cascade<'g> {
                 .map(|parent| self.graph.strings.resolve(parent.written))
                 .find(|written| written.rsplit('.').next() == Some(name));
             if let Some(written) = named {
-                return self.evaluate(next.file, written, depth + 1);
+                return self.evaluate(self.body_of(next), written, depth + 1);
             }
             self.embed(&mut walk, next, depth);
         }
@@ -333,7 +340,7 @@ impl<'g> Cascade<'g> {
         }
         for parent in self.graph.file(ty.file).parents_of(ty.index) {
             let written = self.graph.strings.resolve(parent.written);
-            walk.follow(self.evaluate(ty.file, written, depth + 1));
+            walk.follow(self.evaluate(self.body_of(ty), written, depth + 1));
         }
     }
 }
