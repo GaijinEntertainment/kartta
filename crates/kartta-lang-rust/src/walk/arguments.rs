@@ -349,7 +349,7 @@ impl<'a> Emitter<'a> {
             .is_some_and(|at| matches!(operand[at].kind(), "." | "::"));
         let (receiver, names_own_type) = match operand.last() {
             Some(&value) if !chained && value.kind() == "identifier" => {
-                (value_receiver(value, self.source), false)
+                (value_receiver(&self.source[value.byte_range()]), false)
             }
             Some(value) if !chained && value.kind() == "self" => {
                 (self.enclosing_type_name().unwrap_or_default(), true)
