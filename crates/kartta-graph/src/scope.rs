@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
-use kartta_lang::{CallsOnValues, InheritedMembers, MemberCalls, SymbolKind};
+use kartta_lang::{CallsOnValues, InheritedMembers, MemberCalls, SymbolKind, UntypedOwners};
 
 use crate::candidates::Candidates;
 use crate::confidence;
@@ -835,7 +835,7 @@ impl Cascade<'_> {
         };
         let owner = self.owner(first);
         if !admitted.clone().all(|at| self.owner(at) == owner) {
-            return Scoped::Several;
+            return self.one_owner_reached_by_name(call, std::iter::once(first).chain(admitted));
         }
 
         Scoped::One(match &shape {
@@ -847,6 +847,45 @@ impl Cascade<'_> {
             }
             _ => first,
         })
+    }
+
+    // constraint: only a tie between owners drops a table's member, since an importer can bind the table under
+    // another name, `let sheets = require(...)`, and still reach the member where no other owner offers one
+    fn one_owner_reached_by_name(
+        &self,
+        call: &Call,
+        admitted: impl Iterator<Item = SymbolAt>,
+    ) -> Scoped {
+        let (UntypedOwners::Tables, Some(receiver)) =
+            (self.conventions.untyped_owners, call.receiver)
+        else {
+            return Scoped::Several;
+        };
+        let own = self
+            .graph
+            .file(call.file)
+            .symbols
+            .get(call.caller as usize)
+            .and_then(|caller| caller.owner);
+        let mut reached = admitted.filter(|&at| {
+            self.owner(at).is_some_and(|owner| {
+                own == Some(owner)
+                    || self.spells(receiver, owner)
+                    || self
+                        .named(owner)
+                        .iter()
+                        .any(|&ty| self.graph.sym(ty).kind.is_type())
+            })
+        });
+        let Some(first) = reached.next() else {
+            return Scoped::Several;
+        };
+        let owner = self.owner(first);
+        if reached.all(|at| self.owner(at) == owner) {
+            Scoped::One(first)
+        } else {
+            Scoped::Several
+        }
     }
 
     pub(crate) fn one_callable(

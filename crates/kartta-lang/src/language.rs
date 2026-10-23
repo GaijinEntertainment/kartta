@@ -209,6 +209,8 @@ pub struct Conventions {
     /// callable where its receiver spells that callable's owner, `session.seek()` for a `Session`, because a call on
     /// such a value reaches the runtime, not a function of the repository. Empty where a language names none.
     pub runtime_methods: &'static [&'static str],
+    /// What an owner that no type of its name declares is.
+    pub untyped_owners: UntypedOwners,
     /// Whether a member call on a value, `x.f()` with an `x` that names no owner, guesses the callable of its name
     /// nearest the caller.
     pub calls_on_values: CallsOnValues,
@@ -244,6 +246,7 @@ impl Conventions {
         include_reach: IncludeReach::Direct,
         member_calls: MemberCalls::NearbyFreeFunctions,
         runtime_methods: &[],
+        untyped_owners: UntypedOwners::Types,
         calls_on_values: CallsOnValues::NearestGuessed,
         receivers: Receivers::Owners,
         own_type_receivers: None,
@@ -388,6 +391,19 @@ pub enum ValueUses {
     /// reach declare, as an include pastes the included text in place: a function named without a call is taken as a
     /// value. A type or a macro of the name binds no use, and a declaration and its definition count once.
     Included,
+}
+
+/// What an owner that no type of its name declares is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum UntypedOwners {
+    /// A type the graph does not hold, which a member call reaches on any value of it.
+    #[default]
+    Types,
+    /// One value, a table a module binds, which a member call reaches through a receiver that spells it, `t.f()` for
+    /// the table `t`, or from a member of it. Where members of several owners in one scope answer a member call on any
+    /// other value, `events.f()`, the members of such owners drop out, so the member of the class the value holds binds
+    /// past the table's namesake; a member that no other owner ties still binds.
+    Tables,
 }
 
 /// What a member use on a value of a type the language cannot name binds.
