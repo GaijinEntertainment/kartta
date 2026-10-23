@@ -35,8 +35,10 @@
   - Governs: `crates/kartta-fs/src/index.rs`, `crates/kartta-fs/src/list.rs`, `kartta_fs::Entry`,
     `kartta_fuzz::Ranking`
   - Revisit if: a call nears 500 ms on a larger tree
-- [1.10 Search content through ripgrep's engine](./adr/1.10-search-content-through-ripgrep-s-engine.md) — initiative
-  `01-kartta-fs-port`, 2026-10-14, revised 2026-10-19
+- [1.10 Search content through ripgrep's engine](./adr/1.10-search-content-through-ripgrep-s-engine.md)
+  - Governs: `crates/kartta-fs/src/scan.rs`, `crates/kartta-fs/src/patterns.rs`, `crates/kartta-fs/src/open.rs`,
+    `crates/kartta-fs/src/grep.rs` (`Planner::admit`), `Index::grep`, `GrepOptions`
+  - Revisit if: the dependency's weight matters more than the code it saves, or agents need to search UTF-16 sources
 - [1.11 Say what a limited content search did not
   cover](./adr/1.11-say-what-a-limited-content-search-did-not-cover.md) — initiative `01-kartta-fs-port`, 2026-10-14,
   revised 2026-10-19
@@ -94,6 +96,12 @@
   tree](./adr/1.66-keep-a-symlink-s-target-in-a-list-beside-the-walk-s-tree.md)
   - Governs: `crates/kartta-fs/src/policy.rs` (`Payload`, `TargetId`, `Report::targets`)
   - Revisit if: a node must carry a second id beside its kind
+- [1.70 Search content in batches folded in index
+  order](./adr/1.70-search-content-in-batches-folded-in-index-order.md)
+  - Governs: `crates/kartta-fs/src/grep.rs` (`BATCH`, `MIN_FILES_PER_SCANNER`, `Fold`), `crates/kartta-fs/src/scan.rs`
+    (`Scanner`), `Index::grep`
+  - Revisit if: a limited search's read past the match that proves its cut shows in an agent's latency, or a
+    scanner's buffers outgrow the 16-file bound
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-18
