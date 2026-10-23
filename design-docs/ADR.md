@@ -333,8 +333,9 @@
     `Engine::stats`, `Engine::resolution`
   - Revisit if: a consumer asks for the edge count often enough that a whole resolution matters on each call
 - [3.25 Read a definition's text and doc comment from its file when
-  asked](./adr/3.25-read-a-definition-s-text-and-doc-comment-from-its-file-when-asked.md) — initiative
-  `03-code-graph`, 2026-10-17, revised 2026-10-19
+  asked](./adr/3.25-read-a-definition-s-text-and-doc-comment-from-its-file-when-asked.md)
+  - Governs: `crates/kartta/src/source.rs`, `Engine::sources`, `SourceOptions`, `Source`
+  - Revisit if: a consumer asks for text often enough that reading the file costs more than keeping it
 - [3.29 Name a Go receiver by the type its declarations
   spell](./adr/3.29-name-a-go-receiver-by-the-type-its-declarations-spell.md) — initiative `03-code-graph`, 2026-10-17,
   revised 2026-10-23
@@ -592,6 +593,10 @@
   apart](./adr/3.133-count-a-blast-s-files-from-its-callers-and-its-file-s-includers-apart.md)
   - Governs: `crates/kartta-graph/src/analyze.rs` (`includers_within`, `Blast::affected_files`)
   - Revisit if: a consumer needs the affected files listed, not counted
+- [3.134 Find a doc comment by the comment forms of its
+  language](./adr/3.134-find-a-doc-comment-by-the-comment-forms-of-its-language.md)
+  - Governs: `crates/kartta-lang/src/doc.rs`, `Language::doc_comments`, `DocComments`, each language's `doc_comments`
+  - Revisit if: a language's extraction records comments
 - [3.140 Find a daslang module by its file name](./adr/3.140-find-a-daslang-module-by-its-file-name.md)
   - Governs: `crates/kartta-lang-daslang/src/resolve.rs`, `crates/kartta-lang-daslang/src/walk.rs` (`require`,
     `include`)
