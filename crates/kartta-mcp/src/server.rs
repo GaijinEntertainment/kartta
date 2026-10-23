@@ -811,10 +811,11 @@ impl Server {
                        implements the type through N-1 others. At most 500 are listed, and total= then counts them \
                        all; passed_over= counts the other types the name selects, and then a <root/> names the type \
                        answered for and up to 5 <candidate/> records list the most implemented others - path_prefix \
-                       picks one. A type that implements an interface without naming it, as Go's structural typing \
-                       allows, is not found. A name several types end with lists them instead; an unknown name \
-                       answers with up to 5 close alternatives (did you mean): those named one edit from it, which \
-                       one_edit= counts, or else the best search hits. Requires index_repo first."
+                       with one's file and line with its line pick it. A type that implements an interface without \
+                       naming it, as Go's structural typing allows, is not found. A name several types end with lists \
+                       them instead; an unknown name answers with up to 5 close alternatives (did you mean): those \
+                       named one edit from it, which one_edit= counts, or else the best search hits. Requires \
+                       index_repo first."
     )]
     async fn find_implementations(
         &self,
@@ -823,11 +824,11 @@ impl Server {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let searched = selected(indexed, p.languages.as_deref());
-            let path_prefix = p.path_prefix.as_deref();
-            let named = Selector::new(&p.name, path_prefix);
+            let written = Selector::new(&p.name, p.path_prefix.as_deref())
+                .with_line(p.line.map(NonZeroU32::get));
             let (mut found, [read_as]) = ask_reading(
                 searched.iter().copied(),
-                [named],
+                [written],
                 is_parent,
                 |(family, graph), [named]| {
                     Some((
@@ -841,7 +842,7 @@ impl Server {
                 implementations.found.truncate(room);
                 room -= implementations.found.len();
             }
-            let named = Selector::new(read_as.as_deref().unwrap_or(&p.name), path_prefix);
+            let named = written.with_name(read_as.as_deref().unwrap_or(&p.name));
             let unmatched = if found.is_empty() {
                 unmatched(&searched, named, is_parent)
             } else {
@@ -849,7 +850,7 @@ impl Server {
             };
             let languages = p.languages.as_deref().map(echo);
             let ask = CallersAsk {
-                name: &p.name,
+                selector: written,
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: None,
@@ -926,8 +927,9 @@ impl Server {
                        truncated=true. When from and to resolve to one symbol, the match has hops=0 and no ref. \
                        passed_over_from= and passed_over_to= count the other symbols each name selects, the most \
                        called of them listed as up to 5 <candidate end=\"from\"|\"to\" callers=N/> records - \
-                       from_path_prefix and to_path_prefix pick one. With no match, an end whose name selects no \
-                       symbol lists what it matches instead under <from> or <to>. Requires index_repo first."
+                       from_path_prefix with one's file and from_line with its line pick a from candidate, \
+                       to_path_prefix and to_line a to one. With no match, an end whose name selects no symbol lists \
+                       what it matches instead under <from> or <to>. Requires index_repo first."
     )]
     async fn find_call_path(
         &self,
@@ -942,8 +944,10 @@ impl Server {
                 .with_max_symbols(PATH_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
             let written = [
-                Selector::new(&p.from, p.from_path_prefix.as_deref()),
-                Selector::new(&p.to, p.to_path_prefix.as_deref()),
+                Selector::new(&p.from, p.from_path_prefix.as_deref())
+                    .with_line(p.from_line.map(NonZeroU32::get)),
+                Selector::new(&p.to, p.to_path_prefix.as_deref())
+                    .with_line(p.to_line.map(NonZeroU32::get)),
             ];
             let (paths, [from_read_as, to_read_as]) = ask_reading(
                 searched.iter().copied(),
@@ -951,19 +955,13 @@ impl Server {
                 |_| true,
                 |(family, graph), [from, to]| Some((family, graph.call_path(from, to, limits)?)),
             );
-            let from = Selector::new(
-                from_read_as.as_deref().unwrap_or(&p.from),
-                written[0].path_prefix,
-            );
-            let to = Selector::new(
-                to_read_as.as_deref().unwrap_or(&p.to),
-                written[1].path_prefix,
-            );
+            let from = written[0].with_name(from_read_as.as_deref().unwrap_or(&p.from));
+            let to = written[1].with_name(to_read_as.as_deref().unwrap_or(&p.to));
             let unmatched_ends: Vec<_> = if paths.is_empty() {
                 [("from", from), ("to", to)]
                     .into_iter()
                     .filter(|&(_, end)| !selects_as_callers(searched.iter().copied(), end))
-                    .map(|(name, end)| (name, unmatched(&searched, end, |_| true)))
+                    .map(|(name, end)| (name, end, unmatched(&searched, end, |_| true)))
                     .collect()
             } else {
                 Vec::new()
@@ -1012,10 +1010,10 @@ impl Server {
                        lists part of its sites, and files_shown= appears only when the match names fewer files than \
                        files=; below_confidence= counts the sites the floor dropped, whatever access keeps, \
                        and passed_over= the other symbols the name selects, the most used of them listed as up to 5 \
-                       <candidate sites=N/> records - path_prefix picks one. A match with no site states what the \
-                       graph does not record; with below_confidence=, it states only how many sites bind below the \
-                       confidence floor, which min_confidence \"any\" lists, without access where one was asked. A \
-                       name several symbols end with lists \
+                       <candidate sites=N/> records - path_prefix with one's file and line with its line pick it. A \
+                       match with no site states what the graph does not record; with below_confidence=, it states \
+                       only how many sites bind below the confidence floor, which min_confidence \"any\" lists, \
+                       without access where one was asked. A name several symbols end with lists \
                        them instead; an unknown name answers with up to 5 close alternatives (did you mean): those \
                        named one edit from it, which one_edit= counts, or else the best search hits. Requires \
                        index_repo first."
@@ -1028,11 +1026,11 @@ impl Server {
         self.answer(move |indexed| {
             let floor = p.min_confidence.floor();
             let searched = selected(indexed, p.languages.as_deref());
-            let path_prefix = p.path_prefix.as_deref();
-            let named = Selector::new(&p.name, path_prefix);
+            let written = Selector::new(&p.name, p.path_prefix.as_deref())
+                .with_line(p.line.map(NonZeroU32::get));
             let (found, [read_as]) = ask_reading(
                 searched.iter().copied(),
-                [named],
+                [written],
                 is_referent,
                 |(family, graph), [named]| {
                     let query = SiteQuery::new(usize::MAX).with_min_confidence(floor);
@@ -1042,7 +1040,7 @@ impl Server {
                     Some((family, graph.conventions(), graph.references(named, query)?))
                 },
             );
-            let named = Selector::new(read_as.as_deref().unwrap_or(&p.name), path_prefix);
+            let named = written.with_name(read_as.as_deref().unwrap_or(&p.name));
             let unmatched = if found.is_empty() {
                 unmatched(&searched, named, is_referent)
             } else {
@@ -1050,7 +1048,7 @@ impl Server {
             };
             let languages = p.languages.as_deref().map(echo);
             let ask = CallersAsk {
-                name: &p.name,
+                selector: written,
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: None,
@@ -1232,10 +1230,11 @@ impl Server {
                        every caller is. \
                        A <match> also counts what the walk left out, \
                        each only when it is not zero: passed_over= the other symbols the name selects (the most \
-                       called listed as up to 5 <candidate callers=N/> records; path_prefix picks one), unexpanded= \
-                       the callers whose own callers were not followed, at the hops limit or left when the node cap \
-                       stopped the walk, ambiguous= the calls of the symbol's own name that bound no definition \
-                       because several definitions of the name may be meant - a call on a value whose type the graph \
+                       called listed as up to 5 <candidate callers=N/> records; path_prefix with one's file and line \
+                       with its line pick it), unexpanded= the callers whose own callers were not followed, at the \
+                       hops limit or left when the node cap stopped the walk, ambiguous= the calls of the symbol's \
+                       own name that bound no definition because several definitions of the name may be meant - a \
+                       call on a value whose type the graph \
                        does not follow, or a call split between same-named methods or functions - and any of which \
                        may call it, counted for the symbol alone whatever hops and role say, below_confidence= the \
                        callers and files the floor dropped, a self-call among them, and turned_away= with \
@@ -1266,15 +1265,15 @@ impl Server {
                 .with_min_confidence(p.min_confidence.floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
-            let path_prefix = p.path_prefix.as_deref();
-            let named = Selector::new(&p.name, path_prefix);
+            let written = Selector::new(&p.name, p.path_prefix.as_deref())
+                .with_line(p.line.map(NonZeroU32::get));
             let (walks, [read_as]) = ask_reading(
                 searched.iter().copied(),
-                [named],
+                [written],
                 |_| true,
                 |(family, graph), [named]| Some((family, graph.callers(named, limits)?)),
             );
-            let named = Selector::new(read_as.as_deref().unwrap_or(&p.name), path_prefix);
+            let named = written.with_name(read_as.as_deref().unwrap_or(&p.name));
             let unmatched = if walks.is_empty() {
                 unmatched(&searched, named, |_| true)
             } else {
@@ -1282,7 +1281,7 @@ impl Server {
             };
             let languages = p.languages.as_deref().map(echo);
             let ask = CallersAsk {
-                name: &p.name,
+                selector: written,
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: p.role.map(CallerRole::as_str),
@@ -1310,10 +1309,11 @@ impl Server {
                        no definition the \
                        graph holds (a library, a builtin, or a name the resolver could not tell apart - read the body \
                        for those), passed_over= the other symbols the name selects (the most called listed as up to 5 \
-                       <candidate callers=N/> records; path_prefix picks one), unexpanded= the callees whose own \
-                       callees were not followed, at the hops limit or left when the node cap stopped the walk, \
-                       below_confidence= the callees the floor dropped, a self-call among them, and turned_away= with \
-                       truncated=true when the node cap (500) stopped the walk. A match without callees states that no \
+                       <candidate callers=N/> records; path_prefix with one's file and line with its line pick it), \
+                       unexpanded= the callees whose own callees were not followed, at the hops limit or left when \
+                       the node cap stopped the walk, below_confidence= the callees the floor dropped, a self-call \
+                       among them, and turned_away= with truncated=true when the node cap (500) stopped the walk. A \
+                       match without callees states that no \
                        call in its body binds a definition the graph holds, or \"no callees but itself\" beside a \
                        <self_call>; with below_confidence=, it states only how many callees bind \
                        below the confidence floor, which min_confidence \"any\" lists. A call \
@@ -1332,15 +1332,15 @@ impl Server {
                 .with_min_confidence(p.min_confidence.floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
-            let path_prefix = p.path_prefix.as_deref();
-            let named = Selector::new(&p.name, path_prefix);
+            let written = Selector::new(&p.name, p.path_prefix.as_deref())
+                .with_line(p.line.map(NonZeroU32::get));
             let (walks, [read_as]) = ask_reading(
                 searched.iter().copied(),
-                [named],
+                [written],
                 |_| true,
                 |(family, graph), [named]| graph.callees(named, limits).map(|walk| (family, walk)),
             );
-            let named = Selector::new(read_as.as_deref().unwrap_or(&p.name), path_prefix);
+            let named = written.with_name(read_as.as_deref().unwrap_or(&p.name));
             let unmatched = if walks.is_empty() {
                 unmatched(&searched, named, |_| true)
             } else {
@@ -1348,7 +1348,7 @@ impl Server {
             };
             let languages = p.languages.as_deref().map(echo);
             let ask = CallersAsk {
-                name: &p.name,
+                selector: written,
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: None,

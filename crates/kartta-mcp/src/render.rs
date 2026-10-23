@@ -8,7 +8,7 @@ mod unused;
 use std::fmt::Display;
 use std::time::Duration;
 
-use kartta::{Definition, Hit, Resolution, SymbolFlags, SymbolKind, UnmatchedKind};
+use kartta::{Definition, Hit, Resolution, Selector, SymbolFlags, SymbolKind, UnmatchedKind};
 
 pub(crate) use self::calls::{
     CallersAsk, PathAsk, call_path, callees, callers, change, impact, references,
@@ -166,12 +166,20 @@ fn noted(element: Element, text: &str, candidates: Vec<String>) -> String {
     element.children(std::iter::once(text.to_owned()).chain(candidates))
 }
 
+/// The selector a symbol tool was asked with, and what its narrowing parameters' names start with: "" for
+/// `path_prefix` and `line`, "from_" or "to_" for an end of `find_call_path`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Asked<'a> {
+    pub(crate) end: &'a str,
+    pub(crate) selector: Selector<'a>,
+}
+
 /// The body of an answer whose name selected nothing: the empty filter's note, what the name matches instead, or the
-/// alternatives a search found. `prefix` names the parameter that took the path prefix.
+/// alternatives a search found.
 fn unresolved(
     element: Element,
     languages: Option<&str>,
-    prefix: &str,
+    asked: Asked<'_>,
     unmatched: &Unmatched<'_>,
 ) -> String {
     if let Some(note) = empty_languages_note(languages) {
@@ -181,18 +189,7 @@ fn unresolved(
         Unmatched::Named(near) if near.kind == UnmatchedKind::OneEdit => {
             return did_you_mean(element.count("one_edit", near.total), one_edit(near));
         }
-        Unmatched::Named(named) => {
-            let total = named.total;
-            let text = if named.kind == UnmatchedKind::Several {
-                format!(
-                    "{total} definitions end with this name and it picks none of them - a longer name, or {prefix} \
-                     with one's file, picks one:"
-                )
-            } else {
-                format!("no definition of this name is under {prefix} - {total} are elsewhere:")
-            };
-            (text, &named.listed)
-        }
+        Unmatched::Named(named) => (named_instead(asked, named), &named.listed),
         Unmatched::Suggested(suggestions) if suggestions.is_empty() => {
             return element.inline("no symbol matches - find_symbols can pin the exact name");
         }
@@ -208,6 +205,29 @@ fn unresolved(
         .map(|(family, definition)| candidate(definition).attr("lang", *family).close())
         .collect();
     noted(element, &text, candidates)
+}
+
+/// What a name that selected none of the definitions `named` lists says of them, naming the parameters that pick one:
+/// a path prefix with one's file and the line it starts on, since a file can hold several of them.
+fn named_instead(asked: Asked<'_>, named: &kartta::Unmatched<'_>) -> String {
+    let (total, end) = (named.total, asked.end);
+    if named.kind == UnmatchedKind::Several {
+        return format!(
+            "{total} definitions end with this name and it picks none of them - a longer name, or {end}path_prefix \
+             with one's file and {end}line with its line, picks one:"
+        );
+    }
+    let Some(line) = asked.selector.line else {
+        return format!(
+            "no definition of this name is under {end}path_prefix - {total} are elsewhere:"
+        );
+    };
+    let under = if asked.selector.path_prefix.is_some() {
+        format!(" under {end}path_prefix")
+    } else {
+        String::new()
+    };
+    format!("no definition of this name{under} starts on {end}line {line} - {total} are elsewhere:")
 }
 
 /// `element` holding the miss and the `<suggestion>` records that answer it.
