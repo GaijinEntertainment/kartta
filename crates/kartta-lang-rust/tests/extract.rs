@@ -770,6 +770,82 @@ fn a_function_or_an_attribute_in_a_macro_s_arguments_holds_no_call() {
 }
 
 #[test]
+fn a_pattern_in_a_macro_s_arguments_names_constructors_and_holds_no_call() {
+    let raw = extract(
+        b"fn check(value: Option<Kind>) {
+    assert!(matches!(value, Some(Kind::A(_)) if ok(value)));
+    matches!(kind(), Kind::B(_) | Kind::C(_));
+    println!(\"{}\", if let Some(Kind::A(x)) = value { shown(x) } else { 0 });
+    format!(\"{}\", match value { Some(Kind::A(_)) => one(), _ => Some(1) });
+    matches!(if ready() { value } else { fallback() }, Some(Kind::A(_)) if late());
+    matches!(|x, y| make(x, y) || x(), Some(Kind::A(_)));
+    assert!(match value { Some(Kind::A(x)) if guard(x) => taken(), _ => false });
+}
+",
+    );
+    let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+
+    assert_eq!(
+        callees,
+        [
+            "assert", "matches", "ok", "matches", "kind", "println", "shown", "format", "one",
+            "Some", "matches", "ready", "fallback", "late", "matches", "make", "assert", "guard",
+            "taken",
+        ]
+    );
+}
+
+#[test]
+fn a_matches_macro_the_file_defines_reads_its_arguments_as_any_macro_s() {
+    let raw = extract(
+        b"fn before() { matches!(value, Some(process())); }
+macro_rules! matches { ($a:expr, $b:expr) => { $a == $b }; }
+fn after() { matches!(value, Some(process())); }
+",
+    );
+    let callees: Vec<(&str, SymbolId)> = raw
+        .calls
+        .iter()
+        .map(|call| (call.callee.as_str(), call.site_of))
+        .collect();
+    let after = id_of(&raw, "after");
+
+    assert_eq!(
+        callees,
+        [
+            ("matches", id_of(&raw, "before")),
+            ("matches", after),
+            ("Some", after),
+            ("process", after),
+        ]
+    );
+
+    let raw = extract(
+        b"fn local() {
+    macro_rules! matches { ($a:expr, $b:expr) => { $a == $b }; }
+    matches!(value, Some(process()));
+}
+fn past() { matches!(value, Some(process())); }
+",
+    );
+    let callees: Vec<(&str, SymbolId)> = raw
+        .calls
+        .iter()
+        .map(|call| (call.callee.as_str(), call.site_of))
+        .collect();
+    let local = id_of(&raw, "local");
+
+    assert_eq!(
+        callees,
+        [
+            ("Some", local),
+            ("process", local),
+            ("matches", id_of(&raw, "past")),
+        ]
+    );
+}
+
+#[test]
 fn a_macro_whose_arguments_interpolate_is_a_template_of_no_call() {
     let raw = extract(
         b"fn emit() {

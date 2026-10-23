@@ -135,6 +135,9 @@ struct Emitter<'a> {
     branches: Vec<(usize, usize)>,
     read_scopes: Vec<String>,
     value_reads: Vec<values::ValueRead>,
+    // constraint: the end of the block or module of each `macro_rules! matches` the walk has passed, the text its
+    // scope runs to, so the furthest end bounds every one of them in scope
+    matches_scope_end: usize,
     symbol_count: u32,
     raw: RawExtraction,
 }
@@ -162,6 +165,7 @@ impl<'a> Emitter<'a> {
             branches: Vec::new(),
             read_scopes: vec![String::new()],
             value_reads: Vec::new(),
+            matches_scope_end: 0,
             symbol_count: 0,
             raw: RawExtraction::default(),
         }
@@ -195,6 +199,13 @@ impl Emitter<'_> {
                 self.item(node, SymbolKind::TypeAlias);
             }
             "macro_definition" => {
+                if node
+                    .child_by_field_name("name")
+                    .is_some_and(|name| &self.source[name.byte_range()] == b"matches")
+                {
+                    let end = node.parent().map_or(usize::MAX, |scope| scope.end_byte());
+                    self.matches_scope_end = self.matches_scope_end.max(end);
+                }
                 self.item(node, SymbolKind::Macro);
             }
             "const_item" => {

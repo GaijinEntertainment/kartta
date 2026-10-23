@@ -32,7 +32,9 @@
 //! macro invocation, whose arguments it reads the same way. A closure in the arguments binds its parameters to the end
 //! of the token tree it is written in. Arguments that interpolate, `#name` or `#(..)*`, as `quote!` writes them, are a
 //! template of generated code and hold no call of the site, and neither do an attribute nor the parameters and body
-//! of a `fn` the arguments declare.
+//! of a `fn` the arguments declare. A pattern there names constructors and holds no call either: the standard
+//! `matches!`'s pattern, between its value and its guard, and a `(` tree before `=`, a guard's `if` or an unguarded
+//! arm's `=>`, `if let Some(x) =`.
 //!
 //! A `use` of a path that may start at another crate or at the file's own crate or module,
 //! `use kartta_lang::tree::{self, text as at}` or `use super::helper`, keeps each name it binds with the path the name
