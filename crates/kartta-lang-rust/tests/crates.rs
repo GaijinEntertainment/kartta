@@ -264,6 +264,35 @@ fn a_name_the_file_declares_or_binds_to_two_paths_binds_no_path() {
     assert_eq!(got, [path("keep", "d::keep", 3)]);
 }
 
+#[test]
+fn a_use_whose_first_segment_is_a_module_the_file_declares_starts_at_the_file_s_own_module() {
+    let got = bound(
+        "use m::helper;\nuse m::m;\nuse self::n::n;\nuse other_crate::shared;\n\nmod m;\nmod n;\n\n\
+         mod inner {\n    mod deep;\n    use deep::thing;\n    use m::other;\n}\n\nfn run() {\n    use m::local;\n}\n",
+    );
+    let globs = globs("pub use m::*;\nuse inline::*;\nuse other::*;\n\nmod m;\nmod inline {}\n");
+
+    assert_eq!(
+        got,
+        [
+            path("helper", "self::m::helper", 1),
+            path("m", "self::m::m", 2),
+            path("n", "self::n::n", 3),
+            path("shared", "other_crate::shared", 4),
+            path("other", "m::other", 12),
+            path("local", "self::m::local", 16),
+        ]
+    );
+    assert_eq!(
+        globs,
+        [
+            ("self::m".to_owned(), 1),
+            ("self::inline".to_owned(), 2),
+            ("other".to_owned(), 3),
+        ]
+    );
+}
+
 fn resolve(files: &[(&str, &str)], path: &str) -> Extraction {
     let rust = Rust::new();
     let repository = MemoryRepository::new(files.iter().copied());
