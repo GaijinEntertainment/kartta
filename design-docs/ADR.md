@@ -24,8 +24,10 @@
   - Governs: `crates/kartta-fs/src/inspection.rs`, `Index::size`, `Index::is_binary`, `Listed::size`,
     `Listed::is_binary`
   - Revisit if: a caller needs file facts coherent with the walk for files a build did not read
-- [1.7 Let a caller compose the binary extension set](./adr/1.7-let-a-caller-compose-the-binary-extension-set.md) —
-  initiative `01-kartta-fs-port`, 2026-10-13, revised 2026-10-18
+- [1.7 Let a caller compose the binary extension set](./adr/1.7-let-a-caller-compose-the-binary-extension-set.md)
+  - Governs: `crates/kartta-fs/src/binary.rs` (`BinaryExtensions`, `BinaryExtensionsError`),
+    `BuildOptions::binary_extensions`
+  - Revisit if: a caller needs a classification rule richer than a name's last extension
 - [1.8 Count what a listing leaves out](./adr/1.8-count-what-a-listing-leaves-out.md) — initiative `01-kartta-fs-port`,
   2026-10-13
 - [1.9 Front-code the stored paths](./adr/1.9-front-code-the-stored-paths.md) — initiative `01-kartta-fs-port`,
