@@ -229,8 +229,10 @@
     `crates/kartta-lang/src/lib.rs`, `kartta_graph::Graph::conventions`
   - Revisit if: a host needs languages it was not compiled with
 - [3.2 Name a Go call's target only where the syntax
-  spells it](./adr/3.2-name-a-go-call-s-target-only-where-the-syntax-spells-it.md) — initiative `03-code-graph`,
-  2026-10-16
+  spells it](./adr/3.2-name-a-go-call-s-target-only-where-the-syntax-spells-it.md)
+  - Governs: `crates/kartta-lang-go/src/walk/calls.rs`, `crates/kartta-lang-go/src/walk.rs` (`push_value_callers`,
+    `type_spec`)
+  - Revisit if: a Go file's walk can see its package's other files
 - [3.3 Repair what the C++ grammar cannot parse instead of vendoring
   it](./adr/3.3-repair-what-the-c-plus-plus-grammar-cannot-parse.md) — initiative `03-code-graph`, 2026-10-16, revised
   2026-10-23
@@ -390,6 +392,11 @@
   - Governs: `kartta_lang::Language::resolver`, `kartta_lang::Resolver::resolve`, each
     `crates/kartta-lang-*/src/resolve.rs`
   - Revisit if: the view a resolver builds inside `resolve` shows in a build's profile
+- [3.150 Resolve a Go import to the package the go command
+  builds](./adr/3.150-resolve-a-go-import-to-the-package-the-go-command-builds.md)
+  - Governs: `crates/kartta-lang-go/src/resolve.rs`, `crates/kartta-graph/src/resolve.rs` (`read_bindings`,
+    `in_package_of`, `is_external_test_of`, `in_tested_package`)
+  - Revisit if: the indexed Go trees build through files the resolver does not read, a `go.work` or a replace by version
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md) — initiative
   `04-consumer-surfaces`, 2026-10-18, revised 2026-10-23
