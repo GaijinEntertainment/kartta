@@ -107,6 +107,9 @@ struct DeclScope {
 
 type Span = (usize, usize);
 
+/// The binding a name a declaration holds gets for the one type the declaration spells, if any.
+type ValueBinding = fn(Option<Span>) -> Binding;
+
 /// What a name the file declares stands for where a use spells it; a value carries the span of the one type its
 /// declaration spells, if any.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -312,7 +315,7 @@ impl<'s> Emitter<'s> {
             _ => None,
         };
         if let Some(bound) = bound {
-            self.declare_pattern(bound, node.end_byte());
+            self.declare_pattern(bound, node.end_byte(), Binding::Value);
         }
     }
 
@@ -373,7 +376,7 @@ impl<'s> Emitter<'s> {
         self.scope_ends.push(function.end_byte());
         for field in ["parameter", "parameters"] {
             if let Some(parameters) = function.child_by_field_name(field) {
-                self.declare_pattern(parameters, function.end_byte());
+                self.declare_pattern(parameters, function.end_byte(), Binding::Value);
             }
         }
     }
@@ -396,39 +399,39 @@ impl<'s> Emitter<'s> {
                 .or_else(|| constructed_type(declarator));
             self.declare(name.byte_range(), self.scope_end(), Binding::Value(typed));
         } else {
-            self.declare_pattern(name, self.scope_end());
+            self.declare_pattern(name, self.scope_end(), Binding::Value);
         }
     }
 
     // constraint: a pattern binds its identifiers and its shorthand properties; a property key, a default value and a
     // type annotation bind nothing, though a parameter's name keeps the one type its annotation spells
-    fn declare_pattern(&mut self, pattern: Node<'_>, until: usize) {
+    fn declare_pattern(&mut self, pattern: Node<'_>, until: usize, value: ValueBinding) {
         let inner = |field| pattern.child_by_field_name(field);
         match pattern.kind() {
             "identifier" | "shorthand_property_identifier_pattern" => {
-                self.declare(pattern.byte_range(), until, Binding::Value(None));
+                self.declare(pattern.byte_range(), until, value(None));
             }
             "required_parameter" | "optional_parameter" => match inner("pattern") {
                 Some(bound) if bound.kind() == "identifier" => {
                     let typed = inner("type").and_then(annotated_type);
-                    self.declare(bound.byte_range(), until, Binding::Value(typed));
+                    self.declare(bound.byte_range(), until, value(typed));
                 }
-                Some(bound) => self.declare_pattern(bound, until),
+                Some(bound) => self.declare_pattern(bound, until, value),
                 None => {}
             },
             "assignment_pattern" | "object_assignment_pattern" => {
                 if let Some(bound) = inner("left") {
-                    self.declare_pattern(bound, until);
+                    self.declare_pattern(bound, until, value);
                 }
             }
             "pair_pattern" => {
                 if let Some(bound) = inner("value") {
-                    self.declare_pattern(bound, until);
+                    self.declare_pattern(bound, until, value);
                 }
             }
             "formal_parameters" | "object_pattern" | "array_pattern" | "rest_pattern" => {
                 for bound in named_child_nodes(pattern) {
-                    self.declare_pattern(bound, until);
+                    self.declare_pattern(bound, until, value);
                 }
             }
             _ => {}
