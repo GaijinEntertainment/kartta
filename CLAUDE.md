@@ -46,6 +46,10 @@ so cost per entry is the design pressure on every surface.
 
 </capability-map>
 
+<adr-index>
+@design-docs/ADR.md
+</adr-index>
+
 <constraints>
 
 - Pin every version the build uses: the Rust toolchain, each GitHub Action by its full commit SHA with the tag in a
