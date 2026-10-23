@@ -9,7 +9,9 @@ extension is `go`, in any case.
 
 Every function, method, type, interface member, struct field, constant and `var`-declared variable is a symbol,
 qualified by the package clause: `api.Serve`, and `api.Server.Close` for a member of `Server`; a `:=` declaration is a
-local binding, not a symbol. An embedded type is a parent of the type
+local binding, not a symbol. An anonymous struct with a field that a struct field's type spells is a struct named by
+the names that lead to it, `{Server·Limits}` for the field `Limits` of `Server`; its fields are owned by that name and
+qualified by those names, `api.Server.Limits.MaxConns`. An embedded type is a parent of the type
 that embeds it, and so is the interface of a compile-time assertion such as `var _ io.Reader = (*File)(nil)`.
 
 A call records its callee and, for a member call, its receiver as a type path: the type of the operand's value, as far
