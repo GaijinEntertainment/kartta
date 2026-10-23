@@ -23,8 +23,13 @@
 //! a call made by that type. A call records its receiver: a plain name as written, `self` as the caller's own type,
 //! which in a type's body is the type itself, and any other expression as the empty receiver; a type's body runs with
 //! `self` as the type, so a call there with no receiver, `track :size`, records the type as its receiver. A call
-//! outside every method and type is a call from file scope, before the file's first symbol too. A call with no
-//! receiver and no arguments, `setup`, parses as a name, so it records nothing.
+//! outside every method and type is a call from file scope, before the file's first symbol too.
+//!
+//! A bare name, `setup`, is a call with no receiver unless it reads a local variable, as Ruby decides: a binding of the
+//! name earlier in the source, in the same `def` or body of a class, a module or a `class << x`, or in a block or a
+//! lambda around it, makes it a local. A parameter of any kind, an assignment, a `for` target, a `rescue => e`, a
+//! pattern capture and a named group of a regexp literal matched with `=~` bind a name. Inside a block or a lambda,
+//! `it` and `_1` to `_9` read its implicit parameters; `__FILE__`, `__LINE__` and `__ENCODING__` are never calls.
 //!
 //! A method named by a symbol is a use of it: `method(:render)`, `public_method`, `singleton_method`, `send(:render)`,
 //! `public_send` and `__send__` name a method of the object's own type where they have no receiver or `self`, and one
@@ -79,6 +84,7 @@ use kartta_lang::{
 use crate::resolve::RubyResolver;
 
 mod bindings;
+mod locals;
 mod macros;
 mod owner;
 mod resolve;
