@@ -8,8 +8,8 @@
 //! function body or an inline module only from inside it, and no macro of a name the crate also answers with a
 //! function or a `use`, as a call does not say it invokes a macro, and a Rust call on a value, on `self` or through a
 //! type binds no free function, not even through a value named like a module the file imports, while a call on a
-//! value still binds the one runtime method whose owner the value's name spells, and a bare call through a parameter
-//! or a local binds nothing.
+//! value still binds the one runtime method whose owner the value's name spells, one on a parameter the method of the
+//! type the parameter is declared as, and a bare call through a parameter or a local binds nothing.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -920,5 +920,29 @@ fn a_rust_call_on_a_value_binds_the_runtime_method_whose_owner_its_name_spells()
     assert_eq!(
         callees(&engine, "app/src/follow.rs", "caught_up"),
         (vec![("drain", SymbolKind::Method, "fs/src/watch.rs")], 0)
+    );
+}
+
+#[test]
+fn a_rust_call_on_a_parameter_binds_the_method_of_the_type_the_parameter_is_declared_as() {
+    let tree = tree_of(&[(
+        "src/fuzzy.rs",
+        "pub struct Ranking;\n\nimpl Ranking {\n    pub fn offer(&mut self) {}\n}\n\n\
+         pub struct Queue;\n\nimpl Queue {\n    pub fn offer(&mut self) {}\n}\n\n\
+         fn offer(ranking: &mut Ranking) {\n    ranking.offer();\n}\n",
+    )]);
+    let engine = build(&tree, &["rust"]);
+    let (_, graph) = engine
+        .graph_of("src/fuzzy.rs")
+        .expect("a language claims the file");
+    let callers = graph
+        .callers("Ranking::offer", Limits::new(1))
+        .expect("the name is defined");
+
+    assert_eq!(
+        (callers.reached.iter())
+            .map(|reached| (reached.symbol.name, reached.symbol.line, reached.confidence))
+            .collect::<Vec<_>>(),
+        [("offer", 13, confidence::RECEIVER)]
     );
 }

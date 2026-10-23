@@ -323,7 +323,7 @@ impl<'a> Emitter<'a> {
             .split_last()
             .map(|(last, operand)| (last.kind(), operand))
         {
-            Some((".", operand)) => self.member_called(callee, operand),
+            Some((".", operand)) => self.member_called(callee, operand, reading),
             Some(("::", _)) => self.path_called(callee, &path_before(rest)),
             _ => {
                 let spelled = &self.source[name.byte_range()];
@@ -341,27 +341,37 @@ impl<'a> Emitter<'a> {
     }
 
     // constraint: a member call takes a named operand, `self` as the type of the impl or trait around it, and anything
-    // else, a call, a field, a path or a literal, as the empty receiver, as a member call the syntax tree spells does
-    fn member_called(&self, callee: String, operand: &[Node<'_>]) -> Called {
+    // else, a call, a field, a path or a literal, as the empty receiver, as a member call the syntax tree spells does;
+    // a name a closure in the arguments binds is no parameter of the function around the macro
+    fn member_called(
+        &self,
+        callee: String,
+        operand: &[Node<'_>],
+        reading: &Reading<'_, '_>,
+    ) -> Called {
         let chained = operand
             .len()
             .checked_sub(2)
             .is_some_and(|at| matches!(operand[at].kind(), "." | "::"));
-        let (receiver, names_own_type) = match operand.last() {
+        let target = match operand.last() {
             Some(&value) if !chained && value.kind() == "identifier" => {
-                (value_receiver(&self.source[value.byte_range()]), false)
+                let spelled = &self.source[value.byte_range()];
+                if reading.bound.contains(&spelled) {
+                    Target::new(callee, Some(value_receiver(spelled)))
+                } else {
+                    self.named_target(callee, value)
+                }
             }
-            Some(value) if !chained && value.kind() == "self" => {
-                (self.enclosing_type_name().unwrap_or_default(), true)
-            }
-            _ => (String::new(), false),
+            Some(value) if !chained && value.kind() == "self" => Target {
+                callee,
+                receiver: Some(self.enclosing_type_name().unwrap_or_default()),
+                names_own_type: true,
+                declared: None,
+            },
+            _ => Target::new(callee, Some(String::new())),
         };
         Called {
-            target: Target {
-                callee,
-                receiver: Some(receiver),
-                names_own_type,
-            },
+            target,
             written: None,
             form: None,
         }
@@ -403,6 +413,7 @@ impl<'a> Emitter<'a> {
                 callee,
                 receiver,
                 names_own_type,
+                declared: None,
             },
             written: Some(self.spelled(path)),
             form,
