@@ -8,8 +8,8 @@ use crate::stored::{Entry, Site, SymbolAt};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum Miss {
-    /// The receiver names an import of a module outside the repository, so the call reaches code the graph does not
-    /// hold.
+    /// The receiver, or the callee of a bare call that the caller's file does not answer where a package is not a
+    /// directory, names an import of a module outside the repository, so the call reaches code the graph does not hold.
     ExternalImport,
     /// The receiver names an import of a directory the graph holds, whose code outside its tests exports no callable of
     /// the name.
