@@ -774,7 +774,7 @@
 - [4.18 Answer a name that selects nothing with what it does
   match](./adr/4.18-answer-a-name-that-selects-nothing-with-what-it-does-match.md)
   - Governs: `crates/kartta/src/reading.rs` (`unmatched`, `selects_as_callers`), `crates/kartta-mcp/src/render.rs`
-    (`unresolved`, `did_you_mean`), `crates/kartta-mcp/src/server.rs` (`unmatched`, `suggestions`)
+    (`unresolved`, `named_instead`, `did_you_mean`), `crates/kartta-mcp/src/server.rs` (`unmatched`, `suggestions`)
   - Revisit if: agents' misses are mostly other than a shared name, a prefix or a single edit
 - [4.19 Name a language that records no use of a type in a type's
   references](./adr/4.19-name-a-language-that-records-no-use-of-a-type-in-a-type-s-references.md)
