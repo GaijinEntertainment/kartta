@@ -59,8 +59,10 @@
     `Matches::ruled_out`
   - Revisit if: query logs show false candidates dominating a search, or the directory becomes a noticeable part of the
     index
-- [1.15 Refresh an index in place from a second walk](./adr/1.15-refresh-an-index-in-place-from-a-second-walk.md) —
-  initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-15
+- [1.15 Refresh an index in place from a second walk](./adr/1.15-refresh-an-index-in-place-from-a-second-walk.md)
+  - Governs: `crates/kartta-fs/src/index.rs` (`Index::refresh`), `crates/kartta-fs/src/index/refresh.rs`
+  - Revisit if: a consumer refreshes often enough to near the last id, or retired ids leave the id map far past the
+    files that remain
 - [1.16 Refresh the parts of a tree a caller names](./adr/1.16-refresh-the-parts-of-a-tree-a-caller-names.md) —
   initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-22
 - [1.17 Follow a tree through its change notifications](./adr/1.17-follow-a-tree-through-its-change-notifications.md) —
@@ -70,6 +72,15 @@
 - [1.19 Prune editor and OS clutter by name during the
   walk](./adr/1.19-prune-editor-and-os-clutter-by-name-during-the-walk.md) — initiative `01-kartta-fs-port`, 2026-10-17,
   revised 2026-10-18
+- [1.40 Carry an unchanged file over by its size and change
+  time](./adr/1.40-carry-an-unchanged-file-over-by-its-size-and-change-time.md)
+  - Governs: `crates/kartta-fs/src/stamp.rs`, `BuildOptions::stamps`, `kartta_walk::WalkOptions::listed_stats`
+  - Revisit if: a consumer refreshes a part small enough for the vnode cache so often that an lstat costs less than the
+    listing
+- [1.41 Index what a refresh reads in a segment of its
+  own](./adr/1.41-index-what-a-refresh-reads-in-a-segment-of-its-own.md)
+  - Governs: `crates/kartta-fs/src/content_index.rs`, `crates/kartta-fs/src/content_index/{compact,build}.rs`
+  - Revisit if: retired ids leave a tree's merged lists sized far past the files that remain
 - [1.50 Match gitignore rules with gix-ignore](./adr/1.50-match-gitignore-rules-with-gix-ignore.md)
   - Governs: `crates/kartta-fs/src/rules.rs`
   - Revisit if: `gix-ignore` stops being maintained or diverges from git's matching
