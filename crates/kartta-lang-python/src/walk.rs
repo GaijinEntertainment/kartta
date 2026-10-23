@@ -31,6 +31,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         attributes: Vec::new(),
         members: HashSet::new(),
         module_names: HashMap::new(),
+        module_targets: HashSet::new(),
         module_uses: Vec::new(),
         type_names_end: 0,
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
@@ -136,6 +137,8 @@ struct Emitter<'a> {
     members: HashSet<(usize, String)>,
     /// The names the module binds, each with what binds it.
     module_names: HashMap<&'a [u8], Binding>,
+    /// Where each name the module binds is written as bound, a site that is no use of it.
+    module_targets: HashSet<usize>,
     module_uses: Vec<NameUse<'a>>,
     /// Where the last annotation or list of bases the walk entered ends: a name the walk meets before it names a type
     /// as one.
@@ -306,15 +309,28 @@ impl<'a> Emitter<'a> {
 
     // constraint: an assignment expression in a comprehension binds its name in the scope around the comprehension
     fn bind_outside_comprehensions(&mut self, node: Node<'_>) {
+        let Some(name) = node.child_by_field_name("name") else {
+            return;
+        };
         let frame = self
             .frames
             .iter_mut()
             .rev()
             .find(|frame| frame.kind != FrameKind::Comprehension);
-        if let (Some(frame), Some(name)) = (frame, node.child_by_field_name("name")) {
-            frame
+        match frame {
+            Some(frame) => frame
                 .bindings
-                .push((&self.source[name.byte_range()], Binding::Value));
+                .push((&self.source[name.byte_range()], Binding::Value)),
+            None => self.bind_in_module(name, Binding::Value),
+        }
+    }
+
+    // constraint: only a value's target is read as a name; a definition's name and an import's are not
+    fn bind_in_module(&mut self, name: Node<'_>, binding: Binding) {
+        self.module_names
+            .insert(&self.source[name.byte_range()], binding);
+        if matches!(binding, Binding::Value) {
+            self.module_targets.insert(name.start_byte());
         }
     }
 
@@ -360,11 +376,12 @@ impl<'a> Emitter<'a> {
     fn bind(&mut self, target: Node<'_>, binding: Binding) {
         match target.kind() {
             IDENTIFIER => {
-                let name = &self.source[target.byte_range()];
                 if let Some(frame) = self.frames.last_mut() {
-                    frame.bindings.push((name, binding));
+                    frame
+                        .bindings
+                        .push((&self.source[target.byte_range()], binding));
                 } else {
-                    self.module_names.insert(name, binding);
+                    self.bind_in_module(target, binding);
                 }
             }
             "default_parameter" | "typed_default_parameter" => {

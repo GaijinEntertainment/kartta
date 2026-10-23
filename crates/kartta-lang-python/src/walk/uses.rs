@@ -18,7 +18,7 @@ pub(super) struct NameUse<'a> {
 impl<'a> Emitter<'a> {
     // constraint: a called attribute is a call site already
     pub(super) fn attribute_use(&mut self, attribute: Node<'_>, caller: SymbolId) {
-        if caller == FILE_SCOPE || is_callee(attribute) {
+        if is_callee(attribute) {
             return;
         }
         let (Some(object), Some(name)) = (
@@ -47,15 +47,24 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    // constraint: a name the module binds is not used where it is bound, as one a function binds is not, but an
+    // update reads the value it binds again
     pub(super) fn name_use(&mut self, identifier: Node<'_>, caller: SymbolId) {
-        if caller == FILE_SCOPE || is_callee(identifier) || !reads(identifier) {
+        if is_callee(identifier) || !reads(identifier) {
+            return;
+        }
+        let access = self.access_of(identifier);
+        if caller == FILE_SCOPE
+            && access != Access::Update
+            && self.module_targets.contains(&identifier.start_byte())
+        {
             return;
         }
         self.defer(NameUse {
             caller,
             name: &self.source[identifier.byte_range()],
             attribute: None,
-            access: self.access_of(identifier),
+            access,
             line: line(identifier.start_position().row),
             at: identifier.start_byte(),
             attribute_object: is_attribute_object(identifier),
