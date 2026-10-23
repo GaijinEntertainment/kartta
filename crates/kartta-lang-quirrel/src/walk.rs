@@ -227,7 +227,7 @@ impl<'a> Emitter<'a> {
     }
 
     // constraint: a function value is named by its binding, which is the name its callers use; a value with no
-    // binding and no name of its own runs where it is passed, so its calls belong to no symbol
+    // binding and no name of its own names no symbol, so its calls and uses belong to the site that defines it
     fn function_value(&mut self, node: Node<'_>) {
         let binding = self.value_binding(node).or_else(|| {
             field_text(node, "name", self.source).map(|name| Binding {
@@ -236,7 +236,10 @@ impl<'a> Emitter<'a> {
                 header_start: node.start_byte(),
             })
         });
-        let id = binding.map_or(FILE_SCOPE, |binding| self.bind_function(binding, node));
+        let id = match binding {
+            Some(binding) => self.bind_function(binding, node),
+            None => self.site(),
+        };
         self.open_scope(node, id);
     }
 
