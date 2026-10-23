@@ -980,6 +980,109 @@ fn find_callers_says_how_many_callers_bind_below_the_floor_in_place_of_a_verdict
     );
 }
 
+/// The answers to `calls` over a Go package whose `walk` calls itself and is called by `Run`, and whose `spin` calls
+/// itself alone.
+fn answers_over_recursion(calls: &[(&str, Value)]) -> Vec<String> {
+    answers_over(
+        &[
+            ("go.mod", "module example.com/lib\n\ngo 1.22\n"),
+            (
+                "walk.go",
+                "package lib\n\nfunc walk(n int) int {\n\tif n == 0 {\n\t\treturn 0\n\t}\n\treturn walk(n - 1)\n}\n\n\
+                 func Run() {\n\twalk(3)\n}\n\nfunc spin() {\n\tspin()\n}\n",
+            ),
+        ],
+        calls,
+    )
+}
+
+#[test]
+fn find_callers_find_callees_and_find_references_agree_on_a_function_that_calls_itself() {
+    let answers = answers_over_recursion(&[
+        ("find_callers", json!({"name": "walk", "hops": 1})),
+        ("find_callees", json!({"name": "walk"})),
+        ("find_references", json!({"name": "walk"})),
+        ("find_callers", json!({"name": "walk"})),
+    ]);
+
+    let callers = |unexpanded: &str| {
+        lines(&[
+            r#"<callers of="walk" matches="1">"#,
+            &format!(
+                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3" count="1" reach_band="low"{unexpanded}>"#
+            ),
+            r#"<self_call at="walk.go:7"/>"#,
+            r#"<ref name="Run" qn="lib.Run" loc="walk.go:10" role="consumer" hops="1" at="walk.go:11"/>"#,
+            "</match>",
+            "</callers>",
+        ])
+    };
+    assert_eq!(
+        answers,
+        [
+            callers(r#" unexpanded="1""#),
+            lines(&[
+                r#"<callees of="walk" matches="1">"#,
+                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3" count="0">"#,
+                concat!(
+                    "no callees but itself - no other call in its body binds a definition the graph holds; a call ",
+                    "into a library or a builtin, through a function value, or by dynamic dispatch binds none",
+                ),
+                r#"<self_call at="walk.go:7"/>"#,
+                "</match>",
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<references of="walk" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3" kind="function" count="2" "#,
+                    r#"files="1" calls="2">"#,
+                ),
+                r#"<file path="walk.go" sites="2">"#,
+                r#"<ref name="walk" qn="lib.walk" line="3" role="consumer" site="call" at="7"/>"#,
+                r#"<ref name="Run" qn="lib.Run" line="10" role="consumer" site="call" at="11"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            callers(""),
+        ]
+    );
+}
+
+#[test]
+fn a_function_that_calls_itself_alone_has_no_caller_and_no_callee_but_itself() {
+    let answers = answers_over_recursion(&[
+        ("find_callers", json!({"name": "spin"})),
+        ("find_callees", json!({"name": "spin"})),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<callers of="spin" matches="1">"#,
+                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14" count="0" reach_band="low">"#,
+                "no callers but itself - entry point, dead code, or dynamic dispatch",
+                r#"<self_call at="walk.go:15"/>"#,
+                "</match>",
+                "</callers>",
+            ]),
+            lines(&[
+                r#"<callees of="spin" matches="1">"#,
+                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14" count="0">"#,
+                concat!(
+                    "no callees but itself - no other call in its body binds a definition the graph holds; a call ",
+                    "into a library or a builtin, through a function value, or by dynamic dispatch binds none",
+                ),
+                r#"<self_call at="walk.go:15"/>"#,
+                "</match>",
+                "</callees>",
+            ]),
+        ]
+    );
+}
+
 #[test]
 fn find_callers_describes_the_no_callers_note_of_a_function_a_field_and_an_enum_variant() {
     let tree = tree(&[
