@@ -3897,3 +3897,84 @@ fn callers_of_a_free_function_count_its_name_s_ambiguous_calls_a_free_function_c
         "a call outside its body cannot mean a local function"
     );
 }
+
+fn recursive() -> Graph {
+    graph(&[file(
+        "a.go",
+        vec![function("f", 1), function("g", 10), function("h", 20)],
+        vec![
+            call(0, "f", 2),
+            call(1, "f", 11),
+            call(2, "g", 21),
+            call(2, "h", 22),
+        ],
+    )])
+}
+
+fn self_call(walk: &Walk<'_>) -> Option<(u32, u8)> {
+    walk.self_call.map(|call| (call.line, call.confidence))
+}
+
+#[test]
+fn callers_callees_and_references_agree_on_a_function_that_calls_itself() {
+    let graph = recursive();
+
+    let upward = graph.callers("f", Limits::new(1)).expect("f is defined");
+    let downward = graph.callees("f", Limits::new(1)).expect("f is defined");
+    let references = graph
+        .references("f", SiteQuery::new(usize::MAX))
+        .expect("f is defined");
+
+    assert_eq!(reached(&upward), ["a.go:10@80"]);
+    assert_eq!(self_call(&upward), Some((2, 80)));
+    assert_eq!(reached(&downward), Vec::<String>::new());
+    assert_eq!(self_call(&downward), Some((2, 80)));
+    assert_eq!(
+        references
+            .sites
+            .iter()
+            .map(|site| (site.site_of.name, site.line))
+            .collect::<Vec<_>>(),
+        [("f", 2), ("g", 11)]
+    );
+}
+
+#[test]
+fn a_walk_from_a_function_that_calls_itself_expands_it_once() {
+    let graph = recursive();
+
+    let walk = graph.callers("f", Limits::new(5)).expect("f is defined");
+
+    assert_eq!(reached(&walk), ["a.go:10@80", "a.go:20@80"]);
+    assert_eq!(self_call(&walk), Some((2, 80)));
+    assert_eq!((walk.unexpanded, walk.below_confidence), (0, 0));
+}
+
+#[test]
+fn a_symbol_further_out_that_calls_itself_is_listed_once_and_is_no_self_call_of_the_root() {
+    let graph = recursive();
+
+    let walk = graph.callers("g", Limits::new(3)).expect("g is defined");
+
+    assert_eq!(reached(&walk), ["a.go:20@80"]);
+    assert_eq!(self_call(&walk), None, "h calls itself, g does not");
+}
+
+#[test]
+fn the_confidence_floor_counts_a_self_call_it_drops() {
+    let graph = recursive();
+
+    let upward = graph
+        .callers("f", Limits::new(1).with_min_confidence(85))
+        .expect("f is defined");
+    let downward = graph
+        .callees("f", Limits::new(1).with_min_confidence(85))
+        .expect("f is defined");
+
+    assert_eq!(
+        (self_call(&upward), upward.below_confidence),
+        (None, 2),
+        "the caller g and the self-call both bind below the floor"
+    );
+    assert_eq!((self_call(&downward), downward.below_confidence), (None, 1));
+}
