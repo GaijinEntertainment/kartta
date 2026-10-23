@@ -303,8 +303,10 @@
   - Governs: `crates/kartta-lang-dshl/src/{lib,walk}.rs`
   - Revisit if: a DSHL use is measured under a use tier that reads includes
 - [3.19 Find the files that include a file through an index of
-  includers](./adr/3.19-find-the-files-that-include-a-file-through-an-index-of-includers.md) — initiative
-  `03-code-graph`, 2026-10-17
+  includers](./adr/3.19-find-the-files-that-include-a-file-through-an-index-of-includers.md)
+  - Governs: `crates/kartta-graph/src/dependents.rs` (`Graph::dependents`, `Dependents`),
+    `crates/kartta-graph/src/graph.rs` (`included_by`, `includers_of`)
+  - Revisit if: the include edges of a family make the index more than a few percent of its graph
 - [3.20 Resolve implementors from the parents written when a query
   asks](./adr/3.20-resolve-implementors-from-the-parents-written-when-a-query-asks.md) — initiative `03-code-graph`,
   2026-10-17, revised 2026-10-23
