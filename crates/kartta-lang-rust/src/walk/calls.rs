@@ -54,7 +54,17 @@ impl Emitter<'_> {
         }
 
         let index = self.raw.calls.len() - 1;
-        if let Some(written) = &written {
+        if let Some(written) = written {
+            let call = &self.raw.calls[index];
+            let written = if call.receiver.is_none()
+                && matches!(
+                    written.rsplit("::").next(),
+                    Some("crate" | "self" | "super")
+                ) {
+                format!("{written}::{}", call.callee)
+            } else {
+                written
+            };
             self.record_written_path(index, written, node.start_byte());
         }
         if names_own_type && let Some(own) = &self.raw.calls[index].receiver {
@@ -160,7 +170,7 @@ impl Emitter<'_> {
         if name.kind() == "identifier" {
             self.record_block_call(node, CallForm::Macro);
         } else if let Some(written) = path_text(name, self.source) {
-            self.record_written_path(self.raw.calls.len() - 1, &written, node.start_byte());
+            self.record_written_path(self.raw.calls.len() - 1, written, node.start_byte());
         }
     }
 

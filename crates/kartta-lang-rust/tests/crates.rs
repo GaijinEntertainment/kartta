@@ -34,6 +34,7 @@ fn a_use_binds_each_name_it_imports_from_another_crate_to_the_path_in_source_ord
             path("tree", "kartta_lang::tree", 1),
             path("at", "kartta_lang::tree::line", 1),
             path("text", "kartta_lang::tree::text", 1),
+            path("thing", "crate::local::thing", 4),
             path("item", "rooted::item", 6),
             path("zeta", "first::zeta", 6),
             path("alpha", "second::alpha", 6),
@@ -45,7 +46,7 @@ fn a_use_binds_each_name_it_imports_from_another_crate_to_the_path_in_source_ord
 fn a_path_call_binds_its_receiver_to_the_path_through_another_crate() {
     let got = bound(
         "use kartta_lang::tree;\n\nfn run() {\n    kartta_walk::walk();\n    other::m::f();\n    tree::sub::g();\n\
-         \x20   self::h();\n    crate::m::i();\n    Vec::new();\n    std::fs::read();\n}\n",
+         \x20   self::h();\n    crate::n::i();\n    Vec::new();\n    std::fs::read();\n}\n",
     );
 
     assert_eq!(
@@ -55,6 +56,8 @@ fn a_path_call_binds_its_receiver_to_the_path_through_another_crate() {
             path("kartta_walk", "kartta_walk", 4),
             path("m", "other::m", 5),
             path("sub", "kartta_lang::tree::sub", 6),
+            path("h", "self::h", 7),
+            path("n", "crate::n", 8),
         ]
     );
 }
@@ -72,6 +75,7 @@ fn a_macro_invocation_through_another_crate_binds_the_macro_name_to_its_path() {
             path("oc", "other_crate", 1),
             path("mac", "first::mac", 4),
             path("deep", "other_crate::sub::deep", 5),
+            path("local", "crate::local", 7),
         ]
     );
 }
@@ -168,6 +172,23 @@ fn a_use_inside_a_block_binds_a_macro_name_only_for_the_invocations_of_its_block
 }
 
 #[test]
+fn a_path_through_self_or_super_is_kept_only_outside_every_inline_module() {
+    let got = bound(
+        "use super::shared;\n\nfn run() { super::super::up(); self::sub::g(); }\n\nmod tests {\n\
+         \x20   use super::helper;\n\n    fn t() { super::super::up(); helper::h(); }\n}\n",
+    );
+
+    assert_eq!(
+        got,
+        [
+            path("shared", "super::shared", 1),
+            path("up", "super::super::up", 3),
+            path("sub", "self::sub", 3),
+        ]
+    );
+}
+
+#[test]
 fn a_kept_path_includes_no_file_its_name_spells() {
     let rust = Rust::new();
     let repository = MemoryRepository::new([("src/lib.rs", ""), ("src/walk", "")]);
@@ -261,6 +282,115 @@ fn a_crate_s_own_name_binds_its_library_from_its_tests() {
     let got = resolve(WORKSPACE, "crates/lang/tests/it.rs").bindings;
 
     assert_eq!(got, [binding("crates/lang/src/tree.rs", "text")]);
+}
+
+const OWN_CRATE: &[(&str, &str)] = &[
+    ("Cargo.toml", "[package]\nname = \"app\"\n"),
+    ("src/lib.rs", "mod a;\n"),
+    ("src/main.rs", ""),
+    (
+        "src/a.rs",
+        "mod b;\n\nfn run() { crate::root(); super::up(); }\n",
+    ),
+    (
+        "src/a/b.rs",
+        "use crate::a::c;\nuse super::helper;\nuse crate::a::Kind;\n\nfn run() {\n    super::super::root();\n\
+         \x20   self::d::e();\n    c::f();\n    super::super::super::past();\n    crate::a::Kind::new();\n}\n",
+    ),
+    ("src/a/c.rs", ""),
+    ("src/a/b/d.rs", ""),
+    ("src/bin/tool/main.rs", ""),
+    ("src/bin/tool/cli.rs", "fn run() { crate::go(); }\n"),
+    (
+        "tests/common/mod.rs",
+        "fn set_up() { crate::x(); super::y(); }\n",
+    ),
+    ("tests/it/main.rs", ""),
+    ("tests/it/util.rs", "fn check() { super::z(); }\n"),
+];
+
+#[test]
+fn a_path_through_crate_self_or_super_binds_the_module_file_from_the_caller_s_module() {
+    let nested = resolve(OWN_CRATE, "src/a/b.rs").bindings;
+    let top = resolve(OWN_CRATE, "src/a.rs").bindings;
+
+    assert_eq!(
+        nested,
+        [
+            binding("src/a/c.rs", "c"),
+            binding("src/a.rs", "helper"),
+            binding("src/lib.rs", "root"),
+            binding("src/a/b/d.rs", "d"),
+        ]
+    );
+    assert_eq!(
+        top,
+        [binding("src/lib.rs", "root"), binding("src/lib.rs", "up")]
+    );
+}
+
+#[test]
+fn a_target_s_own_files_start_crate_paths_at_its_root_and_shared_ones_bind_none() {
+    let binary = resolve(OWN_CRATE, "src/bin/tool/cli.rs").bindings;
+    let shared = resolve(OWN_CRATE, "tests/common/mod.rs").bindings;
+    let in_a_target = resolve(OWN_CRATE, "tests/it/util.rs").bindings;
+
+    assert_eq!(binary, [binding("src/bin/tool/main.rs", "go")]);
+    assert_eq!(shared, []);
+    assert_eq!(in_a_target, [binding("tests/it/main.rs", "z")]);
+}
+
+#[test]
+fn a_library_at_its_package_root_starts_crate_paths_of_its_own_files_and_not_of_src() {
+    let files: &[(&str, &str)] = &[
+        ("Cargo.toml", "[workspace]\nmembers = [\"walk\"]\n"),
+        (
+            "walk/Cargo.toml",
+            "[package]\nname = \"walk\"\n\n[lib]\npath = \"lib.rs\"\n",
+        ),
+        ("walk/lib.rs", "mod tree;\n"),
+        ("walk/tree.rs", "fn run() { crate::top(); }\n"),
+        ("walk/src/main.rs", "mod helper;\n"),
+        ("walk/src/helper.rs", "fn run() { crate::go(); }\n"),
+    ];
+
+    let library = resolve(files, "walk/tree.rs").bindings;
+    let binary = resolve(files, "walk/src/helper.rs").bindings;
+
+    assert_eq!(library, [binding("walk/lib.rs", "top")]);
+    assert_eq!(binary, [binding("walk/src/main.rs", "go")]);
+}
+
+#[test]
+fn a_library_at_the_repository_root_starts_crate_paths_of_the_files_beside_it() {
+    let files: &[(&str, &str)] = &[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"walk\"\n\n[lib]\npath = \"lib.rs\"\n",
+        ),
+        ("lib.rs", "mod tree;\n"),
+        ("tree.rs", "fn run() { crate::top(); }\n"),
+    ];
+
+    let got = resolve(files, "tree.rs").bindings;
+
+    assert_eq!(got, [binding("lib.rs", "top")]);
+}
+
+#[test]
+fn a_library_root_its_manifest_names_starts_self_paths_at_its_own_directory() {
+    let files: &[(&str, &str)] = &[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"cli\"\n\n[lib]\npath = \"src/root.rs\"\n",
+        ),
+        ("src/root.rs", "fn run() { self::child::f(); }\n"),
+        ("src/child.rs", ""),
+    ];
+
+    let got = resolve(files, "src/root.rs").bindings;
+
+    assert_eq!(got, [binding("src/child.rs", "child")]);
 }
 
 #[test]

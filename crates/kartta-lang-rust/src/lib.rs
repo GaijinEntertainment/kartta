@@ -24,12 +24,15 @@
 //! macro invocation is a call of the macro. A call of an item that a function body declares is a local call of that
 //! item.
 //!
-//! A `use` of a path that may start at another crate, `use kartta_lang::tree::{self, text as at}`, keeps each name it
-//! binds with the path the name reaches, and so does a path call through such a crate for its receiver,
-//! `kartta_walk::walk::run()` for `walk`, and a macro invocation through one for its macro, `kartta_lang::mac!()` for
-//! `mac`, each read through the `use` of its first segment where the file has one. A name the file declares at its top
-//! level, or binds to two paths anywhere, keeps none, and a glob, `as _`, `crate::`, `self::`, `super::`, a
-//! capitalised first segment and the standard library's crates keep nothing. A `use` inside a
+//! A `use` of a path that may start at another crate or at the file's own crate or module,
+//! `use kartta_lang::tree::{self, text as at}` or `use super::helper`, keeps each name it binds with the path the name
+//! reaches, and so does a path call through such a path for its receiver, `kartta_walk::walk::run()` for `walk` and
+//! `crate::m::f()` for `m`, or for its name where the path ends at `crate`, `self` or `super`, `super::f()` for `f`,
+//! and a macro invocation through one for its macro, `kartta_lang::mac!()` for `mac`, each read through the `use` of
+//! its first segment where the file has one. A name the file declares at its top level, or binds to two paths anywhere,
+//! keeps none, and a glob, `as _`, a capitalised first segment, a path through the file's own crate or module that ends
+//! at a capitalised item, a path through `self::` or `super::` inside an inline module and the standard library's
+//! crates keep nothing. A `use` inside a
 //! function body or an inline module is in scope in its block alone, not in a module nested in it: outside the blocks
 //! of the `use`s that alone bind a name, a path call reads the name as the crate it spells, and a bare call of the name
 //! leaves it no path. The paths are among the file's directives in source order. `extern crate` adds no import.
@@ -58,12 +61,17 @@
 //! A package's library is named by its manifest's `[lib] name`, else by its `[package] name` with `-` read as `_`, and
 //! lies at its `[lib] path`, else at `src/lib.rs`, each value read only from a `key = "value"` on one line under its
 //! table's header, the form Cargo writes, or a `key = 'value'`; a manifest without a `[package] name` declares no
-//! library. A path a file keeps starts at the library its first segment names:
-//! the caller's own package's, else the package that shares the most leading directories with the caller's, and none
-//! where two share as many. Each segment after it names the module file the module layout gives it, and the path
-//! imports the file of the module it ends at, or of the module that holds the lowercase item it ends at; a longer rest
-//! imports nothing. A call of the name, or through it, binds what that file exports at its top level under the name, a
-//! function before a type of the name, since a call never names a type that Rust keeps apart from values.
+//! library. A path a file keeps starts at the library its first segment names: the caller's own package's, else the
+//! package that shares the most leading directories with the caller's, and none where two share as many. A path through
+//! `crate::` starts at the caller's crate root: the file itself where it is one, else the `main.rs` of the target
+//! directory it lies in, else the nearer of the library whose directory holds it and, below `src/`, the main binary,
+//! the library where both sit in one directory; a file of `tests/`, `examples/` or `benches/` outside a target
+//! directory has none. A path through `self::` starts at the caller's own module, beside the file where the file is its
+//! crate's root, and each `super::` at the module above, the crate root where the module's directory lies in the
+//! root's. Each segment after it names the module file the module layout gives it, and the path imports the file of the
+//! module it ends at, or of the module that holds the lowercase item it ends at; a longer rest imports nothing. A call
+//! of the name, or through it, binds what that file exports at its top level under the name, a function before a type
+//! of the name, since a call never names a type that Rust keeps apart from values.
 //!
 //! The resolver keeps only what it derived: the packages and the name and root of each library. A resolver built again
 //! over an edit that changes none of them, such as a dependency bump in a `Cargo.toml`,
