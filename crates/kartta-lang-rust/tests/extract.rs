@@ -531,6 +531,46 @@ fn a_closure_opens_no_scope() {
 }
 
 #[test]
+fn a_call_through_a_parameter_or_a_local_is_no_call() {
+    let raw = extract(
+        b"use other_crate::helper;
+fn f(helper: fn()) { helper(); }
+fn g() { let helper = || {}; helper(); }
+fn h() { helper(); }
+fn k(run: impl Fn()) { run(); }
+fn m() { let run = || {}; run(); }
+fn n(items: Vec<fn()>, hook: Option<fn()>) {
+    let early = helper();
+    let helper = early;
+    items.iter().for_each(|visit| visit());
+    for each in items { each(); }
+    match hook { Some(call) => call(), None => run() }
+    if let Some(go) = hook { go() } else { go() }
+    fn nested() { helper(); }
+}
+",
+    );
+    let calls: Vec<(&str, SymbolId)> = raw
+        .calls
+        .iter()
+        .map(|call| (call.callee.as_str(), call.site_of))
+        .collect();
+
+    assert_eq!(
+        calls,
+        [
+            ("helper", id_of(&raw, "h")),
+            ("helper", id_of(&raw, "n")),
+            ("for_each", id_of(&raw, "n")),
+            ("iter", id_of(&raw, "n")),
+            ("run", id_of(&raw, "n")),
+            ("go", id_of(&raw, "n")),
+            ("helper", id_of(&raw, "nested")),
+        ]
+    );
+}
+
+#[test]
 fn a_cfg_test_module_marks_everything_in_it() {
     let source = b"pub fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    fn helper() -> u32 {\n        0\n    }\n\n\
                    #[test]\n    fn it_works() {\n        helper();\n    }\n}\n";

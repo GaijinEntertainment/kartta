@@ -29,11 +29,15 @@ impl Target {
 impl Emitter<'_> {
     // constraint: a scoped call's receiver path under the module chain replaces its receiver after the walk when the
     // file declares a type or module of that name, and a `self` or `Self` receiver follows the owner of the impl it
-    // names when that owner settles
+    // names when that owner settles; a bare call of a name a pattern binds, a parameter or a local, calls the value the
+    // name holds, a closure or a function pointer, and binds no definition of the name, so it is no call
     pub(super) fn call(&mut self, node: Node<'_>, site_of: SymbolId) {
         let Some(function) = node.child_by_field_name("function") else {
             return;
         };
+        if function.kind() == "identifier" && self.is_bound(&self.source[function.byte_range()]) {
+            return;
+        }
         let target = self.call_target(function);
         let written = receiver_path(function, self.source);
         let path = written.as_deref().and_then(|path| self.module_path(path));

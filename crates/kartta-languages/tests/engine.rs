@@ -7,7 +7,8 @@
 //! function body or an inline module only from inside it, and no macro of a name the crate also answers with a
 //! function or a `use`, as a call does not say it invokes a macro, and a Rust call on a value, on `self` or through a
 //! type binds no free function, not even through a value named like a module the file imports, while a call on a
-//! value still binds the one runtime method whose owner the value's name spells.
+//! value still binds the one runtime method whose owner the value's name spells, and a bare call through a parameter
+//! or a local binds nothing.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -270,6 +271,42 @@ fn a_rust_glob_binds_the_items_its_module_s_file_shows_the_caller() {
         ]
     );
     assert_eq!(own_file, [("local", "crates/app/src/tests.rs")]);
+}
+
+#[test]
+fn a_rust_call_through_a_parameter_or_a_local_binds_nothing() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/other/Cargo.toml",
+            "[package]\nname = \"other_crate\"\n",
+        ),
+        (
+            "crates/other/src/lib.rs",
+            "pub fn helper() {}\n\npub fn run() {}\n",
+        ),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "use other_crate::helper;\n\nfn f(helper: fn()) { helper(); }\n\
+             fn g() { let helper = || {}; helper(); }\nfn h() { helper(); }\nfn k(run: impl Fn()) { run(); }\n\
+             fn m() { let run = || {}; run(); }\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+    let lib = "crates/app/src/lib.rs";
+
+    for through_a_value in ["f", "g", "k", "m"] {
+        assert_eq!(
+            callees(&engine, lib, through_a_value),
+            (vec![], 0),
+            "{through_a_value}"
+        );
+    }
+    assert_eq!(
+        bound_through_an_import(&engine, lib, "h"),
+        ["crates/other/src/lib.rs"]
+    );
 }
 
 fn bound_through_an_import<'e>(engine: &'e Engine, path: &str, name: &str) -> Vec<&'e str> {
