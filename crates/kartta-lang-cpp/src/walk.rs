@@ -889,6 +889,13 @@ int defined_and_declared(int x) { return x; }
         raw.calls.iter().map(|call| call.callee.as_str()).collect()
     }
 
+    fn spans(raw: &RawExtraction) -> Vec<(&str, u32, u32)> {
+        raw.symbols
+            .iter()
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.line, symbol.end_line))
+            .collect()
+    }
+
     fn symbol<'r>(raw: &'r RawExtraction, name: &str) -> &'r Symbol {
         raw.symbols
             .iter()
@@ -1448,6 +1455,106 @@ int defined_and_declared(int x) { return x; }
 
         assert_eq!(qualified(&raw, "Result::HasError").kind, SymbolKind::Method);
         assert_eq!(symbol(&raw, "Result").kind, SymbolKind::Class);
+    }
+
+    #[test]
+    fn a_lone_macro_line_above_a_template_head_keeps_the_class_and_its_members() {
+        let raw = extract(
+            br"FMT_BEGIN_EXPORT
+
+// An output iterator that appends to a buffer.
+template <typename T> class basic_appender {
+ protected:
+  detail::buffer<T>* container;
+
+ public:
+  using value_type = T;
+  basic_appender(detail::buffer<T>& buf) : container(&buf) {}
+  auto operator=(T c) -> basic_appender& {
+    container->push_back(c);
+    return *this;
+  }
+  auto operator*() -> basic_appender& { return *this; }
+};
+
+class basic_format_arg {
+ public:
+  int size() const { return 1; }
+};
+
+FMT_END_EXPORT
+",
+        );
+
+        assert_eq!(
+            spans(&raw),
+            [
+                ("basic_appender", 4, 16),
+                ("basic_appender::container", 6, 6),
+                ("basic_appender::value_type", 9, 9),
+                ("basic_appender::basic_appender", 10, 10),
+                ("basic_appender::operator=", 11, 14),
+                ("basic_appender::operator*", 15, 15),
+                ("basic_format_arg", 18, 21),
+                ("basic_format_arg::size", 20, 20)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_lone_macro_line_above_a_class_head_with_its_own_macro_keeps_the_class_and_its_members() {
+        let raw = extract(
+            b"OPENMAYA_MAJOR_NAMESPACE_OPEN\n\nclass OPENMAYA_EXPORT MUniqueString\n{\npublic:\n\
+              \tstatic MUniqueString intern(const char *name);\n\
+              \tMUniqueString &operator=(const MUniqueString &other);\n\tint length() const;\n};\n\n\
+              OPENMAYA_NAMESPACE_CLOSE\n",
+        );
+
+        assert_eq!(
+            spans(&raw),
+            [
+                ("MUniqueString", 3, 9),
+                ("MUniqueString::intern", 6, 6),
+                ("MUniqueString::operator=", 7, 7),
+                ("MUniqueString::length", 8, 8)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_lone_macro_line_above_a_class_past_a_block_comment_keeps_the_class_and_its_members() {
+        let raw = extract(
+            b"namespace physx\n{\nnamespace apex\n{\n\nPX_PUSH_PACK_DEFAULT\n\n\
+              /**\n\\brief Base class for all interface classes\n*/\nclass NxApexInterface\n{\npublic:\n\
+              \tNxApexInterface() : userData(NULL) {}\n\tvirtual void release() = 0;\n\tvoid* userData;\n};\n\n\
+              PX_POP_PACK\n\n}\n} // namespace physx\n",
+        );
+
+        assert_eq!(
+            spans(&raw),
+            [
+                ("physx::apex::NxApexInterface", 11, 17),
+                ("NxApexInterface::NxApexInterface", 14, 14),
+                ("NxApexInterface::release", 15, 15),
+                ("NxApexInterface::userData", 16, 16)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_namespace_under_a_lone_macro_line_or_around_macros_keeps_its_name() {
+        let under = extract(
+            b"RTM_IMPL_FILE_PRAGMA_PUSH\n\nnamespace rtm\n{\n\
+              \tinline float vector_get_x(float input) { return input; }\n\
+              \tinline float vector_get_y(float input) { return input; }\n}\n\nRTM_IMPL_FILE_PRAGMA_POP\n",
+        );
+        let around = extract(b"namespace rtm { MACRO_BEGIN void f() {} MACRO_END }\n");
+
+        assert_eq!(
+            qualified_names(&under),
+            ["rtm::vector_get_x", "rtm::vector_get_y"]
+        );
+        assert_eq!(qualified_names(&around), ["rtm::f"]);
     }
 
     #[test]

@@ -29,6 +29,7 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
 
     let tables = Tables::of(source);
     let mut judged_to = 0;
+    let mut macro_run = MacroRun::default();
 
     let mut at = 0;
     while at < source.len() {
@@ -46,6 +47,9 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
         let blanked = match source[at] {
             b',' if opens_an_empty_slot(source, at) => Some((at, at + 1)),
             b'c' | b's' | b'u' if is_class_key(source, at) => head_macros(source, at),
+            _ if at == 0 || source[at - 1] == b'\n' => {
+                lone_macro_above_a_head(source, at, &mut macro_run)
+            }
             _ => None,
         };
         at = match blanked {
@@ -346,13 +350,87 @@ fn bounded_find(text: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
+// constraint: a macro alone on its line above a template, a class or a namespace head, `JPH_NAMESPACE_BEGIN` or
+// `RTM_IMPL_FILE_PRAGMA_PUSH` above `namespace rtm {`, parses as the type of a declaration whose declarator is the key
+// or the name below it, with the class body or the namespace read as a function's body, and the errors that leaves
+// span too few rows for the spill gate. Above a function the macro reads as its return type and stays; a macro call,
+// as the `TABLE_END(name)` that closes a table an earlier line opens, is no such macro, and blanking it unbalances what
+// it closes
+fn lone_macro_above_a_head(
+    source: &[u8],
+    line: usize,
+    run: &mut MacroRun,
+) -> Option<(usize, usize)> {
+    let start = line + indent_len(&source[line..]);
+    let opens_a_macro_name = source
+        .get(start)
+        .is_some_and(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || *byte == b'_');
+    if !opens_a_macro_name {
+        return None;
+    }
+    let end = start + word_len(&source[start..]);
+    if !is_macro_name(&source[start..end]) {
+        return None;
+    }
+    let line_end = end
+        + source[end..]
+            .iter()
+            .take_while(|byte| **byte != b'\n' && byte.is_ascii_whitespace())
+            .count();
+    let continues_a_define = line.checked_sub(1).is_some_and(|newline| {
+        let above = &source[..newline];
+        above.strip_suffix(b"\r").unwrap_or(above).ends_with(b"\\")
+    });
+    if continues_a_define || source.get(line_end).is_some_and(|byte| *byte != b'\n') {
+        return None;
+    }
+    if line >= run.code {
+        let code = next_code(source, line_end);
+        let word = &source[code..code + word_len(&source[code..])];
+        *run = MacroRun {
+            code,
+            opens_a_head: word == b"template" || word == b"namespace" || CLASS_KEYS.contains(&word),
+        };
+    }
+    run.opens_a_head.then_some((start, end))
+}
+
+/// The code a run of lone macro lines leads to, which every line of the run shares, so the run is scanned once.
+#[derive(Default)]
+struct MacroRun {
+    code: usize,
+    opens_a_head: bool,
+}
+
+/// The start of the first code at or past `at` that is no comment and no line a macro name fills alone.
+fn next_code(source: &[u8], mut at: usize) -> usize {
+    loop {
+        at += whitespace_len(&source[at..]);
+        let text = &source[at..];
+        let row = &text[..line_len(text)];
+        at += if text.starts_with(b"/*") {
+            comment_len(text).unwrap_or(text.len())
+        } else if row.starts_with(b"//") || is_macro_name(row.trim_ascii_end()) {
+            row.len()
+        } else {
+            return at;
+        };
+    }
+}
+
+fn line_len(text: &[u8]) -> usize {
+    text.iter()
+        .position(|byte| *byte == b'\n')
+        .unwrap_or(text.len())
+}
+
 pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
     if !tree.root_node().has_error() {
         return None;
     }
 
     let Recovery {
-        mut spills,
+        spills,
         misread_branch,
         misread_bodies: bodies,
     } = recovery_of(tree, source);
@@ -364,12 +442,6 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
     }
     if spills.is_empty() && bodies.is_empty() {
         return repaired.copy;
-    }
-    if !spills.is_empty() {
-        let lines: Vec<&[u8]> = source.split(|byte| *byte == b'\n').collect();
-        for spill in &mut spills {
-            spill.0 = lead_in(&lines, spill.0);
-        }
     }
 
     let mut offset = 0;
@@ -598,32 +670,6 @@ impl ConditionalScan {
             conditional.closes_unopened |= conditional.depth < 0;
         }
     }
-}
-
-// constraint: a bare macro on a line of its own that opens a scope, `JPH_NAMESPACE_BEGIN` above a class, joins the
-// declaration after it, and the error tree-sitter recovers into starts at that declaration, past blank lines and
-// comments, rather than at the macro. Only a template or a class head takes no type before it: above a function, the
-// macro reads as its return type, as `NAMESPACE_END` above `STDAPI_(bool) f()` does once the macro call is blanked.
-// A macro call above an error, as the `TABLE_END(name)` that closes a table an earlier line opens, is no such macro,
-// and blanking it unbalances what it closes
-fn lead_in(lines: &[&[u8]], start: usize) -> usize {
-    let opens_a_type = lines.get(start).is_some_and(|line| {
-        let text = line.trim_ascii_start();
-        let word = &text[..word_len(text)];
-        word == b"template" || CLASS_KEYS.contains(&word)
-    });
-    if !opens_a_type {
-        return start;
-    }
-    let mut row = start;
-    while let Some(line) = row.checked_sub(1).and_then(|above| lines.get(above)) {
-        let text = line.trim_ascii();
-        if !(text.is_empty() || text.starts_with(b"//") || is_macro_name(text)) {
-            break;
-        }
-        row -= 1;
-    }
-    row
 }
 
 fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
@@ -1331,6 +1377,26 @@ void free_fn() {}
             .map(|symbol| (symbol.name.as_str(), symbol.line))
             .collect();
         assert_eq!(lines, [("Widget", 1), ("after", 6), ("draw", 3)]);
+    }
+
+    #[test]
+    fn a_lone_macro_line_is_blanked_above_a_head_and_nowhere_else() {
+        const SOURCE: &[u8] = b"PUSH_PACK\n// a note\n\nnamespace a {\nEXPORT_BEGIN\n/* doc */\n  INNER_OPEN\n\
+                                  template <class T> class B {};\nNAMESPACE_END\nSTDAPI_(bool) f();\nTABLE_END(x)\n\
+                                class C {};\n#define X \\\nFOO\nstruct D {};\nOK\nunion E {};\nPACK_UNION\n\
+                                union G {};\nPACK_STRUCT\nstruct H {};\nNOTED // why\nclass F {};\n}\n";
+
+        let repaired = for_parse(SOURCE).expect("lone macros above heads");
+
+        let lines: Vec<&[u8]> = repaired.split(|byte| *byte == b'\n').collect();
+        let blanked: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| !line.is_empty() && line.iter().all(|byte| *byte == b' '))
+            .map(|(row, _)| row + 1)
+            .collect();
+        assert_eq!(blanked, [1, 5, 7, 18, 20]);
+        assert_eq!(repaired.len(), SOURCE.len());
     }
 
     #[test]
