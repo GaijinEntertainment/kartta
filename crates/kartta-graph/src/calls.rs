@@ -149,8 +149,9 @@ pub struct FileScope<'g> {
 pub struct SiteQuery {
     /// The least [`confidence`](crate::confidence) a site needs, 0 to 100; 0 takes every site.
     pub min_confidence: u8,
-    /// The uses kept: those that read the symbol for [`Access::Read`], that assign it for [`Access::Write`], and the
-    /// updates alone for [`Access::Update`]; an update reads and assigns, and no call is kept. `None` keeps every site.
+    /// The uses kept: those that read the symbol or name it as a type for [`Access::Read`], that assign it for
+    /// [`Access::Write`], the updates alone for [`Access::Update`], and the uses as a type alone for [`Access::Type`];
+    /// an update reads and assigns, and no call is kept. `None` keeps every site.
     pub access: Option<Access>,
     /// How many sites the answer lists at most.
     pub limit: usize,
@@ -189,9 +190,10 @@ impl SiteQuery {
         match (self.access, access) {
             (None, _) => true,
             (Some(_), None) => false,
-            (Some(Access::Read), Some(access)) => access.reads(),
+            (Some(Access::Read), Some(access)) => access.reads() || matches!(access, Access::Type),
             (Some(Access::Write), Some(access)) => access.writes(),
             (Some(Access::Update), Some(access)) => matches!(access, Access::Update),
+            (Some(Access::Type), Some(access)) => matches!(access, Access::Type),
         }
     }
 }
@@ -210,7 +212,7 @@ pub struct Reference<'g> {
     /// Whether the site calls the symbol. A caller counts once, at the line of its call; any other use counts once a
     /// line for each way it touches the symbol.
     pub call: bool,
-    /// How the site touches the symbol; a call, and a use as a type, read it.
+    /// How the site touches the symbol; a call reads it.
     pub access: Access,
 }
 
@@ -220,12 +222,14 @@ pub struct Reference<'g> {
 pub struct SiteCounts {
     /// The calls.
     pub calls: usize,
-    /// The other uses that read the symbol, or name it as a type.
+    /// The other uses that read the symbol.
     pub reads: usize,
     /// The uses that assign it without reading it.
     pub writes: usize,
     /// The uses that read and assign it.
     pub updates: usize,
+    /// The uses that name it as a type.
+    pub types: usize,
 }
 
 impl SiteCounts {
@@ -235,6 +239,7 @@ impl SiteCounts {
             Some(Access::Read) => self.reads += 1,
             Some(Access::Write) => self.writes += 1,
             Some(Access::Update) => self.updates += 1,
+            Some(Access::Type) => self.types += 1,
         }
     }
 }

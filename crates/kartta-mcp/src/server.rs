@@ -989,12 +989,14 @@ impl Server {
                        text search that also matches strings, comments, and same-named symbols. Searches every \
                        indexed language unless narrowed with 'languages'; a name resolving in several languages \
                        yields one match per language. Returns a <references> envelope of <match lang=..> records: each \
-                       the resolved symbol with its loc, kind, and count= of the sites it keeps, calls= reads= writes= \
-                       updates= (types= for a type) counting every site whatever access keeps, and files= the files \
+                       the resolved symbol with its loc, kind, and count= of the sites it keeps, calls= types= reads= \
+                       writes= updates= counting every site whatever access keeps, and files= the files \
                        holding them. The sites come grouped in <file path= sites=N> records, the files with the most \
                        sites first: one <ref> per enclosing symbol and site kind in line order, carrying the enclosing \
                        symbol's name, qn and line=, its explicit role= (\"consumer\", or test/entry/generated), site= \
-                       (call, type, read, write, or update for += and ++), at= the lines where it touches the symbol, \
+                       (call; type where code names it as a type; read where code reads it, a member taken through \
+                       a type, EventType.Created, reading the type; write; or update for += and ++), at= the lines \
+                       where it touches the symbol, \
                        and a confidence=likely / guess mark on a weakly resolved site. A caller is one site, at one of \
                        its calls; every other use is one site per line and kind. Field accesses are recorded only for \
                        Go, C/C++, TypeScript, JavaScript and Python so far, value reads also for Rust, DSHL and \

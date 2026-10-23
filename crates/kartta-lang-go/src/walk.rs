@@ -84,6 +84,9 @@ struct Emitter<'a> {
     spec_owners: VecDeque<(usize, SymbolId)>,
     named_by_call: Option<usize>,
     literal_key: Option<usize>,
+    /// The identifiers a conversion, an allocation or a type argument names as a type, which the walk reaches after
+    /// the call that holds them.
+    type_operands: Vec<usize>,
     import_names: Vec<String>,
     pending_parents: Vec<(String, String)>,
     anonymous: HashMap<usize, String>,
@@ -110,6 +113,7 @@ impl<'a> Emitter<'a> {
             spec_owners: VecDeque::new(),
             named_by_call: None,
             literal_key: None,
+            type_operands: Vec::new(),
             import_names: Vec::new(),
             pending_parents: Vec::new(),
             anonymous: HashMap::new(),

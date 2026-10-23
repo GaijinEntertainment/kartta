@@ -48,7 +48,7 @@ impl Graph {
             stats.uses += file.uses.len();
             for site in &file.uses {
                 match site.access() {
-                    Access::Read => stats.reads += 1,
+                    Access::Read | Access::Type => stats.reads += 1,
                     Access::Write => stats.writes += 1,
                     Access::Update => stats.updates += 1,
                 }

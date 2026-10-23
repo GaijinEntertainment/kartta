@@ -646,3 +646,55 @@ fn a_field_answers_each_access_counted_the_ones_asked_for_and_the_uses_it_could_
         "an update reads too, and the limit cuts what is listed"
     );
 }
+
+#[test]
+fn a_type_counts_its_uses_as_a_type_apart_from_its_reads_and_a_read_query_keeps_both() {
+    let mut caller = file(
+        "app/main.go",
+        "main",
+        vec![function("main", "Run", 1)],
+        Vec::new(),
+    );
+    let qualified = |access, line| UseRef {
+        site_of: SymbolId(0),
+        name: "Config".to_owned(),
+        receiver: Receiver::Qualifier("cfg".to_owned()),
+        access,
+        line,
+    };
+    caller.uses = vec![
+        qualified(Access::Type, 2),
+        qualified(Access::Read, 2),
+        qualified(Access::Type, 3),
+    ];
+    let caller = importing(caller, &[("cfg", Some("cfg"))]);
+    let graph = graph(&[config_package(), caller]);
+    let answer = |query| {
+        graph
+            .references("cfg.Config", query)
+            .expect("the type is selected")
+    };
+    let accesses = |query| -> Vec<(u32, Access)> {
+        answer(query)
+            .sites
+            .iter()
+            .map(|site| (site.line, site.access))
+            .collect()
+    };
+
+    let counts = answer(SiteQuery::new(usize::MAX)).counts;
+
+    assert_eq!(
+        (counts.reads, counts.types),
+        (1, 2),
+        "a use as a type and a read on one line are two sites"
+    );
+    assert_eq!(
+        accesses(SiteQuery::new(usize::MAX).with_access(Access::Read)),
+        [(2, Access::Read), (2, Access::Type), (3, Access::Type)]
+    );
+    assert_eq!(
+        accesses(SiteQuery::new(usize::MAX).with_access(Access::Type)),
+        [(2, Access::Type), (3, Access::Type)]
+    );
+}
