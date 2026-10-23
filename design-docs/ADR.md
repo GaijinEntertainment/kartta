@@ -423,9 +423,10 @@
   - Revisit if: a language that sets `Unbound` gains a construct through which a call names a namespace
 - [3.45 Bind a call through a module's file as the module's paths see
   it](./adr/3.45-bind-a-call-through-a-module-s-file-as-the-module-s-paths-see-it.md)
-  - Governs: `crates/kartta-graph/src/resolve.rs` (`through_binding`, `module_export`, `macro_exported_below`,
-    `glob_imported`), `kartta_lang::ImportBinding`
-  - Revisit if: the extraction follows `pub use` (#217)
+  - Governs: `crates/kartta-graph/src/resolve.rs` (`through_binding`, `module_export`, `module_item`,
+    `used_by_module`, `globbed_by_module`, `macro_exported_below`, `glob_imported`), `kartta_lang::ImportBinding`
+  - Revisit if: a miss past a module's file, its bindings, its globs and the macros exported below it leaves only
+    inline modules, `#[path]` modules and crates outside the tree
 - [3.46 Bind no test definition by name for a call from outside test
   code](./adr/3.46-bind-no-test-definition-by-name-for-a-call-from-outside-test-code.md)
   - Governs: `crates/kartta-graph/src/resolve.rs` (`can_bind_by_name`, `one_type_outside_tests`,
