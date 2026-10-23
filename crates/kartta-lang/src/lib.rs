@@ -83,9 +83,9 @@ pub use crate::extraction::{
     ReExport, Receiver, UseRef,
 };
 pub use crate::language::{
-    CallsOnValues, Conventions, DataUses, IncludeReach, InheritedMembers, Language, MemberCalls,
-    NamespaceCalls, OwnMembers, Receivers, Repository, Resolver, TypeUses, UntypedMembers,
-    UntypedOwners, ValueUses,
+    CallsOnValues, Conventions, DataUses, IncludeReach, IncludedRuntimeMembers, InheritedMembers,
+    Language, MemberCalls, NamespaceCalls, OwnMembers, Receivers, Repository, Resolver, TypeUses,
+    UntypedMembers, UntypedOwners, ValueUses,
 };
 pub use crate::memory::MemoryRepository;
 pub use crate::symbol::{FILE_SCOPE, Symbol, SymbolFlags, SymbolId, SymbolKind};
