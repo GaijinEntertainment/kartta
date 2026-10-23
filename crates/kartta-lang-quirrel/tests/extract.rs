@@ -265,6 +265,36 @@ fn the_runtime_methods_ascend_without_a_repeat_and_name_the_built_in_delegates()
 }
 
 #[test]
+fn the_runtime_methods_name_the_engine_s_native_values_and_not_the_scripts_helpers() {
+    let methods = Quirrel::new().conventions().runtime_methods;
+
+    for method in [
+        "get",
+        "set",
+        "mutate",
+        "subscribe",
+        "getBlockByName",
+        "setFrom",
+        "getScene",
+        "getTemplateByName",
+    ] {
+        assert!(methods.binary_search(&method).is_ok(), "{method}");
+    }
+    for method in [
+        "isEmpty",
+        "isEqual",
+        "isValid",
+        "isVisible",
+        "isEnabled",
+        "getName",
+        "getTypeName",
+        "size",
+    ] {
+        assert!(methods.binary_search(&method).is_err(), "{method}");
+    }
+}
+
+#[test]
 fn the_fingerprint_stays_put_and_names_the_crate() {
     let quirrel = Quirrel::new();
     let fingerprint = quirrel.fingerprint();
