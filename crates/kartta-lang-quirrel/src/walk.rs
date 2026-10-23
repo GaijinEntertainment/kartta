@@ -126,7 +126,11 @@ impl<'a> Emitter<'a> {
     // declares, is a value its file binds: a function passed, stored or returned without a call
     fn value_use(&mut self, parent: &str, field: Option<&str>, child: Node<'_>) {
         match child.kind() {
-            "identifier" if is_value_position(parent, field) => self.push_value_use(child, false),
+            "identifier"
+                if is_value_position(parent, field) && !self.is_squirrel_extends(parent, child) =>
+            {
+                self.push_value_use(child, false);
+            }
             "root_table_access" if is_value_position(parent, field) => {
                 if let Some(name) = child.child_by_field_name("name") {
                     self.push_value_use(name, true);
@@ -134,6 +138,12 @@ impl<'a> Emitter<'a> {
             }
             _ => {}
         }
+    }
+
+    // constraint: Squirrel's `class C extends B` is no Quirrel, whose grammar reads `extends` there as a name inside an
+    // ERROR; outside an ERROR `extends` is a name like any other
+    fn is_squirrel_extends(&self, parent: &str, name: Node<'_>) -> bool {
+        parent == "ERROR" && &self.source[name.byte_range()] == b"extends"
     }
 
     fn push_value_use(&mut self, name: Node<'_>, from_root: bool) {
