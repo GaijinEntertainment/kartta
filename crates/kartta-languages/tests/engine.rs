@@ -7,7 +7,8 @@
 //! struct its `use` names, a bare call through a glob what the glob's module shows it, a macro invocation the
 //! `#[macro_export]` macro of its root file or the one of the files that file includes, through a `use` inside a
 //! function body or an inline module only from inside it, and no macro of a name the crate also answers with a
-//! function or a `use`, as a call does not say it invokes a macro, and a Rust call on a value, on `self` or through a
+//! function or a `use`, as a call does not say it invokes a macro, a Rust path call through a module no item of its
+//! own file that the path does not name, and a Rust call on a value, on `self` or through a
 //! type binds no free function, not even through a value named like a module the file imports, while a call on a
 //! value still binds the one runtime method whose owner the value's name spells, one on a parameter the method of the
 //! type the parameter is declared as, and a bare call through a parameter or a local binds nothing.
@@ -556,6 +557,33 @@ fn a_rust_path_call_through_a_module_the_file_declares_binds_that_module_s_item(
     assert_eq!(
         reached(&engine, "src/lib.rs", "stay"),
         [("src/lib.rs", 4, confidence::SAME_FILE)]
+    );
+}
+
+#[test]
+fn a_rust_path_call_through_a_module_binds_no_item_of_the_caller_s_file_its_path_does_not_name() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "src/lib.rs",
+            "mod m;\nmod other {\n    pub fn shared() {}\n}\nmod inline {\n    pub fn shared() {}\n}\n\n\
+             pub struct Php;\n\nimpl Php {\n    pub fn extract(&self) {}\n\n    pub fn parse(&self) {\n\
+             \x20       tree::extract();\n    }\n}\n\npub fn shared() {}\n\n\
+             pub fn run() {\n    outside::shared();\n    m::shared();\n    tree::extract();\n    mem::take();\n}\n\n\
+             pub fn stay() {\n    inline::shared();\n}\n",
+        ),
+        (
+            "src/m.rs",
+            "pub fn other() {}\n\npub struct Held;\n\nimpl Held {\n    pub fn take(&self) {}\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(reached(&engine, "src/lib.rs", "Php::parse"), []);
+    assert_eq!(reached(&engine, "src/lib.rs", "run"), []);
+    assert_eq!(
+        reached(&engine, "src/lib.rs", "stay"),
+        [("src/lib.rs", 6, confidence::SAME_FILE)]
     );
 }
 

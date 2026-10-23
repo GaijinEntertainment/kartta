@@ -332,8 +332,10 @@ pub enum MemberCalls {
     /// the import of the package, which binds before any tier that takes a member.
     Members,
     /// A free function only through a receiver that names a module, a name whose last segment starts in lower case, as
-    /// the receiver of a Rust path call `walk::run()` does, and then as [`MemberCalls::NearbyFreeFunctions`] takes one.
-    /// A call on a value, the empty receiver or one of [`Conventions::own_type_receivers`], and one through a type, a
+    /// the receiver of a Rust path call `walk::run()` does, and then as [`MemberCalls::NearbyFreeFunctions`] takes one,
+    /// but for the caller's own file, where it takes only the item whose qualified name ends with the receiver,
+    /// `walk::run` of an inline `mod walk`; such a call takes a member only where the receiver names its owner. A call
+    /// on a value, the empty receiver or one of [`Conventions::own_type_receivers`], and one through a type, a
     /// receiver written capitalised as `Poll::Ready(x)` is or as the owner a call on `self` records, take a member
     /// alone.
     ModulePaths,
