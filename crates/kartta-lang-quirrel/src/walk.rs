@@ -147,9 +147,8 @@ impl<'a> Emitter<'a> {
             return;
         }
 
-        let site_of = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
         self.raw.uses.push(UseRef {
-            site_of,
+            site_of: self.site(),
             name: text(name, self.source),
             receiver: Receiver::Bare,
             access: Access::Read,
@@ -274,6 +273,10 @@ impl<'a> Emitter<'a> {
         let mut symbol = self.declared(kind, node, (owner, name));
         symbol.signature = signature_from(header_start, node, self.source);
         self.raw.push_symbol(symbol)
+    }
+
+    fn site(&self) -> SymbolId {
+        self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id)
     }
 
     fn open_scope(&mut self, callable: Node<'_>, id: SymbolId) {
@@ -434,9 +437,8 @@ impl<'a> Emitter<'a> {
             return;
         }
 
-        let site_of = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
         self.raw.calls.push(CallRef {
-            site_of,
+            site_of: self.site(),
             callee,
             receiver,
             line: start_line(node),
