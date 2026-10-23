@@ -338,6 +338,40 @@ fn a_rust_test_item_binds_a_call_from_its_crate_s_tests_outside_its_module_and_n
 }
 
 #[test]
+fn a_rust_library_root_its_manifest_names_imports_its_modules_and_its_tests_bind_their_helpers() {
+    let tree = tree_of(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"cli\"\n\n[lib]\npath = \"src/cli.rs\"\n",
+        ),
+        ("src/cli.rs", "pub mod fuzz;\n\n#[cfg(test)]\nmod tests;\n"),
+        ("src/fuzz.rs", "pub fn run() {}\n"),
+        ("src/tests.rs", "mod case;\nmod helpers;\n"),
+        ("src/tests/helpers.rs", "pub fn get_language() {}\n"),
+        (
+            "src/tests/case.rs",
+            "use crate::tests::helpers::get_language;\n\nfn check() {\n    get_language();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+    let (_, graph) = engine
+        .graph_of("src/fuzz.rs")
+        .expect("rust claims the file");
+    let importers: Vec<&str> = (graph.dependents("src/fuzz.rs", 1, 0))
+        .expect("the graph holds the file")
+        .found
+        .iter()
+        .map(|dependent| dependent.file)
+        .collect();
+
+    assert_eq!(importers, ["src/cli.rs"]);
+    assert_eq!(
+        bound_through_an_import(&engine, "src/tests/case.rs", "check"),
+        ["src/tests/helpers.rs"]
+    );
+}
+
+#[test]
 fn a_rust_use_inside_a_function_binds_no_call_outside_its_block() {
     let tree = tree_of(&[
         ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),

@@ -29,7 +29,8 @@ struct Library {
 
 impl Crates {
     // constraint: a package is a directory that holds a `Cargo.toml`, whose manifest is read only for the name and the
-    // root of its library, so a target that it places off the conventional layout is not a crate root here
+    // root of its library, so a target other than the library that it places off the conventional layout is not a
+    // crate root here
     pub(crate) fn new(repository: &dyn Repository) -> Self {
         let mut packages = HashMap::new();
         let mut libraries: HashMap<String, Vec<Library>> = HashMap::new();
@@ -94,10 +95,9 @@ impl Crates {
         let head = segments.next()?;
         let start = match head {
             "crate" => caller.crate_root(self, repository)?.clone(),
-            "self" => caller.own_module(self, repository),
+            "self" => caller.own_module(),
             "super" => {
-                let mut module =
-                    caller.parent(&caller.own_module(self, repository), self, repository)?;
+                let mut module = caller.parent(&caller.own_module(), self, repository)?;
                 while segments.next_if_eq(&"super").is_some() {
                     module = caller.parent(&module, self, repository)?;
                 }
@@ -156,11 +156,13 @@ impl Crates {
             package: "",
         };
         let mut nearest = true;
-        for package in ancestors(path).filter(|package| self.packages.contains_key(*package)) {
+        for (package, library) in
+            ancestors(path).filter_map(|package| Some((package, self.packages.get(package)?)))
+        {
             let relative = relative_to(package, path);
             if nearest {
                 let crate_root = is_crate_root(relative);
-                role.module_root |= crate_root;
+                role.module_root |= crate_root || library.as_deref() == Some(path);
                 role.entry = crate_root && relative != "src/lib.rs";
                 role.package = package;
                 nearest = false;
@@ -243,13 +245,8 @@ struct Caller<'p> {
 }
 
 impl Caller<'_> {
-    // constraint: a file its crate takes for its root, as the one a `[lib] path` names, keeps its submodules beside it
-    // whatever its name
-    fn own_module(&self, crates: &Crates, repository: &dyn Repository) -> Module {
-        match self.crate_root(crates, repository) {
-            Some(root) if root.file == self.path => root.clone(),
-            _ => Module::of(self.path, self.role.module_root),
-        }
+    fn own_module(&self) -> Module {
+        Module::of(self.path, self.role.module_root)
     }
 
     fn crate_root(&self, crates: &Crates, repository: &dyn Repository) -> Option<&Module> {

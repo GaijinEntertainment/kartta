@@ -53,8 +53,9 @@ file declares outside every owner and body, and a read through a type only where
 A bodiless `mod NAME;` includes the file it pulls in, by its `#[path]` override or by Cargo's module layout: beside a
 crate root or a file named `lib.rs`, `main.rs` or `mod.rs`, under the directory named for any other file's stem, and
 one directory deeper for each inline module around it. A directory that holds a `Cargo.toml` is a package, and its
-crate roots are `src/lib.rs`, `src/main.rs`, `build.rs` and each target under `src/bin/`, `examples/`, `tests/` and
-`benches/`. A top-level `fn main` in a crate root other than the library is the entry point.
+crate roots are its library's root, read below, `src/lib.rs`, `src/main.rs`, `build.rs` and each target under
+`src/bin/`, `examples/`, `tests/` and `benches/`. A top-level `fn main` in a crate root other than the library is the
+entry point.
 
 A package's library is named by its manifest's `[lib] name`, else by its `[package] name` with `-` read as `_`, and lies
 at its `[lib] path`, else at `src/lib.rs`; each value is read only from a `key = "value"` on one line under its table's
@@ -62,12 +63,11 @@ header, the form Cargo writes, or a `key = 'value'`, and a value in any other fo
 `[package] name` declares no library. A kept path starts at the library its first segment names, the caller's own
 package's or else the nearest package's, and none where two are as near. A path through `crate::` starts at the
 caller's crate root, the file itself or the target's `main.rs`, else the nearer of the library and the main binary
-whose directories hold it; one through `self::` at the caller's module, beside the file where the file is its crate's
-root as a `[lib] path` names one, and each `super::` at the module above. Each segment after the first names a module
-file by the same layout. The path imports the file of the module it ends at, or of the module that holds the
-lowercase item it ends at, so `text()` after `use kartta_lang::tree::text;` binds the `text` that
-`crates/kartta-lang/src/tree.rs` exports at its top level. A function there wins over a type of its name, which Rust
-keeps apart from values, so `kevent()` binds the `extern` function `kevent` beside a `struct kevent`.
+whose directories hold it; one through `self::` at the caller's module, and each `super::` at the module above. Each
+segment after the first names a module file by the same layout. The path imports the file of the module it ends at, or
+of the module that holds the lowercase item it ends at, so `text()` after `use kartta_lang::tree::text;` binds the
+`text` that `crates/kartta-lang/src/tree.rs` exports at its top level. A function there wins over a type of its name,
+which Rust keeps apart from values, so `kevent()` binds the `extern` function `kevent` beside a `struct kevent`.
 
 Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is a file below a
 `tests` directory outside `src`. A `*.gen.rs` or `*_generated.rs` file, or one with a `@generated` or `DO NOT EDIT`

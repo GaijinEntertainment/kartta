@@ -54,9 +54,9 @@
 //! A bodiless `mod NAME;` includes the file it pulls in: its `#[path]` override, or `NAME.rs` or `NAME/mod.rs` beside
 //! a crate root or a file named `lib.rs`, `main.rs` or `mod.rs`, and under the directory named for the file's stem
 //! otherwise, one directory deeper for each inline module around the declaration. A package is a directory that holds
-//! a `Cargo.toml`, and its crate roots are the files of Cargo's conventional layout: `src/lib.rs`, `src/main.rs`,
-//! `build.rs`, and each target under `src/bin/`, `examples/`, `tests/` and `benches/`. A top-level `fn main` in a crate
-//! root other than the library is the entry point.
+//! a `Cargo.toml`, and its crate roots are its library's root, read below, and the files of Cargo's conventional
+//! layout: `src/lib.rs`, `src/main.rs`, `build.rs`, and each target under `src/bin/`, `examples/`, `tests/` and
+//! `benches/`. A top-level `fn main` in a crate root other than the library is the entry point.
 //!
 //! A package's library is named by its manifest's `[lib] name`, else by its `[package] name` with `-` read as `_`, and
 //! lies at its `[lib] path`, else at `src/lib.rs`, each value read only from a `key = "value"` on one line under its
@@ -66,10 +66,10 @@
 //! `crate::` starts at the caller's crate root: the file itself where it is one, else the `main.rs` of the target
 //! directory it lies in, else the nearer of the library whose directory holds it and, below `src/`, the main binary,
 //! the library where both sit in one directory; a file of `tests/`, `examples/` or `benches/` outside a target
-//! directory has none. A path through `self::` starts at the caller's own module, beside the file where the file is its
-//! crate's root, and each `super::` at the module above, the crate root where the module's directory lies in the
-//! root's. Each segment after it names the module file the module layout gives it, and the path imports the file of the
-//! module it ends at, or of the module that holds the lowercase item it ends at; a longer rest imports nothing. A call
+//! directory has none. A path through `self::` starts at the caller's own module, and each `super::` at the module
+//! above, the crate root where the module's directory lies in the root's. Each segment after it names the module file
+//! the module layout gives it, and the path imports the file of the module it ends at, or of the module that holds the
+//! lowercase item it ends at; a longer rest imports nothing. A call
 //! of the name, or through it, binds what that file exports at its top level under the name, a function before a type
 //! of the name, since a call never names a type that Rust keeps apart from values, and from the file's module or a
 //! module below it, a private item other than a macro too. A test item binds only a call from test code of its own
