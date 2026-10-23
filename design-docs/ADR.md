@@ -328,8 +328,10 @@
     (`is_called_uncertainly`), `SymbolFlags::is_fallback`
   - Revisit if: a sample of the dead list finds most of it used through a form no extraction records
 - [3.24 Count what a graph holds and how its calls bind when
-  asked](./adr/3.24-count-what-a-graph-holds-and-how-its-calls-bind-when-asked.md) — initiative `03-code-graph`,
-  2026-10-17
+  asked](./adr/3.24-count-what-a-graph-holds-and-how-its-calls-bind-when-asked.md)
+  - Governs: `crates/kartta-graph/src/{stats,resolution}.rs`, `crates/kartta/src/{stats,extracting}.rs`,
+    `Engine::stats`, `Engine::resolution`
+  - Revisit if: a consumer asks for the edge count often enough that a whole resolution matters on each call
 - [3.25 Read a definition's text and doc comment from its file when
   asked](./adr/3.25-read-a-definition-s-text-and-doc-comment-from-its-file-when-asked.md) — initiative
   `03-code-graph`, 2026-10-17, revised 2026-10-19
