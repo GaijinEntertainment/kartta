@@ -111,6 +111,24 @@ pub struct Walk<'g> {
     /// order: callers no symbol holds, so the walk does not go past them. A walk over callees lists none, and neither
     /// does a walk from a root no call binds, such as a field, whose name a top level reads rather than calls.
     pub file_scope: Vec<FileScope<'g>>,
+    /// The root's call of itself, which [`reached`](Self::reached) does not list, since the walk starts there and
+    /// reaches each symbol once; one under the confidence floor counts in
+    /// [`below_confidence`](Self::below_confidence) instead. A symbol the walk reaches further out that calls itself
+    /// is listed once, as every symbol is.
+    pub self_call: Option<SelfCall>,
+}
+
+/// A call of a symbol from its own body: a recursion, or a call of another definition of its name that bound the
+/// symbol itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct SelfCall {
+    /// How sure the resolution of the call is, 15 to 95: the [`confidence`](crate::confidence) of the tier of the
+    /// cascade that bound it.
+    pub confidence: u8,
+    /// The one-based line of the call; where the symbol calls itself from several lines, the first line among the
+    /// calls the most confident tier bound.
+    pub line: u32,
 }
 
 /// A file whose top level calls or uses a name, outside every definition. The graph keeps only the names a file's top
@@ -300,6 +318,7 @@ pub(crate) struct LeftOut {
     pub(crate) turned_away: usize,
     pub(crate) unexpanded: usize,
     pub(crate) below_confidence: usize,
+    pub(crate) self_call: Option<Edge>,
 }
 
 fn keep_stronger<K: Eq + Hash>(strongest: &mut HashMap<K, Edge, FixedState>, key: K, edge: Edge) {
@@ -1019,6 +1038,8 @@ impl<'g> Calls<'g> {
         let left_out = self.reach(WalkState::new(root, limits), edges_of, |edge, depth| {
             reached.push(edge.reached(graph, depth));
         });
+        let self_call = left_out.self_call;
+        let dropped = self_call.is_some_and(|edge| edge.confidence < limits.min_confidence);
         Walk {
             root: graph.definition_at(root),
             passed_over: 0,
@@ -1027,10 +1048,14 @@ impl<'g> Calls<'g> {
             truncated: left_out.truncated,
             turned_away: left_out.turned_away,
             unexpanded: left_out.unexpanded,
-            below_confidence: left_out.below_confidence,
+            below_confidence: left_out.below_confidence + usize::from(dropped),
             unresolved: self.unresolved,
             ambiguous: 0,
             file_scope: Vec::new(),
+            self_call: self_call.filter(|_| !dropped).map(|edge| SelfCall {
+                confidence: edge.confidence,
+                line: edge.line,
+            }),
         }
     }
 
@@ -1101,6 +1126,7 @@ impl<'g> Calls<'g> {
 }
 
 pub(crate) struct WalkState {
+    root: SymbolAt,
     limits: Limits,
     left_out: LeftOut,
     visited: HashMap<SymbolAt, u32, FixedState>,
@@ -1112,6 +1138,7 @@ impl WalkState {
         let mut visited = HashMap::default();
         visited.insert(root, 0);
         Self {
+            root,
             limits,
             left_out: LeftOut::default(),
             visited,
@@ -1121,6 +1148,11 @@ impl WalkState {
 
     fn take(&mut self, edges: &[Edge], depth: u32, visit: &mut impl FnMut(Edge, u32)) {
         for &edge in edges {
+            // constraint: the root, at a depth of 0, is the one symbol whose edges are taken at a depth of 1
+            if depth == 1 && edge.far == self.root {
+                self.left_out.self_call = Some(edge);
+                continue;
+            }
             if self.visited.contains_key(&edge.far) {
                 continue;
             }

@@ -371,6 +371,25 @@ fn a_function_has_no_users_however_its_name_is_read() {
 }
 
 #[test]
+fn a_function_that_calls_itself_is_its_own_direct_caller_and_no_symbol_its_blast_reaches() {
+    let graph = graph(vec![
+        File::new("lib/walk.c")
+            .function("walk", (1, 3))
+            .calls(0, "walk", 2)
+            .function("run", (5, 6))
+            .calls(1, "walk", 6),
+    ]);
+
+    let segment = graph
+        .analyze_segment("lib/walk.c", 1..=3, Limits::new(3))
+        .expect("held");
+    let symbol = &segment.symbols[0];
+
+    assert_eq!((symbol.callers.total, symbol.callees.total), (2, 1));
+    assert_eq!(symbol.blast.reach, 1, "the blast reaches run alone");
+}
+
+#[test]
 fn the_symbol_cap_stops_the_blast_and_counts_what_it_turned_away() {
     let mut target = File::new("lib/target.c").function("target", (1, 2));
     let mut callers = File::new("app/callers.c");
