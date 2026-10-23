@@ -15,12 +15,13 @@ static method has no such parameter. A symbol is qualified by the module its pat
 `pkg.Service` for a class in `pkg/__init__.py`. A decorated definition starts at its first decorator, and a name that
 starts with `_` is not exported.
 
-Inside a definition, a class body included, each read, write and update of an attribute or a module-level value is a
-data site. An attribute on a method's first parameter binds the class around the method, or a base found without a
-guess; on a name no function around it binds, a class or a module, a member of that owner; on anything else the one
-field of the name the file declares. A name that no function around it binds, or that a `global` declaration gives the
-module, uses the module's name wherever the module binds it, by an import, an assignment, a `def` or a `class`, and
-binds the declaration in the file or the one imported module that declares it.
+Inside a definition, a class body included, and outside every definition, at file scope, each read, write and update
+of an attribute or a module-level value is a data site; where the module binds a name is no site of it. An attribute on
+a method's first parameter binds the class around the method, or a base found without a guess; on a name no function
+around it binds, a class or a module, a member of that owner; on anything else the one field of the name the file
+declares. A name that no function around it binds, or that a `global` declaration gives the module, uses the module's
+name wherever the module binds it, by an import, an assignment, a `def` or a `class`, and binds the declaration in the
+file or the one imported module that declares it.
 
 A call records its callee and, for a member call, its receiver: `self.greet()` records `greet` on `self`, and a member
 call on anything but a name records the empty receiver. A call belongs to the function around it, and one in a class
