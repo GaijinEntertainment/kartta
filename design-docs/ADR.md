@@ -13,8 +13,9 @@
 - [1.3 Make the ignore source set explicit](./adr/1.3-make-the-ignore-source-set-explicit.md)
   - Governs: `crates/kartta-fs/src/build.rs`, `kartta_fs::IgnoreSources`, `kartta_fs::BuildOptions::ignore_sources`
   - Revisit if: a consumer needs full git fidelity by default
-- [1.4 Take the query glob dialect from globset](./adr/1.4-take-the-query-glob-dialect-from-globset.md) — initiative
-  `01-kartta-fs-port`, 2026-08-24, revised 2026-10-20
+- [1.4 Take the query glob dialect from globset](./adr/1.4-take-the-query-glob-dialect-from-globset.md)
+  - Governs: `crates/kartta-fs/src/filter.rs` (`Filter`, `FilterError`)
+  - Revisit if: `gix-glob` grows alternation and pattern validation, or compile time becomes the driver
 - [1.5 Announce a cap unless the order already explains
   it](./adr/1.5-announce-a-cap-unless-the-order-explains-it.md) — initiative `01-kartta-fs-port`, 2026-08-24, revised
   2026-10-20
@@ -65,6 +66,10 @@
 - [1.54 Model git's ignore rules, not git's index](./adr/1.54-model-git-s-ignore-rules-not-git-s-index.md)
   - Governs: `crates/kartta-fs/src/policy.rs`, `crates/kartta-fs/src/rules.rs`
   - Revisit if: repositories whose rules were added after their files turn out common
+- [1.55 Exclude from a path query before its limit](./adr/1.55-exclude-from-a-path-query-before-its-limit.md)
+  - Governs: `crates/kartta-fs/src/filter.rs` (`Filter`), `crates/kartta-fs/src/glob.rs` (`GlobOptions`, `Capped`),
+    `crates/kartta-fs/src/fuzzy.rs` (`FuzzyOptions`), `crates/kartta-fs/src/index.rs` (`Index::candidates`)
+  - Revisit if: the one match per path beneath an excluded directory shows in a glob's profile on a large tree
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-18
