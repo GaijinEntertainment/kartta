@@ -6,14 +6,29 @@ use super::blocks::{CallForm, path_segments};
 use super::syntax::{last_segment, path_text, type_base};
 use super::{Emitter, open_impls_over};
 
-struct Target {
-    callee: String,
-    receiver: Option<String>,
-    names_own_type: bool,
+pub(super) struct Target {
+    pub(super) callee: String,
+    pub(super) receiver: Option<String>,
+    pub(super) names_own_type: bool,
+}
+
+// constraint: `written` is the path of a scoped call's receiver as written, and `form` the shape a call inside a
+// function body has, which binds it to an item its block declares
+pub(super) struct Called {
+    pub(super) target: Target,
+    pub(super) written: Option<String>,
+    pub(super) form: Option<CallForm>,
+}
+
+// constraint: a bare macro name binds an item its block declares, and a scoped one keeps the path as written, when it
+// has a text the resolver reads
+pub(super) enum MacroName {
+    Bare(String),
+    Scoped(String, Option<String>),
 }
 
 impl Target {
-    const fn new(callee: String, receiver: Option<String>) -> Self {
+    pub(super) const fn new(callee: String, receiver: Option<String>) -> Self {
         Self {
             callee,
             receiver,
@@ -38,8 +53,21 @@ impl Emitter<'_> {
         if function.kind() == "identifier" && self.is_bound(&self.source[function.byte_range()]) {
             return;
         }
-        let target = self.call_target(function);
-        let written = receiver_path(function, self.source);
+        let called = Called {
+            target: self.call_target(function),
+            written: receiver_path(function, self.source),
+            form: call_form(function, self.source),
+        };
+        self.record_call(node, site_of, called);
+    }
+
+    // constraint: `node` places the call, its line and the byte its scope is judged at
+    pub(super) fn record_call(&mut self, node: Node<'_>, site_of: SymbolId, called: Called) {
+        let Called {
+            target,
+            written,
+            form,
+        } = called;
         let path = written.as_deref().and_then(|path| self.module_path(path));
         let names_own_type = target.names_own_type;
         let call = CallRef {
@@ -52,7 +80,7 @@ impl Emitter<'_> {
             return;
         }
         if !self.functions.is_empty()
-            && let Some(form) = call_form(function, self.source)
+            && let Some(form) = form
         {
             self.record_block_call(node, form);
         }
@@ -156,25 +184,43 @@ impl Emitter<'_> {
         }
     }
 
-    fn enclosing_type_name(&self) -> Option<String> {
+    pub(super) fn enclosing_type_name(&self) -> Option<String> {
         self.types.last().map(|scope| scope.name.clone())
     }
 
     pub(super) fn macro_call(&mut self, node: Node<'_>, site_of: SymbolId) {
-        let name = node.child_by_field_name("macro");
+        let Some(name) = node.child_by_field_name("macro") else {
+            return;
+        };
+        let callee = last_segment(name, self.source);
+        let name = if name.kind() == "identifier" {
+            MacroName::Bare(callee)
+        } else {
+            MacroName::Scoped(callee, path_text(name, self.source))
+        };
+        self.record_macro_call(node, site_of, name);
+    }
+
+    pub(super) fn record_macro_call(&mut self, node: Node<'_>, site_of: SymbolId, name: MacroName) {
+        let (callee, written) = match name {
+            MacroName::Bare(callee) => (callee, None),
+            MacroName::Scoped(callee, written) => (callee, Some(written)),
+        };
         let call = CallRef {
             site_of,
-            callee: name.map_or_else(String::new, |name| last_segment(name, self.source)),
+            callee,
             receiver: None,
             line: line(node.start_position().row),
         };
-        let (true, Some(name)) = (self.push_call(call), name) else {
+        if !self.push_call(call) {
             return;
-        };
-        if name.kind() == "identifier" {
-            self.record_block_call(node, CallForm::Macro);
-        } else if let Some(written) = path_text(name, self.source) {
-            self.record_written_path(self.raw.calls.len() - 1, written, node.start_byte());
+        }
+        match written {
+            None => self.record_block_call(node, CallForm::Macro),
+            Some(Some(written)) => {
+                self.record_written_path(self.raw.calls.len() - 1, written, node.start_byte());
+            }
+            Some(None) => {}
         }
     }
 
@@ -191,7 +237,7 @@ impl Emitter<'_> {
 // records its name after a `.`, `.socket`, which names no module, import or owner, while the graph can still tell the
 // one callable whose owner the name spells; a capitalised one, a unit struct or a static, names the item, and an
 // own-type receiver of the conventions, `other`, the caller's own type
-fn value_receiver(value: Node<'_>, source: &[u8]) -> String {
+pub(super) fn value_receiver(value: Node<'_>, source: &[u8]) -> String {
     let name = String::from_utf8_lossy(&source[value.byte_range()]);
     let names_an_item = name.starts_with(|first: char| first.is_ascii_uppercase())
         || crate::CONVENTIONS
