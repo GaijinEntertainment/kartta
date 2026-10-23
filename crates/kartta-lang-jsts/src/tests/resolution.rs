@@ -464,6 +464,53 @@ fn sibling_reference_aliases_fall_through_on_a_shared_pattern() {
 }
 
 #[test]
+fn a_vue_cli_project_without_a_tsconfig_reads_at_as_its_src() {
+    let files = MemoryRepository::new([
+        (
+            "vue/package.json",
+            r#"{ "name": "vue", "devDependencies": { "@vue/cli-service": "3.7.0" } }"#,
+        ),
+        ("vue/src/lib/reports.js", ""),
+        ("vue/src/store/search.js", ""),
+        ("plain/package.json", r#"{ "name": "plain" }"#),
+        ("plain/src/lib/reports.js", ""),
+        ("plain/src/store/search.js", ""),
+    ]);
+    let source = "import { handle } from '@/lib/reports'\n";
+
+    let vue = resolved("vue/src/store/search.js", source, &files);
+    let plain = resolved("plain/src/store/search.js", source, &files);
+
+    assert_eq!(includes(&vue), ["vue/src/lib/reports.js"]);
+    assert_eq!(imports(&plain), ["@/lib/reports"]);
+}
+
+#[test]
+fn a_vue_cli_project_s_own_tsconfig_governs_its_imports() {
+    let files = MemoryRepository::new([
+        (
+            "vue/package.json",
+            r#"{ "name": "vue", "dependencies": { "@vue/cli-service": "5.0.8" } }"#,
+        ),
+        (
+            "vue/tsconfig.json",
+            r#"{ "compilerOptions": { "paths": { "@/*": ["./app/*"] } } }"#,
+        ),
+        ("vue/src/lib/reports.ts", ""),
+        ("vue/app/lib/reports.ts", ""),
+        ("vue/src/main.ts", ""),
+    ]);
+
+    let extraction = resolved(
+        "vue/src/main.ts",
+        "import { handle } from '@/lib/reports'\n",
+        &files,
+    );
+
+    assert_eq!(includes(&extraction), ["vue/app/lib/reports.ts"]);
+}
+
+#[test]
 fn tsconfig_aliases_resolve_governed_imports() {
     let files = MemoryRepository::new([
         ("web/app.ts", ""),
