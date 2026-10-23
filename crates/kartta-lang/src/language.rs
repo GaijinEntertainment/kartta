@@ -217,6 +217,9 @@ pub struct Conventions {
     /// callable where its receiver spells that callable's owner, `session.seek()` for a `Session`, because a call on
     /// such a value reaches the runtime, not a function of the repository. Empty where a language names none.
     pub runtime_methods: &'static [&'static str],
+    /// Which members of the files a file includes a member call of one of the
+    /// [`Conventions::runtime_methods`] binds.
+    pub included_runtime_members: IncludedRuntimeMembers,
     /// What an owner that no type of its name declares is.
     pub untyped_owners: UntypedOwners,
     /// Whether a member call on a value, `x.f()` with an `x` that names no owner, guesses the callable of its name
@@ -260,6 +263,7 @@ impl Conventions {
         include_reach: IncludeReach::Direct,
         member_calls: MemberCalls::NearbyFreeFunctions,
         runtime_methods: &[],
+        included_runtime_members: IncludedRuntimeMembers::Any,
         untyped_owners: UntypedOwners::Types,
         calls_on_values: CallsOnValues::NearestGuessed,
         receivers: Receivers::Owners,
@@ -408,6 +412,19 @@ pub enum ValueUses {
     /// reach declare, as an include pastes the included text in place: a function named without a call is taken as a
     /// value. A type or a macro of the name binds no use, and a declaration and its definition count once.
     Included,
+}
+
+/// Which members of the files a file includes a member call of a runtime method, `obj.setValue(1)`, binds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum IncludedRuntimeMembers {
+    /// Any member of the name, as the members of the caller's own file are.
+    #[default]
+    Any,
+    /// A member whose owner the receiver spells at its last segment in any case, `settings.setValue(1)` for
+    /// `Settings`, or whose owner the caller's own owner is or derives from, where the values such a call is made on
+    /// are most often the native values a host hands its scripts, so that an included class's member of the name is
+    /// a namesake of the host's method.
+    SpelledOrOwn,
 }
 
 /// What an owner that no type of its name declares is.

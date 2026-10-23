@@ -3,9 +3,9 @@
 use kartta_graph::{Candidate, Graph, Limits, Selector, SiteQuery, Walk};
 use kartta_lang::{
     Access, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, FILE_SCOPE,
-    ImportBinding, IncludeReach, IncludeRef, InheritedMembers, LocalCall, MemberCalls,
-    NamespaceCalls, OwnMembers, ReExport, Receiver, Symbol, SymbolFlags, SymbolId, SymbolKind,
-    UntypedOwners, UseRef,
+    ImportBinding, IncludeReach, IncludeRef, IncludedRuntimeMembers, InheritedMembers, LocalCall,
+    MemberCalls, NamespaceCalls, OwnMembers, ReExport, Receiver, Symbol, SymbolFlags, SymbolId,
+    SymbolKind, UntypedOwners, UseRef,
 };
 
 use crate::{call, function, graph, graph_of};
@@ -2620,6 +2620,68 @@ fn the_caller_s_owner_binds_a_namesake_class_only_where_its_own_class_declares_a
             vec![qualified("B", "m", 1), qualified("A", "m", 5)]
         ),
         ["b/app.php:5@80"]
+    );
+}
+
+#[test]
+fn a_runtime_method_s_call_binds_an_included_member_its_receiver_spells_or_its_caller_s_owner_reaches()
+ {
+    let set_value = || member("Settings", "setValue", SymbolKind::Method, 2);
+    let calling = |included_runtime_members, caller: Symbol, receiver: &str| {
+        let mut conventions = Conventions::default();
+        conventions.runtime_methods = &["setValue"];
+        conventions.included_runtime_members = included_runtime_members;
+        let name = caller.qualified_name.clone();
+        let mut panel = Symbol::new("Panel", SymbolKind::Class, 10, 20);
+        panel.parents = vec!["Settings".to_owned()];
+        let mut options = file(
+            "ui/options.nut",
+            vec![caller, panel],
+            vec![member_call(0, receiver, "setValue", 3)],
+        );
+        options.includes = vec![IncludeRef {
+            target: "ui/settings.nut".to_owned(),
+        }];
+        let graph = graph_of(
+            conventions,
+            &[
+                options,
+                file(
+                    "ui/settings.nut",
+                    vec![
+                        Symbol::new("Settings", SymbolKind::Class, 1, 5),
+                        set_value(),
+                    ],
+                    Vec::new(),
+                ),
+            ],
+        );
+        callees(&graph, &name)
+    };
+    let narrowed = IncludedRuntimeMembers::SpelledOrOwn;
+
+    assert_eq!(
+        calling(narrowed, function("onSelect", 1), "obj"),
+        Vec::<String>::new(),
+        "a value's name reaches no member of a class an included file declares"
+    );
+    assert_eq!(
+        calling(IncludedRuntimeMembers::Any, function("onSelect", 1), "obj"),
+        ["ui/settings.nut:2@70"]
+    );
+    assert_eq!(
+        calling(narrowed, function("onSelect", 1), "settings"),
+        ["ui/settings.nut:2@70"],
+        "a receiver that spells the class reaches its member"
+    );
+    assert_eq!(
+        calling(
+            narrowed,
+            member("Panel", "onSelect", SymbolKind::Method, 11),
+            "this"
+        ),
+        ["ui/settings.nut:2@70"],
+        "so does a member of a class that derives from it"
     );
 }
 
