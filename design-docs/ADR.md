@@ -53,8 +53,12 @@
     `crates/kartta-walk/src/walk.rs`
   - Revisit if: searches and builds need different bounds
 - [1.14 Narrow content search with a trigram index built from the walk's
-  reads](./adr/1.14-narrow-content-search-with-a-trigram-index.md) — initiative `01-kartta-fs-port`, 2026-10-14,
-  revised 2026-10-15
+  reads](./adr/1.14-narrow-content-search-with-a-trigram-index.md)
+  - Governs: `crates/kartta-fs/src/content_index.rs`, `crates/kartta-fs/src/requirement.rs`,
+    `crates/kartta-fs/src/trigram.rs`, `crates/kartta-fs/src/postings.rs`, `BuildOptions::content_index`,
+    `Matches::ruled_out`
+  - Revisit if: query logs show false candidates dominating a search, or the directory becomes a noticeable part of the
+    index
 - [1.15 Refresh an index in place from a second walk](./adr/1.15-refresh-an-index-in-place-from-a-second-walk.md) —
   initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-15
 - [1.16 Refresh the parts of a tree a caller names](./adr/1.16-refresh-the-parts-of-a-tree-a-caller-names.md) —
@@ -113,6 +117,16 @@
     (`Scanner`), `Index::grep`
   - Revisit if: a limited search's read past the match that proves its cut shows in an agent's latency, or a
     scanner's buffers outgrow the 16-file bound
+- [1.71 Keep the content index in memory, a scratch file or a
+  mapping](./adr/1.71-keep-the-content-index-in-memory-a-scratch-file-or-a-mapping.md)
+  - Governs: `crates/kartta-fs/src/content_index/storage.rs`, `ContentIndexStorage`, `BuildError::ContentIndex`
+  - Revisit if: a platform offers a write path that keeps written pages out of the resident set and reports a full disk
+    as an error
+- [1.72 Build the content index from sorted runs merged in
+  place](./adr/1.72-build-the-content-index-from-sorted-runs-merged-in-place.md)
+  - Governs: `crates/kartta-fs/src/content_index/build.rs`, `crates/kartta-fs/src/trigram.rs` (`Trigrams`),
+    `crates/kartta-fs/src/policy.rs` (the reading lock)
+  - Revisit if: the id lock shows on a build's wall time
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-18
