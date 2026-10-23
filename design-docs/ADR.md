@@ -343,8 +343,11 @@
     `Symbol::value_types`
   - Revisit if: a defined type records its underlying type, or a language other than Go spells its receivers as paths
 - [3.30 Look a repository path up without ASCII case through a table built when first
-  asked](./adr/3.30-look-a-repository-path-up-without-case-through-a-table-built-when-first-asked.md) — initiative
-  `03-code-graph`, 2026-10-17
+  asked](./adr/3.30-look-a-repository-path-up-without-case-through-a-table-built-when-first-asked.md)
+  - Governs: `kartta_lang::Repository::files_ignoring_case`, `crates/kartta/src/repository.rs` (`FoldedPaths`,
+    `folded_hash`, `IndexRepository::files_ignoring_case`), `crates/kartta-lang-blk/src/resolve.rs` (`indexed`),
+    `crates/kartta-lang-quirrel/src/resolve.rs` (`loaded`)
+  - Revisit if: the BLK and Quirrel resolvers' misses show in a build's time, or a third language's loader ignores case
 - [3.31 Parse a C or C++ table without its numbers, and hold one tree at a
   time](./adr/3.31-parse-a-c-or-c-plus-plus-table-without-its-numbers.md) — initiative `03-code-graph`, 2026-10-18,
   revised 2026-10-22
