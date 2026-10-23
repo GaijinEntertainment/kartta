@@ -185,18 +185,7 @@ impl<'a> Emitter<'a> {
             return;
         };
         let (name, module) = callee_parts(target, self.source);
-        if name.is_empty() {
-            return;
-        }
-
-        let site_of = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
-        self.raw.uses.push(UseRef {
-            site_of,
-            name,
-            receiver: module.map_or(Receiver::Bare, Receiver::Qualifier),
-            access: Access::Read,
-            line: start_line(node),
-        });
+        self.push_use(name, module, node);
     }
 
     // constraint: `module $` names the compiler's builtin module, which no qualified name can spell, so it declares
@@ -490,6 +479,21 @@ impl<'a> Emitter<'a> {
             site_of,
             callee,
             receiver,
+            line: start_line(node),
+        });
+    }
+
+    fn push_use(&mut self, name: String, module: Option<String>, node: Node<'_>) {
+        if name.is_empty() {
+            return;
+        }
+
+        let site_of = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
+        self.raw.uses.push(UseRef {
+            site_of,
+            name,
+            receiver: module.map_or(Receiver::Bare, Receiver::Qualifier),
+            access: Access::Read,
             line: start_line(node),
         });
     }
