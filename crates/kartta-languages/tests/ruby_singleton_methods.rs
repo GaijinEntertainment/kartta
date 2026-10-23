@@ -1,8 +1,8 @@
 //! What a Ruby call or use binds where one class declares an instance method and a class method of one name,
 //! `Formula#build` and `Formula.build`: a constant receiver, `self.class` in an instance method, and `self` or no
 //! receiver in a class method, name the class, so they reach its class method, while `self` or no receiver in an
-//! instance method and a value reach the instance method, in either declaration order; a class that declares one kind
-//! offers it to every receiver.
+//! instance method, a bare `new` in a class method and a value reach the instance method, in either declaration order;
+//! a class that declares one kind offers it to every receiver.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -20,7 +20,8 @@ const CALLERS: &str = "  def install\n    build\n  end\n\n  def reinstall\n    s
                        def rebuild\n    self.class.build\n  end\n\n  \
                        def rebuild_again\n    self.class().build\n  end\n\n  \
                        def self.make\n    build()\n  end\n\n  \
-                       def self.remake\n    self.build()\n  end\nend\n\n\
+                       def self.remake\n    self.build()\n  end\n\n  \
+                       def self.fresh\n    new.build\n  end\nend\n\n\
                        class Installer\n  def run(formula)\n    Formula.build\n    Formula.method(:build)\n  end\n\n  \
                        def rerun(formula)\n    formula.build\n  end\nend\n";
 
@@ -70,6 +71,7 @@ fn each_site_reaches_the_method_of_the_kind_its_receiver_names() {
                 vec![
                     ("Formula#install", true, 80),
                     ("Formula#reinstall", true, 85),
+                    ("Formula.fresh", true, 85),
                     ("Installer#rerun", true, 80),
                 ]
             ),
@@ -90,6 +92,7 @@ fn a_class_that_declares_one_kind_offers_it_to_every_receiver_but_a_bare_call_of
             ("Formula#rebuild", true, 80),
             ("Formula#rebuild_again", true, 80),
             ("Formula.remake", true, 85),
+            ("Formula.fresh", true, 85),
             ("Installer#run", true, 80),
             ("Installer#run", false, 85),
             ("Installer#rerun", true, 80),
@@ -105,6 +108,7 @@ fn a_class_that_declares_one_kind_offers_it_to_every_receiver_but_a_bare_call_of
             ("Formula#rebuild_again", true, 80),
             ("Formula.make", true, 80),
             ("Formula.remake", true, 85),
+            ("Formula.fresh", true, 85),
             ("Installer#run", true, 80),
             ("Installer#run", false, 85),
             ("Installer#rerun", true, 80),

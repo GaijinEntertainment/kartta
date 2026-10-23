@@ -27,7 +27,8 @@
 //! in `.`, the separator of a class method's name: `Geo::Shape.` for `self`, and `.` alone for `self.class` and for a
 //! constant, whose path the receiver does not keep. Of a class's methods of one name, a call on the class binds the
 //! class method, `Geo::Shape.build`, before the instance method, `Geo::Shape#build`, and a call on any other receiver
-//! the instance method first. A call outside every method
+//! the instance method first. A bare `new` that reads no local makes, in a class method, an instance of the owner, so
+//! `new.getopts` there records `Geo::Shape`. A call outside every method
 //! and type is a call from file scope, before the file's first symbol too.
 //!
 //! A bare name, `setup`, is a call with no receiver unless it reads a local variable, as Ruby decides: a binding of the
