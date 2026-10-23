@@ -1,10 +1,10 @@
 use foldhash::fast::FixedState;
 use hashbrown::HashMap;
-use kartta_lang::{CallableRole, SymbolKind, TypeUses};
+use kartta_lang::{CallableRole, DataUses, SymbolKind, TypeUses};
 
 use crate::calls::Calls;
 use crate::confidence;
-use crate::graph::{Definition, Graph, agree, narrow};
+use crate::graph::{Definition, Graph, agree, is_data_kind, narrow};
 use crate::implementations::Types;
 use crate::stored::SymbolAt;
 use crate::strings::Str;
@@ -34,14 +34,17 @@ pub struct Excluded {
     pub entry: usize,
     /// Vendored code, which the repository carries but whose callers mostly live elsewhere.
     pub vendored: usize,
-    /// Of a kind that no call and no use the language records shows to be used: a field, a value, a namespace, a type
-    /// where the language does not record a use wherever code names one, and any definition local to a body, which no
-    /// use binds, so its holder can pass or return it unseen.
+    /// Of a kind that no call and no use the language records shows to be used: a namespace, a field, a variable or a
+    /// constant where the language does not record a use wherever code reads or writes one, a type where it does not
+    /// record a use wherever code names one, and any definition local to a body, which no use binds, so its holder can
+    /// pass or return it unseen.
     pub unobservable: usize,
-    /// Definitions that a call of their name may reach which binds no definition, binds one only by proximity, or
-    /// binds its own caller through a value: a bare call may reach any definition of the name, and a call through a
-    /// receiver a member, or a free definition that no member of the name could stand for or that its file sees, in
-    /// its own file, in the files it includes, and where a package is a directory, in its package.
+    /// Definitions that a call or a use of their name may reach which binds no definition, binds one only by
+    /// proximity, or binds its own caller through a value: a bare call may reach any definition of the name, and a
+    /// call through a receiver a member, or a free definition that no member of the name could stand for or that its
+    /// file sees, in its own file, in the files it includes, and where a package is a directory, in its package. A use
+    /// that binds nothing may reach any field of its name, and a variable or a constant its file sees, as may a call
+    /// through a receiver that spells the name of one.
     pub uncertain: usize,
     /// Methods a call through another type may reach: one an interface or a trait declares a method of the name for,
     /// one that a parent of its owner declares too, and one of an owner with a parent the graph does not hold.
@@ -77,15 +80,18 @@ impl Graph {
     /// reaches every definition its name spells in its own file, in the files it includes, and where a package is a
     /// directory, in its package. A type that another type names as a parent is reached.
     ///
-    /// Only what the graph can see used is judged: a function, a method or a macro, through its calls, and a type where
-    /// the language records a use wherever code names one, when none of them is local to a body. The answer counts the
-    /// rest as excluded, with test, generated, vendored and entry code, the definitions a call that binds nothing
-    /// certain may reach, and the methods a call through another type may reach. A definition found dead is a
-    /// candidate, not a proof: a call the graph cannot resolve, a function passed as a value where the language records
-    /// no use, or a caller outside the repository reaches it unseen.
+    /// Only what the graph can see used is judged: a function, a method or a macro, through its calls, a field, a
+    /// variable or a constant, through its reads and writes, where the language records one wherever code reads or
+    /// writes one, and a type where the language records a use wherever code names one, when none of them is local to
+    /// a body. The answer counts the rest as excluded, with test, generated, vendored and entry code, the definitions a
+    /// call or a use that binds nothing certain may reach, and the methods a call through another type may reach. A
+    /// definition found dead is a candidate, not a proof: a call the graph cannot resolve, a function passed as a value
+    /// where the language records no use, or a caller outside the repository reaches it unseen.
     ///
     /// Every call and use that spells the name of a judged definition is resolved, so a query over a whole graph costs
-    /// what resolving the graph's calls costs, and `limit` bounds the answer, not the work.
+    /// what resolving the graph's calls and uses costs, and `limit` bounds the answer, not the work. A free variable or
+    /// constant that nothing reaches is checked against the receivers of every call of the graph, gathered once a query
+    /// needs them.
     #[must_use]
     pub fn dead_code(
         &self,
@@ -217,7 +223,7 @@ impl Judge<'_, '_> {
             self.answer.live += 1;
             return;
         }
-        if self.calls.is_called_uncertainly(at) {
+        if self.calls.is_called_uncertainly(at) || self.calls.is_used_uncertainly(at) {
             self.answer.excluded.uncertain += 1;
             return;
         }
@@ -242,6 +248,7 @@ impl Judge<'_, '_> {
         }
         match self.graph.sym(at).kind {
             SymbolKind::Function | SymbolKind::Method | SymbolKind::Macro => true,
+            kind if is_data_kind(kind) => self.graph.conventions.data_uses == DataUses::Every,
             kind if kind.is_type() => self.graph.conventions.type_uses == TypeUses::Every,
             _ => false,
         }

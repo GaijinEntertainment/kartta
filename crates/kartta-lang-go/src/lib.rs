@@ -40,7 +40,8 @@
 //! or method selected from a value without a call, `c.Limit`, and a key of a struct literal, `Config{Limit: 5}`, are
 //! uses whose receiver is the value's type path, as a member call's is; the keys of a literal of an anonymous struct
 //! assigned to no name, an argument or a returned value, name no field. A name a local binding covers is no use of
-//! what it would otherwise name.
+//! what it would otherwise name. The graph judges a type, a field and a package-level value dead through these uses
+//! ([`TypeUses::Every`], [`DataUses::Every`]).
 //!
 //! A function bound to a package-level variable, `var Handler = func() {}`, is the variable alone, and the calls of a
 //! package-level `var` or `const` initializer, a function literal's body among them, are calls of the name the value
@@ -90,8 +91,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    Conventions, DocComments, Language, MemberCalls, OwnMembers, RawExtraction, Receivers,
-    Repository, Resolver, TypeUses,
+    Conventions, DataUses, DocComments, Language, MemberCalls, OwnMembers, RawExtraction,
+    Receivers, Repository, Resolver, TypeUses,
 };
 
 use crate::resolve::GoResolver;
@@ -119,6 +120,7 @@ const CONVENTIONS: Conventions = {
     conventions.member_calls = MemberCalls::Members;
     conventions.receivers = Receivers::TypePaths;
     conventions.type_uses = TypeUses::Every;
+    conventions.data_uses = DataUses::Every;
     conventions
 };
 
