@@ -54,6 +54,10 @@ impl<'s> Locals<'s> {
         }
     }
 
+    pub(super) fn declares(&self, name: &str) -> bool {
+        self.latest.contains_key(name)
+    }
+
     fn holds(&self, name: &str) -> Option<Holds<'s>> {
         self.latest
             .get(name)
