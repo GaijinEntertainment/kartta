@@ -66,13 +66,45 @@
 - [1.16 Refresh the parts of a tree a caller names](./adr/1.16-refresh-the-parts-of-a-tree-a-caller-names.md)
   - Governs: `crates/kartta-fs/src/index/{scoped,splice}.rs` (`Index::refresh_paths`, `Index::parts_of`)
   - Revisit if: the copy of the per-entry arrays sets a follower's peak, or becomes most of a call
-- [1.17 Follow a tree through its change notifications](./adr/1.17-follow-a-tree-through-its-change-notifications.md) —
-  initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-23
+- [1.17 Follow a tree through its change notifications](./adr/1.17-follow-a-tree-through-its-change-notifications.md)
+  - Governs: `crates/kartta-fs/src/watch.rs`, `crates/kartta-fs/src/watch/`, `kartta_fs::Watcher`,
+    `Index::{build,refresh,refresh_paths}_watched`, `crates/kartta/src/follow.rs`
+  - Revisit if: a consumer that cannot run a loop of its own needs to follow a tree
 - [1.18 Return the memory a build freed to the system](./adr/1.18-return-the-memory-a-build-freed-to-the-system.md) —
   initiative `01-kartta-fs-port`, 2026-10-17, revised 2026-10-21
 - [1.19 Prune editor and OS clutter by name during the
   walk](./adr/1.19-prune-editor-and-os-clutter-by-name-during-the-walk.md) — initiative `01-kartta-fs-port`, 2026-10-17,
   revised 2026-10-18
+- [1.20 Watch on Linux each directory the index keeps, from the walk that keeps
+  it](./adr/1.20-watch-on-linux-each-directory-the-index-keeps-from-the-walk-that-keeps-it.md)
+  - Governs: `crates/kartta-fs/src/watch/inotify.rs`, `Index::refresh_paths_watched`, `WatchError::Limit`
+  - Revisit if: followed trees outrun `fs.inotify.max_user_watches`, or the walk's queue on watch calls costs a build
+    more than a whole refresh
+- [1.21 Bound a Linux drain by the most events its queue can
+  hold](./adr/1.21-bound-a-linux-drain-by-the-most-events-its-queue-can-hold.md)
+  - Governs: `crates/kartta-fs/src/watch/inotify.rs` (`Backend::poll`, `Backend::queued`), `Watcher::drain`
+  - Revisit if: the kernel offers a count of an inotify queue that takes no lock writers share
+- [1.22 Make the inotify watch map anew when it is short of
+  room](./adr/1.22-make-the-inotify-watch-map-anew-when-it-is-short-of-room.md)
+  - Governs: `crates/kartta-fs/src/watch/inotify.rs` (`Walked::into_dirs`, `Backend::release`)
+  - Revisit if: the standard library's hash map stops leaving tombstones that keep room
+- [1.23 Ship kartta-fs on the newest notify release
+  candidate](./adr/1.23-ship-kartta-fs-on-the-newest-notify-release-candidate.md)
+  - Governs: `crates/kartta-fs/Cargo.toml` (`notify`), `crates/kartta-fs/src/watch/notified.rs`
+  - Revisit if: notify publishes 9.0.0, or a candidate after rc.6
+- [1.24 Watch the macOS data volume through its firmlinks in one
+  stream](./adr/1.24-watch-the-macos-data-volume-through-its-firmlinks-in-one-stream.md)
+  - Governs: `crates/kartta-fs/src/watch.rs` (`event_prefixes`, `through_firmlinks`, `relative`),
+    `crates/kartta-fs/src/watch/notified.rs` (`Backend::start`)
+  - Revisit if: notify adds a `watch` call's paths to a running stream, or macOS names data-volume events by that path
+- [1.25 Queue macOS and Windows notifications in a vector that
+  grows](./adr/1.25-queue-macos-and-windows-notifications-in-a-vector-that-grows.md)
+  - Governs: `crates/kartta-fs/src/watch/notified.rs` (`QUEUED`, `Queue`, `Backend::poll`)
+  - Revisit if: followed trees overflow the queue during a build as a matter of course
+- [1.26 Hold a path a notification in a batch, each at its
+  length](./adr/1.26-hold-a-path-a-notification-in-a-batch-each-at-its-length.md)
+  - Governs: `crates/kartta-fs/src/watch.rs` (`Found`, `Watcher::changes`), `crates/kartta-fs/src/watch/inotify.rs`
+  - Revisit if: a consumer raises `fs.inotify.max_queued_events` far past a million
 - [1.40 Carry an unchanged file over by its size and change
   time](./adr/1.40-carry-an-unchanged-file-over-by-its-size-and-change-time.md)
   - Governs: `crates/kartta-fs/src/stamp.rs`, `BuildOptions::stamps`, `kartta_walk::WalkOptions::listed_stats`
