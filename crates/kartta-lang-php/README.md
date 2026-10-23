@@ -15,7 +15,10 @@ creates it and the variable or property it is assigned to, `{Suite·testRun·job
 the class it extends, the interfaces it implements and the traits it `use`s as parents. A member is exported unless it
 is `private`. A call records its receiver: the variable of a member call, or the anonymous class the caller assigned to
 that variable, the scope of a static call, by the last segment of a qualified one, and the empty receiver where that is
-an expression. A construction calls the class by the last segment of its name, or the anonymous class it creates.
+an expression. A construction calls the class by the last segment of its name, or the anonymous class it creates. A
+static call's scope written as a bare name other than `self`, `static` and `parent` names a class, so a static call on
+a class the graph does not hold, `Mockery::mock()`, binds only through the file's `use` imports and includes, never a
+namesake method found by its name alone; a variable or an expression scope is not read so.
 
 A callable named by a string or an array is a use of what it names: a string in the callable argument of a builtin or
 a WordPress hook that takes one, `usort($a, 'cmp')` or `add_action('init', 'boot')`, and an array of a class and a
