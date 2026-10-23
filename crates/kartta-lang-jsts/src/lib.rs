@@ -71,7 +71,10 @@
 //!
 //! A resolved import is an include of its file; one that names no file of the repository, such as an external
 //! package, is kept as an import as written. A re-export names the file its specifier resolves to by the same rules,
-//! or none.
+//! or none. Each name an `import` of a bare specifier that resolves to no file binds is an import binding outside the
+//! repository, so a member call through it, `<Dialog.Footer>` with `Dialog` from `@chakra-ui/react`, binds no
+//! definition of the repository; a specifier that starts with `.`, `/` or `#` names a file of the repository whether
+//! it resolves or not, and a `require` binds no name.
 //!
 //! The resolver keeps only what it derived: the aliases of each `tsconfig.json`, the `imports` of each `package.json`,
 //! and each package's name, directory, `exports` and entry. A resolver built again over an edit that changes none of

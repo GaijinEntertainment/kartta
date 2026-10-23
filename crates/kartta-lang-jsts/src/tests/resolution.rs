@@ -27,6 +27,46 @@ fn re_export_files(extraction: &Extraction) -> Vec<(&str, Option<&str>)> {
 }
 
 #[test]
+fn a_name_imported_from_a_package_outside_the_repository_is_bound_outside_it() {
+    let files = MemoryRepository::new([
+        ("packages/ui/package.json", PANEL_UI),
+        ("packages/ui/src/index.ts", ""),
+        ("src/dialog.tsx", ""),
+        ("src/app.tsx", ""),
+    ]);
+    let source = "import React, { Dialog, Field as F } from \"@chakra-ui/react\";\n\
+                  import * as path from \"node:path\";\n\
+                  import { Panel } from \"@panel/ui\";\n\
+                  import * as Local from \"./dialog\";\n\
+                  import { Gone } from \"./missing\";\n\
+                  import { Served } from \"/scripts/served.js\";\n\
+                  import \"./side-effect.css\";\n\
+                  const lazy = require(\"lodash\");\n";
+
+    let extraction = resolved("src/app.tsx", source, &files);
+
+    let bound: Vec<_> = (extraction.bindings.iter())
+        .map(|binding| {
+            (
+                binding.alias.as_deref(),
+                binding.target_dir.as_deref(),
+                binding.last_segment.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        bound,
+        [
+            (Some("React"), None, "react"),
+            (Some("Dialog"), None, "react"),
+            (Some("F"), None, "react"),
+            (Some("path"), None, "node:path"),
+        ],
+        "a package of the repository, a path that resolves or not, and a require bind nothing"
+    );
+}
+
+#[test]
 fn a_hash_specifier_stops_at_the_nearest_package_even_without_imports() {
     let files = MemoryRepository::new([
         (

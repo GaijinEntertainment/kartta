@@ -8,10 +8,21 @@ use crate::syntax::{child_nodes, start_line, unquote};
 const IMPORT_FORM: u32 = 0;
 
 impl Emitter<'_> {
+    // constraint: an import of a bare specifier keeps the names it binds, for the resolver to tell which hold a package
+    // outside the repository; a relative, a root-relative and a `#` specifier name a file of the repository even where
+    // none resolves
     pub(super) fn import_statement(&mut self, node: Node<'_>) {
-        if let Some(source) = node.child_by_field_name("source") {
-            self.push_directive(unquote(text(source, self.source)), start_line(node));
+        let Some(source) = node.child_by_field_name("source") else {
+            return;
+        };
+        let specifier = unquote(text(source, self.source));
+        let mut directive = RawDirective::new(IMPORT_FORM, specifier, start_line(node));
+        if !directive.spec.starts_with(['.', '/', '#']) {
+            imported_names(node, &mut |name| {
+                directive.names.push(text(name, self.source));
+            });
         }
+        self.raw.directives.push(directive);
     }
 
     pub(super) fn declare_imported(&mut self, node: Node<'_>) {
