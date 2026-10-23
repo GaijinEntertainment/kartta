@@ -313,8 +313,10 @@
   - Revisit if: one query exceeds tens of milliseconds, or the C++ extraction qualifies nested types by their whole
     chain or reads using-directives
 - [3.21 Search definitions by the words of their names and
-  paths](./adr/3.21-search-definitions-by-the-words-of-their-names-and-paths.md) — initiative `03-code-graph`,
-  2026-10-17, revised 2026-10-21
+  paths](./adr/3.21-search-definitions-by-the-words-of-their-names-and-paths.md)
+  - Governs: `crates/kartta-graph/src/{search,words}.rs`, `Graph::search`
+  - Revisit if: a family's first search outgrows a query's latency, or refreshes make re-splitting cost more than
+    sets kept at insert
 - [3.22 Analyze what a change reaches with the walk the call queries
   take](./adr/3.22-analyze-what-a-change-reaches-with-the-walk-the-call-queries-take.md) — initiative `03-code-graph`,
   2026-10-17, revised 2026-10-23
@@ -554,6 +556,11 @@
   reaches](./adr/3.130-name-the-type-alias-a-parent-s-lookup-reaches.md)
   - Governs: `crates/kartta-graph/src/implementations.rs`, `kartta_graph::is_parent`
   - Revisit if: the extraction records what an alias names
+- [3.131 Answer a missed name with the definitions one edit from
+  it](./adr/3.131-answer-a-missed-name-with-the-definitions-one-edit-from-it.md)
+  - Governs: `crates/kartta-graph/src/one_edit.rs`, `Graph::definitions_one_edit_from`
+  - Revisit if: the meant definition falls outside one edit for more than a few of 500 typos, or a miss outgrows tens
+    of milliseconds at p99
 - [3.140 Find a daslang module by its file name](./adr/3.140-find-a-daslang-module-by-its-file-name.md)
   - Governs: `crates/kartta-lang-daslang/src/resolve.rs`, `crates/kartta-lang-daslang/src/walk.rs` (`require`,
     `include`)
