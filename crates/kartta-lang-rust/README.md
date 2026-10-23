@@ -24,7 +24,12 @@ a path call, `socket::connect()`, names; `Fish.write()` records `Fish`. A macro 
 of the macro. A call of an item that a function body declares is a local call of that item. A bare call of a name
 that a pattern binds, a parameter, a `let`, a closure's parameter, a match arm, a `for` or an `if let`, as
 `helper()` in `fn f(helper: fn())` or `run()` after `let run = || {};`, calls the value the name holds and is no call,
-whatever the file imports or declares under the name. The conventions name the
+whatever the file imports or declares under the name. A call written in a macro's arguments, `assert!(C.opens(x))`,
+is a call of the function around the macro, for the macros of any crate: the grammar reads the arguments as tokens, so
+a name, a path or a member before a `(` is a call, a name before a `!` a nested macro invocation, and a closure there
+binds its parameters to the end of its token tree. Arguments that interpolate, `#name` or `#(..)*`, as `quote!` writes
+them, are a template of generated code and hold no call, and neither do an attribute nor the parameters and body of a
+`fn` the arguments declare. The conventions name the
 methods and associated functions of the standard library that code calls most, so a call of one through a receiver or
 a path, `name.clone()` or `fs::write()`, binds a member of the name and no free function of the repository. They list
 `other` alone as the receiver of a value of the caller's own type, since a call on `self` binds through the type it
