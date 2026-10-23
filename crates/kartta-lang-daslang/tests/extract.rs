@@ -153,6 +153,11 @@ fn daslang_conventions_are_the_default_but_value_uses_type_uses_and_own_type_rec
     expected.value_uses = ValueUses::Imported;
     expected.own_type_receivers = Some(&["self"]);
     expected.type_uses = TypeUses::Nowhere;
+    expected.unrecorded_data = &[
+        SymbolKind::Field,
+        SymbolKind::Variable,
+        SymbolKind::Constant,
+    ];
 
     assert_eq!(Daslang::new().conventions(), expected);
 }
@@ -182,6 +187,57 @@ def draw(p : Point; a : Alias?; all : array<Point>) : Point {
         assert!(declared.contains(&name), "{name} in {declared:?}");
     }
     assert!(raw.uses.is_empty(), "{:?}", raw.uses);
+}
+
+#[test]
+fn a_read_or_a_write_of_a_field_a_variable_or_a_constant_is_no_use_of_it() {
+    let raw = extract(
+        "options gen2
+let {
+  LIMIT = 10
+}
+var {
+  counter : int
+}
+struct Point {
+  x : int
+}
+def bump(var p : Point) : int {
+  counter += LIMIT
+  p.x = counter
+  return p.x
+}
+",
+    );
+
+    let data: Vec<(&str, SymbolKind)> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| {
+            matches!(
+                symbol.kind,
+                SymbolKind::Field | SymbolKind::Variable | SymbolKind::Constant
+            )
+        })
+        .map(|symbol| (symbol.name.as_str(), symbol.kind))
+        .collect();
+    assert_eq!(
+        data,
+        [
+            ("LIMIT", SymbolKind::Constant),
+            ("counter", SymbolKind::Variable),
+            ("x", SymbolKind::Field)
+        ]
+    );
+    assert!(raw.uses.is_empty(), "{:?}", raw.uses);
+    assert_eq!(
+        Daslang::new().conventions().unrecorded_data,
+        [
+            SymbolKind::Field,
+            SymbolKind::Variable,
+            SymbolKind::Constant
+        ]
+    );
 }
 
 #[test]

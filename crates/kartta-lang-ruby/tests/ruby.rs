@@ -1214,3 +1214,29 @@ end
     assert_eq!(uses(&raw), []);
     assert_eq!(Ruby::new().conventions().type_uses, TypeUses::Nowhere);
 }
+
+#[test]
+fn a_read_of_a_constant_is_no_use_of_it() {
+    let raw = extract(
+        b"class Feed
+  MAX = 10
+  def limit
+    MAX + Feed::MAX
+  end
+end
+",
+    );
+
+    assert!(
+        raw.symbols
+            .iter()
+            .any(|symbol| symbol.kind == SymbolKind::Constant && symbol.name == "MAX"),
+        "{:?}",
+        names(&raw.symbols)
+    );
+    assert_eq!(uses(&raw), []);
+    assert_eq!(
+        Ruby::new().conventions().unrecorded_data,
+        [SymbolKind::Constant]
+    );
+}

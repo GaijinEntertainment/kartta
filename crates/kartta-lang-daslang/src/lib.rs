@@ -84,7 +84,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    Conventions, DocComments, Language, RawExtraction, Repository, Resolver, TypeUses, ValueUses,
+    Conventions, DocComments, Language, RawExtraction, Repository, Resolver, SymbolKind, TypeUses,
+    ValueUses,
 };
 
 use crate::resolve::DaslangResolver;
@@ -110,6 +111,11 @@ const CONVENTIONS: Conventions = {
     conventions.value_uses = ValueUses::Imported;
     conventions.own_type_receivers = Some(&["self"]);
     conventions.type_uses = TypeUses::Nowhere;
+    conventions.unrecorded_data = &[
+        SymbolKind::Field,
+        SymbolKind::Variable,
+        SymbolKind::Constant,
+    ];
     conventions
 };
 

@@ -1376,6 +1376,25 @@ fn draw<T: Draw>(shape: &dyn Draw, line: Line, all: Vec<Point>) -> Point {
 }
 
 #[test]
+fn a_read_or_a_write_of_a_field_is_no_use_of_it() {
+    let raw = extract(
+        b"struct Point { x: u32 }
+fn shift(p: &mut Point) -> u32 {
+    p.x += 1;
+    p.x
+}
+",
+    );
+
+    assert_eq!(named(&raw, "x").kind, SymbolKind::Field);
+    assert!(raw.uses.is_empty(), "{:?}", raw.uses);
+    assert_eq!(
+        Rust::new().conventions().unrecorded_data,
+        [SymbolKind::Field]
+    );
+}
+
+#[test]
 fn a_local_a_parameter_or_a_name_the_file_declares_nothing_of_is_no_use() {
     let raw = extract(
         b"fn helper() {}

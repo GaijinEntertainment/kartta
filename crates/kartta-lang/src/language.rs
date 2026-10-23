@@ -4,6 +4,7 @@ use std::io;
 
 use crate::doc::DocComments;
 use crate::extraction::{Extraction, RawExtraction};
+use crate::symbol::SymbolKind;
 
 /// A language the code graph understands: which files are its, what it extracts from their bytes, and how it
 /// resolves what it extracted against the repository.
@@ -226,6 +227,11 @@ pub struct Conventions {
     pub type_uses: TypeUses,
     /// Where the language records a read or a write of a field, a variable or a constant.
     pub data_uses: DataUses,
+    /// The kinds among field, variable and constant whose reads and writes the language records nowhere, as Rust
+    /// records no access to a field: a definition of such a kind has no use but one that spells its name as something
+    /// else, a callable's, would, so no use of it does not show that nothing reads it. Empty where the language records
+    /// such uses of every kind it extracts.
+    pub unrecorded_data: &'static [SymbolKind],
     /// Where a bare use of a name that its own file does not declare binds.
     pub value_uses: ValueUses,
     /// What a member use on a value of a type the language cannot name binds.
@@ -252,6 +258,7 @@ impl Conventions {
         own_type_receivers: None,
         type_uses: TypeUses::Partial,
         data_uses: DataUses::Partial,
+        unrecorded_data: &[],
         value_uses: ValueUses::Declared,
         untyped_members: UntypedMembers::FileField,
     };

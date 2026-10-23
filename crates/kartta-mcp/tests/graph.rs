@@ -1033,6 +1033,75 @@ fn find_references_labels_a_member_read_through_a_type_a_read_and_not_a_use_as_a
 }
 
 #[test]
+fn find_references_names_the_language_that_records_no_read_or_write_of_the_symbol_s_kind() {
+    let answers = answers_over(
+        &[
+            ("Cargo.toml", "[package]\nname = \"app\"\n"),
+            ("src/lib.rs", "mod shapes;\n"),
+            (
+                "src/shapes.rs",
+                "pub struct Point {\n    pub x: u32,\n}\n\npub fn shift(p: &mut Point) {\n    p.x += 1;\n}\n",
+            ),
+            (
+                "tools/run.sh",
+                "LOG=/tmp/log\nrun() {\n  echo \"$LOG\"\n}\n",
+            ),
+            (
+                "tools/clean.sh",
+                "TMP=/tmp/work\nclean() {\n  rm -rf \"$TMP\"\n  trap TMP EXIT\n}\n",
+            ),
+        ],
+        &[
+            ("find_references", json!({"name": "Point::x"})),
+            ("find_references", json!({"name": "LOG"})),
+            ("find_references", json!({"name": "TMP"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="Point::x" matches="1">"#,
+                concat!(
+                    r#"<match lang="rust" of="x" qn="Point::x" loc="src/shapes.rs:2" kind="field" count="0">no "#,
+                    "recorded site - the rust graph records no read or write of a field, so this does not show that ",
+                    "nothing uses the field; grep finds where code names it</match>",
+                ),
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="LOG" matches="1">"#,
+                concat!(
+                    r#"<match lang="bash" of="LOG" loc="tools/run.sh:1" kind="variable" count="0">no recorded "#,
+                    "site - the bash graph records no read or write of a variable, so this does not show that ",
+                    "nothing uses the variable; grep finds where code names it</match>",
+                ),
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="TMP" matches="1">"#,
+                concat!(
+                    r#"<match lang="bash" of="TMP" loc="tools/clean.sh:1" kind="variable" count="1" files="1" "#,
+                    r#"reads="1">"#,
+                ),
+                concat!(
+                    "<note>the bash graph records no read or write of a variable, so every such use is missing from ",
+                    "this answer</note>",
+                ),
+                r#"<file path="tools/clean.sh" sites="1">"#,
+                r#"<ref name="clean" line="2" role="consumer" site="read" at="4"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+        ],
+        "a field or a variable its language records no read or write of has no recorded site, and the answer says why; \
+         a handler word that spells the name lists under a note that every read and write is missing"
+    );
+}
+
+#[test]
 fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
     let answers = answers(&[
         (

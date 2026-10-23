@@ -384,3 +384,21 @@ trap "$on_exit" USR1
         ]
     );
 }
+
+#[test]
+fn an_expansion_or_an_assignment_of_a_variable_is_no_use_of_it() {
+    let raw = extract(b"LOG=/tmp/log\nrun() {\n  echo \"$LOG\" >> \"${LOG}\"\n  LOG=other\n}\n");
+
+    assert!(
+        raw.symbols
+            .iter()
+            .any(|symbol| symbol.kind == SymbolKind::Variable && symbol.name == "LOG"),
+        "{:?}",
+        names(&raw)
+    );
+    assert!(raw.uses.is_empty(), "{:?}", raw.uses);
+    assert_eq!(
+        Bash::new().conventions().unrecorded_data,
+        [SymbolKind::Variable]
+    );
+}
