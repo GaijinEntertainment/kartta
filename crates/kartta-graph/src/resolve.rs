@@ -747,30 +747,44 @@ impl<'g> Cascade<'g> {
     // exports and then to the tiers below; a type shares its name with a function only where the language keeps types
     // apart from values, as Rust's `struct kevent` beside the `extern` function `kevent`, so the call names the
     // function; a call does not say whether it was written `mac()` or `mac!()`, which in Rust name a function and a
-    // macro apart, so a name the file exports as both binds neither
+    // macro apart, so a name the file exports as both binds neither; no path reaches a macro the file does not export,
+    // and a call from the module or a module below it, the files its file includes, sees its other private definitions
+    // too, and from test code its test definitions
     fn module_export(&self, call: &Call, module: u32) -> Option<Bound> {
         let defined = self.graph.in_file(self.named(call.callee), module);
+        let within = OnceCell::new();
+        let within = || *within.get_or_init(|| self.is_within_module(call.file, module));
+        let tests_seen = self.graph.flags(call.caller_at()).is_test();
+        let is_macro = |at: SymbolAt| self.graph.sym(at).kind == SymbolKind::Macro;
         let mut answers = self
             .call_targets(call.caller_at(), defined.iter().copied())
-            .filter(|&at| self.at_top_level(at));
+            .filter(|&at| {
+                self.declared_at_top_level(at)
+                    && (!self.graph.flags(at).is_test() || (tests_seen && within()))
+                    && (self.graph.sym(at).exported || !is_macro(at))
+            });
         let Some(at) = answers
             .clone()
             .min_by_key(|&at| self.graph.sym(at).kind.is_type())
         else {
             return self.macro_exported_below(call, module);
         };
-        let is_macro = |at: SymbolAt| self.graph.sym(at).kind == SymbolKind::Macro;
-        let exported = |at: SymbolAt| self.graph.sym(at).exported;
+        let exported = |at: SymbolAt| self.graph.sym(at).exported || within();
         (exported(at) && !answers.any(|other| exported(other) && is_macro(other) != is_macro(at)))
             .then_some((at, confidence::IMPORT))
     }
 
+    fn is_within_module(&self, file: u32, module: u32) -> bool {
+        file == module || self.closure(module).binary_search(&file).is_ok()
+    }
+
     fn at_top_level(&self, at: SymbolAt) -> bool {
+        self.declared_at_top_level(at) && !self.graph.flags(at).is_test()
+    }
+
+    fn declared_at_top_level(&self, at: SymbolAt) -> bool {
         let symbol = self.graph.sym(at);
-        symbol.owner.is_none()
-            && symbol.qualified_name == symbol.name
-            && self.holder(at).is_none()
-            && !self.graph.flags(at).is_test()
+        symbol.owner.is_none() && symbol.qualified_name == symbol.name && self.holder(at).is_none()
     }
 
     // constraint: Rust's `#[macro_export]` places a macro at its crate's root whatever module defines it, so a name the

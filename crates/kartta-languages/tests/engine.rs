@@ -1,11 +1,12 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
-//! what that crate exports, one through `crate::`, `self::` or `super::` the item of the module it names, a macro
-//! invocation the `#[macro_export]` macro of its root file or the one of the files
-//! that file includes, through a `use` inside a function body or an inline module only from inside it, and no macro
-//! of a name the crate also answers with a function or a `use`, as a call does not say it invokes a macro, and a Rust
-//! call on a value, on `self` or through a type binds no free function, not even through a value named like a module
-//! the file imports, while a call on a value still binds the one runtime method whose owner the value's name spells.
+//! what that crate exports, one through `crate::`, `self::` or `super::` the item of the module it names, a private one
+//! only from that module or below, a macro invocation the `#[macro_export]` macro of its root file or the one of the
+//! files that file includes, through a `use` inside a function body or an inline module only from inside it, and no
+//! macro of a name the crate also answers with a function or a `use`, as a call does not say it invokes a macro, and a
+//! Rust call on a value, on `self` or through a type binds no free function, not even through a value named like a
+//! module the file imports, while a call on a value still binds the one runtime method whose owner the value's name
+//! spells.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -213,6 +214,75 @@ fn a_rust_path_through_crate_self_or_super_binds_the_item_of_the_module_it_names
     assert_eq!(
         bound_through_an_import(&engine, "src/b.rs", "through_use"),
         ["src/a.rs", "src/a.rs"]
+    );
+}
+
+#[test]
+fn a_rust_path_within_the_crate_binds_a_private_item_only_from_its_module_or_below() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[package]\nname = \"app\"\n"),
+        ("src/lib.rs", "mod a;\nmod b;\n\nfn hidden() {}\n"),
+        (
+            "src/a.rs",
+            "mod c;\nmod d;\n#[cfg(test)]\nmod tests;\n\nfn helper() {}\n\n#[cfg(test)]\nfn fixture() {}\n\n\
+             fn up() {\n    super::hidden();\n}\n\nmacro_rules! tool {\n    () => {};\n}\n\nfn tool() {}\n\n\
+             macro_rules! quiet {\n    () => {};\n}\n",
+        ),
+        (
+            "src/a/d.rs",
+            "fn tools() {\n    super::tool();\n    super::quiet!();\n}\n",
+        ),
+        (
+            "src/a/c.rs",
+            "fn below() {\n    super::helper();\n    super::fixture();\n    crate::hidden();\n}\n",
+        ),
+        (
+            "src/a/tests.rs",
+            "use super::helper;\n\nfn check() {\n    helper();\n    super::fixture();\n}\n",
+        ),
+        ("src/b.rs", "fn beside() {\n    crate::a::helper();\n}\n"),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        bound_through_an_import(&engine, "src/a.rs", "up"),
+        ["src/lib.rs"]
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "src/a/c.rs", "below"),
+        ["src/a.rs", "src/lib.rs"]
+    );
+    assert_eq!(
+        callees(&engine, "src/a/d.rs", "tools"),
+        (
+            vec![
+                ("tool", SymbolKind::Function, "src/a.rs"),
+                ("quiet", SymbolKind::Macro, "src/a.rs")
+            ],
+            0
+        )
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "src/a/d.rs", "tools"),
+        ["src/a.rs"]
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "src/a/tests.rs", "check"),
+        ["src/a.rs", "src/a.rs"]
+    );
+    assert_eq!(
+        callees(&engine, "src/a/tests.rs", "check"),
+        (
+            vec![
+                ("helper", SymbolKind::Function, "src/a.rs"),
+                ("fixture", SymbolKind::Function, "src/a.rs")
+            ],
+            0
+        )
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "src/b.rs", "beside"),
+        Vec::<&str>::new()
     );
 }
 
