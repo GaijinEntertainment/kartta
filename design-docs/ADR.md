@@ -89,7 +89,8 @@
   includes](./adr/3.13-read-a-shell-script-s-commands-as-calls-and-its-sources-as-includes.md) — initiative
   `03-code-graph`, 2026-10-16, revised 2026-10-19
 - [3.14 Fold a PHP include path and map a use through
-  PSR-4](./adr/3.14-fold-a-php-include-path-and-map-a-use-through-psr-4.md) — initiative `03-code-graph`, 2026-10-16
+  PSR-4](./adr/3.14-fold-a-php-include-path-and-map-a-use-through-psr-4.md) — initiative `03-code-graph`, 2026-10-16,
+  revised 2026-10-23
 - [3.15 Qualify a Ruby member by its whole namespace
   chain](./adr/3.15-qualify-a-ruby-member-by-its-whole-namespace-chain.md) — initiative `03-code-graph`, 2026-10-16
 - [3.16 Load a Lua module only from a literal name](./adr/3.16-load-a-lua-module-only-from-a-literal-name.md) —
