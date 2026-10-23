@@ -33,7 +33,7 @@ impl<'a> Emitter<'a> {
             caller,
             name: &source[object.byte_range()],
             attribute: Some(attribute_name),
-            access: access_of(attribute),
+            access: self.access_of(attribute),
             line: line(name.start_position().row),
             at: object.start_byte(),
             attribute_object: false,
@@ -55,11 +55,19 @@ impl<'a> Emitter<'a> {
             caller,
             name: &self.source[identifier.byte_range()],
             attribute: None,
-            access: access_of(identifier),
+            access: self.access_of(identifier),
             line: line(identifier.start_position().row),
             at: identifier.start_byte(),
             attribute_object: is_attribute_object(identifier),
         });
+    }
+
+    fn access_of(&self, site: Node<'_>) -> Access {
+        if site.start_byte() < self.type_names_end {
+            Access::Type
+        } else {
+            access_of(site)
+        }
     }
 
     fn defer(&mut self, used: NameUse<'a>) {

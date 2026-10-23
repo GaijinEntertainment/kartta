@@ -973,6 +973,66 @@ fn find_references_keeps_its_answer_for_a_type_where_go_and_python_record_type_u
 }
 
 #[test]
+fn find_references_labels_a_member_read_through_a_type_a_read_and_not_a_use_as_a_type() {
+    let answers = answers_over(
+        &[
+            ("events.ts", "export enum EventType {\n    Created,\n}\n"),
+            (
+                "card.ts",
+                "import { EventType } from \"./events\";\n\nexport function kind() {\n    \
+                 return EventType.Created;\n}\n",
+            ),
+            (
+                "palette.py",
+                "class Palette:\n    default = 1\n\n\ndef pick(palette: Palette):\n    \
+                 return Palette.default\n",
+            ),
+        ],
+        &[
+            ("find_references", json!({"name": "EventType"})),
+            ("find_references", json!({"name": "Palette"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="EventType" matches="1">"#,
+                concat!(
+                    r#"<match lang="jsts" of="EventType" loc="events.ts:1" kind="enum" count="1" files="1" "#,
+                    r#"reads="1">"#,
+                ),
+                concat!(
+                    "<note>the jsts graph records no use of a type where code names it as one, such as a ",
+                    "declaration, a signature, a generic argument or an import, so every such use is missing from ",
+                    "this answer</note>",
+                ),
+                r#"<file path="card.ts" sites="1">"#,
+                r#"<ref name="kind" line="3" role="consumer" site="read" at="4" confidence="likely"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="Palette" matches="1">"#,
+                concat!(
+                    r#"<match lang="python" of="Palette" qn="palette.Palette" loc="palette.py:1" kind="class" "#,
+                    r#"count="2" files="1" types="1" reads="1">"#,
+                ),
+                r#"<file path="palette.py" sites="2">"#,
+                r#"<ref name="pick" qn="palette.pick" line="5" role="consumer" site="type" at="5"/>"#,
+                r#"<ref name="pick" qn="palette.pick" line="5" role="consumer" site="read" at="6"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+        ],
+        "a member taken through a type reads the type as a value, and an annotation names it as a type"
+    );
+}
+
+#[test]
 fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
     let answers = answers(&[
         (

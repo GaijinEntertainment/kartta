@@ -975,6 +975,46 @@ fn a_use_names_its_receiver_s_class_and_reads_a_module_value_the_file_binds() {
     );
 }
 
+#[test]
+fn an_annotation_or_a_base_names_a_type_as_one_and_a_member_taken_through_a_class_reads_it() {
+    let raw = extract(
+        b"import models\n\nclass Palette:\n    default: int = 1\n    shade: models.Shade\n\n\
+          def pick(palette: Palette, *rest: list[Palette]) -> Optional[Palette]:\n    \
+          chosen: Palette = Palette.default\n    return isinstance(chosen, Palette)\n\n\nclass Dark(Palette):\n    \
+          pass\n",
+    );
+    let mut uses: Vec<(&str, &str, Access, u32)> = raw
+        .uses
+        .iter()
+        .map(|site| {
+            (
+                raw.symbols[site.site_of.0 as usize].name.as_str(),
+                site.name.as_str(),
+                site.access,
+                site.line,
+            )
+        })
+        .collect();
+    uses.sort_by_key(|&(_, name, access, line)| (line, name, access));
+
+    assert_eq!(
+        uses,
+        [
+            ("Palette", "Shade", Access::Type, 5),
+            ("pick", "Palette", Access::Type, 7),
+            ("pick", "Palette", Access::Type, 7),
+            ("pick", "Palette", Access::Type, 7),
+            ("pick", "Palette", Access::Read, 8),
+            ("pick", "Palette", Access::Type, 8),
+            ("pick", "default", Access::Read, 8),
+            ("pick", "Palette", Access::Read, 9),
+            ("Dark", "Palette", Access::Type, 12),
+        ],
+        "a name inside an annotation, a parameter's, a return's or a variable's, or in a class's bases names a type, \
+         and a name an expression takes a member of or passes reads it"
+    );
+}
+
 fn doc_line(source: &str, name: &str) -> u32 {
     let line = named(&extract(source.as_bytes()), name).line;
     let lines: Vec<&[u8]> = source.lines().map(str::as_bytes).collect();

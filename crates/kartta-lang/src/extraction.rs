@@ -198,7 +198,7 @@ pub struct LocalCall {
     pub line: u32,
 }
 
-/// A use of a name outside a call, unresolved: a type in a declaration, a read or a write of a value, a member of a
+/// A use of a name outside a call, unresolved: a type named as one, a read or a write of a value, a member of a
 /// value taken without a call.
 ///
 /// Its [`Receiver`] decides where the name is looked up. A bare or qualified name binds no field, no enum variant and
@@ -212,7 +212,7 @@ pub struct UseRef {
     pub name: String,
     /// What the name is written on.
     pub receiver: Receiver,
-    /// How the use touches the value the name binds; a type in a declaration reads it.
+    /// How the use touches what the name binds.
     pub access: Access,
     /// The one-based line of the use.
     pub line: u32,
@@ -234,25 +234,29 @@ pub enum Receiver {
     Path(String),
 }
 
-/// How a use touches the value its name binds.
+/// How a use touches what its name binds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Access {
-    /// Reads it, or names it as a type.
+    /// Reads it: takes its value, or a member through it, as `EventType.Created` reads the type `EventType`.
     Read,
     /// Assigns it without reading it: the left side of `=`, a key of a literal that builds its owner.
     Write,
     /// Reads and assigns it, as `+=` and `++` do.
     Update,
+    /// Names it as a type, as a declaration, a signature, an annotation or a generic argument does, which reads no
+    /// value.
+    Type,
 }
 
 impl Access {
-    /// The word for the access in an answer: `read`, `write` or `update`.
+    /// The word for the access in an answer: `read`, `write`, `update` or `type`.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
             Self::Read => "read",
             Self::Write => "write",
             Self::Update => "update",
+            Self::Type => "type",
         }
     }
 

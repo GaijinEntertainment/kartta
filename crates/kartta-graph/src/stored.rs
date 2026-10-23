@@ -271,6 +271,7 @@ impl StoredUse {
             Access::Read => 0,
             Access::Write => 1,
             Access::Update => 2,
+            Access::Type => 3,
         };
         Self {
             site_of: site_of | form << Self::FORM_SHIFT | access << Self::ACCESS_SHIFT,
@@ -300,7 +301,8 @@ impl StoredUse {
         match (self.site_of >> Self::ACCESS_SHIFT) & 0b11 {
             0 => Access::Read,
             1 => Access::Write,
-            _ => Access::Update,
+            2 => Access::Update,
+            _ => Access::Type,
         }
     }
 }
@@ -382,7 +384,7 @@ mod tests {
         ];
 
         for receiver in receivers {
-            for access in [Access::Read, Access::Write, Access::Update] {
+            for access in [Access::Read, Access::Write, Access::Update, Access::Type] {
                 let stored = StoredUse::new(last, (name, receiver), access, 9);
 
                 assert_eq!(
