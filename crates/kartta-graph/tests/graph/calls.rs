@@ -762,6 +762,116 @@ fn a_cpp_operand_s_class_binds_the_first_of_namesakes_of_one_qualified_name() {
     );
 }
 
+fn derived_in(scope: &str, name: &str, (line, end_line): (u32, u32), parents: &[&str]) -> Symbol {
+    let mut symbol = class_in(scope, name, line, end_line);
+    symbol.parents = parents.iter().map(|&parent| parent.to_owned()).collect();
+    symbol
+}
+
+/// `cloud.h` declares, in `namespace draco`, `Base` and `Side` with a `Flush`, `Mid : Base` with its own, `Other` with
+/// one and derived from neither, and classes that call `Flush` on `this` in one member and bare in the next:
+/// `Derived : Base`, `Near : Mid`, `Both : Base, Side` and `Own : Base`, which declares `Flush` too; `shutdown` calls
+/// it on a local of `Derived`.
+fn flushing_classes() -> Extraction {
+    let this_and_bare = |class: &str, line: u32| {
+        [
+            member_call(0, class, "Flush", line + 1),
+            call(1, "Flush", line + 3),
+        ]
+    };
+    let mut symbols = vec![
+        class_in("draco", "Base", 1, 3),
+        member("Base", "Flush", SymbolKind::Method, 2),
+        derived_in("draco", "Mid", (4, 6), &["Base"]),
+        member("Mid", "Flush", SymbolKind::Method, 5),
+        class_in("draco", "Side", 7, 9),
+        member("Side", "Flush", SymbolKind::Method, 8),
+        class_in("draco", "Other", 10, 12),
+        member("Other", "Flush", SymbolKind::Method, 11),
+    ];
+    let mut calls = Vec::new();
+    for (class, parents, line) in [
+        ("Derived", &["Base"][..], 20),
+        ("Near", &["Mid"], 30),
+        ("Both", &["Base", "Side"], 40),
+    ] {
+        let from = u32::try_from(symbols.len()).expect("a handful of symbols");
+        symbols.extend([
+            derived_in("draco", class, (line, line + 5), parents),
+            member(class, "Close", SymbolKind::Method, line + 1),
+            member(class, "Stop", SymbolKind::Method, line + 3),
+        ]);
+        calls.extend(this_and_bare(class, line).map(|call| CallRef {
+            site_of: SymbolId(from + 1 + call.site_of.0),
+            ..call
+        }));
+    }
+    let own = u32::try_from(symbols.len()).expect("a handful of symbols");
+    symbols.extend([
+        derived_in("draco", "Own", (50, 55), &["Base"]),
+        member("Own", "Flush", SymbolKind::Method, 51),
+        member("Own", "Close", SymbolKind::Method, 52),
+        namespaced("draco", "shutdown", 60),
+    ]);
+    calls.extend([
+        member_call(own + 2, "Own", "Flush", 53),
+        member_call(own + 3, "Derived", "Flush", 61),
+    ]);
+    file("cloud.h", symbols, calls)
+}
+
+#[test]
+fn a_cpp_call_on_a_class_that_inherits_the_member_binds_what_a_bare_call_in_its_member_binds() {
+    let namesake = file(
+        "xray/base.h",
+        vec![
+            class_in("xray", "Base", 1, 3),
+            member("Base", "Flush", SymbolKind::Method, 2),
+        ],
+        Vec::new(),
+    );
+    let graph = graph_of(cpp(), &[flushing_classes(), namesake]);
+    let targets = |caller: &str| -> Vec<String> {
+        callees(&graph, caller)
+            .into_iter()
+            .map(|reached| reached.split('@').next().unwrap_or_default().to_owned())
+            .collect()
+    };
+
+    assert_eq!(
+        callees(&graph, "Derived::Close"),
+        ["cloud.h:2@85"],
+        "a namesake of the base outside the base's body is another class's"
+    );
+    assert_eq!(
+        callees(&graph, "draco::shutdown"),
+        ["cloud.h:2@85"],
+        "a local of the class reaches its bases as `this` does"
+    );
+    assert_eq!(
+        callees(&graph, "Near::Close"),
+        ["cloud.h:5@85"],
+        "the nearest base's member hides a farther base's"
+    );
+    assert_eq!(
+        callees(&graph, "Both::Close"),
+        Vec::<String>::new(),
+        "members of one name in two bases leave the call ambiguous"
+    );
+    assert_eq!(
+        callees(&graph, "Own::Close"),
+        ["cloud.h:51@85"],
+        "the class's own member binds before a base's"
+    );
+    for class in ["Derived", "Near", "Both"] {
+        assert_eq!(
+            targets(&format!("{class}::Close")),
+            targets(&format!("{class}::Stop")),
+            "a call on `this` in {class} binds what a bare call binds"
+        );
+    }
+}
+
 #[test]
 fn a_qualified_callee_two_files_define_binds_the_first_in_path_order() {
     let widget = || vec![member("Widget", "draw", SymbolKind::Method, 1)];

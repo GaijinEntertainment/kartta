@@ -24,13 +24,14 @@ pub(crate) enum Scoped {
 /// What the class a member call's operand is declared as gives the call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OwnerMember {
-    /// The member of a class of that name the caller's file reaches.
+    /// The member of a class of that name the caller's file reaches, or of the base of that class that declares it.
     Member(SymbolAt),
     /// Classes of that name in several scopes hold the member nearest the caller's file, and the receiver's spelling
-    /// names none of them.
+    /// names none of them, or bases of the class that neither derives from declare it.
     Ambiguous,
-    /// No class of that name that the caller's file reaches holds the member: the name is a typedef, a class of another
-    /// project, or a class that inherits the member, so the call resolves as one on an operand of no declared class.
+    /// No class of that name that the caller's file reaches holds the member, nor a base the graph locates: the name is
+    /// a typedef, a class of another project, or a class whose base lies outside the graph, so the call resolves as one
+    /// on an operand of no declared class.
     Elsewhere,
     /// The language has no nested scopes, or the call names no receiver.
     NotDeclared,
@@ -1172,7 +1173,66 @@ impl Cascade<'_> {
         match self.twin(call.caller_at(), written, &tier) {
             Some(Twin::Member(at) | Twin::Namesake(at)) => OwnerMember::Member(at),
             Some(Twin::Unnamed(_)) => OwnerMember::Ambiguous,
-            None => OwnerMember::Elsewhere,
+            None => self.member_of_a_base(call, candidates, (class, written)),
+        }
+    }
+
+    // constraint: C++ looks a member the class does not declare up in its bases, as it does for a bare call in a
+    // member: a nearer base's member hides a farther one's, and members of two bases neither derives from leave the
+    // call ambiguous; a namesake of a base outside the base's body is another class's member, and a base the graph
+    // locates only through a guess leaves the call to the tiers that read no class
+    /// The member the bases of the class `written` names declare, where the call's file reaches the class.
+    fn member_of_a_base(
+        &self,
+        call: &Call,
+        candidates: &Candidates<'_>,
+        (class, written): (Str, &str),
+    ) -> OwnerMember {
+        if self.conventions.inherited_members != InheritedMembers::Found {
+            return OwnerMember::Elsewhere;
+        }
+        let types = kept(self.named(class), |&at| derives(self.graph.sym(at).kind));
+        let tier = self.reached_tier(call.file, &types);
+        let Some(Twin::Member(ty) | Twin::Namesake(ty)) =
+            self.twin(call.caller_at(), written, &tier)
+        else {
+            return OwnerMember::Elsewhere;
+        };
+        let Some(up) = self.type_ancestors(ty) else {
+            return OwnerMember::Elsewhere;
+        };
+        let nearest = self.nearest_base(candidates.named, class, &up);
+        let mut inherited = Vec::new();
+        for &owner in &up.owners {
+            let owned = candidates.with_owner(self.graph, owner);
+            if owned.is_empty()
+                || nearest
+                    .is_some_and(|nearest| nearest != owner && up.derives_from(nearest, owner))
+            {
+                continue;
+            }
+            if !up
+                .qualified_per_base
+                .get(&owner)
+                .is_some_and(Option::is_some)
+            {
+                return OwnerMember::Elsewhere;
+            }
+            inherited.extend(
+                owned
+                    .iter()
+                    .copied()
+                    .filter(|&at| self.declares_inherited(&up, at)),
+            );
+        }
+        let tier = self.reached_tier(call.file, &inherited);
+        let Some(&first) = tier.first() else {
+            return OwnerMember::Elsewhere;
+        };
+        if tier.iter().all(|&at| self.owner(at) == self.owner(first)) {
+            OwnerMember::Member(first)
+        } else {
+            OwnerMember::Ambiguous
         }
     }
 
