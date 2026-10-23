@@ -570,6 +570,239 @@ fn n(items: Vec<fn()>, hook: Option<fn()>) {
     );
 }
 
+fn calls_with_receivers(raw: &RawExtraction) -> Vec<(&str, Option<&str>)> {
+    raw.calls
+        .iter()
+        .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+        .collect()
+}
+
+#[test]
+fn a_call_in_a_macro_s_arguments_is_a_call_of_the_function_around_the_macro() {
+    let raw = extract(
+        b"struct C;
+impl C {
+    fn check(&self) {
+        assert!(C.opens(helper()), \"{}\", self.name());
+        assert_eq!(Self::new(), crate::m::f(), \"{}\", x.collect::<Vec<_>>());
+    }
+}
+fn other() { debug_assert!(Vec::<u8>::new().is_empty() && !(Options::default().on())); }
+",
+    );
+
+    assert_eq!(
+        calls_with_receivers(&raw),
+        [
+            ("assert", None),
+            ("opens", Some("C")),
+            ("helper", None),
+            ("name", Some("C")),
+            ("assert_eq", None),
+            ("new", Some("C")),
+            ("f", Some("m")),
+            ("collect", Some(".x")),
+            ("debug_assert", None),
+            ("new", Some("Vec")),
+            ("is_empty", Some("")),
+            ("default", Some("Options")),
+            ("on", Some("")),
+        ]
+    );
+    let check = id_of(&raw, "C::check");
+    assert!(raw.calls[..8].iter().all(|call| call.site_of == check));
+    assert!(
+        raw.calls[8..]
+            .iter()
+            .all(|call| call.site_of == id_of(&raw, "other"))
+    );
+}
+
+#[test]
+fn a_macro_in_a_macro_s_arguments_is_a_call_of_the_macro_and_its_arguments_are_read() {
+    let raw = extract(
+        b"fn run() {\n    assert_eq!(vec![first()], format!(\"{}\", kartta_lang::named!(second())));\n}\n",
+    );
+
+    assert_eq!(
+        calls_with_receivers(&raw),
+        [
+            ("assert_eq", None),
+            ("vec", None),
+            ("first", None),
+            ("format", None),
+            ("named", None),
+            ("second", None),
+        ]
+    );
+    let paths: Vec<(&str, &[String])> = raw
+        .directives
+        .iter()
+        .map(|directive| (directive.spec.as_str(), directive.names.as_slice()))
+        .collect();
+    assert_eq!(paths, [("kartta_lang::named", &["named".to_owned()][..])]);
+}
+
+#[test]
+fn a_call_in_a_macro_s_arguments_through_a_parameter_or_a_local_is_no_call() {
+    let raw = extract(
+        b"fn f(helper: fn() -> bool, items: Vec<fn() -> bool>) {
+    let run = || true;
+    assert!(helper() && run());
+    assert!(items.iter().any(|visit| visit()));
+    assert!(items.iter().all(move |(go)| go()), \"{}\", missing());
+    assert!(items.iter().any(|seen: build, again| build() && again()));
+    assert!(items.iter().any(|Some(found)| Some(found).is_some() && found()));
+}
+fn g(hook: Option<fn()>, pairs: Vec<(fn(), Point)>, code: fn()) {
+    assert!(if let Some(f) = hook { f() } else { true });
+    assert!({ for (step, Point { method: value }) in pairs { step(); method(); value(); } true });
+    assert!(match code { n => n(), _ => other() });
+    assert!(pairs.iter().any(|Point { label: kept }| label() && kept()));
+    assert!({ let built = built(); built() });
+    assert!(match code { n => { n() } m => m(), });
+    assert!(if let Some(f) = hook { f() } else { f() });
+    assert!(if let Some(check) = hook && check() { check() } else { false });
+    assert!(match code { check if check() => true, _ => false });
+}
+",
+    );
+    let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+
+    assert_eq!(
+        callees,
+        [
+            "assert", "assert", "iter", "any", "assert", "iter", "all", "missing", "assert",
+            "iter", "any", "build", "assert", "iter", "any", "Some", "is_some", "assert", "assert",
+            "method", "assert", "other", "assert", "iter", "any", "label", "assert", "built",
+            "assert", "assert", "f", "assert", "assert",
+        ]
+    );
+}
+
+#[test]
+fn a_rooted_path_or_a_keyword_in_a_macro_s_arguments_reads_as_one_outside_it() {
+    let outside = extract(
+        b"fn run(items: Vec<u8>) {
+    ::root::f();
+    ::g();
+    for item in (items) { r#in(item); }
+}
+",
+    );
+    let inside = extract(
+        b"fn run(items: Vec<u8>) {
+    m!(::root::f(),
+    ::g(),
+    for item in (items) { r#in(item); });
+}
+",
+    );
+    let calls = |raw: &RawExtraction| -> Vec<(String, Option<String>, u32)> {
+        raw.calls
+            .iter()
+            .filter(|call| call.callee != "m")
+            .map(|call| (call.callee.clone(), call.receiver.clone(), call.line))
+            .collect()
+    };
+
+    assert_eq!(calls(&inside), calls(&outside));
+    assert_eq!(
+        calls(&inside)
+            .iter()
+            .map(|(callee, ..)| callee.as_str())
+            .collect::<Vec<_>>(),
+        ["f", "g", "r#in"]
+    );
+    assert_eq!(inside.directives, outside.directives);
+}
+
+#[test]
+fn a_call_in_an_object_or_a_static_a_macro_writes_is_read_as_one_outside_it() {
+    let raw = extract(
+        b"thread_local! {
+    static SEEN: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+}
+fn answer(dir: &Path) {
+    json!({ \"root\": dir.path(), \"files\": [listed(dir)] });
+}
+",
+    );
+    let calls: Vec<(&str, Option<&str>, bool)> = raw
+        .calls
+        .iter()
+        .map(|call| {
+            let from_file = call.site_of == FILE_SCOPE;
+            (call.callee.as_str(), call.receiver.as_deref(), from_file)
+        })
+        .collect();
+
+    assert_eq!(
+        calls,
+        [
+            ("thread_local", None, true),
+            ("new", Some("RefCell"), true),
+            ("new", Some("Vec"), true),
+            ("json", None, false),
+            ("path", Some(".dir"), false),
+            ("listed", None, false),
+        ]
+    );
+}
+
+#[test]
+fn a_function_or_an_attribute_in_a_macro_s_arguments_holds_no_call() {
+    let raw = extract(
+        b"fn emit() {
+    declare! {
+        #[derive(Debug)]
+        #![cfg(feature(\"x\"))]
+        fn generated(x: u8) -> Option<u8> { helper(x) }
+        fn sized() -> Foo<{ N }, { M }> { inner() }
+        made();
+    }
+}
+",
+    );
+    let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+
+    assert_eq!(callees, ["declare", "made"]);
+}
+
+#[test]
+fn a_macro_whose_arguments_interpolate_is_a_template_of_no_call() {
+    let raw = extract(
+        b"fn emit() {
+    quote! { let result = std::panic::catch_unwind(|| #name()); };
+    quote! { #(#attrs),* checked(); };
+    kept!(made());
+    assert!(quote! { #name() } && helper());
+}
+",
+    );
+    let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+
+    assert_eq!(
+        callees,
+        [
+            "quote", "quote", "kept", "made", "assert", "quote", "helper"
+        ]
+    );
+}
+
+#[test]
+fn a_call_in_a_macro_s_arguments_binds_an_item_its_block_declares() {
+    let raw = extract(b"fn outer() {\n    fn inner() -> bool { true }\n    assert!(inner());\n}\n");
+    let local: Vec<(&str, u32)> = raw
+        .local_calls
+        .iter()
+        .map(|call| (raw.symbols[call.local.0 as usize].name.as_str(), call.line))
+        .collect();
+
+    assert_eq!(local, [("inner", 3)]);
+    assert!(raw.calls.iter().all(|call| call.callee != "inner"));
+}
+
 #[test]
 fn a_cfg_test_module_marks_everything_in_it() {
     let source = b"pub fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    fn helper() -> u32 {\n        0\n    }\n\n\

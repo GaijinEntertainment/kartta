@@ -1,0 +1,556 @@
+use kartta_lang::SymbolId;
+use kartta_lang::tree::{child_nodes, named_child_nodes, text};
+use tree_sitter::Node;
+
+use super::Emitter;
+use super::blocks::{CallForm, PathSegment};
+use super::calls::{Called, MacroName, Target, value_receiver};
+
+// constraint: the names a closure written in the arguments binds hide a bare call of the name, as a parameter does, to
+// the end of the token tree the closure is written in, since the tokens do not tell where its body ends; what is found
+// is recorded once the arguments are read, and nothing of a template
+struct Reading<'a, 't> {
+    bound: Vec<&'a [u8]>,
+    found: Vec<(Node<'t>, Found)>,
+    template: bool,
+}
+
+enum Found {
+    Call(Called),
+    Macro(MacroName),
+}
+
+// constraint: a `let`'s names bind once its initializer ends, at its `;`, to the end of the token tree, and an `if
+// let`'s, a `while let`'s or a `for`'s from the `&&` that chains a condition to it, or else the block it opens, to the
+// end of that block, since the initializer and the iterated value are read before the binding and an `else` after it;
+// `scope` is the length `bound` takes back once the block is read
+#[derive(Default)]
+struct Pending<'a> {
+    names: Vec<&'a [u8]>,
+    at_block: bool,
+    scope: Option<usize>,
+}
+
+impl<'a> Pending<'a> {
+    fn settle(&mut self, token: Node<'_>, bound: &mut Vec<&'a [u8]>) -> Option<usize> {
+        if !self.at_block {
+            if token.kind() == ";" {
+                bound.append(&mut self.names);
+            }
+            return None;
+        }
+        let block = token.kind() == "token_tree" && delimiter(token) == Some("{");
+        if !block && token.kind() != "&&" {
+            return None;
+        }
+        let scope = *self.scope.get_or_insert(bound.len());
+        bound.append(&mut self.names);
+        if !block {
+            return None;
+        }
+        self.at_block = false;
+        self.scope = None;
+        Some(scope)
+    }
+}
+
+// constraint: a `fn` the arguments declare, `quote! { fn f(x: u8) { g(x) } }`, is code the macro generates, so its
+// parameter list and its body hold no call of the site
+#[derive(Clone, Copy)]
+enum Declared {
+    No,
+    Parameters,
+    Body,
+}
+
+impl Declared {
+    // constraint: whether the tree at `at` is the parameter list or the body of the declared `fn`, which the reading
+    // skips; a block between `<` or `,` and `>` or `,` is a const generic argument of a type, `-> Foo<{ N }>`
+    fn passes(&mut self, tokens: &[Node<'_>], at: usize) -> bool {
+        let generic = at
+            .checked_sub(1)
+            .is_some_and(|before| matches!(tokens[before].kind(), "<" | ","))
+            && tokens
+                .get(at + 1)
+                .is_some_and(|next| matches!(next.kind(), ">" | ">>" | ","));
+        match (*self, delimiter(tokens[at])) {
+            (Self::Parameters, Some("(")) => *self = Self::Body,
+            (Self::Body, Some("{")) if !generic => *self = Self::No,
+            _ => return false,
+        }
+        true
+    }
+}
+
+impl<'a> Emitter<'a> {
+    // constraint: tree-sitter-rust parses a macro's arguments as a token tree, the tokens and the token trees nested in
+    // them, so they hold no call expression; a call is read from the tokens as a name, a path or a member before a
+    // `(` tree, and a nested macro invocation as a name before `!`
+    pub(super) fn macro_arguments(&mut self, invocation: Node<'_>, site_of: SymbolId) {
+        let Some(arguments) =
+            named_child_nodes(invocation).find(|child| child.kind() == "token_tree")
+        else {
+            return;
+        };
+        let mut reading = Reading {
+            bound: Vec::new(),
+            found: Vec::new(),
+            template: false,
+        };
+        self.token_calls(arguments, &mut reading);
+        if reading.template {
+            return;
+        }
+        for (name, found) in reading.found {
+            match found {
+                Found::Call(called) => self.record_call(name, site_of, called),
+                Found::Macro(macro_name) => self.record_macro_call(name, site_of, macro_name),
+            }
+        }
+    }
+
+    // constraint: an interpolation, `#name` or `#(..)*`, makes the arguments a template of generated code,
+    // `quote! { #name(x) }`, whose calls are the generated code's and none of the site
+    fn token_calls<'t>(&self, tree: Node<'t>, reading: &mut Reading<'a, 't>) {
+        if tree.named_child_count() == 0 {
+            return;
+        }
+        let depth = reading.bound.len();
+        let tokens: Vec<Node<'t>> = child_nodes(tree).collect();
+        let mut declared = Declared::No;
+        let mut pending = Pending::default();
+        let mut arm = 0;
+        let mut at = 0;
+        while let Some(&token) = tokens.get(at) {
+            at += 1;
+            let scoped = pending.settle(token, &mut reading.bound);
+            match token.kind() {
+                "#" if tokens.get(at).is_some_and(|next| {
+                    is_word(*next) || (next.kind() == "token_tree" && delimiter(*next) == Some("("))
+                }) =>
+                {
+                    reading.template = true;
+                }
+                "fn" if tokens.get(at).is_some_and(|name| is_word(*name)) => {
+                    declared = Declared::Parameters;
+                }
+                ";" => declared = Declared::No,
+                "," => arm = at,
+                "|" if opens_closure(&tokens[..at - 1], self.source) => {
+                    at = self.bind_closure(&tokens, at, reading);
+                }
+                "let" | "for" => at = self.bind_statement(&tokens, at, &mut pending),
+                "if" if is_guard(&tokens[at..]) => {
+                    self.bind_arm(&tokens[arm.min(at - 1)..at - 1], reading);
+                    arm = at - 1;
+                }
+                "=>" => self.bind_arm(&tokens[arm.min(at - 1)..at - 1], reading),
+                "token_tree" if !declared.passes(&tokens, at - 1) => {
+                    self.token_tree(&tokens, at - 1, reading);
+                }
+                _ => {}
+            }
+            if let Some(before) = scoped {
+                reading.bound.truncate(before);
+            }
+            if token.kind() == "token_tree" && at >= 2 && tokens[at - 2].kind() == "=>" {
+                arm = at;
+            }
+            if reading.template {
+                break;
+            }
+        }
+        reading.bound.truncate(depth);
+    }
+
+    // constraint: a `let` pattern runs to its `=`, a `for` pattern to its `in`, each before its `:` type, and neither
+    // is read for calls; the names wait in `pending` for the end of the initializer or the iterated value
+    fn bind_statement(&self, tokens: &[Node<'_>], at: usize, pending: &mut Pending<'a>) -> usize {
+        let source = self.source;
+        let keyword = tokens[at - 1].kind();
+        pending.at_block = keyword == "for"
+            || at
+                .checked_sub(2)
+                .is_some_and(|before| matches!(tokens[before].kind(), "if" | "while" | "&&"));
+        let ends = |token: &Node<'_>| match token.kind() {
+            "=" | ";" => true,
+            "identifier" => keyword == "for" && &source[token.byte_range()] == b"in",
+            _ => false,
+        };
+        let end = tokens[at..]
+            .iter()
+            .position(ends)
+            .map_or(tokens.len(), |end| at + end);
+        let pattern = tokens[at..end]
+            .iter()
+            .copied()
+            .take_while(|token| token.kind() != ":");
+        bind_names(pattern, &mut |name| {
+            pending.names.push(&source[name.byte_range()]);
+        });
+        end
+    }
+
+    // constraint: a match arm's pattern runs from the `,` or the block that ends the arm before it to its guard or
+    // its `=>`, and binds its names to the end of the token tree, as a closure's parameters do; a guard binds them
+    // at its `if`, since it reads them
+    fn bind_arm(&self, arm: &[Node<'_>], reading: &mut Reading<'a, '_>) {
+        let pattern = arm.iter().copied().take_while(|token| token.kind() != "if");
+        bind_names(pattern, &mut |name| {
+            reading.bound.push(&self.source[name.byte_range()]);
+        });
+    }
+
+    // constraint: a nested macro is a template, or not, of its own, so a template drops what its own arguments hold
+    // and nothing of the macro around it
+    fn nested_arguments<'t>(&self, tree: Node<'t>, reading: &mut Reading<'a, 't>) {
+        let found = reading.found.len();
+        let around = std::mem::replace(&mut reading.template, false);
+        self.token_calls(tree, reading);
+        if reading.template {
+            reading.found.truncate(found);
+        }
+        reading.template = around;
+    }
+
+    // constraint: a tree after `#` or `#!` is an attribute, `#[derive(Debug)]`, and holds no call of the site; a `!`
+    // after anything but a name is a negation, `!(a || b)`
+    fn token_tree<'t>(&self, tokens: &[Node<'t>], at: usize, reading: &mut Reading<'a, 't>) {
+        let (tree, before) = (tokens[at], &tokens[..at]);
+        match before.last().map(Node::kind) {
+            Some("#") => return,
+            Some("!") => {
+                let name = &before[..at - 1];
+                if name.last().is_some_and(|last| last.kind() == "#") {
+                    return;
+                }
+                if let Some(found) = self.token_macro(name) {
+                    reading.found.push(found);
+                    return self.nested_arguments(tree, reading);
+                }
+            }
+            _ if delimiter(tree) == Some("(") => {
+                if let Some(found) = self.token_call(before, reading) {
+                    reading.found.push(found);
+                }
+            }
+            _ => {}
+        }
+        self.token_calls(tree, reading);
+    }
+
+    fn token_macro<'t>(&self, before: &[Node<'t>]) -> Option<(Node<'t>, Found)> {
+        let (&name, rest) = before
+            .split_last()
+            .filter(|(name, _)| is_callee(**name, self.source))?;
+        let callee = text(name, self.source);
+        let path = path_before(rest);
+        let name_of = if path.segments.is_empty() && !path.rooted {
+            MacroName::Bare(callee)
+        } else {
+            let mut written = self.spelled(&path);
+            if !path.segments.is_empty() {
+                written.push_str("::");
+            }
+            written.push_str(&callee);
+            MacroName::Scoped(callee, Some(written))
+        };
+        Some((name, Found::Macro(name_of)))
+    }
+
+    fn token_call<'t>(
+        &self,
+        before: &[Node<'t>],
+        reading: &Reading<'_, '_>,
+    ) -> Option<(Node<'t>, Found)> {
+        let (name, rest) = called_name(before, self.source)?;
+        let callee = text(name, self.source);
+        let found = match rest
+            .split_last()
+            .map(|(last, operand)| (last.kind(), operand))
+        {
+            Some((".", operand)) => self.member_called(callee, operand),
+            Some(("::", _)) => self.path_called(callee, &path_before(rest)),
+            _ => {
+                let spelled = &self.source[name.byte_range()];
+                if self.is_bound(spelled) || reading.bound.contains(&spelled) {
+                    return None;
+                }
+                Called {
+                    target: Target::new(callee, None),
+                    written: None,
+                    form: Some(CallForm::Plain),
+                }
+            }
+        };
+        Some((name, Found::Call(found)))
+    }
+
+    // constraint: a member call takes a named operand, `self` as the type of the impl or trait around it, and anything
+    // else, a call, a field, a path or a literal, as the empty receiver, as a member call the syntax tree spells does
+    fn member_called(&self, callee: String, operand: &[Node<'_>]) -> Called {
+        let chained = operand
+            .len()
+            .checked_sub(2)
+            .is_some_and(|at| matches!(operand[at].kind(), "." | "::"));
+        let (receiver, names_own_type) = match operand.last() {
+            Some(&value) if !chained && value.kind() == "identifier" => {
+                (value_receiver(value, self.source), false)
+            }
+            Some(value) if !chained && value.kind() == "self" => {
+                (self.enclosing_type_name().unwrap_or_default(), true)
+            }
+            _ => (String::new(), false),
+        };
+        Called {
+            target: Target {
+                callee,
+                receiver: Some(receiver),
+                names_own_type,
+            },
+            written: None,
+            form: None,
+        }
+    }
+
+    // constraint: a scoped call takes the last segment of its path as the receiver, `Self` as the type around it, and
+    // a path keyword none; a qualified path, `<T as Trait>::f`, has no segment and records no receiver, and a path
+    // from the root, `::a::f`, names no item of the file's blocks
+    fn path_called(&self, callee: String, path: &TokenPath<'_>) -> Called {
+        let segments = &path.segments;
+        let Some(&last) = segments.last() else {
+            return Called {
+                target: Target::new(callee, None),
+                written: None,
+                form: None,
+            };
+        };
+        let last_text = text(last, self.source);
+        let (receiver, names_own_type) = match last.kind() {
+            _ if last_text == "Self" => (self.enclosing_type_name(), true),
+            "identifier" | "primitive_type" => (Some(last_text), false),
+            _ => (None, false),
+        };
+        let form = segments
+            .iter()
+            .map(|segment| match segment.kind() {
+                "identifier" | "primitive_type" => {
+                    Some(PathSegment::Name(text(*segment, self.source)))
+                }
+                "self" => Some(PathSegment::SelfModule),
+                "super" => Some(PathSegment::SuperModule),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+            .filter(|_| !path.rooted)
+            .map(CallForm::Path);
+        Called {
+            target: Target {
+                callee,
+                receiver,
+                names_own_type,
+            },
+            written: Some(self.spelled(path)),
+            form,
+        }
+    }
+
+    // constraint: a path from the root starts with `::`, as the syntax tree's paths spell it
+    fn spelled(&self, path: &TokenPath<'_>) -> String {
+        let mut spelled = String::new();
+        for segment in &path.segments {
+            if path.rooted || !spelled.is_empty() {
+                spelled.push_str("::");
+            }
+            spelled.push_str(&String::from_utf8_lossy(&self.source[segment.byte_range()]));
+        }
+        if path.rooted && spelled.is_empty() {
+            spelled.push_str("::");
+        }
+        spelled
+    }
+
+    // constraint: a closure's parameters run from the `|` that opens it to the next `|`, and each binds the names of
+    // its pattern, before its `:`; its type binds nothing
+    fn bind_closure(&self, tokens: &[Node<'_>], at: usize, reading: &mut Reading<'a, '_>) -> usize {
+        let end = tokens[at..]
+            .iter()
+            .position(|token| token.kind() == "|")
+            .map_or(tokens.len(), |end| at + end);
+        let source = self.source;
+        for parameter in tokens[at..end].split(|token| token.kind() == ",") {
+            let pattern = parameter
+                .iter()
+                .copied()
+                .take_while(|token| token.kind() != ":");
+            bind_names(pattern, &mut |name| {
+                reading.bound.push(&source[name.byte_range()]);
+            });
+        }
+        end + 1
+    }
+}
+
+// constraint: a name of a pattern binds, in a nested pattern too, unless a tree or a `::` follows it, which makes it a
+// constructor or a path, `Some(x)` or `Kind::A { x }`, or a `:`, which makes it a field's label, `Point { x: at }`
+fn bind_names<'t>(pattern: impl Iterator<Item = Node<'t>>, bind: &mut impl FnMut(Node<'t>)) {
+    let mut pattern = pattern.peekable();
+    while let Some(token) = pattern.next() {
+        let constructor = pattern
+            .peek()
+            .is_some_and(|next| matches!(next.kind(), "token_tree" | "::" | ":"));
+        match token.kind() {
+            "identifier" if !constructor => bind(token),
+            "token_tree" => bind_names(child_nodes(token), bind),
+            _ => {}
+        }
+    }
+}
+
+// constraint: an `if` is a match arm's guard when a `=>` ends what follows it before a `,` or a `;` does, and an `if
+// let` is a condition
+fn is_guard(after: &[Node<'_>]) -> bool {
+    after.first().is_some_and(|next| next.kind() != "let")
+        && after
+            .iter()
+            .map(Node::kind)
+            .find(|kind| matches!(*kind, "=>" | "," | ";"))
+            == Some("=>")
+}
+
+fn delimiter(tree: Node<'_>) -> Option<&str> {
+    tree.child(0).map(|open| open.kind())
+}
+
+// constraint: `default` and `union` are words the grammar keeps as keywords, and a method or a function can take
+// either name, as `Options::default()` does
+fn is_word(token: Node<'_>) -> bool {
+    matches!(token.kind(), "identifier" | "default" | "union")
+}
+
+// constraint: a token tree keeps some keywords as identifiers, `in` and `move` among them, and no keyword names a
+// callable, so `for x in (items)` calls nothing; a raw identifier, `r#in`, names one
+fn is_callee(token: Node<'_>, source: &[u8]) -> bool {
+    is_word(token)
+        && !matches!(
+            &source[token.byte_range()],
+            b"abstract"
+                | b"become"
+                | b"box"
+                | b"do"
+                | b"dyn"
+                | b"else"
+                | b"final"
+                | b"in"
+                | b"macro"
+                | b"move"
+                | b"override"
+                | b"priv"
+                | b"ref"
+                | b"return"
+                | b"try"
+                | b"typeof"
+                | b"unsized"
+                | b"virtual"
+                | b"yield"
+        )
+}
+
+// constraint: `rooted` marks a path written from the crate root, `::a::b`
+struct TokenPath<'t> {
+    segments: Vec<Node<'t>>,
+    rooted: bool,
+}
+
+// constraint: a `|` opens a closure where an expression starts, after a delimiter, a separator, an assignment, an arm
+// or `move`; after an operand it is the bitwise or. A token tree keeps `move` and `return` as identifiers
+fn opens_closure(before: &[Node<'_>], source: &[u8]) -> bool {
+    before.last().is_none_or(|previous| match previous.kind() {
+        "(" | "[" | "{" | "," | "=" | ";" | "=>" | ":" => true,
+        "identifier" => matches!(&source[previous.byte_range()], b"move" | b"return"),
+        _ => false,
+    })
+}
+
+// constraint: the name a `(` tree calls, and the tokens before it; a turbofish, `collect::<Vec<_>>(..)`, sits between
+// the two
+fn called_name<'t, 'n>(
+    before: &'n [Node<'t>],
+    source: &[u8],
+) -> Option<(Node<'t>, &'n [Node<'t>])> {
+    let (&last, rest) = before.split_last()?;
+    let (name, rest) = if matches!(last.kind(), ">" | ">>") {
+        let open = generics_start(rest, last.kind())?;
+        let (colons, rest) = rest[..open].split_last()?;
+        if colons.kind() != "::" {
+            return None;
+        }
+        let (&name, rest) = rest.split_last()?;
+        (name, rest)
+    } else {
+        (last, rest)
+    };
+    is_callee(name, source).then_some((name, rest))
+}
+
+// constraint: the `<` that opens the generic list `close` ends, `>>` closing two; the scan stops at a delimiter, a
+// statement's end or an arm, which no generic list holds
+fn generics_start(tokens: &[Node<'_>], close: &str) -> Option<usize> {
+    let mut depth: usize = if close == ">>" { 2 } else { 1 };
+    for at in (0..tokens.len()).rev() {
+        match tokens[at].kind() {
+            ">" => depth += 1,
+            ">>" => depth += 2,
+            "<" => depth -= 1,
+            "<<" => depth = depth.checked_sub(2)?,
+            "(" | "[" | "{" | ";" | "=" | "=>" => return None,
+            _ => continue,
+        }
+        if depth == 0 {
+            return Some(at);
+        }
+    }
+    None
+}
+
+// constraint: the segments of the path that ends at the `::` closing `tokens`, `a::b::` or `Vec::<u8>::`, generic
+// arguments skipped; a path keyword is a segment, and the scan stops at anything else. A `::` with nothing of a path
+// before it starts the path at the root, `::a::f`
+fn path_before<'t>(tokens: &[Node<'t>]) -> TokenPath<'t> {
+    let mut path = TokenPath {
+        segments: Vec::new(),
+        rooted: false,
+    };
+    let mut end = tokens.len();
+    while end > 0 && tokens[end - 1].kind() == "::" {
+        let mut before = end - 1;
+        if let Some(close) = before.checked_sub(1).map(|close| tokens[close].kind())
+            && matches!(close, ">" | ">>")
+        {
+            let Some(open) = generics_start(&tokens[..before - 1], close) else {
+                break;
+            };
+            before = open;
+            if before > 0 && tokens[before - 1].kind() == "::" {
+                before -= 1;
+            }
+        }
+        let segment = before
+            .checked_sub(1)
+            .map(|at| tokens[at])
+            .filter(|segment| {
+                matches!(
+                    segment.kind(),
+                    "identifier" | "self" | "super" | "crate" | "primitive_type"
+                )
+            });
+        let Some(segment) = segment else {
+            path.rooted = before == end - 1;
+            break;
+        };
+        path.segments.push(segment);
+        end = before - 1;
+    }
+    path.segments.reverse();
+    path
+}
