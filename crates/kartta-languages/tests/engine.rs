@@ -2,7 +2,7 @@
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
 //! what that crate exports, through its `use`s and globs the item they name, one through `crate::`, `self::` or
 //! `super::` the item of the module it names, as does a
-//! `use` or a glob whose first segment is a module the file declares, a private one
+//! `use`, a glob or a path call whose first segment is a module the file declares, a private one
 //! only from that module or below and a test one only from its crate's test code, a tuple struct's constructor the
 //! struct its `use` names, a bare call through a glob what the glob's module shows it, a macro invocation the
 //! `#[macro_export]` macro of its root file or the one of the files that file includes, through a `use` inside a
@@ -522,6 +522,40 @@ fn a_rust_path_call_ending_at_a_name_the_file_declares_binds_the_item_the_path_n
     assert_eq!(
         bound("src/a.rs", "own"),
         [("src/a.rs", 1, confidence::SAME_FILE)]
+    );
+}
+
+fn reached<'e>(engine: &'e Engine, path: &str, name: &str) -> Vec<(&'e str, u32, u8)> {
+    let (_, graph) = engine.graph_of(path).expect("a language claims the file");
+    let callees = graph
+        .callees(Selector::new(name, Some(path)), Limits::new(1))
+        .expect("the name is defined");
+    (callees.reached.iter())
+        .map(|reached| (reached.symbol.file, reached.symbol.line, reached.confidence))
+        .collect()
+}
+
+#[test]
+fn a_rust_path_call_through_a_module_the_file_declares_binds_that_module_s_item() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "src/lib.rs",
+            "mod alpha;\nmod beta;\nmod inline {\n    pub fn run() {}\n}\nmod other {\n    pub fn run() {}\n}\n\n\
+             pub fn go() {\n    alpha::run();\n}\n\npub fn stay() {\n    inline::run();\n}\n",
+        ),
+        ("src/alpha.rs", "pub fn run() {}\n"),
+        ("src/beta.rs", "pub fn run() {}\n"),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        reached(&engine, "src/lib.rs", "go"),
+        [("src/alpha.rs", 1, confidence::IMPORT)]
+    );
+    assert_eq!(
+        reached(&engine, "src/lib.rs", "stay"),
+        [("src/lib.rs", 4, confidence::SAME_FILE)]
     );
 }
 

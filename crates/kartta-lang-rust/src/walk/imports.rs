@@ -8,7 +8,7 @@ use kartta_lang::{RawDirective, Symbol, SymbolKind};
 use tree_sitter::Node;
 
 use super::syntax::path_text;
-use super::{Emitter, GLOB_FORM, USE_FORM};
+use super::{Emitter, GLOB_FORM, MOD_FORM, MOD_TEST_FORM, USE_FORM};
 
 // constraint: a name a `use` binds, its directive, whether the `use` is inside a function body or an inline module,
 // whether inside a function body, which no signature sees, and the chain of the inline module around it, whose
@@ -180,7 +180,7 @@ impl Emitter<'_> {
     // constraint: a name the file binds through another crate keeps the place of the first directive that binds it,
     // with the path it reaches; a name the file declares at its top level, or binds to two paths, is the file's own or
     // cannot be told apart, so every directive of it is dropped, but for a `use` of a name the file declares only as a
-    // module
+    // module, and a path call through a module file the file declares, which the path names
     pub(super) fn record_imports(&mut self) {
         if !self.imports.is_empty() || !self.globs.is_empty() {
             self.start_at_declared_modules();
@@ -243,7 +243,8 @@ impl Emitter<'_> {
     }
 
     // constraint: a path call's receiver, the last segment of its path, is bound to the path where the receiver did not
-    // settle on a declaration of the file, the path's first segment read through the file's `use` of that name, and a
+    // settle on a declaration of the file, the path's first segment read through the file's `use` of that name, or,
+    // outside every inline module, started at the file's own module where it is a module file the file declares, and a
     // macro invocation's path, which records no receiver, binds the macro's name the same way; a `use`
     // inside a function body or an inline module is in scope in its block alone, so where a name only such `use`s bind
     // is out of their scope, a path from it reads as written, and a bare call of it leaves the name no path, as two
@@ -256,6 +257,12 @@ impl Emitter<'_> {
             imported.contains_key(name)
                 && !at_file_level.contains(name)
                 && !self.in_use_scope(name, at, module)
+        };
+        let module_files = OnceCell::new();
+        let pulls_in = |name: &str| {
+            module_files
+                .get_or_init(|| self.module_files())
+                .contains(name)
         };
         let mut bound: HashMap<&str, Bound<Cow<'_, str>>> = (imported.iter())
             .map(|(&name, held)| (name, held.map(|(path, at)| (Cow::Borrowed(path), at))))
@@ -277,6 +284,9 @@ impl Emitter<'_> {
                 Some(Some((path, _))) if rest.is_empty() => Cow::Borrowed(*path),
                 Some(Some((path, _))) => Cow::Owned(format!("{path}::{rest}")),
                 Some(None) => continue,
+                None if site.module.is_none() && pulls_in(first) => {
+                    Cow::Owned(format!("self::{written}"))
+                }
                 None if declared.contains_key(first) => continue,
                 None => Cow::Borrowed(written),
             };
@@ -305,9 +315,9 @@ impl Emitter<'_> {
                 let (path, at) = held?;
                 let keeps = names_a_module(head(&path))
                     && (!names_a_type(last(&path)) || called_bare(name));
-                let own = declared
-                    .get(name)
-                    .is_some_and(|&only_modules| !only_modules || directives[at].names.is_empty());
+                let own = declared.get(name).is_some_and(|&only_modules| {
+                    !only_modules || (directives[at].names.is_empty() && !pulls_in(name))
+                });
                 (!own && keeps).then(|| {
                     let changed = (path != directives[at].spec.as_str()).then(|| path.into_owned());
                     (at, changed)
@@ -388,6 +398,20 @@ impl Emitter<'_> {
             }
         }
         declared
+    }
+
+    // constraint: the modules a bodiless `mod NAME;` outside every inline module declares, whose file the resolver
+    // finds from the file's own module; one a `#[path]` places is in a file the resolver does not walk to, and an
+    // inline module's items are the file's own, which the same-file tiers bind
+    fn module_files(&self) -> HashSet<&str> {
+        (self.raw.directives.iter())
+            .filter(|directive| {
+                matches!(directive.form, MOD_FORM | MOD_TEST_FORM)
+                    && directive.names.is_empty()
+                    && !directive.spec.contains('/')
+            })
+            .map(|directive| directive.spec.as_str())
+            .collect()
     }
 
     fn file_items(&self) -> impl Iterator<Item = &Symbol> {

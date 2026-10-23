@@ -342,6 +342,25 @@ fn a_use_whose_first_segment_is_a_module_the_file_declares_starts_at_the_file_s_
     );
 }
 
+#[test]
+fn a_path_call_through_a_module_file_the_file_declares_starts_at_the_file_s_own_module() {
+    let got = bound(
+        "mod alpha;\nmod beta;\n#[path = \"g.rs\"]\nmod gamma;\nmod inline {}\n\nfn run() {\n    alpha::run();\n\
+         \x20   beta::deep::run();\n    gamma::run();\n    inline::run();\n}\n\nmod tests {\n    fn t() {\n\
+         \x20       alpha::run();\n    }\n}\n",
+    );
+    let through_the_crate = bound("mod alpha;\n\nfn run() {\n    crate::alpha::run();\n}\n");
+
+    assert_eq!(
+        got,
+        [
+            path("alpha", "self::alpha", 8),
+            path("deep", "self::beta::deep", 9)
+        ]
+    );
+    assert_eq!(through_the_crate, [path("alpha", "crate::alpha", 4)]);
+}
+
 fn resolve(files: &[(&str, &str)], path: &str) -> Extraction {
     let rust = Rust::new();
     let repository = MemoryRepository::new(files.iter().copied());

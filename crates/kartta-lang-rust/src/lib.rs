@@ -56,7 +56,10 @@
 //! `self::` or `super::` inside an inline module and the standard library's crates keep nothing. A `use` or a glob
 //! whose first segment is a module the file declares where it is written starts at the file's own module, so
 //! `use m::helper;` beside `mod m;` keeps `self::m::helper`, and inside an inline module, as a path through `self::`
-//! there, keeps nothing. A glob outside every function body and inline module,
+//! there, keeps nothing. A path call outside every inline module whose first segment is a module that a bodiless `mod`
+//! of the file's top level declares starts there too, `alpha::run()` beside `mod alpha;` keeping `self::alpha`, and a
+//! path call keeps such a module's name; a module a `#[path]` places, or an inline one, keeps nothing. A glob outside
+//! every function body and inline module,
 //! `use super::*;`, keeps the path of the module it ends at once, under those rules, and one inside a block, or of a
 //! capitalised item, keeps nothing. A path that ends at a capitalised item, a type, is kept only where the file calls
 //! its name bare, as `Wrapper(1)` calls a tuple struct's constructor, since a call through a type names its member. A
