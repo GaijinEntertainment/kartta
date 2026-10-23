@@ -16,7 +16,10 @@ slot of that table binds, `{ f = @() 1 }`, stays a free function, as an importer
 value with no binding and no name of its own is no symbol: its calls and uses belong to the function around it, or to
 the file at its top level.
 
-A call records its callee and, for a member call, the whole receiver expression as written. The conventions name the
+A call records its callee and, for a member call, the whole receiver expression as written. A bare call of a parameter
+or a local of an enclosing function, `cb()` in `function run(cb)`, calls whatever value the name holds and is no call,
+unless the file defines a free function or a class of the name, which is most often the value it passes; a local that
+destructures a table, `let { build } = cfg`, takes the slot of its name and keeps its call. The conventions name the
 methods of Quirrel's built-in types, so a member call of one, `list.len()` or `t.rawin()`, binds a member of the name
 and no free function of the repository.
 
