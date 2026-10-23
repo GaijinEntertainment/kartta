@@ -71,7 +71,9 @@
 //! root's. Each segment after it names the module file the module layout gives it, and the path imports the file of the
 //! module it ends at, or of the module that holds the lowercase item it ends at; a longer rest imports nothing. A call
 //! of the name, or through it, binds what that file exports at its top level under the name, a function before a type
-//! of the name, since a call never names a type that Rust keeps apart from values.
+//! of the name, since a call never names a type that Rust keeps apart from values, and from the file's module or a
+//! module below it, a private item other than a macro and, from test code, a test item too; a macro the file does not
+//! export binds no call through it.
 //!
 //! The resolver keeps only what it derived: the packages and the name and root of each library. A resolver built again
 //! over an edit that changes none of them, such as a dependency bump in a `Cargo.toml`,
