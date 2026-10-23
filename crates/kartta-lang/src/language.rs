@@ -501,7 +501,8 @@ pub enum InheritedMembers {
     /// inherited member is one candidate among those of its name.
     Admitted,
     /// The `parents` of a type are the bases its member lookup searches, as C++ class-scope lookup does, so an
-    /// inherited member a base certainly declares is taken when the caller's owner declares none of the name.
+    /// inherited member a base certainly declares is taken when the caller's owner declares none of the name, and
+    /// when the class a call's receiver names declares none of it.
     Found,
 }
 
