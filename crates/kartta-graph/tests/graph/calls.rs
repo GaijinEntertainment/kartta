@@ -551,6 +551,88 @@ fn a_cpp_operand_s_class_binds_the_namesake_its_declaration_s_scopes_name() {
     assert_eq!(graph.resolution(0).misses.ambiguous, 1);
 }
 
+fn field_of(owner: &str, name: &str, line: u32, declared: &str) -> Symbol {
+    let mut symbol = member(owner, name, SymbolKind::Field, line);
+    symbol.value_types = vec![declared.to_owned()];
+    symbol
+}
+
+fn locks_and_cache() -> [Extraction; 2] {
+    let locks = vec![
+        class_in("", "Lock", 1, 3),
+        member("Lock", "unlockRead", SymbolKind::Method, 2),
+        class_in("", "SpinLock", 4, 6),
+        member("SpinLock", "unlockRead", SymbolKind::Method, 5),
+    ];
+    let mut cache = file(
+        "cache.h",
+        vec![
+            class_in("", "Cache", 1, 5),
+            field_of("Cache", "lock", 2, "Lock"),
+            field_of("Cache", "held", 3, "*Lock"),
+        ],
+        Vec::new(),
+    );
+    cache.includes = vec![IncludeRef {
+        target: "lock.h".to_owned(),
+    }];
+    [file("lock.h", locks, Vec::new()), cache]
+}
+
+#[test]
+fn a_cpp_call_on_a_field_of_the_caller_s_class_binds_the_member_of_the_class_it_is_declared_as() {
+    let mut source = including(
+        "cache.cpp",
+        &["cache.h"],
+        vec![
+            member_call(0, ".lock", "unlockRead", 2),
+            member_call(0, ".guard", "unlockRead", 3),
+            member_call(1, "->held", "unlockRead", 6),
+            member_call(1, ".held", "unlockRead", 7),
+            member_call(2, ".lock", "unlockRead", 10),
+            member_call(3, ".global", "unlockRead", 12),
+        ],
+    );
+    source.symbols = vec![
+        member("Cache", "release", SymbolKind::Method, 1),
+        member("Cache", "read", SymbolKind::Method, 5),
+        function("outside", 9),
+        member("Cache", "write", SymbolKind::Method, 11),
+    ];
+    let [mut locks, mut cache] = locks_and_cache();
+    locks.symbols.extend([
+        class_in("sync", "Lock", 7, 9),
+        member("Lock", "unlockRead", SymbolKind::Method, 8),
+    ]);
+    cache
+        .symbols
+        .push(field_of("Cache", "guard", 4, "sync::Lock"));
+
+    let graph = graph_of(cpp(), &[locks, cache, source]);
+
+    assert_eq!(
+        callees(&graph, "Cache::release"),
+        ["lock.h:2@85", "lock.h:8@85"],
+        "a field's class keeps the scopes its declaration spells"
+    );
+    assert_eq!(
+        callees(&graph, "Cache::read"),
+        ["lock.h:2@85"],
+        "a pointer field binds through `->`, and through `.` it is a call on a value of no declared class"
+    );
+    assert_eq!(
+        callees(&graph, "outside"),
+        Vec::<String>::new(),
+        "outside a member a name is no field"
+    );
+    assert_eq!(
+        callees(&graph, "Cache::write"),
+        Vec::<String>::new(),
+        "a name no field of the class answers to is a value of no declared class"
+    );
+    assert_eq!(graph.resolution(0).misses.ambiguous, 3);
+}
+
 #[test]
 fn a_cpp_operand_s_class_binds_the_first_of_namesakes_of_one_qualified_name() {
     let files = [

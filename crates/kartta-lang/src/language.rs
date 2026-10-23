@@ -277,7 +277,8 @@ pub enum IncludeReach {
 pub enum Receivers {
     /// The owner of the member the call reaches, as the language writes owners, or an import: the graph binds a member
     /// of an owner of that name. Where scopes nest, a name the caller's body does not declare is spelled after the
-    /// operator that takes the member, `.lock` or `->lock`.
+    /// operator that takes the member, `.lock` or `->lock`, and the graph binds a member of the owner the
+    /// [value type](crate::Symbol::value_types) of the caller's owner's field of that name names.
     #[default]
     Owners,
     /// A type path, which names the receiver's type in the scope of the calling file. It starts with a name that the
