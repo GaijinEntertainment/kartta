@@ -397,7 +397,8 @@ const fn site_kind(of: SymbolKind, site: &Reference<'_>) -> &'static str {
 }
 
 /// The `impact_of_edit` answer: a `<symbol>` per definition the lines overlap, with its direct callers and callees
-/// and the reach of a change to it, and the files the file includes and is included by.
+/// and the reach of a change to it, and the files the file includes and is included by. A field, a variable or a
+/// constant lists its users in place of its callers, because its users hold them.
 pub(crate) fn impact(file: &str, lines: (u32, u32), segment: Option<&Segment<'_>>) -> String {
     const NO_SYMBOLS: &str = "no symbols defined in this range - it may cover only file-scope code (imports, \
                               comments); zero symbols is not proof the edit is safe";
@@ -450,7 +451,9 @@ pub(crate) fn impact(file: &str, lines: (u32, u32), segment: Option<&Segment<'_>
                     .optional("sig", definition.signature.map(flat))
                     .children(
                         [
-                            direct("callers", &symbol.callers, None),
+                            (symbol.users.total == 0)
+                                .then(|| direct("callers", &symbol.callers, None))
+                                .flatten(),
                             direct("users", &symbol.users, None),
                             direct("callees", &symbol.callees, Some(definition.file)),
                         ]
