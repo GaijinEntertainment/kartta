@@ -238,9 +238,10 @@
   - Governs: `crates/kartta-lang-cpp/src/repair.rs`, `crates/kartta-lang-cpp/src/lib.rs` (`extract`, `EXTENSIONS`),
     `crates/kartta-lang-cpp/Cargo.toml` (`tree-sitter-cpp`)
   - Revisit if: `tree-sitter-cpp` publishes a release, or the share of files with a parse error grows on a new code base
-- [3.4 Extract TypeScript and JavaScript as one
-  family](./adr/3.4-extract-typescript-and-javascript-as-one-family.md) — initiative `03-code-graph`, 2026-10-16,
-  revised 2026-10-23
+- [3.4 Extract TypeScript and JavaScript as one family](./adr/3.4-extract-typescript-and-javascript-as-one-family.md)
+  - Governs: `crates/kartta-lang-jsts/src/{walk,syntax,generated,flavor,lib}.rs`,
+    `crates/kartta-lang-jsts/src/walk/{calls,exports}.rs`
+  - Revisit if: a consumer needs the export surface of CommonJS modules
 - [3.5 Keep the graph a file at a time](./adr/3.5-keep-the-graph-a-file-at-a-time.md) — initiative `03-code-graph`,
   2026-10-16, revised 2026-10-17
 - [3.6 Build the graph inside the index's walk](./adr/3.6-build-the-graph-inside-the-index-s-walk.md) — initiative
@@ -406,6 +407,17 @@
   span](./adr/3.76-count-a-generated-code-marker-only-outside-a-code-span.md)
   - Governs: `crates/kartta-lang/src/banner.rs` (`kartta_lang::Banner`)
   - Revisit if: a generator in the trees kartta serves writes its banner inside backticks
+- [3.100 Resolve a TypeScript or JavaScript import as the compiler and bundlers
+  do](./adr/3.100-resolve-a-typescript-or-javascript-import-as-the-compiler-and-bundlers-do.md)
+  - Governs: `crates/kartta-lang-jsts/src/{resolve,modules,tsconfig,package_json,config}.rs`,
+    `crates/kartta-lang-jsts/src/walk/exports.rs` (`import_statement`)
+  - Revisit if: a real tree's imports lead through configuration the resolver does not read, a bundler's aliases or a
+    web server's root (#424)
+- [3.101 Name no type for a TypeScript or JavaScript call on a value the file
+  declares](./adr/3.101-name-no-type-for-a-typescript-or-javascript-call-on-a-value-the-file-declares.md)
+  - Governs: `crates/kartta-lang-jsts/src/walk.rs` (`Binding`, `Declared`), `crates/kartta-lang-jsts/src/walk/calls.rs`
+    (`value_receiver`, `this_class`)
+  - Revisit if: the walk learns the type a value's declaration spells for its calls (#475, #319)
 - [3.120 Derive a language's fingerprint from its code and its dependencies'
   versions](./adr/3.120-derive-a-language-s-fingerprint-from-its-code-and-its-dependencies-versions.md)
   - Governs: `kartta_lang::Language::fingerprint`, `crates/kartta-lang/src/fingerprint.rs` (`set_source_id`),
