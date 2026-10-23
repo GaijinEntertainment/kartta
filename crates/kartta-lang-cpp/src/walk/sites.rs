@@ -243,6 +243,25 @@ impl<'s, 't> Replayer<'s, 't> {
         }
     }
 
+    // constraint: `->` on a value of a class template calls its `operator->`, which a smart pointer, an optional or a
+    // handle aims at the class its first argument names, `Lock` of `eastl::unique_ptr<Lock>`; a template without the
+    // operator does not compile under `->`, so no call reads the class through one
+    pub(super) fn pointee_named(&self, written: Node<'_>) -> Option<&'s str> {
+        let mut template = written;
+        while template.kind() == "qualified_identifier" {
+            template = template.child_by_field_name("name")?;
+        }
+        let first = template
+            .child_by_field_name("arguments")
+            .filter(|_| template.kind() == "template_type")?
+            .named_child(0)
+            .filter(|first| {
+                first.kind() == "type_descriptor"
+                    && first.child_by_field_name("declarator").is_none()
+            })?;
+        self.owner_named(first.child_by_field_name("type")?)
+    }
+
     pub(super) fn owner_named(&self, written: Node<'_>) -> Option<&'s str> {
         let (spelled, name) = owner_type(written)?;
         self.borrowed(name)

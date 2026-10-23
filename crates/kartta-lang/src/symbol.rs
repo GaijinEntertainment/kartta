@@ -286,7 +286,8 @@ pub struct Symbol {
     /// and the type an alias names. Empty where the language records none, and for a function none of whose results
     /// has a path, since an absent result reads as an empty path does. Where receivers are
     /// [`Receivers::Owners`](crate::Receivers::Owners), a field's is the owner its declaration names, spelled as a
-    /// receiver names one, after a `*` where the field holds a pointer to a value of it.
+    /// receiver names one, after a `*` where the field holds a pointer to a value of it, and for a value of a class
+    /// template, after a `*`, the owner its first template argument names, which its `operator->` reaches.
     pub value_types: Vec<String>,
     /// What the symbol is for besides its kind.
     pub flags: SymbolFlags,
