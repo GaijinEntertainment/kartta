@@ -227,6 +227,8 @@ pub struct Conventions {
     pub calls_on_values: CallsOnValues,
     /// What a member call's receiver spells.
     pub receivers: Receivers,
+    /// What a receiver written as a bare name, of letters, digits and `_`, names.
+    pub bare_receivers: BareReceivers,
     /// The receivers a member call writes for a value of the caller's own type: its own receiver, as `self` and `cls`
     /// in Python, and `other`, as a comparison names its second operand. Where the language lists them, a member call
     /// on any other name that names no owner, a value's, binds no member of the caller's own owner. A language that
@@ -267,6 +269,7 @@ impl Conventions {
         untyped_owners: UntypedOwners::Types,
         calls_on_values: CallsOnValues::NearestGuessed,
         receivers: Receivers::Owners,
+        bare_receivers: BareReceivers::Any,
         own_type_receivers: None,
         type_uses: TypeUses::Partial,
         data_uses: DataUses::Partial,
@@ -314,6 +317,22 @@ pub enum Receivers {
     /// [value types](crate::Symbol::value_types) and binds a member of the type the receiver reaches or of a type that
     /// type embeds; a path that leaves the code the graph holds binds nothing.
     TypePaths,
+}
+
+/// What a receiver written as a bare name, of letters, digits and `_`, names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum BareReceivers {
+    /// A value, a module or a type alike, so a bare name that no type the graph holds is named can still hold a value
+    /// of one.
+    #[default]
+    Any,
+    /// A class, as a PHP static call writes `Mockery::mock()` while a value is written `$mock`, except for the scope
+    /// keywords listed, `self`, `static` and `parent`, compared without case. A call on any other bare name that no
+    /// type the graph holds is named calls a member of a class outside the graph, or of a class the file imports under
+    /// that name, as `use Illuminate\Database\Eloquent\Model as Eloquent;` does: it binds through the file's imports,
+    /// includes and the re-export chains through them alone, and no definition of the caller's own file or class, nor
+    /// the name's one callable or the one nearest the caller.
+    Classes(&'static [&'static str]),
 }
 
 /// What a member call, `x.f()`, can call besides a member.
