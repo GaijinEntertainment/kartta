@@ -705,6 +705,82 @@ fn a_use_inside_an_anonymous_struct_a_field_declares_is_the_field_s_once() {
     );
 }
 
+const ANONYMOUS_VARIABLES: &[u8] = br"package app
+
+var settings struct {
+	Timeout int
+}
+
+var left, right *struct{ X int }
+
+func Run() int {
+	var limits struct{ Max int }
+	limits.Max = settings.Timeout
+	return limits.Max
+}
+
+func (s *Server) Run() {
+	var limits struct{ Max int }
+	_ = limits
+}
+";
+
+#[test]
+fn a_variable_declared_with_an_anonymous_struct_owns_its_fields_through_the_struct_s_name() {
+    let raw = extract(ANONYMOUS_VARIABLES);
+
+    assert_eq!(
+        owned(&raw, "app.settings"),
+        (SymbolKind::Variable, None, vec!["{settings}".to_owned()])
+    );
+    assert_eq!(owned(&raw, "app.{settings}").0, SymbolKind::Struct);
+    assert_eq!(
+        owned(&raw, "app.settings.Timeout").1.as_deref(),
+        Some("{settings}")
+    );
+    assert_eq!(
+        (owned(&raw, "app.left").2, owned(&raw, "app.right").2),
+        (vec!["{left}".to_owned()], vec!["{left}".to_owned()]),
+        "the names of one spec share its struct, named after the first"
+    );
+    assert_eq!(owned(&raw, "app.left.X").1.as_deref(), Some("{left}"));
+}
+
+#[test]
+fn a_variable_a_body_declares_names_its_anonymous_struct_after_the_callable_too() {
+    let raw = extract(ANONYMOUS_VARIABLES);
+
+    assert_eq!(
+        owned(&raw, "app.Run.limits.Max").1.as_deref(),
+        Some("{Run·limits}")
+    );
+    assert_eq!(
+        owned(&raw, "app.Server.Run.limits.Max").1.as_deref(),
+        Some("{Server·Run·limits}"),
+        "a method's value is qualified by its receiver's type"
+    );
+    let reads: Vec<(&str, &str)> = members(&raw)
+        .into_iter()
+        .map(|(name, path, ..)| (name, path))
+        .collect();
+    assert_eq!(
+        reads,
+        [
+            ("Max", "{Run·limits}"),
+            ("Timeout", "settings"),
+            ("Max", "{Run·limits}")
+        ],
+        "a local's members name its struct, and a package value's members the value"
+    );
+    let local = |qualified_name: &str| {
+        raw.local_symbols
+            .iter()
+            .any(|&id| symbol(&raw, id).qualified_name == qualified_name)
+    };
+    assert!(local("app.{Run·limits}") && local("app.Run.limits.Max"));
+    assert!(!local("app.{settings}"));
+}
+
 #[test]
 fn a_field_whose_first_rune_is_unicode_upper_case_is_exported() {
     let raw = extract("package sample\n\ntype T struct {\n\tÄ int\n\té string\n}\n".as_bytes());

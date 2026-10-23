@@ -613,6 +613,9 @@ impl<'a> Emitter<'a> {
             Some(list) if written.is_none() => named_child_nodes(list).collect(),
             _ => Vec::new(),
         };
+        let nested = written
+            .zip(self.first_named(&names))
+            .and_then(|(written, first)| self.name_value_struct(written, first));
         for (position, &name_node) in names.iter().enumerate() {
             let name = text(name_node, self.source);
             if name == "_" {
@@ -624,6 +627,9 @@ impl<'a> Emitter<'a> {
                 );
                 self.spec_name(spec, kind, (name, type_path));
             }
+        }
+        if let Some((struct_type, scope)) = nested {
+            self.declare_anonymous(struct_type, &scope);
         }
     }
 
