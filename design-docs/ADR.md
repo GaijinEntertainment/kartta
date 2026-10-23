@@ -267,8 +267,10 @@
   - Governs: `crates/kartta-lang-blk/src/{lib,text,walk,resolve}.rs`
   - Revisit if: the engine's `DataBlock` reader changes how it reads an include's path
 - [3.11 Name Rust items by their module chain and resolve modules by Cargo's
-  layout](./adr/3.11-name-rust-items-by-their-module-chain-and-resolve-modules-by-cargo-s-layout.md) — initiative
-  `03-code-graph`, 2026-10-16, revised 2026-10-23
+  layout](./adr/3.11-name-rust-items-by-their-module-chain-and-resolve-modules-by-cargo-s-layout.md)
+  - Governs: `crates/kartta-lang-rust/src/{walk,resolve,lib}.rs`,
+    `crates/kartta-lang-rust/src/walk/{settle,attributes}.rs`
+  - Revisit if: a consumer needs the targets that a manifest places off Cargo's layout
 - [3.12 Qualify Python by the module its path
   names](./adr/3.12-qualify-python-by-the-module-its-path-names.md) — initiative `03-code-graph`, 2026-10-16, revised
   2026-10-23
@@ -381,6 +383,35 @@
   - Governs: `crates/kartta-graph/src/scope.rs` (`member_of_a_reached_owner`, `class_of_own_field`,
     `nearest_base_fields`), `kartta_lang::Receivers`
   - Revisit if: a sample of the pairs the field tier binds finds the field's class wrong more than once in ten
+- [3.50 Bind a Rust path into another crate through its library's module
+  files](./adr/3.50-bind-a-rust-path-into-another-crate-through-its-library-s-module-files.md)
+  - Governs: `crates/kartta-lang-rust/src/walk/imports.rs`, `crates/kartta-lang-rust/src/manifest.rs`,
+    `crates/kartta-lang-rust/src/resolve.rs` (`Crates`)
+  - Revisit if: the call record carries a path per call (#236)
+- [3.51 Start a Rust path through `crate::`, `self::` or `super::` at the caller's crate root or
+  module](./adr/3.51-start-a-rust-path-through-crate-self-or-super-at-the-caller-s-crate-root-or-module.md)
+  - Governs: `crates/kartta-lang-rust/src/walk/imports.rs`, `crates/kartta-lang-rust/src/resolve.rs` (`crate_root`,
+    `Caller`)
+  - Revisit if: the extraction places each inline module in its file's module tree
+- [3.52 Scope a Rust `use` inside a block to that block](./adr/3.52-scope-a-rust-use-inside-a-block-to-that-block.md)
+  - Governs: `crates/kartta-lang-rust/src/walk/imports.rs`, `crates/kartta-lang-rust/src/walk/blocks.rs`
+  - Revisit if: the call record carries a path per call (#236)
+- [3.53 Record no Rust call through a value, and bind a call of a body's item as a local
+  call](./adr/3.53-record-no-rust-call-through-a-value-and-bind-a-body-s-item-as-a-local-call.md)
+  - Governs: `crates/kartta-lang-rust/src/walk/{blocks,bindings,calls}.rs`
+  - Revisit if: a consumer needs the callable that a closure or a function pointer holds
+- [3.54 Read the calls a Rust macro's arguments write from its
+  tokens](./adr/3.54-read-the-calls-a-rust-macro-s-arguments-write-from-its-tokens.md)
+  - Governs: `crates/kartta-lang-rust/src/walk/arguments.rs`
+  - Revisit if: tree-sitter-rust parses a macro's arguments as expressions
+- [3.55 Name a Rust method call's receiver by its parameter's declared
+  type](./adr/3.55-name-a-rust-method-call-s-receiver-by-its-parameter-s-declared-type.md)
+  - Governs: `crates/kartta-lang-rust/src/walk/declared.rs`, `crates/kartta-lang-rust/src/walk/bindings.rs`
+  - Revisit if: the owner tier tells crates apart (#202)
+- [3.56 Name a Rust call's receiver only where its syntax spells
+  it](./adr/3.56-name-a-rust-call-s-receiver-only-where-its-syntax-spells-it.md)
+  - Governs: `crates/kartta-lang-rust/src/walk/calls.rs`, `crates/kartta-lang-rust/src/walk/settle.rs`
+  - Revisit if: the walk learns the type a local, a field or a chain holds (#484, #248, #485)
 - [3.70 Read a declarator a macro misjoins in the walk](./adr/3.70-read-a-declarator-a-macro-misjoins-in-the-walk.md)
   - Governs: `crates/kartta-lang-cpp/src/walk/declarator.rs`, `crates/kartta-lang-cpp/src/walk.rs`
     (`misread_definition_body`)
