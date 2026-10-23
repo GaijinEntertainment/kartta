@@ -234,8 +234,10 @@
     `type_spec`)
   - Revisit if: a Go file's walk can see its package's other files
 - [3.3 Repair what the C++ grammar cannot parse instead of vendoring
-  it](./adr/3.3-repair-what-the-c-plus-plus-grammar-cannot-parse.md) — initiative `03-code-graph`, 2026-10-16, revised
-  2026-10-23
+  it](./adr/3.3-repair-what-the-c-plus-plus-grammar-cannot-parse.md)
+  - Governs: `crates/kartta-lang-cpp/src/repair.rs`, `crates/kartta-lang-cpp/src/lib.rs` (`extract`, `EXTENSIONS`),
+    `crates/kartta-lang-cpp/Cargo.toml` (`tree-sitter-cpp`)
+  - Revisit if: `tree-sitter-cpp` publishes a release, or the share of files with a parse error grows on a new code base
 - [3.4 Extract TypeScript and JavaScript as one
   family](./adr/3.4-extract-typescript-and-javascript-as-one-family.md) — initiative `03-code-graph`, 2026-10-16,
   revised 2026-10-23
@@ -371,6 +373,39 @@
   - Governs: `crates/kartta-graph/src/scope.rs` (`member_of_a_reached_owner`, `class_of_own_field`,
     `nearest_base_fields`), `kartta_lang::Receivers`
   - Revisit if: a sample of the pairs the field tier binds finds the field's class wrong more than once in ten
+- [3.70 Read a declarator a macro misjoins in the walk](./adr/3.70-read-a-declarator-a-macro-misjoins-in-the-walk.md)
+  - Governs: `crates/kartta-lang-cpp/src/walk/declarator.rs`, `crates/kartta-lang-cpp/src/walk.rs`
+    (`misread_definition_body`)
+  - Revisit if: the grammar reads an annotation macro as an attribute, or a tree-sitter release recovers differently
+- [3.71 Read a conditional that splits a brace with its first branch
+  taken](./adr/3.71-read-a-conditional-that-splits-a-brace-with-its-first-branch-taken.md)
+  - Governs: `crates/kartta-lang-cpp/src/repair.rs` (`untaken_branches`, `ConditionalScan`, `recovery_of`)
+  - Revisit if: a tree-sitter-cpp release reads a conditional's branches as alternatives
+- [3.72 Qualify C++ names the way the graph matches
+  them](./adr/3.72-qualify-c-plus-plus-names-the-way-the-graph-matches-them.md)
+  - Governs: `crates/kartta-lang-cpp/src/walk.rs` (`apply_namespace`, `attribute_to_class`, `nest_in_class`,
+    `free_namespace_members`), `crates/kartta-lang-cpp/src/walk/name.rs` (`call_target`)
+  - Revisit if: the graph matches a call by a C++ scope chain rather than by a bare owner and a qualified name
+- [3.73 Resolve a C++ include to the copy nearest the including
+  file](./adr/3.73-resolve-a-c-plus-plus-include-to-the-copy-nearest-the-including-file.md)
+  - Governs: `crates/kartta-lang-cpp/src/resolve.rs` (`include`, `enclosing_copy`, `nearest_copy`)
+  - Revisit if: kartta reads a build's include path
+- [3.74 Fold a C++ declaration into the one definition its file
+  reaches](./adr/3.74-fold-a-c-plus-plus-declaration-into-the-one-definition-its-file-reaches.md)
+  - Governs: `crates/kartta-lang-cpp/src/walk.rs` (`queue_prototype`, `flush_prototypes`),
+    `crates/kartta-lang-cpp/src/resolve.rs` (`export_c_constants`), `crates/kartta-graph/src/resolve.rs`
+    (`linked_definition`)
+  - Revisit if: several definitions a header reaches through transitive includes are not alternatives
+- [3.75 Name a C++ call's receiver by the class its operand is declared
+  as](./adr/3.75-name-a-c-plus-plus-call-s-receiver-by-the-class-its-operand-is-declared-as.md)
+  - Governs: `crates/kartta-lang-cpp/src/walk.rs` (`record_call`, `push_fields`),
+    `crates/kartta-lang-cpp/src/walk/{sites,data}.rs`, `crates/kartta-graph/src/scope.rs`
+    (`member_of_a_reached_owner`), `crates/kartta-graph/src/twins.rs`
+  - Revisit if: calls on operands the walk does not see declared bind wrongly often enough to want a typed expression
+- [3.76 Count a generated-code marker only outside a code
+  span](./adr/3.76-count-a-generated-code-marker-only-outside-a-code-span.md)
+  - Governs: `crates/kartta-lang/src/banner.rs` (`kartta_lang::Banner`)
+  - Revisit if: a generator in the trees kartta serves writes its banner inside backticks
 - [3.120 Derive a language's fingerprint from its code and its dependencies'
   versions](./adr/3.120-derive-a-language-s-fingerprint-from-its-code-and-its-dependencies-versions.md)
   - Governs: `kartta_lang::Language::fingerprint`, `crates/kartta-lang/src/fingerprint.rs` (`set_source_id`),
