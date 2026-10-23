@@ -118,10 +118,10 @@ impl Watcher {
     /// the directory that holds it, and one directly below the root names nothing, since the index holds no such name
     /// and nothing below it. A notification for the root itself, such as `FSEvents` raises for a change of its times,
     /// names nothing either: a change of an entry inside it is reported for that entry. The batch is the empty path
-    /// alone, the whole tree, when the root was deleted or moved, and when changes were dropped before they could be
-    /// handed over: an inotify queue that overflowed, an `FSEvents` stream that dropped events at the root or at a
-    /// directory above it, a `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that piled up
-    /// while the caller was not waiting. Events `FSEvents` dropped below the root are named by the directory
+    /// alone, the whole tree, when changes were dropped before they could be handed over: an inotify queue that
+    /// overflowed, an `FSEvents` stream that dropped events at the root or at a directory above it, a
+    /// `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that piled up while the caller was not
+    /// waiting. Events `FSEvents` dropped below the root are named by the directory
     /// it names for them, which [`Index::refresh_paths`] walks again with everything below it. On Linux the notice of
     /// a directory moved while inotify dropped changes went with them, so the watcher would go on naming its changes by
     /// the path it had, and a caller takes the whole tree in through [`Index::refresh_watched`] and follows it with the
@@ -129,8 +129,9 @@ impl Watcher {
     ///
     /// # Errors
     ///
+    /// [`WatchError::RootGone`] when the root was deleted or moved, in place of the changes gathered with it,
     /// [`WatchError::Stopped`] when the notifications stopped arriving, and [`WatchError::Limit`] or
-    /// [`WatchError::Start`] when a refresh under the watcher met them but returned an error of its own. Either way the
+    /// [`WatchError::Start`] when a refresh under the watcher met them but returned an error of its own. Each way the
     /// watcher no longer covers the tree, and a new one has to be started.
     pub fn wait(&mut self, timeout: Duration) -> Result<Vec<String>, WatchError> {
         self.gather(timeout, LONGEST, Found::default())
@@ -167,7 +168,7 @@ impl Watcher {
     ) -> Result<Vec<String>, WatchError> {
         self.backend.descended()?;
         if !self.backend.poll(timeout, &mut found)? {
-            return Ok(self.changes(found));
+            return self.changes(found);
         }
         let started = Instant::now();
         loop {
@@ -178,23 +179,26 @@ impl Watcher {
             }
         }
 
-        Ok(self.changes(found))
+        self.changes(found)
     }
 
-    fn changes(&self, found: Found) -> Vec<String> {
+    fn changes(&self, found: Found) -> Result<Vec<String>, WatchError> {
+        if found.root_went {
+            return Err(WatchError::RootGone);
+        }
         if found.lost || found.unread > 0 {
-            return vec![String::new()];
+            return Ok(vec![String::new()]);
         }
         let paths: BTreeSet<String> = found
             .paths
             .into_iter()
             .filter_map(|path| relative(&path, &self.prefixes))
             // constraint: the root's own path, and a name directly below it that is not valid UTF-8, name no entry the
-            // index holds, and the root's deletion or move has lost the batch already
+            // index holds, and the root's deletion or move has ended the batch already
             .filter(|named| !named.is_empty())
             .collect();
 
-        paths.into_iter().collect()
+        Ok(paths.into_iter().collect())
     }
 }
 
@@ -347,12 +351,16 @@ pub enum WatchError {
         /// The underlying failure.
         source: io::Error,
     },
+    /// The root was deleted or moved away, so the watcher follows no tree at its path.
+    #[error("the root was deleted or moved")]
+    RootGone,
 }
 
 #[derive(Debug, Default)]
 struct Found {
     paths: Vec<PathBuf>,
     lost: bool,
+    root_went: bool,
     unread: usize,
 }
 
@@ -541,7 +549,7 @@ mod tests {
             ..Found::default()
         };
 
-        assert_eq!(watcher.changes(found), ["a.rs"]);
+        assert_eq!(watcher.changes(found).expect("the root is there"), ["a.rs"]);
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -558,7 +566,7 @@ mod tests {
             ..Found::default()
         };
 
-        assert_eq!(watcher.changes(found), ["a.rs"]);
+        assert_eq!(watcher.changes(found).expect("the root is there"), ["a.rs"]);
     }
 
     #[test]
