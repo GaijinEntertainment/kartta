@@ -11,7 +11,7 @@ use self::anonymous::literal_type;
 use self::locals::{Block, Local, LocalKind, declares_left, header_statement};
 use self::syntax::{
     assertion_value_type, default_name_candidates, is_exported, is_generated_source, parents_of,
-    receiver_type, trim_quotes,
+    receiver_type, tag_hands_over_its_field, trim_quotes,
 };
 use self::types::{element_of, is_container_type};
 
@@ -591,6 +591,9 @@ impl<'a> Emitter<'a> {
             .child_by_field_name("type")
             .and_then(|written| self.type_path(written));
         let own_owner = (owner != scope).then(|| owner.to_owned());
+        let reflected = field
+            .child_by_field_name("tag")
+            .is_some_and(|tag| tag_hands_over_its_field(&text(tag, self.source)));
         let mut cursor = field.walk();
         for name_node in field.children_by_field_name("name", &mut cursor) {
             let name = text(name_node, self.source);
@@ -598,6 +601,7 @@ impl<'a> Emitter<'a> {
                 let mut symbol =
                     self.declared(SymbolKind::Field, field, (Some(scope.to_owned()), name));
                 symbol.owner = own_owner.clone().or(symbol.owner);
+                symbol.flags = symbol.flags.with_reflected(reflected);
                 symbol.value_types = type_path.clone().into_iter().collect();
                 self.push_symbol(symbol);
             }

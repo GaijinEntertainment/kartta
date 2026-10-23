@@ -49,6 +49,9 @@ pub struct Excluded {
     /// Methods a call through another type may reach: one an interface or a trait declares a method of the name for,
     /// one that a parent of its owner declares too, and one of an owner with a parent the graph does not hold.
     pub dispatched: usize,
+    /// Definitions that the language's runtime reads or writes by their name, through reflection, as Go's
+    /// `encoding/json` does a field its struct tag names, and that no call and no use the graph holds reaches.
+    pub reflected: usize,
 }
 
 /// The definitions that no call and no use reaches, and what the query left out.
@@ -84,7 +87,8 @@ impl Graph {
     /// variable or a constant, through its reads and writes, where the language records one wherever code reads or
     /// writes one, and a type where the language records a use wherever code names one, when none of them is local to
     /// a body. The answer counts the rest as excluded, with test, generated, vendored and entry code, the definitions a
-    /// call or a use that binds nothing certain may reach, and the methods a call through another type may reach. A
+    /// call or a use that binds nothing certain may reach, the methods a call through another type may reach, and the
+    /// definitions no call and no use reaches that reflection reads or writes by their name. A
     /// definition found dead is a candidate, not a proof: a call the graph cannot resolve, a function passed as a value
     /// where the language records no use, or a caller outside the repository reaches it unseen.
     ///
@@ -221,6 +225,10 @@ impl Judge<'_, '_> {
         }
         if self.is_reached(at) {
             self.answer.live += 1;
+            return;
+        }
+        if flags.is_reflected() {
+            self.answer.excluded.reflected += 1;
             return;
         }
         if self.calls.is_called_uncertainly(at) || self.calls.is_used_uncertainly(at) {

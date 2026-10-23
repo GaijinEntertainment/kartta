@@ -172,6 +172,37 @@ fn a_selector_a_literal_s_key_and_a_package_level_name_use_the_field_or_value_th
 }
 
 #[test]
+fn a_struct_tag_that_hands_its_field_to_a_library_marks_the_field_reflected() {
+    let raw = extract(
+        b"package p\n\ntype T struct {\n\tA int `json:\"a,omitempty\"`\n\tB int `json:\"-\"`\n\t\
+          C int `json:\"-\" yaml:\"c\"`\n\tD int\n\tE int `custom`\n\tF, G int `xml:\"f\"`\n\t\
+          H int `json:\"-\" yaml:\"-\"`\n\tI int \"json:\\\"-\\\"\"\n\tJ int \"json:\\\"j\\\"\"\n}\n",
+    );
+    let reflected: Vec<(&str, bool)> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Field)
+        .map(|symbol| (symbol.name.as_str(), symbol.flags.is_reflected()))
+        .collect();
+
+    assert_eq!(
+        reflected,
+        [
+            ("A", true),
+            ("B", false),
+            ("C", true),
+            ("D", false),
+            ("E", true),
+            ("F", true),
+            ("G", true),
+            ("H", false),
+            ("I", false),
+            ("J", true),
+        ]
+    );
+}
+
+#[test]
 fn a_package_is_a_directory_and_names_join_no_scopes() {
     let conventions = Go::new().conventions();
 

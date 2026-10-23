@@ -120,7 +120,8 @@ nothing a file holds goes stale when another file changes.
 - `Graph::dead_code` — the definitions no call and no use reaches, in path order, cut to a limit and counting every one
   found, those found reached, and those it did not judge, by reason: of a kind not asked for; test, generated, entry
   and vendored code; a kind no call and no use shows used; a definition a call or a use that binds nothing, or binds
-  only by proximity, may reach; and a method a call through another type may reach. A field, a variable and a
+  only by proximity, may reach; a method a call through another type may reach; and a definition no use reaches that
+  reflection reads by its name, as a Go field whose struct tag hands it to a library. A field, a variable and a
   constant are judged through their reads and writes where the language records one wherever code reads or writes
   one, as Go's conventions say, and a free value a call's receiver spells, in a file that sees it, counts as one a
   use may reach. Every call and use that spells a judged name is resolved, so a query over a whole graph costs what
