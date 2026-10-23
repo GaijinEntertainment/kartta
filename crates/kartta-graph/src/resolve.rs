@@ -749,18 +749,22 @@ impl<'g> Cascade<'g> {
     // function; a call does not say whether it was written `mac()` or `mac!()`, which in Rust name a function and a
     // macro apart, so a name the file exports as both binds neither; no path reaches a macro the file does not export,
     // and a call from the module or a module below it, the files its file includes, sees its other private definitions
-    // too, and from test code its test definitions
+    // too; a test definition is compiled into its crate's test build alone, where the crate's test code sees it through
+    // a path, so test code that shares an include root with the file sees it from any module, and other code from none
     fn module_export(&self, call: &Call, module: u32) -> Option<Bound> {
         let defined = self.graph.in_file(self.named(call.callee), module);
         let within = OnceCell::new();
         let within = || *within.get_or_init(|| self.is_within_module(call.file, module));
         let tests_seen = self.graph.flags(call.caller_at()).is_test();
+        let in_one_crate = OnceCell::new();
+        let in_one_crate =
+            || *in_one_crate.get_or_init(|| self.share_an_include_root(call.file, module));
         let is_macro = |at: SymbolAt| self.graph.sym(at).kind == SymbolKind::Macro;
         let mut answers = self
             .call_targets(call.caller_at(), defined.iter().copied())
             .filter(|&at| {
                 self.declared_at_top_level(at)
-                    && (!self.graph.flags(at).is_test() || (tests_seen && within()))
+                    && (!self.graph.flags(at).is_test() || (tests_seen && in_one_crate()))
                     && (self.graph.sym(at).exported || !is_macro(at))
             });
         let Some(at) = answers
@@ -776,6 +780,29 @@ impl<'g> Cascade<'g> {
 
     fn is_within_module(&self, file: u32, module: u32) -> bool {
         file == module || self.closure(module).binary_search(&file).is_ok()
+    }
+
+    fn share_an_include_root(&self, file: u32, other: u32) -> bool {
+        let roots = self.include_roots(other);
+        self.include_roots(file)
+            .iter()
+            .any(|root| roots.contains(root))
+    }
+
+    // constraint: a Rust crate is the files its root, which no file includes, includes directly or through others
+    fn include_roots(&self, file: u32) -> Vec<u32> {
+        let mut visited: HashSet<u32, FixedState> = HashSet::default();
+        visited.insert(file);
+        let mut pending = vec![file];
+        let mut roots = Vec::new();
+        while let Some(current) = pending.pop() {
+            let mut includers = self.graph.includers_of(current).peekable();
+            if includers.peek().is_none() {
+                roots.push(current);
+            }
+            pending.extend(includers.filter(|&includer| visited.insert(includer)));
+        }
+        roots
     }
 
     fn at_top_level(&self, at: SymbolAt) -> bool {
