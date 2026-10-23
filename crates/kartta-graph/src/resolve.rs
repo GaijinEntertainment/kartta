@@ -719,6 +719,7 @@ impl<'g> Cascade<'g> {
             Some(_) => Err(Miss::NotAdmitted),
             None => self
                 .resolve_by_proximity(call, candidates, reach)
+                .filter(|&(at, _)| self.can_bind_by_name(call, at))
                 .ok_or(Miss::Ambiguous),
         }
     }
