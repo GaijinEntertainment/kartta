@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use kartta_lang::tree::{line, named_child_nodes, preorder, signature_from, text};
 use kartta_lang::{
@@ -33,7 +33,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         }
         while !cursor.goto_next_sibling() {
             if !cursor.goto_parent() {
-                return emitter.raw;
+                return emitter.finish();
             }
             parents.pop();
         }
@@ -43,7 +43,15 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
 struct Scope<'a> {
     end: usize,
     id: SymbolId,
-    locals: HashSet<&'a [u8]>,
+    locals: HashMap<&'a [u8], Local>,
+}
+
+// constraint: a parameter or a local holds a value under a name of its own, and a call of it calls whatever the value
+// is; a local that destructures a table takes the slot of its name, which is the definition its call reaches
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Local {
+    Value,
+    Slot,
 }
 
 enum SlotOwner {
@@ -67,6 +75,7 @@ struct Emitter<'a> {
     scopes: Vec<Scope<'a>>,
     containers: Vec<SlotContainer>,
     flags: SymbolFlags,
+    calls_through_values: Vec<usize>,
     raw: RawExtraction,
 }
 
@@ -77,8 +86,35 @@ impl<'a> Emitter<'a> {
             scopes: Vec::new(),
             containers: Vec::new(),
             flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
+            calls_through_values: Vec::new(),
             raw: RawExtraction::default(),
         }
+    }
+
+    // constraint: a file that defines a free function or a class of a value's name most often passes that definition as
+    // the value, so a call through the value keeps the name; any other such call binds no definition and is not
+    // recorded
+    fn finish(mut self) -> RawExtraction {
+        if self.calls_through_values.is_empty() {
+            return self.raw;
+        }
+        let RawExtraction { symbols, calls, .. } = &mut self.raw;
+        let defined: HashSet<&str> = symbols
+            .iter()
+            .filter(|symbol| {
+                matches!(symbol.kind, SymbolKind::Function | SymbolKind::Class)
+                    && symbol.owner.is_none()
+            })
+            .map(|symbol| symbol.name.as_str())
+            .collect();
+        let mut through_values = self.calls_through_values.iter().copied().peekable();
+        let mut index = 0;
+        calls.retain(|call| {
+            let through_a_value = through_values.next_if_eq(&index).is_some();
+            index += 1;
+            !through_a_value || defined.contains(call.callee.as_str())
+        });
+        self.raw
     }
 
     fn handle(&mut self, node: Node<'_>, parent: Option<(&str, Option<&str>)>) {
@@ -148,12 +184,7 @@ impl<'a> Emitter<'a> {
 
     fn push_value_use(&mut self, name: Node<'_>, from_root: bool) {
         let spelled = &self.source[name.byte_range()];
-        if !from_root
-            && self
-                .scopes
-                .iter()
-                .any(|scope| scope.locals.contains(spelled))
-        {
+        if !from_root && self.local(spelled).is_some() {
             return;
         }
 
@@ -288,6 +319,13 @@ impl<'a> Emitter<'a> {
         self.raw.push_symbol(symbol)
     }
 
+    fn local(&self, name: &[u8]) -> Option<Local> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.locals.get(name).copied())
+    }
+
     fn site(&self) -> SymbolId {
         self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id)
     }
@@ -396,6 +434,9 @@ impl<'a> Emitter<'a> {
             .then(|| sole_string_argument(node))
             .flatten();
         let Some(spec) = loaded else {
+            if self.local(name.as_bytes()) == Some(Local::Value) {
+                self.calls_through_values.push(self.raw.calls.len());
+            }
             self.push_call(name, None, node);
             return;
         };
@@ -483,17 +524,17 @@ fn is_value_position(parent: &str, field: Option<&str>) -> bool {
 
 // constraint: a parameter, or a local a body declares anywhere, hides its name in the whole body, as no use before a
 // local's declaration reads anything else; a nested function's name is a local, its own locals are not
-fn declared_names<'a>(callable: Node<'_>, source: &'a [u8]) -> HashSet<&'a [u8]> {
-    let mut names = HashSet::new();
-    let mut declare = |declared: Option<Node<'_>>| {
+fn declared_names<'a>(callable: Node<'_>, source: &'a [u8]) -> HashMap<&'a [u8], Local> {
+    let mut names = HashMap::new();
+    let mut declare = |declared: Option<Node<'_>>, local: Local| {
         if let Some(declared) = declared.filter(|declared| declared.kind() == "identifier") {
-            names.insert(&source[declared.byte_range()]);
+            names.insert(&source[declared.byte_range()], local);
         }
     };
     if let Some(parameters) = callable.child_by_field_name("parameters") {
         preorder(parameters, |node| {
             if matches!(node.kind(), "parameter" | "pattern_field") {
-                declare(node.child_by_field_name("name"));
+                declare(node.child_by_field_name("name"), Local::Value);
             }
             true
         });
@@ -508,20 +549,24 @@ fn declared_names<'a>(callable: Node<'_>, source: &'a [u8]) -> HashSet<&'a [u8]>
         | "method"
         | "class_declaration"
         | "class_expression" => {
-            declare(node.child_by_field_name("name"));
+            declare(node.child_by_field_name("name"), Local::Value);
             false
         }
         "local_declaration" => {
-            declare(node.child_by_field_name("name"));
+            declare(node.child_by_field_name("name"), Local::Value);
             node.child_by_field_name("body").is_none()
         }
-        "variable_declaration" | "pattern_field" | "catch_clause" | "const_declaration" => {
-            declare(node.child_by_field_name("name"));
+        "pattern_field" => {
+            declare(node.child_by_field_name("name"), Local::Slot);
+            true
+        }
+        "variable_declaration" | "catch_clause" | "const_declaration" => {
+            declare(node.child_by_field_name("name"), Local::Value);
             true
         }
         "foreach_statement" => {
-            declare(node.child_by_field_name("index"));
-            declare(node.child_by_field_name("value"));
+            declare(node.child_by_field_name("index"), Local::Value);
+            declare(node.child_by_field_name("value"), Local::Value);
             true
         }
         _ => true,
