@@ -930,9 +930,20 @@ impl Cascade<'_> {
         let Some(class) = self.bare_owner(receiver) else {
             return OwnerMember::Elsewhere;
         };
+        let written = self.graph.strings.resolve(receiver);
+        self.member_of_a_reached_class(call, candidates, (class, written))
+    }
+
+    /// The member of the class of the bare name `class` that the call's file reaches, of namesakes the one `written`
+    /// names.
+    fn member_of_a_reached_class(
+        &self,
+        call: &Call,
+        candidates: &Candidates<'_>,
+        (class, written): (Str, &str),
+    ) -> OwnerMember {
         let owned = candidates.with_owner(self.graph, class);
         let tier = self.reached_tier(call.file, &owned);
-        let written = self.graph.strings.resolve(receiver);
         match self.twin(call.caller_at(), written, &tier) {
             Some(Twin::Member(at) | Twin::Namesake(at)) => OwnerMember::Member(at),
             Some(Twin::Unnamed(_)) => OwnerMember::Ambiguous,
