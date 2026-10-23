@@ -46,12 +46,12 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
         }
         let blanked = match source[at] {
             b',' if opens_an_empty_slot(source, at) => Some((at, at + 1)),
-            b'c' | b's' | b'u' if is_class_key(source, at) => {
-                head_macros(source, at).map(|[before, after]| {
+            b'c' | b's' | b'u' if is_class_key(source, at) => head_macros(source, at)
+                .or_else(|| keyed_head(source, at))
+                .map(|[before, after]| {
                     repaired.blank(before);
                     (after.start, after.end)
-                })
-            }
+                }),
             _ if at == 0 || source[at - 1] == b'\n' => {
                 lone_macro_above_a_head(source, at, &mut macro_run)
             }
@@ -320,6 +320,41 @@ fn head_macros(source: &[u8], key: usize) -> Option<[Range<usize>; 2]> {
         (None, Some(after)) => Some([after.start..after.start, after]),
         (Some(before), Some(after)) => Some([before, after]),
     }
+}
+
+// constraint: an alignment macro that takes the class key as its argument, Bullet's `ATTRIBUTE_ALIGNED16(class)
+// btCollisionObject {`, parses as a call before a name in an error, and the class body as a block of statements
+/// The macro call around a class key, its name and its parenthesis before the key and its parenthesis after it, where
+/// the head goes on to one name and a body or a base list.
+fn keyed_head(source: &[u8], key: usize) -> Option<[Range<usize>; 2]> {
+    let open = source[..key]
+        .trim_ascii_end()
+        .len()
+        .checked_sub(1)
+        .filter(|open| source[*open] == b'(')?;
+    let name_end = source[..open].trim_ascii_end().len();
+    let name_start = name_end
+        - source[..name_end]
+            .iter()
+            .rev()
+            .take_while(|byte| is_word_byte(**byte))
+            .count();
+    let close = key + word_len(&source[key..]);
+    let close = close + whitespace_len(&source[close..]);
+    if !is_macro_name(&source[name_start..name_end]) || source.get(close) != Some(&b')') {
+        return None;
+    }
+    let mut at = close + 1 + whitespace_len(&source[close + 1..]);
+    let name = word_len(&source[at..]);
+    at += name + whitespace_len(&source[at + name..]);
+    if source[at..].starts_with(b"final")
+        && source.get(at + 5).is_some_and(|byte| !is_word_byte(*byte))
+    {
+        at += 5 + whitespace_len(&source[at + 5..]);
+    }
+    let opens = source.get(at) == Some(&b'{')
+        || (source.get(at) == Some(&b':') && source.get(at + 1) != Some(&b':'));
+    (name > 0 && opens).then_some([name_start..open + 1, close..close + 1])
 }
 
 fn head_word(source: &[u8], at: usize) -> Option<(usize, HeadWord)> {
@@ -1400,6 +1435,29 @@ void free_fn() {}
         .collect();
         macros.sort_unstable();
         assert_eq!(changed_offsets(&repaired, SOURCE), macros);
+    }
+
+    #[test]
+    fn a_macro_that_takes_the_class_key_is_blanked_to_the_key() {
+        const SOURCE: &[u8] = b"ATTRIBUTE_ALIGNED16(class)\nbtCollisionObject\n{};\n\
+                                B3_ATTRIBUTE_ALIGNED16( struct ) b3Contact4 : public b3Base {};\n\
+                                ATTRIBUTE_ALIGNED16(class) btFinal final {};\nDECLARE(class) handle;\n\
+                                align(class) lower {};\nALIGNED(class Named) {};\n";
+
+        let repaired = for_parse(SOURCE).expect("keyed class heads");
+
+        let text = String::from_utf8_lossy(&repaired);
+        for kept in [
+            "                    class \nbtCollisionObject\n{};",
+            "                        struct   b3Contact4 : public b3Base {};",
+            "                    class  btFinal final {};",
+            "DECLARE(class) handle;",
+            "align(class) lower {};",
+            "ALIGNED(class Named) {};",
+        ] {
+            assert!(text.contains(kept), "{kept:?} in {text}");
+        }
+        assert_eq!(repaired.len(), SOURCE.len());
     }
 
     #[test]
