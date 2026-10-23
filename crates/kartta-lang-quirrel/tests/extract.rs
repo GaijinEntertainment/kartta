@@ -7,7 +7,7 @@
 
 use kartta_lang::{
     Access, Conventions, FILE_SCOPE, Language, OwnMembers, RawExtraction, Receiver, Symbol,
-    SymbolId, SymbolKind,
+    SymbolId, SymbolKind, UntypedOwners,
 };
 use kartta_lang_quirrel::Quirrel;
 
@@ -122,6 +122,7 @@ fn a_bare_call_in_a_member_reaches_the_class_first() {
     let mut expected = Conventions::default();
     expected.own_members = OwnMembers::First;
     expected.runtime_methods = conventions.runtime_methods;
+    expected.untyped_owners = UntypedOwners::Tables;
 
     assert_eq!(conventions, expected);
 }

@@ -78,7 +78,7 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{
     BlockComment, Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository,
-    Resolver,
+    Resolver, UntypedOwners,
 };
 
 use crate::resolve::QuirrelResolver;
@@ -108,6 +108,7 @@ const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.own_members = OwnMembers::First;
     conventions.runtime_methods = runtime::METHODS;
+    conventions.untyped_owners = UntypedOwners::Tables;
     conventions
 };
 
