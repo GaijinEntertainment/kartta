@@ -701,8 +701,9 @@
   - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
   - Revisit if: a consumer needs a transport other than stdio
 - [4.2 Reach the engine through one JSON call over a small C
-  ABI](./adr/4.2-reach-the-engine-through-one-json-call.md) — initiative `04-consumer-surfaces`, 2026-10-18, revised
-  2026-10-23
+  ABI](./adr/4.2-reach-the-engine-through-one-json-call.md)
+  - Governs: `crates/kartta-ffi`, `crates/kartta-ffi/include/kartta.h`, `crates/kartta-ffi/src/wire/`, `bindings/go`
+  - Revisit if: a consumer's answers grow large enough that encoding them as JSON shows beside the query
 - [4.3 Reach the engine from Node through an addon over the same
   dispatch](./adr/4.3-reach-the-engine-from-node-through-an-addon-over-the-same-dispatch.md) — initiative
   `04-consumer-surfaces`, 2026-10-18, revised 2026-10-22
@@ -760,6 +761,38 @@
   - Governs: `crates/kartta-mcp/src/state.rs` (`Slot`, `release`), `crates/kartta-mcp/src/main.rs`
   - Revisit if: agents work across several repositories in one session often enough that rebuilds cost more than a
     second engine's memory
+- [4.30 Cancel a build, a grep or a refresh by the id it names, even before it
+  enters](./adr/4.30-cancel-a-build-a-grep-or-a-refresh-by-the-id-it-names-even-before-it-enters.md)
+  - Governs: `crates/kartta-ffi/src/handle.rs` (`Calls`, `Kartta::cancel`), `crates/kartta-ffi/src/wire/build.rs`
+    (`CancelParams`, `By`), `bindings/go/kartta/kartta.go` (`tracked`, `callTracked`, `Call`, `Close`)
+  - Revisit if: a binding's close lands on more than 1,024 calls of one method still on their way to the library
+- [4.31 Set no global allocator in the C ABI's archive](./adr/4.31-set-no-global-allocator-in-the-c-abi-s-archive.md)
+  - Governs: `crates/kartta-ffi/Cargo.toml`, `crates/kartta-ffi/src/lib.rs`
+  - Revisit if: build time matters more to a consumer than its peak, or a glibc build shows the musl time is the
+    allocator's
+- [4.32 Refresh the wire's engine in place where its build kept
+  stamps](./adr/4.32-refresh-the-wire-s-engine-in-place-where-its-build-kept-stamps.md)
+  - Governs: `crates/kartta-ffi/src/built.rs` (`Built::refresh`, `Shared`), `crates/kartta-ffi/src/handle.rs`
+    (`Kartta::refresh`), `crates/kartta-ffi/src/wire/refresh.rs`, `bindings/go/wire/refresh.go`
+  - Revisit if: a refresh without stamps comes to cost a fraction of a build, or queries cannot wait behind a refresh
+- [4.33 Follow the tree over the wire only when a build
+  asks](./adr/4.33-follow-the-tree-over-the-wire-only-when-a-build-asks.md)
+  - Governs: `crates/kartta-ffi/src/built.rs` (`Shared::build_watched`), `crates/kartta-ffi/src/handle.rs`
+    (`Kartta::build`, `Drop for Kartta`), `crates/kartta-ffi/src/wire/build.rs` (`WatchView`)
+  - Revisit if: a wire consumer edits the trees it builds, so a watch would pay for itself by default
+- [4.34 Say how a symbol method read a name, and why it matched
+  nothing](./adr/4.34-say-how-a-symbol-method-read-a-name-and-why-it-matched-nothing.md)
+  - Governs: `crates/kartta-ffi/src/query.rs` (`ask_named`, `call_path`), `crates/kartta/src/reading.rs`,
+    `bindings/go/wire/graph.go` (`Matches`, `Unmatched`)
+  - Revisit if: consumers need alternatives for a name no case holds often enough that a search on every such miss pays
+- [4.35 Flag a type's references where its language records no use as a
+  type](./adr/4.35-flag-a-type-s-references-where-its-language-records-no-use-as-a-type.md)
+  - Governs: `crates/kartta-ffi/src/wire/graph.rs` (`ReferencesView`), `bindings/go/wire/graph.go`
+  - Revisit if: no shipped language states `TypeUses::Nowhere`
+- [4.36 Pin each wire method in a golden file both bindings
+  replay](./adr/4.36-pin-each-wire-method-in-a-golden-file-both-bindings-replay.md)
+  - Governs: `crates/kartta-ffi/tests/golden/`, `crates/kartta-ffi/tests/golden.rs`, `bindings/go/kartta/golden_test.go`
+  - Revisit if: a score other than through `ln_1p` differs between platforms by more than a relative 1e-12
 
 ## Deprecated
 
