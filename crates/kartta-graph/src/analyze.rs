@@ -69,6 +69,9 @@ impl ReachBand {
 
 /// The callers a change to a symbol reaches within a walk's limits, and the files they and the file's includers sit
 /// in.
+///
+/// From a field, a variable or a constant the walk takes its users, the symbols that read or write it among them, as
+/// it takes a function's callers, so each count here counts them too.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Blast {
@@ -91,11 +94,11 @@ pub struct Blast {
     pub below_confidence: usize,
 }
 
-/// One side of a symbol's direct calls: its callers, or its callees.
+/// One side of a symbol's direct calls: its callers, its callees, or a field's, a variable's or a constant's users.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct DirectCalls<'g> {
-    /// At most 50 of them, in path order, each with its most confident call.
+    /// At most 50 of them, in path order, each with its most confident call or use.
     pub listed: Vec<Reached<'g>>,
     /// Every one that passes the confidence floor, before the list was cut.
     pub total: usize,
@@ -111,6 +114,10 @@ pub struct SegmentSymbol<'g> {
     pub definition: Definition<'g>,
     /// The symbols that call it.
     pub callers: DirectCalls<'g>,
+    /// For a field, a variable or a constant, the symbols that call it or whose code reads or writes it, each with its
+    /// most confident site; none for a symbol of any other kind. A change to one reaches them as a change to a
+    /// function reaches its callers.
+    pub users: DirectCalls<'g>,
     /// The calls of its name that [`Walk::ambiguous`](crate::Walk::ambiguous) counts for a walk from it: any of them
     /// may call it, and neither `callers` nor `blast` holds them.
     pub ambiguous: usize,
@@ -142,9 +149,11 @@ impl Graph {
     /// callers a change to it reaches within `limits`, or `None` when the graph does not hold the file. `1..=u32::MAX`
     /// asks about the whole file, and a range that starts past its end overlaps no symbol.
     ///
-    /// A declaration answers for the definition it links to. The direct calls take the confidence floor of `limits`;
-    /// its depth and symbol cap bound the walk over each symbol's callers, and its depth the files that include the
-    /// file. Calls are resolved when this asks, and each name's call sites once for the whole segment.
+    /// A declaration answers for the definition it links to. A field, a variable or a constant also answers its direct
+    /// users, the symbols whose code reads or writes it, and the walk from it starts from them. The direct calls take
+    /// the confidence floor of `limits`; its depth and symbol cap bound the walk over each symbol's callers, and its
+    /// depth the files that include the file. Calls and uses are resolved when this asks, and each name's sites once
+    /// for the whole segment.
     #[must_use]
     pub fn analyze_segment(
         &self,
@@ -254,6 +263,7 @@ impl<'g> Analysis<'g> {
         let root = self.calls.canonical(at);
         let floor = self.limits.min_confidence;
         let callers = DirectCalls::of(self.graph, self.calls.caller_edges(root), floor);
+        let users = DirectCalls::of(self.graph, &self.calls.user_edges(root), floor);
         let unresolved_before = self.calls.unresolved();
         let outgoing = self.calls.callees_of(root);
         let unresolved = self.calls.unresolved() - unresolved_before;
@@ -261,6 +271,7 @@ impl<'g> Analysis<'g> {
         SegmentSymbol {
             definition: self.graph.definition_at(at),
             callers,
+            users,
             ambiguous: self.calls.ambiguous_calls(root),
             callees: DirectCalls::of(self.graph, &outgoing, floor),
             unresolved,
@@ -277,7 +288,7 @@ impl<'g> Analysis<'g> {
         let mut by_depth: Vec<usize> = Vec::new();
         let mut caller_files: HashSet<u32, FixedState> = HashSet::default();
         let walk = WalkState::new(root, self.limits);
-        let left_out = self.calls.reach(walk, Calls::callers_of, |edge, depth| {
+        let left_out = self.calls.reach(walk, Calls::dependents_of, |edge, depth| {
             let index = depth as usize - 1;
             if by_depth.len() <= index {
                 by_depth.resize(index + 1, 0);

@@ -6,7 +6,7 @@ use hashbrown::{HashMap, HashSet};
 
 use crate::analyze::{Analysis, ReachBand};
 use crate::calls::{Calls, Edge, Limits, Reached, WalkState};
-use crate::graph::{Definition, Graph, keep_first};
+use crate::graph::{Definition, Graph, is_data_kind, keep_first};
 use crate::stored::SymbolAt;
 
 // constraint: the docs of `Seed::consumers` and `Seed::consumer_dirs` and the README state this number
@@ -64,20 +64,25 @@ pub struct DirCount<'g> {
 pub struct Seed<'g> {
     /// The symbol, as a changed file defines it.
     pub symbol: Definition<'g>,
-    /// The callers a walk over its callers reaches, within the limits of the analysis.
+    /// The callers a walk over its callers reaches, within the limits of the analysis; from a field, a variable or a
+    /// constant the walk takes its users as it takes a function's callers.
     pub reach: usize,
     /// How widely the reach ranks.
     pub band: ReachBand,
     /// Its direct callers that pass the confidence floor.
     pub caller_count: usize,
+    /// For a field, a variable or a constant, its direct users that pass the confidence floor: the symbols that call
+    /// it or whose code reads or writes it, its callers among them; 0 for a symbol of any other kind.
+    pub user_count: usize,
     /// The calls of its name that [`Walk::ambiguous`](crate::Walk::ambiguous) counts for a walk from it: any of them
     /// may call it, and neither `caller_count` nor `reach` counts them.
     pub ambiguous: usize,
-    /// Those direct callers, in path order and those outside test, generated and entry code first, when
-    /// `caller_count` is 30 or fewer; empty otherwise.
+    /// Its direct users for a field, a variable or a constant, and its direct callers for any other kind, in path
+    /// order and those outside test, generated and entry code first, when 30 or fewer of them pass the floor; empty
+    /// otherwise.
     pub consumers: Vec<Reached<'g>>,
-    /// The directories of the files that hold those direct callers, the most callers first, when `caller_count`
-    /// exceeds 30; empty otherwise.
+    /// The directories of the files that hold those direct users or callers, the most first, when more than 30 of
+    /// them pass the floor; empty otherwise.
     pub consumer_dirs: Vec<DirCount<'g>>,
     /// Whether the symbol cap stopped the walk over its callers.
     pub truncated: bool,
@@ -174,10 +179,11 @@ impl Graph {
     /// callers reaches within `limits`, the symbols two or more of them reach, and the direct callers of each.
     ///
     /// A declaration and the definition it links to are one changed symbol, answered as the first occurrence the
-    /// regions overlap in path order. The direct callers take the confidence floor of `limits`. Calls are resolved
-    /// when this asks, and each name's call sites once for the whole change. A region whose file this graph does not
-    /// hold counts as unheld, and one that overlaps no symbol as outside symbols; [`Change::merge`] combines the
-    /// answers of several graphs.
+    /// regions overlap in path order. A field, a variable or a constant reaches first its users, the symbols whose code
+    /// reads or writes it, as a function reaches its callers. The direct callers and users take the confidence floor
+    /// of `limits`. Calls and uses are resolved when this asks, and each name's sites once for the whole change. A
+    /// region whose file this graph does not hold counts as unheld, and one that overlaps no symbol as outside
+    /// symbols; [`Change::merge`] combines the answers of several graphs.
     #[must_use]
     pub fn analyze_change(&self, regions: &[Region<'_>], limits: Limits) -> Change<'_> {
         let mut change = Change::default();
@@ -247,22 +253,29 @@ impl<'g> Analysis<'g> {
     ) -> Seed<'g> {
         let mut reach = 0;
         let walk = WalkState::new(canonical, self.limits);
-        let left_out = self.calls.reach(walk, Calls::callers_of, |edge, depth| {
+        let left_out = self.calls.reach(walk, Calls::dependents_of, |edge, depth| {
             reach += 1;
             let hit = hits.entry(edge.far).or_insert((0, depth));
             hit.0 += 1;
             hit.1 = hit.1.min(depth);
         });
         let (graph, floor) = (self.graph, self.limits.min_confidence);
-        let direct = self.calls.caller_edges(canonical);
-        let caller_count = direct
-            .iter()
-            .filter(|edge| edge.confidence >= floor)
-            .count();
-        let (consumers, consumer_dirs) = if caller_count > LISTED_CONSUMERS {
-            (Vec::new(), consumer_dirs(graph, direct, floor))
+        let passes = |edge: &&Edge| edge.confidence >= floor;
+        let data_callers = is_data_kind(graph.sym(at).kind).then(|| {
+            self.calls
+                .caller_edges(canonical)
+                .iter()
+                .filter(passes)
+                .count()
+        });
+        let direct = self.calls.dependents_of(canonical);
+        let direct_count = direct.iter().filter(passes).count();
+        let (caller_count, user_count) =
+            data_callers.map_or((direct_count, 0), |callers| (callers, direct_count));
+        let (consumers, consumer_dirs) = if direct_count > LISTED_CONSUMERS {
+            (Vec::new(), consumer_dirs(graph, &direct, floor))
         } else {
-            (consumers(graph, direct, floor), Vec::new())
+            (consumers(graph, &direct, floor), Vec::new())
         };
         let symbol = graph.sym(at);
 
@@ -271,6 +284,7 @@ impl<'g> Analysis<'g> {
             reach,
             band: ReachBand::of(reach, symbol.kind, symbol.exported),
             caller_count,
+            user_count,
             ambiguous: self.calls.ambiguous_calls(canonical),
             consumers,
             consumer_dirs,

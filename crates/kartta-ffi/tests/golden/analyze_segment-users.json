@@ -1,0 +1,75 @@
+{
+  "answer": {
+    "ok": {
+      "end_line": 3,
+      "file": "go/limit.go",
+      "graph": "go",
+      "held": true,
+      "included_by": [],
+      "includes": [],
+      "start_line": 3,
+      "symbols": [
+        {
+          "blast": {
+            "affected_files": 0,
+            "band": "low",
+            "below_confidence": 0,
+            "by_depth": [
+              1
+            ],
+            "reach": 1,
+            "truncated": false,
+            "turned_away": 0,
+            "unexpanded": 0
+          },
+          "callees": {
+            "below_confidence": 0,
+            "listed": [],
+            "total": 0
+          },
+          "callers": {
+            "below_confidence": 0,
+            "listed": [],
+            "total": 0
+          },
+          "definition": {
+            "end_line": 3,
+            "exported": false,
+            "file": "go/limit.go",
+            "kind": "const",
+            "line": 3,
+            "name": "limit",
+            "qualified_name": "main.limit"
+          },
+          "unresolved": 0,
+          "users": {
+            "below_confidence": 0,
+            "listed": [
+              {
+                "confidence": 80,
+                "depth": 1,
+                "line": 5,
+                "symbol": {
+                  "end_line": 5,
+                  "exported": false,
+                  "file": "go/limit.go",
+                  "kind": "var",
+                  "line": 5,
+                  "name": "budget",
+                  "qualified_name": "main.budget"
+                }
+              }
+            ],
+            "total": 1
+          }
+        }
+      ]
+    }
+  },
+  "method": "analyze_segment",
+  "params": {
+    "end_line": 3,
+    "file": "go/limit.go",
+    "start_line": 3
+  }
+}

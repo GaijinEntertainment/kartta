@@ -531,6 +531,8 @@ struct SegmentSymbolDef<'g> {
     definition: Definition<'g>,
     #[serde(with = "DirectCallsDef")]
     callers: DirectCalls<'g>,
+    #[serde(with = "DirectCallsDef", skip_serializing_if = "no_direct_calls")]
+    users: DirectCalls<'g>,
     #[serde(skip_serializing_if = "is_zero")]
     ambiguous: usize,
     #[serde(with = "DirectCallsDef")]
@@ -547,6 +549,10 @@ struct DirectCallsDef<'g> {
     listed: Vec<Reached<'g>>,
     total: usize,
     below_confidence: usize,
+}
+
+const fn no_direct_calls(calls: &DirectCalls<'_>) -> bool {
+    calls.total == 0 && calls.below_confidence == 0
 }
 
 #[derive(Serialize)]
@@ -600,6 +606,8 @@ struct SeedDef<'g> {
     #[serde(serialize_with = "label::band")]
     band: ReachBand,
     caller_count: usize,
+    #[serde(skip_serializing_if = "is_zero")]
+    user_count: usize,
     #[serde(skip_serializing_if = "is_zero")]
     ambiguous: usize,
     #[serde(serialize_with = "each")]

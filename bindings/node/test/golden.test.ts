@@ -3,7 +3,9 @@ import {fileURLToPath} from 'node:url';
 import {expect, onTestFinished, test} from 'vite-plus/test';
 
 import {Kartta, KarttaError, type Methods} from '../src/kartta.ts';
+import analyzeChangeUsers from '../../../crates/kartta-ffi/tests/golden/analyze_change-users.json' with {type: 'json'};
 import analyzeChange from '../../../crates/kartta-ffi/tests/golden/analyze_change.json' with {type: 'json'};
+import analyzeSegmentUsers from '../../../crates/kartta-ffi/tests/golden/analyze_segment-users.json' with {type: 'json'};
 import analyzeSegment from '../../../crates/kartta-ffi/tests/golden/analyze_segment.json' with {type: 'json'};
 import build from '../../../crates/kartta-ffi/tests/golden/build.json' with {type: 'json'};
 import callPathUnmatched from '../../../crates/kartta-ffi/tests/golden/call_path-unmatched.json' with {type: 'json'};
@@ -63,6 +65,8 @@ type Goldens = typeof goldens;
 
 /** The goldens of the second request a method has one for, which reaches keys its first golden does not, by method. */
 const secondGoldens = {
+	analyze_change: analyzeChangeUsers,
+	analyze_segment: analyzeSegmentUsers,
 	call_path: callPathUnmatched,
 	callers: callersOneEdit,
 	cancel: cancelBindingId,

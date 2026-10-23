@@ -1074,9 +1074,12 @@ impl Server {
                        discloses the 50-ref sampling cap), ambiguous= for the calls of its name that bound no \
                        definition because several definitions of the name may be meant, any of which may call it and \
                        none of which callers= or the reach counts, unresolved= for the calls into code the graph does \
-                       not hold, each of the two only when it is not zero, and the reach (how many symbols across how \
-                       many files transitively depend on it within 3 hops, with a reach-band grade; truncated=true \
-                       when the 500-symbol cap stopped the walk) - plus <includes> and <included-by> file lists. A \
+                       not hold, each of the two only when it is not zero, for a field, a variable or a constant \
+                       users= and a <users> list of the symbols that read, write or call it where its language \
+                       records those uses (find_references lists every site), and the reach (how many symbols across \
+                       how many files transitively depend on it within 3 hops, a field's or a value's users and their \
+                       callers included, with a reach-band grade; truncated=true when the 500-symbol cap stopped the \
+                       walk) - plus <includes> and <included-by> file lists. A \
                        range covering only file-scope code (imports, comments) reports zero symbols and still lists \
                        the file's includes and includers when it has any; zero symbols means nothing is defined there, \
                        not that the edit is safe. For one named function use find_callers; for whole-file impact use \
@@ -1116,7 +1119,8 @@ impl Server {
 
     #[tool(
         description = "Assess what a whole change reaches - a diff of several hunks across files and languages in one \
-                       call: the symbols it touches, how far a change to each spreads through its callers, and where \
+                       call: the symbols it touches, how far a change to each spreads through its callers (and from \
+                       a field, a variable or a constant through the symbols that read or write it), and where \
                        those spreads meet. Use it to review a diff or plan a multi-file edit; for one span of one file \
                        with its callees and includes, use impact_of_edit. Pass the change as regions (file plus line \
                        range) or as the text of a unified diff, whose + side lines it takes (for a hunk that only \
@@ -1126,8 +1130,9 @@ impl Server {
                        symbols, widest reach first and test/entry/generated code last, each <seed> with its loc span, \
                        direct callers count, reach and reach_band, its direct callers as <ref/> records with at= the \
                        line of the call (at most 10, in <callers shown= of=>), or past 30 callers their directories \
-                       as <dir path callers/> (in <caller_dirs shown= of=>); and, when two or more changed symbols \
-                       reach one, a <hotspots> list of those symbols, reached_by= how many and hops= how near, \
+                       as <dir path callers/> (in <caller_dirs shown= of=>) - a field, a variable or a constant with \
+                       users= lists those users in <users> and <user_dirs> instead; and, when two or more changed \
+                       symbols reach one, a <hotspots> list of those symbols, reached_by= how many and hops= how near, \
                        changed=true on one the change touches itself. Each list shows at most 'limit' (default 20) \
                        with shown= of=. A change that overlaps no symbol answers changed_symbols=0 with a note in \
                        place of the lists. Each \
