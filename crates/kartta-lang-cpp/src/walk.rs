@@ -428,7 +428,11 @@ impl<'s, 't> Replayer<'s, 't> {
         let Some((callee, receiver)) = target else {
             return;
         };
-        if receiver.is_none() && self.is_template_parameter(&callee) {
+        // constraint: a bare call of a name a body declares calls through the local or the parameter, a function
+        // pointer or a callable, and binds no definition of the name
+        if receiver.is_none()
+            && (self.is_template_parameter(&callee) || self.locals.declares(&callee))
+        {
             return;
         }
         let receiver = receiver.map(|receiver| match receiver.as_str() {
@@ -1469,12 +1473,41 @@ int defined_and_declared(int x) { return x; }
         assert_eq!(
             calls,
             [
-                ("c", id_of(&raw, "sort3")),
                 ("helper", id_of(&raw, "sort3")),
                 ("refill", id_of(&raw, "fill")),
                 ("Elem", id_of(&raw, "build")),
                 ("Compare", id_of(&raw, "plain")),
                 ("T", id_of(&raw, "plain")),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_call_through_a_parameter_or_a_local_is_not_a_callee() {
+        let raw = extract(
+            b"struct Node { template <typename T> void visitRefs(T visitor) { visitor(type); refs(visitor); } };\n\
+              void each(void (*visit)(int), int n) { visit(n); auto step = [](int) {}; step(n); }\n\
+              void scoped() { { auto inner = [] {}; inner(); } inner(); }\n\
+              void captured() { run([hook = make()] { hook(); }); hook(); }\n\
+              void after() { visitor(); visit(1); step(2); }\n",
+        );
+
+        let calls: Vec<(&str, SymbolId)> = raw
+            .calls
+            .iter()
+            .map(|call| (call.callee.as_str(), call.site_of))
+            .collect();
+        assert_eq!(
+            calls,
+            [
+                ("refs", id_of(&raw, "visitRefs")),
+                ("inner", id_of(&raw, "scoped")),
+                ("run", id_of(&raw, "captured")),
+                ("make", id_of(&raw, "captured")),
+                ("hook", id_of(&raw, "captured")),
+                ("visitor", id_of(&raw, "after")),
+                ("visit", id_of(&raw, "after")),
+                ("step", id_of(&raw, "after")),
             ]
         );
     }
