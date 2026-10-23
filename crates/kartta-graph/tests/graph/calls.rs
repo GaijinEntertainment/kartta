@@ -634,6 +634,68 @@ fn a_cpp_call_on_a_field_of_the_caller_s_class_binds_the_member_of_the_class_it_
 }
 
 #[test]
+fn a_cpp_call_on_a_field_of_a_base_binds_the_member_of_the_class_it_is_declared_as() {
+    let mut derived = class_in("", "Guard", 1, 4);
+    derived.parents = vec!["Cache".to_owned()];
+    let mut twin = class_in("", "Twin", 5, 7);
+    twin.parents = vec!["Cache".to_owned(), "Other".to_owned()];
+    let mut guard = file(
+        "guard.h",
+        vec![
+            derived,
+            field_of("Guard", "held", 2, "*SpinLock"),
+            twin,
+            class_in("", "Other", 8, 10),
+            field_of("Other", "lock", 9, "Lock"),
+        ],
+        Vec::new(),
+    );
+    guard.includes = vec![IncludeRef {
+        target: "cache.h".to_owned(),
+    }];
+    let root = file(
+        "root.h",
+        vec![
+            class_in("", "Root", 1, 3),
+            field_of("Root", "lock", 2, "*SpinLock"),
+        ],
+        Vec::new(),
+    );
+    let mut source = including(
+        "guard.cpp",
+        &["guard.h"],
+        vec![
+            member_call(0, ".lock", "unlockRead", 2),
+            member_call(0, "->held", "unlockRead", 3),
+            member_call(1, ".lock", "unlockRead", 6),
+        ],
+    );
+    source.symbols = vec![
+        member("Guard", "release", SymbolKind::Method, 1),
+        member("Twin", "write", SymbolKind::Method, 5),
+    ];
+    let [locks, mut cache] = locks_and_cache();
+    cache.symbols[0].parents = vec!["Root".to_owned()];
+    cache.includes.push(IncludeRef {
+        target: "root.h".to_owned(),
+    });
+
+    let graph = graph_of(cpp(), &[locks, root, cache, guard, source]);
+
+    assert_eq!(
+        callees(&graph, "Guard::release"),
+        ["lock.h:2@85", "lock.h:5@85"],
+        "a base's field binds where the class declares none of the name, hiding a farther base's, and the class's own \
+         field hides the base's"
+    );
+    assert_eq!(
+        callees(&graph, "Twin::write"),
+        Vec::<String>::new(),
+        "fields of one name in two bases leave the name ambiguous"
+    );
+}
+
+#[test]
 fn a_cpp_operand_s_class_binds_the_first_of_namesakes_of_one_qualified_name() {
     let files = [
         file(
