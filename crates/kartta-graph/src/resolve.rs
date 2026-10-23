@@ -666,10 +666,12 @@ impl<'g> Cascade<'g> {
         }
         let reach = self.reach(call, &candidates);
         let reach = reach.as_ref();
+        let path = (call, self.module_path(call));
 
         if let Some(at) = self.scoped_target(
             call,
-            candidates.in_file(self.graph, call.file).iter().copied(),
+            (candidates.in_file(self.graph, call.file).iter().copied())
+                .filter(|&at| self.path_names(path, at)),
             reach,
         ) {
             return Ok((at, confidence::SAME_FILE));
@@ -700,7 +702,10 @@ impl<'g> Cascade<'g> {
         if self.conventions.directory_packages && call.receiver.is_none() {
             return Err(self.unadmitted(call));
         }
-        if let Some(at) = self.included(call, &candidates, reach) {
+        if let Some(at) = self
+            .included(call, &candidates, reach)
+            .filter(|&at| self.path_names(path, at))
+        {
             return Ok((at, confidence::INCLUDE));
         }
         if !call.names_a_runtime_method
@@ -709,6 +714,13 @@ impl<'g> Cascade<'g> {
             return Ok((at, confidence::RE_EXPORT));
         }
         self.resolve_outside_scope(call, &candidates, reach)
+            .and_then(|bound| {
+                if self.path_names(path, bound.0) {
+                    Ok(bound)
+                } else {
+                    Err(Miss::NotAdmitted)
+                }
+            })
     }
 
     fn resolve_outside_scope(

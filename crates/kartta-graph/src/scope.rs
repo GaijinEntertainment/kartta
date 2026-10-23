@@ -734,7 +734,7 @@ impl Cascade<'_> {
         if call.receiver.is_some() {
             return if self.takes_a_member_alone(call)
                 || call.names_a_runtime_method
-                || any(&Shape::Member)
+                || (!self.through_a_module(call) && any(&Shape::Member))
             {
                 Shape::Member
             } else {
@@ -788,6 +788,40 @@ impl Cascade<'_> {
             MemberCalls::Members => true,
             MemberCalls::ModulePaths => !self.receiver_names_a_module(call),
         }
+    }
+
+    /// The path a call through a module spells, where only a module's path reaches a free function and the language
+    /// joins an owner chain.
+    pub(crate) fn module_path(&self, call: &Call) -> Option<&str> {
+        self.conventions.owner_chain_separator?;
+        let receiver = call.receiver.filter(|_| self.through_a_module(call))?;
+        Some(self.graph.strings.resolve(receiver))
+    }
+
+    // constraint: a path through a module names a member, or an item of the caller's own file, only where the item's
+    // qualified name ends with the path, as an inline module's `m::f` does for `m::f()`; another member of the name, or
+    // another item of the name in that file, is a namesake the path does not reach
+    pub(crate) fn path_names(&self, (call, path): (&Call, Option<&str>), at: SymbolAt) -> bool {
+        let (Some(path), Some(separator)) = (path, self.conventions.owner_chain_separator) else {
+            return true;
+        };
+        let symbol = self.graph.sym(at);
+        if symbol.owner.is_none() && at.file != call.file {
+            return true;
+        }
+        let strings = &self.graph.strings;
+        (strings.resolve(symbol.qualified_name))
+            .strip_suffix(strings.resolve(symbol.name))
+            .and_then(|scope| scope.strip_suffix(separator))
+            .and_then(|scope| scope.strip_suffix(path))
+            .is_some_and(|before| before.is_empty() || before.ends_with(separator))
+    }
+
+    // constraint: where only a module's path reaches a free function, a path through a module reaches a member only
+    // through the owner its receiver names, which the receiver's tiers bind, so it is a call of a free function
+    fn through_a_module(&self, call: &Call) -> bool {
+        self.conventions.member_calls == MemberCalls::ModulePaths
+            && self.receiver_names_a_module(call)
     }
 
     fn receiver_names_a_module(&self, call: &Call) -> bool {
