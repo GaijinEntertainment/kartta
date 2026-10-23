@@ -47,7 +47,10 @@ the nearest, and the one callable of the name only where its receiver spells tha
 value reads. Where a language says its calls never name a namespace, no call binds one; the namespace still counts
 among the definitions of its name wherever a definition the call's shape rules out does, so a function named like it is
 not the one callable of the name. Where a language lists the receivers it writes for a value of the caller's own type,
-as `self` and `other`, a member call binds a member of the caller's own owner only on one of them. Where
+as `self` and `other`, a member call binds a member of the caller's own owner only on one of them. Where a language
+keeps a class's own methods apart from its instances' methods of one name, as Ruby's `Formula.build` and
+`Formula#build`, a member call or use on the class binds the class's own method of an owner first, and one on any
+other receiver the instances' method first. Where
 a language's includes are transitive, as C++'s are, a call of a name at most 32 definitions share that no included file
 defines binds the one file the includes reach in turn that defines it, a member call only a member. Where scopes nest,
 as C++'s do, a member call on an operand of a declared class binds the member of the class of that name nearest the
