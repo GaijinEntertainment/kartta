@@ -526,6 +526,92 @@ fn find_references_lists_a_hot_field_by_file_most_sites_first_and_counts_what_it
 }
 
 #[test]
+fn a_go_field_read_binds_through_the_type_its_own_function_declares_and_not_a_namesake_elsewhere() {
+    let first_and_second = "package app\n\nfunc First() int {\n\ttype fields struct {\n\t\tSize int\n\t}\n\
+                            \tf := fields{Size: 1}\n\treturn f.Size\n}\n\nfunc Second() int {\n\
+                            \ttype fields struct {\n\t\tLimit int\n\t}\n\tf := fields{Limit: 2}\n\
+                            \treturn f.Limit\n}\n";
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+            ("app/app.go", first_and_second),
+        ],
+        &[
+            ("find_references", json!({"name": "Limit"})),
+            ("find_references", json!({"name": "Size"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="Limit" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Limit" qn="app.fields.Limit" loc="app/app.go:13" kind="field" "#,
+                    r#"count="2" files="1" reads="1" writes="1">"#,
+                ),
+                r#"<file path="app/app.go" sites="2">"#,
+                r#"<ref name="Second" qn="app.Second" line="11" role="consumer" site="write" at="15"/>"#,
+                r#"<ref name="Second" qn="app.Second" line="11" role="consumer" site="read" at="16"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="Size" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Size" qn="app.fields.Size" loc="app/app.go:5" kind="field" "#,
+                    r#"count="2" files="1" reads="1" writes="1">"#,
+                ),
+                r#"<file path="app/app.go" sites="2">"#,
+                r#"<ref name="First" qn="app.First" line="3" role="consumer" site="write" at="7"/>"#,
+                r#"<ref name="First" qn="app.First" line="3" role="consumer" site="read" at="8"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+        ],
+        "each function's read and write bind the field of the type that function declares"
+    );
+}
+
+#[test]
+fn a_go_closure_reads_a_field_through_the_type_its_enclosing_function_declares() {
+    let source = "package app\n\nfunc First() int {\n\ttype fields struct {\n\t\tSize int\n\t}\n\
+                  \treturn fields{Size: 1}.Size\n}\n\nfunc Second() func() int {\n\ttype fields struct {\n\
+                  \t\tSize int\n\t}\n\treturn func() int {\n\t\tf := fields{Size: 2}\n\t\tf.Size++\n\
+                  \t\treturn f.Size\n\t}\n}\n";
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+            ("app/app.go", source),
+        ],
+        &[("find_references", json!({"name": "app.fields.Size"}))],
+    );
+
+    assert_eq!(
+        answers,
+        [lines(&[
+            r#"<references of="app.fields.Size" matches="1">"#,
+            concat!(
+                r#"<match lang="go" of="Size" qn="app.fields.Size" loc="app/app.go:12" kind="field" "#,
+                r#"count="3" files="1" reads="1" writes="1" updates="1" passed_over="1">"#,
+            ),
+            r#"<file path="app/app.go" sites="3">"#,
+            r#"<ref name="Second" qn="app.Second" line="10" role="consumer" site="write" at="15"/>"#,
+            r#"<ref name="Second" qn="app.Second" line="10" role="consumer" site="update" at="16"/>"#,
+            r#"<ref name="Second" qn="app.Second" line="10" role="consumer" site="read" at="17"/>"#,
+            "</file>",
+            r#"<candidate name="Size" qn="app.fields.Size" kind="field" loc="app/app.go:5" sites="2"/>"#,
+            "</match>",
+            "</references>",
+        ])],
+        "the closure's sites bind Second's field, and First's two sites stay on its own"
+    );
+}
+
+#[test]
 fn find_references_lists_a_typescript_field_s_sites_and_says_what_an_untyped_access_leaves_out() {
     let module = tree(&[
         (

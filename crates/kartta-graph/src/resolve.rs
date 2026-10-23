@@ -87,7 +87,7 @@ pub(crate) struct Cascade<'g> {
     constructor_types: Derived<SymbolAt, Option<Rc<[SymbolAt]>>>,
     pub(crate) type_ancestors: Derived<SymbolAt, Option<Rc<Ancestors>>>,
     pub(crate) owner_ancestors: Derived<Str, Option<Rc<Ancestors>>>,
-    pub(crate) receiver_types: Derived<(u32, Str), Value<'g>>,
+    pub(crate) receiver_types: Derived<(SymbolAt, Str), Value<'g>>,
     empty_receiver: Option<Str>,
 }
 
@@ -526,7 +526,7 @@ impl<'g> Cascade<'g> {
             && !self.graph.strings.resolve(receiver).is_empty()
         {
             let binds = |kind| self.is_call_target(kind);
-            return match self.typed_member((call.file, receiver), call.callee, binds) {
+            return match self.typed_member((caller, receiver), call.callee, binds) {
                 Typed::Member(at) => Ok((at, confidence::RECEIVER)),
                 Typed::Imported => Err(Miss::ExternalImport),
                 Typed::Undeclared => Err(Miss::Undefined),
@@ -1126,7 +1126,7 @@ impl<'g> Cascade<'g> {
             && self.reads_type_paths()
         {
             // constraint: a member taken without a call is a field or a method value, so every member kind binds
-            match self.typed_member((site.file, path), name, |_| true) {
+            match self.typed_member((site, path), name, |_| true) {
                 Typed::Member(at) => return Ok((at, confidence::RECEIVER)),
                 Typed::Imported | Typed::Undeclared | Typed::NoMethod => {
                     return Err(UseMiss::Elsewhere);
