@@ -662,7 +662,7 @@
   - Revisit if: a language's extraction records comments
 - [3.140 Find a daslang module by its file name](./adr/3.140-find-a-daslang-module-by-its-file-name.md)
   - Governs: `crates/kartta-lang-daslang/src/resolve.rs`, `crates/kartta-lang-daslang/src/walk.rs` (`require`,
-    `include`)
+    `include`), `crates/kartta-graph/src/resolve.rs` (`required_definition`)
   - Revisit if: `module` clauses that differ from their file stems pay for a pass over every file, or a project's
     `include_get` can be read
 - [3.141 Give a daslang call to the code that runs it](./adr/3.141-give-a-daslang-call-to-the-code-that-runs-it.md)
