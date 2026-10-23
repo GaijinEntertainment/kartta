@@ -276,7 +276,8 @@ pub enum IncludeReach {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Receivers {
     /// The owner of the member the call reaches, as the language writes owners, or an import: the graph binds a member
-    /// of an owner of that name.
+    /// of an owner of that name. Where scopes nest, a name the caller's body does not declare is spelled after the
+    /// operator that takes the member, `.lock` or `->lock`.
     #[default]
     Owners,
     /// A type path, which names the receiver's type in the scope of the calling file. It starts with a name that the
