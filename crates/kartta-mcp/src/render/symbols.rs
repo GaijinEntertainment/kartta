@@ -1,10 +1,12 @@
 use std::fmt::Write;
 use std::io;
 
-use kartta::{Definition, Dependents, Hit, Implementations, Nearness, Source, SymbolKind};
+use kartta::{
+    Definition, Dependents, Hit, Implementations, Nearness, Selector, Source, SymbolKind,
+};
 
 use super::{
-    CallersAsk, Unmatched, candidate, empty_languages_note, flat, kind, loc, named, noted,
+    Asked, CallersAsk, Unmatched, candidate, empty_languages_note, flat, kind, loc, named, noted,
     one_edit, role, span, unresolved,
 };
 use crate::llmxml::Element;
@@ -130,7 +132,11 @@ pub(crate) fn definitions(languages: Option<&str>, answers: &[NameDefinitions<'_
             .optional("read_as", answer.read_as.as_deref())
             .attr("total", answer.total);
         if answer.total == 0 {
-            return unresolved(name, languages, "path_prefix", &answer.unmatched);
+            let asked = Asked {
+                end: "",
+                selector: Selector::new(answer.name, None),
+            };
+            return unresolved(name, languages, asked, &answer.unmatched);
         }
         name.optional(
             "shown",
@@ -202,14 +208,14 @@ pub(crate) fn implementations(
     let total: usize = found.iter().map(|(_, found)| found.total).sum();
     let passed_over: usize = found.iter().map(|(_, found)| found.passed_over).sum();
     let element = Element::new("implementations")
-        .attr("of", ask.name)
+        .attr("of", ask.selector.name)
         .optional("read_as", ask.read_as)
         .optional("languages", languages)
         .attr("count", count)
         .optional("total", (total > count).then_some(total))
         .count("passed_over", passed_over);
     if found.is_empty() {
-        return unresolved(element, languages, "path_prefix", unmatched);
+        return unresolved(element, languages, ask.asked(), unmatched);
     }
     let selection: Vec<String> = found
         .iter()

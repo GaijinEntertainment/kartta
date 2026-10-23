@@ -134,13 +134,20 @@ pub(crate) struct FindCallersParams {
     /// match. A name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as=
     /// names that reading. Where several share the name - a bare name, or overloads of one qualified name - the
     /// most-called candidate is picked, the answer counts the others in passed_over and lists the most called of them
-    /// as <candidate/> records; check the match's loc, and pass path_prefix to pick another.
+    /// as <candidate/> records; check the match's loc, and pass a candidate's file as path_prefix and its line as line
+    /// to pick it.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file, or "vendor/" for the vendored copy of a package. It is how to reach one of
     /// several copies that share a qualified name. Omitted picks from every file.
     #[serde(default)]
     pub(crate) path_prefix: Option<String>,
+    /// 1-based line the symbol starts on, e.g. a <candidate/>'s loc line: only the symbols that start on it are
+    /// picked from. With path_prefix set to the loc's file, it is how to reach one of several symbols of the name in
+    /// one file - C++ overloads, a declaration beside its definition. Omitted or null picks from every line.
+    #[serde(default)]
+    #[schemars(range(max = u32::MAX))]
+    pub(crate) line: Option<NonZeroU32>,
     /// Optional language filter (multiselect). Omit to trace in every indexed language - a name resolving in several
     /// graphs yields one match per language; narrow to the language the symbol is defined in when you know it, e.g.
     /// ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
@@ -179,12 +186,19 @@ pub(crate) struct FindCalleesParams {
     /// match. A name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as=
     /// names that reading. Where several share the name - a bare name, or overloads of one qualified name - the
     /// most-called candidate is picked, the answer counts the others in passed_over and lists the most called of them
-    /// as <candidate/> records; check the match's loc, and pass path_prefix to pick another.
+    /// as <candidate/> records; check the match's loc, and pass a candidate's file as path_prefix and its line as line
+    /// to pick it.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file. Omitted picks from every file.
     #[serde(default)]
     pub(crate) path_prefix: Option<String>,
+    /// 1-based line the symbol starts on, e.g. a <candidate/>'s loc line: only the symbols that start on it are
+    /// picked from. With path_prefix set to the loc's file, it is how to reach one of several symbols of the name in
+    /// one file - C++ overloads, a declaration beside its definition. Omitted or null picks from every line.
+    #[serde(default)]
+    #[schemars(range(max = u32::MAX))]
+    pub(crate) line: Option<NonZeroU32>,
     /// Optional language filter (multiselect). Omit to trace in every indexed language - a name resolving in several
     /// graphs yields one match per language; narrow to the language the symbol is defined in when you know it, e.g.
     /// ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
@@ -373,20 +387,31 @@ pub(crate) struct FindCallPathParams {
     /// unique match. A name that selects nothing as written is read with each "." as "::", or each "::" as ".", and
     /// from_read_as= names that reading. Where several share the name - a bare name, or overloads of one qualified
     /// name - the most-called candidate is picked, and the answer counts the others in passed_over_from and lists the
-    /// most called of them as <candidate end="from"/> records.
+    /// most called of them as <candidate end="from"/> records; pass a candidate's file as from_path_prefix and its line
+    /// as from_line to pick it.
     pub(crate) from: String,
     /// Repo-relative path prefix with forward slashes: from is picked only among the symbols in files whose path
     /// starts with it. Omitted picks from every file.
     #[serde(default)]
     pub(crate) from_path_prefix: Option<String>,
+    /// 1-based line from starts on: from is picked only among the symbols that start on it, which reaches one of
+    /// several symbols of the name in one file. Omitted or null picks from every line.
+    #[serde(default)]
+    #[schemars(range(max = u32::MAX))]
+    pub(crate) from_line: Option<NonZeroU32>,
     /// The symbol the chain ends at: the last callee, named, read and picked the same way as from, its reading named
     /// in to_read_as= and the others that share its name counted in passed_over_to and listed as <candidate end="to"/>
-    /// records.
+    /// records, which to_path_prefix and to_line pick.
     pub(crate) to: String,
     /// Repo-relative path prefix with forward slashes: to is picked only among the symbols in files whose path starts
     /// with it. Omitted picks from every file.
     #[serde(default)]
     pub(crate) to_path_prefix: Option<String>,
+    /// 1-based line to starts on: to is picked only among the symbols that start on it, which reaches one of several
+    /// symbols of the name in one file. Omitted or null picks from every line.
+    #[serde(default)]
+    #[schemars(range(max = u32::MAX))]
+    pub(crate) to_line: Option<NonZeroU32>,
     /// Optional language filter (multiselect). Omit to search every indexed language - a pair resolving in several
     /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
     /// anything else is a tool error listing the accepted set. A valid name absent from this repo contributes no
@@ -415,13 +440,19 @@ pub(crate) struct FindReferencesParams {
     /// name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as= names
     /// that reading. Where several share the name - a bare name, or overloads of one qualified name - the candidate
     /// with the most recorded sites is picked, the answer counts the others in passed_over and lists the most used of
-    /// them as <candidate/> records; pass path_prefix to pick another.
+    /// them as <candidate/> records; pass a candidate's file as path_prefix and its line as line to pick it.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file, or "vendor/" for the vendored copy of a package. Omitted picks from every
     /// file.
     #[serde(default)]
     pub(crate) path_prefix: Option<String>,
+    /// 1-based line the symbol starts on, e.g. a <candidate/>'s loc line: only the symbols that start on it are
+    /// picked from. With path_prefix set to the loc's file, it is how to reach one of several symbols of the name in
+    /// one file - C++ overloads, a declaration beside its definition. Omitted or null picks from every line.
+    #[serde(default)]
+    #[schemars(range(max = u32::MAX))]
+    pub(crate) line: Option<NonZeroU32>,
     /// Optional language filter (multiselect). Omit to search every indexed language - a name resolving in several
     /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
     /// anything else is a tool error listing the accepted set. A valid name absent from this repo contributes no
@@ -493,13 +524,19 @@ pub(crate) struct FindImplementationsParams {
     /// written is read with each "." as "::", or each "::" as ".", and read_as= names that reading. Take the exact name
     /// from a find_symbols hit when unsure. Where several types share the name, the most implemented is picked: the
     /// answer names it in <root/>, counts the others in passed_over and lists the most implemented of them as
-    /// <candidate/> records. A type alias answers the types whose parent names the alias, not those whose parent names
-    /// its target.
+    /// <candidate/> records, which path_prefix with a candidate's file and line with its line pick. A type alias
+    /// answers the types whose parent names the alias, not those whose parent names its target.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the types in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file. Omitted picks from every file.
     #[serde(default)]
     pub(crate) path_prefix: Option<String>,
+    /// 1-based line the type starts on, e.g. a <candidate/>'s loc line: only the types that start on it are picked
+    /// from. With path_prefix set to the loc's file, it is how to reach one of several types of the name in one file -
+    /// a template beside its specialization. Omitted or null picks from every line.
+    #[serde(default)]
+    #[schemars(range(max = u32::MAX))]
+    pub(crate) line: Option<NonZeroU32>,
     /// Optional language filter (multiselect). Omit to query every indexed language; narrow when you know the
     /// contract's language, e.g. ["go"]. Lowercase language names - the set index_repo / index_stats report; anything
     /// else is a tool error listing the accepted set. A valid name absent from this repo contributes no results. An

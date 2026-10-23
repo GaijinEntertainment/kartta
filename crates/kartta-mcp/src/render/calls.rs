@@ -4,12 +4,12 @@ use std::ops::Range;
 
 use kartta::{
     CallPath, Candidate, Change, Conventions, Definition, DirectCalls, Hotspot, ReachBand, Reached,
-    Reference, References, Seed, Segment, SelfCall, SymbolKind, TypeUses, Walk,
+    Reference, References, Seed, Segment, Selector, SelfCall, SymbolKind, TypeUses, Walk,
 };
 
 use super::{
-    Unmatched, candidate, confidence, edge_role, empty_languages_note, file_element, flat, kind,
-    loc, named, noted, qn, role, span, unresolved,
+    Asked, Unmatched, candidate, confidence, edge_role, empty_languages_note, file_element, flat,
+    kind, loc, named, noted, qn, role, span, unresolved,
 };
 use crate::llmxml::Element;
 
@@ -83,7 +83,7 @@ fn edge(tag: &'static str, reached: &Reached<'_>) -> Element {
 pub(crate) fn call_path(
     ask: &PathAsk<'_>,
     paths: &[(&str, CallPath<'_>)],
-    unmatched_ends: &[(&'static str, Unmatched<'_>)],
+    unmatched_ends: &[(&'static str, Selector<'_>, Unmatched<'_>)],
 ) -> String {
     let element = Element::new("call_path")
         .attr("from", ask.from)
@@ -102,10 +102,18 @@ pub(crate) fn call_path(
                  names",
             );
         }
-        return element.children(unmatched_ends.iter().map(|(end, unmatched)| {
-            let prefix = format!("{end}_path_prefix");
-            unresolved(Element::new(end), None, &prefix, unmatched)
-        }));
+        return element.children(
+            unmatched_ends
+                .iter()
+                .map(|&(end, selector, ref unmatched)| {
+                    let parameters = format!("{end}_");
+                    let asked = Asked {
+                        end: &parameters,
+                        selector,
+                    };
+                    unresolved(Element::new(end), None, asked, unmatched)
+                }),
+        );
     }
     element.children(
         paths
@@ -182,12 +190,12 @@ pub(crate) fn references(
     unmatched: &Unmatched<'_>,
 ) -> String {
     let element = Element::new("references")
-        .attr("of", ask.name)
+        .attr("of", ask.selector.name)
         .optional("read_as", ask.read_as)
         .optional("languages", ask.languages)
         .attr("matches", found.len());
     if found.is_empty() {
-        return unresolved(element, ask.languages, "path_prefix", unmatched);
+        return unresolved(element, ask.languages, ask.asked(), unmatched);
     }
     element.children(found.iter().map(|(family, conventions, references)| {
         reference_match(keeps_one_access, family, conventions, references)
@@ -631,10 +639,20 @@ const ROLE_COUNTS: [(&str, &str); 4] = [
 /// as written.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CallersAsk<'a> {
-    pub(crate) name: &'a str,
+    pub(crate) selector: Selector<'a>,
     pub(crate) read_as: Option<&'a str>,
     pub(crate) languages: Option<&'a str>,
     pub(crate) role: Option<&'a str>,
+}
+
+impl<'a> CallersAsk<'a> {
+    /// The selector as written, which the parameters `path_prefix` and `line` narrowed.
+    pub(crate) const fn asked(&self) -> Asked<'a> {
+        Asked {
+            end: "",
+            selector: self.selector,
+        }
+    }
 }
 
 /// The `find_callers` answer: one `<match>` per family graph the name selects a symbol in, or the alternatives to a
@@ -645,13 +663,13 @@ pub(crate) fn callers(
     unmatched: &Unmatched<'_>,
 ) -> String {
     let element = Element::new("callers")
-        .attr("of", ask.name)
+        .attr("of", ask.selector.name)
         .optional("read_as", ask.read_as)
         .optional("languages", ask.languages)
         .optional("role", ask.role)
         .attr("matches", walks.len());
     if walks.is_empty() {
-        return unresolved(element, ask.languages, "path_prefix", unmatched);
+        return unresolved(element, ask.languages, ask.asked(), unmatched);
     }
     element.children(
         walks
@@ -745,12 +763,12 @@ pub(crate) fn callees(
     unmatched: &Unmatched<'_>,
 ) -> String {
     let element = Element::new("callees")
-        .attr("of", ask.name)
+        .attr("of", ask.selector.name)
         .optional("read_as", ask.read_as)
         .optional("languages", ask.languages)
         .attr("matches", walks.len());
     if walks.is_empty() {
-        return unresolved(element, ask.languages, "path_prefix", unmatched);
+        return unresolved(element, ask.languages, ask.asked(), unmatched);
     }
     element.children(
         walks
