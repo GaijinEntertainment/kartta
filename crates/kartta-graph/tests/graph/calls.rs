@@ -1275,6 +1275,126 @@ fn an_included_file_that_defines_the_name_on_two_owners_leaves_the_call_to_later
     assert_eq!(walk.unresolved, 1);
 }
 
+/// `3rdParty/sse2neon/sse2neon.h` defines the one `_mm_add_ps` of the tree; `engine/math/plain.cpp` includes each of
+/// `includes` and calls it from `sum4`.
+fn intrinsic_shim(includes: &[&str]) -> [Extraction; 2] {
+    let mut caller = including(
+        "engine/math/plain.cpp",
+        includes,
+        vec![call(0, "_mm_add_ps", 2)],
+    );
+    caller.symbols = vec![function("sum4", 1)];
+    [
+        file(
+            "3rdParty/sse2neon/sse2neon.h",
+            vec![function("_mm_add_ps", 4)],
+            Vec::new(),
+        ),
+        caller,
+    ]
+}
+
+#[test]
+fn a_call_binds_no_one_callable_that_no_include_of_its_file_reaches_where_includes_paste_text() {
+    let graph = graph_of(cpp(), &intrinsic_shim(&[]));
+
+    let walk = graph
+        .callees("sum4", Limits::new(1))
+        .expect("sum4 is defined");
+
+    assert_eq!(reached(&walk), Vec::<String>::new());
+    assert_eq!(walk.unresolved, 1);
+    assert_eq!(callers(&graph, "_mm_add_ps"), Vec::<String>::new());
+}
+
+#[test]
+fn a_call_binds_the_one_callable_of_a_header_its_file_includes() {
+    let graph = graph_of(cpp(), &intrinsic_shim(&["3rdParty/sse2neon/sse2neon.h"]));
+
+    assert_eq!(
+        callees(&graph, "sum4"),
+        ["3rdParty/sse2neon/sse2neon.h:4@70"]
+    );
+}
+
+#[test]
+fn a_call_binds_the_one_callable_that_a_file_including_its_file_reaches() {
+    let wrapper = file(
+        "das/wrapper.inc",
+        vec![function("fastcall", 1)],
+        vec![call(0, "Rx", 2)],
+    );
+    let mut bind = including("das/bind.cpp", &["das/wrapper.inc"], Vec::new());
+    bind.symbols = vec![function("Rx", 3)];
+
+    let graph = graph_of(cpp(), &[wrapper, bind]);
+
+    assert_eq!(callees(&graph, "fastcall"), ["das/bind.cpp:3@60"]);
+}
+
+#[test]
+fn a_member_call_binds_the_one_member_whose_declaration_its_file_s_includes_reach() {
+    let mut class_header = file(
+        "inc/widget.h",
+        vec![
+            Symbol::new("Widget", SymbolKind::Class, 1, 3),
+            member("Widget", "draw", SymbolKind::Method, 2),
+        ],
+        Vec::new(),
+    );
+    class_header.callables = vec![Callable {
+        symbol: SymbolId(1),
+        key: "Widget::draw()".to_owned(),
+        role: CallableRole::Declaration,
+    }];
+    let mut source = including("src/widget.cpp", &["inc/widget.h"], Vec::new());
+    source.symbols = vec![member("Widget", "draw", SymbolKind::Method, 3)];
+    source.callables = vec![Callable {
+        symbol: SymbolId(0),
+        key: "Widget::draw()".to_owned(),
+        role: CallableRole::Definition,
+    }];
+    let caller = including(
+        "app/main.cpp",
+        &["inc/all.h"],
+        vec![member_call(0, "panel", "draw", 2)],
+    );
+    let umbrella = header("inc/all.h", Vec::new(), &["inc/widget.h"]);
+
+    let graph = graph_of(cpp(), &[class_header, source, umbrella, caller]);
+
+    assert_eq!(callees(&graph, "run"), ["src/widget.cpp:3@60"]);
+}
+
+#[test]
+fn a_member_call_binds_no_one_member_that_no_include_of_its_file_reaches() {
+    let caller = including(
+        "app/main.cpp",
+        &["inc/all.h"],
+        vec![member_call(0, "panel", "draw", 2)],
+    );
+    let umbrella = header("inc/all.h", Vec::new(), &[]);
+    let source = file(
+        "src/widget.cpp",
+        vec![member("Widget", "draw", SymbolKind::Method, 3)],
+        Vec::new(),
+    );
+
+    let graph = graph_of(cpp(), &[source, umbrella, caller]);
+
+    assert_eq!(callees(&graph, "run"), Vec::<String>::new());
+}
+
+#[test]
+fn a_call_binds_the_one_callable_no_include_reaches_where_includes_name_modules() {
+    let graph = graph(&intrinsic_shim(&[]));
+
+    assert_eq!(
+        callees(&graph, "sum4"),
+        ["3rdParty/sse2neon/sse2neon.h:4@60"]
+    );
+}
+
 fn header(path: &str, symbols: Vec<Symbol>, includes: &[&str]) -> Extraction {
     let mut extraction = file(path, symbols, Vec::new());
     extraction.includes = includes
@@ -2706,7 +2826,7 @@ fn a_bare_call_inside_a_member_reaches_a_member_of_a_base_the_lookup_finds() {
     let graph = graph_of(
         cpp(),
         &[
-            including("d.cpp", &["base.h"], Vec::new()),
+            including("d.cpp", &["base.h", "derived.h"], Vec::new()),
             file(
                 "base.h",
                 vec![base, member("Base", "draw", SymbolKind::Method, 2)],
