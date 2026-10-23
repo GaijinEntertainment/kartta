@@ -1330,6 +1330,43 @@ const CODE_USERS: [&str; 5] = [
 ];
 
 #[test]
+fn impact_of_edit_lists_a_called_variable_s_callers_once_among_its_users() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+            (
+                "hook/hook.go",
+                "package hook\n\nvar onDone func()\n\nfunc Set(f func()) {\n\tonDone = f\n}\n\nfunc Fire() {\n\t\
+                 onDone()\n}\n",
+            ),
+        ],
+        &[(
+            "impact_of_edit",
+            json!({"file": "hook/hook.go", "start_line": 3, "end_line": 3}),
+        )],
+    );
+
+    assert_eq!(
+        answers,
+        [lines(&[
+            r#"<impact of="hook/hook.go" start_line="3" end_line="3" symbols="1">"#,
+            concat!(
+                r#"<symbol name="onDone" qn="hook.onDone" kind="variable" lines="3-3" callers="1" users="2" "#,
+                r#"callees="0" reach="2" reach_files="0" reach_band="low">"#,
+            ),
+            r#"<users shown="2" of="2">"#,
+            r#"<ref name="Set" qn="hook.Set" loc="hook/hook.go:5" role="consumer" at="hook/hook.go:6"/>"#,
+            r#"<ref name="Fire" qn="hook.Fire" loc="hook/hook.go:9" role="consumer" at="hook/hook.go:10"/>"#,
+            "</users>",
+            "</symbol>",
+            r#"<includes count="0"/>"#,
+            r#"<included-by count="0"/>"#,
+            "</impact>",
+        ])]
+    );
+}
+
+#[test]
 fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
     let answers = answers(&[
         ("find_callees", json!({"name": "main"})),
