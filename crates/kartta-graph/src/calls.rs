@@ -328,26 +328,6 @@ fn keep_stronger<K: Eq + Hash>(strongest: &mut HashMap<K, Edge, FixedState>, key
     }
 }
 
-// constraint: one pass over every call of the graph, made once a query asks whether a call's receiver spells a free
-// value's name: the receiver is kept with each call, and nothing indexes calls by it
-fn receiver_files(graph: &Graph) -> HashMap<Str, Vec<u32>, FixedState> {
-    let mut files: HashMap<Str, Vec<u32>, FixedState> = HashMap::default();
-    for slot in graph.file_slots() {
-        for receiver in graph
-            .file(slot)
-            .calls
-            .iter()
-            .filter_map(|call| call.receiver)
-        {
-            let held = files.entry(receiver).or_default();
-            if held.last() != Some(&slot) {
-                held.push(slot);
-            }
-        }
-    }
-    files
-}
-
 impl Graph {
     /// The callers of the symbol `name` selects, transitively within `limits`, or `None` when it selects none.
     ///
@@ -548,7 +528,6 @@ pub(crate) struct Calls<'g> {
     used_names: HashSet<Str, FixedState>,
     ambiguous: HashMap<Str, usize, FixedState>,
     unbound_use_files: HashMap<Str, Vec<u32>, FixedState>,
-    receiver_files: Option<HashMap<Str, Vec<u32>, FixedState>>,
 }
 
 // constraint: the calls of one name that bind no definition, bind one only by proximity or a fallback, or bind their
@@ -639,8 +618,7 @@ impl<'g> Calls<'g> {
     }
 
     // constraint: a use that binds no definition, as one of a member on a value whose type the graph could not follow,
-    // may be meant for a member of its name wherever that member is, and for a free value in a file that sees it;
-    // a call through a receiver its name spells uses a free value too, which the extraction records as a call alone
+    // may be meant for a member of its name wherever that member is, and for a free value in a file that sees it
     pub(crate) fn is_used_uncertainly(&mut self, at: SymbolAt) -> bool {
         let symbol = self.graph.sym(at);
         if !is_data_kind(symbol.kind) {
@@ -648,21 +626,11 @@ impl<'g> Calls<'g> {
         }
         self.resolve_uses(symbol.name);
         let cascade = &self.cascade;
-        if let Some(files) = self.unbound_use_files.get(&symbol.name)
-            && (symbol.owner.is_some() || files.iter().any(|&file| cascade.sees(file, at)))
-        {
-            return true;
-        }
-        if symbol.owner.is_some() {
-            return false;
-        }
-        let graph = self.graph;
-        let receiver_files = self
-            .receiver_files
-            .get_or_insert_with(|| receiver_files(graph));
-        receiver_files
+        self.unbound_use_files
             .get(&symbol.name)
-            .is_some_and(|files| files.iter().any(|&file| cascade.sees(file, at)))
+            .is_some_and(|files| {
+                symbol.owner.is_some() || files.iter().any(|&file| cascade.sees(file, at))
+            })
     }
 
     // constraint: the cascade leaves a call ambiguous among the definitions its shape admits, and a call through a
@@ -701,7 +669,6 @@ impl<'g> Calls<'g> {
             used_names: HashSet::default(),
             ambiguous: HashMap::default(),
             unbound_use_files: HashMap::default(),
-            receiver_files: None,
         }
     }
 
