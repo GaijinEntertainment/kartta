@@ -32,6 +32,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         members: HashSet::new(),
         module_names: HashMap::new(),
         module_uses: Vec::new(),
+        type_names_end: 0,
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
         raw: RawExtraction::default(),
     };
@@ -136,6 +137,9 @@ struct Emitter<'a> {
     /// The names the module binds, each with what binds it.
     module_names: HashMap<&'a [u8], Binding>,
     module_uses: Vec<NameUse<'a>>,
+    /// Where the last annotation or list of bases the walk entered ends: a name the walk meets before it names a type
+    /// as one.
+    type_names_end: usize,
     flags: SymbolFlags,
     raw: RawExtraction,
 }
@@ -158,6 +162,9 @@ impl<'a> Emitter<'a> {
                 if let Some(id) = id {
                     self.define(node, id);
                 }
+                if let Some(bases) = node.child_by_field_name("superclasses") {
+                    self.type_names_end = self.type_names_end.max(bases.end_byte());
+                }
                 self.open(node, id.unwrap_or(caller), FrameKind::Class);
             }
             "lambda" => {
@@ -179,6 +186,7 @@ impl<'a> Emitter<'a> {
             "named_expression" => self.bind_outside_comprehensions(node),
             "global_statement" => self.bind(node, Binding::Module),
             "nonlocal_statement" => self.bind(node, Binding::Enclosing),
+            "type" => self.type_names_end = self.type_names_end.max(node.end_byte()),
             "call" => self.call(node, caller),
             "attribute" => self.attribute_use(node, caller),
             IDENTIFIER => self.name_use(node, caller),

@@ -29,7 +29,11 @@ impl<'a> Emitter<'a> {
                 if self.named_by_call == Some(node.id()) {
                     return true;
                 }
-                let access = access_of(node, node.parent());
+                let access = if self.takes_type_operand(node) {
+                    Access::Type
+                } else {
+                    access_of(node, node.parent())
+                };
                 if let Some((package, field)) = self.import_qualifier(node) {
                     let qualifier = Receiver::Qualifier(text(package, self.source));
                     self.push_site(owner, node, (text(field, self.source), qualifier, access));
@@ -66,7 +70,11 @@ impl<'a> Emitter<'a> {
         let names_an_import = parent.kind() == "selector_expression"
             && self.import_names.iter().any(|import| import == name);
         if !names_an_import && !declares(node, parent) {
-            let access = access_of(node, Some(parent));
+            let access = if self.takes_type_operand(node) {
+                Access::Type
+            } else {
+                access_of(node, Some(parent))
+            };
             self.push_site(owner, node, (name.to_owned(), Receiver::Bare, access));
         }
     }
@@ -136,6 +144,7 @@ impl<'a> Emitter<'a> {
 
     pub(super) fn record_type_operand(&mut self, node: Node<'_>, owner: SymbolId) {
         match node.kind() {
+            "identifier" => self.type_operands.push(node.id()),
             "selector_expression" => self.record_qualified_type_operand(node, owner),
             "unary_expression" => {
                 if is_pointer_indirection(node)
@@ -163,17 +172,25 @@ impl<'a> Emitter<'a> {
     }
 
     // constraint: the walk records a selector on an import name itself when it reaches it, so only a selector whose
-    // operand names no import of the file is recorded here
+    // operand names no import of the file is recorded here, and the other is marked a type operand for the walk
     fn record_qualified_type_operand(&mut self, node: Node<'_>, owner: SymbolId) {
-        if let (Some(package), Some(name)) = (
+        if self.import_qualifier(node).is_some() {
+            self.type_operands.push(node.id());
+        } else if let (Some(package), Some(name)) = (
             node.child_by_field_name("operand"),
             node.child_by_field_name("field"),
         ) && package.kind() == "identifier"
             && !self.is_value(self.borrowed(package), node.start_byte())
-            && self.import_qualifier(node).is_none()
         {
             self.push_use(owner, node, (name, Some(package)));
         }
+    }
+
+    fn takes_type_operand(&mut self, node: Node<'_>) -> bool {
+        let operand = self.type_operands.iter().position(|&id| id == node.id());
+        operand
+            .map(|at| self.type_operands.swap_remove(at))
+            .is_some()
     }
 
     fn push_use(
@@ -191,7 +208,7 @@ impl<'a> Emitter<'a> {
         self.push_site(
             owner,
             site,
-            (text(name, self.source), receiver, Access::Read),
+            (text(name, self.source), receiver, Access::Type),
         );
     }
 

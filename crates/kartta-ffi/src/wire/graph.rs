@@ -107,8 +107,12 @@ mod label {
         serializer.serialize_str(band.label())
     }
 
+    // constraint: the bindings' Access is read, write or update, and a use as a type reads its symbol there
     pub(super) fn access<S: Serializer>(access: &Access, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(access.label())
+        serializer.serialize_str(match access {
+            Access::Type => Access::Read.label(),
+            access => access.label(),
+        })
     }
 
     pub(super) fn nearness<S: Serializer>(
@@ -360,9 +364,15 @@ struct ReferenceDef<'g> {
 #[serde(remote = "SiteCounts")]
 struct SiteCountsDef {
     calls: usize,
+    #[serde(getter = "reads_with_types")]
     reads: usize,
     writes: usize,
     updates: usize,
+}
+
+// constraint: the bindings count a use as a type among the reads, as the wire labels its access
+const fn reads_with_types(counts: &SiteCounts) -> usize {
+    counts.reads + counts.types
 }
 
 #[derive(Serialize)]

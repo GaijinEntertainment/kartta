@@ -19,6 +19,7 @@ const PATH: u8 = 3;
 const READ: u8 = 0;
 const WRITE: u8 = 1 << 2;
 const UPDATE: u8 = 2 << 2;
+const TYPE: u8 = 3 << 2;
 
 impl RawExtraction {
     /// Appends this extraction to `out` in a compact binary form that [`RawExtraction::decode`] reads back.
@@ -217,6 +218,7 @@ impl Writer<'_> {
             Access::Read => READ,
             Access::Write => WRITE,
             Access::Update => UPDATE,
+            Access::Type => TYPE,
         };
         self.0.push(form | access);
         if let Some(written) = written {
@@ -388,6 +390,7 @@ impl<'a> Reader<'a> {
             READ => Access::Read,
             WRITE => Access::Write,
             UPDATE => Access::Update,
+            TYPE => Access::Type,
             _ => return Err(Malformed),
         };
         Ok(UseRef {
@@ -512,6 +515,7 @@ mod tests {
                 Access::Read,
             ),
             site("timeout", Receiver::Path(String::new()), Access::Write),
+            site("Options", Receiver::Bare, Access::Type),
         ]
     }
 
@@ -561,7 +565,7 @@ mod tests {
             .position(|window| window == name_then_marks)
             .expect("the use's marks follow its name");
         let mut unknown_access = one_use.clone();
-        unknown_access[name + 2] = UPDATE + WRITE;
+        unknown_access[name + 2] = TYPE + WRITE;
         let name_spelled_before_any = [&one_use[..name], &[1], &one_use[name + 2..]].concat();
 
         for bytes in [

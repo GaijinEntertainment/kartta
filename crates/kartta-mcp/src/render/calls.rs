@@ -210,12 +210,7 @@ fn reference_match(
 ) -> String {
     let symbol = &references.symbol;
     let counts = &references.counts;
-    let reads = if symbol.kind.is_type() {
-        "types"
-    } else {
-        "reads"
-    };
-    let listing = Listing::of(symbol.kind, &references.sites);
+    let listing = Listing::of(&references.sites);
     let shown = references.sites.len().min(LISTED_SITES);
     let element = match_of(family, symbol)
         .attr("kind", kind(symbol.kind))
@@ -227,7 +222,8 @@ fn reference_match(
             (listing.files > listing.records.len()).then_some(listing.records.len()),
         )
         .count("calls", counts.calls)
-        .count(reads, counts.reads)
+        .count("types", counts.types)
+        .count("reads", counts.reads)
         .count("writes", counts.writes)
         .count("updates", counts.updates)
         .count("ambiguous", references.ambiguous)
@@ -298,7 +294,7 @@ struct Listing {
 }
 
 impl Listing {
-    fn of(of: SymbolKind, sites: &[Reference<'_>]) -> Self {
+    fn of(sites: &[Reference<'_>]) -> Self {
         let files = by_file(sites);
         let (mut unlisted, mut counted) = (LISTED_SITES, 0);
         let mut records = Vec::new();
@@ -310,7 +306,7 @@ impl Listing {
                 break;
             }
             unlisted -= listed;
-            records.push(file_record(of, sites, listed));
+            records.push(file_record(sites, listed));
         }
         Self {
             records,
@@ -319,7 +315,7 @@ impl Listing {
     }
 }
 
-fn file_record(of: SymbolKind, sites: &[Reference<'_>], listed: usize) -> String {
+fn file_record(sites: &[Reference<'_>], listed: usize) -> String {
     let element = Element::new("file")
         .attr("path", sites[0].site_of.file)
         .attr("sites", sites.len());
@@ -328,7 +324,7 @@ fn file_record(of: SymbolKind, sites: &[Reference<'_>], listed: usize) -> String
     }
     element
         .optional("shown", (listed < sites.len()).then_some(listed))
-        .children(site_records(of, &sites[..listed]).iter().map(site_record))
+        .children(site_records(&sites[..listed]).iter().map(site_record))
 }
 
 /// The ranges of `sites`, which come in file and line order, that each file holds: the files with the most sites
@@ -365,12 +361,16 @@ struct SiteRecord<'g> {
     lines: Vec<u32>,
 }
 
-fn site_records<'g>(of: SymbolKind, sites: &[Reference<'g>]) -> Vec<SiteRecord<'g>> {
+fn site_records<'g>(sites: &[Reference<'g>]) -> Vec<SiteRecord<'g>> {
     let mut records: Vec<SiteRecord<'g>> = Vec::new();
     let mut held: HashMap<(Definition<'g>, &'static str, Option<&'static str>), usize> =
         HashMap::new();
     for site in sites {
-        let kind = site_kind(of, site);
+        let kind = if site.call {
+            "call"
+        } else {
+            site.access.label()
+        };
         let band = confidence(site.confidence);
         let key = (site.site_of, kind, band);
         if let Some(&at) = held.get(&key) {
@@ -386,14 +386,6 @@ fn site_records<'g>(of: SymbolKind, sites: &[Reference<'g>]) -> Vec<SiteRecord<'
         });
     }
     records
-}
-
-const fn site_kind(of: SymbolKind, site: &Reference<'_>) -> &'static str {
-    match site.access {
-        _ if site.call => "call",
-        _ if of.is_type() => "type",
-        access => access.label(),
-    }
 }
 
 /// The `impact_of_edit` answer: a `<symbol>` per definition the lines overlap, with its direct callers and callees

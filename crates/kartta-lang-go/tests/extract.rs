@@ -211,23 +211,39 @@ fn a_package_is_a_directory_and_names_join_no_scopes() {
 }
 
 #[test]
-fn a_type_named_in_a_declaration_or_a_composite_literal_is_a_use_and_in_a_conversion_a_call() {
+fn a_type_named_in_a_declaration_or_a_composite_literal_is_a_use_as_a_type_and_in_a_conversion_a_call()
+ {
     let raw = extract(
-        b"package p\n\ntype A struct{}\ntype B int\ntype C struct{}\ntype D struct{}\n\nvar _ = D{}\n\n\
-          func f(x int) {\n\tvar a A\n\t_ = a\n\t_ = B(x)\n\t_ = C{}\n}\n",
+        b"package p\n\nimport \"example.com/q\"\n\ntype A struct{}\ntype B int\ntype C struct{}\ntype D struct{}\n\
+          type E struct{}\ntype F int\ntype G map[int]int\n\nvar _ = D{}\n\n\
+          func f(x int) {\n\tvar a A\n\t_ = a\n\t_ = B(x)\n\t_ = C{}\n\t_ = new(E)\n\t_ = (F)(x)\n\t_ = make(G, 1)\n\
+          \t_ = new(q.H)\n}\n",
     );
-    let used: Vec<(&str, Option<&str>)> = raw
+    let used: Vec<(&str, Option<&str>, Access)> = raw
         .uses
         .iter()
         .map(|site| {
             let owner = raw.symbols.get(site.site_of.0 as usize);
-            (site.name.as_str(), owner.map(|owner| owner.name.as_str()))
+            let owner = owner.map(|owner| owner.name.as_str());
+            (site.name.as_str(), owner, site.access)
         })
         .collect();
     let called: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
 
-    assert_eq!(used, [("D", None), ("A", Some("f")), ("C", Some("f"))]);
-    assert_eq!(called, ["B"]);
+    assert_eq!(
+        used,
+        [
+            ("D", None, Access::Type),
+            ("A", Some("f"), Access::Type),
+            ("C", Some("f"), Access::Type),
+            ("E", Some("f"), Access::Type),
+            ("F", Some("f"), Access::Type),
+            ("G", Some("f"), Access::Type),
+            ("H", Some("f"), Access::Type)
+        ],
+        "an allocation's type and a parenthesized conversion's operand name a type as one, an imported one too"
+    );
+    assert_eq!(called, ["B", "new", "make", "new"]);
     assert_eq!(Go::new().conventions().type_uses, TypeUses::Every);
 }
 
