@@ -30,9 +30,10 @@
 //! `crate::m::f()` for `m`, or for its name where the path ends at `crate`, `self` or `super`, `super::f()` for `f`,
 //! and a macro invocation through one for its macro, `kartta_lang::mac!()` for `mac`, each read through the `use` of
 //! its first segment where the file has one. A name the file declares at its top level, or binds to two paths anywhere,
-//! keeps none, and a glob, `as _`, a capitalised first segment, a path through the file's own crate or module that ends
-//! at a capitalised item, a path through `self::` or `super::` inside an inline module and the standard library's
-//! crates keep nothing. A `use` inside a
+//! keeps none, and a glob, `as _`, a capitalised first segment, a path through `self::` or `super::` inside an inline
+//! module and the standard library's crates keep nothing. A path that ends at a capitalised item, a type, is kept only
+//! where the file calls its name bare, as `Wrapper(1)` calls a tuple struct's constructor, since a call through a type
+//! names its member. A `use` inside a
 //! function body or an inline module is in scope in its block alone, not in a module nested in it: outside the blocks
 //! of the `use`s that alone bind a name, a path call reads the name as the crate it spells, and a bare call of the name
 //! leaves it no path. The paths are among the file's directives in source order. `extern crate` adds no import.
@@ -69,7 +70,7 @@
 //! directory has none. A path through `self::` starts at the caller's own module, and each `super::` at the module
 //! above, the crate root where the module's directory lies in the root's. Each segment after it names the module file
 //! the module layout gives it, and the path imports the file of the module it ends at, or of the module that holds the
-//! lowercase item it ends at; a longer rest imports nothing. A call
+//! item it ends at; a longer rest imports nothing. A call
 //! of the name, or through it, binds what that file exports at its top level under the name, a function before a type
 //! of the name, since a call never names a type that Rust keeps apart from values, and from the file's module or a
 //! module below it, a private item other than a macro too. A test item binds only a call from test code of its own

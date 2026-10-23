@@ -37,10 +37,11 @@ path, `kartta_walk::walk::run()` or `crate::m::f()`, keeps its receiver with its
 at `crate`, `self` or `super`, as `super::f()` does, as a macro invocation through one, `kartta_lang::mac!()`, keeps
 its macro's name, each read through the `use` of its first segment where the file has one. A name the file declares at
 its top level, or binds to two paths anywhere, keeps none; a glob, `as _`, a capitalised first segment, a path through
-the file's own crate or module that ends at a capitalised item, a path through `self::` or `super::` inside an inline
-module and the standard library's crates keep nothing. A `use` inside a function body or an inline module is in scope
-in its block alone, not in a module nested in it: outside the blocks of the `use`s that alone bind a name, a path call
-reads the name as the crate it spells, and a bare call of the name leaves it no path.
+`self::` or `super::` inside an inline module and the standard library's crates keep nothing. A path that ends at a
+capitalised item, a type, is kept only where the file calls its name bare, as `Wrapper(1)` calls a tuple struct's
+constructor, since a call through a type names its member. A `use` inside a function body or an inline module is in
+scope in its block alone, not in a module nested in it: outside the blocks of the `use`s that alone bind a name, a path
+call reads the name as the crate it spells, and a bare call of the name leaves it no path.
 
 A name read where no call takes it, `items.map(helper)`, `Handler { on_event: helper }` or `SETTINGS.enabled`, is a use
 of it, and so are `Self::make` and `Service::make` of the member `make`. A name a pattern binds, a parameter, a `let`,
@@ -65,8 +66,9 @@ package's or else the nearest package's, and none where two are as near. A path 
 caller's crate root, the file itself or the target's `main.rs`, else the nearer of the library and the main binary
 whose directories hold it; one through `self::` at the caller's module, and each `super::` at the module above. Each
 segment after the first names a module file by the same layout. The path imports the file of the module it ends at, or
-of the module that holds the lowercase item it ends at, so `text()` after `use kartta_lang::tree::text;` binds the
-`text` that `crates/kartta-lang/src/tree.rs` exports at its top level. A function there wins over a type of its name,
+of the module that holds the item it ends at, so `text()` after `use kartta_lang::tree::text;` binds the `text` that
+`crates/kartta-lang/src/tree.rs` exports at its top level, and `Wrapper(1)` after `use crate::m::Wrapper;` the struct
+`src/m.rs` declares. A function there wins over a type of its name,
 which Rust keeps apart from values, so `kevent()` binds the `extern` function `kevent` beside a `struct kevent`.
 
 Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is a file below a
