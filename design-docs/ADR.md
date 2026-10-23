@@ -224,8 +224,10 @@
   - Governs: `crates/kartta-cache/src/store.rs` (`sweep`), `kartta_cache::Merged`, `crates/kartta-fs/src/cache.rs`
     (`unremoved`)
   - Revisit if: a cache directory sits on a filesystem without file locks while its builds stay idle for an hour
-- [3.1 Plug languages in through a trait](./adr/3.1-plug-languages-in-through-a-trait.md) — initiative `03-code-graph`,
-  2026-10-16, revised 2026-10-22
+- [3.1 Plug languages in through a trait](./adr/3.1-plug-languages-in-through-a-trait.md)
+  - Governs: `crates/kartta-lang/src/language.rs` (`Language`, `Resolver`, `Repository`, `Conventions`),
+    `crates/kartta-lang/src/lib.rs`, `kartta_graph::Graph::conventions`
+  - Revisit if: a host needs languages it was not compiled with
 - [3.2 Name a Go call's target only where the syntax
   spells it](./adr/3.2-name-a-go-call-s-target-only-where-the-syntax-spells-it.md) — initiative `03-code-graph`,
   2026-10-16
@@ -367,6 +369,27 @@
   - Governs: `crates/kartta-graph/src/scope.rs` (`member_of_a_reached_owner`, `class_of_own_field`,
     `nearest_base_fields`), `kartta_lang::Receivers`
   - Revisit if: a sample of the pairs the field tier binds finds the field's class wrong more than once in ten
+- [3.120 Derive a language's fingerprint from its code and its dependencies'
+  versions](./adr/3.120-derive-a-language-s-fingerprint-from-its-code-and-its-dependencies-versions.md)
+  - Governs: `kartta_lang::Language::fingerprint`, `crates/kartta-lang/src/fingerprint.rs` (`set_source_id`),
+    `crates/kartta-lang/src/tree.rs` (`fingerprint`, `tree_sitter_fingerprint!`), `kartta_lang::FINGERPRINT`, each
+    language crate's `build.rs`
+  - Revisit if: a language's extraction depends on something outside its sources, manifest and locked dependencies
+- [3.121 State a language's conventions as a const over the
+  default](./adr/3.121-state-a-language-s-conventions-as-a-const-over-the-default.md)
+  - Governs: `kartta_lang::Conventions`, `Conventions::DEFAULT`, the `CONVENTIONS` of each
+    `crates/kartta-lang-*/src/lib.rs`
+  - Revisit if: a language needs conventions it can only work out at run time
+- [3.122 Resolve a language family through the resolver its first language
+  builds](./adr/3.122-resolve-a-language-family-through-the-resolver-its-first-language-builds.md)
+  - Governs: `kartta_lang::Language::family`, `kartta_lang::Language::resolver`, `crates/kartta/src/resolving.rs`
+    (`Resolving::resolvers`), `crates/kartta/src/engine.rs` (`families`)
+  - Revisit if: a family's languages need different resolutions of the same import
+- [3.123 Hand a resolver the repository each file resolves
+  against](./adr/3.123-hand-a-resolver-the-repository-each-file-resolves-against.md)
+  - Governs: `kartta_lang::Language::resolver`, `kartta_lang::Resolver::resolve`, each
+    `crates/kartta-lang-*/src/resolve.rs`
+  - Revisit if: the view a resolver builds inside `resolve` shows in a build's profile
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md) — initiative
   `04-consumer-surfaces`, 2026-10-18, revised 2026-10-23
