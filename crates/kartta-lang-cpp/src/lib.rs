@@ -8,7 +8,10 @@
 //!
 //! A file yields its functions and methods, its classes, structs, unions (as structs) and enums that have a body, its
 //! type aliases (`using` and `typedef`), the data members of its classes as fields, and its namespace-scope variables
-//! and constants. A class's parents are its base classes as written, without template arguments, but for a parameter
+//! and constants. A field declared as a value of a class, a reference to one or a pointer to one carries that class
+//! as its [value type](kartta_lang::Symbol::value_types), spelled as a member call's receiver spells it, after a `*`
+//! for a pointer; a field of a builtin type, of a template parameter, an array or a pointer to a pointer carries
+//! none. A class's parents are its base classes as written, without template arguments, but for a parameter
 //! of an enclosing template, `: public Compare`, which names no type. A namespace yields no symbol of its own; it
 //! shows in the qualified names of what it holds:
 //!
