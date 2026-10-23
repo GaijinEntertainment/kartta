@@ -337,8 +337,11 @@
   - Governs: `crates/kartta/src/source.rs`, `Engine::sources`, `SourceOptions`, `Source`
   - Revisit if: a consumer asks for text often enough that reading the file costs more than keeping it
 - [3.29 Name a Go receiver by the type its declarations
-  spell](./adr/3.29-name-a-go-receiver-by-the-type-its-declarations-spell.md) — initiative `03-code-graph`, 2026-10-17,
-  revised 2026-10-23
+  spell](./adr/3.29-name-a-go-receiver-by-the-type-its-declarations-spell.md)
+  - Governs: `crates/kartta-lang-go/src/walk/types.rs`, `crates/kartta-lang-go/src/walk/calls.rs`
+    (`spelled_receiver`), `crates/kartta-graph/src/typed.rs`, `kartta_lang::Receivers::TypePaths`,
+    `Symbol::value_types`
+  - Revisit if: a defined type records its underlying type, or a language other than Go spells its receivers as paths
 - [3.30 Look a repository path up without ASCII case through a table built when first
   asked](./adr/3.30-look-a-repository-path-up-without-case-through-a-table-built-when-first-asked.md) — initiative
   `03-code-graph`, 2026-10-17
