@@ -111,7 +111,15 @@ impl Crates {
                 Module::of(&library.root, true)
             }
         };
-        let (file, last) = Self::deepest_module(start, head, segments, repository)?;
+        let (file, last) = match Self::reach(start, head, segments, repository)? {
+            Reached::Module { file, name } => (file, name),
+            Reached::Item { holder, name }
+                if !name.starts_with(|first: char| first.is_ascii_uppercase()) =>
+            {
+                (holder, name)
+            }
+            Reached::Item { .. } => return None,
+        };
         Some(ImportBinding {
             alias: (name != last).then(|| name.clone()),
             target_dir: Some(file),
@@ -119,24 +127,28 @@ impl Crates {
         })
     }
 
-    fn deepest_module<'s>(
+    fn reach<'s>(
         mut module: Module,
         mut last: &'s str,
         mut segments: impl Iterator<Item = &'s str>,
         repository: &dyn Repository,
-    ) -> Option<(String, &'s str)> {
+    ) -> Option<Reached<'s>> {
         while let Some(segment) = segments.next() {
             let Some(submodule) = Self::submodule(&module.dir, segment, repository) else {
-                let item = segments.next().is_none()
-                    && !segment.starts_with(|first: char| first.is_ascii_uppercase());
-                return item.then_some((module.file, segment));
+                return segments.next().is_none().then_some(Reached::Item {
+                    holder: module.file,
+                    name: segment,
+                });
             };
             module.file = submodule;
             module.dir.push_str(segment);
             module.dir.push('/');
             last = segment;
         }
-        Some((module.file, last))
+        Some(Reached::Module {
+            file: module.file,
+            name: last,
+        })
     }
 
     fn submodule(module_dir: &str, name: &str, repository: &dyn Repository) -> Option<String> {
@@ -287,6 +299,13 @@ impl Caller<'_> {
         let file = format!("{dir}mod.rs");
         repository.contains(&file).then_some(Module { file, dir })
     }
+}
+
+// constraint: a path's segments name modules until one names none, so it ends at the file of the module its last
+// segment names, or at an item of the module before it, held by that module's file
+enum Reached<'s> {
+    Module { file: String, name: &'s str },
+    Item { holder: String, name: &'s str },
 }
 
 // constraint: a module is the file that holds it and the directory that holds its submodules' files
