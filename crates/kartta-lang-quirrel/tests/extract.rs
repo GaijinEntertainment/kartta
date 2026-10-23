@@ -184,6 +184,22 @@ handler = 2
 }
 
 #[test]
+fn the_squirrel_extends_keyword_is_no_use_and_its_base_is_one() {
+    let raw = extract(
+        "class Circle extends Shape {}\nlet C = class extends Base {}\nlocal list = [1 2 extends]\n",
+    );
+
+    assert_eq!(
+        uses(&raw),
+        [
+            ("Shape", FILE_SCOPE, 1),
+            ("Base", FILE_SCOPE, 2),
+            ("extends", FILE_SCOPE, 3)
+        ]
+    );
+}
+
+#[test]
 fn the_runtime_methods_ascend_without_a_repeat_and_name_the_built_in_delegates() {
     let methods = Quirrel::new().conventions().runtime_methods;
 
