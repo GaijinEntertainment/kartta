@@ -62,7 +62,7 @@ fn ask_named<'b, T>(
     });
     let unmatched = if found.is_empty() {
         let [read] = &read_as;
-        let read = Selector::new(read.as_deref().unwrap_or(named.name), named.path_prefix);
+        let read = named.with_name(read.as_deref().unwrap_or(named.name));
         unmatched(searched, read, selects, UNMATCHED_LISTED)
     } else {
         None
@@ -105,10 +105,7 @@ fn call_path(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     );
     let unmatched_ends = if found.is_empty() {
         std::array::from_fn(|at| {
-            let end = Selector::new(
-                read_as[at].as_deref().unwrap_or(written[at].name),
-                written[at].path_prefix,
-            );
+            let end = written[at].with_name(read_as[at].as_deref().unwrap_or(written[at].name));
             if selects_as_callers(searched.clone(), end) {
                 return None;
             }

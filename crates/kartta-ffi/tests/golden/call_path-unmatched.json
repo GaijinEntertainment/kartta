@@ -26,7 +26,9 @@
   "method": "call_path",
   "params": {
     "from": "main",
+    "from_line": 3,
     "to": "helper",
+    "to_line": 8,
     "to_path_prefix": "cpp/"
   }
 }

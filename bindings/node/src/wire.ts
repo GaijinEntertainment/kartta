@@ -390,6 +390,11 @@ export type WalkParams = {
 	 * its closing slash; it reaches one of several copies that share a qualified name. Absent looks in every file.
 	 */
 	path_prefix?: string;
+	/**
+	 * Keeps only the symbols that start on this one-based line, as a `Definition`'s `line`; it reaches one of several
+	 * symbols of the name in one file. Absent looks at every line.
+	 */
+	line?: number;
 	/** Names the graph to ask, by a language or its family; absent asks every graph. */
 	lang?: string;
 	/** How many calls away the walk goes; callers default to 3, callees to 1. */
@@ -470,12 +475,16 @@ export type CallPathParams = {
 	 * directory's with its closing slash. Absent keeps every file.
 	 */
 	from_path_prefix?: string;
+	/** Keeps the symbols `from` may select to those that start on this one-based line. Absent keeps every line. */
+	from_line?: number;
 	to: string;
 	/**
 	 * Keeps the symbols `to` may select to the files whose root-relative path starts with it, one file's path or a
 	 * directory's with its closing slash. Absent keeps every file.
 	 */
 	to_path_prefix?: string;
+	/** Keeps the symbols `to` may select to those that start on this one-based line. Absent keeps every line. */
+	to_line?: number;
 	lang?: string;
 	/** How many calls long a path may be; 8 by default. */
 	depth?: number;
@@ -513,6 +522,11 @@ export type ReferencesParams = {
 	 * its closing slash; it reaches one of several copies that share a qualified name. Absent looks in every file.
 	 */
 	path_prefix?: string;
+	/**
+	 * Keeps only the symbols that start on this one-based line, as a `Definition`'s `line`; it reaches one of several
+	 * symbols of the name in one file. Absent looks at every line.
+	 */
+	line?: number;
 	lang?: string;
 	min_confidence?: number;
 	/** Keeps the uses that read, set or update the symbol, an update counting as both, and drops the calls. */
@@ -660,6 +674,11 @@ export type ImplementationsParams = {
 	 * closing slash; it reaches one of several types that share a qualified name. Absent looks in every file.
 	 */
 	path_prefix?: string;
+	/**
+	 * Keeps only the types that start on this one-based line, as a `Definition`'s `line`; it reaches one of several
+	 * types of the name in one file. Absent looks at every line.
+	 */
+	line?: number;
 	lang?: string;
 	/** How many levels below the root the search goes; 3 by default. */
 	depth?: number;
