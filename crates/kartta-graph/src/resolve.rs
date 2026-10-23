@@ -5,8 +5,8 @@ use std::rc::Rc;
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    CallableRole, Conventions, IncludeReach, InheritedMembers, NamespaceCalls, OwnMembers,
-    SymbolKind, UntypedMembers, ValueUses,
+    CallableRole, Conventions, IncludeReach, IncludedRuntimeMembers, InheritedMembers,
+    NamespaceCalls, OwnMembers, SymbolKind, UntypedMembers, ValueUses,
 };
 
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
@@ -1158,15 +1158,35 @@ impl<'g> Cascade<'g> {
         reach: Option<&Reach>,
         defined_per_file: impl Iterator<Item = &'a [SymbolAt]>,
     ) -> Scoped {
+        let narrowed = call.names_a_runtime_method
+            && self.conventions.included_runtime_members == IncludedRuntimeMembers::SpelledOrOwn;
         let mut unique = Scoped::Nothing;
         for defined in defined_per_file.filter(|defined| !defined.is_empty()) {
-            match self.scoped(call, defined.iter().copied(), reach) {
+            let reached = defined
+                .iter()
+                .copied()
+                .filter(|&at| !narrowed || self.spelled_or_own(call, at));
+            match self.scoped(call, reached, reach) {
                 Scoped::Nothing => {}
                 Scoped::One(at) if unique == Scoped::Nothing => unique = Scoped::One(at),
                 Scoped::One(_) | Scoped::Several => return Scoped::Several,
             }
         }
         unique
+    }
+
+    /// Whether `at` is no member, or a member whose owner the call's receiver spells or the caller's own owner is or
+    /// derives from.
+    fn spelled_or_own(&self, call: &Call, at: SymbolAt) -> bool {
+        let Some(owner) = self.graph.sym(at).owner else {
+            return true;
+        };
+        self.receiver_spells_owner(call, at)
+            || self
+                .graph
+                .sym(call.caller_at())
+                .owner
+                .is_some_and(|own| self.owner_derives_from(own, owner))
     }
 
     fn re_exported(&self, call: &Call) -> Option<SymbolAt> {

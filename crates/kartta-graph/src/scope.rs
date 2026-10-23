@@ -664,6 +664,13 @@ impl Cascade<'_> {
             .extend(located.into_iter().filter(|&at| walked.insert(at)));
     }
 
+    pub(crate) fn owner_derives_from(&self, own: Str, owner: Str) -> bool {
+        own == owner
+            || self
+                .owner_ancestors(own)
+                .is_some_and(|up| up.owners.contains(&owner))
+    }
+
     fn owner_ancestors(&self, own: Str) -> Option<Rc<Ancestors>> {
         derived(&self.owner_ancestors, own, || {
             match self.conventions.owner_chain_separator {
