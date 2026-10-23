@@ -31,8 +31,10 @@
 - [1.8 Count what a listing leaves out](./adr/1.8-count-what-a-listing-leaves-out.md)
   - Governs: `crates/kartta-fs/src/list.rs` (`ListOptions`, `Listing`, `Listed::unlisted`, `Index::list`)
   - Revisit if: counting stops being free, as in an index layout without contiguous subtrees
-- [1.9 Front-code the stored paths](./adr/1.9-front-code-the-stored-paths.md) — initiative `01-kartta-fs-port`,
-  2026-10-14, revised 2026-10-21
+- [1.9 Front-code the stored paths](./adr/1.9-front-code-the-stored-paths.md)
+  - Governs: `crates/kartta-fs/src/index.rs`, `crates/kartta-fs/src/list.rs`, `kartta_fs::Entry`,
+    `kartta_fuzz::Ranking`
+  - Revisit if: a call nears 500 ms on a larger tree
 - [1.10 Search content through ripgrep's engine](./adr/1.10-search-content-through-ripgrep-s-engine.md) — initiative
   `01-kartta-fs-port`, 2026-10-14, revised 2026-10-19
 - [1.11 Say what a limited content search did not
@@ -85,6 +87,13 @@
   - Governs: `Index::is_binary`, `crates/kartta-fs/src/inspection.rs` (`PROBE`), `crates/kartta-fs/src/binary.rs`
     (`BUILTIN`), `crates/kartta-fs/src/scan.rs`
   - Revisit if: a tree shows that the extension set's shape is wrong, not only its contents
+- [1.65 Re-encode only the blocks a change lands in](./adr/1.65-re-encode-only-the-blocks-a-change-lands-in.md)
+  - Governs: `crates/kartta-fs/src/index/splice.rs`, `crates/kartta-fs/src/index.rs` (`Block`, `block_of`)
+  - Revisit if: the per-block search shows in the profile of reads by position
+- [1.66 Keep a symlink's target in a list beside the walk's
+  tree](./adr/1.66-keep-a-symlink-s-target-in-a-list-beside-the-walk-s-tree.md)
+  - Governs: `crates/kartta-fs/src/policy.rs` (`Payload`, `TargetId`, `Report::targets`)
+  - Revisit if: a node must carry a second id beside its kind
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-18
