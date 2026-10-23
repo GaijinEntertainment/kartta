@@ -308,8 +308,10 @@
     `crates/kartta-graph/src/graph.rs` (`included_by`, `includers_of`)
   - Revisit if: the include edges of a family make the index more than a few percent of its graph
 - [3.20 Resolve implementors from the parents written when a query
-  asks](./adr/3.20-resolve-implementors-from-the-parents-written-when-a-query-asks.md) — initiative `03-code-graph`,
-  2026-10-17, revised 2026-10-23
+  asks](./adr/3.20-resolve-implementors-from-the-parents-written-when-a-query-asks.md)
+  - Governs: `crates/kartta-graph/src/implementations.rs`, `Graph::implementations`, `kartta_graph::is_parent`
+  - Revisit if: one query exceeds tens of milliseconds, or the C++ extraction qualifies nested types by their whole
+    chain or reads using-directives
 - [3.21 Search definitions by the words of their names and
   paths](./adr/3.21-search-definitions-by-the-words-of-their-names-and-paths.md) — initiative `03-code-graph`,
   2026-10-17, revised 2026-10-21
@@ -548,6 +550,10 @@
   time](./adr/3.124-resolve-a-build-s-extractions-1-024-files-at-a-time.md)
   - Governs: `crates/kartta/src/resolving.rs` (`RESOLVED_AT_ONCE`, `Resolving::insert_all`)
   - Revisit if: the call graph or a tree of uneven files moves the build's peak away from a 1,024-file batch
+- [3.130 Name the type alias a parent's lookup
+  reaches](./adr/3.130-name-the-type-alias-a-parent-s-lookup-reaches.md)
+  - Governs: `crates/kartta-graph/src/implementations.rs`, `kartta_graph::is_parent`
+  - Revisit if: the extraction records what an alias names
 - [3.140 Find a daslang module by its file name](./adr/3.140-find-a-daslang-module-by-its-file-name.md)
   - Governs: `crates/kartta-lang-daslang/src/resolve.rs`, `crates/kartta-lang-daslang/src/walk.rs` (`require`,
     `include`)
