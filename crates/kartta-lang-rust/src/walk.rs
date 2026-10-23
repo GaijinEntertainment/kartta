@@ -20,6 +20,7 @@ const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT"])
     .with_block("/*", "*/");
 
 mod attributes;
+mod bindings;
 mod blocks;
 mod calls;
 mod imports;
@@ -126,8 +127,8 @@ struct Emitter<'a> {
     block_items: HashMap<String, Vec<BlockItem>>,
     block_calls: Vec<BlockCall>,
     module_parents: HashMap<usize, usize>,
-    regions: Vec<values::Region<'a>>,
-    pending_bindings: Vec<values::PendingBindings<'a>>,
+    regions: Vec<bindings::Region<'a>>,
+    pending_bindings: Vec<bindings::PendingBindings<'a>>,
     // constraint: the end of each `if` or `while` open around the walk, with the end of the branch it runs on a match
     branches: Vec<(usize, usize)>,
     read_scopes: Vec<String>,
