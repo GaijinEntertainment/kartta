@@ -1,4 +1,4 @@
-use kartta_lang::path::{base, dir, join};
+use kartta_lang::path::{base, dir, join, shared_segments};
 use kartta_lang::{
     Callable, CallableRole, Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver,
     Symbol, SymbolFlags, SymbolId, SymbolKind,
@@ -46,7 +46,10 @@ impl<'r> Includes<'r> {
             .filter(|candidate| ends_at_segment(candidate, spec));
         match (suffixed.next(), suffixed.next()) {
             (Some(hit), None) => return Some(hit.clone()),
-            (Some(_), Some(_)) => return enclosing_copy(&candidates, spec, path),
+            (Some(_), Some(_)) => {
+                return enclosing_copy(&candidates, spec, path)
+                    .or_else(|| nearest_copy(&candidates, spec, quoted, path));
+            }
             (None, _) => {}
         }
         if candidates.len() == 1 {
@@ -126,12 +129,27 @@ fn has_c_external_linkage(symbol: &Symbol) -> bool {
 
 // constraint: several copies of a library each end in the specifier, and a file of one copy reaches its own through
 // the include path its build sets, so the copy whose root holds the including file is meant, the deepest root if
-// roots nest; a file under no copy's root names none of them, as a system header the repository vendors twice
+// roots nest
 fn enclosing_copy(candidates: &[String], spec: &str, path: &str) -> Option<String> {
     sole_highest(
         copies(candidates, spec)
             .filter(|(root, _)| path.starts_with(root))
             .map(|(root, candidate)| (root.len(), candidate)),
+    )
+}
+
+// constraint: a file under no copy's root reaches the copy that the include path of its build sets, and a build sets
+// the copy that sits beside the code it builds, so the copy whose directory shares the most leading directories with
+// the including file's is meant, and none where two share as many; a bare name in angle brackets names none, since
+// it spells a system header, `<time.h>`, that some library of the repository vendors a copy of for another platform
+fn nearest_copy(candidates: &[String], spec: &str, quoted: bool, path: &str) -> Option<String> {
+    if !quoted && !spec.contains('/') {
+        return None;
+    }
+    let from = dir(path);
+    sole_highest(
+        copies(candidates, spec)
+            .map(|(_, candidate)| (shared_segments(dir(candidate), from), candidate)),
     )
 }
 
@@ -283,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn an_include_several_copies_end_in_names_the_copy_that_holds_the_includer() {
+    fn an_include_several_copies_end_in_names_the_copy_that_holds_the_includer_else_the_nearest() {
         let files = [
             "racing/main/app.h",
             "flight/main/app.h",
@@ -293,10 +311,14 @@ mod tests {
             "vendor/zlib/zlib.h",
         ];
         let source = b"#include \"main/app.h\"\n#include <zlib.h>\nvoid run() {}\n";
+        let quoted = b"#include \"zlib.h\"\nvoid run() {}\n";
 
         let inside = resolved(source, "flight/render/scene.cpp", &files);
         let nested = resolved(source, "libs/zlib/contrib/inflate.c", &files);
         let outside = resolved(source, "game/scene.cpp", &files);
+        let beside_quoted = resolved(quoted, "vendor/png/png.c", &files);
+        let beside_angled = resolved(source, "vendor/png/png.c", &files);
+        let between_nested = resolved(quoted, "libs/png/png.c", &files);
 
         assert_eq!(targets(&inside), ["flight/main/app.h"]);
         assert_eq!(modules(&inside), ["zlib.h"]);
@@ -304,6 +326,34 @@ mod tests {
         assert_eq!(modules(&nested), ["main/app.h"]);
         assert_eq!(targets(&outside), Vec::<&str>::new());
         assert_eq!(modules(&outside), ["main/app.h", "zlib.h"]);
+        assert_eq!(targets(&beside_quoted), ["vendor/zlib/zlib.h"]);
+        assert_eq!(
+            modules(&beside_angled),
+            ["main/app.h", "zlib.h"],
+            "a bare name in angle brackets spells a system header"
+        );
+        assert_eq!(modules(&between_nested), ["zlib.h"]);
+    }
+
+    #[test]
+    fn an_include_outside_every_copy_names_the_copy_sharing_the_most_directories() {
+        let files = [
+            "engine/physx/include/foundation/PxAllocator.h",
+            "thirdparty/physx/include/foundation/PxAllocator.h",
+            "engine/phys/body.cpp",
+        ];
+        let source = b"#include \"foundation/PxAllocator.h\"\n#include <foundation/PxAllocator.h>\nvoid grow() {}\n";
+
+        let extraction = resolved(source, "engine/phys/body.cpp", &files);
+
+        assert_eq!(
+            targets(&extraction),
+            [
+                "engine/physx/include/foundation/PxAllocator.h",
+                "engine/physx/include/foundation/PxAllocator.h"
+            ]
+        );
+        assert_eq!(modules(&extraction), Vec::<&str>::new());
     }
 
     #[test]

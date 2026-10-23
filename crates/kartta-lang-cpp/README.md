@@ -28,8 +28,11 @@ list is on the own receiver, and one on a local or a parameter names the type it
 enumerator, a macro, a value of another file — is kept, for the graph to bind or leave unbound.
 
 From the path and the repository: each `#include` resolved to the file of the repository it names — the path relative to
-the including file, the exact path, the one file whose path ends in it — with no compiler search path, or kept as an
-unresolved import when no file matches or two match equally well; and test or generated code marked by the file's name.
+the including file, the exact path, the one file whose path ends in it, else of the copies that end in it the one that
+holds the including file or shares the most directories with it — with no compiler search path, or kept as an
+unresolved import when no file matches or two match equally well, and for a bare name in angle brackets, the spelling
+of a system header, that several copies end in and none holds the including file; and test or generated code marked
+by the file's name.
 
 ## Parse repairs
 

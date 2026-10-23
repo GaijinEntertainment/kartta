@@ -105,9 +105,12 @@
 //! whose path ends in it at a `/`, else the one file of its last component's name, else the first of the specifier
 //! with `.h`, `.hpp`, `.c`, `.cpp` or `.cc` added. Of several files that end in the specifier, the one whose root, its
 //! path less the specifier, holds the including file is named, the deepest root where roots nest, as a file of one
-//! vendored copy of a library reaches its own copy; where no root holds the including file, none is named, since a
-//! missing include is better than a wrong one. A file sees what the files it includes include in turn, as the
-//! preprocessor pastes them in, so its includes are [`IncludeReach::Transitive`].
+//! vendored copy of a library reaches its own copy. Where no root holds the including file, the one of those files
+//! whose directory shares the most leading directories with the including file's is named, as the build of the code
+//! beside a copy sets that copy's include path; none of them is named where two share as many, or for a bare name in
+//! angle brackets, which spells a system header such as `<time.h>`, since a missing include is better than a wrong
+//! one. A file sees what the files it includes include in turn, as the preprocessor pastes them in, so its includes
+//! are [`IncludeReach::Transitive`].
 //!
 //! The resolver also flags a file's symbols by its path: as test code under a `test`, `tests`, `unittest` or
 //! `unittests` directory or with a name ending in `Test`, `_test` or `_unittest` or starting with `test_`, and as
