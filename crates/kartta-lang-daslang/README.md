@@ -24,6 +24,15 @@ exports, else the one such a file declares `private`, as a call of the name bind
 the receiver of a value of the caller's own type, so `super.m()` and a member call on another name, `child.init()`
 inside an `init`, bind no member of the caller's own class.
 
+Code that a macro takes as data runs where its result is compiled, not where it is written, so a call or a construction
+in it is no call of the enclosing `def`: `quote(foo())` calls `quote` and uses `foo`, which the compiled code names.
+That code is the argument of `quote`, `qmacro`, `qmacro_block`, `qmacro_block_to_array`, `qmacro_expr` and
+`qmacro_type`; the argument after the name of `qmacro_function` and `qmacro_variable`, or after the name and the class
+of `qmacro_method`; and the pattern of `qmatch`, `qmatch_block` and `qmatch_function`, whose matched expression runs. A
+block after the call is its last argument. The expression of a `qmacro` splice, `$e`, `$i`, `$v`, `$b`, `$a`, `$t`, `$c`
+or `$f`, runs, so its calls belong to the enclosing `def`; the arguments of a `$c(name)(...)` splice are data. `_::f`,
+the compiler's name for the scope that compiles the code, names what a bare `f` does.
+
 ## Resolution
 
 A `require` or an `include` that names a file is an include of it; one that names no file is an import, kept as written.

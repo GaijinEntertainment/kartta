@@ -28,6 +28,17 @@
 //! `def`'s. A block or a local function stored in a name runs when the value is called, so its calls belong to no
 //! symbol, and the graph drops them.
 //!
+//! Code that a macro takes as data runs where its result is compiled, not where it is written, so a call or a
+//! construction in it is no call of the enclosing `def`: `quote(foo())` calls `quote` and uses `foo`, which the
+//! compiled code names. That code is the argument of `quote`, `qmacro`, `qmacro_block`, `qmacro_block_to_array`,
+//! `qmacro_expr` and `qmacro_type`; the argument after the name of `qmacro_function` and `qmacro_variable`, or
+//! after the name and the class of `qmacro_method`; and the pattern of `qmatch`, `qmatch_block` and
+//! `qmatch_function`, whose matched expression runs. A block after the call is its last argument,
+//! `qmacro_block() { ... }`. The expression of a `qmacro` splice, `$e`, `$i`, `$v`, `$b`, `$a`, `$t`, `$c` or
+//! `$f`, runs, so its calls belong to the enclosing `def`; the arguments of a `$c(name)(...)` splice are data.
+//! `_::f`, the compiler's name for the scope that compiles the code, names what a bare `f` does. A macro called
+//! through a module, `shell::quote(path)`, is an ordinary call.
+//!
 //! A function's address, `@@f`, is a bare use of `f` and `@@mod::f` one qualified by `mod`, the one form daslang takes
 //! a function as a value in. A bare use binds the one function of its name its own file declares, else the one a file
 //! it requires exports, else the one such a file declares `private`, as a call of the name binds it.
