@@ -57,7 +57,9 @@ so cost per entry is the design pressure on every surface.
   another moving tag.
 - Do not name or cite a predecessor implementation this code was ported from, in any file, commit message or ADR. State
   the behavior and its reason directly.
-- Before reporting work that touches a hot path as done, compare its time and peak memory against `main` on the same
-  large tree.
+- Before reporting work that changes a hot path's cost landscape as done, compare its time and peak memory against
+  `main` on the same large tree. The landscape changes with a new stored structure or field, a new pass, a step whose
+  complexity changes, or a new allocation or parse per item on the build path. Any other change states its added work
+  instead: more records of an existing kind as their count times their size, and other work in one line.
 
 </constraints>
