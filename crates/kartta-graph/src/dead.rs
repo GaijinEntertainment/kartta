@@ -43,8 +43,7 @@ pub struct Excluded {
     /// proximity, or binds its own caller through a value: a bare call may reach any definition of the name, and a
     /// call through a receiver a member, or a free definition that no member of the name could stand for or that its
     /// file sees, in its own file, in the files it includes, and where a package is a directory, in its package. A use
-    /// that binds nothing may reach any field of its name, and a variable or a constant its file sees, as may a call
-    /// through a receiver that spells the name of one.
+    /// that binds nothing may reach any field of its name, and a variable or a constant its file sees.
     pub uncertain: usize,
     /// Methods a call through another type may reach: one an interface or a trait declares a method of the name for,
     /// one that a parent of its owner declares too, and one of an owner with a parent the graph does not hold.
@@ -93,9 +92,7 @@ impl Graph {
     /// where the language records no use, or a caller outside the repository reaches it unseen.
     ///
     /// Every call and use that spells the name of a judged definition is resolved, so a query over a whole graph costs
-    /// what resolving the graph's calls and uses costs, and `limit` bounds the answer, not the work. A free variable or
-    /// constant that nothing reaches is checked against the receivers of every call of the graph, gathered once a query
-    /// needs them.
+    /// what resolving the graph's calls and uses costs, and `limit` bounds the answer, not the work.
     #[must_use]
     pub fn dead_code(
         &self,
