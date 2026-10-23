@@ -271,9 +271,9 @@
   - Governs: `crates/kartta-lang-rust/src/{walk,resolve,lib}.rs`,
     `crates/kartta-lang-rust/src/walk/{settle,attributes}.rs`
   - Revisit if: a consumer needs the targets that a manifest places off Cargo's layout
-- [3.12 Qualify Python by the module its path
-  names](./adr/3.12-qualify-python-by-the-module-its-path-names.md) — initiative `03-code-graph`, 2026-10-16, revised
-  2026-10-23
+- [3.12 Qualify Python by the module its path names](./adr/3.12-qualify-python-by-the-module-its-path-names.md)
+  - Governs: `crates/kartta-lang-python/src/{resolve,walk,banner,lib}.rs`
+  - Revisit if: an import root that the probe misses, or a root-first match that is wrong, shows up on a real tree
 - [3.13 Read a shell script's commands as calls and its sources as
   includes](./adr/3.13-read-a-shell-script-s-commands-as-calls-and-its-sources-as-includes.md) — initiative
   `03-code-graph`, 2026-10-16, revised 2026-10-19
@@ -456,6 +456,16 @@
   - Governs: `crates/kartta-lang-jsts/src/walk.rs` (`Binding`, `Declared`), `crates/kartta-lang-jsts/src/walk/calls.rs`
     (`value_receiver`, `this_class`)
   - Revisit if: the walk learns the type a value's declaration spells for its calls (#475, #319)
+- [3.102 Bind a Python bare call by the scope that binds its
+  name](./adr/3.102-bind-a-python-bare-call-by-the-scope-that-binds-its-name.md)
+  - Governs: `crates/kartta-lang-python/src/walk.rs` (`Frame`, `Binding`, `close`, `scope_frame`)
+  - Revisit if: a real tree shows the stronger binding of a scope wrong at the call often enough to need an order of
+    execution
+- [3.103 Declare a Python class's fields from its body and its instance's
+  attributes](./adr/3.103-declare-a-python-class-s-fields-from-its-body-and-its-instance-s-attributes.md)
+  - Governs: `crates/kartta-lang-python/src/walk.rs` (`assignment`, `OwnReceiver`, `attribute_assignment`,
+    `declare_attributes`)
+  - Revisit if: a consumer needs a field to tell declared data from state a method keeps
 - [3.120 Derive a language's fingerprint from its code and its dependencies'
   versions](./adr/3.120-derive-a-language-s-fingerprint-from-its-code-and-its-dependencies-versions.md)
   - Governs: `kartta_lang::Language::fingerprint`, `crates/kartta-lang/src/fingerprint.rs` (`set_source_id`),
