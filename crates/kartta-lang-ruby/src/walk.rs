@@ -6,6 +6,7 @@ use kartta_lang::{
 use tree_sitter::{Node, Tree};
 
 use crate::bindings::{Bindings, MethodKind, NameKey};
+use crate::locals::{Locals, Role, is_keyword, role};
 use crate::owner::{constant_type, enclosing_type, in_singleton_class, type_qualification};
 
 pub(crate) const REQUIRE_FORM: u32 = 0;
@@ -24,6 +25,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         visibilities: Vec::new(),
         flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
         bindings: Bindings::default(),
+        locals: Locals::default(),
         raw: RawExtraction::default(),
     };
 
@@ -62,6 +64,7 @@ pub(crate) struct Emitter<'s> {
     pub(crate) visibilities: Vec<Visibility>,
     flags: SymbolFlags,
     pub(crate) bindings: Bindings,
+    locals: Locals<'s>,
     pub(crate) raw: RawExtraction,
 }
 
@@ -85,6 +88,8 @@ impl Emitter<'_> {
         {
             self.visibilities.pop();
         }
+        self.locals.leave(start);
+        self.locals.enter(node, self.source);
 
         match node.kind() {
             // constraint: a `def` inside `class << self` defines a class method, `Owner.name`
@@ -104,9 +109,28 @@ impl Emitter<'_> {
             }),
             "assignment" => self.constant_assignment(node),
             "alias" => self.alias(node),
-            IDENTIFIER => self.visibility_statement(node),
+            IDENTIFIER => self.identifier(node),
             "call" => self.call(node),
             _ => {}
+        }
+    }
+
+    fn identifier(&mut self, node: Node<'_>) {
+        let source = self.source;
+        let name = &source[node.byte_range()];
+        match role(node) {
+            Role::Binding => self.locals.bind(name),
+            Role::Read if !self.locals.is_local(name) && !is_keyword(name) => {
+                self.visibility_statement(node);
+                let site_of = self.site_of();
+                self.raw.calls.push(CallRef {
+                    site_of,
+                    callee: text(node, source),
+                    receiver: self.implicit_receiver(site_of),
+                    line: line(node.start_position().row),
+                });
+            }
+            Role::Read | Role::Name => {}
         }
     }
 
@@ -251,8 +275,7 @@ impl Emitter<'_> {
                 "self" => self.type_of_self(site_of).unwrap_or_default(),
                 _ => String::new(),
             }),
-            None if self.is_type_body(site_of) => Some(self.qualified_name(site_of)),
-            None => None,
+            None => self.implicit_receiver(site_of),
         };
 
         // constraint: a call with any receiver, `config.require 'x'`, is a method of its own and loads nothing
@@ -354,6 +377,11 @@ impl Emitter<'_> {
                 .open_types
                 .last()
                 .is_some_and(|body| body.id == site_of)
+    }
+
+    fn implicit_receiver(&self, site_of: SymbolId) -> Option<String> {
+        self.is_type_body(site_of)
+            .then(|| self.qualified_name(site_of))
     }
 
     fn type_of_self(&self, site_of: SymbolId) -> Option<String> {
