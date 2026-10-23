@@ -154,10 +154,11 @@ impl<'a> Emitter<'a> {
                 }
             }
             CLASS_DEFINITION => {
-                if let Some(id) = self.class(node) {
+                let id = self.class(node);
+                if let Some(id) = id {
                     self.define(node, id);
                 }
-                self.open(node, caller, FrameKind::Class);
+                self.open(node, id.unwrap_or(caller), FrameKind::Class);
             }
             "lambda" => {
                 self.open(node, caller, FrameKind::Function);
@@ -198,16 +199,16 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    // constraint: a comprehension evaluates its first iterable in the scope around it
+    // constraint: a comprehension evaluates its first iterable in the scope around it, and a class its bases
     fn open(&mut self, node: Node<'_>, caller: SymbolId, kind: FrameKind) {
-        let outside = if kind == FrameKind::Comprehension {
-            named_child_nodes(node)
+        let outside = match kind {
+            FrameKind::Comprehension => named_child_nodes(node)
                 .find(|child| child.kind() == "for_in_clause")
-                .and_then(|clause| clause.child_by_field_name("right"))
-                .map_or(0..0, |iterable| iterable.byte_range())
-        } else {
-            0..0
-        };
+                .and_then(|clause| clause.child_by_field_name("right")),
+            FrameKind::Class => node.child_by_field_name("superclasses"),
+            FrameKind::Function => None,
+        }
+        .map_or(0..0, |evaluated| evaluated.byte_range());
         self.frames.push(Frame {
             end: node.end_byte(),
             caller,

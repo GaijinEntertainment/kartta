@@ -15,16 +15,17 @@ static method has no such parameter. A symbol is qualified by the module its pat
 `pkg.Service` for a class in `pkg/__init__.py`. A decorated definition starts at its first decorator, and a name that
 starts with `_` is not exported.
 
-Inside a definition, each read, write and update of an attribute or a module-level value is a data site. An attribute
-on a method's first parameter binds the class around the method, or a base found without a guess; on a name no
-function around it binds, a class or a module, a member of that owner; on anything else the one field of the name the
-file declares. A name that no function around it binds, or that a `global` declaration gives the module, uses the
-module's name wherever the module binds it, by an import, an assignment, a `def` or a `class`, and binds the
-declaration in the file or the one imported module that declares it.
+Inside a definition, a class body included, each read, write and update of an attribute or a module-level value is a
+data site. An attribute on a method's first parameter binds the class around the method, or a base found without a
+guess; on a name no function around it binds, a class or a module, a member of that owner; on anything else the one
+field of the name the file declares. A name that no function around it binds, or that a `global` declaration gives the
+module, uses the module's name wherever the module binds it, by an import, an assignment, a `def` or a `class`, and
+binds the declaration in the file or the one imported module that declares it.
 
 A call records its callee and, for a member call, its receiver: `self.greet()` records `greet` on `self`, and a member
-call on anything but a name records the empty receiver. A call belongs to the function around it, one in a class body
-included. A bare call of a function or class that a function around the call defines is a local call to that
+call on anything but a name records the empty receiver. A call belongs to the function around it, and one in a class
+body outside every method, or in the class's bases, to the class; a name in the bases is looked up in the scope around
+the class. A bare call of a function or class that a function around the call defines is a local call to that
 definition, unless a name nearer the call hides it, as Python's scoping decides, and a bare call of a value such a
 function binds, such as a parameter, is not recorded. The conventions name the methods of the built-in types and of the
 standard library's values a script holds most, so a member call of one, `name.strip()` or `path.read_text()`, binds a
