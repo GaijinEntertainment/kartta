@@ -1,9 +1,9 @@
 //! What an engine built from a tree on disk binds: a selection of part of the TypeScript family leaves the files of the
 //! other languages out of the graph, no Rust call binds a module, a Rust call into another crate of the workspace binds
-//! what that crate exports, a macro invocation the `#[macro_export]` macro of its root file, through a `use` inside a
-//! function body or an inline module only from inside it, and a Rust call on a value, on `self` or through a type
-//! binds no free function, not even through a value named like a module the file imports, while a call on a value
-//! still binds the one runtime method whose owner the value's name spells.
+//! what that crate exports, a macro invocation the `#[macro_export]` macro of its root file or the one of the files
+//! that file includes, through a `use` inside a function body or an inline module only from inside it, and a Rust
+//! call on a value, on `self` or through a type binds no free function, not even through a value named like a module
+//! the file imports, while a call on a value still binds the one runtime method whose owner the value's name spells.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -283,6 +283,104 @@ fn a_rust_macro_invocation_through_another_crate_binds_the_macro_it_exports_at_i
     assert_eq!(
         bound_through_an_import(&engine, "crates/app/src/lib.rs", "hidden_by_path"),
         Vec::<&str>::new()
+    );
+}
+
+/// A workspace whose crate `other-crate` is made of `modules`, and whose crate `app` invokes `other_crate::mac!()` in
+/// `by_path` and `mac!()` through a `use` in `by_use`.
+fn invoking_a_macro_of(modules: &[(&str, &str)]) -> Engine {
+    let mut files = vec![
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/other/Cargo.toml",
+            "[package]\nname = \"other-crate\"\n",
+        ),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "mod imported;\n\nfn by_path() {\n    other_crate::mac!();\n}\n",
+        ),
+        (
+            "crates/app/src/imported.rs",
+            "use other_crate::mac;\n\nfn by_use() {\n    mac!();\n}\n",
+        ),
+    ];
+    files.extend_from_slice(modules);
+    build(&tree_of(&files), &["rust"])
+}
+
+fn macro_bound_through_an_import(engine: &Engine) -> [Vec<&str>; 2] {
+    [
+        bound_through_an_import(engine, "crates/app/src/lib.rs", "by_path"),
+        bound_through_an_import(engine, "crates/app/src/imported.rs", "by_use"),
+    ]
+}
+
+#[test]
+fn a_rust_macro_invocation_through_another_crate_binds_the_macro_a_submodule_exports() {
+    let engine = invoking_a_macro_of(&[
+        ("crates/other/src/lib.rs", "mod tree;\nmod hidden;\n"),
+        (
+            "crates/other/src/tree.rs",
+            "#[macro_export]\nmacro_rules! mac { () => {}; }\n",
+        ),
+        (
+            "crates/other/src/hidden.rs",
+            "macro_rules! mac { () => {}; }\n",
+        ),
+    ]);
+
+    assert_eq!(
+        macro_bound_through_an_import(&engine),
+        [["crates/other/src/tree.rs"], ["crates/other/src/tree.rs"]]
+    );
+}
+
+#[test]
+fn a_rust_macro_invocation_through_another_crate_binds_the_macro_a_nested_submodule_exports() {
+    let engine = invoking_a_macro_of(&[
+        ("crates/other/src/lib.rs", "pub mod a;\n"),
+        ("crates/other/src/a.rs", "mod b;\n"),
+        (
+            "crates/other/src/a/b.rs",
+            "#[macro_export]\nmacro_rules! mac { () => {}; }\n",
+        ),
+    ]);
+
+    assert_eq!(
+        macro_bound_through_an_import(&engine),
+        [["crates/other/src/a/b.rs"], ["crates/other/src/a/b.rs"]]
+    );
+}
+
+#[test]
+fn a_rust_macro_two_submodules_export_binds_neither_through_the_import() {
+    let engine = invoking_a_macro_of(&[
+        (
+            "crates/other/src/lib.rs",
+            "#[cfg(unix)]\nmod unix;\n#[cfg(windows)]\nmod windows;\n",
+        ),
+        (
+            "crates/other/src/unix.rs",
+            "#[macro_export]\nmacro_rules! mac { () => {}; }\n\n#[macro_export]\nmacro_rules! only { () => {}; }\n",
+        ),
+        (
+            "crates/other/src/windows.rs",
+            "#[macro_export]\nmacro_rules! mac { () => {}; }\n",
+        ),
+        (
+            "crates/app/src/unique.rs",
+            "fn unique() {\n    other_crate::only!();\n}\n",
+        ),
+    ]);
+
+    assert_eq!(
+        macro_bound_through_an_import(&engine),
+        [Vec::<&str>::new(), Vec::new()]
+    );
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/unique.rs", "unique"),
+        ["crates/other/src/unix.rs"]
     );
 }
 
