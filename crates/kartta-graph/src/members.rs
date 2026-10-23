@@ -143,7 +143,7 @@ impl<'g> Cascade<'g> {
     // `find_unused` counts no ambiguous use as a call that may reach it; a class without the field binds the field of
     // the one base that declares it, and a type the graph holds that neither does, an alias most often, leaves the
     // field to the tiers that read no type; of namesake classes without the field, the bases searched are those of the
-    // one the spelling names, else those of the first, whose field of the name is the one meant most often (ADR 3.34)
+    // one the spelling names, else those of the first, whose field of the name is the one meant most often (ADR 3.65)
     pub(crate) fn included_owner_member(
         &self,
         site: SymbolAt,

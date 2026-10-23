@@ -425,6 +425,14 @@
   - Governs: `crates/kartta-graph/src/scope.rs` (`member_of_a_reached_owner`, `class_of_own_field`,
     `nearest_base_fields`), `kartta_lang::Receivers`
   - Revisit if: a sample of the pairs the field tier binds finds the field's class wrong more than once in ten
+- [3.48 Read a qualified name with the other owner separator when it selects
+  nothing](./adr/3.48-read-a-qualified-name-with-the-other-owner-separator-when-it-selects-nothing.md)
+  - Governs: `crates/kartta/src/reading.rs` (`ask_reading`), the name parameters of `crates/kartta-mcp/src/params.rs`
+  - Revisit if: a shipped language mixes `.` and `::` within its qualified names
+- [3.49 Select a name whose last part holds a separator by its longer
+  parts](./adr/3.49-select-a-name-whose-last-part-holds-a-separator-by-its-longer-parts.md)
+  - Governs: `crates/kartta-graph/src/graph.rs` (`Graph::definitions`)
+  - Revisit if: a miss's longer-part lookups show in a profile of a symbol query
 - [3.50 Bind a Rust path into another crate through its library's module
   files](./adr/3.50-bind-a-rust-path-into-another-crate-through-its-library-s-module-files.md)
   - Governs: `crates/kartta-lang-rust/src/walk/imports.rs`, `crates/kartta-lang-rust/src/manifest.rs`,
@@ -740,14 +748,6 @@
   outline](./adr/4.15-name-the-definition-that-holds-an-unowned-symbol-in-an-outline.md)
   - Governs: `crates/kartta-mcp/src/render/symbols.rs` (`outline`, `holder`, `holds`)
   - Revisit if: an extraction records holders, so the outline can read them in place of judging by lines
-- [4.16 Read a qualified name with the other owner separator when it selects
-  nothing](./adr/4.16-read-a-qualified-name-with-the-other-owner-separator-when-it-selects-nothing.md)
-  - Governs: `crates/kartta/src/reading.rs` (`ask_reading`), the name parameters of `crates/kartta-mcp/src/params.rs`
-  - Revisit if: a shipped language mixes `.` and `::` within its qualified names
-- [4.17 Select a name whose last part holds a separator by its longer
-  parts](./adr/4.17-select-a-name-whose-last-part-holds-a-separator-by-its-longer-parts.md)
-  - Governs: `crates/kartta-graph/src/graph.rs` (`Graph::definitions`)
-  - Revisit if: a miss's longer-part lookups show in a profile of a symbol query
 - [4.18 Answer a name that selects nothing with what it does
   match](./adr/4.18-answer-a-name-that-selects-nothing-with-what-it-does-match.md)
   - Governs: `crates/kartta/src/reading.rs` (`unmatched`, `selects_as_callers`), `crates/kartta-mcp/src/render.rs`
