@@ -17,7 +17,11 @@
 //! its body.
 //!
 //! A call records its callee: a bare name, a root-table `::f`, or the field of a member call, whose receiver is the
-//! whole receiver expression as written. A computed callee, `a[k]()` or `f()()`, records nothing.
+//! whole receiver expression as written. A computed callee, `a[k]()` or `f()()`, records nothing, and neither does a
+//! bare call of a parameter or a local of an enclosing function, `cb()` in `function run(cb)`, which calls whatever
+//! value the name holds, unless the file defines a free function or a class of the name, which is most often the
+//! value it passes. A local that destructures a table, `let { build } = cfg`, takes the slot of its name and keeps
+//! its call.
 //!
 //! A name read where no call takes it, `subscribe("evt", onEvent)`, `{ onClick = handler, handler }` or `return
 //! handler`, and that no parameter or local of an enclosing function declares, is a bare use of it; so is a root-table

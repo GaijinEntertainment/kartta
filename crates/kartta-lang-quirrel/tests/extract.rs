@@ -184,6 +184,61 @@ handler = 2
 }
 
 #[test]
+fn a_call_through_a_parameter_or_a_local_is_not_a_callee() {
+    let raw = extract(
+        "function each(visit, list) { foreach (item in list) { visit(item); item() } }
+function run(cb = null) {
+  let step = make()
+  step()
+  cb?(1)
+  try { go() } catch (err) { err() }
+  later(@() cb())
+}
+function after() { visit(1); step(); cb(); item() }
+",
+    );
+
+    let (run, after) = (id_of(&raw, "run"), id_of(&raw, "after"));
+    assert_eq!(
+        callers(&raw),
+        [
+            ("make", run),
+            ("go", run),
+            ("later", run),
+            ("visit", after),
+            ("step", after),
+            ("cb", after),
+            ("item", after),
+        ]
+    );
+}
+
+#[test]
+fn a_call_through_a_value_keeps_a_function_or_a_class_its_file_defines_or_the_slot_it_destructures()
+{
+    let raw = extract(
+        "function onDone() {}
+const onFail = 1
+class Step {}
+function finish(onDone, onFail, Step) { onDone(); onFail(); Step() }
+function setup(cfg) {
+  let { build } = cfg
+  build()
+}
+",
+    );
+
+    assert_eq!(
+        callers(&raw),
+        [
+            ("onDone", id_of(&raw, "finish")),
+            ("Step", id_of(&raw, "finish")),
+            ("build", id_of(&raw, "setup"))
+        ]
+    );
+}
+
+#[test]
 fn the_squirrel_extends_keyword_is_no_use_and_its_base_is_one() {
     let raw = extract(
         "class Circle extends Shape {}\nlet C = class extends Base {}\nlocal list = [1 2 extends]\n",
