@@ -417,6 +417,7 @@ func sizes(n int, local Item, req Item) {
             ("Item", None, "sizes", 19),
             ("Item", Some("pkg"), "sizes", 20),
             ("Item", Some("item_store"), "sizes", 24),
+            ("item_store", None, "sizes", 24),
             ("Item", None, "sizes", 25),
             ("Item", Some("pkg"), "sizes", 26),
             ("List", None, "sizes", 27),
@@ -1914,10 +1915,11 @@ func Run(local Options) {
             ("Options", None, "Run", 7),
             ("Limit", Some("thing"), "Run", 8),
             ("Limit", Some("renamed"), "Run", 9),
+            ("renamed", None, "Run", 9),
             ("settings", None, "Run", 10),
         ],
-        "a package clause need not be the import's last element, and the graph binds a qualifier only to an import; \
-         a package-level value is read by name"
+        "a package clause need not be the import's last element, so a qualifier no import spells is also read as a \
+         value a sibling file may declare; a package-level value of the file is read by name"
     );
 }
 
@@ -2089,6 +2091,42 @@ fn a_name_no_local_binds_is_a_read_or_a_write_of_what_the_package_declares() {
             ("limit", Access::Write, 24),
         ],
         "a map literal's keys are values; a declared local, a parameter and a builtin are no use"
+    );
+}
+
+#[test]
+fn a_selector_operand_no_import_of_the_file_names_is_also_a_read_of_a_package_value() {
+    let raw = extract(
+        b"package svc
+
+import (
+	\"fmt\"
+	yaml \"gopkg.in/yaml.v3\"
+)
+
+func Run() int {
+	client.Do()
+	_, _ = fmt.Println, yaml.Marshal
+	return cfg.Server.Address
+}
+",
+    );
+
+    assert_eq!(
+        values(&raw),
+        [("client", Access::Read, 9), ("cfg", Access::Read, 11)],
+        "a sibling file of the package may declare the operand; the name an import binds is no value"
+    );
+    assert_eq!(
+        uses(&raw),
+        [
+            ("client", None, "Run", 9),
+            ("Println", Some("fmt"), "Run", 10),
+            ("Marshal", Some("yaml"), "Run", 10),
+            ("Server", Some("cfg"), "Run", 11),
+            ("cfg", None, "Run", 11),
+        ],
+        "the selector keeps the qualifier, for the graph to bind through an import or the package's value"
     );
 }
 

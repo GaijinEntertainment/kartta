@@ -442,6 +442,87 @@ fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_o
 }
 
 #[test]
+fn find_references_lists_a_read_through_a_package_value_a_sibling_file_declares() {
+    let module = tree(&[
+        ("go.mod", "module example.com/probe\n\ngo 1.22\n"),
+        (
+            "cfg.go",
+            "package probe\n\ntype Config struct {\n\tTimeout int\n}\n\nvar cfg = Config{Timeout: 5}\n",
+        ),
+        (
+            "use.go",
+            "package probe\n\ntype Client struct{}\n\nfunc (Client) Do() {}\n\nvar client Client\n\n\
+             func Read() int {\n\treturn cfg.Timeout\n}\n",
+        ),
+        (
+            "call.go",
+            "package probe\n\nfunc Call() {\n\tclient.Do()\n}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(module.path());
+
+    let answers = [
+        client.answer("find_references", &json!({"name": "probe.cfg"})),
+        client.answer("find_references", &json!({"name": "probe.Config.Timeout"})),
+        client.answer("find_references", &json!({"name": "probe.client"})),
+    ];
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="probe.cfg" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="cfg" qn="probe.cfg" loc="cfg.go:7" kind="variable" count="1" "#,
+                    r#"files="1" reads="1">"#,
+                ),
+                r#"<file path="use.go" sites="1">"#,
+                concat!(
+                    r#"<ref name="Read" qn="probe.Read" line="9" role="consumer" site="read" at="10" "#,
+                    r#"confidence="likely"/>"#,
+                ),
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="probe.Config.Timeout" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Timeout" qn="probe.Config.Timeout" loc="cfg.go:4" kind="field" "#,
+                    r#"count="2" files="2" reads="1" writes="1">"#,
+                ),
+                r#"<file path="cfg.go" sites="1">"#,
+                r#"<ref name="cfg" qn="probe.cfg" line="7" role="consumer" site="write" at="7"/>"#,
+                "</file>",
+                r#"<file path="use.go" sites="1">"#,
+                r#"<ref name="Read" qn="probe.Read" line="9" role="consumer" site="read" at="10"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="probe.client" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="client" qn="probe.client" loc="use.go:7" kind="variable" count="1" "#,
+                    r#"files="1" reads="1">"#,
+                ),
+                r#"<file path="call.go" sites="1">"#,
+                concat!(
+                    r#"<ref name="Call" qn="probe.Call" line="3" role="consumer" site="read" at="4" "#,
+                    r#"confidence="likely"/>"#,
+                ),
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+        ],
+        "a selector on a value another file of the package declares reads the value and its member, and a call \
+         through it reads the value"
+    );
+}
+
+#[test]
 fn find_references_lists_a_hot_field_by_file_most_sites_first_and_counts_what_it_leaves_out() {
     let readers: Vec<(String, String)> = (0..130)
         .map(|file| {
