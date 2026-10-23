@@ -638,7 +638,10 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
         if node.is_error() {
             let (start, end) = (node.start_position().row, node.end_position().row);
             if end.saturating_sub(start) >= RECOVERY_SPILL_ROWS {
-                recovery.spills.push((start, end));
+                let class_end = closing_row_of_the_class_it_opens(node, source);
+                recovery
+                    .spills
+                    .push((start, class_end.map_or(end, |row| row.max(end))));
             }
         }
         let kind = node.kind();
@@ -664,6 +667,32 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
     });
 
     recovery
+}
+
+// constraint: an error that opens at a class head ends at the first member the grammar cannot read past, as
+// `OPENMAYA_DEPRECATED(2019, "...")` alone on its line, and the members' macros after it, which the second parse meets
+// as written, close the class there again; the brace that closes the class in the source bounds the spill instead
+#[expect(
+    clippy::naive_bytecount,
+    reason = "one class body is counted for each spill a class head opens, too rare to take a dependency for"
+)]
+fn closing_row_of_the_class_it_opens(error: Node<'_>, source: &[u8]) -> Option<usize> {
+    let head = error.start_byte();
+    if !is_class_key(source, head) {
+        return None;
+    }
+    let open = head
+        + source[head..]
+            .iter()
+            .position(|byte| matches!(byte, b'{' | b';'))?;
+    (source[open] == b'{').then(|| {
+        let close = closing_brace(source, open);
+        error.start_position().row
+            + source[head..close]
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count()
+    })
 }
 
 fn misreads_a_members_macro(member: Node<'_>, source: &[u8]) -> bool {
@@ -1515,6 +1544,59 @@ public:
                 "const Gu::GeometryUnion&\tgetGeometryFast()\t\tconst",
                 "NpShape(PxU32 flags) : mFlags(flags)",
                 "operator PxU32() const"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_class_whose_head_opens_an_error_keeps_every_member_past_its_macros() {
+        const SOURCE: &[u8] = br#"class OPENMAYA_EXPORT MFnDependencyNode : public MFnBase
+{
+	declareMFn(MFnDependencyNode, MFnBase);
+
+public:
+	OPENMAYA_ENUM(MAttrClass,
+		kLocalDynamicAttr = 1,
+		kNormalAttr,
+		kInvalidAttr
+	);
+
+	MTypeId typeId( MStatus* ReturnStatus = NULL ) const;
+	OPENMAYA_AVAILABLE(2023)
+	MString uniqueName( MStatus * ReturnStatus = NULL ) const;
+	MString pluginName( MStatus * ReturnStatus = NULL ) const;
+
+	OPENMAYA_DEPRECATED(2019, "Use the other findPlug instead.")
+	MPlug findPlug( const MObject & attr, MStatus* ReturnStatus=NULL ) const;
+
+	MStatus addAttribute( const MObject & attr );
+	bool isLocked( MStatus* ReturnStatus=NULL ) const;
+
+	OPENMAYA_DEPRECATED(2019, "Use the other addAttribute instead.")
+	MStatus addAttribute( const MObject & attr, MAttrClass type );
+	MStatus setLocked( bool locked );
+};
+"#;
+
+        let raw = Cpp::new().extract(SOURCE);
+
+        let lines: Vec<(&str, u32, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.line, symbol.end_line))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                ("MFnDependencyNode", 1, 26),
+                ("MFnDependencyNode::typeId", 12, 12),
+                ("MFnDependencyNode::uniqueName", 14, 14),
+                ("MFnDependencyNode::pluginName", 15, 15),
+                ("MFnDependencyNode::findPlug", 18, 18),
+                ("MFnDependencyNode::addAttribute", 20, 20),
+                ("MFnDependencyNode::isLocked", 21, 21),
+                ("MFnDependencyNode::addAttribute", 24, 24),
+                ("MFnDependencyNode::setLocked", 25, 25)
             ]
         );
     }
