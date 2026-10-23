@@ -62,6 +62,8 @@
   "method": "callees",
   "params": {
     "depth": 2,
-    "name": "main"
+    "line": 3,
+    "name": "main",
+    "path_prefix": "go/main.go"
   }
 }

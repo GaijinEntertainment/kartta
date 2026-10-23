@@ -573,6 +573,66 @@ fn a_path_prefix_picks_the_copy_a_walk_or_an_implementations_search_starts_from(
     assert_eq!(file(&in_b, "root"), "b/util.go");
 }
 
+#[test]
+fn a_line_picks_one_of_two_overloads_in_one_file() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("o.cpp"),
+        "void a() {}\nvoid b() {}\nnamespace ns {\nvoid f(int x) { a(); }\nvoid f(double x) { b(); }\n}\n\
+         namespace p {\nstruct S {};\n}\nnamespace q {\nstruct S {};\n}\n",
+    )
+    .expect("o.cpp");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &json!({ "languages": ["cpp"] }));
+    let at = |line: u32| json!({ "name": "ns::f", "path_prefix": "o.cpp", "line": line });
+    let line = |answer: &Value, at: &str| answer["matches"][0][at]["line"].clone();
+
+    let by_file = ok(
+        &kartta,
+        "callees",
+        &json!({ "name": "ns::f", "path_prefix": "o.cpp" }),
+    );
+    let outgoing = ok(&kartta, "callees", &at(5));
+    let incoming = ok(&kartta, "callers", &at(5));
+    let used = ok(&kartta, "references", &at(5));
+    let path = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "ns::f", "from_path_prefix": "o.cpp", "from_line": 5, "to": "b", "to_line": 2 }),
+    );
+    let into = ok(
+        &kartta,
+        "call_path",
+        &json!({ "from": "ns::f", "from_path_prefix": "o.cpp", "to": "ns::f", "to_line": 5 }),
+    );
+    let types = ok(
+        &kartta,
+        "implementations",
+        &json!({ "name": "S", "path_prefix": "o.cpp", "line": 11 }),
+    );
+    let off = ok(&kartta, "callees", &at(3));
+
+    assert_eq!(line(&by_file, "root"), 4);
+    assert_eq!(by_file["matches"][0]["candidates"][0]["symbol"]["line"], 5);
+    assert_eq!(line(&outgoing, "root"), 5);
+    assert_eq!(outgoing["matches"][0]["reached"][0]["symbol"]["name"], "b");
+    assert_eq!(outgoing["matches"][0]["passed_over"], 0);
+    assert_eq!(line(&incoming, "root"), 5);
+    assert_eq!(line(&used, "symbol"), 5);
+    assert_eq!(
+        (line(&path, "from"), path["matches"][0]["found"].clone()),
+        (json!(5), json!(true))
+    );
+    assert_eq!(
+        (line(&into, "from"), line(&into, "to")),
+        (json!(4), json!(5))
+    );
+    assert_eq!(line(&types, "root"), 11);
+    assert_eq!(types["matches"][0]["passed_over"], 0);
+    assert_eq!(off["matches"], json!([]), "no ns::f starts on line 3");
+    assert_eq!(off["unmatched"]["kind"], "outside_prefix");
+}
+
 /// A built handle over a Rust crate: `Index::rebuild` calls `Index::refresh`, and `Index` implements
 /// `render::Paint`. The tree directory is returned to keep it alive.
 fn rust_crate() -> (tempfile::TempDir, Kartta) {
