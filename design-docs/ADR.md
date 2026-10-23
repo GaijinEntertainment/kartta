@@ -74,8 +74,11 @@
   - Governs: `crates/kartta-fs/src/index.rs`, `crates/kartta/src/engine.rs` (`release_freed_memory`)
   - Revisit if: a consumer's resident memory grows across scoped refreshes
 - [1.19 Prune editor and OS clutter by name during the
-  walk](./adr/1.19-prune-editor-and-os-clutter-by-name-during-the-walk.md) — initiative `01-kartta-fs-port`, 2026-10-17,
-  revised 2026-10-18
+  walk](./adr/1.19-prune-editor-and-os-clutter-by-name-during-the-walk.md)
+  - Governs: `crates/kartta-fs/src/pruned.rs`, `BuildOptions::pruned_names`, `crates/kartta-fs/src/policy.rs`
+    (`pruned`, `Indexing::visit`), `Index::refresh_paths`
+  - Revisit if: a consumer needs what a pruned directory holds, a name outside the default proves common, or a caller
+    needs a path-shaped prune
 - [1.20 Watch on Linux each directory the index keeps, from the walk that keeps
   it](./adr/1.20-watch-on-linux-each-directory-the-index-keeps-from-the-walk-that-keeps-it.md)
   - Governs: `crates/kartta-fs/src/watch/inotify.rs`, `Index::refresh_paths_watched`, `WatchError::Limit`
@@ -165,6 +168,10 @@
   - Governs: `crates/kartta-walk/src/walk.rs` (`PARALLEL_CLASSIFY`, `CLASSIFY_RUN`, `Walker::classify`,
     `Walker::classify_in_parallel`)
   - Revisit if: the policy's `visit` stops doing I/O for every consumer
+- [1.62 Name the pruned name a listing failed on, and count nothing
+  pruned](./adr/1.62-name-the-pruned-name-a-listing-failed-on-and-count-nothing-pruned.md)
+  - Governs: `ListError::Pruned`, `crates/kartta-fs/src/list.rs` (`Index::not_found`)
+  - Revisit if: a consumer needs to know a directory held pruned entries without asking a path through one
 - [1.65 Re-encode only the blocks a change lands in](./adr/1.65-re-encode-only-the-blocks-a-change-lands-in.md)
   - Governs: `crates/kartta-fs/src/index/splice.rs`, `crates/kartta-fs/src/index.rs` (`Block`, `block_of`)
   - Revisit if: the per-block search shows in the profile of reads by position
