@@ -237,7 +237,6 @@ impl<'a> Emitter<'a> {
         &mut self,
         Frame {
             end,
-            caller,
             kind,
             bindings,
             calls,
@@ -249,6 +248,7 @@ impl<'a> Emitter<'a> {
             self.declare_attributes(end);
         }
         self.settle_uses(&bindings, uses);
+        let binds_locals = kind == FrameKind::Function || self.in_function();
         for call in calls {
             let binding = bindings
                 .iter()
@@ -256,7 +256,7 @@ impl<'a> Emitter<'a> {
                 .map(|&(_, binding)| binding)
                 .max_by_key(|binding| binding.strength());
             match binding {
-                Some(Binding::Definition(local)) if caller != FILE_SCOPE => {
+                Some(Binding::Definition(local)) if binds_locals => {
                     self.raw.local_calls.push(LocalCall {
                         site_of: call.site_of,
                         local,
@@ -389,14 +389,16 @@ impl<'a> Emitter<'a> {
     fn push_symbol(&mut self, mut symbol: Symbol) -> SymbolId {
         symbol.flags = symbol.flags.union(self.flags);
         let id = self.raw.push_symbol(symbol);
-        if self
-            .frames
-            .iter()
-            .any(|frame| frame.kind == FrameKind::Function)
-        {
+        if self.in_function() {
             self.raw.local_symbols.push(id);
         }
         id
+    }
+
+    fn in_function(&self) -> bool {
+        self.frames
+            .iter()
+            .any(|frame| frame.kind == FrameKind::Function)
     }
 
     // constraint: a free `def main` directly at module level is the one a script runs under
