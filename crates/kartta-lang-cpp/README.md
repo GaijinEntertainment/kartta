@@ -33,9 +33,10 @@ unresolved import when no file matches or two match equally well; and test or ge
 
 ## Parse repairs
 
-Three constructs the grammar cannot reduce — an empty trailing macro argument, `CHECK(ptr, )`, an export macro between
-a class key and the class name, `class TORRENT_EXPORT torrent : base`, and a function-like macro where a declaration
-belongs — take the declarations around them down with them, and so does a conditional whose first branch leaves a
+Four constructs the grammar cannot reduce take the declarations around them down with them: an empty trailing macro
+argument (`CHECK(ptr, )`), an export macro between a class key and the class name (`class TORRENT_EXPORT torrent :
+base`), a macro alone on its line above a class, a template or a namespace (`JPH_NAMESPACE_BEGIN`), and a
+function-like macro where a declaration belongs. So does a conditional whose first branch leaves a
 brace open or closes one it did not open, `#ifdef A` `if (x) {` `#else` `if (y) {` `#endif`. Where the parser reads such
 an `#else` inside the block the first branch opened, every conditional of that shape in the file is read with its first
 branch taken, whatever its condition. A macro that opens a class member, `PX_FORCE_INLINE const Gu::GeometryUnion&
