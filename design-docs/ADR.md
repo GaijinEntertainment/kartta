@@ -63,8 +63,9 @@
   - Governs: `crates/kartta-fs/src/index.rs` (`Index::refresh`), `crates/kartta-fs/src/index/refresh.rs`
   - Revisit if: a consumer refreshes often enough to near the last id, or retired ids leave the id map far past the
     files that remain
-- [1.16 Refresh the parts of a tree a caller names](./adr/1.16-refresh-the-parts-of-a-tree-a-caller-names.md) —
-  initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-22
+- [1.16 Refresh the parts of a tree a caller names](./adr/1.16-refresh-the-parts-of-a-tree-a-caller-names.md)
+  - Governs: `crates/kartta-fs/src/index/{scoped,splice}.rs` (`Index::refresh_paths`, `Index::parts_of`)
+  - Revisit if: the copy of the per-entry arrays sets a follower's peak, or becomes most of a call
 - [1.17 Follow a tree through its change notifications](./adr/1.17-follow-a-tree-through-its-change-notifications.md) —
   initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-23
 - [1.18 Return the memory a build freed to the system](./adr/1.18-return-the-memory-a-build-freed-to-the-system.md) —
@@ -81,6 +82,22 @@
   own](./adr/1.41-index-what-a-refresh-reads-in-a-segment-of-its-own.md)
   - Governs: `crates/kartta-fs/src/content_index.rs`, `crates/kartta-fs/src/content_index/{compact,build}.rs`
   - Revisit if: retired ids leave a tree's merged lists sized far past the files that remain
+- [1.42 Refresh a path under the name the disk holds](./adr/1.42-refresh-a-path-under-the-name-the-disk-holds.md)
+  - Governs: `crates/kartta-fs/src/spelling.rs`, `crates/kartta-fs/src/index/scoped.rs`
+  - Revisit if: a consumer on Linux follows a tree on a volume that folds case
+- [1.43 Read the rules above a refreshed part again on each
+  call](./adr/1.43-read-the-rules-above-a-refreshed-part-again-on-each-call.md)
+  - Governs: `crates/kartta-fs/src/index/scoped.rs` (`Rewalk::rules_above`), `crates/kartta-fs/src/policy.rs`
+  - Revisit if: the parts' own stats leave the calling thread, so the rules become the larger share of a call over a
+    network mount
+- [1.44 Answer where a refresh walked and where its kept entries
+  went](./adr/1.44-answer-where-a-refresh-walked-and-where-its-kept-entries-went.md)
+  - Governs: `RefreshOutcome`, `crates/kartta-fs/src/index/changed.rs`
+  - Revisit if: a consumer needs to know which entries inside a walked part kept their position
+- [1.45 Read a named refresh's files on the index's
+  threads](./adr/1.45-read-a-named-refresh-s-files-on-the-index-s-threads.md)
+  - Governs: `crates/kartta-fs/src/index/scoped.rs` (`Rewalk::found`, `Rewalk::read_on_threads`)
+  - Revisit if: the stats and rules the calling thread keeps become a large share of a call
 - [1.50 Match gitignore rules with gix-ignore](./adr/1.50-match-gitignore-rules-with-gix-ignore.md)
   - Governs: `crates/kartta-fs/src/rules.rs`
   - Revisit if: `gix-ignore` stops being maintained or diverges from git's matching
