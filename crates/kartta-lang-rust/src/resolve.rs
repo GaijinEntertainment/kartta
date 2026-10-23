@@ -81,8 +81,7 @@ impl Crates {
     // constraint: a path into another crate starts at its library, one through `crate::` at the caller's crate root,
     // one through `self::` at the caller's module and one through `super::` at the module above, and each segment
     // after names the module file Cargo's layout gives it until one names none: a path that ends at a module binds its
-    // file, and one that ends a segment further, at an item named in lower case as a function is, binds the file of
-    // the module that holds it; a longer rest, or a capitalised item, which is a type whose member a path call names,
+    // file, and one that ends a segment further, at an item, binds the file of the module that holds it; a longer rest
     // binds nothing
     fn crate_binding(
         &self,
@@ -113,12 +112,7 @@ impl Crates {
         };
         let (file, last) = match Self::reach(start, head, segments, repository)? {
             Reached::Module { file, name } => (file, name),
-            Reached::Item { holder, name }
-                if !name.starts_with(|first: char| first.is_ascii_uppercase()) =>
-            {
-                (holder, name)
-            }
-            Reached::Item { .. } => return None,
+            Reached::Item { holder, name } => (holder, name),
         };
         Some(ImportBinding {
             alias: (name != last).then(|| name.clone()),

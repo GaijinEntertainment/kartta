@@ -189,6 +189,27 @@ fn a_path_through_self_or_super_is_kept_only_outside_every_inline_module() {
 }
 
 #[test]
+fn a_path_that_ends_at_a_capitalised_item_is_kept_only_for_a_bare_call_of_its_name() {
+    let got = bound(
+        "use other::m::Wrapper;\nuse other::m::Kind;\nuse crate::m::Pair as P;\nuse super::Unit;\n\n\
+         fn run() {\n    Wrapper(1);\n    Kind::new();\n    P(1, 2);\n    other::m::Handle::new();\n}\n",
+    );
+
+    let called_bare_outside_its_block = bound(
+        "fn a() {\n    use other::m::Wrapper;\n    Wrapper::new();\n}\n\nfn b() {\n    Wrapper(1);\n}\n",
+    );
+
+    assert_eq!(
+        got,
+        [
+            path("Wrapper", "other::m::Wrapper", 1),
+            path("P", "crate::m::Pair", 3),
+        ]
+    );
+    assert_eq!(called_bare_outside_its_block, []);
+}
+
+#[test]
 fn a_kept_path_includes_no_file_its_name_spells() {
     let rust = Rust::new();
     let repository = MemoryRepository::new([("src/lib.rs", ""), ("src/walk", "")]);
