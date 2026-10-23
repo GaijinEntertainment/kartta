@@ -73,9 +73,12 @@
 //! declared as a value of a class or a reference to it for `.`, or a pointer to it for `->`, that class as its
 //! declaration spells it: with the scopes it writes, `b::Widget` or `::b::Widget`, without its template arguments,
 //! `ns::Box` for `ns::Box<int>`, and by its bare name where a scope carries template arguments or the spelling a space.
-//! `this` outside a member keeps `this`, and any other operand records the empty receiver, because the operand of `.`
-//! or `->` is a value whose name names no type. A call through a named scope keeps the scope as written, `ns::f`, and
-//! one through the root keeps the `::`, `::f`.
+//! In a member, a name the body does not declare, `lock` or `this->lock`, names a field of the member's class or of a
+//! base, or a namespace's value, which the walk cannot tell apart, so the call records it after the operator that takes
+//! the member, `.lock` or `->lock`, for the graph to bind through the field it finds. `this` outside a member keeps
+//! `this`, and any other operand records the empty receiver, because the operand of `.` or `->` is a value whose name
+//! names no type. A call through a named scope keeps the scope as written, `ns::f`, and one through the root keeps the
+//! `::`, `::f`.
 //! `new ns::Widget<T>()` is a call of `Widget`. A cast, a call spelled by a type keyword, and a call or a `new` of a
 //! parameter of an enclosing template, `Compare()` in a template over `Compare`, are not recorded. A call outside every
 //! function is a call from file scope, before the file's first symbol too.

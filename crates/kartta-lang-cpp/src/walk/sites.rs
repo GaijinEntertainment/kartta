@@ -352,24 +352,58 @@ impl<'s, 't> Replayer<'s, 't> {
         self.push_site(field, (text(field, self.source), receiver, access));
     }
 
-    /// The class a member call's operand is declared as, as `declared_owner` reads it, or empty.
-    pub(super) fn called_owner(&self, call: Node<'_>) -> &'s str {
+    /// The receiver of a member call on a named operand: the class a local or a parameter is declared as, as
+    /// `declared_owner` reads it, and in a member the name of what the body does not declare, `lock` or `this->lock`,
+    /// after the operator, `.lock` or `->lock`, which may be a field of the caller's class or of a base, or a
+    /// namespace's value, for the graph to tell apart; else empty.
+    pub(super) fn called_owner(&self, call: Node<'_>) -> String {
         let Some(function) = call
             .child_by_field_name("function")
             .filter(|function| function.kind() == "field_expression")
         else {
-            return "";
+            return String::new();
         };
         let (Some(operand), Some(operator)) = (
             function.child_by_field_name("argument"),
             function.child_by_field_name("operator"),
         ) else {
-            return "";
+            return String::new();
         };
-        if operand.kind() != "identifier" {
-            return "";
-        }
-        self.declared_owner(operand, operator.kind() == "->")
+        let arrow = operator.kind() == "->";
+        let in_member = self.callers_owner().is_some();
+        let field = match operand.kind() {
+            "identifier" => match self.borrowed(operand) {
+                Some(name)
+                    if in_member
+                        && !self.locals.declares(name)
+                        && !self.is_template_parameter(name) =>
+                {
+                    name
+                }
+                _ => return self.declared_owner(operand, arrow).to_owned(),
+            },
+            "field_expression" if in_member => match self.field_of_this(operand) {
+                Some(name) => name,
+                None => return String::new(),
+            },
+            _ => return String::new(),
+        };
+        let operator = if arrow { "->" } else { "." };
+        format!("{operator}{field}")
+    }
+
+    /// The field `this->field` names.
+    fn field_of_this(&self, operand: Node<'_>) -> Option<&'s str> {
+        let on_this = operand
+            .child_by_field_name("argument")
+            .is_some_and(|argument| argument.kind() == "this")
+            && operand
+                .child_by_field_name("operator")
+                .is_some_and(|operator| operator.kind() == "->");
+        operand
+            .child_by_field_name("field")
+            .filter(|field| on_this && field.kind() == "field_identifier")
+            .and_then(|field| self.borrowed(field))
     }
 
     fn declared_owner(&self, operand: Node<'_>, arrow: bool) -> &'s str {

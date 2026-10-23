@@ -461,7 +461,7 @@ impl<'s, 't> Replayer<'s, 't> {
             return;
         }
         let receiver = receiver.map(|receiver| match receiver.as_str() {
-            "" => self.called_owner(node).to_owned(),
+            "" => self.called_owner(node),
             "this" => self.callers_owner().map_or(receiver, str::to_owned),
             _ => receiver,
         });
@@ -990,7 +990,7 @@ int defined_and_declared(int x) { return x; }
             .iter()
             .find(|call| call.callee == "draw")
             .expect("draw call");
-        assert_eq!(draw.receiver.as_deref(), Some(""));
+        assert_eq!(draw.receiver.as_deref(), Some(".painter_"));
         assert_eq!(draw.site_of, render);
 
         let bare_compute = raw
@@ -1066,6 +1066,35 @@ int defined_and_declared(int x) { return x; }
             .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
             .collect();
         assert_eq!(calls, [("hide", Some("Panel")), ("draw", Some("Widget"))]);
+    }
+
+    #[test]
+    fn a_member_call_on_a_name_a_member_does_not_declare_names_the_field() {
+        let raw = extract(
+            b"struct Cache { void read() { lock.unlockRead(); held->unlockRead(); } Lock lock; Lock *held; };\n\
+              void Cache::release(Lock &lock) { this->lock.unlockRead(); this->held->unlockRead(); lock.reset(); }\n\
+              template <typename T> void Cache::clear() { T other; other.reset(); }\n\
+              void free() { lock.unlockRead(); }\n",
+        );
+
+        let calls: Vec<(&str, Option<&str>)> = raw
+            .calls
+            .iter()
+            .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+            .collect();
+        assert_eq!(
+            calls,
+            [
+                ("unlockRead", Some(".lock")),
+                ("unlockRead", Some("->held")),
+                ("unlockRead", Some(".lock")),
+                ("unlockRead", Some("->held")),
+                ("reset", Some("Lock")),
+                ("reset", Some("")),
+                ("unlockRead", Some("")),
+            ],
+            "a parameter shadows the field, and outside a member the name is a namespace's"
+        );
     }
 
     #[test]
