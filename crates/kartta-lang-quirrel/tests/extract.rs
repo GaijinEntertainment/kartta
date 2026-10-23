@@ -824,7 +824,7 @@ fn assigned_function_values_bind_by_their_target() {
             ("b", SymbolId(2)),
             ("c", SymbolId(3)),
             ("o", SymbolId(4)),
-            ("d", FILE_SCOPE),
+            ("d", SymbolId(0)),
         ]
     );
 }
@@ -841,7 +841,7 @@ fn a_missing_assignment_target_binds_no_name() {
     let raw = extract("function outer() {\n  = function() { a() }\n}\n");
 
     assert_eq!(kinds(&raw), [("outer", SymbolKind::Function)]);
-    assert_eq!(callers(&raw), [("a", FILE_SCOPE)]);
+    assert_eq!(callers(&raw), [("a", SymbolId(0))]);
 }
 
 #[test]
@@ -889,19 +889,41 @@ fn the_paren_form_of_a_class_records_its_parent() {
 }
 
 #[test]
-fn an_unbound_function_value_keeps_its_calls_out_of_the_enclosing_function() {
+fn an_unbound_function_value_gives_its_calls_and_uses_to_the_function_around_it() {
     for source in [
-        "function outer() {\n  register(function() { helper() })\n}\n",
-        "function outer() {\n  obj[k] <- function() { helper() }\n}\n",
-        "function outer() {\n  subscribe(\"k\", @(e) helper(e))\n}\n",
+        "function outer() {\n  register(function() { helper(handler) })\n}\n",
+        "function outer() {\n  obj[k] <- function() { helper(handler) }\n}\n",
+        "function outer() {\n  subscribe(\"k\", @(e) helper(e, handler))\n}\n",
+        "function outer() {\n  return @() helper(handler)\n}\n",
+        "function outer() {\n  return @() run(function() { helper(handler) })\n}\n",
     ] {
         let raw = extract(source);
 
-        assert_eq!(caller_of(&raw, "helper"), FILE_SCOPE, "{source:?}");
+        assert_eq!(
+            caller_of(&raw, "helper"),
+            id_of(&raw, "outer"),
+            "{source:?}"
+        );
+        let handler = uses(&raw).into_iter().find(|&(name, ..)| name == "handler");
+        assert_eq!(
+            handler,
+            Some(("handler", id_of(&raw, "outer"), 2)),
+            "{source:?}"
+        );
     }
+}
 
+#[test]
+fn a_bound_or_named_function_value_keeps_its_calls_and_one_at_file_scope_stays_there() {
     let bound = extract("function outer() {\n  local cb = @(x) helper(x)\n}\n");
     assert_eq!(caller_of(&bound, "helper"), id_of(&bound, "cb"));
+
+    let named = extract("function outer() {\n  run(function inner() { helper() })\n}\n");
+    assert_eq!(caller_of(&named, "helper"), id_of(&named, "inner"));
+
+    let top = extract("function outer() {}\nsubscribe(\"k\", @() helper(handler))\n");
+    assert_eq!(caller_of(&top, "helper"), FILE_SCOPE);
+    assert_eq!(uses(&top), [("handler", FILE_SCOPE, 2)]);
 }
 
 #[test]
