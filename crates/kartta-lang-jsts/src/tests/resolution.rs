@@ -262,6 +262,84 @@ fn an_inherited_base_url_is_rooted_at_the_config_that_declares_it() {
 }
 
 #[test]
+fn a_specifier_no_paths_pattern_takes_resolves_against_an_explicit_base_url() {
+    let files = MemoryRepository::new([
+        (
+            "ui/tsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": "src", "paths": { "@/*": ["./src/*"] } } }"#,
+        ),
+        (
+            "bare/tsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": "./src" } }"#,
+        ),
+        (
+            "empty/tsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": "./src", "paths": {} } }"#,
+        ),
+        ("ui/src/helpers/fetch.ts", ""),
+        ("ui/src/app.tsx", ""),
+        ("bare/src/helpers/fetch.ts", ""),
+        ("bare/src/app.tsx", ""),
+        ("empty/src/helpers/fetch.ts", ""),
+        ("empty/src/app.tsx", ""),
+    ]);
+    let source = "import fetch from \"helpers/fetch\";\nimport React from \"react\";\n";
+
+    let with_paths = resolved("ui/src/app.tsx", source, &files);
+    let without_paths = resolved("bare/src/app.tsx", source, &files);
+    let with_empty_paths = resolved("empty/src/app.tsx", source, &files);
+
+    assert_eq!(includes(&with_paths), ["ui/src/helpers/fetch.ts"]);
+    assert_eq!(includes(&without_paths), ["bare/src/helpers/fetch.ts"]);
+    assert_eq!(includes(&with_empty_paths), ["empty/src/helpers/fetch.ts"]);
+    assert_eq!(imports(&with_paths), ["react"]);
+    assert_eq!(imports(&without_paths), ["react"]);
+    assert_eq!(imports(&with_empty_paths), ["react"]);
+}
+
+#[test]
+fn a_root_relative_specifier_does_not_take_the_base_url() {
+    let files = MemoryRepository::new([
+        (
+            "tsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": "src" } }"#,
+        ),
+        ("scripts/served.js", ""),
+        ("src/scripts/served.js", ""),
+        ("src/app.ts", ""),
+    ]);
+
+    let extraction = resolved(
+        "src/app.ts",
+        "import { s } from \"/scripts/served.js\";\n",
+        &files,
+    );
+
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+    assert_eq!(imports(&extraction), ["/scripts/served.js"]);
+}
+
+#[test]
+fn a_specifier_without_a_base_url_stays_a_package_import() {
+    let files = MemoryRepository::new([
+        (
+            "ui/tsconfig.json",
+            r#"{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }"#,
+        ),
+        ("ui/src/helpers/fetch.ts", ""),
+        ("ui/src/app.tsx", ""),
+    ]);
+
+    let extraction = resolved(
+        "ui/src/app.tsx",
+        "import fetch from \"helpers/fetch\";\n",
+        &files,
+    );
+
+    assert_eq!(imports(&extraction), ["helpers/fetch"]);
+}
+
+#[test]
 fn imports_resolve_against_the_file_index() {
     let files = MemoryRepository::of_paths(["src/app.ts", "src/util.ts", "src/more/index.ts"]);
 
