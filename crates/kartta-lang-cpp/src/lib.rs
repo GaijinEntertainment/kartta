@@ -119,8 +119,8 @@
 //! repaired copy of the file while every name, signature and text comes from the original bytes. An empty trailing
 //! call argument, `CHECK(ptr, )`, has its comma blanked before the first parse, and so do the upper-case words around
 //! the name after `class`, `struct` or `union` of a class that goes on to a base list or a body, the export macros of
-//! `class TORRENT_EXPORT torrent : public base {}` and `class Builder FINAL_CLASS {}`, while `struct STAT st;` is left
-//! as written. So does a macro alone
+//! `class TORRENT_EXPORT torrent : public base {}` and `class Builder FINAL_CLASS {}`, and so does the call around the
+//! key of `ATTRIBUTE_ALIGNED16(class) btX {}`, while `struct STAT st;` is left as written. So does a macro alone
 //! on its line above a template, a class or a namespace head, past comments and other such lines, Jolt's
 //! `JPH_NAMESPACE_BEGIN` or rtm's `RTM_IMPL_FILE_PRAGMA_PUSH`; above a function it stays, read as the function's return
 //! type, and a macro call alone on its line stays too. Where the first tree
