@@ -14,7 +14,9 @@ chain of their type: `Geo::Shape#area` for an instance method, `Geo::Shape.build
 `private` modifier covers it. An alias of a method the file declares before it is one callable with that method's body.
 A call belongs to the method around it, and outside every method to the class or the module whose body holds it. A
 call records its receiver: a plain name as written, `self` as the caller's own type, and any other expression as the
-empty receiver; a type's body runs with `self` as the type, so a call there with no receiver records the type. The
+empty receiver; a type's body runs with `self` as the type, so a call there with no receiver records the type. A bare
+name, `setup`, is a call with no receiver unless a binding before it in its scope makes it a local variable, as Ruby
+decides. The
 conventions list `other` alone as the receiver of a value of the caller's own type, since a call on `self` binds
 through the type it records, so `path.to_s` inside `Keg#to_s` binds no member of the caller's own class.
 A method named by a symbol, `method(:render)` or `send(:render)`, is a use of the method of the

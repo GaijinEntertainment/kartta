@@ -256,6 +256,7 @@ boot(2)
             ("Geo::Widget", "track", Some("Geo::Widget")),
             ("Geo::Widget", "track", Some("Geo::Widget")),
             ("Geo::Widget", "each", Some("items")),
+            ("Geo::Widget", "items", Some("Geo::Widget")),
             ("Geo::Widget", "register", Some("Geo::Widget")),
             ("Geo::Widget#read", "track", Some("")),
             ("Geo::Widget#read", "class", Some("Geo::Widget")),
@@ -273,6 +274,7 @@ fn a_member_call_on_an_expression_keeps_the_empty_receiver() {
         calls(&raw),
         [
             ("close", Some("")),
+            ("items", None),
             ("get", Some("")),
             ("run", Some("")),
             ("make", None),
@@ -297,18 +299,171 @@ fn a_self_receiver_names_the_type_chain_and_a_constant_receiver_is_empty() {
     );
 }
 
+fn sites_of<'r>(raw: &'r RawExtraction, callee: &str) -> Vec<(&'r str, Option<&'r str>)> {
+    raw.calls
+        .iter()
+        .filter(|call| call.callee == callee)
+        .map(|call| {
+            let site_of = if call.site_of == FILE_SCOPE {
+                ""
+            } else {
+                raw.symbols[call.site_of.0 as usize].qualified_name.as_str()
+            };
+            (site_of, call.receiver.as_deref())
+        })
+        .collect()
+}
+
 #[test]
-fn a_bare_word_is_no_call_and_a_parenthesized_one_is() {
+fn a_bare_word_is_a_call_unless_a_binding_before_it_makes_it_a_local() {
     let raw = extract(
-        b"\nclass Foo\n  def initialize\n    setup\n    setup()\n  end\n\n  def setup\n    @x = 1\n  end\nend\n",
+        b"class Task
+  def run
+    1
+  end
+
+  def go
+    run
+  end
+
+  def go_parens
+    run()
+  end
+
+  def go_self
+    self.run
+  end
+
+  def shadowed
+    run = 2
+    run
+  end
+end
+",
     );
 
-    let setups = raw
-        .calls
+    assert_eq!(
+        sites_of(&raw, "run"),
+        [
+            ("Task#go", None),
+            ("Task#go_parens", None),
+            ("Task#go_self", Some("Task")),
+        ]
+    );
+}
+
+#[test]
+fn every_binding_form_makes_a_bare_word_a_local() {
+    let forms: [(&str, &[u8]); 21] = [
+        ("parameter", b"def f(run)\n  run\nend\n"),
+        ("optional parameter", b"def f(run = 1)\n  run\nend\n"),
+        ("splat parameter", b"def f(*run)\n  run\nend\n"),
+        ("keyword parameter", b"def f(run:)\n  run\nend\n"),
+        ("double splat parameter", b"def f(**run)\n  run\nend\n"),
+        ("block parameter", b"def f(&run)\n  run\nend\n"),
+        ("destructured parameter", b"def f((a, run))\n  run\nend\n"),
+        ("block's parameter", b"items.each { |run| run }\n"),
+        (
+            "block-local name",
+            b"items.each { |x; run| run = x\n run }\n",
+        ),
+        ("lambda parameter", b"->(run) { run }\n"),
+        ("assignment", b"run = 1\nrun\n"),
+        ("multiple assignment", b"a, (b, *run) = list\nrun\n"),
+        ("operator assignment", b"run ||= 1\nrun\n"),
+        ("for target", b"for run in list do run end\n"),
+        (
+            "rescue variable",
+            b"begin\nrescue Error => run\n  run\nend\n",
+        ),
+        ("array pattern", b"case v\nin [a, run] then run\nend\n"),
+        ("hash pattern key", b"case v\nin {run:} then run\nend\n"),
+        ("hash pattern value", b"case v\nin {k: run} then run\nend\n"),
+        ("as pattern", b"case v\nin Integer => run then run\nend\n"),
+        ("rightward pattern", b"v => [run]\nrun\n"),
+        ("named regexp group", b"/(?<run>a)/ =~ text\nrun\n"),
+    ];
+
+    let calling: Vec<&str> = forms
         .iter()
-        .filter(|call| call.callee == "setup")
-        .count();
-    assert_eq!(setups, 1);
+        .filter(|(_, source)| !sites_of(&extract(source), "run").is_empty())
+        .map(|(form, _)| *form)
+        .collect();
+    assert_eq!(calling, [] as [&str; 0]);
+}
+
+#[test]
+fn a_binding_reaches_the_rest_of_its_scope_and_the_blocks_inside_it() {
+    let raw = extract(
+        b"def before
+  run
+  run = 1
+  items.each { run }
+end
+
+def other
+  run
+  it
+end
+
+def in_block
+  items.each { run = 1 }
+  run
+  -> { it + _1 }
+  items.each { it }
+  __FILE__
+end
+
+target = 1
+class << target
+  target
+end
+",
+    );
+
+    assert_eq!(
+        sites_of(&raw, "run"),
+        [("before", None), ("other", None), ("in_block", None)]
+    );
+    assert_eq!(
+        sites_of(&raw, "items"),
+        [("before", None), ("in_block", None), ("in_block", None)]
+    );
+    assert_eq!(sites_of(&raw, "it"), [("other", None)]);
+    assert_eq!(sites_of(&raw, "_1"), []);
+    assert_eq!(sites_of(&raw, "__FILE__"), []);
+    assert_eq!(sites_of(&raw, "target"), [("", None)]);
+}
+
+#[test]
+fn a_bare_word_in_a_type_body_is_a_call_on_the_type_and_a_modifier_still_sets_visibility() {
+    let raw = extract(b"class Conf\n  setup\n  private\n  def hidden\n  end\nend\n");
+
+    assert_eq!(sites_of(&raw, "setup"), [("Conf", Some("Conf"))]);
+    assert_eq!(sites_of(&raw, "private"), [("Conf", Some("Conf"))]);
+    assert!(!symbol(&raw.symbols, "Conf#hidden").exported);
+}
+
+#[test]
+fn an_escaped_or_bracketed_parenthesis_opens_no_named_group() {
+    for source in [
+        &b"/\\(?<run>a)/ =~ text\nrun\n"[..],
+        b"/[(?<run>]a/ =~ text\nrun\n",
+    ] {
+        let raw = extract(source);
+        assert_eq!(sites_of(&raw, "run"), [("", None)]);
+    }
+}
+
+#[test]
+fn a_name_in_a_definition_or_a_pin_is_no_call() {
+    let raw = extract(
+        b"alias copy run\nundef run\ndef run\nend\ndef obj.run\nend\ncase v\nin ^run then 1\nend\n",
+    );
+
+    assert_eq!(sites_of(&raw, "run"), []);
+    assert_eq!(sites_of(&raw, "copy"), []);
+    assert_eq!(sites_of(&raw, "obj"), []);
 }
 
 #[test]
