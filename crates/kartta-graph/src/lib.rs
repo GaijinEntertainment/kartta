@@ -73,7 +73,8 @@ mod words;
 
 pub use crate::analyze::{Blast, DirectCalls, ReachBand, Segment, SegmentSymbol};
 pub use crate::calls::{
-    CallPath, FileScope, Limits, Reached, Reference, References, SiteCounts, SiteQuery, Walk,
+    CallPath, FileScope, Limits, Reached, Reference, References, SelfCall, SiteCounts, SiteQuery,
+    Walk,
 };
 pub use crate::change::{Change, DirCount, Hotspot, Region, Seed};
 pub use crate::dead::{Dead, DeadCode, Excluded};
