@@ -214,6 +214,58 @@ fn a_call_before_the_first_symbol_is_a_call_from_file_scope() {
 }
 
 #[test]
+fn a_call_in_a_type_body_is_made_by_the_type_on_itself() {
+    let raw = extract(
+        b"require \"set\"
+module Geo
+  class Widget
+    def self.track(name)
+      name
+    end
+
+    track :size
+    self.track :weight
+    items.each { |item| register(item) }
+
+    def read
+      self.class.track(:read)
+    end
+  end
+  helper(1)
+end
+boot(2)
+",
+    );
+    let sites: Vec<(&str, &str, Option<&str>)> = raw
+        .calls
+        .iter()
+        .map(|call| {
+            let site_of = if call.site_of == FILE_SCOPE {
+                ""
+            } else {
+                raw.symbols[call.site_of.0 as usize].qualified_name.as_str()
+            };
+            (site_of, call.callee.as_str(), call.receiver.as_deref())
+        })
+        .collect();
+
+    assert_eq!(
+        sites,
+        [
+            ("", "require", None),
+            ("Geo::Widget", "track", Some("Geo::Widget")),
+            ("Geo::Widget", "track", Some("Geo::Widget")),
+            ("Geo::Widget", "each", Some("items")),
+            ("Geo::Widget", "register", Some("Geo::Widget")),
+            ("Geo::Widget#read", "track", Some("")),
+            ("Geo::Widget#read", "class", Some("Geo::Widget")),
+            ("Geo", "helper", Some("Geo")),
+            ("", "boot", None),
+        ]
+    );
+}
+
+#[test]
 fn a_member_call_on_an_expression_keeps_the_empty_receiver() {
     let raw = extract(b"def f\n  items[0].close\n  @pool.get(1)\n  make(2).run(3)\nend\n");
 
