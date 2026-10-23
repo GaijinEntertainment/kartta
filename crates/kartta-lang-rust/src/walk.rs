@@ -19,6 +19,7 @@ const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT"])
     .with_lines(&["//"])
     .with_block("/*", "*/");
 
+mod arguments;
 mod attributes;
 mod bindings;
 mod blocks;
@@ -204,7 +205,10 @@ impl Emitter<'_> {
             }
             "use_declaration" => self.record_import(node),
             "call_expression" => self.call(node, caller),
-            "macro_invocation" => self.macro_call(node, caller),
+            "macro_invocation" => {
+                self.macro_call(node, caller);
+                self.macro_arguments(node, caller);
+            }
             "identifier" | "shorthand_field_identifier" => self.name(node, parent),
             "scoped_identifier" => self.scoped_read(node, parent),
             _ => {}

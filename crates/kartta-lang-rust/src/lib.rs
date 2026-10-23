@@ -26,6 +26,14 @@
 //! or an `if let`, as `helper()` in `fn f(helper: fn())` or `run()` after `let run = || {};`, calls the value the name
 //! holds and is no call, whatever the file imports or declares under the name.
 //!
+//! A call written in a macro's arguments, `assert!(C.opens(x))`, is a call of the function around the macro, as one
+//! outside it is, for the macros of any crate. The grammar reads the arguments as tokens, so the walk takes a name, a
+//! path or a member before a `(`, `collect::<Vec<_>>()` among them, as a call, and a name before a `!` as a nested
+//! macro invocation, whose arguments it reads the same way. A closure in the arguments binds its parameters to the end
+//! of the token tree it is written in. Arguments that interpolate, `#name` or `#(..)*`, as `quote!` writes them, are a
+//! template of generated code and hold no call of the site, and neither do an attribute nor the parameters and body
+//! of a `fn` the arguments declare.
+//!
 //! A `use` of a path that may start at another crate or at the file's own crate or module,
 //! `use kartta_lang::tree::{self, text as at}` or `use super::helper`, keeps each name it binds with the path the name
 //! reaches, and so does a path call through such a path for its receiver, `kartta_walk::walk::run()` for `walk` and

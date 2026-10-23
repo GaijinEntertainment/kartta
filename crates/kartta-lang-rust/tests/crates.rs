@@ -93,6 +93,26 @@ fn a_path_call_binds_its_receiver_to_the_path_through_another_crate() {
 }
 
 #[test]
+fn a_path_call_in_a_macro_s_arguments_binds_its_receiver_to_the_path_as_one_outside_does() {
+    let got = bound(
+        "use kartta_lang::tree;\n\nfn run() {\n    assert!(other::m::f());\n    assert_eq!(tree::sub::g(), \
+         super::h());\n    debug_assert!(first::mac!(crate::n::i()));\n}\n",
+    );
+
+    assert_eq!(
+        got,
+        [
+            path("tree", "kartta_lang::tree", 1),
+            path("m", "other::m", 4),
+            path("sub", "kartta_lang::tree::sub", 5),
+            path("h", "super::h", 5),
+            path("mac", "first::mac", 6),
+            path("n", "crate::n", 6),
+        ]
+    );
+}
+
+#[test]
 fn a_macro_invocation_through_another_crate_binds_the_macro_name_to_its_path() {
     let got = bound(
         "use other_crate as oc;\n\nfn run() {\n    first::mac!();\n    oc::sub::deep!();\n    std::println!();\n\
