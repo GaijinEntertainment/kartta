@@ -290,8 +290,9 @@
     (definitions, receivers)
   - Revisit if: the extraction runs code, or reads what a type gains at run time through `define_method` or
     `class_eval`
-- [3.16 Load a Lua module only from a literal name](./adr/3.16-load-a-lua-module-only-from-a-literal-name.md) —
-  initiative `03-code-graph`, 2026-10-16, revised 2026-10-19
+- [3.16 Load a Lua module only from a literal name](./adr/3.16-load-a-lua-module-only-from-a-literal-name.md)
+  - Governs: `crates/kartta-lang-lua/src/walk.rs`, `crates/kartta-lang-lua/src/resolve.rs`
+  - Revisit if: the extraction reads a `.rockspec` or a `.luarc.json`, which name the module directories of a project
 - [3.17 Resolve a Puppet class through the autoloader's
   layout](./adr/3.17-resolve-a-puppet-class-through-the-autoloader-s-layout.md) — initiative `03-code-graph`, 2026-10-16
 - [3.18 Extract DSHL as one namespace that its includes
