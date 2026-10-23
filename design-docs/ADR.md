@@ -40,8 +40,10 @@
     `crates/kartta-fs/src/grep.rs` (`Planner::admit`), `Index::grep`, `GrepOptions`
   - Revisit if: the dependency's weight matters more than the code it saves, or agents need to search UTF-16 sources
 - [1.11 Say what a limited content search did not
-  cover](./adr/1.11-say-what-a-limited-content-search-did-not-cover.md) — initiative `01-kartta-fs-port`, 2026-10-14,
-  revised 2026-10-19
+  cover](./adr/1.11-say-what-a-limited-content-search-did-not-cover.md)
+  - Governs: `crates/kartta-fs/src/grep.rs` (`Planner`, `Fold`), `crates/kartta-fs/src/matches.rs`, `Matches`,
+    `GrepOptions::limit`, `GrepOptions::count_all`
+  - Revisit if: a content index can count matches without reading files, so `count_all` could be the default
 - [1.12 Read each wanted file once, during the walk](./adr/1.12-read-each-wanted-file-once-during-the-walk.md) —
   initiative `01-kartta-fs-port`, 2026-10-14, revised 2026-10-21
 - [1.13 Let the caller bound the index's threads](./adr/1.13-let-the-caller-bound-the-index-s-threads.md) — initiative
