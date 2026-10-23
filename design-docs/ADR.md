@@ -44,8 +44,10 @@
   - Governs: `crates/kartta-fs/src/grep.rs` (`Planner`, `Fold`), `crates/kartta-fs/src/matches.rs`, `Matches`,
     `GrepOptions::limit`, `GrepOptions::count_all`
   - Revisit if: a content index can count matches without reading files, so `count_all` could be the default
-- [1.12 Read each wanted file once, during the walk](./adr/1.12-read-each-wanted-file-once-during-the-walk.md) —
-  initiative `01-kartta-fs-port`, 2026-10-14, revised 2026-10-21
+- [1.12 Read each wanted file once, during the walk](./adr/1.12-read-each-wanted-file-once-during-the-walk.md)
+  - Governs: `crates/kartta-fs/src/{policy,content}.rs`, `Index::build_with`, `ContentVisitor`, `ContentId`,
+    `Index::content_position`, `crates/kartta-walk/src/walk.rs` (`WalkOutcome::cancelled`)
+  - Revisit if: a consumer needs content in pieces rather than whole
 - [1.13 Let the caller bound the index's threads](./adr/1.13-let-the-caller-bound-the-index-s-threads.md) — initiative
   `01-kartta-fs-port`, 2026-10-14, revised 2026-10-18
 - [1.14 Narrow content search with a trigram index built from the walk's
@@ -91,6 +93,11 @@
   - Governs: `Index::is_binary`, `crates/kartta-fs/src/inspection.rs` (`PROBE`), `crates/kartta-fs/src/binary.rs`
     (`BUILTIN`), `crates/kartta-fs/src/scan.rs`
   - Revisit if: a tree shows that the extension set's shape is wrong, not only its contents
+- [1.61 Classify a large directory's entries in
+  parallel](./adr/1.61-classify-a-large-directory-s-entries-in-parallel.md)
+  - Governs: `crates/kartta-walk/src/walk.rs` (`PARALLEL_CLASSIFY`, `CLASSIFY_RUN`, `Walker::classify`,
+    `Walker::classify_in_parallel`)
+  - Revisit if: the policy's `visit` stops doing I/O for every consumer
 - [1.65 Re-encode only the blocks a change lands in](./adr/1.65-re-encode-only-the-blocks-a-change-lands-in.md)
   - Governs: `crates/kartta-fs/src/index/splice.rs`, `crates/kartta-fs/src/index.rs` (`Block`, `block_of`)
   - Revisit if: the per-block search shows in the profile of reads by position
