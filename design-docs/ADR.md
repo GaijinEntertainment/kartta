@@ -294,7 +294,10 @@
   - Governs: `crates/kartta-lang-lua/src/walk.rs`, `crates/kartta-lang-lua/src/resolve.rs`
   - Revisit if: the extraction reads a `.rockspec` or a `.luarc.json`, which name the module directories of a project
 - [3.17 Resolve a Puppet class through the autoloader's
-  layout](./adr/3.17-resolve-a-puppet-class-through-the-autoloader-s-layout.md) — initiative `03-code-graph`, 2026-10-16
+  layout](./adr/3.17-resolve-a-puppet-class-through-the-autoloader-s-layout.md)
+  - Governs: `crates/kartta-lang-puppet/src/walk.rs`, `crates/kartta-lang-puppet/src/class.rs`,
+    `crates/kartta-lang-puppet/src/resolve.rs`
+  - Revisit if: the extraction reads `environment.conf` or a `Puppetfile`, which name the module path
 - [3.18 Extract DSHL as one namespace that its includes
   join](./adr/3.18-extract-dshl-as-one-namespace-its-includes-join.md) — initiative `03-code-graph`, 2026-10-16
 - [3.19 Find the files that include a file through an index of
