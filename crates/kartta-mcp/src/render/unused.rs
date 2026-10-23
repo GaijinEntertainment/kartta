@@ -64,6 +64,7 @@ fn excluded<'e>(each: impl Iterator<Item = &'e Excluded>) -> Option<String> {
         sum.unobservable += excluded.unobservable;
         sum.uncertain += excluded.uncertain;
         sum.dispatched += excluded.dispatched;
+        sum.reflected += excluded.reflected;
     }
     (sum != Excluded::default()).then(|| {
         Element::new("excluded")
@@ -74,6 +75,7 @@ fn excluded<'e>(each: impl Iterator<Item = &'e Excluded>) -> Option<String> {
             .count("unobservable", sum.unobservable)
             .count("uncertain", sum.uncertain)
             .count("dispatched", sum.dispatched)
+            .count("reflected", sum.reflected)
             .close()
     })
 }

@@ -65,7 +65,10 @@
 //! A `_test.go` file is test code, and a file named `*.pb.go` or carrying the `// Code generated ... DO NOT EDIT.`
 //! banner is generated code. A file under a `vendor` directory is vendored code. A free `func main` in `package main`
 //! is the program's entry point, and so is a free `func init()` in any package, which the runtime calls and no code
-//! can name.
+//! can name. A struct field whose tag hands it to a library by its name, as `json:"name"` does, is read by reflection
+//! ([`SymbolFlags::is_reflected`](kartta_lang::SymbolFlags::is_reflected)). So is a field whose tag holds no
+//! `key:"value"` pair, since a library may read such a tag whole. A tag whose every value is `-`, which makes
+//! `encoding/json` and its kin skip the field, hands nothing over.
 //!
 //! # Fingerprint
 //!

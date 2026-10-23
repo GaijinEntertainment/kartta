@@ -689,6 +689,7 @@ export type DeadCode = {
 		unobservable: number;
 		uncertain: number;
 		dispatched: number;
+		reflected: number;
 	};
 };
 

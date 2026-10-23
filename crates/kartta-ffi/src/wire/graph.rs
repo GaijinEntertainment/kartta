@@ -649,6 +649,7 @@ struct ExcludedDef {
     unobservable: usize,
     uncertain: usize,
     dispatched: usize,
+    reflected: usize,
 }
 
 #[derive(Serialize)]

@@ -6,6 +6,8 @@ use crate::extraction::{
 };
 use crate::symbol::{Symbol, SymbolFlags, SymbolId, SymbolKind};
 
+// constraint: a symbol's marks byte holds the six `SymbolFlags` in its low bits and these two in its high ones, so
+// every bit of it is a mark, and a seventh flag needs a byte of its own
 const QUALIFIED_AS_NAME: u8 = 1 << 6;
 const EXPORTED: u8 = 1 << 7;
 
@@ -316,9 +318,6 @@ impl<'a> Reader<'a> {
             .get(usize::from(self.byte()?))
             .ok_or(Malformed)?;
         let marks = self.byte()?;
-        if marks & !(SymbolFlags::ALL | QUALIFIED_AS_NAME | EXPORTED) != 0 {
-            return Err(Malformed);
-        }
         let name = self.text()?;
         let qualified_name = if marks & QUALIFIED_AS_NAME == 0 {
             self.text()?
@@ -435,7 +434,8 @@ mod tests {
             .with_test(true)
             .with_generated(true)
             .with_vendored(true)
-            .with_fallback(true);
+            .with_fallback(true)
+            .with_reflected(true);
         let free = Symbol::new("ünïcode", SymbolKind::EnumVariant, 1, 1);
 
         RawExtraction {
@@ -544,9 +544,7 @@ mod tests {
             symbols: vec![Symbol::new("f", SymbolKind::Function, 1, 1)],
             ..RawExtraction::default()
         });
-        let mut unknown_mark = unknown_kind.clone();
         unknown_kind[1] = 200;
-        unknown_mark[2] |= 1 << 5;
         let one_use = encoded(&RawExtraction {
             uses: vec![UseRef {
                 site_of: SymbolId(0),
@@ -570,7 +568,6 @@ mod tests {
             truncated,
             &trailing,
             &unknown_kind,
-            &unknown_mark,
             &unknown_access,
             &name_spelled_before_any,
             &[0xFF; 9],

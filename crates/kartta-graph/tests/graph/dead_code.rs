@@ -471,6 +471,34 @@ fn a_call_through_a_receiver_that_spells_a_value_leaves_it_uncertain_where_the_c
 }
 
 #[test]
+fn a_field_reflection_reads_is_counted_as_reflected_where_no_use_reaches_it() {
+    let mut user = file("pkg/run.go", vec![function("Run", 1)], Vec::new());
+    user.uses.push(use_of(
+        "Name",
+        Receiver::Path("Seed".to_owned()),
+        Access::Read,
+        2,
+    ));
+    let reflected = |symbol| flagged(symbol, SymbolFlags::empty().with_reflected(true));
+    let seed = file(
+        "pkg/seed.go",
+        vec![
+            Symbol::new("Seed", SymbolKind::Struct, 1, 5),
+            reflected(field("Seed", "Name", 2)),
+            reflected(field("Seed", "Count", 3)),
+            field("Seed", "Spare", 4),
+        ],
+        Vec::new(),
+    );
+    let graph = graph_of(go(), &[user, seed]);
+
+    let dead = graph.dead_code(&DATA, None, 10);
+
+    assert_eq!(names(&dead), ["Spare"]);
+    assert_eq!((dead.live, dead.excluded.reflected), (1, 1));
+}
+
+#[test]
 fn a_method_taken_only_as_a_value_is_live() {
     let mut user = file("pkg/user.go", vec![function("Run", 1)], Vec::new());
     user.uses.push(UseRef {

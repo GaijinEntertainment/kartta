@@ -1741,6 +1741,31 @@ fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
 }
 
 #[test]
+fn find_unused_judges_go_fields_by_their_uses_and_counts_those_a_struct_tag_hands_to_reflection() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "main.go",
+            "package main\n\ntype Seed struct {\n\tName string\n\tCount int `json:\"count\"`\n\t\
+             Skipped int `json:\"-\"`\n\tSpare int\n}\n\nfunc main() {\n\ts := Seed{Name: \"a\"}\n\t_ = s.Name\n}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("find_unused", &json!({})),
+        lines(&[
+            r#"<unused count="2" live="2">"#,
+            r#"<excluded entry="1" reflected="1"/>"#,
+            r#"<symbol name="Skipped" qn="main.Seed.Skipped" kind="field" lang="go" loc="main.go:6"/>"#,
+            r#"<symbol name="Spare" qn="main.Seed.Spare" kind="field" lang="go" loc="main.go:7"/>"#,
+            "</unused>",
+        ])
+    );
+}
+
+#[test]
 fn index_stats_counts_how_the_calls_bind_when_asked_for_coverage() {
     let tree = tree(&[
         (".git/HEAD", "ref: refs/heads/main\n"),
