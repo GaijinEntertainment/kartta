@@ -30,7 +30,7 @@
             },
             {
               "definition": {
-                "end_line": 10,
+                "end_line": 12,
                 "exported": false,
                 "file": "go/run.go",
                 "kind": "func",
@@ -39,7 +39,7 @@
                 "qualified_name": "main.unused",
                 "signature": "func unused()"
               },
-              "spelled": false
+              "spelled": true
             }
           ],
           "graph": "go",

@@ -5,8 +5,8 @@ use kartta::{
     Access, Blast, CallPath, Candidate, Change, CutLine, Dead, DeadCode, Definition, Definitions,
     Dependent, Dependents, DirCount, DirectCalls, Excluded, FileScope, Hit, Hotspot,
     Implementations, Implementor, LanguageFiles, Miss, Misses, Nearness, ReachBand, Reached,
-    Reference, References, Resolution, Search, Seed, Segment, SegmentSymbol, SiteCounts, Source,
-    Stats, SymbolFlags, SymbolKind, TypeUses, Unbound, Unmatched, UnmatchedKind, Walk,
+    Reference, References, Resolution, Search, Seed, Segment, SegmentSymbol, SelfCall, SiteCounts,
+    Source, Stats, SymbolFlags, SymbolKind, TypeUses, Unbound, Unmatched, UnmatchedKind, Walk,
 };
 use serde::{Serialize, Serializer};
 
@@ -45,6 +45,7 @@ wire!(
     Reached<'_> => ReachedDef,
     Walk<'_> => WalkDef,
     FileScope<'_> => FileScopeDef,
+    SelfCall => SelfCallDef,
     CallPath<'_> => CallPathDef,
     Reference<'_> => ReferenceDef,
     References<'_> => ReferencesDef,
@@ -73,6 +74,14 @@ wire!(
 
 fn each<T: Wire, S: Serializer>(items: &[T], serializer: S) -> Result<S::Ok, S::Error> {
     serializer.collect_seq(items.iter().map(Wired))
+}
+
+#[expect(
+    clippy::ref_option,
+    reason = "serde passes a field to serialize_with by reference"
+)]
+fn present<T: Wire, S: Serializer>(item: &Option<T>, serializer: S) -> Result<S::Ok, S::Error> {
+    item.as_ref().map(Wired).serialize(serializer)
 }
 
 #[expect(
@@ -217,6 +226,15 @@ struct WalkDef<'g> {
     ambiguous: usize,
     #[serde(serialize_with = "each", skip_serializing_if = "Vec::is_empty")]
     file_scope: Vec<FileScope<'g>>,
+    #[serde(serialize_with = "present", skip_serializing_if = "Option::is_none")]
+    self_call: Option<SelfCall>,
+}
+
+#[derive(Serialize)]
+#[serde(remote = "SelfCall")]
+struct SelfCallDef {
+    confidence: u8,
+    line: u32,
 }
 
 #[expect(
