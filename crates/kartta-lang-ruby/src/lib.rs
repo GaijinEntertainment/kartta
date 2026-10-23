@@ -22,8 +22,13 @@
 //! A call inside a method is a call made by it, and a call in the body of a class or a module outside every method is
 //! a call made by that type. A call records its receiver: a plain name as written, `self` as the caller's own type,
 //! which in a type's body is the type itself, and any other expression as the empty receiver; a type's body runs with
-//! `self` as the type, so a call there with no receiver, `track :size`, records the type as its receiver. A call
-//! outside every method and type is a call from file scope, before the file's first symbol too.
+//! `self` as the type, so a call there with no receiver, `track :size`, records the type as its receiver. A receiver
+//! that is a class, `self` in a class method or a type's body, `self.class` in an instance method, or a constant, ends
+//! in `.`, the separator of a class method's name: `Geo::Shape.` for `self`, and `.` alone for `self.class` and for a
+//! constant, whose path the receiver does not keep. Of a class's methods of one name, a call on the class binds the
+//! class method, `Geo::Shape.build`, before the instance method, `Geo::Shape#build`, and a call on any other receiver
+//! the instance method first. A call outside every method
+//! and type is a call from file scope, before the file's first symbol too.
 //!
 //! A bare name, `setup`, is a call with no receiver unless it reads a local variable, as Ruby decides: a binding of the
 //! name earlier in the source, in the same `def` or body of a class, a module or a `class << x`, or in a block or a
@@ -33,12 +38,13 @@
 //!
 //! A method named by a symbol is a use of it: `method(:render)`, `public_method`, `singleton_method`, `send(:render)`,
 //! `public_send` and `__send__` name a method of the object's own type where they have no receiver or `self`, and one
-//! of a class where the receiver is a constant or a constant path, `Cache.send(:flush)` or `Cache::Store.send(:flush)`.
-//! A top-level `def` is a private method of `Object`, which every object reaches, so at a site no class owns, file
-//! scope, a top-level `def`, `def self.x` or `def obj.x`, the symbol names a top-level method as a bare use. With no
-//! receiver or `self`, `singleton_method` names a method of the object itself, which only a class body names, through
-//! its class; with a constant receiver it names one of that class anywhere. Any other receiver names a type the walk
-//! cannot tell, and `instance_method` and `respond_to?` most often only inspect, so they name nothing.
+//! of a class where the receiver is a constant or a constant path, `Cache.send(:flush)` or `Cache::Store.send(:flush)`,
+//! its class method of the name first, as a call on the class binds it. A top-level `def` is a private method of
+//! `Object`, which every object reaches, so at a site no class owns, file scope, a top-level `def`, `def self.x` or
+//! `def obj.x`, the symbol names a top-level method as a bare use. With no receiver or `self`, `singleton_method` names
+//! a method of the object itself, which only a class body names, through its class; with a constant receiver it names
+//! one of that class anywhere. Any other receiver names a type the walk cannot tell, and `instance_method` and
+//! `respond_to?` most often only inspect, so they name nothing.
 //!
 //! # Resolution
 //!
@@ -111,6 +117,7 @@ const CONVENTIONS: Conventions = {
     conventions.own_members = OwnMembers::First;
     conventions.inherited_members = InheritedMembers::Admitted;
     conventions.owner_chain_separator = Some("::");
+    conventions.class_member_separator = Some(walk::CLASS_MEMBER_SEPARATOR);
     conventions.own_type_receivers = Some(&["other"]);
     conventions.type_uses = TypeUses::Nowhere;
     conventions.unrecorded_data = &[SymbolKind::Constant];

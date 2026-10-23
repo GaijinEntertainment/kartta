@@ -17,6 +17,15 @@ const BANNER: Banner =
 
 pub(crate) const IDENTIFIER: &str = "identifier";
 
+/// The separator a class method's qualified name joins to its owner, `Shape.build`, which a receiver on the class ends
+/// in.
+pub(crate) const CLASS_MEMBER_SEPARATOR: &str = ".";
+
+fn on_the_class(mut chain: String) -> String {
+    chain.push_str(CLASS_MEMBER_SEPARATOR);
+    chain
+}
+
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter {
         source,
@@ -273,6 +282,10 @@ impl Emitter<'_> {
             Some(receiver) => Some(match receiver.kind() {
                 IDENTIFIER => text(receiver, self.source),
                 "self" => self.type_of_self(site_of).unwrap_or_default(),
+                "constant" | "scope_resolution" => CLASS_MEMBER_SEPARATOR.to_owned(),
+                "call" if self.is_class_of_an_instance(receiver, site_of) => {
+                    CLASS_MEMBER_SEPARATOR.to_owned()
+                }
                 _ => String::new(),
             }),
             None => self.implicit_receiver(site_of),
@@ -331,7 +344,7 @@ impl Emitter<'_> {
             None => Receiver::Own,
             Some(receiver) if receiver.kind() == "self" => Receiver::Own,
             Some(receiver) if matches!(receiver.kind(), "constant" | "scope_resolution") => {
-                Receiver::Path(text(receiver, self.source))
+                Receiver::Path(on_the_class(text(receiver, self.source)))
             }
             Some(_) => return,
         };
@@ -340,9 +353,10 @@ impl Emitter<'_> {
             return;
         }
         let (site_of, receiver) = match class {
-            Some(class) if receiver == Receiver::Own => {
-                (class, Receiver::Path(self.qualified_name(class)))
-            }
+            Some(class) if receiver == Receiver::Own => (
+                class,
+                Receiver::Path(on_the_class(self.qualified_name(class))),
+            ),
             Some(class) => (class, receiver),
             None if receiver == Receiver::Own && !self.has_owner(site_of) => {
                 (site_of, Receiver::Bare)
@@ -381,15 +395,50 @@ impl Emitter<'_> {
 
     fn implicit_receiver(&self, site_of: SymbolId) -> Option<String> {
         self.is_type_body(site_of)
-            .then(|| self.qualified_name(site_of))
+            .then(|| on_the_class(self.qualified_name(site_of)))
     }
 
+    // constraint: `self` is the type itself in a type's body and in a class method, and an instance of the owner in an
+    // instance method
     fn type_of_self(&self, site_of: SymbolId) -> Option<String> {
         if self.is_type_body(site_of) {
-            Some(self.qualified_name(site_of))
-        } else {
-            self.owner_of(site_of)
+            return Some(on_the_class(self.qualified_name(site_of)));
         }
+        let (owner, class_method) = self.owner_of_method(site_of)?;
+        Some(if class_method {
+            on_the_class(owner.to_owned())
+        } else {
+            owner.to_owned()
+        })
+    }
+
+    /// The owner of the method `site_of` names, and whether it is a class method.
+    fn owner_of_method(&self, site_of: SymbolId) -> Option<(&str, bool)> {
+        let symbol = self.symbol(site_of)?;
+        let owner = symbol.owner.as_deref()?;
+        let class_method = symbol
+            .qualified_name
+            .strip_prefix(owner)
+            .is_some_and(|member| member.starts_with(CLASS_MEMBER_SEPARATOR));
+        Some((owner, class_method))
+    }
+
+    // constraint: `self.class` in an instance method is the owner's class; elsewhere `self` is a type, whose class is
+    // `Class`
+    fn is_class_of_an_instance(&self, receiver: Node<'_>, site_of: SymbolId) -> bool {
+        receiver
+            .child_by_field_name("arguments")
+            .is_none_or(|arguments| named_child_nodes(arguments).next().is_none())
+            && receiver
+                .child_by_field_name("method")
+                .is_some_and(|method| &self.source[method.byte_range()] == b"class")
+            && receiver
+                .child_by_field_name("receiver")
+                .is_some_and(|of| of.kind() == "self")
+            && !self.is_type_body(site_of)
+            && self
+                .owner_of_method(site_of)
+                .is_some_and(|(_, class_method)| !class_method)
     }
 
     fn symbol(&self, id: SymbolId) -> Option<&Symbol> {
@@ -404,10 +453,6 @@ impl Emitter<'_> {
 
     fn has_owner(&self, id: SymbolId) -> bool {
         self.symbol(id).is_some_and(|symbol| symbol.owner.is_some())
-    }
-
-    fn owner_of(&self, caller: SymbolId) -> Option<String> {
-        self.symbol(caller)?.owner.clone()
     }
 }
 

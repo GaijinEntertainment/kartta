@@ -253,14 +253,14 @@ boot(2)
         sites,
         [
             ("", "require", None),
-            ("Geo::Widget", "track", Some("Geo::Widget")),
-            ("Geo::Widget", "track", Some("Geo::Widget")),
+            ("Geo::Widget", "track", Some("Geo::Widget.")),
+            ("Geo::Widget", "track", Some("Geo::Widget.")),
             ("Geo::Widget", "each", Some("items")),
-            ("Geo::Widget", "items", Some("Geo::Widget")),
-            ("Geo::Widget", "register", Some("Geo::Widget")),
-            ("Geo::Widget#read", "track", Some("")),
+            ("Geo::Widget", "items", Some("Geo::Widget.")),
+            ("Geo::Widget", "register", Some("Geo::Widget.")),
+            ("Geo::Widget#read", "track", Some(".")),
             ("Geo::Widget#read", "class", Some("Geo::Widget")),
-            ("Geo", "helper", Some("Geo")),
+            ("Geo", "helper", Some("Geo.")),
             ("", "boot", None),
         ]
     );
@@ -283,17 +283,31 @@ fn a_member_call_on_an_expression_keeps_the_empty_receiver() {
 }
 
 #[test]
-fn a_self_receiver_names_the_type_chain_and_a_constant_receiver_is_empty() {
+fn a_self_receiver_names_the_type_chain_and_a_receiver_on_a_class_ends_in_the_class_method_separator()
+ {
     let raw = extract(
         b"module Geo\n  class Shape\n    def area\n      1\n    end\n    def report\n      \
-          self.area\n      Shape.build\n      Geo::Shape.build\n    end\n  end\nend\n",
+          self.area\n      Shape.build\n      Geo::Shape.build\n      self.class.build\n      \
+          item.class.build\n    end\n    def self.make\n      self.build\n      self.class.name\n    end\n    \
+          class << self\n      def remake\n        self.build\n      end\n    end\n  end\nend\n\
+          def obj.tick\n  self.build\nend\n",
     );
 
     assert_eq!(
         calls(&raw),
         [
             ("area", Some("Geo::Shape")),
+            ("build", Some(".")),
+            ("build", Some(".")),
+            ("build", Some(".")),
+            ("class", Some("Geo::Shape")),
             ("build", Some("")),
+            ("class", Some("item")),
+            ("item", None),
+            ("build", Some("Geo::Shape.")),
+            ("name", Some("")),
+            ("class", Some("Geo::Shape.")),
+            ("build", Some("Geo::Shape.")),
             ("build", Some("")),
         ]
     );
@@ -439,8 +453,8 @@ end
 fn a_bare_word_in_a_type_body_is_a_call_on_the_type_and_a_modifier_still_sets_visibility() {
     let raw = extract(b"class Conf\n  setup\n  private\n  def hidden\n  end\nend\n");
 
-    assert_eq!(sites_of(&raw, "setup"), [("Conf", Some("Conf"))]);
-    assert_eq!(sites_of(&raw, "private"), [("Conf", Some("Conf"))]);
+    assert_eq!(sites_of(&raw, "setup"), [("Conf", Some("Conf."))]);
+    assert_eq!(sites_of(&raw, "private"), [("Conf", Some("Conf."))]);
     assert!(!symbol(&raw.symbols, "Conf#hidden").exported);
 }
 
@@ -1177,15 +1191,15 @@ end
             ("render", &Receiver::Own, boot, 3),
             ("refresh", &Receiver::Own, boot, 4),
             ("refresh", &Receiver::Own, boot, 5),
-            ("flush", &Receiver::Path("Cache".to_owned()), boot, 6),
-            ("open", &Receiver::Path("Cache::Store".to_owned()), boot, 7),
+            ("flush", &Receiver::Path("Cache.".to_owned()), boot, 6),
+            ("open", &Receiver::Path("Cache::Store.".to_owned()), boot, 7),
             ("render", &Receiver::Own, boot, 11),
-            ("refresh", &Receiver::Path("Feed".to_owned()), feed, 14),
-            ("make", &Receiver::Path("Feed".to_owned()), feed, 15),
+            ("refresh", &Receiver::Path("Feed.".to_owned()), feed, 14),
+            ("make", &Receiver::Path("Feed.".to_owned()), feed, 15),
             ("setup", &Receiver::Bare, FILE_SCOPE, 17),
             ("setup", &Receiver::Bare, run, 19),
             ("setup", &Receiver::Bare, tick, 22),
-            ("warm", &Receiver::Path("Cache".to_owned()), start, 25),
+            ("warm", &Receiver::Path("Cache.".to_owned()), start, 25),
             ("setup", &Receiver::Bare, start, 26),
         ]
     );
