@@ -97,7 +97,11 @@ impl<'a> Emitter<'a> {
             found: Vec::new(),
             template: false,
         };
-        self.token_calls(arguments, &mut reading);
+        let name = invocation
+            .child_by_field_name("macro")
+            .map(|name| name.child_by_field_name("name").unwrap_or(name));
+        let name = name.map_or(&[][..], |name| &self.source[name.byte_range()]);
+        self.read_arguments(name, arguments, &mut reading);
         if reading.template {
             return;
         }
@@ -107,6 +111,40 @@ impl<'a> Emitter<'a> {
                 Found::Macro(macro_name) => self.record_macro_call(name, site_of, macro_name),
             }
         }
+    }
+
+    // constraint: a `macro_rules! matches` the file defines before the invocation, in the block or module around it,
+    // is in scope by text order and takes the name from the standard macro, and its arguments are read as any macro's
+    fn read_arguments<'t>(&self, name: &[u8], tree: Node<'t>, reading: &mut Reading<'a, 't>) {
+        if name == b"matches" && tree.start_byte() >= self.matches_scope_end {
+            self.matches_arguments(tree, reading);
+        } else {
+            self.token_calls(tree, reading);
+        }
+    }
+
+    // constraint: `matches!(value, pattern if guard)` reads its value and its guard, and its pattern names
+    // constructors, which are no call; the pattern runs from the first `,` to the first `if` after it, since the value
+    // can hold an `if` of its own, and a closure's parameters there, `|x, y|`, hold a `,` of their own
+    fn matches_arguments<'t>(&self, tree: Node<'t>, reading: &mut Reading<'a, 't>) {
+        let depth = reading.bound.len();
+        let tokens: Vec<Node<'t>> = child_nodes(tree).collect();
+        let mut in_pattern = false;
+        let mut guarded = false;
+        let mut at = 0;
+        while let Some(&token) = tokens.get(at) {
+            at += 1;
+            match token.kind() {
+                "|" if !in_pattern && opens_closure(&tokens[..at - 1], self.source) => {
+                    at = self.bind_closure(&tokens, at, reading);
+                }
+                "," if !guarded => in_pattern = true,
+                "if" if in_pattern => (in_pattern, guarded) = (false, true),
+                "token_tree" if !in_pattern => self.token_tree(&tokens, at - 1, reading),
+                _ => {}
+            }
+        }
+        reading.bound.truncate(depth);
     }
 
     // constraint: an interpolation, `#name` or `#(..)*`, makes the arguments a template of generated code,
@@ -203,10 +241,10 @@ impl<'a> Emitter<'a> {
 
     // constraint: a nested macro is a template, or not, of its own, so a template drops what its own arguments hold
     // and nothing of the macro around it
-    fn nested_arguments<'t>(&self, tree: Node<'t>, reading: &mut Reading<'a, 't>) {
+    fn nested_arguments<'t>(&self, name: &[u8], tree: Node<'t>, reading: &mut Reading<'a, 't>) {
         let found = reading.found.len();
         let around = std::mem::replace(&mut reading.template, false);
-        self.token_calls(tree, reading);
+        self.read_arguments(name, tree, reading);
         if reading.template {
             reading.found.truncate(found);
         }
@@ -214,7 +252,10 @@ impl<'a> Emitter<'a> {
     }
 
     // constraint: a tree after `#` or `#!` is an attribute, `#[derive(Debug)]`, and holds no call of the site; a `!`
-    // after anything but a name is a negation, `!(a || b)`
+    // after anything but a name is a negation, `!(a || b)`; a `(` tree before `=`, a guard's `if` or an unguarded
+    // arm's `=>` ends a pattern, `if let Some(x) =`, `Some(x) if ready(x) =>` or `Kind::A(x) =>`, which names
+    // constructors and holds no call, since no expression continues with `if`; before a guarded arm's `=>` it ends the
+    // guard, a call
     fn token_tree<'t>(&self, tokens: &[Node<'t>], at: usize, reading: &mut Reading<'a, 't>) {
         let (tree, before) = (tokens[at], &tokens[..at]);
         match before.last().map(Node::kind) {
@@ -225,11 +266,24 @@ impl<'a> Emitter<'a> {
                     return;
                 }
                 if let Some(found) = self.token_macro(name) {
+                    let name = &self.source[found.0.byte_range()];
                     reading.found.push(found);
-                    return self.nested_arguments(tree, reading);
+                    return self.nested_arguments(name, tree, reading);
                 }
             }
             _ if delimiter(tree) == Some("(") => {
+                let ends_pattern = tokens.get(at + 1).is_some_and(|next| match next.kind() {
+                    "=" | "if" => true,
+                    "=>" => !before
+                        .iter()
+                        .rev()
+                        .take_while(|token| !matches!(token.kind(), "," | "=>"))
+                        .any(|token| token.kind() == "if"),
+                    _ => false,
+                });
+                if ends_pattern {
+                    return;
+                }
                 if let Some(found) = self.token_call(before, reading) {
                     reading.found.push(found);
                 }

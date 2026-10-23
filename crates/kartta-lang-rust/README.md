@@ -29,7 +29,8 @@ is a call of the function around the macro, for the macros of any crate: the gra
 a name, a path or a member before a `(` is a call, a name before a `!` a nested macro invocation, and a closure there
 binds its parameters to the end of its token tree. Arguments that interpolate, `#name` or `#(..)*`, as `quote!` writes
 them, are a template of generated code and hold no call, and neither do an attribute nor the parameters and body of a
-`fn` the arguments declare. The conventions name the
+`fn` the arguments declare, nor a pattern: the standard `matches!`'s, between its value and its guard, and a `(`
+tree before `=`, a guard's `if` or an unguarded arm's `=>`, `if let Some(x) =`. The conventions name the
 methods and associated functions of the standard library that code calls most, so a call of one through a receiver or
 a path, `name.clone()` or `fs::write()`, binds a member of the name and no free function of the repository. They list
 `other` alone as the receiver of a value of the caller's own type, since a call on `self` binds through the type it
