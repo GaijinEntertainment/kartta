@@ -1075,11 +1075,11 @@ impl Server {
                        definition because several definitions of the name may be meant, any of which may call it and \
                        none of which callers= or the reach counts, unresolved= for the calls into code the graph does \
                        not hold, each of the two only when it is not zero, for a field, a variable or a constant \
-                       users= and a <users> list of the symbols that read, write or call it where its language \
-                       records those uses (find_references lists every site), and the reach (how many symbols across \
-                       how many files transitively depend on it within 3 hops, a field's or a value's users and their \
-                       callers included, with a reach-band grade; truncated=true when the 500-symbol cap stopped the \
-                       walk) - plus <includes> and <included-by> file lists. A \
+                       users= and, in place of <callers>, a <users> list of the symbols that read, write or call it \
+                       where its language records those uses (find_references lists every site), and the reach (how \
+                       many symbols across how many files transitively depend on it within 3 hops, a field's or a \
+                       value's users and their callers included, with a reach-band grade; truncated=true when the \
+                       500-symbol cap stopped the walk) - plus <includes> and <included-by> file lists. A \
                        range covering only file-scope code (imports, comments) reports zero symbols and still lists \
                        the file's includes and includers when it has any; zero symbols means nothing is defined there, \
                        not that the edit is safe. For one named function use find_callers; for whole-file impact use \
