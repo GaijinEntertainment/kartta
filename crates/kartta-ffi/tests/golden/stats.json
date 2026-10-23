@@ -2,9 +2,9 @@
   "answer": {
     "ok": {
       "content_index": {
-        "bytes": 787644,
+        "bytes": 787650,
         "files": 8,
-        "trigrams": 400
+        "trigrams": 402
       },
       "entries": 10,
       "errors": {
@@ -13,7 +13,7 @@
       },
       "graphs": [
         {
-          "calls": 4,
+          "calls": 5,
           "files": 4,
           "files_without_symbols": 0,
           "includes": 0,

@@ -10,14 +10,14 @@
             },
             {
               "confidence": 80,
-              "sites": 1
+              "sites": 2
             },
             {
               "confidence": 75,
               "sites": 1
             }
           ],
-          "edges": 3,
+          "edges": 4,
           "graph": "go",
           "misses": {
             "ambiguous": 1,
@@ -27,7 +27,7 @@
             "through_a_receiver": 0,
             "undefined": 0
           },
-          "sites": 4,
+          "sites": 5,
           "unbound": [
             {
               "callee": "close",

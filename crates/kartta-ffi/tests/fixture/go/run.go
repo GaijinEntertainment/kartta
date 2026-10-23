@@ -7,4 +7,6 @@ func run() {
 
 func helper() {}
 
-func unused() {}
+func unused() {
+	unused()
+}

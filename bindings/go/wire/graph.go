@@ -88,6 +88,20 @@ type Walk struct {
 	// FileScope lists, for a walk over callers, the files whose top level calls or uses the root's name and sees the
 	// root, in path order. BelowConfidence also counts the files the floor left out.
 	FileScope []FileScope `json:"file_scope,omitempty"`
+	// SelfCall is the root's call of itself, which Reached does not list, since the walk starts at the root and reaches
+	// each symbol once; absent when the root calls itself nowhere, or below the confidence floor, which BelowConfidence
+	// then counts it under.
+	SelfCall *SelfCall `json:"self_call,omitempty"`
+}
+
+// SelfCall is a call of a symbol from its own body: a recursion, or a call of another definition of its name that the
+// graph bound to the symbol itself.
+type SelfCall struct {
+	// Confidence is how sure the resolution of the call is, 15 to 95.
+	Confidence int `json:"confidence"`
+	// Line is the one-based line of the call, in the symbol's own file; where the symbol calls itself from several
+	// lines, the first line among the calls the most confident tier bound.
+	Line int `json:"line"`
 }
 
 // FileScope is a file whose top level, outside every definition, calls or uses a name. The graph keeps only the names a

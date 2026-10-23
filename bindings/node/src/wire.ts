@@ -430,6 +430,26 @@ export type Walk = {
 	 * `below_confidence` also counts the files the floor left out.
 	 */
 	file_scope?: FileScope[];
+	/**
+	 * The root's call of itself, which `reached` does not list, since the walk starts at the root and reaches each
+	 * symbol once; absent when the root calls itself nowhere, or below the confidence floor, which `below_confidence`
+	 * then counts it under.
+	 */
+	self_call?: SelfCall;
+};
+
+/**
+ * A call of a symbol from its own body: a recursion, or a call of another definition of its name that the graph bound
+ * to the symbol itself.
+ */
+export type SelfCall = {
+	/** How sure the resolution of the call is, 15 to 95. */
+	confidence: number;
+	/**
+	 * The one-based line of the call, in the symbol's own file; where the symbol calls itself from several lines, the
+	 * first line among the calls the most confident tier bound.
+	 */
+	line: number;
 };
 
 /**
