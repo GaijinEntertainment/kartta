@@ -435,6 +435,10 @@ type Segment struct {
 type SegmentSymbol struct {
 	Definition Definition  `json:"definition"`
 	Callers    DirectCalls `json:"callers"`
+	// Users are a field's, a variable's or a constant's direct users: the symbols that call it or whose code reads or
+	// writes it, which Blast walks from as it walks from a function's callers. Absent for any other kind, and for one
+	// with no user.
+	Users *DirectCalls `json:"users,omitempty"`
 	// Ambiguous counts the calls of its name that a walk over its callers counts as Walk.Ambiguous: any of them may
 	// call it, and neither Callers nor Blast holds them. Absent when 0.
 	Ambiguous  int         `json:"ambiguous,omitempty"`
@@ -520,12 +524,17 @@ type Seed struct {
 	Band string `json:"band"`
 	// CallerCount counts its direct callers that pass the confidence floor.
 	CallerCount int `json:"caller_count"`
+	// UserCount counts a field's, a variable's or a constant's direct users that pass the confidence floor: the
+	// symbols that call it or whose code reads or writes it, which the walk takes as a function's callers. Absent
+	// when 0, and for any other kind.
+	UserCount int `json:"user_count,omitempty"`
 	// Ambiguous counts the calls of its name that a walk over its callers counts as Walk.Ambiguous: any of them may
 	// call it, and neither CallerCount nor Reach counts them. Absent when 0.
 	Ambiguous int `json:"ambiguous,omitempty"`
-	// Consumers are those direct callers when there are 30 or fewer; empty otherwise.
+	// Consumers are its direct users for a field, a variable or a constant, and its direct callers for any other
+	// kind, when there are 30 or fewer; empty otherwise.
 	Consumers []Reached `json:"consumers"`
-	// ConsumerDirs count those direct callers by directory, the most first, when there are more than 30.
+	// ConsumerDirs count those direct users or callers by directory, the most first, when there are more than 30.
 	ConsumerDirs    []DirCount `json:"consumer_dirs"`
 	Truncated       bool       `json:"truncated"`
 	TurnedAway      int        `json:"turned_away"`

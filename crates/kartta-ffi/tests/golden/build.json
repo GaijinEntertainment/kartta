@@ -2,11 +2,11 @@
   "answer": {
     "ok": {
       "content_index": {
-        "bytes": 787566,
-        "files": 7,
-        "trigrams": 374
+        "bytes": 787644,
+        "files": 8,
+        "trigrams": 400
       },
-      "entries": 9,
+      "entries": 10,
       "errors": {
         "listed": [],
         "total": 0
@@ -14,18 +14,20 @@
       "graphs": [
         {
           "calls": 4,
-          "files": 3,
+          "files": 4,
           "files_without_symbols": 0,
           "includes": 0,
           "kinds": {
+            "const": 1,
             "func": 5,
             "method": 2,
-            "struct": 2
+            "struct": 2,
+            "var": 1
           },
           "local_calls": 0,
           "name": "go",
-          "symbols": 9,
-          "uses": 4
+          "symbols": 11,
+          "uses": 5
         },
         {
           "calls": 2,
@@ -46,11 +48,11 @@
       "languages": [
         {
           "cached": 0,
-          "claimed": 3,
+          "claimed": 4,
           "family": "go",
-          "held": 3,
+          "held": 4,
           "name": "go",
-          "read": 3
+          "read": 4
         },
         {
           "cached": 0,

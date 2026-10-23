@@ -438,6 +438,7 @@ pub(crate) fn impact(file: &str, lines: (u32, u32), segment: Option<&Segment<'_>
                         format!("{}-{}", definition.line, definition.end_line),
                     )
                     .attr("callers", symbol.callers.total)
+                    .count("users", symbol.users.total)
                     .count("ambiguous", symbol.ambiguous)
                     .attr("callees", symbol.callees.total)
                     .attr("reach", blast.reach)
@@ -450,6 +451,7 @@ pub(crate) fn impact(file: &str, lines: (u32, u32), segment: Option<&Segment<'_>
                     .children(
                         [
                             direct("callers", &symbol.callers, None),
+                            direct("users", &symbol.users, None),
                             direct("callees", &symbol.callees, Some(definition.file)),
                         ]
                         .into_iter()
@@ -503,8 +505,8 @@ pub(crate) fn change(regions: usize, change: &Change<'_>, limit: usize) -> Strin
     element.children(iter::once(seeds).chain(hotspots))
 }
 
-/// A changed symbol: how far a change to it reaches, what its walk left out, and its direct callers, or their
-/// directories when there are many.
+/// A changed symbol: how far a change to it reaches, what its walk left out, and its direct callers, or a field's, a
+/// variable's or a constant's direct users, or their directories when there are many.
 fn seed(seed: &Seed<'_>) -> String {
     let symbol = &seed.symbol;
     let element = named("seed", symbol)
@@ -512,14 +514,20 @@ fn seed(seed: &Seed<'_>) -> String {
         .attr("kind", kind(symbol.kind))
         .attr("loc", span(symbol))
         .attr("callers", seed.caller_count)
+        .count("users", seed.user_count)
         .count("ambiguous", seed.ambiguous)
         .attr("reach", seed.reach)
         .attr("reach_band", seed.band.label())
         .flag("truncated", seed.truncated)
         .count("turned_away", seed.turned_away)
         .count("unexpanded", seed.unexpanded);
+    let (listed, dirs_tag) = if seed.user_count > 0 {
+        ("users", "user_dirs")
+    } else {
+        ("callers", "caller_dirs")
+    };
     let callers = (!seed.consumers.is_empty()).then(|| {
-        Element::new("callers")
+        Element::new(listed)
             .attr("shown", seed.consumers.len().min(SEED_CALLERS))
             .attr("of", seed.consumers.len())
             .children(seed.consumers.iter().take(SEED_CALLERS).map(|reached| {
@@ -529,13 +537,13 @@ fn seed(seed: &Seed<'_>) -> String {
             }))
     });
     let dirs = (!seed.consumer_dirs.is_empty()).then(|| {
-        Element::new("caller_dirs")
+        Element::new(dirs_tag)
             .attr("shown", seed.consumer_dirs.len().min(SEED_CALLERS))
             .attr("of", seed.consumer_dirs.len())
             .children(seed.consumer_dirs.iter().take(SEED_CALLERS).map(|dir| {
                 Element::new("dir")
                     .attr("path", dir.dir)
-                    .attr("callers", dir.count)
+                    .attr(listed, dir.count)
                     .close()
             }))
     });
