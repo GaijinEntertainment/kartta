@@ -2,10 +2,10 @@
 
 use kartta_graph::{Candidate, Graph, Limits, Selector, SiteQuery, Walk};
 use kartta_lang::{
-    Access, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction, FILE_SCOPE,
-    ImportBinding, IncludeReach, IncludeRef, IncludedRuntimeMembers, InheritedMembers, LocalCall,
-    MemberCalls, NamespaceCalls, OwnMembers, ReExport, Receiver, Symbol, SymbolFlags, SymbolId,
-    SymbolKind, UntypedOwners, UseRef,
+    Access, BareReceivers, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction,
+    FILE_SCOPE, ImportBinding, IncludeReach, IncludeRef, IncludedRuntimeMembers, InheritedMembers,
+    LocalCall, MemberCalls, NamespaceCalls, OwnMembers, ReExport, Receiver, Symbol, SymbolFlags,
+    SymbolId, SymbolKind, UntypedOwners, UseRef,
 };
 
 use crate::{call, function, graph, graph_of};
@@ -2666,6 +2666,87 @@ fn the_caller_s_owner_binds_a_namesake_class_only_where_its_own_class_declares_a
             vec![qualified("B", "m", 1), qualified("A", "m", 5)]
         ),
         ["b/app.php:5@80"]
+    );
+}
+
+#[test]
+fn a_bare_receiver_naming_no_class_of_the_graph_binds_through_includes_alone_where_it_names_a_class()
+ {
+    let callees_of = |bare_receivers: BareReceivers, callee: &str, receiver: &str| {
+        let mut conventions = Conventions::default();
+        conventions.own_members = OwnMembers::Unreached;
+        conventions.bare_receivers = bare_receivers;
+        let mut test = including(
+            "a/test.php",
+            &["b/model.php"],
+            vec![member_call(0, receiver, callee, 2)],
+        );
+        test.symbols
+            .push(member("Dumper", "dump", SymbolKind::Method, 7));
+        let graph = graph_of(
+            conventions,
+            &[
+                test,
+                file(
+                    "b/model.php",
+                    vec![
+                        Symbol::new("Model", SymbolKind::Class, 1, 9),
+                        member("Model", "boot", SymbolKind::Method, 2),
+                    ],
+                    Vec::new(),
+                ),
+                file(
+                    "c/container.php",
+                    vec![
+                        member("Container", "mock", SymbolKind::Method, 1),
+                        member("Base", "query", SymbolKind::Method, 3),
+                    ],
+                    Vec::new(),
+                ),
+            ],
+        );
+        callees(&graph, "run")
+    };
+    let classes = BareReceivers::Classes(&["parent", "self", "static"]);
+
+    assert_eq!(
+        callees_of(classes, "mock", "Mockery"),
+        Vec::<String>::new(),
+        "a class outside the graph has no member that the one callable of the name stands for"
+    );
+    assert_eq!(
+        callees_of(classes, "dump", "VarDumper"),
+        Vec::<String>::new(),
+        "a class outside the graph has no member in the caller's file"
+    );
+    assert_eq!(
+        callees_of(classes, "boot", "Eloquent"),
+        ["b/model.php:2@70"],
+        "a class the file imports under another name binds through the import"
+    );
+    assert_eq!(
+        callees_of(classes, "query", "Model"),
+        ["c/container.php:3@60"],
+        "a class the graph holds can inherit the one callable of the name"
+    );
+    assert_eq!(
+        callees_of(classes, "mock", "Self"),
+        ["c/container.php:1@60"],
+        "a scope keyword names the caller's class, in any case"
+    );
+    assert_eq!(
+        callees_of(classes, "mock", "$mockery"),
+        ["c/container.php:1@60"],
+        "a value is no bare name"
+    );
+    assert_eq!(
+        callees_of(BareReceivers::Any, "mock", "Mockery"),
+        ["c/container.php:1@60"],
+        "a bare name can hold a value where the language writes values bare"
+    );
+    assert_eq!(
+        callees_of(BareReceivers::Any, "dump", "VarDumper"),
+        ["a/test.php:7@80"]
     );
 }
 
