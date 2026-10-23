@@ -5,6 +5,7 @@ use kartta_lang::{LocalCall, SymbolId, SymbolKind};
 use tree_sitter::Node;
 
 use super::Emitter;
+use super::bindings::pattern_bindings;
 
 // constraint: an item a function body declares is in scope in its whole block, a `macro_rules!` only after its
 // definition and a `let` binding after its statement; an item is keyed by the inline module around it, because a
@@ -289,37 +290,6 @@ fn names_a_value(node: Node<'_>) -> bool {
 
 fn pattern_names(node: Node<'_>, source: &[u8], names: &mut Vec<String>) {
     pattern_bindings(node, &mut |name| names.push(text(name, source)));
-}
-
-// constraint: a pattern binds its identifiers, a shorthand field of `S { helper }` among them, and never the type a
-// struct or tuple-struct pattern names
-pub(super) fn pattern_bindings<'t>(node: Node<'t>, bind: &mut impl FnMut(Node<'t>)) {
-    match node.kind() {
-        "identifier" | "shorthand_field_identifier" => bind(node),
-        "field_pattern" => {
-            if let Some(bound) = node
-                .child_by_field_name("pattern")
-                .or_else(|| node.child_by_field_name("name"))
-            {
-                pattern_bindings(bound, bind);
-            }
-        }
-        "mut_pattern"
-        | "ref_pattern"
-        | "reference_pattern"
-        | "or_pattern"
-        | "tuple_pattern"
-        | "captured_pattern"
-        | "slice_pattern"
-        | "struct_pattern"
-        | "tuple_struct_pattern" => {
-            let named_type = node.child_by_field_name("type");
-            named_child_nodes(node)
-                .filter(|inner| Some(*inner) != named_type)
-                .for_each(|inner| pattern_bindings(inner, bind));
-        }
-        _ => {}
-    }
 }
 
 pub(super) fn path_segments(path: Node<'_>, source: &[u8]) -> Option<Vec<PathSegment>> {
