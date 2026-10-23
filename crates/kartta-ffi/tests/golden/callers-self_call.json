@@ -1,0 +1,37 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "below_confidence": 0,
+          "graph": "go",
+          "passed_over": 0,
+          "reached": [],
+          "root": {
+            "end_line": 12,
+            "exported": false,
+            "file": "go/run.go",
+            "kind": "func",
+            "line": 10,
+            "name": "unused",
+            "qualified_name": "main.unused",
+            "signature": "func unused()"
+          },
+          "self_call": {
+            "confidence": 80,
+            "line": 11
+          },
+          "truncated": false,
+          "turned_away": 0,
+          "unexpanded": 0,
+          "unresolved": 0
+        }
+      ]
+    }
+  },
+  "method": "callers",
+  "params": {
+    "lang": "go",
+    "name": "unused"
+  }
+}
