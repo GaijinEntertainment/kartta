@@ -22,6 +22,7 @@ fn compile(path: &str, contents: &str, repository: &dyn Repository) -> Option<Sc
     let mut aliases = aliases_in(&value, dir, repository)
         .unwrap_or_else(|| aliases_via_references(&value, dir, repository));
     config::by_specificity(&mut aliases);
+    aliases.dedup();
 
     // constraint: the nearest config governs alone, so one that yields no aliases keeps an empty entry that stops the
     // lookup at it
@@ -76,17 +77,20 @@ fn aliases_in(value: &Value, dir: &str, repository: &dyn Repository) -> Option<A
         .as_ref()
         .map(|(parsed, declared_in)| (parsed, declared_in.as_str()));
 
-    let (paths, paths_dir) = compiler_option((value, dir), base, "paths")?;
-    let paths = paths.as_object()?;
-    let base_dir = compiler_option((value, dir), base, "baseUrl")
-        .and_then(|(base_url, declared_in)| Some((base_url.as_str()?, declared_in)))
-        .map_or_else(
-            || Some(paths_dir.to_owned()),
-            |(base_url, declared_in)| join(declared_in, base_url),
-        );
+    let paths = compiler_option((value, dir), base, "paths")
+        .and_then(|(paths, declared_in)| Some((paths.as_object()?, declared_in)));
+    let base_url = compiler_option((value, dir), base, "baseUrl")
+        .and_then(|(base_url, declared_in)| Some(join(declared_in, base_url.as_str()?)));
+    if paths.is_none() && base_url.is_none() {
+        return None;
+    }
+    let anchor = base_url.as_ref().map_or_else(
+        || paths.map(|(_, declared_in)| declared_in),
+        Option::as_deref,
+    );
 
     let mut aliases = Vec::new();
-    for (pattern, targets) in paths {
+    for (pattern, targets) in paths.iter().flat_map(|(paths, _)| *paths) {
         let Some(targets) = targets.as_array() else {
             continue;
         };
@@ -95,9 +99,17 @@ fn aliases_in(value: &Value, dir: &str, repository: &dyn Repository) -> Option<A
             continue;
         }
         let targets = (targets.iter())
-            .filter_map(|target| join(base_dir.as_deref()?, target))
+            .filter_map(|target| join(anchor?, target))
             .collect();
         aliases.push((pattern.clone(), targets));
+    }
+
+    // constraint: TypeScript resolves a non-relative specifier that no `paths` pattern takes against an explicit
+    // `baseUrl`, before it looks for a package; a `*` pattern takes every specifier, its targets usable or not
+    if let Some(Some(base_url)) = &base_url
+        && !paths.is_some_and(|(paths, _)| paths.contains_key("*"))
+    {
+        aliases.push(("*".to_owned(), join(base_url, "*").into_iter().collect()));
     }
 
     Some(aliases)
@@ -235,7 +247,10 @@ mod tests {
 
         assert_eq!(
             got,
-            [("web".to_owned(), vec![alias("@/*", &["web/src/*"])])]
+            [(
+                "web".to_owned(),
+                vec![alias("@/*", &["web/src/*"]), alias("*", &["web/*"])]
+            )]
         );
     }
 
@@ -263,7 +278,11 @@ mod tests {
             got,
             [(
                 "web".to_owned(),
-                vec![alias("@/*", &["web/src/*"]), alias("~/*", &["web/tools/*"])]
+                vec![
+                    alias("@/*", &["web/src/*"]),
+                    alias("~/*", &["web/tools/*"]),
+                    alias("*", &["web/*"])
+                ]
             )]
         );
     }
@@ -278,7 +297,13 @@ mod tests {
             ("tsconfig.app.json", APP),
         ]);
 
-        assert_eq!(got, [(String::new(), vec![alias("@/*", &["src/*"])])]);
+        assert_eq!(
+            got,
+            [(
+                String::new(),
+                vec![alias("@/*", &["src/*"]), alias("*", &["*"])]
+            )]
+        );
     }
 
     #[test]
@@ -297,7 +322,48 @@ mod tests {
 
         assert_eq!(
             got,
-            [("web".to_owned(), vec![alias("@/*", &["web/src/*"])])]
+            [(
+                "web".to_owned(),
+                vec![alias("@/*", &["web/src/*"]), alias("*", &["web/*"])]
+            )]
+        );
+    }
+
+    #[test]
+    fn a_base_url_without_paths_keeps_the_aliases_of_the_references_out() {
+        let got = compiled(&[
+            (
+                "web/tsconfig.json",
+                r#"{
+                    "compilerOptions": { "baseUrl": "./src" },
+                    "references": [{ "path": "./tsconfig.app.json" }]
+                }"#,
+            ),
+            ("web/tsconfig.app.json", APP),
+        ]);
+
+        assert_eq!(got, [("web".to_owned(), vec![alias("*", &["web/src/*"])])]);
+    }
+
+    #[test]
+    fn a_paths_wildcard_stands_in_for_the_base_url() {
+        let got = compiled(&[
+            (
+                "tsconfig.json",
+                r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "*": ["./types/*"] } } }"#,
+            ),
+            (
+                "web/tsconfig.json",
+                r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "*": [] } } }"#,
+            ),
+        ]);
+
+        assert_eq!(
+            got,
+            [
+                ("web".to_owned(), Vec::new()),
+                (String::new(), vec![alias("*", &["types/*"])])
+            ]
         );
     }
 
@@ -332,7 +398,10 @@ mod tests {
             [
                 (
                     "packages/ui".to_owned(),
-                    vec![alias("@/*", &["packages/ui/src/*"])]
+                    vec![
+                        alias("@/*", &["packages/ui/src/*"]),
+                        alias("*", &["packages/ui/*"])
+                    ]
                 ),
                 (String::new(), Vec::new()),
             ]

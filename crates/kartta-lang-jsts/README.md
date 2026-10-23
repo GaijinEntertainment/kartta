@@ -41,11 +41,11 @@ The conventions name the methods that ECMAScript's built-in objects and the DOM 
 
 The resolver reads the repository's `tsconfig.json` and `package.json` files, outside `node_modules` and `vendor`, and
 resolves a specifier the way the TypeScript compiler and bundlers do: relative paths with their extensions and `index`
-files, the ESM `./m.js` spelling of a `.ts` source, `tsconfig` `paths`, `package.json` `imports` and the `exports` of
-the repository's own packages, and Vite's `?query` suffixes. A re-export names the file its specifier resolves to. A
-name that an `import` of a package outside the repository binds holds that package's code, so a member call through
-it, `<Dialog.Footer>` with `Dialog` from `@chakra-ui/react` or `path.extname()` with `path` from `node:path`, binds no
-definition of the repository; a specifier that starts with `.`, `/` or `#` names a file of the repository whether it
-resolves or not.
+files, the ESM `./m.js` spelling of a `.ts` source, `tsconfig` `paths` and `baseUrl`, `package.json` `imports` and
+the `exports` of the repository's own packages, and Vite's `?query` suffixes. A re-export names the file its specifier
+resolves to. A name that an `import` of a package outside the repository binds holds that package's code, so a member
+call through it, `<Dialog.Footer>` with `Dialog` from `@chakra-ui/react` or `path.extname()` with `path` from
+`node:path`, binds no definition of the repository; a specifier that starts with `.`, `/` or `#` names a file of the
+repository whether it resolves or not.
 
 Status: the API is new and is not published yet.
