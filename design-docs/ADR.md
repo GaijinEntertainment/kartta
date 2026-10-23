@@ -2,8 +2,10 @@
 
 ## Accepted
 
-- [1.1 Own the filesystem walk](./adr/1.1-own-the-filesystem-walk.md) — initiative `01-kartta-fs-port`, 2026-08-11,
-  revised 2026-10-18
+- [1.1 Own the filesystem walk](./adr/1.1-own-the-filesystem-walk.md)
+  - Governs: `crates/kartta-walk`, `kartta_walk::walk`, `kartta_walk::Policy`, `kartta_walk::Tree`
+  - Revisit if: the walk falls behind on a real tree, a maintained crate returns grouped results with inherited state,
+    or a re-walk needs what the seed state cannot express
 - [1.2 Own the path scorer](./adr/1.2-own-the-path-scorer.md) — initiative `01-kartta-fs-port`, 2026-08-11, revised
   2026-10-18
 - [1.3 Make the ignore source set explicit](./adr/1.3-make-the-ignore-source-set-explicit.md) — initiative
@@ -44,6 +46,9 @@
 - [1.19 Prune editor and OS clutter by name during the
   walk](./adr/1.19-prune-editor-and-os-clutter-by-name-during-the-walk.md) — initiative `01-kartta-fs-port`, 2026-10-17,
   revised 2026-10-18
+- [1.50 Match gitignore rules with gix-ignore](./adr/1.50-match-gitignore-rules-with-gix-ignore.md)
+  - Governs: `crates/kartta-fs/src/rules.rs`
+  - Revisit if: `gix-ignore` stops being maintained or diverges from git's matching
 - [2.1 Share per-file data through content-addressed
   packs](./adr/2.1-share-per-file-data-through-content-addressed-packs.md) — initiative `02-shared-cache`, 2026-10-16,
   revised 2026-10-18
