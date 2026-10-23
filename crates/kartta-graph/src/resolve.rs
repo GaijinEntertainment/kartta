@@ -318,6 +318,11 @@ impl<'g> Cascade<'g> {
         })
     }
 
+    /// Whether `target` is `file` or a file `file` reaches through its includes, however deep.
+    pub(crate) fn reaches(&self, file: u32, target: u32) -> bool {
+        self.closure(file).binary_search(&target).is_ok()
+    }
+
     pub(crate) fn sees(&self, file: u32, at: SymbolAt) -> bool {
         self.seen_from(file, at).is_some()
     }
@@ -359,11 +364,7 @@ impl<'g> Cascade<'g> {
             .iter()
             .filter(|occurrence| occurrence.role == CallableRole::Definition)
             .map(|occurrence| occurrence.at)
-            .filter(|definition| {
-                self.closure(definition.file)
-                    .binary_search(&declaration.file)
-                    .is_ok()
-            });
+            .filter(|definition| self.reaches(definition.file, declaration.file));
         let definition = definitions.next()?;
         definitions.next().is_none().then_some(definition)
     }
@@ -411,7 +412,7 @@ impl<'g> Cascade<'g> {
             .collect();
         let sees = |viewer: u32, ty: SymbolAt| {
             self.graph.file(ty.file).dir == self.graph.file(viewer).dir
-                || self.closure(viewer).binary_search(&ty.file).is_ok()
+                || self.reaches(viewer, ty.file)
         };
         self.named(self.graph.sym(constructor).name)
             .iter()
@@ -824,7 +825,7 @@ impl<'g> Cascade<'g> {
     }
 
     fn is_within_module(&self, file: u32, module: u32) -> bool {
-        file == module || self.closure(module).binary_search(&file).is_ok()
+        file == module || self.reaches(module, file)
     }
 
     fn share_an_include_root(&self, file: u32, other: u32) -> bool {
