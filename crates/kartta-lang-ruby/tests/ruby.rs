@@ -313,6 +313,36 @@ fn a_self_receiver_names_the_type_chain_and_a_receiver_on_a_class_ends_in_the_cl
     );
 }
 
+#[test]
+fn a_bare_new_in_a_class_method_names_an_instance_of_the_owner_and_elsewhere_is_as_written() {
+    let raw = extract(
+        b"module Geo\n  class Shape\n    TOP = new.freeze\n    def self.parse\n      new.getopts\n    end\n    \
+          class << self\n      def make\n        new.build\n      end\n    end\n    def self.wrap(new)\n      \
+          new.getopts\n    end\n    def self.bound\n      new = 1\n      \
+          new.getopts\n    end\n    def self.captured\n      \
+          new = 1\n      tap { new.getopts }\n    end\n    def report\n      \
+          new.getopts\n    end\n  end\nend\n",
+    );
+
+    let receivers: Vec<_> = calls(&raw)
+        .into_iter()
+        .filter(|(callee, _)| *callee != "new")
+        .collect();
+    assert_eq!(
+        receivers,
+        [
+            ("freeze", Some("new")),
+            ("getopts", Some("Geo::Shape")),
+            ("build", Some("Geo::Shape")),
+            ("getopts", Some("new")),
+            ("getopts", Some("new")),
+            ("tap", None),
+            ("getopts", Some("new")),
+            ("getopts", Some("new")),
+        ]
+    );
+}
+
 fn sites_of<'r>(raw: &'r RawExtraction, callee: &str) -> Vec<(&'r str, Option<&'r str>)> {
     raw.calls
         .iter()
