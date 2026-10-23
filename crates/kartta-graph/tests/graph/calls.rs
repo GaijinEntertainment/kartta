@@ -696,6 +696,43 @@ fn a_cpp_call_on_a_field_of_a_base_binds_the_member_of_the_class_it_is_declared_
 }
 
 #[test]
+fn a_cpp_call_through_a_class_template_field_s_arrow_binds_the_member_of_the_class_it_reaches() {
+    let mut owned = field_of("Holder", "owned", 2, "unique_ptr");
+    owned.value_types.push("*Lock".to_owned());
+    let mut holder = file(
+        "holder.h",
+        vec![
+            class_in("", "Holder", 1, 3),
+            owned,
+            class_in("", "unique_ptr", 4, 6),
+            member("unique_ptr", "reset", SymbolKind::Method, 5),
+        ],
+        Vec::new(),
+    );
+    holder.includes = vec![IncludeRef {
+        target: "lock.h".to_owned(),
+    }];
+    let mut source = including(
+        "holder.cpp",
+        &["holder.h"],
+        vec![
+            member_call(0, "->owned", "unlockRead", 2),
+            member_call(0, ".owned", "reset", 3),
+        ],
+    );
+    source.symbols = vec![member("Holder", "release", SymbolKind::Method, 1)];
+    let [locks, _] = locks_and_cache();
+
+    let graph = graph_of(cpp(), &[locks, holder, source]);
+
+    assert_eq!(
+        callees(&graph, "Holder::release"),
+        ["holder.h:5@85", "lock.h:2@85"],
+        "`.` reaches the template's own member, `->` the class its first argument names"
+    );
+}
+
+#[test]
 fn a_cpp_operand_s_class_binds_the_first_of_namesakes_of_one_qualified_name() {
     let files = [
         file(

@@ -15,7 +15,7 @@ use tree_sitter::{Node, Tree};
 
 use self::data::{
     alias_declarator_name, at_namespace_scope, data_declarator, data_signature, field_declarator,
-    field_owner, field_value_type, has_qualifier, has_storage_class,
+    field_owner, field_value_types, has_qualifier, has_storage_class,
 };
 use self::declarator::{
     function_symbol, is_macro_invocation, is_pure_virtual, line_gap_len, nested_scope, unterminated,
@@ -383,17 +383,15 @@ impl<'s, 't> Replayer<'s, 't> {
             return;
         };
         let signature = signature(node, self.source);
-        let class = node
-            .child_by_field_name("type")
-            .and_then(|written| self.owner_named(written));
+        let written = node.child_by_field_name("type");
+        let class = written.and_then(|written| self.owner_named(written));
+        let arrow = class
+            .and(written)
+            .and_then(|written| self.pointee_named(written));
 
         for (name, pointer) in names {
             let mut symbol = exported_symbol(text(name, self.source), SymbolKind::Field, node);
-            symbol.value_types = class
-                .zip(pointer)
-                .map(field_value_type)
-                .into_iter()
-                .collect();
+            symbol.value_types = field_value_types(class, pointer, arrow);
             symbol.qualified_name = format!("{owner}::{}", symbol.name);
             symbol.owner = Some(owner.clone());
             symbol.signature.clone_from(&signature);
@@ -2621,6 +2619,34 @@ template<> struct Traits<int> { int size; };
                 ("item", &[][..]),
                 ("chain", &[][..]),
                 ("locks", &[][..]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_field_of_a_class_template_names_the_class_its_arrow_reaches() {
+        let raw = extract(
+            b"struct Cache {\n  eastl::unique_ptr<Lock> owned;\n  Ptr<const ns::Lock> shared;\n  Box<int> box;\n\
+              eastl::unique_ptr<Lock> *slot;\n  eastl::unique_ptr<Lock[]> many;\n};\n",
+        );
+
+        let types: Vec<(&str, Vec<&str>)> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.kind == SymbolKind::Field)
+            .map(|symbol| {
+                let types = symbol.value_types.iter().map(String::as_str).collect();
+                (symbol.name.as_str(), types)
+            })
+            .collect();
+        assert_eq!(
+            types,
+            [
+                ("owned", vec!["eastl::unique_ptr", "*Lock"]),
+                ("shared", vec!["Ptr", "*ns::Lock"]),
+                ("box", vec!["Box"]),
+                ("slot", vec!["*eastl::unique_ptr"]),
+                ("many", vec!["eastl::unique_ptr"]),
             ]
         );
     }

@@ -10,10 +10,11 @@
 //! type aliases (`using` and `typedef`), the data members of its classes as fields, and its namespace-scope variables
 //! and constants. A field declared as a value of a class, a reference to one or a pointer to one carries that class
 //! as its [value type](kartta_lang::Symbol::value_types), spelled as a member call's receiver spells it, after a `*`
-//! for a pointer; a field of a builtin type, of a template parameter, an array or a pointer to a pointer carries
-//! none. A class's parents are its base classes as written, without template arguments, but for a parameter
-//! of an enclosing template, `: public Compare`, which names no type. A namespace yields no symbol of its own; it
-//! shows in the qualified names of what it holds:
+//! for a pointer, and a value of a class template also the class its first template argument names, after a `*`,
+//! which `->` reaches through the template's `operator->`, as `eastl::unique_ptr<Lock>` does; a field of a builtin
+//! type, of a template parameter, an array or a pointer to a pointer carries none. A class's parents are its base
+//! classes as written, without template arguments, but for a parameter of an enclosing template, `: public Compare`,
+//! which names no type. A namespace yields no symbol of its own; it shows in the qualified names of what it holds:
 //!
 //! - A symbol outside every class is qualified by its enclosing named namespaces, `ns::f`. An anonymous namespace adds
 //!   nothing, and `namespace a::b` adds both names.
