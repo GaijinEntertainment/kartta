@@ -2293,11 +2293,20 @@ fn a_member_call_that_calls_free_functions_through_modules_alone_takes_one_only_
         }
     }
     for receiver in ["walk", "a::walk"] {
-        for (layout, nearby) in layouts().into_iter().zip(layouts()) {
+        for (layout, nearby) in layouts().into_iter().zip(layouts()).skip(1) {
             let nearby = calling(MemberCalls::NearbyFreeFunctions, receiver, nearby);
             assert_eq!(nearby.len(), 1, "{receiver}");
             assert_eq!(calling(MemberCalls::ModulePaths, receiver, layout), nearby);
         }
+        assert_eq!(
+            calling(
+                MemberCalls::ModulePaths,
+                receiver,
+                (vec![function("join", 5)], Vec::new())
+            ),
+            Vec::<String>::new(),
+            "{receiver}"
+        );
     }
     assert_eq!(
         calling(
@@ -2313,6 +2322,43 @@ fn a_member_call_that_calls_free_functions_through_modules_alone_takes_one_only_
             )
         ),
         ["b/y.rs:1@60"]
+    );
+}
+
+#[test]
+fn a_path_through_a_module_binds_in_the_caller_s_file_only_the_item_its_path_names() {
+    let in_module = |chain: &str, line: u32| {
+        let mut symbol = function("join", line);
+        symbol.qualified_name = format!("{chain}::join");
+        symbol
+    };
+    let calling = |receiver: &str, mut symbols: Vec<Symbol>| {
+        symbols.insert(0, function("run", 1));
+        let files = [
+            file("a/x.rs", symbols, vec![member_call(0, receiver, "join", 2)]),
+            file("b/y.rs", vec![function("join", 1)], Vec::new()),
+        ];
+        callees(
+            &graph_of(through_modules(MemberCalls::ModulePaths), &files),
+            "run",
+        )
+    };
+    let namesakes = || {
+        vec![
+            function("join", 3),
+            member("Path", "join", SymbolKind::Method, 4),
+            in_module("inner", 5),
+            in_module("a::walk", 6),
+        ]
+    };
+
+    assert_eq!(calling("walk", namesakes()), ["a/x.rs:6@80"]);
+    assert_eq!(calling("a::walk", namesakes()), ["a/x.rs:6@80"]);
+    assert_eq!(calling("inner", namesakes()), ["a/x.rs:5@80"]);
+    assert_eq!(calling("path", namesakes()), Vec::<String>::new());
+    assert_eq!(
+        calling("path", vec![member("path", "join", SymbolKind::Method, 4)]),
+        ["a/x.rs:4@85"]
     );
 }
 
