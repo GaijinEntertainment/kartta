@@ -51,6 +51,8 @@ pub(crate) struct WalkParams {
     #[serde(default)]
     path_prefix: Option<String>,
     #[serde(default)]
+    line: Option<u32>,
+    #[serde(default)]
     pub(crate) lang: Option<String>,
     #[serde(default)]
     depth: Option<u32>,
@@ -62,7 +64,7 @@ pub(crate) struct WalkParams {
 
 impl WalkParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        Selector::new(&self.name, self.path_prefix.as_deref())
+        Selector::new(&self.name, self.path_prefix.as_deref()).with_line(self.line)
     }
 
     pub(crate) fn limits(&self, depth: u32) -> Limits {
@@ -81,9 +83,13 @@ pub(crate) struct CallPathParams {
     from: String,
     #[serde(default)]
     from_path_prefix: Option<String>,
+    #[serde(default)]
+    from_line: Option<u32>,
     to: String,
     #[serde(default)]
     to_path_prefix: Option<String>,
+    #[serde(default)]
+    to_line: Option<u32>,
     #[serde(default)]
     pub(crate) lang: Option<String>,
     #[serde(default)]
@@ -96,11 +102,11 @@ pub(crate) struct CallPathParams {
 
 impl CallPathParams {
     pub(crate) fn from(&self) -> Selector<'_> {
-        Selector::new(&self.from, self.from_path_prefix.as_deref())
+        Selector::new(&self.from, self.from_path_prefix.as_deref()).with_line(self.from_line)
     }
 
     pub(crate) fn to(&self) -> Selector<'_> {
-        Selector::new(&self.to, self.to_path_prefix.as_deref())
+        Selector::new(&self.to, self.to_path_prefix.as_deref()).with_line(self.to_line)
     }
 
     pub(crate) fn limits(&self) -> Limits {
@@ -120,6 +126,8 @@ pub(crate) struct ReferencesParams {
     #[serde(default)]
     path_prefix: Option<String>,
     #[serde(default)]
+    line: Option<u32>,
+    #[serde(default)]
     pub(crate) lang: Option<String>,
     #[serde(default)]
     pub(crate) min_confidence: u8,
@@ -131,7 +139,7 @@ pub(crate) struct ReferencesParams {
 
 impl ReferencesParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        Selector::new(&self.name, self.path_prefix.as_deref())
+        Selector::new(&self.name, self.path_prefix.as_deref()).with_line(self.line)
     }
 
     pub(crate) fn query(&self) -> SiteQuery {
@@ -161,6 +169,8 @@ pub(crate) struct ImplementationsParams {
     #[serde(default)]
     path_prefix: Option<String>,
     #[serde(default)]
+    line: Option<u32>,
+    #[serde(default)]
     pub(crate) lang: Option<String>,
     #[serde(default)]
     depth: Option<u32>,
@@ -170,7 +180,7 @@ pub(crate) struct ImplementationsParams {
 
 impl ImplementationsParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        Selector::new(&self.name, self.path_prefix.as_deref())
+        Selector::new(&self.name, self.path_prefix.as_deref()).with_line(self.line)
     }
 
     pub(crate) fn depth(&self) -> u32 {

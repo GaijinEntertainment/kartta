@@ -46,6 +46,8 @@
   "method": "callers",
   "params": {
     "lang": "go",
-    "name": "file.close"
+    "line": 5,
+    "name": "file.close",
+    "path_prefix": "go/close.go"
   }
 }

@@ -52,6 +52,9 @@ type WalkParams struct {
 	// directory's with its closing slash; it reaches one of several copies that share a qualified name. Empty looks
 	// in every file.
 	PathPrefix string `json:"path_prefix,omitempty"`
+	// Line keeps only the symbols that start on it, one-based as a Definition's Line; it reaches one of several
+	// symbols of the name in one file. 0 looks at every line.
+	Line int `json:"line,omitempty"`
 	// Lang names the graph to ask, by a language or its family; empty asks every graph.
 	Lang string `json:"lang,omitempty"`
 	// Depth is how many calls away the walk goes; 0 takes the method's default, 3 for callers and 1 for callees.
@@ -150,11 +153,15 @@ type CallPathParams struct {
 	// FromPathPrefix keeps the symbols From may select to the files whose root-relative path starts with it, as one
 	// file's path or a directory's with its closing slash. Empty keeps every file.
 	FromPathPrefix string `json:"from_path_prefix,omitempty"`
-	To             string `json:"to"`
+	// FromLine keeps the symbols From may select to those that start on it, one-based. 0 keeps every line.
+	FromLine int    `json:"from_line,omitempty"`
+	To       string `json:"to"`
 	// ToPathPrefix keeps the symbols To may select to the files whose root-relative path starts with it, as one
 	// file's path or a directory's with its closing slash. Empty keeps every file.
 	ToPathPrefix string `json:"to_path_prefix,omitempty"`
-	Lang         string `json:"lang,omitempty"`
+	// ToLine keeps the symbols To may select to those that start on it, one-based. 0 keeps every line.
+	ToLine int    `json:"to_line,omitempty"`
+	Lang   string `json:"lang,omitempty"`
 	// Depth is how many calls long a path may be; 0 takes the default, 8.
 	Depth         int `json:"depth,omitempty"`
 	MinConfidence int `json:"min_confidence,omitempty"`
@@ -198,7 +205,10 @@ type ReferencesParams struct {
 	// PathPrefix keeps only the symbols in files whose root-relative path starts with it, as one file's path or a
 	// directory's with its closing slash; it reaches one of several copies that share a qualified name. Empty looks
 	// in every file.
-	PathPrefix    string `json:"path_prefix,omitempty"`
+	PathPrefix string `json:"path_prefix,omitempty"`
+	// Line keeps only the symbols that start on it, one-based as a Definition's Line; it reaches one of several
+	// symbols of the name in one file. 0 looks at every line.
+	Line          int    `json:"line,omitempty"`
 	Lang          string `json:"lang,omitempty"`
 	MinConfidence int    `json:"min_confidence,omitempty"`
 	// Access keeps the uses that read ("read"), that set ("write") or that update ("update") the symbol, an update
@@ -350,7 +360,10 @@ type ImplementationsParams struct {
 	// directory's with its closing slash; it reaches one of several types that share a qualified name. Empty looks
 	// in every file.
 	PathPrefix string `json:"path_prefix,omitempty"`
-	Lang       string `json:"lang,omitempty"`
+	// Line keeps only the types that start on it, one-based as a Definition's Line; it reaches one of several types
+	// of the name in one file. 0 looks at every line.
+	Line int    `json:"line,omitempty"`
+	Lang string `json:"lang,omitempty"`
 	// Depth is how many levels below the root the search goes; 0 takes the default, 3.
 	Depth int `json:"depth,omitempty"`
 	// Limit caps the implementors answered; 0 takes the default, 100.
