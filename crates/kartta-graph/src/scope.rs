@@ -7,7 +7,7 @@ use kartta_lang::{CallsOnValues, InheritedMembers, MemberCalls, SymbolKind};
 
 use crate::candidates::Candidates;
 use crate::confidence;
-use crate::graph::{agree, distinct, last_segment};
+use crate::graph::{QUALIFIER_SEPARATORS, agree, distinct, last_segment};
 use crate::resolve::{Bound, Call, Cascade, derived, derives};
 use crate::stored::{SymbolAt, VALUE_TYPE_SEPARATOR};
 use crate::strings::Str;
@@ -902,14 +902,17 @@ impl Cascade<'_> {
 
     // constraint: owners of one name in several directories, a package's own type and a copy of it elsewhere, are told
     // apart by nearness: the caller's file, then its directory, then the first in path order
-    fn nearest(&self, call: &Call, owned: &[SymbolAt]) -> Option<SymbolAt> {
+    fn nearest(
+        &self,
+        call: &Call,
+        mut owned: impl Iterator<Item = SymbolAt> + Clone,
+    ) -> Option<SymbolAt> {
         let dir = self.graph.file(call.file).dir;
         owned
-            .iter()
+            .clone()
             .find(|at| at.file == call.file)
-            .or_else(|| owned.iter().find(|at| self.graph.file(at.file).dir == dir))
-            .or_else(|| owned.first())
-            .copied()
+            .or_else(|| owned.clone().find(|at| self.graph.file(at.file).dir == dir))
+            .or_else(|| owned.next())
     }
 
     // constraint: where scopes nest, as C++ namespaces do, the class an operand is declared as is one its file reaches
@@ -1075,7 +1078,10 @@ impl Cascade<'_> {
         candidates: &Candidates<'_>,
     ) -> Option<SymbolAt> {
         let receiver = self.named_receiver(call)?;
-        if let Some(at) = self.nearest(call, &candidates.with_owner(self.graph, receiver)) {
+        if let Some(at) = self.nearest(
+            call,
+            candidates.with_owner(self.graph, receiver).iter().copied(),
+        ) {
             return Some(at);
         }
         let separator = self.conventions.owner_chain_separator?;
@@ -1124,8 +1130,50 @@ impl Cascade<'_> {
             .symbols
             .get(call.caller as usize)?
             .owner?;
-        let at = self.nearest(call, &candidates.with_owner(self.graph, caller_owner))?;
+        let owned = candidates.with_owner(self.graph, caller_owner);
+        if owned.is_empty() {
+            return None;
+        }
+        let owned = owned.iter().copied();
+        let at = match self.qualified_owner(call.caller_at()) {
+            Some(own) => self
+                .nearest(
+                    call,
+                    owned
+                        .clone()
+                        .filter(|&at| self.qualified_owner(at).is_none_or(|other| other == own)),
+                )
+                .or_else(|| {
+                    let namesake = self.nearest(call, owned)?;
+                    (!self.caller_s_class_declares_no_base(call, caller_owner, own))
+                        .then_some(namesake)
+                }),
+            None => self.nearest(call, owned),
+        }?;
         Some((at, confidence::SAME_FILE))
+    }
+
+    /// The owner `at` is a member of, as its qualified name spells it: `A\App` for `A\App::m`.
+    fn qualified_owner(&self, at: SymbolAt) -> Option<&str> {
+        let owner = self
+            .graph
+            .qualifier(at)?
+            .trim_end_matches(QUALIFIER_SEPARATORS);
+        (!owner.is_empty()).then_some(owner)
+    }
+
+    // constraint: a base's name is written as its file spells it, often through an alias, `BaseGrammar` for
+    // `Illuminate\Database\Grammar`, so a class of the caller's owner's name in another scope stands in for a base the
+    // graph cannot name; only a class that declares no base has no member but its own
+    /// Whether the caller's class declares no base: of the types of the bare name `owner` qualified as `qualified`, the
+    /// one nearest the call.
+    fn caller_s_class_declares_no_base(&self, call: &Call, owner: Str, qualified: &str) -> bool {
+        let types = self.named(owner).iter().copied().filter(|&ty| {
+            let symbol = self.graph.sym(ty);
+            derives(symbol.kind) && self.graph.strings.resolve(symbol.qualified_name) == qualified
+        });
+        self.nearest(call, types)
+            .is_some_and(|ty| self.graph.file(ty.file).parents_of(ty.index).is_empty())
     }
 
     fn chain_ends_in(&self, owner: Str, receiver: Str, separator: &str) -> bool {
