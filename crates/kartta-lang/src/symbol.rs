@@ -284,7 +284,9 @@ pub struct Symbol {
     /// [`Receivers::TypePaths`](crate::Receivers::TypePaths) spells one, read in the scope of the definition's file: a
     /// variable's or a field's type, a function's results in order, an empty path for one the language cannot name,
     /// and the type an alias names. Empty where the language records none, and for a function none of whose results
-    /// has a path, since an absent result reads as an empty path does.
+    /// has a path, since an absent result reads as an empty path does. Where receivers are
+    /// [`Receivers::Owners`](crate::Receivers::Owners), a field's is the owner its declaration names, spelled as a
+    /// receiver names one, after a `*` where the field holds a pointer to a value of it.
     pub value_types: Vec<String>,
     /// What the symbol is for besides its kind.
     pub flags: SymbolFlags,

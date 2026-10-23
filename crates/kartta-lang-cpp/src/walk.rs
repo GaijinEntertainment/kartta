@@ -15,7 +15,7 @@ use tree_sitter::{Node, Tree};
 
 use self::data::{
     alias_declarator_name, at_namespace_scope, data_declarator, data_signature, field_declarator,
-    field_owner, has_qualifier, has_storage_class,
+    field_owner, field_value_type, has_qualifier, has_storage_class,
 };
 use self::declarator::{
     function_symbol, is_macro_invocation, is_pure_virtual, line_gap_len, nested_scope, unterminated,
@@ -383,9 +383,17 @@ impl<'s, 't> Replayer<'s, 't> {
             return;
         };
         let signature = signature(node, self.source);
+        let class = node
+            .child_by_field_name("type")
+            .and_then(|written| self.owner_named(written));
 
-        for name in names {
+        for (name, pointer) in names {
             let mut symbol = exported_symbol(text(name, self.source), SymbolKind::Field, node);
+            symbol.value_types = class
+                .zip(pointer)
+                .map(field_value_type)
+                .into_iter()
+                .collect();
             symbol.qualified_name = format!("{owner}::{}", symbol.name);
             symbol.owner = Some(owner.clone());
             symbol.signature.clone_from(&signature);
@@ -2555,6 +2563,36 @@ template<> struct Traits<int> { int size; };
         assert_eq!(
             qualified(&raw, "Config::maxSources").owner.as_deref(),
             Some("Config")
+        );
+    }
+
+    #[test]
+    fn a_field_of_a_class_names_the_class_as_its_value_type() {
+        let raw = extract(
+            b"template <typename T> struct Cache {\n  Lock lock;\n  Lock *held, spare;\n  ns::Box<int> box;\n\
+              const ::ns::Lock &shared;\n  int count;\n  T item;\n  Lock **chain;\n  Lock locks[2];\n};\n",
+        );
+
+        let types: Vec<(&str, &[String])> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.kind == SymbolKind::Field)
+            .map(|symbol| (symbol.name.as_str(), symbol.value_types.as_slice()))
+            .collect();
+        let named = |spelled: &str| vec![spelled.to_owned()];
+        assert_eq!(
+            types,
+            [
+                ("lock", named("Lock").as_slice()),
+                ("held", named("*Lock").as_slice()),
+                ("spare", named("Lock").as_slice()),
+                ("box", named("ns::Box").as_slice()),
+                ("shared", named("::ns::Lock").as_slice()),
+                ("count", &[][..]),
+                ("item", &[][..]),
+                ("chain", &[][..]),
+                ("locks", &[][..]),
+            ]
         );
     }
 

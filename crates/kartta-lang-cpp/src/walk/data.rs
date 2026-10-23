@@ -62,17 +62,38 @@ pub(super) fn field_owner(node: Node<'_>, source: &[u8]) -> Option<String> {
     }
 }
 
-pub(super) fn field_declarator(mut node: Node<'_>) -> Option<Node<'_>> {
+/// The name a field declarator declares, and whether the field holds a pointer to a value of its type: `Some(false)`
+/// for a value or a reference, `Some(true)` for a pointer, and `None` for an array, a function or a pointer to a
+/// pointer, whose operand no member call names.
+pub(super) fn field_declarator(mut node: Node<'_>) -> Option<(Node<'_>, Option<bool>)> {
+    let mut pointer = Some(false);
     loop {
         match node.kind() {
-            "field_identifier" => return Some(node),
-            "pointer_declarator" | "array_declarator" => {
+            "field_identifier" => return Some((node, pointer)),
+            "pointer_declarator" => {
+                pointer = pointer.filter(|&pointer| !pointer).map(|_| true);
                 node = node.child_by_field_name("declarator")?;
             }
-            "function_declarator" => node = parenthesized_declarator(node)?,
+            "array_declarator" => {
+                pointer = None;
+                node = node.child_by_field_name("declarator")?;
+            }
+            "function_declarator" => {
+                pointer = None;
+                node = parenthesized_declarator(node)?;
+            }
             "reference_declarator" | "parenthesized_declarator" => node = node.named_child(0)?,
             _ => return None,
         }
+    }
+}
+
+/// The value type of a field of `class`, a pointer's after a `*`.
+pub(super) fn field_value_type((class, pointer): (&str, bool)) -> String {
+    if pointer {
+        format!("*{class}")
+    } else {
+        class.to_owned()
     }
 }
 
