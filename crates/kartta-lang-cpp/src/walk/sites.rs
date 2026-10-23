@@ -243,7 +243,7 @@ impl<'s, 't> Replayer<'s, 't> {
         }
     }
 
-    fn owner_named(&self, written: Node<'_>) -> Option<&'s str> {
+    pub(super) fn owner_named(&self, written: Node<'_>) -> Option<&'s str> {
         let (spelled, name) = owner_type(written)?;
         self.borrowed(name)
             .filter(|owner| !self.is_template_parameter(owner))

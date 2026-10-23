@@ -17,7 +17,8 @@ value it holds, a function pointer or a callable, and is not recorded. Callables
 types and member qualifiers wherever the walk can establish one without guessing, so a declaration and its definition
 meet in the graph and two overloads stay apart. Function-like macros, a test harness's `TEST(...)` blocks and trailing
 annotation macros included, are never mistaken for definitions; a declaration's signature keeps the macros after its
-parameters, and a definition keeps the body the parser reads apart from it after such a macro.
+parameters, and a definition keeps the body the parser reads apart from it after such a macro. A field of a class
+type, or a reference or pointer to one, keeps that class.
 
 Inside a function's body and its initializer list, each read, write and update of a value is a use: `x.f` and `x->f`
 outside a call's callee, `this->f`, a member a constructor's initializer list or a designated initializer sets, and a
