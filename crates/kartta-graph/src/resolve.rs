@@ -1292,6 +1292,11 @@ impl<'g> Cascade<'g> {
                 // constraint: a walk that sees one file takes a sibling file's value for a qualifier, and Go lets no
                 // package-level name share an import's, so a qualifier no import binds names a value
                 None if self.reads_type_paths() => self.member_use(at, site.name, Some(qualifier)),
+                // constraint: a script module is the file that declares it, so its own name as a qualifier names what
+                // the bare name its file declares does
+                None if self.graph.file(file).package == Some(qualifier) => {
+                    self.bare_use(file, site.name).ok_or(UseMiss::Elsewhere)
+                }
                 None => Err(UseMiss::Elsewhere),
             },
             UseReceiver::Own => self.own_member(at, site.name),

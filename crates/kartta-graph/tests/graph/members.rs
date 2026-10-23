@@ -354,6 +354,43 @@ fn an_imported_value_binds_an_export_or_a_re_export_before_an_unexported_namesak
     );
 }
 
+#[test]
+fn a_qualifier_that_names_the_file_s_own_module_binds_its_file_s_definition() {
+    let module = |path: &str, module: &str, caller: &str| {
+        let in_module = |name: &str, lines: [u32; 2]| {
+            let mut symbol = free(name, SymbolKind::Function, lines);
+            symbol.qualified_name = format!("{module}.{name}");
+            symbol
+        };
+        let mut extraction = file(
+            path,
+            vec![in_module("register", [1, 3]), in_module(caller, [5, 9])],
+            &[],
+        );
+        extraction.package = Some(module.to_owned());
+        extraction.uses = vec![using(
+            1,
+            "register",
+            Receiver::Qualifier("coverage".to_owned()),
+            6,
+        )];
+        extraction
+    };
+    let coverage = module("daslib/coverage.das", "coverage", "expand");
+    let other = module("daslib/other.das", "other", "run");
+    let graph = graph(script(), &[coverage, other]);
+
+    assert_eq!(
+        sites_of(&graph, "coverage.register").0,
+        [("coverage.expand".to_owned(), 6, 80)],
+        "the qualifier of a module the file neither declares nor requires binds none of that module's definitions"
+    );
+    assert!(
+        sites_of(&graph, "other.register").0.is_empty(),
+        "a qualifier that names another module binds no namesake of its own file"
+    );
+}
+
 fn cpp() -> Conventions {
     let mut conventions = Conventions::default();
     conventions.own_members = OwnMembers::First;
