@@ -38,7 +38,7 @@
 - [1.16 Refresh the parts of a tree a caller names](./adr/1.16-refresh-the-parts-of-a-tree-a-caller-names.md) —
   initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-22
 - [1.17 Follow a tree through its change notifications](./adr/1.17-follow-a-tree-through-its-change-notifications.md) —
-  initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-21
+  initiative `01-kartta-fs-port`, 2026-10-15, revised 2026-10-23
 - [1.18 Return the memory a build freed to the system](./adr/1.18-return-the-memory-a-build-freed-to-the-system.md) —
   initiative `01-kartta-fs-port`, 2026-10-17, revised 2026-10-21
 - [1.19 Prune editor and OS clutter by name during the
