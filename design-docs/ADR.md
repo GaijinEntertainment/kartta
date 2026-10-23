@@ -392,7 +392,8 @@
 - [3.39 Bind a member call to a free function only where a value can hold
   one](./adr/3.39-bind-a-member-call-to-a-free-function-only-where-a-value-can-hold-one.md)
   - Governs: `kartta_lang::MemberCalls`, `crates/kartta-graph/src/scope.rs` (`shape`, `takes_a_member_alone`,
-    `receiver_names_a_module`, `one_callable`, `resolve_by_proximity`), `crates/kartta-lang-go/src/lib.rs`,
+    `through_a_module`, `path_names`, `receiver_names_a_module`, `one_callable`, `resolve_by_proximity`),
+    `crates/kartta-graph/src/resolve.rs` (`resolve_by_name`), `crates/kartta-lang-go/src/lib.rs`,
     `crates/kartta-lang-rust/src/lib.rs`
   - Revisit if: the C++ extraction reads every class head, so no member reaches the graph as a free function
 - [3.40 Bind a runtime method's call only to a member that scope
