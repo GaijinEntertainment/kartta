@@ -1089,11 +1089,11 @@ pub const fn is_referent(kind: SymbolKind) -> bool {
     !matches!(kind, SymbolKind::EnumVariant)
 }
 
-/// Whether [`Graph::implementations`] selects a symbol of `kind`: a class, a struct, an interface, a trait or a
-/// namespace.
+/// Whether [`Graph::implementations`] selects a symbol of `kind`: a class, a struct, an interface, a trait, a namespace
+/// or a type alias.
 #[must_use]
 pub const fn is_parent(kind: SymbolKind) -> bool {
-    derives(kind) || matches!(kind, SymbolKind::Namespace)
+    derives(kind) || matches!(kind, SymbolKind::Namespace | SymbolKind::TypeAlias)
 }
 
 // constraint: the order of the file index, whose `/` ranks below every other byte, so the engine inserts files in this

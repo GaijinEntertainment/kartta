@@ -243,6 +243,115 @@ fn a_parent_names_the_type_the_scopes_enclosing_its_child_reach_first() {
     assert_eq!(found(&namesake), []);
 }
 
+fn traits_beside_namesake_structs() -> Graph {
+    let mut alias = ty("true_type", "eastl::true_type", 3, &[]);
+    alias.kind = SymbolKind::TypeAlias;
+    let doctest = |path: &str| {
+        file(
+            path,
+            vec![
+                ty("true_type", "doctest::detail::true_type", 3, &[]),
+                ty("is_rvalue", "doctest::detail::is_rvalue", 4, &["true_type"]),
+            ],
+        )
+    };
+    graph(
+        cpp(),
+        &[
+            file(
+                "eastl/include/EASTL/type_traits.h",
+                vec![
+                    ty("integral_constant", "eastl::integral_constant", 2, &[]),
+                    alias,
+                    ty("is_void", "eastl::is_void", 4, &["true_type"]),
+                    ty("is_const", "eastl::is_const", 5, &["eastl::true_type"]),
+                    ty(
+                        "bool_constant",
+                        "eastl::bool_constant",
+                        6,
+                        &["integral_constant"],
+                    ),
+                ],
+            ),
+            including(
+                file(
+                    "game/tag.h",
+                    vec![ty("Tag", "Tag", 3, &["eastl::true_type"])],
+                ),
+                &["eastl/include/EASTL/type_traits.h"],
+            ),
+            doctest("libs/a/doctest/doctest.h"),
+            doctest("libs/b/doctest/doctest.h"),
+        ],
+    )
+}
+
+#[test]
+fn a_parent_names_the_alias_its_scopes_reach_and_not_the_aliased_type() {
+    let graph = traits_beside_namesake_structs();
+
+    let aliased = graph
+        .implementations("eastl::true_type", 1, 10)
+        .expect("an alias");
+    let aliasing = graph
+        .implementations("eastl::integral_constant", 3, 10)
+        .expect("a struct");
+    let selected = graph.implementations("true_type", 1, 10).expect("a type");
+
+    assert_eq!(
+        found(&aliased),
+        [
+            (
+                "eastl/include/EASTL/type_traits.h:eastl::is_void".to_owned(),
+                1
+            ),
+            (
+                "eastl/include/EASTL/type_traits.h:eastl::is_const".to_owned(),
+                1
+            ),
+            ("game/tag.h:Tag".to_owned(), 1),
+        ]
+    );
+    assert_eq!(
+        found(&aliasing),
+        [(
+            "eastl/include/EASTL/type_traits.h:eastl::bool_constant".to_owned(),
+            1
+        )]
+    );
+    assert_eq!(
+        (selected.root.qualified_name, selected.passed_over),
+        ("eastl::true_type", 2)
+    );
+}
+
+#[test]
+fn a_struct_that_namesakes_an_alias_keeps_only_its_own_copys_implementors() {
+    let graph = traits_beside_namesake_structs();
+
+    let copy = |prefix: &str| {
+        let copy = graph
+            .implementations(Selector::new("true_type", Some(prefix)), 1, 10)
+            .expect("a struct of the copy");
+        found(&copy)
+    };
+
+    assert_eq!(
+        copy("libs/a"),
+        [(
+            "libs/a/doctest/doctest.h:doctest::detail::is_rvalue".to_owned(),
+            1
+        )]
+    );
+    assert_eq!(
+        copy("libs/b"),
+        [(
+            "libs/b/doctest/doctest.h:doctest::detail::is_rvalue".to_owned(),
+            1
+        )]
+    );
+}
+
 #[test]
 fn a_package_parent_names_a_type_of_its_own_directory_or_of_the_directory_it_imports() {
     let mut conventions = Conventions::default();

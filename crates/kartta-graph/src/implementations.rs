@@ -47,13 +47,14 @@ impl Graph {
     /// interface, a trait, a mixed-in module; only a type, an enum or a namespace that records one is an implementor.
     /// A compile-time assertion that a type implements an interface, as Go's `var _ I = T{}` in a file that does not
     /// declare `T`, makes the interface a parent of the type it names, read from the asserting file.
-    /// A name selects among classes, structs, interfaces, traits and namespaces as [`Graph::definitions`] does: the
-    /// type whose qualified name it is, else the type of that bare name, and where several share it, the one the
-    /// most types name as a parent, the first in path order on a tie; a path prefix narrows them as
+    /// A name selects among classes, structs, interfaces, traits, namespaces and type aliases as [`Graph::definitions`]
+    /// does: the type whose qualified name it is, else the type of that bare name, and where several share it, the one
+    /// the most types name as a parent, the first in path order on a tie; a path prefix narrows them as
     /// [`Graph::callers`] describes.
     ///
-    /// A parent written in one file names a type the way the language's scopes reach it. Where a package is a
-    /// directory, as in Go, a bare parent names a type of its own directory and a qualified one a type of the
+    /// A parent written in one file names a type the way the language's scopes reach it, a type alias among them: a
+    /// parent that reaches an alias names the alias, whose implementors are not the aliased type's. Where a package is
+    /// a directory, as in Go, a bare parent names a type of its own directory and a qualified one a type of the
     /// directory its import binds. Where a language joins an owner chain, as Ruby and Python do, the parent is
     /// looked up from the scope that encloses the type that names it, inside out, and a bare one that lookup does not
     /// reach names nothing. Where a language nests scopes, as C++ namespaces do, the same lookup runs out to the root,

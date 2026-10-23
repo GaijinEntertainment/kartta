@@ -488,12 +488,13 @@ pub(crate) struct ReadDefinitionsParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindImplementationsParams {
-    /// The interface / base class / trait name, e.g. "Provider". Bare or qualified with its language's separator
-    /// ("io.Reader" in Go, "ui::Widget" in Rust or C++); a name that selects nothing as written is read with each "."
-    /// as "::", or each "::" as ".", and read_as= names that reading. Take the exact name from a find_symbols hit when
-    /// unsure. Where several types share the name, the most implemented is picked: the answer
-    /// names it in <root/>, counts the others in passed_over and lists the most implemented of them as <candidate/>
-    /// records.
+    /// The interface / base class / trait / mixed-in module / type alias name, e.g. "Provider". Bare or qualified with
+    /// its language's separator ("io.Reader" in Go, "ui::Widget" in Rust or C++); a name that selects nothing as
+    /// written is read with each "." as "::", or each "::" as ".", and read_as= names that reading. Take the exact name
+    /// from a find_symbols hit when unsure. Where several types share the name, the most implemented is picked: the
+    /// answer names it in <root/>, counts the others in passed_over and lists the most implemented of them as
+    /// <candidate/> records. A type alias answers the types whose parent names the alias, not those whose parent names
+    /// its target.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the types in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file. Omitted picks from every file.
