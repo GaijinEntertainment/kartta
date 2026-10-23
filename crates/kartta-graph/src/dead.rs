@@ -43,7 +43,8 @@ pub struct Excluded {
     /// proximity, or binds its own caller through a value: a bare call may reach any definition of the name, and a
     /// call through a receiver a member, or a free definition that no member of the name could stand for or that its
     /// file sees, in its own file, in the files it includes, and where a package is a directory, in its package. A use
-    /// that binds nothing may reach any field of its name, and a variable or a constant its file sees.
+    /// that binds nothing may reach any field of its name, and a variable or a constant its file sees; a use left
+    /// ambiguous among members of every kind may reach any member of its name, a method among them.
     pub uncertain: usize,
     /// Methods a call through another type may reach: one an interface or a trait declares a method of the name for,
     /// one that a parent of its owner declares too, and one of an owner with a parent the graph does not hold.
