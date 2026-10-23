@@ -1124,7 +1124,7 @@ const NO_CALL_BINDS: &str = "no call binds it - ambiguous counts the calls of it
                              reached by dynamic dispatch";
 
 /// The answers to `calls` over a Rust crate whose methods share names: calls on a value of a type the graph does not
-/// follow, and calls split between two methods of one name.
+/// follow, an element a slice parameter holds, and calls split between two methods of one name.
 fn answers_over_shared_method_names(calls: &[(&str, Value)]) -> Vec<String> {
     answers_over(
         &[
@@ -1145,8 +1145,8 @@ fn answers_over_shared_method_names(calls: &[(&str, Value)]) -> Vec<String> {
             ),
             (
                 "src/run.rs",
-                "use crate::cancel::CancelToken;\n\npub fn stop(token: &CancelToken) -> bool {\n    \
-                 token.cancel();\n    token.is_cancelled()\n}\n",
+                "use crate::cancel::CancelToken;\n\npub fn stop(tokens: &[CancelToken]) -> bool { \
+                 let token = &tokens[0];\n    token.cancel();\n    token.is_cancelled()\n}\n",
             ),
             (
                 "src/index.rs",
@@ -1161,13 +1161,15 @@ fn answers_over_shared_method_names(calls: &[(&str, Value)]) -> Vec<String> {
             ),
             (
                 "src/state.rs",
-                "use crate::engine::Engine;\n\npub fn refresh(engine: &mut Engine, paths: &[&str]) -> usize {\n    \
+                "use crate::engine::Engine;\n\npub fn refresh(engines: &mut [Engine], paths: &[&str]) -> usize { \
+                 let engine = &mut engines[0];\n    \
                  if paths.len() > engine.refresh_paths_limit() {\n        return 0;\n    }\n    \
                  engine.refresh_paths(paths)\n}\n",
             ),
             (
                 "src/scan.rs",
-                "use crate::index::Index;\n\npub fn scan(index: &mut Index) -> usize {\n    \
+                "use crate::index::Index;\n\npub fn scan(indexes: &mut [Index]) -> usize { \
+                 let index = &mut indexes[0];\n    \
                  index.refresh_paths(&[\"a.rs\"])\n}\n",
             ),
         ],

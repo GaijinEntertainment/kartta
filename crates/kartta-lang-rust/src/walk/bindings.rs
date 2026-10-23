@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ops::Range;
 
 use kartta_lang::tree::named_child_nodes;
 use tree_sitter::Node;
@@ -8,11 +9,12 @@ use super::Emitter;
 // constraint: a region hides the names bound in it: a function and a closure their parameters, a match arm its
 // pattern, a `for` its pattern in its body, an `if let` or a `while let` its pattern in the operands after it and the
 // branch it runs on a match, and a block its `let`s; a function's region ends the lookup, as an item sees no local of
-// the function around it
+// the function around it; `declared` spans a function's parameters of a declared type among the parameter types
 pub(super) struct Region<'a> {
     end: usize,
     function: bool,
     names: HashSet<&'a [u8]>,
+    declared: Range<usize>,
 }
 
 // constraint: a binding hides its names from the end of what it reads on, as `let helper = helper` and
@@ -34,7 +36,9 @@ pub(super) enum Into {
 impl<'a> Emitter<'a> {
     pub(super) fn track_bindings(&mut self, node: Node<'_>) {
         let start = node.start_byte();
-        while self.regions.pop_if(|region| region.end <= start).is_some() {}
+        while let Some(region) = self.regions.pop_if(|region| region.end <= start) {
+            self.parameter_types.truncate(region.declared.start);
+        }
         while let Some(pending) = self.pending_bindings.pop_if(|pending| pending.at <= start) {
             self.activate(pending, start);
         }
@@ -45,6 +49,10 @@ impl<'a> Emitter<'a> {
                 let parameters = node.child_by_field_name("parameters");
                 let names = self.parameter_names(parameters);
                 self.open_region(node, true, names);
+                let declared = self.push_parameter_types(node);
+                if let Some(region) = self.regions.last_mut() {
+                    region.declared = declared;
+                }
             }
             "closure_expression" => {
                 let parameters = node.child_by_field_name("parameters");
@@ -106,6 +114,7 @@ impl<'a> Emitter<'a> {
                 end,
                 function: false,
                 names: pending.names.into_iter().collect(),
+                declared: self.parameter_types.len()..self.parameter_types.len(),
             }),
             Into::Opened(_) => {}
         }
@@ -123,6 +132,7 @@ impl<'a> Emitter<'a> {
             end: node.end_byte(),
             function,
             names: names.into_iter().collect(),
+            declared: self.parameter_types.len()..self.parameter_types.len(),
         });
     }
 
@@ -160,6 +170,23 @@ impl<'a> Emitter<'a> {
             }
         }
         false
+    }
+
+    // constraint: the innermost binding of the name decides, so a `let`, a closure's parameter or a pattern that binds
+    // the name again hides the type its parameter is declared as
+    pub(super) fn declared_type(&self, spelled: &[u8]) -> Option<Range<usize>> {
+        for region in self.regions.iter().rev() {
+            if region.names.contains(spelled) {
+                return self.parameter_types[region.declared.clone()]
+                    .iter()
+                    .find(|(name, _)| *name == spelled)
+                    .map(|(_, written)| written.clone());
+            }
+            if region.function {
+                break;
+            }
+        }
+        None
     }
 }
 

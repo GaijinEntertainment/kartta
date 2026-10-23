@@ -21,10 +21,17 @@
 //! `a::Worker` when the file declares that module. A member call on anything but a name records the empty receiver, and
 //! one on a lowercase name other than `other` records the name after a `.`, `.socket` for `socket.connect()`, since
 //! alone it would read as the module that a path call, `socket::connect()`, names; `Fish.write()` records `Fish`. A
-//! macro invocation is a call of the macro. A call of an item that a function body declares is a local call of that
-//! item. A bare call of a name that a pattern binds, a parameter, a `let`, a closure's parameter, a match arm, a `for`
-//! or an `if let`, as `helper()` in `fn f(helper: fn())` or `run()` after `let run = || {};`, calls the value the name
-//! holds and is no call, whatever the file imports or declares under the name.
+//! method call on a parameter its function declares `T`, `&T`, `&mut T`, `T<'a>`, `Box<T>`, `Rc<T>`, `Arc<T>`, `Self`,
+//! `impl Trait` or `dyn Trait` records the type instead, `Ranking` for `ranking.offer()` in
+//! `fn offer(ranking: &mut Ranking)`, where a `use` outside every function body brings it from outside the toolchain's
+//! crates, a path names it through another crate or the file's own, the file declares it and no `use` brings it, or a
+//! top-level glob from outside the toolchain's crates may bring it and the prelude does not name it, since a crate of
+//! the tree that declares a namesake of a standard library type, `File` or `Vec`, holds another type. A type
+//! parameter and a name a `let`, a closure or a pattern binds again keep the value's name. A macro invocation is a
+//! call of the macro. A call of an item that a function body declares is a local call of that item. A bare call of a
+//! name that a pattern binds, a parameter, a `let`, a closure's parameter, a match arm, a `for` or an `if let`, as
+//! `helper()` in `fn f(helper: fn())` or `run()` after `let run = || {};`, calls the value the name holds and is no
+//! call, whatever the file imports or declares under the name.
 //!
 //! A call written in a macro's arguments, `assert!(C.opens(x))`, is a call of the function around the macro, as one
 //! outside it is, for the macros of any crate. The grammar reads the arguments as tokens, so the walk takes a name, a
