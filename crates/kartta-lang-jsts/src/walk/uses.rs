@@ -1,6 +1,7 @@
 use kartta_lang::{Access, FILE_SCOPE, Receiver, SymbolId, SymbolKind, UseRef};
 use tree_sitter::Node;
 
+use super::context::literal_annotation;
 use super::{Binding, Emitter, Span};
 use crate::syntax::start_line;
 
@@ -99,6 +100,7 @@ impl Emitter<'_> {
             Some(Binding::Value(typed) | Binding::Module(typed)) => {
                 typed.map_or_else(String::new, |span| self.spelled(span))
             }
+            Some(Binding::Contextual(span)) => self.spelled(*span),
             Some(Binding::Imported | Binding::Type | Binding::Declared) | None => {
                 String::from_utf8_lossy(name).into_owned()
             }
@@ -111,7 +113,7 @@ impl Emitter<'_> {
             .or_else(|| self.module_bindings.get(name))
     }
 
-    fn spelled(&self, (start, end): Span) -> String {
+    pub(super) fn spelled(&self, (start, end): Span) -> String {
         String::from_utf8_lossy(&self.source[start..end]).into_owned()
     }
 
@@ -195,17 +197,7 @@ fn access_of(site: Node<'_>) -> Access {
 }
 
 fn literal_type(object: Node<'_>) -> Option<Span> {
-    let parent = object.parent()?;
-    let annotation = match parent.kind() {
-        "variable_declarator" | "public_field_definition" | "field_definition"
-            if parent.child_by_field_name("value") == Some(object) =>
-        {
-            parent.child_by_field_name("type")?
-        }
-        "as_expression" | "satisfies_expression" => parent.named_child(1)?,
-        _ => return None,
-    };
-    annotated_type(annotation)
+    annotated_type(literal_annotation(object)?)
 }
 
 pub(super) fn constructed_type(declarator: Node<'_>) -> Option<Span> {

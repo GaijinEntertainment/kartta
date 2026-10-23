@@ -527,6 +527,52 @@ fn a_receiver_the_caller_declares_names_no_type() {
 }
 
 #[test]
+fn a_parameter_its_context_types_names_the_type_the_context_spells() {
+    let extraction = extracted(
+        "src/f.ts",
+        "type Replay<M> = (kartta: Kartta, params: M) => void;\n\
+         interface Handlers { open(store: Store): void; close: (pool: Pool) => void; }\n\
+         type Wrapped = Replay<number>;\n\
+         type Generic<T> = (value: T, rest: Rest) => void;\n\
+         const replays: { [M in keyof Methods]: Replay<M> } = { build: (kartta, params) => kartta.build(params) };\n\
+         const one: Replay<number> = (kartta) => kartta.one();\n\
+         const handlers: Handlers = { open(store) { store.open(); }, close: (pool) => pool.close() };\n\
+         const wrapped: Wrapped = function (kartta) { kartta.wrapped(); };\n\
+         const inline = { run: (task) => task.run() } satisfies { run: (task: Task) => void };\n\
+         const keyed: { [key: string]: (job: Job) => void } = { any: (job) => job.start() };\n\
+         const generic: Generic<Widget> = (value, rest) => { value.go(); rest.go(); };\n\
+         const typed: Replay<number> = (kartta: Other) => kartta.typed();\n\
+         const untyped = { run: (task) => task.run() };\n\
+         type Pair = (first: First, second: Second) => void;\n\
+         const mixed: Pair = (first: Other, second) => { first.left(); second.right(); };\n\
+         type Deep1 = Deep2;\ntype Deep2 = Deep3;\ntype Deep3 = (deep: Deep) => void;\n\
+         const deep: Deep1 = (deep) => deep.down();\n\
+         type Loop1 = Loop2;\ntype Loop2 = Loop1;\nconst looped: Loop1 = (value) => value.around();\n",
+    );
+
+    assert_eq!(
+        calls(&extraction),
+        [
+            ("build", Some("Kartta")),
+            ("one", Some("Kartta")),
+            ("open", Some("Store")),
+            ("close", Some("Pool")),
+            ("wrapped", Some("Kartta")),
+            ("run", Some("Task")),
+            ("start", Some("Job")),
+            ("go", Some("")),
+            ("go", Some("Rest")),
+            ("typed", Some("")),
+            ("run", Some("")),
+            ("left", Some("")),
+            ("right", Some("Second")),
+            ("down", Some("Deep")),
+            ("around", Some("")),
+        ]
+    );
+}
+
+#[test]
 fn a_declared_value_names_no_type_only_inside_the_scope_that_declares_it() {
     let extraction = extracted(
         "src/f.ts",
