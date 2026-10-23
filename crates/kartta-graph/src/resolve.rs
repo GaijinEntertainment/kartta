@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -743,52 +743,66 @@ impl<'g> Cascade<'g> {
     }
 
     // constraint: a module's file can hold what its module exports through a re-export, a macro or an inline module
-    // its definitions do not show, so a name it does not define at its top level leaves the call to the tiers below;
-    // a type shares its name with a function only where the language keeps types apart from values, as Rust's
-    // `struct kevent` beside the `extern` function `kevent`, so the call names the function
+    // its definitions do not show, so a name it does not define at its top level goes on to a macro that a file below
+    // exports and then to the tiers below; a type shares its name with a function only where the language keeps types
+    // apart from values, as Rust's `struct kevent` beside the `extern` function `kevent`, so the call names the
+    // function; a call does not say whether it was written `mac()` or `mac!()`, which in Rust name a function and a
+    // macro apart, so a name the file exports as both binds neither
     fn module_export(&self, call: &Call, module: u32) -> Option<Bound> {
         let defined = self.graph.in_file(self.named(call.callee), module);
-        let Some(at) = self
+        let mut answers = self
             .call_targets(call.caller_at(), defined.iter().copied())
-            .filter(|&at| {
-                let symbol = self.graph.sym(at);
-                symbol.owner.is_none()
-                    && symbol.qualified_name == symbol.name
-                    && self.holder(at).is_none()
-                    && !self.graph.flags(at).is_test()
-            })
+            .filter(|&at| self.at_top_level(at));
+        let Some(at) = answers
+            .clone()
             .min_by_key(|&at| self.graph.sym(at).kind.is_type())
         else {
             return self.macro_exported_below(call, module);
         };
-        self.graph
-            .sym(at)
-            .exported
+        let is_macro = |at: SymbolAt| self.graph.sym(at).kind == SymbolKind::Macro;
+        let exported = |at: SymbolAt| self.graph.sym(at).exported;
+        (exported(at) && !answers.any(|other| exported(other) && is_macro(other) != is_macro(at)))
             .then_some((at, confidence::IMPORT))
+    }
+
+    fn at_top_level(&self, at: SymbolAt) -> bool {
+        let symbol = self.graph.sym(at);
+        symbol.owner.is_none()
+            && symbol.qualified_name == symbol.name
+            && self.holder(at).is_none()
+            && !self.graph.flags(at).is_test()
     }
 
     // constraint: Rust's `#[macro_export]` places a macro at its crate's root whatever module defines it, so a name the
     // module's file does not define binds the one exported macro of the name that a file it includes, directly or
-    // through others, defines; two leave the call to the tiers below
+    // through others, defines; two leave the call to the tiers below, and so does a name the module answers otherwise,
+    // as a function of an included file or a `use` of the file does, since a call does not say it invokes a macro
     fn macro_exported_below(&self, call: &Call, module: u32) -> Option<Bound> {
-        let mut closure = None;
-        let mut exported = self.named(call.callee).iter().copied().filter(|&at| {
-            let symbol = self.graph.sym(at);
-            symbol.kind == SymbolKind::Macro
-                && symbol.exported
-                && at.file != module
-                && self.holder(at).is_none()
-                && !self.graph.flags(at).is_test()
+        let closure = OnceCell::new();
+        let below = |at: SymbolAt| {
+            self.at_top_level(at)
                 && closure
-                    .get_or_insert_with(|| self.closure(module))
+                    .get_or_init(|| self.closure(module))
                     .binary_search(&at.file)
                     .is_ok()
+        };
+        let named = self.named(call.callee).iter().copied();
+        let mut exported = named.clone().filter(|&at| {
+            let symbol = self.graph.sym(at);
+            symbol.kind == SymbolKind::Macro && symbol.exported && at.file != module && below(at)
         });
         let at = exported.next()?;
-        exported
-            .next()
-            .is_none()
-            .then_some((at, confidence::IMPORT))
+        if exported.next().is_some() || self.binding(module, call.callee).is_some() {
+            return None;
+        }
+        let answered_otherwise = named.clone().any(|other| {
+            let symbol = self.graph.sym(other);
+            symbol.kind != SymbolKind::Macro
+                && symbol.exported
+                && self.is_call_target(symbol.kind)
+                && below(other)
+        });
+        (!answered_otherwise).then_some((at, confidence::IMPORT))
     }
 
     fn unadmitted(&self, call: &Call) -> Miss {
