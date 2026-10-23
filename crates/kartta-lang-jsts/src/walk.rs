@@ -206,7 +206,9 @@ impl<'s> Emitter<'s> {
                 self.type_declaration(node, SymbolKind::TypeAlias, Vec::new());
                 self.push_type_scope(node);
             }
-            "enum_declaration" => self.type_declaration(node, SymbolKind::Enum, Vec::new()),
+            "enum_declaration" => {
+                self.type_declaration(node, SymbolKind::Enum, Vec::new());
+            }
             "lexical_declaration" | "variable_declaration" => self.decls.push(DeclScope {
                 end: node.end_byte(),
                 kind: declarator_kind(node),
@@ -539,15 +541,18 @@ impl<'s> Emitter<'s> {
         self.push_type_scope(node);
     }
 
-    fn type_declaration(&mut self, node: Node<'_>, kind: SymbolKind, parents: Vec<String>) {
-        let Some(name) = node.child_by_field_name("name") else {
-            return;
-        };
+    fn type_declaration(
+        &mut self,
+        node: Node<'_>,
+        kind: SymbolKind,
+        parents: Vec<String>,
+    ) -> Option<SymbolId> {
+        let name = node.child_by_field_name("name")?;
 
         let mut symbol = self.member(type_name(name, self.source), kind, node);
         symbol.parents = parents;
         symbol.exported = self.is_export_target(node);
-        self.raw.push_symbol(symbol);
+        Some(self.raw.push_symbol(symbol))
     }
 
     fn declarator(&mut self, node: Node<'_>) {
