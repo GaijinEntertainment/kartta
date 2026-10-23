@@ -705,8 +705,9 @@
   - Governs: `crates/kartta-ffi`, `crates/kartta-ffi/include/kartta.h`, `crates/kartta-ffi/src/wire/`, `bindings/go`
   - Revisit if: a consumer's answers grow large enough that encoding them as JSON shows beside the query
 - [4.3 Reach the engine from Node through an addon over the same
-  dispatch](./adr/4.3-reach-the-engine-from-node-through-an-addon-over-the-same-dispatch.md) — initiative
-  `04-consumer-surfaces`, 2026-10-18, revised 2026-10-22
+  dispatch](./adr/4.3-reach-the-engine-from-node-through-an-addon-over-the-same-dispatch.md)
+  - Governs: `crates/kartta-node/src/lib.rs`, `bindings/node/src/{kartta,wire}.ts`
+  - Revisit if: Node gains a stable, asynchronous FFI that can call the C ABI without an addon
 - [4.4 Follow the indexed tree, and refresh it on
   request](./adr/4.4-follow-the-indexed-tree-and-refresh-it-on-request.md) — initiative `04-consumer-surfaces`,
   2026-10-18, revised 2026-10-22
@@ -793,6 +794,21 @@
   replay](./adr/4.36-pin-each-wire-method-in-a-golden-file-both-bindings-replay.md)
   - Governs: `crates/kartta-ffi/tests/golden/`, `crates/kartta-ffi/tests/golden.rs`, `bindings/go/kartta/golden_test.go`
   - Revisit if: a score other than through `ln_1p` differs between platforms by more than a relative 1e-12
+- [4.40 Ship the Node addon as one npm package per
+  target](./adr/4.40-ship-the-node-addon-as-one-npm-package-per-target.md)
+  - Governs: `bindings/node/npm/`, `bindings/node/src/target.ts`, `bindings/node/src/kartta.ts` (`load`),
+    `bindings/node/package.json` (`engines`)
+  - Revisit if: a consumer asks for Windows or Linux with musl
+- [4.41 Check the Node package with the Vite+ that its lockfile
+  pins](./adr/4.41-check-the-node-package-with-the-vite-plus-that-its-lockfile-pins.md)
+  - Governs: `bindings/node/{package.json,package-lock.json,.nvmrc,vite.config.ts,tsconfig.json,scripts/build.ts}`,
+    the `node` job of `.github/workflows/ci.yml`
+  - Revisit if: the maintainers' other packages leave Vite+
+- [4.42 Stop a Node call by a binding id its handle gives
+  it](./adr/4.42-stop-a-node-call-by-a-binding-id-its-handle-gives-it.md)
+  - Governs: `bindings/node/src/kartta.ts` (`Kartta.build`, `Kartta.refresh`, `Kartta.grep`, `Kartta.call`,
+    `Kartta.close`)
+  - Revisit if: a consumer keeps more than 1,024 calls of one kind waiting to enter the library at once
 
 ## Deprecated
 
