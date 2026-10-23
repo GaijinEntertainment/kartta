@@ -2061,6 +2061,87 @@ fn a_member_taken_on_a_value_is_a_use_spelled_with_its_type_and_how_it_is_touche
     );
 }
 
+#[test]
+fn a_positional_struct_literal_writes_the_fields_its_file_declares_in_order() {
+    let raw = extract(
+        br#"package svc
+
+import "example.com/a"
+
+type P struct{ X, Y int }
+
+type (
+	Row struct {
+		Base
+		_    int
+		Name string
+	}
+	Rows  []Row
+	Point = P
+)
+
+func Build() {
+	type pair struct{ L, R string }
+	_ = P{1, 2}
+	_ = &Point{3, 4}
+	_ = []P{{5, 6}}
+	_ = map[string]P{"k": {7, 8}}
+	_ = [...]*P{{9, 10}}
+	_ = Rows{{Base{}, 0, "r"}}
+	_ = pair{"l", "r"}
+	cases := []struct{ in, want string }{{"a", "A"}}
+	_ = cases
+	_ = Remote{1, 2}
+	_ = a.Options{true}
+	_ = P{7}
+}
+"#,
+    );
+    let writes: Vec<(&str, &str, u32)> = members(&raw)
+        .into_iter()
+        .filter(|&(_, _, access, _)| access == Access::Write)
+        .map(|(name, path, _, line)| (name, path, line))
+        .collect();
+
+    assert_eq!(
+        writes,
+        [
+            ("X", "P", 19),
+            ("Y", "P", 19),
+            ("X", "Point", 20),
+            ("Y", "Point", 20),
+            ("X", "P", 21),
+            ("Y", "P", 21),
+            ("X", "P", 22),
+            ("Y", "P", 22),
+            ("X", "P", 23),
+            ("Y", "P", 23),
+            ("Name", "Rows[]", 24),
+            ("L", "pair", 25),
+            ("R", "pair", 25),
+            ("in", "{Build·cases}", 26),
+            ("want", "{Build·cases}", 26),
+        ],
+        "each element writes the field in its place, an embedded or blank field takes a place and records nothing, and \
+         a type the file does not declare or a literal that does not set every field records none"
+    );
+}
+
+#[test]
+fn a_positional_literal_follows_eight_names_to_its_struct_and_a_cycle_records_nothing() {
+    let raw = extract(
+        b"package svc\n\ntype S struct{ X int }\n\ntype (\n\tA1 = S\n\tA2 = A1\n\tA3 = A2\n\tA4 = A3\n\t\
+          A5 = A4\n\tA6 = A5\n\tA7 = *A6\n\tL1 B1\n\tB1 L1\n)\n\n\
+          var _ = []A7{{1}}\nvar _ = L1{2}\n",
+    );
+
+    assert_eq!(
+        members(&raw),
+        [("X", "A7", Access::Write, 17)],
+        "eight names reach the struct, a pointer among them counting none, and a cycle of names records nothing"
+    );
+}
+
 fn values(raw: &RawExtraction) -> Vec<(&str, Access, u32)> {
     raw.uses
         .iter()
