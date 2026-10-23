@@ -179,7 +179,7 @@ fn is_test_path(path: &str) -> bool {
     let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
 
     path.split('/')
-        .any(|component| matches!(component, "test" | "tests"))
+        .any(|component| matches!(component, "test" | "tests" | "Tests" | "testData"))
         || stem.ends_with("_test")
         || stem.starts_with("test_")
 }

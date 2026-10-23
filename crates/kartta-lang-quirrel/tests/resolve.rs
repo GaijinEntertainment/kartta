@@ -368,12 +368,19 @@ fn a_test_path_marks_the_symbols_as_test_code() {
     for path in [
         "tests/thing.nut",
         "ui/test/thing.nut",
+        "quirrel/testData/exec/misc.nut",
+        "AssetViewer/Tests/tests_quirrel.nut",
         "thing_test.nut",
         "test_thing.nut",
     ] {
         assert!(flags(path).is_test(), "{path}");
     }
-    for path in ["ui/thing.nut", "testing/thing.nut", "contest.nut"] {
+    for path in [
+        "ui/thing.nut",
+        "testing/thing.nut",
+        "prog/latestData/thing.nut",
+        "contest.nut",
+    ] {
         assert!(!flags(path).is_test(), "{path}");
     }
 }
