@@ -721,6 +721,11 @@
   - Governs: `crates/kartta-lang-cpp/src/repair.rs` (`Tables`, `GENERATED_PARSER_MARKS`, `data_token_len`)
   - Revisit if: a generated `parser.c` no longer includes `tree_sitter/parser.h` and defines `LANGUAGE_VERSION` before
     its first brace, or its tables spell a definition a graph holds
+- [3.166 Break a Quirrel member call's tie by the tables its receiver
+  reaches](./adr/3.166-break-a-quirrel-member-call-s-tie-by-the-tables-its-receiver-reaches.md)
+  - Governs: `kartta_lang::UntypedOwners`, `crates/kartta-graph/src/scope.rs` (`scoped`, `one_owner_reached_by_name`,
+    `spells`), `crates/kartta-lang-quirrel/src/lib.rs` (`CONVENTIONS`)
+  - Revisit if: the Quirrel walk records the type a file-scope binding holds
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
   - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
