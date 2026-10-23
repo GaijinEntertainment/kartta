@@ -71,7 +71,8 @@ impl<'a> Emitter<'a> {
     }
 
     // constraint: a key of a struct literal names a field the literal writes, and a key of a map, slice or array
-    // literal is a value; a literal of an anonymous struct, or of a type the walk cannot name, keeps none
+    // literal is a value; a literal of a type the walk cannot name, an anonymous struct assigned to no name among them,
+    // keeps none
     pub(super) fn record_literal_key(&mut self, keyed: Node<'_>, owner: SymbolId) {
         let Some(key) = keyed
             .child_by_field_name("key")
@@ -101,7 +102,6 @@ impl<'a> Emitter<'a> {
         };
         match holder.kind() {
             "composite_literal" => match holder.child_by_field_name("type") {
-                Some(written) if written.kind() == "struct_type" => Keys::Unknown,
                 Some(written) if is_container_type(written) => {
                     Keys::Values(self.type_path(written))
                 }
