@@ -258,9 +258,11 @@
 - [3.8 Extract only the daslang a file opts into gen2](./adr/3.8-extract-only-the-daslang-a-file-opts-into-gen2.md)
   - Governs: `crates/kartta-lang-daslang/src/walk.rs` (`opts_into_gen2`)
   - Revisit if: first-generation files appear in reviews as often as second-generation ones
-- [3.9 Resolve a Quirrel import through the nearest .sqconfig, and name a function value by its
-  binding](./adr/3.9-resolve-a-quirrel-import-through-the-nearest-sqconfig.md) — initiative `03-code-graph`, 2026-10-16,
-  revised 2026-10-23
+- [3.9 Resolve a Quirrel import through the nearest
+  .sqconfig](./adr/3.9-resolve-a-quirrel-import-through-the-nearest-sqconfig.md)
+  - Governs: `crates/kartta-lang-quirrel/src/{resolve,sqconfig}.rs`, `crates/kartta-lang-quirrel/src/walk.rs`
+    (`BANNER`)
+  - Revisit if: a script tree mounts its roots somewhere other than a `.sqconfig`
 - [3.10 Resolve a BLK include as the engine loads it, and read the mount table from the files that state it by
   name](./adr/3.10-resolve-a-blk-include-as-the-engine-loads-it.md) — initiative `03-code-graph`, 2026-10-16, revised
   2026-10-17
@@ -457,6 +459,22 @@
   - Governs: `crates/kartta-lang-daslang/src/walk.rs` (`anonymous_scope`, `block_call`, `constructor`, `new_call`,
     `data_macro`, `data_arguments`, `data_block`, `splice`)
   - Revisit if: the daScript macro library adds a macro whose compiler class reads an argument as syntax
+- [3.142 Take the one file that differs only in case where a game's vromfs loads
+  it](./adr/3.142-take-the-one-file-that-differs-only-in-case-where-a-game-s-vromfs-loads-it.md)
+  - Governs: `crates/kartta-lang-quirrel/src/resolve.rs` (`loaded`)
+  - Revisit if: a script no `.sqconfig` governs names a file in another case alone
+- [3.143 Name a Quirrel function value by its binding](./adr/3.143-name-a-quirrel-function-value-by-its-binding.md)
+  - Governs: `crates/kartta-lang-quirrel/src/walk.rs` (`function_value`, `value_binding`, `module_table_name`,
+    `data_field`, `class_name`, `assignment_target`, `is_squirrel_extends`)
+  - Revisit if: importers reach a module's slots through the table rather than through a `from` import's bare names
+- [3.144 Record no Quirrel call through a parameter or a
+  local](./adr/3.144-record-no-quirrel-call-through-a-parameter-or-a-local.md)
+  - Governs: `crates/kartta-lang-quirrel/src/walk.rs` (`call`, `bare_call`, `declared_names`, `finish`)
+  - Revisit if: the walk learns which definition a parameter or a local holds
+- [3.145 List the methods the game engine binds on Quirrel's native
+  values](./adr/3.145-list-the-methods-the-game-engine-binds-on-quirrel-s-native-values.md)
+  - Governs: `crates/kartta-lang-quirrel/src/runtime.rs`, `crates/kartta-lang-quirrel/src/lib.rs` (`CONVENTIONS`)
+  - Revisit if: the Quirrel extraction records the type a value holds for its member calls
 - [3.150 Resolve a Go import to the package the go command
   builds](./adr/3.150-resolve-a-go-import-to-the-package-the-go-command-builds.md)
   - Governs: `crates/kartta-lang-go/src/resolve.rs`, `crates/kartta-graph/src/resolve.rs` (`read_bindings`,
