@@ -14,8 +14,9 @@
 //! by the module alone, is no member of a class around that function, and is local to the function's body. A decorated
 //! definition starts at its first decorator. A name that starts with `_` is not exported.
 //!
-//! Inside a definition, a class body included, each read, write (`=`) and update (`+=`) of an attribute or a
-//! module-level value is a data site. An attribute on a method's first parameter is a member of the class around the
+//! Inside a definition, a class body included, and outside every definition, at file scope, each read, write (`=`)
+//! and update (`+=`) of an attribute or a module-level value is a data site; where the module binds a name is no site
+//! of it. An attribute on a method's first parameter is a member of the class around the
 //! method; on a name no function around it binds, a class or a module, a member of that owner; on anything else a
 //! member of a value of no known type. A name that no function around it binds, or that a `global` declaration gives
 //! the module, uses the module's name wherever the module binds it, by an import, an assignment, a `def` or a `class`,
