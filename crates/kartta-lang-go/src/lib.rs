@@ -37,9 +37,10 @@
 //!
 //! A name outside a call that names a package-level type or a member of an imported package — a type in a signature or
 //! a declaration, a conversion, `pkg.Member` — is a use, attributed to the symbol whose declaration holds it. A field
-//! or method selected from a value without a call, `c.Limit`, and a key of a struct literal, `Config{Limit: 5}`, are
-//! uses whose receiver is the value's type path, as a member call's is; the keys of a literal of an anonymous struct
-//! assigned to no name, an argument or a returned value, name no field. A name a local binding covers is no use of
+//! or method selected from a value without a call, `c.Limit`, a key of a struct literal, `Config{Limit: 5}`, and an
+//! element of one without keys whose struct the file declares, `Config{5}`, are uses whose receiver is the value's
+//! type path, as a member call's is; the keys and elements of a literal of an anonymous struct assigned to no name, an
+//! argument or a returned value, name no field. A name a local binding covers is no use of
 //! what it would otherwise name. The graph judges a type, a field and a package-level value dead through these uses
 //! ([`TypeUses::Every`], [`DataUses::Every`]).
 //!
