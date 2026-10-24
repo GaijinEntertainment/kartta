@@ -32,6 +32,9 @@
 //!   binding, a loop variable, a function declared inside a function body, the name of a function expression inside
 //!   it — records the empty receiver, because a value's name names no type; an import binding, a class, a namespace
 //!   and a class declared in a nearer scope keep their name.
+//! - A variable or a constant a function body declares by one name, unless a function or a class is its value, is
+//!   local to that body: no use binds it, a call of its name inside the scope that declares it calls it, and a read or
+//!   a call of a namesake the module declares never binds it.
 //! - Data sites inside a definition, each a read, a write (`=`, a key of an object literal whose type is written
 //!   beside it) or an update (`+=`, `++`): a member taken without a call, on `this` as a member of the class around
 //!   the method, on a value whose declaration spells one type, `p: Props` or `new Pool()`, as a member of that type,

@@ -1,4 +1,4 @@
-use kartta_lang::{Access, Extraction, Language, Receiver, TypeUses};
+use kartta_lang::{Access, Extraction, Language, Receiver, SymbolId, TypeUses};
 
 use super::{extracted, names};
 use crate::TypeScript;
@@ -143,6 +143,85 @@ fn a_called_member_a_local_and_a_use_outside_every_definition_record_no_use() {
             ("boot", "ready", path("api"), Access::Read, 7),
             ("boot", "api", Receiver::Bare, Access::Read, 7),
         ]
+    );
+}
+
+#[test]
+fn a_variable_or_a_constant_a_body_declares_is_local_to_it_and_a_call_of_its_name_calls_it() {
+    let extraction = extracted(
+        "src/load.ts",
+        "const limit = 2;\n\
+         function f() {\n    const resp = g();\n    let run = make(), Box = class {};\n    \
+         const cfg: Config = load();\n    const done = () => resp.ok;\n    run();\n    new Box();\n    \
+         return resp.ok && limit && cfg.port;\n}\n",
+    );
+
+    let locals: Vec<&str> = (extraction.local_symbols.iter())
+        .map(|id| extraction.symbols[id.0 as usize].name.as_str())
+        .collect();
+    assert_eq!(
+        locals,
+        ["resp", "run", "cfg"],
+        "a function or a class value is no local, nor is the module's constant"
+    );
+    let typed: Vec<_> = (uses(&extraction).into_iter())
+        .filter(|&(_, name, ..)| name == "port")
+        .collect();
+    assert_eq!(
+        typed,
+        [("f", "port", path("Config"), Access::Read, 9)],
+        "a member of a local names the type its declaration spells"
+    );
+    let local_calls: Vec<(&str, &str, u32)> = (extraction.local_calls.iter())
+        .map(|call| {
+            let name = |id: SymbolId| extraction.symbols[id.0 as usize].name.as_str();
+            (name(call.site_of), name(call.local), call.line)
+        })
+        .collect();
+    assert_eq!(local_calls, [("f", "run", 7)]);
+    assert!(!(extraction.calls.iter()).any(|call| call.callee == "run"));
+    let reads: Vec<&str> = (uses(&extraction).into_iter())
+        .filter(|(_, _, receiver, ..)| *receiver == Receiver::Bare)
+        .map(|(_, name, ..)| name)
+        .collect();
+    assert_eq!(reads, ["limit"], "no use binds a local");
+}
+
+#[test]
+fn a_call_before_a_local_s_declaration_or_after_a_var_s_block_calls_the_local() {
+    let extraction = extracted(
+        "src/later.js",
+        "function outer() {\n    const wrap = () => later();\n    if (ready) { var held = make(); }\n    \
+         held();\n    const later = make();\n    function inner(later) { later(); }\n    \
+         { const later = make(); }\n}\nfunction later() {}\nfunction after() { later(); }\n",
+    );
+
+    let local_calls: Vec<(&str, &str, u32)> = (extraction.local_calls.iter())
+        .map(|call| {
+            let name = |id: SymbolId| extraction.symbols[id.0 as usize].name.as_str();
+            let local = &extraction.symbols[call.local.0 as usize];
+            (name(call.site_of), local.name.as_str(), local.line)
+        })
+        .collect();
+    assert_eq!(
+        local_calls,
+        [("wrap", "later", 5), ("outer", "held", 3)],
+        "a closure calls the later local of its scope, and a `var` is its function's"
+    );
+    let calls: Vec<(&str, u32)> = (extraction.calls.iter())
+        .filter(|call| call.receiver.is_none())
+        .map(|call| (call.callee.as_str(), call.line))
+        .collect();
+    assert_eq!(
+        calls,
+        [
+            ("make", 3),
+            ("make", 5),
+            ("later", 6),
+            ("make", 7),
+            ("later", 10)
+        ],
+        "a parameter and a block's local hide nothing outside their scope"
     );
 }
 
