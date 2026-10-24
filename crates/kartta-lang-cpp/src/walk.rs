@@ -2681,6 +2681,59 @@ TEST(Suite, Case) { int in_macro = 0; }
     }
 
     #[test]
+    fn data_a_preprocessor_conditional_holds_at_namespace_scope_is_data_of_each_branch() {
+        let raw = extract(
+            b"#ifndef G_H\n#define G_H\n\nextern float rc_fov_mult;\nstatic const int k_guarded = 3;\n\n\
+              #ifdef BUILD_NUMBER\nstatic const int g_build = BUILD_NUMBER;\n#else\nstatic const int g_build = -1;\n\
+              #endif\n\n#endif\n\nextern float outside_guard;\nstatic const int k_outside = 4;\n\
+              int get() { return k_guarded; }\n\nnamespace ns {\n#if A\nint a_if;\n#elif B\nint b_elif;\n#endif\n}\n\
+              void f() {\n#ifdef X\n  int local_in_cond = 1;\n#endif\n}\n\
+              struct S {\n#ifdef X\n  int field_in_cond;\n#endif\n};\n",
+        );
+
+        let data: Vec<(&str, SymbolKind, u32)> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| {
+                matches!(
+                    symbol.kind,
+                    SymbolKind::Variable | SymbolKind::Constant | SymbolKind::Field
+                )
+            })
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.kind, symbol.line))
+            .collect();
+        assert_eq!(
+            data,
+            [
+                ("rc_fov_mult", SymbolKind::Variable, 4),
+                ("k_guarded", SymbolKind::Constant, 5),
+                ("g_build", SymbolKind::Constant, 8),
+                ("g_build", SymbolKind::Constant, 10),
+                ("outside_guard", SymbolKind::Variable, 15),
+                ("k_outside", SymbolKind::Constant, 16),
+                ("ns::a_if", SymbolKind::Variable, 21),
+                ("ns::b_elif", SymbolKind::Variable, 23),
+                ("S::field_in_cond", SymbolKind::Field, 33),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_conditional_holding_a_parse_error_holds_no_data() {
+        let raw = extract(
+            b"#ifdef D\nint cut_beside_error;\n}\n#endif\n#ifdef D\nint kept_beside_valid;\n#endif\n",
+        );
+
+        let data: Vec<&str> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| matches!(symbol.kind, SymbolKind::Variable | SymbolKind::Constant))
+            .map(|symbol| symbol.qualified_name.as_str())
+            .collect();
+        assert_eq!(data, ["kept_beside_valid"]);
+    }
+
+    #[test]
     #[expect(
         clippy::too_many_lines,
         reason = "the fixture and the table of the members it declares are one fact, and split neither reads alone"
