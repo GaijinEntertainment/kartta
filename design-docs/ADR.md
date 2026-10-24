@@ -369,8 +369,8 @@
     would cost
 - [3.34 Record each read and write of a field or a value, and bind it when a query
   asks](./adr/3.34-record-each-read-and-write-of-a-field-or-a-value.md)
-  - Governs: `kartta_lang::{UseRef, Receiver, Access, ValueUses, UntypedMembers, OwnMembers, DataUses}`,
-    `crates/kartta-graph/src/{resolve,members,typed,calls}.rs`, `Graph::references`, `SiteQuery`
+  - Governs: `kartta_lang::{UseRef, Receiver, Access, DataUses}`, `crates/kartta-graph/src/{resolve,calls}.rs`,
+    `Graph::references`
   - Revisit if: binding a name's uses when asked grows past the answer's budget
 - [3.35 Pick a shared name's symbol by its path, and list the
   others](./adr/3.35-pick-a-shared-name-s-symbol-by-its-path-and-list-the-others.md)
@@ -764,6 +764,21 @@
     (`own_members`, `inherited_members`)
   - Revisit if: a language's scope finds a bare name through a step these tiers do not model, or ranks its steps in
     another order
+- [3.173 Bind a use of a field or a value by what its receiver
+  names](./adr/3.173-bind-a-use-of-a-field-or-a-value-by-what-its-receiver-names.md)
+  - Governs: `crates/kartta-graph/src/resolve.rs` (`resolve_use`, `member_use`, `value_use`, `bare_use`,
+    `imported_value`), `crates/kartta-graph/src/{members,typed}.rs`,
+    `kartta_lang::{ValueUses, UntypedMembers, OwnMembers}`
+  - Revisit if: a language's walk names the type of the values whose path it leaves empty, or the type path stops
+    binding what the source reads
+- [3.174 Mark a use as a type apart from a read](./adr/3.174-mark-a-use-as-a-type-apart-from-a-read.md)
+  - Governs: `kartta_lang::Access::Type`, the walks of `kartta-lang-go` and `kartta-lang-python`, `Graph::references`
+    (`SiteQuery` access)
+  - Revisit if: a third language records the types its declarations name, and its sites of a type split otherwise
+- [3.175 Answer the references of a field or a value by
+  access](./adr/3.175-answer-the-references-of-a-field-or-a-value-by-access.md)
+  - Governs: `Graph::references`, `SiteQuery`, `crates/kartta-graph/src/calls.rs`
+  - Revisit if: agents ask for a field's sites by a distinction the four accesses do not draw
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
   - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
