@@ -795,6 +795,11 @@
     `is_set_apart`)
   - Revisit if: a `tree-sitter-cpp` release reads a lone identifier before a `}` as an error the parser recovers from
     locally
+- [3.179 Bind a Rust call by name only within the crates its crate is built
+  with](./adr/3.179-bind-a-rust-call-by-name-only-within-the-crates-its-crate-is-built-with.md)
+  - Governs: `kartta_lang::Extraction::dependencies`, `crates/kartta-lang-rust/src/{manifest,resolve}.rs`,
+    `crates/kartta-graph/src/{graph,candidates,resolve,scope}.rs`
+  - Revisit if: the Rust walk records the crate each `use` brings in
 - [3.180 Bind a C++ call on a declared class through the class nearest the caller's
   file](./adr/3.180-bind-a-c-plus-plus-call-on-a-declared-class-through-the-class-nearest-the-caller-s-file.md)
   - Governs: `crates/kartta-graph/src/scope.rs` (`member_of_a_reached_owner`, `member_of_a_reached_class`,
