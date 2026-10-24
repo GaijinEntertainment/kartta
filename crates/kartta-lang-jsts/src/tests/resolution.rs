@@ -41,7 +41,11 @@ fn a_name_imported_from_a_package_outside_the_repository_is_bound_outside_it() {
                   import { Gone } from \"./missing\";\n\
                   import { Served } from \"/scripts/served.js\";\n\
                   import \"./side-effect.css\";\n\
-                  const lazy = require(\"lodash\");\n";
+                  const lazy = require(\"lodash\");\n\
+                  const { readFileSync, stat: s, mode = 0, ...rest } = require(\"fs\");\n\
+                  const local = require(\"./dialog\");\n\
+                  const member = require(\"chalk\").default;\n\
+                  require(\"dotenv\");\n";
 
     let extraction = resolved("src/app.tsx", source, &files);
 
@@ -61,8 +65,13 @@ fn a_name_imported_from_a_package_outside_the_repository_is_bound_outside_it() {
             (Some("Dialog"), None, "react"),
             (Some("F"), None, "react"),
             (Some("path"), None, "node:path"),
+            (Some("lazy"), None, "lodash"),
+            (Some("readFileSync"), None, "fs"),
+            (Some("s"), None, "fs"),
+            (Some("mode"), None, "fs"),
+            (Some("rest"), None, "fs"),
         ],
-        "a package of the repository, a path that resolves or not, and a require bind nothing"
+        "a package of the repository, a path that resolves or not, and a require no declarator takes whole bind nothing"
     );
 }
 
