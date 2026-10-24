@@ -22,9 +22,9 @@ A block applied in place keeps its calls in the enclosing `def`; a block stored 
 A function's address, `@@f`, the one form daslang passes a function as a value in, is a use of `f`, which binds the
 function of the name its own file declares, else the one a file it requires exports, else the one such a file declares
 `private`, as a call of the name binds it; `@@mod::f` binds the `f` its own file declares where `mod` is its own
-module, and as `mod::f()` does otherwise. The conventions list `self` as
-the receiver of a value of the caller's own type, so `super.m()` and a member call on another name, `child.init()`
-inside an `init`, bind no member of the caller's own class.
+module, and as `mod::f()` does otherwise. The conventions list `self` as the receiver of a value of the caller's own
+type, so a member call on another name, `child.init()` inside an `init`, binds no member of the caller's own class, and
+`super` as the receiver of the caller's base class, so `super.m()` binds the base's `m`.
 
 Code that a macro takes as data runs where its result is compiled, not where it is written, so a call or a construction
 in it is no call of the enclosing `def`: `quote(foo())` calls `quote` and uses `foo`, which the compiled code names.

@@ -408,7 +408,7 @@
   lists](./adr/3.41-bind-the-caller-s-own-owner-only-on-the-receivers-a-language-lists.md)
   - Governs: `kartta_lang::Conventions::own_type_receivers`, `crates/kartta-graph/src/scope.rs`
     (`member_of_the_caller_s_owner`)
-  - Revisit if: `parent::m()` and `super.m()` bind the base's member (#186)
+  - Revisit if: a list of PHP receivers reaches 90% on a sample taken with `parent::m()` out of the tier
 - [3.42 Read transitive includes for a name few definitions
   share](./adr/3.42-read-transitive-includes-for-a-name-few-definitions-share.md)
   - Governs: `kartta_lang::IncludeReach`, `crates/kartta-graph/src/resolve.rs` (`included`, `through_includes`,
@@ -737,6 +737,13 @@
   - Governs: `kartta_lang::BareReceivers`, `crates/kartta-graph/src/resolve.rs` (`resolve_by_name`,
     `names_a_class_outside_the_graph`), `crates/kartta-lang-php/src/lib.rs` (`CONVENTIONS`)
   - Revisit if: the PHP extraction reads a `use … as` alias
+- [3.168 Bind a call through the base receiver to the base class's
+  member](./adr/3.168-bind-a-call-through-the-base-receiver-to-the-base-class-s-member.md)
+  - Governs: `kartta_lang::Conventions::base_receivers`, `crates/kartta-graph/src/scope.rs`
+    (`member_of_the_caller_s_base`, `held_by_a_base`, `base_types`), `crates/kartta-graph/src/resolve.rs`
+    (`resolve_by_tiers`), the `Conventions` of `kartta-lang-quirrel`, `kartta-lang-daslang` and `kartta-lang-php`
+  - Revisit if: the extraction records the class a base's alias names, or a language whose base receiver names a base
+    by a qualified name lists one
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
   - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
