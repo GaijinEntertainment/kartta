@@ -87,7 +87,10 @@
 //! otherwise, one directory deeper for each inline module around the declaration. A package is a directory that holds
 //! a `Cargo.toml`, and its crate roots are its library's root, read below, and the files of Cargo's conventional
 //! layout: `src/lib.rs`, `src/main.rs`, `build.rs`, and each target under `src/bin/`, `examples/`, `tests/` and
-//! `benches/`. A top-level `fn main` in a crate root other than the library is the entry point.
+//! `benches/`. A top-level `fn main` in a crate root other than the library is the entry point. A file's package is
+//! the nearest package around it, named by the path of its manifest, so of the types of one name that a call's
+//! receiver names, the one the caller's own package declares binds before another's, as two versions of one crate in
+//! a cargo registry are told apart.
 //!
 //! A package's library is named by its manifest's `[lib] name`, else by its `[package] name` with `-` read as `_`, and
 //! lies at its `[lib] path`, else at `src/lib.rs`, each value read only from a `key = "value"` on one line under its

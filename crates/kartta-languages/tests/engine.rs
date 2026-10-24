@@ -11,9 +11,10 @@
 //! own file that the path does not name, and a Rust call on a value, on `self` or through a
 //! type binds no free function, not even through a value named like a module the file imports, while a call on a
 //! value still binds the one runtime method whose owner the value's name spells, one on a parameter the method of the
-//! type the parameter is declared as, and a bare call through a parameter or a local binds nothing. A JavaScript bare
-//! call of a name imported from a package binds no namesake of the project, unless the caller's file defines it. A
-//! Python call of a builtin binds a function of its name only where its file imports or defines that name.
+//! type the parameter is declared as, of the caller's own package where two versions of its crate declare that type,
+//! and a bare call through a parameter or a local binds nothing. A JavaScript bare call of a name imported from a
+//! package binds no namesake of the project, unless the caller's file defines it. A Python call of a builtin binds a
+//! function of its name only where its file imports or defines that name.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -1139,6 +1140,45 @@ fn a_rust_call_on_a_parameter_binds_the_method_of_the_type_the_parameter_is_decl
             .collect::<Vec<_>>(),
         [("offer", 13, confidence::RECEIVER)]
     );
+}
+
+#[test]
+fn a_rust_call_on_a_type_two_versions_of_its_crate_declare_binds_the_method_of_the_caller_s_copy() {
+    let manifest =
+        |version: &str| format!("[package]\nname = \"hashbrown\"\nversion = \"{version}\"\n");
+    let (old, new) = (manifest("0.14.5"), manifest("0.15.5"));
+    let raw = "pub struct RawTable;\n\nimpl RawTable {\n    pub fn reserve(&mut self) {}\n}\n";
+    let map =
+        "use crate::raw::RawTable;\n\nfn insert(table: &mut RawTable) {\n    table.reserve();\n}\n";
+    let tree = tree_of(&[
+        ("hashbrown-0.14.5/Cargo.toml", &old),
+        ("hashbrown-0.14.5/src/lib.rs", "mod map;\nmod raw;\n"),
+        ("hashbrown-0.14.5/src/map.rs", map),
+        ("hashbrown-0.14.5/src/raw/mod.rs", raw),
+        ("hashbrown-0.15.5/Cargo.toml", &new),
+        ("hashbrown-0.15.5/src/lib.rs", "mod map;\nmod raw;\n"),
+        ("hashbrown-0.15.5/src/map.rs", map),
+        ("hashbrown-0.15.5/src/raw/mod.rs", raw),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    for copy in ["hashbrown-0.14.5", "hashbrown-0.15.5"] {
+        let (_, graph) = engine
+            .graph_of(&format!("{copy}/src/map.rs"))
+            .expect("a language claims the file");
+        let callees = graph
+            .callees(
+                Selector::new("insert", Some(&format!("{copy}/")[..])),
+                Limits::new(1),
+            )
+            .expect("the name is defined");
+        assert_eq!(
+            (callees.reached.iter())
+                .map(|reached| (reached.symbol.file, reached.confidence))
+                .collect::<Vec<_>>(),
+            [(&format!("{copy}/src/raw/mod.rs")[..], confidence::RECEIVER)]
+        );
+    }
 }
 
 #[test]

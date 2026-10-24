@@ -3,7 +3,7 @@ use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::iter;
 
-use kartta_lang::path::{base, dir, join, shared_segments};
+use kartta_lang::path::{base, child, dir, join, shared_segments};
 use kartta_lang::{
     Extraction, ImportBinding, IncludeRef, RawDirective, RawExtraction, Repository, Resolver,
     SymbolFlags,
@@ -352,6 +352,10 @@ impl Resolver for Crates {
             root: OnceCell::new(),
         };
         let role = &caller.role;
+        extraction.package = self
+            .packages
+            .contains_key(role.package)
+            .then(|| child(role.package, "Cargo.toml"));
         let flags = SymbolFlags::empty()
             .with_test(role.test)
             .with_generated(is_generated_path(path));
