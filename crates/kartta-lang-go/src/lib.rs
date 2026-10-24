@@ -11,14 +11,14 @@
 //! or a literal alias (`type T = struct{}`); any other alias, `type X = Y`, is a type alias, and any other defined
 //! type, `type H func()`, a defined type. An anonymous struct with a field that a struct field's or a variable's type
 //! spells, behind pointers and containers too, or that a literal `:=` or `var` assigns to a name spells,
-//! `tests := []struct{...}{...}`, is a struct named by the names that lead to it, `{Server·Limits}` for the field
-//! `Limits` of `Server` and `{settings}` for `var settings struct{...}`: its fields are owned by that name and
-//! qualified by those names, `api.Server.Limits.MaxConns`, and the field's or the variable's value is of that name, so
-//! a type path through it reaches them. A value a body declares names its struct after the callable too,
-//! `{TestRun·tests}`, since one file's bodies often declare one name. An embedded field or interface is a parent of its
-//! type, and so is the interface of a compile-time assertion (`var _ I = T{}`, `&T{}`, `new(T)` or `(*T)(nil)`). An
-//! assertion whose type the file does not declare is recorded as an assertion, for the graph to apply where it sees the
-//! whole package.
+//! `tests := []struct{...}{...}`, is no symbol: the field or the variable it types owns its fields, `Limits` for the
+//! field `Limits` of `Server`, and they are qualified by the names that lead to them, `api.Server.Limits.MaxConns`. A
+//! `:=` name that owns such a struct is a variable of its body. The owner's value is the struct, spelled `{N}` for the
+//! owner's index in the file, so a type path through it reaches the fields, and the owner holds the types the struct
+//! embeds. A value a body declares qualifies its fields by the callable too, `api.TestRun.tests.name`. An embedded
+//! field or interface is a parent of its type, and so is the interface of a compile-time assertion (`var _ I = T{}`,
+//! `&T{}`, `new(T)` or `(*T)(nil)`). An assertion whose type the file does not declare is recorded as an assertion, for
+//! the graph to apply where it sees the whole package.
 //!
 //! A call records its callee and, for a member call, its receiver as a type path
 //! ([`Receivers::TypePaths`]): the type of the operand's value, as far as the

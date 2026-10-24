@@ -9,12 +9,13 @@ extension is `go`, in any case.
 
 Every function, method, type, interface member, struct field, constant and `var`-declared variable is a symbol,
 qualified by the package clause: `api.Serve`, and `api.Server.Close` for a member of `Server`; a `:=` declaration is a
-local binding, not a symbol. An anonymous struct with a field that a struct field's or a variable's type spells, behind
-pointers and containers too, or that a literal `:=` or `var` assigns to a name spells, `tests := []struct{...}{...}`, is
-a struct named by the names that lead to it, `{Server·Limits}` for the field `Limits` of `Server`, `{settings}` for
-`var settings struct{...}` and `{TestRun·tests}` for a body's `tests`; its fields are owned by that name and qualified
-by those names, `api.Server.Limits.MaxConns`. An embedded type is a parent of the type that embeds it, and so is the
-interface of a compile-time assertion such as `var _ io.Reader = (*File)(nil)`.
+local binding, not a symbol, unless the name it declares takes a literal of an anonymous struct with a field. An
+anonymous struct with a field that a struct field's or a variable's type spells, behind pointers and containers too, or
+that a literal `:=` or `var` assigns to a name spells, `tests := []struct{...}{...}`, is no symbol: the field or the
+variable it types owns its fields, `Limits` for the field `Limits` of `Server` and `tests` for a body's `tests`, and
+holds the types the struct embeds; the fields are qualified by the names that lead to them, `api.Server.Limits.MaxConns`
+and `api.TestRun.tests.name`. An embedded type is a parent of the type that embeds it, and so is the interface of a
+compile-time assertion such as `var _ io.Reader = (*File)(nil)`.
 
 A call records its callee and, for a member call, its receiver as a type path: the type of the operand's value, as far
 as the file's declarations spell it. `s.client.Do()` in `func f(s *Server)` records `Server.client`, and `w.draw()` in

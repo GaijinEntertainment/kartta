@@ -75,9 +75,7 @@ impl Emitter<'_> {
             .filter(|(_, name)| name.kind() == "identifier");
         for (position, name) in names {
             let name = text(name, self.source);
-            let reassigned =
-                (self.locals.iter()).any(|local| local.block == block && local.name == name);
-            if !reassigned {
+            if !self.is_reassigned(&name, block) {
                 self.locals.push(Local {
                     from,
                     block,
@@ -87,6 +85,11 @@ impl Emitter<'_> {
                 });
             }
         }
+    }
+
+    // constraint: a `:=` name its block declares already is assigned, not declared
+    pub(super) fn is_reassigned(&self, name: &str, block: Block) -> bool {
+        (self.locals.iter()).any(|local| local.block == block && local.name == name)
     }
 
     pub(super) fn is_local(&self, name: &str, at: usize) -> bool {

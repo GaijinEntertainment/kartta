@@ -1,40 +1,27 @@
-use kartta_lang::SymbolKind;
+use kartta_lang::SymbolId;
 use kartta_lang::tree::child_nodes;
 use tree_sitter::Node;
 
 use super::Emitter;
+use super::locals::Block;
 use super::syntax::{first_operand, parents_of};
-use super::types::{bounded, is_container_type};
+use super::types::is_container_type;
 
-// constraint: the graph reads a type path's first name up to a `.`, `(` or `[` and finds it among the package's
-// declarations (ADR 3.29), so an anonymous struct's name joins the names that lead to it with a rune no Go identifier
-// holds and no path step starts with, and its braces keep it apart from the variable it types: `{Server·Limits}`
-const JOIN: &str = "\u{b7}";
+/// An anonymous struct the walk declares: its type, the scope that qualifies its fields, and the position of the name
+/// that owns them among the names of its declaration.
+pub(super) type Anonymous<'t> = (Node<'t>, String, usize);
 
 impl<'a> Emitter<'a> {
+    // constraint: the graph reads a path's `{N}` as the field or the variable at index N of the path's file, which owns
+    // the fields of the struct it types (ADR 3.170), and no Go identifier or path step holds a brace
     pub(super) fn anonymous_name(&self, struct_type: Node<'_>) -> Option<String> {
-        self.anonymous.get(&struct_type.id()).cloned()
+        self.anonymous
+            .get(&struct_type.id())
+            .map(|host| format!("{{{}}}", host.0))
     }
 
-    // constraint: a body may declare two values of one name, and the graph finds a type local to a body by its name
-    // in the file, so a name the file has given already takes a count, which no identifier's name can end in; a name
-    // past a type path's bound is given to no struct, as no path could reach it
-    fn name_anonymous(&mut self, struct_type: Node<'_>, scope: &str) {
-        let joined = scope.replace('.', JOIN);
-        let name = if let Some(count) = self.anonymous_counts.get_mut(&joined) {
-            *count += 1;
-            format!("{{{joined}{JOIN}{count}}}")
-        } else {
-            let name = format!("{{{joined}}}");
-            self.anonymous_counts.insert(joined, 1);
-            name
-        };
-        if let Some(name) = bounded(name) {
-            self.anonymous.insert(struct_type.id(), name);
-        }
-    }
-
-    // constraint: the fields of one declaration share their type, so its struct is named after the first of them
+    // constraint: the fields of one declaration share their type, so its struct is owned by the first of them, the
+    // symbol the walk declares next
     pub(super) fn name_field_struct<'t>(
         &mut self,
         field: Node<'t>,
@@ -46,9 +33,9 @@ impl<'a> Emitter<'a> {
             .children_by_field_name("name", &mut cursor)
             .map(|name| self.borrowed(name))
             .find(|&name| name != "_")?;
-        let field_scope = format!("{scope}.{first}");
-        self.name_anonymous(struct_type, &field_scope);
-        Some((struct_type, field_scope))
+        self.anonymous
+            .insert(struct_type.id(), SymbolId(self.symbol_count));
+        Some((struct_type, format!("{scope}.{first}")))
     }
 
     pub(super) fn first_named(&self, names: &[Node<'_>]) -> Option<&'a str> {
@@ -58,12 +45,12 @@ impl<'a> Emitter<'a> {
             .find(|&name| name != "_")
     }
 
-    // constraint: the graph finds a type local to a body by its name in the file, and two bodies of a file often
-    // declare one name, `tests`, so a value a body declares is named after the callable that holds it too
+    // constraint: a value a body declares qualifies its struct's fields by the callable that holds it too,
+    // `app.TestRun.tests.name`, since two bodies of a file often declare one name, `tests`
     pub(super) fn name_value_struct<'t>(
         &mut self,
         written: Node<'t>,
-        name: &str,
+        (name, host): (&str, SymbolId),
     ) -> Option<(Node<'t>, String)> {
         let struct_type = anonymous_struct(written)?;
         let caller = self
@@ -78,40 +65,51 @@ impl<'a> Emitter<'a> {
             .and_then(|qualified| qualified.strip_prefix(self.package.as_str()))
             .and_then(|qualified| qualified.strip_prefix('.'));
         let scope = caller.map_or_else(|| name.to_owned(), |caller| format!("{caller}.{name}"));
-        self.name_anonymous(struct_type, &scope);
+        self.anonymous.insert(struct_type.id(), host);
         Some((struct_type, scope))
     }
 
-    // constraint: a literal's type is the type of a name only where the values line up with the names
+    // constraint: a literal's type is the type of a name only where the values line up with the names; each name of a
+    // `var` spec is a symbol, and a `:=` name of the block given is one only where it declares a value whose literal's
+    // struct needs an owner
     pub(super) fn name_literal_structs<'t>(
         &mut self,
-        names: &[Node<'t>],
-        values: &[Node<'t>],
-    ) -> Vec<(Node<'t>, String)> {
+        (names, values): (&[Node<'t>], &[Node<'t>]),
+        short: Option<Block>,
+    ) -> Vec<Anonymous<'t>> {
         if names.len() != values.len() {
             return Vec::new();
         }
         let mut found = Vec::new();
-        for (&name, &value) in names.iter().zip(values) {
+        let mut host = self.symbol_count;
+        for (position, (&name, &value)) in names.iter().zip(values).enumerate() {
             let name = self.borrowed(name);
-            let Some(written) = literal_type(value).filter(|_| name != "_") else {
+            if name == "_" {
                 continue;
-            };
-            found.extend(self.name_value_struct(written, name));
+            }
+            let owned = literal_type(value)
+                .filter(|_| short.is_none_or(|block| !self.is_reassigned(name, block)))
+                .and_then(|written| self.name_value_struct(written, (name, SymbolId(host))));
+            if short.is_none() || owned.is_some() {
+                host += 1;
+            }
+            found.extend(owned.map(|(struct_type, scope)| (struct_type, scope, position)));
         }
         found
     }
 
+    // constraint: the symbol that owns an anonymous struct's fields holds the types the struct embeds
     pub(super) fn declare_anonymous(&mut self, struct_type: Node<'_>, scope: &str) {
-        let Some(name) = self.anonymous_name(struct_type) else {
+        let Some(&host) = self.anonymous.get(&struct_type.id()) else {
             return;
         };
-        let mut symbol = self.declared(SymbolKind::Struct, struct_type, (None, name.clone()));
-        symbol.parents = parents_of(struct_type, self.source);
-        self.push_symbol(symbol);
+        let parents = parents_of(struct_type, self.source);
+        let host = &mut self.raw.symbols[host.0 as usize];
+        host.parents.extend(parents);
+        let owner = host.name.clone();
         let fields = child_nodes(struct_type).filter(|field| field.kind() == "field_declaration");
         for field in fields {
-            self.field_names(field, (&name, scope));
+            self.field_names(field, (&owner, scope));
         }
     }
 }
@@ -128,7 +126,7 @@ pub(super) fn literal_type(value: Node<'_>) -> Option<Node<'_>> {
 }
 
 // constraint: `struct{}` holds nothing a use can name, and a set's `map[K]struct{}` or a signal's `chan struct{}`
-// spell it everywhere, so only a struct with a field takes a name
+// spell it everywhere, so only a struct with a field takes an owner
 fn anonymous_struct(written: Node<'_>) -> Option<Node<'_>> {
     match written.kind() {
         "struct_type" => child_nodes(written)
