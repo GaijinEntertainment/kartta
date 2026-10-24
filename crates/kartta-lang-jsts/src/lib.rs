@@ -122,8 +122,8 @@ mod tsconfig;
 mod walk;
 
 use kartta_lang::{
-    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver, TypeUses,
-    UntypedMembers, ValueUses,
+    Conventions, DocComments, IncludedRuntimeMembers, Language, OwnMembers, RawExtraction,
+    Repository, Resolver, TypeUses, UntypedMembers, ValueUses,
 };
 
 use crate::flavor::Flavor;
@@ -137,6 +137,7 @@ const CONVENTIONS: Conventions = {
     conventions.owner_chain_separator = Some(".");
     conventions.bare_call_reaches_enclosing_owners = true;
     conventions.runtime_methods = runtime::METHODS;
+    conventions.included_runtime_members = IncludedRuntimeMembers::SpelledOrOwn;
     conventions.value_uses = ValueUses::Imported;
     conventions.untyped_members = UntypedMembers::Unbound;
     conventions.type_uses = TypeUses::Nowhere;
