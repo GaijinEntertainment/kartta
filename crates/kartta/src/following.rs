@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use foldhash::fast::FixedState;
 use kartta_fs::{BuildError, ContentId, Index, RefreshOutcome};
@@ -248,7 +249,7 @@ impl Following {
         }
         for (family, wanted) in wanted.iter_mut().enumerate() {
             if let Some(Some(configuration)) = self.resolvers.configurations.get(family) {
-                *wanted = reaches(configuration, reached, outcome);
+                *wanted = reaches(configuration, (reached, outcome), resolving.index.root());
             }
         }
 
@@ -476,13 +477,17 @@ const fn bit_of(key: u32, words: usize) -> (usize, u64) {
 }
 
 /// Whether a refresh may have changed what a resolver read while it was built: an answer to one of its questions, or a
-/// file it read inside a part the refresh walked again.
-fn reaches(configuration: &Configuration, reached: &Reached, outcome: &RefreshOutcome) -> bool {
+/// file it read inside a part the refresh walked again whose stamp under `root` does not match the one it read under.
+fn reaches(
+    configuration: &Configuration,
+    (reached, outcome): (&Reached, &RefreshOutcome),
+    root: &Path,
+) -> bool {
     configuration.asked.iter().any(|&key| reached.holds(key))
         || configuration
             .read
             .iter()
-            .any(|path| outcome.walked_over(path))
+            .any(|read| outcome.walked_over(&read.path) && !read.unchanged(root))
 }
 
 #[cfg(test)]
