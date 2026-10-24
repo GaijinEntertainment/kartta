@@ -125,8 +125,7 @@
 - [1.43 Read the rules above a refreshed part again on each
   call](./adr/1.43-read-the-rules-above-a-refreshed-part-again-on-each-call.md)
   - Governs: `crates/kartta-fs/src/index/scoped.rs` (`Rewalk::rules_above`), `crates/kartta-fs/src/policy.rs`
-  - Revisit if: the parts' own stats leave the calling thread, so the rules become the larger share of a call over a
-    network mount
+  - Revisit if: the rules become the larger share of a call over a network mount, so a kept rule may pay
 - [1.44 Answer where a refresh walked and where its kept entries
   went](./adr/1.44-answer-where-a-refresh-walked-and-where-its-kept-entries-went.md)
   - Governs: `crates/kartta-fs/src/index.rs` (`RefreshOutcome::walked_over`, `RefreshOutcome::kept_positions`,
@@ -135,7 +134,12 @@
 - [1.45 Read a named refresh's files on the index's
   threads](./adr/1.45-read-a-named-refresh-s-files-on-the-index-s-threads.md)
   - Governs: `crates/kartta-fs/src/index/scoped.rs` (`Rewalk::found`, `Rewalk::read_on_threads`)
-  - Revisit if: the stats and rules the calling thread keeps become a large share of a call
+  - Revisit if: the stats and rules the calling thread keeps in turn become a large share of a call on a local disk
+- [1.46 Ask a slow mount about a named refresh's parts side by
+  side](./adr/1.46-ask-a-slow-mount-about-a-named-refresh-s-parts-side-by-side.md)
+  - Governs: `crates/kartta-fs/src/index/scoped.rs` (`Index::parts_of`, `Rewalk::on_disk`, `Rewalk::read_rules`,
+    `in_turn_then_side_by_side`, `side_by_side`, `WAITING_THREADS`)
+  - Revisit if: a platform answers a stat without a waiting thread, or asks under 200 µs each add up to most of a call
 - [1.50 Match gitignore rules with gix-ignore](./adr/1.50-match-gitignore-rules-with-gix-ignore.md)
   - Governs: `crates/kartta-fs/src/rules.rs`
   - Revisit if: `gix-ignore` stops being maintained or diverges from git's matching
