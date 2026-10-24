@@ -1835,6 +1835,63 @@ fn a_receiver_that_names_an_owner_two_directories_declare_binds_the_one_beside_t
 }
 
 #[test]
+fn a_receiver_that_names_an_owner_two_packages_declare_binds_the_one_of_the_caller_s_package() {
+    let in_package = |mut extraction: Extraction, package: &str| {
+        extraction.package = Some(package.to_owned());
+        extraction
+    };
+    let put = || vec![member("Buffer", "put", SymbolKind::Method, 1)];
+    let run = || vec![function("run", 1)];
+    let call = || vec![member_call(0, "Buffer", "put", 2)];
+    let graph = graph_of(
+        Conventions::default(),
+        &[
+            in_package(file("a-1/src/raw/buffer.rs", put(), Vec::new()), "a-1"),
+            in_package(file("a-2/src/raw/buffer.rs", put(), Vec::new()), "a-2"),
+            in_package(file("a-2/src/write.rs", run(), call()), "a-2"),
+            file("b/src/write.rs", run(), call()),
+            in_package(file("c/src/buffer.rs", put(), Vec::new()), "c-1"),
+            in_package(file("c/src/write.rs", run(), call()), "c-2"),
+            in_package(file("c-2/buffer.rs", put(), Vec::new()), "c-2"),
+        ],
+    );
+    let go_graph = graph_of(
+        go(),
+        &[
+            in_package(file("a/buffer.go", put(), Vec::new()), "main"),
+            in_package(file("b/buffer.go", put(), Vec::new()), "buffer"),
+            in_package(file("c/write.go", run(), call()), "buffer"),
+        ],
+    );
+    let callees_from = |graph: &Graph, path: &str| {
+        let walk = graph
+            .callees(Selector::new("run", Some(path)), Limits::new(1))
+            .expect("the name selects a symbol");
+        reached(&walk)
+    };
+
+    assert_eq!(
+        callees_from(&graph, "a-2/src/write.rs"),
+        ["a-2/src/raw/buffer.rs:1@85"]
+    );
+    assert_eq!(
+        callees_from(&graph, "b/src/write.rs"),
+        ["a-1/src/raw/buffer.rs:1@85"],
+        "a caller of no package takes the first in path order"
+    );
+    assert_eq!(
+        callees_from(&graph, "c/src/write.rs"),
+        ["c/src/buffer.rs:1@85"],
+        "the caller's directory comes before its package"
+    );
+    assert_eq!(
+        callees_from(&go_graph, "c/write.go"),
+        ["a/buffer.go:1@85"],
+        "where packages are directories, a package of the same name elsewhere is another one"
+    );
+}
+
+#[test]
 fn a_bare_name_selects_a_callable_before_a_field_of_that_name() {
     let graph = graph(&[
         file(

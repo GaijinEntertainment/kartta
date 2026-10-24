@@ -1007,9 +1007,11 @@ impl Cascade<'_> {
     }
 
     // constraint: owners of one name in several directories, a package's own type and a copy of it elsewhere, are told
-    // apart by nearness: the caller's file, then its directory, then the first in path order; one class reopened in
-    // several files holds both kinds of member where any of its bodies does, so the kind the receiver reaches first
-    // is told apart before nearness
+    // apart by nearness: the caller's file, then its directory, then its package, as two versions of one crate in a
+    // cargo registry are, then the first in path order; where packages are directories the directory is the package,
+    // and a package of the same declared name elsewhere is another one; one class reopened in several files holds both
+    // kinds of member where any of its bodies does, so the kind the receiver reaches first is told apart before
+    // nearness
     fn nearest(
         &self,
         call: &Call,
@@ -1027,11 +1029,23 @@ impl Cascade<'_> {
         call: &Call,
         mut owned: impl Iterator<Item = SymbolAt> + Clone,
     ) -> Option<SymbolAt> {
-        let dir = self.graph.file(call.file).dir;
+        let caller = self.graph.file(call.file);
         owned
             .clone()
             .find(|at| at.file == call.file)
-            .or_else(|| owned.clone().find(|at| self.graph.file(at.file).dir == dir))
+            .or_else(|| {
+                owned
+                    .clone()
+                    .find(|at| self.graph.file(at.file).dir == caller.dir)
+            })
+            .or_else(|| {
+                let package = caller
+                    .package
+                    .filter(|_| !self.conventions.directory_packages)?;
+                owned
+                    .clone()
+                    .find(|at| self.graph.file(at.file).package == Some(package))
+            })
             .or_else(|| owned.next())
     }
 
