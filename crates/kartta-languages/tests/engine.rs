@@ -13,13 +13,13 @@
 //! value still binds the one runtime method whose owner the value's name spells, one on a parameter the method of the
 //! type the parameter is declared as, of the caller's own package where two versions of its crate declare that type,
 //! a bare call through a parameter or a local binds nothing, a call through a type its wasm-bindgen `static_method_of`
-//! or `constructor` function, and a call through a type the tree does not declare,
-//! `Vec::new()`, binds no member of another type. A JavaScript bare call of a name imported from a package binds no
-//! namesake of the project, unless the caller's file defines it. A TypeScript or JavaScript call of a runtime method on
-//! a value binds an imported class's member of its name only where its receiver spells the class, and an imported
-//! interface's member on any value. A Python call of a builtin binds a function of its name only where its file
-//! imports or defines that name, and a Python call through or of a name that an import of a module outside the tree
-//! binds binds no namesake of the project.
+//! or `constructor` function, and a call through a type the tree does not declare, `Vec::new()`, binds no member of
+//! another type; a Rust call binds by name only within the crates its crate is built with. A JavaScript bare call of a
+//! name imported from a package binds no namesake of the project, unless the caller's file defines it. A TypeScript or
+//! JavaScript call of a runtime method on a value binds an imported class's member of its name only where its receiver
+//! spells the class, and an imported interface's member on any value. A Python call of a builtin binds a function of
+//! its name only where its file imports or defines that name, and a Python call through or of a name that an import of
+//! a module outside the tree binds binds no namesake of the project.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -1413,6 +1413,128 @@ fn a_rust_call_through_a_type_the_tree_does_not_declare_binds_no_member_of_anoth
             ],
             0
         )
+    );
+}
+
+#[test]
+fn a_rust_call_binds_by_name_only_within_the_crates_its_crate_is_built_with() {
+    let config = |caller: &str| {
+        format!(
+            "pub struct Config;\n\nimpl Config {{\n    pub fn default() -> Self {{\n        Config\n    }}\n}}\n\n\
+             fn {caller}() {{\n    Config::default();\n}}\n"
+        )
+    };
+    let core = config("in_core")
+        + "\npub fn parse_config() {}\n\nfn not_built_with() {\n    Settings::load();\n}\n";
+    let owning = |owner: &str, method: &str| {
+        format!("pub struct {owner};\n\nimpl {owner} {{\n    pub fn {method}() {{}}\n}}\n")
+    };
+    let (util, bench) = (owning("Settings", "load"), owning("Harness", "run"));
+    let net = config("in_net")
+        + "\nstruct Watcher;\n\nimpl Watcher {\n    fn new() -> Self {\n        Watcher\n    }\n}\n\n\
+           fn depended_on() {\n    Options::new();\n    parse_config();\n    Config::default().reload();\n}\n";
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/app/Cargo.toml",
+            "[package]\nname = \"app\"\n\n[dependencies]\nnet = { path = \"../net\" }\n",
+        ),
+        (
+            "crates/app/src/lib.rs",
+            "pub struct Options;\n\nimpl Options {\n    pub fn new() -> Self {\n        Options\n    }\n\n    \
+             pub fn reload(&self) {}\n}\n\nfn depending() {\n    Config::default();\n    parse_config();\n    \
+             Settings::load();\n    Harness::run();\n}\n",
+        ),
+        ("crates/bench/Cargo.toml", "[package]\nname = \"bench\"\n"),
+        ("crates/bench/src/lib.rs", &bench),
+        ("crates/core/Cargo.toml", "[package]\nname = \"core\"\n"),
+        ("crates/core/src/lib.rs", &core),
+        (
+            "crates/net/Cargo.toml",
+            "[package]\nname = \"net\"\n\n[dependencies]\nutil = \"1\"\n\n[dev-dependencies]\nbench = \"1\"\n",
+        ),
+        ("crates/net/src/lib.rs", &net),
+        ("crates/util/Cargo.toml", "[package]\nname = \"util\"\n"),
+        ("crates/util/src/lib.rs", &util),
+    ]);
+    let engine = build(&tree, &["rust"]);
+    let default_of = |path| vec![("default", SymbolKind::Method, path)];
+
+    assert_eq!(
+        callees(&engine, "crates/app/src/lib.rs", "depending"),
+        (
+            vec![
+                ("default", SymbolKind::Method, "crates/net/src/lib.rs"),
+                ("load", SymbolKind::Method, "crates/util/src/lib.rs"),
+            ],
+            2
+        )
+    );
+    assert_eq!(
+        callees(&engine, "crates/core/src/lib.rs", "not_built_with"),
+        (vec![], 1)
+    );
+    assert_eq!(
+        callees(&engine, "crates/net/src/lib.rs", "in_net"),
+        (default_of("crates/net/src/lib.rs"), 0)
+    );
+    assert_eq!(
+        callees(&engine, "crates/core/src/lib.rs", "in_core"),
+        (default_of("crates/core/src/lib.rs"), 0)
+    );
+    assert_eq!(
+        callees(&engine, "crates/net/src/lib.rs", "depended_on"),
+        (default_of("crates/net/src/lib.rs"), 3)
+    );
+}
+
+#[test]
+fn a_rust_name_crowded_past_the_candidate_index_binds_only_outside_tests_of_a_crate_built_with() {
+    let settings = "pub struct Settings;\n\nimpl Settings {\n    pub fn load() {}\n}\n";
+    let crowd: Vec<(String, &str)> = (0..64)
+        .flat_map(|n| {
+            [
+                (
+                    format!("crates/c{n}/Cargo.toml"),
+                    "[package]\nname = \"crowd\"\n",
+                ),
+                (format!("crates/c{n}/src/lib.rs"), settings),
+            ]
+        })
+        .collect();
+    let mut files = vec![
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/app/Cargo.toml",
+            "[package]\nname = \"app\"\n\n[dependencies]\nutil = { path = \"../util\" }\n",
+        ),
+        (
+            "crates/app/src/lib.rs",
+            "fn depending() {\n    Settings::load();\n}\n",
+        ),
+        ("crates/lone/Cargo.toml", "[package]\nname = \"lone\"\n"),
+        (
+            "crates/lone/src/lib.rs",
+            "fn built_with_none() {\n    Settings::load();\n}\n",
+        ),
+        ("crates/util/Cargo.toml", "[package]\nname = \"util\"\n"),
+        ("crates/util/src/lib.rs", settings),
+        ("crates/util/tests/stub.rs", settings),
+    ];
+    files.extend(crowd.iter().map(|(path, source)| (path.as_str(), *source)));
+    let tree = tree_of(&files);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        callees(&engine, "crates/app/src/lib.rs", "depending"),
+        (
+            vec![("load", SymbolKind::Method, "crates/util/src/lib.rs")],
+            0
+        )
+    );
+    assert_eq!(
+        callees(&engine, "crates/lone/src/lib.rs", "built_with_none"),
+        (vec![], 1)
     );
 }
 

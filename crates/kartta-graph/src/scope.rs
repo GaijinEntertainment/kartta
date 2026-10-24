@@ -1494,11 +1494,15 @@ impl Cascade<'_> {
         let same_dir = candidates.in_dir(self.graph, caller_file.dir);
         let (nearby, confidence, value_nearby) = if same_dir.is_empty() && !value_in_dir {
             let parent_dir = candidates.in_parent_dir(self.graph, caller_file.parent_dir);
-            if parent_dir.is_empty() && !value_in_parent_dir {
+            if !parent_dir.is_empty() || value_in_parent_dir {
+                (parent_dir, confidence::PARENT_DIR, value_in_parent_dir)
+            } else if candidates.turned_away {
+                // constraint: the code outside vendored code is no nearer the caller than the one callable of the name
+                // is, so a name that packages the caller's is not built with also define binds no guess there
+                return None;
+            } else {
                 let nearby = candidates.first_party(self.graph);
                 (nearby, confidence::FIRST_PARTY, value_first_party)
-            } else {
-                (parent_dir, confidence::PARENT_DIR, value_in_parent_dir)
             }
         } else {
             (same_dir, confidence::SAME_DIR, value_in_dir)

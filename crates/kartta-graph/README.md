@@ -18,8 +18,12 @@ Names are interned once per graph.
 A file keeps its call sites and uses as its language wrote them, and a query resolves the sites of the name it asks
 about. A call goes through a confidence-ranked cascade: the owner a receiver names, the caller's own scope, its
 imports, its package, its includes and the re-export chains through them, the caller's own owner, the one callable of
-the name, and the callables nearest the caller. Where includes are transitive, the one callable of the name binds only
-a call whose file, or a file that includes it directly, reaches that callable or a declaration of it. A call from
+the name, and the callables nearest the caller. Where a file's extraction lists the packages its package is built with,
+the tiers that bind by name take a definition of another package only from one of them and outside its test code; a
+call through an owner whose members of the name all lie outside them binds nothing, and a name they turned a
+definition of away binds no one callable and no guess outside the caller's directories. Where includes are transitive,
+the one callable of the name binds only a call whose file, or a file that includes it directly, reaches that callable
+or a declaration of it. A call from
 outside test code binds no test definition as the one callable of the name or the one nearest the caller, and a test
 definition still counts there, so where test code shares a name, most often to stub a builtin or a library outside the
 graph, no other definition of it is the one callable; where the definitions outside test code are one type, such a

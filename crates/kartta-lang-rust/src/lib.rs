@@ -94,7 +94,8 @@
 //! a cargo registry are told apart. A package is built with every package the tree holds of each name its manifest's
 //! dependency tables list, of every kind and target, by the `package` key that renames one, its own or that of the
 //! entry it inherits from its nearest workspace's `[workspace.dependencies]`, else by its key, and with what each of
-//! those is built with but its optional, dev- and build-dependencies.
+//! those is built with but its optional, dev- and build-dependencies, so a call that no import or path names binds a
+//! definition of another package only where its package is built with that one.
 //!
 //! A package's library is named by its manifest's `[lib] name`, else by its `[package] name` with `-` read as `_`, and
 //! lies at its `[lib] path`, else at `src/lib.rs`, each value read only from a `key = "value"` on one line under its
