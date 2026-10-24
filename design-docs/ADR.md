@@ -502,7 +502,7 @@
   - Revisit if: the extraction parses every class head and the operand's type where no declaration spells it
 - [3.65 Tell C++ namesake classes apart by the scopes a use
   writes](./adr/3.65-tell-c-plus-plus-namesake-classes-apart-by-the-scopes-a-use-writes.md)
-  - Governs: `crates/kartta-graph/src/{twins,members}.rs`, `crates/kartta-lang-cpp/src/walk/sites.rs`
+  - Governs: `crates/kartta-graph/src/{twins,members,scope}.rs`, `crates/kartta-lang-cpp/src/walk/sites.rs`
   - Revisit if: the extraction keeps a template's arguments or the vendored copy a file belongs to
 - [3.66 Record a name a script or Rust reads without a call as a
   use](./adr/3.66-record-a-name-a-script-or-rust-reads-without-a-call-as-a-use.md)
