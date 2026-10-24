@@ -124,6 +124,138 @@ fn a_local_that_is_no_call_target_binds_no_call() {
     assert_eq!(callees(&graph, "outer"), Vec::<String>::new());
 }
 
+fn declaring_a_local_value(path: &str, name: &str) -> Extraction {
+    let mut extraction = file(
+        path,
+        vec![
+            function("body", 1),
+            Symbol::new(name, SymbolKind::Constant, 2, 2),
+        ],
+        Vec::new(),
+    );
+    extraction.local_symbols = vec![SymbolId(1)];
+    extraction
+}
+
+#[test]
+fn a_value_a_body_declares_keeps_a_namesake_from_being_the_one_callable_of_its_name() {
+    let caller = file(
+        "app/admin.js",
+        vec![function("remove", 1)],
+        vec![call(0, "confirm", 2)],
+    );
+    let dialog = file("ui/dialog.ts", vec![function("confirm", 1)], Vec::new());
+    let local = declaring_a_local_value("spec/dialog.test.ts", "confirm");
+
+    let alone = graph(&[caller.clone(), dialog.clone()]);
+    assert_eq!(callees(&alone, "remove"), ["ui/dialog.ts:1@60"]);
+    let beside_the_local = graph(&[caller.clone(), dialog.clone(), local.clone()]);
+    assert_eq!(callees(&beside_the_local, "remove"), Vec::<String>::new());
+    let mut conventions = Conventions::default();
+    conventions.values_are_call_targets = false;
+    let without_value_targets = graph_of(conventions, &[caller.clone(), dialog.clone(), local]);
+    assert_eq!(
+        callees(&without_value_targets, "remove"),
+        ["ui/dialog.ts:1@60"],
+        "a value is no namesake where a call never targets one"
+    );
+    let many_locals =
+        (0..64).map(|at| declaring_a_local_value(&format!("spec/{at}.ts"), "confirm"));
+    let indexed: Vec<Extraction> = [caller, dialog].into_iter().chain(many_locals).collect();
+    assert_eq!(
+        callees(&graph(&indexed), "remove"),
+        Vec::<String>::new(),
+        "a name of many definitions holds its locals apart"
+    );
+}
+
+#[test]
+fn a_value_a_body_declares_keeps_the_nearness_step_that_holds_it_from_binding() {
+    let caller = file(
+        "app/admin.js",
+        vec![function("remove", 1)],
+        vec![call(0, "format", 2)],
+    );
+    let near = file("app/util.js", vec![function("format", 1)], Vec::new());
+    let far = file("lib/format.js", vec![function("format", 1)], Vec::new());
+
+    let nearest = graph(&[caller.clone(), near.clone(), far.clone()]);
+    assert_eq!(callees(&nearest, "remove"), ["app/util.js:1@50"]);
+    let local_elsewhere = declaring_a_local_value("lib/other.js", "format");
+    let beside_a_far_local = graph(&[caller.clone(), near.clone(), far.clone(), local_elsewhere]);
+    assert_eq!(callees(&beside_a_far_local, "remove"), ["app/util.js:1@50"]);
+    let mut local_near = declaring_a_local_value("app/other.js", "format");
+    local_near.symbols[1].kind = SymbolKind::Variable;
+    let beside_a_near_local = graph(&[caller, near, far, local_near]);
+    assert_eq!(
+        callees(&beside_a_near_local, "remove"),
+        Vec::<String>::new(),
+        "a variable counts as a constant does"
+    );
+}
+
+#[test]
+fn a_value_a_body_declares_keeps_the_parent_directory_and_first_party_steps_from_binding() {
+    let caller = file(
+        "a/b/admin.js",
+        vec![function("remove", 1)],
+        vec![call(0, "format", 2)],
+    );
+    let cousin = file("a/c/util.js", vec![function("format", 1)], Vec::new());
+    let far = file("lib/x/format.js", vec![function("format", 1)], Vec::new());
+    let mut vendored_symbol = function("format", 1);
+    vendored_symbol.flags = SymbolFlags::empty().with_vendored(true);
+    let vendored = file("vendor/y/format.js", vec![vendored_symbol], Vec::new());
+
+    let in_parent = [caller.clone(), cousin, far.clone()];
+    assert_eq!(callees(&graph(&in_parent), "remove"), ["a/c/util.js:1@30"]);
+    let mut beside_a_cousin_local = in_parent.to_vec();
+    beside_a_cousin_local.push(declaring_a_local_value("a/d/other.js", "format"));
+    assert_eq!(
+        callees(&graph(&beside_a_cousin_local), "remove"),
+        Vec::<String>::new()
+    );
+
+    let first_party = [caller, far, vendored];
+    assert_eq!(
+        callees(&graph(&first_party), "remove"),
+        ["lib/x/format.js:1@15"]
+    );
+    let mut beside_a_vendored_local = first_party.to_vec();
+    let mut vendored_local = declaring_a_local_value("vendor/z/other.js", "format");
+    for symbol in &mut vendored_local.symbols {
+        symbol.flags = SymbolFlags::empty().with_vendored(true);
+    }
+    beside_a_vendored_local.push(vendored_local);
+    assert_eq!(
+        callees(&graph(&beside_a_vendored_local), "remove"),
+        ["lib/x/format.js:1@15"],
+        "vendored code is outside the first-party step"
+    );
+    let mut beside_a_first_party_local = first_party.to_vec();
+    beside_a_first_party_local.push(declaring_a_local_value("other/z/v.js", "format"));
+    assert_eq!(
+        callees(&graph(&beside_a_first_party_local), "remove"),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_value_a_body_declares_leaves_a_macro_invocation_to_the_macro_of_its_name() {
+    let mut invocation = call(0, "render", 2);
+    invocation.invokes_a_macro = true;
+    let caller = file("app/main.rs", vec![function("main", 1)], vec![invocation]);
+    let mut macro_symbol = function("render", 1);
+    macro_symbol.kind = SymbolKind::Macro;
+    let defining = file("lib/macros.rs", vec![macro_symbol], Vec::new());
+    let local = declaring_a_local_value("other/body.rs", "render");
+
+    assert_eq!(
+        callees(&graph(&[caller, defining, local]), "main"),
+        ["lib/macros.rs:1@60"]
+    );
+}
+
 fn importing(
     path: &str,
     alias: Option<&str>,
