@@ -329,6 +329,39 @@ fn a_root_relative_specifier_does_not_take_the_base_url() {
 }
 
 #[test]
+fn a_jsconfig_governs_as_a_tsconfig_and_yields_to_one_beside_it() {
+    let served = r#"{ "compilerOptions": { "paths": { "/*": ["./*"] } } }"#;
+    let files = MemoryRepository::new([
+        ("public/jsconfig.json", served),
+        ("public/scripts/m.js", ""),
+        ("public/a.js", ""),
+        ("both/jsconfig.json", served),
+        ("both/tsconfig.json", "{}"),
+        ("both/scripts/m.js", ""),
+        ("both/a.js", ""),
+        (
+            "extended/jsconfig.json",
+            r#"{ "extends": "./jsconfig.base.json" }"#,
+        ),
+        ("extended/jsconfig.base.json", served),
+        ("extended/scripts/m.js", ""),
+        ("extended/a.js", ""),
+    ]);
+    let source =
+        "import { m } from \"/scripts/m.js\";\nimport { gone } from \"/scripts/gone.js\";\n";
+
+    let served = resolved("public/a.js", source, &files);
+    let shadowed = resolved("both/a.js", source, &files);
+    let extended = resolved("extended/a.js", source, &files);
+
+    assert_eq!(includes(&served), ["public/scripts/m.js"]);
+    assert_eq!(imports(&served), ["/scripts/gone.js"]);
+    assert_eq!(includes(&extended), ["extended/scripts/m.js"]);
+    assert_eq!(includes(&shadowed), Vec::<&str>::new());
+    assert_eq!(imports(&shadowed), ["/scripts/m.js", "/scripts/gone.js"]);
+}
+
+#[test]
 fn a_specifier_without_a_base_url_stays_a_package_import() {
     let files = MemoryRepository::new([
         (

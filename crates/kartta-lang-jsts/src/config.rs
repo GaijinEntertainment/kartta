@@ -63,5 +63,6 @@ fn is_project_config(path: &str) -> bool {
     let name = base(path);
 
     !is_vendored(path)
-        && (name == "package.json" || (name.starts_with("tsconfig") && is_json(name)))
+        && (name == "package.json"
+            || ((name.starts_with("tsconfig") || name.starts_with("jsconfig")) && is_json(name)))
 }

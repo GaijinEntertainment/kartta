@@ -6,13 +6,14 @@ use serde_json::Value;
 
 use crate::config::{self, Aliases, ScopedAliases, config_dir, is_json};
 
-/// The aliases of every `tsconfig.json` and the bundler aliases, the most nested first, where a `tsconfig.json`
-/// comes before a bundler alias of its directory.
+/// The aliases of every `tsconfig.json` and `jsconfig.json` and the bundler aliases, the most nested first, where a
+/// `tsconfig.json` comes before a `jsconfig.json` of its directory and either before a bundler alias of it.
 pub(crate) fn alias_configs(
     repository: &dyn Repository,
     bundler_aliases: Vec<ScopedAliases>,
 ) -> Vec<ScopedAliases> {
     let mut compiled: Vec<ScopedAliases> = config::named(repository, "tsconfig.json")
+        .chain(config::named(repository, "jsconfig.json"))
         .filter_map(|(path, contents)| compile(&path, &contents, repository))
         .collect();
     compiled.extend(bundler_aliases);
