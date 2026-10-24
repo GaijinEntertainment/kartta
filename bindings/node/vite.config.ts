@@ -13,6 +13,7 @@ export default defineConfig({
 		singleQuote: true,
 		trailingComma: 'all',
 		bracketSpacing: false,
+		ignorePatterns: ['**/*.md'],
 	},
 	lint: {
 		extends: [javascript, typescript, node, vitest],
