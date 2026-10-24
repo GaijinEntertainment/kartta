@@ -48,9 +48,10 @@ impl Graph {
     /// A compile-time assertion that a type implements an interface, as Go's `var _ I = T{}` in a file that does not
     /// declare `T`, makes the interface a parent of the type it names, read from the asserting file.
     /// A name selects among classes, structs, interfaces, traits, namespaces and type aliases as [`Graph::definitions`]
-    /// does: the type whose qualified name it is, else the type of that bare name, and where several share it, the one
-    /// the most types name as a parent, the first in path order on a tie; a path prefix and a line narrow them as
-    /// [`Graph::callers`] describes.
+    /// does: the type whose qualified name it is, else the type of that bare name, else, for a name with a separator,
+    /// the types whose qualified name ends with it, and where several share it, the one the most distinct types name as
+    /// a direct parent, the first in path order on a tie; a path prefix and a line narrow them as [`Graph::callers`]
+    /// describes.
     ///
     /// A parent written in one file names a type the way the language's scopes reach it, a type alias among them: a
     /// parent that reaches an alias names the alias, whose implementors are not the aliased type's. Where a package is
