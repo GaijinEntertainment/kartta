@@ -729,11 +729,13 @@ impl Graph {
         callables.into_boxed_slice()
     }
 
+    // constraint: a stored call keeps its caller in the bits its marks leave, so a call inside a definition past the
+    // `StoredCall::CALLERS`th of its file is not kept
     fn store_calls(&mut self, extraction: &Extraction) -> Box<[StoredCall]> {
         let mut calls: Vec<StoredCall> = extraction
             .calls
             .iter()
-            .filter(|call| holds(extraction, call.site_of))
+            .filter(|call| holds(extraction, call.site_of) && call.site_of.0 < StoredCall::CALLERS)
             .map(|call| {
                 let rooted = self.written_from_root(&call.callee);
                 let callee = rooted.unwrap_or(&call.callee);
@@ -758,6 +760,9 @@ impl Graph {
                 }
                 if call.invokes_a_macro {
                     stored = stored.invoking_a_macro();
+                }
+                if call.calls_a_method {
+                    stored = stored.calling_a_method();
                 }
                 stored
             })

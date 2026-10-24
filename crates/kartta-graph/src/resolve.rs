@@ -39,6 +39,7 @@ pub(crate) struct Call {
     pub(crate) names_a_runtime_method: bool,
     pub(crate) on_a_class: bool,
     pub(crate) invokes_a_macro: bool,
+    pub(crate) calls_a_method: bool,
     pub(crate) local: Option<u32>,
     pub(crate) line: u32,
 }
@@ -55,6 +56,7 @@ impl Call {
             names_a_runtime_method: false,
             on_a_class: false,
             invokes_a_macro: false,
+            calls_a_method: false,
             local: None,
             line: 0,
         }
@@ -62,6 +64,10 @@ impl Call {
 
     pub(crate) const fn caller_at(&self) -> SymbolAt {
         SymbolAt::new(self.file, self.caller)
+    }
+
+    const fn form(&self) -> (bool, bool) {
+        (self.invokes_a_macro, self.calls_a_method)
     }
 }
 
@@ -91,9 +97,9 @@ struct Bindings {
 
 type Derived<K, V> = RefCell<HashMap<K, V, FixedState>>;
 
-// constraint: the call targets of one name, of the call's form, a macro or not, and among those the ones the caller's
-// package binds by name where it is gated, else every one
-type CandidatesKey = (Str, bool, Option<Str>);
+// constraint: the call targets of one name, of the call's form, a macro invocation, a method call or neither, and among
+// those the ones the caller's package binds by name where it is gated, else every one
+type CandidatesKey = (Str, (bool, bool), Option<Str>);
 
 pub(crate) fn derived<K: Eq + Hash, V: Clone>(
     cache: &Derived<K, V>,
@@ -164,6 +170,7 @@ impl<'g> Cascade<'g> {
                         && self.is_runtime_method(call.callee),
                     on_a_class: call.is_on_a_class(),
                     invokes_a_macro: call.invokes_a_macro(),
+                    calls_a_method: call.calls_a_method(),
                     local: None,
                     line: call.line,
                 }
@@ -179,6 +186,7 @@ impl<'g> Cascade<'g> {
                     names_a_runtime_method: false,
                     on_a_class: false,
                     invokes_a_macro: false,
+                    calls_a_method: false,
                     local: Some(call.local),
                     line: call.line,
                 }
@@ -265,11 +273,13 @@ impl<'g> Cascade<'g> {
                 }))
     }
 
+    // constraint: a method call calls a method, never the value of a variable or a constant
     const fn is_of_the_call_s_form(&self, call: &Call, kind: SymbolKind) -> bool {
-        matches!(
+        (matches!(
             self.conventions.macro_invocations,
             MacroInvocations::AsCalls
-        ) || call.invokes_a_macro == matches!(kind, SymbolKind::Macro)
+        ) || call.invokes_a_macro == matches!(kind, SymbolKind::Macro))
+            && !(call.calls_a_method && is_value(kind))
     }
 
     pub(crate) fn call_targets<'a>(
@@ -718,25 +728,21 @@ impl<'g> Cascade<'g> {
     // constraint: the files of one package are built with the same packages, so the candidates a caller's package
     // reaches are shared by its files, and share the index of every candidate of the name
     fn shared_candidates(&self, call: &Call, named: &'g [SymbolAt]) -> Rc<Candidates<'g>> {
-        let every = derived(
-            &self.candidates,
-            (call.callee, call.invokes_a_macro, None),
-            || {
-                let (locals, targets): (Vec<SymbolAt>, Vec<SymbolAt>) = named
-                    .iter()
-                    .copied()
-                    .filter(|&at| {
-                        let kind = self.graph.sym(at).kind;
-                        self.is_call_target(kind) && self.is_of_the_call_s_form(call, kind)
-                    })
-                    .partition(|&at| self.holder(at).is_some());
-                Rc::new(Candidates::indexed(self.graph, named, targets, locals))
-            },
-        );
+        let every = derived(&self.candidates, (call.callee, call.form(), None), || {
+            let (locals, targets): (Vec<SymbolAt>, Vec<SymbolAt>) = named
+                .iter()
+                .copied()
+                .filter(|&at| {
+                    let kind = self.graph.sym(at).kind;
+                    self.is_call_target(kind) && self.is_of_the_call_s_form(call, kind)
+                })
+                .partition(|&at| self.holder(at).is_some());
+            Rc::new(Candidates::indexed(self.graph, named, targets, locals))
+        });
         let Some(gate) = self.gate(call.file) else {
             return every;
         };
-        let key = (call.callee, call.invokes_a_macro, Some(gate.package));
+        let key = (call.callee, call.form(), Some(gate.package));
         derived(&self.candidates, key, || {
             let targets = (every.targets.iter().copied())
                 .filter(|&at| gate.admits_at(self.graph, at))
@@ -914,15 +920,18 @@ impl<'g> Cascade<'g> {
 
     // constraint: a variable or a constant a body declares is no candidate of a call outside that body, yet where
     // values are call targets it shows that a call of its name may call a value the graph does not follow, so it keeps
-    // a callable from being the one of its name wherever it would count as a candidate; a macro invocation calls no
-    // value
+    // a callable from being the one of its name wherever it would count as a candidate; a macro invocation or a method
+    // call calls no value
     pub(crate) fn bodies_values<'c>(
         &'c self,
         call: &Call,
         candidates: &'c Candidates<'_>,
     ) -> impl Iterator<Item = SymbolAt> + 'c {
         let indexed = candidates.holds_locals_apart();
-        let held_apart = if !self.conventions.values_are_call_targets || call.invokes_a_macro {
+        let held_apart = if !self.conventions.values_are_call_targets
+            || call.invokes_a_macro
+            || call.calls_a_method
+        {
             &[][..]
         } else if indexed {
             &candidates.locals[..]
