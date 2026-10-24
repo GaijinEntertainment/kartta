@@ -1391,6 +1391,42 @@ fn a_rust_call_on_a_value_binds_the_runtime_method_whose_owner_its_name_spells()
 }
 
 #[test]
+fn a_rust_call_of_a_standard_library_method_on_an_untyped_value_binds_the_one_method_of_its_name_as_a_guess()
+ {
+    let tree = tree_of(&[
+        (
+            "fs/src/watch.rs",
+            "pub struct Watcher;\n\nimpl Watcher {\n    pub fn start(&self) {}\n\n    pub fn stop(&self) {}\n}\n",
+        ),
+        (
+            "fs/src/requirement.rs",
+            "use regex_syntax::hir::ClassUnicode;\n\n\
+             fn folded(class: &ClassUnicode) -> Vec<u32> {\n\
+             \x20   class.ranges().iter().map(|range| range.start()).collect()\n}\n\n\
+             fn stopped(watched: Vec<Watcher>) {\n    watched.iter().for_each(|each| each.stop());\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+    let (_, graph) = engine
+        .graph_of("fs/src/watch.rs")
+        .expect("a language claims the file");
+    let callers = |name: &str| {
+        let walk = graph
+            .callers(name, Limits::new(1))
+            .expect("the name is defined");
+        (walk.reached.iter())
+            .map(|reached| (reached.symbol.name, reached.confidence))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        callers("Watcher::start"),
+        [("folded", confidence::FIRST_PARTY)]
+    );
+    assert_eq!(callers("Watcher::stop"), [("stopped", confidence::UNIQUE)]);
+}
+
+#[test]
 fn a_rust_call_on_a_parameter_binds_the_method_of_the_type_the_parameter_is_declared_as() {
     let tree = tree_of(&[(
         "src/fuzzy.rs",
