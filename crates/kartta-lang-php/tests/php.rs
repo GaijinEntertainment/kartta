@@ -1073,7 +1073,12 @@ fn a_vendored_or_unreadable_composer_json_maps_nothing() {
 
 #[test]
 fn a_test_file_marks_every_symbol_as_test_code() {
-    for path in ["FooTest.php", "app/tests/Util.php", "app/test/Helper.php"] {
+    for path in [
+        "FooTest.php",
+        "app/tests/Util.php",
+        "app/test/Helper.php",
+        "app/Tests/Util.php",
+    ] {
         let extraction = resolve(WIDGET, path, &[]);
         assert!(!extraction.symbols.is_empty(), "{path}");
         assert!(

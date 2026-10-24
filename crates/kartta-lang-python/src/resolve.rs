@@ -1,6 +1,6 @@
 use std::iter;
 
-use kartta_lang::path::{base, child, dir, join};
+use kartta_lang::path::{base, child, dir, has_component, join};
 use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
@@ -197,9 +197,7 @@ fn is_test_file(path: &str) -> bool {
     stem == "conftest"
         || stem.ends_with("_test")
         || stem.starts_with("test_")
-        || path
-            .split('/')
-            .any(|component| matches!(component, "test" | "tests"))
+        || has_component(path, &["test", "tests"])
 }
 
 fn is_generated_path(path: &str) -> bool {

@@ -48,7 +48,7 @@
 //! [resolves as](kartta_lang::Resolver::resolves_as) the one built before, so an engine that follows the tree resolves
 //! no script again for it.
 //!
-//! A file with a `test`, `tests`, `Tests` or `testData` directory in its path, the last where the Quirrel compiler
+//! A file with a `test`, `tests` or `testData` directory in its path, in any case, the last where the Quirrel compiler
 //! keeps its test scripts, or whose stem ends in `_test` or starts with `test_`, is test code. A file whose name holds
 //! `.gen.` or `_gen.`, or whose leading comments carry `@generated`, `DO NOT EDIT` or `Code generated`, is generated
 //! code.

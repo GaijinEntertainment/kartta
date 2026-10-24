@@ -1,4 +1,4 @@
-use kartta_lang::path::{base, dir, join};
+use kartta_lang::path::{base, dir, has_component, join};
 use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawDirective, RawExtraction, Repository, Resolver,
     SymbolFlags,
@@ -81,7 +81,5 @@ fn is_test_file(path: &str) -> bool {
     let name = base(path);
     name.ends_with("_test.rb")
         || name.ends_with("_spec.rb")
-        || path
-            .split('/')
-            .any(|component| matches!(component, "test" | "tests" | "spec"))
+        || has_component(path, &["test", "tests", "spec"])
 }

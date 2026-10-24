@@ -118,7 +118,8 @@
 //! no Rust file again for it.
 //!
 //! Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is every file below
-//! a `tests` directory outside `src`, counted from the repository root or from a package. A file that a test-gated
+//! a `tests` directory outside `src`, counted from the repository root or from a package, in the lower case of Cargo's
+//! own target directory. A file that a test-gated
 //! `mod` or a test file pulls in is a test include. A `*.gen.rs` or `*_generated.rs` file, or one with a `@generated`
 //! or `DO NOT EDIT` marker in its leading comments, outside a backtick span, is generated code.
 //!

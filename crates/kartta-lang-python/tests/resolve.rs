@@ -344,6 +344,7 @@ fn a_test_path_marks_every_symbol_as_test_code() {
         "pkg/conftest.py",
         "pkg/tests/util.py",
         "svc/test/run.py",
+        "AssetViewer/Tests/dag_imgui_te.py",
         "pkg/api_test.pyi",
     ] {
         let extraction = resolve(&MemoryRepository::default(), source, path);

@@ -1,4 +1,4 @@
-use kartta_lang::path::{base, dir, join, shared_segments};
+use kartta_lang::path::{base, dir, has_component, join, shared_segments};
 use kartta_lang::{
     Callable, CallableRole, Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver,
     Symbol, SymbolFlags, SymbolId, SymbolKind,
@@ -196,8 +196,7 @@ fn is_test_file(path: &str) -> bool {
         return true;
     }
 
-    path.split('/')
-        .any(|component| matches!(component, "test" | "tests" | "unittest" | "unittests"))
+    has_component(path, &["test", "tests", "unittest", "unittests"])
 }
 
 #[expect(
@@ -418,6 +417,8 @@ mod tests {
             "app/tests/b.cpp",
             "app/unittest/c.cpp",
             "prog/unittests/x.cpp",
+            "phys/bullet/Tests/a.cpp",
+            "phys/physx/UnitTests/b.h",
         ] {
             let extraction = resolved(source, path, &[]);
             assert!(

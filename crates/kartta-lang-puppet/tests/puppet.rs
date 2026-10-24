@@ -494,6 +494,7 @@ fn a_test_directory_beside_manifests_marks_test_code() {
         "mymod/manifests/spec/bar.pp",
         "mymod/manifests/tests/baz.pp",
         "mymod/manifests/examples/qux.pp",
+        "mymod/Spec/fixtures/x.pp",
         "modules/test/manifests/init.pp",
         "spec/manifests/init.pp",
         "environments/spec/modules/foo/manifests/init.pp",

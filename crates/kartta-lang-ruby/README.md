@@ -34,8 +34,8 @@ At a site no class owns, the symbol names a top-level method, a private method o
 A `require_relative` resolves from the requiring file's directory, and a `require` from the first of `lib`, the root,
 `test`, `spec` and `app` that holds it. A required file of the repository is an include, and any other require an
 import as written; a require whose string holds an interpolation or an escape names nothing. A `*_test.rb` or
-`*_spec.rb` file, or one under `test`, `tests` or `spec`, is test code; a `*_pb.rb` file, or one whose leading comments
-carry `@generated`, `DO NOT EDIT` or `This file is auto-generated`, is generated code.
+`*_spec.rb` file, or one under `test`, `tests` or `spec` in any case, is test code; a `*_pb.rb` file, or one whose
+leading comments carry `@generated`, `DO NOT EDIT` or `This file is auto-generated`, is generated code.
 
 ## Fingerprint
 
