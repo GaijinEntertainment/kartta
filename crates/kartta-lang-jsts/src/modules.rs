@@ -58,6 +58,7 @@ pub(crate) struct Modules<'r> {
 }
 
 impl Modules<'_> {
+    // constraint: Vite appends a `?query` to a specifier, which resolves without it only after it misses as written
     pub(crate) fn resolve(&self, specifier: &str, importer: &str) -> Option<String> {
         if let Some(target) = self.resolve_literal(specifier, importer) {
             return Some(target);
@@ -92,6 +93,9 @@ impl Modules<'_> {
         self.probe_patterns(&governing.aliases, specifier)
     }
 
+    // constraint: a bare name takes the package's `exports`, then its `module`, then its `main`, then its directory, so
+    // a package whose `exports` omits `.` falls through to `main`, which Node rejects and bundlers load; a subpath
+    // takes the file under the package's directory
     fn resolve_package(&self, specifier: &str, importer: &str) -> Option<String> {
         let package = self.nearest_package(specifier, importer)?;
         let subpath = if specifier == package.name {
@@ -111,6 +115,8 @@ impl Modules<'_> {
         self.probe(&join(&package.dir, &subpath)?)
     }
 
+    // constraint: of the packages whose names prefix the specifier the longest name wins, which `package_json::compile`
+    // sorts first, then the package nearest the importer; two equally near resolve to neither
     fn nearest_package(&self, specifier: &str, importer: &str) -> Option<&PkgExports> {
         let named = || {
             self.configs.packages.iter().filter(|package| {
@@ -142,6 +148,8 @@ impl Modules<'_> {
         })
     }
 
+    // constraint: an ESM import names the `.js` its TypeScript source compiles to, so a path that ends in an ESM
+    // extension and names no file probes again without it
     fn probe(&self, base_path: &str) -> Option<String> {
         self.probe_suffixes(base_path).or_else(|| {
             let stripped = ESM_EXTENSIONS

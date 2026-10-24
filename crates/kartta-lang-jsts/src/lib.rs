@@ -17,15 +17,16 @@
 //!   `Api.open`.
 //! - A function bound to a name is a function that owns the calls in its body: `const f = () => {}`, a function
 //!   wrapped in `memo`, `forwardRef`, `useCallback`, `useMemo`, `observer` or `debounce`, an object property
-//!   `{ onClick: () => {} }`, a class field `handler = () => {}`, and an anonymous `export default` function, named
+//!   `{ onClick: () => {} }`, named by its key and owned by nothing, a class field `handler = () => {}`, a method of
+//!   the class, and an anonymous `export default` function, named
 //!   `default`. An anonymous callback such as an inline JSX prop opens no scope: its calls belong to the function
 //!   around it. A declared class, an anonymous `export default class` included, owns the calls of its body outside
 //!   every such function, a field's initializer, a decorator and a static block, and `this` there names the class; a
 //!   class expression, `const Box = class {}`, leaves them to the scope around it.
 //! - A test registration — `describe`, `it` and `test` with their `x` and `f` forms, `suite`, `bench`, and their
 //!   `.skip`, `.only`, `.todo`, `.concurrent`, `.sequential` and `.failing` modifiers — is a function named by its
-//!   description, and a lifecycle hook one named by the hook. A registration whose description is not a plain string
-//!   opens no scope.
+//!   description, and a bare lifecycle hook, `beforeEach`, `afterEach`, `beforeAll` or `afterAll`, one named by the
+//!   hook. A registration whose description is not a plain string opens no scope.
 //! - Calls, with a capitalised JSX tag as a call of the component and `new Foo()` as a call of `Foo`. A call on
 //!   `this` names the type that owns the enclosing method as its receiver. A call on a value the file declares before
 //!   it, inside the scope that declares it — a parameter, a `let`, `const` or `var`, a destructured name, a catch
@@ -52,11 +53,11 @@
 //! right side of one yields no symbol. No symbol is an entry point.
 //!
 //! A file is test code when its name holds `.test.` or `.spec.`, or a directory on its path is `__tests__` or
-//! `tests` in any case; a directory named `test` is not enough. A file is generated code when a `@generated` or
-//! `DO NOT EDIT` banner, outside a backtick span, stands in the comments before its first line of code, when that
-//! first line of code runs past 500 bytes, as a minified bundle's does, or when its name holds `.gen.` or `.generated.`
-//! or its stem ends in `_pb`, `.pb` or `.min`. A hand-written `.d.ts` file stays ordinary. A file under a
-//! `node_modules` or `vendor` directory is vendored code.
+//! `tests` in any case; a directory named `test` is not enough. A file is generated code, its text read after a UTF-8
+//! byte order mark, when a `@generated` or `DO NOT EDIT` banner, outside a backtick span, stands in the comments before
+//! its first line of code, when that first line of code runs past 500 bytes, as a minified bundle's does, or when its
+//! name holds `.gen.` or `.generated.` or its stem ends in `_pb`, `.pb` or `.min`. A hand-written `.d.ts` file stays
+//! ordinary. A file under a `node_modules` or `vendor` directory is vendored code.
 //!
 //! # How imports resolve
 //!
@@ -95,8 +96,9 @@
 //!
 //! Each language's fingerprint holds this crate's name, version and a digest of its sources, and its grammar's
 //! declared version, node types, ABI version and counts of node kinds, parse states and fields. A change in
-//! `kartta-lang` is covered by `kartta_lang::FINGERPRINT`, which a cache keys beside it. It cannot see a change in the
-//! tree-sitter runtime, or in a grammar that keeps all of those equal.
+//! `kartta-lang` is covered by `kartta_lang::FINGERPRINT`, which a cache keys beside it. It cannot see a grammar built
+//! from changed sources that keep its version and tables, nor a change to the tree-sitter runtime that keeps its
+//! version.
 //!
 //! # Examples
 //!
