@@ -35,8 +35,8 @@ pub(crate) enum OwnerMember {
     /// names none of them, or bases of the class that neither derives from declare it.
     Ambiguous,
     /// No class of that name that the caller's file reaches holds the member, nor a base the graph locates: the name is
-    /// a typedef, a class of another project, or a class whose base lies outside the graph, so the call resolves as one
-    /// on an operand of no declared class.
+    /// a type alias of no class the graph holds, a class of another project, or a class whose base lies outside the
+    /// graph, so the call resolves as one on an operand of no declared class.
     Elsewhere,
     /// The language has no nested scopes, or the call names no receiver.
     NotDeclared,
@@ -1180,19 +1180,25 @@ impl Cascade<'_> {
     }
 
     /// The member of the class of the bare name `class` that the call's file reaches, of namesakes the one `written`
-    /// names.
+    /// names, where an alias that `written` names stands for the class it names.
     fn member_of_a_reached_class(
         &self,
         call: &Call,
         candidates: &Candidates<'_>,
         (class, written): (Str, &str),
     ) -> OwnerMember {
+        let aliased = self.through_aliases(call, written);
+        let (class, spelled) = aliased
+            .as_ref()
+            .map_or((class, written), |(aliased, spelled)| {
+                (*aliased, spelled.as_str())
+            });
         let owned = candidates.with_owner(self.graph, class);
         let tier = self.reached_tier(call.file, &owned);
-        match self.twin(call.caller_at(), written, &tier) {
+        match self.twin(call.caller_at(), spelled, &tier) {
             Some(Twin::Member(at) | Twin::Namesake(at)) => OwnerMember::Member(at),
             Some(Twin::Unnamed(_)) => OwnerMember::Ambiguous,
-            None => self.member_of_a_base(call, candidates, (class, written)),
+            None => self.member_of_a_base(call, candidates, (class, spelled)),
         }
     }
 
@@ -1256,9 +1262,9 @@ impl Cascade<'_> {
     }
 
     /// The members of `owned` in the nearest of the file itself, the files it includes and the files those reach.
-    fn reached_tier<'o>(&self, file: u32, owned: &'o [SymbolAt]) -> Cow<'o, [SymbolAt]> {
+    pub(crate) fn reached_tier<'o>(&self, file: u32, owned: &'o [SymbolAt]) -> Cow<'o, [SymbolAt]> {
         let in_file = kept(owned, |at| at.file == file);
-        if !in_file.is_empty() {
+        if !in_file.is_empty() || owned.is_empty() {
             return in_file;
         }
         let includes = self.includes(file);

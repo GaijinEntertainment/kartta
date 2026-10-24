@@ -772,6 +772,294 @@ fn a_callee_its_scope_qualifies_keeps_the_first_member_where_the_graph_locates_n
     );
 }
 
+fn alias_in(scope: &str, name: &str, line: u32, aliased: &[&str]) -> Symbol {
+    let mut symbol = class_in(scope, name, line, line);
+    symbol.kind = SymbolKind::TypeAlias;
+    symbol.value_types = aliased.iter().map(|&class| class.to_owned()).collect();
+    symbol
+}
+
+/// An alias declared in the body of the class `class` names, owned by that class.
+fn alias_of(class: &str, name: &str, line: u32, aliased: &[&str]) -> Symbol {
+    let mut symbol = alias_in(class, name, line, aliased);
+    symbol.owner = class.rsplit("::").next().map(str::to_owned);
+    symbol
+}
+
+fn iterator_in(container: &str, line: u32) -> Vec<Symbol> {
+    let mut iterator = class_in(
+        &format!("FMOD::{container}"),
+        "iterator",
+        line + 1,
+        line + 3,
+    );
+    iterator.owner = Some(container.to_owned());
+    vec![
+        class_in("FMOD", container, line, line + 4),
+        iterator,
+        member("iterator", "isValid", SymbolKind::Method, line + 2),
+    ]
+}
+
+/// FMOD's shape: a container a class names through a typedef, whose iterator is a typedef of a class template.
+fn containers_and_events() -> [Extraction; 3] {
+    let mut containers = vec![
+        class_in("FMOD", "IteratorImpl", 1, 3),
+        member("IteratorImpl", "isValid", SymbolKind::Method, 2),
+        class_in("FMOD", "List", 4, 7),
+        alias_of("FMOD::List", "iterator", 5, &["IteratorImpl"]),
+        member("List", "clear", SymbolKind::Method, 6),
+    ];
+    containers.extend(iterator_in("Array", 10));
+    containers.extend(iterator_in("Map", 20));
+    containers.push(alias_in("FMOD", "Pending", 30, &["List"]));
+    let iter = file(
+        "iter.h",
+        containers,
+        vec![member_call(4, "iterator", "isValid", 6)],
+    );
+    let event = file(
+        "event.h",
+        vec![
+            class_in("FMOD", "EventInstance", 1, 5),
+            alias_of("FMOD::EventInstance", "StateList", 2, &["List"]),
+            alias_of("FMOD::EventInstance", "Pending", 3, &[]),
+        ],
+        Vec::new(),
+    );
+    let mut stop = member("EventInstance", "stop", SymbolKind::Method, 1);
+    stop.end_line = 3;
+    let mut pause = member("EventInstance", "pause", SymbolKind::Method, 4);
+    pause.end_line = 6;
+    let mut events = including(
+        "event.cpp",
+        &["event.h", "iter.h"],
+        vec![
+            member_call(0, "StateList::iterator", "isValid", 2),
+            member_call(1, "Pending::iterator", "isValid", 5),
+        ],
+    );
+    events.symbols = vec![stop, pause];
+    [iter, crate::including(event, &["iter.h"]), events]
+}
+
+#[test]
+fn a_cpp_operand_declared_through_a_typedef_binds_the_member_of_the_class_the_typedef_names() {
+    let graph = graph_of(cpp(), &containers_and_events());
+
+    assert_eq!(
+        callees(&graph, "EventInstance::stop"),
+        ["iter.h:2@85"],
+        "`StateList::iterator` is `List::iterator`, which is `IteratorImpl`, not the namesake iterators of `Array` \
+         and `Map`"
+    );
+    assert_eq!(
+        callees(&graph, "EventInstance::pause"),
+        Vec::<String>::new(),
+        "a typedef that names no class the graph holds leaves its iterator ambiguous among them, and hides \
+         `FMOD::Pending` from its class's members"
+    );
+    assert_eq!(
+        callees(&graph, "List::clear"),
+        ["iter.h:2@85"],
+        "a bare `iterator` inside `List` names `List`'s own typedef"
+    );
+    assert_eq!(graph.resolution(0).misses.ambiguous, 1);
+}
+
+#[test]
+fn a_cpp_typedef_binds_only_where_the_scopes_its_spelling_names_hold_it() {
+    let mut tally = including(
+        "ecs.cpp",
+        &["dag.h", "ecs.h", "global.h"],
+        vec![member_call(0, "Array", "size", 2)],
+    );
+    tally.symbols = vec![namespaced("ecs", "tally", 1)];
+    let files = [
+        file(
+            "global.h",
+            vec![alias_in("", "Array", 1, &["Vector"])],
+            Vec::new(),
+        ),
+        file(
+            "near.h",
+            vec![
+                alias_in("zz", "Array", 1, &["Other"]),
+                class_in("zz", "Other", 2, 3),
+            ],
+            Vec::new(),
+        ),
+        crate::including(file("far.h", Vec::new(), Vec::new()), &["dag.h"]),
+        calling_member(
+            "deep.cpp",
+            "reach",
+            &["near.h", "far.h"],
+            member_call(0, "dag::Array", "size", 2),
+        ),
+        tally,
+        file(
+            "dag.h",
+            vec![
+                alias_in("dag", "Array", 1, &["Vector"]),
+                class_in("dag", "Vector", 2, 4),
+                member("Vector", "size", SymbolKind::Method, 3),
+            ],
+            Vec::new(),
+        ),
+        file(
+            "ecs.h",
+            vec![
+                class_in("ecs", "Array", 1, 3),
+                member("Array", "size", SymbolKind::Method, 2),
+            ],
+            Vec::new(),
+        ),
+        calling_member(
+            "use.cpp",
+            "count",
+            &["dag.h", "ecs.h"],
+            member_call(0, "ecs::Array", "size", 2),
+        ),
+        calling_member(
+            "dag.cpp",
+            "measure",
+            &["dag.h", "ecs.h"],
+            member_call(0, "dag::Array", "size", 2),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(
+        callees(&graph, "count"),
+        ["ecs.h:2@85"],
+        "`dag::Array` does not stand for `ecs::Array`"
+    );
+    assert_eq!(callees(&graph, "measure"), ["dag.h:3@85"]);
+    assert_eq!(
+        callees(&graph, "reach"),
+        ["dag.h:3@85"],
+        "an alias of another namespace that the file reaches nearer does not hide `dag::Array`"
+    );
+    assert_eq!(
+        callees(&graph, "tally"),
+        ["ecs.h:2@85"],
+        "inside `ecs`, `Array` names the class `ecs::Array` before the global alias"
+    );
+}
+
+fn fruit_box_in(scope: &str, fruit: &str) -> Vec<Symbol> {
+    vec![
+        class_in(scope, fruit, 1, 3),
+        member(fruit, "peel", SymbolKind::Method, 2),
+        class_in(scope, "Box", 4, 6),
+        alias_of(&format!("{scope}::Box"), "Item", 5, &[fruit]),
+    ]
+}
+
+#[test]
+fn a_cpp_typedef_a_class_declares_binds_where_the_spelling_names_that_class() {
+    let mut caller = including(
+        "use.cpp",
+        &["a.h", "b.h"],
+        vec![
+            member_call(0, "Box::Item", "peel", 2),
+            member_call(1, "Box::Item", "peel", 4),
+            member_call(2, "Item", "peel", 6),
+        ],
+    );
+    let mut open = member("Box", "open", SymbolKind::Method, 5);
+    open.qualified_name = "a::Box::open".to_owned();
+    caller.symbols = vec![
+        namespaced("a", "pick", 1),
+        namespaced("b", "choose", 3),
+        open,
+    ];
+    let files = [
+        file("a.h", fruit_box_in("a", "Apple"), Vec::new()),
+        file("b.h", fruit_box_in("b", "Banana"), Vec::new()),
+        caller,
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(
+        callees(&graph, "pick"),
+        ["a.h:2@85"],
+        "inside `a`, `Box::Item` is `a::Box`'s typedef, not the one of `b::Box`"
+    );
+    assert_eq!(callees(&graph, "choose"), ["b.h:2@85"]);
+    assert_eq!(
+        callees(&graph, "a::Box::open"),
+        ["a.h:2@85"],
+        "a bare `Item` in a member of `a::Box` is that class's typedef"
+    );
+}
+
+#[test]
+fn a_member_of_a_located_cpp_class_takes_no_typedef_of_a_namesake_class() {
+    let mut open = member("Box", "open", SymbolKind::Method, 2);
+    open.qualified_name = "c::Box::open".to_owned();
+    open.end_line = 4;
+    let files = [
+        file("a.h", fruit_box_in("a", "Apple"), Vec::new()),
+        crate::including(
+            file(
+                "c.h",
+                vec![
+                    class_in("c", "Box", 1, 5),
+                    open,
+                    class_in("c", "Pear", 6, 8),
+                    member("Pear", "peel", SymbolKind::Method, 7),
+                ],
+                vec![member_call(1, "Item", "peel", 3)],
+            ),
+            &["a.h"],
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(
+        callees(&graph, "c::Box::open"),
+        ["c.h:7@80"],
+        "`c::Box` declares no `Item`, so `a::Box`'s does not stand for it, and the call binds as one on a value"
+    );
+}
+
+#[test]
+fn a_cpp_typedef_of_a_container_s_iterator_with_template_arguments_binds_no_namesake() {
+    let files = [
+        file(
+            "widgets.h",
+            vec![
+                class_in("", "Widget", 1, 3),
+                member("Widget", "f", SymbolKind::Method, 2),
+                class_in("", "Other", 4, 6),
+                member("Other", "f", SymbolKind::Method, 5),
+                alias_in("", "It", 7, &[]),
+            ],
+            Vec::new(),
+        ),
+        calling_member(
+            "use.cpp",
+            "walk",
+            &["widgets.h"],
+            member_call(0, "It", "f", 3),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(
+        callees(&graph, "walk"),
+        Vec::<String>::new(),
+        "`typedef std::vector<Widget>::iterator It; It i; i->f();` records no class for `It`, so `f` counts as \
+         ambiguous between `Widget::f` and `Other::f`"
+    );
+    assert_eq!(graph.resolution(0).misses.ambiguous, 1);
+}
+
 fn field_of(owner: &str, name: &str, line: u32, declared: &str) -> Symbol {
     let mut symbol = member(owner, name, SymbolKind::Field, line);
     symbol.value_types = vec![declared.to_owned()];
@@ -852,6 +1140,38 @@ fn a_cpp_call_on_a_field_of_the_caller_s_class_binds_the_member_of_the_class_it_
         "a name no field of the class answers to is a value of no declared class"
     );
     assert_eq!(graph.resolution(0).misses.ambiguous, 3);
+}
+
+#[test]
+fn a_cpp_call_on_a_field_declared_through_a_typedef_binds_the_member_of_the_aliased_class() {
+    let mut source = including(
+        "cache.cpp",
+        &["cache.h"],
+        vec![
+            member_call(0, ".plain", "unlockRead", 2),
+            member_call(1, ".aliased", "unlockRead", 4),
+        ],
+    );
+    source.symbols = vec![
+        member("Cache", "viaPlain", SymbolKind::Method, 1),
+        member("Cache", "viaAlias", SymbolKind::Method, 3),
+    ];
+    let [mut locks, mut cache] = locks_and_cache();
+    locks.symbols.push(alias_in("", "AliasLock", 7, &["Lock"]));
+    cache.symbols.extend([
+        field_of("Cache", "plain", 4, "Lock"),
+        field_of("Cache", "aliased", 5, "AliasLock"),
+    ]);
+
+    let graph = graph_of(cpp(), &[locks, cache, source]);
+
+    assert_eq!(callees(&graph, "Cache::viaPlain"), ["lock.h:2@85"]);
+    assert_eq!(
+        callees(&graph, "Cache::viaAlias"),
+        ["lock.h:2@85"],
+        "`AliasLock` is a typedef of `Lock`, whose member binds and not `SpinLock`'s"
+    );
+    assert_eq!(graph.resolution(0).misses.ambiguous, 0);
 }
 
 #[test]
