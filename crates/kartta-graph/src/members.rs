@@ -50,7 +50,7 @@ impl<'g> Cascade<'g> {
                 })
                 .partition(|&at| self.graph.sym(at).kind == SymbolKind::Field);
             let fields = if named.len() < INDEXED_FROM {
-                Candidates::scanned(named, fields)
+                Candidates::scanned(named, fields, false)
             } else {
                 Candidates::indexed(self.graph, named, fields, Vec::new())
             };

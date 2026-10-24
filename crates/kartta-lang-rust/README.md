@@ -82,7 +82,9 @@ one directory deeper for each inline module around it. A directory that holds a 
 crate roots are its library's root, read below, `src/lib.rs`, `src/main.rs`, `build.rs` and each target under
 `src/bin/`, `examples/`, `tests/` and `benches/`. A top-level `fn main` in a crate root other than the library is the
 entry point. A package is built with every package the tree holds of each name its manifest's dependency tables list,
-and with what every build of those takes in turn.
+and with what every build of those takes in turn, so a call that no import or path names binds a definition of another
+package only where its package is built with that one: `Config::default()` in a crate built with no crate that
+declares `Config` binds nothing.
 
 A package's library is named by its manifest's `[lib] name`, else by its `[package] name` with `-` read as `_`, and lies
 at its `[lib] path`, else at `src/lib.rs`; each value is read only from a `key = "value"` on one line under its table's

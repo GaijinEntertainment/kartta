@@ -11,7 +11,7 @@ use kartta_lang::{
     UntypedMembers, ValueUses,
 };
 
-use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
+use crate::candidates::{CandidateSet, Candidates, Gate, INDEXED_FROM};
 use crate::confidence;
 use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind, or_if_none, tails};
 use crate::members::DataNamed;
@@ -91,6 +91,10 @@ struct Bindings {
 
 type Derived<K, V> = RefCell<HashMap<K, V, FixedState>>;
 
+// constraint: the call targets of one name, of the call's form, a macro or not, and among those the ones the caller's
+// package binds by name where it is gated, else every one
+type CandidatesKey = (Str, bool, Option<Str>);
+
 pub(crate) fn derived<K: Eq + Hash, V: Clone>(
     cache: &Derived<K, V>,
     key: K,
@@ -109,7 +113,7 @@ pub(crate) struct Cascade<'g> {
     pub(crate) conventions: Conventions,
     star: Option<Str>,
     bindings: Derived<u32, Rc<Bindings>>,
-    candidates: Derived<(Str, bool), Rc<Candidates<'g>>>,
+    candidates: Derived<CandidatesKey, Rc<Candidates<'g>>>,
     referenceable: Derived<Str, Rc<Candidates<'g>>>,
     pub(crate) data_named: Derived<Str, Rc<DataNamed<'g>>>,
     includes: Derived<u32, Rc<[u32]>>,
@@ -681,8 +685,19 @@ impl<'g> Cascade<'g> {
     pub(crate) fn candidates(&self, call: &Call) -> CandidateSet<'g> {
         let named = self.named(call.callee);
         let scoped = || {
-            let targets = self.call_targets(call, named.iter().copied()).collect();
-            CandidateSet::Own(Candidates::scanned(named, targets))
+            let gate = self.gate(call.file);
+            let mut turned_away = false;
+            let targets = self
+                .call_targets(call, named.iter().copied())
+                .filter(|&at| {
+                    let admitted = gate
+                        .as_ref()
+                        .is_none_or(|gate| gate.admits_at(self.graph, at));
+                    turned_away |= !admitted;
+                    admitted
+                })
+                .collect();
+            CandidateSet::Own(Candidates::scanned(named, targets, turned_away))
         };
         if named.len() < INDEXED_FROM {
             return scoped();
@@ -700,18 +715,43 @@ impl<'g> Cascade<'g> {
         CandidateSet::Shared(shared)
     }
 
+    // constraint: the files of one package are built with the same packages, so the candidates a caller's package
+    // reaches are shared by its files, and share the index of every candidate of the name
     fn shared_candidates(&self, call: &Call, named: &'g [SymbolAt]) -> Rc<Candidates<'g>> {
-        let key = (call.callee, call.invokes_a_macro);
+        let every = derived(
+            &self.candidates,
+            (call.callee, call.invokes_a_macro, None),
+            || {
+                let (locals, targets): (Vec<SymbolAt>, Vec<SymbolAt>) = named
+                    .iter()
+                    .copied()
+                    .filter(|&at| {
+                        let kind = self.graph.sym(at).kind;
+                        self.is_call_target(kind) && self.is_of_the_call_s_form(call, kind)
+                    })
+                    .partition(|&at| self.holder(at).is_some());
+                Rc::new(Candidates::indexed(self.graph, named, targets, locals))
+            },
+        );
+        let Some(gate) = self.gate(call.file) else {
+            return every;
+        };
+        let key = (call.callee, call.invokes_a_macro, Some(gate.package));
         derived(&self.candidates, key, || {
-            let (locals, targets): (Vec<SymbolAt>, Vec<SymbolAt>) = named
-                .iter()
-                .copied()
-                .filter(|&at| {
-                    let kind = self.graph.sym(at).kind;
-                    self.is_call_target(kind) && self.is_of_the_call_s_form(call, kind)
-                })
-                .partition(|&at| self.holder(at).is_some());
-            Rc::new(Candidates::indexed(self.graph, named, targets, locals))
+            let targets = (every.targets.iter().copied())
+                .filter(|&at| gate.admits_at(self.graph, at))
+                .collect();
+            Rc::new(every.gated(targets, gate))
+        })
+    }
+
+    /// The packages a call in `file` binds a definition of by its name alone, where its resolver read the packages
+    /// the file's package is built with; `None` admits every package.
+    pub(crate) fn gate(&self, file: u32) -> Option<Gate<'g>> {
+        let package = self.graph.file(file).package?;
+        Some(Gate {
+            package,
+            reached: self.graph.built_with(package)?,
         })
     }
 
@@ -814,7 +854,7 @@ impl<'g> Cascade<'g> {
         let in_the_package = (candidates.targets.iter().copied())
             .filter(|&at| self.graph.file(at.file).package == package)
             .collect();
-        Candidates::scanned(candidates.named, in_the_package)
+        Candidates::scanned(candidates.named, in_the_package, false)
     }
 
     fn resolve_outside_scope(
@@ -838,21 +878,23 @@ impl<'g> Cascade<'g> {
         if let Some(bound) = self.member_of_the_caller_s_owner(call, candidates) {
             return Ok(bound);
         }
+        // constraint: a name that packages the caller's is not built with also define is no project's own, so its one
+        // callable within reach is no likelier the callee than its namesakes are, as `Ok` or `finish` in a registry
+        let one_callable = || {
+            self.one_callable(&shape, targets.clone())
+                .filter(|_| !candidates.turned_away)
+        };
         // constraint: a runtime method's name says nothing of which type the value is, so a member of the name binds
         // only where scope reaches it, or as the name's one callable when the receiver spells its owner
         if call.names_a_runtime_method {
-            return self
-                .one_callable(&shape, targets.clone())
+            return one_callable()
                 .filter(|&at| {
                     self.receiver_spells_owner(call, at) && self.can_bind_by_name(call, at)
                 })
                 .map(|at| (at, confidence::UNIQUE))
                 .ok_or(Miss::NotAdmitted);
         }
-        match self
-            .one_callable(&shape, targets.clone())
-            .filter(|_| self.bodies_values(call, candidates).next().is_none())
-        {
+        match one_callable().filter(|_| self.bodies_values(call, candidates).next().is_none()) {
             Some(at)
                 if self.can_bind_by_name(call, at) && self.is_pasted_where_called(call, at) =>
             {
@@ -930,7 +972,8 @@ impl<'g> Cascade<'g> {
 
     // constraint: a type the graph does not hold, from the standard library, the prelude or a crate outside the tree,
     // has no member in the graph, and a module the caller includes is no scope its name is looked up in, so a call
-    // through it that no member of the owner binds binds nothing
+    // through it that no member of the owner binds binds nothing; nor does a call through an owner whose members of
+    // the name lie only in packages the caller's is not built with, as `Vec::new()` beside a crate's own `Vec`
     fn through_the_receiver_s_owner(
         &self,
         call: &Call,
@@ -939,12 +982,21 @@ impl<'g> Cascade<'g> {
         if let Some(at) = self.member_of_the_receiver_s_owner(call, candidates) {
             return Some(Ok((at, confidence::RECEIVER)));
         }
-        self.names_a_type_outside_the_graph(call)
+        (self.names_a_type_outside_the_graph(call) || self.owned_out_of_reach(call, candidates))
             .then(|| Err(self.unadmitted(call)))
     }
 
+    fn owned_out_of_reach(&self, call: &Call, candidates: &Candidates<'_>) -> bool {
+        candidates.turned_away
+            && call.receiver.is_some_and(|receiver| {
+                (self.named(call.callee).iter())
+                    .any(|&at| self.graph.sym(at).owner == Some(receiver))
+            })
+    }
+
     /// Whether the call goes through a type path, a receiver whose last segment is written capitalised where only a
-    /// module's path reaches a free function, and the graph holds neither a type nor a value of that name.
+    /// module's path reaches a free function, and the graph holds neither a type nor a value of that name that the
+    /// caller's package can reach.
     fn names_a_type_outside_the_graph(&self, call: &Call) -> bool {
         let (MemberCalls::ModulePaths, Some(separator), Some(receiver)) = (
             self.conventions.member_calls,
@@ -962,10 +1014,14 @@ impl<'g> Cascade<'g> {
         {
             return false;
         }
+        let gate = self.gate(call.file);
         self.graph.strings.get(last).is_none_or(|last| {
             !self.named(last).iter().any(|&at| {
                 let kind = self.graph.sym(at).kind;
-                kind.is_type() || is_value(kind)
+                (kind.is_type() || is_value(kind))
+                    && gate
+                        .as_ref()
+                        .is_none_or(|gate| gate.admits_at(self.graph, at))
             })
         })
     }
@@ -1477,7 +1533,7 @@ impl<'g> Cascade<'g> {
                 .copied()
                 .filter(|&at| is_call_target_kind(self.graph.sym(at).kind))
                 .collect();
-            Rc::new(Candidates::scanned(named, targets))
+            Rc::new(Candidates::scanned(named, targets, false))
         })
     }
 

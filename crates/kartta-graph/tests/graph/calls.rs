@@ -2376,6 +2376,42 @@ fn a_receiver_that_names_an_owner_two_directories_declare_binds_the_one_beside_t
 }
 
 #[test]
+fn a_caller_s_package_binds_another_s_owner_once_a_file_of_it_lists_that_package() {
+    let in_package = |mut extraction: Extraction, package: &str, dependencies: &str| {
+        extraction.package = Some(package.to_owned());
+        extraction.dependencies = Some(std::sync::Arc::from(dependencies));
+        extraction
+    };
+    let writer = |dependencies: &str| {
+        let calls = vec![member_call(0, "Buffer", "put", 2)];
+        in_package(
+            file("app/src/write.rs", vec![function("run", 1)], calls),
+            "app",
+            dependencies,
+        )
+    };
+    let put = vec![member("Buffer", "put", SymbolKind::Method, 1)];
+    let mut graph = graph_of(
+        Conventions::default(),
+        &[
+            in_package(file("lib/src/buffer.rs", put, Vec::new()), "lib", ""),
+            writer("other"),
+        ],
+    );
+    let callees = |graph: &Graph| {
+        let walk = graph
+            .callees(Selector::new("run", None), Limits::new(1))
+            .expect("the name selects a symbol");
+        reached(&walk)
+    };
+    let built_with_none = callees(&graph);
+    graph.insert(&writer("lib\nother"));
+
+    assert_eq!(built_with_none, Vec::<String>::new());
+    assert_eq!(callees(&graph), ["lib/src/buffer.rs:1@85"]);
+}
+
+#[test]
 fn a_receiver_that_names_an_owner_two_packages_declare_binds_the_one_of_the_caller_s_package() {
     let in_package = |mut extraction: Extraction, package: &str| {
         extraction.package = Some(package.to_owned());
