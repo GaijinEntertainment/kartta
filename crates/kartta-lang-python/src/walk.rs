@@ -15,8 +15,13 @@ use tree_sitter::{Node, Tree};
 use crate::banner::is_generated_source;
 use crate::runtime::BUILTINS;
 
+/// A from-import: its names are the imported names, then for each in turn the alias it is bound under, or an empty
+/// string where it is bound under its own name.
 pub(crate) const IMPORT_FORM: u32 = 0;
 pub(crate) const FUTURE_FORM: u32 = 1;
+/// A plain import of one module: its one name is the alias the module is bound under, and it has none where the import
+/// binds the module's first segment.
+pub(crate) const MODULE_FORM: u32 = 2;
 
 const IDENTIFIER: &str = "identifier";
 const MODULE: &str = "module";
@@ -711,11 +716,10 @@ impl<'a> Emitter<'a> {
             let Some(module) = imported_name(child, self.source) else {
                 continue;
             };
-            self.raw.directives.push(RawDirective::new(
-                IMPORT_FORM,
-                module,
-                line(node.start_position().row),
-            ));
+            let mut directive =
+                RawDirective::new(MODULE_FORM, module, line(node.start_position().row));
+            directive.names.extend(alias(child, self.source));
+            self.raw.directives.push(directive);
         }
     }
 
@@ -726,10 +730,15 @@ impl<'a> Emitter<'a> {
             return;
         };
         let mut cursor = node.walk();
-        let names = node
+        let mut names: Vec<String> = node
             .children_by_field_name("name", &mut cursor)
             .filter_map(|name| imported_name(name, self.source))
             .collect();
+        let aliases = node
+            .children_by_field_name("name", &mut cursor)
+            .filter(|name| matches!(name.kind(), "dotted_name" | "aliased_import"))
+            .map(|name| alias(name, self.source).unwrap_or_default());
+        names.extend(aliases);
 
         self.raw.directives.push(RawDirective {
             form: IMPORT_FORM,
@@ -800,6 +809,11 @@ fn imported_name(node: Node<'_>, source: &[u8]) -> Option<String> {
             .map(|name| text(name, source)),
         _ => None,
     }
+}
+
+fn alias(node: Node<'_>, source: &[u8]) -> Option<String> {
+    node.child_by_field_name("alias")
+        .map(|alias| text(alias, source))
 }
 
 // constraint: the grammar wraps an assignment in an `expression_statement`, so the statement's parent is what the

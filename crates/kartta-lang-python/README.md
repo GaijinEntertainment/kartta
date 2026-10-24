@@ -42,7 +42,11 @@ An import that names a module of the repository includes its file, `a/b.py` or `
 probed from the repository root, then from each directory around the importing file; a relative one climbs one
 directory for each leading dot after the first. A from-import also includes each imported name that is a submodule of
 the package, a namespace package without an `__init__.py` included; a plain module file has no submodules. An import
-that includes no file, such as one of the standard library, is recorded as written.
+that includes no file, such as one of the standard library, is recorded as written. An absolute one also binds the
+names it writes, `json` for `import json` or `np` for `import numpy as np`, to code outside the repository, so a call
+through such a name or of it binds no function of the repository. It binds none where the repository holds the
+module's own file, `a/b.py` or `a/b.pyi`, or that of a name it imports as a submodule, at any depth, as one a
+`sys.path` entry reaches; a package that only its `__init__.py` holds counts only where the probe reaches it.
 
 A `test_*`, `*_test` or `conftest` file, or a file below a `test` or `tests` directory in any case, is test code. A
 `*_pb2` or `*_pb2_grpc` file, or one with a `@generated` or `DO NOT EDIT` marker in its opening comments and module

@@ -45,7 +45,13 @@
 //! importing file's directory, one level up for each leading dot after the first. A from-import also includes each
 //! imported name that is a submodule of the package, a namespace package without an `__init__.py` included, and probes
 //! none below a plain module file. An import that includes no file, such as one of the standard library or a
-//! `from __future__ import`, is recorded as written.
+//! `from __future__ import`, is recorded as written. An absolute one also binds the names it writes outside the
+//! repository, `json` for `import json`, `np` for `import numpy as np` and `Field` for
+//! `from sphinx.util.docfields import Field`, so a call through such a name or of it binds no definition of the
+//! repository. It binds none where the repository holds the module's own file, `a/b.py` or `a/b.pyi`, or that of a
+//! name the import writes as a submodule, at any depth, as one a `sys.path` entry reaches; a package that only its
+//! `__init__.py` holds counts there only where the probe reaches it. `import a.b` binds no `a` that the repository
+//! holds.
 //!
 //! A file named `test_*`, `*_test` or `conftest`, or below a `test` or `tests` directory in any case, is test code. A
 //! `*_pb2` or `*_pb2_grpc` file, or one with a `@generated` or `DO NOT EDIT` marker in the comments and module
