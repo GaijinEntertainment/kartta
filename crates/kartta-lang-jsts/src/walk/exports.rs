@@ -3,31 +3,23 @@ use kartta_lang::{RawDirective, RawReExport, SymbolKind};
 use tree_sitter::Node;
 
 use super::{Binding, Emitter, Scope};
-use crate::syntax::{child_nodes, start_line, unquote};
+use crate::syntax::{child_nodes, named_child_nodes, start_line, unquote};
 
 const IMPORT_FORM: u32 = 0;
 
 impl Emitter<'_> {
-    // constraint: an import of a bare specifier keeps the names it binds, for the resolver to tell which hold a package
-    // outside the repository; a relative, a root-relative and a `#` specifier name a file of the repository even where
-    // none resolves
     pub(super) fn import_statement(&mut self, node: Node<'_>) {
         let Some(source) = node.child_by_field_name("source") else {
             return;
         };
         let specifier = unquote(text(source, self.source));
-        let mut directive = RawDirective::new(IMPORT_FORM, specifier, start_line(node));
-        if !directive.spec.starts_with(['.', '/', '#']) {
-            imported_names(node, &mut |name| {
-                directive.names.push(text(name, self.source));
-            });
-        }
-        self.raw.directives.push(directive);
+        self.push_directive(specifier, start_line(node), Some(node));
     }
 
-    pub(super) fn declare_imported(&mut self, node: Node<'_>) {
-        imported_names(node, &mut |name| {
-            self.declare(name.byte_range(), usize::MAX, Binding::Imported);
+    /// Declares the names `binder`, an import or a declarator that [`binds_a_require`], binds until `until`.
+    pub(super) fn declare_imported(&mut self, binder: Node<'_>, until: usize) {
+        imported_names(binder, &mut |name| {
+            self.declare(name.byte_range(), until, Binding::Imported);
         });
     }
 
@@ -65,13 +57,27 @@ impl Emitter<'_> {
             self.raw.re_exports.push(everything);
         }
 
-        self.push_directive(specifier, start_line(node));
+        self.push_directive(specifier, start_line(node), None);
     }
 
-    pub(super) fn push_directive(&mut self, specifier: String, line: u32) {
-        self.raw
-            .directives
-            .push(RawDirective::new(IMPORT_FORM, specifier, line));
+    // constraint: an import or a `require` of a bare specifier keeps the names its binder binds, for the resolver to
+    // tell which hold a package outside the repository; a relative, a root-relative and a `#` specifier name a file of
+    // the repository even where none resolves
+    pub(super) fn push_directive(
+        &mut self,
+        specifier: String,
+        line: u32,
+        binder: Option<Node<'_>>,
+    ) {
+        let mut directive = RawDirective::new(IMPORT_FORM, specifier, line);
+        if let Some(binder) = binder
+            && !directive.spec.starts_with(['.', '/', '#'])
+        {
+            imported_names(binder, &mut |name| {
+                directive.names.push(text(name, self.source));
+            });
+        }
+        self.raw.directives.push(directive);
     }
 
     fn default_export(&mut self, node: Node<'_>) {
@@ -112,20 +118,41 @@ impl Emitter<'_> {
     }
 }
 
+/// Whether `declarator` takes the module a `require` of a string names, as `const fs = require("fs")` does.
+pub(super) fn binds_a_require(declarator: Node<'_>, source: &[u8]) -> bool {
+    declarator
+        .child_by_field_name("value")
+        .filter(|value| value.kind() == "call_expression")
+        .is_some_and(|call| {
+            call.child_by_field_name("function")
+                .is_some_and(|function| {
+                    function.kind() == "identifier" && &source[function.byte_range()] == b"require"
+                })
+                && (call.child_by_field_name("arguments")).is_some_and(|arguments| {
+                    named_child_nodes(arguments).any(|argument| argument.kind() == "string")
+                })
+        })
+}
+
 // constraint: an import binds its default name, its namespace's name, and each named import by its alias, else by
-// its name
+// its name; a declarator that takes a `require` binds each name of its pattern, a property key and a default value
+// none
 fn imported_names(node: Node<'_>, bound: &mut impl FnMut(Node<'_>)) {
+    let field = |name| node.child_by_field_name(name);
+    let inner = match node.kind() {
+        "identifier" | "shorthand_property_identifier_pattern" => return bound(node),
+        "import_specifier" => field("alias").or_else(|| field("name")),
+        "variable_declarator" => field("name"),
+        "pair_pattern" => field("value"),
+        "assignment_pattern" | "object_assignment_pattern" => field("left"),
+        _ => None,
+    };
+    if let Some(inner) = inner {
+        return imported_names(inner, bound);
+    }
     match node.kind() {
-        "identifier" => bound(node),
-        "import_specifier" => {
-            if let Some(name) = node
-                .child_by_field_name("alias")
-                .or_else(|| node.child_by_field_name("name"))
-            {
-                bound(name);
-            }
-        }
-        "import_statement" | "import_clause" | "namespace_import" | "named_imports" => {
+        "import_statement" | "import_clause" | "namespace_import" | "named_imports"
+        | "object_pattern" | "array_pattern" | "rest_pattern" => {
             for child in child_nodes(node) {
                 imported_names(child, bound);
             }
