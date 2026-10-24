@@ -5,12 +5,13 @@
 //!
 //! # What a file extracts to
 //!
-//! Every function, method and class is a symbol, and so is a variable assigned to a bare name at module level. A name
-//! assigned in a class body, `name: str = ""` or `count = 0`, is a field of its class, and so is an attribute a method
-//! assigns on its first parameter, `self.size = size`, declared once where it is first assigned unless the class body
-//! declares a member of its name; a static method has no such parameter. A symbol is qualified by the
-//! module its path names and by the classes around it: `pkg.service.Service.greet` for a method of `Service` in
-//! `pkg/service.py`, and `pkg.Service` for a class in `pkg/__init__.py`. A definition nested in a function is qualified
+//! Every function, method and class is a symbol, and so is a variable assigned to a bare name at module level, the
+//! first name of a chain alone: `a = b = 1` defines `a`, and `a, b = 1, 2` defines nothing. A name assigned in a class
+//! body, `name: str = ""` or `count = 0`, is a field of its class, and so is an attribute a method assigns on its first
+//! parameter, `self.size = size`, declared once where it is first assigned unless the class body declares a member of
+//! its name; a static method has no such parameter. A symbol is qualified by the module its path names and by the
+//! classes around it: `pkg.service.Service.greet` for a method of `Service` in `pkg/service.py`, and `pkg.Service` for
+//! a class in `pkg/__init__.py`; a root `__init__.py` names no module. A definition nested in a function is qualified
 //! by the module alone, is no member of a class around that function, and is local to the function's body. A decorated
 //! definition starts at its first decorator. A name that starts with `_` is not exported.
 //!
@@ -24,9 +25,12 @@
 //!
 //! A call records its callee and, for a member call, its receiver: `self.greet()` records `greet` on `self`, and a
 //! member call on anything but a name, `items[0].close()`, records the empty receiver. A call is attributed to the
-//! function around it, and a call in a class body outside every method, or in the class's bases, to the class. A name
-//! in the bases is looked up in the scope around the class, where Python evaluates them. A call outside every function
-//! and class is a call from file scope, before the file's first definition too.
+//! function around it, and a call in a class body outside every method, a lambda's, a comprehension's and a method
+//! decorator's included, or in the class's bases, to the class; a class with no name, which only a broken parse
+//! leaves, keeps the caller around it. A name in the bases is looked up in the scope around the class, where Python
+//! evaluates them. A call in a default argument, `def f(x=make()):`, is attributed to `f`, and its name is looked up
+//! in the scope of `f`. A call outside every function and class is a call from file scope, before the file's first
+//! definition too.
 //!
 //! A bare call of a function or class that a function around the call defines is a local call to that definition, as
 //! Python's scoping finds the name, and a bare call of a value that such a function binds, a parameter or the target
@@ -55,7 +59,9 @@
 //!
 //! A file named `test_*`, `*_test` or `conftest`, or below a `test` or `tests` directory in any case, is test code. A
 //! `*_pb2` or `*_pb2_grpc` file, or one with a `@generated` or `DO NOT EDIT` marker in the comments and module
-//! docstring that open it, outside a backtick span, is generated code. A `.pyi` stub takes the module name and the role
+//! docstring that open it, outside a backtick span, is generated code. The header is read after a UTF-8 byte order
+//! mark, and its docstring is a triple-quoted plain, raw or unicode string, never a bytes or formatted one, that no
+//! escaped quote closes. A `.pyi` stub takes the module name and the role
 //! of the `.py` source it describes. A free `def main` at module level is an entry point, as is a method whose name
 //! opens and ends with `__`, the spelling Python keeps for the special methods it calls, `__init__` or `__eq__`, and a
 //! method that `property` or `cached_property` decorates or that an accessor of the property of its name does,
