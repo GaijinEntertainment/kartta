@@ -17,7 +17,8 @@
 //! namesake of the project, unless the caller's file defines it. A TypeScript or JavaScript call of a runtime method on
 //! a value binds an imported class's member of its name only where its receiver spells the class, and an imported
 //! interface's member on any value. A Python call of a builtin binds a function of its name only where its file
-//! imports or defines that name.
+//! imports or defines that name, and a Python call through or of a name that an import of a module outside the tree
+//! binds binds no namesake of the project.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -1605,6 +1606,40 @@ fn a_typescript_runtime_method_s_call_binds_an_imported_interface_s_member_on_an
             ("set", SymbolKind::Method, "src/drawer.ts"),
             ("useDrawer", SymbolKind::Function, "src/drawer.ts")
         ]
+    );
+}
+
+#[test]
+fn a_python_call_through_a_module_outside_the_tree_binds_no_namesake_of_the_project() {
+    let tree = tree_of(&[
+        ("rdc/envelope.py", "def dumps(value):\n    return value\n"),
+        ("rdc/fields.py", "class Field:\n    pass\n"),
+        (
+            "tools/report.py",
+            "import json\nimport json as encoded\nfrom sphinx.util.docfields import Field\n\
+             from rdc import envelope\n\n\
+             def write(value):\n    return json.dumps(value)\n\n\
+             def aliased(value):\n    return encoded.dumps(value)\n\n\
+             def field():\n    return Field()\n\n\
+             def wrap(value):\n    return envelope.dumps(value)\n",
+        ),
+        (
+            "tools/form.py",
+            "from rdc.fields import Field\n\ndef form_field():\n    return Field()\n",
+        ),
+    ]);
+    let engine = build(&tree, &["python"]);
+
+    assert_eq!(callees(&engine, "tools/report.py", "write"), (vec![], 1));
+    assert_eq!(callees(&engine, "tools/report.py", "aliased"), (vec![], 1));
+    assert_eq!(callees(&engine, "tools/report.py", "field"), (vec![], 1));
+    assert_eq!(
+        callees(&engine, "tools/report.py", "wrap"),
+        (vec![("dumps", SymbolKind::Function, "rdc/envelope.py")], 0)
+    );
+    assert_eq!(
+        callees(&engine, "tools/form.py", "form_field"),
+        (vec![("Field", SymbolKind::Class, "rdc/fields.py")], 0)
     );
 }
 

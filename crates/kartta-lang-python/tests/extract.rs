@@ -801,15 +801,15 @@ fn every_import_leaves_one_directive_with_its_names() {
         directives,
         [
             ("os", vec![]),
-            ("numpy", vec![]),
-            ("collections", vec!["OrderedDict", "defaultdict"]),
-            (".", vec!["sibling"]),
+            ("numpy", vec!["np"]),
+            ("collections", vec!["OrderedDict", "defaultdict", "", ""]),
+            (".", vec!["sibling", ""]),
         ]
     );
 }
 
 #[test]
-fn an_aliased_name_is_recorded_by_the_name_it_imports() {
+fn an_aliased_name_is_recorded_by_the_name_it_imports_then_the_alias_it_binds() {
     let raw =
         extract(b"import a.b as ab, c\nfrom . import sibling, name as aliased\nfrom x import *\n");
     let directives: Vec<(&str, Vec<&str>)> = raw
@@ -826,9 +826,9 @@ fn an_aliased_name_is_recorded_by_the_name_it_imports() {
     assert_eq!(
         directives,
         [
-            ("a.b", vec![]),
+            ("a.b", vec!["ab"]),
             ("c", vec![]),
-            (".", vec!["sibling", "name"]),
+            (".", vec!["sibling", "name", "", "aliased"]),
             ("x", vec![])
         ]
     );
