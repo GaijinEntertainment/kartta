@@ -5918,6 +5918,113 @@ fn a_receiver_that_ends_an_owner_s_chain_binds_the_copy_of_the_owner_nearest_the
     assert_eq!(callees(&graph, "Geo::Runner#go"), ["b/shape.rb:2@85"]);
 }
 
+/// The qualified names of what the definition `name` selects calls.
+fn callee_names(graph: &Graph, name: &str) -> Vec<String> {
+    let walk = graph
+        .callees(name, Limits::new(1))
+        .expect("the name selects a symbol");
+    walk.reached
+        .iter()
+        .map(|reached| reached.symbol.qualified_name.to_owned())
+        .collect()
+}
+
+/// A library of `OptionParser#new` and `#freeze`, `Base.make` that `Child` inherits, `String#blank?`, `Gem::Version.new`
+/// and a top-level `Version` without one.
+fn constant_library() -> Extraction {
+    let mut child = class("Child", [5, 6]);
+    child.parents = vec!["Base".to_owned()];
+    file(
+        "lib.rb",
+        vec![
+            class("OptionParser", [1, 3]),
+            joined("OptionParser", "#", "new", [2, 2]),
+            joined("OptionParser", "#", "freeze", [3, 3]),
+            class("Base", [4, 4]),
+            joined("Base", ".", "make", [4, 4]),
+            child,
+            class("String", [7, 8]),
+            joined("String", "#", "blank?", [8, 8]),
+            class("Gem::Version", [9, 10]),
+            joined("Gem::Version", ".", "new", [10, 10]),
+            class("Version", [11, 11]),
+        ],
+        Vec::new(),
+    )
+}
+
+#[test]
+fn a_call_on_a_constant_binds_a_member_of_the_class_it_names_or_of_a_base_of_that_class() {
+    let mut conventions = class_members();
+    conventions.bare_receivers = BareReceivers::Constants;
+    let calls = [
+        ("Hash.", "new"),
+        ("String", "freeze"),
+        ("String", "blank?"),
+        ("Child.", "make"),
+        ("Version.", "new"),
+        ("DEFAULTS", "freeze"),
+        ("Runner", "freeze"),
+        ("parser", "freeze"),
+    ];
+    let mut symbols = vec![class("Runner", [1, 20])];
+    let mut sites = Vec::new();
+    for (line, (receiver, callee)) in (2..).zip(calls) {
+        symbols.push(joined("Runner", "#", &format!("call{line}"), [line, line]));
+        sites.push(member_call(line - 1, receiver, callee, line));
+    }
+    symbols.push(exported(Symbol::new(
+        "DEFAULTS",
+        SymbolKind::Constant,
+        19,
+        19,
+    )));
+    let installer = vec![
+        class("Gem::Installer", [1, 4]),
+        joined("Gem::Installer", "#", "run", [2, 2]),
+        joined("Gem::Installer", "#", "rerun", [3, 3]),
+    ];
+    let graph = graph_of(
+        conventions,
+        &[
+            constant_library(),
+            file("run.rb", symbols, sites),
+            file(
+                "gem/installer.rb",
+                installer,
+                vec![
+                    member_call(1, "Version.", "new", 2),
+                    member_call(2, "::Version.", "new", 3),
+                ],
+            ),
+        ],
+    );
+
+    let bound: Vec<Vec<String>> = (2..10)
+        .map(|line| callee_names(&graph, &format!("Runner#call{line}")))
+        .collect();
+    assert_eq!(
+        bound,
+        [
+            vec![],
+            vec![],
+            vec!["String#blank?".to_owned()],
+            vec!["Base.make".to_owned()],
+            vec![],
+            vec!["OptionParser#freeze".to_owned()],
+            vec!["OptionParser#freeze".to_owned()],
+            vec!["OptionParser#freeze".to_owned()],
+        ]
+    );
+    assert_eq!(
+        (
+            callee_names(&graph, "Gem::Installer#run"),
+            callee_names(&graph, "Gem::Installer#rerun")
+        ),
+        (vec!["Gem::Version.new".to_owned()], vec![])
+    );
+}
+
 fn script_module(path: &str, module: &str, names: &[&str], calls: Vec<CallRef>) -> Extraction {
     let mut symbols = vec![exported(Symbol::new(module, SymbolKind::Namespace, 1, 1))];
     symbols.extend(names.iter().zip(2..).map(|(&name, line)| {
