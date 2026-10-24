@@ -59,11 +59,11 @@ a large table, its numbers or, in a parser tree-sitter generates, its macro call
 than the file, so a table's data is blanked too. A file is read as such a parser when its text before its first brace
 includes `tree_sitter/parser.h` and defines `LANGUAGE_VERSION`. The parser reads a repaired copy of the file, the same
 length as the original, while every name and signature comes from the original bytes.
-`design-docs/adr/3.3-repair-what-the-c-plus-plus-grammar-cannot-parse.md` records the repairs before the first parse,
+`design-docs/adr/3.3-cpp-parse-repair.md` records the repairs before the first parse,
 the grammar gap left open, and why the extensions claimed are the ones they are;
-`design-docs/adr/3.169-repair-from-the-first-c-plus-plus-tree-s-errors-before-a-second-parse.md` and ADR 3.71 record
+`design-docs/adr/3.169-cpp-second-parse-repairs.md` and ADR 3.71 record
 the repairs the first tree's errors call for, and ADRs 3.70 and 3.72 to 3.76 the rules the walk keeps over the parse;
 their History lines lead to the PRs that measured what each recovers;
-`design-docs/adr/3.31-parse-a-c-or-c-plus-plus-table-without-its-numbers.md` records the tables.
+`design-docs/adr/3.31-cpp-numeric-tables.md` records the tables.
 
 Status: the API is new and is not published yet.
