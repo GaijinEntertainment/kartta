@@ -601,12 +601,17 @@ fn a_method_taken_only_as_a_value_is_live() {
         line: 2,
     });
     let conventions = go();
+    let method = |name, line| {
+        let mut symbol = member("Server", name, line);
+        symbol.qualified_name = format!("Server.{name}");
+        symbol
+    };
     let server = file(
         "pkg/server.go",
         vec![
             Symbol::new("Server", SymbolKind::Struct, 1, 3),
-            member("Server", "handle", 4),
-            member("Server", "unused", 6),
+            method("handle", 4),
+            method("unused", 6),
         ],
         Vec::new(),
     );
