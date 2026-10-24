@@ -1,6 +1,6 @@
 use std::cmp::{Ordering, Reverse};
 use std::hash::Hash;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
@@ -38,6 +38,8 @@ pub struct Graph {
     uses: HashMap<Str, Vec<u32>, FixedState>,
     callables: HashMap<Str, Vec<Occurrence>, FixedState>,
     package_files: HashMap<Str, Vec<u32>, FixedState>,
+    // constraint: kept past its package's last file, as a package's few bytes of list cost less than tracking its files
+    built_with: HashMap<Str, BuiltWith, FixedState>,
     renamed_from: HashMap<Str, Vec<Rename>, FixedState>,
     included_by: HashMap<Str, Vec<u32>, FixedState>,
     test_included_by: HashMap<Str, Vec<u32>, FixedState>,
@@ -46,6 +48,9 @@ pub struct Graph {
     named_at_file_scope: HashMap<Str, Vec<u32>, FixedState>,
     pub(crate) symbols: usize,
 }
+
+// constraint: the list as the extraction wrote it, then its manifests sorted
+type BuiltWith = (Arc<str>, Box<[Str]>);
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Rename {
@@ -223,6 +228,9 @@ impl Graph {
             slot
         };
         let file = self.store(path, extraction);
+        if let (Some(package), Some(dependencies)) = (file.package, &extraction.dependencies) {
+            self.note_built_with(package, dependencies);
+        }
         self.symbols += file.symbols.len();
         self.files[slot as usize] = Some(file);
         self.index(slot);
@@ -576,6 +584,26 @@ impl Graph {
                 .as_ref()
                 .is_some_and(|file| tree_order(strings.resolve(file.path), path) == Ordering::Less)
         });
+    }
+
+    // constraint: the files of one package arrive with one shared list, so a package's list is split once, and again
+    // only when a file brings another
+    fn note_built_with(&mut self, package: Str, dependencies: &Arc<str>) {
+        if (self.built_with.get(&package))
+            .is_some_and(|(read, _)| Arc::ptr_eq(read, dependencies) || read == dependencies)
+        {
+            return;
+        }
+        let mut reached: Vec<Str> = (dependencies.lines())
+            .map(|manifest| self.strings.intern(manifest))
+            .collect();
+        reached.sort_unstable();
+        (self.built_with).insert(package, (Arc::clone(dependencies), reached.into()));
+    }
+
+    /// The packages the files of `package` are built with, sorted, where their extraction lists them.
+    pub(crate) fn built_with(&self, package: Str) -> Option<&[Str]> {
+        (self.built_with.get(&package)).map(|(_, reached)| &reached[..])
     }
 
     fn store(&mut self, path: Str, extraction: &Extraction) -> StoredFile {

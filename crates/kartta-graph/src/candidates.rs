@@ -14,7 +14,10 @@ pub(crate) struct Candidates<'g> {
     pub(crate) named: &'g [SymbolAt],
     pub(crate) targets: Vec<SymbolAt>,
     pub(crate) locals: Vec<SymbolAt>,
-    index: Option<Index>,
+    // constraint: whether a gate turned away a call target of the name, which makes the name no project's own
+    pub(crate) turned_away: bool,
+    index: Option<Rc<Index>>,
+    gate: Option<Gate<'g>>,
 }
 
 #[derive(Debug)]
@@ -26,15 +29,39 @@ struct Index {
     first_party: Vec<SymbolAt>,
 }
 
+/// The packages a caller's package can bind a definition of by its name alone: its own, and outside their test code
+/// those it is built with, sorted.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Gate<'g> {
+    pub(crate) package: Str,
+    pub(crate) reached: &'g [Str],
+}
+
+impl Gate<'_> {
+    // constraint: another package's test code is built with its own tests alone
+    pub(crate) fn admits_at(&self, graph: &Graph, at: SymbolAt) -> bool {
+        graph.file(at.file).package.is_none_or(|package| {
+            package == self.package
+                || (self.reached.binary_search(&package).is_ok() && !graph.flags(at).is_test())
+        })
+    }
+}
+
 pub(crate) const INDEXED_FROM: usize = 64;
 
 impl<'g> Candidates<'g> {
-    pub(crate) const fn scanned(named: &'g [SymbolAt], targets: Vec<SymbolAt>) -> Self {
+    pub(crate) const fn scanned(
+        named: &'g [SymbolAt],
+        targets: Vec<SymbolAt>,
+        turned_away: bool,
+    ) -> Self {
         Self {
             named,
             targets,
             locals: Vec::new(),
+            turned_away,
             index: None,
+            gate: None,
         }
     }
 
@@ -69,13 +96,27 @@ impl<'g> Candidates<'g> {
             named,
             targets,
             locals,
-            index: Some(Index {
+            turned_away: false,
+            index: Some(Rc::new(Index {
                 in_file,
                 by_owner,
                 by_dir,
                 by_parent_dir,
                 first_party,
-            }),
+            })),
+            gate: None,
+        }
+    }
+
+    /// These candidates narrowed to the ones `gate` admits, `targets` among them, sharing this set's index.
+    pub(crate) fn gated(&self, targets: Vec<SymbolAt>, gate: Gate<'g>) -> Self {
+        Self {
+            named: self.named,
+            turned_away: targets.len() < self.targets.len(),
+            targets,
+            locals: self.locals.clone(),
+            index: self.index.clone(),
+            gate: Some(gate),
         }
     }
 
@@ -98,6 +139,7 @@ impl<'g> Candidates<'g> {
 
     pub(crate) fn with_owner(&self, graph: &Graph, owner: Str) -> Cow<'_, [SymbolAt]> {
         self.subset(
+            graph,
             |index| index.by_owner.get(&owner),
             |at| graph.sym(at).owner == Some(owner),
         )
@@ -105,6 +147,7 @@ impl<'g> Candidates<'g> {
 
     pub(crate) fn in_dir(&self, graph: &Graph, dir: Str) -> Cow<'_, [SymbolAt]> {
         self.subset(
+            graph,
             |index| index.by_dir.get(&dir),
             |at| graph.file(at.file).dir == dir,
         )
@@ -112,6 +155,7 @@ impl<'g> Candidates<'g> {
 
     pub(crate) fn in_parent_dir(&self, graph: &Graph, parent_dir: Str) -> Cow<'_, [SymbolAt]> {
         self.subset(
+            graph,
             |index| index.by_parent_dir.get(&parent_dir),
             |at| graph.file(at.file).parent_dir == parent_dir,
         )
@@ -119,6 +163,7 @@ impl<'g> Candidates<'g> {
 
     pub(crate) fn first_party(&self, graph: &Graph) -> Cow<'_, [SymbolAt]> {
         self.subset(
+            graph,
             |index| Some(&index.first_party),
             |at| !graph.sym(at).flags.is_vendored(),
         )
@@ -126,30 +171,31 @@ impl<'g> Candidates<'g> {
 
     fn subset<'s>(
         &'s self,
+        graph: &Graph,
         indexed: impl FnOnce(&'s Index) -> Option<&'s Vec<SymbolAt>>,
         keeps: impl Fn(SymbolAt) -> bool,
     ) -> Cow<'s, [SymbolAt]> {
-        self.index.as_ref().map_or_else(
-            || {
-                Cow::Owned(
-                    self.targets
-                        .iter()
-                        .copied()
-                        .filter(|&at| keeps(at))
-                        .collect(),
-                )
-            },
-            |index| Cow::Borrowed(indexed(index).map_or(&[][..], Vec::as_slice)),
-        )
+        let Some(index) = &self.index else {
+            return Cow::Owned(
+                self.targets
+                    .iter()
+                    .copied()
+                    .filter(|&at| keeps(at))
+                    .collect(),
+            );
+        };
+        let indexed = indexed(index).map_or(&[][..], Vec::as_slice);
+        self.gate.as_ref().map_or(Cow::Borrowed(indexed), |gate| {
+            Cow::Owned(
+                (indexed.iter().copied())
+                    .filter(|&at| gate.admits_at(graph, at))
+                    .collect(),
+            )
+        })
     }
 }
 
 #[derive(Debug)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "a candidate set lives on the stack for one call, and boxing a call's own candidates would allocate once \
-              per call site"
-)]
 pub(crate) enum CandidateSet<'g> {
     Shared(Rc<Candidates<'g>>),
     Own(Candidates<'g>),
