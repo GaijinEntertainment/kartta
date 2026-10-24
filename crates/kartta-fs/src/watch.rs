@@ -117,9 +117,10 @@ impl Watcher {
     /// [`Index::refresh_paths`] skips or widens each as it does any path. A name that is not valid UTF-8 is named by
     /// the directory that holds it, and one directly below the root names nothing, since the index holds no such name
     /// and nothing below it. A notification for the root itself, such as `FSEvents` raises for a change of its times,
-    /// names nothing either: a change of an entry inside it is reported for that entry. The batch is the empty path
-    /// alone, the whole tree, when changes were dropped before they could be handed over: an inotify queue that
-    /// overflowed, an `FSEvents` stream that dropped events at the root or at a directory above it, a
+    /// names nothing either: a change of an entry inside it is reported for that entry. A path outside the tree names
+    /// nothing. The batch is the empty path alone, the whole tree, when changes were dropped before they could be
+    /// handed over: an inotify queue that overflowed, an error notify hands over in place of a notification, an
+    /// `FSEvents` stream that dropped events with no path, at the root, at a directory above it or outside the tree, a
     /// `ReadDirectoryChangesW` buffer that overflowed, or 65,536 notifications that piled up while the caller was not
     /// waiting. Events `FSEvents` dropped below the root are named by the directory
     /// it names for them, which [`Index::refresh_paths`] walks again with everything below it. On Linux the notice of
@@ -352,6 +353,12 @@ pub enum WatchError {
         source: io::Error,
     },
     /// The root was deleted or moved away, so the watcher follows no tree at its path.
+    ///
+    /// It is told by the notice the operating system raises for the root itself: on macOS a notification for the
+    /// root's path that carries notify's `root changed` info or is a removal, on Windows a removal of the root's path
+    /// or a rename from it, which the watch of the root's parent reports for a move, and on Linux the root watch's own
+    /// deletion or move notice. A full macOS or Windows queue keeps the notice beside its overflow, but an inotify
+    /// queue that filled before the notice drops it with the rest, and the loss reads as changes dropped.
     #[error("the root was deleted or moved")]
     RootGone,
 }

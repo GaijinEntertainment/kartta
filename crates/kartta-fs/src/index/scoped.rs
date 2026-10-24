@@ -42,6 +42,9 @@ impl Index {
     ///   their rules govern everything below that directory;
     /// - to the whole tree, when it widens to the root, which makes this [`Index::refresh`].
     ///
+    /// The parts are taken in the index's tree order, and a part below another is dropped, as [`Index::parts_of`]
+    /// answers them.
+    ///
     /// A path inside a `.git` directory names nothing the index holds and is skipped, as is a `.git` at the root, a
     /// `.git` anywhere when no ignore rules apply, and a path through a name in
     /// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names).
