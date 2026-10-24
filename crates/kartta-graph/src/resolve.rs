@@ -904,6 +904,9 @@ impl<'g> Cascade<'g> {
             Some(at)
                 if self.can_bind_by_name(call, at) && self.is_pasted_where_called(call, at) =>
             {
+                if self.names_a_library_method_on_a_value(call, at) {
+                    return Ok((at, confidence::FIRST_PARTY));
+                }
                 Ok((at, confidence::UNIQUE))
             }
             Some(_) => Err(Miss::NotAdmitted),
@@ -1038,6 +1041,21 @@ impl<'g> Cascade<'g> {
     // constraint: test code is built apart from the code it tests, so of the definitions a call reaches by name alone,
     // a test one binds a call from test code alone; it still counts among them, so a name test code shares, often a
     // stub of a builtin or of a library outside the graph, is no surer to mean another definition of it
+    // constraint: a method call on a value the graph cannot type, a name after its `.` or an expression's empty
+    // receiver, holds no type the graph can tell from one outside the tree
+    fn names_a_library_method_on_a_value(&self, call: &Call, at: SymbolAt) -> bool {
+        let strings = &self.graph.strings;
+        call.calls_a_method
+            && call.receiver.is_some_and(|receiver| {
+                let written = strings.resolve(receiver);
+                written.is_empty() || written.starts_with('.')
+            })
+            && (self.conventions.library_methods)
+                .binary_search(&strings.resolve(call.callee))
+                .is_ok()
+            && !self.receiver_spells_owner(call, at)
+    }
+
     fn can_bind_by_name(&self, call: &Call, at: SymbolAt) -> bool {
         !self.graph.flags(at).is_test() || self.graph.flags(call.caller_at()).is_test()
     }

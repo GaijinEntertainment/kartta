@@ -52,51 +52,53 @@ member call, `x.f()`, binds a free function only where its language's convention
 or for what a module its receiver names holds, as in Rust's `walk::run()`, and `f` names no method the language's
 runtime gives its own values, as `trim` in `line.trim()` does; such a runtime method binds a member of its name only
 where scope reaches one, never the nearest, and the one callable of the name only where its receiver spells that
-callable's owner, as `session.seek()` binds `Session.seek`. Where a language writes a bare receiver only for a class, as
-PHP's `Mockery::mock()` does, a call on a bare name that no type of the graph is named binds through the file's imports,
-includes and re-exports alone, never the caller's own file or owner, the one callable or the nearest. A member call
-binds no free variable or constant, whose name no property of a value reads. Where a language says its calls never name
-a namespace, no call binds one; the namespace still counts among the definitions of its name wherever a definition the
-call's shape rules out does, so a function named like it is not the one callable of the name. Where a language lists the
-receivers it writes for a value of the caller's own type, as `self` and `other`, a member call binds a member of the
-caller's own owner only on one of them. Where a language keeps a class's own methods apart from its instances' methods
-of one name, as Ruby's `Formula.build` and `Formula#build`, a member call or use on the class binds the class's own
-method of an owner first, and one on any other receiver the instances' method first. Where a language's includes are
-transitive, as C++'s are, a call of a name at most 32 definitions share that no included file defines binds the one file
-the includes reach in turn that defines it, a member call only a member. Where scopes nest, as C++'s do, a member call
-on an operand of a declared class binds the member of the class of that name nearest the caller's file, and of namesakes
-equally near, the one the class's spelling names from the caller's scope outward: of a template and its specializations,
-which share one qualified name, the explicit specialization that takes the template arguments the spelling writes, else
-the partial specialization that takes them as written, else the primary template where no partial specialization may
-take them, else the first, as of copies of one class, and namesakes of other names it names none of leave the call
-ambiguous; where that class declares no member of the name, the call binds the member of its bases that the lookup of a
-bare call in its member finds. There, a call in a member on a field, `lock.acquire()` or `lock->acquire()`, binds the
-same way through the class the field is declared as, where the caller's class, else the nearest of its bases that
-declares the name, declares that field ([ADR 3.47](/design-docs/adr/3.47-cpp-field-calls.md)). Where a language says so,
-a member call on a value takes nothing from the callables nearest the caller. A use outside a call binds more narrowly:
-through the import its qualifier names, else a package-level definition of its own file, of a dot import, or of its
-package directory, and where a language's uses reach its imports, of the one included file that declares it or of a
-re-export from one. A member a use takes on a value binds a field or a method through the type path its language spells,
-or of the owner a path names in its own file or in one included file, or the definition outside every owner of the one
-included module whose name the path ends, where a qualified name starts with its module; else, where the language allows
-it, only the one field of the name its own file declares outside other bodies; a guess by package, import or family
-binds a namesake too often to be taken. A member of `this` or `self` binds the member of the class around the use, else
-one of a base that every base searched before it was found for. Where includes are transitive and a bare name in a
-member reads the class first, as in C++, the tiers follow the includes instead: a member of the own receiver, and a bare
-name in a member, binds the own class's field, else the field of the one base the class-scope lookup of a bare call
-certainly finds; a member on a value binds the field of the class its declaration names or of the one base of it that
-declares the name, else the one field of the name in the file, then in its includes, then, for a name at most 32 fields
-share, in the files those reach. A member defined in a header its class's header includes, an inline implementation
-header, reaches the classes its declaration's file sees too. Of namesake classes that hold the field, the own class is
-the method's, the one a member defined outside it declares it in, else the one its scope's template arguments name, and
-a declared one is the one its spelling names from the use's scope outward, of a template and its specializations the one
-its template arguments name as a call's do; other namesakes of one qualified name bind none, nor do namesakes the
-spelling names none of; a method taken as a value, `&Box<T>::fill`, binds as a call does, the specialization its
-template arguments name, else the first of namesakes of one qualified name. Of namesakes without the field, the bases of
-the one the spelling names are searched, else those of the first. A bare name past the class binds the one namespace
-value of the name its file, else its includes, else, for a name at most 32 values share, the files those reach declare.
-Each tier's confidence is a constant of `kartta_graph::confidence`. No edge is stored, so nothing a file holds goes
-stale when another file changes.
+callable's owner, as `session.seek()` binds `Session.seek`. A method call of a method the language's standard library
+declares, on a value whose type the graph cannot name, binds the one callable of its name only as a guess unless its
+receiver spells that callable's owner, as `found.start()` binds `Watcher::start`. Where a language writes a bare
+receiver only for a class, as PHP's `Mockery::mock()` does, a call on a bare name that no type of the graph is named
+binds through the file's imports, includes and re-exports alone, never the caller's own file or owner, the one callable
+or the nearest. A member call binds no free variable or constant, whose name no property of a value reads. Where a
+language says its calls never name a namespace, no call binds one; the namespace still counts among the definitions of
+its name wherever a definition the call's shape rules out does, so a function named like it is not the one callable of
+the name. Where a language lists the receivers it writes for a value of the caller's own type, as `self` and `other`, a
+member call binds a member of the caller's own owner only on one of them. Where a language keeps a class's own methods
+apart from its instances' methods of one name, as Ruby's `Formula.build` and `Formula#build`, a member call or use on
+the class binds the class's own method of an owner first, and one on any other receiver the instances' method first.
+Where a language's includes are transitive, as C++'s are, a call of a name at most 32 definitions share that no included
+file defines binds the one file the includes reach in turn that defines it, a member call only a member. Where scopes
+nest, as C++'s do, a member call on an operand of a declared class binds the member of the class of that name nearest
+the caller's file, and of namesakes equally near, the one the class's spelling names from the caller's scope outward: of
+a template and its specializations, which share one qualified name, the explicit specialization that takes the template
+arguments the spelling writes, else the partial specialization that takes them as written, else the primary template
+where no partial specialization may take them, else the first, as of copies of one class, and namesakes of other names
+it names none of leave the call ambiguous; where that class declares no member of the name, the call binds the member of
+its bases that the lookup of a bare call in its member finds. There, a call in a member on a field, `lock.acquire()` or
+`lock->acquire()`, binds the same way through the class the field is declared as, where the caller's class, else the
+nearest of its bases that declares the name, declares that field ([ADR 3.47](/design-docs/adr/3.47-cpp-field-calls.md)).
+Where a language says so, a member call on a value takes nothing from the callables nearest the caller. A use outside a
+call binds more narrowly: through the import its qualifier names, else a package-level definition of its own file, of a
+dot import, or of its package directory, and where a language's uses reach its imports, of the one included file that
+declares it or of a re-export from one. A member a use takes on a value binds a field or a method through the type path
+its language spells, or of the owner a path names in its own file or in one included file, or the definition outside
+every owner of the one included module whose name the path ends, where a qualified name starts with its module; else,
+where the language allows it, only the one field of the name its own file declares outside other bodies; a guess by
+package, import or family binds a namesake too often to be taken. A member of `this` or `self` binds the member of the
+class around the use, else one of a base that every base searched before it was found for. Where includes are transitive
+and a bare name in a member reads the class first, as in C++, the tiers follow the includes instead: a member of the own
+receiver, and a bare name in a member, binds the own class's field, else the field of the one base the class-scope
+lookup of a bare call certainly finds; a member on a value binds the field of the class its declaration names or of the
+one base of it that declares the name, else the one field of the name in the file, then in its includes, then, for a
+name at most 32 fields share, in the files those reach. A member defined in a header its class's header includes, an
+inline implementation header, reaches the classes its declaration's file sees too. Of namesake classes that hold the
+field, the own class is the method's, the one a member defined outside it declares it in, else the one its scope's
+template arguments name, and a declared one is the one its spelling names from the use's scope outward, of a template
+and its specializations the one its template arguments name as a call's do; other namesakes of one qualified name bind
+none, nor do namesakes the spelling names none of; a method taken as a value, `&Box<T>::fill`, binds as a call does, the
+specialization its template arguments name, else the first of namesakes of one qualified name. Of namesakes without the
+field, the bases of the one the spelling names are searched, else those of the first. A bare name past the class binds
+the one namespace value of the name its file, else its includes, else, for a name at most 32 values share, the files
+those reach declare. Each tier's confidence is a constant of `kartta_graph::confidence`. No edge is stored, so nothing a
+file holds goes stale when another file changes.
 
 ## Answers
 
