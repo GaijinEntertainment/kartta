@@ -21,7 +21,7 @@ use std::time::Duration;
 use common::{tree, write};
 use kartta_fs::{
     BuildError, BuildOptions, CancelToken, Case, Content, ContentId, ContentIndexStorage,
-    ContentVisitor, EntryKind, GrepOptions, IgnoreSources, Index, Patterns, PrunedNames,
+    ContentVisitor, EntryKind, FileStamp, GrepOptions, IgnoreSources, Index, Patterns, PrunedNames,
     RefreshOutcome,
 };
 use tempfile::TempDir;
@@ -383,6 +383,37 @@ fn a_file_written_just_before_the_build_is_read_again_by_a_stamped_refresh() {
     let refreshed = ids.take();
     assert_eq!(refreshed.keys().collect::<Vec<_>>(), ["a.rs"]);
     assert_ne!(refreshed["a.rs"], built["a.rs"]);
+}
+
+#[test]
+fn a_file_stamp_is_trusted_once_the_file_settled_and_tells_every_write_after_it() {
+    let dir = tree(&[("a.rs", "a")]);
+    let a = dir.path().join("a.rs");
+    let fresh = FileStamp::of(&a);
+    std::thread::sleep(Duration::from_millis(2100));
+
+    let settled = FileStamp::of(&a).expect("a settled file has a stamp");
+    let again = FileStamp::of(&a);
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&a, dir.path().join("link.rs")).expect("link to a.rs");
+        assert_eq!(
+            FileStamp::of(&dir.path().join("link.rs")),
+            Some(settled),
+            "a link to the file"
+        );
+    }
+    write(dir.path(), "a.rs", "z");
+    let rewritten = FileStamp::of(&a);
+    std::thread::sleep(Duration::from_millis(2100));
+    let edited = FileStamp::of(&a).expect("a settled edit has a stamp");
+
+    assert_eq!(fresh, None, "a file written within two seconds");
+    assert_eq!(again, Some(settled));
+    assert_eq!(rewritten, None, "a same-size write within two seconds");
+    assert_ne!(edited, settled);
+    assert_eq!(FileStamp::of(dir.path()), None, "a directory");
+    assert_eq!(FileStamp::of(&dir.path().join("gone.rs")), None);
 }
 
 #[test]

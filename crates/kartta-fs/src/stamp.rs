@@ -1,4 +1,5 @@
-use std::fs::Metadata;
+use std::fs::{self, Metadata};
+use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kartta_walk::ListedStat;
@@ -61,6 +62,35 @@ impl Seen {
             size: stat.size,
             changed: since_epoch(stat.ctime, stat.ctime_nsec),
         }
+    }
+}
+
+/// What a stamped index compares to carry a file over unread: its size and the time it last changed, the inode
+/// change time on unix and the modification time elsewhere.
+///
+/// Two stamps of one path that are equal tell that no write reached the file between them, so a stamp taken before
+/// a read that equals a later one tells that the bytes read are still the file's. Off unix, a same-size write whose
+/// modification time a tool set back, as `cp -p` does, leaves the stamp as it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileStamp {
+    size: u64,
+    changed: Stamp,
+}
+
+impl FileStamp {
+    /// Stats the file at `path`, following a symlink as a read does.
+    ///
+    /// `None` when `path` is no regular file, cannot be stat'd, or changed within the two seconds before this call,
+    /// too recently for a later write to show a time of its own.
+    #[must_use]
+    pub fn of(path: &Path) -> Option<Self> {
+        let metadata = fs::metadata(path).ok().filter(Metadata::is_file)?;
+        let changed = Stamping::starting_now().stamp(&metadata, false);
+
+        (changed != UNTRUSTED).then_some(Self {
+            size: metadata.len(),
+            changed,
+        })
     }
 }
 
