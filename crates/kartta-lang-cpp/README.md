@@ -63,7 +63,7 @@ length as the original, while every name and signature comes from the original b
 the grammar gap left open, and why the extensions claimed are the ones they are;
 `design-docs/adr/3.169-cpp-second-parse-repairs.md` and ADR 3.71 record
 the repairs the first tree's errors call for, and ADRs 3.70 and 3.72 to 3.76 the rules the walk keeps over the parse;
-their History lines lead to the PRs that measured what each recovers;
+the issues they cite lead to the PRs that measured what each recovers;
 `design-docs/adr/3.31-cpp-numeric-tables.md` records the tables.
 
 Status: the API is new and is not published yet.

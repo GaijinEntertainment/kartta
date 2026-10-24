@@ -9,7 +9,8 @@ use super::declarator::qualified_terminal;
 use super::{Replayer, line};
 
 /// The names the bodies around the walk declare, each visible from its declaration to the end of the block that
-/// declares it, the latest of a name shadowing the ones before it.
+/// declares it, the latest of a name shadowing the ones before it. A name is declared by every declarator the crate's
+/// data symbols follow, a reference declarator's unnamed child, a range-for, a structured binding and an init-capture.
 #[derive(Default)]
 pub(super) struct Locals<'s> {
     declared: Vec<Local<'s>>,

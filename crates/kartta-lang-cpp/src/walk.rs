@@ -375,6 +375,8 @@ impl<'s, 't> Replayer<'s, 't> {
         self.push_symbol(symbol);
     }
 
+    /// Records the type alias `name`, whose value type is the class `aliased` names; an alias of a pointer or a
+    /// reference records none.
     fn push_type_alias(&mut self, name: String, node: Node<'_>, aliased: Option<Node<'_>>) {
         let mut symbol = exported_symbol(name, SymbolKind::TypeAlias, node);
         symbol.value_types.extend(
@@ -494,8 +496,9 @@ impl<'s, 't> Replayer<'s, 't> {
         });
     }
 
-    // constraint: a template parameter names a type or a value the instantiation supplies, so `Compare()` and `F()`
-    // inside the template call no definition of that name, and `: public Compare` derives from none
+    /// The class an alias of `written` names as its value type, spelled as a receiver spells it; a builtin, an unnamed
+    /// type, a template parameter or a scope of one, `typename T::iterator`, and a scope after a template's arguments,
+    /// `std::vector<Node>::iterator`, name none.
     // constraint: a scope holding a template's arguments, `std::vector<T>::iterator`, or naming a template parameter,
     // `T::iterator`, is no class a receiver's spelling can name, and its bare name would name another one
     fn aliased_class(&self, written: Node<'_>) -> Option<&'s str> {
@@ -509,6 +512,8 @@ impl<'s, 't> Replayer<'s, 't> {
         (scoped && !self.is_template_parameter(head)).then_some(class)
     }
 
+    // constraint: a template parameter names a type or a value the instantiation supplies, so `Compare()` and `F()`
+    // inside the template call no definition of that name, and `: public Compare` derives from none
     fn is_template_parameter(&self, callee: &str) -> bool {
         self.templates
             .iter()
