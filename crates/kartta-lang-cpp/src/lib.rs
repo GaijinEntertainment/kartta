@@ -9,13 +9,14 @@
 //! A file yields its functions and methods, its classes, structs, unions (as structs) and enums that have a body, its
 //! type aliases (`using` and `typedef`), the data members of its classes as fields, and its namespace-scope variables
 //! and constants. A field declared as a value of a class, a reference to one or a pointer to one carries that class
-//! as its [value type](kartta_lang::Symbol::value_types), spelled as a member call's receiver spells it, after a `*`
-//! for a pointer, and a value of a class template also the class its first template argument names, after a `*`,
-//! which `->` reaches through the template's `operator->`, as `eastl::unique_ptr<Lock>` does; a field of a builtin
-//! type, of a template parameter, an array or a pointer to a pointer carries none. A type alias of a class carries the
-//! class the same way, `List` for `typedef List<Node> NodeList;`; an alias of a pointer, a reference or a builtin
-//! type, of a template parameter, or of a class whose written scope holds template arguments or starts at a template
-//! parameter, `std::vector<T>::iterator` or `T::iterator`, carries none. A class's parents are its base
+//! as its [value type](kartta_lang::Symbol::value_types), spelled as a member call's receiver spells it but without
+//! its template arguments, after a `*` for a pointer, and a value of a class template also the class its first
+//! template argument names, after a `*`, which `->` reaches through the template's `operator->`, as
+//! `eastl::unique_ptr<Lock>` does; a field of a builtin type, of a template parameter, an array or a pointer to a
+//! pointer carries none. A type alias of a class carries the class the same way, `List` for `typedef List<Node>
+//! NodeList;`; an alias of a pointer, a reference or a builtin type, of a template parameter, or of a class whose
+//! written scope holds template arguments or starts at a template parameter, `std::vector<T>::iterator` or
+//! `T::iterator`, carries none. A class's parents are its base
 //! classes as written, without template arguments, but for a parameter of an enclosing template, `: public Compare`,
 //! which names no type. A namespace yields no symbol of its own; it shows in the qualified names of what it holds:
 //!
@@ -77,8 +78,8 @@
 //! A bare call `f()` names `f`; a member call names the field, its template arguments dropped, with the class its
 //! operand holds as its receiver: the bare name of the caller's own class on `this`, and on a local or a parameter
 //! declared as a value of a class or a reference to it for `.`, or a pointer to it for `->`, that class as its
-//! declaration spells it: with the scopes it writes, `b::Widget` or `::b::Widget`, without its template arguments,
-//! `ns::Box` for `ns::Box<int>`, and by its bare name where a scope carries template arguments or the spelling a space.
+//! declaration spells it: with the scopes and the template arguments it writes, `b::Widget`, `::b::Widget` or
+//! `ns::Box<int>`, the arguments as written, and by its bare name where the spelling holds a space outside them.
 //! In a member, a name the body does not declare, `lock` or `this->lock`, names a field of the member's class or of a
 //! base, or a namespace's value, which the walk cannot tell apart, so the call records it after the operator that takes
 //! the member, `.lock` or `->lock`, for the graph to bind through the field it finds. `this` outside a member keeps
@@ -102,8 +103,8 @@
 //! parameter, capture or enclosing template parameter declares before it is [`Receiver::Bare`](kartta_lang::Receiver),
 //! a member of the enclosing class or a namespace's value alike, an enumerator or a macro included. A qualified name
 //! that names a value, `Config::kLimit` or `&Widget::draw`, uses its last name on the path of its scope, spelled as a
-//! member call's receiver is, `ns::Box` for `ns::Box<int>::empty` and `Inner` alone for `Outer<int>::Inner::kMin`,
-//! where a scope before the last carries template arguments, and one written from the root alone, `::limit`, is bare.
+//! member call's receiver is, `ns::Box<int>` for `ns::Box<int>::empty` and `Outer<int>::Inner` for
+//! `Outer<int>::Inner::kMin`, and one written from the root alone, `::limit`, is bare.
 //! A callee and a label are no use. The left side of `=` writes, of a compound assignment, `++` or `--` updates, and
 //! an initializer list or a designator writes; `a.b` in `a.b.c = v` reads. Past the class, a bare name binds as
 //! [`ValueUses::Included`] says and a member on the empty path as [`UntypedMembers::IncludedField`] says.

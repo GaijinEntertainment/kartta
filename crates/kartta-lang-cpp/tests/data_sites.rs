@@ -53,12 +53,12 @@ void use(const Config &config, Config *pointer, T &generic, ns::Box<Item> boxed)
             path("Config"),
             path(""),
             path(""),
-            path("ns::Box"),
+            path("ns::Box<Item>"),
             path(""),
             path(""),
         ],
-        "`.` takes a value or a reference, `->` a pointer, each with the scopes its type writes; a deduced, generic or \
-         chained operand names no type"
+        "`.` takes a value or a reference, `->` a pointer, each with the scopes and the template arguments its type \
+         writes; a deduced, generic or chained operand names no type"
     );
     assert_eq!(named(&raw, "inner"), [(path("Config"), Access::Read, 6)]);
 }
@@ -81,15 +81,15 @@ fn a_qualified_name_read_without_a_call_uses_its_terminal_on_its_scope_as_writte
         [
             ("draw", path("Widget"), Access::Read),
             ("kLimit", path("Config"), Access::Read),
-            ("empty", path("ns::Box"), Access::Read),
+            ("empty", path("ns::Box<int>"), Access::Read),
             ("kLimit", path("Config"), Access::Write),
             ("global_limit", Receiver::Bare, Access::Read),
             ("value", path("outer::inner"), Access::Read),
             ("kMax", path("::root::Cfg"), Access::Read),
-            ("kMin", path("Inner"), Access::Read),
+            ("kMin", path("Outer<int>::Inner"), Access::Read),
         ],
-        "a callee and a type are no use, a name written from the root is bare, and a scope with template arguments \
-         before its last segment is that segment alone"
+        "a callee and a type are no use, a name written from the root is bare, and a scope keeps the template \
+         arguments it writes"
     );
 }
 

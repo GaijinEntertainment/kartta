@@ -1064,8 +1064,9 @@ int defined_and_declared(int x) { return x; }
     #[test]
     fn a_member_call_on_an_operand_of_a_scoped_class_keeps_the_scopes_as_written() {
         let raw = extract(
-            b"void f(b::Widget &w, ::a::Widget *p, ns::Box<int> box, Outer<T>::Inner in, b :: Spaced s) {\n\
-              w.draw(); p->draw(); box.fill(); in.go(); s.go(); }\n",
+            b"void f(b::Widget &w, ::a::Widget *p, ns::Box<int> box, Outer<T>::Inner in, b :: Spaced s,\n\
+              Map<ns::Key, const char *> map, Less<(1 > 2)> less) {\n\
+              w.draw(); p->draw(); box.fill(); in.go(); s.go(); map.find(); less.go(); }\n",
         );
 
         let calls: Vec<(&str, Option<&str>)> = raw
@@ -1078,11 +1079,13 @@ int defined_and_declared(int x) { return x; }
             [
                 ("draw", Some("b::Widget")),
                 ("draw", Some("::a::Widget")),
-                ("fill", Some("ns::Box")),
-                ("go", Some("Inner")),
+                ("fill", Some("ns::Box<int>")),
+                ("go", Some("Outer<T>::Inner")),
                 ("go", Some("Spaced")),
+                ("find", Some("Map<ns::Key, const char *>")),
+                ("go", Some("Less<(1 > 2)>")),
             ],
-            "a template's arguments and a spelling with spaces leave the bare name"
+            "a template's arguments are kept as written, and a spelling with spaces outside them leaves the bare name"
         );
     }
 
