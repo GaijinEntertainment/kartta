@@ -367,11 +367,12 @@ impl<'a> Emitter<'a> {
                 receiver: Some(self.enclosing_type_name().unwrap_or_default()),
                 names_own_type: true,
                 declared: None,
+                calls_a_method: false,
             },
             _ => Target::new(callee, Some(String::new())),
         };
         Called {
-            target,
+            target: target.of_a_method(),
             written: None,
             form: None,
         }
@@ -414,6 +415,7 @@ impl<'a> Emitter<'a> {
                 receiver,
                 names_own_type,
                 declared: None,
+                calls_a_method: false,
             },
             written: Some(self.spelled(path)),
             form,

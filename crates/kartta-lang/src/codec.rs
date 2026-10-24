@@ -11,10 +11,11 @@ use crate::symbol::{Symbol, SymbolFlags, SymbolId, SymbolKind};
 const QUALIFIED_AS_NAME: u8 = 1 << 6;
 const EXPORTED: u8 = 1 << 7;
 
-// constraint: a call's marks byte is the one an optional text writes for its receiver, with the macro mark beside it,
-// so a call that invokes no macro is written as before the mark
+// constraint: a call's marks byte is the one an optional text writes for its receiver, with the macro and method marks
+// beside it, so a call that carries neither is written as before the marks
 const CALL_RECEIVER: u8 = 1;
 const INVOKES_A_MACRO: u8 = 1 << 1;
+const CALLS_A_METHOD: u8 = 1 << 2;
 
 const FORM: u8 = 0b11;
 const BARE: u8 = 0;
@@ -206,17 +207,15 @@ impl Writer<'_> {
     fn call(&mut self, call: &CallRef) {
         self.id(call.site_of);
         self.text(&call.callee);
-        let invokes_a_macro = if call.invokes_a_macro {
-            INVOKES_A_MACRO
-        } else {
-            0
-        };
+        let mark = |set, mark| if set { mark } else { 0 };
+        let marks =
+            mark(call.invokes_a_macro, INVOKES_A_MACRO) | mark(call.calls_a_method, CALLS_A_METHOD);
         match call.receiver.as_deref() {
             Some(receiver) => {
-                self.0.push(invokes_a_macro | CALL_RECEIVER);
+                self.0.push(marks | CALL_RECEIVER);
                 self.text(receiver);
             }
-            None => self.0.push(invokes_a_macro),
+            None => self.0.push(marks),
         }
         self.uint(call.line);
     }
@@ -375,7 +374,7 @@ impl<'a> Reader<'a> {
         let site_of = self.id()?;
         let callee = self.text()?;
         let marks = self.byte()?;
-        if marks & !(INVOKES_A_MACRO | CALL_RECEIVER) != 0 {
+        if marks & !(INVOKES_A_MACRO | CALLS_A_METHOD | CALL_RECEIVER) != 0 {
             return Err(Malformed);
         }
         let receiver = if marks & CALL_RECEIVER == 0 {
@@ -389,6 +388,7 @@ impl<'a> Reader<'a> {
             receiver,
             line: self.uint()?,
             invokes_a_macro: marks & INVOKES_A_MACRO != 0,
+            calls_a_method: marks & CALLS_A_METHOD != 0,
         })
     }
 
@@ -480,36 +480,7 @@ mod tests {
                 definition: SymbolId(0),
                 line: 2,
             }],
-            calls: vec![
-                CallRef {
-                    site_of: SymbolId(0),
-                    callee: "read".to_owned(),
-                    receiver: Some(String::new()),
-                    line: 4,
-                    invokes_a_macro: false,
-                },
-                CallRef {
-                    site_of: FILE_SCOPE,
-                    callee: "init".to_owned(),
-                    receiver: None,
-                    line: 300_000,
-                    invokes_a_macro: false,
-                },
-                CallRef {
-                    site_of: SymbolId(0),
-                    callee: "ready".to_owned(),
-                    receiver: None,
-                    line: 6,
-                    invokes_a_macro: true,
-                },
-                CallRef {
-                    site_of: SymbolId(0),
-                    callee: "expand".to_owned(),
-                    receiver: Some("Parser".to_owned()),
-                    line: 6,
-                    invokes_a_macro: true,
-                },
-            ],
+            calls: every_call_mark(),
             local_calls: vec![LocalCall {
                 site_of: SymbolId(0),
                 local: SymbolId(1),
@@ -535,6 +506,25 @@ mod tests {
             }],
             entry_candidates: vec![SymbolId(0)],
         }
+    }
+
+    fn every_call_mark() -> Vec<CallRef> {
+        let call = |(site_of, callee, receiver): (SymbolId, &str, Option<&str>),
+                    line,
+                    (macro_, method)| CallRef {
+            site_of,
+            callee: callee.to_owned(),
+            receiver: receiver.map(str::to_owned),
+            line,
+            invokes_a_macro: macro_,
+            calls_a_method: method,
+        };
+        vec![
+            call((SymbolId(0), "read", Some("")), 4, (false, true)),
+            call((FILE_SCOPE, "init", None), 300_000, (false, false)),
+            call((SymbolId(0), "ready", None), 6, (true, false)),
+            call((SymbolId(0), "expand", Some("Parser")), 6, (true, false)),
+        ]
     }
 
     fn every_receiver_and_access() -> Vec<UseRef> {
@@ -583,7 +573,8 @@ mod tests {
     }
 
     #[test]
-    fn a_call_that_invokes_no_macro_is_written_as_its_receiver_s_optional_text() {
+    fn a_call_that_invokes_no_macro_and_calls_no_method_is_written_as_its_receiver_s_optional_text()
+    {
         for receiver in [None, Some("Parser")] {
             let call = CallRef {
                 site_of: SymbolId(3),
@@ -591,6 +582,7 @@ mod tests {
                 receiver: receiver.map(str::to_owned),
                 line: 200,
                 invokes_a_macro: false,
+                calls_a_method: false,
             };
             let (mut written, mut expected) = (Vec::new(), Vec::new());
             Writer(&mut written).call(&call);
