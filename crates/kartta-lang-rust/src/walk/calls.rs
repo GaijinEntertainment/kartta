@@ -79,6 +79,7 @@ impl Emitter<'_> {
             callee: target.callee,
             receiver: target.receiver,
             line: line(node.start_position().row),
+            invokes_a_macro: false,
         };
         if !self.push_call(call) {
             return;
@@ -239,6 +240,7 @@ impl Emitter<'_> {
             callee,
             receiver: None,
             line: line(node.start_position().row),
+            invokes_a_macro: true,
         };
         if !self.push_call(call) {
             return;

@@ -63,6 +63,7 @@ fn call(from: u32, callee: &str, line: u32) -> CallRef {
         callee: callee.to_owned(),
         receiver: None,
         line,
+        invokes_a_macro: false,
     }
 }
 

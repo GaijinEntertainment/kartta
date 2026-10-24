@@ -215,6 +215,7 @@ impl Walker<'_> {
                 callee: text(name, self.source),
                 receiver: None,
                 line: line(node),
+                invokes_a_macro: false,
             });
         }
     }

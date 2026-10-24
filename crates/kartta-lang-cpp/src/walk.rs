@@ -469,6 +469,7 @@ impl<'s, 't> Replayer<'s, 't> {
             callee,
             receiver,
             line: line(node.start_position().row),
+            invokes_a_macro: false,
         });
     }
 

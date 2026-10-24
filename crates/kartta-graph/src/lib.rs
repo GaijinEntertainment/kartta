@@ -32,6 +32,7 @@
 //!     callee: "Parse".to_owned(),
 //!     receiver: None,
 //!     line: 2,
+//!     invokes_a_macro: false,
 //! });
 //!
 //! let mut graph = Graph::new(Conventions::default());

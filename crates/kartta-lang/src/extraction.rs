@@ -187,6 +187,9 @@ pub struct CallRef {
     pub receiver: Option<String>,
     /// The one-based line of the call.
     pub line: u32,
+    /// Whether the call is written as a macro invocation where the language writes one apart from a function call,
+    /// as Rust writes `name!()` beside `name()`. False where a call of either is written alike.
+    pub invokes_a_macro: bool,
 }
 
 /// A call the language's own scoping binds to a local symbol in scope.

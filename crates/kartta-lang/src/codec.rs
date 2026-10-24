@@ -11,6 +11,11 @@ use crate::symbol::{Symbol, SymbolFlags, SymbolId, SymbolKind};
 const QUALIFIED_AS_NAME: u8 = 1 << 6;
 const EXPORTED: u8 = 1 << 7;
 
+// constraint: a call's marks byte is the one an optional text writes for its receiver, with the macro mark beside it,
+// so a call that invokes no macro is written as before the mark
+const CALL_RECEIVER: u8 = 1;
+const INVOKES_A_MACRO: u8 = 1 << 1;
+
 const FORM: u8 = 0b11;
 const BARE: u8 = 0;
 const QUALIFIER: u8 = 1;
@@ -201,7 +206,18 @@ impl Writer<'_> {
     fn call(&mut self, call: &CallRef) {
         self.id(call.site_of);
         self.text(&call.callee);
-        self.optional(call.receiver.as_deref());
+        let invokes_a_macro = if call.invokes_a_macro {
+            INVOKES_A_MACRO
+        } else {
+            0
+        };
+        match call.receiver.as_deref() {
+            Some(receiver) => {
+                self.0.push(invokes_a_macro | CALL_RECEIVER);
+                self.text(receiver);
+            }
+            None => self.0.push(invokes_a_macro),
+        }
         self.uint(call.line);
     }
 
@@ -356,11 +372,23 @@ impl<'a> Reader<'a> {
     }
 
     fn call(&mut self) -> Read<CallRef> {
+        let site_of = self.id()?;
+        let callee = self.text()?;
+        let marks = self.byte()?;
+        if marks & !(INVOKES_A_MACRO | CALL_RECEIVER) != 0 {
+            return Err(Malformed);
+        }
+        let receiver = if marks & CALL_RECEIVER == 0 {
+            None
+        } else {
+            Some(self.text()?)
+        };
         Ok(CallRef {
-            site_of: self.id()?,
-            callee: self.text()?,
-            receiver: self.optional()?,
+            site_of,
+            callee,
+            receiver,
             line: self.uint()?,
+            invokes_a_macro: marks & INVOKES_A_MACRO != 0,
         })
     }
 
@@ -458,12 +486,28 @@ mod tests {
                     callee: "read".to_owned(),
                     receiver: Some(String::new()),
                     line: 4,
+                    invokes_a_macro: false,
                 },
                 CallRef {
                     site_of: FILE_SCOPE,
                     callee: "init".to_owned(),
                     receiver: None,
                     line: 300_000,
+                    invokes_a_macro: false,
+                },
+                CallRef {
+                    site_of: SymbolId(0),
+                    callee: "ready".to_owned(),
+                    receiver: None,
+                    line: 6,
+                    invokes_a_macro: true,
+                },
+                CallRef {
+                    site_of: SymbolId(0),
+                    callee: "expand".to_owned(),
+                    receiver: Some("Parser".to_owned()),
+                    line: 6,
+                    invokes_a_macro: true,
                 },
             ],
             local_calls: vec![LocalCall {
@@ -536,6 +580,28 @@ mod tests {
             RawExtraction::decode(&encoded(&RawExtraction::default())),
             Some(RawExtraction::default())
         );
+    }
+
+    #[test]
+    fn a_call_that_invokes_no_macro_is_written_as_its_receiver_s_optional_text() {
+        for receiver in [None, Some("Parser")] {
+            let call = CallRef {
+                site_of: SymbolId(3),
+                callee: "read".to_owned(),
+                receiver: receiver.map(str::to_owned),
+                line: 200,
+                invokes_a_macro: false,
+            };
+            let (mut written, mut expected) = (Vec::new(), Vec::new());
+            Writer(&mut written).call(&call);
+            let mut writer = Writer(&mut expected);
+            writer.id(call.site_of);
+            writer.text(&call.callee);
+            writer.optional(receiver);
+            writer.uint(call.line);
+
+            assert_eq!(written, expected, "receiver {receiver:?}");
+        }
     }
 
     #[test]

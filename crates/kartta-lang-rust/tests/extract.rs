@@ -445,6 +445,29 @@ fn a_call_belongs_to_the_function_around_it_and_self_names_the_impl_type() {
 }
 
 #[test]
+fn a_macro_invocation_is_marked_apart_from_a_call_of_its_name() {
+    let raw = extract(
+        b"fn run(x: u8) {\n    ready!(x);\n    log::info!(\"{}\", derive(x));\n    vec![ready!(x)];\n    \
+          ready(x);\n}\n",
+    );
+    let calls: Vec<(&str, bool)> = (raw.calls.iter())
+        .map(|call| (call.callee.as_str(), call.invokes_a_macro))
+        .collect();
+
+    assert_eq!(
+        calls,
+        [
+            ("ready", true),
+            ("info", true),
+            ("derive", false),
+            ("vec", true),
+            ("ready", true),
+            ("ready", false),
+        ]
+    );
+}
+
+#[test]
 fn a_scoped_or_macro_call_names_its_last_segment() {
     let raw = extract(SAMPLE);
     let receiver_of = |callee: &str| {
