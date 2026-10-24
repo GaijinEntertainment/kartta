@@ -49,6 +49,7 @@
 //! # Ok::<(), &str>(())
 //! ```
 
+mod aliases;
 mod analyze;
 mod calls;
 mod candidates;
