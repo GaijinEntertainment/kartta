@@ -157,10 +157,12 @@ impl Index {
     /// the content index reads is read again, which costs what the build did. With them, a file whose size and change
     /// time match its stamp is carried over unread: it keeps its [`ContentId`], what the index knew of it
     /// and its place in the content index, and the visitor is not handed it again — unless the visitor wants it now
-    /// and was never handed it before. Checking a stamp costs one stat of the file. The files a refresh reads are
-    /// indexed in a segment of the content index beside the segments that hold the files it carried. Once there are
-    /// more than eight segments, the refresh merges the ones after the first into one, at a cost that follows what
-    /// those segments hold; once more than a quarter of the files the segments hold lists for are gone, it merges all
+    /// and was never handed it before. A stamp is checked against the size and change time the directory listing gives
+    /// where the platform lists them, as macOS does, at no call of its own; elsewhere, and in a directory the kernel
+    /// cannot list with them, against one stat of the file. The files a refresh reads are indexed in a segment of the
+    /// content index beside the segments that hold the files it carried. Once there are more than eight segments, the
+    /// refresh merges the ones after the first into one, at a cost that follows what those segments hold; once more
+    /// than a quarter of the files the segments hold lists for are gone, it merges all
     /// of them into one, at about what the build's own merge cost. Either way the index in use stays whole until
     /// the new one is done, so the two are held at once while it runs. A refresh that returns an error, a cancelled one
     /// included, leaves the index answering as it did; one that returns [`RefreshOutcome`] has replaced it, even when
