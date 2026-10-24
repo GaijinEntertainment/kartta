@@ -3,14 +3,22 @@
 //! A call or a use is resolved by the first tier that binds it, and the answer carries that tier's confidence: a
 //! [`Limits`](crate::Limits) floor of [`INCLUDE`] keeps the calls bound through an include and every tier above it.
 
-/// A receiver that names an import binds an export of the imported directory or file.
+/// A receiver that names an import binds an export of the imported directory, or what the imported module's file shows
+/// the call.
 ///
-/// A call of a name imported from a file binds that file's export of the name, and a dot import binds its one export
-/// of the name. A receiver that names the module an included file declares binds that file's definition of the name.
+/// A call of a name imported from a module's file binds what that file shows it under the name. The file shows an
+/// export to any call, a definition it does not export to a call from the file or a file it includes, directly or
+/// through others, and a test definition only to test code that shares an include root with the file. A dot import
+/// binds where one dot import answers the name. A receiver that names the module an included file declares binds that
+/// file's definition of the name.
 pub const IMPORT: u8 = 95;
 /// A callee or a namespace's value written qualified binds the symbol of that qualified name.
 pub const QUALIFIED: u8 = 90;
 /// A callee written with more scopes or fewer than a qualified name keeps binds by its trailing owner and name.
+///
+/// A qualified callee written inside a namespace binds first, ahead of the qualified name it spells, the definition
+/// that its innermost enclosing scope names and the caller's file sees: `time_internal::f` called inside `absl` binds
+/// `absl::time_internal::f`.
 ///
 /// `ns::inner::Widget::draw` binds `Widget::draw`, and `Widget::Kind` binds a member of `Widget` of a longer qualified
 /// name, `ns::Widget::Kind`, one that the caller's file sees first. A namespace's value written inside an enclosing
@@ -18,8 +26,11 @@ pub const QUALIFIED: u8 = 90;
 pub const QUALIFIED_TAIL: u8 = 88;
 /// A receiver that names an owner binds that owner's member.
 pub const RECEIVER: u8 = 85;
-/// A local, or a definition in the caller's own file, binds; so does a member of the caller's owner when the receiver
-/// names no owner.
+/// A local, or a definition in the caller's own file, binds; so does a member of the caller's owner on a written
+/// receiver that names no owner.
+///
+/// The caller's owner binds only once the scope tiers bind nothing, and where a language lists
+/// [`kartta_lang::Conventions::own_type_receivers`], only on one of those receivers.
 ///
 /// A call on a bare name that the language writes only for a class, of which the graph holds no type, binds neither
 /// here nor at any tier below the include tiers.
