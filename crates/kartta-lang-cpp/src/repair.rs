@@ -511,11 +511,17 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
     let Recovery {
         spills,
         misread_branch,
+        stray_branch,
         misread_bodies: bodies,
     } = recovery_of(tree, source);
     let mut repaired = Repaired::of(source);
-    if misread_branch {
-        for directives in untaken_branches(source) {
+    let split = if misread_branch {
+        Some(BraceSplit::OpensOrCloses)
+    } else {
+        stray_branch.then_some(BraceSplit::Opens)
+    };
+    if let Some(split) = split {
+        for directives in untaken_branches(source, split) {
             repaired.blank(directives);
         }
     }
@@ -558,6 +564,7 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
 struct Recovery {
     spills: Vec<(usize, usize)>,
     misread_branch: bool,
+    stray_branch: bool,
     misread_bodies: Vec<MisreadBody>,
 }
 
@@ -620,9 +627,14 @@ fn indent_len(text: &[u8]) -> usize {
 // Where the first tree shows that misreading, every conditional whose first branch leaves a brace open, or closes one
 // it did not open, is read as the preprocessor reads it with the first branch taken: its directives and its later
 // branches are blanked. Every such conditional of the file, not only the misread one, because blanking one changes how
-// the grammar reads the next
-fn untaken_branches(source: &[u8]) -> Vec<Range<usize>> {
-    let mut scan = ConditionalScan::default();
+// the grammar reads the next. Where a larger error holds the directive as a bare token instead, only the conditionals
+// whose first branch leaves a brace open are read with that branch taken
+fn untaken_branches(source: &[u8], split: BraceSplit) -> Vec<Range<usize>> {
+    let mut scan = ConditionalScan {
+        split,
+        open: Vec::new(),
+        untaken: Vec::new(),
+    };
     let mut at = 0;
     while let Some(&byte) = source.get(at) {
         if (at == 0 || source[at - 1] == b'\n')
@@ -695,8 +707,15 @@ fn logical_line_end(source: &[u8], from: usize) -> usize {
     }
 }
 
-#[derive(Default)]
+/// The conditionals whose later branches the second parse skips, by what their first branch does to the braces.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BraceSplit {
+    Opens,
+    OpensOrCloses,
+}
+
 struct ConditionalScan {
+    split: BraceSplit,
     open: Vec<OpenConditional>,
     untaken: Vec<Range<usize>>,
 }
@@ -729,7 +748,10 @@ impl ConditionalScan {
                     depth,
                     closes_unopened,
                 }) = self.open.pop()
-                    && (depth != 0 || closes_unopened)
+                    && match self.split {
+                        BraceSplit::Opens => depth > 0,
+                        BraceSplit::OpensOrCloses => depth != 0 || closes_unopened,
+                    }
                 {
                     self.untaken.extend([head, later..line.end]);
                 }
@@ -755,12 +777,16 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
     let mut recovery = Recovery {
         spills: Vec::new(),
         misread_branch: false,
+        stray_branch: false,
         misread_bodies: Vec::new(),
     };
     let parsed_at_the_top = !tree.root_node().is_error();
 
     preorder(tree.root_node(), |node| {
         if node.is_error() {
+            recovery.stray_branch |= node.children(&mut node.walk()).any(|token| {
+                !token.is_named() && directive_of(token.kind().as_bytes()) == Directive::Branches
+            });
             let (start, end) = (node.start_position().row, node.end_position().row);
             if end.saturating_sub(start) >= RECOVERY_SPILL_ROWS {
                 let class_end = closing_row_of_the_class_it_opens(node, source);
@@ -1622,6 +1648,70 @@ static bool after(int count)
     }
 
     #[test]
+    fn a_function_whose_conditional_splits_a_call_and_a_brace_ends_at_its_own_brace() {
+        const SOURCE: &[u8] = br#"int open_file(struct file *tif)
+{
+	if (tif->magic != BIG
+	    #if MDI_SUPPORT
+	    && tif->magic != MDI) {
+		report(tif,
+		    "Not a TIFF or MDI file %d",
+	    #else
+	    ) {
+		report(tif,
+		    "Not a TIFF file %d",
+	    #endif
+		    tif->magic);
+		goto bad;
+	}
+	return 1;
+bad:
+	return 0;
+}
+
+int after(int count)
+{
+	return check(count);
+}
+"#;
+
+        let raw = Cpp::new().extract(SOURCE);
+
+        let lines: Vec<(&str, u32, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.line, symbol.end_line))
+            .collect();
+        assert_eq!(lines, [("open_file", 1, 19), ("after", 21, 24)]);
+    }
+
+    #[test]
+    fn only_a_first_branch_that_leaves_a_brace_open_splits_where_an_error_holds_the_directive() {
+        let source = b"#if A\n{\n#else\n{\n#endif\n}\n\
+                       #if B\n}\nnamespace n {\n#else\n#endif\n\
+                       #if C\n}\n#else\n}\n#endif\n";
+        let texts = |split| {
+            untaken_branches(source, split)
+                .into_iter()
+                .map(|range| std::str::from_utf8(&source[range]).expect("utf-8"))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(texts(BraceSplit::Opens), ["#if A", "#else\n{\n#endif"]);
+        assert_eq!(
+            texts(BraceSplit::OpensOrCloses),
+            [
+                "#if A",
+                "#else\n{\n#endif",
+                "#if B",
+                "#else\n#endif",
+                "#if C",
+                "#else\n}\n#endif"
+            ]
+        );
+    }
+
+    #[test]
     fn a_conditional_whose_first_branch_unbalances_its_braces_is_read_with_that_branch_taken() {
         const SOURCE: &[u8] = br"void scan(int count)
 {
@@ -1710,7 +1800,7 @@ void check(int value)
     }
 
     fn untaken_texts(source: &[u8]) -> Vec<&str> {
-        untaken_branches(source)
+        untaken_branches(source, BraceSplit::OpensOrCloses)
             .into_iter()
             .map(|range| std::str::from_utf8(&source[range]).expect("utf-8"))
             .collect()
