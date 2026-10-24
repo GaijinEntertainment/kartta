@@ -35,6 +35,16 @@ pub fn has_extension(path: &str, extensions: &[&str]) -> bool {
     })
 }
 
+/// Whether a whole `/`-separated component of `path`, the last one included, is one of `names` in any case.
+#[must_use]
+pub fn has_component(path: &str, names: &[&str]) -> bool {
+    path.split('/').any(|component| {
+        names
+            .iter()
+            .any(|name| component.eq_ignore_ascii_case(name))
+    })
+}
+
 /// `name` under the directory `dir`, where an empty `dir` is the root and an empty `name` is `dir` itself.
 #[must_use]
 pub fn child(dir: &str, name: &str) -> String {
@@ -114,6 +124,19 @@ mod tests {
         assert!(has_extension("a.tar.gz", &["gz"]));
         assert!(!has_extension("a.tar.gz", &["tar"]));
         assert!(!has_extension("py/README", &["py"]));
+    }
+
+    #[test]
+    fn a_component_matches_whole_and_in_any_case() {
+        assert!(has_component("phys/Tests/a.cpp", &["test", "tests"]));
+        assert!(has_component("UnitTests/a.h", &["unittests"]));
+        assert!(
+            has_component("a/tests", &["tests"]),
+            "the last component counts"
+        );
+        assert!(!has_component("prog/latestData/a.nut", &["testdata"]));
+        assert!(!has_component("prog/latest/a.nut", &["test"]));
+        assert!(!has_component("a/b.cpp", &[]));
     }
 
     #[test]
