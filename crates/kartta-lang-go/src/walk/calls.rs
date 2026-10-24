@@ -1,10 +1,14 @@
-use kartta_lang::tree::line;
+use kartta_lang::tree::{line, named_child_nodes};
 use kartta_lang::{CallRef, LocalCall, SymbolId};
 use tree_sitter::Node;
 
 use super::Emitter;
 use super::locals::LocalKind;
-use super::syntax::{TYPE_ONLY_KINDS, call_target, first_operand, is_pointer_indirection};
+use super::syntax::{
+    INSPECTING_CALLS, SERIALIZING_CALLS, TYPE_ONLY_KINDS, call_target, first_operand,
+    is_pointer_indirection,
+};
+use super::types::inside_containers;
 
 impl Emitter<'_> {
     pub(super) fn call(&mut self, node: Node<'_>, site_of: SymbolId) {
@@ -20,6 +24,10 @@ impl Emitter<'_> {
         let callee = target.0.as_str();
         if invoked.kind() == "identifier" && matches!(callee, "new" | "make") {
             self.record_allocated_type(node);
+        }
+        let serializes = SERIALIZING_CALLS.contains(&callee);
+        if serializes || INSPECTING_CALLS.contains(&callee) {
+            self.note_reflected_values(node, serializes);
         }
         if invoked.kind() == "identifier"
             && let Some(local) = self.innermost_local(callee, invoked.start_byte())
@@ -77,6 +85,25 @@ impl Emitter<'_> {
                 None
             }
             _ => Some(function),
+        }
+    }
+
+    // constraint: a type a body declares has fields local to it, which no use binds, so a value of one hands no
+    // package-level namesake's fields over
+    fn note_reflected_values(&mut self, call: Node<'_>, honors_skip_tags: bool) {
+        let Some(arguments) = call.child_by_field_name("arguments") else {
+            return;
+        };
+        for argument in named_child_nodes(arguments) {
+            let Some(path) = self.value_path(argument) else {
+                continue;
+            };
+            let of_a_local_type = self
+                .innermost_local(inside_containers(&path), argument.start_byte())
+                .is_some_and(|local| matches!(local.kind, LocalKind::TypeSymbol(_)));
+            if !of_a_local_type {
+                self.reflected_values.push((path, honors_skip_tags));
+            }
         }
     }
 
