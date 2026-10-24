@@ -52,9 +52,7 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
                     repaired.blank(before);
                     (after.start, after.end)
                 }),
-            _ if at == 0 || source[at - 1] == b'\n' => {
-                lone_macro_above_a_head(source, at, &mut macro_run)
-            }
+            _ if at == 0 || source[at - 1] == b'\n' => lone_macro_line(source, at, &mut macro_run),
             _ => None,
         };
         at = match blanked {
@@ -434,12 +432,12 @@ fn bounded_find(text: &[u8], needle: &[u8]) -> Option<usize> {
 // or the name below it, with the class body or the namespace read as a function's body, and the errors that leaves
 // span too few rows for the spill gate. Above a function the macro reads as its return type and stays; a macro call,
 // as the `TABLE_END(name)` that closes a table an earlier line opens, is no such macro, and blanking it unbalances what
-// it closes
-fn lone_macro_above_a_head(
-    source: &[u8],
-    line: usize,
-    run: &mut MacroRun,
-) -> Option<(usize, usize)> {
+// it closes. A macro that opens a namespace of its own inside another, `ABSL_NAMESPACE_BEGIN` right after `namespace
+// absl {`, reads as the type of the declaration below it, which loses an enum or a constant and starts a function at
+// the macro; the one that closes it, right before the outer `}`, reads as a declaration that takes the brace, after
+// which a misread member elsewhere can take the whole namespace. Only a namespace's edges: before the `}` of a table or
+// a function the name is a value or a statement, and one with code right below it annotates that code
+fn lone_macro_line(source: &[u8], line: usize, run: &mut MacroRun) -> Option<(usize, usize)> {
     let start = line + indent_len(&source[line..]);
     let opens_a_macro_name = source
         .get(start)
@@ -466,19 +464,150 @@ fn lone_macro_above_a_head(
     if line >= run.code {
         let code = next_code(source, line_end);
         let word = &source[code..code + word_len(&source[code..])];
-        *run = MacroRun {
-            code,
-            opens_a_head: word == b"template" || word == b"namespace" || CLASS_KEYS.contains(&word),
-        };
+        run.code = code;
+        run.blanked = word == b"template"
+            || word == b"namespace"
+            || CLASS_KEYS.contains(&word)
+            || (source[code..].starts_with(b"}") && run.closes_a_namespace(source, code))
+            || (is_set_apart(&source[line_end..code]) && opens_a_namespace_body(source, line));
     }
-    run.opens_a_head.then_some((start, end))
+    run.blanked.then_some((start, end))
 }
 
-/// The code a run of lone macro lines leads to, which every line of the run shares, so the run is scanned once.
+/// The code a run of lone macro lines leads to, which every line of the run shares, so the run is scanned once, and
+/// the braces that close a namespace, found once a file holds a run before a `}`.
 #[derive(Default)]
 struct MacroRun {
     code: usize,
-    opens_a_head: bool,
+    blanked: bool,
+    namespace_closes: Option<Vec<usize>>,
+}
+
+impl MacroRun {
+    fn closes_a_namespace(&mut self, source: &[u8], brace: usize) -> bool {
+        self.namespace_closes
+            .get_or_insert_with(|| namespace_closes(source))
+            .binary_search(&brace)
+            .is_ok()
+    }
+}
+
+/// The offsets of the braces that close a namespace body, in order, read with each conditional's first branch taken,
+/// since branches that each open a brace share the brace that closes them.
+fn namespace_closes(source: &[u8]) -> Vec<usize> {
+    let mut open: Vec<bool> = Vec::new();
+    let mut closes = Vec::new();
+    let mut branches = FirstBranches::default();
+    let mut at = 0;
+    while let Some(&byte) = source.get(at) {
+        if (at == 0 || source[at - 1] == b'\n')
+            && let Some(directive) = directive_at(source, at)
+        {
+            branches.read(directive);
+            at = directive_end(source, at);
+            continue;
+        }
+        let taken = branches.untaken == 0;
+        match byte {
+            b'{' if taken => open.push(is_namespace_head(&source[..at])),
+            b'}' if taken && open.pop() == Some(true) => closes.push(at),
+            _ => {}
+        }
+        at += opaque_len(source, at);
+    }
+    closes
+}
+
+/// The open conditionals, each marked once a later branch begins, and how many of them are in a later branch.
+#[derive(Default)]
+struct FirstBranches {
+    later: Vec<bool>,
+    untaken: usize,
+}
+
+impl FirstBranches {
+    fn read(&mut self, directive: Directive) {
+        match directive {
+            Directive::Opens => self.later.push(false),
+            Directive::Branches => {
+                if let Some(later @ false) = self.later.last_mut() {
+                    *later = true;
+                    self.untaken += 1;
+                }
+            }
+            Directive::Closes => {
+                if self.later.pop() == Some(true) {
+                    self.untaken -= 1;
+                }
+            }
+            Directive::Other => {}
+        }
+    }
+}
+
+/// Whether the code before a `{` ends in a namespace head, `namespace`, `namespace a` or `namespace a::b`.
+fn is_namespace_head(before: &[u8]) -> bool {
+    let head = before.trim_ascii_end();
+    let name = head
+        .iter()
+        .rev()
+        .take_while(|byte| is_word_byte(**byte) || **byte == b':')
+        .count();
+    let head = head[..head.len() - name].trim_ascii_end();
+    head.strip_suffix(b"namespace")
+        .is_some_and(|before| !before.last().copied().is_some_and(is_word_byte))
+}
+
+/// Whether a blank or a comment line stands between a run of lone macro lines and the code after it.
+fn is_set_apart(gap: &[u8]) -> bool {
+    let mut rows = gap.split(|byte| *byte == b'\n').skip(1).peekable();
+    while let Some(row) = rows.next() {
+        if rows.peek().is_none() {
+            return false;
+        }
+        let row = row.trim_ascii();
+        if row.is_empty() || row.starts_with(b"//") || row.starts_with(b"/*") {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether the code above a line, past comments and lone macro lines, is the `{` of a namespace head.
+fn opens_a_namespace_body(source: &[u8], mut line: usize) -> bool {
+    while let Some(above_end) = line.checked_sub(1) {
+        line = line_start(source, above_end);
+        let mut row = &source[line..above_end];
+        let text = row.trim_ascii();
+        if text.is_empty() || text.starts_with(b"//") || is_macro_name(text) {
+            continue;
+        }
+        if text.ends_with(b"*/") {
+            let Some(comment) = source[..above_end]
+                .windows(2)
+                .rposition(|pair| pair == b"/*")
+            else {
+                return false;
+            };
+            line = line_start(source, comment);
+            row = &source[line..comment];
+            if row.trim_ascii().is_empty() {
+                continue;
+            }
+        }
+        let code_end = line + row.trim_ascii_end().len();
+        return source[..code_end]
+            .strip_suffix(b"{")
+            .is_some_and(is_namespace_head);
+    }
+    false
+}
+
+fn line_start(source: &[u8], at: usize) -> usize {
+    source[..at]
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |newline| newline + 1)
 }
 
 /// The start of the first code at or past `at` that is no comment and no line a macro name fills alone.
@@ -1643,6 +1772,58 @@ void free_fn() {}
             .collect();
         assert_eq!(blanked, [1, 5, 7, 18, 20]);
         assert_eq!(repaired.len(), SOURCE.len());
+    }
+
+    #[test]
+    fn a_lone_macro_line_is_blanked_at_a_namespace_s_edges_and_nowhere_else() {
+        const SOURCE: &[u8] =
+            b"namespace a {\nVERSION_BEGIN\n// note\nint f();\n\nVERSION_END\n}\n\
+                                namespace b {\nEXPORTED\nint g();\n}\n\
+                                struct S {\nBODY_BEGIN\n\nint x;\nBODY_END\n};\n\
+                                int t[] = {\n  FIRST,\n  LAST\n};\n\
+                                void h() {\n  SCOPE_GUARD\n\n  run();\n  TRAILER\n}\n";
+
+        let repaired = for_parse(SOURCE).expect("lone macros at a namespace's edges");
+
+        let lines: Vec<&[u8]> = repaired.split(|byte| *byte == b'\n').collect();
+        let blanked: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| !line.is_empty() && line.iter().all(|byte| *byte == b' '))
+            .map(|(row, _)| row + 1)
+            .collect();
+        assert_eq!(blanked, [2, 6]);
+        assert_eq!(repaired.len(), SOURCE.len());
+    }
+
+    #[test]
+    fn a_namespace_closes_at_its_brace_past_branches_that_each_open_one() {
+        const SOURCE: &[u8] =
+            b"namespace n {\n#ifdef A\nvoid f() {\n#else\nvoid g() {\n#endif\n}\nVERSION_END\n}\n";
+
+        let repaired = for_parse(SOURCE).expect("the closing macro");
+
+        assert_eq!(
+            changed_offsets(&repaired, SOURCE),
+            (60..71).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_namespace_closes_at_its_brace_past_a_comment_a_directive_opens() {
+        const SOURCE: &[u8] =
+            b"namespace n {\n#if A /* note\n#else\n*/\nvoid g() {\n#endif\n}\n\nVERSION_END\n}\n";
+        let macro_at = SOURCE
+            .windows(b"VERSION_END".len())
+            .position(|window| window == b"VERSION_END")
+            .expect("the closing macro");
+
+        let repaired = for_parse(SOURCE).expect("the closing macro");
+
+        assert_eq!(
+            changed_offsets(&repaired, SOURCE),
+            (macro_at..macro_at + b"VERSION_END".len()).collect::<Vec<_>>()
+        );
     }
 
     #[test]
