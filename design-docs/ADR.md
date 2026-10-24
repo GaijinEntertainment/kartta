@@ -577,8 +577,7 @@
   do](./adr/3.100-resolve-a-typescript-or-javascript-import-as-the-compiler-and-bundlers-do.md)
   - Governs: `crates/kartta-lang-jsts/src/{resolve,modules,tsconfig,package_json,config}.rs`,
     `crates/kartta-lang-jsts/src/walk/exports.rs` (`push_directive`, `imported_names`)
-  - Revisit if: a real tree's imports lead through configuration the resolver does not read, a bundler's aliases or a
-    web server's root (#424)
+  - Revisit if: a real tree's imports lead through a bundler's alias or a server root that no config states
 - [3.101 Name no type for a TypeScript or JavaScript call on a value the file
   declares](./adr/3.101-name-no-type-for-a-typescript-or-javascript-call-on-a-value-the-file-declares.md)
   - Governs: `crates/kartta-lang-jsts/src/walk.rs` (`Binding`, `Declared`), `crates/kartta-lang-jsts/src/walk/calls.rs`
