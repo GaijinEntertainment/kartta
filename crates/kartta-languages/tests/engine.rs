@@ -1523,6 +1523,73 @@ fn a_rust_call_through_a_type_the_tree_does_not_declare_binds_no_member_of_anoth
 }
 
 #[test]
+fn a_rust_call_binds_a_definition_a_macro_writes_only_where_no_written_one_binds() {
+    let tree = tree_of(&[
+        ("src/lib.rs", "mod ids;\nmod limits;\nmod small;\n"),
+        (
+            "src/ids.rs",
+            "macro_rules! index {\n    ($name:ident) => {\n        pub struct $name;\n\n        \
+             impl $name {\n            pub fn as_u32(&self) -> u32 {\n                0\n            }\n\n            \
+             pub fn one_more(&self) -> u32 {\n                1\n            }\n        }\n    };\n}\n\n\
+             index!(StateId);\n",
+        ),
+        (
+            "src/small.rs",
+            "pub struct SmallIndex;\n\nimpl SmallIndex {\n    pub const MAX: SmallIndex = SmallIndex;\n\n    \
+             pub fn as_u32(&self) -> u32 {\n        0\n    }\n}\n",
+        ),
+        (
+            "src/limits.rs",
+            "use crate::small::SmallIndex;\n\nfn check() {\n    SmallIndex::MAX.as_u32();\n    \
+             SmallIndex::MAX.one_more();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        callees(&engine, "src/limits.rs", "check"),
+        (
+            vec![
+                ("one_more", SymbolKind::Method, "src/ids.rs"),
+                ("as_u32", SymbolKind::Method, "src/small.rs"),
+            ],
+            0
+        )
+    );
+    let (_, graph) = engine
+        .graph_of("src/limits.rs")
+        .expect("a language claims the file");
+    let made = graph
+        .callees("check", Limits::new(1))
+        .expect("the name is defined")
+        .reached
+        .iter()
+        .find(|reached| reached.symbol.name == "one_more")
+        .map(|reached| reached.confidence);
+    assert_eq!(made, Some(confidence::MADE));
+}
+
+#[test]
+fn a_rust_call_binds_no_value_a_macro_writes_and_reads_none_as_the_receiver_of_a_path() {
+    let tree = tree_of(&[
+        ("src/lib.rs", "mod symbols;\nmod uses;\n"),
+        (
+            "src/symbols.rs",
+            "macro_rules! symbols {\n    ($($name:ident),*) => {\n        $(pub const $name: u32 = 0;)*\n    };\n}\n\n\
+             symbols!(Some, Box);\n",
+        ),
+        (
+            "src/uses.rs",
+            "struct Interner;\n\nimpl Interner {\n    fn new() -> Self {\n        Interner\n    }\n}\n\n\
+             fn check() {\n    Some(1);\n    Box::new(1);\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(callees(&engine, "src/uses.rs", "check"), (vec![], 2));
+}
+
+#[test]
 fn a_rust_call_binds_by_name_only_within_the_crates_its_crate_is_built_with() {
     let config = |caller: &str| {
         format!(

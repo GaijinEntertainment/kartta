@@ -7,8 +7,8 @@ use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
     BareReceivers, CallableRole, Conventions, IncludeReach, IncludedRuntimeMembers,
-    InheritedMembers, MacroInvocations, MemberCalls, NamespaceCalls, OwnMembers, SymbolKind,
-    UntypedMembers, ValueUses,
+    InheritedMembers, MacroInvocations, MemberCalls, NamespaceCalls, OwnMembers, SymbolFlags,
+    SymbolKind, UntypedMembers, ValueUses,
 };
 
 use crate::candidates::{CandidateSet, Candidates, Gate, INDEXED_FROM};
@@ -131,10 +131,20 @@ pub(crate) struct Cascade<'g> {
     pub(crate) owner_ancestors: Derived<Str, Option<Rc<Ancestors>>>,
     pub(crate) receiver_types: Derived<(SymbolAt, Str), Value<'g>>,
     empty_receiver: Option<Str>,
+    // constraint: a written definition is likelier a call's callee than a namesake a macro invocation writes, so a call
+    // the cascade binds to a made one or leaves ambiguous among a name's made ones runs again on a twin that holds the
+    // written ones alone, and takes what that run binds
+    written_only: bool,
+    written: OnceCell<Box<Self>>,
+    made_names: Derived<Str, bool>,
 }
 
 impl<'g> Cascade<'g> {
     pub(crate) fn new(graph: &'g Graph) -> Self {
+        Self::of(graph, false)
+    }
+
+    fn of(graph: &'g Graph, written_only: bool) -> Self {
         Self {
             graph,
             conventions: graph.conventions,
@@ -152,6 +162,9 @@ impl<'g> Cascade<'g> {
             owner_ancestors: RefCell::default(),
             receiver_types: RefCell::default(),
             empty_receiver: graph.strings.get(""),
+            written_only,
+            written: OnceCell::new(),
+            made_names: RefCell::default(),
         }
     }
 
@@ -267,10 +280,17 @@ impl<'g> Cascade<'g> {
         let symbol = &file.symbols[at.index as usize];
         self.is_call_target(symbol.kind)
             && self.is_of_the_call_s_form(call, symbol.kind)
+            && self.binds_if_made(symbol.kind, symbol.flags)
             && (file.locals.is_empty()
                 || file.holder(at.index).is_none_or(|holder| {
                     symbol.owner.is_some() && SymbolAt::new(at.file, holder) == scope
                 }))
+    }
+
+    // constraint: a value a macro invocation writes is a list's entry, rust-analyzer's `sym::Some` among them, so a
+    // call of its name means a namesake outside the graph
+    const fn binds_if_made(&self, kind: SymbolKind, flags: SymbolFlags) -> bool {
+        !flags.is_made() || !(self.written_only || is_value(kind))
     }
 
     // constraint: a method call calls a method, never the value of a variable or a constant
@@ -590,11 +610,43 @@ impl<'g> Cascade<'g> {
     }
 
     pub(crate) fn resolve_call(&self, call: &Call) -> Result<Bound, Miss> {
-        let (at, confidence) = self.resolve_by_tiers(call)?;
-        if self.is_unbound_namespace(at) || !self.constant_receiver_reaches(call, at) {
-            return Err(Miss::NotAdmitted);
+        let resolved = self.resolve_by_tiers(call).and_then(|(at, confidence)| {
+            if self.is_unbound_namespace(at) || !self.constant_receiver_reaches(call, at) {
+                Err(Miss::NotAdmitted)
+            } else {
+                Ok((at, confidence))
+            }
+        });
+        let made_may_decide = match resolved {
+            Ok((at, _)) => self.graph.sym(at).flags.is_made(),
+            Err(miss) => miss == Miss::Ambiguous && self.names_a_made_definition(call.callee),
+        };
+        if !self.written_only
+            && made_may_decide
+            && let bound @ Ok(_) = self
+                .written
+                .get_or_init(|| Box::new(Self::of(self.graph, true)))
+                .resolve_call(call)
+        {
+            return bound;
         }
-        Ok((at, confidence))
+        resolved.and_then(|(at, confidence)| {
+            if !self.graph.sym(at).flags.is_made() {
+                Ok((at, confidence))
+            } else if confidence < confidence::SAME_DIR {
+                Err(Miss::Ambiguous)
+            } else {
+                Ok((at, confidence.min(confidence::MADE)))
+            }
+        })
+    }
+
+    fn names_a_made_definition(&self, name: Str) -> bool {
+        derived(&self.made_names, name, || {
+            self.named(name)
+                .iter()
+                .any(|&at| self.graph.sym(at).flags.is_made())
+        })
     }
 
     // constraint: a receiver that names a constant holds the class or the module of that name, or a value where the
@@ -799,8 +851,10 @@ impl<'g> Cascade<'g> {
                 .iter()
                 .copied()
                 .filter(|&at| {
-                    let kind = self.graph.sym(at).kind;
-                    self.is_call_target(kind) && self.is_of_the_call_s_form(call, kind)
+                    let symbol = self.graph.sym(at);
+                    self.is_call_target(symbol.kind)
+                        && self.is_of_the_call_s_form(call, symbol.kind)
+                        && self.binds_if_made(symbol.kind, symbol.flags)
                 })
                 .partition(|&at| self.holder(at).is_some());
             Rc::new(Candidates::indexed(self.graph, named, targets, locals))
@@ -1074,7 +1128,8 @@ impl<'g> Cascade<'g> {
 
     /// Whether the call goes through a type path, a receiver whose last segment is written capitalised where only a
     /// module's path reaches a free function, and the graph holds neither a type nor a value of that name that the
-    /// caller's package can reach.
+    /// caller's package can reach. A value a macro writes counts only under a method call: rust-analyzer's `sym::Box`
+    /// is no receiver of `Box::new()`.
     fn names_a_type_outside_the_graph(&self, call: &Call) -> bool {
         let (MemberCalls::ModulePaths, Some(separator), Some(receiver)) = (
             self.conventions.member_calls,
@@ -1095,8 +1150,9 @@ impl<'g> Cascade<'g> {
         let gate = self.gate(call.file);
         self.graph.strings.get(last).is_none_or(|last| {
             !self.named(last).iter().any(|&at| {
-                let kind = self.graph.sym(at).kind;
-                (kind.is_type() || is_value(kind))
+                let symbol = self.graph.sym(at);
+                (symbol.kind.is_type()
+                    || (is_value(symbol.kind) && (call.calls_a_method || !symbol.flags.is_made())))
                     && gate
                         .as_ref()
                         .is_none_or(|gate| gate.admits_at(self.graph, at))
