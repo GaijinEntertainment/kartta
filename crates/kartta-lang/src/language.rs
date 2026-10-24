@@ -221,6 +221,12 @@ pub struct Conventions {
     /// callable where its receiver spells that callable's owner, `session.seek()` for a `Session`, because a call on
     /// such a value reaches the runtime, not a function of the repository. Empty where a language names none.
     pub runtime_methods: &'static [&'static str],
+    /// The methods the language's standard library declares, in ascending order: a method call of one, marked by
+    /// `CallRef::calls_a_method`, on a value whose type the graph does not follow, `found.start()`, binds the one
+    /// callable of its name only as a guess, unless its receiver spells that callable's owner, because the value is as
+    /// often one of the library's or of a crate outside the tree as one of the repository's. Empty where a language
+    /// names none.
+    pub library_methods: &'static [&'static str],
     /// Which members of the files a file includes a member call of one of the
     /// [`Conventions::runtime_methods`] binds.
     pub included_runtime_members: IncludedRuntimeMembers,
@@ -276,6 +282,7 @@ impl Conventions {
         include_reach: IncludeReach::Direct,
         member_calls: MemberCalls::NearbyFreeFunctions,
         runtime_methods: &[],
+        library_methods: &[],
         included_runtime_members: IncludedRuntimeMembers::Any,
         untyped_owners: UntypedOwners::Types,
         calls_on_values: CallsOnValues::NearestGuessed,
