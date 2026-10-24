@@ -543,8 +543,8 @@
   - Revisit if: several definitions a header reaches through transitive includes are not alternatives
 - [3.75 Name a C++ call's receiver by the class its operand is declared
   as](./adr/3.75-name-a-c-plus-plus-call-s-receiver-by-the-class-its-operand-is-declared-as.md)
-  - Governs: `crates/kartta-lang-cpp/src/walk.rs` (`record_call`, `push_fields`),
-    `crates/kartta-lang-cpp/src/walk/{sites,data}.rs`
+  - Governs: `crates/kartta-lang-cpp/src/walk.rs` (`record_call`, `push_fields`, `push_type_alias`,
+    `aliased_class`), `crates/kartta-lang-cpp/src/walk/{sites,data}.rs`
   - Revisit if: calls on operands the walk does not see declared bind wrongly often enough to want a typed expression
 - [3.76 Count a generated-code marker only outside a code
   span](./adr/3.76-count-a-generated-code-marker-only-outside-a-code-span.md)
@@ -638,7 +638,7 @@
 - [3.130 Name the type alias a parent's lookup
   reaches](./adr/3.130-name-the-type-alias-a-parent-s-lookup-reaches.md)
   - Governs: `crates/kartta-graph/src/implementations.rs`, `kartta_graph::is_parent`
-  - Revisit if: the extraction records what an alias names
+  - Revisit if: agents ask for a type that aliases name and miss the aliases' derivers
 - [3.131 Answer a missed name with the definitions one edit from
   it](./adr/3.131-answer-a-missed-name-with-the-definitions-one-edit-from-it.md)
   - Governs: `crates/kartta-graph/src/one_edit.rs`, `Graph::definitions_one_edit_from`
@@ -737,8 +737,8 @@
   - Governs: `kartta_lang::Conventions::base_receivers`, `crates/kartta-graph/src/scope.rs`
     (`member_of_the_caller_s_base`, `held_by_a_base`, `base_types`), `crates/kartta-graph/src/resolve.rs`
     (`resolve_by_tiers`), the `Conventions` of `kartta-lang-quirrel`, `kartta-lang-daslang` and `kartta-lang-php`
-  - Revisit if: the extraction records the class a base's alias names, or a language whose base receiver names a base
-    by a qualified name lists one
+  - Revisit if: the PHP extraction records the class a `use ... as` alias of a base names, or a language whose base
+    receiver names a base by a qualified name lists one
 - [3.169 Repair from the first C++ tree's errors before a second
   parse](./adr/3.169-repair-from-the-first-c-plus-plus-tree-s-errors-before-a-second-parse.md)
   - Governs: `crates/kartta-lang-cpp/src/repair.rs` (`after_recovery`, `recovery_of`, `macro_invocation_len`,
@@ -798,7 +798,7 @@
 - [3.180 Bind a C++ call on a declared class through the class nearest the caller's
   file](./adr/3.180-bind-a-c-plus-plus-call-on-a-declared-class-through-the-class-nearest-the-caller-s-file.md)
   - Governs: `crates/kartta-graph/src/scope.rs` (`member_of_a_reached_owner`, `member_of_a_reached_class`,
-    `member_of_a_base`, `reached_tier`), `crates/kartta-graph/src/twins.rs`
+    `member_of_a_base`, `reached_tier`), `crates/kartta-graph/src/aliases.rs`, `crates/kartta-graph/src/twins.rs`
   - Revisit if: the class nearest the caller's file is the wrong class in more than one sampled call in ten
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
