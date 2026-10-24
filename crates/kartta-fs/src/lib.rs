@@ -189,6 +189,7 @@ pub use crate::list::{ListError, ListOptions, Listed, Listing};
 pub use crate::matches::{Cut, Failure, Line, LineKind, MatchedFile, Matches};
 pub use crate::patterns::{Case, PatternError, Patterns};
 pub use crate::pruned::{PrunedNames, PrunedNamesError};
+pub use crate::stamp::FileStamp;
 #[cfg(feature = "watch")]
 pub use crate::watch::{WatchError, Watcher};
 
