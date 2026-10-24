@@ -150,7 +150,9 @@ pub struct Extraction {
     pub imports: Vec<ImportRef>,
     /// The names under which the file refers to the modules it imports, and where those modules are.
     pub bindings: Vec<ImportBinding>,
-    /// The package or module the file declares itself part of.
+    /// The package or module the file declares itself part of, or that its resolver places it in, as a Cargo package
+    /// holds its files. Of the owners of one name that a call's receiver names, one the caller's package declares
+    /// binds before any outside the caller's directory, where a package is not a directory.
     pub package: Option<String>,
     /// Compile-time implements assertions whose implementing type the file does not declare.
     pub assertions: Vec<ImplementsAssertion>,
