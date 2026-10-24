@@ -93,7 +93,8 @@ pub(super) fn field_declarator(mut node: Node<'_>) -> Option<(Node<'_>, Option<b
 }
 
 /// The value types of a field of `class`: the class, a pointer's after a `*`, and for a value of a class template
-/// the class its `operator->` reaches, `arrow`, after a `*`.
+/// the class its `operator->` reaches, `arrow`, after a `*`. A field of a builtin type or of a template parameter has
+/// no `class`, and an array or a pointer to a pointer no `pointer`, so either records none.
 pub(super) fn field_value_types(
     class: Option<&str>,
     pointer: Option<bool>,
