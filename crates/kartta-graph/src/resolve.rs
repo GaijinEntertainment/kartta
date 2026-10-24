@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::{OnceCell, RefCell};
 use std::hash::Hash;
 use std::rc::Rc;
@@ -18,6 +19,7 @@ use crate::resolution::Miss;
 use crate::scope::{Ancestors, OwnerMember, Reach, Scoped, Shape, is_value};
 use crate::stored::{Entry, Site, SymbolAt, UseReceiver};
 use crate::strings::Str;
+use crate::twins::Twin;
 use crate::typed::{Typed, Value};
 
 pub(crate) const THROUGH_INCLUDES_MAX_DEFINITIONS: usize = 32;
@@ -627,10 +629,11 @@ impl<'g> Cascade<'g> {
                 return Ok((at, confidence::QUALIFIED));
             }
         }
-        if let Some(tail) = self.trailing_pair(call.callee)
+        if let Some((scope, tail)) = self.trailing_pair(call.callee)
             && let Some(at) = self.qualified(tail)
             && self.is_candidate(call, at)
         {
+            let at = self.member_of_the_written_class(call, (scope, tail), at);
             return Ok((at, confidence::QUALIFIED_TAIL));
         }
         if let Some(at) = self.nested_in_written_owner(call) {
@@ -1366,14 +1369,49 @@ impl<'g> Cascade<'g> {
             .find_map(|&included| walk.follow(included, call.callee))
     }
 
-    fn trailing_pair(&self, callee: Str) -> Option<Str> {
+    /// The last two names a callee spells, `Widget::draw` of `b::Widget::draw`, with the scope written before the
+    /// member, `b::Widget`.
+    fn trailing_pair(&self, callee: Str) -> Option<(&'g str, Str)> {
         let separator = self.conventions.scope_separator?;
         let written = self.graph.strings.resolve(callee);
         let last = written.rfind(separator)?;
         let previous = written[..last].rfind(separator)?;
-        self.graph
+        let tail = self
+            .graph
             .strings
-            .get(&written[previous + separator.len()..])
+            .get(&written[previous + separator.len()..])?;
+        Some((&written[..last], tail))
+    }
+
+    // constraint: a member keeps its class's bare name in its qualified name, so namesake classes in two namespaces
+    // share it, and the scope written before the member names the class C++ looks up from the scopes around the call
+    // outward; the first in path order stands where that scope names none of them, and where the graph locates no
+    // class of the first, as for an out-of-line definition no declaration links to, whose class may be the one named
+    /// Of the members `tail` qualifies, the one of the class `scope` names, else `first`.
+    fn member_of_the_written_class(
+        &self,
+        call: &Call,
+        (scope, tail): (&str, Str),
+        first: SymbolAt,
+    ) -> SymbolAt {
+        let caller = call.caller_at();
+        let mut found = self
+            .qualified_as(tail)
+            .filter(|&at| self.is_candidate(call, at));
+        let (Some(one), Some(two)) = (found.next(), found.next()) else {
+            return first;
+        };
+        if self.class_of(first).is_none() {
+            return first;
+        }
+        let mut tier: Vec<SymbolAt> = [one, two].into_iter().chain(found).collect();
+        tier.sort_by_key(|&at| self.graph.order_of(at));
+        let written = match self.conventions.scope_separator {
+            Some(separator) if call.written_from_root => Cow::Owned(format!("{separator}{scope}")),
+            _ => Cow::Borrowed(scope),
+        };
+        self.twin(caller, &written, &tier)
+            .map_or(first, Twin::member)
     }
 
     // constraint: a member nested in a class can keep the class's whole qualified name, `ns::Widget::Kind`, which a
