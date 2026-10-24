@@ -149,6 +149,7 @@ lost, and what would reopen it.
 - [3.185 Bind a runtime method's call to an included file's member only where its receiver or caller reaches the owner](/design-docs/adr/3.185-included-runtime-members.md)
 - [3.187 Count a definition a library or a host reads by name as reflected](/design-docs/adr/3.187-reflected-definitions.md)
 - [3.188 Bind a C++ call a class does not declare through the class's bases](/design-docs/adr/3.188-cpp-inherited-member-calls.md)
+- [3.190 Bind a Ruby call on a constant or a literal only within the class it names](/design-docs/adr/3.190-ruby-constant-receivers.md)
 
 ## crates/kartta-lang
 

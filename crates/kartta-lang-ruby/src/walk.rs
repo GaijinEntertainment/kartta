@@ -286,11 +286,11 @@ impl Emitter<'_> {
                 Some(match receiver.kind() {
                     IDENTIFIER => self.named_receiver(receiver, site_of),
                     "self" => self.type_of_self(site_of).unwrap_or_default(),
-                    "constant" | "scope_resolution" => CLASS_MEMBER_SEPARATOR.to_owned(),
+                    "constant" | "scope_resolution" => on_the_class(text(receiver, self.source)),
                     "call" if self.is_class_of_an_instance(receiver, site_of) => {
                         CLASS_MEMBER_SEPARATOR.to_owned()
                     }
-                    _ => String::new(),
+                    _ => literal_class(receiver).to_owned(),
                 })
             },
         );
@@ -491,6 +491,36 @@ pub(crate) fn declared(
     );
     symbol.qualified_name = qualified;
     symbol
+}
+
+/// The class of Ruby's runtime that the literal `literal` makes a value of, a parenthesised range's included; empty for
+/// any other expression.
+fn literal_class(literal: Node<'_>) -> &'static str {
+    match literal.kind() {
+        "string" | "chained_string" | "heredoc_beginning" | "subshell" | "character" => "String",
+        "array" | "string_array" | "symbol_array" => "Array",
+        "hash" => "Hash",
+        "integer" => "Integer",
+        "float" => "Float",
+        "rational" => "Rational",
+        "complex" => "Complex",
+        "simple_symbol" | "delimited_symbol" => "Symbol",
+        "regex" => "Regexp",
+        "lambda" => "Proc",
+        "nil" => "NilClass",
+        "true" => "TrueClass",
+        "false" => "FalseClass",
+        "parenthesized_statements" if is_one_range(literal) => "Range",
+        _ => "",
+    }
+}
+
+fn is_one_range(parenthesized: Node<'_>) -> bool {
+    let mut statements = named_child_nodes(parenthesized);
+    statements
+        .next()
+        .is_some_and(|statement| statement.kind() == "range")
+        && statements.next().is_none()
 }
 
 fn require_form(callee: &str) -> Option<u32> {

@@ -65,7 +65,7 @@ fn each_site_reaches_the_method_of_the_kind_its_receiver_names() {
                     ("Formula#rebuild_again", true, 80),
                     ("Formula.make", true, 80),
                     ("Formula.remake", true, 85),
-                    ("Installer#run", true, 80),
+                    ("Installer#run", true, 85),
                     ("Installer#run", false, 85),
                 ],
                 vec![
@@ -93,7 +93,7 @@ fn a_class_that_declares_one_kind_offers_it_to_every_receiver_but_a_bare_call_of
             ("Formula#rebuild_again", true, 80),
             ("Formula.remake", true, 85),
             ("Formula.fresh", true, 85),
-            ("Installer#run", true, 80),
+            ("Installer#run", true, 85),
             ("Installer#run", false, 85),
             ("Installer#rerun", true, 80),
         ]
@@ -109,7 +109,7 @@ fn a_class_that_declares_one_kind_offers_it_to_every_receiver_but_a_bare_call_of
             ("Formula.make", true, 80),
             ("Formula.remake", true, 85),
             ("Formula.fresh", true, 85),
-            ("Installer#run", true, 80),
+            ("Installer#run", true, 85),
             ("Installer#run", false, 85),
             ("Installer#rerun", true, 80),
         ]

@@ -24,15 +24,17 @@
 //!
 //! A call inside a method is a call made by it, and a call in the body of a class or a module outside every method is
 //! a call made by that type. A call records its receiver: a plain name as written, `self` as the caller's own type,
-//! which in a type's body is the type itself, and any other expression as the empty receiver; a type's body runs with
-//! `self` as the type, so a call there with no receiver, `track :size`, records the type as its receiver. A receiver
-//! that is a class, `self` in a class method or a type's body, `self.class` in an instance method, or a constant, ends
-//! in `.`, the separator of a class method's name: `Geo::Shape.` for `self`, and `.` alone for `self.class` and for a
-//! constant, whose path the receiver does not keep. Of a class's methods of one name, a call on the class binds the
-//! class method, `Geo::Shape.build`, before the instance method, `Geo::Shape#build`, and a call on any other receiver
-//! the instance method first. A bare `new` that reads no local makes, in a class method, an instance of the owner, so
-//! `new.getopts` there records `Geo::Shape`. A call outside every method
-//! and type is a call from file scope, before the file's first symbol too.
+//! which in a type's body is the type itself, a literal as the class of Ruby's runtime its value is of, `String` for
+//! `"a"` and `Array` for `%w[a]`, and any other expression as the empty receiver; a type's body runs with `self` as the
+//! type, so a call there with no receiver, `track :size`, records the type as its receiver. A receiver that is a
+//! class, `self` in a class method or a type's body, `self.class` in an instance method, or a constant, ends in `.`,
+//! the separator of a class method's name: `Geo::Shape.` for `self`, a constant's path as written, `Shape.`, one
+//! written from the root keeping its `::`, and `.` alone for `self.class`. A call on a literal, or on a constant the
+//! tree holds no value of, binds only a method of the class it names or of one that class derives from. Of a class's
+//! methods of one name, a call on the class binds the class method, `Geo::Shape.build`, before the instance method,
+//! `Geo::Shape#build`, and a call on any other receiver the instance method first. A bare `new` that reads no local
+//! makes, in a class method, an instance of the owner, so `new.getopts` there records `Geo::Shape`. A call outside
+//! every method and type is a call from file scope, before the file's first symbol too.
 //!
 //! A bare name, `setup`, is a call with no receiver unless it reads a local variable, as Ruby decides: a binding of the
 //! name earlier in the source, in the same `def` or body of a class, a module or a `class << x`, or in a block or a
@@ -91,8 +93,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    BlockComment, Conventions, DocComments, InheritedMembers, Language, OwnMembers, RawExtraction,
-    Repository, Resolver, SymbolKind, TypeUses,
+    BareReceivers, BlockComment, Conventions, DocComments, InheritedMembers, Language, OwnMembers,
+    RawExtraction, Repository, Resolver, SymbolKind, TypeUses,
 };
 
 use crate::resolve::RubyResolver;
@@ -127,6 +129,7 @@ const CONVENTIONS: Conventions = {
     conventions.owner_chain_separator = Some("::");
     conventions.class_member_separator = Some(walk::CLASS_MEMBER_SEPARATOR);
     conventions.own_type_receivers = Some(&["other"]);
+    conventions.bare_receivers = BareReceivers::Constants;
     conventions.type_uses = TypeUses::Nowhere;
     conventions.unrecorded_data = &[SymbolKind::Constant];
     conventions
