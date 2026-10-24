@@ -759,8 +759,8 @@
 - [3.172 Bind a bare call through the scope that offers its name, then the nearest
   callable](./adr/3.172-bind-a-bare-call-through-the-scope-that-offers-its-name-then-the-nearest-callable.md)
   - Governs: `crates/kartta-graph/src/resolve.rs` (`resolve_by_tiers`, `resolve_by_name`, `resolve_outside_scope`,
-    `imports_from_outside`), `crates/kartta-graph/src/scope.rs` (`resolve_by_proximity`), `kartta_lang::Conventions`
-    (`own_members`, `inherited_members`)
+    `bodies_values`, `imports_from_outside`), `crates/kartta-graph/src/scope.rs` (`resolve_by_proximity`),
+    `kartta_lang::Conventions` (`own_members`, `inherited_members`)
   - Revisit if: a language's scope finds a bare name through a step these tiers do not model, or ranks its steps in
     another order
 - [3.173 Bind a use of a field or a value by what its receiver
