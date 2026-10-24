@@ -6,7 +6,8 @@ use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
     BareReceivers, CallableRole, Conventions, IncludeReach, IncludedRuntimeMembers,
-    InheritedMembers, NamespaceCalls, OwnMembers, SymbolKind, UntypedMembers, ValueUses,
+    InheritedMembers, MemberCalls, NamespaceCalls, OwnMembers, SymbolKind, UntypedMembers,
+    ValueUses,
 };
 
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
@@ -690,8 +691,8 @@ impl<'g> Cascade<'g> {
             }
             OwnerMember::NotDeclared => call,
         };
-        if let Some(at) = self.member_of_the_receiver_s_owner(call, &candidates) {
-            return Ok((at, confidence::RECEIVER));
+        if let Some(bound) = self.through_the_receiver_s_owner(call, &candidates) {
+            return bound;
         }
         let reach = self.reach(call, &candidates);
         let reach = reach.as_ref();
@@ -837,6 +838,48 @@ impl<'g> Cascade<'g> {
                 .named(receiver)
                 .iter()
                 .any(|&at| self.graph.sym(at).kind.is_type())
+    }
+
+    // constraint: a type the graph does not hold, from the standard library, the prelude or a crate outside the tree,
+    // has no member in the graph, and a module the caller includes is no scope its name is looked up in, so a call
+    // through it that no member of the owner binds binds nothing
+    fn through_the_receiver_s_owner(
+        &self,
+        call: &Call,
+        candidates: &Candidates<'_>,
+    ) -> Option<Result<Bound, Miss>> {
+        if let Some(at) = self.member_of_the_receiver_s_owner(call, candidates) {
+            return Some(Ok((at, confidence::RECEIVER)));
+        }
+        self.names_a_type_outside_the_graph(call)
+            .then(|| Err(self.unadmitted(call)))
+    }
+
+    /// Whether the call goes through a type path, a receiver whose last segment is written capitalised where only a
+    /// module's path reaches a free function, and the graph holds neither a type nor a value of that name.
+    fn names_a_type_outside_the_graph(&self, call: &Call) -> bool {
+        let (MemberCalls::ModulePaths, Some(separator), Some(receiver)) = (
+            self.conventions.member_calls,
+            self.conventions.owner_chain_separator,
+            call.receiver,
+        ) else {
+            return false;
+        };
+        let written = self.graph.strings.resolve(receiver);
+        let last = written.rsplit(separator).next().unwrap_or(written);
+        if !last.starts_with(|first: char| first.is_ascii_uppercase())
+            || !last
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            return false;
+        }
+        self.graph.strings.get(last).is_none_or(|last| {
+            !self.named(last).iter().any(|&at| {
+                let kind = self.graph.sym(at).kind;
+                kind.is_type() || is_value(kind)
+            })
+        })
     }
 
     // constraint: test code is built apart from the code it tests, so of the definitions a call reaches by name alone,
