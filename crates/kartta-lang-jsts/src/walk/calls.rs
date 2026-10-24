@@ -104,7 +104,12 @@ impl Emitter<'_> {
             && matches!(callee.as_str(), "require" | "import")
             && let Some(specifier) = first_string_argument(node, self.source)
         {
-            self.push_directive(unquote(specifier), start_line(node));
+            let binder = (node.parent()).filter(|declarator| {
+                callee == "require"
+                    && declarator.kind() == "variable_declarator"
+                    && declarator.child_by_field_name("value") == Some(node)
+            });
+            self.push_directive(unquote(specifier), start_line(node), binder);
         }
 
         let recorded = if on_this {
