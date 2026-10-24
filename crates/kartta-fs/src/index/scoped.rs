@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::ops::Range;
+use std::panic::resume_unwind;
 use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
-use std::{fs, io};
+use std::{fs, io, thread};
 
 use kartta_walk::{CancelToken, EntryKind, Tree, WalkError, WalkOptions, WalkOutcome, walk};
 use rayon::prelude::*;
@@ -50,20 +51,24 @@ impl Index {
     /// does not hold takes the name the filesystem answers for it, so `dir/f.rs` refreshes an indexed `Dir/f.rs`; and a
     /// part the disk holds under another name, as after a rename that changed only its case, is gone, as is a part no
     /// longer on disk. Asking costs a part found on disk one more call to the filesystem, and a part the index does not
-    /// hold another, once a call however many paths come to it. Elsewhere a path is taken as spelled.
+    /// hold another, once for each run of paths [`Index::parts_of`] meets it in however many paths come to it.
+    /// Elsewhere a path is taken as spelled.
     ///
-    /// While ignore rules apply, the rules for a part walked again come from the `.gitignore` files of the directories
-    /// above it, read again once a call for each such directory, at two stats a directory and a third with the read of
-    /// a `.gitignore` it holds, once every part has been stat'd: one directory after another on the calling thread
-    /// until one takes longer than a local disk answers, as on a network mount, and the rest side by side on the
-    /// index's threads. The visitor is not handed those files, which lie outside the parts. Content is read, carried
-    /// over and numbered as [`Index::refresh`] does, on the index's [threads](Index::on_threads): the parts that are
-    /// files are read there once every part has been looked at, except that a call with one such part reads it on the
-    /// calling thread. What it reads is indexed in a segment of the content index of its own. Unlike
-    /// [`Index::refresh`], this changes the index in place: every entry outside the walked parts moves once, so a call
-    /// costs one pass over the index's per-entry arrays whatever the number of paths, and the old and new arrays are
-    /// held at once while it runs. A call whose parts are neither indexed nor on disk, such as ignored paths and files
-    /// already gone again, changes nothing and makes no such pass.
+    /// The parts are stat'd one after another on the calling thread until one stat takes longer than a local disk
+    /// answers, as on a network mount, and the rest side by side on up to 32 threads of the call's own, which wait for
+    /// the filesystem rather than compute; [`Index::parts_of`] asks the filesystem the same way while it works the
+    /// parts out. While ignore rules apply, the rules for a part walked again come from the `.gitignore` files of the
+    /// directories above it, read again once a call for each such directory, at two stats a directory and a third with
+    /// the read of a `.gitignore` it holds, once every part has been stat'd: one directory after another on the calling
+    /// thread until one takes longer than a local disk answers, and the rest side by side on the index's threads. The
+    /// visitor is not handed those files, which lie outside the parts. Content is read, carried over and numbered as
+    /// [`Index::refresh`] does, on the index's [threads](Index::on_threads): the parts that are files are read there
+    /// once every part has been looked at, except that a call with one such part reads it on the calling thread. What
+    /// it reads is indexed in a segment of the content index of its own. Unlike [`Index::refresh`], this changes the
+    /// index in place: every entry outside the walked parts moves once, so a call costs one pass over the index's
+    /// per-entry arrays whatever the number of paths, and the old and new arrays are held at once while it runs. A call
+    /// whose parts are neither indexed nor on disk, such as ignored paths and files already gone again, changes nothing
+    /// and makes no such pass.
     ///
     /// # Errors
     ///
@@ -123,10 +128,13 @@ impl Index {
     /// and none below another. So every path inside a directory the index does not hold, such as an ignored `target/`,
     /// comes to that one directory, and the empty path alone says the paths come to the whole tree.
     ///
-    /// No ignore rule is read: a part the rules hide is still a part. A call stats each directory the index holds
-    /// once, when a path's widening first meets it, to see that it is still a directory, and on macOS and Windows asks
-    /// the filesystem for the name of each part the index does not hold, so a path in another case comes to the part
-    /// the disk holds, as [`Index::refresh_paths`] says.
+    /// No ignore rule is read: a part the rules hide is still a part. A call stats a directory the index holds when a
+    /// path's widening first meets it, to see that it is still a directory, and on macOS and Windows asks the
+    /// filesystem for the name of each part the index does not hold, so a path in another case comes to the part the
+    /// disk holds, as [`Index::refresh_paths`] says. It takes the paths one after another on the calling thread until
+    /// one of these asks takes longer than a local disk answers, as on a network mount, and the rest side by side on up
+    /// to 32 threads of its own, one run of paths each. A run asks about each directory and part once, so a call on the
+    /// calling thread alone asks once, and a directory that paths in several runs share is stat'd once by each.
     ///
     /// # Errors
     ///
@@ -135,12 +143,32 @@ impl Index {
         &self,
         paths: impl IntoIterator<Item = &'p str>,
     ) -> Result<Vec<String>, BuildError> {
+        self.parts_within(paths, ROUND_TRIP)
+    }
+
+    fn parts_within<'p>(
+        &self,
+        paths: impl IntoIterator<Item = &'p str>,
+        round_trip: Duration,
+    ) -> Result<Vec<String>, BuildError> {
+        let mut lookups = Lookups::within(round_trip);
         let mut scopes = Vec::new();
-        let mut lookups = Lookups::default();
-        for path in paths {
-            if let Some(scope) = self.scope_of(path, &mut lookups, 0)? {
-                scopes.push(scope);
+        let mut paths = paths.into_iter();
+        for path in paths.by_ref() {
+            scopes.extend(self.scope_of(path, &mut lookups, 0)?);
+            if lookups.slow {
+                break;
             }
+        }
+        let left: Vec<&str> = paths.collect();
+        for scope in side_by_side(&left, |paths| {
+            let mut lookups = lookups.clone();
+            paths
+                .iter()
+                .map(|path| self.scope_of(path, &mut lookups, 0))
+                .collect()
+        }) {
+            scopes.extend(scope?);
         }
         scopes.sort_unstable_by(|left, right| tree_order(left, right));
         scopes.dedup_by(|later, kept| holds(kept, later));
@@ -185,12 +213,12 @@ impl Index {
         let mut scope = parts.join("/");
         while !scope.is_empty() {
             let parent = parent_of(&scope);
-            let holds = match lookups.held.get(parent) {
-                Some(&holds) => holds,
-                None => *lookups
-                    .held
-                    .entry(parent.to_owned())
-                    .or_insert_with(|| self.holds_dir(parent)),
+            let holds = if let Some(&holds) = lookups.held.get(parent) {
+                holds
+            } else {
+                let holds = self.holds_dir(parent, lookups);
+                lookups.held.insert(parent.to_owned(), holds);
+                holds
             };
             if holds {
                 break;
@@ -202,37 +230,39 @@ impl Index {
         if scope.is_empty() || at < names_on_disk {
             return Ok(Some(scope));
         }
-        let Some(name) = self.respelling(&scope, &mut lookups.respellings) else {
+        let Some(name) = self.respelling(&scope, lookups) else {
             return Ok(Some(scope));
         };
         parts[at] = &name;
         self.scope_of(&parts.join("/"), lookups, at + 1)
     }
 
-    fn respelling(
-        &self,
-        scope: &str,
-        respellings: &mut HashMap<String, Option<String>>,
-    ) -> Option<String> {
-        if let Some(respelling) = respellings.get(scope) {
+    fn respelling(&self, scope: &str, lookups: &mut Lookups) -> Option<String> {
+        if let Some(respelling) = lookups.respellings.get(scope) {
             return respelling.clone();
         }
         let respelling = if self.position(scope).is_some() {
             None
         } else {
-            spelling::on_disk(&self.root.join(scope)).filter(|name| name != name_of(scope))
+            lookups
+                .timed(|| spelling::on_disk(&self.root.join(scope)))
+                .filter(|name| name != name_of(scope))
         };
-        respellings.insert(scope.to_owned(), respelling.clone());
+        lookups
+            .respellings
+            .insert(scope.to_owned(), respelling.clone());
         respelling
     }
 
-    fn holds_dir(&self, dir: &str) -> bool {
+    fn holds_dir(&self, dir: &str, lookups: &mut Lookups) -> bool {
         dir.is_empty()
             || (self
                 .position(dir)
                 .is_some_and(|at| self.kind_at(at) == EntryKind::Dir)
-                && fs::symlink_metadata(self.root.join(dir))
-                    .is_ok_and(|metadata| metadata.is_dir()))
+                && lookups.timed(|| {
+                    fs::symlink_metadata(self.root.join(dir))
+                        .is_ok_and(|metadata| metadata.is_dir())
+                }))
     }
 
     fn range_of(&self, scope: &str) -> Range<usize> {
@@ -363,10 +393,30 @@ impl Index {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone)]
 struct Lookups {
     held: HashMap<String, bool>,
     respellings: HashMap<String, Option<String>>,
+    round_trip: Duration,
+    slow: bool,
+}
+
+impl Lookups {
+    fn within(round_trip: Duration) -> Self {
+        Self {
+            held: HashMap::new(),
+            respellings: HashMap::new(),
+            round_trip,
+            slow: false,
+        }
+    }
+
+    fn timed<R>(&mut self, ask: impl FnOnce() -> R) -> R {
+        let started = Instant::now();
+        let answer = ask();
+        self.slow |= started.elapsed() >= self.round_trip;
+        answer
+    }
 }
 
 struct Planned {
@@ -458,10 +508,7 @@ impl Rewalk<'_, '_> {
     }
 
     fn found(&mut self, scopes: &[String]) -> Result<Vec<Found>, BuildError> {
-        let on_disk = scopes
-            .iter()
-            .map(|scope| self.on_disk(scope))
-            .collect::<Result<Vec<_>, BuildError>>()?;
+        let on_disk = self.on_disk(scopes, ROUND_TRIP)?;
         let present: Vec<Option<&str>> = scopes
             .iter()
             .zip(&on_disk)
@@ -517,21 +564,37 @@ impl Rewalk<'_, '_> {
         }
     }
 
-    fn on_disk(&mut self, scope: &str) -> Result<Option<fs::Metadata>, BuildError> {
+    fn on_disk(
+        &mut self,
+        scopes: &[String],
+        round_trip: Duration,
+    ) -> Result<Vec<Option<fs::Metadata>>, BuildError> {
+        in_turn_then_side_by_side(scopes, round_trip, |scope| self.stat(scope))
+            .into_iter()
+            .map(|stat| match stat {
+                Err(BuildError::Cancelled) => Err(BuildError::Cancelled),
+                Err(error) => {
+                    self.errors.push(error);
+                    Ok(None)
+                }
+                metadata => metadata,
+            })
+            .collect()
+    }
+
+    fn stat(&self, scope: &str) -> Result<Option<fs::Metadata>, BuildError> {
         if self.cancelled() {
             return Err(BuildError::Cancelled);
         }
         let native_path = self.index.root.join(scope);
         let metadata = match fs::symlink_metadata(&native_path) {
             Ok(metadata) => metadata,
+            Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(source) => {
-                if source.kind() != io::ErrorKind::NotFound {
-                    self.errors.push(BuildError::Walk(WalkError::FileType {
-                        native_path,
-                        source,
-                    }));
-                }
-                return Ok(None);
+                return Err(BuildError::Walk(WalkError::FileType {
+                    native_path,
+                    source,
+                }));
             }
         };
         if spelling::on_disk(&native_path).is_some_and(|name| name != name_of(scope)) {
@@ -678,6 +741,55 @@ impl Facts<'_> {
 }
 
 const ROUND_TRIP: Duration = Duration::from_micros(200);
+const WAITING_THREADS: usize = 32;
+
+// constraint: a local disk answers faster than a thread starts, a network mount in a round trip
+fn in_turn_then_side_by_side<T: Sync, R: Send>(
+    items: &[T],
+    round_trip: Duration,
+    ask: impl Fn(&T) -> R + Sync,
+) -> Vec<R> {
+    let mut answers = Vec::with_capacity(items.len());
+    for item in items {
+        let started = Instant::now();
+        answers.push(ask(item));
+        if started.elapsed() >= round_trip {
+            break;
+        }
+    }
+    answers.extend(side_by_side(&items[answers.len()..], |items| {
+        items.iter().map(&ask).collect()
+    }));
+
+    answers
+}
+
+// constraint: a network mount overlaps as many round trips as there are threads waiting for one
+fn side_by_side<T: Sync, R: Send>(items: &[T], ask: impl Fn(&[T]) -> Vec<R> + Sync) -> Vec<R> {
+    match items.len() {
+        0 => return Vec::new(),
+        1 => return ask(items),
+        _ => {}
+    }
+    let ask = &ask;
+    thread::scope(|scope| {
+        let waiting: Vec<_> = items
+            .chunks(items.len().div_ceil(WAITING_THREADS))
+            .map(|chunk| {
+                let asked = thread::Builder::new().spawn_scoped(scope, move || ask(chunk));
+                (chunk, asked)
+            })
+            .collect();
+        let mut answers = Vec::with_capacity(items.len());
+        for (chunk, asked) in waiting {
+            answers.extend(asked.map_or_else(
+                |_| ask(chunk),
+                |thread| thread.join().unwrap_or_else(|panic| resume_unwind(panic)),
+            ));
+        }
+        answers
+    })
+}
 
 struct DirAbove<'p> {
     path: &'p str,
@@ -745,8 +857,141 @@ pub(super) fn holds(dir: &str, path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
     use super::*;
     use crate::build::BuildOptions;
+
+    fn rewalk<'i>(index: &'i Index, options: &'i BuildOptions) -> Rewalk<'i, 'i> {
+        let numbering = Numbering {
+            first_id: index.next_content_id,
+            handed: None,
+            stamps: None,
+            previous: None,
+        };
+        Rewalk {
+            index,
+            policy: indexing(&index.root, options, None, numbering).expect("a policy"),
+            cancel: None,
+            errors: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_asks_left_after_a_slow_one_wait_for_their_answers_at_once() {
+        let waiting = AtomicU32::new(0);
+        let items = [0, 1, 2, 3];
+
+        let met_the_others = in_turn_then_side_by_side(&items, Duration::ZERO, |&item| {
+            item == 0 || all_wait(&waiting, 3)
+        });
+
+        assert_eq!(met_the_others, [true; 4]);
+    }
+
+    #[test]
+    fn asks_side_by_side_wait_on_at_most_the_threads_a_call_starts() {
+        let asking = AtomicU32::new(0);
+        let most = AtomicU32::new(0);
+        let items: Vec<usize> = (0..100).collect();
+
+        let answers = side_by_side(&items, |items| {
+            let now = asking.fetch_add(1, Ordering::SeqCst) + 1;
+            most.fetch_max(now, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(20));
+            asking.fetch_sub(1, Ordering::SeqCst);
+            items.to_vec()
+        });
+
+        assert_eq!(answers, items);
+        assert!(most.into_inner() as usize <= WAITING_THREADS);
+    }
+
+    fn all_wait(waiting: &AtomicU32, count: u32) -> bool {
+        waiting.fetch_add(1, Ordering::SeqCst);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while waiting.load(Ordering::SeqCst) < count {
+            if Instant::now() > deadline {
+                return false;
+            }
+            thread::yield_now();
+        }
+        true
+    }
+
+    #[test]
+    fn parts_and_their_stats_asked_side_by_side_are_those_asked_one_after_another() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        for path in [
+            "a/b/c.rs",
+            "a/n/.git/HEAD",
+            "d/e.txt",
+            "f.rs",
+            "g/h.rs",
+            "i/j.rs",
+        ] {
+            let full = dir.path().join(path);
+            fs::create_dir_all(full.parent().expect("a parent")).expect("create directory");
+            fs::write(full, "").expect("write file");
+        }
+        let index = Index::build(dir.path(), &BuildOptions::default())
+            .expect("build")
+            .index;
+        fs::remove_file(dir.path().join("d/e.txt")).expect("remove a file");
+        fs::remove_dir_all(dir.path().join("g")).expect("remove a directory");
+        fs::write(dir.path().join("g"), "").expect("write a file over a directory");
+        for path in ["a/b/new.rs", "new/i.rs"] {
+            let full = dir.path().join(path);
+            fs::create_dir_all(full.parent().expect("a parent")).expect("create directory");
+            fs::write(full, "").expect("write file");
+        }
+        let paths = [
+            "a/b/c.rs",
+            "d/e.txt",
+            "g/h.rs",
+            "a/b/new.rs",
+            "new/i.rs",
+            "a/n/.git",
+            "i/.gitignore",
+            "gone/k.rs",
+            "A/B/C.rs",
+            "f.rs",
+        ];
+
+        let in_turn = index.parts_within(paths, Duration::MAX).expect("parts");
+        let side_by_side = index.parts_within(paths, Duration::ZERO).expect("parts");
+        let options = index.rebuild_options();
+        let mut rewalk = rewalk(&index, &options);
+        let stats_in_turn = rewalk.on_disk(&in_turn, Duration::MAX).expect("stats");
+        let stats_side_by_side = rewalk.on_disk(&in_turn, Duration::ZERO).expect("stats");
+        let outside = ["a/b/c.rs", "f.rs", "../l.rs", "a/../../m.rs"];
+
+        assert_eq!(in_turn, side_by_side);
+        for part in [
+            "a/b/c.rs",
+            "a/b/new.rs",
+            "a/n",
+            "d/e.txt",
+            "f.rs",
+            "g",
+            "gone",
+            "i",
+            "new",
+        ] {
+            assert!(
+                in_turn.iter().any(|scope| scope == part),
+                "{part} in {in_turn:?}"
+            );
+        }
+        assert_eq!(
+            format!("{stats_in_turn:?}"),
+            format!("{stats_side_by_side:?}")
+        );
+        assert_eq!(
+            format!("{:?}", index.parts_within(outside, Duration::MAX)),
+            format!("{:?}", index.parts_within(outside, Duration::ZERO)),
+        );
+    }
 
     #[test]
     fn rules_read_on_the_threads_are_those_read_one_directory_after_another() {
@@ -768,18 +1013,7 @@ mod tests {
             .expect("build")
             .index;
         let options = index.rebuild_options();
-        let numbering = Numbering {
-            first_id: index.next_content_id,
-            handed: None,
-            stamps: None,
-            previous: None,
-        };
-        let rewalk = Rewalk {
-            index: &index,
-            policy: indexing(&index.root, &options, None, numbering).expect("a policy"),
-            cancel: None,
-            errors: Vec::new(),
-        };
+        let rewalk = rewalk(&index, &options);
         let DirsAbove { dirs, .. } =
             dirs_above(&[Some("a/b/c.rs"), Some("a/n/d/e.txt"), Some("f/g.rs")]);
 
