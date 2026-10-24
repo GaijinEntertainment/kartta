@@ -94,7 +94,7 @@ impl<'g> Cascade<'g> {
 
     /// The scope a use looks a name up from: a member's class, whose qualified name keeps the namespaces the member's
     /// own leaves out, else the scope the use's function is qualified by; empty at file scope.
-    fn scope_around(&self, site: SymbolAt) -> &'g str {
+    pub(crate) fn scope_around(&self, site: SymbolAt) -> &'g str {
         let separator = self.conventions.scope_separator.unwrap_or("::");
         if self.site_symbol(site).is_none() {
             return "";
