@@ -1,7 +1,7 @@
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 
-use kartta_lang::SymbolKind;
+use kartta_lang::{SymbolKind, ValueUses};
 
 use crate::graph::{
     Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, is_parent, last_segment,
@@ -58,13 +58,15 @@ impl Graph {
     /// a directory, as in Go, a bare parent names a type of its own directory and a qualified one a type of the
     /// directory its import binds. Where a language joins an owner chain, as Ruby and Python do, the parent is
     /// looked up from the scope that encloses the type that names it, inside out, and a bare one that lookup does not
-    /// reach names nothing. Where a language nests scopes, as C++ namespaces do, the same lookup runs out to the root,
-    /// and the innermost scope that holds a type of the parent's spelling decides. Elsewhere, and for a parent those
-    /// lookups do not reach, it names the type of that name nearest the file: in it, then in the files it includes,
-    /// then in its directory, then anywhere, whose qualified name ends with what a qualified parent spells; types of
-    /// the name tied at the nearest of those each count the parent. A type that implements an interface without naming
-    /// it, as Go's structural typing allows, is not found. Every implementor within `depth` is found before `limit`
-    /// applies, so the limit bounds the answer, not the work, and `total` counts them all.
+    /// reach names nothing; where a module also imports a name from the module that exports it, as TypeScript does, the
+    /// lookup reaches only the types of the naming file and of the files it imports, however deep. Where a language
+    /// nests scopes, as C++ namespaces do, the same lookup runs out to the root, and the innermost scope that holds a
+    /// type of the parent's spelling decides. Elsewhere, and for a parent those lookups do not reach, it names the type
+    /// of that name nearest the file: in it, then in the files it includes, then in its directory, then anywhere, whose
+    /// qualified name ends with what a qualified parent spells; types of the name tied at the nearest of those each
+    /// count the parent. A type that implements an interface without naming it, as Go's structural typing allows, is
+    /// not found. Every implementor within `depth` is found before `limit` applies, so the limit bounds the answer, not
+    /// the work, and `total` counts them all.
     #[must_use]
     pub fn implementations<'s>(
         &self,
@@ -331,12 +333,7 @@ impl Types<'_> {
         }
         if conventions.owner_chain_separator.is_some() {
             if let Some(owner) = self.cascade.base_owner(child, as_written, is_parent) {
-                return asked
-                    .types
-                    .iter()
-                    .copied()
-                    .filter(|&ty| self.graph.sym(ty).qualified_name == owner)
-                    .collect();
+                return self.owners_reached(child.file, owner, asked);
             }
             if !written.contains(QUALIFIER_SEPARATORS) {
                 return Vec::new();
@@ -346,6 +343,22 @@ impl Types<'_> {
             return self.nearest_of_its_name(child.file, Spelling::FromRoot(written), asked);
         }
         self.named_from_scopes(child, written, asked)
+    }
+
+    fn owners_reached(&self, file: u32, owner: Str, asked: Namesakes<'_>) -> Vec<SymbolAt> {
+        let imported = (self.cascade.conventions.value_uses == ValueUses::Imported)
+            .then(|| self.cascade.closure(file));
+        asked
+            .types
+            .iter()
+            .copied()
+            .filter(|&ty| {
+                self.graph.sym(ty).qualified_name == owner
+                    && imported
+                        .as_ref()
+                        .is_none_or(|reached| reached.binary_search(&ty.file).is_ok())
+            })
+            .collect()
     }
 
     fn named_from_scopes(

@@ -2,7 +2,7 @@
 //! depth bound and the limit left out.
 
 use kartta_graph::{Graph, Implementations, Selector};
-use kartta_lang::{Conventions, ImportBinding, Symbol, SymbolKind};
+use kartta_lang::{Conventions, ImportBinding, Symbol, SymbolKind, ValueUses};
 
 use crate::{file, graph_of as graph, including};
 
@@ -437,6 +437,54 @@ fn an_owner_chain_parent_its_lookup_does_not_reach_names_no_type_of_its_last_seg
     assert_eq!(
         found(&spelled),
         [("app/child.py:app.Spelled".to_owned(), 1)]
+    );
+}
+
+#[test]
+fn an_imported_parent_names_a_type_of_its_name_only_where_its_file_declares_or_imports_it() {
+    let mut conventions = Conventions::default();
+    conventions.owner_chain_separator = Some(".");
+    conventions.value_uses = ValueUses::Imported;
+    let graph = graph(
+        conventions,
+        &[
+            file(
+                "audit/filters.ts",
+                vec![
+                    ty("MatchValue", "MatchValue", 1, &[]),
+                    ty("RepoMatchValue", "RepoMatchValue", 9, &["MatchValue"]),
+                ],
+            ),
+            file(
+                "logs/item.tsx",
+                vec![ty("MatchValue", "MatchValue", 1, &[])],
+            ),
+            including(file("logs/index.ts", Vec::new()), &["logs/item.tsx"]),
+            including(
+                file(
+                    "logs/list.tsx",
+                    vec![ty("LogMatch", "LogMatch", 1, &["MatchValue"])],
+                ),
+                &["logs/index.ts"],
+            ),
+            file(
+                "misc/loose.ts",
+                vec![ty("Loose", "Loose", 1, &["MatchValue"])],
+            ),
+        ],
+    );
+    let implementors = |path| {
+        let selector = Selector::new("MatchValue", Some(path));
+        found(&graph.implementations(selector, 1, 10).expect("a type"))
+    };
+
+    assert_eq!(
+        implementors("audit/filters.ts"),
+        [("audit/filters.ts:RepoMatchValue".to_owned(), 1)]
+    );
+    assert_eq!(
+        implementors("logs/item.tsx"),
+        [("logs/list.tsx:LogMatch".to_owned(), 1)]
     );
 }
 
