@@ -9,13 +9,16 @@
 //! A class, a module, a method, a constant, an accessor of `attr_reader`, `attr_writer` or `attr_accessor`, and an
 //! alias of `alias` or `alias_method` are symbols. A member is qualified by the whole namespace chain of its type: an
 //! instance method by `#`, `Geo::Shape#area`, a class method by `.`, `Geo::Shape.build`, and a constant or a nested
-//! type by `::`. A `def` inside `class << self` is a class method. A constant bound to `Struct.new` or `Data.define` is
-//! a class.
+//! type by `::`. A `def` inside `class << self` is a class method. `attr_reader :x` defines `x`, `attr_writer :x`
+//! defines `x=` and `attr_accessor :x` both, each a class method inside `class << self`. A constant bound to
+//! `Struct.new` or `Data.define` is a class.
 //!
-//! A class takes its superclass as a parent, and so the modules it `include`s, `extend`s or `prepend`s. A method is
-//! exported unless a `private` modifier covers it: a bare `private` for the methods after it in the body of a class, a
-//! module or a `class << self`, `private :x` for a method already declared, `private def x` for one method, and
-//! `private_class_method :x` for a class method; `protected` and `public` keep a method exported.
+//! A class takes its superclass as a parent, and so the modules it `include`s, `extend`s or `prepend`s. A method, an
+//! accessor or an alias is exported unless a `private` modifier covers it: a bare `private` for the instance methods
+//! after it in the body of a class or a module and for the class methods after it in a `class << self`, `private :x`
+//! for a method already declared, `private def x` for one method, and `private_class_method :x` for a class method.
+//! `protected` and `public` keep a method exported, and `public_class_method :x` a class method. A bare `private` in
+//! the body of a class leaves a `def self.x` after it exported.
 //! An alias of a method that the file declares before it in the same type is one callable with the body the original
 //! names there.
 //!
