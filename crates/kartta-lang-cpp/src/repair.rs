@@ -658,7 +658,7 @@ fn untaken_branches(source: &[u8], split: BraceSplit) -> Vec<Range<usize>> {
         if (at == 0 || source[at - 1] == b'\n')
             && let Some(directive) = directive_at(source, at)
         {
-            let end = logical_line_end(source, at);
+            let end = directive_end(source, at);
             scan.directive(directive, at..end);
             at = end;
             continue;
@@ -708,6 +708,20 @@ fn directive_at(source: &[u8], line: usize) -> Option<Directive> {
     text[indent_len(text)..]
         .strip_prefix(b"#")
         .map(directive_of)
+}
+
+/// Where the directive at `line` ends: its logical line's end, or, past a block comment that line opens, the end of the
+/// line the comment closes on, since the preprocessor reads the comment as one space.
+fn directive_end(source: &[u8], line: usize) -> usize {
+    let mut end = logical_line_end(source, line);
+    let mut at = line;
+    while at < end {
+        at += opaque_len(source, at);
+        if at > end {
+            end = logical_line_end(source, at);
+        }
+    }
+    end
 }
 
 fn logical_line_end(source: &[u8], from: usize) -> usize {
@@ -1947,6 +1961,18 @@ void check(int value)
         assert_eq!(untaken_texts(closed), ["#if A", "#else\n{\n#endif"]);
         assert_eq!(untaken_texts(open), Vec::<&str>::new());
         assert_eq!(untaken_texts(continued), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_comment_a_directive_opens_belongs_to_its_line() {
+        let directive = b"#if A /* note\n#else\n*/\n{\n#else\n{\n#endif\n";
+        let brace = b"#if A /* note\n{\n*/\n#else\n{\n#endif\n";
+
+        assert_eq!(untaken_texts(brace), Vec::<&str>::new());
+        assert_eq!(
+            untaken_texts(directive),
+            ["#if A /* note\n#else\n*/", "#else\n{\n#endif"]
+        );
     }
 
     #[test]
