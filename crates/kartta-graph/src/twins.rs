@@ -1,3 +1,16 @@
+//! How a C++ spelling picks one class among namesakes: classes of one bare name in several scopes, and a template with
+//! its specializations, which share one qualified name.
+//!
+//! - Of a template and its specializations, a spelling's template arguments pick, scope by scope from its class
+//!   outward: the explicit specialization whose head takes the same arguments one for one, whatever spaces they hold,
+//!   else a partial specialization whose head takes them as written, else the primary template, which a spelling
+//!   without arguments names too. Beside a partial specialization, whose pattern may take other arguments, a
+//!   declaration's arguments that name only the primary pick none. A constrained partial specialization whose
+//!   arguments are its own parameters, `requires is_void_v<T> class Expected<T, E>`, is picked by no spelling.
+//! - The choosers run in this order: a declaration's template arguments; the class the use's function defines, or whose
+//!   body holds the use; the own class, the member's class; the arguments that the scope of a member defined outside
+//!   its class writes, `void Box<bool>::flip()`, which name its own class even beside a partial specialization.
+
 use std::borrow::Cow;
 
 use crate::resolve::{Cascade, derives};
