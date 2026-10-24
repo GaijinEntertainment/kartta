@@ -779,6 +779,11 @@
   access](./adr/3.175-answer-the-references-of-a-field-or-a-value-by-access.md)
   - Governs: `Graph::references`, `SiteQuery`, `crates/kartta-graph/src/calls.rs`
   - Revisit if: agents ask for a field's sites by a distinction the four accesses do not draw
+- [3.176 Bind no Rust call through a type outside the
+  graph](./adr/3.176-bind-no-rust-call-through-a-type-outside-the-graph.md)
+  - Governs: `kartta_lang::MemberCalls::ModulePaths`, `crates/kartta-graph/src/resolve.rs` (`resolve_by_name`,
+    `through_the_receiver_s_owner`, `names_a_type_outside_the_graph`)
+  - Revisit if: the Rust walk records the type a `use` brings in, renamed or not, and the prelude's names
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
   - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
