@@ -5,7 +5,7 @@ use kartta_lang::SymbolKind;
 use crate::resolve::{Call, Cascade, derives};
 use crate::stored::SymbolAt;
 use crate::strings::Str;
-use crate::twins::{holder_depth, kept};
+use crate::twins::{holder_depth, kept, unargued};
 
 /// Where a spelling is read: the file whose includes reach its names, the class its first name is looked up in
 /// before any namespace, the scope around it, and the separator of its scopes.
@@ -20,9 +20,11 @@ struct Reading<'s> {
 impl Cascade<'_> {
     /// The class a receiver's spelling names through the type aliases its names name, by its bare name, with the
     /// spelling it reaches: `IteratorImpl` for `NodeList::iterator`, where `typedef List<Node> NodeList;` and `List`
-    /// declares `typedef IteratorImpl<T, List> iterator;`. `None` where no name of the spelling names an alias, where
-    /// the chain comes back to an alias it passed, or where it ends at a name no class of the graph has.
+    /// declares `typedef IteratorImpl<T, List> iterator;`, and `Vector` for `dag::Array<int>` past the arguments an
+    /// alias template takes. `None` where no name of the spelling names an alias, where the chain comes back to an
+    /// alias it passed, or where it ends at a name no class of the graph has.
     pub(crate) fn through_aliases(&self, call: &Call, written: &str) -> Option<(Str, String)> {
+        let written = unargued(written);
         let separator = self.conventions.scope_separator?;
         let caller = call.caller_at();
         let mut reading = Reading {
