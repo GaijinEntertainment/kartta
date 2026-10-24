@@ -5876,6 +5876,48 @@ fn a_class_reopened_in_another_file_offers_the_kind_its_receiver_reaches_before_
     );
 }
 
+/// A class qualified as `qualified`, its owner the scopes before its last name.
+fn class(qualified: &str, lines: [u32; 2]) -> Symbol {
+    let (owner, name) = qualified
+        .rsplit_once("::")
+        .map_or((None, qualified), |(owner, name)| (Some(owner), name));
+    let mut symbol = Symbol::new(name, SymbolKind::Class, lines[0], lines[1]);
+    qualified.clone_into(&mut symbol.qualified_name);
+    symbol.owner = owner.map(str::to_owned);
+    symbol
+}
+
+#[test]
+fn a_receiver_that_ends_an_owner_s_chain_binds_the_copy_of_the_owner_nearest_the_caller() {
+    let copy = |path: &str| {
+        file(
+            path,
+            vec![
+                class("Geo::Shape", [1, 3]),
+                joined("Geo::Shape", ".", "build", [2, 2]),
+            ],
+            Vec::new(),
+        )
+    };
+    let graph = graph_of(
+        class_members(),
+        &[
+            copy("a/shape.rb"),
+            copy("b/shape.rb"),
+            file(
+                "b/run.rb",
+                vec![
+                    class("Geo::Runner", [1, 3]),
+                    joined("Geo::Runner", "#", "go", [2, 2]),
+                ],
+                vec![member_call(1, "Shape.", "build", 2)],
+            ),
+        ],
+    );
+
+    assert_eq!(callees(&graph, "Geo::Runner#go"), ["b/shape.rb:2@85"]);
+}
+
 fn script_module(path: &str, module: &str, names: &[&str], calls: Vec<CallRef>) -> Extraction {
     let mut symbols = vec![exported(Symbol::new(module, SymbolKind::Namespace, 1, 1))];
     symbols.extend(names.iter().zip(2..).map(|(&name, line)| {
