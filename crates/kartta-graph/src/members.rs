@@ -368,17 +368,7 @@ impl<'g> Cascade<'g> {
         ) {
             return Some(found);
         }
-        let call = Call {
-            file: site.file,
-            caller: site.index,
-            callee: name,
-            receiver: None,
-            written_from_root: false,
-            names_a_runtime_method: false,
-            on_a_class: false,
-            local: None,
-            line: 0,
-        };
+        let call = Call::bare(site, name);
         let reach = self.reach(&call, &named.fields)?;
         let targets = fields.iter().copied();
         match self.shape(&call, &targets, Some(&reach)) {

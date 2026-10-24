@@ -26,7 +26,9 @@ type instead, `Ranking` for `ranking.offer()` in `fn offer(ranking: &mut Ranking
 body brings it from outside the toolchain's crates, a path names it through another crate or the file's own, the file
 declares it and no `use` brings it, or a top-level glob from outside the toolchain's crates may bring it and the prelude
 does not name it; a type parameter, a type of the standard library, as `File` or `Vec`, and a name a `let`, a closure
-or a pattern binds again keep the value's name. A macro invocation is a call of the macro. A call of an item that a
+or a pattern binds again keep the value's name. A macro invocation is a call marked as one: it binds only a macro, and
+any other call binds no macro, so `ready!(x)` beside `fn ready` and `derive(x)` beside `macro_rules! derive` bind
+nothing. A call of an item that a
 function body declares is a local call of that item. A bare call of a name that a pattern binds, a parameter, a `let`,
 a closure's parameter, a match arm, a `for` or an `if let`, as `helper()` in `fn f(helper: fn())` or `run()` after
 `let run = || {};`, calls the value the name holds and is no call, whatever the file imports or declares under the

@@ -183,7 +183,8 @@ impl StoredCall {
     const FROM_ROOT: u32 = 1 << 31;
     const QUALIFIED: u32 = 1 << 30;
     const ON_A_CLASS: u32 = 1 << 29;
-    const MARKS: u32 = Self::FROM_ROOT | Self::QUALIFIED | Self::ON_A_CLASS;
+    const INVOKES_A_MACRO: u32 = 1 << 28;
+    const MARKS: u32 = Self::FROM_ROOT | Self::QUALIFIED | Self::ON_A_CLASS | Self::INVOKES_A_MACRO;
 
     pub(crate) const fn new(
         caller_index: u32,
@@ -220,8 +221,19 @@ impl StoredCall {
         }
     }
 
+    pub(crate) const fn invoking_a_macro(self) -> Self {
+        Self {
+            caller: self.caller | Self::INVOKES_A_MACRO,
+            ..self
+        }
+    }
+
     pub(crate) const fn caller(self) -> u32 {
         self.caller & !Self::MARKS
+    }
+
+    pub(crate) const fn invokes_a_macro(self) -> bool {
+        self.caller & Self::INVOKES_A_MACRO != 0
     }
 
     pub(crate) const fn is_on_a_class(self) -> bool {
@@ -376,11 +388,17 @@ mod tests {
         let mut strings = Strings::default();
         let call = StoredCall::new(5, strings.intern("ns::f"), None, 9);
 
-        let marked = call.written_from_root().qualified().on_a_class();
+        let marked = call
+            .written_from_root()
+            .qualified()
+            .on_a_class()
+            .invoking_a_macro();
 
         assert_eq!(marked.caller(), 5);
         assert!(marked.is_written_from_root() && marked.is_qualified() && marked.is_on_a_class());
+        assert!(marked.invokes_a_macro());
         assert!(!call.is_written_from_root() && !call.is_qualified() && !call.is_on_a_class());
+        assert!(!call.invokes_a_macro());
     }
 
     #[test]
