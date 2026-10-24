@@ -60,7 +60,7 @@ impl Index {
     /// parts out. While ignore rules apply, the rules for a part walked again come from the `.gitignore` files of the
     /// directories above it, read again once a call for each such directory, at two stats a directory and a third with
     /// the read of a `.gitignore` it holds, once every part has been stat'd: one directory after another on the calling
-    /// thread until one takes longer than a local disk answers, and the rest side by side on the index's threads. The
+    /// thread until one takes longer than a local disk answers, and the rest side by side on those threads. The
     /// visitor is not handed those files, which lie outside the parts. Content is read, carried over and numbered as
     /// [`Index::refresh`] does, on the index's [threads](Index::on_threads): the parts that are files are read there
     /// once every part has been looked at, except that a call with one such part reads it on the calling thread. What
@@ -475,28 +475,10 @@ impl Rewalk<'_, '_> {
             .collect())
     }
 
-    // constraint: a local disk answers a directory faster than a hand-off to threads, a network mount in a round trip
     fn read_rules(&self, dirs: &[DirAbove<'_>], round_trip: Duration) -> Option<Vec<DirRules>> {
-        let mut added = Vec::with_capacity(dirs.len());
-        for (at, dir) in dirs.iter().enumerate() {
-            let started = Instant::now();
-            added.push(self.dir_rules(dir.path)?);
-            let left = &dirs[at + 1..];
-            if !left.is_empty() && started.elapsed() >= round_trip {
-                added.extend(self.rules_on_threads(left)?);
-                break;
-            }
-        }
-
-        Some(added)
-    }
-
-    fn rules_on_threads(&self, dirs: &[DirAbove<'_>]) -> Option<Vec<DirRules>> {
-        self.index.on_threads(|| {
-            dirs.par_iter()
-                .map(|dir| self.dir_rules(dir.path))
-                .collect()
-        })
+        in_turn_then_side_by_side(dirs, round_trip, |dir| self.dir_rules(dir.path))
+            .into_iter()
+            .collect()
     }
 
     fn dir_rules(&self, dir: &str) -> Option<DirRules> {
