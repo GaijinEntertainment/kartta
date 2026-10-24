@@ -287,7 +287,7 @@ fn a_self_receiver_names_the_type_chain_and_a_receiver_on_a_class_ends_in_the_cl
  {
     let raw = extract(
         b"module Geo\n  class Shape\n    def area\n      1\n    end\n    def report\n      \
-          self.area\n      Shape.build\n      Geo::Shape.build\n      self.class.build\n      \
+          self.area\n      Shape.build\n      ::Geo::Shape.build\n      self.class.build\n      \
           item.class.build\n    end\n    def self.make\n      self.build\n      self.class.name\n    end\n    \
           class << self\n      def remake\n        self.build\n      end\n    end\n  end\nend\n\
           def obj.tick\n  self.build\nend\n",
@@ -297,8 +297,8 @@ fn a_self_receiver_names_the_type_chain_and_a_receiver_on_a_class_ends_in_the_cl
         calls(&raw),
         [
             ("area", Some("Geo::Shape")),
-            ("build", Some(".")),
-            ("build", Some(".")),
+            ("build", Some("Shape.")),
+            ("build", Some("::Geo::Shape.")),
             ("build", Some(".")),
             ("class", Some("Geo::Shape")),
             ("build", Some("")),
@@ -309,6 +309,47 @@ fn a_self_receiver_names_the_type_chain_and_a_receiver_on_a_class_ends_in_the_cl
             ("class", Some("Geo::Shape.")),
             ("build", Some("Geo::Shape.")),
             ("build", Some("")),
+        ]
+    );
+}
+
+#[test]
+fn a_literal_receiver_names_the_class_of_the_value_it_makes() {
+    let raw = extract(
+        b"def f\n  \"a\".freeze\n  'b'.size\n  <<~EOS.strip\n    x\n  EOS\n  `ls`.lines\n  ?c.ord\n  \
+          [1].first\n  %w[a].join\n  %i[a].size\n  {a: 1}.keys\n  1.times\n  1.5.round\n  2r.to_f\n  3i.real\n  \
+          :sym.to_proc\n  :\"sym\".size\n  /x/.match?(s)\n  -> { 1 }.call\n  nil.to_a\n  true.to_s\n  false.to_s\n  \
+          (1..2).to_a\n  (1; 2).to_s\nend\n",
+    );
+
+    assert_eq!(
+        calls(&raw)
+            .into_iter()
+            .filter(|(callee, _)| *callee != "s")
+            .collect::<Vec<_>>(),
+        [
+            ("freeze", Some("String")),
+            ("size", Some("String")),
+            ("strip", Some("String")),
+            ("lines", Some("String")),
+            ("ord", Some("String")),
+            ("first", Some("Array")),
+            ("join", Some("Array")),
+            ("size", Some("Array")),
+            ("keys", Some("Hash")),
+            ("times", Some("Integer")),
+            ("round", Some("Float")),
+            ("to_f", Some("Rational")),
+            ("real", Some("Complex")),
+            ("to_proc", Some("Symbol")),
+            ("size", Some("Symbol")),
+            ("match?", Some("Regexp")),
+            ("call", Some("Proc")),
+            ("to_a", Some("NilClass")),
+            ("to_s", Some("TrueClass")),
+            ("to_s", Some("FalseClass")),
+            ("to_a", Some("Range")),
+            ("to_s", Some("")),
         ]
     );
 }
