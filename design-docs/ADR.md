@@ -434,7 +434,7 @@
   code](./adr/3.46-bind-no-test-definition-by-name-for-a-call-from-outside-test-code.md)
   - Governs: `crates/kartta-graph/src/resolve.rs` (`can_bind_by_name`, `one_type_outside_tests`,
     `resolve_outside_scope`), `crates/kartta-graph/src/confidence.rs` (`UNIQUE`, `SAME_DIR`)
-  - Revisit if: every language's test rule reads its test-support files and test directories in any case (#430, #432)
+  - Revisit if: every language's test rule reads its test-support files (#432)
 - [3.47 Bind a C++ call on a field through the class the field is declared
   as](./adr/3.47-bind-a-c-plus-plus-call-on-a-field-through-the-class-the-field-is-declared-as.md)
   - Governs: `crates/kartta-graph/src/scope.rs` (`member_of_a_reached_owner`, `class_of_own_field`,
