@@ -161,13 +161,15 @@ pub(super) fn data_signature(node: Node<'_>, source: &[u8]) -> Option<String> {
 
 pub(super) fn at_namespace_scope(node: Node<'_>) -> bool {
     std::iter::successors(node.parent(), Node::parent).all(|ancestor| {
-        matches!(
-            ancestor.kind(),
-            "translation_unit"
-                | "namespace_definition"
-                | "declaration_list"
-                | "linkage_specification"
-                | "template_declaration"
-        )
+        let kind = ancestor.kind();
+        (kind.starts_with("preproc_") && !ancestor.has_error())
+            || matches!(
+                kind,
+                "translation_unit"
+                    | "namespace_definition"
+                    | "declaration_list"
+                    | "linkage_specification"
+                    | "template_declaration"
+            )
     })
 }
