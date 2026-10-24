@@ -48,9 +48,11 @@ pub const RE_EXPORT: u8 = 65;
 /// that reaches it or a declaration of it, or that a file reaching one includes directly.
 ///
 /// A call of a method the language's runtime gives its values binds here only where its receiver spells that
-/// callable's owner in any case: `session.seek()` binds the one `seek`, `Session.seek`. A call from outside test code
-/// binds no test definition here, and a test definition still counts among the definitions of its name, except
-/// against the one type outside test code, which such a call binds.
+/// callable's owner in any case: `session.seek()` binds the one `seek`, `Session.seek`. A method call of a method the
+/// language's standard library declares, on a value the graph cannot type, binds here only where its receiver spells
+/// the callable's owner, and otherwise at [`FIRST_PARTY`]: `found.start()` binds `Watcher::start` as a guess. A call
+/// from outside test code binds no test definition here, and a test definition still counts among the definitions of
+/// its name, except against the one type outside test code, which such a call binds.
 pub const UNIQUE: u8 = 60;
 /// The one callable of the name in the caller's directory binds.
 ///

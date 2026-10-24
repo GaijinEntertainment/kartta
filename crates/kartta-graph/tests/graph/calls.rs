@@ -3749,6 +3749,49 @@ fn a_member_call_of_a_runtime_method_binds_the_one_callable_whose_owner_its_rece
 }
 
 #[test]
+fn a_method_call_of_a_library_method_on_a_value_binds_the_one_method_of_its_name_only_as_a_guess() {
+    let mut conventions = Conventions::default();
+    conventions.library_methods = &["start"];
+    let method = |receiver: &str, callee: &str| CallRef {
+        calls_a_method: true,
+        ..member_call(0, receiver, callee, 2)
+    };
+    let calling = |call: CallRef| {
+        let watcher = vec![
+            member("Watcher", "start", SymbolKind::Method, 1),
+            member("Watcher", "stop", SymbolKind::Method, 3),
+        ];
+        let files = [
+            file("a/x.rs", vec![function("run", 1)], vec![call]),
+            file("b/y.rs", watcher, Vec::new()),
+        ];
+        callees(&graph_of(conventions, &files), "run")
+    };
+
+    assert_eq!(calling(method(".range", "start")), ["b/y.rs:1@15"]);
+    assert_eq!(
+        calling(method("", "start")),
+        ["b/y.rs:1@15"],
+        "an expression's value"
+    );
+    assert_eq!(
+        calling(method(".watcher", "start")),
+        ["b/y.rs:1@60"],
+        "a receiver that spells the owner"
+    );
+    assert_eq!(
+        calling(method(".range", "stop")),
+        ["b/y.rs:3@60"],
+        "a name the library declares no method of"
+    );
+    assert_eq!(
+        calling(member_call(0, ".range", "start", 2)),
+        ["b/y.rs:1@60"],
+        "a member call its language does not mark as a method call"
+    );
+}
+
+#[test]
 fn a_member_call_binds_past_a_namesake_of_a_table_it_does_not_reach() {
     let get = |owner: &str, line: u32| member(owner, "get", SymbolKind::Method, line);
     let calling = |untyped_owners, receiver: &str, included: Vec<Symbol>| {
