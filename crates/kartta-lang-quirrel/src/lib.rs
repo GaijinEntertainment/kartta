@@ -110,6 +110,7 @@ const CONVENTIONS: Conventions = {
     conventions.runtime_methods = runtime::METHODS;
     conventions.included_runtime_members = IncludedRuntimeMembers::SpelledOrOwn;
     conventions.untyped_owners = UntypedOwners::Tables;
+    conventions.base_receivers = &["base"];
     conventions
 };
 

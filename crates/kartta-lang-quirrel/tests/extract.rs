@@ -124,6 +124,7 @@ fn a_bare_call_in_a_member_reaches_the_class_first() {
     expected.runtime_methods = conventions.runtime_methods;
     expected.included_runtime_members = IncludedRuntimeMembers::SpelledOrOwn;
     expected.untyped_owners = UntypedOwners::Tables;
+    expected.base_receivers = &["base"];
 
     assert_eq!(conventions, expected);
 }
