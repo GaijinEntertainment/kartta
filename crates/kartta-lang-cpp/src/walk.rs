@@ -1594,6 +1594,25 @@ FMT_END_EXPORT
     }
 
     #[test]
+    fn a_namespace_a_macro_opens_inside_another_keeps_its_definitions() {
+        let enumeration = extract(
+            b"namespace absl {\nABSL_NAMESPACE_BEGIN\n\nenum ConstInitType {\n  kConstInit,\n};\n\n\
+              ABSL_NAMESPACE_END\n}  // namespace absl\n",
+        );
+        let function = extract(
+            b"namespace absl {\nABSL_NAMESPACE_BEGIN\n\n// Compares.\nbool Equal(int a, int b) noexcept {\n\
+              \x20 return a == b;\n}\n\nABSL_NAMESPACE_END\n}  // namespace absl\n",
+        );
+
+        assert_eq!(qualified_names(&enumeration), ["absl::ConstInitType"]);
+        let equal = qualified(&function, "absl::Equal");
+        assert_eq!(
+            (equal.line, equal.signature.as_deref()),
+            (5, Some("bool Equal(int a, int b) noexcept"))
+        );
+    }
+
+    #[test]
     fn a_macro_call_that_closes_a_table_above_an_error_keeps_the_function_after_it() {
         let raw = extract(
             b"int get_params(void) { return 1; }\n\n\

@@ -42,8 +42,10 @@ by the file's name.
 Four constructs the grammar cannot reduce take the declarations around them down with them: an empty trailing macro
 argument (`CHECK(ptr, )`), an export, `final` or alignment macro beside the class name or around its key (`class
 TORRENT_EXPORT torrent : base`, `class Builder FINAL_CLASS {`, `ATTRIBUTE_ALIGNED16(class) btX {`), a macro alone on
-its line above a class, a template or a namespace (`JPH_NAMESPACE_BEGIN`), and a function-like macro where a
-declaration belongs. So does a conditional whose first branch leaves a
+its line above a class, a template or a namespace (`JPH_NAMESPACE_BEGIN`) or at a namespace's edges
+(`ABSL_NAMESPACE_BEGIN` after `namespace absl {` where a blank or a comment line sets it apart from the code below,
+`ABSL_NAMESPACE_END` before its `}`), and a function-like macro where a declaration belongs. So does a conditional
+whose first branch leaves a
 brace open or closes one it did not open, `#ifdef A` `if (x) {` `#else` `if (y) {` `#endif`. Where the parser reads such
 an `#else` inside the block the first branch opened, every conditional of that shape in the file is read with its first
 branch taken, whatever its condition; where it holds the `#else` inside a larger error, so is every conditional whose
