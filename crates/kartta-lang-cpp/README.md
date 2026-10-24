@@ -11,8 +11,8 @@ From the bytes alone: functions and methods, classes, structs, unions and enums,
 namespace-scope variables and constants, each qualified the way C++ names it — `ns::f` for a free function in a
 namespace, `Widget::area` for a member. A member call carries the class its operand holds as its receiver: the
 caller's own class on `this`, and on a local or a parameter the class its declaration spells, with the scopes it writes,
-`b::Widget`, and without its template arguments. In a member, a call on a name the body does not declare,
-`lock.unlockRead()` or `this->lock.unlockRead()`, carries the name after its operator, `.lock`, a field's or a
+`b::Widget`, and with the template arguments it writes, `Box<bool>`. In a member, a call on a name the body does not
+declare, `lock.unlockRead()` or `this->lock.unlockRead()`, carries the name after its operator, `.lock`, a field's or a
 namespace's value's, for the graph to bind through the class of a field it finds. A call on any other operand carries
 the empty receiver, because a value's name names no type. A bare call of a name a local, a parameter or a capture of
 the body declares calls through the value it holds, a function pointer or a callable, and is not recorded. Callables

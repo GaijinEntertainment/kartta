@@ -183,7 +183,7 @@ impl<'s, 't> Replayer<'s, 't> {
     fn declare(&mut self, declaration: Node<'_>, end: usize) {
         let owner = declaration
             .child_by_field_name("type")
-            .and_then(|written| self.owner_named(written));
+            .and_then(|written| self.owner_spelled(written));
         let mut cursor = declaration.walk();
         for declarator in declaration.children_by_field_name("declarator", &mut cursor) {
             self.declare_names(declarator, owner, end);
@@ -262,11 +262,22 @@ impl<'s, 't> Replayer<'s, 't> {
         self.owner_named(first.child_by_field_name("type")?)
     }
 
+    /// The class a type names as a field's value type spells it: with the scopes it writes and without its template's
+    /// arguments, which a list of value types joined at a comma cannot hold.
     pub(super) fn owner_named(&self, written: Node<'_>) -> Option<&'s str> {
-        let (spelled, name) = owner_type(written)?;
+        let (spelled, _, name) = owner_type(written)?;
         self.borrowed(name)
             .filter(|owner| !self.is_template_parameter(owner))
             .map(|owner| self.scoped(spelled, name).unwrap_or(owner))
+    }
+
+    /// The class a type names as a receiver spells it: with the scopes and the template's arguments it writes,
+    /// `ns::Box<bool>`, which tell a specialization apart from its primary template.
+    fn owner_spelled(&self, written: Node<'_>) -> Option<&'s str> {
+        let (spelled, end, name) = owner_type(written)?;
+        self.borrowed(name)
+            .filter(|owner| !self.is_template_parameter(owner))
+            .map(|owner| self.argued(spelled, end).unwrap_or(owner))
     }
 
     // constraint: a class keeps the scopes its spelling writes, `b::Widget` or `::b::Widget`, which tell namesakes of
@@ -275,11 +286,16 @@ impl<'s, 't> Replayer<'s, 't> {
     fn scoped(&self, from: Node<'_>, name: Node<'_>) -> Option<&'s str> {
         std::str::from_utf8(&self.source[from.start_byte()..name.end_byte()])
             .ok()
-            .filter(|spelled| {
-                spelled
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b':')
-            })
+            .filter(|spelled| spelled.bytes().all(is_name_byte))
+    }
+
+    // constraint: a receiver keeps the arguments its scopes' templates take, whatever they hold, as well as the scopes;
+    // a spelling that holds anything else outside them but names and `::`, a space most often, is left to the bare
+    // name
+    fn argued(&self, from: Node<'_>, to: Node<'_>) -> Option<&'s str> {
+        std::str::from_utf8(&self.source[from.start_byte()..to.end_byte()])
+            .ok()
+            .filter(|spelled| is_argued_name(spelled))
     }
 
     // constraint: a name the file's walk cannot see declared is kept, since an included file may declare it, and the
@@ -329,7 +345,7 @@ impl<'s, 't> Replayer<'s, 't> {
                     return;
                 };
                 Receiver::Path(
-                    self.scoped(node, segment)
+                    self.argued(node, scope)
                         .map_or_else(|| text(segment, self.source), str::to_owned),
                 )
             }
@@ -480,7 +496,7 @@ impl<'s, 't> Replayer<'s, 't> {
             }
             _ => None,
         };
-        self.owner_named(written?)
+        self.owner_spelled(written?)
     }
 
     // constraint: only the outermost expression on the left of an assignment is assigned; `a.b` in `a.b.c = v` is read
@@ -537,15 +553,50 @@ fn assignment_access(assignment: Node<'_>) -> Access {
     if plain { Access::Write } else { Access::Update }
 }
 
-/// The node a class's spelling starts at, its scopes included, and the class's bare name.
-fn owner_type(written: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
-    match written.kind() {
-        "type_identifier" => Some((written, written)),
-        "qualified_identifier" => {
-            let (_, name) = owner_type(written.child_by_field_name("name")?)?;
-            Some((written, name))
+const fn is_name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b':'
+}
+
+/// Whether a spelling holds only names and `::` outside its closed template argument lists, where a `>` inside
+/// parentheses, `Less<(1 > 2)>`, closes none.
+fn is_argued_name(spelled: &str) -> bool {
+    let (mut angles, mut parentheses) = (0_usize, 0_usize);
+    let outside = spelled.bytes().all(|byte| match byte {
+        b'(' if angles > 0 => {
+            parentheses += 1;
+            true
         }
-        "template_type" | "struct_specifier" | "class_specifier" | "union_specifier" => {
+        b')' if parentheses > 0 => {
+            parentheses -= 1;
+            true
+        }
+        b'<' if parentheses == 0 => {
+            angles += 1;
+            true
+        }
+        b'>' if angles > 0 && parentheses == 0 => {
+            angles -= 1;
+            true
+        }
+        _ => angles > 0 || is_name_byte(byte),
+    });
+    outside && angles == 0
+}
+
+/// The nodes a class's spelling starts and ends at, its scopes and its template's arguments included, and the class's
+/// bare name.
+fn owner_type(written: Node<'_>) -> Option<(Node<'_>, Node<'_>, Node<'_>)> {
+    match written.kind() {
+        "type_identifier" => Some((written, written, written)),
+        "qualified_identifier" => {
+            let (_, end, name) = owner_type(written.child_by_field_name("name")?)?;
+            Some((written, end, name))
+        }
+        "template_type" => {
+            let (_, _, name) = owner_type(written.child_by_field_name("name")?)?;
+            Some((written, written, name))
+        }
+        "struct_specifier" | "class_specifier" | "union_specifier" => {
             owner_type(written.child_by_field_name("name")?)
         }
         _ => None,
