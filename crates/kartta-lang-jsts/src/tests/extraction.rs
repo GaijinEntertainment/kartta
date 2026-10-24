@@ -1036,6 +1036,48 @@ fn this_in_a_class_body_names_the_class() {
 }
 
 #[test]
+fn this_in_a_class_expression_s_body_names_the_class_by_the_name_that_binds_it() {
+    let extraction = extracted(
+        "src/filters.ts",
+        r"export namespace Ui {
+  export const Filters = class {
+    table = { fav: this.favFilter, run: () => this.apply() };
+    favFilter() {}
+  };
+  export const Picked = class Chosen {
+    table = { pick: this.pick };
+    made = this.choose();
+    pick() {}
+    choose() {}
+  };
+}
+",
+    );
+    let uses: Vec<(&str, &str, &Receiver)> = (extraction.uses.iter())
+        .map(|site| {
+            let site_of = extraction.symbols[site.site_of.0 as usize].name.as_str();
+            (site_of, site.name.as_str(), &site.receiver)
+        })
+        .collect();
+
+    assert_eq!(
+        calls(&extraction),
+        [("apply", Some("Ui.Filters")), ("choose", Some("Chosen"))]
+    );
+    assert_eq!(
+        uses,
+        [
+            (
+                "Filters",
+                "favFilter",
+                &Receiver::Path("Ui.Filters".to_owned())
+            ),
+            ("Picked", "pick", &Receiver::Path("Chosen".to_owned())),
+        ]
+    );
+}
+
+#[test]
 fn an_anonymous_class_goes_by_the_name_that_binds_it() {
     let extraction = extracted(
         "src/socket.ts",

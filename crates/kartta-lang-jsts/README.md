@@ -13,7 +13,8 @@ it, a variable or a constant a namespace declares included. A function bound to 
 function wrapped in `memo` or `useCallback`, an object
 property, a class field — owns the calls in its body, and so does a `describe`, `it` or `test` registration, named by
 its description. A declared class owns the calls of its body outside those functions, in a field's initializer, a
-decorator or a static block, where `this` names the class. A capitalised JSX tag is a call of its component, and
+decorator or a static block, where `this` names the class, and a class expression's body makes them as the name that
+binds it, `Box` in `const Box = class {}`. A capitalised JSX tag is a call of its component, and
 `new Foo()` a call of `Foo`. A call on `this` names the class around the method as its receiver, and a call on a value
 the file declares before it, a parameter or a variable, names none inside the scope that declares it, because a value's
 name names no type, unless it is a parameter with no annotation whose function's context, an annotation the file
