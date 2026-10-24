@@ -750,6 +750,20 @@
     `annotation_macro`, `label_before_an_endif`), `crates/kartta-lang-cpp/src/lib.rs` (`extract`)
   - Revisit if: a `tree-sitter-cpp` release moves where the first tree's errors fall, or the files parsed twice grow
     well past 4% of a tree's C++ files
+- [3.171 Bind a call through the import, type, qualified name or owner it is written
+  on](./adr/3.171-bind-a-call-through-the-import-type-qualified-name-or-owner-it-is-written-on.md)
+  - Governs: `crates/kartta-graph/src/resolve.rs` (`resolve_by_tiers`, `through_binding`,
+    `written_inside_an_enclosing_scope`, `nested_in_written_owner`), `crates/kartta-graph/src/scope.rs`
+    (`member_of_a_reached_owner`, `member_of_the_receiver_s_owner`), `kartta_lang::Conventions` (`scope_separator`,
+    `class_member_separator`)
+  - Revisit if: a language's calls name another package's owner of a name about as often as their own package's
+- [3.172 Bind a bare call through the scope that offers its name, then the nearest
+  callable](./adr/3.172-bind-a-bare-call-through-the-scope-that-offers-its-name-then-the-nearest-callable.md)
+  - Governs: `crates/kartta-graph/src/resolve.rs` (`resolve_by_tiers`, `resolve_by_name`, `resolve_outside_scope`,
+    `imports_from_outside`), `crates/kartta-graph/src/scope.rs` (`resolve_by_proximity`), `kartta_lang::Conventions`
+    (`own_members`, `inherited_members`)
+  - Revisit if: a language's scope finds a bare name through a step these tiers do not model, or ranks its steps in
+    another order
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
   - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
