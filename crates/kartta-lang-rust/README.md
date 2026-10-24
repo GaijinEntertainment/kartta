@@ -77,14 +77,14 @@ file declares outside every owner and body, and a read through a type only where
 ## Resolution
 
 A bodiless `mod NAME;` includes the file it pulls in, by its `#[path]` override or by Cargo's module layout: beside a
-crate root or a file named `lib.rs`, `main.rs` or `mod.rs`, under the directory named for any other file's stem, and
-one directory deeper for each inline module around it. A directory that holds a `Cargo.toml` is a package, and its
-crate roots are its library's root, read below, `src/lib.rs`, `src/main.rs`, `build.rs` and each target under
-`src/bin/`, `examples/`, `tests/` and `benches/`. A top-level `fn main` in a crate root other than the library is the
-entry point. A package is built with every package the tree holds of each name its manifest's dependency tables list,
-and with what every build of those takes in turn, so a call that no import or path names binds a definition of another
-package only where its package is built with that one: `Config::default()` in a crate built with no crate that
-declares `Config` binds nothing.
+crate root or a file named `lib.rs`, `main.rs` or `mod.rs`, under the directory named for any other file's stem, and one
+directory deeper for each inline module around it. A directory that holds a `Cargo.toml` is a package, and its crate
+roots are its library's root, read below, `src/lib.rs`, `src/main.rs`, `build.rs` and each target under `src/bin/`,
+`examples/`, `tests/` and `benches/`. A top-level `fn main` in a crate root of that layout other than `src/lib.rs` is
+the entry point; a file that only the manifest's `[lib] path` makes a crate root is none. A package is built with every
+package the tree holds of each name its manifest's dependency tables list, and with what every build of those takes in
+turn, so a call that no import or path names binds a definition of another package only where its package is built with
+that one: `Config::default()` in a crate built with no crate that declares `Config` binds nothing.
 
 A package's library is named by its manifest's `[lib] name`, else by its `[package] name` with `-` read as `_`, and lies
 at its `[lib] path`, else at `src/lib.rs`; each value is read only from a `key = "value"` on one line under its table's
