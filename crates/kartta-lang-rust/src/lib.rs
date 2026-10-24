@@ -20,6 +20,14 @@
 //! receivers and its trait pair follow it. `pub` exports an item, but `pub(self)` and `pub(in self)` do not; a trait's
 //! members take the trait's visibility and a variant its enum's.
 //!
+//! An invocation of a `macro_rules!` the file defines before it, in its block or module or one around it, by its bare
+//! name, defines the items the first arm its tokens match names by a metavariable, `pub struct $name;` or
+//! `fn $name()`, once for each identifier the invocation binds to it, qualified and owned where the invocation is.
+//! `impl Trait for $name { .. }` adds `Trait` to the parents of the type it binds, and the `fn`s, `const`s and `type`s
+//! of an impl for `$name`, with a trait or without, are that type's members. An item the arm spells by a literal name,
+//! a member of a struct, an enum or a trait it makes, an arm that forwards to another invocation, an invocation no arm
+//! matches, and a macro of another file or crate define nothing.
+//!
 //! A call records its callee and, where the syntax spells one, its receiver: `self.greet()` and `Self::new()` record
 //! the type of the `impl` or `trait` around them, `Widget::new()` records `Widget`, and `a::Worker::run()` records
 //! `a::Worker` when the file declares that module. A member call on anything but a name records the empty receiver, and

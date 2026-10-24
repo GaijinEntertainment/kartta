@@ -32,7 +32,7 @@ pub(super) fn is_exported(node: Node<'_>, source: &[u8]) -> bool {
 }
 
 // constraint: `pub(self)` and `pub(in self)` keep an item inside its module, as no modifier does
-fn is_own_module(scope: &str) -> bool {
+pub(super) fn is_own_module(scope: &str) -> bool {
     let Some(scope) = scope
         .trim_start()
         .strip_prefix('(')

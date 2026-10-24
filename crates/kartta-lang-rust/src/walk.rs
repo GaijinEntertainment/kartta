@@ -28,6 +28,7 @@ mod blocks;
 mod calls;
 mod declared;
 mod imports;
+mod macro_items;
 mod settle;
 mod syntax;
 mod values;
@@ -148,6 +149,7 @@ struct Emitter<'a> {
     // constraint: the end of the block or module of each `macro_rules! matches` the walk has passed, the text its
     // scope runs to, so the furthest end bounds every one of them in scope
     matches_scope_end: usize,
+    item_macros: HashMap<&'a [u8], Vec<macro_items::ItemMacro<'a>>>,
     symbol_count: u32,
     raw: RawExtraction,
 }
@@ -178,6 +180,7 @@ impl<'a> Emitter<'a> {
             read_scopes: vec![String::new()],
             value_reads: Vec::new(),
             matches_scope_end: 0,
+            item_macros: HashMap::new(),
             symbol_count: 0,
             raw: RawExtraction::default(),
         }
@@ -219,6 +222,7 @@ impl Emitter<'_> {
                     self.matches_scope_end = self.matches_scope_end.max(end);
                 }
                 self.item(node, SymbolKind::Macro);
+                self.record_item_macro(node);
             }
             "const_item" => {
                 self.item(node, SymbolKind::Constant);
@@ -231,6 +235,7 @@ impl Emitter<'_> {
             "macro_invocation" => {
                 self.macro_call(node, caller);
                 self.macro_arguments(node, caller);
+                self.record_macro_items(node);
             }
             "identifier" | "shorthand_field_identifier" => self.name(node, parent),
             "scoped_identifier" => self.scoped_read(node, parent),

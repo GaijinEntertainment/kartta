@@ -288,6 +288,207 @@ fn a_trait_impl_adds_the_trait_to_the_parents_of_the_type() {
     assert_eq!(named(&raw, "State").parents.len(), 0);
 }
 
+const MACRO_ITEMS: &[u8] = br#"
+macro_rules! flavor_language {
+    ($(#[$doc:meta])* $language:ident => $flavor:expr) => {
+        $(#[$doc])*
+        pub struct $language;
+        impl Language for $language { fn name(&self) -> &str { "x" } }
+    };
+}
+
+flavor_language! {
+    /// TypeScript.
+    TypeScript => Flavor::TypeScript
+}
+
+mod colors {
+    macro_rules! define_color {
+        ($name:ident, $r:expr, $doc:expr) => { doc! { [$doc] @pub const $name: Rgb = Rgb($r); } };
+        ($name:ident, $r:expr, $a:expr, $doc:expr) => { const $name: Rgba = Rgba($r, $a); };
+    }
+    define_color!(BLACK, 0, "Black");
+    define_color!(CLEAR, 0, 0.0, "Clear");
+    define_color!(not an identifier);
+}
+
+macro_rules! markers {
+    ($vis:vis $($name:ident),+ $(,)?) => { $($vis struct $name;)+ };
+}
+markers!(pub(crate) First, Second,);
+markers!(Hidden);
+
+macro_rules! getter {
+    ($name:ident: $type:ty = $field:ident) => { pub const fn $name(&self) -> $type { self.$field } };
+}
+struct Holder { len: usize }
+impl Holder {
+    getter!(size: Option<usize> = len);
+}
+
+macro_rules! documented {
+    ($(#[$doc:meta])+ $name:ident) => { $(#[$doc])+ pub enum $name {} };
+}
+documented! {
+    /// Documented.
+    Choice
+}
+
+macro_rules! wire {
+    ($($answer:ty => $definition:ident),* $(,)?) => {$(
+        impl $crate::Wire for $answer { fn wire(&self) { $definition::write(self) } }
+    )*};
+}
+struct Pair<'a>(&'a u8);
+wire!(Holder => HolderDef, Pair<'_> => PairDef, a::Deep => DeepDef);
+
+macro_rules! scoped {
+    ($name:ident) => { pub struct $name; };
+}
+mod inner {
+    macro_rules! scoped {
+        ($name:ident) => { pub fn $name() {} };
+    }
+    scoped!(InnerMade);
+}
+scoped!(OuterMade);
+
+macro_rules! forwarding {
+    ($name:ident) => { forwarding!($name, u8); };
+    ($name:ident, $type:ty) => { pub type $name = $type; };
+}
+forwarding!(Forwarded);
+
+macro_rules! accessors {
+    ($owner:ident: $($method:ident),*) => { impl $owner { $(pub fn $method(&self) {})* } };
+}
+accessors!(Holder: first, second);
+
+macro_rules! overlapping {
+    ($name:ident) => { pub struct $name; };
+    ($name:ident) => { pub fn $name() {} };
+}
+overlapping!(FirstArm);
+
+fn local_maker() {
+    macro_rules! local { ($name:ident) => { fn $name() {} }; }
+    local!(helper_made);
+    helper_made();
+}
+
+macro_rules! visible {
+    ($($vis:vis $name:ident),*) => { $($vis struct $name;)* };
+}
+visible!(pub Shown, Unshown);
+
+macro_rules! implementing {
+    ($($name:ident => $trait:path),*) => { $(pub struct $name; impl $trait for $name {})* };
+}
+implementing!(Left => Former, Right => Latter);
+"#;
+
+fn made(raw: &RawExtraction, name: &str) -> (SymbolKind, bool, u32, Option<String>) {
+    let symbol = qualified(raw, name);
+    (
+        symbol.kind,
+        symbol.exported,
+        symbol.line,
+        symbol.owner.clone(),
+    )
+}
+
+#[test]
+fn an_item_a_macro_of_the_file_names_by_an_identifier_is_a_symbol_of_its_invocation() {
+    let raw = extract(MACRO_ITEMS);
+    let made = |name: &str| made(&raw, name);
+
+    assert_eq!(made("TypeScript"), (SymbolKind::Struct, true, 12, None));
+    assert_eq!(
+        made("colors::BLACK"),
+        (SymbolKind::Constant, true, 20, None)
+    );
+    assert_eq!(
+        made("colors::CLEAR"),
+        (SymbolKind::Constant, false, 21, None)
+    );
+    assert_eq!(made("First"), (SymbolKind::Struct, true, 28, None));
+    assert_eq!(made("Second"), (SymbolKind::Struct, true, 28, None));
+    assert_eq!(made("Hidden"), (SymbolKind::Struct, false, 29, None));
+    assert_eq!(
+        made("Holder::size"),
+        (SymbolKind::Method, true, 36, Some("Holder".to_owned()))
+    );
+    assert_eq!(made("Choice"), (SymbolKind::Enum, true, 44, None));
+    assert!(!qualified_names(&raw).contains(&"colors::not"));
+}
+
+#[test]
+fn an_item_or_a_member_a_macro_of_the_file_makes_is_flagged_as_made() {
+    let raw = extract(MACRO_ITEMS);
+    let is_made = |name: &str| qualified(&raw, name).flags.is_made();
+
+    assert!(is_made("TypeScript"));
+    assert!(is_made("TypeScript::name"));
+    assert!(is_made("Holder::size"));
+    assert!(!is_made("Holder"));
+}
+
+#[test]
+fn a_macro_of_the_file_is_read_in_its_own_scope_and_an_arm_that_forwards_makes_nothing() {
+    let raw = extract(MACRO_ITEMS);
+
+    assert_eq!(
+        qualified(&raw, "inner::InnerMade").kind,
+        SymbolKind::Function
+    );
+    assert_eq!(qualified(&raw, "OuterMade").kind, SymbolKind::Struct);
+    assert!(!qualified_names(&raw).contains(&"Forwarded"));
+    assert_eq!(qualified(&raw, "FirstArm").kind, SymbolKind::Struct);
+}
+
+#[test]
+fn an_item_a_macro_makes_in_a_function_body_is_a_local_item_of_its_block() {
+    let raw = extract(MACRO_ITEMS);
+    let local: Vec<&str> = raw
+        .local_calls
+        .iter()
+        .map(|call| raw.symbols[call.local.0 as usize].name.as_str())
+        .collect();
+
+    assert_eq!(local, ["local", "helper_made"]);
+}
+
+#[test]
+fn an_impl_a_macro_of_the_file_writes_for_a_type_it_binds_adds_the_trait_and_the_members() {
+    let raw = extract(MACRO_ITEMS);
+    let made = |name: &str| made(&raw, name);
+
+    assert_eq!(named(&raw, "TypeScript").parents, ["Language"]);
+    assert_eq!(named(&raw, "Holder").parents, ["crate::Wire"]);
+    assert_eq!(named(&raw, "Pair").parents, ["crate::Wire"]);
+    assert_eq!(
+        made("TypeScript::name"),
+        (SymbolKind::Method, false, 12, Some("TypeScript".to_owned()))
+    );
+    assert_eq!(
+        made("Pair::wire"),
+        (SymbolKind::Method, false, 53, Some("Pair".to_owned()))
+    );
+    assert!(!qualified_names(&raw).contains(&"a::Deep::wire"));
+    assert_eq!(made("Holder::first").0, SymbolKind::Method);
+    assert_eq!(made("Holder::second").0, SymbolKind::Method);
+}
+
+#[test]
+fn a_repeated_item_takes_the_visibility_and_the_trait_its_own_pass_binds() {
+    let raw = extract(MACRO_ITEMS);
+
+    assert!(named(&raw, "Shown").exported);
+    assert!(!named(&raw, "Unshown").exported);
+    assert_eq!(named(&raw, "Left").parents, ["Former"]);
+    assert_eq!(named(&raw, "Right").parents, ["Latter"]);
+}
+
 #[test]
 fn a_trait_member_is_a_method_of_the_trait_with_its_visibility() {
     let raw = extract(SAMPLE);
