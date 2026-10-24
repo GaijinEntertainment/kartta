@@ -79,6 +79,12 @@ impl<'g> Candidates<'g> {
         }
     }
 
+    /// Whether [`locals`](Self::locals) holds every candidate local to a body, as an indexed set does; a scanned one
+    /// leaves them among [`named`](Self::named).
+    pub(crate) const fn holds_locals_apart(&self) -> bool {
+        self.index.is_some()
+    }
+
     pub(crate) fn in_file(&self, graph: &Graph, slot: u32) -> &'g [SymbolAt] {
         self.index.as_ref().map_or_else(
             || graph.in_file(self.named, slot),
