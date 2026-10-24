@@ -8,12 +8,13 @@ use kartta_lang::{
 use tree_sitter::{Node, Tree};
 
 use self::attributes::{
-    attribute_marks_test, marks_imported_method, marks_macro_export, marks_proc_macro,
+    ImportedMember, attribute_marks_test, imported_member, marks_macro_export, marks_proc_macro,
     mod_body_marks_test, opens_test_scope, path_attribute,
 };
 use self::blocks::{BlockCall, BlockItem};
 use self::syntax::{
-    impl_type_name, is_attributable_item, is_exported, named_child_of_kind, symbol, type_base,
+    constructed_type, impl_type_name, is_attributable_item, is_exported, named_child_of_kind,
+    symbol, type_base,
 };
 
 const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT"])
@@ -440,22 +441,35 @@ impl Emitter<'_> {
     }
 
     // constraint: wasm-bindgen makes a function of an `extern` block that its attribute marks a `method` a method of
-    // the type its first parameter, `this`, refers to, so the function is a member of that type
+    // the type its first parameter, `this`, refers to, one it marks a `constructor` a member of the type it returns,
+    // `Ok` of a `catch` constructor's `Result`, and one it marks `static_method_of = T` a member of `T`
     fn imported_method_owner(&self, function: Node<'_>) -> Option<String> {
-        if function.kind() != "function_signature_item"
-            || !marks_imported_method(function, self.source)
-        {
+        if function.kind() != "function_signature_item" {
             return None;
         }
-        let this = function
-            .child_by_field_name("parameters")?
-            .named_child(0)
-            .filter(|parameter| parameter.kind() == "parameter")?;
-        let base = type_base(this.child_by_field_name("type")?);
-        if base.kind() != "type_identifier" {
+        let named = match imported_member(function, self.source)? {
+            ImportedMember::Method => {
+                let this = function
+                    .child_by_field_name("parameters")?
+                    .named_child(0)
+                    .filter(|parameter| parameter.kind() == "parameter")?;
+                type_base(this.child_by_field_name("type")?)
+            }
+            ImportedMember::Constructor => {
+                constructed_type(function.child_by_field_name("return_type")?, self.source)
+            }
+            ImportedMember::StaticMethodOf(value) if value.kind() == "string_literal" => {
+                named_child_of_kind(value, "string_content")?
+            }
+            ImportedMember::StaticMethodOf(value) => value,
+        };
+        if !matches!(
+            named.kind(),
+            "type_identifier" | "identifier" | "string_content"
+        ) {
             return None;
         }
-        self.module_path(&text(base, self.source))
+        self.module_path(&text(named, self.source))
     }
 
     // constraint: a `macro_rules!` keeps its bare name and has no owner, because it is in scope textually rather

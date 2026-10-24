@@ -12,7 +12,8 @@
 //! type binds no free function, not even through a value named like a module the file imports, while a call on a
 //! value still binds the one runtime method whose owner the value's name spells, one on a parameter the method of the
 //! type the parameter is declared as, of the caller's own package where two versions of its crate declare that type,
-//! a bare call through a parameter or a local binds nothing, and a call through a type the tree does not declare,
+//! a bare call through a parameter or a local binds nothing, a call through a type its wasm-bindgen `static_method_of`
+//! or `constructor` function, and a call through a type the tree does not declare,
 //! `Vec::new()`, binds no member of another type. A JavaScript bare call of a name imported from a package binds no
 //! namesake of the project, unless the caller's file defines it. A TypeScript or JavaScript call of a runtime method on
 //! a value binds an imported class's member of its name only where its receiver spells the class, and an imported
@@ -447,6 +448,29 @@ fn a_rust_call_through_a_parameter_or_a_local_binds_nothing() {
     assert_eq!(
         bound_through_an_import(&engine, lib, "h"),
         ["crates/other/src/lib.rs"]
+    );
+}
+
+#[test]
+fn a_rust_call_through_a_type_binds_its_wasm_bindgen_static_method_or_constructor() {
+    let tree = tree_of(&[(
+        "lib.rs",
+        "#[wasm_bindgen]\nextern \"C\" {\n    pub type Number;\n    pub type Array;\n\n\
+         \x20   #[wasm_bindgen(static_method_of = Number, js_name = isNaN)]\n\
+         \x20   pub fn is_nan(value: &JsValue) -> bool;\n\n\
+         \x20   #[wasm_bindgen(constructor)]\n    pub fn new() -> Array;\n}\n\n\
+         fn check(value: &JsValue) -> bool {\n    Number::is_nan(value)\n}\n\n\
+         fn make() -> Array {\n    Array::new()\n}\n",
+    )]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        callees(&engine, "lib.rs", "check"),
+        (vec![("is_nan", SymbolKind::Method, "lib.rs")], 0)
+    );
+    assert_eq!(
+        callees(&engine, "lib.rs", "make"),
+        (vec![("new", SymbolKind::Method, "lib.rs")], 0)
     );
 }
 

@@ -95,6 +95,23 @@ pub(super) fn type_base(node: Node<'_>) -> Node<'_> {
     inner.map_or(node, type_base)
 }
 
+// constraint: a function that returns `Result<T, E>` constructs `T`, as a wasm-bindgen `catch` constructor does
+pub(super) fn constructed_type<'tree>(returned: Node<'tree>, source: &[u8]) -> Node<'tree> {
+    let ok = Some(returned)
+        .filter(|returned| returned.kind() == "generic_type")
+        .filter(|generic| {
+            generic
+                .child_by_field_name("type")
+                .is_some_and(|base| text(base, source) == "Result")
+        })
+        .and_then(|generic| {
+            generic
+                .child_by_field_name("type_arguments")?
+                .named_child(0)
+        });
+    type_base(ok.unwrap_or(returned))
+}
+
 pub(super) fn last_segment(node: Node<'_>, source: &[u8]) -> String {
     if node.kind() == "scoped_identifier"
         && let Some(name) = node.child_by_field_name("name")
