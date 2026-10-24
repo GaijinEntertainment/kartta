@@ -544,8 +544,7 @@
 - [3.75 Name a C++ call's receiver by the class its operand is declared
   as](./adr/3.75-name-a-c-plus-plus-call-s-receiver-by-the-class-its-operand-is-declared-as.md)
   - Governs: `crates/kartta-lang-cpp/src/walk.rs` (`record_call`, `push_fields`),
-    `crates/kartta-lang-cpp/src/walk/{sites,data}.rs`, `crates/kartta-graph/src/scope.rs`
-    (`member_of_a_reached_owner`), `crates/kartta-graph/src/twins.rs`
+    `crates/kartta-lang-cpp/src/walk/{sites,data}.rs`
   - Revisit if: calls on operands the walk does not see declared bind wrongly often enough to want a typed expression
 - [3.76 Count a generated-code marker only outside a code
   span](./adr/3.76-count-a-generated-code-marker-only-outside-a-code-span.md)
@@ -796,6 +795,11 @@
     `is_set_apart`)
   - Revisit if: a `tree-sitter-cpp` release reads a lone identifier before a `}` as an error the parser recovers from
     locally
+- [3.180 Bind a C++ call on a declared class through the class nearest the caller's
+  file](./adr/3.180-bind-a-c-plus-plus-call-on-a-declared-class-through-the-class-nearest-the-caller-s-file.md)
+  - Governs: `crates/kartta-graph/src/scope.rs` (`member_of_a_reached_owner`, `member_of_a_reached_class`,
+    `member_of_a_base`, `reached_tier`), `crates/kartta-graph/src/twins.rs`
+  - Revisit if: the class nearest the caller's file is the wrong class in more than one sampled call in ten
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
   - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
