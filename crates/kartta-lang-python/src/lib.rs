@@ -30,7 +30,9 @@
 //!
 //! A bare call of a function or class that a function around the call defines is a local call to that definition, as
 //! Python's scoping finds the name, and a bare call of a value that such a function binds, a parameter or the target
-//! of an assignment, a loop, a `with` or an `except`, is not recorded, because nothing tells what the value holds. An
+//! of an assignment, a loop, a `with` or an `except`, is not recorded, because nothing tells what the value holds. Nor
+//! is a bare call of a builtin's name, `list()`, that neither a scope around it nor the module binds, by a definition,
+//! an import or an assignment, because it reaches the builtin and no function of another file. An
 //! import or a `global` declaration nearer the call hides a definition around it, a `nonlocal` declaration does not,
 //! and the names a class body binds reach a call in that body but neither its methods nor the function around the
 //! class.

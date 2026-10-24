@@ -511,7 +511,6 @@ fn a_call_in_a_class_body_is_made_by_the_class() {
             ("Settings", "make_default", 8),
             ("Settings", "register", 9),
             ("Settings", "make_default", 10),
-            ("Settings", "range", 10),
             ("read", "make_default", 13),
             ("", "register", 15),
         ]
@@ -626,13 +625,13 @@ fn a_nonlocal_name_reaches_the_definition_around_it() {
 fn a_bare_call_of_a_value_a_function_around_it_binds_records_nothing() {
     let raw = extract(
         b"def f(a, b=1, *c, d: int = 2, **e):\n    a(); b(); c(); d(); e()\n    g = make\n    g()\n    \
-          for h in items:\n        h()\n    with open() as i:\n        i()\n    try:\n        pass\n    \
+          for h in items:\n        h()\n    with acquire() as i:\n        i()\n    try:\n        pass\n    \
           except Error as j:\n        j()\n    k = lambda m: m()\n    [n() for n in items]\n    (o := make)\n    \
           o()\n    def inner():\n        return a()\n",
     );
     let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
 
-    assert_eq!(callees, ["open"]);
+    assert_eq!(callees, ["acquire"]);
     assert_eq!(raw.local_calls, Vec::<LocalCall>::new());
 }
 
@@ -650,6 +649,49 @@ fn a_bare_call_of_a_name_its_scope_imports_and_assigns_is_still_a_call() {
     );
 
     assert_eq!(callers_of(&raw, "helper"), ["f"]);
+}
+
+#[test]
+fn a_bare_call_of_a_builtin_the_module_does_not_bind_records_nothing() {
+    let raw = extract(
+        b"print(len(items))\ndef f():\n    return list(range(3)), __import__(name)\nclass Panel:\n    size = int()\n\
+          def g():\n    global open\n    return open()\n",
+    );
+
+    assert_eq!(raw.calls, Vec::<CallRef>::new());
+    assert_eq!(raw.local_calls, Vec::<LocalCall>::new());
+}
+
+#[test]
+fn a_bare_call_of_a_builtin_the_module_or_its_scope_binds_is_still_a_call() {
+    let raw = extract(
+        b"from app import list\ndef f():\n    return list(), range(), open()\ndef range():\n    pass\n\
+          len = make()\nlen()\ndef g():\n    from tools import open\n    return open()\n\
+          class Table:\n    def int():\n        pass\n    size = int()\n",
+    );
+    let callees: Vec<(&str, &str)> = raw
+        .calls
+        .iter()
+        .map(|call| {
+            let site = raw
+                .symbols
+                .get(call.site_of.0 as usize)
+                .map_or("", |symbol| symbol.name.as_str());
+            (site, call.callee.as_str())
+        })
+        .collect();
+
+    assert_eq!(
+        callees,
+        [
+            ("f", "list"),
+            ("f", "range"),
+            ("", "make"),
+            ("", "len"),
+            ("g", "open"),
+            ("Table", "int"),
+        ]
+    );
 }
 
 #[test]

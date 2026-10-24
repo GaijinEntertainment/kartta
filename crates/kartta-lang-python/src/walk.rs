@@ -13,6 +13,7 @@ use kartta_lang::{
 use tree_sitter::{Node, Tree};
 
 use crate::banner::is_generated_source;
+use crate::runtime::BUILTINS;
 
 pub(crate) const IMPORT_FORM: u32 = 0;
 pub(crate) const FUTURE_FORM: u32 = 1;
@@ -33,6 +34,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         module_names: HashMap::new(),
         module_targets: HashSet::new(),
         module_uses: Vec::new(),
+        builtin_calls: Vec::new(),
         type_names_end: 0,
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
         raw: RawExtraction::default(),
@@ -46,6 +48,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     });
     emitter.close_frames(usize::MAX);
     emitter.record_module_uses();
+    emitter.drop_builtin_calls();
 
     emitter.raw
 }
@@ -140,6 +143,9 @@ struct Emitter<'a> {
     /// Where each name the module binds is written as bound, a site that is no use of it.
     module_targets: HashSet<usize>,
     module_uses: Vec<NameUse<'a>>,
+    /// Where among the calls each bare call of a builtin's name that no scope around it binds sits, in ascending
+    /// order: it is a call only where the module binds the name.
+    builtin_calls: Vec<usize>,
     /// Where the last annotation or list of bases the walk entered ends: a name the walk meets before it names a type
     /// as one.
     type_names_end: usize,
@@ -275,13 +281,12 @@ impl<'a> Emitter<'a> {
                         line: call.line,
                     });
                 }
-                Some(Binding::Definition(_) | Binding::Module | Binding::Imported) => {
-                    self.push_call(&call);
-                }
+                Some(Binding::Definition(_) | Binding::Imported) => self.push_call(&call),
+                Some(Binding::Module) => self.push_free_call(&call),
                 Some(Binding::Value) => {}
                 Some(Binding::Enclosing) | None => match self.scope_frame(call.at) {
                     Some(outer) => outer.calls.push(call),
-                    None => self.push_call(&call),
+                    None => self.push_free_call(&call),
                 },
             }
         }
@@ -652,6 +657,9 @@ impl<'a> Emitter<'a> {
         let Some((callee, receiver)) = callee(node, self.source) else {
             return;
         };
+        if receiver.is_none() {
+            self.mark_builtin(callee.as_bytes());
+        }
 
         self.raw.calls.push(CallRef {
             site_of,
@@ -659,6 +667,32 @@ impl<'a> Emitter<'a> {
             receiver,
             line,
         });
+    }
+
+    fn mark_builtin(&mut self, callee: &[u8]) {
+        if BUILTINS
+            .binary_search_by(|builtin| builtin.as_bytes().cmp(callee))
+            .is_ok()
+        {
+            self.builtin_calls.push(self.raw.calls.len());
+        }
+    }
+
+    // constraint: a bare call of a name that neither its scopes nor its module bind reaches the builtin of that name,
+    // and the graph would bind it to a function of the name in another file
+    fn drop_builtin_calls(&mut self) {
+        let mut builtin_calls = self.builtin_calls.iter().copied().peekable();
+        let mut at = 0;
+        self.raw.calls.retain(|call| {
+            let builtin = builtin_calls.next_if_eq(&at).is_some();
+            at += 1;
+            !builtin || self.module_names.contains_key(call.callee.as_bytes())
+        });
+    }
+
+    fn push_free_call(&mut self, call: &BareCall<'_>) {
+        self.mark_builtin(call.callee);
+        self.push_call(call);
     }
 
     fn push_call(&mut self, call: &BareCall<'_>) {
