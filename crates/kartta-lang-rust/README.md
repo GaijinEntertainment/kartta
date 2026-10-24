@@ -12,10 +12,11 @@ Every function, struct, union, enum, trait, type alias, `macro_rules!`, constant
 symbol, and so is every named field and every enum variant. A member of a `trait`, or of an `impl` whose target names a
 type, is owned by that type and qualified under it, `Service::new`; a member of an `impl` for a tuple, `dyn` or
 function type has no owner. A function of an `extern` block that `#[wasm_bindgen(method)]` marks is owned by the type
-its first parameter, `this`, refers to, since wasm-bindgen makes it that type's method. An item of an inline module is
-qualified by the chain of its modules, `a::b::Worker`, except a `macro_rules!`, which keeps its bare name and is
-exported only by `#[macro_export]`, at its crate's root path. A function marked `#[proc_macro]` is a macro, since it is
-invoked as one.
+its first parameter, `this`, refers to, since wasm-bindgen makes it that type's method; one `constructor` marks is
+owned by the type it returns, `T` of a `Result<T, E>`, and one `static_method_of = T` marks by `T`, since wasm-bindgen
+makes them that type's members. An item of an inline module is qualified by the chain of its modules, `a::b::Worker`,
+except a `macro_rules!`, which keeps its bare name and is exported only by `#[macro_export]`, at its crate's root path.
+A function marked `#[proc_macro]` is a macro, since it is invoked as one.
 `impl Trait for Type` adds `Trait` to the parents of the `Type` the file declares under that name or path.
 
 A call records its callee and, where the syntax spells one, its receiver: `self.greet()` and `Self::new()` record the

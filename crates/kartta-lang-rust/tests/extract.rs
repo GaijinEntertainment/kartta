@@ -232,6 +232,45 @@ fn a_wasm_bindgen_method_is_a_member_of_the_type_its_this_parameter_names() {
 }
 
 #[test]
+fn a_wasm_bindgen_static_method_or_constructor_is_a_member_of_the_type_it_names() {
+    let raw = extract(
+        b"#[wasm_bindgen]\nextern \"C\" {\n    pub type Number;\n\
+          \x20   #[wasm_bindgen(static_method_of = Number, js_name = isNaN)]\n\
+          \x20   pub fn is_nan(value: &JsValue) -> bool;\n\
+          \x20   #[wasm_bindgen(catch, static_method_of = \"Url\", js_class = \"URL\")]\n\
+          \x20   pub fn revoke(url: &str) -> Result<(), JsValue>;\n\
+          \x20   #[wasm_bindgen(constructor)]\n    pub fn new() -> Array<u8>;\n\
+          \x20   #[wasm_bindgen(catch, constructor, js_class = \"Blob\")]\n\
+          \x20   #[doc = \"A new `Blob`.\"]\n    pub fn new_blob() -> Result<Blob, JsValue>;\n\
+          \x20   #[wasm_bindgen(constructor)]\n    pub fn unnamed();\n\
+          \x20   #[wasm_bindgen(js_name = static_method_of)]\n    pub fn named_like_the_argument();\n}\n\n\
+          mod web {\n    #[wasm_bindgen]\n    extern \"C\" {\n        pub type Node;\n\
+          \x20       #[wasm_bindgen(constructor)]\n        pub fn new() -> Node;\n    }\n}\n",
+    );
+    let member = |qualified_name: &str| {
+        let symbol = qualified(&raw, qualified_name);
+        (symbol.kind, symbol.owner.as_deref())
+    };
+
+    assert_eq!(
+        member("Number::is_nan"),
+        (SymbolKind::Method, Some("Number"))
+    );
+    assert_eq!(member("Url::revoke"), (SymbolKind::Method, Some("Url")));
+    assert_eq!(member("Array::new"), (SymbolKind::Method, Some("Array")));
+    assert_eq!(member("Blob::new_blob"), (SymbolKind::Method, Some("Blob")));
+    assert_eq!(
+        member("web::Node::new"),
+        (SymbolKind::Method, Some("web::Node"))
+    );
+    assert_eq!(member("unnamed"), (SymbolKind::Function, None));
+    assert_eq!(
+        member("named_like_the_argument"),
+        (SymbolKind::Function, None)
+    );
+}
+
+#[test]
 fn a_trait_impl_adds_the_trait_to_the_parents_of_the_type() {
     let raw = extract(SAMPLE);
 
