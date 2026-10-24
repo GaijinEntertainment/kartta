@@ -2110,6 +2110,71 @@ fn a_member_taken_on_a_value_is_a_use_spelled_with_its_type_and_how_it_is_touche
 }
 
 #[test]
+fn a_key_of_a_named_container_or_an_unexported_key_of_another_packages_type_is_a_value() {
+    let raw = extract(
+        br#"package svc
+
+import "example.com/a"
+
+type Kind int
+
+const (
+	KindA Kind = iota
+	KindB
+)
+
+type (
+	Names map[Kind]string
+	Table = Names
+	Order [2]string
+)
+
+func Build() {
+	_ = Names{KindA: "a"}
+	_ = Table{KindB: "b"}
+	_ = &Order{KindA: "x"}
+	_ = []Names{{KindB: "b"}}
+	_ = a.Filter{fieldName: 1}
+	_ = []a.Filter{{fieldName: 2}}
+	_ = a.Options{Debug: true}
+	_ = Remote{KindA: "r"}
+}
+
+const fieldName = "f"
+"#,
+    );
+    let reads: Vec<(&str, u32)> = raw
+        .uses
+        .iter()
+        .filter(|site| site.receiver == Receiver::Bare && site.access == Access::Read)
+        .filter(|site| matches!(site.name.as_str(), "KindA" | "KindB" | "fieldName"))
+        .map(|site| (site.name.as_str(), site.line))
+        .collect();
+
+    assert_eq!(
+        reads,
+        [
+            ("KindA", 19),
+            ("KindB", 20),
+            ("KindA", 21),
+            ("KindB", 22),
+            ("fieldName", 23),
+            ("fieldName", 24),
+        ],
+        "a key of a map or an array type the file declares, or an unexported key of a type another package declares, \
+         reads the value it names"
+    );
+    assert_eq!(
+        members(&raw),
+        [
+            ("Debug", "a.Options", Access::Write, 25),
+            ("KindA", "Remote", Access::Write, 26)
+        ],
+        "an exported key of another package's type, or a key of a type the file does not declare, writes a field"
+    );
+}
+
+#[test]
 fn a_positional_struct_literal_writes_the_fields_its_file_declares_in_order() {
     let raw = extract(
         br#"package svc

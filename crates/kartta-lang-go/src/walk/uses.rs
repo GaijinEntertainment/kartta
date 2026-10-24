@@ -6,7 +6,7 @@ use tree_sitter::Node;
 
 use super::Emitter;
 use super::locals::{Local, LocalKind, declares_left};
-use super::syntax::{PREDECLARED, first_operand, is_pointer_indirection};
+use super::syntax::{PREDECLARED, first_operand, is_exported, is_pointer_indirection};
 use super::types::{element_of, is_container_path, is_container_type};
 
 const MAX_NAMES_FOLLOWED: usize = 8;
@@ -97,13 +97,32 @@ impl<'a> Emitter<'a> {
             .parent()
             .map_or(Keys::Unknown, |value| self.keys_of(value));
         match keys {
-            Keys::Fields(path) => {
+            Keys::Fields(path) if !self.takes_value_keys(&path, (key, keyed.start_byte())) => {
                 let field = (text(key, self.source), Receiver::Path(path), Access::Write);
                 self.push_site(owner, key, field);
                 self.literal_key = Some(key.id());
             }
             Keys::Unknown => self.literal_key = Some(key.id()),
-            Keys::Values(_) => {}
+            Keys::Fields(_) | Keys::Values(_) => {}
+        }
+    }
+
+    // constraint: a named type the file declares as a map, a slice or an array takes values for keys, and so does
+    // another package's type for an unexported key, since Go lets no package set another's unexported field; a type
+    // a sibling file declares is left a struct, which the walk cannot tell from a container
+    fn takes_value_keys(&self, path: &str, (key, at): (Node<'_>, usize)) -> bool {
+        let plain = |name: &str| name.chars().all(|c| c == '_' || c.is_alphanumeric());
+        match path.split_once('.') {
+            Some((package, name)) => {
+                plain(package) && plain(name) && !is_exported(self.borrowed(key))
+            }
+            None => {
+                plain(path)
+                    && self
+                        .declaration_of(path, at)
+                        .and_then(|declared| self.declared_type(declared, at))
+                        .is_some_and(is_container_type)
+            }
         }
     }
 
