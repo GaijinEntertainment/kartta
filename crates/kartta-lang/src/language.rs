@@ -151,6 +151,10 @@ pub trait Repository: Sync {
 /// The conventions a language's calls resolve under and its uses are recorded by, which the graph cannot infer from its
 /// extractions. The default states those of the languages that change none.
 ///
+/// The struct is `#[non_exhaustive]` so that a field the graph comes to need breaks no language crate, one kartta does
+/// not ship included: outside `kartta-lang` no struct literal or `..` update builds it. A language cannot tell at compile
+/// time that a field it should set was added; the field keeps its default until the language states it.
+///
 /// # Examples
 ///
 /// A language states its conventions as a `const` that sets the fields it changes on the default, which leaves a field
