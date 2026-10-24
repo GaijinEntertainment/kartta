@@ -551,6 +551,95 @@ fn a_cpp_operand_s_class_binds_the_namesake_its_declaration_s_scopes_name() {
     assert_eq!(graph.resolution(0).misses.ambiguous, 1);
 }
 
+#[test]
+fn a_callee_its_scope_qualifies_binds_the_member_of_the_class_that_scope_names() {
+    let widgets = ["a/widget.h", "b/widget.h", "outer/b/widget.h"];
+    let mut main = including(
+        "app/main.cpp",
+        &widgets,
+        vec![
+            call(0, "b::Widget::draw", 4),
+            call(1, "a::Widget::draw", 6),
+            call(2, "b::Widget::draw", 8),
+            call(3, "::b::Widget::draw", 10),
+            call(4, "c::Widget::draw", 12),
+        ],
+    );
+    main.symbols = vec![
+        function("paint", 3),
+        function("sketch", 5),
+        namespaced("outer", "inner", 7),
+        namespaced("outer", "rooted", 9),
+        function("guess", 11),
+    ];
+    let files = [
+        file(widgets[0], widget_in("a"), Vec::new()),
+        file(widgets[1], widget_in("b"), Vec::new()),
+        file(widgets[2], widget_in("outer::b"), Vec::new()),
+        main,
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "paint"), ["b/widget.h:4@88"]);
+    assert_eq!(callees(&graph, "sketch"), ["a/widget.h:4@88"]);
+    assert_eq!(
+        callees(&graph, "inner"),
+        ["outer/b/widget.h:4@88"],
+        "the class the innermost scope around the call holds under the spelling wins"
+    );
+    assert_eq!(
+        callees(&graph, "rooted"),
+        ["b/widget.h:4@88"],
+        "a spelling from the root names the root's class alone"
+    );
+    assert_eq!(
+        callees(&graph, "guess"),
+        ["a/widget.h:4@88"],
+        "a scope that names none of the classes keeps the first in path order"
+    );
+}
+
+fn box_copy(dir: &str) -> [Extraction; 2] {
+    let callable = |symbol, role| Callable {
+        symbol: SymbolId(symbol),
+        key: "ns::Box::fill()".to_owned(),
+        role,
+    };
+    let mut header = file(
+        &format!("{dir}/box.h"),
+        vec![
+            class_in("ns", "Box", 1, 3),
+            member("Box", "fill", SymbolKind::Method, 2),
+        ],
+        Vec::new(),
+    );
+    header.callables = vec![callable(1, CallableRole::Declaration)];
+    let mut source = including(
+        &format!("{dir}/box.cpp"),
+        &["x/box.h", "y/box.h"],
+        Vec::new(),
+    );
+    source.symbols = vec![member("Box", "fill", SymbolKind::Method, 3)];
+    source.callables = vec![callable(0, CallableRole::Definition)];
+    [header, source]
+}
+
+#[test]
+fn a_callee_its_scope_qualifies_keeps_the_first_member_where_the_graph_locates_no_class_of_it() {
+    let [x_header, x_source] = box_copy("x");
+    let [y_header, y_source] = box_copy("y");
+    let caller = including("x/use.cpp", &["x/box.h"], vec![call(0, "ns::Box::fill", 2)]);
+
+    let graph = graph_of(cpp(), &[x_header, x_source, y_header, y_source, caller]);
+
+    assert_eq!(
+        callees(&graph, "run"),
+        ["x/box.cpp:3@88"],
+        "a declaration in each copy of a library links neither definition, so no class of the first is located"
+    );
+}
+
 fn field_of(owner: &str, name: &str, line: u32, declared: &str) -> Symbol {
     let mut symbol = member(owner, name, SymbolKind::Field, line);
     symbol.value_types = vec![declared.to_owned()];
