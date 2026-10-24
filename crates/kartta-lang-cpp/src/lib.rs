@@ -142,7 +142,8 @@
 //! conditional of the file whose first branch leaves a brace open, or closes one it did not open, is read with that
 //! branch taken, whatever its condition: its directives and its later branches are blanked. Where it holds the `#else`
 //! as a bare token of an error instead, the conditionals whose first branch leaves a brace open are read so. Where it
-//! reads the macro that opens a class member as the member's type and cannot read on,
+//! reads an `#endif` as the statement of the label right before it, `skip:`, the label is blanked. Where it reads the
+//! macro that opens a class member as the member's type and cannot read on,
 //! `PX_FORCE_INLINE const Gu::GeometryUnion& get()` or `PX_INLINE Shape() : mFlags(0) {}`, a misreading that can close
 //! the class at that member, the class's members up to the brace that closes it lose the macro that opens them before
 //! a type and a declarator, a destructor, a conversion operator or a constructor's initializer list, but where the
