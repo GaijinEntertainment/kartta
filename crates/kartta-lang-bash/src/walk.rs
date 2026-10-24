@@ -125,6 +125,7 @@ impl Emitter<'_> {
             callee: text(name, self.source),
             receiver: None,
             line: start_line(node),
+            invokes_a_macro: false,
         });
     }
 

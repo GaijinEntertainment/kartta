@@ -214,6 +214,7 @@ impl Emitter<'_> {
             callee,
             receiver,
             line: line(node.start_position().row),
+            invokes_a_macro: false,
         });
     }
 
