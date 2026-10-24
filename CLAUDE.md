@@ -59,7 +59,8 @@ so cost per entry is the design pressure on every surface.
   joins it.
 - `crates/kartta` — the engine's entry point. It carries no API.
 - `design-docs/adr/` — one decision per file, indexed in `design-docs/ADR.md`. Read the ADR that covers an area before
-  changing how that area behaves.
+  changing how that area behaves. The index is imported below on purpose, so every session sees each decision in force
+  before it proposes an option an ADR settled.
 
 </capability-map>
 
