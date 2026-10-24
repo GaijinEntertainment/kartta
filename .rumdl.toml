@@ -1,0 +1,10 @@
+[global]
+line-length = 120
+
+[per-file-ignores]
+"CLAUDE.md" = ["MD033"]
+".claude/**/*.md" = ["MD033", "MD041"]
+"design-docs/adr/3.134-find-a-doc-comment-by-the-comment-forms-of-its-language.md" = ["MD038"]
+
+[MD013]
+reflow = true

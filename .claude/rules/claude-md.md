@@ -64,12 +64,6 @@ paths:
 
 <formatting>
 
-- After editing, run Prettier with this profile:
-  `--write --use-tabs --print-width 120 --parser markdown --prose-wrap always --bracket-same-line --html-whitespace-sensitivity strict <file-path>`.
-- Use a launcher that resolves Prettier in the environment, such as `vp dlx`, `npx`, or `bunx`. The repository root has
-  no Node.js toolchain.
-- Do not reflow unrelated content. If Prettier with this profile changes lines outside the edit, commit that Prettier
-  reflow alone, before the content edits.
 - Use XML tags to delimit instruction blocks. Keep opening and closing tags on separate lines, with blank lines between
   the tags and their content. Use bullets for independent rules inside a block.
 
