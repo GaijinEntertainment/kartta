@@ -41,8 +41,8 @@ never published, an hour after their last write, and the packs of another format
 the time to live and an hour. `Merged` counts what it removed by age, and what is past its time to live but still in
 place.
 
-`design-docs/adr/2.1-share-per-file-data-through-content-addressed-packs.md` records the store's rules and why the
-alternatives were rejected, and `design-docs/adr/2.4-merge-a-cache-s-packs-once-they-pass-eight.md` the merge's;
+`design-docs/adr/2.1-shared-cache-store.md` records the store's rules and why the
+alternatives were rejected, and `design-docs/adr/2.4-cache-pack-merge.md` the merge's;
 PRs #26 to #28 and #81 hold what was measured.
 
 Status: the API is new and is not published yet.
