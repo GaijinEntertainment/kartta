@@ -306,7 +306,7 @@ impl Cascade<'_> {
     }
 
     /// The class whose body declares `at`, a member, read through a declaration where the member is defined outside
-    /// its class, else the one class of its owner's name nearest its file.
+    /// its class, else the one class of its owner's name nearest its file; `None` where several tie.
     pub(crate) fn class_of(&self, at: SymbolAt) -> Option<SymbolAt> {
         let owner = self.owner(at)?;
         self.body_holding(owner, self.position(at))
