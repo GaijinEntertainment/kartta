@@ -312,8 +312,9 @@ impl Engine {
     /// The paths are what changed, as a [`kartta_fs::Watcher`] or a version control tool names them, and a change no
     /// path names is not seen. The named files are read and extracted on the index's threads, as a whole refresh's
     /// are, except that a call with one file among its parts reads it on the calling thread. Each part is taken on the
-    /// calling thread, a stat and, while ignore rules apply, the rules above it, which go to the index's threads once a
-    /// directory answers as slowly as a network mount does, so a call whose paths come to more parts than
+    /// calling thread, a stat and, while ignore rules apply, the rules above it, until one answers as slowly as a
+    /// network mount does, and the rest side by side, the stats on threads of the call's own and the rules on the
+    /// index's threads, so a call whose paths come to more parts than
     /// [`Engine::refresh_paths_limit`] is [`Engine::refresh`], and [`EngineRefresh::widened`] says so. The parts are
     /// those [`kartta_fs::Index::parts_of`] answers: the paths inside a directory the index does not hold, such as an
     /// ignored `target/`, are one part, and a path the index skips is none. A call named more paths than the limit

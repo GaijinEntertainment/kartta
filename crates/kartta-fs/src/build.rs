@@ -81,7 +81,10 @@ pub struct BuildOptions {
     /// Set it wherever the reported count is not the count the process may use: a container runtime that misreports
     /// its CPU quota reports the host's cores, and an index sized by that would oversubscribe the quota it actually has.
     /// A named count gets the index a pool of exactly that size, kept for its lifetime, so concurrent searches share
-    /// those threads rather than each starting more; [`Index::threads`](crate::Index::threads) reports the count.
+    /// those threads rather than each starting more; [`Index::threads`](crate::Index::threads) reports the count. The
+    /// count bounds the threads that compute: a refresh of named paths on a mount that answers in round trips also
+    /// stats them on up to 32 threads of the call's own, which wait for the filesystem, as
+    /// [`Index::refresh_paths`](crate::Index::refresh_paths) states.
     ///
     /// The result does not depend on this: entries are name-sorted within each directory whatever the thread count, so
     /// two builds of an unchanged tree produce identical indexes.
