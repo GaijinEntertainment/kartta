@@ -13,7 +13,8 @@ use crate::index::tree_order;
 use crate::list::is_below;
 use crate::lock;
 
-// constraint: no access events, so the reads of a refresh raise none; a write is seen at every write and at the close
+// constraint: no access events and no change of attributes, so the reads of a refresh raise none; a write is seen at
+// every write and at the close
 const MASK: u32 = libc::IN_CREATE
     | libc::IN_DELETE
     | libc::IN_MODIFY
@@ -80,7 +81,11 @@ impl Backend {
     }
 
     // constraint: the walk lists a directory only once its parent's visit kept it, which is when this runs, so whatever
-    // is made in the directory after its listing raises an event, and whatever was made before is in the listing
+    // is made in the directory after its listing raises an event, and whatever was made before is in the listing;
+    // until the watch limit runs out, every directory a walk keeps takes a watch call, one already watched included,
+    // since the kernel answers the watch the directory has; a directory gone before its watch, or one the user cannot
+    // read, takes none, as the walk cannot list it either and the build reports it, and any other refusal is held for
+    // the walk's end
     fn descend(&self, dir: &Path) {
         if self.unwatched.load(Ordering::Relaxed) > 0 {
             self.unwatched.fetch_add(1, Ordering::Relaxed);
@@ -182,6 +187,8 @@ impl Backend {
         }
     }
 
+    // constraint: a watched directory's own notices name nothing but the root's own deletion or move, which tells the
+    // root gone; `IN_IGNORED`, the notice of a released watch, removes that watch from the map alone
     fn take(&mut self, len: usize, found: &mut Found) {
         let mut at = 0;
         while at + HEADER <= len {
