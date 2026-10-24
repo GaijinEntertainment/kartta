@@ -16,7 +16,7 @@ impl Replayer<'_, '_> {
         }
         let declarator = real_function_declarator(node, self.source)?;
         let written = declarator_name(declarator, self.source)?;
-        let declared = written_name(written);
+        let declared = written_name(written, self.source);
         let error_beside_the_name = child_nodes(declarator)
             .any(|child| child.start_byte() >= written.end_byte() && child.has_error());
         if error_beside_the_name || declared.name.has_error() {
