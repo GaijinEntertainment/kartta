@@ -136,7 +136,8 @@
 //! `JPH_NAMESPACE_BEGIN` or rtm's `RTM_IMPL_FILE_PRAGMA_PUSH`; above a function it stays, read as the function's return
 //! type, and a macro call alone on its line stays too. Where the first tree
 //! holds an error that spills over three rows or more, the upper-case macro invocations that open its lines are blanked
-//! and the file is parsed again, and an error that opens at a class head reaches the brace that closes the class; a
+//! with the macros between one and a body's brace, `TEST(Suite, Case) NO_ANALYSIS {`, and the file is parsed again,
+//! and an error that opens at a class head reaches the brace that closes the class; a
 //! `#define` body is left as written. Where it reads an `#else` or `#elif` as a
 //! directive inside a block the first branch opened, `#ifdef A` `if (x) {` `#else` `if (y) {` `#endif`, every
 //! conditional of the file whose first branch leaves a brace open, or closes one it did not open, is read with that

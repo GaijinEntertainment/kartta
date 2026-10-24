@@ -1044,6 +1044,31 @@ pub(crate) fn macro_annotation_len(text: &[u8]) -> Option<usize> {
     }
 }
 
+// constraint: a macro left before a body, `NO_ANALYSIS {` of `TEST(Suite, Case) NO_ANALYSIS {` once the invocation is
+// blanked, reads as the type of a compound literal whose braces hold the body, and the locals past the first statement
+// it cannot hold parse at namespace scope
+/// The length of the macros `text` starts with, each with or without its arguments, where a body's `{` follows, or 0:
+/// ` NO_ANALYSIS` of ` NO_ANALYSIS {`.
+fn macros_before_a_body_len(text: &[u8]) -> usize {
+    let mut at = 0;
+    loop {
+        let gap = whitespace_len(&text[at..]);
+        let rest = &text[at + gap..];
+        let len = word_len(rest);
+        if !is_macro_name(&rest[..len]) {
+            return if rest.starts_with(b"{") { at } else { 0 };
+        }
+        at += gap + len;
+        let gap = whitespace_len(&text[at..]);
+        if text[at + gap..].starts_with(b"(") {
+            let Some(group) = group_len(&text[at + gap..], PARENTHESES) else {
+                return 0;
+            };
+            at += gap + group;
+        }
+    }
+}
+
 /// Whether a name is spelled as a macro: three or more upper-case letters, digits and underscores.
 pub(crate) fn is_macro_name(name: &[u8]) -> bool {
     name.len() >= 3
@@ -1081,7 +1106,8 @@ fn macro_invocation_len(line: &[u8]) -> Option<usize> {
                 if depth == 0 {
                     let end = indent + name_len + at + 1;
                     let next = line[end..].iter().find(|byte| !byte.is_ascii_whitespace());
-                    return (next != Some(&b';')).then_some(end);
+                    return (next != Some(&b';'))
+                        .then(|| end + macros_before_a_body_len(&line[end..]));
                 }
             }
             _ => {}
@@ -1627,6 +1653,67 @@ void free_fn() {}
         assert_eq!(macro_invocation_len(b"  FIELDS"), Some("  FIELDS".len()));
         assert_eq!(macro_invocation_len(b"  FIELDS int x;"), None);
         assert_eq!(macro_invocation_len(b"  CHECK(open("), None);
+    }
+
+    #[test]
+    fn an_invocation_takes_the_macros_between_it_and_a_body() {
+        assert_eq!(
+            macro_invocation_len(b"TEST(Suite, Case) NO_ANALYSIS {"),
+            Some("TEST(Suite, Case) NO_ANALYSIS".len())
+        );
+        assert_eq!(
+            macro_invocation_len(b"TEST(Suite, Case) LOCKS_EXCLUDED(mu) NO_ANALYSIS { run(); }"),
+            Some("TEST(Suite, Case) LOCKS_EXCLUDED(mu) NO_ANALYSIS".len())
+        );
+        assert_eq!(
+            macro_invocation_len(b"TEST(Suite, Case) {"),
+            Some("TEST(Suite, Case)".len())
+        );
+        assert_eq!(
+            macro_invocation_len(b"ATTR(malloc) ALLOC_SIZE(1)"),
+            Some("ATTR(malloc)".len())
+        );
+        assert_eq!(
+            macro_invocation_len(b"CHECK(ready) NO_ANALYSIS void handler() {"),
+            Some("CHECK(ready)".len())
+        );
+    }
+
+    #[test]
+    fn a_test_body_after_a_macro_keeps_its_locals() {
+        const SOURCE: &[u8] = br"namespace {
+#ifdef SANITIZER
+TEST(Mutex, DISABLED_Bug) NO_ANALYSIS {
+#else
+TEST(Mutex, Bug) NO_ANALYSIS {
+#endif
+  setup(1);
+  Mutex *a = new Mutex;
+  Mutex b, c;
+}
+
+TEST(Mutex, Plain) {
+  Mutex d;
+}
+
+int g_count;
+}  // namespace
+";
+
+        let raw = Cpp::new().extract(SOURCE);
+
+        let symbols: Vec<(&str, bool)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.exported))
+            .collect();
+        assert_eq!(symbols, [("g_count", false)]);
+        let calls: Vec<(&str, u32)> = raw
+            .calls
+            .iter()
+            .map(|call| (call.callee.as_str(), call.line))
+            .collect();
+        assert_eq!(calls, [("setup", 7), ("Mutex", 8)]);
     }
 
     #[test]
