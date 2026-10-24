@@ -203,6 +203,178 @@ fn a_struct_tag_that_hands_its_field_to_a_library_marks_the_field_reflected() {
 }
 
 #[test]
+fn a_struct_whose_value_a_marshal_or_reflect_call_takes_hands_its_exported_fields_to_reflection() {
+    let raw = extract(
+        br#"
+package p
+
+import (
+    "encoding/json"
+    "reflect"
+)
+
+type Info struct {
+    Issued string
+    Token  string
+    spare  int
+    Hidden int `json:"-"`
+    Rules  []Rule
+}
+
+type Rule struct {
+    Icon string
+}
+
+type Config struct {
+    Tasks any
+}
+
+type Other struct {
+    Value int
+}
+
+func parse(data []byte) string {
+    var info Info
+    _ = json.Unmarshal(data, &info)
+    return info.Token
+}
+
+func (c *Config) events() {
+    _ = reflect.ValueOf(c).Elem()
+}
+
+func show(o Other) int {
+    return o.Value
+}
+"#,
+    );
+    let reflected: Vec<&str> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.flags.is_reflected())
+        .map(|symbol| symbol.qualified_name.as_str())
+        .collect();
+
+    assert_eq!(
+        reflected,
+        [
+            "p.Info.Issued",
+            "p.Info.Token",
+            "p.Info.Rules",
+            "p.Rule.Icon",
+            "p.Config.Tasks"
+        ]
+    );
+}
+
+#[test]
+fn a_skip_tag_hides_a_field_from_a_marshal_call_but_not_from_reflect() {
+    for (call, hidden_reflected) in [("json.Marshal", false), ("reflect.ValueOf", true)] {
+        let source = format!(
+            "package p\n\ntype T struct {{\n\tF int\n\tHidden int `json:\"-\"`\n\tInner U `json:\"-\"`\n}}\n\n\
+             type U struct {{\n\tG int\n}}\n\nfunc f(t T) {{\n\t{call}(t)\n}}\n"
+        );
+
+        let raw = extract(source.as_bytes());
+
+        assert!(qualified(&raw, "p.T.F").flags.is_reflected(), "{call}");
+        for hidden in ["p.T.Hidden", "p.T.Inner", "p.U.G"] {
+            assert_eq!(
+                qualified(&raw, hidden).flags.is_reflected(),
+                hidden_reflected,
+                "{call} {hidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn each_marshal_decode_and_reflect_call_name_hands_its_argument_s_fields_to_reflection() {
+    for (call, reflected, hidden_reflected) in [
+        ("json.Marshal", true, false),
+        ("json.MarshalIndent", true, false),
+        ("json.MarshalWrite", true, false),
+        ("json.Unmarshal", true, false),
+        ("json.UnmarshalRead", true, false),
+        ("encoder.Encode", true, false),
+        ("decoder.Decode", true, false),
+        ("reflect.ValueOf", true, true),
+        ("reflect.TypeOf", true, true),
+        ("fmt.Println", false, false),
+    ] {
+        let source = format!(
+            "package p\n\ntype T struct {{\n\tF int\n\tHidden int `json:\"-\"`\n}}\n\n\
+             func f(t T) {{\n\t{call}(t)\n}}\n"
+        );
+
+        let raw = extract(source.as_bytes());
+
+        assert_eq!(
+            qualified(&raw, "p.T.F").flags.is_reflected(),
+            reflected,
+            "{call}"
+        );
+        assert_eq!(
+            qualified(&raw, "p.T.Hidden").flags.is_reflected(),
+            hidden_reflected,
+            "{call}"
+        );
+    }
+}
+
+#[test]
+fn a_marshal_call_reaches_the_struct_fields_through_an_alias_or_a_container_type() {
+    let raw = extract(
+        br"
+package p
+
+type Info struct {
+    Token string
+}
+
+type Rule struct {
+    Icon string
+}
+
+type Infos []Info
+
+type Shown = Rule
+
+func f(infos Infos, shown Shown) {
+    _, _ = json.Marshal(infos)
+    _, _ = json.Marshal(shown)
+}
+",
+    );
+
+    assert!(qualified(&raw, "p.Info.Token").flags.is_reflected());
+    assert!(qualified(&raw, "p.Rule.Icon").flags.is_reflected());
+}
+
+#[test]
+fn a_value_of_a_type_a_body_declares_hands_no_package_level_namesake_s_fields_to_reflection() {
+    let raw = extract(
+        br"
+package p
+
+type T struct {
+    F int
+}
+
+func f() {
+    type T struct {
+        G int
+    }
+    var v T
+    _, _ = json.Marshal(v)
+}
+",
+    );
+
+    assert!(!qualified(&raw, "p.T.F").flags.is_reflected());
+}
+
+#[test]
 fn a_package_main_file_with_no_func_main_hands_its_exported_values_to_a_plugin_host() {
     let exports = b"var Selector = 1\n\nvar spare = 2\n\nconst Version = \"1\"\n\nfunc Add() {\n\tvar Local = 3\n\t\
                     _ = Local\n}\n\nfunc helper() {}\n\ntype T struct{}\n\nfunc (T) Run() {}\n";

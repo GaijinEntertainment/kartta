@@ -2312,6 +2312,31 @@ fn find_unused_judges_go_fields_by_their_uses_and_counts_those_a_struct_tag_hand
 }
 
 #[test]
+fn find_unused_counts_a_go_field_that_only_a_decoder_writes_as_reflected() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "live/live.go",
+            "package live\n\nimport \"encoding/json\"\n\ntype Info struct {\n\tIssued string\n\tToken  string\n}\n\n\
+             func Parse(data []byte) string {\n\tvar info Info\n\t_ = json.Unmarshal(data, &info)\n\t\
+             return info.Token\n}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("find_unused", &json!({})),
+        lines(&[
+            r#"<unused count="1" live="2">"#,
+            r#"<excluded unobservable="1" reflected="1"/>"#,
+            r#"<symbol name="Parse" qn="live.Parse" kind="function" lang="go" loc="live/live.go:10-14"/>"#,
+            "</unused>",
+        ])
+    );
+}
+
+#[test]
 fn find_unused_counts_the_exports_a_go_plugin_s_host_looks_up_by_name_as_reflected() {
     let tree = tree(&[
         ("go.mod", "module example.com/app\n\ngo 1.22\n"),
