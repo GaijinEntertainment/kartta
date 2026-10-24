@@ -783,6 +783,13 @@
   - Governs: `kartta_lang::MemberCalls::ModulePaths`, `crates/kartta-graph/src/resolve.rs` (`resolve_by_name`,
     `through_the_receiver_s_owner`, `names_a_type_outside_the_graph`)
   - Revisit if: the Rust walk records the type a `use` brings in, renamed or not, and the prelude's names
+- [3.177 Bind a macro invocation only to a macro where a language writes it
+  apart](./adr/3.177-bind-a-macro-invocation-only-to-a-macro-where-a-language-writes-it-apart.md)
+  - Governs: `kartta_lang::CallRef::invokes_a_macro`, `kartta_lang::MacroInvocations`,
+    `crates/kartta-graph/src/resolve.rs` (`is_of_the_call_s_form`, `in_the_caller_s_package`),
+    `crates/kartta-graph/src/stored.rs` (`StoredCall`), `crates/kartta-lang-rust/src/walk/calls.rs`,
+    `crates/kartta-lang-rust/src/lib.rs` (`CONVENTIONS`)
+  - Revisit if: the crates of one package define macros of one name often enough that a package-wide pick misbinds
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
   - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
