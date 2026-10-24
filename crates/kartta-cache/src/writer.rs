@@ -48,6 +48,8 @@ struct Slot {
 
 pub(crate) const TEMP_PREFIX: &str = ".tmp-";
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+// constraint: the threads of a build insert under one lock, and a buffer this large makes the lock cover a copy rather
+// than a write call
 const WRITE_BUFFER: usize = 1 << 20;
 
 impl PackWriter {

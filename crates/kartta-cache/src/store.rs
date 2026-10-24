@@ -128,10 +128,12 @@ impl Store {
     /// finds an entry does not renew it, so an entry that every build finds expires once per `ttl` and the next build
     /// computes and publishes it again. A merge drops every expired entry of the packs it merges, and merges a pack
     /// whose expired entries hold half of its payload bytes or more whatever the count of packs, so a store never holds
-    /// much more than its unexpired entries and an expired entry costs nothing until it would. An entry records the
-    /// second it was published, and its age counts from the start of that second: it expires once more than `ttl` has
-    /// passed since then, so no entry outlives its `ttl`, and a `ttl` of zero expires every entry whose second began
-    /// before the merge. [`DEFAULT_TTL`] is a week.
+    /// much more than its unexpired entries and an expired entry costs nothing until it would. Expired entries are
+    /// counted from each pack's index alone, and a pack whose every entry expired is removed without its payloads being
+    /// read, since a merge checks only the entries it keeps. An entry records the second it was published, and its age
+    /// counts from the start of that second: it expires once more than `ttl` has passed since then, so no entry
+    /// outlives its `ttl`, and a `ttl` of zero expires every entry whose second began before the merge.
+    /// [`DEFAULT_TTL`] is a week.
     ///
     /// The merge also removes the temporary files of writers that never published, once an hour has passed since they
     /// were last written and no writer holds their lock, and the files with the pack extension the store did not map
