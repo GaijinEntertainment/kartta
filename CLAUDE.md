@@ -12,11 +12,22 @@ so cost per entry is the design pressure on every surface.
 - The fastest code is code that is not executed.
 - Memory that is never allocated occupies the least.
 - The best change deletes code, because it shrinks what has to be supported later.
-- Measure magnitude on a real tree of three million entries or more — on macOS the data volume, `/System/Volumes/Data`;
-  a home directory is closer to two million. A small fixture hides costs that only appear at scale: a cost that is 2% of
-  a build on 66k entries can be half of it on 1.4M.
+- Measure structural work — the walk, the index, refresh, watch, graph storage — on a real tree of three million entries
+  or more: on macOS the data volume, `/System/Volumes/Data`; a home directory is closer to two million. A small fixture
+  hides costs that only appear at scale: a cost that is 2% of a build on 66k entries can be half of it on 1.4M.
+- Measure a change to one language's extraction or resolution on real repositories that hold that language, not on the
+  multi-million-entry trees.
 - Profile before optimizing. CPU: `samply`, or macOS `sample` for a text call tree. Memory: `dhat` as the global
   allocator of a scratch harness outside the repository, and `/usr/bin/time -l` for peak footprint.
+- Decide a design choice by measuring the candidates built, each tuned before the comparison, never by an estimate. A
+  fix for one issue builds the candidate its root cause points to first, and a second only when the first misses its
+  bar.
+- While a call stays under ~500 ms, memory and simplicity outrank speed, and a sub-millisecond difference decides
+  nothing. Check each candidate's worst case against 500 ms before ranking it on memory.
+- Report every candidate on every measured row in absolute units (ms, MB). A ratio goes beside the values, never in
+  place of them.
+- Take no time or memory figure inside a Linux container on a macOS host: its filesystem sits in the VM's memory, so the
+  figure describes neither Linux nor macOS. Use such a container for clippy and tests only.
 - `cargo run --release --example probe -- <path> [query]` indexes a real tree and times the build and a path query.
 
 </performance>
@@ -58,8 +69,9 @@ so cost per entry is the design pressure on every surface.
 - Do not name or cite a predecessor implementation this code was ported from, in any file, commit message or ADR. State
   the behavior and its reason directly.
 - Before reporting work that changes a hot path's cost landscape as done, compare its time and peak memory against
-  `main` on the same large tree. The landscape changes with a new stored structure or field, a new pass, a step whose
-  complexity changes, or a new allocation or parse per item on the build path. Any other change states its added work
-  instead: more records of an existing kind as their count times their size, and other work in one line.
+  `main` on the same tree, the one `<performance>` names for that kind of work. The landscape changes with a new stored
+  structure or field, a new pass, a step whose complexity changes, or a new allocation or parse per item on the build
+  path. Any other change states its added work instead: more records of an existing kind as their count times their
+  size, and other work in one line.
 
 </constraints>
