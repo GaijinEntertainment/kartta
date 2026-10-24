@@ -224,6 +224,7 @@ lost, and what would reopen it.
 - [3.182 Resolve a Python import by probing the root and the directories around the file](/design-docs/adr/3.182-python-imports.md)
 - [3.183 Read a Ruby bare name as a call unless an earlier binding makes it a local](/design-docs/adr/3.183-ruby-bare-calls.md)
 - [3.186 Bind a name a TypeScript or JavaScript package import binds outside the repository](/design-docs/adr/3.186-jsts-package-bindings.md)
+- [3.189 Place a Ruby file in the library its outermost `lib` roots](/design-docs/adr/3.189-ruby-libraries.md)
 
 ## crates/kartta-languages
 
