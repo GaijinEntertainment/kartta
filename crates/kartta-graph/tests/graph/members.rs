@@ -1146,6 +1146,278 @@ fn a_member_defined_outside_its_namespace_looks_names_up_from_the_one_class_its_
 }
 
 #[test]
+fn a_member_on_a_value_of_a_specialization_binds_its_field_and_on_other_arguments_the_primary_s() {
+    let mut user = file(
+        "use.cpp",
+        vec![
+            Symbol::new("flags", SymbolKind::Function, 2, 2),
+            Symbol::new("ints", SymbolKind::Function, 3, 3),
+        ],
+        &["box.h"],
+    );
+    user.uses = vec![
+        using(0, "bits", path("Box<bool>"), 2),
+        using(0, "size", path("Box<bool>"), 2),
+        using(1, "bits", path("Box<int>"), 3),
+        using(1, "size", path("Box<int>"), 3),
+    ];
+    let mut flags = class("Box", [5, 8], &[]);
+    flags.signature = Some("template <> struct Box<bool>".to_owned());
+    let boxes = file(
+        "box.h",
+        vec![
+            class("Box", [1, 4], &[]),
+            field("Box", "size", 2),
+            field("Box", "bits", 3),
+            flags,
+            field("Box", "bits", 6),
+            field("Box", "size", 7),
+        ],
+        &[],
+    );
+
+    let graph = graph(cpp(), &[boxes, user]);
+
+    let bound = |name: &str, line: u32| {
+        let references = graph
+            .references(
+                Selector::new(name, None).with_line(Some(line)),
+                SiteQuery::new(usize::MAX),
+            )
+            .expect("the name selects a symbol");
+        references
+            .sites
+            .iter()
+            .map(|site| site.line)
+            .collect::<Vec<u32>>()
+    };
+    assert_eq!(
+        bound("Box::bits", 6),
+        [2],
+        "`Box<bool> b; b.bits` binds the specialization's field"
+    );
+    assert_eq!(bound("Box::size", 7), [2]);
+    assert_eq!(bound("Box::bits", 3), [3]);
+    assert_eq!(
+        bound("Box::size", 2),
+        [3],
+        "`Box<int> i; i.size` binds the primary template's field"
+    );
+}
+
+#[test]
+fn a_member_on_a_value_whose_arguments_leave_their_defaults_binds_the_primary_s_field() {
+    let mut user = file(
+        "use.cpp",
+        vec![Symbol::new("strings", SymbolKind::Function, 2, 2)],
+        &["box.h"],
+    );
+    user.uses = vec![using(0, "size", path("Box<const char *>"), 2)];
+    let boxes = file(
+        "box.h",
+        vec![
+            class("Box", [1, 3], &[]),
+            field("Box", "size", 2),
+            specialization("template <> struct Box<const char *, void>", [4, 6]),
+            field("Box", "size", 5),
+        ],
+        &[],
+    );
+
+    let graph = graph(cpp(), &[boxes, user]);
+
+    assert_eq!(
+        selected(&graph, "Box::size"),
+        (2, vec![2], 0),
+        "the graph holds no primary's head, so it cannot tell which default `Box<const char *>` leaves"
+    );
+}
+
+fn specialization(head: &str, lines: [u32; 2]) -> Symbol {
+    let mut symbol = class("Box", lines, &[]);
+    symbol.signature = Some(head.to_owned());
+    symbol
+}
+
+fn defined_outside(name: &str, signature: &str, line: u32) -> Symbol {
+    let mut symbol = cpp_member("Box", name, SymbolKind::Method, line);
+    symbol.signature = Some(signature.to_owned());
+    symbol
+}
+
+#[test]
+fn a_member_defined_outside_a_specialization_binds_the_field_of_the_class_its_scope_names() {
+    let boxes = file(
+        "box.h",
+        vec![
+            class("Box", [1, 4], &[]),
+            field("Box", "bits", 2),
+            specialization("template <> struct Box<bool>", [5, 8]),
+            field("Box", "bits", 6),
+        ],
+        &[],
+    );
+    let mut user = file(
+        "box.cpp",
+        vec![
+            defined_outside("flip", "void Box<bool>::flip()", 2),
+            defined_outside("fill", "void Box<T>::fill()", 3),
+        ],
+        &["box.h"],
+    );
+    user.uses = vec![
+        using(0, "bits", Receiver::Own, 2),
+        using(1, "bits", Receiver::Own, 3),
+    ];
+
+    let graph = graph(cpp(), &[boxes, user]);
+
+    let bound = |line: u32| {
+        graph
+            .references(
+                Selector::new("Box::bits", None).with_line(Some(line)),
+                SiteQuery::new(usize::MAX),
+            )
+            .expect("the name selects a symbol")
+            .sites
+            .iter()
+            .map(|site| site.line)
+            .collect::<Vec<u32>>()
+    };
+    assert_eq!(
+        bound(6),
+        [2],
+        "`void Box<bool>::flip()` is a member of the specialization"
+    );
+    assert_eq!(
+        bound(2),
+        [3],
+        "`void Box<T>::fill()` is a member of the primary template"
+    );
+}
+
+#[test]
+fn a_member_on_a_value_of_a_class_inside_a_specialization_binds_the_field_the_outer_arguments_name()
+{
+    let mut user = file(
+        "use.cpp",
+        vec![
+            Symbol::new("flags", SymbolKind::Function, 2, 2),
+            Symbol::new("ints", SymbolKind::Function, 3, 3),
+        ],
+        &["outer.h"],
+    );
+    user.uses = vec![
+        using(0, "depth", path("Outer<bool>::Inner"), 2),
+        using(1, "depth", path("Outer<int>::Inner"), 3),
+    ];
+    let mut flags = class("Outer", [7, 12], &[]);
+    flags.signature = Some("template <> struct Outer<bool>".to_owned());
+    let mut inner = class("Inner", [2, 5], &[]);
+    inner.qualified_name = "Outer::Inner".to_owned();
+    inner.owner = Some("Outer".to_owned());
+    let mut flags_inner = inner.clone();
+    (flags_inner.line, flags_inner.end_line) = (8, 11);
+    let depth = |line: u32| {
+        let mut symbol = field("Inner", "depth", line);
+        symbol.qualified_name = "Outer::Inner::depth".to_owned();
+        symbol
+    };
+    let outers = file(
+        "outer.h",
+        vec![
+            class("Outer", [1, 6], &[]),
+            inner,
+            depth(3),
+            flags,
+            flags_inner,
+            depth(9),
+        ],
+        &[],
+    );
+
+    let graph = graph(cpp(), &[outers, user]);
+
+    let bound = |line: u32| {
+        graph
+            .references(
+                Selector::new("Outer::Inner::depth", None).with_line(Some(line)),
+                SiteQuery::new(usize::MAX),
+            )
+            .expect("the name selects a symbol")
+            .sites
+            .iter()
+            .map(|site| site.line)
+            .collect::<Vec<u32>>()
+    };
+    assert_eq!(
+        bound(9),
+        [2],
+        "`Outer<bool>::Inner` is the class inside the specialization"
+    );
+    assert_eq!(
+        bound(3),
+        [3],
+        "`Outer<int>::Inner` is the class inside the primary template"
+    );
+}
+
+#[test]
+fn template_arguments_pick_no_namesake_the_scopes_do_not_name_nor_one_beside_a_partial_specialization()
+ {
+    let mut user = file(
+        "use.cpp",
+        vec![
+            Symbol::new("foreign", SymbolKind::Function, 2, 2),
+            Symbol::new("pointers", SymbolKind::Function, 3, 3),
+            Symbol::new("ints", SymbolKind::Function, 4, 4),
+        ],
+        &["box.h", "pair.h"],
+    );
+    user.uses = vec![
+        using(0, "bits", path("std::Box<bool>"), 2),
+        using(1, "first", path("Pair<char *>"), 3),
+        using(2, "first", path("Pair<int>"), 4),
+    ];
+    let boxes = file(
+        "box.h",
+        vec![
+            class("Box", [1, 4], &[]),
+            field("Box", "bits", 2),
+            specialization("template <> struct Box<bool>", [5, 8]),
+            field("Box", "bits", 6),
+        ],
+        &[],
+    );
+    let mut pointers = class("Pair", [5, 8], &[]);
+    pointers.signature = Some("template <typename T> struct Pair<T *>".to_owned());
+    let pairs = file(
+        "pair.h",
+        vec![
+            class("Pair", [1, 4], &[]),
+            field("Pair", "first", 2),
+            pointers,
+            field("Pair", "first", 6),
+        ],
+        &[],
+    );
+
+    let graph = graph(cpp(), &[boxes, pairs, user]);
+
+    assert_eq!(
+        selected(&graph, "Box::bits").1,
+        Vec::<u32>::new(),
+        "`std::Box` names no class the graph holds"
+    );
+    assert_eq!(
+        selected(&graph, "Pair::first").1,
+        Vec::<u32>::new(),
+        "arguments a partial specialization's pattern may take name neither class"
+    );
+    assert_eq!(ambiguous(&graph, "Pair::first"), 2);
+}
+
+#[test]
 fn a_method_taken_as_a_value_binds_the_first_of_namesakes_of_one_qualified_name() {
     let mut user = file(
         "use.cpp",

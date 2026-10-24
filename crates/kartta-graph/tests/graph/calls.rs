@@ -1303,6 +1303,66 @@ fn a_cpp_operand_s_class_binds_the_first_of_namesakes_of_one_qualified_name() {
     );
 }
 
+fn specialized(name: &str, head: &str, line: u32, end_line: u32) -> Symbol {
+    let mut symbol = class_in("", name, line, end_line);
+    symbol.signature = Some(head.to_owned());
+    symbol
+}
+
+#[test]
+fn a_cpp_operand_s_template_arguments_bind_the_specialization_they_name_else_the_primary() {
+    let mut user = including(
+        "use.cpp",
+        &["box.h"],
+        vec![
+            member_call(0, "Box<bool>", "fill", 2),
+            member_call(1, "Box< bool >", "fill", 3),
+            member_call(2, "Box<int>", "fill", 4),
+            member_call(3, "Box<char *>", "fill", 5),
+        ],
+    );
+    user.symbols = vec![
+        function("flags", 2),
+        function("spaced", 3),
+        function("ints", 4),
+        function("pointers", 5),
+    ];
+    let files = [
+        file(
+            "box.h",
+            vec![
+                class_in("", "Box", 1, 3),
+                member("Box", "fill", SymbolKind::Method, 2),
+                specialized("Box", "template <> struct Box<bool>", 4, 6),
+                member("Box", "fill", SymbolKind::Method, 5),
+                specialized("Box", "template <typename T> struct Box<T *>", 7, 9),
+                member("Box", "fill", SymbolKind::Method, 8),
+            ],
+            Vec::new(),
+        ),
+        user,
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(callees(&graph, "flags"), ["box.h:5@85"]);
+    assert_eq!(
+        callees(&graph, "spaced"),
+        ["box.h:5@85"],
+        "arguments match whatever spaces they are written with"
+    );
+    assert_eq!(
+        callees(&graph, "ints"),
+        ["box.h:2@85"],
+        "arguments no specialization takes name the primary template"
+    );
+    assert_eq!(
+        callees(&graph, "pointers"),
+        ["box.h:2@85"],
+        "arguments a partial specialization's pattern may take name no class, and the call binds the first namesake"
+    );
+}
+
 fn derived_in(scope: &str, name: &str, (line, end_line): (u32, u32), parents: &[&str]) -> Symbol {
     let mut symbol = class_in(scope, name, line, end_line);
     symbol.parents = parents.iter().map(|&parent| parent.to_owned()).collect();
