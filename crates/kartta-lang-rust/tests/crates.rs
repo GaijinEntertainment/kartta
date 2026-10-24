@@ -617,3 +617,100 @@ fn a_renamed_or_moved_library_or_a_new_package_resolves_otherwise() {
     assert!(!resolves_as_before(&moved, &[]));
     assert!(!resolves_as_before(MANIFEST, &["app/tools/Cargo.toml"]));
 }
+
+const DEPENDING: &[(&str, &str)] = &[
+    ("Cargo.toml", "[workspace]\nmembers = [\"app\"]\n"),
+    ("build/gen.rs", ""),
+    (
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\n\n[dependencies]\nshared = \"1\"\nserde = \"1\"\n\n\
+         [dev-dependencies]\nkit = { path = \"../tools/helper\", package = \"helper-kit\" }\n",
+    ),
+    ("app/src/lib.rs", ""),
+    (
+        "vendor/shared-1/Cargo.toml",
+        "[package]\nname = \"shared\"\n",
+    ),
+    (
+        "vendor/shared-2/Cargo.toml",
+        "[package]\nname = \"shared\"\n",
+    ),
+    (
+        "tools/helper/Cargo.toml",
+        "[package]\nname = \"helper_kit\"\n\n[dependencies]\ndeep = \"1\"\n\
+         lazy = { version = \"1\", optional = true }\n\n[dev-dependencies]\nother = \"1\"\n",
+    ),
+    ("tools/deep/Cargo.toml", "[package]\nname = \"deep\"\n"),
+    ("tools/lazy/Cargo.toml", "[package]\nname = \"lazy\"\n"),
+    ("other/Cargo.toml", "[package]\nname = \"other\"\n"),
+    ("other/src/lib.rs", ""),
+];
+
+#[test]
+fn a_file_s_package_reaches_every_package_of_each_name_its_build_lists() {
+    let depending = resolve(DEPENDING, "app/src/lib.rs").dependencies;
+    let depending_on_none = resolve(DEPENDING, "other/src/lib.rs").dependencies;
+    let of_no_named_package = resolve(DEPENDING, "build/gen.rs").dependencies;
+
+    assert_eq!(
+        depending.as_deref(),
+        Some(
+            "tools/deep/Cargo.toml\ntools/helper/Cargo.toml\nvendor/shared-1/Cargo.toml\nvendor/shared-2/Cargo.toml"
+        )
+    );
+    assert_eq!(depending_on_none.as_deref(), Some(""));
+    assert_eq!(of_no_named_package, None);
+}
+
+const INHERITING: &[(&str, &str)] = &[
+    (
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.dependencies]\n\
+         walk = { path = \"crates/walker\", package = \"kartta-walker\" }\nplain = { path = \"crates/plain\" }\n\n\
+         [workspace.dependencies.ignore]\npath = \"crates/rules\"\npackage = \"ignore-rules\"\n",
+    ),
+    (
+        "crates/fs/Cargo.toml",
+        "[package]\nname = \"fs\"\n\n[dependencies]\nwalk.workspace = true\nplain = { workspace = true }\n\n\
+         [dev-dependencies]\nignore = { workspace = true }\n",
+    ),
+    ("crates/fs/src/lib.rs", ""),
+    (
+        "crates/walker/Cargo.toml",
+        "[package]\nname = \"kartta-walker\"\n",
+    ),
+    (
+        "crates/rules/Cargo.toml",
+        "[package]\nname = \"ignore-rules\"\n",
+    ),
+    ("crates/plain/Cargo.toml", "[package]\nname = \"plain\"\n"),
+    ("vendor/Cargo.toml", "[workspace]\nmembers = [\"own\"]\n"),
+    (
+        "vendor/own/Cargo.toml",
+        "[package]\nname = \"own\"\n\n[dependencies]\nwalk.workspace = true\n",
+    ),
+    ("vendor/own/src/lib.rs", ""),
+];
+
+#[test]
+fn a_member_depends_on_the_package_its_nearest_workspace_s_entry_names() {
+    let member = resolve(INHERITING, "crates/fs/src/lib.rs").dependencies;
+    let of_another_workspace = resolve(INHERITING, "vendor/own/src/lib.rs").dependencies;
+
+    assert_eq!(
+        member.as_deref(),
+        Some("crates/plain/Cargo.toml\ncrates/rules/Cargo.toml\ncrates/walker/Cargo.toml")
+    );
+    assert_eq!(of_another_workspace.as_deref(), Some(""));
+}
+
+#[test]
+fn a_dependency_on_a_package_the_tree_holds_resolves_otherwise() {
+    let rust = Rust::new();
+    let held = ("lib/Cargo.toml", "[package]\nname = \"lib\"\n");
+    let before = MemoryRepository::new([("app/Cargo.toml", MANIFEST), held]);
+    let depending = format!("{MANIFEST}lib = {{ path = \"../lib\" }}\n");
+    let after = MemoryRepository::new([("app/Cargo.toml", &depending[..]), held]);
+
+    assert!(!rust.resolver(&after).resolves_as(&*rust.resolver(&before)));
+}
