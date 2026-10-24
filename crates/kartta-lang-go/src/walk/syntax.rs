@@ -34,6 +34,22 @@ pub(super) const PREDECLARED: &[&str] = &[
     "uintptr",
 ];
 
+// constraint: `encoding/json`, `encoding/xml`, `encoding/gob`, the yaml, toml and bson packages and `mapstructure`
+// marshal and unmarshal a value, and their encoders and decoders encode and decode one, through calls of these names,
+// each skipping a field whose tag says so
+pub(super) const SERIALIZING_CALLS: &[&str] = &[
+    "Decode",
+    "Encode",
+    "Marshal",
+    "MarshalIndent",
+    "MarshalWrite",
+    "Unmarshal",
+    "UnmarshalRead",
+];
+
+// constraint: `reflect` takes a value through calls of these names and sees every field, whatever its tags say
+pub(super) const INSPECTING_CALLS: &[&str] = &["TypeOf", "ValueOf"];
+
 pub(super) const TYPE_ONLY_KINDS: &[&str] = &[
     "array_type",
     "channel_type",

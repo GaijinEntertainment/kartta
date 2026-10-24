@@ -14,7 +14,7 @@ use self::syntax::{
     assertion_value_type, default_name_candidates, is_exported, is_generated_source, parents_of,
     receiver_type, tag_hands_over_its_field, trim_quotes,
 };
-use self::types::{element_of, is_container_type};
+use self::types::{element_of, inside_containers, is_container_type};
 
 mod anonymous;
 mod calls;
@@ -33,6 +33,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     preorder(root, |node| !node.is_named() || emitter.handle(node));
 
     emitter.apply_pending_parents();
+    emitter.mark_reflected_fields();
     emitter.raw
 }
 
@@ -106,6 +107,11 @@ struct Emitter<'a> {
     pending_parents: Vec<(String, String)>,
     /// The symbol that owns the fields of each anonymous struct, by the struct's node.
     anonymous: HashMap<usize, SymbolId>,
+    /// The type paths of the values that a call which marshals, unmarshals or reflects on them receives, each with
+    /// whether the call skips a field whose tag says so.
+    reflected_values: Vec<(String, bool)>,
+    /// The fields whose tag makes every serializing library skip them.
+    skipped_fields: Vec<SymbolId>,
     file_is_generated: bool,
     is_plugin: bool,
     symbol_count: u32,
@@ -140,6 +146,8 @@ impl<'a> Emitter<'a> {
             import_names: Vec::new(),
             pending_parents: Vec::new(),
             anonymous: HashMap::new(),
+            reflected_values: Vec::new(),
+            skipped_fields: Vec::new(),
             file_is_generated: is_generated_source(source),
             is_plugin,
             symbol_count: 0,
@@ -170,6 +178,63 @@ impl<'a> Emitter<'a> {
                 }),
             }
         }
+    }
+
+    // constraint: a library that marshals, unmarshals or reflects on a struct's value reads or writes its exported
+    // fields by their names, and those of the structs the fields hold, unless a tag skips the field for a library
+    // that honours it
+    // shortcut: the walk reads one file, so it follows only the package-level types the file declares and the values
+    // whose path is a bare type — resolve the paths in the graph once a dead field of a struct another file marshals
+    // shows
+    fn mark_reflected_fields(&mut self) {
+        let mut pending = std::mem::take(&mut self.reflected_values);
+        let mut followed: Vec<(String, bool)> = Vec::new();
+        while let Some((path, honors_skip_tags)) = pending.pop() {
+            let name = inside_containers(&path);
+            let seen = followed
+                .iter()
+                .any(|(held, honors)| held == name && *honors == honors_skip_tags);
+            let Some(declared) = self.package_type_symbol(name).filter(|_| !seen) else {
+                continue;
+            };
+            followed.push((name.to_owned(), honors_skip_tags));
+            if declared.kind != SymbolKind::Struct {
+                let named = declared.value_types.iter().cloned();
+                pending.extend(named.map(|path| (path, honors_skip_tags)));
+                continue;
+            }
+            let (local, skipped) = (&self.raw.local_symbols, &self.skipped_fields);
+            let fields = ((0..).map(SymbolId).zip(self.raw.symbols.iter_mut()))
+                .filter(|(id, field)| {
+                    field.kind == SymbolKind::Field
+                        && field.exported
+                        && field.owner.as_deref() == Some(name)
+                        && !(honors_skip_tags && skipped.contains(id))
+                        && local.binary_search(id).is_err()
+                })
+                .map(|(_, field)| field);
+            for field in fields {
+                field.flags = field.flags.with_reflected(true);
+                let held = field.value_types.iter().cloned();
+                pending.extend(held.map(|path| (path, honors_skip_tags)));
+            }
+        }
+    }
+
+    // constraint: an alias and a defined container type record the type they name as their value type, which a
+    // library reaches through them
+    fn package_type_symbol(&self, name: &str) -> Option<&Symbol> {
+        let mut declared = (0..).map(SymbolId).zip(&self.raw.symbols);
+        declared
+            .find(|(id, symbol)| {
+                matches!(
+                    symbol.kind,
+                    SymbolKind::Struct | SymbolKind::TypeAlias | SymbolKind::DefinedType
+                ) && symbol.owner.is_none()
+                    && symbol.name == name
+                    && self.raw.local_symbols.binary_search(id).is_err()
+            })
+            .map(|(_, symbol)| symbol)
     }
 
     fn handle(&mut self, node: Node<'a>) -> bool {
@@ -626,9 +691,9 @@ impl<'a> Emitter<'a> {
             .child_by_field_name("type")
             .and_then(|written| self.type_path(written));
         let own_owner = (owner != scope).then(|| owner.to_owned());
-        let reflected = field
-            .child_by_field_name("tag")
-            .is_some_and(|tag| tag_hands_over_its_field(&text(tag, self.source)));
+        let tag = field.child_by_field_name("tag");
+        let reflected = tag.is_some_and(|tag| tag_hands_over_its_field(&text(tag, self.source)));
+        let first = self.symbol_count;
         let mut cursor = field.walk();
         for name_node in field.children_by_field_name("name", &mut cursor) {
             let name = text(name_node, self.source);
@@ -640,6 +705,10 @@ impl<'a> Emitter<'a> {
                 symbol.value_types = type_path.clone().into_iter().collect();
                 self.push_symbol(symbol);
             }
+        }
+        if tag.is_some() && !reflected {
+            self.skipped_fields
+                .extend((first..self.symbol_count).map(SymbolId));
         }
         if let Some((struct_type, nested_scope)) = nested {
             self.declare_anonymous(struct_type, &nested_scope);
