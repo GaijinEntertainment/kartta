@@ -91,7 +91,10 @@
 //! `benches/`. A top-level `fn main` in a crate root other than the library is the entry point. A file's package is
 //! the nearest package around it, named by the path of its manifest, so of the types of one name that a call's
 //! receiver names, the one the caller's own package declares binds before another's, as two versions of one crate in
-//! a cargo registry are told apart.
+//! a cargo registry are told apart. A package is built with every package the tree holds of each name its manifest's
+//! dependency tables list, of every kind and target, by the `package` key that renames one, its own or that of the
+//! entry it inherits from its nearest workspace's `[workspace.dependencies]`, else by its key, and with what each of
+//! those is built with but its optional, dev- and build-dependencies.
 //!
 //! A package's library is named by its manifest's `[lib] name`, else by its `[package] name` with `-` read as `_`, and
 //! lies at its `[lib] path`, else at `src/lib.rs`, each value read only from a `key = "value"` on one line under its
@@ -113,8 +116,9 @@
 //! ends past a module, so a bare call binds what that file shows it the same way, where the caller's own file declares
 //! nothing of the name.
 //!
-//! The resolver keeps only what it derived: the packages and the name and root of each library. A resolver built again
-//! over an edit that changes none of them, such as a dependency bump in a `Cargo.toml`,
+//! The resolver keeps only what it derived: the packages, the name and root of each library, and the packages each is
+//! built with. A resolver built again over an edit that changes none of them, such as a dependency bump in a
+//! `Cargo.toml`,
 //! [resolves as](kartta_lang::Resolver::resolves_as) the one built before, so an engine that follows the tree resolves
 //! no Rust file again for it.
 //!
