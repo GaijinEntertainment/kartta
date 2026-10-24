@@ -3,23 +3,46 @@ use std::fmt;
 
 use serde::Serialize;
 
+/// The code a failure is answered with, as the wire spells it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ErrorCode {
+    /// A null handle or method, a method or params that are not UTF-8, null params with a length, or params that are
+    /// not JSON.
     InvalidRequest,
+    /// Params the method does not take, the message naming what: JSON that is neither an object nor `null`, a field
+    /// that is unknown, missing or of the wrong type, a value the method refuses (a symbol kind it does not know, a
+    /// malformed name in a build option's set, a refresh path that is absolute or outside the tree), or a graph the
+    /// build did not make.
     InvalidParams,
+    /// No method of the name; the message lists the methods.
     UnknownMethod,
+    /// `open` could not read the root's metadata, or the root is not a directory.
     InvalidRoot,
+    /// No build has finished, or the last one failed or was cancelled.
     NotBuilt,
+    /// A build is in flight.
     Building,
+    /// The build stopped on a failure, which leaves no index.
     BuildFailed,
+    /// A cancel stopped the build, which leaves no index.
     BuildCancelled,
+    /// The build kept no stamps, so a refresh is refused.
     NoStamps,
+    /// The refresh stopped on a failure.
     RefreshFailed,
+    /// A cancel stopped the refresh.
     RefreshCancelled,
+    /// A glob the params name does not compile, answered by the call that takes it.
     InvalidGlob,
+    /// A grep pattern does not compile.
     InvalidPattern,
+    /// `list` names a path the index does not hold.
     NotFound,
+    /// `list` names a path that is not a directory.
     NotADirectory,
+    /// The engine panicked, or an answer could not be encoded. After a call the handle stays usable, though a refresh
+    /// that panicked partway leaves every call that reads the engine answering this code, naming `build`, until a build
+    /// replaces the engine; an `open` that answers it made no handle.
     Internal,
 }
 
