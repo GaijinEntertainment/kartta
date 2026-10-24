@@ -91,8 +91,8 @@ struct Emitter<'a> {
     type_operands: Vec<usize>,
     import_names: Vec<String>,
     pending_parents: Vec<(String, String)>,
-    anonymous: HashMap<usize, String>,
-    anonymous_counts: HashMap<String, u32>,
+    /// The symbol that owns the fields of each anonymous struct, by the struct's node.
+    anonymous: HashMap<usize, SymbolId>,
     file_is_generated: bool,
     symbol_count: u32,
     raw: RawExtraction,
@@ -125,7 +125,6 @@ impl<'a> Emitter<'a> {
             import_names: Vec::new(),
             pending_parents: Vec::new(),
             anonymous: HashMap::new(),
-            anonymous_counts: HashMap::new(),
             file_is_generated: is_generated_source(source),
             symbol_count: 0,
             raw,
@@ -295,17 +294,23 @@ impl<'a> Emitter<'a> {
                 right_values(node)
             };
             let has_literal = values.iter().any(|&value| literal_type(value).is_some());
-            let literals = if has_literal && node.kind() == "short_var_declaration" {
-                let names: Vec<Node<'_>> = named_child_nodes(left).collect();
-                self.name_literal_structs(&names, &values)
+            let names: Vec<Node<'_>> = if has_literal && node.kind() == "short_var_declaration" {
+                named_child_nodes(left).collect()
             } else {
                 Vec::new()
             };
+            let literals = self.name_literal_structs((&names, &values), Some(block));
             let mut paths = self.declared_paths(node, left, &values);
+            for &(_, _, position) in &literals {
+                let name = text(names[position], self.source);
+                let mut host = self.declared(SymbolKind::Variable, node, (None, name));
+                host.value_types = paths.get(position).cloned().flatten().into_iter().collect();
+                self.push_symbol(host);
+            }
             self.push_locals(left, (node.end_byte(), block), &mut |position| {
                 paths.get_mut(position).and_then(Option::take)
             });
-            for (struct_type, scope) in literals {
+            for (struct_type, scope, _) in literals {
                 self.declare_anonymous(struct_type, &scope);
             }
         }
@@ -646,11 +651,13 @@ impl<'a> Emitter<'a> {
             Some(list) if written.is_none() => named_child_nodes(list).collect(),
             _ => Vec::new(),
         };
-        let mut nested = self.name_literal_structs(&names, &values);
+        let host = SymbolId(self.symbol_count);
+        let mut nested = self.name_literal_structs((&names, &values), None);
         nested.extend(
             written
                 .zip(self.first_named(&names))
-                .and_then(|(written, first)| self.name_value_struct(written, first)),
+                .and_then(|(written, first)| self.name_value_struct(written, (first, host)))
+                .map(|(struct_type, scope)| (struct_type, scope, 0)),
         );
         for (position, &name_node) in names.iter().enumerate() {
             let name = text(name_node, self.source);
@@ -664,7 +671,7 @@ impl<'a> Emitter<'a> {
                 self.spec_name(spec, kind, (name, type_path));
             }
         }
-        for (struct_type, scope) in nested {
+        for (struct_type, scope, _) in nested {
             self.declare_anonymous(struct_type, &scope);
         }
     }
