@@ -210,6 +210,7 @@ fn a_receiver_call_that_binds_nothing_leaves_members_and_what_its_file_sees_unce
         receiver: Some(String::new()),
         line: 2,
         invokes_a_macro: false,
+        calls_a_method: false,
     });
     caller
         .includes
@@ -250,6 +251,7 @@ fn a_receiver_call_that_binds_nothing_leaves_a_free_definition_no_member_could_s
         receiver: Some("module".to_owned()),
         line: 3,
         invokes_a_macro: false,
+        calls_a_method: false,
     });
     let graph = graph(&[
         loader,
@@ -287,6 +289,7 @@ fn a_call_through_a_value_bound_to_its_own_caller_leaves_the_members_of_its_name
         receiver: Some(String::new()),
         line: 3,
         invokes_a_macro: false,
+        calls_a_method: false,
     });
     let graph = graph(&[
         wrapper,

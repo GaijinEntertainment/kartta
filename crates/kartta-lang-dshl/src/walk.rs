@@ -216,6 +216,7 @@ impl Walker<'_> {
                 receiver: None,
                 line: line(node),
                 invokes_a_macro: false,
+                calls_a_method: false,
             });
         }
     }

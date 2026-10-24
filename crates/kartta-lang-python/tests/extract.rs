@@ -206,6 +206,7 @@ fn an_attribute_a_method_gives_its_instance_is_a_field_declared_once_after_the_c
             receiver: Some(String::new()),
             line: 17,
             invokes_a_macro: false,
+            calls_a_method: false,
         }]
     );
 }

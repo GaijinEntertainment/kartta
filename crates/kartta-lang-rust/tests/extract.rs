@@ -523,6 +523,37 @@ fn a_macro_invocation_is_marked_apart_from_a_call_of_its_name() {
 }
 
 #[test]
+fn a_method_call_is_marked_apart_from_a_path_call_in_a_body_and_in_a_macro_s_arguments() {
+    let raw = extract(
+        b"struct S;\n\nimpl S {\n    fn run(&self, x: Vec<u8>) {\n        self.go();\n        x.len();\n        \
+          x.iter().count();\n        x.get::<usize>(0);\n        F();\n        Self::new();\n        \
+          a::b();\n        log!(\"{}\", x.len(), self.go(), Self::new(), F());\n    }\n}\n",
+    );
+    let calls: Vec<(&str, bool)> = (raw.calls.iter())
+        .filter(|call| !call.invokes_a_macro)
+        .map(|call| (call.callee.as_str(), call.calls_a_method))
+        .collect();
+
+    assert_eq!(
+        calls,
+        [
+            ("go", true),
+            ("len", true),
+            ("count", true),
+            ("iter", true),
+            ("get", true),
+            ("F", false),
+            ("new", false),
+            ("b", false),
+            ("len", true),
+            ("go", true),
+            ("new", false),
+            ("F", false),
+        ]
+    );
+}
+
+#[test]
 fn a_scoped_or_macro_call_names_its_last_segment() {
     let raw = extract(SAMPLE);
     let receiver_of = |callee: &str| {
