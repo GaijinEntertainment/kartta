@@ -597,7 +597,7 @@
 - [3.110 Judge a language's data only where it records every read and
   write](./adr/3.110-judge-a-language-s-data-only-where-it-records-every-read-and-write.md)
   - Governs: `kartta_lang::DataUses`, `crates/kartta-graph/src/{dead,calls}.rs`, `SymbolFlags::is_reflected`,
-    `crates/kartta-lang-go/src/walk/syntax.rs`
+    `crates/kartta-lang-go/src/{walk,walk/syntax}.rs`
   - Revisit if: a language besides Go records a use wherever code reads or writes its data
 - [3.111 Mark what a runtime calls with no name as an entry
   point](./adr/3.111-mark-what-a-runtime-calls-with-no-name-as-an-entry-point.md)

@@ -139,11 +139,11 @@ is stored, so nothing a file holds goes stale when another file changes.
   found, those found reached, and those it did not judge, by reason: of a kind not asked for; test, generated, entry
   and vendored code; a kind no call and no use shows used; a definition a call or a use that binds nothing, or binds
   only by proximity, may reach; a method a call through another type may reach; and a definition no use reaches that
-  reflection reads by its name, as a Go field whose struct tag hands it to a library. A field, a variable and a
-  constant are judged through their reads and writes where the language records one wherever code reads or writes
-  one, as Go's conventions say, and a free value a call's receiver spells, in a file that sees it, counts as one a
-  use may reach. Every call and use that spells a judged name is resolved, so a query over a whole graph costs what
-  resolving its calls and uses costs.
+  a library or a host reads by its name, as a Go field whose struct tag hands it to a library, a field of a struct a
+  marshal call takes, or a Go plugin's export. A field, a variable and a constant are judged through their reads and
+  writes where the language records one wherever code reads or writes one, as Go's conventions say, and a free value
+  a call's receiver spells, in a file that sees it, counts as one a use may reach. Every call and use that spells a
+  judged name is resolved, so a query over a whole graph costs what resolving its calls and uses costs.
 - `Graph::stats` — what the graph holds: its files and those with no definition, its definitions by kind, the calls,
   local calls and uses inside definitions, and the includes, counted when asked.
 - `Graph::resolution` — how every call site binds: the sites bound at each confidence, the caller and callee pairs they
