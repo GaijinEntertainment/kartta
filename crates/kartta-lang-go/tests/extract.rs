@@ -203,6 +203,27 @@ fn a_struct_tag_that_hands_its_field_to_a_library_marks_the_field_reflected() {
 }
 
 #[test]
+fn a_package_main_file_with_no_func_main_hands_its_exported_values_to_a_plugin_host() {
+    let exports = b"var Selector = 1\n\nvar spare = 2\n\nconst Version = \"1\"\n\nfunc Add() {\n\tvar Local = 3\n\t\
+                    _ = Local\n}\n\nfunc helper() {}\n\ntype T struct{}\n\nfunc (T) Run() {}\n";
+    let plugin = [b"package main\n\n".as_slice(), exports].concat();
+    let program = [b"package main\n\nfunc main() {}\n\n".as_slice(), exports].concat();
+    let library = [b"package lib\n\n".as_slice(), exports].concat();
+    let reflected = |source: &[u8]| -> Vec<String> {
+        extract(source)
+            .symbols
+            .into_iter()
+            .filter(|symbol| symbol.flags.is_reflected())
+            .map(|symbol| symbol.qualified_name)
+            .collect()
+    };
+
+    assert_eq!(reflected(&plugin), ["main.Selector", "main.Add"]);
+    assert_eq!(reflected(&program), Vec::<String>::new());
+    assert_eq!(reflected(&library), Vec::<String>::new());
+}
+
+#[test]
 fn a_package_is_a_directory_and_names_join_no_scopes() {
     let conventions = Go::new().conventions();
 

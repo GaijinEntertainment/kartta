@@ -66,6 +66,19 @@ fn package_values<'a>(tree: &Tree, source: &'a [u8]) -> HashSet<&'a str> {
     names
 }
 
+// constraint: the go command builds a `package main` with no `func main` only as a plugin, and a plugin's host looks
+// its exported functions and package-level variables up by name through `plugin.Lookup`
+// shortcut: the walk reads one file, so a file of a program's `package main` that leaves `func main` to a sibling
+// passes as a plugin's — read the package's files once a program's dead exports show among the reflected
+fn is_plugin(package: &str, root: Node<'_>, source: &[u8]) -> bool {
+    package == "main"
+        && !child_nodes(root).any(|declaration| {
+            declaration.kind() == "function_declaration"
+                && (declaration.child_by_field_name("name"))
+                    .is_some_and(|name| name.utf8_text(source) == Ok("main"))
+        })
+}
+
 #[derive(Clone, Copy)]
 struct Scope {
     end: usize,
@@ -94,6 +107,7 @@ struct Emitter<'a> {
     /// The symbol that owns the fields of each anonymous struct, by the struct's node.
     anonymous: HashMap<usize, SymbolId>,
     file_is_generated: bool,
+    is_plugin: bool,
     symbol_count: u32,
     raw: RawExtraction,
 }
@@ -106,6 +120,7 @@ impl<'a> Emitter<'a> {
     ) -> Self {
         let mut raw = RawExtraction::default();
         raw.package = (!package.is_empty()).then(|| package.clone());
+        let is_plugin = is_plugin(&package, root, source);
 
         Self {
             source,
@@ -126,6 +141,7 @@ impl<'a> Emitter<'a> {
             pending_parents: Vec::new(),
             anonymous: HashMap::new(),
             file_is_generated: is_generated_source(source),
+            is_plugin,
             symbol_count: 0,
             raw,
         }
@@ -473,7 +489,8 @@ impl<'a> Emitter<'a> {
 
         let mut symbol = self.declared(SymbolKind::Function, node, (None, name));
         symbol.signature = signature(node, self.source);
-        symbol.flags = symbol.flags.with_entry(is_entry);
+        let looked_up = self.is_plugin && symbol.exported;
+        symbol.flags = symbol.flags.with_entry(is_entry).with_reflected(looked_up);
         symbol.value_types = self.result_paths(node);
         Some(self.push_symbol(symbol))
     }
@@ -694,6 +711,8 @@ impl<'a> Emitter<'a> {
         }
         let mut symbol = self.declared(kind, spec, (None, name));
         symbol.value_types = type_path.into_iter().collect();
+        let looked_up = self.is_plugin && kind == SymbolKind::Variable && self.blocks.is_empty();
+        symbol.flags = symbol.flags.with_reflected(looked_up && symbol.exported);
         self.push_symbol(symbol);
 
         let first_of_spec = self
