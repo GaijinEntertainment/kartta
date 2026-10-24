@@ -22,7 +22,7 @@ A match inside the **basename** — the last path segment — earns a bonus on e
 General-purpose fuzzy matchers do not do this. They award boundary bonuses uniformly per delimiter, which scores a
 directory hit and a filename hit alike, and neither of the two mature Rust matchers exposes a per-position hook to add
 one. Since the ranking decides which files a language model reads first, a directory hit arriving before a filename hit
-is the failure this crate exists to prevent. `design-docs/adr/1.2-own-the-path-scorer.md` records what was measured and
+is the failure this crate exists to prevent. `design-docs/adr/1.2-path-scorer.md` records what was measured and
 why the alternatives were rejected.
 
 ## The model
