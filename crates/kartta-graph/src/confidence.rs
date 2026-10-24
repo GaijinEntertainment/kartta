@@ -2,6 +2,10 @@
 //!
 //! A call or a use is resolved by the first tier that binds it, and the answer carries that tier's confidence: a
 //! [`Limits`](crate::Limits) floor of [`INCLUDE`] keeps the calls bound through an include and every tier above it.
+//!
+//! A call the cascade binds to a definition a macro invocation writes, or leaves ambiguous where such a definition
+//! shares its name, runs the cascade again over the written definitions alone and takes what that run binds; a member
+//! of the type the receiver is declared as binds in either run. A value a macro invocation writes binds no call.
 
 /// A receiver that names an import binds an export of the imported directory, or what the imported module's file shows
 /// the call.
@@ -54,6 +58,11 @@ pub const RE_EXPORT: u8 = 65;
 /// from outside test code binds no test definition here, and a test definition still counts among the definitions of
 /// its name, except against the one type outside test code, which such a call binds.
 pub const UNIQUE: u8 = 60;
+/// A definition a macro invocation writes binds at a tier this high at most, and none below [`SAME_DIR`].
+///
+/// Such a definition's name is often a trait's method or another file's macro-made namesake, which a call may mean
+/// instead.
+pub const MADE: u8 = 55;
 /// The one callable of the name in the caller's directory binds.
 ///
 /// Here and at the two steps after it, a call from outside test code binds no test definition, and a test definition
