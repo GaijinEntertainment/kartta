@@ -433,7 +433,7 @@ impl<'g> Cascade<'g> {
     // constraint: where includes paste text in place, a definition the declaration's own file reaches, as in an inline
     // implementation header a class header includes at its end, is in every translation unit that declares it; of
     // several definitions either way none is meant, a platform's conditional alternatives or a library's copies most
-    // often
+    // often; test code is built apart, so a declaration outside it is in no translation unit that defines it in a test
     fn linked_definition(&self, declaration: SymbolAt) -> Option<SymbolAt> {
         let callable = self
             .graph
@@ -443,12 +443,14 @@ impl<'g> Cascade<'g> {
             return None;
         }
         let pasted = self.conventions.include_reach == IncludeReach::Transitive;
+        let in_test = self.graph.sym(declaration).flags.is_test();
         let mut definitions = self
             .graph
             .occurrences(callable.key)
             .iter()
             .filter(|occurrence| occurrence.role == CallableRole::Definition)
             .map(|occurrence| occurrence.at)
+            .filter(|&definition| in_test || !self.graph.sym(definition).flags.is_test())
             .filter(|definition| {
                 self.reaches(definition.file, declaration.file)
                     || (pasted && self.reaches(declaration.file, definition.file))
