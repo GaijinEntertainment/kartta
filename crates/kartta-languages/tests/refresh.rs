@@ -804,11 +804,12 @@ impl Repository for CountingReads<'_> {
     }
 }
 
-/// A shipped language whose resolvers are built over [`CountingReads`].
+/// A shipped language whose resolvers are built over [`CountingReads`], each build counted.
 #[derive(Debug)]
 struct ReadsCounted {
     language: Box<dyn Language>,
     reads: Arc<AtomicUsize>,
+    builds: Arc<AtomicUsize>,
 }
 
 impl Language for ReadsCounted {
@@ -841,6 +842,7 @@ impl Language for ReadsCounted {
     }
 
     fn resolver(&self, repository: &dyn Repository) -> Box<dyn Resolver> {
+        self.builds.fetch_add(1, Ordering::Relaxed);
         self.language.resolver(&CountingReads {
             repository,
             reads: &self.reads,
@@ -896,6 +898,7 @@ fn a_followed_quirrel_family_reads_its_sqconfig_files_again_only_when_a_refresh_
                 Box::new(ReadsCounted {
                     language,
                     reads: Arc::clone(&reads),
+                    builds: Arc::default(),
                 })
             } else {
                 language
@@ -935,6 +938,57 @@ fn a_followed_quirrel_family_reads_its_sqconfig_files_again_only_when_a_refresh_
         "game/main.nut includes game/alt/widget.nut in place of game/ui/widget.nut"
     );
     assert_eq!(mounted_answers(&engine), fresh);
+}
+
+#[test]
+fn a_whole_refresh_builds_again_only_the_resolver_whose_configuration_changed() {
+    let tree = settled_tree_with(MOUNTED);
+    let (reads, builds) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let languages = kartta_languages::all()
+        .into_iter()
+        .map(|language| -> Box<dyn Language> {
+            Box::new(ReadsCounted {
+                language,
+                reads: Arc::clone(&reads),
+                builds: Arc::clone(&builds),
+            })
+        })
+        .collect();
+    let mut options = BuildOptions::default();
+    options.stamps = true;
+    let outcome = Engine::build(tree.path(), &options, languages, None).expect("the tree builds");
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+    let mut engine = outcome.engine;
+    let counted = || {
+        (
+            builds.load(Ordering::Relaxed),
+            reads.load(Ordering::Relaxed),
+        )
+    };
+    let after_build = counted();
+
+    let unchanged = refreshed(engine.refresh(None));
+    let after_unchanged = counted();
+    write(tree.path(), "go.mod", "module example.com/n\n");
+    let go_mod = refreshed(engine.refresh(None));
+
+    assert_eq!(after_build.1, 2, "the build reads each .sqconfig once");
+    assert_eq!(
+        after_unchanged, after_build,
+        "a whole refresh of an unchanged tree builds no resolver"
+    );
+    assert!(
+        unchanged.reconfigured.is_empty(),
+        "{:?}",
+        unchanged.reconfigured
+    );
+    assert_eq!(
+        counted(),
+        (after_build.0 + 1, 2),
+        "a whole refresh after a go.mod edit builds the Go resolver alone"
+    );
+    assert_eq!(go_mod.reconfigured, ["go"]);
+    assert_eq!(answers(&engine), answers(&build(tree.path(), false)));
 }
 
 #[test]
