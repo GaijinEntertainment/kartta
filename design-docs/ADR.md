@@ -744,6 +744,12 @@
     (`resolve_by_tiers`), the `Conventions` of `kartta-lang-quirrel`, `kartta-lang-daslang` and `kartta-lang-php`
   - Revisit if: the extraction records the class a base's alias names, or a language whose base receiver names a base
     by a qualified name lists one
+- [3.169 Repair from the first C++ tree's errors before a second
+  parse](./adr/3.169-repair-from-the-first-c-plus-plus-tree-s-errors-before-a-second-parse.md)
+  - Governs: `crates/kartta-lang-cpp/src/repair.rs` (`after_recovery`, `recovery_of`, `macro_invocation_len`,
+    `annotation_macro`, `label_before_an_endif`), `crates/kartta-lang-cpp/src/lib.rs` (`extract`)
+  - Revisit if: a `tree-sitter-cpp` release moves where the first tree's errors fall, or the files parsed twice grow
+    well past 4% of a tree's C++ files
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
   - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
