@@ -18,7 +18,8 @@ use self::data::{
     field_owner, field_value_types, has_qualifier, has_storage_class,
 };
 use self::declarator::{
-    function_symbol, is_macro_invocation, is_pure_virtual, line_gap_len, nested_scope, unterminated,
+    function_symbol, is_macro_invocation, is_pure_virtual, line_gap_len, nested_scope,
+    split_return_type, unterminated,
 };
 use self::name::{
     call_target, class_symbol, head_scope, include_spec, is_simple_identifier, specializes,
@@ -332,7 +333,11 @@ impl<'s, 't> Replayer<'s, 't> {
         self.apply_linkage(&mut symbol, node);
         self.apply_flags(&mut symbol);
 
-        (!is_macro_invocation(node, &symbol)).then_some(symbol)
+        if is_macro_invocation(node, &symbol) {
+            let split = split_return_type(node, self.source)?;
+            symbol.signature = signature_from(split.start_byte(), node, self.source);
+        }
+        Some(symbol)
     }
 
     fn open_class(&mut self, node: Node<'_>) {
@@ -1342,6 +1347,62 @@ int defined_and_declared(int x) { return x; }
             .map(|callable| callable.key.as_str())
             .collect();
         assert!(keys.contains(&"XMMatrixRotationZ(float)"), "{keys:?}");
+    }
+
+    #[test]
+    fn a_calling_convention_between_the_return_type_and_the_name_keeps_the_function() {
+        let raw = extract(
+            b"class IBuild\n{\npublic:\n\tvirtual void CALLBACK release() = 0;\n\tvirtual int _stdcall build(int a);\n\
+              \tvirtual HRESULT STDMETHODCALLTYPE find(int a);\n\
+              \tvirtual HRESULT STDMETHODCALLTYPE attach(int a) = 0;\n\tstatic void CALLBACK cb(int a);\n\
+              \tvirtual void ok() = 0;\n};\n\
+              void WINAPI proto(int a);\nint WINAPI WinMain(int a, int b)\n{\n\treturn 0;\n}\n\
+              static void CALLBACK waveOutCb(int a)\n{\n}\nvoid plain(int a);\n",
+        );
+
+        for name in ["release", "build", "find", "attach", "cb", "ok"] {
+            assert_eq!(symbol(&raw, name).kind, SymbolKind::Method, "{name}");
+            assert_eq!(
+                symbol(&raw, name).owner.as_deref(),
+                Some("IBuild"),
+                "{name}"
+            );
+        }
+        for name in ["proto", "WinMain", "waveOutCb", "plain"] {
+            assert_eq!(symbol(&raw, name).kind, SymbolKind::Function, "{name}");
+            assert_eq!(symbol(&raw, name).owner, None, "{name}");
+        }
+        assert_eq!(raw.symbols.len(), 11, "{:?}", qualified_names(&raw));
+        assert_eq!(
+            symbol(&raw, "find").signature.as_deref(),
+            Some("virtual HRESULT STDMETHODCALLTYPE find(int a)")
+        );
+        let keys: Vec<&str> = raw
+            .callables
+            .iter()
+            .map(|callable| callable.key.as_str())
+            .collect();
+        for key in [
+            "IBuild::find(int)",
+            "IBuild::release()",
+            "WinMain(int,int)",
+            "proto(int)",
+        ] {
+            assert!(keys.contains(&key), "{key} in {keys:?}");
+        }
+    }
+
+    #[test]
+    fn a_calling_convention_after_a_scoped_return_type_names_no_owner() {
+        let raw = extract(
+            b"namespace rtm {\n\
+              RTM_FORCE_INLINE constexpr rtm_impl::vector4f_get_x RTM_SIMD_CALL vector_get_x(vector4f input) \
+              RTM_NO_EXCEPT\n{\n\treturn rtm_impl::vector4f_get_x{ input };\n}\n}\n",
+        );
+
+        assert_eq!(qualified_names(&raw), ["rtm::vector_get_x"]);
+        assert_eq!(symbol(&raw, "vector_get_x").kind, SymbolKind::Function);
+        assert_eq!(symbol(&raw, "vector_get_x").owner, None);
     }
 
     #[test]

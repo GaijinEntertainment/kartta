@@ -142,7 +142,7 @@ pub(super) fn declarator_name<'t>(function: Node<'t>, source: &[u8]) -> Option<N
 }
 
 fn declared_name_of(declarator: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
-    let written = written_name(declarator);
+    let written = written_name(declarator, source);
     if written.name != declarator {
         let mut declared = declared_name_of(written.name, source)?;
         if declared.scope.is_none() {
@@ -194,8 +194,11 @@ fn misparse_real_declarator<'t>(node: Node<'t>, source: &[u8]) -> Option<Node<'t
     }
     let evicted = child_nodes(node)
         .filter(|child| child.is_error() && child.end_byte() <= field.start_byte())
-        .find_map(declarator_in_error);
-    if let Some(inner) = evicted {
+        .find_map(|error| Some((error, declarator_in_error(error)?)));
+    if let Some((error, inner)) = evicted {
+        if is_calling_convention(error, source) && names_a_function(field, source) {
+            return None;
+        }
         return Some(first_of_declarator_run(inner));
     }
 
@@ -214,16 +217,30 @@ fn misparse_real_declarator<'t>(node: Node<'t>, source: &[u8]) -> Option<Node<'t
 }
 
 // constraint: a macro before the return type, `JPH_INLINE float Tan(float x)`, parses as the type and pushes the real
-// type into an error, where an annotation after the name, `int size_ GUARDED_BY(mtx)`, parses as the declarator and
-// pushes the real name there; which of the two is spelled as a macro tells them apart
+// type into an error, and a calling convention between the return type and the name, `void CALLBACK release()`,
+// parses as an error of its own, where an annotation after the name, `int size_ GUARDED_BY(mtx)`, parses as the
+// declarator and pushes the real name there; which of the two is spelled as a macro tells them apart
 fn leads_with_a_macro(node: Node<'_>, field: Node<'_>, source: &[u8]) -> bool {
     let macro_type = node.child_by_field_name("type").is_some_and(|written| {
         written.kind() == "type_identifier" && is_macro_name(&source[written.byte_range()])
     });
-    macro_type
-        && unwrap_to_function_declarator(field)
-            .and_then(|function| function.child_by_field_name("declarator"))
-            .is_some_and(|name| !is_macro_name(&source[name.byte_range()]))
+    macro_type && names_a_function(field, source)
+}
+
+fn names_a_function(field: Node<'_>, source: &[u8]) -> bool {
+    unwrap_to_function_declarator(field)
+        .and_then(|function| function.child_by_field_name("declarator"))
+        .is_some_and(|name| !is_macro_name(&source[name.byte_range()]))
+}
+
+// constraint: a calling convention is a macro, `CALLBACK`, or a word that starts with `_`, which the compiler
+// reserves, `_stdcall`
+fn is_calling_convention(error: Node<'_>, source: &[u8]) -> bool {
+    let mut words = child_nodes(error);
+    words.next().is_some_and(|word| {
+        let spelled = &source[word.byte_range()];
+        word.kind() == "identifier" && (is_macro_name(spelled) || spelled.starts_with(b"_"))
+    }) && words.next().is_none()
 }
 
 fn declarator_in_error(error: Node<'_>) -> Option<Node<'_>> {
@@ -283,9 +300,10 @@ pub(super) struct WrittenName<'t> {
 // constraint: words before the name parse as its scope: a macro between the return type and the name, `XMMATRIX
 // XM_CALLCONV XMMatrixRotationZ()`, or a return type written with a scope after a macro, `INLINE std::string f()`,
 // joins the name by a `::` the source does not hold, and where the source writes a scope of its own, `LRESULT CALLBACK
-// Window::wndProc()`, the scope's first name is stranded in an error before its `::`; the declared name follows the
-// last such seam
-pub(super) fn written_name(declarator: Node<'_>) -> WrittenName<'_> {
+// Window::wndProc()`, the scope's first name is stranded in an error before its `::`; a calling convention after a
+// scoped return type, `rtm_impl::vector4f RTM_SIMD_CALL get_x()`, stands in an error with the type's last name right
+// before the name, which the scope then does not own; the declared name follows the last such seam
+pub(super) fn written_name<'t>(declarator: Node<'t>, source: &[u8]) -> WrittenName<'t> {
     let mut written = WrittenName {
         name: declarator,
         stranded_scope: None,
@@ -294,7 +312,13 @@ pub(super) fn written_name(declarator: Node<'_>) -> WrittenName<'_> {
     while qualified.kind() == "qualified_identifier"
         && let Some(name) = qualified.child_by_field_name("name")
     {
-        if child_nodes(qualified).any(|child| child.is_missing()) {
+        let convention_before_the_name = child_nodes(qualified).nth_back(1).is_some_and(|error| {
+            error.is_error()
+                && child_nodes(error)
+                    .next_back()
+                    .is_some_and(|word| is_macro_name(&source[word.byte_range()]))
+        });
+        if convention_before_the_name || child_nodes(qualified).any(|child| child.is_missing()) {
             written = WrittenName {
                 name,
                 stranded_scope: None,
@@ -355,6 +379,25 @@ pub(super) fn is_macro_invocation(node: Node<'_>, symbol: &Symbol) -> bool {
     })
 }
 
+// constraint: a calling convention after the return type, `virtual HRESULT STDMETHODCALLTYPE find(int a);`, can parse
+// as a declaration of the convention closed by a `;` the source does not hold, and the function after it on its line
+// as a declaration or a definition without a type
+/// The declaration that holds the return type and the calling convention of the typeless function `node`, where the
+/// parser split them apart.
+pub(super) fn split_return_type<'t>(node: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
+    let previous = node.prev_sibling()?;
+    let convention = previous.child_by_field_name("declarator")?;
+    (matches!(previous.kind(), "field_declaration" | "declaration")
+        && previous.end_position().row == node.start_position().row
+        && previous.child_by_field_name("type").is_some()
+        && matches!(convention.kind(), "field_identifier" | "identifier")
+        && is_macro_name(&source[convention.byte_range()])
+        && child_nodes(previous)
+            .next_back()
+            .is_some_and(|last| last.is_missing()))
+    .then_some(previous)
+}
+
 /// The scope a function's declarator writes before its name where it holds more than one name, each by its base
 /// name: `A::N` of `void A::N::f() {}`.
 pub(super) fn nested_scope(node: Node<'_>, source: &[u8]) -> Option<String> {
@@ -362,7 +405,7 @@ pub(super) fn nested_scope(node: Node<'_>, source: &[u8]) -> Option<String> {
     let WrittenName {
         name,
         stranded_scope,
-    } = written_name(declarator);
+    } = written_name(declarator, source);
     let scopes = std::iter::successors(Some(name), |qualified| {
         qualified.child_by_field_name("name")
     })
