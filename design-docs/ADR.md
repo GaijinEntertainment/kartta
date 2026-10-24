@@ -752,9 +752,9 @@
 - [3.171 Bind a call through the import, type, qualified name or owner it is written
   on](./adr/3.171-bind-a-call-through-the-import-type-qualified-name-or-owner-it-is-written-on.md)
   - Governs: `crates/kartta-graph/src/resolve.rs` (`resolve_by_tiers`, `through_binding`,
-    `written_inside_an_enclosing_scope`, `nested_in_written_owner`), `crates/kartta-graph/src/scope.rs`
-    (`member_of_a_reached_owner`, `member_of_the_receiver_s_owner`), `kartta_lang::Conventions` (`scope_separator`,
-    `class_member_separator`)
+    `written_inside_an_enclosing_scope`, `nested_in_written_owner`, `member_of_the_written_class`),
+    `crates/kartta-graph/src/scope.rs` (`member_of_a_reached_owner`, `member_of_the_receiver_s_owner`),
+    `kartta_lang::Conventions` (`scope_separator`, `class_member_separator`)
   - Revisit if: a language's calls name another package's owner of a name about as often as their own package's
 - [3.172 Bind a bare call through the scope that offers its name, then the nearest
   callable](./adr/3.172-bind-a-bare-call-through-the-scope-that-offers-its-name-then-the-nearest-callable.md)
