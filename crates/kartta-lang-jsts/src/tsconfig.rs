@@ -43,6 +43,8 @@ fn parse(contents: &str) -> Option<Value> {
     serde_json::from_str(&strip_jsonc(contents)).ok()
 }
 
+// constraint: a config that declares neither `paths` nor `baseUrl` takes those of the configs it references in its own
+// directory, as the Vite scaffold splits them; a reference into a subdirectory is that subproject's
 fn aliases_via_references(value: &Value, dir: &str, repository: &dyn Repository) -> Aliases {
     let Some(references) = value.get("references").and_then(Value::as_array) else {
         return Vec::new();
@@ -67,6 +69,7 @@ fn aliases_via_references(value: &Value, dir: &str, repository: &dyn Repository)
     merged
 }
 
+// constraint: one `extends` hop applies, the child's `paths` and `baseUrl` each replacing the base's whole
 fn aliases_in(value: &Value, dir: &str, repository: &dyn Repository) -> Option<Aliases> {
     let base = value
         .get("extends")
