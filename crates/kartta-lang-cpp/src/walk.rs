@@ -1563,6 +1563,49 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
+    fn a_specifier_before_a_conversion_operator_keeps_the_operator() {
+        let raw = extract(
+            b"struct C\n{\n\toperator bool() const;\n\toperator int() const;\n\toperator signed char() const;\n\
+              \toperator float() const;\n\tint Low() const;\n};\n\n\
+              constexpr C::operator bool() const { return true; }\n\n\
+              inline C::operator int() const { return 1; }\n\n\
+              constexpr C::operator signed char() const { return 1; }\n\n\
+              ML_INLINE C::operator float() const { return 1; }\n\n\
+              template <typename T> constexpr inline ns::Wrap<T>::operator bool() const\n{\n\treturn true;\n}\n",
+        );
+
+        let defined: Vec<(&str, SymbolKind, u32, u32)> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.line > 9)
+            .map(|symbol| {
+                (
+                    symbol.qualified_name.as_str(),
+                    symbol.kind,
+                    symbol.line,
+                    symbol.end_line,
+                )
+            })
+            .collect();
+        assert_eq!(
+            defined,
+            [
+                ("C::operator bool", SymbolKind::Method, 10, 10),
+                ("C::operator int", SymbolKind::Method, 12, 12),
+                ("C::operator signed char", SymbolKind::Method, 14, 14),
+                ("C::operator float", SymbolKind::Method, 16, 16),
+                ("Wrap::operator bool", SymbolKind::Method, 18, 21),
+            ]
+        );
+        let keys: Vec<&str> = raw
+            .callables
+            .iter()
+            .map(|callable| callable.key.as_str())
+            .collect();
+        assert_eq!(keys, ["C::Low()const"]);
+    }
+
+    #[test]
     fn trailing_macros_on_ctor_dtor_keep_the_member() {
         let raw = extract(
             b"class FS {\n  FS() DAG_TS_ACQUIRE(mtx) { init(); }\n  ~FS() DAG_TS_RELEASE(mtx) { drop(); }\n};\n\
