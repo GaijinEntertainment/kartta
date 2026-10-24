@@ -6,7 +6,7 @@ mod sites;
 
 use std::collections::{HashMap, HashSet};
 
-use kartta_lang::tree::{child_nodes, line, preorder, signature, text};
+use kartta_lang::tree::{child_nodes, line, preorder, signature, signature_from, text};
 use kartta_lang::{
     Banner, CallRef, Callable, CallableRole, FILE_SCOPE, FoldedDeclaration, RawDirective,
     RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
@@ -21,8 +21,8 @@ use self::declarator::{
     function_symbol, is_macro_invocation, is_pure_virtual, line_gap_len, nested_scope, unterminated,
 };
 use self::name::{
-    call_target, class_symbol, head_scope, include_spec, is_simple_identifier, template_parameters,
-    type_base_name,
+    call_target, class_symbol, head_scope, include_spec, is_simple_identifier, specializes,
+    template_parameters, type_base_name,
 };
 use self::sites::{Locals, body_start};
 use crate::repair::is_macro_name;
@@ -347,6 +347,14 @@ impl<'s, 't> Replayer<'s, 't> {
             && let Some(scope) = head_scope(node, self.source)
         {
             symbol.qualified_name = format!("{}::{}", self.written_scope(&scope), symbol.name);
+        }
+        if specializes(node) {
+            let head = self
+                .ancestors
+                .last()
+                .filter(|parent| parent.kind() == "template_declaration")
+                .map_or_else(|| node.start_byte(), Node::start_byte);
+            symbol.signature = signature_from(head, node, self.source);
         }
         self.apply_flags(&mut symbol);
 
@@ -1743,6 +1751,34 @@ FMT_END_EXPORT
     }
 
     #[test]
+    fn a_specialization_keeps_its_head_as_its_signature_and_its_primary_none() {
+        let raw = extract(
+            b"template <typename T> struct Box { T size; };\n\
+              template <> struct Box<bool> : Bits { int size; };\n\
+              template <typename T> struct Box<T *> { int size; };\n\
+              template <> struct ns::Box<bool> { int size; };\n\
+              struct Plain { int size; };\n",
+        );
+
+        let classes: Vec<(&str, Option<&str>)> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.kind == SymbolKind::Struct)
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.signature.as_deref()))
+            .collect();
+        assert_eq!(
+            classes,
+            [
+                ("Box", None),
+                ("Box", Some("template <> struct Box<bool> : Bits")),
+                ("Box", Some("template <typename T> struct Box<T *>")),
+                ("ns::Box", Some("template <> struct ns::Box<bool>")),
+                ("Plain", None),
+            ]
+        );
+    }
+
+    #[test]
     fn a_macro_that_takes_the_class_key_keeps_the_class_and_its_members() {
         let raw = extract(
             b"ATTRIBUTE_ALIGNED16(class)\nbtCollisionObject\n{\npublic:\n\
@@ -2628,7 +2664,11 @@ template<> struct Traits<int> { int size; };
                 ("g", SymbolKind::Function, Some("void g()")),
                 ("Local", SymbolKind::Struct, None),
                 ("Local::y", SymbolKind::Field, Some("int y")),
-                ("Traits", SymbolKind::Struct, None),
+                (
+                    "Traits",
+                    SymbolKind::Struct,
+                    Some("template<> struct Traits<int>"),
+                ),
                 ("Traits::size", SymbolKind::Field, Some("int size")),
                 ("Config::f", SymbolKind::Method, Some("void f()")),
             ]

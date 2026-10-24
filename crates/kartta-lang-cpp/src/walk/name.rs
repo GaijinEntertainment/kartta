@@ -81,6 +81,15 @@ fn base_parent_name(base: Node<'_>, source: &[u8]) -> Option<String> {
     }
 }
 
+/// Whether a class's head names a specialization of a template, `Box<bool>` or `ns::Box<T *>`.
+pub(super) fn specializes(class: Node<'_>) -> bool {
+    let mut name = class.child_by_field_name("name");
+    while let Some(scoped) = name.filter(|name| name.kind() == "qualified_identifier") {
+        name = scoped.child_by_field_name("name");
+    }
+    name.is_some_and(|name| name.kind() == "template_type")
+}
+
 pub(super) fn head_scope(class: Node<'_>, source: &[u8]) -> Option<String> {
     let name = class.child_by_field_name("name")?;
     if name.kind() != "qualified_identifier" {
