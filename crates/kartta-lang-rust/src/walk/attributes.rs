@@ -216,26 +216,44 @@ fn has_attribute(item: Node<'_>, source: &[u8], path: &str) -> bool {
     })
 }
 
-pub(super) fn marks_imported_method(function: Node<'_>, source: &[u8]) -> bool {
-    outer_attributes(function).any(|item| imports_a_method(item, source))
+/// The type a wasm-bindgen attribute makes an `extern` function a member of.
+pub(super) enum ImportedMember<'tree> {
+    /// `method`: the type its first parameter, `this`, refers to.
+    Method,
+    /// `constructor`: the type it returns.
+    Constructor,
+    /// `static_method_of = T`: the type the argument's value names, as an identifier or a string literal.
+    StaticMethodOf(Node<'tree>),
 }
 
-// constraint: wasm-bindgen's attribute lists `method` among its arguments, `#[wasm_bindgen(method, getter = "a")]`
-fn imports_a_method(item: Node<'_>, source: &[u8]) -> bool {
-    let Some(attribute) = named_child_of_kind(item, "attribute") else {
-        return false;
-    };
-    let wasm_bindgen = attribute
-        .named_child(0)
-        .is_some_and(|path| last_segment(path, source) == "wasm_bindgen");
-    let Some(arguments) = attribute
-        .child_by_field_name("arguments")
-        .filter(|_| wasm_bindgen)
-    else {
-        return false;
-    };
+pub(super) fn imported_member<'tree>(
+    function: Node<'tree>,
+    source: &[u8],
+) -> Option<ImportedMember<'tree>> {
+    outer_attributes(function).find_map(|item| wasm_bindgen_member(item, source))
+}
+
+// constraint: wasm-bindgen's attribute lists `method` or `constructor` among its arguments, or `static_method_of`
+// with a value, `#[wasm_bindgen(catch, static_method_of = Number, js_name = isNaN)]`
+fn wasm_bindgen_member<'tree>(item: Node<'tree>, source: &[u8]) -> Option<ImportedMember<'tree>> {
+    let attribute = named_child_of_kind(item, "attribute")?;
+    let path = attribute.named_child(0)?;
+    if last_segment(path, source) != "wasm_bindgen" {
+        return None;
+    }
+    let arguments = attribute.child_by_field_name("arguments")?;
     named_child_nodes(arguments)
-        .any(|argument| argument.kind() == "identifier" && text(argument, source) == "method")
+        .filter(|argument| argument.kind() == "identifier")
+        .find_map(|argument| match text(argument, source).as_str() {
+            "method" => Some(ImportedMember::Method),
+            "constructor" => Some(ImportedMember::Constructor),
+            "static_method_of" => argument
+                .next_sibling()
+                .filter(|assign| assign.kind() == "=")?
+                .next_sibling()
+                .map(ImportedMember::StaticMethodOf),
+            _ => None,
+        })
 }
 
 pub(super) fn path_attribute(module: Node<'_>, source: &[u8]) -> Option<String> {
