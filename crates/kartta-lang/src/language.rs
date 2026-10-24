@@ -253,6 +253,8 @@ pub struct Conventions {
     pub value_uses: ValueUses,
     /// What a member use on a value of a type the language cannot name binds.
     pub untyped_members: UntypedMembers,
+    /// How the language writes a macro invocation beside a function call.
+    pub macro_invocations: MacroInvocations,
 }
 
 impl Conventions {
@@ -282,6 +284,7 @@ impl Conventions {
         unrecorded_data: &[],
         value_uses: ValueUses::Declared,
         untyped_members: UntypedMembers::FileField,
+        macro_invocations: MacroInvocations::AsCalls,
     };
 }
 
@@ -379,6 +382,18 @@ pub enum CallsOnValues {
     /// container, smart pointer or library type is, so the nearest namesake is most often not what the value holds.
     /// The one callable of the name still binds.
     NoNearestGuess,
+}
+
+/// How a language writes a macro invocation beside a function call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum MacroInvocations {
+    /// As a call, which can invoke a macro or anything else of its name, as a dshl one does.
+    #[default]
+    AsCalls,
+    /// Apart from a function call, as Rust writes `name!()` beside `name()`, each marked
+    /// [`CallRef::invokes_a_macro`](crate::CallRef::invokes_a_macro): a macro invocation binds only a macro, and any
+    /// other call no macro.
+    Apart,
 }
 
 /// Whether a call can bind a namespace of the name it calls.

@@ -892,7 +892,7 @@ impl Cascade<'_> {
         candidates: impl Iterator<Item = SymbolAt> + Clone,
         reach: Option<&Reach>,
     ) -> Scoped {
-        let targets = self.call_targets(call.caller_at(), candidates);
+        let targets = self.call_targets(call, candidates);
         let shape = match self.shape(call, &targets, reach) {
             Shape::FreeOrInherited(_) | Shape::FreeOrEnclosing(_) => Shape::Free,
             shape => shape,
