@@ -256,6 +256,29 @@ fn a_value_a_body_declares_leaves_a_macro_invocation_to_the_macro_of_its_name() 
     );
 }
 
+#[test]
+fn a_method_call_binds_no_value_of_its_name_after_a_path_call_of_the_name_took_its_candidates() {
+    let mut method_call = member_call(0, "", "d8", 3);
+    method_call.calls_a_method = true;
+    let caller = file(
+        "app/main.rs",
+        vec![function("both", 1)],
+        vec![call(0, "d8", 2), method_call],
+    );
+    let method = file(
+        "lib/arm.rs",
+        vec![member("Arm", "d8", SymbolKind::Method, 1)],
+        Vec::new(),
+    );
+    let constants = (0..64).map(|at| {
+        let constant = Symbol::new("d8", SymbolKind::Constant, 1, 1);
+        file(&format!("regs/{at}.rs"), vec![constant], Vec::new())
+    });
+    let files: Vec<Extraction> = [caller, method].into_iter().chain(constants).collect();
+
+    assert_eq!(callees(&graph(&files), "both"), ["lib/arm.rs:1@60"]);
+}
+
 fn importing(
     path: &str,
     alias: Option<&str>,
