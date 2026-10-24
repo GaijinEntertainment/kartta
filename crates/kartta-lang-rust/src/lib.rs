@@ -11,11 +11,14 @@
 //! whose target names a type, is owned by that type and qualified under it, `Service::new`; a member of an `impl` for a
 //! tuple, `dyn` or function type has no owner. A function of an `extern` block that `#[wasm_bindgen(method)]` marks is
 //! owned by the type its first parameter, `this`, refers to, one `constructor` marks by the type it returns, `T` of a
-//! `Result<T, E>`, and one `static_method_of = T` marks by `T`. An item of an inline module is qualified by the chain
-//! of its modules, `a::b::Worker`, so two modules of one file keep their same-named items apart. A `macro_rules!` keeps
-//! its bare name, because a macro is in scope by text order rather than by path, and only `#[macro_export]` exports
-//! one, at its crate's root path. A file's own module is named by its path, which no qualified name carries. `impl
-//! Trait for Type` adds `Trait` to the parents of the `Type` the file declares under that name or path.
+//! `Result<T, E>`, and one `static_method_of = T` marks by `T`, written as a name or a string. An item of an inline
+//! module is qualified by the chain of its modules, `a::b::Worker`, so two modules of one file keep their same-named
+//! items apart. A `macro_rules!` keeps its bare name, because a macro is in scope by text order rather than by path,
+//! and only `#[macro_export]` exports one, at its crate's root path. A file's own module is named by its path, which no
+//! qualified name carries. `impl Trait for Type` adds `Trait` to the parents of the `Type` the file declares under that
+//! name or path. An impl's owner settles after the walk, and its members, the items nested in them, its `self`
+//! receivers and its trait pair follow it. `pub` exports an item, but `pub(self)` and `pub(in self)` do not; a trait's
+//! members take the trait's visibility and a variant its enum's.
 //!
 //! A call records its callee and, where the syntax spells one, its receiver: `self.greet()` and `Self::new()` record
 //! the type of the `impl` or `trait` around them, `Widget::new()` records `Widget`, and `a::Worker::run()` records
@@ -88,14 +91,14 @@
 //! otherwise, one directory deeper for each inline module around the declaration. A package is a directory that holds
 //! a `Cargo.toml`, and its crate roots are its library's root, read below, and the files of Cargo's conventional
 //! layout: `src/lib.rs`, `src/main.rs`, `build.rs`, and each target under `src/bin/`, `examples/`, `tests/` and
-//! `benches/`. A top-level `fn main` in a crate root other than the library is the entry point. A file's package is
-//! the nearest package around it, named by the path of its manifest, so of the types of one name that a call's
-//! receiver names, the one the caller's own package declares binds before another's, as two versions of one crate in
-//! a cargo registry are told apart. A package is built with every package the tree holds of each name its manifest's
-//! dependency tables list, of every kind and target, by the `package` key that renames one, its own or that of the
-//! entry it inherits from its nearest workspace's `[workspace.dependencies]`, else by its key, and with what each of
-//! those is built with but its optional, dev- and build-dependencies, so a call that no import or path names binds a
-//! definition of another package only where its package is built with that one.
+//! `benches/`. A top-level `fn main` in a crate root of that layout other than `src/lib.rs` is the entry point. A
+//! file's package is the nearest package around it, named by the path of its manifest, so of the types of one name that
+//! a call's receiver names, the one the caller's own package declares binds before another's, as two versions of one
+//! crate in a cargo registry are told apart. A package is built with every package the tree holds of each name its
+//! manifest's dependency tables list, of every kind and target, by the `package` key that renames one, its own or that
+//! of the entry it inherits from its nearest workspace's `[workspace.dependencies]`, else by its key, and with what
+//! each of those is built with but its optional, dev- and build-dependencies, so a call that no import or path names
+//! binds a definition of another package only where its package is built with that one.
 //!
 //! A package's library is named by its manifest's `[lib] name`, else by its `[package] name` with `-` read as `_`, and
 //! lies at its `[lib] path`, else at `src/lib.rs`, each value read only from a `key = "value"` on one line under its
@@ -106,9 +109,10 @@
 //! directory it lies in, else the nearer of the library whose directory holds it and, below `src/`, the main binary,
 //! the library where both sit in one directory; a file of `tests/`, `examples/` or `benches/` outside a target
 //! directory has none. A path through `self::` starts at the caller's own module, and each `super::` at the module
-//! above, the crate root where the module's directory lies in the root's. Each segment after it names the module file
-//! the module layout gives it, and the path imports the file of the module it ends at, or of the module that holds the
-//! item it ends at; a longer rest imports nothing. A call
+//! above, the crate root where the module's directory lies in the root's, else the `NAME.rs` or `NAME/mod.rs` the
+//! module layout names for the directory above, and none past the crate root. Each segment after it names the module
+//! file the module layout gives it, and the path imports the file of the module it ends at, or of the module that holds
+//! the item it ends at; a longer rest imports nothing. A call
 //! of the name, or through it, binds what that file exports at its top level under the name, a function before a type
 //! of the name, since a call never names a type that Rust keeps apart from values, and from the file's module or a
 //! module below it, a private item other than a macro too. A test item binds only a call from test code of its own
@@ -125,9 +129,12 @@
 //!
 //! Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is every file below
 //! a `tests` directory outside `src`, counted from the repository root or from a package, in the lower case of Cargo's
-//! own target directory. A file that a test-gated
-//! `mod` or a test file pulls in is a test include. A `*.gen.rs` or `*_generated.rs` file, or one with a `@generated`
-//! or `DO NOT EDIT` marker in its leading comments, outside a backtick span, is generated code.
+//! own target directory. A `cfg` predicate is evaluated over every assignment of the atoms it repeats, one truth per
+//! distinct atom, leaving an atom written once unknown: `cfg(all(test, not(miri)))` gates, while
+//! `cfg(any(test, feature = "x"))`, `cfg(not(test))` and the never-true `cfg(any())` do not; past 12 repeated atoms
+//! the rest stay unknown. A file that a test-gated `mod` or a test file pulls in is a test include. A `*.gen.rs` or
+//! `*_generated.rs` file, or one with a `@generated` or `DO NOT EDIT` marker in its leading comments, outside a
+//! backtick span, is generated code.
 //!
 //! # Fingerprint
 //!

@@ -203,8 +203,10 @@ impl Crates {
 
     // constraint: `crate::` starts at the root of the caller's crate by Cargo's layout: the file itself when it is a
     // crate root, the `main.rs` of the target directory it lies in, else the nearest of the library whose directory
-    // holds it and, below `src/`, the main binary; a file of `tests/`, `examples/` or `benches/` outside a target
-    // directory is shared by the targets beside it, so no one file is its crate root
+    // holds it and, below `src/`, the main binary, the library where both sit in one directory, so a library at its
+    // package's root, `[lib] path = "lib.rs"`, leaves the files under `src/` to the binary; a file of `tests/`,
+    // `examples/` or `benches/` outside a target directory is shared by the targets beside it, so no one file is its
+    // crate root
     fn crate_root(&self, path: &str, package: &str, repository: &dyn Repository) -> Option<Module> {
         let relative = relative_to(package, path);
         if is_crate_root(relative) {
