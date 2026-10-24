@@ -849,7 +849,10 @@ impl<'g> Cascade<'g> {
                 .map(|at| (at, confidence::UNIQUE))
                 .ok_or(Miss::NotAdmitted);
         }
-        match self.one_callable(&shape, targets.clone()) {
+        match self
+            .one_callable(&shape, targets.clone())
+            .filter(|_| self.bodies_values(call, candidates).next().is_none())
+        {
             Some(at)
                 if self.can_bind_by_name(call, at) && self.is_pasted_where_called(call, at) =>
             {
@@ -865,6 +868,31 @@ impl<'g> Cascade<'g> {
                 })
                 .ok_or(Miss::Ambiguous),
         }
+    }
+
+    // constraint: a variable or a constant a body declares is no candidate of a call outside that body, yet where
+    // values are call targets it shows that a call of its name may call a value the graph does not follow, so it keeps
+    // a callable from being the one of its name wherever it would count as a candidate; a macro invocation calls no
+    // value
+    pub(crate) fn bodies_values<'c>(
+        &'c self,
+        call: &Call,
+        candidates: &'c Candidates<'_>,
+    ) -> impl Iterator<Item = SymbolAt> + 'c {
+        let indexed = candidates.holds_locals_apart();
+        let held_apart = if !self.conventions.values_are_call_targets || call.invokes_a_macro {
+            &[][..]
+        } else if indexed {
+            &candidates.locals[..]
+        } else {
+            candidates.named
+        };
+        held_apart.iter().copied().filter(move |&at| {
+            let symbol = self.graph.sym(at);
+            symbol.owner.is_none()
+                && is_value(symbol.kind)
+                && (indexed || self.holder(at).is_some())
+        })
     }
 
     // constraint: a name an import of code outside the repository binds holds that code, so a bare call of it that the

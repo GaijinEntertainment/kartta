@@ -1475,17 +1475,31 @@ impl Cascade<'_> {
             return None;
         }
         let caller_file = self.graph.file(call.file);
+        let values = self.bodies_values(call, candidates);
+        let [value_in_dir, value_in_parent_dir, value_first_party] =
+            values.fold([false; 3], |[dir, parent, first], at| {
+                let file = self.graph.file(at.file);
+                [
+                    dir || file.dir == caller_file.dir,
+                    parent || file.parent_dir == caller_file.parent_dir,
+                    first || !self.graph.sym(at).flags.is_vendored(),
+                ]
+            });
         let same_dir = candidates.in_dir(self.graph, caller_file.dir);
-        let (nearby, confidence) = if same_dir.is_empty() {
+        let (nearby, confidence, value_nearby) = if same_dir.is_empty() && !value_in_dir {
             let parent_dir = candidates.in_parent_dir(self.graph, caller_file.parent_dir);
-            if parent_dir.is_empty() {
-                (candidates.first_party(self.graph), confidence::FIRST_PARTY)
+            if parent_dir.is_empty() && !value_in_parent_dir {
+                let nearby = candidates.first_party(self.graph);
+                (nearby, confidence::FIRST_PARTY, value_first_party)
             } else {
-                (parent_dir, confidence::PARENT_DIR)
+                (parent_dir, confidence::PARENT_DIR, value_in_parent_dir)
             }
         } else {
-            (same_dir, confidence::SAME_DIR)
+            (same_dir, confidence::SAME_DIR, value_in_dir)
         };
+        if value_nearby {
+            return None;
+        }
         let nearby = nearby.iter().copied();
         let shape = if call.receiver.is_some() && confidence == confidence::FIRST_PARTY {
             Shape::Member
