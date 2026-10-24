@@ -95,8 +95,8 @@ items included, where the caller's own file declares nothing of the name. A func
 which Rust keeps apart from values, so `kevent()` binds the `extern` function `kevent` beside a `struct kevent`.
 
 Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is a file below a
-`tests` directory outside `src`. A `*.gen.rs` or `*_generated.rs` file, or one with a `@generated` or `DO NOT EDIT`
-marker in its leading comments, is generated code.
+`tests` directory outside `src`, in the lower case of Cargo's own target directory. A `*.gen.rs` or `*_generated.rs`
+file, or one with a `@generated` or `DO NOT EDIT` marker in its leading comments, is generated code.
 
 ## Fingerprint
 

@@ -1,4 +1,4 @@
-use kartta_lang::path::{base, dir, join};
+use kartta_lang::path::{base, dir, has_component, join};
 use kartta_lang::{
     Extraction, IncludeRef, RawDirective, RawExtraction, Repository, Resolver, SymbolFlags,
 };
@@ -73,9 +73,7 @@ fn is_test_file(path: &str) -> bool {
     let name = base(path);
     name.ends_with("_spec.lua")
         || name.ends_with("_test.lua")
-        || path
-            .split('/')
-            .any(|component| matches!(component, "spec" | "test" | "tests"))
+        || has_component(path, &["spec", "test", "tests"])
 }
 
 fn is_generated_file(path: &str) -> bool {

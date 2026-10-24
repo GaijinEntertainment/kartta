@@ -44,9 +44,9 @@
 //! to, or else, for a `use function` or a `use const`, the file it maps the name's namespace to; a `use` that maps to
 //! no file of the repository is an import as written.
 //!
-//! A file whose name ends in `Test.php`, or under a `test` or `tests` directory, is test code. A file named
-//! `*.generated.php` or `*_pb.php`, or whose leading comments carry `@generated` or `DO NOT EDIT`, is generated code.
-//! No symbol is an entry point.
+//! A file whose name ends in `Test.php`, or under a `test` or `tests` directory in any case, is test code. A file
+//! named `*.generated.php` or `*_pb.php`, or whose leading comments carry `@generated` or `DO NOT EDIT`, is generated
+//! code. No symbol is an entry point.
 //!
 //! # Fingerprint
 //!

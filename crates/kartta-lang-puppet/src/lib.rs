@@ -26,8 +26,8 @@
 //! `foo/manifests/init.pp` and `foo::bar::baz` names `foo/manifests/bar/baz.pp`, at the root or under `modules/`,
 //! `site/`, `site-modules/` or `dist/`, else the one file anywhere whose path ends that way. A built-in resource type,
 //! such as `file` or `package`, names no manifest. A file under a `spec`, `tests`, `test` or `examples` directory
-//! beside a module's `manifests/` is test code, and one whose leading `#` comments carry `@generated` or `DO NOT EDIT`
-//! is generated code. No symbol is an entry point.
+//! beside a module's `manifests/`, each in the lower case of the module layout, is test code, and one whose leading `#`
+//! comments carry `@generated` or `DO NOT EDIT` is generated code. No symbol is an entry point.
 //!
 //! # Fingerprint
 //!

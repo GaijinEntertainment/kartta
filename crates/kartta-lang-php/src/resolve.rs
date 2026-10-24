@@ -1,4 +1,4 @@
-use kartta_lang::path::{base, dir, join, sole};
+use kartta_lang::path::{base, dir, has_component, join, sole};
 use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
@@ -96,10 +96,7 @@ impl Resolver for Autoload {
 // constraint: PHPUnit finds a test by the `Test.php` ending of its file's name, case-sensitive, so neither `latest.php`
 // nor `FooTest.PHP` nor a `FooTest.phtml` template is a test
 fn is_test_file(path: &str) -> bool {
-    base(path).ends_with("Test.php")
-        || path
-            .split('/')
-            .any(|component| matches!(component, "test" | "tests"))
+    base(path).ends_with("Test.php") || has_component(path, &["test", "tests"])
 }
 
 fn is_generated_file(path: &str) -> bool {

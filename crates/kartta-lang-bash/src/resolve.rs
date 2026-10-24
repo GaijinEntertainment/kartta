@@ -1,4 +1,4 @@
-use kartta_lang::path::{base, dir, join, sole};
+use kartta_lang::path::{base, dir, has_component, join, sole};
 use kartta_lang::{Extraction, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags};
 
 const SOURCE_EXTENSIONS: [&str; 3] = ["", ".sh", ".bash"];
@@ -67,7 +67,5 @@ fn is_test_file(path: &str) -> bool {
     name.ends_with("_test.sh")
         || name.ends_with("_test.bash")
         || name.starts_with("test_")
-        || path
-            .split('/')
-            .any(|component| matches!(component, "test" | "tests"))
+        || has_component(path, &["test", "tests"])
 }

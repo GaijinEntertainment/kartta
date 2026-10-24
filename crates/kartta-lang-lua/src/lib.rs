@@ -34,9 +34,9 @@
 //! from the root. A module the repository does not hold, such as one of the standard library, includes nothing. A
 //! loader with any other argument is an ordinary call.
 //!
-//! A file named `*_spec.lua` or `*_test.lua`, or under a `spec`, `test` or `tests` directory, is test code. A file
-//! named `*.gen.lua` or `*_pb.lua`, or whose leading comments carry `@generated` or `DO NOT EDIT`, is generated code.
-//! No symbol is an entry point.
+//! A file named `*_spec.lua` or `*_test.lua`, or under a `spec`, `test` or `tests` directory in any case, is test code.
+//! A file named `*.gen.lua` or `*_pb.lua`, or whose leading comments carry `@generated` or `DO NOT EDIT`, is generated
+//! code. No symbol is an entry point.
 //!
 //! # Fingerprint
 //!

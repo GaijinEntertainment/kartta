@@ -1112,6 +1112,7 @@ fn test_files_mark_every_symbol_as_test() {
         "bar.spec.tsx",
         "pkg/__tests__/util.ts",
         "svc/tests/run.js",
+        "svc/Tests/run.js",
     ] {
         let extraction = extracted(path, source);
         assert!(

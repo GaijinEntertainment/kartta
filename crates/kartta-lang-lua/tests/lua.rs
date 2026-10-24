@@ -613,6 +613,7 @@ fn a_test_path_marks_every_form_as_test_code() {
         "proj/spec/util.lua",
         "proj/test/util.lua",
         "proj/tests/helper.lua",
+        "proj/Tests/helper.lua",
     ] {
         let resolved = resolve(EVERY_FORM, path, &[]);
         assert_eq!(
