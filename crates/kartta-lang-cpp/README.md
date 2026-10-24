@@ -46,7 +46,8 @@ its line above a class, a template or a namespace (`JPH_NAMESPACE_BEGIN`), and a
 declaration belongs. So does a conditional whose first branch leaves a
 brace open or closes one it did not open, `#ifdef A` `if (x) {` `#else` `if (y) {` `#endif`. Where the parser reads such
 an `#else` inside the block the first branch opened, every conditional of that shape in the file is read with its first
-branch taken, whatever its condition. A macro that opens a class member, `PX_FORCE_INLINE const Gu::GeometryUnion&
+branch taken, whatever its condition; where it holds the `#else` inside a larger error, so is every conditional whose
+first branch leaves a brace open. A macro that opens a class member, `PX_FORCE_INLINE const Gu::GeometryUnion&
 get()`, reads as the member's type and can close the class at that member; where the parser misreads one, the members
 of that class lose the macros the parser cannot read past. The entries of a large table, its numbers or, in a parser
 tree-sitter generates, its macro calls and enumerators, cost far more tree than the file, so a table's data is blanked

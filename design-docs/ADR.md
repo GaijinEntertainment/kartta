@@ -526,7 +526,8 @@
   - Revisit if: the grammar reads an annotation macro as an attribute, or a tree-sitter release recovers differently
 - [3.71 Read a conditional that splits a brace with its first branch
   taken](./adr/3.71-read-a-conditional-that-splits-a-brace-with-its-first-branch-taken.md)
-  - Governs: `crates/kartta-lang-cpp/src/repair.rs` (`untaken_branches`, `ConditionalScan`, `recovery_of`)
+  - Governs: `crates/kartta-lang-cpp/src/repair.rs` (`untaken_branches`, `ConditionalScan`, `BraceSplit`,
+    `recovery_of`)
   - Revisit if: a tree-sitter-cpp release reads a conditional's branches as alternatives
 - [3.72 Qualify C++ names the way the graph matches
   them](./adr/3.72-qualify-c-plus-plus-names-the-way-the-graph-matches-them.md)
