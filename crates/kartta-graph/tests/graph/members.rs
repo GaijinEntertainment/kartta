@@ -1101,6 +1101,51 @@ fn a_member_on_a_declared_value_binds_the_field_of_the_namesake_its_declaration_
 }
 
 #[test]
+fn a_member_defined_outside_its_namespace_looks_names_up_from_the_one_class_its_file_locates() {
+    let nested = |outer: &str, lines: [u32; 2]| {
+        let mut symbol = scoped_class(&format!("anim::{outer}"), "NodeId", lines);
+        symbol.owner = Some(outer.to_owned());
+        symbol
+    };
+    let header = callables(
+        file(
+            "inc/ctrl.h",
+            vec![
+                scoped_class("anim", "Align", [1, 5]),
+                cpp_member("Align", "process", SymbolKind::Method, 2),
+                nested("Align", [3, 4]),
+                field("NodeId", "target", 4),
+                scoped_class("anim", "AlignEx", [6, 9]),
+                nested("AlignEx", [7, 8]),
+                field("NodeId", "target", 8),
+            ],
+            &[],
+        ),
+        CallableRole::Declaration,
+        &[(1, "anim::Align::process()")],
+    );
+    let mut source = callables(
+        file(
+            "src/ctrl.cpp",
+            vec![cpp_member("Align", "process", SymbolKind::Method, 2)],
+            &["inc/ctrl.h"],
+        ),
+        CallableRole::Definition,
+        &[(0, "Align::process()")],
+    );
+    source.uses = vec![using(0, "target", path("NodeId"), 3)];
+
+    let graph = graph(cpp(), &[header, source]);
+
+    assert_eq!(
+        selected(&graph, "NodeId::target"),
+        (4, vec![3], 0),
+        "a definition a using-directive lets name its class without the namespace links to no declaration, and its \
+         names are looked up from the one class of its owner's name the file includes"
+    );
+}
+
+#[test]
 fn a_method_taken_as_a_value_binds_the_first_of_namesakes_of_one_qualified_name() {
     let mut user = file(
         "use.cpp",
