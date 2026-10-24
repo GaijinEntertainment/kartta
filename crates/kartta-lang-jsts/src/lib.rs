@@ -57,15 +57,17 @@
 //!
 //! # How imports resolve
 //!
-//! The resolver reads every `tsconfig.json` and `package.json` of the repository, except those under a
-//! `node_modules` or `vendor` directory, when it is built, and a `tsconfig*.json` that one of them extends or
-//! references when it compiles that one. A specifier then resolves to a file of the repository:
+//! The resolver reads every `tsconfig.json`, `jsconfig.json` and `package.json` of the repository, except those under
+//! a `node_modules` or `vendor` directory, when it is built, and a `tsconfig*.json` or `jsconfig*.json` that one of
+//! them extends or references when it compiles that one. A specifier then resolves to a file of the repository:
 //!
 //! - `./m` and `../m` probe the specifier as written, with each script extension, and as a directory with an
 //!   `index` file; a miss retries an ESM `./m.js` as the TypeScript source beside it.
 //! - `#m` takes the `imports` of the nearest `package.json` above the importing file.
-//! - Any other specifier takes the `paths` of the nearest `tsconfig.json` above the importing file, with its
-//!   `baseUrl` and one `extends` hop applied, or those of the sibling configs a solution-style config references.
+//! - Any other specifier takes the `paths` of the nearest `tsconfig.json` or `jsconfig.json` above the importing
+//!   file, the `tsconfig.json` first where a directory holds both, with its `baseUrl` and one `extends` hop applied,
+//!   or those of the sibling configs a solution-style config references. A root-relative `/scripts/m.js` takes the
+//!   `paths` alone, so a `"/*": ["./*"]` pattern roots it at the config's directory, the one a web server serves.
 //!   Failing that, a specifier that names a package of the repository takes its `exports`, its `module` or `main`,
 //!   or the file under its directory. Two packages of one name resolve to the one nearer the importing file, and
 //!   two equally near resolve to neither.
@@ -80,9 +82,9 @@
 //! definition of the repository outside the caller's file; a specifier that starts with `.`, `/` or `#` names a file
 //! of the repository whether it resolves or not.
 //!
-//! The resolver keeps only what it derived: the aliases of each `tsconfig.json`, the `imports` of each `package.json`,
-//! and each package's name, directory, `exports` and entry. A resolver built again over an edit that changes none of
-//! them, such as a `version` or `dependencies` bump in a `package.json`,
+//! The resolver keeps only what it derived: the aliases of each `tsconfig.json` and `jsconfig.json`, the `imports` of
+//! each `package.json`, and each package's name, directory, `exports` and entry. A resolver built again over an edit
+//! that changes none of them, such as a `version` or `dependencies` bump in a `package.json`,
 //! [resolves as](kartta_lang::Resolver::resolves_as) the one built before, so an engine that follows the tree resolves
 //! no script again for it.
 //!

@@ -39,9 +39,10 @@ The conventions name the methods that ECMAScript's built-in objects and the DOM 
 
 ## How imports resolve
 
-The resolver reads the repository's `tsconfig.json` and `package.json` files, outside `node_modules` and `vendor`, and
-resolves a specifier the way the TypeScript compiler and bundlers do: relative paths with their extensions and `index`
-files, the ESM `./m.js` spelling of a `.ts` source, `tsconfig` `paths` and `baseUrl`, `package.json` `imports` and
+The resolver reads the repository's `tsconfig.json`, `jsconfig.json` and `package.json` files, outside `node_modules`
+and `vendor`, and resolves a specifier the way the TypeScript compiler and bundlers do: relative paths with their
+extensions and `index` files, the ESM `./m.js` spelling of a `.ts` source, `paths` and `baseUrl`, a root-relative
+`/scripts/m.js` that a config's `paths` roots at the directory a web server serves, `package.json` `imports` and
 the `exports` of the repository's own packages, Vue CLI's `@` alias, and Vite's `?query` suffixes. A re-export names
 the file its specifier resolves to. A name that an `import` of a package outside the repository binds holds that
 package's code, so a member call through it, `<Dialog.Footer>` with `Dialog` from `@chakra-ui/react` or

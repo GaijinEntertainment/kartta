@@ -1334,6 +1334,47 @@ fn a_python_call_of_a_builtin_binds_a_namesake_only_where_its_file_imports_it() 
 }
 
 #[test]
+fn a_javascript_root_relative_import_binds_through_the_file_a_jsconfig_roots_it_at() {
+    let tree = tree_of(&[
+        ("package.json", "{\"name\":\"app\"}\n"),
+        (
+            "public/jsconfig.json",
+            "{ \"compilerOptions\": { \"paths\": { \"/*\": [\"./*\"] } } }\n",
+        ),
+        (
+            "public/a.js",
+            "import { MacrosParser, register } from '/scripts/m.js';\n\n\
+             export function run() { MacrosParser.registerMacro(); }\n\n\
+             export function use() { register(); }\n",
+        ),
+        (
+            "public/scripts/m.js",
+            "export class MacrosParser { static registerMacro() {} }\n\nexport function register() {}\n",
+        ),
+        (
+            "src/other.js",
+            "export class Other { static registerMacro() {} }\n\nexport function register() {}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["javascript"]);
+
+    assert_eq!(
+        callees(&engine, "public/a.js", "run"),
+        (
+            vec![("registerMacro", SymbolKind::Method, "public/scripts/m.js")],
+            0
+        )
+    );
+    assert_eq!(
+        callees(&engine, "public/a.js", "use"),
+        (
+            vec![("register", SymbolKind::Function, "public/scripts/m.js")],
+            0
+        )
+    );
+}
+
+#[test]
 fn a_javascript_require_of_a_package_binds_its_names_outside_the_repository() {
     let tree = tree_of(&[
         ("package.json", "{\"name\":\"app\"}\n"),
