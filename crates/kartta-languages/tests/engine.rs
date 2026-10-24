@@ -7,7 +7,8 @@
 //! struct its `use` names, a bare call through a glob what the glob's module shows it, a macro invocation the
 //! `#[macro_export]` macro of its root file or the one of the files that file includes, through a `use` inside a
 //! function body or an inline module only from inside it, a call no macro and a macro invocation no function of its
-//! name, a Rust path call through a module no item of its
+//! name, a method call no constant of its name, which a path call binds, and the one method of its name whatever value
+//! a body declares of that name, a Rust path call through a module no item of its
 //! own file that the path does not name, and a Rust call on a value, on `self` or through a
 //! type binds no free function, not even through a value named like a module the file imports, while a call on a
 //! value still binds the one runtime method whose owner the value's name spells, one on a parameter the method of the
@@ -448,6 +449,48 @@ fn a_rust_call_through_a_parameter_or_a_local_binds_nothing() {
     assert_eq!(
         bound_through_an_import(&engine, lib, "h"),
         ["crates/other/src/lib.rs"]
+    );
+}
+
+#[test]
+fn a_rust_method_call_binds_no_constant_of_its_name_while_a_path_call_binds_one() {
+    let tree = tree_of(&[(
+        "src/lib.rs",
+        "pub struct Register(pub u16);\n\npub struct Arm;\n\n\
+         impl Arm {\n    pub const D8: Register = Register(264);\n}\n\n\
+         pub struct Reader;\n\nimpl Reader {\n    pub fn run(&self) -> u8 {\n        self.D8(0)\n    }\n}\n\n\
+         fn zero() -> u8 {\n    0\n}\n\nconst F: fn() -> u8 = zero;\n\nfn through_f() -> u8 {\n    F()\n}\n",
+    )]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(callees(&engine, "src/lib.rs", "run"), (vec![], 1));
+    assert_eq!(
+        callees(&engine, "src/lib.rs", "through_f"),
+        (vec![("F", SymbolKind::Constant, "src/lib.rs")], 0)
+    );
+}
+
+#[test]
+fn a_rust_method_call_binds_the_one_method_of_its_name_whatever_value_a_body_declares_of_it() {
+    let tree = tree_of(&[
+        (
+            "src/lib.rs",
+            "mod tally;\nmod user;\n\nfn counted() -> usize {\n    const tally_up: usize = 1;\n    tally_up\n}\n",
+        ),
+        (
+            "src/tally.rs",
+            "pub struct Tally;\n\nimpl Tally {\n    pub fn tally_up(&self) -> usize {\n        0\n    }\n}\n",
+        ),
+        (
+            "src/user.rs",
+            "fn total() -> usize {\n    let made = make();\n    made.tally_up()\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        callees(&engine, "src/user.rs", "total").0,
+        [("tally_up", SymbolKind::Method, "src/tally.rs")]
     );
 }
 
