@@ -64,6 +64,7 @@ fn call(from: u32, callee: &str, line: u32) -> CallRef {
         receiver: None,
         line,
         invokes_a_macro: false,
+        calls_a_method: false,
     }
 }
 

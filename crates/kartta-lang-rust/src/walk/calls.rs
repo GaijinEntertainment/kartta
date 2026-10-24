@@ -12,6 +12,7 @@ pub(super) struct Target {
     pub(super) receiver: Option<String>,
     pub(super) names_own_type: bool,
     pub(super) declared: Option<DeclaredReceiver>,
+    pub(super) calls_a_method: bool,
 }
 
 // constraint: `written` is the path of a scoped call's receiver as written, and `form` the shape a call inside a
@@ -36,6 +37,15 @@ impl Target {
             receiver,
             names_own_type: false,
             declared: None,
+            calls_a_method: false,
+        }
+    }
+
+    // constraint: `x.f()` calls a method of `x`, never the function a field `f` holds, which Rust calls as `(x.f)()`
+    pub(super) fn of_a_method(self) -> Self {
+        Self {
+            calls_a_method: true,
+            ..self
         }
     }
 
@@ -80,6 +90,7 @@ impl Emitter<'_> {
             receiver: target.receiver,
             line: line(node.start_position().row),
             invokes_a_macro: false,
+            calls_a_method: target.calls_a_method,
         };
         if !self.push_call(call) {
             return;
@@ -138,12 +149,13 @@ impl Emitter<'_> {
                     receiver,
                     names_own_type,
                     declared: None,
+                    calls_a_method: false,
                 }
             }
             "generic_function" => function
                 .child_by_field_name("function")
                 .map_or_else(Target::none, |inner| self.call_target(inner)),
-            "field_expression" => self.member_target(function),
+            "field_expression" => self.member_target(function).of_a_method(),
             _ => Target::none(),
         }
     }
@@ -166,6 +178,7 @@ impl Emitter<'_> {
             receiver,
             names_own_type: value.is_some_and(|value| value.kind() == "self"),
             declared: None,
+            calls_a_method: false,
         }
     }
 
@@ -178,6 +191,7 @@ impl Emitter<'_> {
                 receiver: Some(receiver),
                 names_own_type,
                 declared,
+                calls_a_method: false,
             },
             None => Target::new(
                 callee,
@@ -241,6 +255,7 @@ impl Emitter<'_> {
             receiver: None,
             line: line(node.start_position().row),
             invokes_a_macro: true,
+            calls_a_method: false,
         };
         if !self.push_call(call) {
             return;

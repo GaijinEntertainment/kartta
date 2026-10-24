@@ -198,6 +198,10 @@ pub struct CallRef {
     /// Whether the call is written as a macro invocation where the language writes one apart from a function call,
     /// as Rust writes `name!()` beside `name()`. False where a call of either is written alike.
     pub invokes_a_macro: bool,
+    /// Whether the call is written as a method call where the language calls a value apart from a method, as Rust's
+    /// `x.f()` calls a method and `(x.f)()` the function a field holds: such a call binds no variable or constant.
+    /// False where a member call can call a value.
+    pub calls_a_method: bool,
 }
 
 /// A call the language's own scoping binds to a local symbol in scope.

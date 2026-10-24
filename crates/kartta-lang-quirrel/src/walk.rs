@@ -499,6 +499,7 @@ impl<'a> Emitter<'a> {
             receiver,
             line: start_line(node),
             invokes_a_macro: false,
+            calls_a_method: false,
         });
     }
 }
