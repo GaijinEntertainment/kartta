@@ -948,6 +948,35 @@ fn a_cpp_typedef_binds_only_where_the_scopes_its_spelling_names_hold_it() {
     );
 }
 
+#[test]
+fn a_cpp_alias_spelled_with_template_arguments_binds_the_member_of_the_class_it_names() {
+    let files = [
+        file(
+            "dag.h",
+            vec![
+                alias_in("dag", "Array", 1, &["Vector"]),
+                class_in("dag", "Vector", 2, 4),
+                member("Vector", "size", SymbolKind::Method, 3),
+            ],
+            Vec::new(),
+        ),
+        calling_member(
+            "use.cpp",
+            "count",
+            &["dag.h"],
+            member_call(0, "dag::Array<int>", "size", 2),
+        ),
+    ];
+
+    let graph = graph_of(cpp(), &files);
+
+    assert_eq!(
+        callees(&graph, "count"),
+        ["dag.h:3@85"],
+        "`template <typename T> using Array = Vector<T>; dag::Array<int> a; a.size();` binds `Vector::size`"
+    );
+}
+
 fn fruit_box_in(scope: &str, fruit: &str) -> Vec<Symbol> {
     vec![
         class_in(scope, fruit, 1, 3),
