@@ -790,6 +790,11 @@
     `crates/kartta-graph/src/stored.rs` (`StoredCall`), `crates/kartta-lang-rust/src/walk/calls.rs`,
     `crates/kartta-lang-rust/src/lib.rs` (`CONVENTIONS`)
   - Revisit if: the crates of one package define macros of one name often enough that a package-wide pick misbinds
+- [3.178 Blank a namespace's own macros at its edges](./adr/3.178-blank-a-namespace-s-own-macros-at-its-edges.md)
+  - Governs: `crates/kartta-lang-cpp/src/repair.rs` (`lone_macro_line`, `namespace_closes`, `opens_a_namespace_body`,
+    `is_set_apart`)
+  - Revisit if: a `tree-sitter-cpp` release reads a lone identifier before a `}` as an error the parser recovers from
+    locally
 - [4.1 Answer agents through an MCP server with the tools their prompts already
   name](./adr/4.1-answer-agents-through-an-mcp-server-with-the-tools-their-prompts-name.md)
   - Governs: `crates/kartta-mcp/src/{server,params,render,llmxml,config}.rs`, `crates/kartta-mcp/src/render/`
