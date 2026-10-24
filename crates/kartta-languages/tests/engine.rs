@@ -12,9 +12,10 @@
 //! type binds no free function, not even through a value named like a module the file imports, while a call on a
 //! value still binds the one runtime method whose owner the value's name spells, one on a parameter the method of the
 //! type the parameter is declared as, of the caller's own package where two versions of its crate declare that type,
-//! and a bare call through a parameter or a local binds nothing. A JavaScript bare call of a name imported from a
-//! package binds no namesake of the project, unless the caller's file defines it. A Python call of a builtin binds a
-//! function of its name only where its file imports or defines that name.
+//! a bare call through a parameter or a local binds nothing, and a call through a type the tree does not declare,
+//! `Vec::new()`, binds no member of another type. A JavaScript bare call of a name imported from a package binds no
+//! namesake of the project, unless the caller's file defines it. A Python call of a builtin binds a function of its
+//! name only where its file imports or defines that name.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -1179,6 +1180,39 @@ fn a_rust_call_on_a_type_two_versions_of_its_crate_declare_binds_the_method_of_t
             [(&format!("{copy}/src/raw/mod.rs")[..], confidence::RECEIVER)]
         );
     }
+}
+
+#[test]
+fn a_rust_call_through_a_type_the_tree_does_not_declare_binds_no_member_of_another_type() {
+    let tree = tree_of(&[
+        ("src/lib.rs", "mod follow;\nmod widget;\n"),
+        (
+            "src/widget.rs",
+            "pub struct Widget;\n\npub static DEFAULT: Widget = Widget;\n\nimpl Widget {\n    \
+             pub fn new() -> Self {\n        Widget\n    }\n\n    pub fn draw(&self) {}\n}\n",
+        ),
+        (
+            "src/follow.rs",
+            "use crate::widget::{DEFAULT, Widget};\n\nstruct Following;\n\nimpl Following {\n    \
+             fn new() -> Self {\n        Following\n    }\n\n    fn plan(&self) {\n        Vec::new();\n        \
+             tempfile::NamedTempFile::new();\n    }\n\n    fn widgets(&self) {\n        Widget::new();\n        \
+             Following::new();\n        DEFAULT.draw();\n    }\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(callees(&engine, "src/follow.rs", "plan"), (vec![], 2));
+    assert_eq!(
+        callees(&engine, "src/follow.rs", "widgets"),
+        (
+            vec![
+                ("new", SymbolKind::Method, "src/follow.rs"),
+                ("new", SymbolKind::Method, "src/widget.rs"),
+                ("draw", SymbolKind::Method, "src/widget.rs"),
+            ],
+            0
+        )
+    );
 }
 
 #[test]
