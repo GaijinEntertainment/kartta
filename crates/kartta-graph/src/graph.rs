@@ -728,6 +728,9 @@ impl Graph {
                 if class.is_some() {
                     stored = stored.on_a_class();
                 }
+                if call.invokes_a_macro {
+                    stored = stored.invoking_a_macro();
+                }
                 stored
             })
             .collect();

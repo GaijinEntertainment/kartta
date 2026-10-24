@@ -6,8 +6,8 @@ use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
     BareReceivers, CallableRole, Conventions, IncludeReach, IncludedRuntimeMembers,
-    InheritedMembers, MemberCalls, NamespaceCalls, OwnMembers, SymbolKind, UntypedMembers,
-    ValueUses,
+    InheritedMembers, MacroInvocations, MemberCalls, NamespaceCalls, OwnMembers, SymbolKind,
+    UntypedMembers, ValueUses,
 };
 
 use crate::candidates::{CandidateSet, Candidates, INDEXED_FROM};
@@ -23,6 +23,11 @@ use crate::typed::{Typed, Value};
 pub(crate) const THROUGH_INCLUDES_MAX_DEFINITIONS: usize = 32;
 
 #[derive(Debug, Clone, Copy)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is a mark of how the call is written, read on its own by the tiers that care, as the stored \
+              call keeps them in separate bits"
+)]
 pub(crate) struct Call {
     pub(crate) file: u32,
     pub(crate) caller: u32,
@@ -31,11 +36,28 @@ pub(crate) struct Call {
     pub(crate) written_from_root: bool,
     pub(crate) names_a_runtime_method: bool,
     pub(crate) on_a_class: bool,
+    pub(crate) invokes_a_macro: bool,
     pub(crate) local: Option<u32>,
     pub(crate) line: u32,
 }
 
 impl Call {
+    /// A bare call of `callee` from `site` with no line, as a use asks the tiers of a call.
+    pub(crate) const fn bare(site: SymbolAt, callee: Str) -> Self {
+        Self {
+            file: site.file,
+            caller: site.index,
+            callee,
+            receiver: None,
+            written_from_root: false,
+            names_a_runtime_method: false,
+            on_a_class: false,
+            invokes_a_macro: false,
+            local: None,
+            line: 0,
+        }
+    }
+
     pub(crate) const fn caller_at(&self) -> SymbolAt {
         SymbolAt::new(self.file, self.caller)
     }
@@ -85,7 +107,7 @@ pub(crate) struct Cascade<'g> {
     pub(crate) conventions: Conventions,
     star: Option<Str>,
     bindings: Derived<u32, Rc<Bindings>>,
-    candidates: Derived<Str, Rc<Candidates<'g>>>,
+    candidates: Derived<(Str, bool), Rc<Candidates<'g>>>,
     referenceable: Derived<Str, Rc<Candidates<'g>>>,
     pub(crate) data_named: Derived<Str, Rc<DataNamed<'g>>>,
     includes: Derived<u32, Rc<[u32]>>,
@@ -135,6 +157,7 @@ impl<'g> Cascade<'g> {
                     names_a_runtime_method: call.receiver.is_some()
                         && self.is_runtime_method(call.callee),
                     on_a_class: call.is_on_a_class(),
+                    invokes_a_macro: call.invokes_a_macro(),
                     local: None,
                     line: call.line,
                 }
@@ -149,6 +172,7 @@ impl<'g> Cascade<'g> {
                     written_from_root: false,
                     names_a_runtime_method: false,
                     on_a_class: false,
+                    invokes_a_macro: false,
                     local: Some(call.local),
                     line: call.line,
                 }
@@ -219,45 +243,55 @@ impl<'g> Cascade<'g> {
         or_if_none(last, tails.flat_map(named).copied().filter(is_it))
     }
 
-    pub(crate) fn is_candidate(&self, caller: SymbolAt, at: SymbolAt) -> bool {
-        self.is_candidate_in(self.holder(caller).unwrap_or(caller), at)
+    pub(crate) fn is_candidate(&self, call: &Call, at: SymbolAt) -> bool {
+        let caller = call.caller_at();
+        self.is_candidate_in((self.holder(caller).unwrap_or(caller), call), at)
     }
 
-    fn is_candidate_in(&self, scope: SymbolAt, at: SymbolAt) -> bool {
+    fn is_candidate_in(&self, (scope, call): (SymbolAt, &Call), at: SymbolAt) -> bool {
         let file = self.graph.file(at.file);
         let symbol = &file.symbols[at.index as usize];
         self.is_call_target(symbol.kind)
+            && self.is_of_the_call_s_form(call, symbol.kind)
             && (file.locals.is_empty()
                 || file.holder(at.index).is_none_or(|holder| {
                     symbol.owner.is_some() && SymbolAt::new(at.file, holder) == scope
                 }))
     }
 
+    const fn is_of_the_call_s_form(&self, call: &Call, kind: SymbolKind) -> bool {
+        matches!(
+            self.conventions.macro_invocations,
+            MacroInvocations::AsCalls
+        ) || call.invokes_a_macro == matches!(kind, SymbolKind::Macro)
+    }
+
     pub(crate) fn call_targets<'a>(
         &'a self,
-        caller: SymbolAt,
+        call: &'a Call,
         candidates: impl Iterator<Item = SymbolAt> + Clone + 'a,
     ) -> impl Iterator<Item = SymbolAt> + Clone + 'a {
+        let caller = call.caller_at();
         let scope = self.holder(caller).unwrap_or(caller);
-        candidates.filter(move |&at| self.is_candidate_in(scope, at))
+        candidates.filter(move |&at| self.is_candidate_in((scope, call), at))
     }
 
     pub(crate) fn free_target(
         &self,
-        caller: SymbolAt,
+        call: &Call,
         candidates: impl Iterator<Item = SymbolAt> + Clone,
     ) -> Option<SymbolAt> {
-        self.call_targets(caller, candidates)
+        self.call_targets(call, candidates)
             .find(|&at| self.graph.sym(at).owner.is_none())
     }
 
     fn pick(
         &self,
-        pick: Pick,
+        pick: Pick<'_>,
         mut candidates: impl Iterator<Item = SymbolAt> + Clone,
     ) -> Option<SymbolAt> {
         match pick {
-            Pick::FreeTarget(caller) => self.free_target(caller, candidates),
+            Pick::FreeTarget(call) => self.free_target(call, candidates),
             Pick::PackageLevel => candidates.find(|&at| {
                 let symbol = self.graph.sym(at);
                 symbol.owner.is_none()
@@ -498,7 +532,7 @@ impl<'g> Cascade<'g> {
         &self,
         file: u32,
         (qualifier, name): (Str, Str),
-        pick: Pick,
+        pick: Pick<'_>,
     ) -> Option<SymbolAt> {
         let &(_, module) = self
             .bindings(file)
@@ -565,7 +599,7 @@ impl<'g> Cascade<'g> {
             && let Some(receiver) = call.receiver
             && !self.graph.strings.resolve(receiver).is_empty()
         {
-            let binds = |kind| self.is_call_target(kind);
+            let binds = |kind| self.is_call_target(kind) && self.is_of_the_call_s_form(call, kind);
             return match self.typed_member((caller, receiver), call.callee, binds) {
                 Typed::Member(at) => Ok((at, confidence::RECEIVER)),
                 Typed::Imported => Err(Miss::ExternalImport),
@@ -589,13 +623,13 @@ impl<'g> Cascade<'g> {
             && let Some(at) = self.qualified(call.callee)
         {
             let symbol = self.graph.sym(at);
-            if self.is_candidate(caller, at) && symbol.qualified_name != symbol.name {
+            if self.is_candidate(call, at) && symbol.qualified_name != symbol.name {
                 return Ok((at, confidence::QUALIFIED));
             }
         }
         if let Some(tail) = self.trailing_pair(call.callee)
             && let Some(at) = self.qualified(tail)
-            && self.is_candidate(caller, at)
+            && self.is_candidate(call, at)
         {
             return Ok((at, confidence::QUALIFIED_TAIL));
         }
@@ -630,7 +664,7 @@ impl<'g> Cascade<'g> {
             name.push_str(written);
             let seen = strings.get(&name).and_then(|qualified| {
                 self.qualified_as(qualified)
-                    .filter(|&at| self.is_candidate(caller, at) && self.sees(call.file, at))
+                    .filter(|&at| self.is_candidate(call, at) && self.sees(call.file, at))
                     .min_by_key(|&at| self.graph.order_of(at))
             });
             if seen.is_some() {
@@ -644,33 +678,35 @@ impl<'g> Cascade<'g> {
     pub(crate) fn candidates(&self, call: &Call) -> CandidateSet<'g> {
         let named = self.named(call.callee);
         let scoped = || {
-            let targets = self
-                .call_targets(call.caller_at(), named.iter().copied())
-                .collect();
+            let targets = self.call_targets(call, named.iter().copied()).collect();
             CandidateSet::Own(Candidates::scanned(named, targets))
         };
         if named.len() < INDEXED_FROM {
             return scoped();
         }
-        let shared = self.shared_candidates(call.callee, named);
+        let shared = self.shared_candidates(call, named);
         let caller = call.caller_at();
         let scope = self.holder(caller).unwrap_or(caller);
         if shared
             .locals
             .iter()
-            .any(|&local| local.file == call.file && self.is_candidate_in(scope, local))
+            .any(|&local| local.file == call.file && self.is_candidate_in((scope, call), local))
         {
             return scoped();
         }
         CandidateSet::Shared(shared)
     }
 
-    fn shared_candidates(&self, name: Str, named: &'g [SymbolAt]) -> Rc<Candidates<'g>> {
-        derived(&self.candidates, name, || {
+    fn shared_candidates(&self, call: &Call, named: &'g [SymbolAt]) -> Rc<Candidates<'g>> {
+        let key = (call.callee, call.invokes_a_macro);
+        derived(&self.candidates, key, || {
             let (locals, targets): (Vec<SymbolAt>, Vec<SymbolAt>) = named
                 .iter()
                 .copied()
-                .filter(|&at| self.is_call_target(self.graph.sym(at).kind))
+                .filter(|&at| {
+                    let kind = self.graph.sym(at).kind;
+                    self.is_call_target(kind) && self.is_of_the_call_s_form(call, kind)
+                })
                 .partition(|&at| self.holder(at).is_some());
             Rc::new(Candidates::indexed(self.graph, named, targets, locals))
         })
@@ -715,8 +751,7 @@ impl<'g> Cascade<'g> {
             return Err(Miss::ExternalImport);
         }
         if call.receiver.is_none()
-            && let Some(at) =
-                self.dot_imported(&candidates, call.file, Pick::FreeTarget(call.caller_at()))
+            && let Some(at) = self.dot_imported(&candidates, call.file, Pick::FreeTarget(call))
         {
             return Ok((at, confidence::IMPORT));
         }
@@ -764,12 +799,34 @@ impl<'g> Cascade<'g> {
             })
     }
 
+    // constraint: a Rust macro is in scope inside its own crate, by text order, and elsewhere only through a path or a
+    // `use`, which the tiers above read, so a macro invocation binds by its name alone only a macro of the caller's
+    // package, the files the package of the caller's file names, or of no package where that file names none
+    fn in_the_caller_s_package<'c>(
+        &self,
+        call: &Call,
+        candidates: &Candidates<'c>,
+    ) -> Candidates<'c> {
+        let package = self.graph.file(call.file).package;
+        let in_the_package = (candidates.targets.iter().copied())
+            .filter(|&at| self.graph.file(at.file).package == package)
+            .collect();
+        Candidates::scanned(candidates.named, in_the_package)
+    }
+
     fn resolve_outside_scope(
         &self,
         call: &Call,
         candidates: &Candidates<'_>,
         reach: Option<&Reach>,
     ) -> Result<Bound, Miss> {
+        let in_the_package;
+        let candidates = if call.invokes_a_macro {
+            in_the_package = self.in_the_caller_s_package(call, candidates);
+            &in_the_package
+        } else {
+            candidates
+        };
         let targets = candidates.targets.iter().copied();
         let shape = self.shape(call, &targets, reach);
         if !targets.clone().any(|at| self.admits(&shape, at)) {
@@ -930,11 +987,7 @@ impl<'g> Cascade<'g> {
         };
         let Some(binding) = self.binding(call.file, receiver) else {
             return self
-                .required_definition(
-                    call.file,
-                    (receiver, call.callee),
-                    Pick::FreeTarget(call.caller_at()),
-                )
+                .required_definition(call.file, (receiver, call.callee), Pick::FreeTarget(call))
                 .map(|at| Ok((at, confidence::IMPORT)));
         };
         let Some(target) = binding else {
@@ -947,7 +1000,7 @@ impl<'g> Cascade<'g> {
             self.imported(
                 &self.candidates(call),
                 (call.file, Some(target)),
-                Pick::FreeTarget(call.caller_at()),
+                Pick::FreeTarget(call),
             )
             .ok_or(Miss::NotExported),
         )
@@ -978,12 +1031,10 @@ impl<'g> Cascade<'g> {
     // its definitions do not show, so a name it does not define at its top level goes on to the module's `use`s and
     // globs, to a macro that a file below exports and then to the tiers below; a type shares its name with a function
     // only where the language keeps types apart from values, as Rust's `struct kevent` beside the `extern` function
-    // `kevent`, so the call names the function; a call does not say whether it was written `mac()` or `mac!()`, which
-    // in Rust name a function and a macro apart, so a name the file exports as both binds neither; no path reaches a
-    // macro the file does not export, and a call from the module or a module below it, the files its file includes,
-    // sees its other private definitions too; a test definition is compiled into its crate's test build alone, where
-    // the crate's test code sees it through a path, so test code that shares an include root with the file sees it from
-    // any module, and other code from none
+    // `kevent`, so the call names the function; no path reaches a macro the file does not export, and a call from the
+    // module or a module below it, the files its file includes, sees its other private definitions too; a test
+    // definition is compiled into its crate's test build alone, where the crate's test code sees it through a path, so
+    // test code that shares an include root with the file sees it from any module, and other code from none
     fn module_item(
         &self,
         call: &Call,
@@ -991,36 +1042,30 @@ impl<'g> Cascade<'g> {
         visited: &mut Vec<(u32, Str)>,
     ) -> Option<Bound> {
         let defined = self.graph.in_file(self.named(name), module);
-        let within = OnceCell::new();
-        let within = || *within.get_or_init(|| self.is_within_module(call.file, module));
         let tests_seen = self.graph.flags(call.caller_at()).is_test();
         let in_one_crate = OnceCell::new();
         let in_one_crate =
             || *in_one_crate.get_or_init(|| self.share_an_include_root(call.file, module));
-        let is_macro = |at: SymbolAt| self.graph.sym(at).kind == SymbolKind::Macro;
-        let mut answers = self
-            .call_targets(call.caller_at(), defined.iter().copied())
+        let answers = self
+            .call_targets(call, defined.iter().copied())
             .filter(|&at| {
+                let symbol = self.graph.sym(at);
                 self.declared_at_top_level(at)
                     && (!self.graph.flags(at).is_test() || (tests_seen && in_one_crate()))
-                    && (self.graph.sym(at).exported || !is_macro(at))
+                    && (symbol.exported || symbol.kind != SymbolKind::Macro)
             });
-        let Some(at) = answers
-            .clone()
-            .min_by_key(|&at| self.graph.sym(at).kind.is_type())
-        else {
+        let Some(at) = answers.min_by_key(|&at| self.graph.sym(at).kind.is_type()) else {
             return self.used_by_module(call, (module, name), visited);
         };
-        let exported = |at: SymbolAt| self.graph.sym(at).exported || within();
-        (exported(at) && !answers.any(|other| exported(other) && is_macro(other) != is_macro(at)))
+        (self.graph.sym(at).exported || self.is_within_module(call.file, module))
             .then_some((at, confidence::IMPORT))
     }
 
     // constraint: a Rust module answers a name it does not define through its `use` of the name, read whether written
     // `pub use` or not, since code that compiles reaches no private `use` from outside the module; else through its
-    // globs, which its own names shadow, one answer among them; else through a macro a file below exports; a call does
-    // not say it invokes a macro, so a function a `use` or a glob reaches beside such a macro binds neither; each
-    // module is read once under each name, so a chain or a cycle of re-exports ends
+    // globs, which its own names shadow, one answer among them; a macro invocation that neither answers goes on to a
+    // macro a file below exports, since a `use` of a function brings no macro of its name; each module is read once
+    // under each name, so a chain or a cycle of re-exports ends
     fn used_by_module(
         &self,
         call: &Call,
@@ -1031,16 +1076,12 @@ impl<'g> Cascade<'g> {
             return None;
         }
         visited.push((module, name));
-        let reached = if let Some((target, source)) = self.binding_and_source(module, name) {
-            let target = self.graph.slot_of(target?)?;
-            self.module_item(call, (target, source), visited)?
-        } else if let Some(reached) = self.globbed_by_module(call, (module, name), visited) {
-            reached
-        } else {
-            return self.macro_exported_below(module, name);
+        let reached = match self.binding_and_source(module, name) {
+            Some((target, source)) => (target.and_then(|target| self.graph.slot_of(target)))
+                .and_then(|target| self.module_item(call, (target, source), visited)),
+            None => self.globbed_by_module(call, (module, name), visited),
         };
-        let is_macro = self.graph.sym(reached.0).kind == SymbolKind::Macro;
-        (is_macro || !self.exports_a_macro_below(module, name)).then_some(reached)
+        reached.or_else(|| self.macro_exported_below(call, (module, name)))
     }
 
     fn globbed_by_module(
@@ -1063,23 +1104,6 @@ impl<'g> Cascade<'g> {
             unique = Some(bound);
         }
         unique
-    }
-
-    fn exports_a_macro_below(&self, module: u32, name: Str) -> bool {
-        let mut exported = (self.named(name).iter().copied())
-            .filter(|&at| {
-                let symbol = self.graph.sym(at);
-                symbol.kind == SymbolKind::Macro
-                    && symbol.exported
-                    && at.file != module
-                    && self.at_top_level(at)
-            })
-            .peekable();
-        if exported.peek().is_none() {
-            return false;
-        }
-        let closure = self.closure(module);
-        exported.any(|at| closure.binary_search(&at.file).is_ok())
     }
 
     fn is_within_module(&self, file: u32, module: u32) -> bool {
@@ -1118,36 +1142,30 @@ impl<'g> Cascade<'g> {
         symbol.owner.is_none() && symbol.qualified_name == symbol.name && self.holder(at).is_none()
     }
 
-    // constraint: Rust's `#[macro_export]` places a macro at its crate's root whatever module defines it, so a name the
-    // module's file does not define binds the one exported macro of the name that a file it includes, directly or
-    // through others, defines; two leave the call to the tiers below, and so does a name the module answers otherwise,
-    // as a function of an included file does, since a call does not say it invokes a macro
-    fn macro_exported_below(&self, module: u32, name: Str) -> Option<Bound> {
+    // constraint: Rust's `#[macro_export]` places a macro at its crate's root whatever module defines it, so a macro
+    // invocation of a name the module answers in no other way binds the one exported macro of the name that a file it
+    // includes, directly or through others, defines; two leave the call to the tiers below
+    fn macro_exported_below(&self, call: &Call, (module, name): (u32, Str)) -> Option<Bound> {
+        if !self.is_of_the_call_s_form(call, SymbolKind::Macro) {
+            return None;
+        }
         let closure = OnceCell::new();
-        let below = |at: SymbolAt| {
-            self.at_top_level(at)
+        let mut exported = self.named(name).iter().copied().filter(|&at| {
+            let symbol = self.graph.sym(at);
+            symbol.kind == SymbolKind::Macro
+                && symbol.exported
+                && at.file != module
+                && self.at_top_level(at)
                 && closure
                     .get_or_init(|| self.closure(module))
                     .binary_search(&at.file)
                     .is_ok()
-        };
-        let named = self.named(name).iter().copied();
-        let mut exported = named.clone().filter(|&at| {
-            let symbol = self.graph.sym(at);
-            symbol.kind == SymbolKind::Macro && symbol.exported && at.file != module && below(at)
         });
         let at = exported.next()?;
-        if exported.next().is_some() {
-            return None;
-        }
-        let answered_otherwise = named.clone().any(|other| {
-            let symbol = self.graph.sym(other);
-            symbol.kind != SymbolKind::Macro
-                && symbol.exported
-                && self.is_call_target(symbol.kind)
-                && below(other)
-        });
-        (!answered_otherwise).then_some((at, confidence::IMPORT))
+        exported
+            .next()
+            .is_none()
+            .then_some((at, confidence::IMPORT))
     }
 
     fn unadmitted(&self, call: &Call) -> Miss {
@@ -1162,7 +1180,7 @@ impl<'g> Cascade<'g> {
         &self,
         candidates: &Candidates<'_>,
         (importer, target): (u32, Option<Str>),
-        pick: Pick,
+        pick: Pick<'_>,
     ) -> Option<Bound> {
         let dir = target?;
         let declared = if self.is_external_test_of(importer, dir) {
@@ -1201,7 +1219,12 @@ impl<'g> Cascade<'g> {
             .collect()
     }
 
-    fn dot_imported(&self, candidates: &Candidates<'_>, file: u32, pick: Pick) -> Option<SymbolAt> {
+    fn dot_imported(
+        &self,
+        candidates: &Candidates<'_>,
+        file: u32,
+        pick: Pick<'_>,
+    ) -> Option<SymbolAt> {
         let mut unique = None;
         for &dir in &self.bindings(file).dot_dirs {
             let Some(at) = self
@@ -1335,7 +1358,7 @@ impl<'g> Cascade<'g> {
     fn re_exported(&self, call: &Call) -> Option<SymbolAt> {
         let mut walk = ReExportWalk {
             cascade: self,
-            caller: call.caller_at(),
+            call,
             visited: HashSet::default(),
         };
         self.includes(call.file)
@@ -1363,7 +1386,6 @@ impl<'g> Cascade<'g> {
         let owner = scope.rsplit(separator).next()?;
         let tail = &written[written.len() - owner.len() - separator.len() - name.len()..];
         let (owner, name) = (strings.get(owner)?, strings.get(name)?);
-        let caller = call.caller_at();
         self.named(name)
             .iter()
             .copied()
@@ -1374,7 +1396,7 @@ impl<'g> Cascade<'g> {
                         .resolve(symbol.qualified_name)
                         .strip_suffix(tail)
                         .is_some_and(|head| head.ends_with(separator))
-                    && self.is_candidate(caller, at)
+                    && self.is_candidate(call, at)
             })
             .min_by_key(|&at| (!self.sees(call.file, at), self.graph.order_of(at)))
     }
@@ -1497,9 +1519,10 @@ impl<'g> Cascade<'g> {
             (Some(_), Some(_)) => return None,
             (None, _) => {}
         }
+        let call = Call::bare(site, name);
         let mut walk = ReExportWalk {
             cascade: self,
-            caller: site,
+            call: &call,
             visited: HashSet::default(),
         };
         let mut renamed = includes
@@ -1547,14 +1570,14 @@ impl<'g> Cascade<'g> {
 type ImportedDir = Option<Str>;
 
 #[derive(Debug, Clone, Copy)]
-enum Pick {
-    FreeTarget(SymbolAt),
+enum Pick<'c> {
+    FreeTarget(&'c Call),
     PackageLevel,
 }
 
 struct ReExportWalk<'c, 'g> {
     cascade: &'c Cascade<'g>,
-    caller: SymbolAt,
+    call: &'c Call,
     visited: HashSet<(u32, Str), FixedState>,
 }
 
@@ -1584,7 +1607,7 @@ impl ReExportWalk<'_, '_> {
                 continue;
             };
             let defined = cascade.graph.in_file(cascade.named(wanted), source);
-            if let Some(at) = cascade.free_target(self.caller, defined.iter().copied()) {
+            if let Some(at) = cascade.free_target(self.call, defined.iter().copied()) {
                 return Some(at);
             }
             if let Some(at) = self.follow(source, wanted) {

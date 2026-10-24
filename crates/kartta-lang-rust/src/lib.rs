@@ -181,6 +181,7 @@ const CONVENTIONS: Conventions = {
     conventions.type_uses = TypeUses::Nowhere;
     conventions.member_calls = kartta_lang::MemberCalls::ModulePaths;
     conventions.unrecorded_data = &[SymbolKind::Field];
+    conventions.macro_invocations = kartta_lang::MacroInvocations::Apart;
     conventions
 };
 
