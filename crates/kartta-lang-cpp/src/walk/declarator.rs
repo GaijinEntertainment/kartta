@@ -66,7 +66,10 @@ fn conversion_operator(node: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
             (Some(terminal), scope) if terminal.kind() == "operator_cast" => (terminal, scope),
             _ => return None,
         },
-        "function_declarator" => return misread_conversion(declarator, source),
+        "function_declarator" => {
+            return misread_conversion(declarator, source)
+                .or_else(|| conversion_read_as_a_type(node, declarator, source));
+        }
         _ => return None,
     };
     let mut abstract_declarator = cast.child_by_field_name("declarator")?;
@@ -115,6 +118,43 @@ fn misread_conversion(function: Node<'_>, source: &[u8]) -> Option<DeclaredName>
         qualified = name;
     }
     None
+}
+
+// constraint: after a specifier, `constexpr C::operator bool() const`, the parser reads the class and the keyword as
+// the return type, `C::operator`, and a one-word target as the name of a function of its own, `bool()`
+fn conversion_read_as_a_type(
+    node: Node<'_>,
+    function: Node<'_>,
+    source: &[u8],
+) -> Option<DeclaredName> {
+    let (keyword, scope) = keyword_read_as_a_type(node, source)?;
+    let parameters = function.child_by_field_name("parameters")?;
+    let written = String::from_utf8_lossy(&source[keyword.start_byte()..parameters.start_byte()]);
+    Some(DeclaredName {
+        name: sanitize_name(&written),
+        scope: scope
+            .map(|scope| type_base_name(scope, source))
+            .filter(|scope| is_simple_identifier(scope)),
+    })
+}
+
+/// The `operator` keyword that ends the return type of the function `node`, and the scope written before it.
+fn keyword_read_as_a_type<'t>(
+    node: Node<'t>,
+    source: &[u8],
+) -> Option<(Node<'t>, Option<Node<'t>>)> {
+    let written = node
+        .child_by_field_name("type")
+        .filter(|written| written.kind() == "qualified_identifier")?;
+    match qualified_terminal(written) {
+        (Some(keyword), scope)
+            if keyword.kind() == "type_identifier"
+                && &source[keyword.byte_range()] == b"operator" =>
+        {
+            Some((keyword, scope))
+        }
+        _ => None,
+    }
 }
 
 fn declared_name(function: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
@@ -181,6 +221,9 @@ fn declared_name_of(declarator: Node<'_>, source: &[u8]) -> Option<DeclaredName>
 }
 
 pub(super) fn real_function_declarator<'t>(node: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
+    if keyword_read_as_a_type(node, source).is_some() {
+        return None;
+    }
     match misparse_real_declarator(node, source) {
         Some(real) => unwrap_to_function_declarator(real),
         None => unwrap_to_function_declarator(node.child_by_field_name("declarator")?),
