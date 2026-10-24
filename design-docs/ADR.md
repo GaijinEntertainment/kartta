@@ -402,7 +402,7 @@
     `crates/kartta-graph/src/resolve.rs` (`is_runtime_method`, `resolve_by_name`, `resolve_outside_scope`, `offered`,
     `spelled_or_own`), `crates/kartta-graph/src/scope.rs` (`receiver_spells_owner`, `owner_derives_from`), the
     `runtime.rs` of `kartta-lang-jsts`, `kartta-lang-quirrel`, `kartta-lang-python` and `kartta-lang-rust`,
-    `crates/kartta-lang-quirrel/src/lib.rs` (`CONVENTIONS`)
+    `crates/kartta-lang-quirrel/src/lib.rs` and `crates/kartta-lang-jsts/src/lib.rs` (`CONVENTIONS`)
   - Revisit if: a language's extraction records the type a value holds for its member calls
 - [3.41 Bind the caller's own owner only on the receivers a language
   lists](./adr/3.41-bind-the-caller-s-own-owner-only-on-the-receivers-a-language-lists.md)
