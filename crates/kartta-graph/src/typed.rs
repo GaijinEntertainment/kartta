@@ -1,7 +1,7 @@
 use kartta_lang::{Receivers, SymbolKind};
 
 use crate::resolve::{Cascade, derived};
-use crate::stored::{SymbolAt, VALUE_TYPE_SEPARATOR};
+use crate::stored::{StoredSymbol, SymbolAt, VALUE_TYPE_SEPARATOR};
 use crate::strings::Str;
 
 /// What a receiver that spells a type path binds a member call to.
@@ -107,7 +107,9 @@ impl<'g> Cascade<'g> {
             return Value::Container { body, element };
         }
         let (name, mut rest) = head(path);
-        let mut value = self.in_scope(body, name);
+        let mut value = self
+            .anonymous_host(body.file, name)
+            .unwrap_or_else(|| self.in_scope(body, name));
         while !rest.is_empty() {
             let Some((step, after)) = step(rest) else {
                 return Value::Unknown;
@@ -123,6 +125,18 @@ impl<'g> Cascade<'g> {
             rest = after;
         }
         value
+    }
+
+    // constraint: a path names an anonymous struct by the index, in braces, of the field or the variable of its file
+    // that the struct types, which owns the struct's fields; a path is read in the file that spells it (ADR 3.170)
+    fn anonymous_host(&self, file: u32, name: &str) -> Option<Value<'g>> {
+        let index: u32 = name.strip_prefix('{')?.strip_suffix('}')?.parse().ok()?;
+        let held = (index as usize) < self.graph.file(file).symbols.len();
+        Some(if held {
+            Value::Type(SymbolAt::new(file, index))
+        } else {
+            Value::Unknown
+        })
     }
 
     // constraint: a name of a type position that neither the file's package nor an import declares is predeclared,
@@ -314,21 +328,53 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    // constraint: a type's members are declared in its own package, so a member of its name in another directory, or in
-    // the external test package beside it, belongs to a namesake
+    // constraint: a type's members are declared in its own package and qualified by its name, so a member of its name
+    // in another directory, in the external test package beside it, or of an anonymous struct a field or a variable of
+    // the type's name owns, belongs to a namesake
     fn declared_member(&self, ty: SymbolAt, named: &[SymbolAt]) -> Option<SymbolAt> {
-        let owner = self.graph.sym(ty).name;
+        let symbol = self.graph.sym(ty);
+        if !symbol.kind.is_type() {
+            return self.anonymous_member(ty, named);
+        }
+        let owner = symbol.name;
+        let qualified = self.graph.strings.resolve(symbol.qualified_name);
         let holder = self.holder(ty);
         let file = self.graph.file(ty.file);
         let in_package = |slot: &&u32| self.graph.file(**slot).package == file.package;
+        let qualified_by_type = |member: &StoredSymbol| {
+            self.graph
+                .strings
+                .resolve(member.qualified_name)
+                .strip_prefix(qualified)
+                .and_then(|rest| rest.strip_prefix('.'))
+                == Some(self.graph.strings.resolve(member.name))
+        };
         self.graph
             .package_files(file.dir)
             .iter()
             .filter(in_package)
             .find_map(|&slot| {
                 self.graph.in_file(named, slot).iter().copied().find(|&at| {
-                    self.graph.sym(at).owner == Some(owner) && self.holder(at) == holder
+                    let member = self.graph.sym(at);
+                    member.owner == Some(owner)
+                        && self.holder(at) == holder
+                        && qualified_by_type(member)
                 })
+            })
+    }
+
+    // constraint: the fields of an anonymous struct are owned by the field or the variable it types and declared inside
+    // that one's lines, which tells them apart from the fields of a namesake's struct
+    fn anonymous_member(&self, host: SymbolAt, named: &[SymbolAt]) -> Option<SymbolAt> {
+        let symbol = self.graph.sym(host);
+        let lines = symbol.line..=symbol.end_line;
+        self.graph
+            .in_file(named, host.file)
+            .iter()
+            .copied()
+            .find(|&at| {
+                let member = self.graph.sym(at);
+                member.owner == Some(symbol.name) && lines.contains(&member.line)
             })
     }
 
