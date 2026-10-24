@@ -235,6 +235,11 @@ pub struct Conventions {
     /// records its own receiver as the name of the caller's owner, as Rust does `self` and `Self`, lists only `other`,
     /// since a call on that name binds through the owner it names. `None` keeps the caller's own owner for every name.
     pub own_type_receivers: Option<&'static [&'static str]>,
+    /// The receivers a member call writes for the caller's base class, as Quirrel's `base`, daslang's `super` and PHP's
+    /// `parent`. A member call on one binds the member of the name that the first base the caller's class declares
+    /// holds, else the one the nearest class above that base holds, and nothing where the graph holds neither, so never
+    /// a member of the caller's own class. Empty where a language writes none.
+    pub base_receivers: &'static [&'static str],
     /// Where the language records a use of a type.
     pub type_uses: TypeUses,
     /// Where the language records a read or a write of a field, a variable or a constant.
@@ -271,6 +276,7 @@ impl Conventions {
         receivers: Receivers::Owners,
         bare_receivers: BareReceivers::Any,
         own_type_receivers: None,
+        base_receivers: &[],
         type_uses: TypeUses::Partial,
         data_uses: DataUses::Partial,
         unrecorded_data: &[],

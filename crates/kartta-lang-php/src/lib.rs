@@ -106,6 +106,7 @@ const CONVENTIONS: Conventions = {
     conventions.type_uses = TypeUses::Nowhere;
     conventions.unrecorded_data = &[SymbolKind::Field, SymbolKind::Constant];
     conventions.bare_receivers = BareReceivers::Classes(&["parent", "self", "static"]);
+    conventions.base_receivers = &["parent"];
     conventions
 };
 
