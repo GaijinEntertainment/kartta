@@ -32,7 +32,7 @@ var ErrClosed = errors.New("kartta: the handle is closed")
 // compiled against: the archive and the binding come from different kartta commits.
 var ErrABI = errors.New("kartta: the library's ABI version differs from the header's")
 
-// Kartta is a handle on one tree.
+// Kartta is a handle on one tree. A Kartta that becomes unreachable without a Close frees its handle in a cleanup.
 type Kartta struct {
 	mu      sync.RWMutex
 	handle  *C.KarttaHandle
