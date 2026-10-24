@@ -487,7 +487,8 @@
 - [3.62 Record TypeScript and JavaScript data sites through what a value
   declares](./adr/3.62-record-typescript-and-javascript-data-sites-through-what-a-value-declares.md)
   - Governs: `crates/kartta-lang-jsts/src/walk.rs`, `crates/kartta-lang-jsts/src/walk/uses.rs`,
-    `crates/kartta-lang-jsts/src/walk/context.rs`, the TS/JS `Conventions`
+    `crates/kartta-lang-jsts/src/walk/context.rs`, `crates/kartta-lang-jsts/src/walk/locals.rs`,
+    `crates/kartta-lang-jsts/src/walk/calls.rs` (`push_call`), the TS/JS `Conventions`
   - Revisit if: the extraction records the type a value holds where no declaration spells it
 - [3.63 Record Python data sites in the scope that binds
   them](./adr/3.63-record-python-data-sites-in-the-scope-that-binds-them.md)
