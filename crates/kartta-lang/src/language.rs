@@ -362,7 +362,9 @@ pub enum MemberCalls {
     /// `walk::run` of an inline `mod walk`; such a call takes a member only where the receiver names its owner. A call
     /// on a value, the empty receiver or one of [`Conventions::own_type_receivers`], and one through a type, a
     /// receiver written capitalised as `Poll::Ready(x)` is or as the owner a call on `self` records, take a member
-    /// alone.
+    /// alone. A call through a capitalised receiver of which the graph holds neither a type nor a value of its last
+    /// segment's name, `Vec::new()` or `tempfile::NamedTempFile::new()`, calls code outside the graph: once no member
+    /// of that owner binds it, it binds nothing.
     ModulePaths,
 }
 
