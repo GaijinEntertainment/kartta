@@ -25,8 +25,10 @@ type in a signature, a field, a conversion, a package-level value or function �
 local binding covers it. A member taken on a value without a call, `s.client` or the method value `w.draw`, is a use
 whose receiver is the same type path, and so is each key of a struct literal, `Config{Timeout: 5}`, and each element of
 one without keys whose struct the file declares, `Config{5, 3}`; a literal of an anonymous struct assigned to no name
-keeps none. Each use is marked a read, a write — the left side of `=`, a literal's key or element — or an update,
-`+=` or `++`.
+keeps none. A key of a map, slice or array literal whose type is written so or declared so in the file reads the value
+it names, and so does an unexported key of another package's type; a key of a sibling file's type, or an exported key
+of another package's, writes a field. Each use is marked a read, a write — the left side of `=`, a struct literal's key
+or element — or an update, `+=` or `++`.
 
 ## Resolution
 
