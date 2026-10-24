@@ -226,6 +226,7 @@ lost, and what would reopen it.
 - [3.183 Read a Ruby bare name as a call unless an earlier binding makes it a local](/design-docs/adr/3.183-ruby-bare-calls.md)
 - [3.186 Bind a name a TypeScript or JavaScript package import binds outside the repository](/design-docs/adr/3.186-jsts-package-bindings.md)
 - [3.189 Place a Ruby file in the library its outermost `lib` roots](/design-docs/adr/3.189-ruby-libraries.md)
+- [3.191 Record the items a Rust macro of the file names by a metavariable](/design-docs/adr/3.191-rust-macro-items.md)
 
 ## crates/kartta-languages
 
