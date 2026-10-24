@@ -6,8 +6,8 @@ use crate::extraction::{
 };
 use crate::symbol::{Symbol, SymbolFlags, SymbolId, SymbolKind};
 
-// constraint: a symbol's marks byte holds the six `SymbolFlags` in its low bits and these two in its high ones, so
-// every bit of it is a mark, and a seventh flag needs a byte of its own
+// constraint: a symbol's kind byte holds its kind in its low bits and these two marks in its high ones, so the byte
+// after it holds every `SymbolFlags` bit
 const QUALIFIED_AS_NAME: u8 = 1 << 6;
 const EXPORTED: u8 = 1 << 7;
 
@@ -174,15 +174,15 @@ impl Writer<'_> {
 
     fn symbol(&mut self, symbol: &Symbol) {
         let qualified_as_name = symbol.qualified_name == symbol.name;
-        let mut marks = symbol.flags.bits();
+        let mut kind = symbol.kind as u8;
         if qualified_as_name {
-            marks |= QUALIFIED_AS_NAME;
+            kind |= QUALIFIED_AS_NAME;
         }
         if symbol.exported {
-            marks |= EXPORTED;
+            kind |= EXPORTED;
         }
-        self.0.push(symbol.kind as u8);
-        self.0.push(marks);
+        self.0.push(kind);
+        self.0.push(symbol.flags.bits());
         self.text(&symbol.name);
         if !qualified_as_name {
             self.text(&symbol.qualified_name);
@@ -331,10 +331,11 @@ impl<'a> Reader<'a> {
     }
 
     fn symbol(&mut self) -> Read<Symbol> {
-        let kind = *SymbolKind::ALL
-            .get(usize::from(self.byte()?))
-            .ok_or(Malformed)?;
         let marks = self.byte()?;
+        let kind = *SymbolKind::ALL
+            .get(usize::from(marks & !(QUALIFIED_AS_NAME | EXPORTED)))
+            .ok_or(Malformed)?;
+        let flags = self.byte()?;
         let name = self.text()?;
         let qualified_name = if marks & QUALIFIED_AS_NAME == 0 {
             self.text()?
@@ -354,7 +355,7 @@ impl<'a> Reader<'a> {
         symbol.exported = marks & EXPORTED != 0;
         symbol.signature = signature;
         symbol.value_types = value_types;
-        symbol.flags = SymbolFlags::from_bits(marks);
+        symbol.flags = SymbolFlags::from_bits(flags);
         Ok(symbol)
     }
 
@@ -466,7 +467,8 @@ mod tests {
             .with_generated(true)
             .with_vendored(true)
             .with_fallback(true)
-            .with_reflected(true);
+            .with_reflected(true)
+            .with_made(true);
         let free = Symbol::new("ünïcode", SymbolKind::EnumVariant, 1, 1);
 
         RawExtraction {
@@ -606,7 +608,7 @@ mod tests {
             symbols: vec![Symbol::new("f", SymbolKind::Function, 1, 1)],
             ..RawExtraction::default()
         });
-        unknown_kind[1] = 200;
+        unknown_kind[1] = !(QUALIFIED_AS_NAME | EXPORTED);
         let one_use = encoded(&RawExtraction {
             uses: vec![UseRef {
                 site_of: SymbolId(0),
