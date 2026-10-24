@@ -39,10 +39,7 @@ impl Emitter<'_> {
             return;
         }
         let binding = self.binding(&self.source[identifier.byte_range()]);
-        if !matches!(
-            binding,
-            Some(Binding::Module(_) | Binding::Imported | Binding::Declared)
-        ) {
+        if !matches!(binding, Some(Binding::Module(_) | Binding::Definition)) {
             return;
         }
         let access = access_of(identifier);
@@ -101,7 +98,7 @@ impl Emitter<'_> {
                 typed.map_or_else(String::new, |span| self.spelled(span))
             }
             Some(Binding::Contextual(span)) => self.spelled(*span),
-            Some(Binding::Imported | Binding::Type | Binding::Declared) | None => {
+            Some(Binding::Type | Binding::Definition) | None => {
                 String::from_utf8_lossy(name).into_owned()
             }
         }

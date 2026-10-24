@@ -19,7 +19,7 @@ impl Emitter<'_> {
     /// Declares the names `binder`, an import or a declarator that [`binds_a_require`], binds until `until`.
     pub(super) fn declare_imported(&mut self, binder: Node<'_>, until: usize) {
         imported_names(binder, &mut |name| {
-            self.declare(name.byte_range(), until, Binding::Imported);
+            self.declare(name.byte_range(), until, Binding::Definition);
         });
     }
 
