@@ -47,8 +47,9 @@ typedef struct KarttaString {
 uint32_t kartta_abi_version(void);
 
 /*
- * Opens a handle on the tree params names: params_len bytes of the JSON object {"root": "<path>"}, or a null params
- * with a zero length. Nothing is walked until the build method runs.
+ * Opens a handle on the tree params names: params_len bytes of the JSON object {"root": "<path>"}. The root is
+ * required, so a null params with a zero length, which reads as {} as it does for kartta_call, answers the code
+ * "invalid_params". Nothing is walked until the build method runs.
  *
  * Returns the handle, and writes a null KarttaString to *error when error is not null. On failure returns null and
  * writes the JSON object {"code": <code>, "message": <message>} to *error, for the caller to free; a null error
