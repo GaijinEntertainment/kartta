@@ -42,7 +42,7 @@ the time to live and an hour. `Merged` counts what it removed by age, and what i
 place.
 
 `design-docs/adr/2.1-share-per-file-data-through-content-addressed-packs.md` records the store's rules and why the
-alternatives were rejected, and `design-docs/adr/2.4-merge-a-cache-s-packs-once-they-pass-eight.md` the merge's; PRs
-#26 to #28 and #81 hold what was measured.
+alternatives were rejected, and `design-docs/adr/2.4-merge-a-cache-s-packs-once-they-pass-eight.md` the merge's;
+PRs #26 to #28 and #81 hold what was measured.
 
 Status: the API is new and is not published yet.
