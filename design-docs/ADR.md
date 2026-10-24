@@ -950,8 +950,4 @@ _None._
 
 ## Superseded
 
-- [3.61 Name a Go anonymous struct by the names that lead to
-  it](/design-docs/adr/3.61-go-anonymous-struct-names.md), by
-  [ADR 3.170](/design-docs/adr/3.170-go-anonymous-structs.md)
-  - Governs: `crates/kartta-lang-go/src/walk/{anonymous,types}.rs`, `crates/kartta-graph/src/typed.rs`
-  - Revisit if: the type tier takes a field or a variable as the owner of its anonymous struct's fields
+_None._
