@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::symbol::{Symbol, SymbolFlags, SymbolId};
 
 /// What a language extracts from one file's bytes alone, before the file's path and the repository are applied.
@@ -154,6 +156,12 @@ pub struct Extraction {
     /// holds its files. Of the owners of one name that a call's receiver names, one the caller's package declares
     /// binds before any outside the caller's directory, where a package is not a directory.
     pub package: Option<String>,
+    /// The packages the file's package is built with, one per line, each as [`package`](Self::package) names it, where
+    /// the resolver reads them, as Cargo manifests list a package's dependencies and theirs. Where they are read, a
+    /// call binds a definition of another package by its name alone only where that package is among them and the
+    /// definition is no test code; what an import or a path names binds wherever it lies. The files of one package
+    /// share one list, so it is joined once per package.
+    pub dependencies: Option<Arc<str>>,
     /// Compile-time implements assertions whose implementing type the file does not declare.
     pub assertions: Vec<ImplementsAssertion>,
     /// Files of `includes` that this file pulls in as test-only modules. A file is test code, with every symbol in
