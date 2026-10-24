@@ -481,6 +481,120 @@ fn a_member_on_a_value_binds_the_field_or_method_its_type_path_reaches() {
     );
 }
 
+const fn spanning(mut symbol: Symbol, end_line: u32) -> Symbol {
+    symbol.end_line = end_line;
+    symbol
+}
+
+fn anonymous_field(qualified_host: &str, name: &str, line: u32) -> Symbol {
+    let (_, host) = qualified_host
+        .rsplit_once('.')
+        .expect("a host is qualified by its scope");
+    let mut symbol = member(qualified_host, name, SymbolKind::Field, line);
+    symbol.owner = Some(host.to_owned());
+    symbol
+}
+
+fn used_in(site_of: u32, name: &str, path: &str, line: u32) -> UseRef {
+    UseRef {
+        site_of: SymbolId(site_of),
+        ..accessing(name, path, Access::Read, line)
+    }
+}
+
+#[test]
+fn a_field_whose_struct_is_anonymous_owns_its_fields_apart_from_a_namesake_type_s() {
+    let mut server = file(
+        "srv/server.go",
+        "srv",
+        vec![
+            spanning(typed("srv", "Server", SymbolKind::Struct, 1), 6),
+            yielding(
+                spanning(member("srv.Server", "Limits", SymbolKind::Field, 2), 4),
+                &["{1}"],
+            ),
+            anonymous_field("srv.Server.Limits", "MaxConns", 3),
+            spanning(typed("srv", "Limits", SymbolKind::Struct, 7), 9),
+            member("srv.Limits", "MaxConns", SymbolKind::Field, 8),
+            spanning(function("srv", "Run", 11), 14),
+        ],
+        Vec::new(),
+    );
+    server.uses = vec![
+        used_in(5, "MaxConns", "Server.Limits", 12),
+        used_in(5, "MaxConns", "Limits", 13),
+    ];
+
+    let graph = graph(&[server]);
+
+    assert_eq!(
+        sites_of(&graph, "srv.Server.Limits.MaxConns"),
+        [("srv.Run".to_owned(), 12, 85)],
+        "the field's value names its own index, and its struct's fields are owned by its name"
+    );
+    assert_eq!(
+        sites_of(&graph, "srv.Limits.MaxConns"),
+        [("srv.Run".to_owned(), 13, 85)],
+        "a type's member is qualified by the type, so the field's struct is a namesake's"
+    );
+}
+
+#[test]
+fn a_body_s_values_of_one_name_own_the_fields_their_lines_hold_and_the_types_their_structs_embed() {
+    let mut caller = file(
+        "app/run_test.go",
+        "app",
+        vec![
+            spanning(function("app", "TestRun", 1), 20),
+            yielding(
+                spanning(typed("app", "tests", SymbolKind::Variable, 2), 4),
+                &["[]{1}"],
+            ),
+            anonymous_field("app.TestRun.tests", "in", 3),
+            yielding(
+                spanning(typed("app", "tests", SymbolKind::Variable, 8), 10),
+                &["[]{3}"],
+            ),
+            anonymous_field("app.TestRun.tests", "want", 9),
+            embedding(
+                yielding(
+                    spanning(typed("app", "aux", SymbolKind::Variable, 12), 14),
+                    &["{5}"],
+                ),
+                &["Alias"],
+            ),
+            anonymous_field("app.TestRun.aux", "extra", 13),
+            spanning(typed("app", "Alias", SymbolKind::Struct, 22), 24),
+            member("app.Alias", "Name", SymbolKind::Field, 23),
+        ],
+        Vec::new(),
+    );
+    caller.local_symbols = (1..=6).map(SymbolId).collect();
+    caller.uses = vec![
+        used_in(0, "want", "{1}", 6),
+        used_in(0, "want", "{3}", 11),
+        used_in(0, "Name", "{5}", 15),
+        used_in(0, "extra", "{5}", 16),
+    ];
+
+    let graph = graph(&[caller]);
+
+    assert_eq!(
+        sites_of(&graph, "tests.want"),
+        [("app.TestRun".to_owned(), 11, 85)],
+        "the first value's struct holds no field of the name"
+    );
+    assert_eq!(
+        sites_of(&graph, "Alias.Name"),
+        [("app.TestRun".to_owned(), 15, 85)],
+        "the value holds its struct's embedded types"
+    );
+    assert_eq!(
+        sites_of(&graph, "aux.extra"),
+        [("app.TestRun".to_owned(), 16, 85)]
+    );
+}
+
 #[test]
 fn a_member_whose_type_the_path_cannot_reach_binds_only_the_one_field_of_its_file() {
     let mut caller = file(
