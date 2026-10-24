@@ -142,6 +142,59 @@ fn a_module_outside_the_repository_adds_no_include() {
 }
 
 #[test]
+fn an_absolute_import_of_a_module_the_repository_does_not_hold_binds_its_names_outside_it() {
+    let extraction = resolve(
+        &MemoryRepository::of_paths([
+            "pkg/service.py",
+            "app/__init__.py",
+            "app/config.py",
+            "tools/envflags.py",
+            "vendor/code_index/search.py",
+        ]),
+        b"import json\nimport os.path\nimport xml.etree as tree\n\
+          from sphinx.util import Field, Typed as T\nfrom outside import *\nfrom . import missing\n\
+          import app.config\nimport app.native\nfrom envflags import envbool\n\
+          from code_index import search\n",
+        "pkg/service.py",
+    );
+    let bindings: Vec<(Option<&str>, &str)> = (extraction.bindings.iter())
+        .inspect(|binding| assert_eq!(binding.target_dir, None))
+        .map(|binding| (binding.alias.as_deref(), binding.last_segment.as_str()))
+        .collect();
+
+    assert_eq!(
+        bindings,
+        [
+            (None, "json"),
+            (None, "os"),
+            (Some("tree"), "etree"),
+            (Some("Field"), "util"),
+            (Some("T"), "util"),
+        ]
+    );
+}
+
+#[test]
+fn an_aliased_import_keeps_the_imported_names_as_written() {
+    let extraction = resolve(
+        &MemoryRepository::default(),
+        b"import numpy as np\nfrom sphinx.util import Field as F, Typed\n",
+        "pkg/service.py",
+    );
+    let imports: Vec<(&str, Vec<&str>)> = (extraction.imports.iter())
+        .map(|import| {
+            let names = import.names.iter().map(String::as_str).collect();
+            (import.module.as_str(), names)
+        })
+        .collect();
+
+    assert_eq!(
+        imports,
+        [("numpy", vec![]), ("sphinx.util", vec!["Field", "Typed"])]
+    );
+}
+
+#[test]
 fn a_single_dot_imports_from_the_package_of_the_file() {
     let targets = includes(
         &["pkg/service.py", "pkg/name.py", "pkg/__init__.py"],

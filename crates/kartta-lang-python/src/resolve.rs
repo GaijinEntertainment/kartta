@@ -2,10 +2,11 @@ use std::iter;
 
 use kartta_lang::path::{base, child, dir, has_component, join};
 use kartta_lang::{
-    Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
+    Extraction, ImportBinding, ImportRef, IncludeRef, RawDirective, RawExtraction, Repository,
+    Resolver, SymbolFlags,
 };
 
-use crate::walk::IMPORT_FORM;
+use crate::walk::{FUTURE_FORM, IMPORT_FORM, MODULE_FORM};
 
 pub(crate) struct Modules;
 
@@ -29,14 +30,23 @@ impl Resolver for Modules {
             path,
             includes: Vec::new(),
         };
-        for directive in directives {
+        for mut directive in directives {
             let found = imports.includes.len();
-            if directive.form == IMPORT_FORM {
-                imports.resolve(&directive.spec, &directive.names);
+            let imported = match directive.form {
+                IMPORT_FORM => directive.names.len() / 2,
+                MODULE_FORM => 0,
+                _ => directive.names.len(),
+            };
+            if directive.form != FUTURE_FORM {
+                imports.resolve(&directive.spec, &directive.names[..imported]);
             }
             if imports.includes.len() > found {
                 continue;
             }
+            if directive.form != FUTURE_FORM {
+                imports.bind_outside(&mut extraction.bindings, &directive, imported);
+            }
+            directive.names.truncate(imported);
             extraction.imports.push(ImportRef {
                 module: directive.spec,
                 names: directive.names,
@@ -71,6 +81,75 @@ impl Imports<'_> {
             Found::Module => {}
             Found::Nowhere => self.namespace(&module, names),
         }
+    }
+
+    // constraint: a name an absolute import of a module the repository does not hold binds holds that module's code,
+    // so a call through it or of it binds no definition of the repository, as `json.dumps()` after `import json`; a
+    // relative import names the package's own code, a wildcard import binds no name it writes, and `import a.b`
+    // binds `a`, which the repository can hold where it does not hold `a.b`; a module file of the repository that
+    // no anchor reaches, or a submodule file of an imported name, is most often reached through a `sys.path` entry,
+    // so its import binds nothing
+    // shortcut: a package that only its `__init__.py` holds is not looked for past the anchors, since every
+    // initializer of the tree shares that name and the probe would read each of them per import; look for it once a
+    // resolver keeps the tree's package directories
+    fn bind_outside(
+        &self,
+        bindings: &mut Vec<ImportBinding>,
+        directive: &RawDirective,
+        imported: usize,
+    ) {
+        let spec = directive.spec.as_str();
+        let module = dotted_path(spec);
+        let (names, aliases) = directive.names.split_at(imported);
+        if spec.starts_with('.')
+            || module.is_empty()
+            || self.holds_elsewhere(&module)
+            || (names.iter()).any(|name| self.holds_elsewhere(&child(&module, name)))
+        {
+            return;
+        }
+        let last_segment = base(&module);
+        if directive.form == MODULE_FORM {
+            let alias = directive.names.first().cloned();
+            let head = module.split('/').next().unwrap_or(&module);
+            if alias.is_none()
+                && head.len() < module.len()
+                && (self.holds(head) || self.holds_elsewhere(head))
+            {
+                return;
+            }
+            bindings.push(ImportBinding {
+                last_segment: if alias.is_some() { last_segment } else { head }.to_owned(),
+                alias,
+                target_dir: None,
+            });
+            return;
+        }
+        bindings.extend(
+            names
+                .iter()
+                .zip(aliases)
+                .map(|(name, alias)| ImportBinding {
+                    alias: Some(if alias.is_empty() { name } else { alias }.clone()),
+                    target_dir: None,
+                    last_segment: last_segment.to_owned(),
+                }),
+        );
+    }
+
+    fn holds(&self, module: &str) -> bool {
+        anchors(self.path).any(|anchor| self.probe(&child(anchor, module)).is_some())
+    }
+
+    fn holds_elsewhere(&self, module: &str) -> bool {
+        [".py", ".pyi"].into_iter().any(|extension| {
+            let file = format!("{module}{extension}");
+            self.repository.files_named(base(&file)).any(|found| {
+                found
+                    .strip_suffix(&file)
+                    .is_some_and(|dir| dir.is_empty() || dir.ends_with('/'))
+            })
+        })
     }
 
     // constraint: an absolute module is probed from the repository root first, then from each directory around the
