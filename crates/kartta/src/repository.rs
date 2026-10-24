@@ -1,10 +1,11 @@
 use std::cell::RefCell;
 use std::hash::{BuildHasher, Hasher};
+use std::path::Path;
 use std::sync::OnceLock;
 use std::{fs, io, iter};
 
 use foldhash::fast::{FixedState, FoldHasher};
-use kartta_fs::{Entry, EntryKind, Index, ListOptions, RefreshOutcome};
+use kartta_fs::{Entry, EntryKind, FileStamp, Index, ListOptions, RefreshOutcome};
 use kartta_lang::{Repository, path};
 
 pub(crate) struct IndexRepository<'i> {
@@ -24,12 +25,28 @@ pub(crate) enum Query {
 }
 
 /// What a resolver asked the repository while it was built: a hash of each question and of each answer it read, the
-/// questions alone, and the files it read.
+/// questions alone, and the files the index held that it read.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Configuration {
     pub(crate) answers: u64,
     pub(crate) asked: Box<[u32]>,
-    pub(crate) read: Box<[Box<str>]>,
+    pub(crate) read: Box<[ReadFile]>,
+}
+
+/// A file a resolver read while it was built, and its stamp from just before the read, `None` when it had none to
+/// trust.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ReadFile {
+    pub(crate) path: Box<str>,
+    pub(crate) stamp: Option<FileStamp>,
+}
+
+impl ReadFile {
+    /// Whether the file under `root` holds now what the resolver read: its stamp then and now are trusted and equal.
+    pub(crate) fn unchanged(&self, root: &Path) -> bool {
+        self.stamp
+            .is_some_and(|read| FileStamp::of(&root.join(&*self.path)) == Some(read))
+    }
 }
 
 enum Asking {
@@ -37,7 +54,7 @@ enum Asking {
     Configuration {
         answers: FoldHasher<'static>,
         asked: Vec<u32>,
-        read: Vec<Box<str>>,
+        read: Vec<ReadFile>,
     },
 }
 
@@ -114,19 +131,25 @@ pub(crate) fn reached_by_presence(path: &str) -> [u32; 5] {
 fn record(query: Query, text: &str) {
     ASKING.with_borrow_mut(|asking| match asking {
         Some(Asking::File(asked)) => asked.push(self::asked(query, text)),
-        Some(Asking::Configuration {
-            answers,
-            asked,
-            read,
-        }) => {
+        Some(Asking::Configuration { answers, asked, .. }) => {
             asked.push(self::asked(query, text));
             answers.write_u8(query as u8);
             answers.write(text.as_bytes());
-            if matches!(query, Query::Read) {
-                read.push(text.into());
-            }
         }
         None => {}
+    });
+}
+
+/// Files `path`, stamped by `stamp`, among the files the resolver being built on this thread read; stamps nothing
+/// for a file's resolution.
+fn record_read(path: &str, stamp: impl FnOnce() -> Option<FileStamp>) {
+    ASKING.with_borrow_mut(|asking| {
+        if let Some(Asking::Configuration { read, .. }) = asking {
+            read.push(ReadFile {
+                path: path.into(),
+                stamp: stamp(),
+            });
+        }
     });
 }
 
@@ -381,7 +404,11 @@ impl Repository for IndexRepository<'_> {
     fn read(&self, path: &str) -> io::Result<Vec<u8>> {
         self.ask(Query::Read, path);
         let read = if self.holds_file(path) {
-            fs::read(self.index.root().join(path))
+            let full = self.index.root().join(path);
+            if self.records {
+                record_read(path, || FileStamp::of(&full));
+            }
+            fs::read(full)
         } else {
             Err(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -460,8 +487,6 @@ fn folded_hash(path: &str) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use kartta_fs::BuildOptions;
 
     use super::*;
