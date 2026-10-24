@@ -1,4 +1,5 @@
 use std::cell::OnceCell;
+use std::cmp::Reverse;
 use std::rc::Rc;
 
 use foldhash::fast::FixedState;
@@ -173,13 +174,15 @@ impl<'g> Cascade<'g> {
         name: Str,
     ) -> Option<Result<Bound, UseMiss>> {
         let Some(owner) = self.bare_owner(path) else {
-            return Some(Err(UseMiss::Elsewhere));
+            let value = self.namespace_value(site, path, &self.data_named(name));
+            return Some(value.ok_or(UseMiss::Elsewhere));
         };
         let written = self.spelling(path);
         let named = self.data_named(name);
+        let value = self.namespace_value(site, path, &named);
         let declared = named.fields.with_owner(self.graph, owner);
         if let Some(found) = self.reached_owner(site, &declared, written) {
-            return Some(found);
+            return Some(self.unless_namespace_value(found, value));
         }
         let mut methods: Vec<SymbolAt> = self
             .named(name)
@@ -197,10 +200,14 @@ impl<'g> Cascade<'g> {
             methods.retain(|&at| self.is_of_the_kind(on_a_class, at));
         }
         if !methods.is_empty() {
-            return Some(match self.nearest_to(site, &methods, written) {
+            let found = match self.nearest_to(site, &methods, written) {
                 Some(Twin::Member(at) | Twin::Namesake(at)) => Ok((at, confidence::RECEIVER)),
                 _ => Err(UseMiss::Ambiguous),
-            });
+            };
+            return Some(self.unless_namespace_value(found, value));
+        }
+        if let Some(value) = value {
+            return Some(Ok(value));
         }
         let types: Vec<SymbolAt> = self
             .named(owner)
@@ -212,6 +219,71 @@ impl<'g> Cascade<'g> {
             return Some(Err(UseMiss::Elsewhere));
         };
         self.inherited_by(site, ty.member(), &named)
+    }
+
+    // constraint: a class member is found by its class's bare name, so a namesake class elsewhere, `other::detail`,
+    // holds a member of what `cfg::detail::scale` spells; a namespace value of the qualified name the scope and the
+    // name spell is meant before it, unless the member takes that qualified name itself, as the class the scope names
+    // shares it with its out-of-class definition
+    fn unless_namespace_value(
+        &self,
+        found: Result<Bound, UseMiss>,
+        value: Option<Bound>,
+    ) -> Result<Bound, UseMiss> {
+        match (found, value) {
+            (Ok((member, _)), Some((value, _)))
+                if self.graph.sym(member).qualified_name
+                    == self.graph.sym(value).qualified_name =>
+            {
+                found
+            }
+            (_, Some(value)) => Ok(value),
+            (found, None) => found,
+        }
+    }
+
+    // constraint: a scope that holds no member of the name names a namespace, which emits no symbol, so its value is
+    // the one outside every owner whose qualified name is the scope and the name; C++ looks a qualified name up from
+    // the scopes around the use outward, `detail::scale` inside `cfg` naming `cfg::detail::scale` first, and from the
+    // root alone where the scope is written from it; a member's own qualified name leaves its namespaces out, so the
+    // scopes around it are its class's; the value must lie in a file the use's file reaches
+    fn namespace_value(&self, site: SymbolAt, path: Str, named: &DataNamed<'_>) -> Option<Bound> {
+        let separator = self.conventions.scope_separator?;
+        let strings = &self.graph.strings;
+        let written = strings.resolve(path);
+        let (written, rooted) = written
+            .strip_prefix(separator)
+            .map_or((written, false), |written| (written, true));
+        let around = self.scope_around(site);
+        let depth_of = |at: SymbolAt| {
+            let symbol = self.graph.sym(at);
+            let scope = strings
+                .resolve(symbol.qualified_name)
+                .strip_suffix(strings.resolve(symbol.name))?
+                .strip_suffix(separator)?
+                .strip_suffix(written)?;
+            if scope.is_empty() {
+                return Some(0);
+            }
+            let enclosing = scope.strip_suffix(separator)?;
+            let inside = around
+                .strip_prefix(enclosing)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(separator));
+            (!rooted && inside).then_some(enclosing.len() + separator.len())
+        };
+        let (at, depth) = named
+            .values
+            .iter()
+            .copied()
+            .filter_map(|at| depth_of(at).map(|depth| (at, depth)))
+            .filter(|&(at, _)| self.reaches(site.file, at.file))
+            .min_by_key(|&(at, depth)| (Reverse(depth), self.graph.order_of(at)))?;
+        let confidence = if depth == 0 {
+            confidence::QUALIFIED
+        } else {
+            confidence::QUALIFIED_TAIL
+        };
+        Some((at, confidence))
     }
 
     // constraint: past the use's own file a field binds only where it is the one field of its name in the files the

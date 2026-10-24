@@ -8,12 +8,13 @@
 /// A call of a name imported from a file binds that file's export of the name, and a dot import binds its one export
 /// of the name. A receiver that names the module an included file declares binds that file's definition of the name.
 pub const IMPORT: u8 = 95;
-/// A callee written qualified binds the symbol of that qualified name.
+/// A callee or a namespace's value written qualified binds the symbol of that qualified name.
 pub const QUALIFIED: u8 = 90;
 /// A callee written with more scopes or fewer than a qualified name keeps binds by its trailing owner and name.
 ///
 /// `ns::inner::Widget::draw` binds `Widget::draw`, and `Widget::Kind` binds a member of `Widget` of a longer qualified
-/// name, `ns::Widget::Kind`, one that the caller's file sees first.
+/// name, `ns::Widget::Kind`, one that the caller's file sees first. A namespace's value written inside an enclosing
+/// namespace, `detail::scale` inside `cfg`, binds `cfg::detail::scale` here.
 pub const QUALIFIED_TAIL: u8 = 88;
 /// A receiver that names an owner binds that owner's member.
 pub const RECEIVER: u8 = 85;

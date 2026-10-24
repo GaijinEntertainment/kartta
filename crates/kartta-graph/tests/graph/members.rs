@@ -2,7 +2,7 @@
 //! tiers a C++ data site binds through: the own class, a base the lookup certainly finds, the type a declaration
 //! spells, the file, its includes and the files those reach, for fields and for namespace values.
 
-use kartta_graph::{Graph, SiteQuery};
+use kartta_graph::{Graph, Selector, SiteQuery};
 use kartta_lang::{
     Access, Callable, CallableRole, CallsOnValues, Conventions, Extraction, IncludeReach,
     InheritedMembers, OwnMembers, ReExport, Receiver, Symbol, SymbolId, SymbolKind, UntypedMembers,
@@ -814,6 +814,138 @@ fn a_bare_name_of_a_free_function_reads_it_as_a_value_where_its_file_or_includes
     assert!(
         !dead.iter().any(|&(name, _)| name == "on_event"),
         "a function passed as a value is reached, each overload of its qualified name with it: {dead:?}"
+    );
+}
+
+fn in_namespace(qualified: &str, kind: SymbolKind, line: u32) -> Symbol {
+    let name = qualified
+        .rsplit_once("::")
+        .map_or(qualified, |(_, name)| name);
+    let mut symbol = Symbol::new(name, kind, line, line);
+    qualified.clone_into(&mut symbol.qualified_name);
+    symbol
+}
+
+fn lines_at(graph: &Graph, name: &str, file: &str, line: u32) -> Vec<(u32, u8)> {
+    let selector = Selector::new(name, Some(file)).with_line(Some(line));
+    graph
+        .references(selector, SiteQuery::new(usize::MAX))
+        .expect("the name selects a symbol")
+        .sites
+        .iter()
+        .map(|site| (site.line, site.confidence))
+        .collect()
+}
+
+fn namespace_values() -> Graph {
+    let mut namesake_field = in_namespace("other::detail::scale", SymbolKind::Field, 6);
+    namesake_field.owner = Some("detail".to_owned());
+    let header = callables(
+        file(
+            "inc/cfg.h",
+            vec![
+                in_namespace("cfg::limit", SymbolKind::Variable, 3),
+                in_namespace("cfg::kDepth", SymbolKind::Constant, 4),
+                in_namespace("cfg::detail::scale", SymbolKind::Variable, 5),
+                in_namespace("other::detail", SymbolKind::Struct, 6),
+                namesake_field,
+                in_namespace("cfg::on_event", SymbolKind::Function, 7),
+                class("Config", [8, 8], &[]),
+                field("Config", "kLimit", 8),
+                in_namespace("eastl::npos", SymbolKind::Constant, 9),
+                in_namespace("cfg::inner::detail::scale", SymbolKind::Variable, 10),
+                in_namespace("Config::kLimit", SymbolKind::Constant, 11),
+            ],
+            &["inc/global.h"],
+        ),
+        CallableRole::Declaration,
+        &[(0, "cfg::limit")],
+    );
+    let mut nested = in_namespace("cfg::nested", SymbolKind::Function, 5);
+    nested.end_line = 6;
+    let mut widget = class("Widget", [8, 10], &[]);
+    "cfg::Widget".clone_into(&mut widget.qualified_name);
+    let mut user = callables(
+        file(
+            "src/use.cpp",
+            vec![
+                in_namespace("cfg::limit", SymbolKind::Variable, 2),
+                Symbol::new("budget", SymbolKind::Function, 3, 3),
+                nested,
+                in_namespace("cfg::inner::run", SymbolKind::Function, 7),
+                widget,
+                cpp_member("Widget", "draw", SymbolKind::Method, 9),
+            ],
+            &["inc/cfg.h"],
+        ),
+        CallableRole::Definition,
+        &[(0, "cfg::limit")],
+    );
+    let global = file(
+        "inc/global.h",
+        vec![in_namespace("detail::scale", SymbolKind::Variable, 1)],
+        &[],
+    );
+    user.uses = vec![
+        using(1, "limit", path("cfg"), 3),
+        using(1, "kDepth", path("cfg"), 3),
+        using(1, "scale", path("cfg::detail"), 3),
+        using(1, "kLimit", path("Config"), 3),
+        using(1, "on_event", path("::cfg"), 3),
+        using(1, "npos", path("std"), 3),
+        using(2, "scale", path("detail"), 5),
+        using(2, "scale", path("::detail"), 6),
+        using(3, "scale", path("detail"), 7),
+        using(5, "scale", path("detail"), 9),
+    ];
+
+    graph(cpp(), &[header, user, global])
+}
+
+#[test]
+fn a_value_a_namespace_qualifies_binds_the_value_of_that_qualified_name_from_the_innermost_scope() {
+    let graph = namespace_values();
+
+    assert_eq!(
+        lines_in(&graph, "cfg::limit"),
+        ("src/use.cpp", vec![(3, 90)]),
+        "a use bound to the header's declaration counts at the definition"
+    );
+    assert_eq!(lines_of(&graph, "kDepth"), [(3, 90)]);
+    assert_eq!(lines_of(&graph, "cfg::on_event"), [(3, 90)]);
+    assert_eq!(
+        lines_of(&graph, "cfg::detail::scale"),
+        [(3, 90), (5, 88), (9, 88)],
+        "a scope written inside a namespace, in a free function or a member, is looked up from that namespace first"
+    );
+    assert_eq!(
+        lines_of(&graph, "cfg::inner::detail::scale"),
+        [(7, 88)],
+        "the nearest enclosing namespace that holds the name wins over an outer one"
+    );
+    assert_eq!(
+        lines_at(&graph, "detail::scale", "inc/global.h", 1),
+        [(6, 90)],
+        "a scope written from the root reads the root's namespace alone, in a file the includes reach"
+    );
+    assert_eq!(
+        lines_of(&graph, "other::detail::scale"),
+        [],
+        "a namesake class's field in another namespace is not the value the scopes name"
+    );
+    assert_eq!(
+        lines_at(&graph, "Config::kLimit", "inc/cfg.h", 8),
+        [(3, 85)]
+    );
+    assert_eq!(
+        lines_at(&graph, "Config::kLimit", "inc/cfg.h", 11),
+        [],
+        "a class's member wins over a value outside the class of the same qualified name"
+    );
+    assert_eq!(
+        lines_of(&graph, "npos"),
+        [],
+        "a scope the graph holds neither as a class nor as a namespace of the value binds nothing"
     );
 }
 
