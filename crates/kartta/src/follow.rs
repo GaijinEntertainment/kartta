@@ -39,7 +39,7 @@ pub trait Followed: Send + Sync + 'static {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Watch {
     /// Why no watcher follows the tree any more, so that the engine takes a change in only through a refresh; `None`
-    /// while one does.
+    /// while one does. A restart that failed names what asked for it, such as a watcher that stopped.
     pub off: Option<String>,
     /// How many times the follow let its watcher go and started a new one over a refresh of the whole tree, because the
     /// watcher dropped changes, stopped, met the inotify limit, or saw its root deleted or moved.
@@ -76,7 +76,8 @@ impl Follower {
     /// the new watcher's own drain, so the engine holds what changed while it was built and while the watch restarted.
     ///
     /// `None` once [`Followed::watched`] was told why no watcher follows the tree: `watcher` is the error
-    /// [`Engine::build_watched`] answered, a refresh failed, or no new watcher could start.
+    /// [`Engine::build_watched`] answered, a refresh failed, or no new watcher could start. An error `watcher` holds
+    /// starts no new watcher and drains nothing, so the engine stays as built.
     #[must_use]
     pub fn caught_up(
         followed: &impl Followed,
@@ -105,9 +106,11 @@ impl Follower {
     /// the watcher reports, and answers the thread's handle, or `None` once [`Followed::watched`] was told the thread
     /// could not start.
     ///
-    /// The thread holds `followed` only while it refreshes it, and waits for a change a second at a time. It ends at
-    /// its next look once nothing else holds `followed` or [`Followed::token`] is cancelled, and lets the watcher go as
-    /// it ends. A follow that ends on a failure tells [`Followed::watched`] why, unless the token was cancelled.
+    /// The thread holds `followed` only while it refreshes it, and waits for a change a second at a time. After a
+    /// restart of its own it drains nothing: its next wait hands the new watcher's changes over. It ends at its next
+    /// look once nothing else holds `followed` or [`Followed::token`] is cancelled, and lets the watcher go as it ends.
+    /// A follow that ends on a failure tells [`Followed::watched`] why, unless the token was cancelled, so a refresh
+    /// the cancel made fail tells it nothing.
     pub fn follow<F: Followed>(self, followed: &Arc<F>) -> Option<JoinHandle<()>> {
         let restarts = self.restarts;
         let held = Arc::downgrade(followed);
