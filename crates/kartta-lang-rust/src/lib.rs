@@ -191,6 +191,7 @@ const CONVENTIONS: Conventions = {
     conventions.namespace_calls = NamespaceCalls::Unbound;
     conventions.owner_chain_separator = Some("::");
     conventions.runtime_methods = runtime::METHODS;
+    conventions.library_methods = runtime::LIBRARY_METHODS;
     conventions.own_type_receivers = Some(&["other"]);
     conventions.type_uses = TypeUses::Nowhere;
     conventions.member_calls = kartta_lang::MemberCalls::ModulePaths;
