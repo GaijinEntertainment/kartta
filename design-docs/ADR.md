@@ -484,10 +484,6 @@
   - Governs: `crates/kartta-lang-go/src/walk/uses.rs`, `crates/kartta-lang-go/src/walk/syntax.rs`, the Go
     `Conventions`, `SymbolFlags::is_reflected`
   - Revisit if: a Go file's walk can see its package's other files
-- [3.61 Name a Go anonymous struct by the names that lead to
-  it](./adr/3.61-name-a-go-anonymous-struct-by-the-names-that-lead-to-it.md)
-  - Governs: `crates/kartta-lang-go/src/walk/{anonymous,types}.rs`, `crates/kartta-graph/src/typed.rs`
-  - Revisit if: the type tier takes a field or a variable as the owner of its anonymous struct's fields
 - [3.62 Record TypeScript and JavaScript data sites through what a value
   declares](./adr/3.62-record-typescript-and-javascript-data-sites-through-what-a-value-declares.md)
   - Governs: `crates/kartta-lang-jsts/src/walk.rs`, `crates/kartta-lang-jsts/src/walk/uses.rs`,
@@ -750,6 +746,10 @@
     `annotation_macro`, `label_before_an_endif`), `crates/kartta-lang-cpp/src/lib.rs` (`extract`)
   - Revisit if: a `tree-sitter-cpp` release moves where the first tree's errors fall, or the files parsed twice grow
     well past 4% of a tree's C++ files
+- [3.170 Own a Go anonymous struct's fields by the field or the variable it
+  types](./adr/3.170-own-a-go-anonymous-struct-s-fields-by-the-field-or-the-variable-it-types.md)
+  - Governs: `crates/kartta-lang-go/src/walk/{anonymous,types}.rs`, `crates/kartta-graph/src/typed.rs`
+  - Revisit if: a path is read outside the file that spells it
 - [3.171 Bind a call through the import, type, qualified name or owner it is written
   on](./adr/3.171-bind-a-call-through-the-import-type-qualified-name-or-owner-it-is-written-on.md)
   - Governs: `crates/kartta-graph/src/resolve.rs` (`resolve_by_tiers`, `through_binding`,
@@ -920,4 +920,8 @@ _None._
 
 ## Superseded
 
-_None._
+- [3.61 Name a Go anonymous struct by the names that lead to
+  it](./adr/3.61-name-a-go-anonymous-struct-by-the-names-that-lead-to-it.md), by
+  [3.170](./adr/3.170-own-a-go-anonymous-struct-s-fields-by-the-field-or-the-variable-it-types.md)
+  - Governs: `crates/kartta-lang-go/src/walk/{anonymous,types}.rs`, `crates/kartta-graph/src/typed.rs`
+  - Revisit if: the type tier takes a field or a variable as the owner of its anonymous struct's fields
