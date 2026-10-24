@@ -1,7 +1,8 @@
 use std::any::Any;
 use std::cell::OnceCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::iter;
+use std::sync::Arc;
 
 use kartta_lang::path::{base, child, dir, join, shared_segments};
 use kartta_lang::{
@@ -12,11 +13,13 @@ use kartta_lang::{
 use crate::manifest;
 use crate::walk::{GLOB_FORM, MOD_TEST_FORM, USE_FORM};
 
-// constraint: each package maps to the root of its library, where its manifest names one
+// constraint: each package maps to the root of its library, where its manifest names one, and to the manifests of the
+// packages its code reaches, where its manifest names it
 #[derive(PartialEq)]
 pub(crate) struct Crates {
     packages: HashMap<String, Option<String>>,
     libraries: HashMap<String, Vec<Library>>,
+    dependencies: HashMap<String, Arc<str>>,
 }
 
 // constraint: a library is found by the name a path into it starts with, and every package that declares a library of
@@ -28,35 +31,53 @@ struct Library {
 }
 
 impl Crates {
-    // constraint: a package is a directory that holds a `Cargo.toml`, whose manifest is read only for the name and the
-    // root of its library, so a target other than the library that it places off the conventional layout is not a
-    // crate root here
+    // constraint: a package is a directory that holds a `Cargo.toml`, whose manifest is read only for the names and the
+    // root of its library and for the packages it depends on, so a target other than the library that it places off
+    // the conventional layout is not a crate root here
     pub(crate) fn new(repository: &dyn Repository) -> Self {
         let mut packages = HashMap::new();
         let mut libraries: HashMap<String, Vec<Library>> = HashMap::new();
-        for mut manifest in repository.files_named("Cargo.toml") {
-            let library = repository
-                .read(&manifest)
-                .ok()
-                .and_then(|content| manifest::library(&String::from_utf8_lossy(&content)));
-            manifest.truncate(manifest.rfind('/').unwrap_or(0));
-            let package = manifest;
-            let mut library_root = None;
-            if let Some((name, path)) = library
-                && let Some(root) = join(&package, path.as_deref().unwrap_or("src/lib.rs"))
-            {
-                library_root = Some(root.clone());
+        let mut named: HashMap<String, Vec<String>> = HashMap::new();
+        let mut depending = Vec::new();
+        let mut workspaces = HashMap::new();
+        for manifest_path in repository.files_named("Cargo.toml") {
+            let content = repository.read(&manifest_path).unwrap_or_default();
+            let content = String::from_utf8_lossy(&content);
+            let package = manifest_path[..manifest_path.rfind('/').unwrap_or(0)].to_owned();
+            if let Some(renames) = manifest::workspace_renames(&content) {
+                workspaces.insert(package.clone(), renames);
+            }
+            let Some(manifest) = manifest::read(&content) else {
+                packages.insert(package, None);
+                continue;
+            };
+            let (name, path) = manifest.library;
+            let library_root = join(&package, path.as_deref().unwrap_or("src/lib.rs"));
+            if let Some(root) = &library_root {
                 libraries.entry(name).or_default().push(Library {
                     package: package.clone(),
-                    root,
+                    root: root.clone(),
                 });
             }
+            named
+                .entry(manifest.package)
+                .or_default()
+                .push(manifest_path.clone());
+            depending.push(Depending {
+                package: package.clone(),
+                manifest: manifest_path,
+                dependencies: manifest.dependencies,
+                other_dependencies: manifest.other_dependencies,
+                inherited: manifest.inherited,
+            });
             packages.insert(package, library_root);
         }
+        inherit(&mut depending, &workspaces);
 
         Self {
             packages,
             libraries,
+            dependencies: reached(&depending, &named),
         }
     }
 
@@ -244,6 +265,77 @@ impl Crates {
     }
 }
 
+struct Depending {
+    package: String,
+    manifest: String,
+    dependencies: Vec<String>,
+    other_dependencies: Vec<String>,
+    inherited: Vec<String>,
+}
+
+// constraint: a member that inherits a dependency from its workspace, the nearest manifest around it that declares
+// one, depends on the package the workspace's entry names
+fn inherit(depending: &mut [Depending], workspaces: &HashMap<String, Vec<(String, String)>>) {
+    for package in depending
+        .iter_mut()
+        .filter(|package| !package.inherited.is_empty())
+    {
+        let mut around = package.package.as_str();
+        let renames: &[(String, String)] = loop {
+            if let Some(renames) = workspaces.get(around) {
+                break renames;
+            }
+            if around.is_empty() {
+                break &[];
+            }
+            around = &around[..around.rfind('/').unwrap_or(0)];
+        };
+        let names = (package.dependencies.iter_mut()).chain(package.other_dependencies.iter_mut());
+        for name in names.filter(|name| package.inherited.contains(name)) {
+            if let Some((_, renamed)) = renames.iter().find(|(key, _)| key == name) {
+                name.clone_from(renamed);
+            }
+        }
+    }
+}
+
+// constraint: a package's code reaches the code of every package it is built with: those it depends on of any kind,
+// and those each of them depends on in every build of its own code, however deep, so not their optional ones; a
+// dependency is every package of its name the tree holds, as the versions of one crate side by side in a cargo
+// registry are
+fn reached(
+    depending: &[Depending],
+    named: &HashMap<String, Vec<String>>,
+) -> HashMap<String, Arc<str>> {
+    let manifests = |names: &[String]| -> Vec<&str> {
+        (names.iter())
+            .filter_map(|name| named.get(name))
+            .flatten()
+            .map(String::as_str)
+            .collect()
+    };
+    let built_with: HashMap<&str, Vec<&str>> = depending
+        .iter()
+        .map(|package| (package.manifest.as_str(), manifests(&package.dependencies)))
+        .collect();
+    depending
+        .iter()
+        .map(|package| {
+            let mut reached: HashSet<&str> = HashSet::new();
+            let mut pending = manifests(&package.dependencies);
+            pending.extend(manifests(&package.other_dependencies));
+            while let Some(manifest) = pending.pop() {
+                if reached.insert(manifest) {
+                    pending.extend(built_with.get(manifest).into_iter().flatten());
+                }
+            }
+            let mut reached: Vec<&str> = reached.into_iter().collect();
+            reached.sort_unstable();
+            (package.package.clone(), reached.join("\n").into())
+        })
+        .collect()
+}
+
 // constraint: the file whose paths resolve, and the root of its crate, looked up once a path through `crate::` or
 // `super::` asks for it
 struct Caller<'p> {
@@ -356,6 +448,7 @@ impl Resolver for Crates {
             .packages
             .contains_key(role.package)
             .then(|| child(role.package, "Cargo.toml"));
+        extraction.dependencies = self.dependencies.get(role.package).cloned();
         let flags = SymbolFlags::empty()
             .with_test(role.test)
             .with_generated(is_generated_path(path));
