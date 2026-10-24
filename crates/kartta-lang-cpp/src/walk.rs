@@ -171,16 +171,24 @@ impl<'s, 't> Replayer<'s, 't> {
             }
             "alias_declaration" => {
                 if let Some(name) = node.child_by_field_name("name") {
-                    self.push_type_alias(text(name, self.source), node);
+                    let aliased = node
+                        .child_by_field_name("type")
+                        .filter(|written| written.child_by_field_name("declarator").is_none())
+                        .and_then(|written| written.child_by_field_name("type"));
+                    self.push_type_alias(text(name, self.source), node, aliased);
                 }
             }
             "type_definition" => {
+                let aliased = node.child_by_field_name("type");
                 let mut cursor = node.walk();
                 let names = node
                     .children_by_field_name("declarator", &mut cursor)
-                    .filter_map(alias_declarator_name);
-                for name in names {
-                    self.push_type_alias(text(name, self.source), node);
+                    .filter_map(|declarator| {
+                        Some((alias_declarator_name(declarator)?, declarator))
+                    });
+                for (name, declarator) in names {
+                    let plain = aliased.filter(|_| name == declarator);
+                    self.push_type_alias(text(name, self.source), node, plain);
                 }
             }
             "template_declaration" => {
@@ -359,8 +367,13 @@ impl<'s, 't> Replayer<'s, 't> {
         self.push_symbol(symbol);
     }
 
-    fn push_type_alias(&mut self, name: String, node: Node<'_>) {
+    fn push_type_alias(&mut self, name: String, node: Node<'_>, aliased: Option<Node<'_>>) {
         let mut symbol = exported_symbol(name, SymbolKind::TypeAlias, node);
+        symbol.value_types.extend(
+            aliased
+                .and_then(|written| self.aliased_class(written))
+                .map(str::to_owned),
+        );
         self.nest_in_class(&mut symbol, node);
         self.apply_linkage(&mut symbol, node);
         self.apply_flags(&mut symbol);
@@ -475,6 +488,19 @@ impl<'s, 't> Replayer<'s, 't> {
 
     // constraint: a template parameter names a type or a value the instantiation supplies, so `Compare()` and `F()`
     // inside the template call no definition of that name, and `: public Compare` derives from none
+    // constraint: a scope holding a template's arguments, `std::vector<T>::iterator`, or naming a template parameter,
+    // `T::iterator`, is no class a receiver's spelling can name, and its bare name would name another one
+    fn aliased_class(&self, written: Node<'_>) -> Option<&'s str> {
+        let written = match written.kind() {
+            "dependent_type" => written.named_child(0)?,
+            _ => written,
+        };
+        let class = self.owner_named(written)?;
+        let head = class.trim_start_matches("::").split("::").next()?;
+        let scoped = written.kind() != "qualified_identifier" || class.contains("::");
+        (scoped && !self.is_template_parameter(head)).then_some(class)
+    }
+
     fn is_template_parameter(&self, callee: &str) -> bool {
         self.templates
             .iter()
@@ -2690,6 +2716,43 @@ template<> struct Traits<int> { int size; };
                 ("box", vec!["Box"]),
                 ("slot", vec!["*eastl::unique_ptr"]),
                 ("many", vec!["eastl::unique_ptr"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_type_alias_names_the_class_it_aliases_as_its_value_type() {
+        let raw = extract(
+            b"template <class T> struct List {\n  typedef Impl<T, List> iterator;\n  typedef T value_type;\n\
+              typedef typename T::iterator inner;\n  typedef typename Base::iterator base_iterator;\n};\n\
+              typedef List<Node> NodeList;\ntypedef ns::Box<int> IntBox;\ntypedef std::vector<Node>::iterator It;\n\
+              typedef Node *NodePtr, Plain;\nusing Alias = ::ns::Lock;\nusing Ref = Lock &;\n\
+              typedef struct { int x; } Anon;\ntypedef unsigned long ulong_t;\n",
+        );
+
+        let types: Vec<(&str, &[String])> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.kind == SymbolKind::TypeAlias)
+            .map(|symbol| (symbol.name.as_str(), symbol.value_types.as_slice()))
+            .collect();
+        let named = |spelled: &str| vec![spelled.to_owned()];
+        assert_eq!(
+            types,
+            [
+                ("iterator", named("Impl").as_slice()),
+                ("value_type", &[][..]),
+                ("inner", &[][..]),
+                ("base_iterator", named("Base::iterator").as_slice()),
+                ("NodeList", named("List").as_slice()),
+                ("IntBox", named("ns::Box").as_slice()),
+                ("It", &[][..]),
+                ("NodePtr", &[][..]),
+                ("Plain", named("Node").as_slice()),
+                ("Alias", named("::ns::Lock").as_slice()),
+                ("Ref", &[][..]),
+                ("Anon", &[][..]),
+                ("ulong_t", &[][..]),
             ]
         );
     }
