@@ -65,12 +65,14 @@ other receiver the instances' method first. Where
 a language's includes are transitive, as C++'s are, a call of a name at most 32 definitions share that no included file
 defines binds the one file the includes reach in turn that defines it, a member call only a member. Where scopes nest,
 as C++'s do, a member call on an operand of a declared class binds the member of the class of that name nearest the
-caller's file, and of namesakes equally near, the one the class's spelling names from the caller's scope outward:
-namesakes of one qualified name, a template and its specializations, bind the first, and namesakes of other names it
-names none of leave the call ambiguous; where that class declares no member of the name, the call binds the member
+caller's file, and of namesakes equally near, the one the class's spelling names from the caller's scope outward: of a
+template and its specializations, which share one qualified name, the explicit specialization that takes the template
+arguments the spelling writes, else the partial specialization that takes them as written, else the primary template
+where no partial specialization may take them, else the first, as of copies of one class, and namesakes of other names
+it names none of leave the call ambiguous; where that class declares no member of the name, the call binds the member
 of its bases that the lookup of a bare call in its member finds. Where a language says so, a member call on a value
-takes nothing from the callables nearest the caller. A use outside a call binds more
-narrowly: through the import its qualifier names, else a package-level definition of its own file, of a dot import, or
+takes nothing from the callables nearest the caller. A use outside a call binds more narrowly: through the import its
+qualifier names, else a package-level definition of its own file, of a dot import, or
 of its package directory, and where a language's uses reach its imports, of the one included file that declares it or
 of a re-export from one. A member a use takes on a value binds a field or a method through the type path its language
 spells, or of the owner a path names in its own file or in one included file, or the definition outside every owner of
@@ -84,12 +86,14 @@ lookup of a bare call certainly finds; a member on a value binds the field of th
 one base of it that declares the name, else the one field of the name in the file, then in its includes, then, for a
 name at most 32 fields share, in the files those reach. A member defined in a header its class's header includes, an
 inline implementation header, reaches the classes its declaration's file sees too. Of namesake classes that hold the
-field, the own class is the method's, and a declared one is the one its spelling names from the use's scope outward;
-namesakes of one qualified name, a template and its specializations, bind none, nor do namesakes the spelling names none
-of; a method taken as a value, `&Box<T>::fill`, binds the first of namesakes of one qualified name, as a call does. Of
-namesakes without the field, the bases of the one the spelling names are searched, else those of the first. A bare
-name past the class binds the one namespace value of the name its file, else its includes, else, for a name at most 32
-values share, the files those reach declare. Each tier's confidence is a constant of `kartta_graph::confidence`. No edge
+field, the own class is the method's, the one a member defined outside it declares it in, else the one its scope's
+template arguments name, and a declared one is the one its spelling names from the use's scope outward, of a template
+and its specializations the one its template arguments name as a call's do; other namesakes of one qualified name bind
+none, nor do namesakes the spelling names none of; a method taken as a value, `&Box<T>::fill`, binds as a call does,
+the specialization its template arguments name, else the first of namesakes of one qualified name. Of namesakes
+without the field, the bases of the one the spelling names are searched, else those of the first. A bare name past
+the class binds the one namespace value of the name its file, else its includes, else, for a name at most 32 values
+share, the files those reach declare. Each tier's confidence is a constant of `kartta_graph::confidence`. No edge
 is stored, so nothing a file holds goes stale when another file changes.
 
 ## Answers
