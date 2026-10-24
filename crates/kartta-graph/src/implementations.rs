@@ -146,13 +146,20 @@ impl<'g> Types<'g> {
                 .filter(|&at| at != chosen && self.is_selectable(at, selector)),
         );
         let count = others.len();
+        let uncounted: Vec<SymbolAt> = others
+            .iter()
+            .copied()
+            .filter(|at| !implementor_counts.contains_key(at))
+            .collect();
+        let counted = self.implementors_of_each(&uncounted);
         let ranked = others
             .into_iter()
             .map(|at| {
                 let count = implementor_counts
                     .get(&at)
                     .copied()
-                    .unwrap_or_else(|| distinct(self.implementors_of(at)).len());
+                    .or_else(|| counted.get(&at).map(Vec::len))
+                    .unwrap_or_default();
                 (at, count)
             })
             .collect();
@@ -213,94 +220,141 @@ impl Types<'_> {
                 implementor_counts: ImplementorCounts::default(),
             });
         }
-        let first_implementors = distinct(self.implementors_of(first));
-        let mut implementor_counts = ImplementorCounts::default();
-        implementor_counts.insert(first, first_implementors.len());
-        let mut best = (first, first_implementors);
+        let mut implementors = self.implementors_of_each(&candidates);
+        let count = |at: SymbolAt| implementors.get(&at).map_or(0, Vec::len);
+        let mut best = first;
         for &at in others {
-            let implementors = distinct(self.implementors_of(at));
-            implementor_counts.insert(at, implementors.len());
-            if implementors.len() > best.1.len() {
-                best = (at, implementors);
+            if count(at) > count(best) {
+                best = at;
             }
         }
+        let implementor_counts = implementors
+            .iter()
+            .map(|(&at, found)| (at, found.len()))
+            .collect();
         Some(Selected {
-            root: best.0,
-            direct: Some(best.1),
+            root: best,
+            direct: implementors.remove(&best),
             implementor_counts,
         })
     }
 
     fn implementors_of(&self, ty: SymbolAt) -> Vec<SymbolAt> {
-        let key = self.graph.sym(ty).name;
         let mut implementors = Vec::new();
-        for &slot in self.graph.parenting_files(key) {
-            self.declared_in(slot, ty, &mut implementors);
-            self.asserted_in(slot, ty, &mut implementors);
-        }
+        let asked = Namesakes {
+            name: self.graph.sym(ty).name,
+            types: std::slice::from_ref(&ty),
+        };
+        self.implementors_among(asked, &mut |_, implementor| implementors.push(implementor));
         implementors
     }
 
-    fn declared_in(&self, slot: u32, ty: SymbolAt, implementors: &mut Vec<SymbolAt>) {
-        let key = self.graph.sym(ty).name;
-        let declared = self
-            .graph
-            .file(slot)
-            .parents
-            .iter()
-            .map(|parent| (SymbolAt::new(slot, parent.symbol), parent))
-            .filter(|&(child, parent)| {
-                child != ty
-                    && is_implementor_kind(self.graph.sym(child).kind)
-                    && self.graph.listing_key(parent.written) == Some(key)
-                    && self.names(child, parent, ty)
-            })
-            .map(|(child, _)| child);
-        implementors.extend(declared);
+    fn implementors_of_each(&self, types: &[SymbolAt]) -> ImplementorsOfEach {
+        let mut types = types.to_vec();
+        types.sort_unstable_by_key(|&at| (self.graph.sym(at).name, at));
+        types.dedup();
+        let mut found: Vec<(SymbolAt, SymbolAt)> = Vec::new();
+        for namesakes in types.chunk_by(|&a, &b| self.graph.sym(a).name == self.graph.sym(b).name) {
+            let asked = Namesakes {
+                name: self.graph.sym(namesakes[0]).name,
+                types: namesakes,
+            };
+            self.implementors_among(asked, &mut |ty, implementor| found.push((ty, implementor)));
+        }
+        found.sort_unstable();
+        found.dedup();
+        let mut each: ImplementorsOfEach = types.iter().map(|&ty| (ty, Vec::new())).collect();
+        for (ty, implementor) in found {
+            each.entry(ty).or_default().push(implementor);
+        }
+        each
     }
 
-    fn asserted_in(&self, slot: u32, ty: SymbolAt, implementors: &mut Vec<SymbolAt>) {
-        let key = self.graph.sym(ty).name;
-        let asserted = self
-            .graph
-            .file(slot)
-            .assertions
-            .iter()
-            .filter(|assertion| {
-                self.graph.listing_key(assertion.interface) == Some(key)
-                    && self.file_names(slot, assertion.interface, ty)
-            })
-            .filter_map(|assertion| self.asserted_type(slot, assertion.type_name))
-            .filter(|&implementor| implementor != ty);
-        implementors.extend(asserted);
+    fn implementors_among(&self, asked: Namesakes<'_>, found: &mut impl FnMut(SymbolAt, SymbolAt)) {
+        for &slot in self.graph.parenting_files(asked.name) {
+            self.declared_in(slot, asked, found);
+            self.asserted_in(slot, asked, found);
+        }
     }
 
-    fn names(&self, child: SymbolAt, parent: &Parent, ty: SymbolAt) -> bool {
+    fn declared_in(
+        &self,
+        slot: u32,
+        asked: Namesakes<'_>,
+        found: &mut impl FnMut(SymbolAt, SymbolAt),
+    ) {
+        for parent in &self.graph.file(slot).parents {
+            let child = SymbolAt::new(slot, parent.symbol);
+            if !is_implementor_kind(self.graph.sym(child).kind)
+                || self.graph.listing_key(parent.written) != Some(asked.name)
+            {
+                continue;
+            }
+            self.named_by(child, parent, asked)
+                .into_iter()
+                .filter(|&ty| ty != child)
+                .for_each(|ty| found(ty, child));
+        }
+    }
+
+    fn asserted_in(
+        &self,
+        slot: u32,
+        asked: Namesakes<'_>,
+        found: &mut impl FnMut(SymbolAt, SymbolAt),
+    ) {
+        for assertion in &self.graph.file(slot).assertions {
+            if self.graph.listing_key(assertion.interface) != Some(asked.name) {
+                continue;
+            }
+            let named = self.file_named_by(slot, assertion.interface, asked);
+            if named.is_empty() {
+                continue;
+            }
+            let Some(implementor) = self.asserted_type(slot, assertion.type_name) else {
+                continue;
+            };
+            named
+                .into_iter()
+                .filter(|&ty| ty != implementor)
+                .for_each(|ty| found(ty, implementor));
+        }
+    }
+
+    fn named_by(&self, child: SymbolAt, parent: &Parent, asked: Namesakes<'_>) -> Vec<SymbolAt> {
         let as_written = self.graph.strings.resolve(parent.written);
         let written = as_written.trim_start_matches(QUALIFIER_SEPARATORS);
         let conventions = self.cascade.conventions;
         if conventions.directory_packages {
-            return self.names_in_packages(child.file, written, ty);
+            return self.in_packages(child.file, written, asked);
         }
         if conventions.owner_chain_separator.is_some() {
             if let Some(owner) = self.cascade.base_owner(child, as_written, is_parent) {
-                return owner == self.graph.sym(ty).qualified_name;
+                return asked
+                    .types
+                    .iter()
+                    .copied()
+                    .filter(|&ty| self.graph.sym(ty).qualified_name == owner)
+                    .collect();
             }
             if !written.contains(QUALIFIER_SEPARATORS) {
-                return false;
+                return Vec::new();
             }
         }
         if parent.written_from_root {
-            return self.nearest_of_its_name(child.file, Spelling::FromRoot(written), ty);
+            return self.nearest_of_its_name(child.file, Spelling::FromRoot(written), asked);
         }
-        self.names_from_scopes(child, written, ty)
+        self.named_from_scopes(child, written, asked)
     }
 
-    fn names_from_scopes(&self, child: SymbolAt, written: &str, ty: SymbolAt) -> bool {
-        let nearest_spelled =
-            || self.nearest_of_its_name(child.file, Spelling::Written(written), ty);
+    fn named_from_scopes(
+        &self,
+        child: SymbolAt,
+        written: &str,
+        asked: Namesakes<'_>,
+    ) -> Vec<SymbolAt> {
         let Some(separator) = self.cascade.conventions.scope_separator else {
-            return nearest_spelled();
+            return self.nearest_of_its_name(child.file, Spelling::Written(written), asked);
         };
         let enclosing = self
             .graph
@@ -314,28 +368,48 @@ impl Types<'_> {
         let depth = |at: SymbolAt| lookup_depth(qualified(at), enclosing, written, separator);
         let reached = self
             .graph
-            .named(self.graph.sym(ty).name)
+            .named(asked.name)
             .iter()
             .copied()
             .filter(|&at| self.is_type_at(at))
             .filter_map(depth)
             .max();
-        reached.map_or_else(nearest_spelled, |innermost| {
-            depth(ty) == Some(innermost)
-                && self.nearest_of_its_name(child.file, Spelling::FromRoot(qualified(ty)), ty)
-        })
+        let Some(innermost) = reached else {
+            return self.nearest_of_its_name(child.file, Spelling::Written(written), asked);
+        };
+        let mut reached: Vec<SymbolAt> = asked
+            .types
+            .iter()
+            .copied()
+            .filter(|&at| depth(at) == Some(innermost))
+            .collect();
+        reached.sort_unstable_by_key(|&at| self.graph.sym(at).qualified_name);
+        reached
+            .chunk_by(|&a, &b| self.graph.sym(a).qualified_name == self.graph.sym(b).qualified_name)
+            .flat_map(|copies| {
+                let copies = Namesakes {
+                    name: asked.name,
+                    types: copies,
+                };
+                self.nearest_of_its_name(
+                    child.file,
+                    Spelling::FromRoot(qualified(copies.types[0])),
+                    copies,
+                )
+            })
+            .collect()
     }
 
-    fn file_names(&self, file: u32, written: Str, ty: SymbolAt) -> bool {
+    fn file_named_by(&self, file: u32, written: Str, asked: Namesakes<'_>) -> Vec<SymbolAt> {
         let written = self
             .graph
             .strings
             .resolve(written)
             .trim_start_matches(QUALIFIER_SEPARATORS);
         if self.cascade.conventions.directory_packages {
-            self.names_in_packages(file, written, ty)
+            self.in_packages(file, written, asked)
         } else {
-            self.nearest_of_its_name(file, Spelling::Written(written), ty)
+            self.nearest_of_its_name(file, Spelling::Written(written), asked)
         }
     }
 
@@ -347,44 +421,73 @@ impl Types<'_> {
             .strings
             .resolve(type_name)
             .trim_start_matches(QUALIFIER_SEPARATORS);
-        let named = self
+        let name = self.graph.strings.get(last_segment(written))?;
+        let types: Vec<SymbolAt> = self
             .graph
-            .named(self.graph.strings.get(last_segment(written))?);
-        let mut types = named.iter().copied().filter(|&at| {
-            self.graph.sym(at).kind.is_type() && self.file_names(file, type_name, at)
-        });
-        let found = types.next()?;
-        types.next().is_none().then_some(found)
-    }
-
-    fn names_in_packages(&self, file: u32, written: &str, ty: SymbolAt) -> bool {
-        let dir = self.graph.file(ty.file).dir;
-        match written.rsplit_once(QUALIFIER_SEPARATORS) {
-            Some((qualifier, _)) => {
-                self.graph
-                    .strings
-                    .get(qualifier)
-                    .and_then(|qualifier| self.cascade.binding(file, qualifier))
-                    == Some(Some(dir))
-            }
-            None => self.graph.file(file).dir == dir,
+            .named(name)
+            .iter()
+            .copied()
+            .filter(|&at| self.graph.sym(at).kind.is_type())
+            .collect();
+        match self.file_named_by(
+            file,
+            type_name,
+            Namesakes {
+                name,
+                types: &types,
+            },
+        )[..]
+        {
+            [found] => Some(found),
+            _ => None,
         }
     }
 
-    fn nearest_of_its_name(&self, file: u32, spelling: Spelling<'_>, ty: SymbolAt) -> bool {
-        if !self.is_type_at(ty) || !self.is_spelled(ty, spelling) {
-            return false;
-        }
-        if ty.file == file {
-            return true;
+    fn in_packages(&self, file: u32, written: &str, asked: Namesakes<'_>) -> Vec<SymbolAt> {
+        let dir = match written.rsplit_once(QUALIFIER_SEPARATORS) {
+            Some((qualifier, _)) => self
+                .graph
+                .strings
+                .get(qualifier)
+                .and_then(|qualifier| self.cascade.binding(file, qualifier))
+                .flatten(),
+            None => Some(self.graph.file(file).dir),
+        };
+        asked
+            .types
+            .iter()
+            .copied()
+            .filter(|&ty| Some(self.graph.file(ty.file).dir) == dir)
+            .collect()
+    }
+
+    fn nearest_of_its_name(
+        &self,
+        file: u32,
+        spelling: Spelling<'_>,
+        asked: Namesakes<'_>,
+    ) -> Vec<SymbolAt> {
+        let spelled = |at: SymbolAt| self.is_type_at(at) && self.is_spelled(at, spelling);
+        let mut nearest: Vec<SymbolAt> = asked
+            .types
+            .iter()
+            .copied()
+            .filter(|&at| spelled(at))
+            .collect();
+        if nearest.iter().all(|&at| at.file == file) {
+            return nearest;
         }
         let distance = self.cascade.distance_from(file);
-        let reach = distance(ty);
-        !self
+        let reach = self
             .graph
-            .named(self.graph.sym(ty).name)
+            .named(asked.name)
             .iter()
-            .any(|&at| self.is_type_at(at) && distance(at) < reach && self.is_spelled(at, spelling))
+            .copied()
+            .filter(|&at| spelled(at))
+            .map(&distance)
+            .min();
+        nearest.retain(|&ty| ty.file == file || reach.is_none_or(|reach| distance(ty) <= reach));
+        nearest
     }
 
     fn is_spelled(&self, at: SymbolAt, spelling: Spelling<'_>) -> bool {
@@ -407,6 +510,16 @@ impl Types<'_> {
 
 /// The direct implementors each type a name selects has, as its selection counted them.
 type ImplementorCounts = HashMap<SymbolAt, usize, FixedState>;
+
+/// The direct implementors of each type asked about, each once, in symbol order.
+type ImplementorsOfEach = HashMap<SymbolAt, Vec<SymbolAt>, FixedState>;
+
+/// The types of one name whose implementors one read of the parents written for that name looks for.
+#[derive(Debug, Clone, Copy)]
+struct Namesakes<'a> {
+    name: Str,
+    types: &'a [SymbolAt],
+}
 
 struct Selected {
     root: SymbolAt,

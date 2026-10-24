@@ -584,6 +584,66 @@ fn types_named_as_a_parent_equally_often_select_the_first_in_path_order() {
 }
 
 #[test]
+fn copies_of_one_qualified_name_are_counted_by_the_parents_each_copy_is_nearest_for() {
+    let graph = graph(
+        cpp(),
+        &[
+            file("a/node.h", vec![ty("Node", "ns::Node", 1, &[])]),
+            file("b/node.h", vec![ty("Node", "ns::Node", 1, &[])]),
+            file("c/node.h", vec![ty("Node", "ns::Node", 1, &[])]),
+            file("global.h", vec![ty("Node", "Node", 1, &[])]),
+            including(
+                file(
+                    "d/leaf.h",
+                    vec![
+                        ty("Leaf", "ns::Leaf", 1, &["Node"]),
+                        ty("Twig", "ns::Twig", 9, &["Node"]),
+                    ],
+                ),
+                &["b/node.h"],
+            ),
+            file("e/root.h", vec![ty("Root", "Root", 1, &["Node"])]),
+        ],
+    );
+    let counted = |implementations: &Implementations<'_>| {
+        implementations
+            .candidates
+            .iter()
+            .map(|candidate| (candidate.symbol.file.to_owned(), candidate.count))
+            .collect::<Vec<_>>()
+    };
+
+    let qualified = graph.implementations("ns::Node", 1, 10).expect("a type");
+    let bare = graph.implementations("Node", 1, 10).expect("a type");
+
+    assert_eq!(
+        (qualified.root.file, qualified.passed_over),
+        ("b/node.h", 2)
+    );
+    assert_eq!(
+        found(&qualified),
+        [
+            ("d/leaf.h:ns::Leaf".to_owned(), 1),
+            ("d/leaf.h:ns::Twig".to_owned(), 1)
+        ]
+    );
+    assert_eq!(
+        counted(&qualified),
+        [("a/node.h".to_owned(), 0), ("c/node.h".to_owned(), 0)]
+    );
+    assert_eq!((bare.root.file, bare.passed_over), ("global.h", 3));
+    assert_eq!(found(&bare), [("e/root.h:Root".to_owned(), 1)]);
+    assert_eq!(
+        counted(&bare),
+        [
+            ("b/node.h".to_owned(), 2),
+            ("a/node.h".to_owned(), 0),
+            ("c/node.h".to_owned(), 0)
+        ]
+    );
+}
+
+#[test]
 fn a_type_that_names_one_parent_twice_counts_once_toward_selecting_it() {
     let graph = graph(
         cpp(),
