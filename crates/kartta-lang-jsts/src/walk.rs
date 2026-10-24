@@ -13,6 +13,7 @@ use kartta_lang::{
 use tree_sitter::{Node, Tree};
 
 use self::context::{parameters_of, untyped_name};
+use self::exports::binds_a_require;
 use self::uses::{annotated_type, constructed_type, names_a_value};
 use crate::generated::is_generated_source;
 use crate::syntax::{
@@ -274,7 +275,7 @@ impl<'s> Emitter<'s> {
             match declaration.kind() {
                 "lexical_declaration" | "variable_declaration" => named_child_nodes(declaration)
                     .for_each(|declarator| self.declare_declarator(declarator)),
-                "import_statement" => self.declare_imported(declaration),
+                "import_statement" => self.declare_imported(declaration, usize::MAX),
                 "function_declaration"
                 | "generator_function_declaration"
                 | "class_declaration"
@@ -471,8 +472,13 @@ impl<'s> Emitter<'s> {
     }
 
     // constraint: a declarator whose value is a class expression binds the class, whose static members a call on the
-    // name reaches, so it is a type binding that shadows a value of that name
+    // name reaches, so it is a type binding that shadows a value of that name; one that takes a `require` binds as an
+    // import does
     fn declare_declarator(&mut self, declarator: Node<'_>) {
+        if binds_a_require(declarator, self.source) {
+            self.declare_imported(declarator, self.scope_end());
+            return;
+        }
         let Some(name) = declarator.child_by_field_name("name") else {
             return;
         };

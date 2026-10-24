@@ -1258,3 +1258,31 @@ fn a_python_call_of_a_builtin_binds_a_namesake_only_where_its_file_imports_it() 
         (vec![("list", SymbolKind::Function, "app/views.py")], 0)
     );
 }
+
+#[test]
+fn a_javascript_require_of_a_package_binds_its_names_outside_the_repository() {
+    let tree = tree_of(&[
+        ("package.json", "{\"name\":\"app\"}\n"),
+        (
+            "src/app.js",
+            "const fs = require(\"fs\");\nconst { readFileSync } = require(\"fs\");\n\
+             const lib = require(\"./lib\");\n\n\
+             export function run() { fs.readFileSync(\"x\"); }\n\n\
+             export function read() { readFileSync(\"x\"); }\n\n\
+             export function use() { lib.f(); }\n",
+        ),
+        ("src/lib.js", "export function f() {}\n"),
+        (
+            "other/lib.js",
+            "export function readFileSync(p) {}\n\nexport function f() {}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["javascript"]);
+
+    assert_eq!(callees(&engine, "src/app.js", "run"), (vec![], 1));
+    assert_eq!(callees(&engine, "src/app.js", "read"), (vec![], 1));
+    assert_eq!(
+        callees(&engine, "src/app.js", "use"),
+        (vec![("f", SymbolKind::Function, "src/lib.js")], 0)
+    );
+}
