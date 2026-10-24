@@ -23,7 +23,8 @@ reference that names no class, such as `Class['foo']` or a `$variable`, records 
 A class reference includes the manifest the module autoloader loads for it: `foo::bar::baz` names
 `foo/manifests/bar/baz.pp` at the root or under `modules/`, `site/`, `site-modules/` or `dist/`, else the one file
 anywhere whose path ends that way. A file under a `spec`, `tests`, `test` or `examples` directory beside a module's
-`manifests/` is test code, and one whose leading comments carry `@generated` or `DO NOT EDIT` is generated code.
+`manifests/`, each in the lower case of the module layout, is test code, and one whose leading comments carry
+`@generated` or `DO NOT EDIT` is generated code.
 
 ## Fingerprint
 

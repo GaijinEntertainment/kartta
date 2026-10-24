@@ -55,8 +55,8 @@
 //! `test`, `spec` and `app` that holds it. A required file of the repository is an include, and any other require, of
 //! a gem or of the standard library, an import as written.
 //!
-//! A file named `*_test.rb` or `*_spec.rb`, or under a `test`, `tests` or `spec` directory, is test code. A file named
-//! `*_pb.rb`, or whose leading `#` comments, after any byte order mark, carry `@generated`, `DO NOT EDIT` or
+//! A file named `*_test.rb` or `*_spec.rb`, or under a `test`, `tests` or `spec` directory in any case, is test code. A
+//! file named `*_pb.rb`, or whose leading `#` comments, after any byte order mark, carry `@generated`, `DO NOT EDIT` or
 //! `This file is auto-generated`, is generated code. No symbol is an entry point.
 //!
 //! # Fingerprint

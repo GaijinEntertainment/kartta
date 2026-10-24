@@ -36,8 +36,8 @@ through the nearest `.sqconfig` in its directory or above it: `%name/rest` below
 `name`, any other `.nut` specifier beside the script or below the first base path that holds it. A script that no
 `.sqconfig` governs resolves `%root/rest` and slashed or `.nut` specifiers under its nearest directory that holds them.
 A bare name is a native module. Every match is case-sensitive. A file under a
-`test`, `tests`, `Tests` or `testData` directory, the last where the Quirrel compiler keeps its test scripts, or named
-`*_test.nut` or `test_*.nut`, is test code; a file named `*.gen.*` or `*_gen.*`, or whose leading comments carry
+`test`, `tests` or `testData` directory in any case, the last where the Quirrel compiler keeps its test scripts, or
+named `*_test.nut` or `test_*.nut`, is test code; a file named `*.gen.*` or `*_gen.*`, or whose leading comments carry
 `@generated`, `DO NOT EDIT` or `Code generated`, is generated code.
 
 ## Fingerprint

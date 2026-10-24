@@ -22,9 +22,9 @@ in its function, a local from the end of its declaration to the end of its block
 A bare `require`, `dofile` or `loadfile` with a string literal loads a module and records no call. `require "a.b"`
 includes `a/b.lua` or the package `a/b/init.lua`, from the root and then from the requiring file's directory;
 `dofile` and `loadfile` include the path as written, from the file's directory and then from the root. A module the
-repository does not hold includes nothing. A `*_spec.lua` or `*_test.lua` file, or one under `spec`, `test` or `tests`,
-is test code; a `*.gen.lua` or `*_pb.lua` file, or one whose leading comments carry `@generated` or `DO NOT EDIT`, is
-generated code.
+repository does not hold includes nothing. A `*_spec.lua` or `*_test.lua` file, or one under `spec`, `test` or `tests`
+in any case, is test code; a `*.gen.lua` or `*_pb.lua` file, or one whose leading comments carry `@generated` or
+`DO NOT EDIT`, is generated code.
 
 ## Fingerprint
 

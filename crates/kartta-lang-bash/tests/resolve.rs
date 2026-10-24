@@ -122,6 +122,7 @@ fn a_test_path_marks_every_symbol_as_test_code() {
         "test_foo.sh",
         "suite/tests/util.sh",
         "test/run.sh",
+        "suite/Tests/util.sh",
     ] {
         let extraction = resolve(&files, source, path);
 

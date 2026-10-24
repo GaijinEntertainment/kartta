@@ -370,6 +370,8 @@ fn a_test_path_marks_the_symbols_as_test_code() {
         "ui/test/thing.nut",
         "quirrel/testData/exec/misc.nut",
         "AssetViewer/Tests/tests_quirrel.nut",
+        "ui/TEST/thing.nut",
+        "quirrel/testdata/misc.nut",
         "thing_test.nut",
         "test_thing.nut",
     ] {

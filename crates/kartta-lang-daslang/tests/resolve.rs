@@ -259,6 +259,7 @@ fn a_test_path_marks_the_symbols_as_test_code() {
     for path in [
         "tests/thing.das",
         "game/test/thing.das",
+        "game/Tests/thing.das",
         "thing_test.das",
         "test_thing.das",
     ] {

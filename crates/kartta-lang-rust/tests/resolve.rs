@@ -342,6 +342,7 @@ fn a_tests_directory_outside_src_holds_test_code() {
     for path in [
         "src/tests/helper.rs",
         "crates/foo/src/tests/mod.rs",
+        "crates/foo/Tests/integration.rs",
         "src/lib.rs",
         "src/widgets/widget.rs",
     ] {

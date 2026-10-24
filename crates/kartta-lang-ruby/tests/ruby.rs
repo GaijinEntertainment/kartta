@@ -1038,6 +1038,7 @@ fn a_test_path_marks_test_code() {
         "app/spec/util.rb",
         "lib/test/run.rb",
         "lib/tests/run.rb",
+        "lib/Tests/run.rb",
     ] {
         let resolved = resolve(WIDGET, path, &[]);
         assert_eq!(resolved.symbols.len(), 2, "{path}");

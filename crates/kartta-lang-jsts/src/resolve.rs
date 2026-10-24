@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use kartta_lang::path::base;
+use kartta_lang::path::{base, has_component};
 use kartta_lang::{
     Extraction, ImportBinding, ImportRef, IncludeRef, RawExtraction, Repository, Resolver,
     SymbolFlags,
@@ -87,7 +87,5 @@ fn is_test_file(path: &str) -> bool {
     let name = base(path);
     name.contains(".test.")
         || name.contains(".spec.")
-        || path
-            .split('/')
-            .any(|component| component == "__tests__" || component == "tests")
+        || has_component(path, &["__tests__", "tests"])
 }

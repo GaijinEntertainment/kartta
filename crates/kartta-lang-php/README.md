@@ -31,7 +31,7 @@ is the file's own. A bare use binds the function its own file declares.
 An `include` or `require` whose path folds to a constant, from strings, `__DIR__`, `__FILE__`, `.` and `dirname`,
 includes the file it names. A `use` includes the file that the PSR-4 autoload of the repository's `composer.json`
 files maps it to, or else, for a `use function` or a `use const`, the file it maps the namespace to; any other `use` is
-an import as written. A file whose name ends in `Test.php`, or one under `test` or `tests`, is test code; a
+an import as written. A file whose name ends in `Test.php`, or one under `test` or `tests` in any case, is test code; a
 `*.generated.php` or `*_pb.php` file, or one whose leading comments carry `@generated` or `DO NOT EDIT`, is generated
 code.
 

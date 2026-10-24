@@ -2,7 +2,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::iter;
 
-use kartta_lang::path::{base, dir, forward_slashes, join, sole};
+use kartta_lang::path::{base, dir, forward_slashes, has_component, join, sole};
 use kartta_lang::{
     Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
@@ -178,8 +178,7 @@ fn is_test_path(path: &str) -> bool {
     let name = base(path);
     let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
 
-    path.split('/')
-        .any(|component| matches!(component, "test" | "tests" | "Tests" | "testData"))
+    has_component(path, &["test", "tests", "testdata"])
         || stem.ends_with("_test")
         || stem.starts_with("test_")
 }

@@ -120,8 +120,9 @@
 //! are [`IncludeReach::Transitive`].
 //!
 //! The resolver also flags a file's symbols by its path: as test code under a `test`, `tests`, `unittest` or
-//! `unittests` directory or with a name ending in `Test`, `_test` or `_unittest` or starting with `test_`, and as
-//! generated code with a `.pb` stem, a `_generated.h` suffix, or `.gen.`, `_gen.` or `_AOT.` in the name.
+//! `unittests` directory in any case, or with a name ending in `Test`, `_test` or `_unittest` or starting with
+//! `test_`, and as generated code with a `.pb` stem, a `_generated.h` suffix, or `.gen.`, `_gen.` or `_AOT.` in the
+//! name.
 //!
 //! # Parse repairs
 //!

@@ -43,10 +43,10 @@ file stem: a relative specifier names the file beside the importer, a dotted or 
 under the importer's directories, then the one file whose path ends with it, then the one file named for its last
 component, and a bare name the one file named for it. A specifier two files could satisfy names neither, and every
 match is case-sensitive. A file under a `test` or `tests`
-directory, or named `*_test.das` or `test_*.das`, is test code; a file named `*.gen.*` or `*_gen.*`, or whose leading
-comments carry `@generated`, `DO NOT EDIT` or `Code generated`, is generated code. A `def` that carries an annotation
-other than a compile hint of the runtime, such as `[unused_argument]` or `[no_aot]`, is an entry point, because the
-annotation registers it with what calls it.
+directory in any case, or named `*_test.das` or `test_*.das`, is test code; a file named `*.gen.*` or `*_gen.*`, or
+whose leading comments carry `@generated`, `DO NOT EDIT` or `Code generated`, is generated code. A `def` that carries an
+annotation other than a compile hint of the runtime, such as `[unused_argument]` or `[no_aot]`, is an entry point,
+because the annotation registers it with what calls it.
 
 ## Fingerprint
 
