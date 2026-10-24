@@ -14,7 +14,8 @@ type, is owned by that type and qualified under it, `Service::new`; a member of 
 function type has no owner. A function of an `extern` block that `#[wasm_bindgen(method)]` marks is owned by the type
 its first parameter, `this`, refers to, since wasm-bindgen makes it that type's method. An item of an inline module is
 qualified by the chain of its modules, `a::b::Worker`, except a `macro_rules!`, which keeps its bare name and is
-exported only by `#[macro_export]`, at its crate's root path.
+exported only by `#[macro_export]`, at its crate's root path. A function marked `#[proc_macro]` is a macro, since it is
+invoked as one.
 `impl Trait for Type` adds `Trait` to the parents of the `Type` the file declares under that name or path.
 
 A call records its callee and, where the syntax spells one, its receiver: `self.greet()` and `Self::new()` record the

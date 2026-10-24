@@ -200,10 +200,19 @@ fn atom<'s>(atoms: &mut Vec<Atom<'s>>, key: (&'s [u8], &'s [u8])) -> Cfg {
 // constraint: `#[macro_export]` places a `macro_rules!` at its crate's root path, whatever module defines it, and its
 // arguments, `local_inner_macros`, change nothing of that
 pub(super) fn marks_macro_export(definition: Node<'_>, source: &[u8]) -> bool {
-    outer_attributes(definition).any(|item| {
+    has_attribute(definition, source, "macro_export")
+}
+
+// constraint: a function `#[proc_macro]` marks is invoked as a macro, `name!(...)`, and never called
+pub(super) fn marks_proc_macro(function: Node<'_>, source: &[u8]) -> bool {
+    has_attribute(function, source, "proc_macro")
+}
+
+fn has_attribute(item: Node<'_>, source: &[u8], path: &str) -> bool {
+    outer_attributes(item).any(|item| {
         named_child_of_kind(item, "attribute")
             .and_then(|attribute| attribute.named_child(0))
-            .is_some_and(|path| text(path, source) == "macro_export")
+            .is_some_and(|written| text(written, source) == path)
     })
 }
 

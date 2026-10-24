@@ -338,6 +338,22 @@ fn a_macro_marked_macro_export_is_exported_and_keeps_its_bare_name() {
 }
 
 #[test]
+fn a_function_marked_proc_macro_is_a_macro() {
+    let raw = extract(
+        b"#[proc_macro]\npub fn indoc(input: TokenStream) -> TokenStream {\n    input\n}\n\n\
+          #[proc_macro_derive(Thing)]\npub fn derive_thing(input: TokenStream) -> TokenStream {\n    input\n}\n\n\
+          #[proc_macro_attribute]\npub fn traced(attr: TokenStream, item: TokenStream) -> TokenStream {\n    item\n}\n",
+    );
+
+    assert_eq!(
+        (named(&raw, "indoc").kind, named(&raw, "indoc").exported),
+        (SymbolKind::Macro, true)
+    );
+    assert_eq!(named(&raw, "derive_thing").kind, SymbolKind::Function);
+    assert_eq!(named(&raw, "traced").kind, SymbolKind::Function);
+}
+
+#[test]
 fn a_union_is_a_struct_with_fields() {
     let raw = extract(b"pub union U {\n    pub a: u32,\n    b: f32,\n}\n");
 

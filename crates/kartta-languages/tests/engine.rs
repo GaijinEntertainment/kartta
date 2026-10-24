@@ -1168,6 +1168,29 @@ fn a_rust_macro_invocation_binds_by_its_name_alone_only_a_macro_of_the_caller_s_
 }
 
 #[test]
+fn a_rust_macro_invocation_through_a_use_binds_the_proc_macro_function_it_names() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        ("crates/indoc/Cargo.toml", "[package]\nname = \"indoc\"\n"),
+        (
+            "crates/indoc/src/lib.rs",
+            "#[proc_macro]\npub fn indoc(input: TokenStream) -> TokenStream {\n    input\n}\n",
+        ),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "use indoc::indoc;\n\nfn text() {\n    indoc!(\"a\");\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        bound_through_an_import(&engine, "crates/app/src/lib.rs", "text"),
+        ["crates/indoc/src/lib.rs"]
+    );
+}
+
+#[test]
 fn a_rust_macro_a_submodule_exports_binds_beside_re_exports_of_other_names_and_a_private_namesake()
 {
     let bound = called_and_invoked_through_an_import(&[
