@@ -584,7 +584,7 @@ fn a_generic_path_or_self_path_names_its_type() {
 
 #[test]
 fn a_member_call_on_an_unnamed_expression_keeps_an_empty_receiver() {
-    let raw = extract(b"fn f() { items[0].close(); self.pool.get(); make().run(); }\n");
+    let raw = extract(b"fn f() { items[0].close(); self.0.get(); make().run(); }\n");
     let calls: Vec<(&str, Option<&str>)> = raw
         .calls
         .iter()
@@ -598,6 +598,35 @@ fn a_member_call_on_an_unnamed_expression_keeps_an_empty_receiver() {
             ("get", Some("")),
             ("run", Some("")),
             ("make", None)
+        ]
+    );
+}
+
+#[test]
+fn a_method_call_on_a_field_of_self_records_the_type_the_struct_beside_the_impl_declares_it_as() {
+    let raw = extract(
+        b"use crate::index::Index;\nuse crate::watch::Backend;\nuse std::process::Child;\n\
+          struct Engine<T> {\n    index: Index,\n    boxed: Box<dyn Backend>,\n    child: Child,\n    \
+          own: Box<Self>,\n    generic: T,\n}\n\
+          impl<T> Engine<T> {\n    fn run(&mut self) {\n        self.index.refresh();\n        \
+          self.boxed.cover();\n        self.child.wait();\n        self.own.run();\n        \
+          self.generic.clone();\n        self.missing.go();\n        self.index.inner.go();\n    }\n}\n\
+          trait Walk {\n    fn walk(&self) { self.index.refresh(); }\n}\n\
+          mod other {\n    impl super::Engine {\n        fn far(&self) { self.index.refresh(); }\n    }\n}\n",
+    );
+
+    assert_eq!(
+        calls_with_receivers(&raw),
+        [
+            ("refresh", Some("Index")),
+            ("cover", Some("Backend")),
+            ("wait", Some(".child")),
+            ("run", Some("Engine")),
+            ("clone", Some(".generic")),
+            ("go", Some(".missing")),
+            ("go", Some("")),
+            ("refresh", Some(".index")),
+            ("refresh", Some(".index")),
         ]
     );
 }

@@ -11,10 +11,10 @@
 //! a body declares of that name, a Rust path call through a module no item of its
 //! own file that the path does not name, and a Rust call on a value, on `self` or through a
 //! type binds no free function, not even through a value named like a module the file imports, while a call on a
-//! value still binds the one runtime method whose owner the value's name spells, one on a parameter the method of the
-//! type the parameter is declared as, of the caller's own package where two versions of its crate declare that type,
-//! a bare call through a parameter or a local binds nothing, a call through a type its wasm-bindgen `static_method_of`
-//! or `constructor` function, and a call through a type the tree does not declare, `Vec::new()`, binds no member of
+//! value still binds the one runtime method whose owner the value's name spells, one on a parameter or a field of
+//! `self` the method of the type it is declared as, never the caller's own, of the caller's own package where two
+//! versions of its crate declare that type, a bare call through a parameter or a local binds nothing, a call through a
+//! type its wasm-bindgen `static_method_of` or `constructor` function, and a call through a type the tree does not declare, `Vec::new()`, binds no member of
 //! another type; a Rust call binds by name only within the crates its crate is built with. A JavaScript bare call of a
 //! name imported from a package binds no namesake of the project, unless the caller's file defines it. A TypeScript or
 //! JavaScript call of a runtime method on a value binds an imported class's member of its name only where its receiver
@@ -450,6 +450,33 @@ fn a_rust_call_through_a_parameter_or_a_local_binds_nothing() {
         bound_through_an_import(&engine, lib, "h"),
         ["crates/other/src/lib.rs"]
     );
+}
+
+#[test]
+fn a_rust_call_on_a_field_of_self_binds_the_method_of_the_field_s_declared_type_never_the_caller_s()
+{
+    let tree = tree_of(&[
+        ("src/lib.rs", "mod engine;\nmod index;\n"),
+        (
+            "src/index.rs",
+            "pub struct Index;\n\nimpl Index {\n    pub fn refresh_paths(&mut self) {}\n}\n",
+        ),
+        (
+            "src/engine.rs",
+            "use crate::index::Index;\n\npub struct Engine {\n    index: Index,\n}\n\n\
+             impl Engine {\n    pub fn refresh_paths(&mut self) {\n        self.index.refresh_paths();\n    }\n\n\
+             \x20   pub fn walked_apart(&mut self) {\n        self.index.refresh_paths();\n    }\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    for caller in ["Engine::refresh_paths", "Engine::walked_apart"] {
+        assert_eq!(
+            callees(&engine, "src/engine.rs", caller).0,
+            [("refresh_paths", SymbolKind::Method, "src/index.rs")],
+            "{caller}"
+        );
+    }
 }
 
 #[test]
