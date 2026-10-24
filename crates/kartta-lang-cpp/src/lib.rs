@@ -55,7 +55,9 @@
 //! PRINTF_ATTR(2, 3);`, which the parser reads as a declaration of their own, and a definition keeps the body the
 //! parser reads apart from it: that of an out-of-line constructor after a macro whose initializer list follows its
 //! parameters, `PX_INLINE Sc::Shape::Shape(bool b)` `: mFlags(0)`, and that of a function with a scoped parameter type
-//! and a macro call after its parameters, `void lock(ns::id_t token) ACQUIRE()`.
+//! and a macro call after its parameters, `void lock(ns::id_t token) ACQUIRE()`. A class specialization's signature is
+//! its head, `template <> struct Box<bool> : Bits`, which tells it from its primary template under their one qualified
+//! name; no other class keeps one.
 //!
 //! A function-like macro is not a symbol: a definition without a return type outside a class, such as a test
 //! harness's `TEST(Suite, Case) {}`, is dropped, as is one inside a class that is not a constructor, a destructor or an
