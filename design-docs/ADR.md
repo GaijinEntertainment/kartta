@@ -846,6 +846,13 @@
   - Governs: `crates/kartta-mcp/src/render/calls.rs` (`reference_match`, `Unrecorded`, `no_sites`,
     `PARTIAL_DATA_ACCESS`), `kartta_lang::Conventions::unrecorded_data`, the `find_references` tool
   - Revisit if: every shipped language records the reads and writes of every data kind it extracts
+- [4.23 Bound each MCP tool's answer by a default
+  limit](./adr/4.23-bound-each-mcp-tool-s-answer-by-a-default-limit.md)
+  - Governs: `crates/kartta-mcp/src/server.rs` (the limit constants), `crates/kartta-mcp/src/params.rs`
+  - Revisit if: the prompts in use change the defaults they pass, or agents raise a tool's limit on most of its calls
+- [4.24 Count in each MCP answer what it left out](./adr/4.24-count-in-each-mcp-answer-what-it-left-out.md)
+  - Governs: `crates/kartta-mcp/src/render.rs`, `crates/kartta-mcp/src/render/`, `crates/kartta-mcp/src/llmxml.rs`
+  - Revisit if: a count stops riding on the work its answer already does, so it costs each call
 - [4.30 Cancel a build, a grep or a refresh by the id it names, even before it
   enters](./adr/4.30-cancel-a-build-a-grep-or-a-refresh-by-the-id-it-names-even-before-it-enters.md)
   - Governs: `crates/kartta-ffi/src/handle.rs` (`Calls`, `Kartta::cancel`), `crates/kartta-ffi/src/wire/build.rs`
