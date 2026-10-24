@@ -1302,10 +1302,7 @@ impl Cascade<'_> {
         if !ending.clone().all(|at| self.owner(at) == owner) {
             return None;
         }
-        std::iter::once(first)
-            .chain(ending)
-            .find(|&at| self.is_of_the_kind(call.on_a_class, at))
-            .or(Some(first))
+        self.nearest(call, std::iter::once(first).chain(ending))
     }
 
     /// Whether the call's receiver, at its last segment, spells the owner of `at` in any case: `session` or
