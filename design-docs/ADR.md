@@ -589,7 +589,8 @@
   - Revisit if: the walk learns the type a value's declaration spells for its calls (#475)
 - [3.102 Bind a Python bare call by the scope that binds its
   name](./adr/3.102-bind-a-python-bare-call-by-the-scope-that-binds-its-name.md)
-  - Governs: `crates/kartta-lang-python/src/walk.rs` (`Frame`, `Binding`, `close`, `scope_frame`)
+  - Governs: `crates/kartta-lang-python/src/walk.rs` (`Frame`, `Binding`, `close`, `scope_frame`,
+    `drop_builtin_calls`), `crates/kartta-lang-python/src/runtime.rs` (`BUILTINS`)
   - Revisit if: a real tree shows the stronger binding of a scope wrong at the call often enough to need an order of
     execution
 - [3.103 Declare a Python class's fields from its body and its instance's
