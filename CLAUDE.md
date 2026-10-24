@@ -40,6 +40,12 @@ so cost per entry is the design pressure on every surface.
   cap, a depth bound, a collapse or an exclusion reports what it turned away. A partial answer without that reads as a
   complete one.
 - A fact that costs extra work per call is a performance trade under `<performance>`; state it as one.
+- Judge a change to the graph's edges by coverage and correctness together. Count the edges it adds and removes, which
+  is the coverage it moves. Classify a random sample of 30 edges from each side (all, when fewer) against the source: an
+  added edge is right when the source holds the relation, a removed one when it does not. Apply the change when about
+  90% or more of each side is right, a side with no edges meeting the bar; below that, build two or three other
+  implementations of the approximation and take the best, binding at a lower confidence tier where it stays below the
+  bar. A false edge costs the agent one read; a missing edge leaves it blind.
 
 </answers>
 
