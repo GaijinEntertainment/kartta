@@ -122,10 +122,10 @@ enum Binding {
     Module(Option<Span>),
     /// A parameter that no annotation types, of the one type the function type of its context spells.
     Contextual(Span),
-    Imported,
     Type,
-    /// A function or a class the module declares at its top level, which a name taken as a value uses.
-    Declared,
+    /// A name an import or a `require` binds, or a function or a class the module declares at its top level: a name
+    /// taken as a value uses it, and a member taken of it keeps the name as its receiver.
+    Definition,
 }
 
 // constraint: a binding lives until the innermost scope around its declaration ends — a function, a block, a catch
@@ -401,7 +401,7 @@ impl<'s> Emitter<'s> {
 
     fn declare_module_name(&mut self, declaration: Node<'_>) {
         if let Some(name) = declaration.child_by_field_name("name") {
-            self.declare(name.byte_range(), usize::MAX, Binding::Declared);
+            self.declare(name.byte_range(), usize::MAX, Binding::Definition);
         }
     }
 
