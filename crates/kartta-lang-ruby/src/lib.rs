@@ -58,6 +58,10 @@
 //! `test`, `spec` and `app` that holds it. A required file of the repository is an include, and any other require, of
 //! a gem or of the standard library, an import as written.
 //!
+//! A file under a `lib` directory belongs to the library that the directory above its outermost `lib` roots, a gem or
+//! a vendored copy of the standard library, as its package: `vendor/ruby/3.4` for
+//! `vendor/ruby/3.4/lib/ruby/3.4.0/set.rb`. A call on an owner binds the owner of its own library before a copy's.
+//!
 //! A file named `*_test.rb` or `*_spec.rb`, or under a `test`, `tests` or `spec` directory in any case, is test code. A
 //! file named `*_pb.rb`, or whose leading `#` comments, after any byte order mark, carry `@generated`, `DO NOT EDIT` or
 //! `This file is auto-generated`, is generated code. No symbol is an entry point.

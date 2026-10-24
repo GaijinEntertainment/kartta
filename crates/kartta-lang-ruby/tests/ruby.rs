@@ -314,6 +314,31 @@ fn a_self_receiver_names_the_type_chain_and_a_receiver_on_a_class_ends_in_the_cl
 }
 
 #[test]
+fn a_file_under_lib_belongs_to_the_library_its_outermost_lib_roots() {
+    for (path, library) in [
+        ("lib/geo/shape.rb", Some("")),
+        (
+            "vendor/ruby/3.4/lib/ruby/3.4.0/set.rb",
+            Some("vendor/ruby/3.4"),
+        ),
+        (
+            "vendor/ruby/3.4/lib/ruby/gems/3.4.0/gems/rake-13.3.1/lib/rake.rb",
+            Some("vendor/ruby/3.4"),
+        ),
+        ("gems/rake/lib/rake/task.rb", Some("gems/rake")),
+        ("app/models/user.rb", None),
+        ("Library/Homebrew/formula.rb", None),
+        ("vendor/library/x.rb", None),
+    ] {
+        assert_eq!(
+            resolve(WIDGET, path, &[]).package.as_deref(),
+            library,
+            "{path}"
+        );
+    }
+}
+
+#[test]
 fn a_bare_new_in_a_class_method_names_an_instance_of_the_owner_and_elsewhere_is_as_written() {
     let raw = extract(
         b"module Geo\n  class Shape\n    TOP = new.freeze\n    def self.parse\n      new.getopts\n    end\n    \
