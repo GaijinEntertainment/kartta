@@ -132,8 +132,8 @@ impl Emitter<'_> {
     }
 
     // constraint: a scoped callee takes the last path segment before its name as the receiver, `Widget::new()`
-    // calling `new` on `Widget`; a member call takes a named operand, `self` as the type of the impl or trait around
-    // it, and anything else as the empty receiver
+    // calling `new` on `Widget`; a member call takes a named operand, a named field of `self`, `self` as the type of
+    // the impl or trait around it, and anything else as the empty receiver
     fn call_target(&self, function: Node<'_>) -> Target {
         match function.kind() {
             "identifier" => Target::new(text(function, self.source), None),
@@ -168,6 +168,13 @@ impl Emitter<'_> {
         if let Some(value) = value.filter(|value| value.kind() == "identifier") {
             return self.named_target(text(field, self.source), value);
         }
+        if let Some(own) = value.and_then(own_field) {
+            return typed_target(
+                text(field, self.source),
+                self.field_receiver(own),
+                &self.source[own.byte_range()],
+            );
+        }
         let receiver = value.map(|value| match value.kind() {
             "self" => self.enclosing_type_name().unwrap_or_default(),
             _ => String::new(),
@@ -183,21 +190,14 @@ impl Emitter<'_> {
     }
 
     // constraint: a method call on a name takes the type the name's parameter is declared as, and else the value's
-    // receiver
+    // receiver; one on a field of `self` takes the type the field is declared as, and else the field's name as a
+    // value's receiver
     pub(super) fn named_target(&self, callee: String, value: Node<'_>) -> Target {
-        match self.declared_receiver(value) {
-            Some((receiver, names_own_type, declared)) => Target {
-                callee,
-                receiver: Some(receiver),
-                names_own_type,
-                declared,
-                calls_a_method: false,
-            },
-            None => Target::new(
-                callee,
-                Some(value_receiver(&self.source[value.byte_range()])),
-            ),
-        }
+        typed_target(
+            callee,
+            self.declared_receiver(value),
+            &self.source[value.byte_range()],
+        )
     }
 
     // constraint: the path keywords `self`, `super` and `crate` name a module, so `self::f()` is a bare call of the
@@ -293,6 +293,33 @@ pub(super) fn value_receiver(spelled: &[u8]) -> String {
     } else {
         format!(".{name}")
     }
+}
+
+fn typed_target(
+    callee: String,
+    declared: Option<(String, bool, Option<DeclaredReceiver>)>,
+    value: &[u8],
+) -> Target {
+    match declared {
+        Some((receiver, names_own_type, declared)) => Target {
+            callee,
+            receiver: Some(receiver),
+            names_own_type,
+            declared,
+            calls_a_method: false,
+        },
+        None => Target::new(callee, Some(value_receiver(value))),
+    }
+}
+
+// constraint: `self.name`, a named field of the caller's own value; a tuple field, `self.0`, is none
+fn own_field(value: Node<'_>) -> Option<Node<'_>> {
+    if value.kind() != "field_expression" || value.child_by_field_name("value")?.kind() != "self" {
+        return None;
+    }
+    value
+        .child_by_field_name("field")
+        .filter(|field| field.kind() == "field_identifier")
 }
 
 fn call_form(function: Node<'_>, source: &[u8]) -> Option<CallForm> {

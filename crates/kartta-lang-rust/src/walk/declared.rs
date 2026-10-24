@@ -6,6 +6,7 @@ use kartta_lang::tree::named_child_nodes;
 use tree_sitter::Node;
 
 use super::calls::value_receiver;
+use super::syntax::type_base;
 use super::{Emitter, GLOB_FORM};
 
 // constraint: a method call on a parameter whose type its function declares names that type; `written` is the type's
@@ -69,6 +70,24 @@ impl Emitter<'_> {
         value: Node<'_>,
     ) -> Option<(String, bool, Option<DeclaredReceiver>)> {
         let written = self.declared_type(&self.source[value.byte_range()])?;
+        self.receiver_of(written, value)
+    }
+
+    // constraint: a field of `self` names the type its declaration does, as a parameter's does, where the struct the
+    // impl around the call names by a bare name is declared beside the impl, in its module or block
+    pub(super) fn field_receiver(
+        &self,
+        field: Node<'_>,
+    ) -> Option<(String, bool, Option<DeclaredReceiver>)> {
+        let written = field_type(field, self.source)?;
+        self.receiver_of(written.byte_range(), field)
+    }
+
+    fn receiver_of(
+        &self,
+        written: Range<usize>,
+        value: Node<'_>,
+    ) -> Option<(String, bool, Option<DeclaredReceiver>)> {
         let spelled = String::from_utf8_lossy(&self.source[written.clone()]);
         if spelled == "Self" {
             return Some((self.enclosing_type_name()?, true, None));
@@ -159,6 +178,35 @@ impl Emitter<'_> {
 
 fn head(path: &str) -> &str {
     path.split("::").next().unwrap_or(path).trim()
+}
+
+fn field_type<'t>(field: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
+    let mut around = field.parent()?;
+    while around.kind() != "impl_item" {
+        if around.kind() == "trait_item" {
+            return None;
+        }
+        around = around.parent()?;
+    }
+    let owner = type_base(around.child_by_field_name("type")?);
+    if owner.kind() != "type_identifier" {
+        return None;
+    }
+    let spelled = |node: Node<'_>| &source[node.byte_range()];
+    let mut cursor = around.walk();
+    let structure = (around.parent()?.named_children(&mut cursor))
+        .filter(|item| matches!(item.kind(), "struct_item" | "union_item"))
+        .find(|item| {
+            (item.child_by_field_name("name")).is_some_and(|name| spelled(name) == spelled(owner))
+        })?;
+    let declared = (structure
+        .child_by_field_name("body")?
+        .named_children(&mut cursor))
+    .filter(|declared| declared.kind() == "field_declaration")
+    .find(|declared| {
+        (declared.child_by_field_name("name")).is_some_and(|name| spelled(name) == spelled(field))
+    })?;
+    named_type(declared.child_by_field_name("type")?, structure, source)
 }
 
 // constraint: the node whose text is the path of the type a parameter names, a type or a trait
