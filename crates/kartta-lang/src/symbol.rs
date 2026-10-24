@@ -119,14 +119,14 @@ impl fmt::Display for SymbolKind {
 }
 
 /// What a symbol is for besides its kind: test code, generated code, vendored code, an entry point, a fallback, a
-/// definition reflection reaches.
+/// definition reflection reaches, a definition a macro invocation writes.
 ///
 /// A language sets these by its own conventions — a Go `_test.go` file, a Rust `#[test]`, a generated-code banner, a
 /// `vendor` directory — so they are heuristic: they rank answers, a caller that is test code below one that is not,
 /// and a query that leaves flagged symbols out, as a dead-code query does, counts what it left out. A fallback does
 /// neither: it makes a call bound to it uncertain, so the namesakes such a call may run are not judged dead. A
 /// definition reflection reaches ranks nothing either: a dead-code query counts it as reflected where no recorded use
-/// reaches it.
+/// reaches it. A definition a macro invocation writes binds a call only where no written definition does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct SymbolFlags(u8);
 
@@ -137,6 +137,7 @@ impl SymbolFlags {
     const VENDORED: u8 = 1 << 3;
     const FALLBACK: u8 = 1 << 4;
     const REFLECTED: u8 = 1 << 5;
+    const MADE: u8 = 1 << 6;
 
     /// No flag set: an ordinary definition.
     #[must_use]
@@ -185,6 +186,13 @@ impl SymbolFlags {
         self.0 & Self::REFLECTED != 0
     }
 
+    /// Whether a macro invocation writes the symbol, as a Rust `macro_rules!` arm's `struct $name;` does, so a written
+    /// definition of its name is likelier the one a call means.
+    #[must_use]
+    pub const fn is_made(self) -> bool {
+        self.0 & Self::MADE != 0
+    }
+
     /// These flags with test code set to `yes`.
     #[must_use]
     pub const fn with_test(self, yes: bool) -> Self {
@@ -221,6 +229,12 @@ impl SymbolFlags {
         self.set(Self::REFLECTED, yes)
     }
 
+    /// These flags with a macro invocation's making set to `yes`.
+    #[must_use]
+    pub const fn with_made(self, yes: bool) -> Self {
+        self.set(Self::MADE, yes)
+    }
+
     /// The flags set in either: how a resolver adds what a file's path shows to what its bytes showed.
     #[must_use]
     pub const fn union(self, other: Self) -> Self {
@@ -236,7 +250,8 @@ impl SymbolFlags {
         | Self::GENERATED
         | Self::VENDORED
         | Self::FALLBACK
-        | Self::REFLECTED;
+        | Self::REFLECTED
+        | Self::MADE;
 
     pub(crate) const fn from_bits(bits: u8) -> Self {
         Self(bits & Self::ALL)
