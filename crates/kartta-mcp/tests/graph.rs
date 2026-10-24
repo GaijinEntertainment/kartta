@@ -2312,6 +2312,29 @@ fn find_unused_judges_go_fields_by_their_uses_and_counts_those_a_struct_tag_hand
 }
 
 #[test]
+fn find_unused_counts_the_exports_a_go_plugin_s_host_looks_up_by_name_as_reflected() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "lib/adder/adder.go",
+            "package main\n\nvar Selector = 1\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n\nfunc spare() {}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("find_unused", &json!({})),
+        lines(&[
+            r#"<unused count="1" live="0">"#,
+            r#"<excluded reflected="2"/>"#,
+            r#"<symbol name="spare" qn="main.spare" kind="function" lang="go" loc="lib/adder/adder.go:9"/>"#,
+            "</unused>",
+        ])
+    );
+}
+
+#[test]
 fn index_stats_counts_how_the_calls_bind_when_asked_for_coverage() {
     let tree = tree(&[
         (".git/HEAD", "ref: refs/heads/main\n"),

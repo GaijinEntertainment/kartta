@@ -69,7 +69,10 @@
 //! can name. A struct field whose tag hands it to a library by its name, as `json:"name"` does, is read by reflection
 //! ([`SymbolFlags::is_reflected`](kartta_lang::SymbolFlags::is_reflected)). So is a field whose tag holds no
 //! `key:"value"` pair, since a library may read such a tag whole. A tag whose every value is `-`, which makes
-//! `encoding/json` and its kin skip the field, hands nothing over.
+//! `encoding/json` and its kin skip the field, hands nothing over. An exported function or package-level variable of a
+//! `package main` file that declares no `func main`, as a plugin's files are, is read by name too: the plugin's host
+//! looks it up through `plugin.Lookup`. The walk reads one file, so a file of a program's `package main` that leaves
+//! `func main` to a sibling file is taken for a plugin's.
 //!
 //! # Fingerprint
 //!
