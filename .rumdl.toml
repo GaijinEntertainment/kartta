@@ -8,3 +8,6 @@ line-length = 120
 
 [MD013]
 reflow = true
+
+[MD018]
+magiclink = true
