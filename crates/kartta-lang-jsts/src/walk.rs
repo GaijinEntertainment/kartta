@@ -661,8 +661,12 @@ impl<'s> Emitter<'s> {
                 .push(Scope::spanning(value, function, id, this_of));
             return None;
         }
-        let is_class = value.is_some_and(|value| value.kind() == "class");
-        if self.function_spans.is_empty() || is_class {
+        if let Some(class) = value.filter(|value| value.kind() == "class") {
+            self.scopes
+                .push(Scope::spanning(class, class, id, Some(id)));
+            return None;
+        }
+        if self.function_spans.is_empty() {
             return None;
         }
         self.raw.local_symbols.push(id);

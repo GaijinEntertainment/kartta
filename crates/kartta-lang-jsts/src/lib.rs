@@ -22,7 +22,8 @@
 //!   `default`. An anonymous callback such as an inline JSX prop opens no scope: its calls belong to the function
 //!   around it. A declared class, an anonymous `export default class` included, owns the calls of its body outside
 //!   every such function, a field's initializer, a decorator and a static block, and `this` there names the class; a
-//!   class expression, `const Box = class {}`, leaves them to the scope around it.
+//!   class expression, `const Box = class {}`, has them made by the name that binds it, and `this` there names
+//!   the class too.
 //! - A test registration — `describe`, `it` and `test` with their `x` and `f` forms, `suite`, `bench`, and their
 //!   `.skip`, `.only`, `.todo`, `.concurrent`, `.sequential` and `.failing` modifiers — is a function named by its
 //!   description, and a bare lifecycle hook, `beforeEach`, `afterEach`, `beforeAll` or `afterAll`, one named by the
