@@ -52,6 +52,7 @@ impl Requires<'_> {
 impl Requires<'_> {
     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
+        extraction.package = library(path).map(str::to_owned);
 
         let path_flags = SymbolFlags::empty()
             .with_test(is_test_file(path))
@@ -75,6 +76,20 @@ impl Requires<'_> {
 
         extraction
     }
+}
+
+// constraint: a library keeps its code under `lib`, and a tree that vendors one copies it whole, a gem or the standard
+// library with the gems it bundles, so the directory above the outermost `lib` roots the copy a file belongs to
+/// The directory that roots the library `path` belongs to, the one above its outermost `lib` component, empty for a
+/// `lib` at the root; `None` for a file under no `lib`.
+fn library(path: &str) -> Option<&str> {
+    let dir = dir(path);
+    if dir == "lib" || dir.starts_with("lib/") {
+        return Some("");
+    }
+    dir.match_indices("/lib")
+        .find(|&(at, _)| matches!(dir.as_bytes().get(at + "/lib".len()), None | Some(b'/')))
+        .map(|(at, _)| &dir[..at])
 }
 
 fn is_test_file(path: &str) -> bool {
