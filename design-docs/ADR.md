@@ -507,7 +507,7 @@
 - [3.65 Tell C++ namesake classes apart by the scopes a use
   writes](./adr/3.65-tell-c-plus-plus-namesake-classes-apart-by-the-scopes-a-use-writes.md)
   - Governs: `crates/kartta-graph/src/{twins,members,scope}.rs`, `crates/kartta-lang-cpp/src/walk/sites.rs`
-  - Revisit if: the extraction keeps a template's arguments or the vendored copy a file belongs to
+  - Revisit if: template arguments spelled through an alias or a macro bind the primary wrongly in one use in ten
 - [3.66 Record a name a script or Rust reads without a call as a
   use](./adr/3.66-record-a-name-a-script-or-rust-reads-without-a-call-as-a-use.md)
   - Governs: the walks of `crates/kartta-lang-{daslang,quirrel,lua}`,
@@ -548,7 +548,7 @@
 - [3.75 Name a C++ call's receiver by the class its operand is declared
   as](./adr/3.75-name-a-c-plus-plus-call-s-receiver-by-the-class-its-operand-is-declared-as.md)
   - Governs: `crates/kartta-lang-cpp/src/walk.rs` (`record_call`, `push_fields`, `push_type_alias`,
-    `aliased_class`), `crates/kartta-lang-cpp/src/walk/{sites,data}.rs`
+    `aliased_class`, a specialization's signature), `crates/kartta-lang-cpp/src/walk/{sites,data}.rs`
   - Revisit if: calls on operands the walk does not see declared bind wrongly often enough to want a typed expression
 - [3.76 Count a generated-code marker only outside a code
   span](./adr/3.76-count-a-generated-code-marker-only-outside-a-code-span.md)
