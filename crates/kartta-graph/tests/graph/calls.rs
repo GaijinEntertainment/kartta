@@ -4977,6 +4977,60 @@ fn a_declaration_whose_file_includes_two_definitions_links_to_neither() {
     assert_eq!(callees(&graph, "connect"), ["net/uri.hpp:5@85"]);
 }
 
+/// `mem/helper.h` declares `native` and calls it from `guarded`; `mem/native.cpp` defines `native`, including the
+/// header where `product_includes`, and `tests/memTest.cpp` includes the header and defines a stub of `native`.
+fn test_stub_tree(product_includes: bool) -> Vec<Extraction> {
+    let header = with_callables(
+        file(
+            "mem/helper.h",
+            vec![function("native", 1), function("guarded", 3)],
+            vec![call(1, "native", 4)],
+        ),
+        CallableRole::Declaration,
+        &[(0, "native(const void *)")],
+    );
+    let mut product = with_callables(
+        file("mem/native.cpp", vec![function("native", 3)], Vec::new()),
+        CallableRole::Definition,
+        &[(0, "native(const void *)")],
+    );
+    if product_includes {
+        product.includes = vec![IncludeRef {
+            target: "mem/helper.h".to_owned(),
+        }];
+    }
+    let mut stub = with_callables(
+        file(
+            "tests/memTest.cpp",
+            vec![in_test(function("native", 5))],
+            Vec::new(),
+        ),
+        CallableRole::Definition,
+        &[(0, "native(const void *)")],
+    );
+    stub.includes = vec![IncludeRef {
+        target: "mem/helper.h".to_owned(),
+    }];
+    vec![header, product, stub]
+}
+
+#[test]
+fn a_declaration_outside_test_code_links_no_test_definition() {
+    let alone = graph_of(cpp(), &test_stub_tree(false));
+    assert_eq!(
+        callees(&alone, "guarded"),
+        ["mem/helper.h:1@80"],
+        "the stub is the one definition that includes the header, and the header's call binds its declaration"
+    );
+
+    let beside = graph_of(cpp(), &test_stub_tree(true));
+    assert_eq!(
+        callees(&beside, "guarded"),
+        ["mem/native.cpp:3@80"],
+        "the stub does not count against the product definition"
+    );
+}
+
 #[test]
 fn a_body_s_calls_are_found_wherever_the_extraction_lists_them() {
     let graph = graph(&[file(
