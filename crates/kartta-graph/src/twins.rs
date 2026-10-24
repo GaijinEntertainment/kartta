@@ -186,7 +186,12 @@ fn in_site_file(site: SymbolAt, held: Vec<(SymbolAt, SymbolAt)>) -> Vec<(SymbolA
 
 /// How far into the scope around a use the scope reaches that holds a class of `qualified` name under the spelling
 /// `written`, by the length of its name, the global scope at 0; `None` where no scope around the use holds it so.
-fn holder_depth(qualified: &str, written: &str, scope: &str, separator: &str) -> Option<usize> {
+pub(crate) fn holder_depth(
+    qualified: &str,
+    written: &str,
+    scope: &str,
+    separator: &str,
+) -> Option<usize> {
     if let Some(rooted) = written.strip_prefix(separator) {
         return (qualified == rooted).then_some(0);
     }
