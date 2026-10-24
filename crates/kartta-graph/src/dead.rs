@@ -76,12 +76,14 @@ impl Graph {
     /// A declaration and the definition it links to are one definition, judged once. A call or a use from the
     /// definition's own body does not reach it, so recursion alone keeps nothing alive. A call binds one definition,
     /// yet a build may link any other that the tier which bound it held equal, so it reaches every definition of the
-    /// bound one's qualified name: anywhere for a qualified call or a call through the receiver's type, in the
-    /// directory for a call bound through an import or a package, and in the file for a call bound in a file. A
-    /// declaration that several definitions implement links to none of them, so a call of it reaches each of them, and
-    /// a call of one of them reaches it. A call or a use made at file scope has no symbol to resolve from, so it
-    /// reaches every definition its name spells in its own file, in the files it includes, and where a package is a
-    /// directory, in its package. A type that another type names as a parent is reached.
+    /// bound one's qualified name: anywhere for a qualified call or a call through the receiver's type (confidence
+    /// 90, 88 and 85), in the directory for a call bound through an import or a package (95 and 75), and in the file
+    /// for a call bound in a file, through an include or through a re-export (80, 70 and 65). A call bound at the
+    /// one-callable tier (60) or below reaches only what it bound. A declaration that several definitions implement
+    /// links to none of them, so a call of it reaches each of them, and a call of one of them reaches it. A call or a
+    /// use made at file scope has no symbol to resolve from, so it reaches every definition its name spells in its own
+    /// file, in the files it includes, and where a package is a directory, in its package. A type that another type
+    /// names as a parent is reached.
     ///
     /// Only what the graph can see used is judged: a function, a method or a macro, through its calls, a field, a
     /// variable or a constant, through its reads and writes, where the language records one wherever code reads or
