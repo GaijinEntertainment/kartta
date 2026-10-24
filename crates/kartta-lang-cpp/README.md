@@ -47,13 +47,14 @@ declaration belongs. So does a conditional whose first branch leaves a
 brace open or closes one it did not open, `#ifdef A` `if (x) {` `#else` `if (y) {` `#endif`. Where the parser reads such
 an `#else` inside the block the first branch opened, every conditional of that shape in the file is read with its first
 branch taken, whatever its condition; where it holds the `#else` inside a larger error, so is every conditional whose
-first branch leaves a brace open. A macro that opens a class member, `PX_FORCE_INLINE const Gu::GeometryUnion&
-get()`, reads as the member's type and can close the class at that member; where the parser misreads one, the members
-of that class lose the macros the parser cannot read past. The entries of a large table, its numbers or, in a parser
-tree-sitter generates, its macro calls and enumerators, cost far more tree than the file, so a table's data is blanked
-too. A file is read as such a parser when its text before its first brace includes `tree_sitter/parser.h` and defines
-`LANGUAGE_VERSION`. The parser reads a repaired copy of the file, the same length as the original, while every name and
-signature comes from the original bytes.
+first branch leaves a brace open. A label right before an `#endif`, `skip:`, takes the directive for its statement;
+where the parser misreads one, the label is blanked. A macro that opens a class member,
+`PX_FORCE_INLINE const Gu::GeometryUnion& get()`, reads as the member's type and can close the class at that member;
+where the parser misreads one, the members of that class lose the macros the parser cannot read past. The entries of
+a large table, its numbers or, in a parser tree-sitter generates, its macro calls and enumerators, cost far more tree
+than the file, so a table's data is blanked too. A file is read as such a parser when its text before its first brace
+includes `tree_sitter/parser.h` and defines `LANGUAGE_VERSION`. The parser reads a repaired copy of the file, the same
+length as the original, while every name and signature comes from the original bytes.
 `design-docs/adr/3.3-repair-what-the-c-plus-plus-grammar-cannot-parse.md` records each repair, the grammar gap left
 open, and why the extensions claimed are the ones they are, and ADRs 3.70 to 3.76 beside it the rules the walk keeps
 over the parse; their History lines lead to the PRs that measured what each recovers;
