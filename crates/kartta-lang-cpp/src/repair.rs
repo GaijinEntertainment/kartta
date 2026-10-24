@@ -513,8 +513,12 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
         misread_branch,
         stray_branch,
         misread_bodies: bodies,
+        labels_before_an_endif,
     } = recovery_of(tree, source);
     let mut repaired = Repaired::of(source);
+    for label in labels_before_an_endif {
+        repaired.blank(label);
+    }
     let split = if misread_branch {
         Some(BraceSplit::OpensOrCloses)
     } else {
@@ -566,6 +570,20 @@ struct Recovery {
     misread_branch: bool,
     stray_branch: bool,
     misread_bodies: Vec<MisreadBody>,
+    labels_before_an_endif: Vec<Range<usize>>,
+}
+
+// constraint: the grammar reads a conditional's branch as a run of whole statements, and a label that ends one, `skip:`
+// right before its `#endif`, takes the directive for the statement it labels; the conditional then never closes, and
+// the definition around it is lost or runs on far past its brace. A label is no symbol, call or use, so the second
+// parse reads the directive without it
+/// The label and colon of a labeled statement whose statement is an error the grammar opens at an `#endif`.
+fn label_before_an_endif(statement: Node<'_>, source: &[u8]) -> Option<Range<usize>> {
+    let colon = child_nodes(statement).find(|child| child.kind() == ":")?;
+    let held = colon.next_sibling().filter(Node::is_error)?;
+    let text = &source[held.byte_range()];
+    (text.starts_with(b"#") && directive_of(text) == Directive::Closes)
+        .then(|| statement.start_byte()..colon.end_byte())
 }
 
 // constraint: a member the grammar misreads through its macro can close the class body early, `}` of a member's body
@@ -779,6 +797,7 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
         misread_branch: false,
         stray_branch: false,
         misread_bodies: Vec::new(),
+        labels_before_an_endif: Vec::new(),
     };
     let parsed_at_the_top = !tree.root_node().is_error();
 
@@ -796,6 +815,11 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
             }
         }
         let kind = node.kind();
+        if kind == "labeled_statement"
+            && let Some(label) = label_before_an_endif(node, source)
+        {
+            recovery.labels_before_an_endif.push(label);
+        }
         if !recovery.misread_branch && kind == "preproc_call" {
             recovery.misread_branch =
                 node.child_by_field_name("directive")
@@ -1683,6 +1707,53 @@ int after(int count)
             .map(|symbol| (symbol.name.as_str(), symbol.line, symbol.end_line))
             .collect();
         assert_eq!(lines, [("open_file", 1, 19), ("after", 21, 24)]);
+    }
+
+    #[test]
+    fn a_function_whose_label_stands_before_an_endif_ends_at_its_own_brace() {
+        const SOURCE: &[u8] = br"void create(int flags)
+{
+#if defined(PROXY)
+	if (flags) {
+		goto skip;
+	}
+	step(flags);
+	goto done;
+
+ skip:
+#endif  /* PROXY */
+
+	walk(flags);
+
+#if defined(PROXY)
+ done:
+#endif
+	finish(flags);
+}
+
+void after(int count)
+{
+	check(count);
+}
+";
+
+        let raw = Cpp::new().extract(SOURCE);
+
+        let lines: Vec<(&str, u32, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.line, symbol.end_line))
+            .collect();
+        assert_eq!(lines, [("create", 1, 19), ("after", 21, 24)]);
+        let calls: Vec<(&str, u32)> = raw
+            .calls
+            .iter()
+            .map(|call| (call.callee.as_str(), call.line))
+            .collect();
+        assert_eq!(
+            calls,
+            [("step", 7), ("walk", 13), ("finish", 18), ("check", 23)]
+        );
     }
 
     #[test]
