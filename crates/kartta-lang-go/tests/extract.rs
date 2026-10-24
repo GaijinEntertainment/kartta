@@ -634,8 +634,43 @@ func Run(s *Server) int {
 }
 ";
 
+// The path with the index in braces replaced by the qualified name of the symbol it names.
+fn hosted(raw: &RawExtraction, path: &str) -> String {
+    let Some((head, rest)) = path.split_once('{') else {
+        return path.to_owned();
+    };
+    let (index, tail) = rest
+        .split_once('}')
+        .unwrap_or_else(|| panic!("no brace closes the owner's index in {path}"));
+    let index: usize = index
+        .parse()
+        .unwrap_or_else(|_| panic!("no owner's index in {path}"));
+    let host = &raw.symbols[index];
+    format!("{head}{{{}}}{tail}", host.qualified_name)
+}
+
+fn hosted_types(raw: &RawExtraction, qualified_name: &str) -> Vec<String> {
+    let symbol = qualified(raw, qualified_name);
+    (symbol.value_types.iter())
+        .map(|path| hosted(raw, path))
+        .collect()
+}
+
+fn hosted_members(raw: &RawExtraction) -> Vec<(&str, String, Access, u32)> {
+    members(raw)
+        .into_iter()
+        .map(|(name, path, access, line)| (name, hosted(raw, path), access, line))
+        .collect()
+}
+
+fn no_unspelled_symbol(raw: &RawExtraction) -> bool {
+    !raw.symbols
+        .iter()
+        .any(|symbol| symbol.name.contains(['{', '\u{b7}']))
+}
+
 #[test]
-fn a_field_of_an_anonymous_struct_a_field_declares_is_owned_by_the_struct_s_own_name() {
+fn a_field_of_an_anonymous_struct_a_field_declares_is_owned_by_that_field() {
     let raw = extract(ANONYMOUS_FIELDS);
 
     assert_eq!(
@@ -643,22 +678,19 @@ fn a_field_of_an_anonymous_struct_a_field_declares_is_owned_by_the_struct_s_own_
         (
             SymbolKind::Field,
             Some("Server".to_owned()),
-            vec!["{Server·Limits}".to_owned()]
+            vec!["{1}".to_owned()]
         ),
-        "the field keeps its name and its owner, and its value is of the struct's name"
-    );
-    assert_eq!(
-        owned(&raw, "app.{Server·Limits}"),
-        (SymbolKind::Struct, None, Vec::new())
+        "the field keeps its name and its owner, and its value names its own index"
     );
     assert_eq!(
         owned(&raw, "app.Server.Limits.MaxConns"),
         (
             SymbolKind::Field,
-            Some("{Server·Limits}".to_owned()),
+            Some("Limits".to_owned()),
             vec!["int".to_owned()]
         )
     );
+    assert!(no_unspelled_symbol(&raw), "the struct is no symbol");
     assert_eq!(
         owned(&raw, "app.Server.Limits.Codec").2,
         ["Codec"],
@@ -678,30 +710,32 @@ fn a_field_of_an_anonymous_struct_a_field_declares_is_owned_by_the_struct_s_own_
 }
 
 #[test]
-fn an_anonymous_struct_behind_a_pointer_or_a_container_or_inside_another_is_named_after_its_fields()
-{
+fn an_anonymous_struct_behind_a_pointer_or_a_container_or_inside_another_is_owned_by_its_field() {
     let raw = extract(ANONYMOUS_FIELDS);
 
-    assert_eq!(owned(&raw, "app.Table.Rows").2, ["[]{Table·Rows}"]);
+    assert_eq!(hosted_types(&raw, "app.Table.Rows"), ["[]{app.Table.Rows}"]);
+    assert_eq!(owned(&raw, "app.Table.Rows.ID").1.as_deref(), Some("Rows"));
     assert_eq!(
-        owned(&raw, "app.Table.Rows.ID").1.as_deref(),
-        Some("{Table·Rows}")
+        hosted_types(&raw, "app.Table.Rows.Meta"),
+        ["{app.Table.Rows.Meta}"]
     );
-    assert_eq!(owned(&raw, "app.Table.Rows.Meta").2, ["{Table·Rows·Meta}"]);
     assert_eq!(
         owned(&raw, "app.Table.Rows.Meta.Tag").1.as_deref(),
-        Some("{Table·Rows·Meta}")
+        Some("Meta")
     );
-    assert_eq!(owned(&raw, "app.Table.ByKey").2, ["[]{Table·ByKey}"]);
     assert_eq!(
-        qualified(&raw, "app.{Table·ByKey}").parents,
+        hosted_types(&raw, "app.Table.ByKey"),
+        ["[]{app.Table.ByKey}"]
+    );
+    assert_eq!(
+        qualified(&raw, "app.Table.ByKey").parents,
         ["base"],
-        "an embedded field is a parent of the anonymous struct"
+        "the field holds the types its struct embeds"
     );
     assert_eq!(
         owned(&raw, "app.Table.Spare.X").1.as_deref(),
-        Some("{Table·Spare}"),
-        "the names of one declaration share its struct, named after the first that is not blank"
+        Some("Spare"),
+        "the names of one declaration share its struct, owned by the first that is not blank"
     );
 }
 
@@ -719,7 +753,7 @@ fn an_anonymous_struct_without_a_field_takes_no_name() {
 }
 
 #[test]
-fn a_name_the_file_has_given_an_anonymous_struct_takes_a_count() {
+fn namesake_fields_of_two_bodies_types_each_own_their_anonymous_struct() {
     let raw = extract(
         b"package app
 
@@ -733,36 +767,29 @@ func B() {
 ",
     );
 
-    assert_eq!(
-        owned(&raw, "app.row.Cell.a").1.as_deref(),
-        Some("{row·Cell}")
-    );
-    assert_eq!(
-        owned(&raw, "app.row.Cell.b").1.as_deref(),
-        Some("{row·Cell·2}")
-    );
-    let cells: Vec<Vec<String>> = raw
-        .symbols
-        .iter()
-        .filter(|symbol| symbol.name == "Cell")
-        .map(|symbol| symbol.value_types.clone())
+    assert_eq!(owned(&raw, "app.row.Cell.a").1.as_deref(), Some("Cell"));
+    assert_eq!(owned(&raw, "app.row.Cell.b").1.as_deref(), Some("Cell"));
+    let cells: Vec<(usize, Vec<String>)> = (raw.symbols.iter().enumerate())
+        .filter(|(_, symbol)| symbol.name == "Cell")
+        .map(|(index, symbol)| (index, symbol.value_types.clone()))
         .collect();
-    assert_eq!(cells, [["{row·Cell}"], ["{row·Cell·2}"]]);
+    assert_eq!(
+        cells,
+        [(2, vec!["{2}".to_owned()]), (6, vec!["{6}".to_owned()])],
+        "each field's value names its own index"
+    );
 }
 
 #[test]
-fn an_anonymous_struct_whose_name_would_pass_a_type_path_s_bound_takes_none() {
+fn an_anonymous_struct_a_long_name_owns_is_reachable_through_the_owner_s_index() {
     let long = "F".repeat(160);
     let source = format!("package app\n\ntype T struct {{\n\t{long} struct{{ X int }}\n}}\n");
     let raw = extract(source.as_bytes());
 
+    assert_eq!(owned(&raw, &format!("app.T.{long}")).2, ["{1}"]);
     assert_eq!(
-        owned(&raw, &format!("app.T.{long}")).2,
-        Vec::<String>::new()
-    );
-    assert!(
-        !raw.symbols.iter().any(|symbol| symbol.name == "X"),
-        "no path could reach the struct's fields"
+        owned(&raw, &format!("app.T.{long}.X")).1.as_deref(),
+        Some(long.as_str())
     );
 }
 
@@ -800,59 +827,62 @@ func (s *Server) Run() {
 ";
 
 #[test]
-fn a_variable_declared_with_an_anonymous_struct_owns_its_fields_through_the_struct_s_name() {
+fn a_variable_declared_with_an_anonymous_struct_owns_its_fields() {
     let raw = extract(ANONYMOUS_VARIABLES);
 
     assert_eq!(
         owned(&raw, "app.settings"),
-        (SymbolKind::Variable, None, vec!["{settings}".to_owned()])
+        (SymbolKind::Variable, None, vec!["{0}".to_owned()])
     );
-    assert_eq!(owned(&raw, "app.{settings}").0, SymbolKind::Struct);
     assert_eq!(
         owned(&raw, "app.settings.Timeout").1.as_deref(),
-        Some("{settings}")
+        Some("settings")
     );
     assert_eq!(
-        (owned(&raw, "app.left").2, owned(&raw, "app.right").2),
-        (vec!["{left}".to_owned()], vec!["{left}".to_owned()]),
-        "the names of one spec share its struct, named after the first"
+        (
+            hosted_types(&raw, "app.left"),
+            hosted_types(&raw, "app.right")
+        ),
+        (vec!["{app.left}".to_owned()], vec!["{app.left}".to_owned()]),
+        "the names of one spec share its struct, owned by the first"
     );
-    assert_eq!(owned(&raw, "app.left.X").1.as_deref(), Some("{left}"));
+    assert_eq!(owned(&raw, "app.left.X").1.as_deref(), Some("left"));
+    assert!(no_unspelled_symbol(&raw));
 }
 
 #[test]
-fn a_variable_a_body_declares_names_its_anonymous_struct_after_the_callable_too() {
+fn a_variable_a_body_declares_qualifies_its_anonymous_struct_s_fields_by_the_callable_too() {
     let raw = extract(ANONYMOUS_VARIABLES);
 
     assert_eq!(
         owned(&raw, "app.Run.limits.Max").1.as_deref(),
-        Some("{Run·limits}")
+        Some("limits")
     );
     assert_eq!(
         owned(&raw, "app.Server.Run.limits.Max").1.as_deref(),
-        Some("{Server·Run·limits}"),
+        Some("limits"),
         "a method's value is qualified by its receiver's type"
     );
-    let reads: Vec<(&str, &str)> = members(&raw)
+    let reads: Vec<(&str, String)> = hosted_members(&raw)
         .into_iter()
         .map(|(name, path, ..)| (name, path))
         .collect();
     assert_eq!(
         reads,
         [
-            ("Max", "{Run·limits}"),
-            ("Timeout", "settings"),
-            ("Max", "{Run·limits}")
+            ("Max", "{app.limits}".to_owned()),
+            ("Timeout", "settings".to_owned()),
+            ("Max", "{app.limits}".to_owned())
         ],
-        "a local's members name its struct, and a package value's members the value"
+        "a local's members name the local, and a package value's members the value"
     );
     let local = |qualified_name: &str| {
         raw.local_symbols
             .iter()
             .any(|&id| symbol(&raw, id).qualified_name == qualified_name)
     };
-    assert!(local("app.{Run·limits}") && local("app.Run.limits.Max"));
-    assert!(!local("app.{settings}"));
+    assert!(local("app.limits") && local("app.Run.limits.Max"));
+    assert!(!local("app.settings"));
 }
 
 const ANONYMOUS_LITERALS: &[u8] = br#"package app
@@ -885,64 +915,82 @@ func TestRun(t *testing.T) {
 fn a_literal_assigned_to_a_name_declares_its_anonymous_struct_s_fields() {
     let raw = extract(ANONYMOUS_LITERALS);
 
-    assert_eq!(owned(&raw, "app.cases").2, ["[]{cases}"]);
-    assert_eq!(owned(&raw, "app.cases.want").1.as_deref(), Some("{cases}"));
+    assert_eq!(hosted_types(&raw, "app.cases"), ["[]{app.cases}"]);
+    assert_eq!(owned(&raw, "app.cases.want").1.as_deref(), Some("cases"));
     assert_eq!(
-        owned(&raw, "app.byName").2,
-        ["[][]{byName}"],
-        "a variable's written type names its struct through containers"
+        hosted_types(&raw, "app.byName"),
+        ["[][]{app.byName}"],
+        "a variable's written type names it through containers"
     );
-    assert_eq!(owned(&raw, "app.byName.ID").1.as_deref(), Some("{byName}"));
+    assert_eq!(owned(&raw, "app.byName.ID").1.as_deref(), Some("byName"));
     assert_eq!(
         owned(&raw, "app.TestRun.tests.run").1.as_deref(),
-        Some("{TestRun·tests}")
+        Some("tests")
     );
     assert_eq!(
         owned(&raw, "app.TestRun.point.Y").1.as_deref(),
-        Some("{TestRun·point}"),
+        Some("point"),
         "a literal behind & is the value's too"
     );
     assert_eq!(
         owned(&raw, "app.TestRun.wrapped.W").1.as_deref(),
-        Some("{TestRun·wrapped}"),
+        Some("wrapped"),
         "and so is one in parentheses"
     );
     assert!(
         !raw.symbols.iter().any(|symbol| symbol.name == "Z"),
         "a literal assigned to no name declares nothing"
     );
-    let structs: Vec<&str> = raw
-        .symbols
-        .iter()
-        .filter(|symbol| symbol.kind == SymbolKind::Struct)
-        .map(|symbol| symbol.name.as_str())
+    let variables: Vec<(&str, String, bool)> = (raw.symbols.iter().enumerate())
+        .filter(|(_, symbol)| symbol.kind == SymbolKind::Variable)
+        .map(|(index, symbol)| {
+            let local = raw.local_symbols.iter().any(|id| id.0 as usize == index);
+            let types = symbol.value_types.iter().map(|path| hosted(&raw, path));
+            (symbol.name.as_str(), types.collect(), local)
+        })
         .collect();
     assert_eq!(
-        structs,
+        variables,
         [
-            "{cases}",
-            "{byName}",
-            "{TestRun·tests}",
-            "{TestRun·point}",
-            "{TestRun·wrapped}"
+            ("cases", "[]{app.cases}".to_owned(), false),
+            ("byName", "[][]{app.byName}".to_owned(), false),
+            ("tests", "[]{app.tests}".to_owned(), true),
+            ("point", "{app.point}".to_owned(), true),
+            ("wrapped", "{app.wrapped}".to_owned(), true),
         ],
-        "nor does it take a name"
+        "a `:=` name is a variable of its body where it owns its literal's struct, and no other is"
     );
+    assert!(no_unspelled_symbol(&raw));
+}
+
+#[test]
+fn a_name_a_short_declaration_assigns_again_owns_no_second_struct() {
+    let raw = extract(
+        b"package app\n\nfunc F() {\n\tp := struct{ X int }{}\n\tp, q := struct{ X int }{X: 1}, 2\n\t_ = q\n}\n",
+    );
+
+    let owners: Vec<(&str, Option<&str>)> = raw
+        .symbols
+        .iter()
+        .map(|symbol| (symbol.name.as_str(), symbol.owner.as_deref()))
+        .collect();
+    assert_eq!(owners, [("F", None), ("p", None), ("X", Some("p"))]);
 }
 
 #[test]
 fn a_key_of_a_literal_assigned_to_a_name_writes_its_anonymous_struct_s_field() {
     let raw = extract(ANONYMOUS_LITERALS);
 
+    let hosted = |name, path: &str, access, line| (name, path.to_owned(), access, line);
     assert_eq!(
-        members(&raw),
+        hosted_members(&raw),
         [
-            ("in", "{cases}", Access::Write, 4),
-            ("want", "{cases}", Access::Write, 4),
-            ("name", "{TestRun·tests}", Access::Write, 14),
-            ("name", "{TestRun·tests}", Access::Read, 17),
-            ("X", "{TestRun·point}", Access::Write, 19),
-            ("Y", "{TestRun·point}", Access::Read, 20),
+            hosted("in", "{app.cases}", Access::Write, 4),
+            hosted("want", "{app.cases}", Access::Write, 4),
+            hosted("name", "{app.tests}", Access::Write, 14),
+            hosted("name", "{app.tests}", Access::Read, 17),
+            hosted("X", "{app.point}", Access::Write, 19),
+            hosted("Y", "{app.point}", Access::Read, 20),
         ],
         "an element's struct comes from its slice, a range's element reads it, and a literal assigned to no name \
          keeps no key"
@@ -2094,10 +2142,11 @@ func Build() {
 }
 "#,
     );
-    let writes: Vec<(&str, &str, u32)> = members(&raw)
-        .into_iter()
-        .filter(|&(_, _, access, _)| access == Access::Write)
-        .map(|(name, path, _, line)| (name, path, line))
+    let members = hosted_members(&raw);
+    let writes: Vec<(&str, &str, u32)> = members
+        .iter()
+        .filter(|&&(_, _, access, _)| access == Access::Write)
+        .map(|(name, path, _, line)| (*name, path.as_str(), *line))
         .collect();
 
     assert_eq!(
@@ -2116,8 +2165,8 @@ func Build() {
             ("Name", "Rows[]", 24),
             ("L", "pair", 25),
             ("R", "pair", 25),
-            ("in", "{Build·cases}", 26),
-            ("want", "{Build·cases}", 26),
+            ("in", "{svc.cases}", 26),
+            ("want", "{svc.cases}", 26),
         ],
         "each element writes the field in its place, an embedded or blank field takes a place and records nothing, and \
          a type the file does not declare or a literal that does not set every field records none"
