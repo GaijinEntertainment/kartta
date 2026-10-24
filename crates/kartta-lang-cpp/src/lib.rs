@@ -12,7 +12,10 @@
 //! as its [value type](kartta_lang::Symbol::value_types), spelled as a member call's receiver spells it, after a `*`
 //! for a pointer, and a value of a class template also the class its first template argument names, after a `*`,
 //! which `->` reaches through the template's `operator->`, as `eastl::unique_ptr<Lock>` does; a field of a builtin
-//! type, of a template parameter, an array or a pointer to a pointer carries none. A class's parents are its base
+//! type, of a template parameter, an array or a pointer to a pointer carries none. A type alias of a class carries the
+//! class the same way, `List` for `typedef List<Node> NodeList;`; an alias of a pointer, a reference or a builtin
+//! type, of a template parameter, or of a class whose written scope holds template arguments or starts at a template
+//! parameter, `std::vector<T>::iterator` or `T::iterator`, carries none. A class's parents are its base
 //! classes as written, without template arguments, but for a parameter of an enclosing template, `: public Compare`,
 //! which names no type. A namespace yields no symbol of its own; it shows in the qualified names of what it holds:
 //!
