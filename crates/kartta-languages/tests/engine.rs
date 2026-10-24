@@ -12,7 +12,8 @@
 //! type binds no free function, not even through a value named like a module the file imports, while a call on a
 //! value still binds the one runtime method whose owner the value's name spells, one on a parameter the method of the
 //! type the parameter is declared as, and a bare call through a parameter or a local binds nothing. A JavaScript bare
-//! call of a name imported from a package binds no namesake of the project, unless the caller's file defines it.
+//! call of a name imported from a package binds no namesake of the project, unless the caller's file defines it. A
+//! Python call of a builtin binds a function of its name only where its file imports or defines that name.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -1234,4 +1235,26 @@ fn a_javascript_bare_call_of_a_name_imported_from_a_package_binds_no_namesake_of
         .map(|unbound| (unbound.callee, unbound.miss))
         .collect();
     assert_eq!(misses, [("useState", Miss::ExternalImport)]);
+}
+
+#[test]
+fn a_python_call_of_a_builtin_binds_a_namesake_only_where_its_file_imports_it() {
+    let tree = tree_of(&[
+        ("app/views.py", "def list():\n    return []\n"),
+        (
+            "tools/report.py",
+            "def rows(items):\n    return list(items)\n",
+        ),
+        (
+            "tools/index.py",
+            "from app.views import list\n\ndef pages():\n    return list()\n",
+        ),
+    ]);
+    let engine = build(&tree, &["python"]);
+
+    assert_eq!(callees(&engine, "tools/report.py", "rows"), (vec![], 0));
+    assert_eq!(
+        callees(&engine, "tools/index.py", "pages"),
+        (vec![("list", SymbolKind::Function, "app/views.py")], 0)
+    );
 }
