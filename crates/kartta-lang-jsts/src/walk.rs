@@ -1,6 +1,7 @@
 mod calls;
 mod context;
 mod exports;
+mod locals;
 mod uses;
 
 use std::collections::HashMap;
@@ -14,6 +15,7 @@ use tree_sitter::{Node, Tree};
 
 use self::context::{parameters_of, untyped_name};
 use self::exports::binds_a_require;
+use self::locals::Locals;
 use self::uses::{annotated_type, constructed_type, names_a_value};
 use crate::generated::is_generated_source;
 use crate::syntax::{
@@ -36,6 +38,7 @@ pub(crate) fn walk(tree: &Tree, source: &[u8]) -> RawExtraction {
 
     // constraint: `export { helper }` may follow or precede the declaration it exports, so it applies once the walk has
     // seen every declaration
+    emitter.locals.settle(&mut emitter.raw);
     let mut raw = emitter.raw;
     for symbol in &mut raw.symbols {
         if symbol.owner.is_none() && emitter.exported_names.contains(&symbol.name) {
@@ -119,6 +122,8 @@ type ValueBinding = fn(Option<Span>) -> Binding;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Binding {
     Value(Option<Span>),
+    /// A variable or a constant a body declares by one name, local to that body: a call of the name calls it.
+    Local(SymbolId, Option<Span>),
     Module(Option<Span>),
     /// A parameter that no annotation types, of the one type the function type of its context spells.
     Contextual(Span),
@@ -143,9 +148,10 @@ struct Emitter<'s> {
     scopes: Vec<Scope>,
     types: Vec<TypeScope>,
     decls: Vec<DeclScope>,
-    scope_ends: Vec<usize>,
-    function_ends: Vec<usize>,
+    scope_spans: Vec<Range<usize>>,
+    function_spans: Vec<Range<usize>>,
     declared: Vec<Declared>,
+    locals: Locals<'s>,
     bindings: HashMap<&'s [u8], Binding>,
     /// What each name the module declares or imports at its top level stands for, wherever in the file a use spells it.
     module_bindings: HashMap<&'s [u8], Binding>,
@@ -165,9 +171,10 @@ impl<'s> Emitter<'s> {
             scopes: Vec::new(),
             types: Vec::new(),
             decls: Vec::new(),
-            scope_ends: Vec::new(),
-            function_ends: Vec::new(),
+            scope_spans: Vec::new(),
+            function_spans: Vec::new(),
             declared: Vec::new(),
+            locals: Locals::default(),
             bindings: HashMap::new(),
             module_bindings: HashMap::new(),
             type_declarations: HashMap::new(),
@@ -223,8 +230,8 @@ impl<'s> Emitter<'s> {
                 exported: self.is_export_target(node),
             }),
             "variable_declarator" => {
-                self.declare_declarator(node);
-                self.declarator(node);
+                let local = self.declarator(node);
+                self.declare_declarator(node, local);
             }
             "pair" => self.pair_function(node),
             "field_definition" | "public_field_definition" => self.class_field(node),
@@ -274,7 +281,7 @@ impl<'s> Emitter<'s> {
         for declaration in declarations {
             match declaration.kind() {
                 "lexical_declaration" | "variable_declaration" => named_child_nodes(declaration)
-                    .for_each(|declarator| self.declare_declarator(declarator)),
+                    .for_each(|declarator| self.declare_declarator(declarator, None)),
                 "import_statement" => self.declare_imported(declaration, usize::MAX),
                 "function_declaration"
                 | "generator_function_declaration"
@@ -305,7 +312,7 @@ impl<'s> Emitter<'s> {
         while let Some(statement) = statements.pop() {
             match statement.kind() {
                 "variable_declaration" => named_child_nodes(statement)
-                    .for_each(|declarator| self.declare_declarator(declarator)),
+                    .for_each(|declarator| self.declare_declarator(declarator, None)),
                 "for_in_statement" => statements.extend(self.hoist_for_in(statement)),
                 "function_declaration" | "generator_function_declaration"
                     if !*strict.get_or_insert_with(|| is_strict(program, self.source)) =>
@@ -330,7 +337,7 @@ impl<'s> Emitter<'s> {
     // constraint: a `var` outside every body and namespace is the module's value inside its block too, as the hoist
     // made it for the rest of the file
     fn value_binding(&self, is_var: bool) -> ValueBinding {
-        if is_var && self.function_ends.is_empty() && self.types.is_empty() {
+        if is_var && self.function_spans.is_empty() && self.types.is_empty() {
             Binding::Module
         } else {
             Binding::Value
@@ -347,11 +354,23 @@ impl<'s> Emitter<'s> {
         while self.decls.last().is_some_and(|scope| scope.end <= start) {
             self.decls.pop();
         }
-        while self.scope_ends.last().is_some_and(|&end| end <= start) {
-            self.scope_ends.pop();
+        while self
+            .scope_spans
+            .last()
+            .is_some_and(|span| span.end <= start)
+        {
+            self.scope_spans.pop();
         }
-        while self.function_ends.last().is_some_and(|&end| end <= start) {
-            self.function_ends.pop();
+        let in_a_function = !self.function_spans.is_empty();
+        while self
+            .function_spans
+            .last()
+            .is_some_and(|span| span.end <= start)
+        {
+            self.function_spans.pop();
+        }
+        if in_a_function && self.function_spans.is_empty() {
+            self.locals.settle(&mut self.raw);
         }
         while let Some(closed) = self.declared.pop_if(|declared| declared.until <= start) {
             let name = &self.source[closed.name];
@@ -363,13 +382,13 @@ impl<'s> Emitter<'s> {
     }
 
     fn scope_end(&self) -> usize {
-        self.scope_ends.last().copied().unwrap_or(usize::MAX)
+        self.scope_spans.last().map_or(usize::MAX, |span| span.end)
     }
 
     // constraint: a catch clause binds its parameter and a `for … in` or `for … of` with a `let`, `const` or `var`
     // binds its left side, each for the statement alone
     fn open_scope(&mut self, node: Node<'_>) {
-        self.scope_ends.push(node.end_byte());
+        self.scope_spans.push(node.byte_range());
         let bound = match node.kind() {
             "catch_clause" => node.child_by_field_name("parameter"),
             "for_in_statement" if node.child_by_field_name("kind").is_some() => {
@@ -430,7 +449,7 @@ impl<'s> Emitter<'s> {
     // constraint: a function declared inside a function body names a value of its scope, while one at module or
     // namespace level keeps its name, because TypeScript merges it with a namespace of that name
     fn declare_function(&mut self, function: Node<'_>) {
-        if !self.function_ends.is_empty()
+        if !self.function_spans.is_empty()
             && let Some(name) = function.child_by_field_name("name")
         {
             self.declare(name.byte_range(), self.scope_end(), Binding::Value(None));
@@ -447,8 +466,8 @@ impl<'s> Emitter<'s> {
         {
             self.declare(name.byte_range(), function.end_byte(), Binding::Value(None));
         }
-        self.function_ends.push(function.end_byte());
-        self.scope_ends.push(function.end_byte());
+        self.function_spans.push(function.byte_range());
+        self.scope_spans.push(function.byte_range());
         let until = function.end_byte();
         let parameters = (function.child_by_field_name("parameters").into_iter())
             .flat_map(parameters_of)
@@ -473,8 +492,8 @@ impl<'s> Emitter<'s> {
 
     // constraint: a declarator whose value is a class expression binds the class, whose static members a call on the
     // name reaches, so it is a type binding that shadows a value of that name; one that takes a `require` binds as an
-    // import does
-    fn declare_declarator(&mut self, declarator: Node<'_>) {
+    // import does; one that declares `local` binds that local
+    fn declare_declarator(&mut self, declarator: Node<'_>, local: Option<SymbolId>) {
         if binds_a_require(declarator, self.source) {
             self.declare_imported(declarator, self.scope_end());
             return;
@@ -498,7 +517,17 @@ impl<'s> Emitter<'s> {
                 .child_by_field_name("type")
                 .and_then(annotated_type)
                 .or_else(|| constructed_type(declarator));
-            self.declare(name.byte_range(), self.scope_end(), value(typed));
+            let binding = local.map_or_else(|| value(typed), |id| Binding::Local(id, typed));
+            let spans = if is_var {
+                &self.function_spans
+            } else {
+                &self.scope_spans
+            };
+            if let (Some(id), Some(scope)) = (local, spans.last()) {
+                let source = self.source;
+                (self.locals).declare(&source[name.byte_range()], scope.clone(), id);
+            }
+            self.declare(name.byte_range(), self.scope_end(), binding);
         } else {
             self.declare_pattern(name, self.scope_end(), value);
         }
@@ -542,7 +571,7 @@ impl<'s> Emitter<'s> {
     fn names_a_declared_value(&self, receiver: &str) -> bool {
         matches!(
             self.bindings.get(receiver.as_bytes()),
-            Some(Binding::Value(_) | Binding::Module(_))
+            Some(Binding::Value(_) | Binding::Local(..) | Binding::Module(_))
         )
     }
 
@@ -597,13 +626,13 @@ impl<'s> Emitter<'s> {
         Some(self.raw.push_symbol(symbol))
     }
 
-    fn declarator(&mut self, node: Node<'_>) {
-        let Some(name) = node.child_by_field_name("name") else {
-            return;
-        };
-        if name.kind() != "identifier" {
-            return;
-        }
+    // constraint: a variable or a constant a body declares is local to it, as a function or a class value is not: no
+    // use binds a local, and a call binds a local only as a local call, which the walk records for a variable's name
+    // alone, where it is written or, for a call before the declaration, once the top-level function around it ends
+    fn declarator(&mut self, node: Node<'_>) -> Option<SymbolId> {
+        let name = node
+            .child_by_field_name("name")
+            .filter(|name| name.kind() == "identifier")?;
 
         let (exported, kind) = (self.decls.last()).map_or((false, SymbolKind::Variable), |decl| {
             (decl.exported, decl.kind)
@@ -630,7 +659,14 @@ impl<'s> Emitter<'s> {
             let this_of = self.lexical_this(function);
             self.scopes
                 .push(Scope::spanning(value, function, id, this_of));
+            return None;
         }
+        let is_class = value.is_some_and(|value| value.kind() == "class");
+        if self.function_spans.is_empty() || is_class {
+            return None;
+        }
+        self.raw.local_symbols.push(id);
+        Some(id)
     }
 
     fn pair_function(&mut self, node: Node<'_>) {

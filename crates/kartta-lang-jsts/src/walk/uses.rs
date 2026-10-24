@@ -94,7 +94,7 @@ impl Emitter<'_> {
     fn named_owner(&self, object: Node<'_>) -> String {
         let name = &self.source[object.byte_range()];
         match self.binding(name) {
-            Some(Binding::Value(typed) | Binding::Module(typed)) => {
+            Some(Binding::Value(typed) | Binding::Local(_, typed) | Binding::Module(typed)) => {
                 typed.map_or_else(String::new, |span| self.spelled(span))
             }
             Some(Binding::Contextual(span)) => self.spelled(*span),
