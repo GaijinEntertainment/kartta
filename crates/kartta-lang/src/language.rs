@@ -450,9 +450,10 @@ pub enum IncludedRuntimeMembers {
     #[default]
     Any,
     /// A member whose owner the receiver spells at its last segment in any case, `settings.setValue(1)` for
-    /// `Settings`, or whose owner the caller's own owner is or derives from, where the values such a call is made on
-    /// are most often the native values a host hands its scripts, so that an included class's member of the name is
-    /// a namesake of the host's method.
+    /// `Settings`, whose owner the caller's own owner is or derives from, or whose owner is an interface or a type
+    /// alias, where the values such a call is made on are most often the native values a host or the runtime hands
+    /// the code, so that an included class's member of the name is a namesake of the runtime's method, while an
+    /// interface or a type alias, which makes no value, is included to type the values the caller holds.
     SpelledOrOwn,
 }
 
