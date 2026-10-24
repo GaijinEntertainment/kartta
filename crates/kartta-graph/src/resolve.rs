@@ -1312,8 +1312,8 @@ impl<'g> Cascade<'g> {
         unique
     }
 
-    /// Whether `at` is no member, or a member whose owner the call's receiver spells or the caller's own owner is or
-    /// derives from.
+    /// Whether `at` is no member, or a member whose owner the call's receiver spells, the caller's own owner is or
+    /// derives from, or is an interface or a type alias.
     fn spelled_or_own(&self, call: &Call, at: SymbolAt) -> bool {
         let Some(owner) = self.graph.sym(at).owner else {
             return true;
@@ -1324,6 +1324,12 @@ impl<'g> Cascade<'g> {
                 .sym(call.caller_at())
                 .owner
                 .is_some_and(|own| self.owner_derives_from(own, owner))
+            || self.qualified(owner).is_some_and(|ty| {
+                matches!(
+                    self.graph.sym(ty).kind,
+                    SymbolKind::Interface | SymbolKind::TypeAlias
+                )
+            })
     }
 
     fn re_exported(&self, call: &Call) -> Option<SymbolAt> {

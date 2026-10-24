@@ -14,8 +14,10 @@
 //! type the parameter is declared as, of the caller's own package where two versions of its crate declare that type,
 //! a bare call through a parameter or a local binds nothing, and a call through a type the tree does not declare,
 //! `Vec::new()`, binds no member of another type. A JavaScript bare call of a name imported from a package binds no
-//! namesake of the project, unless the caller's file defines it. A Python call of a builtin binds a function of its
-//! name only where its file imports or defines that name.
+//! namesake of the project, unless the caller's file defines it. A TypeScript or JavaScript call of a runtime method on
+//! a value binds an imported class's member of its name only where its receiver spells the class, and an imported
+//! interface's member on any value. A Python call of a builtin binds a function of its name only where its file
+//! imports or defines that name.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -1371,6 +1373,64 @@ fn a_javascript_root_relative_import_binds_through_the_file_a_jsconfig_roots_it_
             vec![("register", SymbolKind::Function, "public/scripts/m.js")],
             0
         )
+    );
+}
+
+#[test]
+fn a_javascript_runtime_method_s_call_binds_only_the_imported_member_its_receiver_spells() {
+    let tree = tree_of(&[
+        ("package.json", "{\"name\":\"app\"}\n"),
+        (
+            "src/macros.js",
+            "export class Macros {\n  get(key) {}\n}\n\nexport const macros = new Macros();\n",
+        ),
+        (
+            "src/sd.js",
+            "import { macros } from './macros.js';\n\n\
+             export function sdMessageButton($icon) { $icon.get(0); }\n\n\
+             export function onClose() { macros.get('x'); }\n",
+        ),
+    ]);
+    let engine = build(&tree, &["javascript"]);
+
+    assert_eq!(
+        callees(&engine, "src/sd.js", "sdMessageButton"),
+        (vec![], 1)
+    );
+    assert_eq!(
+        callees(&engine, "src/sd.js", "onClose"),
+        (vec![("get", SymbolKind::Method, "src/macros.js")], 0),
+        "a receiver that spells the class still reaches its member"
+    );
+}
+
+#[test]
+fn a_typescript_runtime_method_s_call_binds_an_imported_interface_s_member_on_any_value() {
+    let tree = tree_of(&[
+        (
+            "src/drawer.ts",
+            "export interface Drawer {\n  open(id: number): void;\n}\n\n\
+             export type Store = {\n  set(value: string): void;\n};\n\n\
+             export class Cache {\n  has(key: string) { return true; }\n}\n\n\
+             export function useDrawer(): Drawer { return { open() {} }; }\n",
+        ),
+        (
+            "src/row.ts",
+            "import { Cache, Store, useDrawer } from './drawer';\n\n\
+             export function Row(read: () => Store) {\n  const drawer = useDrawer();\n  drawer.open(1);\n  \
+             const store = read();\n  store.set('x');\n  const seen = new Set();\n  seen.has('x');\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["typescript"]);
+
+    let (reached, _) = callees(&engine, "src/row.ts", "Row");
+    assert_eq!(
+        reached,
+        [
+            ("open", SymbolKind::Method, "src/drawer.ts"),
+            ("set", SymbolKind::Method, "src/drawer.ts"),
+            ("useDrawer", SymbolKind::Function, "src/drawer.ts")
+        ]
     );
 }
 
