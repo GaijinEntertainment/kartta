@@ -144,12 +144,18 @@ impl Emitter<'_> {
     // constraint: `this` is the instance of the class around the member whose body holds the use, an arrow function
     // keeping the `this` of the scope it is written in; a function expression or a function outside a class gives a
     // `this` of no known type; in a class body outside every member, `this` is an instance of the class in a field's
-    // initializer and the class itself in a static one, both named by the class
+    // initializer and the class itself in a static one, both named by the class; a class expression's is named by the
+    // owner of its members, the innermost owner around the use, as only a function's barrier stands between them
     pub(super) fn this_class(&self) -> Option<String> {
         let this_of = self.scopes.last()?.this_of?;
         let symbol = self.raw.symbols.get(this_of.0 as usize)?;
         if symbol.kind == SymbolKind::Class {
             Some(symbol.qualified_name.clone())
+        } else if names_a_class(symbol.kind) {
+            self.types
+                .iter()
+                .rev()
+                .find_map(|scope| scope.owner.clone())
         } else {
             symbol.owner.clone()
         }
@@ -207,6 +213,15 @@ impl Emitter<'_> {
             calls_a_method: false,
         });
     }
+}
+
+// constraint: the one symbol other than a class that is the `this` of a scope is the variable or the constant a class
+// expression is bound to
+pub(super) const fn names_a_class(kind: SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::Class | SymbolKind::Constant | SymbolKind::Variable
+    )
 }
 
 fn registers_a_test(callee: &str, receiver: Option<&str>) -> bool {

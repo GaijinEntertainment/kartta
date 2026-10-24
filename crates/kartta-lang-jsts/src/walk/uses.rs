@@ -1,6 +1,7 @@
-use kartta_lang::{Access, FILE_SCOPE, Receiver, SymbolId, SymbolKind, UseRef};
+use kartta_lang::{Access, FILE_SCOPE, Receiver, SymbolId, UseRef};
 use tree_sitter::Node;
 
+use super::calls::names_a_class;
 use super::context::literal_annotation;
 use super::{Binding, Emitter, Span};
 use crate::syntax::start_line;
@@ -80,7 +81,7 @@ impl Emitter<'_> {
     fn this_receiver(&self) -> Receiver {
         let in_its_own_member = (self.scopes.last()).is_some_and(|scope| {
             scope.this_of == Some(scope.id)
-                && self.raw.symbols[scope.id.0 as usize].kind != SymbolKind::Class
+                && !names_a_class(self.raw.symbols[scope.id.0 as usize].kind)
         });
         match self.this_class() {
             Some(_) if in_its_own_member => Receiver::Own,
