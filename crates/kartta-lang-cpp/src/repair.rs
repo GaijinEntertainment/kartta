@@ -23,6 +23,14 @@ const LEADING_SPECIFIERS: [&[u8]; 7] = [
     b"extern",
 ];
 const CONVERSIONLESS: [&[u8]; 3] = [b"new", b"delete", b"co_await"];
+const CALL_MODIFIERS: [&[u8]; 6] = [
+    b"__cdecl",
+    b"__clrcall",
+    b"__stdcall",
+    b"__fastcall",
+    b"__thiscall",
+    b"__vectorcall",
+];
 
 pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
     let mut repaired = Repaired::of(source);
@@ -30,6 +38,7 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
     let tables = Tables::of(source);
     let mut judged_to = 0;
     let mut macro_run = MacroRun::default();
+    let mut modifier_line = ModifierLine::default();
 
     let mut at = 0;
     while at < source.len() {
@@ -46,6 +55,9 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
         }
         let blanked = match source[at] {
             b',' if opens_an_empty_slot(source, at) => Some((at, at + 1)),
+            b'_' if is_call_modifier(source, at, &mut modifier_line) => {
+                Some((at, at + word_len(&source[at..])))
+            }
             b'c' | b's' | b'u' if is_class_key(source, at) => head_macros(source, at)
                 .or_else(|| keyed_head(source, at))
                 .map(|[before, after]| {
@@ -233,6 +245,40 @@ const fn is_word_byte(byte: u8) -> bool {
 
 fn word_len(text: &[u8]) -> usize {
     text.iter().take_while(|byte| is_word_byte(**byte)).count()
+}
+
+// constraint: the grammar reads a calling convention the compiler reserves, `__stdcall`, only between a function
+// definition's return type and its declarator; in a prototype, `void __cdecl f(int a);`, and in a class body it is a
+// syntax error, whose recovery outside a class can take the declaration after it. The word names nothing and is kept
+// in the walk's signature, which reads the original. A directive's text is opaque to the grammar, and a `#define`
+// whose value is blanked to spaces, `#define XM_CALLCONV __vectorcall`, takes the `#elif` on the next line into it
+fn is_call_modifier(source: &[u8], at: usize, line: &mut ModifierLine) -> bool {
+    if (at > 0 && is_word_byte(source[at - 1]))
+        || !CALL_MODIFIERS.contains(&&source[at..at + word_len(&source[at..])])
+    {
+        return false;
+    }
+    if at >= line.end {
+        let start = line_start(source, at);
+        let continues_a_directive = start.checked_sub(1).is_some_and(|newline| {
+            let above = &source[..newline];
+            above.strip_suffix(b"\r").unwrap_or(above).ends_with(b"\\")
+        });
+        *line = ModifierLine {
+            end: at + line_len(&source[at..]),
+            directive: continues_a_directive
+                || source.get(start + indent_len(&source[start..])) == Some(&b'#'),
+        };
+    }
+    !line.directive
+}
+
+/// The line that holds the last calling convention [`is_call_modifier`] judged, so a line is scanned for its
+/// directive once, however many conventions it holds.
+#[derive(Default)]
+struct ModifierLine {
+    end: usize,
+    directive: bool,
 }
 
 fn is_class_key(source: &[u8], at: usize) -> bool {
@@ -1304,6 +1350,72 @@ void after_it()
         assert!(
             changed.iter().all(|&at| EMPTY_ARGUMENT_SRC[at] == b','),
             "{changed:?}"
+        );
+    }
+
+    #[test]
+    fn a_reserved_calling_convention_is_blanked_outside_directives() {
+        const SOURCE: &[u8] = b"#define XM_CALLCONV __vectorcall\n#define CC \\\n  __stdcall\n\
+                                void __cdecl f(int a);\nint x__cdecl;\nint __cdecl_x;\n";
+
+        let repaired = for_parse(SOURCE).expect("a calling convention in a prototype");
+
+        let changed = changed_offsets(&repaired, SOURCE);
+        let at = SOURCE
+            .windows(b"__cdecl f".len())
+            .position(|window| window == b"__cdecl f")
+            .expect("the prototype's convention");
+        assert_eq!(changed, (at..at + "__cdecl".len()).collect::<Vec<_>>());
+
+        for modifier in CALL_MODIFIERS {
+            let source = [b"void ", modifier, b" f(int a);\n"].concat();
+            let repaired = for_parse(&source).expect("a calling convention in a prototype");
+            assert_eq!(
+                changed_offsets(&repaired, &source),
+                (5..5 + modifier.len()).collect::<Vec<_>>(),
+                "{}",
+                String::from_utf8_lossy(modifier)
+            );
+        }
+    }
+
+    #[test]
+    fn a_reserved_calling_convention_keeps_the_function() {
+        const SOURCE: &[u8] = b"class IBuild\n{\npublic:\n\tvirtual void __stdcall release() = 0;\n\
+                                \tvirtual int __stdcall build(int a);\n\tvirtual HRESULT __stdcall attach(int a) = 0;\n\
+                                \tvirtual void ok() = 0;\n};\n\
+                                void __cdecl proto_a(int a);\nstatic int __cdecl cmp(const void *a, const void *b);\n\
+                                int WINAPI WinMain(int a, int b)\n{\n\treturn 0;\n}\nvoid plain(int a);\n";
+
+        let raw = Cpp::new().extract(SOURCE);
+
+        let symbols: Vec<(&str, Option<&str>)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.signature.as_deref()))
+            .collect();
+        assert_eq!(
+            symbols,
+            [
+                ("IBuild", None),
+                (
+                    "IBuild::release",
+                    Some("virtual void __stdcall release() = 0")
+                ),
+                (
+                    "IBuild::attach",
+                    Some("virtual HRESULT __stdcall attach(int a) = 0")
+                ),
+                ("IBuild::ok", Some("virtual void ok() = 0")),
+                ("WinMain", Some("int WINAPI WinMain(int a, int b)")),
+                ("IBuild::build", Some("virtual int __stdcall build(int a)")),
+                ("proto_a", Some("void __cdecl proto_a(int a)")),
+                (
+                    "cmp",
+                    Some("static int __cdecl cmp(const void *a, const void *b)")
+                ),
+                ("plain", Some("void plain(int a)")),
+            ]
         );
     }
 
