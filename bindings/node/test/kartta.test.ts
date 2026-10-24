@@ -5,7 +5,7 @@ import path from 'node:path';
 import {setImmediate} from 'node:timers/promises';
 import {promisify} from 'node:util';
 
-import {beforeEach, expect, onTestFailed, onTestFinished, test} from 'vite-plus/test';
+import {afterAll, beforeAll, beforeEach, expect, onTestFailed, onTestFinished, test} from 'vite-plus/test';
 
 import {Kartta, KarttaError, type Stats} from '../src/kartta.ts';
 
@@ -28,20 +28,41 @@ beforeEach(() => {
 	});
 });
 
+/** Writes a new tree of `files` Go files, each calling the next, and answers its root. */
+function written(files: number): string {
+	const root = mkdtempSync(path.join(tmpdir(), 'kartta-node-'));
+	for (let file = 0; file < files; file += 1) {
+		writeFileSync(path.join(root, `f${file}.go`), `package main\n\nfunc f${file}() {\n\tf${(file + 1) % files}()\n}\n`);
+	}
+	return root;
+}
+
+/** A tree of `files` files that the test removes once it finishes. */
 function tree(files: number): string {
 	step(`writing ${files} files`);
-	const root = mkdtempSync(path.join(tmpdir(), 'kartta-node-'));
+	const root = written(files);
 	onTestFinished(() => {
 		step('removing the tree');
 		rmSync(root, {recursive: true, force: true});
 		step('removed the tree');
 	});
-	for (let file = 0; file < files; file += 1) {
-		writeFileSync(path.join(root, `f${file}.go`), `package main\n\nfunc f${file}() {\n\tf${(file + 1) % files}()\n}\n`);
-	}
 	step('wrote the files');
 	return root;
 }
+
+/**
+ * The tree of 3,000 files that the build tests share, written once for the file, since they read it and never change
+ * it. A test that changes its tree writes its own.
+ */
+let large = '';
+
+beforeAll(() => {
+	large = written(3000);
+});
+
+afterAll(() => {
+	rmSync(large, {recursive: true, force: true});
+});
 
 /** Opens a handle on `root`, which the test closes once it finishes. */
 function opened(root: string): Kartta {
@@ -119,7 +140,7 @@ test('a signal aborted before the build rejects with its reason and keeps the in
 });
 
 test('a signal aborted while the build walks cancels it, the reason its cause', async () => {
-	const kartta = open(3000);
+	const kartta = opened(large);
 	const controller = new AbortController();
 	const reason = new Error('the caller gave up');
 	const {built} = await walking(kartta, controller.signal);
@@ -133,7 +154,7 @@ test('a signal aborted while the build walks cancels it, the reason its cause', 
 });
 
 test('an abort right after the call cancels the build, entered or not, unless it finished', async () => {
-	const kartta = open(3000);
+	const kartta = opened(large);
 	const controller = new AbortController();
 	const reason = new Error('the caller gave up');
 	const sameReason: unknown = expect.toSatisfy((cause) => cause === reason);
@@ -148,7 +169,7 @@ test('an abort right after the call cancels the build, entered or not, unless it
 });
 
 test('close cancels the build in flight, a closed error its cause', async () => {
-	const kartta = open(3000);
+	const kartta = opened(large);
 	const {built} = await walking(kartta);
 
 	kartta.close();
@@ -161,7 +182,7 @@ test('close cancels the build in flight, a closed error its cause', async () => 
 });
 
 test('close right after a build call cancels it, entered or not, unless it finished', async () => {
-	const kartta = open(3000);
+	const kartta = opened(large);
 
 	const built = kartta.build();
 	kartta.close();
@@ -173,7 +194,7 @@ test('close right after a build call cancels it, entered or not, unless it finis
 });
 
 test('close right after a build through call cancels it too, unless it finished', async () => {
-	const kartta = open(3000);
+	const kartta = opened(large);
 
 	const built = kartta.call('build');
 	kartta.close();
@@ -185,7 +206,7 @@ test('close right after a build through call cancels it too, unless it finished'
 });
 
 test('an abort stops its build and not a build through call given its binding id as an id', async () => {
-	const kartta = open(3000);
+	const kartta = opened(large);
 	const controller = new AbortController();
 
 	const untyped = kartta.call('build', {id: 2});
@@ -197,7 +218,7 @@ test('an abort stops its build and not a build through call given its binding id
 });
 
 test("a cancel naming a raw build's id stops it and not a build of the handle's in flight", async () => {
-	const kartta = open(3000);
+	const kartta = opened(large);
 	const {built} = await walking(kartta);
 	const id = 1;
 
@@ -228,7 +249,7 @@ test("a cancel naming the id a build's options give stops that build", async () 
 });
 
 test('cancel with no id stops the build in flight', async () => {
-	const kartta = open(3000);
+	const kartta = opened(large);
 	const {built} = await walking(kartta);
 
 	const {stopped} = await kartta.cancel();
