@@ -498,6 +498,7 @@ impl<'a> Emitter<'a> {
             callee,
             receiver,
             line: start_line(node),
+            invokes_a_macro: false,
         });
     }
 }

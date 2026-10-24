@@ -79,6 +79,7 @@ impl Language for Defs {
                     callee: callee.to_owned(),
                     receiver: None,
                     line: number,
+                    invokes_a_macro: false,
                 });
             }
         }

@@ -189,6 +189,7 @@ impl Emitter<'_> {
             callee,
             receiver,
             line: start_line(node),
+            invokes_a_macro: false,
         });
     }
 }

@@ -137,6 +137,7 @@ impl Emitter<'_> {
                     callee: text(node, source),
                     receiver: self.implicit_receiver(site_of),
                     line: line(node.start_position().row),
+                    invokes_a_macro: false,
                 });
             }
             Role::Read | Role::Name => {}
@@ -317,6 +318,7 @@ impl Emitter<'_> {
             callee,
             receiver,
             line: line(node.start_position().row),
+            invokes_a_macro: false,
         });
     }
 
