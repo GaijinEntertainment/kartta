@@ -591,10 +591,76 @@ impl<'g> Cascade<'g> {
 
     pub(crate) fn resolve_call(&self, call: &Call) -> Result<Bound, Miss> {
         let (at, confidence) = self.resolve_by_tiers(call)?;
-        if self.is_unbound_namespace(at) {
+        if self.is_unbound_namespace(at) || !self.constant_receiver_reaches(call, at) {
             return Err(Miss::NotAdmitted);
         }
         Ok((at, confidence))
+    }
+
+    // constraint: a receiver that names a constant holds the class or the module of that name, or a value where the
+    // graph holds only a value of it, so a member of a class that one does not derive from is no method it has, and a
+    // class the graph does not hold is the runtime's or a library's outside the graph
+    /// Whether the call reaches `at`: where the receiver names a constant, `at` is a member of the class or the module
+    /// the receiver names or of one it derives from, or the graph holds only values of the name; any other receiver
+    /// reaches every definition.
+    fn constant_receiver_reaches(&self, call: &Call, at: SymbolAt) -> bool {
+        let (BareReceivers::Constants, Some(separator), Some(receiver)) = (
+            self.conventions.bare_receivers,
+            self.conventions.owner_chain_separator,
+            call.receiver,
+        ) else {
+            return true;
+        };
+        let caller = self.graph.sym(call.caller_at());
+        if caller.owner == Some(receiver) || caller.qualified_name == receiver {
+            return true;
+        }
+        let strings = &self.graph.strings;
+        let written = strings.resolve(receiver);
+        if !written
+            .rsplit(separator)
+            .next()
+            .is_some_and(|last| last.starts_with(|first: char| first.is_ascii_uppercase()))
+        {
+            return true;
+        }
+        let (written, from) = written.strip_prefix(separator).map_or_else(
+            || (written, strings.resolve(caller.qualified_name)),
+            |rooted| (rooted, ""),
+        );
+        let spells =
+            |qualified: Str| spelled_from(from, (written, separator), strings.resolve(qualified));
+        let owner = self.graph.sym(at).owner;
+        if owner.is_some_and(spells) {
+            return true;
+        }
+        let symbols = std::iter::successors(Some(written), |tail| {
+            tail.split_once(separator).map(|(_, tail)| tail)
+        })
+        .filter_map(|tail| strings.get(tail))
+        .flat_map(|tail| self.named(tail).iter().map(|&at| self.graph.sym(at)));
+        let mut classes = (symbols.clone())
+            .filter(|symbol| {
+                (derives(symbol.kind) || symbol.kind == SymbolKind::Namespace)
+                    && spells(symbol.qualified_name)
+            })
+            .peekable();
+        if classes.peek().is_none() {
+            return symbols.clone().any(|symbol| is_value(symbol.kind));
+        }
+        owner.is_some_and(|owner| {
+            classes.any(|class| self.owner_derives_from(class.qualified_name, owner))
+        })
+    }
+
+    /// Where capitalised receivers name constants, the owner that a receiver written from the root spells, `Shape` for
+    /// `::Shape`; `None` for any other receiver.
+    pub(crate) fn rooted_constant(&self, receiver: Str) -> Option<&str> {
+        let separator = self.conventions.owner_chain_separator?;
+        if self.conventions.bare_receivers != BareReceivers::Constants {
+            return None;
+        }
+        self.graph.strings.resolve(receiver).strip_prefix(separator)
     }
 
     fn resolve_by_tiers(&self, call: &Call) -> Result<Bound, Miss> {
@@ -1765,6 +1831,21 @@ impl ReExportWalk<'_, '_> {
         }
         None
     }
+}
+
+// constraint: a constant is looked up from the scopes around its use outward, so `Version` inside `module Gem` names
+// `Gem::Version`, and elsewhere only a type of that whole name
+/// Whether `written`, a constant path that `separator` joins, used inside the definition qualified as `from`, names
+/// the type qualified as `qualified`: the whole name, or that name inside a scope that encloses `from`.
+fn spelled_from(from: &str, (written, separator): (&str, &str), qualified: &str) -> bool {
+    qualified == written
+        || qualified
+            .strip_suffix(written)
+            .and_then(|scope| scope.strip_suffix(separator))
+            .and_then(|scope| from.strip_prefix(scope))
+            .is_some_and(|inside| {
+                !inside.starts_with(|next: char| next.is_alphanumeric() || next == '_')
+            })
 }
 
 pub(crate) const fn derives(kind: SymbolKind) -> bool {

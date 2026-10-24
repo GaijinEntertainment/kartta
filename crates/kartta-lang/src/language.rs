@@ -353,6 +353,11 @@ pub enum BareReceivers {
     /// includes and the re-export chains through them alone, and no definition of the caller's own file or class, nor
     /// the name's one callable or the one nearest the caller.
     Classes(&'static [&'static str]),
+    /// A value, but for a name that starts in upper case, which names a constant: a class, a module or a value bound
+    /// once, as Ruby writes them. A call through a receiver whose last segment is such a name, and of which the graph
+    /// holds neither a type nor a value, as `Hash.new` where the tree defines no `Hash`, calls code outside the graph:
+    /// once no member of that owner binds it, it binds nothing.
+    Constants,
 }
 
 /// What a member call, `x.f()`, can call besides a member.

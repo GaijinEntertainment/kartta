@@ -1286,6 +1286,13 @@ impl Cascade<'_> {
         candidates: &Candidates<'_>,
     ) -> Option<SymbolAt> {
         let receiver = self.named_receiver(call)?;
+        if let Some(rooted) = self.rooted_constant(receiver) {
+            let owner = self.graph.strings.get(rooted)?;
+            return self.nearest(
+                call,
+                candidates.with_owner(self.graph, owner).iter().copied(),
+            );
+        }
         if let Some(at) = self.nearest(
             call,
             candidates.with_owner(self.graph, receiver).iter().copied(),
