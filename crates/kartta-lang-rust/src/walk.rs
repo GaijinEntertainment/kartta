@@ -8,8 +8,8 @@ use kartta_lang::{
 use tree_sitter::{Node, Tree};
 
 use self::attributes::{
-    attribute_marks_test, marks_imported_method, marks_macro_export, mod_body_marks_test,
-    opens_test_scope, path_attribute,
+    attribute_marks_test, marks_imported_method, marks_macro_export, marks_proc_macro,
+    mod_body_marks_test, opens_test_scope, path_attribute,
 };
 use self::blocks::{BlockCall, BlockItem};
 use self::syntax::{
@@ -417,6 +417,8 @@ impl Emitter<'_> {
         );
         let kind = if owner.is_some() {
             SymbolKind::Method
+        } else if marks_proc_macro(node, self.source) {
+            SymbolKind::Macro
         } else {
             SymbolKind::Function
         };
