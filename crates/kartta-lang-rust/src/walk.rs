@@ -300,17 +300,7 @@ impl Emitter<'_> {
         let Some(written) = written else {
             return;
         };
-        let (name, impl_owner) = match self.module_path(&written) {
-            Some(tentative) if tentative != written => {
-                self.impl_owners.push(ImplOwner {
-                    tentative: tentative.clone(),
-                    written,
-                    ..ImplOwner::default()
-                });
-                (tentative, Some(self.impl_owners.len() - 1))
-            }
-            _ => (written, None),
-        };
+        let (name, impl_owner) = self.impl_target(written);
 
         if let Some(trait_node) = node.child_by_field_name("trait") {
             self.queue_parent(&name, text(type_base(trait_node), self.source), impl_owner);
@@ -321,6 +311,20 @@ impl Emitter<'_> {
             exported_default: false,
             impl_owner,
         });
+    }
+
+    fn impl_target(&mut self, written: String) -> (String, Option<usize>) {
+        match self.module_path(&written) {
+            Some(tentative) if tentative != written => {
+                self.impl_owners.push(ImplOwner {
+                    tentative: tentative.clone(),
+                    written,
+                    ..ImplOwner::default()
+                });
+                (tentative, Some(self.impl_owners.len() - 1))
+            }
+            _ => (written, None),
+        }
     }
 
     // constraint: the impl may precede the type it names, so the pair waits for the end of the walk
