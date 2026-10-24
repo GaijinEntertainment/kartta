@@ -1,5 +1,5 @@
 use kartta_lang::tree::{signature_from, text};
-use kartta_lang::{CallRef, SymbolId, SymbolKind};
+use kartta_lang::{CallRef, LocalCall, SymbolId, SymbolKind};
 use tree_sitter::Node;
 
 use super::{Binding, Emitter, Scope};
@@ -183,6 +183,20 @@ impl Emitter<'_> {
     ) {
         if callee.is_empty() {
             return;
+        }
+        if receiver.is_none() && !self.function_spans.is_empty() {
+            match self.bindings.get(callee.as_bytes()) {
+                Some(&Binding::Local(local, _)) => {
+                    self.raw.local_calls.push(LocalCall {
+                        site_of,
+                        local,
+                        line: start_line(node),
+                    });
+                    return;
+                }
+                None => self.locals.defer(self.raw.calls.len(), node.start_byte()),
+                Some(_) => {}
+            }
         }
         self.raw.calls.push(CallRef {
             site_of,

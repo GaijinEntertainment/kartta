@@ -18,8 +18,10 @@ decorator or a static block, where `this` names the class. A capitalised JSX tag
 the file declares before it, a parameter or a variable, names none inside the scope that declares it, because a value's
 name names no type, unless it is a parameter with no annotation whose function's context, an annotation the file
 writes, spells its type; as a receiver a `var` counts for the block that declares it only, so a call on it after that
-block keeps the name, though a use of it is a use of a module-level value as below. CommonJS export assignments are
-not modelled.
+block keeps the name, though a use of it is a use of a module-level value as below. A variable or a constant a function
+body declares by one name, unless a function or a class is its value, is local to that body: no use binds it, a call
+of its name inside the scope that declares it calls it, and a read or a call of a namesake the module declares never
+binds it. CommonJS export assignments are not modelled.
 
 Inside a definition, each read, write and update of a member or a module-level value is a data site. A member on
 `this` binds the class around the method, or a base found without a guess; on a value whose declaration spells one
