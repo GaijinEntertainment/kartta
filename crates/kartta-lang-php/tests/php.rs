@@ -149,6 +149,7 @@ fn a_bare_call_reaches_no_member_of_its_own_class() {
     assert_eq!(conventions.inherited_members, InheritedMembers::Unreached);
     assert!(conventions.values_are_call_targets);
     assert_eq!(conventions.owner_chain_separator, None);
+    assert_eq!(conventions.base_receivers, ["parent"]);
 }
 
 #[test]

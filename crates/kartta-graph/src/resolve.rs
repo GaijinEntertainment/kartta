@@ -601,6 +601,9 @@ impl<'g> Cascade<'g> {
         if let Some(at) = self.nested_in_written_owner(call) {
             return Ok((at, confidence::QUALIFIED_TAIL));
         }
+        if let Some(bound) = self.member_of_the_caller_s_base(call) {
+            return bound;
+        }
 
         self.resolve_by_name(call)
     }
@@ -637,7 +640,7 @@ impl<'g> Cascade<'g> {
         None
     }
 
-    fn candidates(&self, call: &Call) -> CandidateSet<'g> {
+    pub(crate) fn candidates(&self, call: &Call) -> CandidateSet<'g> {
         let named = self.named(call.callee);
         let scoped = || {
             let targets = self

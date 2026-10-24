@@ -110,6 +110,7 @@ const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.value_uses = ValueUses::Imported;
     conventions.own_type_receivers = Some(&["self"]);
+    conventions.base_receivers = &["super"];
     conventions.type_uses = TypeUses::Nowhere;
     conventions.unrecorded_data = &[
         SymbolKind::Field,

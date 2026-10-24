@@ -8,10 +8,15 @@ use kartta_lang::{CallsOnValues, InheritedMembers, MemberCalls, SymbolKind, Unty
 use crate::candidates::Candidates;
 use crate::confidence;
 use crate::graph::{QUALIFIER_SEPARATORS, agree, distinct, last_segment};
+use crate::resolution::Miss;
 use crate::resolve::{Bound, Call, Cascade, derived, derives};
 use crate::stored::{SymbolAt, VALUE_TYPE_SEPARATOR};
 use crate::strings::Str;
 use crate::twins::{Twin, kept};
+
+/// The distance [`Cascade::distance_from`] gives a definition in a file that the file it measures from neither is,
+/// includes nor shares a directory with.
+const FAR: u8 = 3;
 
 /// What a set of candidates offers a call: no target its shape admits, one, or several on different owners.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -538,7 +543,7 @@ impl Cascade<'_> {
             } else if self.graph.file(at.file).dir == dir {
                 2
             } else {
-                3
+                FAR
             }
         }
     }
@@ -1352,6 +1357,77 @@ impl Cascade<'_> {
             None => self.nearest(call, owned),
         }?;
         Some((at, confidence::SAME_FILE))
+    }
+
+    /// What a call through one of [`kartta_lang::Conventions::base_receivers`] binds: the member of the name that the
+    /// first base the caller's class declares holds, else the nearest class above that base, and nothing where the
+    /// graph holds neither. `None` for any other receiver, and for a caller in no class the graph holds, as a method of
+    /// a class the language writes without a name, whose call the tiers below bind.
+    pub(crate) fn member_of_the_caller_s_base(&self, call: &Call) -> Option<Result<Bound, Miss>> {
+        let receiver = self.named_receiver(call)?;
+        if !(self.conventions.base_receivers).contains(&self.graph.strings.resolve(receiver)) {
+            return None;
+        }
+        let class = self.class_of(call.caller_at())?;
+        Some(
+            self.held_by_a_base(class, &self.candidates(call))
+                .map(|at| (at, confidence::RECEIVER))
+                .ok_or(Miss::NotAdmitted),
+        )
+    }
+
+    // constraint: the base receiver names the class the caller's class extends, which a language writes as its first
+    // base, PHP's `extends` before its interfaces and its traits; above that class, the member is the one the nearest
+    // type holds, a class's traits before the class it extends in turn
+    fn held_by_a_base(&self, class: SymbolAt, candidates: &Candidates<'_>) -> Option<SymbolAt> {
+        let base = *self.declared_bases(class).first()?;
+        let mut walked: HashSet<SymbolAt, FixedState> = HashSet::default();
+        walked.insert(class);
+        let mut level = self.base_types(base, class);
+        level.retain(|&ty| self.graph.sym(ty).kind != SymbolKind::Trait && walked.insert(ty));
+        while !level.is_empty() {
+            let held = level.iter().find_map(|&ty| {
+                (candidates
+                    .with_owner(self.graph, self.member_owner(ty))
+                    .iter())
+                .copied()
+                .find(|&at| self.class_of(at) == Some(ty))
+            });
+            if held.is_some() {
+                return held;
+            }
+            level = level
+                .iter()
+                .flat_map(|&ty| {
+                    (self.declared_bases(ty).into_iter())
+                        .flat_map(move |base| self.base_types(base, ty))
+                })
+                .filter(|&ty| walked.insert(ty))
+                .collect();
+            level.sort_by_key(|&ty| self.graph.sym(ty).kind != SymbolKind::Trait);
+        }
+        None
+    }
+
+    // constraint: an interface holds no body a call through the base receiver can run, and a class is never its own
+    // base, so a base that shares the class's name, Quirrel's `class (vehiclesModal.handlerClass)` in a
+    // `handlerClass` of its own, is the nearest other type of that name; a file reaches a type of another scope
+    // through an include, as PHP's `use` of a class the repository's autoload maps, so a type of another scope that the
+    // child's file neither holds, includes nor shares a directory with is a namesake of a base outside the graph,
+    // PHPUnit's `TestCase` for `Illuminate\Foundation\Testing\TestCase`
+    /// The types other than interfaces that `base`, which `child` declares, names, the nearest to `child` first.
+    fn base_types(&self, base: DeclaredBase, child: SymbolAt) -> Vec<SymbolAt> {
+        let mut located = self.located_types(base.owner, child.file, |ty| {
+            ty != child && self.graph.sym(ty).kind != SymbolKind::Interface
+        });
+        if located
+            .first()
+            .is_some_and(|&ty| self.distance_from(child.file)(ty) == FAR)
+        {
+            let scope = self.graph.qualifier(child);
+            located.retain(|&ty| self.graph.qualifier(ty) == scope);
+        }
+        located
     }
 
     /// The owner `at` is a member of, as its qualified name spells it: `A\App` for `A\App::m`.
