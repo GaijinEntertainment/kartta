@@ -15,7 +15,9 @@ a method of a local table stays exported, because a module hands that table out 
 A call inside a function is a call made by it, and a call through `.` or `:` records the table as its receiver when the
 table is a plain name. A name read where no call takes it, `table.sort(t, compare)` or `{ on_click = handler }`, is a
 use of it, which binds the function of its name the file declares outside every function; a parameter hides its name
-in its function, a local from the end of its declaration to the end of its block, and a loop variable inside its loop.
+in its function, a local from the end of its declaration to the end of its block, the chunk too, and a loop variable
+inside its loop. Outside every function, a local function, a local bound to a function and a local declared without a
+value, which `function f()` binds later, hide nothing.
 
 ## Resolution
 

@@ -441,6 +441,49 @@ local function recurse() return recurse end
 }
 
 #[test]
+fn a_chunk_level_local_hides_its_name_from_the_end_of_its_declaration() {
+    let raw = extract(
+        b"function shared() return 1 end
+local function early() return shared end
+local shared = 2
+local function reader() return shared end
+",
+    );
+
+    let early = id_of(&raw.symbols, "early");
+    assert_eq!(uses(&raw), [("shared", early, 2)]);
+}
+
+#[test]
+fn a_chunk_level_local_function_or_function_value_hides_nothing() {
+    let raw = extract(
+        b"local function f() end
+local g = function() end
+local function reader() return f, g end
+",
+    );
+
+    let reader = id_of(&raw.symbols, "reader");
+    assert_eq!(uses(&raw), [("f", reader, 3), ("g", reader, 3)]);
+}
+
+#[test]
+fn a_chunk_level_local_declared_without_a_value_hides_nothing() {
+    let raw = extract(
+        b"local handler, count
+local function subscribe() register(handler, count) end
+function handler() end
+",
+    );
+
+    let subscribe = id_of(&raw.symbols, "subscribe");
+    assert_eq!(
+        uses(&raw),
+        [("handler", subscribe, 2), ("count", subscribe, 2)]
+    );
+}
+
+#[test]
 fn a_file_without_loaders_includes_nothing() {
     let resolved = resolve(SAMPLE, "sample.lua", &[]);
 
