@@ -22,9 +22,9 @@
 //! `return` or a loop takes, a field's value, `{ on_click = handler }`, an operand and a condition; an assignment's
 //! target, a callee and a table indexed through `.` or `:` are no reads. A parameter hides its name in its function,
 //! as `self` does in a method declared with `:` and a local function its own name, a local from the end of its
-//! declaration to the end of its block, and a loop variable inside its loop; outside every function, a local function
-//! or a local bound to a function hides nothing. A use binds the function of its name its own file declares outside
-//! every function.
+//! declaration to the end of its block, the chunk too, and a loop variable inside its loop; outside every function, a
+//! local function, a local bound to a function and a local declared without a value, which `function f()` binds later,
+//! hide nothing. A use binds the function of its name its own file declares outside every function.
 //!
 //! # Resolution
 //!
