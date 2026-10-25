@@ -59,8 +59,9 @@ struct Scope {
 
 // constraint: a region hides the names declared in it: a function, an anonymous one too, which opens no scope since
 // its calls belong to no symbol, its parameters and a local function its own name, a loop its variables, and a block
-// its locals; outside every function, a local function or a local bound to a function is a definition the file
-// binds, and hides nothing
+// or the chunk its locals; outside every function, a local function, a local bound to a function and one declared
+// without a value, which `function f()` or `f = function() end` binds later, are definitions the file binds, and hide
+// nothing
 struct Region<'s> {
     end: usize,
     function: bool,
@@ -133,7 +134,7 @@ impl<'s> Emitter<'s> {
             "field" => self.table_field(node),
             "function_call" => self.call(node),
             "for_statement" => self.open_loop(node),
-            "block" => self.regions.push(Region {
+            "chunk" | "block" => self.regions.push(Region {
                 end: node.end_byte(),
                 function: false,
                 names: HashSet::new(),
@@ -161,7 +162,6 @@ impl<'s> Emitter<'s> {
         self.regions.iter().any(|region| region.function)
     }
 
-    // constraint: a local outside every region is a definition the file binds, and hides nothing
     fn declare_locals(&mut self, declaration: Node<'_>) {
         let (Some(region), Some(variables)) = (
             self.regions.len().checked_sub(1),
@@ -176,7 +176,7 @@ impl<'s> Emitter<'s> {
                 in_function
                     || values
                         .next()
-                        .is_none_or(|value| value.kind() != FUNCTION_DEFINITION)
+                        .is_some_and(|value| value.kind() != FUNCTION_DEFINITION)
             })
             .filter(|name| name.kind() == IDENTIFIER)
             .map(|name| &self.source[name.byte_range()])
