@@ -269,8 +269,9 @@ impl Engine {
     /// refresh answers differently, such as an include that now finds a file or a Go package that gained one, is read
     /// again and resolved again. With stamps the engine keeps each family's resolver, and builds it again only for a
     /// refresh that reaches what it asked of the tree as it was built, such as a `.sqconfig` it read that a write
-    /// reached since, which it tells by a stat of each file it read inside the walked parts; when the
-    /// configuration it read changed and the resolver built again does not
+    /// reached since, which it tells by a stat of each file it read inside the walked parts. A family that kept no
+    /// resolver, because no file of it was there at the build, builds one when a refresh hands it a file to resolve.
+    /// When the configuration a kept resolver read changed and the resolver built again does not
     /// [resolve as](kartta_lang::Resolver::resolves_as) the kept one, every file of its family is read and resolved
     /// again. [`EngineRefresh`] counts each. A kept resolver holds what its language derived from the configuration,
     /// 1.3 MiB for every family together on a tree of 2.9 million entries. With stamps the engine also keeps the tables
