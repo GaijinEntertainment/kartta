@@ -10,19 +10,20 @@ they import resolve against each other in one graph.
 
 Functions, classes, interfaces, type aliases, enums and namespaces, each member qualified by the chain of names around
 it, a variable or a constant a namespace declares included. A function bound to a name — an arrow in a `const`, a
-function wrapped in `memo` or `useCallback`, an object
-property, a class field — owns the calls in its body, and so does a `describe`, `it` or `test` registration, named by
-its description. A declared class owns the calls of its body outside those functions, in a field's initializer, a
-decorator or a static block, where `this` names the class, and a class expression's body makes them as the name that
-binds it, `Box` in `const Box = class {}`. A capitalised JSX tag is a call of its component, and
-`new Foo()` a call of `Foo`. A call on `this` names the class around the method as its receiver, and a call on a value
-the file declares before it, a parameter or a variable, names none inside the scope that declares it, because a value's
-name names no type, unless it is a parameter with no annotation whose function's context, an annotation the file
-writes, spells its type; as a receiver a `var` counts for the block that declares it only, so a call on it after that
-block keeps the name, though a use of it is a use of a module-level value as below. A variable or a constant a function
-body declares by one name, unless a function or a class is its value, is local to that body: no use binds it, a call
-of its name inside the scope that declares it calls it, and a read or a call of a namesake the module declares never
-binds it. CommonJS export assignments are not modelled.
+function wrapped in `memo` or `useCallback`, an object property, a class field — owns the calls in its body, and so does
+a `describe`, `it` or `test` registration, named by its description, and a bare lifecycle hook such as `beforeEach`,
+named by the hook; no call or use of either name binds them. A declared
+class owns the calls of its body outside those functions, in a field's initializer, a decorator or a static block, where
+`this` names the class, and a class expression's body makes them as the name that binds it, `Box` in
+`const Box = class {}`. A capitalised JSX tag is a call of its component, and `new Foo()` a call of `Foo`. A call on
+`this` names the class around the method as its receiver, and a call on a value the file declares before it, a parameter
+or a variable, names none inside the scope that declares it, because a value's name names no type, unless it is a
+parameter with no annotation whose function's context, an annotation the file writes, spells its type; as a receiver a
+`var` counts for the block that declares it only, so a call on it after that block keeps the name, though a use of it is
+a use of a module-level value as below. A variable or a constant a function body declares by one name, unless a function
+or a class is its value, is local to that body: no use binds it, a call of its name inside the scope that declares it
+calls it, and a read or a call of a namesake the module declares never binds it. CommonJS export assignments are not
+modelled.
 
 Inside a definition, each read, write and update of a member or a module-level value is a data site. A member on
 `this` binds the class around the method, or a base found without a guess; on a value whose declaration spells one

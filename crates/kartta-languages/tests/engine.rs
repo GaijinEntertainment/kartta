@@ -1901,11 +1901,8 @@ fn a_javascript_bare_call_of_a_name_imported_from_a_package_binds_no_namesake_of
     );
     assert_eq!(
         callees(&engine, "src/app.test.js", "app"),
-        (
-            vec![("beforeEach", SymbolKind::Function, "src/app.test.js")],
-            0
-        ),
-        "the caller's file answers the name ahead of its import"
+        (vec![], 1),
+        "a hook the call registers is no namesake of the registrar"
     );
     let [(_, resolution)] = engine
         .resolution(usize::MAX)
@@ -1914,7 +1911,13 @@ fn a_javascript_bare_call_of_a_name_imported_from_a_package_binds_no_namesake_of
     let misses: Vec<_> = (resolution.unbound.iter())
         .map(|unbound| (unbound.callee, unbound.miss))
         .collect();
-    assert_eq!(misses, [("useState", Miss::ExternalImport)]);
+    assert_eq!(
+        misses,
+        [
+            ("useState", Miss::ExternalImport),
+            ("beforeEach", Miss::ExternalImport)
+        ]
+    );
 }
 
 #[test]
