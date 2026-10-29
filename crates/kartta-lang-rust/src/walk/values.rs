@@ -23,14 +23,16 @@ impl Emitter<'_> {
         if parent.is_some_and(|(parent, field)| reads_value(parent, field))
             && !self.is_bound(&self.source[node.byte_range()])
         {
-            let chain = self.modules.last().map(|module| module.chain.as_str());
-            let scope = intern(&mut self.read_scopes, chain.unwrap_or_default());
-            self.defer_read(node, Receiver::Bare, scope);
+            self.bare_read(node);
         }
     }
 
-    // constraint: `Self::f` read as a value names a member of the type around it, and `T::f` one of `T` as a call
-    // through `T` names it
+    pub(super) fn bare_read(&mut self, node: Node<'_>) {
+        let chain = self.modules.last().map(|module| module.chain.as_str());
+        let scope = intern(&mut self.read_scopes, chain.unwrap_or_default());
+        self.defer_read(node, Receiver::Bare, scope);
+    }
+
     pub(super) fn scoped_read(&mut self, node: Node<'_>, parent: Option<(&str, Option<&str>)>) {
         if !parent.is_some_and(|(parent, field)| reads_value(parent, field)) {
             return;
@@ -42,7 +44,12 @@ impl Emitter<'_> {
         ) else {
             return;
         };
-        let written = text(path, self.source);
+        self.path_read(text(path, self.source), name);
+    }
+
+    // constraint: `Self::f` read as a value names a member of the type around it, and `T::f` one of `T` as a call
+    // through `T` names it
+    pub(super) fn path_read(&mut self, written: String, name: Node<'_>) {
         if written != "Self" {
             let path = Receiver::Path(self.module_path(&written).unwrap_or(written));
             self.defer_read(name, path, 0);
