@@ -70,11 +70,11 @@ impl<'g> Cascade<'g> {
         &self,
         (reader, path): (SymbolAt, Str),
         name: Str,
-        binds: impl Fn(SymbolKind) -> bool,
+        binds: impl Fn(&StoredSymbol) -> bool,
     ) -> Typed {
         match self.receiver_type(self.body_of(reader), path) {
             Value::Type(ty) => match self.member(ty, name, 0) {
-                Found::Member(at) if binds(self.graph.sym(at).kind) => Typed::Member(at),
+                Found::Member(at) if binds(self.graph.sym(at)) => Typed::Member(at),
                 Found::Member(_) | Found::Nothing => Typed::NoMethod,
                 Found::Outside => Typed::Imported,
                 Found::Unknown => Typed::Unknown,

@@ -1156,8 +1156,8 @@ const fn holds(extraction: &Extraction, id: SymbolId) -> bool {
     (id.0 as usize) < extraction.symbols.len()
 }
 
-pub(crate) const fn is_call_target_kind(kind: SymbolKind) -> bool {
-    !matches!(kind, SymbolKind::Field | SymbolKind::EnumVariant)
+pub(crate) const fn is_call_target_symbol(symbol: &StoredSymbol) -> bool {
+    !matches!(symbol.kind, SymbolKind::Field | SymbolKind::EnumVariant) && !symbol.flags.is_label()
 }
 
 pub(crate) const fn is_data_kind(kind: SymbolKind) -> bool {
