@@ -2,7 +2,8 @@
 //!
 //! [`Cpp`] implements [`kartta_lang::Language`] over the tree-sitter C++ grammar, which reads C as well. It claims a
 //! file by its extension, in any letter case: `cpp`, `cc`, `cxx`, `h`, `hpp`, `hxx`, `hh`, `c`, `inl` and `inc`.
-//! Objective-C++ (`m`, `mm`) and CUDA (`cu`, `cuh`) are not claimed, because the grammar fails on most such files.
+//! Objective-C (`m`), Objective-C++ (`mm`) and CUDA (`cu`, `cuh`) are not claimed, because the grammar fails on most
+//! such files.
 //!
 //! # Symbols
 //!
@@ -32,8 +33,9 @@
 //!   namespaces, up to the innermost one named like the scope's first name, so both definitions of `ns::Widget` store
 //!   one qualified name.
 //!
-//! A declaration without a body is emitted only where the file holds no definition of the same callable, and an
-//! in-class declaration whose out-of-line definition the file holds becomes a
+//! A declaration without a body is emitted once for each callable key, and only where the file holds no definition
+//! of that key; a declaration with no key is always emitted. An in-class declaration whose out-of-line definition the
+//! file holds becomes a
 //! [`FoldedDeclaration`](kartta_lang::FoldedDeclaration) of that definition. A [`Callable`](kartta_lang::Callable) is
 //! recorded for an exported function only where its identity is certain: the key is its scope — the enclosing
 //! namespaces, then the enclosing classes — its name, its parameter types without their names, defaults and top-level
