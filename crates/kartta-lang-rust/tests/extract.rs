@@ -1847,3 +1847,96 @@ fn bump() { unsafe { COUNT += 1; } }
         ]
     );
 }
+
+const READ_IN_ARGUMENTS: &str = "const LIMIT: u8 = 3;
+static READY: bool = true;
+static CONFIG: Config = Config { timeout: 1 };
+struct Config { timeout: u8 }
+enum Kind { A, B }
+struct Unit;
+impl Config {
+    const MAX: u8 = 9;
+    fn check(&self, x: u8) {
+        keep(x, LIMIT);
+        keep(\"{}\", CONFIG.timeout);
+        keep(Kind::A, Self::MAX);
+        keep(&[Unit], -LIMIT..LIMIT);
+        keep(if READY { LIMIT } else { x }, Kind::B);
+        keep(CONFIG.timeout.max(LIMIT), { let x = 2; x });
+        keep(const { LIMIT }, READY, ::root::LIMIT);
+        keep(&Unit as *const Unit, x as u32 > LIMIT as u32);
+    }
+}
+";
+
+#[test]
+fn a_name_a_macro_s_arguments_read_is_a_use_as_one_outside_it() {
+    let outside = extract(READ_IN_ARGUMENTS.as_bytes());
+    let inside = extract(READ_IN_ARGUMENTS.replace("keep(", "assert_eq!(").as_bytes());
+
+    assert_eq!(inside.uses, outside.uses);
+    let check = id_of(&inside, "Config::check");
+    let kind = Receiver::Path("Kind".to_owned());
+    assert_eq!(
+        uses(&inside),
+        [
+            ("LIMIT", &Receiver::Bare, check, 10),
+            ("CONFIG", &Receiver::Bare, check, 11),
+            ("A", &kind, check, 12),
+            ("MAX", &Receiver::Own, check, 12),
+            ("Unit", &Receiver::Bare, check, 13),
+            ("LIMIT", &Receiver::Bare, check, 13),
+            ("LIMIT", &Receiver::Bare, check, 13),
+            ("READY", &Receiver::Bare, check, 14),
+            ("LIMIT", &Receiver::Bare, check, 14),
+            ("B", &kind, check, 14),
+            ("CONFIG", &Receiver::Bare, check, 15),
+            ("LIMIT", &Receiver::Bare, check, 15),
+            ("LIMIT", &Receiver::Bare, check, 16),
+            ("READY", &Receiver::Bare, check, 16),
+            ("Unit", &Receiver::Bare, check, 17),
+            ("LIMIT", &Receiver::Bare, check, 17),
+        ]
+    );
+}
+
+#[test]
+fn a_word_a_macro_s_arguments_name_as_no_value_is_no_use() {
+    let raw = extract(
+        b"struct Point { x: u8 }
+struct Coord { X: i16 }
+trait Kind {}
+const LIMIT: u8 = 3;
+const N: usize = 2;
+const X: i16 = 0;
+fn make() -> Point { Point { x: 0 } }
+fn check(value: u8, N: usize, wide: Wide) {
+    m!(value as *const Point, value as &'static Point, value as *mut [Point; 2]);
+    m!(value as &dyn Kind, value as Box<dyn Kind>, value as u8 as Point);
+    assert_eq!(Point { x: 1 }, make());
+    assert_eq!(wide.at(), Coord { X: 1 });
+    format!(\"{LIMIT}\", LIMIT = 2);
+    assert!(matches!(value, LIMIT));
+    m!(match value { LIMIT => 1, _ => 2 }, N);
+    m!(size_of::<Point>(), value as Point, wide.Point, parse::<Vec::<u8>, Point>());
+    m!(fn made() -> Option<Point> { LIMIT });
+    m!(struct Pair { first: Point }, const NEXT: Option<Point> = None;);
+    thread_local! { static SEEN: RefCell<Point> = RefCell::new(make()); }
+}
+fn make_value() {}
+fn tokens() { cov_mark::check!(make_value); }
+",
+    );
+
+    assert!(raw.uses.is_empty(), "{:?}", raw.uses);
+}
+
+#[test]
+fn a_name_a_matches_pattern_binds_hides_a_call_in_its_guard() {
+    let raw = extract(
+        b"fn check(value: Option<fn() -> bool>) { matches!(value, Some(ready) if ready()); }\n",
+    );
+    let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+
+    assert_eq!(callees, ["matches"]);
+}
