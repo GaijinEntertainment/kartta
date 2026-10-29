@@ -8,7 +8,7 @@ use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
     BareReceivers, CallableRole, Conventions, IncludeReach, IncludedRuntimeMembers,
     InheritedMembers, MacroInvocations, MemberCalls, NamespaceCalls, OwnMembers, SymbolFlags,
-    SymbolKind, UntypedMembers, ValueUses,
+    SymbolKind, Twins, UntypedMembers, ValueUses,
 };
 
 use crate::candidates::{CandidateSet, Candidates, Gate, INDEXED_FROM};
@@ -640,6 +640,87 @@ impl<'g> Cascade<'g> {
                 Ok((at, confidence.min(confidence::MADE)))
             }
         })
+    }
+
+    /// The definitions beside `bound` that `call` reaches too where the language binds every twin and the tier that
+    /// bound it, the caller's file or the type its receiver names, holds them equal: those of its qualified name, kind
+    /// and holder in its file, and, where the caller's file reaches `bound` through a file it includes, in every file
+    /// it includes. A member and its twins are exported, and in `bound`'s own file only those of a type the file defines
+    /// more than once. None where the call is made inside `bound` or one of them, which a build compiles alone.
+    pub(crate) fn twins(&self, call: &Call, (bound, confidence): Bound) -> Vec<SymbolAt> {
+        if self.conventions.twins != Twins::Every
+            || !matches!(confidence, confidence::SAME_FILE | confidence::RECEIVER)
+        {
+            return Vec::new();
+        }
+        let symbol = self.graph.sym(bound);
+        let named = self.named(symbol.name);
+        // constraint: a trait impl's members are never exported, and one type's impls of several traits, or of one
+        // trait for several arguments, each define a member of one name
+        if named.len() < 2 || (symbol.owner.is_some() && !symbol.exported) {
+            return Vec::new();
+        }
+        let holder = self.holder(bound);
+        let is_twin = |&at: &SymbolAt| {
+            let other = self.graph.sym(at);
+            at != bound
+                && other.qualified_name == symbol.qualified_name
+                && other.kind == symbol.kind
+                && (other.owner.is_none() || other.exported)
+                && self.holder(at) == holder
+        };
+        let includes = (bound.file != call.file)
+            .then(|| self.includes(call.file))
+            .filter(|includes| includes.contains(&bound.file));
+        let files = std::iter::once(bound.file).chain(
+            (includes
+                .iter()
+                .flat_map(|includes| includes.iter().copied()))
+            .filter(|&file| file != bound.file),
+        );
+        let mut twins: Vec<SymbolAt> = files
+            .flat_map(|file| self.graph.in_file(named, file).iter().copied())
+            .filter(is_twin)
+            .collect();
+        if symbol.owner.is_some()
+            && twins.iter().any(|twin| twin.file == bound.file)
+            && !self.owner_is_defined_twice(symbol, bound.file)
+        {
+            twins.retain(|twin| twin.file != bound.file);
+        }
+        let caller = call.caller_at();
+        let body = self.holder(caller).unwrap_or(caller);
+        if body == bound || twins.contains(&body) {
+            twins.clear();
+        }
+        twins
+    }
+
+    // constraint: one type's members of one name in one file are those of impls that differ in its arguments or in the
+    // trait they implement, `impl Ptr<str>` beside `impl<T> Ptr<[T]>`, which no build picks between
+    /// Whether the file at `file` defines the type that owns the member `symbol` more than once.
+    fn owner_is_defined_twice(&self, symbol: &StoredSymbol, file: u32) -> bool {
+        let strings = &self.graph.strings;
+        let Some(separator) = self.conventions.owner_chain_separator else {
+            return false;
+        };
+        let Some((owner, _)) = strings
+            .resolve(symbol.qualified_name)
+            .rsplit_once(separator)
+        else {
+            return false;
+        };
+        let bare = owner.rsplit_once(separator).map_or(owner, |(_, bare)| bare);
+        let Some(bare) = strings.get(bare) else {
+            return false;
+        };
+        (self.graph.in_file(self.named(bare), file).iter())
+            .filter(|&&at| {
+                let ty = self.graph.sym(at);
+                ty.kind.is_type() && strings.resolve(ty.qualified_name) == owner
+            })
+            .nth(1)
+            .is_some()
     }
 
     fn names_a_made_definition(&self, name: Str) -> bool {
