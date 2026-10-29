@@ -795,7 +795,7 @@ describe("Header", () => {
         extraction
             .symbols
             .iter()
-            .all(|symbol| symbol.flags.is_test())
+            .all(|symbol| symbol.flags.is_test() && symbol.flags.is_label())
     );
     assert!(
         (extraction.symbols.iter())
