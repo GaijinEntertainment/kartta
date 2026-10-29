@@ -183,8 +183,9 @@ impl Emitter<'_> {
 
         let mut symbol = declared(name, qualified.clone(), kind, node);
         symbol.owner = owner;
-        symbol.exported =
-            wrapping_visibility(node, self.source).unwrap_or_else(|| self.exported_by_default());
+        symbol.exported = wrapping_modifier(node, self.source)
+            .and_then(visibility_exports)
+            .unwrap_or_else(|| self.exported_by_default());
         symbol.signature = signature(node, self.source).map(strip_endless_eq);
         let id = self.push(symbol);
         let name = self.name_key(MethodKind::Instance, qualified);
@@ -194,7 +195,8 @@ impl Emitter<'_> {
 
     // constraint: `def self.x` is a method of the enclosing type, `def Foo.x` of the type `Foo` names, and `def obj.x`
     // of a runtime value, which has no owner. A `def` inside `class << self` takes the visibility of that body; a bare
-    // `private` covers instance methods only, so a `def self.x` stays exported
+    // `private` covers instance methods only, so a `def self.x` stays exported unless `private_class_method` wraps it.
+    // That macro sets the method of its name on the enclosing type, so `def Other.x` and `def obj.x` stay exported
     fn singleton_method(&mut self, node: Node<'_>) -> Option<SymbolId> {
         let name = text(node.child_by_field_name("name")?, self.source);
         let owner = match node.child_by_field_name("object") {
@@ -210,8 +212,19 @@ impl Emitter<'_> {
 
         let mut symbol = declared(name, qualified.clone(), SymbolKind::Method, node);
         symbol.owner = owner;
-        symbol.exported = node.kind() == "singleton_method"
-            || wrapping_visibility(node, self.source).unwrap_or_else(|| self.exported_by_default());
+        let modifier = wrapping_modifier(node, self.source);
+        symbol.exported = if node.kind() == "singleton_method" {
+            modifier
+                .and_then(class_visibility_exports)
+                .filter(|_| {
+                    symbol.owner.is_some() && symbol.owner == enclosing_type(node, self.source)
+                })
+                .unwrap_or(true)
+        } else {
+            modifier
+                .and_then(visibility_exports)
+                .unwrap_or_else(|| self.exported_by_default())
+        };
         symbol.signature = signature(node, self.source).map(strip_endless_eq);
         let id = self.push(symbol);
         let name = self.name_key(MethodKind::Singleton, qualified);
@@ -572,21 +585,30 @@ fn builds_a_class(right: Node<'_>, source: &[u8]) -> bool {
     )
 }
 
-// constraint: `private def x` sets the visibility of that one method over the running default of the body
-fn wrapping_visibility(method: Node<'_>, source: &[u8]) -> Option<bool> {
+// constraint: `private def x` and `private_class_method def self.x` set the visibility of that one method over the
+// running default of the body
+fn wrapping_modifier<'s>(method: Node<'_>, source: &'s [u8]) -> Option<&'s [u8]> {
     let call = method
         .parent()
         .filter(|parent| parent.kind() == "argument_list")?
         .parent()
         .filter(|parent| parent.kind() == "call")?;
 
-    visibility_exports(&source[call.child_by_field_name("method")?.byte_range()])
+    Some(&source[call.child_by_field_name("method")?.byte_range()])
 }
 
 pub(crate) const fn visibility_exports(modifier: &[u8]) -> Option<bool> {
     match modifier {
         b"private" => Some(false),
         b"protected" | b"public" => Some(true),
+        _ => None,
+    }
+}
+
+const fn class_visibility_exports(modifier: &[u8]) -> Option<bool> {
+    match modifier {
+        b"private_class_method" => Some(false),
+        b"public_class_method" => Some(true),
         _ => None,
     }
 }
