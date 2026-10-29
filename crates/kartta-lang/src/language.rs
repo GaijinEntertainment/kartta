@@ -228,7 +228,8 @@ pub struct Conventions {
     /// names none.
     pub library_methods: &'static [&'static str],
     /// Which members of the files a file includes a member call of one of the
-    /// [`Conventions::runtime_methods`] binds.
+    /// [`Conventions::runtime_methods`] binds, and under [`IncludedRuntimeMembers::SpelledOwnOrExported`] any method
+    /// call on a value.
     pub included_runtime_members: IncludedRuntimeMembers,
     /// What an owner that no type of its name declares is.
     pub untyped_owners: UntypedOwners,
@@ -502,6 +503,12 @@ pub enum IncludedRuntimeMembers {
     /// the code, so that an included class's member of the name is a namesake of the runtime's method, while an
     /// interface or a type alias, which makes no value, is included to type the values the caller holds.
     SpelledOrOwn,
+    /// As [`IncludedRuntimeMembers::SpelledOrOwn`] for a runtime method's call, and for any other method call on a
+    /// value, `pool.prec(1)`, as well where the member is not exported, as a type's private method is out of the
+    /// including module's reach and a trait impl's member is one of the trait's namesakes, where no tier above follows
+    /// the value's type. A file whose one member of the name the call turns away leaves the call unbound, as
+    /// two files that offer one each do, since the member it keeps elsewhere is a namesake no likelier the callee.
+    SpelledOwnOrExported,
 }
 
 /// What an owner that no type of its name declares is.
