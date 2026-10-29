@@ -44,7 +44,9 @@ pub const PACKAGE: u8 = 75;
 /// The one file of those the caller's file includes that defines the name binds.
 ///
 /// Where the language's includes are transitive and none of those defines the name, the one file of those the
-/// includes reach in turn binds a name few definitions share.
+/// includes reach in turn binds a name few definitions share. A method call of a method the language's standard library
+/// declares, on a value the graph cannot type, binds here only where its receiver spells the callable's owner, and
+/// otherwise at [`FIRST_PARTY`]: `src.as_ptr().cast()` binds the `Ptr::cast` of a module the file declares as a guess.
 pub const INCLUDE: u8 = 70;
 /// A re-export chain from an included file binds the definition it renames.
 pub const RE_EXPORT: u8 = 65;

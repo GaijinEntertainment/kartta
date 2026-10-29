@@ -946,7 +946,7 @@ impl<'g> Cascade<'g> {
             .included(call, &candidates, reach)
             .filter(|&at| self.path_names(path, at))
         {
-            return Ok((at, confidence::INCLUDE));
+            return Ok((at, self.library_guess_or(call, at, confidence::INCLUDE)));
         }
         if !call.names_a_runtime_method
             && let Some(at) = self.re_exported(call)
@@ -1022,10 +1022,7 @@ impl<'g> Cascade<'g> {
             Some(at)
                 if self.can_bind_by_name(call, at) && self.is_pasted_where_called(call, at) =>
             {
-                if self.names_a_library_method_on_a_value(call, at) {
-                    return Ok((at, confidence::FIRST_PARTY));
-                }
-                Ok((at, confidence::UNIQUE))
+                Ok((at, self.library_guess_or(call, at, confidence::UNIQUE)))
             }
             Some(_) => Err(Miss::NotAdmitted),
             None => self
@@ -1174,6 +1171,16 @@ impl<'g> Cascade<'g> {
                 .binary_search(&strings.resolve(call.callee))
                 .is_ok()
             && !self.receiver_spells_owner(call, at)
+    }
+
+    /// The confidence of a guess where `call` names a library method on a value and its receiver does not spell
+    /// the owner of `at`, and `tier` otherwise.
+    fn library_guess_or(&self, call: &Call, at: SymbolAt, tier: u8) -> u8 {
+        if self.names_a_library_method_on_a_value(call, at) {
+            confidence::FIRST_PARTY
+        } else {
+            tier
+        }
     }
 
     fn can_bind_by_name(&self, call: &Call, at: SymbolAt) -> bool {
