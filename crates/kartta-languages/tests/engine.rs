@@ -1464,6 +1464,43 @@ fn a_rust_call_on_a_value_binds_the_runtime_method_whose_owner_its_name_spells()
 }
 
 #[test]
+fn a_rust_call_of_a_standard_library_method_on_an_untyped_value_binds_a_declared_module_s_method_as_a_guess()
+ {
+    let tree = tree_of(&[
+        ("src/lib.rs", "mod pointer;\n"),
+        (
+            "src/pointer/mod.rs",
+            "mod ptr;\n\npub use ptr::Ptr;\n\npub struct Inner;\n\nimpl Inner {\n    \
+             pub fn as_ptr(&self) -> *mut u8 {\n        core::ptr::null_mut()\n    }\n}\n\n\
+             fn project(src: Inner, raw: *const u8) {\n        src.as_ptr().cast::<u16>();\n        \
+             raw.cast::<u16>();\n}\n\nfn through(ptr: Ptr) {\n    ptr.cast::<u16>();\n}\n",
+        ),
+        (
+            "src/pointer/ptr.rs",
+            "pub struct Ptr;\n\nimpl Ptr {\n    pub fn cast<U>(self) -> Ptr {\n        self\n    }\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+    let (_, graph) = engine
+        .graph_of("src/pointer/ptr.rs")
+        .expect("a language claims the file");
+    let walk = graph
+        .callers("Ptr::cast", Limits::new(1))
+        .expect("the name is defined");
+    let callers = (walk.reached.iter())
+        .map(|reached| (reached.symbol.name, reached.confidence))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        callers,
+        [
+            ("project", confidence::FIRST_PARTY),
+            ("through", confidence::RECEIVER)
+        ]
+    );
+}
+
+#[test]
 fn a_rust_call_of_a_standard_library_method_on_an_untyped_value_binds_the_one_method_of_its_name_as_a_guess()
  {
     let tree = tree_of(&[
