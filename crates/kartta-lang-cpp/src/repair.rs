@@ -1125,9 +1125,7 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
         }
         if parsed_at_the_top
             && kind == "field_declaration_list"
-            && node
-                .children(&mut node.walk())
-                .any(|member| misreads_a_members_macro(member, source))
+            && holds_a_misread_member(node, source)
         {
             recovery.misread_bodies.push(MisreadBody {
                 braced: node.start_byte()..closing_brace(source, node.start_byte()),
@@ -1163,6 +1161,16 @@ fn closing_row_of_the_class_it_opens(error: Node<'_>, source: &[u8]) -> Option<u
                 .iter()
                 .filter(|byte| **byte == b'\n')
                 .count()
+    })
+}
+
+// constraint: the grammar reads a conditional in a class body as a run of members, so a member it misreads through its
+// macro can sit under a conditional's branch, an artifact of a conditional the second parse takes apart included
+/// Whether a member of `body`, or of a conditional `body` holds, is one whose macro the grammar reads as its type.
+fn holds_a_misread_member(body: Node<'_>, source: &[u8]) -> bool {
+    body.children(&mut body.walk()).any(|member| {
+        misreads_a_members_macro(member, source)
+            || (member.kind().starts_with("preproc_") && holds_a_misread_member(member, source))
     })
 }
 
@@ -2834,5 +2842,62 @@ int broken(  ;
         let repaired = after_recovery(&tree, SOURCE);
 
         assert_eq!(repaired, None);
+    }
+
+    #[test]
+    fn a_member_whose_macro_is_misread_inside_a_conditional_keeps_its_class_open() {
+        const SOURCE: &[u8] = br"struct SphereAABBTest_SIMD
+{
+	PX_FORCE_INLINE SphereAABBTest_SIMD(const Gu::Sphere& sphere) :
+#ifdef PX_WINDOWS
+		mCenter	(V4LoadU(&sphere.center.x)),
+#else
+		mCenter	(V3LoadU(sphere.center)),
+#endif
+		mRadius2(FLoad(sphere.radius * sphere.radius))
+	{}
+
+	PX_FORCE_INLINE Ps::IntBool operator()(const BucketBox& box) const
+	{
+	#ifdef PX_WINDOWS
+		const Vec4V boxCenter = AlignedLoad(&box.mCenter.x);
+		return (Ps::IntBool)BAllTrue3_R(FIsGrtrOrEq(mRadius2, boxCenter));
+	#else
+		const Vec3V boxCenter = V3LoadU(box.mCenter);
+		return (IntBool)BAllEq(FIsGrtrOrEq(mRadius2, V3Dot(boxCenter, boxCenter)), BTTTT());
+	#endif
+	}
+
+private:
+	SphereAABBTest_SIMD& operator=(const SphereAABBTest_SIMD&);
+#ifdef PX_WINDOWS
+	const Vec4V		mCenter;
+#else
+	const Vec3V		mCenter;
+#endif
+	const FloatV	mRadius2;
+};
+";
+
+        let raw = Cpp::new().extract(SOURCE);
+
+        let mut lines: Vec<(&str, u32, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.line, symbol.end_line))
+            .collect();
+        lines.sort_by_key(|&(_, line, _)| line);
+        assert_eq!(
+            lines,
+            [
+                ("SphereAABBTest_SIMD", 1, 31),
+                ("SphereAABBTest_SIMD::SphereAABBTest_SIMD", 3, 10),
+                ("SphereAABBTest_SIMD::operator()", 12, 21),
+                ("SphereAABBTest_SIMD::operator=", 24, 24),
+                ("SphereAABBTest_SIMD::mCenter", 26, 26),
+                ("SphereAABBTest_SIMD::mCenter", 28, 28),
+                ("SphereAABBTest_SIMD::mRadius2", 30, 30)
+            ]
+        );
     }
 }
