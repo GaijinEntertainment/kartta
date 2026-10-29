@@ -1,3 +1,5 @@
+use std::num::NonZeroU8;
+
 use kartta_lang::path::dir;
 use kartta_lang::tree::{named_child_nodes, text};
 use tree_sitter::Node;
@@ -87,31 +89,74 @@ fn string_literal(node: Node<'_>, source: &[u8]) -> Option<String> {
 
 // constraint: PHP's `dirname` is lexical: it strips trailing separators and cuts at the last `/` as written, so the
 // fold cuts itself wherever that `/` follows the last marker, and defers a climb only where the cut would fall inside
-// a marker; `dirname(__FILE__)` is `__DIR__`
+// a marker; `dirname(__FILE__)` is `__DIR__`, and `levels` applies it that many times
 fn dirname(call: Node<'_>, source: &[u8]) -> Option<String> {
     let function = call.child_by_field_name("function")?;
     if function.kind() != "name" || &source[function.byte_range()] != b"dirname" {
         return None;
     }
-    let arguments = call.child_by_field_name("arguments")?;
-    let argument = named_child_nodes(arguments).find(|argument| argument.kind() == "argument")?;
-    let value = named_child_nodes(argument).next_back()?;
-
-    let folded = fold(value, source)?;
-    let trimmed = folded.trim_end_matches('/');
-    let folded = if trimmed.is_empty() {
-        folded.as_str()
-    } else {
-        trimmed
+    let (path, levels) = dirname_arguments(call.child_by_field_name("arguments")?, source)?;
+    let levels = match levels {
+        Some(levels) => level_count(levels, source)?,
+        None => NonZeroU8::MIN,
     };
 
-    Some(if folded == FILE_MARKER {
+    let mut folded = fold(path, source)?;
+    for _ in 0..levels.get() {
+        folded = dirname_once(&folded);
+    }
+
+    Some(folded)
+}
+
+// constraint: PHP binds `dirname`'s arguments by position or by the names `path` and `levels`, and refuses a third
+fn dirname_arguments<'tree>(
+    arguments: Node<'tree>,
+    source: &[u8],
+) -> Option<(Node<'tree>, Option<Node<'tree>>)> {
+    let mut slots = [None, None];
+    let arguments = named_child_nodes(arguments).filter(|argument| argument.kind() == "argument");
+    for (position, argument) in arguments.enumerate() {
+        let slot = match argument.child_by_field_name("name") {
+            None => position,
+            Some(name) => match &source[name.byte_range()] {
+                b"path" => 0,
+                b"levels" => 1,
+                _ => return None,
+            },
+        };
+        let value = named_child_nodes(argument).next_back()?;
+        if slots.get_mut(slot)?.replace(value).is_some() {
+            return None;
+        }
+    }
+    let [path, levels] = slots;
+
+    Some((path?, levels))
+}
+
+// constraint: PHP refuses a `levels` below 1, and reads a literal with a leading `0` as octal, hexadecimal or binary,
+// so the fold takes plain decimals only; a count past 255 folds to nothing, since no checkout is that deep and the cap
+// bounds the climb markers one call writes
+fn level_count(levels: Node<'_>, source: &[u8]) -> Option<NonZeroU8> {
+    let literal = &source[levels.byte_range()];
+    if levels.kind() != "integer" || literal.starts_with(b"0") {
+        return None;
+    }
+    str::from_utf8(literal).ok()?.parse().ok()
+}
+
+fn dirname_once(folded: &str) -> String {
+    let trimmed = folded.trim_end_matches('/');
+    let folded = if trimmed.is_empty() { folded } else { trimmed };
+
+    if folded == FILE_MARKER {
         DIR_MARKER.to_owned()
     } else if cuts_in_literal_tail(folded) {
         lexical_dirname(folded).to_owned()
     } else {
         format!("{folded}{UP_MARKER}")
-    })
+    }
 }
 
 fn cuts_in_literal_tail(folded: &str) -> bool {
