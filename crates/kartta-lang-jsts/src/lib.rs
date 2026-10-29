@@ -27,7 +27,8 @@
 //! - A test registration — `describe`, `it` and `test` with their `x` and `f` forms, `suite`, `bench`, and their
 //!   `.skip`, `.only`, `.todo`, `.concurrent`, `.sequential` and `.failing` modifiers — is a function named by its
 //!   description, and a bare lifecycle hook, `beforeEach`, `afterEach`, `beforeAll` or `afterAll`, one named by the
-//!   hook. A registration whose description is not a plain string opens no scope.
+//!   hook. Either name is a label, so no call or use of the name binds the registration. A registration whose
+//!   description is not a plain string opens no scope.
 //! - Calls, with a capitalised JSX tag as a call of the component and `new Foo()` as a call of `Foo`. A call on
 //!   `this` names the type that owns the enclosing method as its receiver. A call on a value the file declares before
 //!   it, inside the scope that declares it — a parameter, a `let`, `const` or `var`, a destructured name, a catch
