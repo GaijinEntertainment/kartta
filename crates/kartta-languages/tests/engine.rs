@@ -9,7 +9,8 @@
 //! function body or an inline module only from inside it, a call no macro and a macro invocation no function of its
 //! name, a method call no constant of its name, which a path call binds, and the one method of its name whatever value
 //! a body declares of that name, a Rust path call through a module no item of its
-//! own file that the path does not name, and a Rust call on a value, on `self` or through a
+//! own file that the path does not name, a Rust call without a path no free item of an inline module it is outside of,
+//! nor a member of a private type of one, and a Rust call on a value, on `self` or through a
 //! type binds no free function, not even through a value named like a module the file imports, while a call on a
 //! value still binds the one runtime method whose owner the value's name spells, one on a parameter or a field of
 //! `self` the method of the type it is declared as, never the caller's own, of the caller's own package where two
@@ -1354,6 +1355,78 @@ fn a_rust_call_on_a_value_self_or_a_type_binds_no_free_function_of_its_name() {
     assert_eq!(callees(&engine, "lib.rs", "poll"), (vec![], 1));
     assert_eq!(callees(&engine, "lib.rs", "scan"), (vec![], 2));
     assert_eq!(callees(&engine, "lib.rs", "refresh"), (vec![], 1));
+}
+
+#[test]
+fn a_rust_call_outside_an_inline_module_binds_no_item_of_the_module_and_one_inside_binds_the_module_s_own()
+ {
+    let tree = tree_of(&[
+        (
+            "lib.rs",
+            "mod rngs;\n\npub use crate::rngs::rng;\n\npub fn random() -> u64 {\n    rng()\n}\n\n\
+             mod test {\n    pub fn rng() -> u64 {\n        0\n    }\n\n    fn inside() -> u64 {\n        rng()\n    \
+             }\n}\n",
+        ),
+        ("rngs.rs", "pub fn rng() -> u64 {\n    4\n}\n"),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        callees(&engine, "lib.rs", "random"),
+        (vec![("rng", SymbolKind::Function, "rngs.rs")], 0)
+    );
+    assert_eq!(
+        callees(&engine, "lib.rs", "inside"),
+        (vec![("rng", SymbolKind::Function, "lib.rs")], 0)
+    );
+}
+
+#[test]
+fn a_rust_call_at_file_scope_binds_the_file_s_top_level_item_over_an_inline_module_s_namesake() {
+    let tree = tree_of(&[(
+        "lib.rs",
+        "mod other {\n    pub fn shared() {}\n\n    pub fn within() {\n        shared();\n    }\n}\n\n\
+         pub fn shared() {}\n\npub fn caller() {\n    self::shared();\n    shared();\n}\n",
+    )]);
+    let engine = build(&tree, &["rust"]);
+    let (_, graph) = engine
+        .graph_of("lib.rs")
+        .expect("a language claims the file");
+    let lines = |caller: &str| -> Vec<u32> {
+        (graph.callees(caller, Limits::new(1)))
+            .expect("the name is defined")
+            .reached
+            .iter()
+            .map(|reached| reached.symbol.line)
+            .collect()
+    };
+
+    assert_eq!(lines("caller"), [9]);
+    assert_eq!(lines("within"), [2]);
+}
+
+#[test]
+fn a_rust_method_call_outside_an_inline_module_binds_no_member_of_a_private_type_of_the_module() {
+    let tree = tree_of(&[(
+        "lib.rs",
+        "use std::thread;\n\npub fn follow() {\n    thread::Builder::new().name(\"watch\".to_owned());\n}\n\n\
+         mod tests {\n    struct WritesMidWalk;\n\n    impl WritesMidWalk {\n        \
+         fn name(&self) -> &str {\n            \"writes\"\n        }\n    }\n}\n\npub struct Label;\n\n\
+         impl Label {\n    pub fn name(&self) -> &str {\n        \"label\"\n    }\n}\n\n\
+         pub fn label(labels: &[Label]) {\n    labels[0].name();\n}\n",
+    )]);
+    let engine = build(&tree, &["rust"]);
+    let (_, graph) = engine
+        .graph_of("lib.rs")
+        .expect("a language claims the file");
+
+    let same_file = (graph.callees("follow", Limits::new(1)))
+        .expect("the name is defined")
+        .reached
+        .iter()
+        .any(|reached| reached.confidence == confidence::SAME_FILE);
+    assert!(!same_file);
+    assert_eq!(callees(&engine, "lib.rs", "label"), (vec![], 1));
 }
 
 #[test]

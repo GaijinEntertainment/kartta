@@ -834,6 +834,89 @@ impl Cascade<'_> {
             .is_some_and(|before| before.is_empty() || before.ends_with(separator))
     }
 
+    // constraint: where only a module's path reaches a free function, a call written without a path reaches a free item
+    // of an inline module of its own file only from inside that module's body, as Rust's `rng()` outside `mod test`
+    // does not reach `test::rng`; a member it reaches through a value of its type wherever the type is in scope, so
+    // only a member of a private type of a module the call is outside of is out of its reach, and such a member still
+    // leaves the call ambiguous, since the value's type is unknown
+    /// What a call binds among the items of its own file, `in_file`: the one its path names and it reaches.
+    pub(crate) fn same_file_target(
+        &self,
+        path: (&Call, Option<&str>),
+        in_file: &[SymbolAt],
+        reach: Option<&Reach>,
+    ) -> Option<SymbolAt> {
+        let line = self.line_without_a_path(path);
+        let reached = (in_file.iter().copied()).filter(|&at| {
+            self.path_names(path, at)
+                && line.is_none_or(|line| self.owner(at).is_some() || self.held_around(at, line))
+        });
+        let at = self.scoped_target(path.0, reached, reach)?;
+        line.is_none_or(|line| self.member_in_reach(at, line))
+            .then_some(at)
+    }
+
+    /// The line a call written without a path stands on where only a module's path reaches a free function, its
+    /// caller's for a call with no line of its own.
+    fn line_without_a_path(&self, (call, path): (&Call, Option<&str>)) -> Option<u32> {
+        if self.conventions.member_calls != MemberCalls::ModulePaths || path.is_some() {
+            return None;
+        }
+        Some(match call.line {
+            0 => (self.graph.file(call.file).symbols)
+                .get(call.caller as usize)
+                .map_or(0, |caller| caller.line),
+            line => line,
+        })
+    }
+
+    /// Whether every inline module around `at` holds `line` of its file.
+    fn held_around(&self, at: SymbolAt, line: u32) -> bool {
+        let (Some(separator), Some(scope)) = (
+            self.conventions.owner_chain_separator,
+            self.graph.qualifier(at),
+        ) else {
+            return true;
+        };
+        let strings = &self.graph.strings;
+        (scope
+            .split(separator)
+            .filter_map(|segment| strings.get(segment)))
+        .flat_map(|segment| self.graph.in_file(self.named(segment), at.file))
+        .all(|&module| {
+            let home = self.body(module);
+            self.graph.sym(module).kind != SymbolKind::Namespace
+                || !self.in_body(home, at)
+                || home.contains(at.file, line)
+        })
+    }
+
+    /// Whether a call on `line` reaches the member `at` through a value: not where its owner is a private type of a
+    /// module that does not hold the line.
+    fn member_in_reach(&self, at: SymbolAt, line: u32) -> bool {
+        let (Some(owner), Some(separator)) =
+            (self.owner(at), self.conventions.owner_chain_separator)
+        else {
+            return true;
+        };
+        let strings = &self.graph.strings;
+        let written = strings.resolve(owner);
+        let Some(name) = written
+            .rsplit(separator)
+            .next()
+            .and_then(|name| strings.get(name))
+        else {
+            return true;
+        };
+        (self.graph.in_file(self.named(name), at.file).iter()).all(|&ty| {
+            let symbol = self.graph.sym(ty);
+            symbol.exported
+                || !symbol.kind.is_type()
+                || symbol.qualified_name != owner
+                || self.held_around(ty, line)
+        })
+    }
+
     // constraint: where only a module's path reaches a free function, a path through a module reaches a member only
     // through the owner its receiver names, which the receiver's tiers bind, so it is a call of a free function
     fn through_a_module(&self, call: &Call) -> bool {
