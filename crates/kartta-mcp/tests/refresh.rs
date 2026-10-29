@@ -152,6 +152,42 @@ fn a_refresh_names_the_fix_for_an_absolute_path_and_a_missing_index() {
 }
 
 #[test]
+fn a_refresh_refuses_a_path_spelled_the_windows_way_and_names_what_is_wrong() {
+    let tree = go_module();
+    let mut client = Client::unwatched(&[]);
+    client.index(tree.path());
+    add_function(tree.path(), "pkg/service.go", "Added");
+
+    let drive = client.call("refresh", &json!({"paths": ["C:\\repo\\pkg\\service.go"]}));
+    let rooted = client.call("refresh", &json!({"paths": ["\\repo\\pkg\\service.go"]}));
+    let backslash = client.call("refresh", &json!({"paths": ["pkg\\service.go"]}));
+    let refused = defines(&mut client, "Added");
+    let slash = client.answer("refresh", &json!({"paths": ["pkg/service.go"]}));
+
+    let fix = "pass paths relative to the repository root, with / between names, as find_files prints them";
+    for (refusal, fault) in [
+        (
+            &drive,
+            r#""C:\\repo\\pkg\\service.go" starts with the drive C:"#,
+        ),
+        (&rooted, r#""\\repo\\pkg\\service.go" is absolute"#),
+        (
+            &backslash,
+            r#""pkg\\service.go" separates its names with \"#,
+        ),
+    ] {
+        assert!(refusal.is_error, "{refusal:?}");
+        assert_eq!(refusal.text, format!("{fault} - {fix}"));
+    }
+    assert!(!refused, "a refused path refreshes nothing");
+    assert!(
+        slash.starts_with("<refresh walked=\"1\" extracted=\"1\" "),
+        "{slash}"
+    );
+    assert!(defines(&mut client, "Added"));
+}
+
+#[test]
 fn indexing_another_root_while_the_first_is_watched_answers_for_the_second() {
     let first = go_module();
     let second = tree(&[("lib/only.go", "package lib\n\nfunc Only() {}\n")]);
