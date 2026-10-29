@@ -146,7 +146,7 @@ lost, and what would reopen it.
 - [3.177 Bind a macro invocation only to a macro where a language writes it apart](/design-docs/adr/3.177-macro-invocation-binding.md)
 - [3.180 Bind a C++ call on a declared class through the class nearest the caller's file](/design-docs/adr/3.180-cpp-declared-class-calls.md)
 - [3.184 Bind a Rust member call to a free function only through a module's path](/design-docs/adr/3.184-rust-module-path-calls.md)
-- [3.185 Bind a runtime method's call to an included file's member only where its receiver or caller reaches the owner](/design-docs/adr/3.185-included-runtime-members.md)
+- [3.185 Bind an included member to a runtime method's call, or unexported to a Rust method's, only where the owner is reached](/design-docs/adr/3.185-included-runtime-members.md)
 - [3.187 Count a definition a library or a host reads by name as reflected](/design-docs/adr/3.187-reflected-definitions.md)
 - [3.188 Bind a C++ call a class does not declare through the class's bases](/design-docs/adr/3.188-cpp-inherited-member-calls.md)
 - [3.190 Bind a Ruby call on a constant or a literal only within the class it names](/design-docs/adr/3.190-ruby-constant-receivers.md)
