@@ -894,6 +894,29 @@ fn private_class_method_hides_a_class_method_and_a_bare_private_does_not() {
 }
 
 #[test]
+fn a_class_method_modifier_around_a_def_self_sets_that_class_method() {
+    let raw = extract(
+        br"
+class Job
+  private_class_method def self.helper; end
+  def self.named; end
+  private_class_method :named
+  public_class_method def self.run; end
+  private_class_method def Other.elsewhere; end
+  private_class_method def handle.detached; end
+end
+",
+    );
+
+    let exported = |qualified: &str| symbol(&raw.symbols, qualified).exported;
+    assert!(!exported("Job.helper"));
+    assert!(!exported("Job.named"));
+    assert!(exported("Job.run"));
+    assert!(exported("detached"));
+    assert!(exported("Other.elsewhere"));
+}
+
+#[test]
 fn an_alias_defines_the_new_name_as_one_callable_with_its_original() {
     let resolved = resolve(
         b"\nclass Api\n  def fetch\n    1\n  end\n\n  alias get fetch\n  alias_method :retrieve, :fetch\n\n  \

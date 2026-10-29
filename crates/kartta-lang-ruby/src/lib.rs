@@ -16,9 +16,10 @@
 //! A class takes its superclass as a parent, and so the modules it `include`s, `extend`s or `prepend`s. A method, an
 //! accessor or an alias is exported unless a `private` modifier covers it: a bare `private` for the instance methods
 //! after it in the body of a class or a module and for the class methods after it in a `class << self`, `private :x`
-//! for a method already declared, `private def x` for one method, and `private_class_method :x` for a class method.
-//! `protected` and `public` keep a method exported, and `public_class_method :x` a class method. A bare `private` in
-//! the body of a class leaves a `def self.x` after it exported.
+//! for a method already declared, `private def x` for one method, and `private_class_method :x` or
+//! `private_class_method def self.x` for a class method. `protected` and `public` keep a method exported, and
+//! `public_class_method`, in either form, a class method. A bare `private` in the body of a class leaves a `def self.x`
+//! after it exported.
 //! An alias of a method that the file declares before it in the same type is one callable with the body the original
 //! names there.
 //!
