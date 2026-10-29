@@ -688,11 +688,11 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
         misread_branch,
         stray_branch,
         misread_bodies: bodies,
-        labels_before_an_endif,
+        blanks,
     } = recovery_of(tree, source);
     let mut repaired = Repaired::of(source);
-    for label in labels_before_an_endif {
-        repaired.blank(label);
+    for blank in blanks {
+        repaired.blank(blank);
     }
     let split = if misread_branch {
         Some(BraceSplit::OpensOrCloses)
@@ -745,7 +745,7 @@ struct Recovery {
     misread_branch: bool,
     stray_branch: bool,
     misread_bodies: Vec<MisreadBody>,
-    labels_before_an_endif: Vec<Range<usize>>,
+    blanks: Vec<Range<usize>>,
 }
 
 // constraint: the grammar reads a conditional's branch as a run of whole statements, and a label that ends one, `skip:`
@@ -986,7 +986,7 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
         misread_branch: false,
         stray_branch: false,
         misread_bodies: Vec::new(),
-        labels_before_an_endif: Vec::new(),
+        blanks: Vec::new(),
     };
     let parsed_at_the_top = !tree.root_node().is_error();
 
@@ -1007,7 +1007,7 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
         if kind == "labeled_statement"
             && let Some(label) = label_before_an_endif(node, source)
         {
-            recovery.labels_before_an_endif.push(label);
+            recovery.blanks.push(label);
         }
         if !recovery.misread_branch && kind == "preproc_call" {
             recovery.misread_branch =
@@ -1015,6 +1015,11 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
                     .is_some_and(|directive| {
                         directive_of(&source[directive.byte_range()]) == Directive::Branches
                     });
+        }
+        if kind == "declaration"
+            && let Some(annotation) = misread_data_macro(node, source)
+        {
+            recovery.blanks.push(annotation);
         }
         if parsed_at_the_top
             && kind == "field_declaration_list"
@@ -1065,6 +1070,106 @@ fn misreads_a_members_macro(member: Node<'_>, source: &[u8]) -> bool {
             written.kind() == "type_identifier" && is_macro_name(&source[written.byte_range()])
         })
         && misreads_its_type(member)
+}
+
+// constraint: the grammar reads a macro that opens a namespace-scope variable, `DAS_API uint32_t flags;`, as its type,
+// so the type written after it becomes an error, a declarator of its own or a missing `::` of a scope; the walk takes
+// no data from a declaration that holds an error, and without the macro it parses as written
+/// The macro a namespace-scope data declaration opens with, past its storage class, where the declaration holds an
+/// error outside its initializers.
+fn misread_data_macro(declaration: Node<'_>, source: &[u8]) -> Option<Range<usize>> {
+    let written = declaration
+        .child_by_field_name("type")
+        .and_then(|written| match written.kind() {
+            "sized_type_specifier" => written.child_by_field_name("type"),
+            _ => Some(written),
+        })
+        .filter(|written| {
+            let after = &source[written.end_byte()..];
+            let gap = after
+                .iter()
+                .take_while(|byte| matches!(byte, b' ' | b'\t'))
+                .count();
+            written.kind() == "type_identifier"
+                && is_macro_name(&source[written.byte_range()])
+                && word_len(&after[gap..]) > 0
+        })?;
+    let at_namespace_scope =
+        std::iter::successors(declaration.parent(), Node::parent).all(|ancestor| {
+            let kind = ancestor.kind();
+            kind.starts_with("preproc_")
+                || matches!(
+                    kind,
+                    "translation_unit"
+                        | "namespace_definition"
+                        | "declaration_list"
+                        | "linkage_specification"
+                )
+        });
+    if !at_namespace_scope {
+        return None;
+    }
+    let mut cursor = declaration.walk();
+    let mut misread = Misread::No;
+    for declarator in declaration.children_by_field_name("declarator", &mut cursor) {
+        if declarator.kind() != "init_declarator" {
+            misread = misread.max(Misread::of_part(declarator));
+            continue;
+        }
+        let value = declarator.child_by_field_name("value");
+        for part in child_nodes(declarator).filter(|part| Some(*part) != value) {
+            misread = misread.max(Misread::of_part(part));
+        }
+    }
+    for child in child_nodes(declaration).filter(|child| child.is_error() || child.is_missing()) {
+        misread = misread.max(Misread::of_part(child));
+    }
+    (misread == Misread::Yes).then(|| written.byte_range())
+}
+
+/// What a part of a declaration a macro opens shows, the worst of its parts deciding: no error, the error of a type
+/// the macro displaced, or a function's declarator or an error that holds more than a type's words, where the
+/// declaration declares no variable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Misread {
+    No,
+    Yes,
+    NotData,
+}
+
+impl Misread {
+    fn of_part(part: Node<'_>) -> Self {
+        let mut not_data = part.is_missing() && part.kind() == ";"
+            || part.is_error()
+                && child_nodes(part).any(|word| word.is_named() && !is_type_word(word));
+        preorder(part, |node| {
+            not_data |= matches!(node.kind(), "function_declarator" | "parameter_list");
+            !not_data
+        });
+        if not_data {
+            Self::NotData
+        } else if part.has_error() {
+            Self::Yes
+        } else {
+            Self::No
+        }
+    }
+}
+
+fn is_type_word(word: Node<'_>) -> bool {
+    matches!(
+        word.kind(),
+        "identifier"
+            | "type_identifier"
+            | "primitive_type"
+            | "sized_type_specifier"
+            | "qualified_identifier"
+            | "namespace_identifier"
+            | "template_type"
+            | "template_function"
+            | "type_qualifier"
+            | "storage_class_specifier"
+    )
 }
 
 fn reads_as_written(tree: &Tree, annotation: usize) -> bool {
@@ -2419,6 +2524,30 @@ PX_FORCE_INLINE ns::Result outside() { return {}; }
         assert_eq!(
             changed_offsets(&repaired, SOURCE),
             (start..start + "PX_FORCE_INLINE".len()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn only_a_misread_variables_macro_is_blanked() {
+        const SOURCE: &[u8] = br"DAS_API uint32_t flags;
+static STACK_OF(BIO) *split(BIO *bio);
+IMGUI_API ImGuiPlatformIO& GetPlatformIO();
+ABSL_CONST_INIT static std::string* name ABSL_GUARDED_BY(mu) = nullptr;
+PX_INLINE Sc::Shape::Shape(bool b) : mFlags(0) {}
+ENGINE_END
+uint32_t lone;
+STDAPI CreateHandle(int a);
+MY_API 1 int odd;
+FMT_EXPORT template <typename... T>
+void print(std::ostream& os, format_string<T...> fmt, T&&... args) {}
+";
+        let tree = parse(&grammar(), SOURCE).expect("parse");
+
+        let repaired = after_recovery(&tree, SOURCE).expect("a misread variable");
+
+        assert_eq!(
+            changed_offsets(&repaired, SOURCE),
+            (0.."DAS_API".len()).collect::<Vec<_>>()
         );
     }
 }

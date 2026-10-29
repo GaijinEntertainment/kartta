@@ -73,7 +73,10 @@
 //! Window::wndProc()`, names its owner. A name a space or a line break sets apart from its parameters after a macro
 //! and a return type, `GLM_FUNC_QUALIFIER typename genType::row_type row (`, which the parser evicts into an error,
 //! still names the function, and a conversion operator after a macro, `ML_INLINE double4::operator int4() const`, is
-//! `operator int4` of `double4`. A declaration that holds a parse error yields no field and no data symbol.
+//! `operator int4` of `double4`. A macro before a namespace-scope variable's type on its line, `DAS_API uint32_t
+//! flags;` or `extern KRNLIMP Map *map;`, keeps the variable. Its signature starts past a macro that opens the
+//! declaration, `uint32_t flags`, and keeps one after a specifier, `extern KRNLIMP Map *map`. A declaration that
+//! holds a parse error past that yields no field and no data symbol.
 //!
 //! # Calls
 //!
