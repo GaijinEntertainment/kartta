@@ -815,6 +815,61 @@ include dirname(__DIR__ . '/../a') . '/y.php';
 }
 
 #[test]
+fn dirname_with_levels_climbs_that_many_times() {
+    let extraction = resolve(
+        br"<?php
+include dirname(__DIR__, 2) . '/x.php';
+include dirname(__FILE__, 2) . '/y.php';
+include dirname(levels: 2, path: __DIR__) . '/named.php';
+include dirname('config/app/x.php', 2) . '/db.php';
+include dirname(__DIR__ . '/..', 2) . '/lexical.php';
+",
+        "lib/a/b/use.php",
+        &[
+            "lib/a/b/use.php",
+            "lib/x.php",
+            "lib/a/x.php",
+            "lib/a/y.php",
+            "lib/a/b/y.php",
+            "lib/named.php",
+            "config/db.php",
+            "lib/a/lexical.php",
+        ],
+    );
+
+    assert_eq!(
+        includes(&extraction),
+        [
+            "lib/x.php",
+            "lib/a/y.php",
+            "lib/named.php",
+            "config/db.php",
+            "lib/a/lexical.php"
+        ]
+    );
+}
+
+#[test]
+fn dirname_with_levels_other_than_a_positive_integer_literal_includes_nothing() {
+    let extraction = resolve(
+        br"<?php
+include dirname(__DIR__, $levels) . '/x.php';
+include dirname(__DIR__, LEVELS) . '/x.php';
+include dirname(__DIR__, 0) . '/x.php';
+include dirname(__DIR__, 02) . '/x.php';
+include dirname(__DIR__, 256) . '/x.php';
+include dirname(__DIR__, 1 + 1) . '/x.php';
+include dirname(__DIR__, 2, 3) . '/x.php';
+include dirname(__DIR__, depth: 2) . '/x.php';
+",
+        "lib/a/b/use.php",
+        &["lib/a/b/use.php", "lib/x.php", "lib/a/x.php"],
+    );
+
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+}
+
+#[test]
 fn dirname_of_a_literal_path_cuts_it_in_place() {
     let extraction = resolve(
         b"<?php\ninclude dirname('config/app/x.php') . '/db.php';\n",
