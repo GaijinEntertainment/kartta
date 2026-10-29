@@ -13,11 +13,11 @@ use kartta_lang::{
 
 use crate::candidates::{CandidateSet, Candidates, Gate, INDEXED_FROM};
 use crate::confidence;
-use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_kind, or_if_none, tails};
+use crate::graph::{Graph, QUALIFIER_SEPARATORS, is_call_target_symbol, or_if_none, tails};
 use crate::members::DataNamed;
 use crate::resolution::Miss;
 use crate::scope::{Ancestors, OwnerMember, Reach, Scoped, Shape, is_value};
-use crate::stored::{Entry, Site, SymbolAt, UseReceiver};
+use crate::stored::{Entry, Site, StoredSymbol, SymbolAt, UseReceiver};
 use crate::strings::Str;
 use crate::twins::Twin;
 use crate::typed::{Typed, Value};
@@ -228,8 +228,9 @@ impl<'g> Cascade<'g> {
             || self.conventions.inherited_members != InheritedMembers::Unreached
     }
 
-    pub(crate) const fn is_call_target(&self, kind: SymbolKind) -> bool {
-        is_call_target_kind(kind) && (self.conventions.values_are_call_targets || !is_value(kind))
+    pub(crate) const fn is_call_target(&self, symbol: &StoredSymbol) -> bool {
+        is_call_target_symbol(symbol)
+            && (self.conventions.values_are_call_targets || !is_value(symbol.kind))
     }
 
     pub(crate) fn named(&self, name: Str) -> &'g [SymbolAt] {
@@ -246,7 +247,7 @@ impl<'g> Cascade<'g> {
     pub(crate) fn qualified(&self, qualified: Str) -> Option<SymbolAt> {
         self.qualified_as(qualified).min_by_key(|&at| {
             (
-                !self.is_call_target(self.graph.sym(at).kind),
+                !self.is_call_target(self.graph.sym(at)),
                 self.graph.order_of(at),
             )
         })
@@ -278,7 +279,7 @@ impl<'g> Cascade<'g> {
     fn is_candidate_in(&self, (scope, call): (SymbolAt, &Call), at: SymbolAt) -> bool {
         let file = self.graph.file(at.file);
         let symbol = &file.symbols[at.index as usize];
-        self.is_call_target(symbol.kind)
+        self.is_call_target(symbol)
             && self.is_of_the_call_s_form(call, symbol.kind)
             && self.binds_if_made(symbol.kind, symbol.flags)
             && (file.locals.is_empty()
@@ -330,9 +331,7 @@ impl<'g> Cascade<'g> {
             Pick::FreeTarget(call) => self.free_target(call, candidates),
             Pick::PackageLevel => candidates.find(|&at| {
                 let symbol = self.graph.sym(at);
-                symbol.owner.is_none()
-                    && is_call_target_kind(symbol.kind)
-                    && self.holder(at).is_none()
+                symbol.owner.is_none() && is_call_target_symbol(symbol) && self.holder(at).is_none()
             }),
         }
     }
@@ -723,7 +722,7 @@ impl<'g> Cascade<'g> {
         if let Some(local) = call.local {
             let at = SymbolAt::new(call.file, local);
             return self
-                .is_call_target(self.graph.sym(at).kind)
+                .is_call_target(self.graph.sym(at))
                 .then_some((at, confidence::SAME_FILE))
                 .ok_or(Miss::NotAdmitted);
         }
@@ -735,7 +734,9 @@ impl<'g> Cascade<'g> {
             && let Some(receiver) = call.receiver
             && !self.graph.strings.resolve(receiver).is_empty()
         {
-            let binds = |kind| self.is_call_target(kind) && self.is_of_the_call_s_form(call, kind);
+            let binds = |symbol: &StoredSymbol| {
+                self.is_call_target(symbol) && self.is_of_the_call_s_form(call, symbol.kind)
+            };
             return match self.typed_member((caller, receiver), call.callee, binds) {
                 Typed::Member(at) => Ok((at, confidence::RECEIVER)),
                 Typed::Imported => Err(Miss::ExternalImport),
@@ -854,7 +855,7 @@ impl<'g> Cascade<'g> {
                 .copied()
                 .filter(|&at| {
                     let symbol = self.graph.sym(at);
-                    self.is_call_target(symbol.kind)
+                    self.is_call_target(symbol)
                         && self.is_of_the_call_s_form(call, symbol.kind)
                         && self.binds_if_made(symbol.kind, symbol.flags)
                 })
@@ -1685,7 +1686,7 @@ impl<'g> Cascade<'g> {
             let targets = named
                 .iter()
                 .copied()
-                .filter(|&at| is_call_target_kind(self.graph.sym(at).kind))
+                .filter(|&at| is_call_target_symbol(self.graph.sym(at)))
                 .collect();
             Rc::new(Candidates::scanned(named, targets, false))
         })
@@ -1699,8 +1700,9 @@ impl<'g> Cascade<'g> {
         if let Some(path) = path
             && self.reads_type_paths()
         {
-            // constraint: a member taken without a call is a field or a method value, so every member kind binds
-            match self.typed_member((site, path), name, |_| true) {
+            // constraint: a member taken without a call is a field or a method value, so every member kind binds but a
+            // label
+            match self.typed_member((site, path), name, |symbol| !symbol.flags.is_label()) {
                 Typed::Member(at) => return Ok((at, confidence::RECEIVER)),
                 Typed::Imported | Typed::Undeclared | Typed::NoMethod => {
                     return Err(UseMiss::Elsewhere);

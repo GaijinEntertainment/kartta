@@ -356,7 +356,7 @@ impl Graph {
         let mut calls = Calls::new(self);
         let root = calls.select(selector, Calls::caller_count)?;
         let mut walk = calls.walk(root, limits, Calls::callers_of);
-        let mut file_scope: Vec<(u32, u8)> = if calls.cascade.is_call_target(self.sym(root).kind) {
+        let mut file_scope: Vec<(u32, u8)> = if calls.cascade.is_call_target(self.sym(root)) {
             calls.file_scope_callers(root).collect()
         } else {
             Vec::new()
@@ -568,7 +568,7 @@ impl Uncertain {
         *self.has_members.get_or_insert_with(|| {
             cascade.named(name).iter().any(|&member| {
                 let member = cascade.graph.sym(member);
-                member.owner.is_some() && cascade.is_call_target(member.kind)
+                member.owner.is_some() && cascade.is_call_target(member)
             })
         })
     }
@@ -650,7 +650,7 @@ impl<'g> Calls<'g> {
     // definition local to a body is a candidate of a call in that body alone, which binds it as a local call
     pub(crate) fn ambiguous_calls(&mut self, at: SymbolAt) -> usize {
         let symbol = self.graph.sym(at);
-        if !self.cascade.is_call_target(symbol.kind) || self.cascade.holder(at).is_some() {
+        if !self.cascade.is_call_target(symbol) || self.cascade.holder(at).is_some() {
             return 0;
         }
         self.resolve_callers(symbol.name);
@@ -727,10 +727,10 @@ impl<'g> Calls<'g> {
 
     fn wanted_first(&self, mut candidates: Vec<SymbolAt>) -> Vec<SymbolAt> {
         let is_wanted = |at: SymbolAt| {
-            let kind = self.graph.sym(at).kind;
+            let symbol = self.graph.sym(at);
             match self.wanted {
-                Wanted::Callables => self.cascade.is_call_target(kind),
-                Wanted::Referents => is_referent(kind),
+                Wanted::Callables => self.cascade.is_call_target(symbol),
+                Wanted::Referents => is_referent(symbol.kind),
             }
         };
         if self.wanted == Wanted::Referents || candidates.iter().any(|&at| is_wanted(at)) {
