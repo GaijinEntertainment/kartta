@@ -900,15 +900,15 @@ impl<'g> Calls<'g> {
             if self.graph.sym(callable).name != name {
                 continue;
             }
-            keep_stronger(
-                &mut strongest,
-                (callable, call.caller_at()),
-                Edge {
-                    far: call.caller_at(),
-                    confidence,
-                    line: call.line,
-                },
-            );
+            let edge = Edge {
+                far: call.caller_at(),
+                confidence,
+                line: call.line,
+            };
+            for twin in self.cascade.twins(&call, (callee, confidence)) {
+                keep_stronger(&mut strongest, (twin, call.caller_at()), edge);
+            }
+            keep_stronger(&mut strongest, (callable, call.caller_at()), edge);
         }
         let mut by_callable: HashMap<SymbolAt, Vec<Edge>, FixedState> = HashMap::default();
         for ((callable, _), edge) in strongest {
@@ -938,6 +938,14 @@ impl<'g> Calls<'g> {
                 continue;
             };
             let callable = self.cascade.canonical(callee);
+            for twin in self.cascade.twins(&call, (callee, confidence)) {
+                let edge = Edge {
+                    far: twin,
+                    confidence,
+                    line: call.line,
+                };
+                keep_stronger(&mut strongest, twin, edge);
+            }
             let edge = Edge {
                 far: callable,
                 confidence,

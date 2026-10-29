@@ -207,6 +207,8 @@ impl<'g> Tally<'g> {
                 Ok((callee, confidence)) => {
                     self.bound[usize::from(confidence)] += 1;
                     pairs.push((call.caller, cascade.canonical(callee)));
+                    let twins = cascade.twins(&call, (callee, confidence));
+                    pairs.extend(twins.into_iter().map(|twin| (call.caller, twin)));
                 }
                 Err(miss) => self.miss(miss, &call),
             }
