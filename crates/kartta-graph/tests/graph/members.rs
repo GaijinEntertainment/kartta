@@ -4,7 +4,7 @@
 
 use kartta_graph::{Graph, Selector, SiteQuery};
 use kartta_lang::{
-    Access, Callable, CallableRole, CallsOnValues, Conventions, Extraction, IncludeReach,
+    Access, Callable, CallableRole, CallsOnValues, Conventions, DataUses, Extraction, IncludeReach,
     InheritedMembers, OwnMembers, ReExport, Receiver, Symbol, SymbolId, SymbolKind, UntypedMembers,
     UseRef, ValueUses,
 };
@@ -747,6 +747,55 @@ fn a_declaration_and_a_definition_of_one_value_in_one_tier_count_once() {
     );
 
     assert_eq!(lines_of(&graph, "limit"), [(2, 70)]);
+}
+
+#[test]
+fn a_use_bound_to_a_header_s_value_declaration_counts_at_the_definition_it_links_to() {
+    let header = callables(
+        file(
+            "inc/limit.h",
+            vec![value("limit", 1), value("spare", 2)],
+            &[],
+        ),
+        CallableRole::Declaration,
+        &[(0, "limit"), (1, "spare")],
+    );
+    let source = callables(
+        file(
+            "src/limit.cpp",
+            vec![value("limit", 2), value("spare", 3)],
+            &["inc/limit.h"],
+        ),
+        CallableRole::Definition,
+        &[(0, "limit"), (1, "spare")],
+    );
+    let user = with_uses(
+        file(
+            "src/user.cpp",
+            vec![Symbol::new("f", SymbolKind::Function, 2, 4)],
+            &["inc/limit.h"],
+        ),
+        0,
+        &[("limit", Receiver::Bare, 3)],
+    );
+    let mut conventions = cpp();
+    conventions.data_uses = DataUses::Every;
+    let graph = graph(conventions, &[header, source, user]);
+
+    let dead = graph.dead_code(&[SymbolKind::Variable], None, 10);
+
+    assert_eq!(lines_in(&graph, "limit"), ("src/limit.cpp", vec![(3, 70)]));
+    assert_eq!(
+        dead.found
+            .iter()
+            .map(|dead| (dead.definition.name, dead.definition.file))
+            .collect::<Vec<_>>(),
+        [("spare", "src/limit.cpp")]
+    );
+    assert_eq!(
+        dead.live, 1,
+        "a declaration and its definition are judged once, and the use of the declaration reaches it"
+    );
 }
 
 #[test]
