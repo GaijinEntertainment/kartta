@@ -2665,19 +2665,87 @@ TEST(Suite, Case) { int in_macro = 0; }
     }
 
     #[test]
-    fn a_declaration_holding_a_parse_error_emits_no_data() {
-        const SOURCE: &[u8] = b"namespace n {\nMACRO_BEGIN int x = 1;\n}\n";
+    fn a_declaration_whose_error_outlives_the_macro_repair_emits_no_data() {
+        const SOURCE: &[u8] = b"namespace n {\nMACRO_BEGIN int x = 1;\nint y = (1;\n}\n";
         let tree = parse(&grammar(), SOURCE).expect("parse");
         assert!(tree.root_node().has_error());
 
         let raw = extract(SOURCE);
 
-        let data: Vec<&Symbol> = raw
+        let data: Vec<&str> = raw
             .symbols
             .iter()
             .filter(|symbol| matches!(symbol.kind, SymbolKind::Variable | SymbolKind::Constant))
+            .map(|symbol| symbol.qualified_name.as_str())
             .collect();
-        assert_eq!(data, Vec::<&Symbol>::new());
+        assert_eq!(data, ["n::x"]);
+    }
+
+    #[test]
+    fn an_export_macro_before_a_variables_type_keeps_the_variable() {
+        let raw = extract(
+            b"extern KRNLIMP OcclusionMap *occlusion_map;\nextern DAS_CC_API uint32_t SIDEEFFECTS_none;\n\
+              DAS_CC_API uint32_t SIDEEFFECTS_unsafe = 1;\nEXPORT_API void *gpContext = NULL;\n\
+              EXPORT_API extern int u;\nextern int plain_extern;\nint plain_data = 2;\n",
+        );
+
+        let data: Vec<(&str, u32, Option<&str>)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| {
+                assert_eq!(symbol.kind, SymbolKind::Variable, "{}", symbol.name);
+                (
+                    symbol.name.as_str(),
+                    symbol.line,
+                    symbol.signature.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            data,
+            [
+                (
+                    "occlusion_map",
+                    1,
+                    Some("extern KRNLIMP OcclusionMap *occlusion_map")
+                ),
+                (
+                    "SIDEEFFECTS_none",
+                    2,
+                    Some("extern DAS_CC_API uint32_t SIDEEFFECTS_none")
+                ),
+                (
+                    "SIDEEFFECTS_unsafe",
+                    3,
+                    Some("uint32_t SIDEEFFECTS_unsafe = 1")
+                ),
+                ("gpContext", 4, Some("void *gpContext = NULL")),
+                ("u", 5, Some("extern int u")),
+                ("plain_extern", 6, Some("extern int plain_extern")),
+                ("plain_data", 7, Some("int plain_data = 2")),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_export_macro_before_a_variables_type_keeps_it_inside_conditionals_and_blocks() {
+        let raw = extract(
+            b"#ifndef G_H\n#define G_H\nextern \"C\" {\nKRNLIMP int in_block;\n}\nnamespace ns {\n#if HAS_API\n\
+              DAS_API uint32_t in_branch = 1;\n#endif\n}\n#endif\n",
+        );
+
+        let data: Vec<(&str, SymbolKind)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.kind))
+            .collect();
+        assert_eq!(
+            data,
+            [
+                ("in_block", SymbolKind::Variable),
+                ("ns::in_branch", SymbolKind::Variable)
+            ]
+        );
     }
 
     #[test]
