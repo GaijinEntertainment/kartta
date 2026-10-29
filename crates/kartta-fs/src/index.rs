@@ -110,7 +110,7 @@ impl Index {
     ///
     /// # Errors
     ///
-    /// Returns [`BuildError::Walk`] if `root` itself cannot be listed, or if the thread count
+    /// Returns [`BuildError::Walk`] if `root` itself cannot be listed, [`BuildError::ThreadPool`] if the thread count
     /// [`BuildOptions::threads`] asks for cannot be started, and [`BuildError::ContentIndex`] if the content index
     /// cannot be kept where [`BuildOptions::content_index`] asks. Every deeper failure is collected into
     /// [`BuildOutcome::errors`] instead, leaving a partial index — check it before trusting the answer, because a
@@ -917,13 +917,14 @@ impl Index {
     /// images and model weights. That answer is about the *name*, so it stands even for a file since deleted or
     /// replaced: opening one to confirm would spend on every such entry the very syscall the rule exists to save.
     ///
-    /// `svg` is the one built-in name that is not binary by construction. It is XML, and it is built in because in
-    /// practice it holds machine-emitted path data whose lines are of no use to a reader — so an SVG reports binary
-    /// here without ever being read.
+    /// Two built-in names are not binary by construction. `svg` is XML, built in because in practice it holds
+    /// machine-emitted path data whose lines are of no use to a reader, so an SVG reports binary here without ever
+    /// being read. `dag` is Dagor's binary format and also names the text workflow files of the Condor job scheduler,
+    /// so a tree that holds those states a set of its own.
     ///
-    /// A name that settles nothing is answered by whether a NUL appears in the file's first 64 KiB, the rule git and
-    /// ripgrep both apply. That verdict is about a prefix rather than about a whole file: a file that is text for
-    /// 64 KiB and binary after reports text here.
+    /// A name that settles nothing is answered by whether a NUL appears in the file's first 64 KiB, the span the
+    /// searcher reads at a time, so a search's own reading of the file agrees with the verdict. That verdict is about
+    /// a prefix rather than about a whole file: a file that is text for 64 KiB and binary after reports text here.
     ///
     /// **A name that settles nothing reads the filesystem**, on the first ask for a given entry, and the answer is
     /// kept — see [`Index::size`] for what taking an answer at ask time rather than at walk time costs in coherence.

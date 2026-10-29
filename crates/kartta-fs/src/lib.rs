@@ -123,8 +123,10 @@
 //! searched, applies the binary rule above before it searches a byte, and answers in index order — and its [`Matches`]
 //! account for every candidate the answer does not cover, because an agent cannot see what it was not given.
 //!
-//! A build asked for a content index, through [`BuildOptions::content_index`], reads every text file once during the
-//! walk and records which files hold which trigrams. A search on that index opens only the candidates holding every
+//! A build asked for a content index, through [`BuildOptions::content_index`], reads every text file during the walk
+//! and records which files hold which trigrams. It reads each file once, except that with
+//! [`BuildOptions::content_cache`] a file of 64 KiB or more that no [`ContentVisitor`] wants is read once to hash it
+//! and, when the store lacks it, again to scan it. A search on that index opens only the candidates holding every
 //! trigram a match needs, and counts the rest in [`Matches::ruled_out`]. The index is a snapshot of content as the
 //! build read it, as the structure is a snapshot of the tree.
 //!
