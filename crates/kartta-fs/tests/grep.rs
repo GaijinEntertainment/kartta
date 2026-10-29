@@ -10,6 +10,7 @@
 mod common;
 
 use std::fs;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -587,6 +588,46 @@ fn a_long_matching_line_is_cut_around_its_match_and_a_long_context_line_keeps_it
 }
 
 #[test]
+fn a_line_longer_than_256_mib_fails_its_file_unread_past_the_ceiling() {
+    const CEILING: u64 = 256 * 1024 * 1024;
+    let dir = tree(&[("short.txt", "needle\n")]);
+    let mut long = fs::File::create(dir.path().join("long.txt")).expect("create");
+    long.write_all("a".repeat(64 * 1024).as_bytes())
+        .expect("a text head, so the file is not binary");
+    long.set_len(CEILING + 1024 * 1024)
+        .expect("extend the one line past the ceiling");
+    long.seek(SeekFrom::End(0)).expect("seek to the end");
+    long.write_all(b"needle\n")
+        .expect("a match past the ceiling");
+    drop(long);
+    let index = index(dir.path());
+
+    let found = index.grep(&patterns(&["needle"]), &GrepOptions::default());
+
+    let mut paths = index.paths();
+    assert_eq!(
+        found
+            .files()
+            .iter()
+            .map(|file| paths.get(file.position()).to_owned())
+            .collect::<Vec<_>>(),
+        ["short.txt"],
+        "the match past the ceiling is never reached"
+    );
+    let [failure] = found.failures() else {
+        panic!("one failure expected, got {:?}", found.failures());
+    };
+    assert_eq!(index.paths().get(failure.position()), "long.txt");
+    assert!(
+        failure.error().to_string().contains(&CEILING.to_string()),
+        "the reason names the ceiling: {}",
+        failure.error()
+    );
+    assert_eq!(found.searched(), 1);
+    assert_accounted(&found);
+}
+
+#[test]
 fn bytes_that_are_not_utf8_read_as_replacement_characters() {
     let dir = tempfile::tempdir().expect("create temp dir");
     write(dir.path(), "f.txt", b"needle \xFF here\n");
@@ -595,6 +636,31 @@ fn bytes_that_are_not_utf8_read_as_replacement_characters() {
     let found = index.grep(&patterns(&["needle"]), &GrepOptions::default());
 
     assert_eq!(printed(&index, &found), ["f.txt:1:needle \u{FFFD} here"]);
+}
+
+#[test]
+fn a_file_with_a_utf16_byte_order_mark_is_searched_as_its_bytes() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let utf16 = "敮摥敬";
+    let mut bytes = vec![0xFF, 0xFE];
+    bytes.extend(utf16.encode_utf16().flat_map(u16::to_le_bytes));
+    assert_eq!(&bytes[2..], b"needle", "no code unit holds a NUL byte");
+    write(dir.path(), "f.txt", &bytes);
+    let index = index(dir.path());
+
+    let raw = index.grep(&patterns(&["needle"]), &GrepOptions::default());
+    let text = index.grep(&patterns(&[utf16]), &GrepOptions::default());
+
+    assert_eq!(
+        printed(&index, &raw),
+        ["f.txt:1:\u{FFFD}\u{FFFD}needle"],
+        "the mark is not decoded and the code units are matched as bytes"
+    );
+    assert!(
+        text.files().is_empty(),
+        "the UTF-8 form of the text is not in the file's bytes"
+    );
+    assert_eq!(text.searched(), 1);
 }
 
 #[test]
