@@ -1641,21 +1641,31 @@ impl<'g> Cascade<'g> {
         reach: Option<&Reach>,
         defined_per_file: impl Iterator<Item = &'a [SymbolAt]>,
     ) -> Scoped {
-        let narrowed = call.names_a_runtime_method
-            && self.conventions.included_runtime_members == IncludedRuntimeMembers::SpelledOrOwn;
+        let rule = self.conventions.included_runtime_members;
+        let narrowed = |at: SymbolAt| match rule {
+            IncludedRuntimeMembers::Any => false,
+            IncludedRuntimeMembers::SpelledOrOwn => call.names_a_runtime_method,
+            IncludedRuntimeMembers::SpelledOwnOrExported => {
+                call.names_a_runtime_method || (call.calls_a_method && !self.graph.sym(at).exported)
+            }
+        };
+        let kept = |at: SymbolAt| !narrowed(at) || self.spelled_or_own(call, at);
+        let turns_away = rule == IncludedRuntimeMembers::SpelledOwnOrExported;
+        let mut turned_away = false;
         let mut unique = Scoped::Nothing;
         for defined in defined_per_file.filter(|defined| !defined.is_empty()) {
-            let reached = defined
-                .iter()
-                .copied()
-                .filter(|&at| !narrowed || self.spelled_or_own(call, at));
-            match self.scoped(call, reached, reach) {
+            let offered = defined.iter().copied();
+            match self.scoped(call, offered.filter(|&at| turns_away || kept(at)), reach) {
+                Scoped::One(at) if !kept(at) => turned_away = true,
                 Scoped::Nothing => {}
                 Scoped::One(at) if unique == Scoped::Nothing => unique = Scoped::One(at),
                 Scoped::One(_) | Scoped::Several => return Scoped::Several,
             }
         }
-        unique
+        match unique {
+            Scoped::One(_) if turned_away => Scoped::Several,
+            unique => unique,
+        }
     }
 
     /// Whether `at` is no member, or a member whose owner the call's receiver spells, the caller's own owner is or

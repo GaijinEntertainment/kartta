@@ -206,6 +206,8 @@ const CONVENTIONS: Conventions = {
     conventions.unrecorded_data = &[SymbolKind::Field];
     conventions.macro_invocations = kartta_lang::MacroInvocations::Apart;
     conventions.twins = kartta_lang::Twins::Every;
+    conventions.included_runtime_members =
+        kartta_lang::IncludedRuntimeMembers::SpelledOwnOrExported;
     conventions
 };
 
