@@ -37,11 +37,12 @@ assert_eq!(index.size("src/main.rs"), Some(12)); // read now, kept
 
 ## Structure is a snapshot; a file's bytes are not
 
-The walk records what exists and what each entry is, so those answers are coherent across the whole tree and change
-only on a rebuild. `Index::size` and `Index::is_binary` read the filesystem when first asked and keep what they read,
-because doing either during the walk costs far more than the answers are worth to a caller who looks at a handful of
-files — on a 1.4M-entry tree the walk-time stat alone was about half the build, and classifying every file runs to
-minutes. Two such answers may therefore describe two different moments, and none is refreshed once taken.
+The walk records what exists and what each entry is, so those answers are coherent across the whole tree and change only
+when a walk runs again: a rebuild, or `Index::refresh` and `Index::refresh_paths`, which change them in place.
+`Index::size` and `Index::is_binary` read the filesystem when first asked and keep what they read, because doing either
+during the walk costs far more than the answers are worth to a caller who looks at a handful of files — on a 1.4M-entry
+tree the walk-time stat alone was about half the build, and classifying every file runs to minutes. Two such answers may
+therefore describe two different moments, and none is refreshed once taken.
 
 A consumer that needs file content anyway — a parser, a content index — builds with `Index::build_with` and a
 `ContentVisitor` instead. The build then reads each file the visitor wants once, while the walk is in its directory,
@@ -52,9 +53,10 @@ consumer computes per file is computed once across builds.
 
 `Index::is_binary` settles a file by extension where the name names a format that is binary by construction, and by
 whether a NUL appears in the first 64 KiB otherwise. The extension set only ever says "binary": listing a text format
-wrongly would make it unfindable, where omitting a binary one costs a single read that answers correctly anyway. `svg`
-is the one built-in name that is not binary by construction — it is XML, listed because in practice it holds
-machine-emitted path data — so an SVG reports binary without being read.
+wrongly would make it unfindable, where omitting a binary one costs a single read that answers correctly anyway. Two
+built-in names are not binary by construction. `svg` is XML, listed because in practice it holds machine-emitted path
+data, so an SVG reports binary without being read. `dag` is Dagor's binary format and also names the text workflow
+files of the Condor job scheduler, so a tree that holds those states a set of its own.
 
 `BuildOptions::binary_extensions` sets which extensions decide. The default is the built-in set; a caller adds its own
 asset formats to it by union, or states a whole set of its own. An extension no file carries is not an error, because
@@ -111,8 +113,9 @@ whichever entries its threads reached. Each surviving kind costs something diffe
 - A name that is not valid UTF-8 costs that entry, and a directory takes its subtree with it.
 - A file a `ContentVisitor` wanted and the build could not read costs the visitor that file's content; the entry stays.
 
-A build without a visitor never reads a file's size, so nothing here reports a failure to. A size or a binary verdict
-that cannot be read answers `None` at the point of the ask instead, where the caller can act on it.
+A build with neither a visitor nor `BuildOptions::content_index` never reads a file's size, so nothing here reports a
+failure to. A size or a binary verdict that cannot be read answers `None` at the point of the ask instead, where the
+caller can act on it.
 
 The report is ordered by path, so two builds of one tree report identically.
 
@@ -160,19 +163,20 @@ if found.truncated() || found.cancelled() || !found.failures().is_empty() {
 }
 ```
 
-The answer is in index order, so it is the same on every run that is not cancelled, and it accounts for every
-candidate — searched, binary, oversized, unreadable, or left unsearched once a match past the limit proved the cut or a
-cancellation stopped the search. A limited search reads on past a filled limit only until that one more match, so
-`truncated` is exact; finding none, it reads every searchable candidate, as a search without a limit does. `count_all`
-reads every searchable candidate and counts the matches past the limit.
+The answer is in index order, so it is the same on every run that is not cancelled, and it accounts for every candidate
+— searched, binary, oversized, unreadable, ruled out unread by the content index, or left unsearched once a match past
+the limit proved the cut or a cancellation stopped the search. A limited search reads on past a filled limit only until
+that one more match, so `truncated` is exact; finding none, it reads every searchable candidate, as a search without a
+limit does. `count_all` reads every searchable candidate and counts the matches past the limit.
 
-A build given `BuildOptions::content_index` also records each text file's trigrams in the walk's one read, and a search
+A build given `BuildOptions::content_index` also records each text file's trigrams as the walk reads it, and a search
 then rules out, before opening it, every indexed file missing a trigram its patterns need; a file the index holds no
 trigrams for, such as one the build could not read, stays a candidate. Builds of nearly identical trees can share that
 work through `BuildOptions::content_cache`, a `kartta-cache` directory keyed by each file's content: a file whose
-trigrams another build already computed is hashed and looked up rather than scanned. Each build ends with a merge that
-expires the entries older than `BuildOptions::content_cache_ttl`, a week when left at zero, and rewrites a pack without
-them once they hold half of its payload bytes.
+trigrams another build already computed is hashed and looked up rather than scanned. A file of 64 KiB or more that no
+`ContentVisitor` wants is read once to hash it and, when the store lacks it, again to scan it. Each build ends with a
+merge that expires the entries older than `BuildOptions::content_cache_ttl`, a week when left at zero, and rewrites a
+pack without them once they hold half of its payload bytes.
 
 `examples/probe.rs` indexes a real tree and reports what survived, how long the build took, and what a path search costs
 — a synthetic fixture cannot tell you magnitude, because a repository's `.gitignore` files are what decide how much of

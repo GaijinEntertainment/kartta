@@ -55,8 +55,8 @@ const REPORTED: Duration = Duration::from_millis(50);
 /// an edit hides loses its watches, and those of every directory below it, to the refresh that drops it from the
 /// index. On macOS the root is watched through `FSEvents` and on Windows through `ReadDirectoryChangesW`, both of
 /// which cover the whole tree, ignored and pruned parts included; a refresh of an ignored or pruned path changes
-/// nothing and costs no pass over the index, except that a changed `.gitignore` under a pruned name re-walks the
-/// directory whose rules it holds.
+/// nothing and costs no pass over the index, except that a changed `.gitignore` whose own name is pruned re-walks the
+/// directory whose rules it holds; a `.gitignore` inside a pruned directory changes nothing.
 ///
 /// A change made before the watcher starts is not reported, but on macOS and Windows one made moments before can
 /// still arrive; refreshing its path changes nothing when the index already holds the change, as for one the walk
