@@ -326,7 +326,9 @@ impl Server {
         description = "Bring the index up to date after files changed on disk. While index_stats shows \
                        watch=\"following\" the index does this by itself; call refresh when it shows watch off, or \
                        after a change made where notifications do not reach, such as a network mount or a container \
-                       bind mount. Pass the repo-relative 'paths' that changed, or omit them to check the whole tree. \
+                       bind mount. Pass the repo-relative 'paths' that changed, with / between names, or omit them to \
+                       check the whole tree; a path that is absolute, starts with a drive such as C: or holds a \
+                       backslash is refused, and nothing is refreshed. \
                        Returns a <refresh> envelope: walked= the parts walked again (\"tree\" for all), then each \
                        only when it is not zero - added and removed files, extracted (files parsed again), \
                        resolved_again (other files whose calls or includes bind anew), dropped (files no graph holds \
@@ -339,9 +341,9 @@ impl Server {
                        could not read. Requires index_repo first."
     )]
     async fn refresh(&self, Parameters(p): Parameters<RefreshParams>) -> Result<String, String> {
-        if let Some(path) = p.paths.iter().find(|path| path.starts_with('/')) {
+        if let Some(fault) = p.paths.iter().find_map(|path| misspelled(path)) {
             return Err(format!(
-                "{path:?} is absolute - pass paths relative to the repository root, as find_files prints them"
+                "{fault} - pass paths relative to the repository root, with / between names, as find_files prints them"
             ));
         }
         let served = self.slot.current()?;
@@ -1431,6 +1433,24 @@ fn changed_regions(
         return Err("pass at least one region, or a diff".to_owned());
     }
     Ok(changed)
+}
+
+/// What keeps `path` from naming a part of the tree, which the index spells from the root with `/` between names: a
+/// leading `/` or `\`, a drive such as `C:`, or a `\` between names. `None` when it has none of them.
+fn misspelled(path: &str) -> Option<String> {
+    if path.starts_with(['/', '\\']) {
+        return Some(format!("{path:?} is absolute"));
+    }
+    if let [drive, b':', ..] = path.as_bytes()
+        && drive.is_ascii_alphabetic()
+    {
+        return Some(format!(
+            "{path:?} starts with the drive {}:",
+            char::from(*drive)
+        ));
+    }
+    path.contains('\\')
+        .then(|| format!("{path:?} separates its names with \\"))
 }
 
 /// `name` as a glob that matches it literally: each character the glob dialect gives a meaning to is escaped.
