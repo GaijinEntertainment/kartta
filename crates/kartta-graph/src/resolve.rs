@@ -909,12 +909,8 @@ impl<'g> Cascade<'g> {
         // class the graph holds under another name only through the file's imports, as an alias does
         let outside = self.names_a_class_outside_the_graph(call);
         if !outside
-            && let Some(at) = self.scoped_target(
-                call,
-                (candidates.in_file(self.graph, call.file).iter().copied())
-                    .filter(|&at| self.path_names(path, at)),
-                reach,
-            )
+            && let Some(at) =
+                self.same_file_target(path, candidates.in_file(self.graph, call.file), reach)
         {
             return Ok((at, confidence::SAME_FILE));
         }
