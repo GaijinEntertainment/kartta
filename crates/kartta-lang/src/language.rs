@@ -265,6 +265,8 @@ pub struct Conventions {
     pub untyped_members: UntypedMembers,
     /// How the language writes a macro invocation beside a function call.
     pub macro_invocations: MacroInvocations,
+    /// What a call reaches where the tier that binds it holds several definitions of one qualified name equal.
+    pub twins: Twins,
 }
 
 impl Conventions {
@@ -296,6 +298,7 @@ impl Conventions {
         value_uses: ValueUses::Declared,
         untyped_members: UntypedMembers::FileField,
         macro_invocations: MacroInvocations::AsCalls,
+        twins: Twins::First,
     };
 }
 
@@ -410,6 +413,19 @@ pub enum MacroInvocations {
     /// [`CallRef::invokes_a_macro`](crate::CallRef::invokes_a_macro): a macro invocation binds only a macro, and any
     /// other call no macro.
     Apart,
+}
+
+/// What a call reaches where the tier that binds it, its caller's file or the type its receiver names, holds several
+/// definitions of one qualified name and kind equal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Twins {
+    /// The first of them, as an overload or a namesake copy is one definition among others.
+    #[default]
+    First,
+    /// Every one of them, as each branch of a Rust `cfg` defines a name the others define too and some build compiles
+    /// each: those in the bound one's file, and, where the caller's file reaches it through a file it includes, those
+    /// in every file it includes; of members, the exported ones, and in one file those of a type it defines twice.
+    Every,
 }
 
 /// Whether a call can bind a namespace of the name it calls.
