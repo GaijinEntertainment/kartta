@@ -468,7 +468,8 @@ mod tests {
             .with_vendored(true)
             .with_fallback(true)
             .with_reflected(true)
-            .with_made(true);
+            .with_made(true)
+            .with_label(true);
         let free = Symbol::new("ünïcode", SymbolKind::EnumVariant, 1, 1);
 
         RawExtraction {
