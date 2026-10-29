@@ -687,6 +687,7 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
         spills,
         misread_branch,
         stray_branch,
+        listed_conditional,
         misread_bodies: bodies,
         blanks,
     } = recovery_of(tree, source);
@@ -699,7 +700,7 @@ pub(crate) fn after_recovery(tree: &Tree, source: &[u8]) -> Option<Vec<u8>> {
     } else {
         stray_branch.then_some(BraceSplit::Opens)
     };
-    if let Some(split) = split {
+    if split.is_some() || listed_conditional {
         for directives in untaken_branches(source, split) {
             repaired.blank(directives);
         }
@@ -744,6 +745,7 @@ struct Recovery {
     spills: Vec<(usize, usize)>,
     misread_branch: bool,
     stray_branch: bool,
+    listed_conditional: bool,
     misread_bodies: Vec<MisreadBody>,
     blanks: Vec<Range<usize>>,
 }
@@ -821,12 +823,17 @@ fn indent_len(text: &[u8]) -> usize {
 // it did not open, is read as the preprocessor reads it with the first branch taken: its directives and its later
 // branches are blanked. Every such conditional of the file, not only the misread one, because blanking one changes how
 // the grammar reads the next. Where a larger error holds the directive as a bare token instead, only the conditionals
-// whose first branch leaves a brace open are read with that branch taken
-fn untaken_branches(source: &[u8], split: BraceSplit) -> Vec<Range<usize>> {
+// whose first branch leaves a brace open are read with that branch taken. A conditional inside a constructor's
+// initializer list splits one member's declaration, and the grammar then reads the list's items as members of their own
+// or loses the class at them, so where the tree holds a conditional that opens after a list item, each one inside an
+// initializer list is read with its first branch taken
+fn untaken_branches(source: &[u8], split: Option<BraceSplit>) -> Vec<Range<usize>> {
     let mut scan = ConditionalScan {
         split,
         open: Vec::new(),
         untaken: Vec::new(),
+        last_code: b'\n',
+        list: None,
     };
     let mut at = 0;
     while let Some(&byte) = source.get(at) {
@@ -843,7 +850,11 @@ fn untaken_branches(source: &[u8], split: BraceSplit) -> Vec<Range<usize>> {
             b'}' => scan.brace(-1),
             _ => {}
         }
-        at += opaque_len(source, at);
+        let len = opaque_len(source, at);
+        if byte != b'/' || len == 1 {
+            scan.code(byte, source.get(at + 1).copied());
+        }
+        at += len;
     }
     scan.untaken
 }
@@ -922,9 +933,11 @@ enum BraceSplit {
 }
 
 struct ConditionalScan {
-    split: BraceSplit,
+    split: Option<BraceSplit>,
     open: Vec<OpenConditional>,
     untaken: Vec<Range<usize>>,
+    last_code: u8,
+    list: Option<InitializerList>,
 }
 
 struct OpenConditional {
@@ -934,8 +947,25 @@ struct OpenConditional {
     closes_unopened: bool,
 }
 
+/// A constructor's initializer list the scan is inside, from the `:` after its parameters to its body's `{`, with the
+/// directive lines it holds and its conditionals' later branches; a `;`, an unmatched closer before a body, or a branch
+/// of a conditional open before it abandons it.
+struct InitializerList {
+    enclosing: usize,
+    nesting: usize,
+    untaken: Vec<Range<usize>>,
+}
+
 impl ConditionalScan {
     fn directive(&mut self, directive: Directive, line: Range<usize>) {
+        if matches!(directive, Directive::Branches | Directive::Closes)
+            && self
+                .list
+                .as_ref()
+                .is_some_and(|list| self.open.len() <= list.enclosing)
+        {
+            self.list = None;
+        }
         match directive {
             Directive::Opens => self.open.push(OpenConditional {
                 head: line,
@@ -949,21 +979,62 @@ impl ConditionalScan {
                 }
             }
             Directive::Closes => {
-                if let Some(OpenConditional {
-                    head,
-                    later: Some(later),
-                    depth,
-                    closes_unopened,
-                }) = self.open.pop()
-                    && match self.split {
-                        BraceSplit::Opens => depth > 0,
-                        BraceSplit::OpensOrCloses => depth != 0 || closes_unopened,
-                    }
+                let Some(conditional) = self.open.pop() else {
+                    return;
+                };
+                let untaken = [
+                    conditional.head,
+                    conditional.later.unwrap_or(line.start)..line.end,
+                ];
+                if let Some(list) = self.list.as_mut() {
+                    list.untaken.extend(untaken);
+                } else if conditional.later.is_some()
+                    && self.split.is_some_and(|split| match split {
+                        BraceSplit::Opens => conditional.depth > 0,
+                        BraceSplit::OpensOrCloses => {
+                            conditional.depth != 0 || conditional.closes_unopened
+                        }
+                    })
                 {
-                    self.untaken.extend([head, later..line.end]);
+                    self.untaken.extend(untaken);
                 }
             }
-            Directive::Other => {}
+            Directive::Other => {
+                if let Some(list) = self.list.as_mut() {
+                    list.untaken.push(line);
+                }
+            }
+        }
+    }
+
+    fn code(&mut self, byte: u8, next: Option<u8>) {
+        let after = self.last_code;
+        if !byte.is_ascii_whitespace() {
+            self.last_code = byte;
+        }
+        let Some(list) = self.list.as_mut() else {
+            if byte == b':' && after == b')' && next != Some(b':') {
+                self.list = Some(InitializerList {
+                    enclosing: self.open.len(),
+                    nesting: 0,
+                    untaken: Vec::new(),
+                });
+            }
+            return;
+        };
+        let initializes = after == b'_' || after == b'>' || after.is_ascii_alphanumeric();
+        match byte {
+            b'(' | b'{' if list.nesting > 0 => list.nesting += 1,
+            b')' | b'}' if list.nesting > 0 => list.nesting -= 1,
+            b'(' => list.nesting = 1,
+            b'{' if initializes => list.nesting = 1,
+            b'{' if matches!(after, b')' | b'}') => {
+                let body = std::mem::take(&mut list.untaken);
+                self.untaken.extend(body);
+                self.list = None;
+            }
+            b'{' | b'}' | b')' | b';' => self.list = None,
+            _ => {}
         }
     }
 
@@ -980,11 +1051,37 @@ impl ConditionalScan {
     }
 }
 
+/// Whether an error holds the `#if`, `#ifdef` or `#ifndef` of a conditional between the items of a list as a bare
+/// token. One inside an initializer list the grammar parsed costs the list nothing.
+fn holds_a_listed_conditional(error: Node<'_>, source: &[u8]) -> bool {
+    error.children(&mut error.walk()).any(|token| {
+        !token.is_named()
+            && directive_of(token.kind().as_bytes()) == Directive::Opens
+            && opens_between_list_items(source, token.start_byte())
+    }) && error
+        .parent()
+        .is_none_or(|list| list.kind() != "field_initializer_list")
+}
+
+/// Whether the directive at `at` stands between the items of a list, as one inside a constructor's initializer list
+/// does: the code before it ends in `,` or `) :`, or the code after its line opens with `,` or `:`.
+fn opens_between_list_items(source: &[u8], at: usize) -> bool {
+    let before = source[..at].trim_ascii_end();
+    let after = source[directive_end(source, line_start(source, at))..].trim_ascii_start();
+    before.ends_with(b",")
+        || before
+            .strip_suffix(b":")
+            .is_some_and(|head| head.trim_ascii_end().ends_with(b")"))
+        || after.starts_with(b",")
+        || (after.starts_with(b":") && !after.starts_with(b"::"))
+}
+
 fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
     let mut recovery = Recovery {
         spills: Vec::new(),
         misread_branch: false,
         stray_branch: false,
+        listed_conditional: false,
         misread_bodies: Vec::new(),
         blanks: Vec::new(),
     };
@@ -995,6 +1092,8 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
             recovery.stray_branch |= node.children(&mut node.walk()).any(|token| {
                 !token.is_named() && directive_of(token.kind().as_bytes()) == Directive::Branches
             });
+            recovery.listed_conditional =
+                recovery.listed_conditional || holds_a_listed_conditional(node, source);
             let (start, end) = (node.start_position().row, node.end_position().row);
             if end.saturating_sub(start) >= RECOVERY_SPILL_ROWS {
                 let class_end = closing_row_of_the_class_it_opens(node, source);
@@ -1008,6 +1107,9 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
             && let Some(label) = label_before_an_endif(node, source)
         {
             recovery.blanks.push(label);
+        }
+        if !recovery.listed_conditional && matches!(kind, "preproc_if" | "preproc_ifdef") {
+            recovery.listed_conditional = opens_between_list_items(source, node.start_byte());
         }
         if !recovery.misread_branch && kind == "preproc_call" {
             recovery.misread_branch =
@@ -2261,7 +2363,7 @@ void after(int count)
                        #if B\n}\nnamespace n {\n#else\n#endif\n\
                        #if C\n}\n#else\n}\n#endif\n";
         let texts = |split| {
-            untaken_branches(source, split)
+            untaken_branches(source, Some(split))
                 .into_iter()
                 .map(|range| std::str::from_utf8(&source[range]).expect("utf-8"))
                 .collect::<Vec<_>>()
@@ -2382,7 +2484,7 @@ void check(int value)
     }
 
     fn untaken_texts(source: &[u8]) -> Vec<&str> {
-        untaken_branches(source, BraceSplit::OpensOrCloses)
+        untaken_branches(source, Some(BraceSplit::OpensOrCloses))
             .into_iter()
             .map(|range| std::str::from_utf8(&source[range]).expect("utf-8"))
             .collect()
@@ -2549,5 +2651,188 @@ void print(std::ostream& os, format_string<T...> fmt, T&&... args) {}
             changed_offsets(&repaired, SOURCE),
             (0.."DAS_API".len()).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn a_constructor_whose_initializer_list_holds_a_conditional_keeps_its_class_members() {
+        const SOURCE: &[u8] = br"struct SphereAABBTest_SIMD
+{
+	PX_FORCE_INLINE SphereAABBTest_SIMD(const Sphere& sphere) :
+#ifdef PX_WINDOWS
+		mCenter	(V4LoadU(&sphere.center.x)),
+#else
+		mCenter	(V3LoadU(sphere.center)),
+#endif
+		mRadius2(FLoad(sphere.radius * sphere.radius))
+	{}
+
+	PX_FORCE_INLINE int operator()(const BucketBox& box) const
+	{
+		return 1;
+	}
+
+private:
+	SphereAABBTest_SIMD& operator=(const SphereAABBTest_SIMD&);
+	const Vec4V		mCenter;
+	const FloatV	mRadius2;
+};
+
+struct Plain
+{
+	Plain(int a) :
+		mA(a),
+		mB(a)
+	{}
+
+	int operator()() const { return mA; }
+
+	int mA;
+	int mB;
+};
+";
+
+        let raw = Cpp::new().extract(SOURCE);
+
+        let mut lines: Vec<(&str, u32, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.line, symbol.end_line))
+            .collect();
+        lines.sort_by_key(|&(_, line, _)| line);
+        assert_eq!(
+            lines,
+            [
+                ("SphereAABBTest_SIMD", 1, 21),
+                ("SphereAABBTest_SIMD::SphereAABBTest_SIMD", 3, 10),
+                ("SphereAABBTest_SIMD::operator()", 12, 15),
+                ("SphereAABBTest_SIMD::operator=", 18, 18),
+                ("SphereAABBTest_SIMD::mCenter", 19, 19),
+                ("SphereAABBTest_SIMD::mRadius2", 20, 20),
+                ("Plain", 23, 34),
+                ("Plain::Plain", 25, 28),
+                ("Plain::operator()", 30, 30),
+                ("Plain::mA", 32, 32),
+                ("Plain::mB", 33, 33)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_class_whose_only_constructor_lists_a_conditional_ends_at_its_own_brace() {
+        const SOURCE: &[u8] = br"struct ComponentList
+{
+  ComponentList(int type_, int line_) :
+    type{type_}
+#if DAGOR_DBGLEVEL > 0
+    ,
+    line(line_)
+#endif
+  {
+    next = type_;
+  }
+};
+
+class Constraint
+{
+	explicit Constraint(const Settings &inSettings) :
+#ifdef JPH_DEBUG_RENDERER
+		mDrawSize(inSettings.mDrawSize),
+#endif // JPH_DEBUG_RENDERER
+		mPriority(inSettings.mPriority)
+	{
+	}
+};
+
+namespace internal
+{
+Impl::Impl(Test* parent)
+	: parent_(parent),
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4355)  // Temporarily disables warning 4355 \
+								 // (using this in initializer).
+	  reporter_(this),
+#pragma warning(pop)
+#else
+	  reporter_(this),
+#endif  // _MSC_VER
+	  seed_(0)
+{
+}
+}
+
+int after(int count) { return count; }
+";
+
+        let raw = Cpp::new().extract(SOURCE);
+
+        let lines: Vec<(&str, u32, u32)> = raw
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.line, symbol.end_line))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                ("ComponentList", 1, 12),
+                ("ComponentList::ComponentList", 3, 11),
+                ("Constraint", 14, 23),
+                ("Constraint::Constraint", 16, 22),
+                ("Impl::Impl", 27, 40),
+                ("after", 43, 43)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_conditional_the_grammar_reads_inside_a_parsed_initializer_list_is_left_as_written() {
+        const SOURCE: &[u8] = br"Value::Value( ValueType type )
+   : type_( type )
+   , comments_( 0 )
+# ifdef JSON_VALUE_USE_INTERNAL_MAP
+   , itemIsUsed_( 0 )
+#endif
+{
+   step( type );
+}
+";
+        let tree = parse(&grammar(), SOURCE).expect("parse");
+
+        let repaired = after_recovery(&tree, SOURCE);
+
+        assert!(tree.root_node().has_error());
+        assert_eq!(repaired, None);
+    }
+
+    #[test]
+    fn an_initializer_list_inside_one_branch_of_a_conditional_keeps_its_directives() {
+        const SOURCE: &[u8] = br"class PxTransform
+{
+public:
+	PxQuat q;
+
+	PX_FORCE_INLINE PxTransform()
+#ifdef DEFAULT_IDENTITY
+		: q(0, 0, 0, 1)
+#elif defined(DEFAULT_NAN)
+#define invalid PxSqrt(-1.0f)
+		: q(invalid, invalid, invalid, invalid)
+#undef invalid
+#endif
+	{
+	}
+
+	PX_FORCE_INLINE explicit PxTransform(const PxQuat& orientation) : q(orientation)
+	{
+	}
+};
+
+int broken(  ;
+";
+        let tree = parse(&grammar(), SOURCE).expect("parse");
+
+        let repaired = after_recovery(&tree, SOURCE);
+
+        assert_eq!(repaired, None);
     }
 }
