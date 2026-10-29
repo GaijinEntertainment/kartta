@@ -12,6 +12,7 @@
               glue it generates, where an expectation on the item goes unfulfilled"
 )]
 
+use std::cell::RefCell;
 use std::sync::Arc;
 use std::thread;
 
@@ -26,7 +27,7 @@ use napi_derive::napi;
 pub fn open(params: String) -> Either<Handle, Buffer> {
     match kartta_ffi::Kartta::open(params.as_bytes()) {
         Ok(kartta) => Either::A(Handle {
-            kartta: Some(Arc::new(kartta)),
+            kartta: RefCell::new(Some(Arc::new(kartta))),
         }),
         Err(error) => Either::B(error.to_json().into()),
     }
@@ -37,7 +38,9 @@ pub fn open(params: String) -> Either<Handle, Buffer> {
 #[napi]
 #[derive(Debug)]
 pub struct Handle {
-    kartta: Option<Arc<kartta_ffi::Kartta>>,
+    // constraint: napi holds a shared borrow of the handle until a query it returned answers, and refuses a method
+    // that takes `&mut self` meanwhile, so `close` takes `&self` and empties the cell
+    kartta: RefCell<Option<Arc<kartta_ffi::Kartta>>>,
 }
 
 #[napi]
@@ -89,8 +92,8 @@ impl Handle {
     /// Lets the engine go once the calls in flight answer; every later call fails. It cancels nothing: the caller
     /// cancels the builds, the greps and the refreshes it started first.
     #[napi]
-    pub fn close(&mut self) {
-        self.kartta = None;
+    pub fn close(&self) {
+        self.kartta.take();
     }
 
     fn on_a_thread_of_its_own<'env>(
@@ -113,6 +116,7 @@ impl Handle {
 
     fn kartta(&self) -> Result<Arc<kartta_ffi::Kartta>> {
         self.kartta
+            .borrow()
             .clone()
             .ok_or_else(|| Error::from_reason("the handle is closed"))
     }
