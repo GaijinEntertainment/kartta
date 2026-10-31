@@ -40,6 +40,7 @@ pub(crate) struct Call {
     pub(crate) on_a_class: bool,
     pub(crate) invokes_a_macro: bool,
     pub(crate) calls_a_method: bool,
+    pub(crate) arguments: u8,
     pub(crate) local: Option<u32>,
     pub(crate) line: u32,
 }
@@ -57,6 +58,7 @@ impl Call {
             on_a_class: false,
             invokes_a_macro: false,
             calls_a_method: false,
+            arguments: 0,
             local: None,
             line: 0,
         }
@@ -66,8 +68,13 @@ impl Call {
         SymbolAt::new(self.file, self.caller)
     }
 
-    const fn form(&self) -> (bool, bool) {
-        (self.invokes_a_macro, self.calls_a_method)
+    const fn form(&self) -> (bool, bool, u8, bool) {
+        (
+            self.invokes_a_macro,
+            self.calls_a_method,
+            self.arguments,
+            self.arguments != 0 && self.receiver.is_some(),
+        )
     }
 }
 
@@ -97,9 +104,9 @@ struct Bindings {
 
 type Derived<K, V> = RefCell<HashMap<K, V, FixedState>>;
 
-// constraint: the call targets of one name, of the call's form, a macro invocation, a method call or neither, and among
-// those the ones the caller's package binds by name where it is gated, else every one
-type CandidatesKey = (Str, (bool, bool), Option<Str>);
+// constraint: the call targets of one name, of the call's form, a macro invocation, a method call or neither, with the
+// arguments it passes, and among those the ones the caller's package binds by name where it is gated, else every one
+type CandidatesKey = (Str, (bool, bool, u8, bool), Option<Str>);
 
 pub(crate) fn derived<K: Eq + Hash, V: Clone>(
     cache: &Derived<K, V>,
@@ -184,8 +191,9 @@ impl<'g> Cascade<'g> {
                     on_a_class: call.is_on_a_class(),
                     invokes_a_macro: call.invokes_a_macro(),
                     calls_a_method: call.calls_a_method(),
+                    arguments: call.arguments(),
                     local: None,
-                    line: call.line,
+                    line: call.line(),
                 })
             }
             Entry::LocalCall(index) => {
@@ -200,6 +208,7 @@ impl<'g> Cascade<'g> {
                     on_a_class: false,
                     invokes_a_macro: false,
                     calls_a_method: false,
+                    arguments: 0,
                     local: Some(call.local),
                     line: call.line,
                 }
@@ -281,6 +290,7 @@ impl<'g> Cascade<'g> {
         let symbol = &file.symbols[at.index as usize];
         self.is_call_target(symbol)
             && self.is_of_the_call_s_form(call, symbol.kind)
+            && Self::takes_the_arguments(call, symbol)
             && self.binds_if_made(symbol.kind, symbol.flags)
             && (file.locals.is_empty()
                 || file.holder(at.index).is_none_or(|holder| {
@@ -301,6 +311,17 @@ impl<'g> Cascade<'g> {
             MacroInvocations::AsCalls
         ) || call.invokes_a_macro == matches!(kind, SymbolKind::Macro))
             && !(call.calls_a_method && is_value(kind))
+    }
+
+    // constraint: the object a member call passes fills a method's implicit parameter, which `most_arguments` leaves out,
+    // and nothing of a namespace, whatever a bare call of its name passes the macro it holds
+    const fn takes_the_arguments(call: &Call, symbol: &StoredSymbol) -> bool {
+        let most = match (call.receiver.is_some(), symbol.kind) {
+            (true, SymbolKind::Method) => symbol.most_arguments.saturating_add(1),
+            (true, SymbolKind::Namespace) => 0,
+            _ => symbol.most_arguments,
+        };
+        call.arguments <= most
     }
 
     pub(crate) fn call_targets<'a>(
@@ -816,7 +837,9 @@ impl<'g> Cascade<'g> {
             && !self.graph.strings.resolve(receiver).is_empty()
         {
             let binds = |symbol: &StoredSymbol| {
-                self.is_call_target(symbol) && self.is_of_the_call_s_form(call, symbol.kind)
+                self.is_call_target(symbol)
+                    && self.is_of_the_call_s_form(call, symbol.kind)
+                    && Self::takes_the_arguments(call, symbol)
             };
             return match self.typed_member((caller, receiver), call.callee, binds) {
                 Typed::Member(at) => Ok((at, confidence::RECEIVER)),
@@ -954,11 +977,22 @@ impl<'g> Cascade<'g> {
         None
     }
 
+    // constraint: code outside the graph can define a name the graph holds, so the one definition of a name that takes
+    // a call's arguments is no likelier its callee, by the name alone, than the others were before the arguments ruled
+    // them out: a native overload takes what no script function of its name does
+    pub(crate) fn takes_too_few_arguments(&self, call: &Call, named: &[SymbolAt]) -> bool {
+        call.arguments != 0
+            && named.iter().any(|&at| {
+                let symbol = self.graph.sym(at);
+                self.is_call_target(symbol) && !Self::takes_the_arguments(call, symbol)
+            })
+    }
+
     pub(crate) fn candidates(&self, call: &Call) -> CandidateSet<'g> {
         let named = self.named(call.callee);
         let scoped = || {
             let gate = self.gate(call.file);
-            let mut turned_away = false;
+            let mut turned_away = self.takes_too_few_arguments(call, named);
             let targets = self
                 .call_targets(call, named.iter().copied())
                 .filter(|&at| {
@@ -991,17 +1025,24 @@ impl<'g> Cascade<'g> {
     // reaches are shared by its files, and share the index of every candidate of the name
     fn shared_candidates(&self, call: &Call, named: &'g [SymbolAt]) -> Rc<Candidates<'g>> {
         let every = derived(&self.candidates, (call.callee, call.form(), None), || {
+            let mut turned_away = false;
             let (locals, targets): (Vec<SymbolAt>, Vec<SymbolAt>) = named
                 .iter()
                 .copied()
                 .filter(|&at| {
                     let symbol = self.graph.sym(at);
-                    self.is_call_target(symbol)
+                    let target = self.is_call_target(symbol);
+                    let takes = Self::takes_the_arguments(call, symbol);
+                    turned_away |= target && !takes;
+                    target
+                        && takes
                         && self.is_of_the_call_s_form(call, symbol.kind)
                         && self.binds_if_made(symbol.kind, symbol.flags)
                 })
                 .partition(|&at| self.holder(at).is_some());
-            Rc::new(Candidates::indexed(self.graph, named, targets, locals))
+            let mut every = Candidates::indexed(self.graph, named, targets, locals);
+            every.turned_away = turned_away;
+            Rc::new(every)
         });
         let Some(gate) = self.gate(call.file) else {
             return every;

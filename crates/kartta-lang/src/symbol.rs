@@ -324,6 +324,10 @@ pub struct Symbol {
     pub value_types: Vec<String>,
     /// What the symbol is for besides its kind.
     pub flags: SymbolFlags,
+    /// The most arguments the definition takes, besides the object a method is called on, where the language counts
+    /// them; `u8::MAX` for any number. A call that passes more ([`CallRef::arguments`](crate::CallRef)) does not bind
+    /// the definition.
+    pub most_arguments: u8,
 }
 
 impl Symbol {
@@ -345,6 +349,7 @@ impl Symbol {
             signature: None,
             value_types: Vec::new(),
             flags: SymbolFlags::empty(),
+            most_arguments: u8::MAX,
         }
     }
 }

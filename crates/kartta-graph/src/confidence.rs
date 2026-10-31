@@ -73,4 +73,7 @@ pub const SAME_DIR: u8 = 50;
 /// The one callable of the name in the caller's parent directory binds.
 pub const PARENT_DIR: u8 = 30;
 /// The one callable of the name outside vendored code binds.
+///
+/// The one callable of the name nearest the caller binds here too, at any step, where the call's arguments turned
+/// another definition of the name away.
 pub const FIRST_PARTY: u8 = 15;

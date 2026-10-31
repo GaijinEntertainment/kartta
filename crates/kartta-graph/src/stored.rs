@@ -135,6 +135,7 @@ pub(crate) struct StoredSymbol {
     pub(crate) kind: SymbolKind,
     pub(crate) flags: SymbolFlags,
     pub(crate) exported: bool,
+    pub(crate) most_arguments: u8,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -176,10 +177,14 @@ pub(crate) struct StoredCall {
     caller: u32,
     pub(crate) callee: Str,
     pub(crate) receiver: Option<Str>,
-    pub(crate) line: u32,
+    line_and_arguments: u32,
 }
 
 impl StoredCall {
+    // constraint: a call holds its count of arguments above its line, so it stays 16 bytes in every language, and a call
+    // past the last line this leaves reads as that line
+    const LAST_LINE: u32 = (1 << 24) - 1;
+    const ARGUMENTS_SHIFT: u32 = Self::LAST_LINE.count_ones();
     const FROM_ROOT: u32 = 1 << 31;
     const QUALIFIED: u32 = 1 << 30;
     const ON_A_CLASS: u32 = 1 << 29;
@@ -196,14 +201,27 @@ impl StoredCall {
         caller_index: u32,
         callee: Str,
         receiver: Option<Str>,
-        line: u32,
+        (line, arguments): (u32, u8),
     ) -> Self {
         Self {
             caller: caller_index,
             callee,
             receiver,
-            line,
+            line_and_arguments: (arguments as u32) << Self::ARGUMENTS_SHIFT
+                | if line < Self::LAST_LINE {
+                    line
+                } else {
+                    Self::LAST_LINE
+                },
         }
+    }
+
+    pub(crate) const fn line(self) -> u32 {
+        self.line_and_arguments & Self::LAST_LINE
+    }
+
+    pub(crate) const fn arguments(self) -> u8 {
+        (self.line_and_arguments >> Self::ARGUMENTS_SHIFT) as u8
     }
 
     pub(crate) const fn written_from_root(self) -> Self {
@@ -404,7 +422,7 @@ mod tests {
     fn a_call_keeps_its_caller_apart_from_how_its_callee_and_its_receiver_are_written() {
         let mut strings = Strings::default();
         let last = StoredCall::CALLERS - 1;
-        let call = StoredCall::new(last, strings.intern("ns::f"), None, 9);
+        let call = StoredCall::new(last, strings.intern("ns::f"), None, (9, u8::MAX));
 
         let marked = call
             .written_from_root()
@@ -414,11 +432,20 @@ mod tests {
             .calling_a_method();
 
         assert_eq!((call.caller(), marked.caller()), (last, last));
+        assert_eq!((marked.line(), marked.arguments()), (9, u8::MAX));
         assert_eq!(size_of::<StoredCall>(), 16);
         assert!(marked.is_written_from_root() && marked.is_qualified() && marked.is_on_a_class());
         assert!(marked.invokes_a_macro() && marked.calls_a_method());
         assert!(!call.is_written_from_root() && !call.is_qualified() && !call.is_on_a_class());
         assert!(!call.invokes_a_macro() && !call.calls_a_method());
+    }
+
+    #[test]
+    fn a_call_past_the_last_line_reads_as_that_line_and_keeps_its_arguments() {
+        let mut strings = Strings::default();
+        let call = StoredCall::new(0, strings.intern("f"), None, (u32::MAX, 1));
+
+        assert_eq!((call.line(), call.arguments()), (StoredCall::LAST_LINE, 1));
     }
 
     #[test]

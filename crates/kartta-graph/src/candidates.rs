@@ -14,7 +14,8 @@ pub(crate) struct Candidates<'g> {
     pub(crate) named: &'g [SymbolAt],
     pub(crate) targets: Vec<SymbolAt>,
     pub(crate) locals: Vec<SymbolAt>,
-    // constraint: whether a gate turned away a call target of the name, which makes the name no project's own
+    // constraint: whether a gate or the call's arguments turned away a call target of the name, which makes the name no
+    // project's own
     pub(crate) turned_away: bool,
     index: Option<Rc<Index>>,
     gate: Option<Gate<'g>>,
@@ -112,7 +113,7 @@ impl<'g> Candidates<'g> {
     pub(crate) fn gated(&self, targets: Vec<SymbolAt>, gate: Gate<'g>) -> Self {
         Self {
             named: self.named,
-            turned_away: targets.len() < self.targets.len(),
+            turned_away: self.turned_away || targets.len() < self.targets.len(),
             targets,
             locals: self.locals.clone(),
             index: self.index.clone(),

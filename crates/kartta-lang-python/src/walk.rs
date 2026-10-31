@@ -673,6 +673,7 @@ impl<'a> Emitter<'a> {
             line,
             invokes_a_macro: false,
             calls_a_method: false,
+            arguments: 0,
         });
     }
 
@@ -710,6 +711,7 @@ impl<'a> Emitter<'a> {
             line: call.line,
             invokes_a_macro: false,
             calls_a_method: false,
+            arguments: 0,
         });
     }
 

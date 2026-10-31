@@ -139,6 +139,7 @@ impl Emitter<'_> {
                     line: line(node.start_position().row),
                     invokes_a_macro: false,
                     calls_a_method: false,
+                    arguments: 0,
                 });
             }
             Role::Read | Role::Name => {}
@@ -334,6 +335,7 @@ impl Emitter<'_> {
             line: line(node.start_position().row),
             invokes_a_macro: false,
             calls_a_method: false,
+            arguments: 0,
         });
     }
 

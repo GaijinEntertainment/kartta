@@ -91,6 +91,7 @@ impl Emitter<'_> {
             line: line(node.start_position().row),
             invokes_a_macro: false,
             calls_a_method: target.calls_a_method,
+            arguments: 0,
         };
         if !self.push_call(call) {
             return;
@@ -259,6 +260,7 @@ impl Emitter<'_> {
             line: line(node.start_position().row),
             invokes_a_macro: true,
             calls_a_method: false,
+            arguments: 0,
         };
         if !self.push_call(call) {
             return;
