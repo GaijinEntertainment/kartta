@@ -1348,6 +1348,7 @@ impl<'g> Cascade<'g> {
             Some(_) => Err(Miss::NotAdmitted),
             None => self
                 .one_type_outside_tests(call, &shape, targets)
+                .filter(|&at| self.is_in_the_caller_s_scope(call, at))
                 .map(|at| (at, confidence::UNIQUE))
                 .or_else(|| {
                     self.resolve_by_proximity(call, candidates, reach)
@@ -1505,7 +1506,23 @@ impl<'g> Cascade<'g> {
     // a test one binds a call from test code alone; it still counts among them, so a name test code shares, often a
     // stub of a builtin or of a library outside the graph, is no surer to mean another definition of it
     fn can_bind_by_name(&self, call: &Call, at: SymbolAt) -> bool {
-        !self.graph.flags(at).is_test() || self.graph.flags(call.caller_at()).is_test()
+        (!self.graph.flags(at).is_test() || self.graph.flags(call.caller_at()).is_test())
+            && self.is_in_the_caller_s_scope(call, at)
+    }
+
+    // constraint: where only includes put a definition in a file's scope, a bare call of a name its file does not reach
+    // means a namesake outside the graph, a native overload most often, and no definition the tree happens to hold
+    fn is_in_the_caller_s_scope(&self, call: &Call, at: SymbolAt) -> bool {
+        let Some(everywhere) = self.conventions.module_seen_everywhere else {
+            return true;
+        };
+        call.receiver.is_some()
+            || self
+                .graph
+                .file(at.file)
+                .package
+                .is_some_and(|package| self.graph.strings.resolve(package) == everywhere)
+            || self.reaches(call.file, at.file)
     }
 
     // constraint: where includes paste text, a call sees only what its translation unit pastes in, so the one callable
