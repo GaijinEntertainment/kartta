@@ -200,7 +200,7 @@ lost, and what would reopen it.
 - [3.74 Fold a C++ declaration into the one definition its file reaches](/design-docs/adr/3.74-cpp-declaration-links.md)
 - [3.75 Name a C++ call's receiver by the class its operand is declared as](/design-docs/adr/3.75-cpp-call-receivers.md)
 - [3.100 Resolve a TypeScript or JavaScript import as the compiler and bundlers do](/design-docs/adr/3.100-jsts-import-resolution.md)
-- [3.101 Name no type for a TypeScript or JavaScript call on a value the file declares, a typed parameter aside](/design-docs/adr/3.101-jsts-value-receivers.md)
+- [3.101 Name no type for a TypeScript or JavaScript call on a value the file declares, unless its declaration leads to one](/design-docs/adr/3.101-jsts-value-receivers.md)
 - [3.102 Bind a Python bare call by the scope that binds its name](/design-docs/adr/3.102-python-bare-calls.md)
 - [3.103 Declare a Python class's fields from its body and its instance's attributes](/design-docs/adr/3.103-python-class-fields.md)
 - [3.111 Mark what a runtime calls with no name as an entry point](/design-docs/adr/3.111-entry-points.md)
