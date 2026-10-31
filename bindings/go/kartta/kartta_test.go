@@ -212,13 +212,14 @@ func Test_Kartta(t *testing.T) {
 		if _, err := k.Build(t.Context(), wire.BuildOptions{Watch: true}); err != nil {
 			t.Fatal(err)
 		}
-		watching := watchThreads(t)
+		// constraint: Build answers once the watch thread exists, and std names a thread from inside it, so the name can lag
+		watching := eventually(func() bool { return watchThreads(t) > 0 })
 
 		if err := k.Close(); err != nil {
 			t.Fatal(err)
 		}
 
-		if watching == 0 {
+		if !watching {
 			t.Fatal("no kartta-watch thread while the build watched")
 		}
 		if !eventually(func() bool { return watchThreads(t) == 0 }) {
