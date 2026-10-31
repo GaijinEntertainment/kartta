@@ -56,17 +56,17 @@ impl Graph {
     /// A parent written in one file names a type the way the language's scopes reach it, a type alias among them: a
     /// parent that reaches an alias names the alias, whose implementors are not the aliased type's. Where a package is
     /// a directory, as in Go, a bare parent names a type of its own directory and a qualified one a type of the
-    /// directory its import binds. Where a language joins an owner chain, as Ruby and Python do, the parent is
-    /// looked up from the scope that encloses the type that names it, inside out, and a bare one that lookup does not
-    /// reach names nothing; where a module also imports a name from the module that exports it, as TypeScript does, the
-    /// lookup reaches only the types of the naming file and of the files it imports, however deep. Where a language
-    /// nests scopes, as C++ namespaces do, the same lookup runs out to the root, and the innermost scope that holds a
-    /// type of the parent's spelling decides. Elsewhere, and for a parent those lookups do not reach, it names the type
-    /// of that name nearest the file: in it, then in the files it includes, then in its directory, then anywhere, whose
-    /// qualified name ends with what a qualified parent spells; types of the name tied at the nearest of those each
-    /// count the parent. A type that implements an interface without naming it, as Go's structural typing allows, is
-    /// not found. Every implementor within `depth` is found before `limit` applies, so the limit bounds the answer, not
-    /// the work, and `total` counts them all.
+    /// directory its import binds. Where a language joins an owner chain, as Ruby, Python, Rust, TypeScript and
+    /// JavaScript do, the parent is looked up from the scope that encloses the type that names it, inside out, and a
+    /// bare one that lookup does not reach names nothing; where a module also imports a name from the module that
+    /// exports it, as TypeScript does, the lookup reaches only the types of the naming file and of the files it
+    /// imports, however deep. Where a language nests scopes, as C++ namespaces do, the same lookup runs out to the
+    /// root, and the innermost scope that holds a type of the parent's spelling decides. Elsewhere, and for a parent
+    /// those lookups do not reach, it names the type of that name nearest the file: in it, then in the files it
+    /// includes, then in its directory, then anywhere, whose qualified name ends with what a qualified parent spells;
+    /// types of the name tied at the nearest of those each count the parent. A type that implements an interface
+    /// without naming it, as Go's structural typing allows, is not found. Every implementor within `depth` is found
+    /// before `limit` applies, so the limit bounds the answer, not the work, and `total` counts them all.
     #[must_use]
     pub fn implementations<'s>(
         &self,
