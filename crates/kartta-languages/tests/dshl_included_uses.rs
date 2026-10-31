@@ -1,7 +1,8 @@
 //! What a DSHL use binds past its own file: a shader file and its includes are one script, so a read of a global and a
 //! `supports` of a block bind what an included file declares, and a declaration of the file itself of any kind stays
 //! bound, a shader that a `shader ==` condition names included. An included file compiles inside its includers, so a
-//! use all that leaves open binds the one file of every script above it that declares the name.
+//! use all that leaves open binds the one file of every script above it that declares the name, and of several the one
+//! in its own game.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -224,6 +225,23 @@ const SHARED_LIB: &str = r"shader lit
 }
 ";
 
+const OTHER_GAME_ROOT: &str = r#"include "global.dshl"
+include "../a/lib.dshl"
+"#;
+
+const BOTH_COPIES_THEN_LIB: &str = r#"include "global.dshl"
+include "../../b/shaders/global.dshl"
+include "lib.dshl"
+"#;
+
+const TWO_COPIES_THEN_LIB: &str = r#"include "copies/left.dshl"
+include "lib.dshl"
+"#;
+
+const OTHER_COPY_THEN_LIB: &str = r#"include "copies/right.dshl"
+include "lib.dshl"
+"#;
+
 const INCLUDER_OF_VARIABLE: &str = r#"int special_vision = 0;
 include "ranges_lib.dshl"
 "#;
@@ -249,7 +267,10 @@ fn build() -> (TempDir, Engine) {
 fn build_tree(files: &[(&str, &str)]) -> (TempDir, Engine) {
     let tree = tempfile::tempdir().expect("a temporary directory");
     for (name, text) in files {
-        fs::write(tree.path().join(name), text).expect("the file is written");
+        let path = tree.path().join(name);
+        let parent = path.parent().expect("a file sits in a directory");
+        fs::create_dir_all(parent).expect("the directory is made");
+        fs::write(path, text).expect("the file is written");
     }
     let languages = kartta_languages::select(["dshl"]).expect("the language is known");
     let outcome = Engine::build(tree.path(), &BuildOptions::default(), languages, None)
@@ -259,7 +280,7 @@ fn build_tree(files: &[(&str, &str)]) -> (TempDir, Engine) {
 }
 
 /// Each use site's holder, line and confidence.
-fn uses<'e>(engine: &'e Engine, name: &str) -> Vec<(&'e str, u32, u8)> {
+fn uses<'e, 's>(engine: &'e Engine, name: impl Into<Selector<'s>>) -> Vec<(&'e str, u32, u8)> {
     let (_, graph) = engine.graph_of("water.dshl").expect("DSHL claims the file");
     graph
         .references(name, SiteQuery::new(usize::MAX))
@@ -542,6 +563,74 @@ fn a_name_two_files_of_one_script_declare_binds_neither() {
     ]);
 
     assert_eq!(uses(&engine, "shared_value"), []);
+}
+
+#[test]
+fn a_read_in_a_game_binds_the_copy_of_its_own_game() {
+    let (_tree, engine) = build_tree(&[
+        ("games/a/global.dshl", GLOBAL),
+        ("games/a/lib.dshl", LIB),
+        ("games/a/root.dshl", GLOBAL_THEN_LIB),
+        ("games/b/global.dshl", GLOBAL),
+        ("games/b/root.dshl", OTHER_GAME_ROOT),
+    ]);
+
+    let own = Selector::new("up_value", Some("games/a/global.dshl"));
+    let other = Selector::new("up_value", Some("games/b/global.dshl"));
+    assert_eq!(uses(&engine, own), [("lit", 3, 60)]);
+    assert_eq!(uses(&engine, other), []);
+}
+
+#[test]
+fn a_read_whose_own_includes_reach_two_copies_binds_the_copy_of_its_own_game() {
+    let (_tree, engine) = build_tree(&[
+        ("games/a/shaders/global.dshl", GLOBAL),
+        ("games/a/shaders/lib.dshl", LIB),
+        ("games/a/shaders/root.dshl", BOTH_COPIES_THEN_LIB),
+        ("games/b/shaders/global.dshl", GLOBAL),
+    ]);
+
+    let own = Selector::new("up_value", Some("games/a/shaders/global.dshl"));
+    assert_eq!(uses(&engine, own), [("lit", 3, 60)]);
+}
+
+#[test]
+fn a_library_two_games_include_binds_neither_copy() {
+    let (_tree, engine) = build_tree(&[
+        ("lib/lib.dshl", LIB),
+        ("games/a/global.dshl", GLOBAL),
+        ("games/a/root.dshl", GLOBAL_THEN_LIB),
+        ("games/b/global.dshl", GLOBAL),
+        ("games/b/root.dshl", GLOBAL_THEN_LIB),
+    ]);
+
+    assert_eq!(uses(&engine, "up_value"), []);
+}
+
+#[test]
+fn a_library_beside_one_game_under_one_top_directory_binds_neither_copy() {
+    let (_tree, engine) = build_tree(&[
+        ("prog/lib/lib.dshl", LIB),
+        ("prog/game/global.dshl", GLOBAL),
+        ("prog/game/root.dshl", GLOBAL_THEN_LIB),
+        ("other/game/global.dshl", GLOBAL),
+        ("other/game/root.dshl", GLOBAL_THEN_LIB),
+    ]);
+
+    assert_eq!(uses(&engine, "up_value"), []);
+}
+
+#[test]
+fn two_copies_equally_near_the_read_bind_neither() {
+    let (_tree, engine) = build_tree(&[
+        ("games/a/shaders/lib.dshl", LIB),
+        ("games/a/shaders/copies/left.dshl", GLOBAL),
+        ("games/a/shaders/copies/right.dshl", GLOBAL),
+        ("games/a/shaders/left_root.dshl", TWO_COPIES_THEN_LIB),
+        ("games/a/shaders/right_root.dshl", OTHER_COPY_THEN_LIB),
+    ]);
+
+    assert_eq!(uses(&engine, "up_value"), []);
 }
 
 #[test]
