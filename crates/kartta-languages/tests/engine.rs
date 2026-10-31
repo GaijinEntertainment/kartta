@@ -1633,6 +1633,57 @@ fn a_rust_call_on_a_chain_binds_the_method_of_the_type_the_chain_holds() {
 }
 
 #[test]
+fn a_rust_call_on_a_method_s_result_binds_the_method_of_the_type_it_returns_in_another_file() {
+    let tree = tree_of(&[
+        (
+            "src/lib.rs",
+            "mod store;\nuse store::Store;\n\
+             pub struct Other;\n\
+             impl Other {\n\
+             \x20   pub fn write(&self) {}\n\
+             }\n\
+             pub fn chained(s: &Store) -> Result<(), ()> {\n\
+             \x20   s.data()?.write();\n\
+             \x20   Ok(())\n\
+             }\n\
+             pub fn local(s: &Store) -> Result<(), ()> {\n\
+             \x20   let data = s.data()?;\n\
+             \x20   data.write();\n\
+             \x20   Ok(())\n\
+             }\n",
+        ),
+        (
+            "src/store.rs",
+            "pub struct Data;\n\
+             impl Data {\n\
+             \x20   pub fn write(&self) {}\n\
+             }\n\
+             pub struct Store;\n\
+             impl Store {\n\
+             \x20   pub fn data(&self) -> Result<&Data, ()> { Err(()) }\n\
+             }\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+    let (_, graph) = engine
+        .graph_of("src/lib.rs")
+        .expect("a language claims the file");
+    let callers = graph
+        .callers("Data::write", Limits::new(1))
+        .expect("the name is defined");
+
+    assert_eq!(
+        (callers.reached.iter())
+            .map(|reached| (reached.symbol.name, reached.confidence))
+            .collect::<Vec<_>>(),
+        [
+            ("chained", confidence::RECEIVER),
+            ("local", confidence::RECEIVER)
+        ]
+    );
+}
+
+#[test]
 fn a_rust_call_on_a_type_two_versions_of_its_crate_declare_binds_the_method_of_the_caller_s_copy() {
     let manifest =
         |version: &str| format!("[package]\nname = \"hashbrown\"\nversion = \"{version}\"\n");

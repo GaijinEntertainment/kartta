@@ -137,7 +137,8 @@ struct Emitter<'a> {
     pending_bindings: Vec<bindings::PendingBindings<'a>>,
     // constraint: each call recorded on a declared type, by its index, until the walk ends and the file's declarations
     // and `use`s tell whether the type may be one of the tree
-    declared_receivers: Vec<(usize, declared::DeclaredReceiver)>,
+    declared_receivers: Vec<(declared::Kept, declared::DeclaredReceiver)>,
+    returned_locals: Vec<(String, bool, Option<declared::DeclaredReceiver>)>,
     // constraint: the end of each `if` or `while` open around the walk, with the end of the branch it runs on a match
     branches: Vec<(usize, usize)>,
     read_scopes: Vec<String>,
@@ -171,6 +172,7 @@ impl<'a> Emitter<'a> {
             regions: Vec::new(),
             pending_bindings: Vec::new(),
             declared_receivers: Vec::new(),
+            returned_locals: Vec::new(),
             branches: Vec::new(),
             read_scopes: vec![String::new()],
             value_reads: Vec::new(),
@@ -439,7 +441,13 @@ impl Emitter<'_> {
         function.owner = owner;
         function.exported = exported;
         function.signature = signature(node, self.source);
+        let (returned, kept) = self.returned_value(node).unzip();
+        function.value_types.extend(returned);
         let id = self.push_symbol(function);
+        if let Some(kept) = kept.flatten() {
+            self.declared_receivers
+                .push((declared::Kept::Returned(id.0 as usize), kept));
+        }
         self.record_block_item(node, id);
         id
     }
