@@ -9,7 +9,8 @@
 //! Every function, struct, union, enum, trait, type alias, `macro_rules!`, constant, static and inline module is a
 //! symbol, and so is every named field of a struct and every variant of an enum. A member of a `trait`, or of an `impl`
 //! whose target names a type, is owned by that type and qualified under it, `Service::new`; a member of an `impl` for a
-//! tuple, `dyn` or function type has no owner. A function of an `extern` block that `#[wasm_bindgen(method)]` marks is
+//! tuple, `dyn` or function type is owned by the type as written inside a function body, `(u8, u8)::show`, and has no
+//! owner outside one. A function of an `extern` block that `#[wasm_bindgen(method)]` marks is
 //! owned by the type its first parameter, `this`, refers to, one `constructor` marks by the type it returns, `T` of a
 //! `Result<T, E>`, and one `static_method_of = T` marks by `T`, written as a name or a string. An item of an inline
 //! module is qualified by the chain of its modules, `a::b::Worker`, so two modules of one file keep their same-named
@@ -138,7 +139,8 @@
 //! [resolves as](kartta_lang::Resolver::resolves_as) the one built before, so an engine that follows the tree resolves
 //! no Rust file again for it.
 //!
-//! Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is every file below
+//! Code gated by an attribute whose path ends in `test` or `bench`, as `#[test]` and `#[tokio::test]` do, or by a `cfg`
+//! that holds only under `test` is test code, and so is every file below
 //! a `tests` directory outside `src`, counted from the repository root or from a package, in the lower case of Cargo's
 //! own target directory. A `cfg` predicate is evaluated over every assignment of the atoms it repeats, one truth per
 //! distinct atom, leaving an atom written once unknown: `cfg(all(test, not(miri)))` gates, while
