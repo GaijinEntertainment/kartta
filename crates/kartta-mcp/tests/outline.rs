@@ -255,11 +255,10 @@ fn a_cpp_local_type_names_the_function_that_holds_it_and_a_typedef_struct_names_
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="local.cpp" symbols="6">"#,
+            r#"<outline of="local.cpp" symbols="5">"#,
             r#"<symbol name="top" kind="function" lines="1-6" sig="int top()"/>"#,
             r#"<symbol name="Local" in="top" kind="struct" lines="2-4"/>"#,
             r#"<symbol name="y" qn="Local::y" owner="Local" kind="field" lines="3-3" sig="int y"/>"#,
-            r#"<symbol name="Pair" kind="type-alias" lines="8-10"/>"#,
             r#"<symbol name="Pair" kind="struct" lines="8-10"/>"#,
             r#"<symbol name="a" qn="Pair::a" owner="Pair" kind="field" lines="9-9" sig="int a"/>"#,
             "</outline>",

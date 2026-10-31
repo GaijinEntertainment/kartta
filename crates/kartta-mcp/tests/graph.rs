@@ -2855,6 +2855,38 @@ fn references_of_a_shared_name_list_the_other_copy_and_a_path_prefix_picks_it() 
 }
 
 #[test]
+fn a_c_typedef_of_a_struct_to_its_own_name_answers_as_the_struct_alone() {
+    let answers = answers_over(
+        &[(
+            "s.h",
+            "typedef struct S { int x; } S;\nstruct Child : S {};\n",
+        )],
+        &[
+            ("find_implementations", json!({"name": "S"})),
+            ("find_symbols", json!({"query": "S"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<implementations of="S" count="1">"#,
+                r#"<type name="Child" lang="cpp" loc="s.h:2"/>"#,
+                "</implementations>",
+            ]),
+            lines(&[
+                r#"<symbols of="S" count="3">"#,
+                r#"<hit name="S" kind="struct" lang="cpp" loc="s.h:1"/>"#,
+                r#"<hit name="x" qn="S::x" owner="S" kind="field" lang="cpp" loc="s.h:1" sig="int x"/>"#,
+                r#"<hit name="Child" kind="struct" lang="cpp" loc="s.h:2"/>"#,
+                "</symbols>",
+            ]),
+        ]
+    );
+}
+
+#[test]
 fn implementations_of_a_shared_name_list_the_other_type_and_a_path_prefix_picks_it() {
     let answers = answers_over(
         &[
