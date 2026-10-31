@@ -516,6 +516,10 @@ pub enum ValueUses {
     /// the one variable of the name those files hold, its own included, where they hold one: an enum there names the
     /// ranges of the variable of its name.
     ImportedThenReached,
+    /// As [`Imported`](Self::Imported), else in the one definition that the files including the use's file bind the
+    /// name to that way, the file itself first: a macro's quoted code names what the file that expands the macro
+    /// reaches. Two definitions among those files bind none.
+    Expanded,
     /// In the one variable, constant or function of the name outside every owner and body that the use's own file
     /// declares, else that the files it includes declare, else, for a name few of them share, that the files those
     /// reach declare, as an include pastes the included text in place: a function named without a call is taken as a

@@ -6,7 +6,7 @@ use std::rc::Rc;
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    BareReceivers, CallableRole, Conventions, IncludeReach, IncludedRuntimeMembers,
+    BareReceivers, CallableRole, Conventions, FILE_SCOPE, IncludeReach, IncludedRuntimeMembers,
     InheritedMembers, MacroInvocations, MemberCalls, NamespaceCalls, OwnMembers, Receivers,
     SymbolFlags, SymbolKind, Twins, UntypedMembers, ValueUses,
 };
@@ -2009,18 +2009,35 @@ impl<'g> Cascade<'g> {
 
     fn value_use(&self, (site, line): (SymbolAt, u32), name: Str) -> Option<Bound> {
         let bare = || self.bare_use((site.file, line), name);
+        let imported = || bare().or_else(|| self.imported_value(site, name));
         match self.conventions.value_uses {
             ValueUses::Declared => bare(),
-            ValueUses::Imported => bare().or_else(|| self.imported_value(site, name)),
+            ValueUses::Imported => imported(),
             ValueUses::ImportedThenReached => {
-                let bound = bare().or_else(|| self.imported_value(site, name));
+                let bound = imported();
                 match bound {
                     Some((at, _)) if self.graph.sym(at).kind != SymbolKind::Enum => bound,
                     _ => self.reached_variable(site.file, name).or(bound),
                 }
             }
+            ValueUses::Expanded => imported().or_else(|| self.expanded_value((site, line), name)),
             ValueUses::Included => self.included_value(site.file, name),
         }
+    }
+
+    // constraint: the graph expands no macro, and a macro's quoted code compiles in the file that expands it, which
+    // requires the macro's file, so the files that include the use's file stand in for that file
+    fn expanded_value(&self, (site, line): (SymbolAt, u32), name: Str) -> Option<Bound> {
+        let mut reached = self.graph.includers_of(site.file).filter_map(|file| {
+            let includer = SymbolAt::new(file, FILE_SCOPE.0);
+            self.bare_use((file, line), name)
+                .or_else(|| self.imported_value(includer, name))
+                .map(|(at, _)| at)
+        });
+        let first = reached.next()?;
+        reached
+            .all(|at| at == first)
+            .then_some((first, confidence::UNIQUE))
     }
 
     // constraint: a module imports a name its source exports, so an included file's unexported namesake binds only

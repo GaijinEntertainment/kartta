@@ -469,6 +469,150 @@ fn a_qualifier_that_names_a_module_the_file_requires_binds_that_module_s_definit
     );
 }
 
+fn with_macro(conventions: Conventions, files: &[Extraction]) -> Graph {
+    let mut quoting = file(
+        "boost.das",
+        vec![free("visit", SymbolKind::Function, [1, 3])],
+        &[],
+    );
+    quoting.uses = vec![using(0, "helper", Receiver::Bare, 2)];
+    graph(conventions, &[&[quoting], files].concat())
+}
+
+fn helper_in(path: &str, includes: &[&str]) -> Extraction {
+    let mut helper = free("helper", SymbolKind::Function, [1, 3]);
+    helper.exported = true;
+    file(path, vec![helper], includes)
+}
+
+fn daslang() -> Conventions {
+    let mut conventions = script();
+    conventions.value_uses = ValueUses::Expanded;
+    conventions
+}
+
+#[test]
+fn a_name_only_the_file_requiring_its_macro_reaches_binds_there() {
+    let files = [
+        helper_in("lib.das", &[]),
+        file("client.das", Vec::new(), &["boost.das", "lib.das"]),
+        file("other.das", Vec::new(), &["boost.das"]),
+    ];
+
+    assert_eq!(
+        sites_of(&with_macro(daslang(), &files), "helper").0,
+        [("visit".to_owned(), 2, 60)],
+        "a file that requires the macro and reaches nothing of the name takes no part"
+    );
+    assert_eq!(
+        sites_of(&with_macro(script(), &files), "helper").0,
+        [],
+        "a module imports only what it reaches itself"
+    );
+}
+
+#[test]
+fn a_name_the_file_requiring_its_macro_declares_binds_there() {
+    let graph = with_macro(daslang(), &[helper_in("client.das", &["boost.das"])]);
+
+    assert_eq!(sites_of(&graph, "helper").0, [("visit".to_owned(), 2, 60)]);
+}
+
+#[test]
+fn a_name_the_macro_s_own_file_reaches_binds_there_over_the_file_requiring_it() {
+    let reached = |path: &str, qualified: &str, includes: &[&str]| {
+        let mut extraction = helper_in(path, includes);
+        extraction.symbols[0].qualified_name = qualified.to_owned();
+        extraction
+    };
+    let mut quoting = file(
+        "boost.das",
+        vec![free("visit", SymbolKind::Function, [1, 3])],
+        &["own.das"],
+    );
+    quoting.uses = vec![using(0, "helper", Receiver::Bare, 2)];
+    let graph = graph(
+        daslang(),
+        &[
+            quoting,
+            reached("own.das", "own.helper", &[]),
+            reached("client.das", "client.helper", &["boost.das"]),
+        ],
+    );
+
+    assert_eq!(
+        (
+            sites_of(&graph, "own.helper").0,
+            sites_of(&graph, "client.helper").0
+        ),
+        (vec![("visit".to_owned(), 2, 70)], Vec::new()),
+    );
+}
+
+#[test]
+fn every_file_requiring_a_macro_that_reaches_one_definition_binds_it_once() {
+    let graph = with_macro(
+        daslang(),
+        &[
+            helper_in("lib.das", &[]),
+            file("one.das", Vec::new(), &["boost.das", "lib.das"]),
+            file("two.das", Vec::new(), &["boost.das", "lib.das"]),
+        ],
+    );
+
+    assert_eq!(sites_of(&graph, "helper").0, [("visit".to_owned(), 2, 60)]);
+}
+
+#[test]
+fn two_definitions_among_the_files_requiring_a_macro_bind_none() {
+    let graph = with_macro(
+        daslang(),
+        &[
+            helper_in("a/lib.das", &[]),
+            helper_in("b/lib.das", &[]),
+            file("one.das", Vec::new(), &["boost.das", "a/lib.das"]),
+            file("two.das", Vec::new(), &["boost.das", "b/lib.das"]),
+        ],
+    );
+    let sites = |path| {
+        let selector = Selector::new("helper", Some(path));
+        graph
+            .references(selector, SiteQuery::new(usize::MAX))
+            .expect("the file declares the name")
+            .sites
+            .len()
+    };
+
+    assert_eq!((sites("a/lib.das"), sites("b/lib.das")), (0, 0));
+}
+
+#[test]
+fn a_parent_reads_the_same_reach_under_expanded_uses_as_under_imported_ones() {
+    let parent = |path: &str| file(path, vec![class("Base", [1, 3], &[])], &[]);
+    let child = file(
+        "child.das",
+        vec![class("Child", [1, 3], &["Base"])],
+        &["own/base.das"],
+    );
+    let graph = graph(
+        daslang(),
+        &[parent("own/base.das"), parent("far/base.das"), child],
+    );
+    let implementors = |path| {
+        let selector = Selector::new("Base", Some(path));
+        graph
+            .implementations(selector, 1, 10)
+            .expect("a type")
+            .found
+            .len()
+    };
+
+    assert_eq!(
+        (implementors("own/base.das"), implementors("far/base.das")),
+        (1, 0)
+    );
+}
+
 fn cpp() -> Conventions {
     let mut conventions = Conventions::default();
     conventions.own_members = OwnMembers::First;
