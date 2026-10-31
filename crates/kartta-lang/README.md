@@ -19,8 +19,10 @@ The fingerprint must change whenever what `extract` computes from the same bytes
 the shape of the result. A cache keys an extraction by the hash of the bytes, the language's `fingerprint` and this
 crate's `FINGERPRINT` — the code of the helpers and of the encoding the extraction is stored in — so a new version of a
 language or of this crate never reads an old one's. A language crate's build script calls
-`kartta_lang::fingerprint::set_source_id`, which hands the crate its name, version and a digest of its source as
-`SOURCE_ID`, so the fingerprint follows the crate's code with no version kept by hand.
+`kartta_lang::fingerprint::set_source_id`, which hands the crate its name, version and a digest of its `Cargo.toml`, of
+the versions a `Cargo.lock` above the crate resolves for its `[dependencies]` and of the files under its `src` as
+`SOURCE_ID`, so the fingerprint follows the crate's code with no version kept by hand, and a lock-only bump of the
+grammar or of tree-sitter invalidates what a cache holds.
 
 ## Call conventions
 
