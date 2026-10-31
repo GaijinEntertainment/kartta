@@ -50,6 +50,11 @@ const COMPILE_HINTS: [&str; 28] = [
 
 const SELF_MACROS: [&str; 2] = ["class_method", "explicit_const_class_method"];
 
+// constraint: a `query` that passes a block reaches an entity system's native `query` or the `call_macro` of
+// `daslib/decs_boost`, never a script function; the name decides because script functions take `[es]` blocks too, and a
+// parameter that takes a block can be a typedef another file declares
+const BLOCK_QUERY: &str = "query";
+
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     if !opts_into_gen2(tree.root_node(), source) {
         return RawExtraction::default();
@@ -431,7 +436,11 @@ impl<'a> Emitter<'a> {
             self.data_arguments(node, callee);
             let (callee, receiver) = callee_parts(callee, self.source);
             let passed = self.passed(node);
+            let block_query = callee == BLOCK_QUERY && passes_a_block(node);
             self.push_call((callee, receiver), node, passed);
+            if let Some(call) = self.raw.calls.last_mut().filter(|_| block_query) {
+                call.invokes_a_macro = true;
+            }
         }
     }
 
@@ -736,6 +745,18 @@ fn parameters(function: Node<'_>, source: &[u8]) -> u8 {
     let own_self = is_annotated(function, source, |name| SELF_MACROS.contains(&name));
 
     u8::try_from(names + usize::from(own_self)).unwrap_or(u8::MAX)
+}
+
+fn passes_a_block(call: Node<'_>) -> bool {
+    let piped = call
+        .parent()
+        .filter(|parent| parent.kind() == "pipe")
+        .and_then(|pipe| pipe.child_by_field_name("argument"));
+    let mut cursor = call.walk();
+
+    named_arguments(&call, &mut cursor)
+        .chain(piped)
+        .any(|argument| argument.kind() == "make_block")
 }
 
 fn data_macro_named(name: Node<'_>, source: &[u8]) -> Option<DataMacro> {

@@ -30,6 +30,9 @@
 //! `[explicit_const_class_method]` takes the `self` the macro gives it. A construction counts nothing, so it binds by
 //! its name alone, and a count stops at `u8::MAX`.
 //!
+//! A call of `query` that passes a block, written or piped and through a module or not, binds no `def`: the entity
+//! system's native `query` or the `call_macro` of `daslib/decs_boost` takes it, so it records a macro invocation.
+//!
 //! A block applied in place — the argument of a call or a pipe — runs in its enclosing `def`, so its calls are that
 //! `def`'s. A block or a local function stored in a name runs when the value is called, so its calls belong to no
 //! symbol, and the graph drops them.
@@ -93,8 +96,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    BareReceivers, Conventions, DocComments, Language, RawExtraction, Repository, Resolver,
-    SymbolKind, TypeUses, ValueUses,
+    BareReceivers, Conventions, DocComments, Language, MacroInvocations, RawExtraction, Repository,
+    Resolver, SymbolKind, TypeUses, ValueUses,
 };
 
 use crate::resolve::DaslangResolver;
@@ -118,6 +121,7 @@ impl Daslang {
 const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.bare_receivers = BareReceivers::Modules;
+    conventions.macro_invocations = MacroInvocations::Apart;
     conventions.value_uses = ValueUses::Expanded;
     conventions.own_type_receivers = Some(&["self"]);
     conventions.base_receivers = &["super"];
