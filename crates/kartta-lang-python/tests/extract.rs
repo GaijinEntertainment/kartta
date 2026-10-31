@@ -570,6 +570,102 @@ fn a_class_body_reads_the_module_values_it_names() {
 }
 
 #[test]
+fn a_class_body_reads_the_attributes_it_binds_and_none_of_its_targets() {
+    let raw = extract(
+        b"class Devices:\n    ONE = \"one\"\n    TWO = \"two\"\n    KNOWN = (ONE, TWO)\n    ONE += 1\n\n    \
+          def size(self):\n        return 1\n\n    length = property(size)\n",
+    );
+    let uses: Vec<(&str, &str, Receiver, Access, u32)> = raw
+        .uses
+        .iter()
+        .map(|site| {
+            (
+                raw.symbols[site.site_of.0 as usize].name.as_str(),
+                site.name.as_str(),
+                site.receiver.clone(),
+                site.access,
+                site.line,
+            )
+        })
+        .collect();
+    let own = || Receiver::Path("Devices".to_owned());
+
+    assert_eq!(
+        uses,
+        [
+            ("Devices", "ONE", own(), Access::Read, 4),
+            ("Devices", "TWO", own(), Access::Read, 4),
+            ("Devices", "ONE", own(), Access::Update, 5),
+            ("Devices", "size", own(), Access::Read, 10),
+        ],
+    );
+}
+
+#[test]
+fn a_class_body_reads_the_object_of_an_attribute_and_gives_a_global_name_to_the_module() {
+    let raw = extract(
+        b"LIMIT = 1\n\nclass Devices:\n    global LIMIT\n    LIMIT = 2\n    ONE = LIMIT\n    TWO = ONE.real\n",
+    );
+    let uses: Vec<(&str, Receiver, Access, u32)> = raw
+        .uses
+        .iter()
+        .map(|site| {
+            (
+                site.name.as_str(),
+                site.receiver.clone(),
+                site.access,
+                site.line,
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        uses,
+        [
+            ("real", Receiver::Path(String::new()), Access::Read, 7),
+            ("ONE", Receiver::Path("Devices".to_owned()), Access::Read, 7),
+            ("LIMIT", Receiver::Bare, Access::Write, 5),
+            ("LIMIT", Receiver::Bare, Access::Read, 6),
+        ]
+    );
+}
+
+#[test]
+fn a_class_body_s_names_reach_its_first_iterable_and_nothing_nested_in_it() {
+    let raw = extract(
+        b"ONE = 0\n\nclass Devices:\n    ONE = 1\n    FIRST = [item for item in ONE]\n    \
+          INNER = [ONE for item in ()]\n    LATE = lambda: ONE\n\n    def hidden(self, ONE):\n        \
+          return ONE\n\n    def method(self):\n        def nested():\n            return ONE\n        \
+          return ONE\n\n    class Inner:\n        TWO = ONE\n",
+    );
+    let uses: Vec<(&str, Receiver, u32)> = raw
+        .uses
+        .iter()
+        .map(|site| {
+            (
+                raw.symbols[site.site_of.0 as usize].name.as_str(),
+                site.receiver.clone(),
+                site.line,
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        uses,
+        [
+            ("Devices", Receiver::Path("Devices".to_owned()), 5),
+            ("Devices", Receiver::Bare, 6),
+            ("Devices", Receiver::Bare, 7),
+            ("nested", Receiver::Bare, 14),
+            ("method", Receiver::Bare, 15),
+            ("Inner", Receiver::Bare, 18),
+        ],
+        "a comprehension's first iterable reads the class; its inner part, a lambda, a method, a nested function and \
+         a nested class read the module, and a parameter hides both"
+    );
+}
+
+#[test]
 fn module_level_code_reads_the_module_values_it_names() {
     let raw = extract(
         b"import config\nLIMIT = 3\nprint(LIMIT)\nLIMIT += 1\nfor step in range(LIMIT):\n    pass\n\

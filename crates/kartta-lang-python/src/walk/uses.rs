@@ -15,6 +15,16 @@ pub(super) struct NameUse<'a> {
     attribute_object: bool,
 }
 
+impl NameUse<'_> {
+    // constraint: a use that shares its bytes with a binding is that binding's target, which only an update reads
+    fn is_target(&self, bindings: &[(&[u8], Binding)]) -> bool {
+        self.access != Access::Update
+            && bindings
+                .iter()
+                .any(|&(name, _)| std::ptr::eq(name, self.name))
+    }
+}
+
 impl<'a> Emitter<'a> {
     // constraint: a called attribute is a call site already
     pub(super) fn attribute_use(&mut self, attribute: Node<'_>, caller: SymbolId) {
@@ -91,10 +101,15 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    // constraint: a scope that binds the name holds it, a value of no known type, unless a `global` declaration there
-    // gives it to the module; a scope that does not bind it leaves it to the scope around, and a class body's names
-    // reach no function inside it
-    pub(super) fn settle_uses(&mut self, bindings: &[(&[u8], Binding)], uses: Vec<NameUse<'a>>) {
+    // constraint: a scope that binds the name holds it, a value of no known type or a member of the class whose body
+    // that scope is, unless a `global` declaration there gives it to the module; a scope that does not bind it leaves it
+    // to the scope around, and a class body's names reach no function inside it
+    pub(super) fn settle_uses(
+        &mut self,
+        bindings: &[(&[u8], Binding)],
+        class: Option<SymbolId>,
+        uses: Vec<NameUse<'a>>,
+    ) {
         for used in uses {
             let mut bound = bindings
                 .iter()
@@ -109,6 +124,12 @@ impl<'a> Emitter<'a> {
                 self.module_uses.push(used);
             } else if let Some(attribute) = used.attribute {
                 self.push_site(&used, attribute, Receiver::Path(String::new()));
+            } else if let Some(class) =
+                class.and_then(|class| self.raw.symbols.get(class.0 as usize))
+                && !used.is_target(bindings)
+            {
+                let owner = class.qualified_name.clone();
+                self.push_site(&used, used.name, Receiver::Path(owner));
             }
         }
     }
