@@ -317,7 +317,8 @@ fn first_of_declarator_run(last: Node<'_>) -> Node<'_> {
 }
 
 // constraint: a pointer return type after a macro, `IMGUI_API ImGuiTabItem* FindTab()`, parses as a scope joined by a
-// `::` the source does not hold to a type's pointer declarator, whose function's name reads as a type identifier
+// `::` the source does not hold to a type's pointer declarator, whose function's name reads as a type identifier; a
+// scoped type, `PX_INLINE physx::PxPhysics* f()`, parses as the real scope around that seam
 fn unwrap_to_function_declarator(mut node: Node<'_>) -> Option<Node<'_>> {
     loop {
         match node.kind() {
@@ -325,9 +326,7 @@ fn unwrap_to_function_declarator(mut node: Node<'_>) -> Option<Node<'_>> {
             "pointer_declarator" | "reference_declarator" | "pointer_type_declarator" => {
                 node = inner_declarator(node)?;
             }
-            "qualified_identifier" if child_nodes(node).any(|child| child.is_missing()) => {
-                node = node.child_by_field_name("name")?;
-            }
+            "qualified_identifier" => node = node.child_by_field_name("name")?,
             _ => return None,
         }
     }
