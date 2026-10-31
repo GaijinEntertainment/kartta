@@ -7,7 +7,8 @@
 //! struct its `use` names, a bare call through a glob what the glob's module shows it, a macro invocation the
 //! `#[macro_export]` macro of its root file or the one of the files that file includes, through a `use` inside a
 //! function body or an inline module only from inside it, a call no macro and a macro invocation no function of its
-//! name, a method call no constant of its name, which a path call binds, and the one method of its name whatever value
+//! name, a method call no constant of its name, which a path call binds, a method named for its own type, which is no
+//! constructor there, and the one method of its name whatever value
 //! a body declares of that name, a Rust path call through a module no item of its
 //! own file that the path does not name, a Rust call without a path no free item of an inline module it is outside of,
 //! nor a member of a private type of one, and a Rust call on a value, on `self` or through a
@@ -479,6 +480,21 @@ fn a_rust_call_on_a_field_of_self_binds_the_method_of_the_field_s_declared_type_
             "{caller}"
         );
     }
+}
+
+#[test]
+fn a_rust_method_named_for_its_own_type_binds_through_a_method_call() {
+    let tree = tree_of(&[(
+        "src/lib.rs",
+        "pub struct Probe;\n\nimpl Probe {\n    pub fn Probe(&self) -> u8 {\n        0\n    }\n}\n\n\
+         fn run(probe: Probe) -> u8 {\n    probe.Probe()\n}\n",
+    )]);
+    let engine = build(&tree, &["rust"]);
+
+    assert_eq!(
+        callees(&engine, "src/lib.rs", "run"),
+        (vec![("Probe", SymbolKind::Method, "src/lib.rs")], 0)
+    );
 }
 
 #[test]

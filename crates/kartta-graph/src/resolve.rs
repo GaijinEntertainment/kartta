@@ -290,6 +290,7 @@ impl<'g> Cascade<'g> {
         let symbol = &file.symbols[at.index as usize];
         self.is_call_target(symbol)
             && self.is_of_the_call_s_form(call, symbol.kind)
+            && !self.names_a_type(call, symbol)
             && Self::takes_the_arguments(call, symbol)
             && self.binds_if_made(symbol.kind, symbol.flags)
             && (file.locals.is_empty()
@@ -311,6 +312,28 @@ impl<'g> Cascade<'g> {
             MacroInvocations::AsCalls
         ) || call.invokes_a_macro == matches!(kind, SymbolKind::Macro))
             && !(call.calls_a_method && is_value(kind))
+    }
+
+    // constraint: a method call names a member, never a type or the constructor that stands for one
+    fn names_a_type(&self, call: &Call, symbol: &StoredSymbol) -> bool {
+        call.calls_a_method && (symbol.kind.is_type() || self.is_constructor(symbol))
+    }
+
+    fn is_constructor(&self, symbol: &StoredSymbol) -> bool {
+        self.conventions.owner_chain_separator.is_none()
+            && symbol.kind == SymbolKind::Method
+            && symbol.owner == Some(symbol.name)
+    }
+
+    // constraint: a method call names no type, so a file it includes that offers one of the name offers it nothing, yet
+    // the member another file offers is then the one left of a name shared across files, which is a guess
+    fn another_include_offers_a_type(&self, call: &Call, member: SymbolAt) -> bool {
+        let named = self.named(call.callee);
+        call.calls_a_method
+            && (self.includes(call.file).iter())
+                .filter(|&&file| file != member.file)
+                .flat_map(|&file| self.graph.in_file(named, file))
+                .any(|&at| self.names_a_type(call, self.graph.sym(at)))
     }
 
     // constraint: the object a member call passes fills a method's implicit parameter, which `most_arguments` leaves out,
@@ -510,11 +533,8 @@ impl<'g> Cascade<'g> {
 
     pub(crate) fn constructor_types(&self, at: SymbolAt) -> Option<Rc<[SymbolAt]>> {
         derived(&self.constructor_types, at, || {
-            let symbol = self.graph.sym(at);
-            (self.conventions.owner_chain_separator.is_none()
-                && symbol.kind == SymbolKind::Method
-                && symbol.owner == Some(symbol.name))
-            .then(|| self.seen_types(at).into())
+            self.is_constructor(self.graph.sym(at))
+                .then(|| self.seen_types(at).into())
         })
     }
 
@@ -1039,6 +1059,7 @@ impl<'g> Cascade<'g> {
                     target
                         && takes
                         && self.is_of_the_call_s_form(call, symbol.kind)
+                        && !self.names_a_type(call, symbol)
                         && self.binds_if_made(symbol.kind, symbol.flags)
                 })
                 .partition(|&at| self.holder(at).is_some());
@@ -1131,7 +1152,12 @@ impl<'g> Cascade<'g> {
             .included(call, &candidates, reach)
             .filter(|&at| self.path_names(path, at))
         {
-            return Ok((at, self.library_guess_or(call, at, confidence::INCLUDE)));
+            let tier = if self.another_include_offers_a_type(call, at) {
+                confidence::FIRST_PARTY
+            } else {
+                confidence::INCLUDE
+            };
+            return Ok((at, self.library_guess_or(call, at, tier)));
         }
         if !call.names_a_runtime_method
             && let Some(at) = self.re_exported(call)

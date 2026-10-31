@@ -47,6 +47,8 @@ pub const PACKAGE: u8 = 75;
 /// includes reach in turn binds a name few definitions share. A method call of a method the language's standard library
 /// declares, on a value the graph cannot type, binds here only where its receiver spells the callable's owner, and
 /// otherwise at [`FIRST_PARTY`]: `src.as_ptr().cast()` binds the `Ptr::cast` of a module the file declares as a guess.
+/// A method call binds at [`FIRST_PARTY`] too where another file the caller includes directly offers a type of the
+/// name, which it cannot call: `hasher.hash()` binds the one `hash` member beside `eastl::hash` as a guess.
 pub const INCLUDE: u8 = 70;
 /// A re-export chain from an included file binds the definition it renames.
 pub const RE_EXPORT: u8 = 65;
