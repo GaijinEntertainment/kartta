@@ -844,8 +844,8 @@ fn is_implicitly_called(symbol: &Symbol) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use kartta_lang::Language;
     use kartta_lang::tree::parse;
+    use kartta_lang::{Access, Language, Receiver};
 
     use super::*;
     use crate::{Cpp, grammar};
@@ -2261,6 +2261,121 @@ struct TORRENT_EXPORT torrent_removed_alert TORRENT_FINAL : torrent_alert
         let raw = extract(HEADERISH);
 
         assert!(!symbol(&raw, "local_helper").exported);
+    }
+
+    #[test]
+    fn a_base_initializer_records_a_call_of_the_base_beside_its_write() {
+        let raw = extract(b"struct D : B { D(int x) : B(x) {} };");
+
+        assert_eq!(callees(&raw), ["B"]);
+        let caller = &raw.symbols[raw.calls[0].site_of.0 as usize];
+        assert_eq!(caller.qualified_name, "D::D");
+        assert!(!raw.calls[0].calls_a_method);
+        assert!(raw.calls[0].receiver.is_none());
+        assert!(
+            raw.uses
+                .iter()
+                .any(|site| site.name == "B" && site.access == Access::Write)
+        );
+    }
+
+    #[test]
+    fn a_bare_initializer_of_a_base_declared_with_a_scope_records_a_call() {
+        let raw = extract(b"struct D : ns::B { D(int x) : B(x) {} };");
+
+        assert_eq!(callees(&raw), ["B"]);
+    }
+
+    #[test]
+    fn an_initializer_of_the_caller_s_own_name_records_no_call() {
+        let raw = extract(b"template <> struct D<int> : D<char> { D(int x) : D<char>(x) {} };");
+
+        assert_eq!(callees(&raw), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_scoped_base_of_the_caller_s_name_records_its_constructor_in_full() {
+        let raw = extract(b"struct B : a::B { B(int x) : a::B(x) {} };");
+
+        assert_eq!(callees(&raw), ["a::B::B"]);
+    }
+
+    #[test]
+    fn a_scoped_template_base_of_the_caller_s_name_records_its_constructor_with_no_arguments() {
+        let raw = extract(b"struct B : a::B<int> { B(int x) : a::B<int>(x) {} };");
+
+        assert_eq!(callees(&raw), ["a::B::B"]);
+    }
+
+    #[test]
+    fn a_base_written_with_a_scope_records_its_bare_name() {
+        let raw = extract(b"struct D : ns::B { D(int x) : ns::B(x) {} };");
+
+        assert_eq!(callees(&raw), ["B"]);
+    }
+
+    #[test]
+    fn a_base_written_with_a_scope_and_arguments_records_its_bare_name() {
+        let raw = extract(b"struct D : ns::B<int> { D(int x) : ns::B<int>(x) {} };");
+
+        assert_eq!(callees(&raw), ["B"]);
+    }
+
+    #[test]
+    fn a_base_written_with_arguments_records_its_bare_name_outside_its_class() {
+        let raw = extract(b"D::D(int x) : B<int>(x) {}");
+
+        assert_eq!(callees(&raw), ["B"]);
+    }
+
+    #[test]
+    fn a_member_initializer_records_a_write_and_no_call() {
+        let raw = extract(b"struct D : B { int m; D(int x) : B(x), m(x) {} };");
+
+        assert_eq!(callees(&raw), ["B"]);
+        assert!(raw.uses.iter().any(|site| {
+            site.name == "m" && site.access == Access::Write && site.receiver == Receiver::Own
+        }));
+    }
+
+    #[test]
+    fn a_name_of_a_base_and_a_field_records_a_call_and_a_write() {
+        let raw = extract(b"struct D : B { int B; D(int x) : B(x) {} };");
+
+        assert_eq!(callees(&raw), ["B"]);
+        assert!(
+            raw.uses
+                .iter()
+                .any(|site| site.name == "B" && site.access == Access::Write)
+        );
+    }
+
+    #[test]
+    fn a_constructor_outside_its_class_body_writes_a_name_it_cannot_tell_for_a_base() {
+        let raw = extract(b"struct D : B { D(int x); };\nD::D(int x) : B(x) {}");
+
+        assert_eq!(callees(&raw), Vec::<&str>::new());
+        assert!(
+            raw.uses
+                .iter()
+                .any(|site| site.name == "B" && site.access == Access::Write)
+        );
+    }
+
+    #[test]
+    fn a_template_parameter_initialized_as_a_base_records_no_call() {
+        let raw = extract(b"template <class T> struct D : T { D(int x) : T(x), T::U<int>(x) {} };");
+
+        assert_eq!(callees(&raw), ["U"]);
+    }
+
+    #[test]
+    fn a_template_template_parameter_initialized_as_a_base_records_no_call() {
+        let raw = extract(
+            b"template <template <class> class T> struct D : T<int> { D(int x) : T<int>(x) {} };",
+        );
+
+        assert_eq!(callees(&raw), Vec::<&str>::new());
     }
 
     #[test]
