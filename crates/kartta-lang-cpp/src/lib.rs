@@ -152,8 +152,9 @@
 //! from the code below it by a blank or a comment line, and `ABSL_NAMESPACE_END` right before its `}`. A conditional
 //! whose branches each write one head of one name before the `{` after it, `#ifdef A` `void f(int a)` `#else` `void
 //! f(int a, int b)` `#endif` `{`, is read with its first branch taken, and so is one whose branches each write a type
-//! alone before a function's name, `#if A` `auto` `#else` `std::tuple<int>` `#endif` `reflect() const`. Where the first
-//! tree holds an error that spills over three rows or more, the upper-case macro invocations that open its lines are blanked
+//! alone before a function's name, `#if A` `auto` `#else` `std::tuple<int>` `#endif` `reflect() const`, one that holds
+//! the `if` of a statement it leaves open, `#ifdef A` `if (x)` `#endif` `f();`, one whose code opens with an `else`, and
+//! one that opens right after a `(`. Where the first tree holds an error that spills over three rows or more, the upper-case macro invocations that open its lines are blanked
 //! with the macros between one and a body's brace, `TEST(Suite, Case) NO_ANALYSIS {`, and the file is parsed again,
 //! and an error that opens at a class head reaches the brace that closes the class; a
 //! `#define` body is left as written. Where it reads an `#else` or `#elif` as a
