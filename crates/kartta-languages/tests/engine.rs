@@ -2718,6 +2718,27 @@ fn alias_tree(requires: &str, body: &str) -> TempDir {
     ])
 }
 
+#[test]
+fn a_daslang_call_qualified_by_a_required_file_s_stem_binds_a_file_with_no_module_clause() {
+    let tree = tree_of(&[
+        (
+            "left.das",
+            "options gen2\n\ndef get_test_value {\n    return 9\n}\n",
+        ),
+        (
+            "bar.das",
+            "options gen2\nrequire left\n\n\
+             def get_test_value {\n    return left::get_test_value() + 1\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(
+        reached(&engine, "bar.das", "get_test_value"),
+        [("left.das", 3, confidence::IMPORT)]
+    );
+}
+
 fn misses(engine: &Engine) -> Vec<(&str, Miss)> {
     let [(_, resolution)] = engine
         .resolution(usize::MAX)

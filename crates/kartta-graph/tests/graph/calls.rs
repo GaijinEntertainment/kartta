@@ -6267,6 +6267,36 @@ fn modules() -> Conventions {
 }
 
 #[test]
+fn an_included_file_s_stem_names_no_module_where_files_do_not_declare_one() {
+    let vec = file(
+        "game/vec.h",
+        vec![exported(function("norm", 10))],
+        Vec::new(),
+    );
+    let caller = crate::including(
+        file(
+            "game/caller.cpp",
+            vec![exported(function("run", 20))],
+            vec![member_call(0, "vec", "norm", 21)],
+        ),
+        &["game/vec.h"],
+    );
+    let bound = |conventions: Conventions| {
+        let graph = graph_of(conventions, &[vec.clone(), caller.clone()]);
+        callees(&graph, "run")
+    };
+
+    assert_eq!(
+        (bound(Conventions::default()), bound(modules())),
+        (
+            vec!["game/vec.h:10@70".to_owned()],
+            vec!["game/vec.h:10@95".to_owned()]
+        ),
+        "only a language of script modules names a file for its `require`"
+    );
+}
+
+#[test]
 fn a_call_qualified_by_a_module_its_file_does_not_require_binds_that_module_s_function() {
     let checks = script_module(
         "game/checks.das",
