@@ -583,8 +583,10 @@ fn renaming_crate() -> TempDir {
         ("src/m.rs", "pub fn f() {}\n"),
         (
             "src/other.rs",
-            "use crate::m::f as local_alias;\n\npub fn through_crate() {\n    crate::g();\n}\n\n\
-             pub fn through_alias() {\n    local_alias();\n}\n",
+            "use crate::m as module_alias;\nuse crate::m::f as local_alias;\n\n\
+             pub fn through_crate() {\n    crate::g();\n}\n\n\
+             pub fn through_alias() {\n    local_alias();\n}\n\n\
+             pub fn through_module_alias() {\n    module_alias::f();\n}\n",
         ),
         (
             "src/plain.rs",
@@ -602,6 +604,7 @@ fn a_rust_call_of_a_name_a_use_renames_binds_the_item_the_use_names() {
     for (path, caller) in [
         ("src/other.rs", "through_alias"),
         ("src/other.rs", "through_crate"),
+        ("src/other.rs", "through_module_alias"),
         ("src/plain.rs", "through_plain"),
         ("src/lib.rs", "in_the_root"),
     ] {
@@ -656,8 +659,112 @@ fn a_rust_item_lists_the_calls_of_each_name_a_use_renames_it_to() {
             "in_the_root",
             "through_alias",
             "through_crate",
+            "through_module_alias",
             "through_plain"
         ]
+    );
+}
+
+#[test]
+fn a_rust_call_through_a_type_a_use_renames_binds_the_member_of_the_type_the_use_names() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[package]\nname = \"fx\"\n"),
+        ("src/lib.rs", "mod error;\nmod parser;\n"),
+        (
+            "src/error.rs",
+            "pub struct Error;\n\nimpl Error {\n    pub fn make() -> Error {\n        Error\n    }\n\n    \
+             pub fn unknown(&self) {}\n\n    pub fn other(&self) -> Error {\n        Error\n    }\n}\n",
+        ),
+        (
+            "src/parser.rs",
+            "use crate::error::Error as ClapError;\nuse outside::Error as OutsideError;\n\
+             use std::fmt::Error as FmtError;\n\npub struct Near;\n\nimpl Near {\n    \
+             pub fn other(&self) -> Near {\n        Near\n    }\n\n    pub fn unknown(&self) {}\n}\n\n\
+             pub struct Parser;\n\nimpl Parser {\n    \
+             pub fn error(&self) -> ClapError {\n        ClapError::make()\n    }\n\n    \
+             pub fn maybe(&self) -> Option<ClapError> {\n        None\n    }\n}\n\n\
+             pub fn through_the_type() {\n    ClapError::make();\n}\n\n\
+             pub fn on_a_path_of_calls(error: &ClapError) {\n    error.other().unknown();\n}\n\n\
+             pub fn on_what_a_result_holds(parser: &Parser) {\n    parser.maybe().unwrap().unknown();\n}\n\n\
+             pub fn on_a_parameter(error: &ClapError) {\n    error.unknown();\n}\n\n\
+             pub fn on_a_local() {\n    let error = ClapError::make();\n    error.unknown();\n}\n\n\
+             pub fn on_a_result(parser: &Parser) {\n    parser.error().unknown();\n}\n\n\
+             pub fn through_types_outside() {\n    FmtError::make();\n    OutsideError::make();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+    let member = |name| (name, SymbolKind::Method, "src/error.rs");
+
+    assert_eq!(
+        callees(&engine, "src/parser.rs", "through_the_type"),
+        (vec![member("make")], 0)
+    );
+    assert_eq!(
+        callees(&engine, "src/parser.rs", "on_a_parameter"),
+        (vec![member("unknown")], 0)
+    );
+    assert_eq!(
+        callees(&engine, "src/parser.rs", "on_a_local").0,
+        [member("make"), member("unknown")]
+    );
+    assert_eq!(
+        callees(&engine, "src/parser.rs", "on_a_result").0,
+        [
+            member("unknown"),
+            ("error", SymbolKind::Method, "src/parser.rs")
+        ]
+    );
+    assert_eq!(
+        callees(&engine, "src/parser.rs", "on_a_path_of_calls").0,
+        [member("unknown"), member("other")]
+    );
+    assert_eq!(
+        callees(&engine, "src/parser.rs", "on_what_a_result_holds").0,
+        [
+            member("unknown"),
+            ("maybe", SymbolKind::Method, "src/parser.rs")
+        ]
+    );
+    assert_eq!(
+        callees(&engine, "src/parser.rs", "through_types_outside"),
+        (vec![], 2)
+    );
+}
+
+#[test]
+fn a_rust_rename_stays_as_spelled_where_its_file_declares_the_type_s_name_or_impls_the_rename() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[package]\nname = \"fx\"\n"),
+        ("src/lib.rs", "mod error;\nmod extended;\nmod wrapper;\n"),
+        (
+            "src/error.rs",
+            "pub struct Error;\n\nimpl Error {\n    pub fn extra() {}\n\n    pub fn report(&self) {}\n}\n",
+        ),
+        (
+            "src/wrapper.rs",
+            "use crate::error::Error as Inner;\n\npub struct Error {\n    inner: Inner,\n}\n\nimpl Error {\n    \
+             pub fn report(&self) {\n        self.inner.report();\n    }\n}\n",
+        ),
+        (
+            "src/extended.rs",
+            "use crate::error::Error as Extended;\n\nimpl Extended {\n    pub fn extra() {}\n}\n\n\
+             pub fn through_the_rename() {\n    Extended::extra();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+
+    let (_, graph) = engine
+        .graph_of("src/wrapper.rs")
+        .expect("rust claims the file");
+    let own = Selector::new("Error::report", Some("src/wrapper.rs"));
+    let wrapper = graph
+        .callees(own, Limits::new(1))
+        .expect("the name is defined");
+    assert!(wrapper.reached.is_empty() && wrapper.self_call.is_none());
+    assert_eq!(wrapper.unresolved, 1);
+    assert_eq!(
+        callees(&engine, "src/extended.rs", "through_the_rename"),
+        (vec![("extra", SymbolKind::Method, "src/extended.rs")], 0)
     );
 }
 

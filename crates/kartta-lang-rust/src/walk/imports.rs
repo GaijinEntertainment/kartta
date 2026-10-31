@@ -314,7 +314,7 @@ impl Emitter<'_> {
             .filter_map(|(name, held)| {
                 let (path, at) = held?;
                 let keeps = names_a_module(head(&path))
-                    && (!names_a_type(last(&path)) || called_bare(name));
+                    && (!names_a_type(last(&path)) || name != last(&path) || called_bare(name));
                 let own = declared.get(name).is_some_and(|&only_modules| {
                     !only_modules || (directives[at].names.is_empty() && !pulls_in(name))
                 });
