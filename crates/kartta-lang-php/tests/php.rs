@@ -212,9 +212,16 @@ fn extends_implements_and_a_trait_use_are_parents() {
 
     assert_eq!(
         symbol(&raw.symbols, "Service").parents,
-        ["Base", "Greeter", "Walkable"]
+        [
+            "App\\Service\\Base",
+            "App\\Service\\Greeter",
+            "App\\Service\\Walkable"
+        ]
     );
-    assert_eq!(symbol(&raw.symbols, "Greeter").parents, ["Stringable"]);
+    assert_eq!(
+        symbol(&raw.symbols, "Greeter").parents,
+        ["App\\Service\\Stringable"]
+    );
 }
 
 #[test]
@@ -225,7 +232,7 @@ fn an_enum_takes_the_interfaces_it_implements_as_parents() {
 
     let suit = symbol(&raw.symbols, "Suit");
     assert_eq!(suit.qualified_name, "App\\Suit");
-    assert_eq!(suit.parents, ["Colorful", "HasIcon"]);
+    assert_eq!(suit.parents, ["App\\Colorful", "App\\HasIcon"]);
 }
 
 #[test]
@@ -381,10 +388,7 @@ include "$base/x.php";
         &["x.php", "here.php"],
     );
 
-    assert_eq!(
-        symbol(&extraction.symbols, "C").parents,
-        ["namespace\\Base"]
-    );
+    assert_eq!(symbol(&extraction.symbols, "C").parents, ["Base"]);
     assert_eq!(callees(&extraction.calls), ["X", "helper"]);
     assert_eq!(includes(&extraction), Vec::<&str>::new());
 }
@@ -560,7 +564,7 @@ class Factory {
     let class = symbol(&raw.symbols, "{make}");
     assert_eq!(class.kind, SymbolKind::Class);
     assert_eq!(class.qualified_name, "App\\{make}");
-    assert_eq!(class.parents, ["Base", "Tagged"]);
+    assert_eq!(class.parents, ["App\\Base", "App\\Tagged"]);
     assert!(!class.exported);
     for (member, kind) in [
         ("label", SymbolKind::Field),

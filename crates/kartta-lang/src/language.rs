@@ -208,6 +208,8 @@ pub struct Conventions {
     /// `Widget` for `b::Widget`, and of the classes of that name nearest the caller, the one its spelling names from
     /// the caller's scope outward. `None` where a language writes no such names.
     pub scope_separator: Option<&'static str>,
+    /// How the extraction writes each entry of `Symbol::parents`.
+    pub parent_spelling: ParentSpelling,
     /// Whether a package is the files of one directory that declare it, as a Go package is: they see each other's
     /// package-level symbols with no import, and an import names the directory.
     pub directory_packages: bool,
@@ -294,6 +296,7 @@ impl Conventions {
         class_member_separator: None,
         bare_call_reaches_enclosing_owners: false,
         scope_separator: None,
+        parent_spelling: ParentSpelling::Written,
         directory_packages: false,
         include_reach: IncludeReach::Direct,
         module_seen_everywhere: None,
@@ -335,6 +338,17 @@ pub enum UnlistedReceivers {
     NoOwnMember,
     /// Its member, as a guess, ahead of the guesses by nearness.
     OwnMemberAsGuess,
+}
+
+/// How the extraction writes each entry of `Symbol::parents`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ParentSpelling {
+    /// As the file spells it, which the graph reads through the language's scopes.
+    #[default]
+    Written,
+    /// From the root, as the qualified name the language compiles it to: a base is the type of exactly that qualified
+    /// name, and the graph holds none where that name is a type outside the tree, whatever namesake a file reaches.
+    FromRoot,
 }
 
 /// What a member call on a class the graph holds, named by the receiver or one of
