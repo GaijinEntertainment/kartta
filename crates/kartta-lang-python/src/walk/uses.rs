@@ -81,8 +81,10 @@ impl<'a> Emitter<'a> {
         });
     }
 
+    // constraint: Python writes no annotation and no list of bases inside a call, as a lambda's parameters take no
+    // annotation, so a call the walk entered that ends after a site holds it
     fn access_of(&self, site: Node<'_>) -> Access {
-        if site.start_byte() < self.type_names_end {
+        if (self.calls_end..self.type_names_end).contains(&site.start_byte()) {
             Access::Type
         } else {
             access_of(site)
