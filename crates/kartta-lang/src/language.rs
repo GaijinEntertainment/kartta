@@ -495,6 +495,10 @@ pub enum ValueUses {
     /// the definition a re-export chain from them renames, else in the one included file that declares the name
     /// without exporting it: a module imports a name from the module that exports it.
     Imported,
+    /// As [`ValueUses::Imported`], else, where no file the use's file includes declares the name, in the one file of
+    /// those its includes reach in turn that declares the name outside every body and owner, whatever its kind: a file
+    /// and everything it includes compile as one script.
+    ImportedThenReached,
     /// In the one variable, constant or function of the name outside every owner and body that the use's own file
     /// declares, else that the files it includes declare, else, for a name few of them share, that the files those
     /// reach declare, as an include pastes the included text in place: a function named without a call is taken as a

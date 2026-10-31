@@ -24,10 +24,88 @@ shader water, foam
 }
 "#;
 
+const DEEP: &str = "float deep_value = 1;\nblock(scene) deep_frame {}\n";
+
+const MIDDLE: &str = r#"include "deep.dshl"
+
+float middle_value = 2;
+"#;
+
+const TOP: &str = r#"include "middle.dshl"
+
+shader lit
+{
+  (ps) { direct@f1 = middle_value; }
+  (ps) { past@f1 = deep_value; }
+  supports deep_frame;
+}
+
+block(scene) top_frame {}
+
+shader unlit
+{
+  supports top_frame;
+}
+"#;
+
+const LEFT: &str = "float shared_value = 1;\n";
+
+const RIGHT: &str = "float shared_value = 2;\n";
+
+const BETWEEN: &str = r#"include "left.dshl"
+include "right.dshl"
+"#;
+
+const TWICE: &str = r#"include "between.dshl"
+
+shader twice
+{
+  (ps) { read@f1 = shared_value; }
+}
+"#;
+
+const HOLDER: &str = r"shader holder
+{
+  (ps) { held@f1 = 1; }
+}
+";
+
+const THROUGH: &str = r#"include "holder.dshl"
+"#;
+
+const READER: &str = r#"include "through.dshl"
+
+shader reader
+{
+  (ps) { read@f1 = held; }
+}
+"#;
+
+const OWN_VALUE: &str = r#"include "deep.dshl"
+
+float deep_value = 3;
+
+shader own
+{
+  (ps) { read@f1 = deep_value; }
+}
+"#;
+
 fn build() -> (TempDir, Engine) {
+    build_tree(&[
+        ("globals.dshl", GLOBALS),
+        ("water.dshl", WATER),
+        ("deep.dshl", DEEP),
+        ("middle.dshl", MIDDLE),
+        ("top.dshl", TOP),
+    ])
+}
+
+fn build_tree(files: &[(&str, &str)]) -> (TempDir, Engine) {
     let tree = tempfile::tempdir().expect("a temporary directory");
-    fs::write(tree.path().join("globals.dshl"), GLOBALS).expect("the file is written");
-    fs::write(tree.path().join("water.dshl"), WATER).expect("the file is written");
+    for (name, text) in files {
+        fs::write(tree.path().join(name), text).expect("the file is written");
+    }
     let languages = kartta_languages::select(["dshl"]).expect("the language is known");
     let outcome = Engine::build(tree.path(), &BuildOptions::default(), languages, None)
         .expect("the tree builds");
@@ -67,4 +145,56 @@ fn a_shader_the_file_declares_stays_bound_by_a_condition_that_names_it() {
     let (_tree, engine) = build();
 
     assert_eq!(uses(&engine, "foam"), [("water", 7, 80)]);
+}
+
+#[test]
+fn a_read_of_a_global_past_the_first_include_binds_it() {
+    let (_tree, engine) = build();
+
+    assert_eq!(uses(&engine, "middle_value"), [("lit", 5, 70)]);
+    assert_eq!(uses(&engine, "deep_value"), [("lit", 6, 70)]);
+}
+
+#[test]
+fn a_supports_of_a_block_past_the_first_include_binds_it() {
+    let (_tree, engine) = build();
+
+    assert_eq!(uses(&engine, "deep_frame"), [("lit", 7, 70)]);
+}
+
+#[test]
+fn a_name_two_files_past_the_first_include_declare_binds_neither() {
+    let (_tree, engine) = build_tree(&[
+        ("left.dshl", LEFT),
+        ("right.dshl", RIGHT),
+        ("between.dshl", BETWEEN),
+        ("twice.dshl", TWICE),
+    ]);
+
+    assert_eq!(uses(&engine, "shared_value"), []);
+}
+
+#[test]
+fn a_supports_of_a_block_the_file_declares_stays_bound() {
+    let (_tree, engine) = build();
+
+    assert_eq!(uses(&engine, "top_frame"), [("unlit", 14, 80)]);
+}
+
+#[test]
+fn a_member_past_the_first_include_binds_no_read_of_its_name() {
+    let (_tree, engine) = build_tree(&[
+        ("holder.dshl", HOLDER),
+        ("through.dshl", THROUGH),
+        ("reader.dshl", READER),
+    ]);
+
+    assert_eq!(uses(&engine, "held"), []);
+}
+
+#[test]
+fn a_value_the_file_declares_binds_before_one_its_includes_reach() {
+    let (_tree, engine) = build_tree(&[("deep.dshl", DEEP), ("own.dshl", OWN_VALUE)]);
+
+    assert_eq!(uses(&engine, "deep_value"), [("own", 7, 80)]);
 }

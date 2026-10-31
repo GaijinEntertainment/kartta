@@ -250,8 +250,10 @@ pub enum Receiver {
     /// enclosing member's class or of a base. Otherwise it binds as [`ValueUses`](crate::ValueUses) says: under
     /// [`Declared`](crate::ValueUses::Declared), a symbol of the same file, the same package or a dot-imported package;
     /// under [`Imported`](crate::ValueUses::Imported), those, else an included file's export, a re-export, or an
-    /// unexported namesake of one included file; under [`Included`](crate::ValueUses::Included), the variable, constant
-    /// or function of the name in the file, then in its includes, then in the files those reach.
+    /// unexported namesake of one included file; under
+    /// [`ImportedThenReached`](crate::ValueUses::ImportedThenReached), those, else a declaration of one file its
+    /// includes reach in turn; under [`Included`](crate::ValueUses::Included), the variable, constant or function of
+    /// the name in the file, then in its includes, then in the files those reach.
     Bare,
     /// A qualifier as written, `pkg` in `pkg.Name`, which binds only through the file's imports.
     Qualifier(String),
