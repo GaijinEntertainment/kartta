@@ -23,6 +23,11 @@
 //! An alias of a method that the file declares before it in the same type is one callable with the body the original
 //! names there.
 //!
+//! `let(:x) { }`, `let!(:x) { }`, `subject(:x) { }` and `subject!(:x) { }` with no receiver define a function local to
+//! the file, whose body is the block. A call of the name with no receiver, no argument and no block, inside a symbol,
+//! binds the one of the innermost block or type around the call that defines it, the later of two in one, wherever the
+//! definition stands there. No other call binds it, and a call at file scope keeps its name.
+//!
 //! A call inside a method is a call made by it, and a call in the body of a class or a module outside every method is
 //! a call made by that type. A call records its receiver: a plain name as written, `self` as the caller's own type,
 //! which in a type's body is the type itself, a literal as the class of Ruby's runtime its value is of, `String` for

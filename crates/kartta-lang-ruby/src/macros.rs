@@ -1,10 +1,20 @@
-use kartta_lang::SymbolKind;
-use kartta_lang::tree::{named_child_nodes, text};
+use std::collections::HashMap;
+use std::ops::Range;
+
+use kartta_lang::tree::{named_child_nodes, signature_from, text};
+use kartta_lang::{FILE_SCOPE, LocalCall, RawExtraction, SymbolId, SymbolKind};
 use tree_sitter::Node;
 
 use crate::bindings::MethodKind;
 use crate::owner::{enclosing_type, in_singleton_class};
 use crate::walk::{Emitter, declared, visibility_exports};
+
+/// A method `let` or `subject` defines, with the bytes of its example group.
+pub(crate) struct GroupMethod<'s> {
+    name: &'s [u8],
+    id: SymbolId,
+    group: Range<usize>,
+}
 
 struct Accessors {
     owner: String,
@@ -29,8 +39,86 @@ impl Emitter<'_> {
                 );
             }
             "alias_method" => self.alias_method(call),
+            "let" | "let!" | "subject" | "subject!" => self.example_group_method(call),
             _ => {}
         }
+    }
+
+    // constraint: `let(:x) { }`, `let!(:x) { }`, `subject(:x) { }` and `subject!(:x) { }` define the method `x` on the
+    // anonymous class of the example group whose block holds them, a class no other file names, so `x` is local to the
+    // file and the block is the method's body
+    fn example_group_method(&mut self, call: Node<'_>) {
+        if call.child_by_field_name("block").is_none() {
+            return;
+        }
+        let Some(arguments) = call.child_by_field_name("arguments") else {
+            return;
+        };
+        let Some(symbol) = named_child_nodes(arguments)
+            .next()
+            .filter(|first| first.kind() == "simple_symbol")
+        else {
+            return;
+        };
+        let source = self.source;
+        let spelled = &source[symbol.byte_range()];
+        let name = text(symbol, source).trim_start_matches(':').to_owned();
+        let mut definition = declared(name.clone(), name, SymbolKind::Function, call);
+        definition.signature = signature_from(call.start_byte(), arguments, source);
+        let id = self.push(definition);
+        self.raw.local_symbols.push(id);
+        self.open_method(call, id);
+        self.group_methods.push(GroupMethod {
+            name: spelled.strip_prefix(b":").unwrap_or(spelled),
+            id,
+            group: enclosing_group(call),
+        });
+    }
+
+    // constraint: a method of an example group takes no argument and no block, so a call that passes one is a DSL's
+    // method of the name, and a call at file scope keeps its name, which is all the graph keeps of it
+    pub(crate) fn plain_call(&mut self, node: Node<'_>, site_of: SymbolId) {
+        if site_of != FILE_SCOPE {
+            self.plain_calls
+                .push((self.raw.calls.len(), node.start_byte()));
+        }
+    }
+
+    // constraint: a method of an example group is reached from the group and the groups nested in it, wherever in them
+    // it is defined, so a call binds the innermost one around it, and of two in one group the later, which replaces the
+    // earlier
+    pub(crate) fn bind_group_methods(&mut self) {
+        let mut named: HashMap<&[u8], Vec<&GroupMethod<'_>>> = HashMap::new();
+        for method in &self.group_methods {
+            named.entry(method.name).or_default().push(method);
+        }
+        if named.is_empty() {
+            return;
+        }
+        let RawExtraction {
+            calls, local_calls, ..
+        } = &mut self.raw;
+        let mut plain = self.plain_calls.iter().copied().peekable();
+        let mut at = 0;
+        calls.retain(|call| {
+            let innermost = plain
+                .next_if(|&(call, _)| call == at)
+                .and_then(|(_, byte)| {
+                    let methods = named.get(call.callee.as_bytes())?;
+                    (methods.iter().rev())
+                        .filter(|method| method.group.contains(&byte))
+                        .min_by_key(|method| method.group.len())
+                });
+            at += 1;
+            if let Some(method) = innermost {
+                local_calls.push(LocalCall {
+                    site_of: call.site_of,
+                    local: method.id,
+                    line: call.line,
+                });
+            }
+            innermost.is_none()
+        });
     }
 
     // constraint: a mixin is a parent of the type whose body holds it, the innermost open type, which the walk has
@@ -220,6 +308,21 @@ impl Emitter<'_> {
         let name = self.name_key(method_kind, qualified);
         self.bindings.bind_alias(name, id, body);
     }
+}
+
+/// The bytes of the example group that holds `call`: the block or the type around it, else the whole file.
+fn enclosing_group(call: Node<'_>) -> Range<usize> {
+    let mut group = call;
+    while let Some(parent) = group.parent() {
+        group = parent;
+        if matches!(
+            group.kind(),
+            "block" | "do_block" | "class" | "module" | "singleton_class"
+        ) {
+            break;
+        }
+    }
+    group.byte_range()
 }
 
 fn method_kind(node: Node<'_>) -> (MethodKind, &'static str) {
