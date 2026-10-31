@@ -2215,16 +2215,37 @@ impl<'g> Cascade<'g> {
     // constraint: the graph expands no macro, and a macro's quoted code compiles in the file that expands it, which
     // requires the macro's file, so the files that include the use's file stand in for that file
     fn expanded_value(&self, (site, line): (SymbolAt, u32), name: Str) -> Option<Bound> {
-        let mut reached = self.graph.includers_of(site.file).filter_map(|file| {
-            let includer = SymbolAt::new(file, FILE_SCOPE.0);
-            self.bare_use((file, line), name)
-                .or_else(|| self.imported_value(includer, name))
-                .map(|(at, _)| at)
-        });
-        let first = reached.next()?;
-        reached
-            .all(|at| at == first)
-            .then_some((first, confidence::UNIQUE))
+        let one_bound = |expanding: &mut dyn Iterator<Item = u32>| {
+            let mut reached = expanding.filter_map(|file| {
+                let includer = SymbolAt::new(file, FILE_SCOPE.0);
+                self.bare_use((file, line), name)
+                    .or_else(|| self.imported_value(includer, name))
+                    .map(|(at, _)| at)
+            });
+            let first = reached.next()?;
+            reached
+                .all(|at| at == first)
+                .then_some((first, confidence::UNIQUE))
+        };
+        one_bound(&mut self.graph.includers_of(site.file))
+            .or_else(|| one_bound(&mut self.includers_past_re_exports(site.file).into_iter()))
+    }
+
+    // constraint: a file that re-exports a macro's file hands the macro to every file that requires it, so those expand
+    // the macro as well, however long the chain of re-exports
+    fn includers_past_re_exports(&self, file: u32) -> HashSet<u32, FixedState> {
+        let mut includers: HashSet<u32, FixedState> = HashSet::default();
+        let mut passed: HashSet<u32, FixedState> = HashSet::default();
+        let mut pending = vec![file];
+        while let Some(current) = pending.pop() {
+            let path = self.graph.file(current).path;
+            pending.extend(self.graph.includers_of(current).filter(|&includer| {
+                includers.insert(includer);
+                let re_exports = &self.graph.file(includer).re_exports;
+                re_exports.iter().any(|it| it.source_file == Some(path)) && passed.insert(includer)
+            }));
+        }
+        includers
     }
 
     // constraint: a module imports a name its source exports, so an included file's unexported namesake binds only
