@@ -3261,6 +3261,49 @@ fn a_call_path_from_a_shared_name_starts_where_from_path_prefix_picks() {
 }
 
 #[test]
+fn a_name_several_types_end_with_lists_them_in_callers_and_in_implementations_alike() {
+    let answers = answers_over(
+        &[
+            ("a.h", "namespace a { namespace ns { class Node {}; } }\n"),
+            (
+                "b.h",
+                "namespace b { namespace ns {\nclass Node {};\nclass Leaf : public Node {};\n} }\n",
+            ),
+        ],
+        &[
+            ("find_callers", json!({"name": "ns::Node"})),
+            ("find_implementations", json!({"name": "ns::Node"})),
+            (
+                "find_implementations",
+                json!({"name": "ns::Node", "path_prefix": "b.h"}),
+            ),
+        ],
+    );
+
+    let listing = [
+        concat!(
+            "2 definitions end with this name and it picks none of them - a longer name, or path_prefix ",
+            "with one's file and line with its line, picks one:",
+        ),
+        r#"<candidate name="Node" qn="a::ns::Node" kind="class" loc="a.h:1" lang="cpp"/>"#,
+        r#"<candidate name="Node" qn="b::ns::Node" kind="class" loc="b.h:2" lang="cpp"/>"#,
+    ]
+    .join("\n");
+    assert_eq!(
+        answers,
+        [
+            format!("<callers of=\"ns::Node\" matches=\"0\">\n{listing}\n</callers>"),
+            format!("<implementations of=\"ns::Node\" count=\"0\">\n{listing}\n</implementations>"),
+            lines(&[
+                r#"<implementations of="ns::Node" count="1">"#,
+                r#"<type name="Leaf" qn="b::ns::Leaf" lang="cpp" loc="b.h:3"/>"#,
+                "</implementations>",
+            ]),
+        ]
+    );
+}
+
+#[test]
 fn a_name_that_picks_no_one_of_several_lists_them_and_implementations_name_the_type_they_took() {
     let answers = answers_over_copies(&[
         ("find_references", json!({"name": "Store.Close"})),
