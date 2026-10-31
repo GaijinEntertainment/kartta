@@ -11,7 +11,7 @@ extension is `php` or `phtml`, in any case.
 A function, a method, a type, a property, a constant, a promoted constructor parameter, an enum case and a closure
 assigned to a variable are symbols, qualified by the namespace in effect: `App\Service` for a class and
 `App\Service::greet` for its method, whose owner is `Service`. An anonymous class is a class named by the callable that
-creates it and the variable or property it is assigned to, `{Suite·testRun·job}`, which owns its members. A class takes
+creates it and the variable or property it is assigned to, `{testRun·job}`, which owns its members. A class takes
 the class it extends, the interfaces it implements and the traits it `use`s as parents. A member is exported unless it
 is `private`. A call records its receiver: the variable of a member call, or the anonymous class the caller assigned to
 that variable, the scope of a static call, by the last segment of a qualified one, and the empty receiver where that is

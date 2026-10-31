@@ -19,8 +19,7 @@ pub(crate) const FUNCTION_OR_CONST_USE_FORM: u32 = 2;
 const NAMES: [&str; 3] = ["name", "qualified_name", "relative_name"];
 
 // constraint: an anonymous class is named by the names that lead to it, joined by `·` as a Go anonymous struct is, in
-// braces, which no PHP name holds, so the name stays apart from a class and a variable of those names:
-// `{Factory·make·job}`
+// braces, which no PHP name holds, so the name stays apart from a class and a variable of those names: `{make·job}`
 const JOIN: &str = "\u{b7}";
 
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
@@ -330,17 +329,16 @@ impl Emitter<'_> {
         });
     }
 
-    // constraint: an anonymous class is a class the walk names, by the callable that creates it, its owner first,
-    // and by the variable or the property it is assigned to, `{class}` where no name leads to it; one file's
-    // callables often create two of one name, so a name the file has given already takes a count, `{Factory·make·2}`
+    // constraint: an anonymous class is a class the walk names, by the callable that creates it and by the variable
+    // or the property it is assigned to, `{class}` where no name leads to it; a call on a variable that holds it has
+    // that name as its receiver, which another file's class of the name would answer for a member this class inherits,
+    // so the variable alone is not the name; one file's callables often create two of one name, so a name the file
+    // has given already takes a count, `{make·2}`
     fn anonymous_class(&mut self, creation: Node<'_>, class: Node<'_>) -> String {
         let mut leading = String::new();
         if let Some(callable) = self.scopes.last() {
-            let callable = &self.raw.symbols[callable.id.0 as usize];
-            for name in callable.owner.iter().chain([&callable.name]) {
-                leading.push_str(name.trim_start_matches('{').trim_end_matches('}'));
-                leading.push_str(JOIN);
-            }
+            leading.push_str(&self.raw.symbols[callable.id.0 as usize].name);
+            leading.push_str(JOIN);
         }
         let target = assignment_target(creation);
         if let Some(name) = target.and_then(|target| target_name(target, self.source)) {
