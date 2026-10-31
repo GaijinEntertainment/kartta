@@ -4,8 +4,8 @@ use std::rc::Rc;
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    CallsOnValues, InheritedMembers, MemberCalls, ReceiverMembers, SymbolKind, UnlistedReceivers,
-    UntypedOwners,
+    BareReceivers, CallsOnValues, InheritedMembers, MemberCalls, ReceiverMembers, SymbolKind,
+    UnlistedReceivers, UntypedOwners,
 };
 
 use crate::candidates::Candidates;
@@ -1452,8 +1452,35 @@ impl Cascade<'_> {
         if (self.conventions.own_type_receivers).is_some_and(|own| own.contains(&written)) {
             return self.class_of(call.caller_at());
         }
-        let located = self.located_types(receiver, call.file, |_| true);
-        self.nearest_of(call, located.into_iter())
+        self.class_in_the_caller_s_scope(call, receiver)
+            .or_else(|| {
+                let located = self.located_types(receiver, call.file, |_| true);
+                self.nearest_of(call, located.into_iter())
+            })
+    }
+
+    // constraint: where a bare receiver names a class, the language reads that name through the file's imports, else
+    // under the file's namespace, so a type those give stands ahead of a namesake a transitive include reaches
+    /// The class of the receiver's name that the caller's file holds or includes itself, else one of the caller's
+    /// scope.
+    fn class_in_the_caller_s_scope(&self, call: &Call, receiver: Str) -> Option<SymbolAt> {
+        if !matches!(self.conventions.bare_receivers, BareReceivers::Classes(_)) {
+            return None;
+        }
+        let types =
+            (self.named(receiver).iter().copied()).filter(|&ty| derives(self.graph.sym(ty).kind));
+        let includes = self.includes(call.file);
+        let rank = |&slot: &u32| self.graph.path_rank(slot);
+        let imported = types.clone().filter(|ty| {
+            ty.file == call.file || includes.binary_search_by_key(&rank(&ty.file), rank).is_ok()
+        });
+        self.nearest_of(call, imported).or_else(|| {
+            let caller = call.caller_at();
+            let scope = self
+                .graph
+                .qualifier(self.class_of(caller).unwrap_or(caller));
+            self.nearest_of(call, types.filter(|&ty| self.graph.qualifier(ty) == scope))
+        })
     }
 
     /// Whether the call's receiver, at its last segment, spells the owner of `at` in any case: `session` or

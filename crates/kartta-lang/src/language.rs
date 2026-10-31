@@ -430,7 +430,8 @@ pub enum BareReceivers {
     /// A class, as a PHP static call writes `Mockery::mock()` while a value is written `$mock`, except for the scope
     /// keywords listed, `self`, `static` and `parent`, compared without case. A call on any other bare name that no
     /// type the graph holds is named calls a member of a class outside the graph and binds nothing. The extraction
-    /// writes an alias of a class the graph holds as that class's name.
+    /// writes an alias of a class the graph holds as that class's name. A receiver the graph has a type of reads the
+    /// class the caller's file holds or includes, else the one of the caller's scope, ahead of a namesake farther off.
     Classes(&'static [&'static str]),
     /// A value, but for a name that starts in upper case, which names a constant: a class, a module or a value bound
     /// once, as Ruby writes them. A call through a receiver whose last segment is such a name, and of which the graph
