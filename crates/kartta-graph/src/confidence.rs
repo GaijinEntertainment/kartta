@@ -53,8 +53,8 @@ pub const PACKAGE: u8 = 75;
 pub const INCLUDE: u8 = 70;
 /// A re-export chain from an included file binds the definition it renames.
 pub const RE_EXPORT: u8 = 65;
-/// The one callable of the name binds from anywhere, and where the language's includes are transitive, from a file
-/// that reaches it or a declaration of it, or that a file reaching one includes directly.
+/// The one callable of the name binds from anywhere, and where the language's includes paste text, from a file that
+/// reaches it or a declaration of it, or that a file reaching one includes directly.
 ///
 /// A call of a method the language's runtime gives its values binds here only where its receiver spells that
 /// callable's owner in any case: `session.seek()` binds the one `seek`, `Session.seek`. A method call of a method the

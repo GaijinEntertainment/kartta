@@ -2,7 +2,8 @@
 //! `supports` of a block bind what an included file declares, and a declaration of the file itself of any kind stays
 //! bound, a shader that a `shader ==` condition names included. An included file compiles inside its includers, so a
 //! use all that leaves open binds the one file of every script above it that declares the name, and of several the one
-//! in its own game.
+//! in its own game. A macro call reads the same closure, and a macro no include reaches stays the one callable of its
+//! name.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -11,7 +12,7 @@
 
 use std::fs;
 
-use kartta::{BuildOptions, Engine, Selector, SiteQuery, SymbolKind};
+use kartta::{BuildOptions, Engine, Limits, Selector, SiteQuery, SymbolKind};
 use tempfile::TempDir;
 
 const GLOBALS: &str = "texture frame_tex;\nblock(scene) global_frame {}\n";
@@ -254,6 +255,62 @@ shader lit
 }
 ";
 
+const DEEP_MACRO: &str = "macro DEEP_M()\n  dont_render;\nendmacro\n";
+
+const MIDDLE_MACROS: &str = r#"include "deep.dshl"
+
+macro MID_M()
+  dont_render;
+endmacro
+"#;
+
+const OTHER_MACROS: &str = r"macro DEEP_M()
+  dont_render;
+endmacro
+
+macro MID_M()
+  dont_render;
+endmacro
+";
+
+const CALLS_PAST_THE_FIRST_INCLUDE: &str = r#"include "middle.dshl"
+
+shader lit
+{
+  DEEP_M()
+  MID_M()
+}
+"#;
+
+const UNFOLLOWED_MACRO: &str = "macro UNFOLLOWED_M()\n  dont_render;\nendmacro\n";
+
+const CALLS_THROUGH_AN_UNFOLLOWED_INCLUDE: &str = r#"include "lost/unfollowed.dshl"
+
+shader lit
+{
+  UNFOLLOWED_M()
+}
+"#;
+
+const INCLUDES_TWO_THAT_INCLUDE_THE_MACRO: &str = r#"include "left.dshl"
+include "right.dshl"
+
+shader lit
+{
+  DEEP_M()
+}
+"#;
+
+const CALLS_THROUGH_A_SHARED_FILE: &str = r#"include "shared.dshl"
+
+shader lit
+{
+  DEEP_M()
+}
+"#;
+
+const SHARED_THAT_INCLUDES_THE_MACRO: &str = "include \"deep.dshl\"\n";
+
 fn build() -> (TempDir, Engine) {
     build_tree(&[
         ("globals.dshl", GLOBALS),
@@ -290,6 +347,18 @@ fn uses<'e, 's>(engine: &'e Engine, name: impl Into<Selector<'s>>) -> Vec<(&'e s
         .filter(|site| !site.call)
         .map(|site| (site.site_of.qualified_name, site.line, site.confidence))
         .collect()
+}
+
+/// Each caller of the definition `name` selects under `path`, with its confidence, and the calls left ambiguous.
+fn callers<'e>(engine: &'e Engine, name: &str, path: &str) -> (Vec<(&'e str, u8)>, usize) {
+    let (_, graph) = engine.graph_of("water.dshl").expect("DSHL claims the file");
+    let walk = graph
+        .callers(Selector::new(name, Some(path)), Limits::new(1))
+        .expect("the macro is defined");
+    let reached = (walk.reached.iter())
+        .map(|reached| (reached.symbol.qualified_name, reached.confidence))
+        .collect();
+    (reached, walk.ambiguous)
 }
 
 /// The file and the kind of the definition `name` selects.
@@ -648,4 +717,103 @@ fn a_read_of_an_interval_its_file_writes_stays_bound_past_a_variable_its_include
     assert_eq!(references.symbol.kind, SymbolKind::Enum);
     let lines: Vec<u32> = references.sites.iter().map(|site| site.line).collect();
     assert_eq!(lines, [5]);
+}
+
+#[test]
+fn a_macro_call_binds_the_macro_past_the_first_include() {
+    let (_tree, engine) = build_tree(&[
+        ("deep.dshl", DEEP_MACRO),
+        ("middle.dshl", MIDDLE_MACROS),
+        ("other.dshl", OTHER_MACROS),
+        ("top.dshl", CALLS_PAST_THE_FIRST_INCLUDE),
+    ]);
+
+    assert_eq!(
+        callers(&engine, "DEEP_M", "deep.dshl"),
+        (vec![("lit", 70)], 0)
+    );
+    assert_eq!(callers(&engine, "DEEP_M", "other.dshl"), (vec![], 0));
+    assert_eq!(
+        callers(&engine, "MID_M", "middle.dshl"),
+        (vec![("lit", 70)], 0)
+    );
+}
+
+#[test]
+fn a_macro_call_keeps_the_one_callable_no_include_of_its_file_reaches() {
+    let (_tree, engine) = build_tree(&[
+        ("unfollowed.dshl", UNFOLLOWED_MACRO),
+        ("top.dshl", CALLS_THROUGH_AN_UNFOLLOWED_INCLUDE),
+    ]);
+
+    assert_eq!(
+        callers(&engine, "UNFOLLOWED_M", "unfollowed.dshl"),
+        (vec![("lit", 60)], 0)
+    );
+}
+
+#[test]
+fn a_macro_two_files_past_the_first_include_declare_binds_neither() {
+    let (_tree, engine) = build_tree(&[
+        ("lib/a/deep.dshl", DEEP_MACRO),
+        ("lib/b/deep.dshl", DEEP_MACRO),
+        ("left.dshl", "include \"lib/a/deep.dshl\"\n"),
+        ("right.dshl", "include \"lib/b/deep.dshl\"\n"),
+        ("top.dshl", INCLUDES_TWO_THAT_INCLUDE_THE_MACRO),
+    ]);
+
+    assert_eq!(callers(&engine, "DEEP_M", "lib/a/deep.dshl"), (vec![], 1));
+}
+
+#[test]
+fn a_macro_call_keeps_its_game_s_copy_past_a_shared_file_s_include() {
+    let (_tree, engine) = build_tree(&[
+        ("games/a/shaders/top.dshl", CALLS_THROUGH_A_SHARED_FILE),
+        ("games/a/shaders/own.dshl", DEEP_MACRO),
+        ("libs/shaders/shared.dshl", SHARED_THAT_INCLUDES_THE_MACRO),
+        ("libs/shaders/deep.dshl", DEEP_MACRO),
+    ]);
+
+    assert_eq!(
+        callers(&engine, "DEEP_M", "games/a/shaders/own.dshl"),
+        (vec![("lit", 50)], 0)
+    );
+    assert_eq!(
+        callers(&engine, "DEEP_M", "libs/shaders/deep.dshl"),
+        (vec![], 0)
+    );
+}
+
+#[test]
+fn a_macro_call_binds_the_copy_its_includes_reach_where_that_copy_is_the_nearest() {
+    let (_tree, engine) = build_tree(&[
+        ("games/a/shaders/top.dshl", CALLS_THROUGH_A_SHARED_FILE),
+        (
+            "games/a/shaders/shared.dshl",
+            SHARED_THAT_INCLUDES_THE_MACRO,
+        ),
+        ("games/a/shaders/deep.dshl", DEEP_MACRO),
+        ("games/b/shaders/deep.dshl", DEEP_MACRO),
+    ]);
+
+    assert_eq!(
+        callers(&engine, "DEEP_M", "games/a/shaders/deep.dshl"),
+        (vec![("lit", 70)], 0)
+    );
+}
+
+#[test]
+fn a_macro_call_binds_the_copy_its_includes_reach_past_two_copies_equally_near() {
+    let (_tree, engine) = build_tree(&[
+        ("games/a/shaders/top.dshl", CALLS_THROUGH_A_SHARED_FILE),
+        ("games/a/shaders/left/own.dshl", DEEP_MACRO),
+        ("games/a/shaders/right/own.dshl", DEEP_MACRO),
+        ("libs/shaders/shared.dshl", SHARED_THAT_INCLUDES_THE_MACRO),
+        ("libs/shaders/deep.dshl", DEEP_MACRO),
+    ]);
+
+    assert_eq!(
+        callers(&engine, "DEEP_M", "libs/shaders/deep.dshl"),
+        (vec![("lit", 70)], 0)
+    );
 }

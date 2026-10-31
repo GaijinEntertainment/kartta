@@ -43,6 +43,10 @@
 //! the one file that declares the name of all the scripts its file compiles in, since an included file reads what its
 //! includers declare, and of several the copy nearest the use, since a game keeps its own copy of a global's file.
 //!
+//! A macro call binds what its own file declares, else the one file it includes directly, else the one file those
+//! include in turn, as [`IncludeReach::Script`] says, unless a copy of the macro sits nearer the call, else the macro
+//! the tiers by name find.
+//!
 //! # Fingerprint
 //!
 //! [`Dshl::fingerprint`] identifies this crate's name and version, a digest of its source, and the grammar: its
@@ -68,8 +72,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
-    SymbolKind, ValueUses,
+    Conventions, DocComments, IncludeReach, Language, OwnMembers, RawExtraction, Repository,
+    Resolver, SymbolKind, ValueUses,
 };
 
 use crate::resolve::DshlResolver;
@@ -96,6 +100,7 @@ const CONVENTIONS: Conventions = {
     conventions.values_are_call_targets = false;
     conventions.unrecorded_data = &[SymbolKind::Field];
     conventions.value_uses = ValueUses::ImportedThenReached;
+    conventions.include_reach = IncludeReach::Script;
     conventions
 };
 
