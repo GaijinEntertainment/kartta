@@ -35,10 +35,12 @@ module: an include of the file it resolves to, or an import kept as written when
 through the nearest `.sqconfig` in its directory or above it: `%name/rest` below the directory the file mounts as
 `name`, any other `.nut` specifier beside the script or below the first base path that holds it. A script that no
 `.sqconfig` governs resolves `%root/rest` and slashed or `.nut` specifiers under its nearest directory that holds them.
-A bare name is a native module. Every match is case-sensitive. A file under a
-`test`, `tests` or `testData` directory in any case, the last where the Quirrel compiler keeps its test scripts, or
-named `*_test.nut` or `test_*.nut`, is test code; a file named `*.gen.*` or `*_gen.*`, or whose leading comments carry
-`@generated`, `DO NOT EDIT` or `Code generated`, is generated code.
+A bare name is a native module. Under a `.sqconfig`, a path that names no file takes the one file that differs from it
+only in ASCII letter case, as the game's vromfs does; a mount's name, a specifier's `.nut` suffix, and every match
+without a `.sqconfig`, keep letter case. A file under a `test`, `tests` or `testData` directory in any case, the last
+where the Quirrel compiler keeps its test scripts, or named `*_test.nut` or `test_*.nut`, is test code; a file named
+`*.gen.*` or `*_gen.*`, or whose leading comments carry `@generated`, `DO NOT EDIT` or `Code generated`, is generated
+code.
 
 ## Fingerprint
 
