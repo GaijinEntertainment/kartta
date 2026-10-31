@@ -30,9 +30,12 @@
 //!
 //! A call records its callee and, where the syntax spells one, its receiver: `self.greet()` and `Self::new()` record
 //! the type of the `impl` or `trait` around them, `Widget::new()` records `Widget`, and `a::Worker::run()` records
-//! `a::Worker` when the file declares that module. A member call on anything but a name records the empty receiver, and
-//! one on a lowercase name other than `other` records the name after a `.`, `.socket` for `socket.connect()`, since
-//! alone it would read as the module that a path call, `socket::connect()`, names; `Fish.write()` records `Fish`. A
+//! `a::Worker` when the file declares that module. A member call on anything but a name or a chain that names a type
+//! records the empty receiver, and one on a lowercase name other than `other` records the name after a `.`, `.socket`
+//! for `socket.connect()`, since alone it would read as the module that a path call, `socket::connect()`, names;
+//! `Fish.write()` records `Fish`. A method call on a chain records what the chain holds: the type `T::f()` constructs,
+//! what a declared `Option<T>` or `Result<T, E>` holds once it is unwrapped, or the path of up to eight calls to what a
+//! method returns, `Sink::first()?`, which the graph follows through each method's return type. A
 //! method call on a parameter its function declares `T`, `&T`, `&mut T`, `T<'a>`, `Box<T>`, `Rc<T>`, `Arc<T>`, `Self`,
 //! `impl Trait` or `dyn Trait` records the type instead, `Ranking` for `ranking.offer()` in
 //! `fn offer(ranking: &mut Ranking)`, where a `use` outside every function body brings it from outside the toolchain's
@@ -203,6 +206,7 @@ const CONVENTIONS: Conventions = {
     conventions.own_type_receivers = Some(&["other"]);
     conventions.type_uses = TypeUses::Nowhere;
     conventions.member_calls = kartta_lang::MemberCalls::ModulePaths;
+    conventions.receivers = kartta_lang::Receivers::ReturnPaths;
     conventions.unrecorded_data = &[SymbolKind::Field];
     conventions.macro_invocations = kartta_lang::MacroInvocations::Apart;
     conventions.twins = kartta_lang::Twins::Every;

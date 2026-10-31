@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::ops::Range;
 
 use kartta_lang::tree::named_child_nodes;
 use tree_sitter::Node;
 
 use super::Emitter;
+use super::declared::LocalType;
 
 // constraint: a region hides the names bound in it: a function and a closure their parameters, a match arm its
 // pattern, a `for` its pattern in its body, an `if let` or a `while let` its pattern in the operands after it and the
@@ -14,7 +14,7 @@ use super::Emitter;
 pub(super) struct Region<'a> {
     pub(super) end: usize,
     function: bool,
-    pub(super) names: HashMap<&'a [u8], Option<Range<usize>>>,
+    pub(super) names: HashMap<&'a [u8], Option<LocalType>>,
 }
 
 // constraint: a binding hides its names from the end of what it reads on, as `let helper = helper` and
@@ -26,7 +26,7 @@ pub(super) struct PendingBindings<'a> {
     at: usize,
     into: Into,
     names: Vec<&'a [u8]>,
-    declared: Option<Range<usize>>,
+    declared: Option<LocalType>,
 }
 
 pub(super) enum Into {
@@ -127,7 +127,7 @@ impl<'a> Emitter<'a> {
         &mut self,
         at: usize,
         into: Into,
-        (names, declared): (Vec<&'a [u8]>, Option<Range<usize>>),
+        (names, declared): (Vec<&'a [u8]>, Option<LocalType>),
     ) {
         if !names.is_empty() {
             self.pending_bindings.push(PendingBindings {
@@ -185,7 +185,7 @@ impl<'a> Emitter<'a> {
 
     // constraint: the innermost binding of the name decides, so a `let`, a closure's parameter or a pattern that binds
     // the name again hides the type an earlier binding names; the bool tells a `let`'s type from a parameter's
-    pub(super) fn declared_type(&self, spelled: &[u8]) -> Option<(Range<usize>, bool)> {
+    pub(super) fn declared_type(&self, spelled: &[u8]) -> Option<(LocalType, bool)> {
         for region in self.regions.iter().rev() {
             if let Some(declared) = region.names.get(spelled) {
                 return declared.clone().map(|written| (written, !region.function));

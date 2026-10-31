@@ -3,7 +3,7 @@ use kartta_lang::{CallRef, SymbolId};
 use tree_sitter::Node;
 
 use super::blocks::{CallForm, path_segments};
-use super::declared::DeclaredReceiver;
+use super::declared::{DeclaredReceiver, Kept};
 use super::syntax::{last_segment, path_text, type_base};
 use super::{Emitter, open_impls_over};
 
@@ -103,7 +103,7 @@ impl Emitter<'_> {
 
         let index = self.raw.calls.len() - 1;
         if let Some(declared) = declared {
-            self.declared_receivers.push((index, declared));
+            self.declared_receivers.push((Kept::Call(index), declared));
         }
         if let Some(written) = written {
             let call = &self.raw.calls[index];

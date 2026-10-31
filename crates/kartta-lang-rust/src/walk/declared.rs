@@ -15,12 +15,27 @@ use super::{Emitter, GLOB_FORM};
 // type is one the tree may hold, and which a chain has none of, and `module` the chain of the inline module around the
 // call, whose `use`s it sees, `module_end` that module's end, which keys the `use`s of its blocks, and `local` whether
 // a `let` or a call names the type
+#[derive(Clone)]
 pub(super) struct DeclaredReceiver {
     pub(super) written: Range<usize>,
     pub(super) value: Option<Range<usize>>,
     pub(super) module: Option<String>,
     pub(super) module_end: Option<usize>,
     pub(super) local: bool,
+}
+
+// constraint: what a `DeclaredReceiver` decides once the walk ends: a call's receiver, or a function's returned type
+pub(super) enum Kept {
+    Call(usize),
+    Returned(usize),
+}
+
+// constraint: what a binding holds: the path of its type in the source, or, for a `let` of a method call, the place in
+// `returned_locals` of the path the graph reads
+#[derive(Clone)]
+pub(super) enum LocalType {
+    Written(Range<usize>),
+    Returned(usize),
 }
 
 // constraint: the crates of the toolchain, whose types no crate of a tree declares, so a namesake the graph holds is
@@ -30,6 +45,9 @@ const SYSROOT: [&str; 5] = ["std", "core", "alloc", "test", "proc_macro"];
 // constraint: the types the standard prelude names, which no glob brings into a file, so a namesake the tree holds,
 // `allocator_api2::vec::Vec`, is another type
 const PRELUDE: [&str; 5] = ["Box", "Option", "Result", "String", "Vec"];
+
+// constraint: the most calls a receiver's path spells, which covers a builder's chain and bounds what it stores
+const MAX_RETURNS: usize = 8;
 
 impl Emitter<'_> {
     // constraint: a parameter declared `x: T`, `&T`, `&mut T`, `T<'a, U>`, `Box<T>`, `Rc<T>`, `Arc<T>`, `Self`, `impl
@@ -55,39 +73,44 @@ impl Emitter<'_> {
                 && let Some(region) = self.regions.last_mut()
                 && let Some(declared) = region.names.get_mut(&source[name.byte_range()])
             {
-                declared.get_or_insert(named.byte_range());
+                declared.get_or_insert(LocalType::Written(named.byte_range()));
             }
         }
     }
 
-    // constraint: a `let` of a name, `mut` or not, names the type it declares as a parameter does, or the type its
-    // initializer constructs; any other pattern names none
-    pub(super) fn local_type(&self, local: Node<'_>) -> Option<Range<usize>> {
+    // constraint: a `let` of a name, `mut` or not, names the type it declares as a parameter does, the type its
+    // initializer constructs, or what its method call returns; any other pattern names none
+    pub(super) fn local_type(&mut self, local: Node<'_>) -> Option<LocalType> {
         plain_name(local.child_by_field_name("pattern")?)?;
-        let declared = local.child_by_field_name("type");
         let source = self.source;
-        let written = match declared {
-            Some(_) => declared,
-            None => constructed_path(
-                peeled(local.child_by_field_name("value")?, false, source).0,
-                source,
-            ),
-        }?;
-        let function = enclosing_function(local)?;
-        let named = if declared.is_some() {
-            named_type(written, function, source)
-        } else {
-            constructed_name(written, function, source)
-        };
-        named.map(|named| named.byte_range())
+        if let Some(declared) = local.child_by_field_name("type") {
+            let named = named_type(declared, enclosing_function(local)?, source)?;
+            return Some(LocalType::Written(named.byte_range()));
+        }
+        let (held, unwrapped) = peeled(local.child_by_field_name("value")?, false, source);
+        if let Some(path) = constructed_path(held, source) {
+            let named = constructed_name(path, enclosing_function(local)?, source)?;
+            return Some(LocalType::Written(named.byte_range()));
+        }
+        let returned = self.returned_receiver(held, unwrapped, 0)?;
+        self.returned_locals.push(returned);
+        Some(LocalType::Returned(self.returned_locals.len() - 1))
     }
 
     // constraint: a method call on a chain names the type the chain holds: the type `T::f()` constructs, read as a
-    // `let`'s initializer is, or what a name or a field of `self` declared `Option<T>` or `Result<T, E>` holds once the
-    // chain unwraps it; any other chain names none and keeps the empty receiver
+    // `let`'s initializer is, what a method call returns, or what a name or a field of `self` declared `Option<T>` or
+    // `Result<T, E>` holds once the chain unwraps it; any other chain names none and keeps the empty receiver
     pub(super) fn chain_receiver(
         &self,
         chain: Node<'_>,
+    ) -> Option<(String, bool, Option<DeclaredReceiver>)> {
+        self.chain_at(chain, 0)
+    }
+
+    fn chain_at(
+        &self,
+        chain: Node<'_>,
+        calls: usize,
     ) -> Option<(String, bool, Option<DeclaredReceiver>)> {
         let source = self.source;
         let (held, unwrapped) = peeled(chain, false, source);
@@ -95,11 +118,18 @@ impl Emitter<'_> {
             let named = constructed_name(path, enclosing_function(chain)?, source)?;
             return self.receiver_of(named.byte_range(), true, None);
         }
+        if held.kind() == "call_expression" {
+            return self.returned_receiver(held, unwrapped, calls);
+        }
         if !unwrapped {
             return None;
         }
         if held.kind() == "identifier" {
-            let (written, local) = self.declared_type(&source[held.byte_range()])?;
+            let (LocalType::Written(written), local) =
+                self.declared_type(&source[held.byte_range()])?
+            else {
+                return None;
+            };
             let function = enclosing_function(chain)?;
             let declared = function.descendant_for_byte_range(written.start, written.end)?;
             let named = held_type(declared, function, source)?;
@@ -110,6 +140,78 @@ impl Emitter<'_> {
         self.receiver_of(named.byte_range(), false, None)
     }
 
+    // constraint: a method call on `x.m()` names what `m` returns, which only the graph can read: the receiver spells
+    // the path, `T::m()`, with `?` after a call the chain unwraps, from the type `x` names by the rules of any other
+    // operand; `calls` counts the calls outside this one, as a path stops at `MAX_RETURNS` since it grows with each
+    fn returned_receiver(
+        &self,
+        call: Node<'_>,
+        unwrapped: bool,
+        calls: usize,
+    ) -> Option<(String, bool, Option<DeclaredReceiver>)> {
+        if calls == MAX_RETURNS {
+            return None;
+        }
+        let source = self.source;
+        let function = call.child_by_field_name("function")?;
+        let function = if function.kind() == "generic_function" {
+            function.child_by_field_name("function")?
+        } else {
+            function
+        };
+        if function.kind() != "field_expression" {
+            return None;
+        }
+        let method = function.child_by_field_name("field")?;
+        let operand = function.child_by_field_name("value")?;
+        let (owner, own, declared) = match operand.kind() {
+            "identifier" => self.declared_receiver(operand)?,
+            "self" => (self.enclosing_type_name()?, true, None),
+            _ => match own_field(operand) {
+                Some(field) => self.field_receiver(field)?,
+                None => self.chain_at(operand, calls + 1)?,
+            },
+        };
+        let owner = owner.split('|').next().unwrap_or(&owner);
+        let method = String::from_utf8_lossy(&source[method.byte_range()]);
+        let mark = if unwrapped { "?" } else { "" };
+        let path = format!("{owner}::{method}(){mark}");
+        let declared = declared.map(|declared| DeclaredReceiver {
+            value: None,
+            ..declared
+        });
+        Some((path, own, declared))
+    }
+
+    // constraint: what a function gives the graph to read a chain through: the last segment of the type its return type
+    // names, after a `?` where an `Option` or a `Result` holds it; an `async` function returns a future, which `.await`
+    // alone opens, and no chain reads through it
+    pub(super) fn returned_value(
+        &self,
+        function: Node<'_>,
+    ) -> Option<(String, Option<DeclaredReceiver>)> {
+        let source = self.source;
+        let returned = unpinned(function.child_by_field_name("return_type")?, source);
+        let is_async = named_child_nodes(function)
+            .find(|child| child.kind() == "function_modifiers")
+            .is_some_and(|modifiers| {
+                source[modifiers.byte_range()]
+                    .windows(5)
+                    .any(|word| word == b"async")
+            });
+        if is_async {
+            return None;
+        }
+        let named = named_type(returned, function, source)?;
+        let (named, mark) = if is_a_wrapper(named, source) {
+            (held_type(named, function, source)?, "?")
+        } else {
+            (named, "")
+        };
+        let (owner, _, declared) = self.receiver_of(named.byte_range(), true, None)?;
+        Some((format!("{mark}{owner}"), declared))
+    }
+
     // constraint: the receiver of a method call on a parameter of a declared type is the type's last segment, `Self`
     // the type of the impl or trait around the call; the bool tells the latter, which follows that type's owner and
     // waits for no `use`, so it carries no `DeclaredReceiver`
@@ -117,8 +219,19 @@ impl Emitter<'_> {
         &self,
         value: Node<'_>,
     ) -> Option<(String, bool, Option<DeclaredReceiver>)> {
-        let (written, local) = self.declared_type(&self.source[value.byte_range()])?;
-        self.receiver_of(written, local, Some(value))
+        let (declared, local) = self.declared_type(&self.source[value.byte_range()])?;
+        match declared {
+            LocalType::Written(written) => self.receiver_of(written, local, Some(value)),
+            LocalType::Returned(at) => {
+                let (path, own, declared) = &self.returned_locals[at];
+                let spelled = value_receiver(&self.source[value.byte_range()]);
+                let declared = declared.clone().map(|declared| DeclaredReceiver {
+                    value: Some(value.byte_range()),
+                    ..declared
+                });
+                Some((format!("{path}|{spelled}"), *own, declared))
+            }
+        }
     }
 
     // constraint: a field of `self` names the type its declaration does, as a parameter's does, where the struct the
@@ -200,7 +313,8 @@ impl Emitter<'_> {
         }
         let outside_sysroot = |head: &str| !SYSROOT.contains(&head);
         let (source, block_items) = (self.source, &self.block_items);
-        for (call, declared) in self.declared_receivers.drain(..) {
+        let mut unshown_returns = Vec::new();
+        for (kept, declared) in self.declared_receivers.drain(..) {
             let module = declared.module.as_deref();
             let (at, module_end) = (declared.written.start, declared.module_end);
             let imported = |name: &str| {
@@ -226,13 +340,20 @@ impl Emitter<'_> {
                     outside_sysroot,
                 ),
             };
-            if !shown {
-                self.raw.calls[call].receiver = Some(
-                    declared
-                        .value
-                        .map_or_else(String::new, |value| value_receiver(&source[value])),
-                );
+            match kept {
+                _ if shown => {}
+                Kept::Call(call) => {
+                    self.raw.calls[call].receiver = Some(
+                        declared
+                            .value
+                            .map_or_else(String::new, |value| value_receiver(&source[value])),
+                    );
+                }
+                Kept::Returned(symbol) => unshown_returns.push(symbol),
             }
+        }
+        for symbol in unshown_returns {
+            self.raw.symbols[symbol].value_types.clear();
         }
     }
 }
@@ -300,15 +421,36 @@ fn constructed_name<'t>(path: Node<'t>, function: Node<'_>, source: &[u8]) -> Op
 // constraint: the type a declared `Option<T>` or `Result<T, E>` holds, through a path or an alias of the name; `named`
 // is the node `named_type` gives for the declaration, the base of its generic type
 fn held_type<'t>(named: Node<'t>, around: Node<'_>, source: &[u8]) -> Option<Node<'t>> {
-    let last = named.child_by_field_name("name").unwrap_or(named);
-    if !matches!(&source[last.byte_range()], b"Option" | b"Result") {
+    if !is_a_wrapper(named, source) {
         return None;
     }
     let generic = named
         .parent()
         .filter(|parent| parent.kind() == "generic_type")?;
     let held = named_child_nodes(generic.child_by_field_name("type_arguments")?).next()?;
-    named_type(held, around, source)
+    named_type(unpinned(held, source), around, source)
+}
+
+// constraint: a method call on a `Pin<P>` reaches what `P` points to
+fn unpinned<'t>(returned: Node<'t>, source: &[u8]) -> Node<'t> {
+    Some(returned)
+        .filter(|returned| returned.kind() == "generic_type")
+        .filter(|generic| {
+            generic
+                .child_by_field_name("type")
+                .is_some_and(|base| &source[base.byte_range()] == b"Pin")
+        })
+        .and_then(|generic| {
+            generic
+                .child_by_field_name("type_arguments")?
+                .named_child(0)
+        })
+        .unwrap_or(returned)
+}
+
+fn is_a_wrapper(named: Node<'_>, source: &[u8]) -> bool {
+    let last = named.child_by_field_name("name").unwrap_or(named);
+    matches!(&source[last.byte_range()], b"Option" | b"Result")
 }
 
 // constraint: a capitalised last segment names a type, and a lowercase one the module a free function lives in; `Box`,
