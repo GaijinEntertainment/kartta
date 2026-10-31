@@ -46,7 +46,8 @@
 //! A method named by a symbol is a use of it: `method(:render)`, `public_method`, `singleton_method`, `send(:render)`,
 //! `public_send` and `__send__` name a method of the object's own type where they have no receiver or `self`, and one
 //! of a class where the receiver is a constant or a constant path, `Cache.send(:flush)` or `Cache::Store.send(:flush)`,
-//! its class method of the name first, as a call on the class binds it. A top-level `def` is a private method of
+//! its class method of the name first, as a call on the class binds it. In a class method the object is the class, so
+//! its class method of the name comes first there too. A top-level `def` is a private method of
 //! `Object`, which every object reaches, so at a site no class owns, file scope, a top-level `def`, `def self.x` or
 //! `def obj.x`, the symbol names a top-level method as a bare use. With no receiver or `self`, `singleton_method` names
 //! a method of the object itself, which only a class body names, through its class; with a constant receiver it names
