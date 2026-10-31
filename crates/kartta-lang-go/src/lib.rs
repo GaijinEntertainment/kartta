@@ -52,9 +52,11 @@
 //!
 //! [`Go::resolver`] reads every `go.mod` outside a `vendor` directory: its `module` path and its `replace` directives
 //! onto local directories, which apply to the files of the module that declares them, as the go command applies only
-//! the main module's. An import names the vendored copy of its package when the `vendor` directory of the importing
-//! file's module holds one, and otherwise the directory under the module whose path is the longest prefix of the
-//! import, the importing file's own module where several declare that path; an import that matches no module, or whose
+//! the main module's. An import names the vendored copy of its package when the `vendor` directory of the module that
+//! builds the importing file holds one, that file's own module or, where that one holds no `vendor/modules.txt`, the
+//! module that replaces it onto its directory, and otherwise the directory under the module whose path is the longest
+//! prefix of the import, the importing file's own module where several declare that path; an import that matches no
+//! module, or whose
 //! directory holds no files, is external. A resolved import includes every Go file of the package's
 //! directory that is not a test file, except the importing file itself.
 //!

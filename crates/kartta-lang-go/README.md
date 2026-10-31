@@ -33,10 +33,11 @@ or element — or an update, `+=` or `++`.
 ## Resolution
 
 The resolver reads every `go.mod` outside a `vendor` directory. An import names the vendored copy of its package when
-the repository holds one, and otherwise the directory under the module whose path is its longest prefix, `replace`
-directives onto local directories included. A resolved import includes every Go file of the package that is not a test
-file. A `_test.go` file is test code, and a `*.pb.go` file or one with the `// Code generated ... DO NOT EDIT.` banner
-is generated code.
+the `vendor` directory of the module that builds the importing file holds one, that file's own module or, where that
+one holds no `vendor/modules.txt`, the module that replaces it onto its directory, and otherwise the directory under
+the module whose path is its longest prefix, `replace` directives onto local directories included. A resolved import
+includes every Go file of the package that is not a test file, except the importing file itself. A `_test.go` file is
+test code, and a `*.pb.go` file or one with the `// Code generated ... DO NOT EDIT.` banner is generated code.
 
 ## Fingerprint
 
