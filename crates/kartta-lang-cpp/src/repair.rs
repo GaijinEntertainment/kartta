@@ -610,7 +610,47 @@ fn split_conditional(source: &[u8], line: usize) -> Option<[Range<usize>; 2]> {
     let first_branch = directive_end(source, line);
     split_head(source, first_branch)
         .or_else(|| split_return_type(source, first_branch))
+        .or_else(|| split_statement(source, line, first_branch))
         .map(|later| [line..first_branch, later])
+}
+
+// constraint: the grammar reads a conditional's branch as a run of whole statements, so one that opens with the `else`
+// of an `if` above it, or inside the parentheses of a condition, `while(` `#ifndef A` `i < n &&` `#endif` `x[i])`, holds
+// half a statement and fails as a bare `#if` that takes the function around it; a run of such functions fails the file
+// at its top level. Either way the code around the conditional reads whole with its first branch taken. Of two such
+// conditionals in a row, each writing a platform's `else`, the first alone can follow the `if`
+/// The lines from the first later branch through the `#endif` of the conditional at `line`, whose first branch starts
+/// at `from`, where its code opens with an `else` and no conditional closes right before it, or an opening parenthesis
+/// comes right before it.
+fn split_statement(source: &[u8], line: usize, from: usize) -> Option<Range<usize>> {
+    let code = next_code(source, from);
+    let before = source[..line].trim_ascii_end();
+    let splits = if &source[code..code + word_len(&source[code..])] == b"else" {
+        !closes_a_conditional_above(source, line)
+    } else {
+        before.ends_with(b"(")
+    };
+    if !splits {
+        return None;
+    }
+    let mut later = None;
+    let mut nested = 0usize;
+    let mut at = from;
+    while at < source.len() {
+        if source[at - 1] == b'\n' {
+            match directive_at(source, at) {
+                Some(Directive::Opens) => nested += 1,
+                Some(Directive::Branches) if nested == 0 => later = later.or(Some(at)),
+                Some(Directive::Closes) if nested == 0 => {
+                    return Some(later.unwrap_or(at)..directive_end(source, at));
+                }
+                Some(Directive::Closes) => nested -= 1,
+                _ => {}
+            }
+        }
+        at += opaque_len(source, at);
+    }
+    None
 }
 
 // constraint: the grammar reads a conditional's branch as a run of whole statements, so a return type each branch
@@ -667,9 +707,10 @@ const fn is_type_byte(byte: u8) -> bool {
 // the `#endif` as an error inside the definition the last branch opens; the conditional then stays open past that
 // definition and can take its class down, or fail the whole tree, which leaves the misread members of the file to
 // their macros. The first branch alone is a whole definition of what the others write, while heads of two names are
-// two definitions, which the tree already holds, and a macro call may be a class head that goes on past the branch
+// two definitions, which the tree already holds, and a macro call may be a class head that goes on past the branch. An
+// `if` is half a statement whatever follows it, `#ifdef A` `if (x)` `#endif` `f();`, and fails the same way
 /// The lines from the first later branch through the `#endif` of the conditional whose first branch starts at `from`,
-/// where each branch holds a [`branch_head`] of one name and a `{` follows the conditional.
+/// where each branch holds a [`branch_head`] of one name, and that name is `if` or a `{` follows the conditional.
 fn split_head(source: &[u8], from: usize) -> Option<Range<usize>> {
     let mut branch = branch_head(source, from)?;
     let names = branch.names;
@@ -678,8 +719,20 @@ fn split_head(source: &[u8], from: usize) -> Option<Range<usize>> {
         branch = branch_head(source, branch.ended_by.end).filter(|next| next.names == names)?;
     }
     let end = branch.ended_by;
-    (later != end.start && source.get(next_code(source, end.end)) == Some(&b'{'))
-        .then_some(later..end.end)
+    (names[0] == b"if"
+        || later != end.start && source.get(next_code(source, end.end)) == Some(&b'{'))
+    .then_some(later..end.end)
+}
+
+/// Whether the code above `line`, past `//` comment lines, is an `#endif`.
+fn closes_a_conditional_above(source: &[u8], mut line: usize) -> bool {
+    loop {
+        let end = source[..line].trim_ascii_end().len();
+        line = line_start(source, end);
+        if !source[line..end].trim_ascii_start().starts_with(b"//") {
+            return directive_at(source, line) == Some(Directive::Closes);
+        }
+    }
 }
 
 /// The head a branch of a conditional holds: the names before its first and its last outermost `(`, since a return type
@@ -3318,6 +3371,158 @@ namespace N
                 ("Size::w".to_owned(), 63, 63),
             ]
         );
+    }
+
+    #[test]
+    fn a_conditional_that_splits_a_statement_keeps_the_functions_after_it() {
+        const SOURCE: &[u8] = br"void BitArray::init(PxU32 nbBits)
+{
+#ifdef BIT_ARRAY_STACK
+	if(mBits!=mStack)
+#endif
+		MBP_FREE(mBits);
+#ifdef BIT_ARRAY_STACK
+	if(mSize>BIT_ARRAY_STACK)
+#endif
+		mBits = allocate(mSize);
+#ifdef BIT_ARRAY_STACK
+	else
+		mBits = mStack;
+#endif
+}
+
+void Region::prepare(PxU32 nb)
+{
+	if(nb)
+	{
+		first(nb);
+	}
+#if PX_DEBUG
+	else
+	{
+		second();
+	}
+#else
+	third();
+#endif
+}
+
+void Region::run(PxU32 limit)
+{
+	while(
+#ifndef MBP_USE_SENTINELS
+		index<last &&
+#endif
+		boxes[index].mMinX<=limit)
+	{
+		index++;
+	}
+}
+
+void after(PxU32 limit)
+{
+	done(limit);
+}
+";
+
+        let repaired = for_parse(SOURCE).expect("conditionals that split a statement");
+        let tree = parse(&grammar(), &repaired).expect("the repaired copy parses");
+
+        assert!(!tree.root_node().has_error());
+        assert_eq!(
+            symbol_lines(SOURCE),
+            [
+                ("BitArray::init".to_owned(), 1, 15),
+                ("Region::prepare".to_owned(), 17, 31),
+                ("Region::run".to_owned(), 33, 43),
+                ("after".to_owned(), 45, 48),
+            ]
+        );
+        let raw = Cpp::new().extract(SOURCE);
+        let names: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
+        assert_eq!(names, ["MBP_FREE", "allocate", "first", "second", "done"]);
+    }
+
+    #[test]
+    fn an_else_conditional_ends_past_the_conditionals_it_holds() {
+        const SOURCE: &[u8] = b"void f(int a)
+{
+\tif(a)
+\t\tg();
+#if B
+\telse
+\t{
+#ifdef C
+\t\th();
+#endif
+\t}
+#endif
+\tk();
+}
+";
+
+        let repaired = for_parse(SOURCE).expect("a conditional that opens with an else");
+        let tree = parse(&grammar(), &repaired).expect("the repaired copy parses");
+
+        assert!(!tree.root_node().has_error());
+        assert_eq!(
+            changed_offsets(&repaired, SOURCE).len(),
+            b"#ifB#endif".len()
+        );
+    }
+
+    #[test]
+    fn of_two_else_conditionals_in_a_row_only_the_first_is_taken() {
+        const SOURCE: &[u8] = b"void f(int a)
+{
+\tif(a)
+\t{
+\t\tg();
+\t}
+#if WIN
+\telse
+\t{
+\t\th();
+\t}
+#endif
+\t// the other platform
+#if MAC
+\telse
+\t{
+\t\tk();
+\t}
+#endif
+\tl();
+}
+
+void after()
+{
+}
+";
+
+        let repaired = for_parse(SOURCE).expect("an else conditional");
+        let window = |text: &[u8]| repaired.windows(text.len()).any(|bytes| bytes == text);
+
+        assert!(window(b"#if MAC\n") && !window(b"#if WIN\n"));
+        assert_eq!(
+            changed_offsets(&repaired, SOURCE).len(),
+            b"#ifWIN#endif".len()
+        );
+        assert_eq!(
+            symbol_lines(SOURCE),
+            [("f".to_owned(), 1, 21), ("after".to_owned(), 23, 25)]
+        );
+    }
+
+    #[test]
+    fn a_conditional_that_holds_whole_statements_stays_as_written() {
+        for source in [
+            "void f()\n{\n#ifdef A\n\tif(a) g();\n#endif\n}\n",
+            "void f()\n{\n\tg(\n\t\t1);\n#ifdef A\n\th();\n#endif\n}\n",
+            "void f()\n{\n#ifdef A\n\twhile(a)\n#endif\n\t\tg();\n}\n",
+        ] {
+            assert_eq!(for_parse(source.as_bytes()), None, "{source}");
+        }
     }
 
     #[test]
