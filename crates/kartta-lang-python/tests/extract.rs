@@ -570,6 +570,24 @@ fn a_class_body_reads_the_module_values_it_names() {
 }
 
 #[test]
+fn an_attribute_on_a_def_the_module_binds_names_the_def_as_its_owner() {
+    let raw = extract(b"def tick():\n    pass\n\ndef run():\n    return tick.count\n");
+    let uses: Vec<(&str, Receiver)> = raw
+        .uses
+        .iter()
+        .map(|site| (site.name.as_str(), site.receiver.clone()))
+        .collect();
+
+    assert_eq!(
+        uses,
+        [
+            ("count", Receiver::Path("tick".to_owned())),
+            ("tick", Receiver::Bare),
+        ]
+    );
+}
+
+#[test]
 fn a_class_body_reads_the_attributes_it_binds_and_none_of_its_targets() {
     let raw = extract(
         b"class Devices:\n    ONE = \"one\"\n    TWO = \"two\"\n    KNOWN = (ONE, TWO)\n    ONE += 1\n\n    \
