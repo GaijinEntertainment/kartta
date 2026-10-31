@@ -891,7 +891,7 @@ impl Cascade<'_> {
     }
 
     /// Whether every inline module around `at` holds `line` of its file.
-    fn held_around(&self, at: SymbolAt, line: u32) -> bool {
+    pub(crate) fn held_around(&self, at: SymbolAt, line: u32) -> bool {
         let (Some(separator), Some(scope)) = (
             self.conventions.owner_chain_separator,
             self.graph.qualifier(at),
