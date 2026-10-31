@@ -8,7 +8,7 @@ use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
     BareReceivers, CallableRole, Conventions, FILE_SCOPE, IncludeReach, IncludedRuntimeMembers,
     InheritedMembers, MacroInvocations, MemberCalls, NamespaceCalls, OwnMembers, Receivers,
-    SymbolFlags, SymbolKind, Twins, UntypedMembers, ValueUses,
+    SymbolFlags, SymbolKind, Twins, UntypedMembers, ValueUses, path,
 };
 
 use crate::candidates::{CandidateSet, Candidates, Gate, INDEXED_FROM};
@@ -2211,12 +2211,36 @@ impl<'g> Cascade<'g> {
     }
 
     // constraint: an included file compiles inside every script that includes it, so a name its closure leaves open
-    // binds the one file of all those scripts that declares it; each game's copy of a file declares it again and binds
-    // neither
+    // binds the one file of all those scripts that declares it; each game's copy of a file declares it again, so of
+    // several the copy nearest the use binds
     fn scripted_value(&self, file: u32, name: Str) -> Option<Bound> {
         let compiled_with = |declaring: u32| self.share_an_include_root(file, declaring);
-        self.one_declaring(self.named(name), compiled_with, |_| true)
+        let mut declaring = self
+            .declaring(self.named(name), compiled_with, |_| true)
+            .peekable();
+        let first = declaring.next()?;
+        if declaring.peek().is_none() {
+            return Some((first, confidence::UNIQUE));
+        }
+        self.nearest_copy(file, std::iter::once(first).chain(declaring))
             .map(|at| (at, confidence::UNIQUE))
+    }
+
+    // constraint: nothing in a tree marks a game, and a library under the top directory of one game's tree is no part
+    // of it, so a copy counts as the use's own only past that directory; two copies equally near bind neither
+    fn nearest_copy(&self, file: u32, copies: impl Iterator<Item = SymbolAt>) -> Option<SymbolAt> {
+        let dir = |file: u32| self.graph.strings.resolve(self.graph.file(file).dir);
+        let own = dir(file);
+        let mut nearest = (1, None);
+        for at in copies {
+            let shared = path::shared_segments(dir(at.file), own);
+            if shared > nearest.0 {
+                nearest = (shared, Some(at));
+            } else if shared == nearest.0 {
+                nearest.1 = None;
+            }
+        }
+        nearest.1
     }
 
     fn one_reached(
@@ -2242,17 +2266,26 @@ impl<'g> Cascade<'g> {
         in_scope: impl Fn(u32) -> bool,
         wanted: impl Fn(SymbolAt) -> bool + Copy,
     ) -> Option<SymbolAt> {
-        let mut declaring = named
-            .chunk_by(|left, right| left.file == right.file)
-            .filter(|defined| in_scope(defined[0].file))
-            .filter_map(|defined| {
-                let wanted = defined.iter().copied().filter(move |&at| wanted(at));
-                self.pick(Pick::PackageLevel, wanted)
-            });
+        let mut declaring = self.declaring(named, in_scope, wanted);
         match (declaring.next(), declaring.next()) {
             (Some(at), None) => Some(at),
             _ => None,
         }
+    }
+
+    fn declaring<'n>(
+        &'n self,
+        named: &'n [SymbolAt],
+        in_scope: impl Fn(u32) -> bool + 'n,
+        wanted: impl Fn(SymbolAt) -> bool + Copy + 'n,
+    ) -> impl Iterator<Item = SymbolAt> + 'n {
+        named
+            .chunk_by(|left, right| left.file == right.file)
+            .filter(move |defined| in_scope(defined[0].file))
+            .filter_map(move |defined| {
+                let wanted = defined.iter().copied().filter(move |&at| wanted(at));
+                self.pick(Pick::PackageLevel, wanted)
+            })
     }
 
     // constraint: where only a module's path reaches a free item, a name written without a path reads the item of the
