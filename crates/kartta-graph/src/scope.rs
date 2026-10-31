@@ -932,7 +932,7 @@ impl Cascade<'_> {
         };
         (self.graph.in_file(self.named(name), at.file).iter()).all(|&ty| {
             let symbol = self.graph.sym(ty);
-            symbol.exported
+            symbol.exported()
                 || !symbol.kind.is_type()
                 || symbol.qualified_name != owner
                 || self.held_around(ty, line)
@@ -1636,15 +1636,17 @@ impl Cascade<'_> {
         // constraint: code outside the graph can define a name the graph holds, and a definition a call's arguments turn
         // away shows the name has overloads, so the nearest definition that fits is a guess
         let guess = |at| {
-            if self.takes_too_few_arguments(call, candidates.named) {
-                (at, confidence::FIRST_PARTY)
+            if self.passes_too_few_as_near(call, candidates.named, confidence) {
+                None
+            } else if self.takes_too_few_arguments(call, candidates.named) {
+                Some((at, confidence::FIRST_PARTY))
             } else {
-                (at, confidence)
+                Some((at, confidence))
             }
         };
         self.one_callable(&shape, nearby.clone())
             .or_else(|| self.constructor_of_a_type_outside(&shape, &nearby))
-            .map(guess)
+            .and_then(guess)
     }
 
     fn constructor_of_a_type_outside(

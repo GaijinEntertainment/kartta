@@ -330,6 +330,10 @@ pub struct Symbol {
     /// them; `u8::MAX` for any number. A call that passes more ([`CallRef::arguments`](crate::CallRef)) does not bind
     /// the definition.
     pub most_arguments: u8,
+    /// The fewest arguments a call must pass the definition, besides the object a method is called on, where the
+    /// language counts them; `0` where it does not. A call that counts its arguments and passes fewer
+    /// ([`CallRef::arguments`](crate::CallRef)) does not bind the definition.
+    pub fewest_arguments: u8,
 }
 
 impl Symbol {
@@ -352,6 +356,7 @@ impl Symbol {
             value_types: Vec::new(),
             flags: SymbolFlags::empty(),
             most_arguments: u8::MAX,
+            fewest_arguments: 0,
         }
     }
 }

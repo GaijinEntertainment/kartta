@@ -134,8 +134,35 @@ pub(crate) struct StoredSymbol {
     pub(crate) end_line: u32,
     pub(crate) kind: SymbolKind,
     pub(crate) flags: SymbolFlags,
-    pub(crate) exported: bool,
+    pub(crate) exported_and_fewest_arguments: u8,
     pub(crate) most_arguments: u8,
+}
+
+impl StoredSymbol {
+    // constraint: a symbol holds its fewest arguments beside its export mark, so it stays 28 bytes in every language,
+    // and a count this cuts is still a lower bound
+    const EXPORTED: u8 = 1 << 7;
+
+    pub(crate) const fn with_export_mark(fewest: u8, exported: bool) -> u8 {
+        let fewest = if fewest < Self::EXPORTED {
+            fewest
+        } else {
+            Self::EXPORTED - 1
+        };
+        if exported {
+            fewest | Self::EXPORTED
+        } else {
+            fewest
+        }
+    }
+
+    pub(crate) const fn exported(&self) -> bool {
+        self.exported_and_fewest_arguments & Self::EXPORTED != 0
+    }
+
+    pub(crate) const fn fewest_arguments(&self) -> u8 {
+        self.exported_and_fewest_arguments & !Self::EXPORTED
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -407,6 +434,35 @@ fn of_symbol<T>(entries: &[T], index: u32, symbol_of: impl Fn(&T) -> u32) -> Opt
 mod tests {
     use super::*;
     use crate::strings::Strings;
+
+    #[test]
+    fn a_symbol_holds_its_export_mark_beside_a_lower_bound_of_its_fewest_arguments() {
+        let stored = |fewest, exported| {
+            let mut strings = Strings::default();
+            let name = strings.intern("f");
+            StoredSymbol {
+                name,
+                qualified_name: name,
+                owner: None,
+                signature: None,
+                line: 1,
+                end_line: 1,
+                kind: SymbolKind::Function,
+                flags: SymbolFlags::empty(),
+                exported_and_fewest_arguments: StoredSymbol::with_export_mark(fewest, exported),
+                most_arguments: u8::MAX,
+            }
+        };
+
+        assert_eq!(size_of::<StoredSymbol>(), 28);
+        assert!(stored(3, true).exported());
+        assert_eq!(stored(3, true).fewest_arguments(), 3);
+        assert!(!stored(3, false).exported());
+        assert_eq!(stored(3, false).fewest_arguments(), 3);
+        assert_eq!(stored(u8::MAX, true).fewest_arguments(), 127);
+        assert!(stored(u8::MAX, false).fewest_arguments() < u8::MAX);
+        assert!(!stored(u8::MAX, false).exported());
+    }
 
     #[test]
     fn a_site_names_a_call_or_a_local_call_by_its_position() {

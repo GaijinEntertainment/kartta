@@ -4,12 +4,17 @@ use std::sync::Arc;
 
 use kartta_graph::confidence::{FIRST_PARTY, PARENT_DIR, SAME_DIR, SAME_FILE};
 use kartta_graph::{Graph, Limits};
-use kartta_lang::{CallRef, Conventions, Extraction, Symbol, SymbolKind};
+use kartta_lang::{CallRef, Conventions, Extraction, MacroInvocations, Symbol, SymbolKind};
 
 use crate::{call, file, function, graph, graph_of, member_call};
 
 const fn taking(mut symbol: Symbol, most_arguments: u8) -> Symbol {
     symbol.most_arguments = most_arguments;
+    symbol
+}
+
+const fn requiring(mut symbol: Symbol, fewest_arguments: u8) -> Symbol {
+    symbol.fewest_arguments = fewest_arguments;
     symbol
 }
 
@@ -65,6 +70,105 @@ fn a_call_binds_no_definition_that_takes_fewer_than_it_passes_and_counts_as_unre
     assert_eq!(callees(&graph, "over"), Vec::<String>::new());
     assert_eq!(unresolved(&graph, "over"), 1);
     assert_eq!(callees(&graph, "fits"), ["a.das:1"]);
+}
+
+#[test]
+fn a_call_binds_no_definition_that_requires_more_than_it_passes_and_counts_as_unresolved() {
+    let mut extraction = file(
+        "a.das",
+        vec![
+            requiring(function("three", 1), 3),
+            function("short", 3),
+            function("fits", 5),
+        ],
+    );
+    extraction.calls = vec![
+        passing(call(1, "three", 4), 2),
+        passing(call(2, "three", 6), 3),
+    ];
+
+    let graph = graph(&[extraction]);
+
+    assert_eq!(callees(&graph, "short"), Vec::<String>::new());
+    assert_eq!(unresolved(&graph, "short"), 1);
+    assert_eq!(callees(&graph, "fits"), ["a.das:1"]);
+}
+
+#[test]
+fn a_call_that_counts_nothing_is_short_of_no_definition() {
+    let definitions = file("a.das", vec![requiring(function("three", 1), 3)]);
+    let caller = calling("b.das", "run", vec![call(0, "three", 2)]);
+
+    assert_eq!(callees(&graph(&[definitions, caller]), "run"), ["a.das:1"]);
+}
+
+#[test]
+fn the_object_of_a_member_call_fills_no_required_parameter_of_a_method() {
+    let definitions = file("a.das", vec![requiring(method("Widget", "resize", 1), 1)]);
+    let short = calling(
+        "b.das",
+        "short",
+        vec![passing(member_call("Widget", "resize", 2), 1)],
+    );
+    let fits = calling(
+        "c.das",
+        "fits",
+        vec![passing(member_call("Widget", "resize", 2), 2)],
+    );
+
+    let graph = graph(&[definitions, short, fits]);
+
+    assert_eq!(callees(&graph, "short"), Vec::<String>::new());
+    assert_eq!(callees(&graph, "fits"), ["a.das:1"]);
+}
+
+#[test]
+fn a_definition_a_call_passes_too_few_as_near_as_the_one_it_fits_leaves_no_guess() {
+    for (path, also) in [
+        ("x/p/two.das", "x/p/three.das"),
+        ("x/q/two.das", "x/r/three.das"),
+    ] {
+        let fits = file(path, vec![requiring(function("cvt", 1), 2)]);
+        let more = file(also, vec![requiring(function("cvt", 1), 3)]);
+        let caller = calling("x/p/a.das", "run", vec![passing(call(0, "cvt", 2), 2)]);
+
+        assert_eq!(
+            callees(&graph(&[fits, more, caller]), "run"),
+            Vec::<String>::new()
+        );
+    }
+}
+
+#[test]
+fn a_definition_of_another_form_as_near_leaves_the_nearest_its_tier() {
+    let fits = file("x/p/two.das", vec![requiring(function("cvt", 1), 2)]);
+    let macro_of_the_name = file(
+        "x/p/three.das",
+        vec![requiring(Symbol::new("cvt", SymbolKind::Macro, 1, 2), 3)],
+    );
+    let caller = calling("x/p/a.das", "run", vec![passing(call(0, "cvt", 2), 2)]);
+    let mut conventions = Conventions::default();
+    conventions.macro_invocations = MacroInvocations::Apart;
+
+    assert_eq!(
+        confidences(
+            &graph_of(conventions, &[fits, macro_of_the_name, caller]),
+            "run"
+        ),
+        [SAME_DIR]
+    );
+}
+
+#[test]
+fn a_definition_a_call_passes_too_few_farther_off_leaves_the_nearest_its_tier() {
+    let fits = file("x/p/two.das", vec![requiring(function("cvt", 1), 2)]);
+    let more = file("z/r/three.das", vec![requiring(function("cvt", 1), 3)]);
+    let caller = calling("x/p/a.das", "run", vec![passing(call(0, "cvt", 2), 2)]);
+
+    assert_eq!(
+        confidences(&graph(&[fits, more, caller]), "run"),
+        [SAME_DIR]
+    );
 }
 
 #[test]
