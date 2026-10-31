@@ -899,11 +899,56 @@ include \dirname(\dirname(__DIR__)) . '/nested.php';
 }
 
 #[test]
+fn a_folded_name_matches_in_any_letter_case() {
+    let extraction = resolve(
+        br"<?php
+include DIRNAME(__DIR__) . '/x.php';
+include \DirName(__file__) . '/y.php';
+include Dirname(__Dir__, 2) . '/z.php';
+include __dir__ . '/here.php';
+INCLUDE dirname(__DIR__) . '/keyword.php';
+",
+        "lib/a/b/use.php",
+        &[
+            "lib/a/b/use.php",
+            "lib/a/x.php",
+            "lib/a/b/y.php",
+            "lib/z.php",
+            "lib/a/b/here.php",
+            "lib/a/keyword.php",
+        ],
+    );
+
+    assert_eq!(
+        includes(&extraction),
+        [
+            "lib/a/x.php",
+            "lib/a/b/y.php",
+            "lib/z.php",
+            "lib/a/b/here.php",
+            "lib/a/keyword.php"
+        ]
+    );
+}
+
+#[test]
+fn a_named_dirname_argument_matches_in_its_exact_case_alone() {
+    let extraction = resolve(
+        b"<?php\ninclude dirname(__DIR__, LEVELS: 2) . '/x.php';\ninclude dirname(PATH: __DIR__) . '/y.php';\n",
+        "lib/a/b/use.php",
+        &["lib/a/b/use.php", "lib/x.php", "lib/a/y.php"],
+    );
+
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+}
+
+#[test]
 fn a_qualified_name_of_another_function_includes_nothing() {
     let extraction = resolve(
         br"<?php
 include \Foo\dirname(__DIR__, 1) . '/x.php';
 include Foo\dirname(__DIR__, 1) . '/x.php';
+include \Foo\DIRNAME(__DIR__, 1) . '/x.php';
 include namespace\dirname(__DIR__, 1) . '/x.php';
 include \Foo\dirname\other(__DIR__, 1) . '/x.php';
 ",
