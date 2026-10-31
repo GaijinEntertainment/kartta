@@ -1517,12 +1517,13 @@ impl<'g> Cascade<'g> {
             return true;
         };
         call.receiver.is_some()
-            || self
-                .graph
-                .file(at.file)
-                .package
-                .is_some_and(|package| self.graph.strings.resolve(package) == everywhere)
+            || self.is_file_of_module(at.file, everywhere)
             || self.reaches(call.file, at.file)
+    }
+
+    fn is_file_of_module(&self, file: u32, module: &str) -> bool {
+        let package = self.graph.file(file).package;
+        package.is_some_and(|package| self.graph.strings.resolve(package) == module)
     }
 
     // constraint: where includes paste text, a call sees only what its translation unit pastes in, so the one callable
@@ -2192,9 +2193,23 @@ impl<'g> Cascade<'g> {
                         .or_else(|| self.scripted_value(site.file, name)),
                 }
             }
-            ValueUses::Expanded => imported().or_else(|| self.expanded_value((site, line), name)),
+            ValueUses::Expanded => imported().or_else(|| {
+                let written = self.graph.strings.resolve(name);
+                if self.conventions.native_names.contains(&written) {
+                    return None;
+                }
+                self.implicit_value(name)
+                    .or_else(|| self.expanded_value((site, line), name))
+            }),
             ValueUses::Included => self.included_value(site.file, name),
         }
+    }
+
+    fn implicit_value(&self, name: Str) -> Option<Bound> {
+        let module = self.conventions.module_seen_everywhere?;
+        let is_implicit = |file: u32| self.is_file_of_module(file, module);
+        self.one_declaring(self.named(name), is_implicit, |_| true)
+            .map(|at| (at, confidence::INCLUDE))
     }
 
     // constraint: the graph expands no macro, and a macro's quoted code compiles in the file that expands it, which
