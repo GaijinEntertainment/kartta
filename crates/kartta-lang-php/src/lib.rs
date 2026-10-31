@@ -103,6 +103,9 @@ const DOC_COMMENTS: DocComments =
 const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.own_members = OwnMembers::Unreached;
+    // constraint: PHP looks a call's name up in a function table, never among constants; a closure a constant holds
+    // is called as `(C::F)()`, whose callee is no name
+    conventions.values_are_call_targets = false;
     conventions.type_uses = TypeUses::Nowhere;
     conventions.unrecorded_data = &[SymbolKind::Field, SymbolKind::Constant];
     conventions.bare_receivers = BareReceivers::Classes(&["parent", "self", "static"]);
