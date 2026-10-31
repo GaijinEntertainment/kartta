@@ -92,7 +92,9 @@ fn string_literal(node: Node<'_>, source: &[u8]) -> Option<String> {
 // a marker; `dirname(__FILE__)` is `__DIR__`, and `levels` applies it that many times
 fn dirname(call: Node<'_>, source: &[u8]) -> Option<String> {
     let function = call.child_by_field_name("function")?;
-    if function.kind() != "name" || &source[function.byte_range()] != b"dirname" {
+    // constraint: PHP resolves `\dirname` to the global function in any namespace, and `Foo\dirname` into `Foo`; the
+    // fold does not read the namespace `namespace\dirname` depends on, so it folds that to nothing
+    if !matches!(&source[function.byte_range()], b"dirname" | b"\\dirname") {
         return None;
     }
     let (path, levels) = dirname_arguments(call.child_by_field_name("arguments")?, source)?;

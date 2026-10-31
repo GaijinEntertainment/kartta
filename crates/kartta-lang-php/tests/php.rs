@@ -867,6 +867,54 @@ include dirname(__DIR__, depth: 2) . '/x.php';
 }
 
 #[test]
+fn fully_qualified_dirname_folds_as_the_plain_call_does() {
+    let extraction = resolve(
+        br"<?php
+namespace App\Pages;
+
+include \dirname(__DIR__, 2) . '/x.php';
+include dirname(__DIR__, 2) . '/y.php';
+include \dirname(__FILE__) . '/local.php';
+include \dirname(\dirname(__DIR__)) . '/nested.php';
+",
+        "lib/a/b/use.php",
+        &[
+            "lib/a/b/use.php",
+            "lib/x.php",
+            "lib/y.php",
+            "lib/a/b/local.php",
+            "lib/nested.php",
+        ],
+    );
+
+    assert_eq!(
+        includes(&extraction),
+        [
+            "lib/x.php",
+            "lib/y.php",
+            "lib/a/b/local.php",
+            "lib/nested.php"
+        ]
+    );
+}
+
+#[test]
+fn a_qualified_name_of_another_function_includes_nothing() {
+    let extraction = resolve(
+        br"<?php
+include \Foo\dirname(__DIR__, 1) . '/x.php';
+include Foo\dirname(__DIR__, 1) . '/x.php';
+include namespace\dirname(__DIR__, 1) . '/x.php';
+include \Foo\dirname\other(__DIR__, 1) . '/x.php';
+",
+        "lib/a/use.php",
+        &["lib/a/use.php", "lib/x.php"],
+    );
+
+    assert_eq!(includes(&extraction), Vec::<&str>::new());
+}
+
+#[test]
 fn dirname_of_a_literal_path_cuts_it_in_place() {
     let extraction = resolve(
         b"<?php\ninclude dirname('config/app/x.php') . '/db.php';\n",
