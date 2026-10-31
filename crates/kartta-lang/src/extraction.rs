@@ -254,7 +254,8 @@ pub enum Receiver {
     /// under [`Imported`](crate::ValueUses::Imported), those, else an included file's export, a re-export, or an
     /// unexported namesake of one included file; under
     /// [`ImportedThenReached`](crate::ValueUses::ImportedThenReached), those, else a declaration of one file its
-    /// includes reach in turn, the one variable they hold before an enum or a tie; under
+    /// includes reach in turn, the one variable they hold before an enum or a tie, else the one file that declares the
+    /// name of those that compile in a script with the file; under
     /// [`Expanded`](crate::ValueUses::Expanded), those of [`Imported`](crate::ValueUses::Imported), else the one
     /// definition the files including the file bind the name to; under [`Included`](crate::ValueUses::Included), the
     /// variable, constant or function of the name in the file, then in its includes, then in the files those reach.

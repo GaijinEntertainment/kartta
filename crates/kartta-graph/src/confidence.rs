@@ -65,6 +65,9 @@ pub const RE_EXPORT: u8 = 65;
 ///
 /// A bare use under [`ValueUses::Expanded`](kartta_lang::ValueUses::Expanded) binds here the one definition the files
 /// including its file bind the name to.
+///
+/// A DSHL use its own file and includes leave unbound binds here the one file that declares the name, of all the
+/// scripts the use's file compiles in.
 pub const UNIQUE: u8 = 60;
 /// A definition a macro invocation writes binds at a tier this high at most, and none below [`SAME_DIR`].
 ///
