@@ -4,7 +4,7 @@ use tree_sitter::Node;
 
 use super::name::{function_base_name, is_simple_identifier, sanitize_name, type_base_name};
 use super::{child_nodes, exported_symbol};
-use crate::repair::{is_macro_name, macro_annotation_len};
+use crate::repair::{is_macro_name, leading_type_word, macro_annotation_len};
 
 struct DeclaredName {
     name: String,
@@ -259,21 +259,31 @@ fn misparse_real_declarator<'t>(node: Node<'t>, source: &[u8]) -> Option<Node<'t
     .then_some(previous)
 }
 
-// constraint: a macro before the return type, `JPH_INLINE float Tan(float x)`, parses as the type and pushes the real
-// type into an error, and a calling convention between the return type and the name, `void CALLBACK release()`,
-// parses as an error of its own, where an annotation after the name, `int size_ GUARDED_BY(mtx)`, parses as the
-// declarator and pushes the real name there; which of the two is spelled as a macro tells them apart
+// constraint: a macro before the return type, `JPH_INLINE float Tan(float x)`, parses as the type, or as the word of a
+// sized type, `MY_API unsigned char *f()`, and pushes the real type into an error, and a calling convention between the
+// return type and the name, `void CALLBACK release()`, parses as an error of its own, where an annotation after the
+// name, `int size_ GUARDED_BY(mtx)`, parses as the declarator and pushes the real name there; which of the two is
+// spelled as a macro tells them apart, unless a `*` stands right before the macro's spelling, `MY_API T *MD5()`, where
+// the annotation's error would stand between them
 fn leads_with_a_macro(node: Node<'_>, field: Node<'_>, source: &[u8]) -> bool {
-    let macro_type = node.child_by_field_name("type").is_some_and(|written| {
-        written.kind() == "type_identifier" && is_macro_name(&source[written.byte_range()])
-    });
+    let macro_type = node
+        .child_by_field_name("type")
+        .and_then(leading_type_word)
+        .is_some_and(|written| {
+            written.kind() == "type_identifier" && is_macro_name(&source[written.byte_range()])
+        });
     macro_type && names_a_function(field, source)
 }
 
 fn names_a_function(field: Node<'_>, source: &[u8]) -> bool {
-    unwrap_to_function_declarator(field)
-        .and_then(|function| function.child_by_field_name("declarator"))
-        .is_some_and(|name| !is_macro_name(&source[name.byte_range()]))
+    unwrap_to_function_declarator(field).is_some_and(|function| {
+        function
+            .child_by_field_name("declarator")
+            .is_some_and(|name| !is_macro_name(&source[name.byte_range()]))
+            || function
+                .prev_sibling()
+                .is_some_and(|before| before.kind() == "*")
+    })
 }
 
 // constraint: a calling convention is a macro, `CALLBACK`, or a word that starts with `_`, which the compiler
