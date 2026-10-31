@@ -33,7 +33,9 @@ That code is the argument of `quote`, `qmacro`, `qmacro_block`, `qmacro_block_to
 of `qmacro_method`; and the pattern of `qmatch`, `qmatch_block` and `qmatch_function`, whose matched expression runs. A
 block after the call is its last argument. The expression of a `qmacro` splice, `$e`, `$i`, `$v`, `$b`, `$a`, `$t`, `$c`
 or `$f`, runs, so its calls belong to the enclosing `def`; the arguments of a `$c(name)(...)` splice are data. `_::f`,
-the compiler's name for the scope that compiles the code, names what a bare `f` does.
+the compiler's name for the scope that compiles the code, names what a bare `f` does. A bare use that its own file and
+the files it requires do not bind binds the one definition the files requiring its file bind it to, because quoted code
+compiles in the file that expands the macro, which is the one that requires what the code names.
 
 ## Resolution
 

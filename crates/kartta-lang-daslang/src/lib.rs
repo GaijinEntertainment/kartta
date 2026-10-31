@@ -47,7 +47,9 @@
 //!
 //! A function's address, `@@f`, is a bare use of `f` and `@@mod::f` one qualified by `mod`, the one form daslang takes
 //! a function as a value in. A bare use binds the one function of its name its own file declares, else the one a file
-//! it requires exports, else the one such a file declares `private`, as a call of the name binds it.
+//! it requires exports, else the one such a file declares `private`, as a call of the name binds it. A name that binds
+//! none of those binds the one definition the files requiring its file bind it to, because quoted code compiles in the
+//! file that expands the macro, which is the one that requires what the code names.
 //!
 //! # Resolution
 //!
@@ -114,7 +116,7 @@ impl Daslang {
 
 const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
-    conventions.value_uses = ValueUses::Imported;
+    conventions.value_uses = ValueUses::Expanded;
     conventions.own_type_receivers = Some(&["self"]);
     conventions.base_receivers = &["super"];
     conventions.type_uses = TypeUses::Nowhere;
