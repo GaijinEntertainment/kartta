@@ -152,11 +152,14 @@ impl Walker<'_> {
     }
 
     // constraint: `define_macro_if_not_defined` defines the macro only where the build holds none of its name yet, so
-    // a game that defines the macro first runs its own wherever the library calls it
+    // a game that defines the macro first runs its own wherever the library calls it, and the shader compiler's lexer
+    // takes any definition into one table per script, so a macro in a body stands free as one at file scope
     fn macro_definition(&mut self, node: Node<'_>) {
         let declared = self.raw.symbols.len();
         self.named_scope(node, SymbolKind::Macro);
         if let Some(symbol) = self.raw.symbols.get_mut(declared) {
+            symbol.owner = None;
+            symbol.qualified_name.clone_from(&symbol.name);
             let parameters = count_past_zero(node.child_by_field_name("parameters"), "identifier");
             symbol.fewest_arguments = parameters;
             symbol.most_arguments = parameters;

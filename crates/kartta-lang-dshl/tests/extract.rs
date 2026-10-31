@@ -279,6 +279,26 @@ fn an_opaque_macro_body_extracts_nothing_but_the_macro() {
 }
 
 #[test]
+fn a_macro_a_body_declares_belongs_to_no_declaration() {
+    let raw = extract(
+        "shader s\n{\n  macro M() float x = 1; endmacro\n  define_macro_if_not_defined F() endmacro\n}\n",
+    );
+
+    assert_eq!(
+        kinds(&raw),
+        [
+            ("s", SymbolKind::Class),
+            ("M", SymbolKind::Macro),
+            ("M.x", SymbolKind::Field),
+            ("F", SymbolKind::Macro),
+        ]
+    );
+    assert_eq!(symbol(&raw, "M").owner, None);
+    assert_eq!(symbol(&raw, "F").owner, None);
+    assert_eq!(symbol(&raw, "M.x").owner.as_deref(), Some("M"));
+}
+
+#[test]
 fn a_macro_defined_only_where_none_of_its_name_is_yet_is_a_fallback() {
     let raw = extract(
         "define_macro_if_not_defined USE_FOG(code) endmacro\nmacro USE_FOG(code) endmacro\nmacro HAZE() endmacro\n",
