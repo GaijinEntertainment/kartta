@@ -29,8 +29,11 @@ outside a call's callee, `this->f`, a member a constructor's initializer list or
 bare name that no local, parameter, capture or enclosing template parameter of the body declares before it. A bare name
 stays bare, since C++ looks it up in the enclosing class before the namespaces. A member on `this` or in an initializer
 list is on the own receiver, and one on a local or a parameter names the type its declaration spells, a pointer's for
-`->`, as a member call's receiver names it; any other operand names no type. A name the walk cannot place — an
-enumerator, a macro, a value of another file — is kept, for the graph to bind or leave unbound.
+`->`, as a member call's receiver names it; any other operand names no type. A qualified name that names a value,
+`Config::kLimit` or `&Widget::draw`, uses its last name on the path of its scope, and one written from the root alone,
+`::limit`, is bare. A name the walk cannot place — an enumerator, a macro, a value of another file — is kept, for the
+graph to bind or leave unbound. A name in an initializer outside every body and lambda, a table of handlers' most
+often, is a use at file scope that keeps only the name it spells.
 
 From the path and the repository: each `#include` resolved to the file of the repository it names — the path relative to
 the including file, the exact path, the one file whose path ends in it, else of the copies that end in it the one that
