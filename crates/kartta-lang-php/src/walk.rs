@@ -136,10 +136,14 @@ impl Emitter<'_> {
                 self.callable_argument(&callee, node);
                 self.call(callee, receiver, node);
             }
-            "member_call_expression"
-            | "nullsafe_member_call_expression"
-            | "scoped_call_expression" => {
+            "member_call_expression" | "nullsafe_member_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
+                let receiver = self.held_receiver(receiver);
+                self.call(callee, receiver, node);
+            }
+            "scoped_call_expression" => {
+                let (callee, receiver) = call_target(node, self.source);
+                let receiver = self.aliased_class(node).or(receiver);
                 let receiver = self.held_receiver(receiver);
                 self.call(callee, receiver, node);
             }
@@ -300,19 +304,25 @@ impl Emitter<'_> {
             .map_or((written.as_str(), None), |(first, rest)| {
                 (first, Some(rest))
             });
-        match (self.imported(first), rest) {
+        match (self.import(first.as_bytes()).map(imported_class), rest) {
             (Some(class), Some(rest)) => format!("{class}\\{rest}"),
             (Some(class), None) => class.to_owned(),
             (None, _) => self.qualify(&written),
         }
     }
 
-    fn imported(&self, alias: &str) -> Option<&str> {
-        let import = (self.imports.iter()).find(|import| {
-            self.source[import.alias.clone()].eq_ignore_ascii_case(alias.as_bytes())
-        })?;
-        let spec = &self.raw.directives[import.directive].spec;
-        Some(spec.strip_prefix('\\').unwrap_or(spec))
+    fn import(&self, alias: &[u8]) -> Option<&RawDirective> {
+        let import = (self.imports.iter())
+            .find(|import| self.source[import.alias.clone()].eq_ignore_ascii_case(alias))?;
+        Some(&self.raw.directives[import.directive])
+    }
+
+    // constraint: the resolver alone knows whether a class lies in the repository, so a call on a name a `use ... as`
+    // binds in this namespace keeps the class's name from the root for it to read
+    fn aliased_class(&self, call: Node<'_>) -> Option<String> {
+        let scope = (call.child_by_field_name("scope")).filter(|scope| scope.kind() == "name")?;
+        let import = self.import(&self.source[scope.byte_range()])?;
+        (!import.names.is_empty()).then(|| format!("\\{}", imported_class(import)))
     }
 
     // constraint: a class takes its `extends` and `implements` names as parents, and an interface its `extends` names,
@@ -580,8 +590,8 @@ impl Emitter<'_> {
         } else {
             USE_FORM
         };
-        let alias = clause
-            .child_by_field_name("alias")
+        let written_alias = clause.child_by_field_name("alias");
+        let alias = written_alias
             .or_else(|| named_child_nodes(name).rfind(|segment| segment.kind() == "name"))
             .unwrap_or(name)
             .byte_range();
@@ -595,17 +605,17 @@ impl Emitter<'_> {
             return;
         }
 
+        let mut directive = RawDirective::new(form, name, line(declaration.start_position().row));
         if form == USE_FORM {
             self.imports.push(Import {
                 alias,
                 directive: self.raw.directives.len(),
             });
+            directive
+                .names
+                .extend(written_alias.map(|alias| text(alias, self.source)));
         }
-        self.raw.directives.push(RawDirective::new(
-            form,
-            name,
-            line(declaration.start_position().row),
-        ));
+        self.raw.directives.push(directive);
     }
 
     fn include(&mut self, node: Node<'_>) {
@@ -885,6 +895,10 @@ fn string_text<'s>(node: Node<'_>, source: &'s [u8]) -> Option<&'s str> {
     (content.kind() == "string_content")
         .then(|| std::str::from_utf8(&source[content.byte_range()]).ok())
         .flatten()
+}
+
+fn imported_class(import: &RawDirective) -> &str {
+    import.spec.strip_prefix('\\').unwrap_or(&import.spec)
 }
 
 fn last_name(name: &str) -> &str {
