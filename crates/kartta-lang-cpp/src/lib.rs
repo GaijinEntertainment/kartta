@@ -148,8 +148,9 @@
 //! `JPH_NAMESPACE_BEGIN` or rtm's `RTM_IMPL_FILE_PRAGMA_PUSH`; above a function it stays, read as the function's return
 //! type, and a macro call alone on its line stays too. So do the macros that open and close a namespace inside a
 //! namespace, alone on their lines at its edges: `ABSL_NAMESPACE_BEGIN` right after `namespace absl {` and set apart
-//! from the code below it by a blank or a comment line, and `ABSL_NAMESPACE_END` right before its `}`. Where the first
-//! tree
+//! from the code below it by a blank or a comment line, and `ABSL_NAMESPACE_END` right before its `}`. A conditional
+//! whose branches each write one head of one name before the `{` after it, `#ifdef A` `void f(int a)` `#else` `void
+//! f(int a, int b)` `#endif` `{`, is read with its first branch taken. Where the first tree
 //! holds an error that spills over three rows or more, the upper-case macro invocations that open its lines are blanked
 //! with the macros between one and a body's brace, `TEST(Suite, Case) NO_ANALYSIS {`, and the file is parsed again,
 //! and an error that opens at a class head reaches the brace that closes the class; a
