@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::Range;
 
 use kartta_lang::tree::text;
@@ -20,7 +21,7 @@ enum BlockItemKind {
     Value(SymbolId),
     Macro(SymbolId),
     Module(usize),
-    Import,
+    Import(usize),
 }
 
 pub(super) struct BlockCall {
@@ -86,18 +87,12 @@ impl Emitter<'_> {
     pub(super) fn scope_use_to_block(&mut self, block: Range<usize>, first_directive: usize) {
         for at in first_directive..self.raw.directives.len() {
             let name = self.raw.directives[at].names[0].clone();
-            self.push_block_item(name, block.clone(), BlockItemKind::Import);
+            self.push_block_item(name, block.clone(), BlockItemKind::Import(at));
         }
     }
 
     pub(super) fn in_use_scope(&self, name: &str, at: usize, module: Option<usize>) -> bool {
-        self.block_items.get(name).is_some_and(|items| {
-            items.iter().any(|item| {
-                matches!(item.kind, BlockItemKind::Import)
-                    && item.module == module
-                    && item.scope.contains(&at)
-            })
-        })
+        block_use(&self.block_items, name, at, module).is_some()
     }
 
     pub(super) fn bare_block_calls(&self) -> impl Iterator<Item = (usize, usize, Option<usize>)> {
@@ -138,7 +133,7 @@ impl Emitter<'_> {
         let (first, rest) = segments.split_first()?;
         let mut module = match first {
             PathSegment::Name(name) => match self.innermost_block_item(name, call, |kind| {
-                matches!(kind, BlockItemKind::Module(_) | BlockItemKind::Import)
+                matches!(kind, BlockItemKind::Module(_) | BlockItemKind::Import(_))
             })? {
                 BlockItemKind::Module(module) => module,
                 _ => return None,
@@ -171,10 +166,10 @@ impl Emitter<'_> {
         let site = &self.raw.calls[call.index];
         let found = match &call.form {
             CallForm::Plain => self.innermost_block_item(&site.callee, call, |kind| {
-                matches!(kind, BlockItemKind::Value(_) | BlockItemKind::Import)
+                matches!(kind, BlockItemKind::Value(_) | BlockItemKind::Import(_))
             })?,
             CallForm::Macro => self.innermost_block_item(&site.callee, call, |kind| {
-                matches!(kind, BlockItemKind::Macro(_) | BlockItemKind::Import)
+                matches!(kind, BlockItemKind::Macro(_) | BlockItemKind::Import(_))
             })?,
             CallForm::Path(segments) => {
                 let module = self.path_module(segments, call)?;
@@ -220,6 +215,23 @@ impl Emitter<'_> {
             false
         });
     }
+}
+
+// constraint: the directive of the innermost `use` of the name in scope at the byte, within the inline module around it
+pub(super) fn block_use(
+    items: &HashMap<String, Vec<BlockItem>>,
+    name: &str,
+    at: usize,
+    module: Option<usize>,
+) -> Option<usize> {
+    (items.get(name)?.iter())
+        .filter(|item| item.module == module && item.scope.contains(&at))
+        .filter_map(|item| match item.kind {
+            BlockItemKind::Import(directive) => Some((item.scope.len(), directive)),
+            _ => None,
+        })
+        .min()
+        .map(|(_, directive)| directive)
 }
 
 // constraint: the block of an item in an `extern` block is the block around the `extern` block

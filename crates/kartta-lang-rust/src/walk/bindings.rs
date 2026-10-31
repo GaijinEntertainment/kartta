@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::ops::Range;
 
 use kartta_lang::tree::named_child_nodes;
@@ -9,12 +9,12 @@ use super::Emitter;
 // constraint: a region hides the names bound in it: a function and a closure their parameters, a match arm its
 // pattern, a `for` its pattern in its body, an `if let` or a `while let` its pattern in the operands after it and the
 // branch it runs on a match, and a block its `let`s; a function's region ends the lookup, as an item sees no local of
-// the function around it; `declared` spans a function's parameters of a declared type among the parameter types
+// the function around it; each name holds the type path its parameter or its `let` names, and a later `let` of the
+// name replaces it
 pub(super) struct Region<'a> {
-    end: usize,
+    pub(super) end: usize,
     function: bool,
-    names: HashSet<&'a [u8]>,
-    declared: Range<usize>,
+    pub(super) names: HashMap<&'a [u8], Option<Range<usize>>>,
 }
 
 // constraint: a binding hides its names from the end of what it reads on, as `let helper = helper` and
@@ -26,6 +26,7 @@ pub(super) struct PendingBindings<'a> {
     at: usize,
     into: Into,
     names: Vec<&'a [u8]>,
+    declared: Option<Range<usize>>,
 }
 
 pub(super) enum Into {
@@ -36,9 +37,7 @@ pub(super) enum Into {
 impl<'a> Emitter<'a> {
     pub(super) fn track_bindings(&mut self, node: Node<'_>) {
         let start = node.start_byte();
-        while let Some(region) = self.regions.pop_if(|region| region.end <= start) {
-            self.parameter_types.truncate(region.declared.start);
-        }
+        while self.regions.pop_if(|region| region.end <= start).is_some() {}
         while let Some(pending) = self.pending_bindings.pop_if(|pending| pending.at <= start) {
             self.activate(pending, start);
         }
@@ -49,10 +48,7 @@ impl<'a> Emitter<'a> {
                 let parameters = node.child_by_field_name("parameters");
                 let names = self.parameter_names(parameters);
                 self.open_region(node, true, names);
-                let declared = self.push_parameter_types(node);
-                if let Some(region) = self.regions.last_mut() {
-                    region.declared = declared;
-                }
+                self.parameter_types(node);
             }
             "closure_expression" => {
                 let parameters = node.child_by_field_name("parameters");
@@ -76,7 +72,7 @@ impl<'a> Emitter<'a> {
                 let at = node
                     .child_by_field_name("value")
                     .map_or_else(|| node.start_byte(), |value| value.end_byte());
-                self.bind_later(at, Into::Region(self.regions.len() - 1), names);
+                self.bind_later(at, Into::Region(self.regions.len() - 1), (names, None));
             }
             "if_expression" | "while_expression" => {
                 let branch = node
@@ -89,14 +85,15 @@ impl<'a> Emitter<'a> {
             "let_condition" => {
                 let names = self.bound_names(node.child_by_field_name("pattern").into_iter());
                 if let Some(&(_, branch_end)) = self.branches.last() {
-                    self.bind_later(node.end_byte(), Into::Opened(branch_end), names);
+                    self.bind_later(node.end_byte(), Into::Opened(branch_end), (names, None));
                 }
             }
             "block" => self.open_region(node, false, Vec::new()),
             "let_declaration" => {
                 let names = self.bound_names(node.child_by_field_name("pattern").into_iter());
                 if let Some(region) = self.regions.len().checked_sub(1) {
-                    self.bind_later(node.end_byte(), Into::Region(region), names);
+                    let declared = self.local_type(node);
+                    self.bind_later(node.end_byte(), Into::Region(region), (names, declared));
                 }
             }
             _ => {}
@@ -104,26 +101,41 @@ impl<'a> Emitter<'a> {
     }
 
     fn activate(&mut self, pending: PendingBindings<'a>, start: usize) {
-        match pending.into {
+        let PendingBindings {
+            into,
+            names,
+            declared,
+            ..
+        } = pending;
+        let named = names.into_iter().map(|name| (name, declared.clone()));
+        match into {
             Into::Region(region) => {
                 if let Some(region) = self.regions.get_mut(region) {
-                    region.names.extend(pending.names);
+                    region.names.extend(named);
                 }
             }
             Into::Opened(end) if end > start => self.regions.push(Region {
                 end,
                 function: false,
-                names: pending.names.into_iter().collect(),
-                declared: self.parameter_types.len()..self.parameter_types.len(),
+                names: named.collect(),
             }),
             Into::Opened(_) => {}
         }
     }
 
-    fn bind_later(&mut self, at: usize, into: Into, names: Vec<&'a [u8]>) {
+    fn bind_later(
+        &mut self,
+        at: usize,
+        into: Into,
+        (names, declared): (Vec<&'a [u8]>, Option<Range<usize>>),
+    ) {
         if !names.is_empty() {
-            self.pending_bindings
-                .push(PendingBindings { at, into, names });
+            self.pending_bindings.push(PendingBindings {
+                at,
+                into,
+                names,
+                declared,
+            });
         }
     }
 
@@ -131,8 +143,7 @@ impl<'a> Emitter<'a> {
         self.regions.push(Region {
             end: node.end_byte(),
             function,
-            names: names.into_iter().collect(),
-            declared: self.parameter_types.len()..self.parameter_types.len(),
+            names: names.into_iter().map(|name| (name, None)).collect(),
         });
     }
 
@@ -162,7 +173,7 @@ impl<'a> Emitter<'a> {
 
     pub(super) fn is_bound(&self, spelled: &[u8]) -> bool {
         for region in self.regions.iter().rev() {
-            if region.names.contains(spelled) {
+            if region.names.contains_key(spelled) {
                 return true;
             }
             if region.function {
@@ -173,14 +184,11 @@ impl<'a> Emitter<'a> {
     }
 
     // constraint: the innermost binding of the name decides, so a `let`, a closure's parameter or a pattern that binds
-    // the name again hides the type its parameter is declared as
-    pub(super) fn declared_type(&self, spelled: &[u8]) -> Option<Range<usize>> {
+    // the name again hides the type an earlier binding names; the bool tells a `let`'s type from a parameter's
+    pub(super) fn declared_type(&self, spelled: &[u8]) -> Option<(Range<usize>, bool)> {
         for region in self.regions.iter().rev() {
-            if region.names.contains(spelled) {
-                return self.parameter_types[region.declared.clone()]
-                    .iter()
-                    .find(|(name, _)| *name == spelled)
-                    .map(|(_, written)| written.clone());
+            if let Some(declared) = region.names.get(spelled) {
+                return declared.clone().map(|written| (written, !region.function));
             }
             if region.function {
                 break;
