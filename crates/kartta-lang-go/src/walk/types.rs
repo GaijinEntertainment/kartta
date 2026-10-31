@@ -11,7 +11,19 @@ const MAX_PATH: usize = 160;
 
 const CONTAINER: &str = "[]";
 
+const UNDERLYING: &str = "~";
+
 impl Emitter<'_> {
+    pub(super) fn underlying_path(&self, node: Node<'_>) -> Option<String> {
+        match node.kind() {
+            "parenthesized_type" => self.underlying_path(first_operand(node)?),
+            "type_identifier" | "qualified_identifier" | "generic_type" => {
+                Some(format!("{UNDERLYING}{}", self.type_path(node)?))
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn type_path(&self, node: Node<'_>) -> Option<String> {
         match node.kind() {
             "type_identifier" => {
