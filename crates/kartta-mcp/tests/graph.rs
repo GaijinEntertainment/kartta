@@ -658,6 +658,103 @@ fn a_go_field_read_binds_through_the_type_its_own_function_declares_and_not_a_na
 }
 
 #[test]
+fn a_go_type_defined_over_an_interface_has_the_interface_s_methods() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/p\n\ngo 1.22\n"),
+            (
+                "internal/logger.go",
+                "package internal\n\ntype Logger interface {\n\tInfo()\n}\n\n\
+                 type Other interface {\n\tInfo()\n}\n",
+            ),
+            (
+                "log/log.go",
+                "package log\n\nimport \"example.com/p/internal\"\n\ntype DepthLogger internal.Logger\n\n\
+                 func viaDefined(l DepthLogger) {\n\tl.Info()\n}\n\n\
+                 func viaNamed(l internal.Logger) {\n\tl.Info()\n}\n\n\
+                 func viaConversion(l internal.Logger) {\n\tDepthLogger(l).Info()\n}\n",
+            ),
+        ],
+        &[
+            ("find_callees", json!({"name": "viaDefined"})),
+            ("find_callees", json!({"name": "viaConversion"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<callees of="viaDefined" matches="1">"#,
+                r#"<match lang="go" of="viaDefined" qn="log.viaDefined" loc="log/log.go:7" count="1" unexpanded="1">"#,
+                concat!(
+                    r#"<ref name="Info" qn="internal.Logger.Info" loc="internal/logger.go:4" role="consumer" "#,
+                    r#"hops="1" at="log/log.go:8"/>"#,
+                ),
+                "</match>",
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<callees of="viaConversion" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="viaConversion" qn="log.viaConversion" loc="log/log.go:15" count="2" "#,
+                    r#"unexpanded="2">"#,
+                ),
+                concat!(
+                    r#"<ref name="Info" qn="internal.Logger.Info" loc="internal/logger.go:4" role="consumer" "#,
+                    r#"hops="1" at="log/log.go:16"/>"#,
+                ),
+                r#"<ref name="DepthLogger" qn="log.DepthLogger" loc="log/log.go:5" role="consumer" hops="1" at="log/log.go:16"/>"#,
+                "</match>",
+                "</callees>",
+            ]),
+        ],
+        "a call through the defined type or a conversion to it binds the interface's method"
+    );
+}
+
+#[test]
+fn a_go_type_defined_over_a_struct_takes_none_of_the_struct_s_methods() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/p\n\ngo 1.22\n"),
+            (
+                "p.go",
+                "package p\n\ntype S struct{}\n\nfunc (S) M() {}\n\ntype T S\n\n\
+                 func use(t T) {\n\tt.M()\n}\n\nfunc convert(s S) {\n\tT(s).M()\n}\n",
+            ),
+        ],
+        &[
+            ("find_callees", json!({"name": "use"})),
+            ("find_callees", json!({"name": "convert"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<callees of="use" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="use" qn="p.use" loc="p.go:9" count="0" unresolved="1">no callees - no "#,
+                    "call in its body binds a definition the graph holds; a call into a library or a builtin, ",
+                    "through a function value, or by dynamic dispatch binds none</match>",
+                ),
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<callees of="convert" matches="1">"#,
+                r#"<match lang="go" of="convert" qn="p.convert" loc="p.go:13" count="1" unexpanded="1" unresolved="1">"#,
+                r#"<ref name="T" qn="p.T" loc="p.go:7" role="consumer" hops="1" at="p.go:14"/>"#,
+                "</match>",
+                "</callees>",
+            ]),
+        ],
+        "neither a value of the defined type nor a conversion to it reaches the struct's method"
+    );
+}
+
+#[test]
 fn a_go_closure_reads_a_field_through_the_type_its_enclosing_function_declares() {
     let source = "package app\n\nfunc First() int {\n\ttype fields struct {\n\t\tSize int\n\t}\n\
                   \treturn fields{Size: 1}.Size\n}\n\nfunc Second() func() int {\n\ttype fields struct {\n\

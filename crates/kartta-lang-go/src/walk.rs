@@ -615,7 +615,8 @@ impl<'a> Emitter<'a> {
             Some(written) if spec.kind() == "alias_declaration" || is_container_type(written) => {
                 self.type_path(written).into_iter().collect()
             }
-            _ => Vec::new(),
+            Some(written) => self.underlying_path(written).into_iter().collect(),
+            None => Vec::new(),
         };
         let Some((owner, type_id)) = self.named_type(spec, kind, (parents, value_types)) else {
             return;
