@@ -18,7 +18,8 @@
 //!   shader with several, the way a type implements an interface, and is a use of that block.
 //! - A macro invocation, in a body or in a condition, is a call of the macro, made by the declaration around it. Only
 //!   a macro is called: a call reaches no variable, constant or field. An invocation at file scope is a call from file
-//!   scope, whose name the graph keeps.
+//!   scope, whose name the graph keeps. A call counts what its top-level commas split, and a macro takes exactly its
+//!   parameters, since the shader compiler refuses any other count.
 //! - A name a condition, an `assume`, a `##if`, `##bool` or `##declare` directive, a preshader value or a variable's
 //!   initial value reads is a use, attributed to the declaration around it; so is a shader a `shader ==` condition
 //!   names and a render pass a `pass` statement names. Keyword-like values — a sampler state, a render state, a
@@ -45,7 +46,8 @@
 //!
 //! A macro call binds what its own file declares, else the one file it includes directly, else the one file those
 //! include in turn, as [`IncludeReach::Script`] says, unless a copy of the macro sits nearer the call, else the macro
-//! the tiers by name find.
+//! the tiers by name find. Each step reads only the macros that take the call's arguments, and a call none takes binds
+//! nothing.
 //!
 //! # Fingerprint
 //!

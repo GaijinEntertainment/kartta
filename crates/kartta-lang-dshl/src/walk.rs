@@ -59,6 +59,16 @@ fn end_line(node: Node<'_>) -> u32 {
     tree::line(node.end_position().row)
 }
 
+// constraint: `arguments: 0` reads as a call that counted nothing, which binds a macro of parameters, yet the shader
+// compiler refuses that call, so a call and a macro each count one past their entries and compare as written
+fn count_past_zero(list: Option<Node<'_>>, kind: &str) -> u8 {
+    list.map_or(0, |list| {
+        let mut cursor = list.walk();
+        let entries = list.named_children(&mut cursor);
+        u8::try_from(entries.filter(|entry| entry.kind() == kind).count() + 1).unwrap_or(u8::MAX)
+    })
+}
+
 impl Walker<'_> {
     fn close_scopes(&mut self, at: usize) {
         while self.scopes.last().is_some_and(|scope| at >= scope.end) {
@@ -146,10 +156,13 @@ impl Walker<'_> {
     fn macro_definition(&mut self, node: Node<'_>) {
         let declared = self.raw.symbols.len();
         self.named_scope(node, SymbolKind::Macro);
-        if node.child(0).map(|keyword| keyword.kind()) == Some("define_macro_if_not_defined")
-            && let Some(symbol) = self.raw.symbols.get_mut(declared)
-        {
-            symbol.flags = symbol.flags.with_fallback(true);
+        if let Some(symbol) = self.raw.symbols.get_mut(declared) {
+            let parameters = count_past_zero(node.child_by_field_name("parameters"), "identifier");
+            symbol.fewest_arguments = parameters;
+            symbol.most_arguments = parameters;
+            if node.child(0).map(|keyword| keyword.kind()) == Some("define_macro_if_not_defined") {
+                symbol.flags = symbol.flags.with_fallback(true);
+            }
         }
     }
 
@@ -217,7 +230,7 @@ impl Walker<'_> {
                 line: line(node),
                 invokes_a_macro: false,
                 calls_a_method: false,
-                arguments: 0,
+                arguments: count_past_zero(node.child_by_field_name("arguments"), "macro_argument"),
             });
         }
     }
