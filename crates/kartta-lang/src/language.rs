@@ -343,10 +343,11 @@ pub enum Receivers {
     TypePaths,
     /// As [`Receivers::Owners`], where a receiver can also spell a chain of calls from an owner, which the extraction
     /// cannot follow past its file: `T::m()::n()?` calls `m` on `T`, then `n` on what `m` returns, and `?` takes what
-    /// an `Option` or a `Result` holds. The graph finds each method as the owner tier does, reads the owner it returns
-    /// from its [value type](crate::Symbol::value_types), and binds the call as one on the last owner. A path that
-    /// reaches no type leaves the receiver the value after its `|`, `T::m()|.value` for `.value`, and without one the
-    /// empty receiver.
+    /// an `Option`, a `Result` or a `Promise` holds. A chain can start from a bare call, `f()::n()`, which binds as the
+    /// call would. The graph finds each method as the owner tier does, reads the owner it returns from its
+    /// [value type](crate::Symbol::value_types), and binds the call as one on the last owner. A path that reaches no
+    /// type leaves the receiver the value after its `|`, `T::m()|.value` for `.value`, and without one the empty
+    /// receiver.
     ReturnPaths,
 }
 

@@ -19,17 +19,49 @@ impl Emitter<'_> {
             .child_by_field_name("parameters")
     }
 
-    /// The span of the one type a parameter's annotation spells, unless that type is a type parameter of a declaration
-    /// around the parameter.
+    /// The span of the one type a parameter's annotation spells, under [`Emitter::named_type`].
     pub(super) fn parameter_type(&self, parameter: Node<'_>) -> Option<Span> {
-        let span = annotated_type(parameter.child_by_field_name("type")?)?;
+        self.named_type(parameter.child_by_field_name("type")?)
+    }
+
+    /// The span of the one type an annotation spells, unless that type is a type parameter of a declaration around it.
+    pub(super) fn named_type(&self, annotation: Node<'_>) -> Option<Span> {
+        let span = annotated_type(annotation)?;
         let written = &self.source[span.0..span.1];
-        let generic = std::iter::successors(parameter.parent(), Node::parent)
+        let generic = std::iter::successors(Some(annotation), Node::parent)
             .filter_map(|around| around.child_by_field_name("type_parameters"))
             .flat_map(named_child_nodes)
             .filter_map(|declared| declared.child_by_field_name("name"))
             .any(|name| &self.source[name.byte_range()] == written);
         (!generic).then_some(span)
+    }
+
+    /// The value type a function's return annotation spells: its one type, or `?` and the one type a `Promise` holds.
+    pub(super) fn returned_type(&self, function: Node<'_>) -> Vec<String> {
+        let Some(annotation) = function.child_by_field_name("return_type") else {
+            return Vec::new();
+        };
+        let promised = written_type(annotation)
+            .filter(|written| self.is_promise(*written))
+            .and_then(|promise| {
+                promise
+                    .child_by_field_name("type_arguments")?
+                    .named_child(0)
+            });
+        let spelled = |at| self.named_type(at).map(|span| self.spelled(span));
+        promised
+            .map_or_else(
+                || spelled(annotation),
+                |held| spelled(held).map(|held| format!("?{held}")),
+            )
+            .into_iter()
+            .collect()
+    }
+
+    fn is_promise(&self, written: Node<'_>) -> bool {
+        written.kind() == "generic_type"
+            && (written.child_by_field_name("name"))
+                .is_some_and(|name| &self.source[name.byte_range()] == b"Promise")
     }
 
     fn slot_type<'t>(&self, function: Node<'t>) -> Option<Node<'t>> {

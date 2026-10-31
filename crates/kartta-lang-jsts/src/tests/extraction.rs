@@ -513,7 +513,7 @@ fn a_receiver_the_caller_declares_names_no_type() {
             ("go", Some("")),
             ("go", Some("")),
             ("go", Some("")),
-            ("go", Some("")),
+            ("go", Some("make()")),
             ("go", Some("")),
             ("go", Some("")),
             ("map", Some("")),
@@ -636,7 +636,7 @@ fn a_declared_value_names_no_type_only_inside_the_scope_that_declares_it() {
             ("create", Some("Widget")),
             ("make", None),
             ("go", Some("Box")),
-            ("go", Some("")),
+            ("go", Some("make()")),
             ("go", Some("Box")),
             ("go", Some("")),
             ("go", Some("")),
@@ -653,6 +653,78 @@ fn a_declared_value_names_no_type_only_inside_the_scope_that_declares_it() {
 }
 
 #[test]
+fn a_definition_records_the_one_type_its_return_annotation_spells() {
+    let extraction = extracted(
+        "src/f.ts",
+        "export function opened(): Kartta {}\n\
+         export async function connected(): Promise<ns.Kartta> {}\n\
+         export function held<T>(value: T): T {}\n\
+         export async function promised<T>(value: T): Promise<T> {}\n\
+         export function listed(): Kartta[] {}\n\
+         export function counted(): number {}\n\
+         export function either(): Promise<Kartta | null> {}\n\
+         export function open(): void {}\n\
+         export const reopened = (): Kartta => make();\n\
+         export function untyped() {}\n\
+         export class Box<V> {\n  made(): Kartta {}\n  kept(): V {}\n  field = (): Kartta => make();\n}\n",
+    );
+
+    let value_types = |name| symbol(&extraction, name).value_types.as_slice();
+    assert_eq!(value_types("opened"), ["Kartta"]);
+    assert_eq!(value_types("connected"), ["?ns.Kartta"]);
+    assert_eq!(value_types("reopened"), ["Kartta"]);
+    assert_eq!(value_types("made"), ["Kartta"]);
+    assert_eq!(value_types("field"), ["Kartta"]);
+    for name in [
+        "held", "promised", "listed", "counted", "either", "open", "untyped", "kept",
+    ] {
+        assert!(value_types(name).is_empty(), "{name}");
+    }
+}
+
+#[test]
+fn a_local_a_call_or_a_new_initializes_records_the_path_of_calls() {
+    let extraction = extracted(
+        "src/f.ts",
+        "import { Kartta } from './kartta';\n\
+         export class Suite {\n\
+         \x20 run(value: Kartta, list: Kartta[]) {\n\
+         \x20   const bare = opened();\n    bare.a();\n\
+         \x20   const named = Kartta.open();\n    named.b();\n\
+         \x20   const chained = named.child();\n    chained.c();\n\
+         \x20   const awaited = await connect();\n    awaited.d();\n\
+         \x20   const own = this.made();\n    own.e();\n\
+         \x20   const typed = value.child();\n    typed.f();\n\
+         \x20   const built = new Kartta();\n    built.g();\n\
+         \x20   const written: Kartta = made();\n    written.h();\n\
+         \x20   const first = list[0].child();\n    first.i();\n\
+         \x20   const element = list[0];\n    element.j();\n\
+         \x20   const nested = opened().child();\n    nested.k();\n\
+         \x20   const lost = list[0].child().next();\n    lost.l();\n\
+         \x20 }\n\
+         }\n",
+    );
+
+    let receiver_of = |callee: &str| {
+        (extraction.calls.iter())
+            .find(|call| call.callee == callee)
+            .and_then(|call| call.receiver.as_deref())
+    };
+    assert_eq!(receiver_of("a"), Some("opened()"));
+    assert_eq!(receiver_of("b"), Some("Kartta::open()"));
+    assert_eq!(receiver_of("c"), Some("Kartta::open()::child()"));
+    assert_eq!(receiver_of("d"), Some("connect()?"));
+    assert_eq!(receiver_of("e"), Some("Suite::made()"));
+    assert_eq!(receiver_of("f"), Some("Kartta::child()"));
+    assert_eq!(receiver_of("g"), Some("Kartta()"));
+    assert_eq!(receiver_of("h"), Some("Kartta"));
+    assert_eq!(receiver_of("i"), Some(""));
+    assert_eq!(receiver_of("j"), Some(""));
+    assert_eq!(receiver_of("k"), Some("opened()::child()"));
+    assert_eq!(receiver_of("l"), Some(""));
+}
+
+#[test]
 fn a_javascript_receiver_the_file_declares_names_no_type() {
     let extraction = extracted(
         "src/f.js",
@@ -666,7 +738,7 @@ fn a_javascript_receiver_the_file_declares_names_no_type() {
             ("go", Some("")),
             ("go", Some("")),
             ("make", None),
-            ("go", Some("")),
+            ("go", Some("make()")),
             ("create", Some("Widget")),
         ]
     );

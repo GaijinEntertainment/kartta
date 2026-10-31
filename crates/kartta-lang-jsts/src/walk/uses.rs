@@ -3,7 +3,7 @@ use tree_sitter::Node;
 
 use super::calls::names_a_class;
 use super::context::literal_annotation;
-use super::{Binding, Emitter, Span};
+use super::{Binding, Emitter, Held, Span};
 use crate::syntax::start_line;
 
 impl Emitter<'_> {
@@ -95,8 +95,11 @@ impl Emitter<'_> {
     fn named_owner(&self, object: Node<'_>) -> String {
         let name = &self.source[object.byte_range()];
         match self.binding(name) {
-            Some(Binding::Value(typed) | Binding::Local(_, typed) | Binding::Module(typed)) => {
-                typed.map_or_else(String::new, |span| self.spelled(span))
+            Some(Binding::Value(held) | Binding::Local(_, held) | Binding::Module(held)) => {
+                match held {
+                    Some(Held::Type(typed) | Held::Constructed(typed)) => self.spelled(*typed),
+                    Some(Held::Returned(_)) | None => String::new(),
+                }
             }
             Some(Binding::Parameter(span)) => self.spelled(*span),
             Some(Binding::Type | Binding::Definition) | None => {
