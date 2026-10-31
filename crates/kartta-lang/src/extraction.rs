@@ -223,8 +223,9 @@ pub struct LocalCall {
 /// A use of a name outside a call, unresolved: a type named as one, a read or a write of a value, a member of a
 /// value taken without a call.
 ///
-/// Its [`Receiver`] decides where the name is looked up. A bare or qualified name binds no field, no enum variant and
-/// no local symbol, and a language records no use that a local binding of the name covers.
+/// Its [`Receiver`] decides where the name is looked up. A bare or qualified name binds no enum variant, no local
+/// symbol and no field but one a class scope holds for a [`Receiver::Bare`], and a language records no use that a local
+/// binding of the name covers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UseRef {
     /// The innermost symbol declared around the use, or [`FILE_SCOPE`](crate::FILE_SCOPE) at file scope, where
@@ -244,7 +245,12 @@ pub struct UseRef {
 /// reference.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Receiver {
-    /// Nothing: a bare name, which binds a symbol of the same file, the same package or a dot-imported package.
+    /// Nothing: a bare name. Under [`OwnMembers::First`](crate::OwnMembers::First) it first binds the field of the
+    /// enclosing member's class or of a base. Otherwise it binds as [`ValueUses`](crate::ValueUses) says: under
+    /// [`Declared`](crate::ValueUses::Declared), a symbol of the same file, the same package or a dot-imported package;
+    /// under [`Imported`](crate::ValueUses::Imported), those, else an included file's export, a re-export, or an
+    /// unexported namesake of one included file; under [`Included`](crate::ValueUses::Included), the variable, constant
+    /// or function of the name in the file, then in its includes, then in the files those reach.
     Bare,
     /// A qualifier as written, `pkg` in `pkg.Name`, which binds only through the file's imports.
     Qualifier(String),
