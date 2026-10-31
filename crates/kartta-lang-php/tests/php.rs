@@ -254,7 +254,7 @@ fn a_trait_use_in_an_anonymous_class_is_a_parent_of_that_class_alone() {
     );
 
     assert_eq!(symbol(&raw.symbols, "Outer").parents, Vec::<String>::new());
-    assert_eq!(symbol(&raw.symbols, "{Outer\u{b7}make}").parents, ["Inner"]);
+    assert_eq!(symbol(&raw.symbols, "{make}").parents, ["Inner"]);
 }
 
 #[test]
@@ -558,9 +558,9 @@ class Factory {
 ",
     );
 
-    let class = symbol(&raw.symbols, "{Factory\u{b7}make}");
+    let class = symbol(&raw.symbols, "{make}");
     assert_eq!(class.kind, SymbolKind::Class);
-    assert_eq!(class.qualified_name, "App\\{Factory\u{b7}make}");
+    assert_eq!(class.qualified_name, "App\\{make}");
     assert_eq!(class.parents, ["Base", "Tagged"]);
     assert!(!class.exported);
     for (member, kind) in [
@@ -570,18 +570,15 @@ class Factory {
     ] {
         let member = symbol(&raw.symbols, member);
         assert_eq!(member.kind, kind);
-        assert_eq!(member.owner.as_deref(), Some("{Factory\u{b7}make}"));
+        assert_eq!(member.owner.as_deref(), Some("{make}"));
         assert_eq!(
             member.qualified_name,
-            format!("App\\{{Factory\u{b7}make}}::{}", member.name)
+            format!("App\\{{make}}::{}", member.name)
         );
     }
     let own = call(&raw.calls, "label");
     assert_eq!(own.receiver.as_deref(), Some("$this"));
-    assert_eq!(
-        own.site_of,
-        id_of(&raw.symbols, "App\\{Factory\u{b7}make}::run")
-    );
+    assert_eq!(own.site_of, id_of(&raw.symbols, "App\\{make}::run"));
 }
 
 #[test]
@@ -617,12 +614,12 @@ function boot() { return new class {}; }
         [
             "{top}",
             "{class}",
-            "{Suite\u{b7}testRun\u{b7}job}",
-            "{Suite\u{b7}testRun\u{b7}handler}",
-            "{Suite\u{b7}testRun\u{b7}job\u{b7}2}",
-            "{Suite\u{b7}testRun\u{b7}job\u{b7}2\u{b7}make}",
-            "{Suite\u{b7}testRun}",
-            "{Suite\u{b7}testRun\u{b7}2}",
+            "{testRun\u{b7}job}",
+            "{testRun\u{b7}handler}",
+            "{testRun\u{b7}job\u{b7}2}",
+            "{make}",
+            "{testRun}",
+            "{testRun\u{b7}2}",
             "{boot}",
         ]
     );
@@ -634,7 +631,7 @@ fn an_anonymous_class_is_constructed_by_the_callable_that_creates_it() {
         b"<?php\nclass Factory {\n    public function make() { return new class {}; }\n}\n",
     );
 
-    let construction = call(&raw.calls, "{Factory\u{b7}make}");
+    let construction = call(&raw.calls, "{make}");
     assert_eq!(construction.receiver, None);
     assert_eq!(construction.site_of, id_of(&raw.symbols, "Factory::make"));
 }
@@ -659,7 +656,7 @@ class Suite {
 ",
     );
 
-    let job = Some("{Suite\u{b7}testRun\u{b7}job}");
+    let job = Some("{testRun\u{b7}job}");
     assert_eq!(call(&raw.calls, "handle").receiver.as_deref(), job);
     assert_eq!(call(&raw.calls, "make").receiver.as_deref(), job);
     assert_eq!(
