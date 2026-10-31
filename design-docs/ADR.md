@@ -120,7 +120,7 @@ lost, and what would reopen it.
 - [3.38 List a call under the last part of its callee's own name](/design-docs/adr/3.38-callee-listing-key.md)
 - [3.39 Bind a member call to a free function only where a value can hold one](/design-docs/adr/3.39-member-call-free-functions.md)
 - [3.40 Bind a runtime method's call only to a member that scope reaches](/design-docs/adr/3.40-runtime-method-calls.md)
-- [3.41 Bind the caller's own owner only on the receivers a language lists](/design-docs/adr/3.41-own-owner-receivers.md)
+- [3.41 Trust the caller's own owner only on the receivers a language lists](/design-docs/adr/3.41-own-owner-receivers.md)
 - [3.42 Read transitive includes for a name few definitions share](/design-docs/adr/3.42-transitive-include-reach.md)
 - [3.43 Guess no member near the caller for a C++ call on a value](/design-docs/adr/3.43-cpp-calls-on-values.md)
 - [3.44 Bind no call to a namespace where a language's calls name none](/design-docs/adr/3.44-namespace-call-targets.md)
