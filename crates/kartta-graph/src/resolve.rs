@@ -92,8 +92,8 @@ pub(crate) enum UseMiss {
 }
 
 // constraint: a named binding is the name it binds, the directory or file it imports, and the name the import reaches
-// there, which differs from the bound name under an alias; a required module is the module an included file declares
-// or the alias a `require` gives that file, beside that file
+// there, which differs from the bound name under an alias; a required module is the name an included file goes by or
+// the alias a `require` gives that file, beside that file
 #[derive(Debug, Default)]
 struct Bindings {
     named: Vec<(Str, Option<Str>, Str)>,
@@ -647,10 +647,25 @@ impl<'g> Cascade<'g> {
             bindings.modules |= target.is_some_and(|target| self.graph.slot_of(target).is_some());
         }
         bindings.required.extend(
-            (self.includes(file).iter())
-                .filter_map(|&slot| Some((self.graph.file(slot).package?, slot))),
+            (self.includes(file).iter()).filter_map(|&slot| Some((self.module_name(slot)?, slot))),
         );
         bindings
+    }
+
+    // constraint: the compiler names a script file with no module clause for the `require` that reaches it, whose last
+    // component is the stem of the file it finds; the graph keeps no directive kind, so an `include` names one too, and
+    // no other language's include names a module
+    fn module_name(&self, slot: u32) -> Option<Str> {
+        let file = self.graph.file(slot);
+        file.package.or_else(|| {
+            if !self.reads_modules() {
+                return None;
+            }
+            let name = path::base(self.graph.strings.resolve(file.path));
+            self.graph
+                .strings
+                .get(name.rsplit_once('.').map_or(name, |(stem, _)| stem))
+        })
     }
 
     // constraint: a script module is the file that declares it, so a qualifier no import binds names the module of a
