@@ -318,7 +318,7 @@ impl<'a> Emitter<'a> {
         symbol.exported = !is_private(node);
         symbol.signature = arrow_trimmed_signature(node, self.source);
         symbol.flags = symbol.flags.with_entry(is_registered(node, self.source));
-        symbol.most_arguments = parameters(node, self.source);
+        (symbol.fewest_arguments, symbol.most_arguments) = parameters(node, self.source);
         let id = self.raw.push_symbol(symbol);
         self.scopes.push(Scope {
             end: node.end_byte(),
@@ -574,21 +574,22 @@ impl<'a> Emitter<'a> {
     // constraint: `a |> f(b)`, `f(a) <| b` and `f(a) { b }` pass the piped value to the call at the pipe's head, whose
     // node the walk reaches after the pipe's
     fn piped_head(&mut self, pipe: Node<'_>) {
-        let head = pipe
-            .child_by_field_name("function_call")
-            .filter(|head| matches!(head.kind(), "call" | "named_call" | "invoke"));
+        let mut head = pipe.child_by_field_name("function_call");
+        while let Some(inner) = head.filter(|head| head.kind() == "pipe") {
+            head = called_by_pipe(inner);
+        }
+        let head = head.filter(|head| matches!(head.kind(), "call" | "named_call" | "invoke"));
         if let Some(head) = head {
             self.piped.push(head.id());
         }
     }
 
-    // constraint: a parameter takes one argument wherever it is written, so a call's own list and the pipe at its head
+    // constraint: a parameter takes one argument wherever it is written, so a call's own list and the pipes at its head
     // count alike; a count past `u8::MAX` is cut, and a cut count never turns a definition away
     fn passed(&mut self, call: Node<'_>) -> u8 {
-        let piped = self.piped.iter().position(|&head| head == call.id());
-        if let Some(at) = piped {
-            self.piped.swap_remove(at);
-        }
+        let heads = self.piped.len();
+        self.piped.retain(|&head| head != call.id());
+        let piped = heads - self.piped.len();
         let mut written = 0_usize;
         let mut cursor = call.walk();
         let mut more = cursor.goto_first_child();
@@ -601,7 +602,7 @@ impl<'a> Emitter<'a> {
             more = cursor.goto_next_sibling();
         }
 
-        u8::try_from(written + usize::from(piped.is_some())).unwrap_or(u8::MAX)
+        u8::try_from(written + piped).unwrap_or(u8::MAX)
     }
 
     // constraint: `obj.handler { ... }` and `obj.handler <| ${ ... }` are a `pipe` whose head is a `field` no call
@@ -731,20 +732,41 @@ fn arrow_trimmed_signature(node: Node<'_>, source: &[u8]) -> Option<String> {
 }
 
 // constraint: one parameter list entry declares every name it lists, `def f(a, b : int)`, and the `class_method` macros
-// of `daslib/class_boost` give a `def static` the `self` it does not write
-fn parameters(function: Node<'_>, source: &[u8]) -> u8 {
+// of `daslib/class_boost` give a `def static` the `self` it does not write; any other `def static` can write its `self`
+// first, which a member call's object fills, so it requires one fewer than it writes
+fn parameters(function: Node<'_>, source: &[u8]) -> (u8, u8) {
     let mut entries = function.walk();
-    let names = function
+    let (required, defaulted) = function
         .children_by_field_name("arguments", &mut entries)
         .filter(Node::is_named)
-        .map(|entry| {
+        .fold((0_usize, 0_usize), |(required, defaulted), entry| {
             let mut cursor = entry.walk();
-            entry.children_by_field_name("name", &mut cursor).count()
-        })
-        .sum::<usize>();
+            let names = entry.children_by_field_name("name", &mut cursor).count();
+            if entry.child_by_field_name("init").is_some() {
+                (required, defaulted + names)
+            } else {
+                (required + names, defaulted)
+            }
+        });
     let own_self = is_annotated(function, source, |name| SELF_MACROS.contains(&name));
+    let can_write_self = has_child_token(function, "static") && !own_self;
+    let fewest = required.saturating_sub(usize::from(can_write_self));
 
-    u8::try_from(names + usize::from(own_self)).unwrap_or(u8::MAX)
+    (
+        u8::try_from(fewest).unwrap_or(u8::MAX),
+        u8::try_from(required + defaulted + usize::from(own_self)).unwrap_or(u8::MAX),
+    )
+}
+
+// constraint: the grammar nests `a |> f() <| b` and `a |> f() { b }` with the block outside and inside the value pipe,
+// both of which pass `f` two values, and reads `f() <| g() <| b` from the left, where the compiler passes `b` to `g`
+fn called_by_pipe(pipe: Node<'_>) -> Option<Node<'_>> {
+    let called = pipe.child_by_field_name("function_call");
+    let after_it = pipe.child_by_field_name("argument").filter(|argument| {
+        argument.kind() != "make_block"
+            && called.is_some_and(|called| argument.start_byte() >= called.end_byte())
+    });
+    after_it.or(called)
 }
 
 fn passes_a_block(call: Node<'_>) -> bool {

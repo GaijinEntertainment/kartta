@@ -102,6 +102,77 @@ def short() {
 }
 
 #[test]
+fn a_call_that_passes_fewer_than_a_definition_requires_binds_nothing() {
+    let builtin = "options gen2
+module builtin shared public
+
+def float3(a, b, c) {
+    return a;
+}
+";
+    let shapes = "options gen2
+require daslib/builtin
+
+def too_few() {
+    let v = float3(1);
+}
+
+def fits() {
+    let v = float3(1, 2, 3);
+}
+
+def too_many() {
+    let v = float3(1, 2, 3, 4);
+}
+";
+    let tree = tree(&[("daslib/builtin.das", builtin), ("shapes.das", shapes)]);
+
+    let too_few = walk_of(&tree, "shapes.das", "too_few");
+    assert_eq!(reached(&too_few), Vec::<String>::new());
+    assert_eq!(too_few.unresolved, 1);
+    assert_eq!(
+        reached(&walk_of(&tree, "shapes.das", "fits")),
+        ["builtin.float3:4"]
+    );
+    assert_eq!(
+        reached(&walk_of(&tree, "shapes.das", "too_many")),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_parameter_with_a_default_is_not_required() {
+    let source = "options gen2
+def open(path; mode = 1; var flags : int = 2) {
+    print(path)
+}
+def clamped(a, b : int = 2) {
+    print(a)
+}
+def with_required() {
+    open(1)
+}
+def default_covers_each_name_of_its_entry() {
+    clamped()
+}
+";
+    let tree = tree(&[("a.das", source)]);
+
+    assert_eq!(
+        reached(&walk_of(&tree, "a.das", "with_required")),
+        ["open:2"]
+    );
+    assert_eq!(
+        reached(&walk_of(
+            &tree,
+            "a.das",
+            "default_covers_each_name_of_its_entry"
+        )),
+        ["clamped:5"]
+    );
+}
+
+#[test]
 fn each_name_of_a_parameter_list_takes_an_argument() {
     let source = "options gen2
 def blend(a, b, c : int; d) {
@@ -177,6 +248,45 @@ def over_chain() {
 }
 
 #[test]
+fn a_call_passes_what_each_pipe_at_its_head_gives_it() {
+    let source = "options gen2
+def three(a, b, c) {
+    print(a)
+}
+def two(a, b) {
+    print(a)
+}
+def value_and_block() {
+    1 |> three(2) <| $() {
+        print(3)
+    }
+}
+def value_and_trailing_block() {
+    1 |> three(2) {
+        print(3)
+    }
+}
+def value_and_too_few() {
+    1 |> three() <| $() {
+        print(3)
+    }
+}
+def block_of_the_last_call() {
+    two(1) <| two(2) <| 3
+}
+";
+    let tree = tree(&[("a.das", source)]);
+    let bound = |name| reached(&walk_of(&tree, "a.das", name));
+
+    assert_eq!(bound("value_and_block"), ["three:2"]);
+    assert_eq!(bound("value_and_trailing_block"), ["three:2"]);
+    assert_eq!(bound("value_and_too_few"), Vec::<String>::new());
+    let last_call = walk_of(&tree, "a.das", "block_of_the_last_call");
+    assert_eq!(reached(&last_call), ["two:5"]);
+    assert_eq!(last_call.unresolved, 0);
+}
+
+#[test]
 fn a_named_argument_is_an_argument() {
     let source = "options gen2
 def two(a, b) {
@@ -196,6 +306,39 @@ def over() {
         reached(&walk_of(&tree, "a.das", "over")),
         Vec::<String>::new()
     );
+}
+
+#[test]
+fn the_object_of_a_member_call_fills_the_self_a_def_static_writes() {
+    let source = "options gen2
+struct Bits {
+    def static erase(var self : Bits; at : int) {
+        print(at)
+    }
+}
+def fits(b) {
+    b.erase(1)
+}
+def short(b) {
+    b.erase()
+}
+def too_few_as_free(b, c) {
+    two(b)
+}
+def two(a, b) {
+    print(a)
+}
+def short_member(b) {
+    b.two()
+}
+";
+    let tree = tree(&[("a.das", source)]);
+    let bound = |name| reached(&walk_of(&tree, "a.das", name));
+
+    assert_eq!(bound("fits"), ["Bits.erase:3"]);
+    assert_eq!(bound("short"), Vec::<String>::new());
+    assert_eq!(bound("too_few_as_free"), Vec::<String>::new());
+    assert_eq!(bound("short_member"), Vec::<String>::new());
 }
 
 #[test]
@@ -292,6 +435,31 @@ class Table {
     assert_eq!(
         callees(&[("a.das", source)], "a.das", "Table.run"),
         ["Table.grow:3", "Table.find:7"]
+    );
+}
+
+#[test]
+fn a_member_call_short_of_a_class_method_s_written_parameter_binds_nothing() {
+    let source = "options gen2
+class Table {
+    [class_method]
+    def static find(key) {
+        print(key)
+    }
+}
+def given(var t : Table) {
+    t.find(1)
+}
+def short(var t : Table) {
+    t.find()
+}
+";
+    let tree = tree(&[("a.das", source)]);
+
+    assert_eq!(reached(&walk_of(&tree, "a.das", "given")), ["Table.find:3"]);
+    assert_eq!(
+        reached(&walk_of(&tree, "a.das", "short")),
+        Vec::<String>::new()
     );
 }
 
