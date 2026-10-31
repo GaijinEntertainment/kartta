@@ -150,7 +150,7 @@ fn daslang_claims_files_with_the_das_extension_in_any_case() {
 #[test]
 fn daslang_conventions_are_the_default_but_value_uses_type_uses_and_receivers() {
     let mut expected = Conventions::default();
-    expected.value_uses = ValueUses::Imported;
+    expected.value_uses = ValueUses::Expanded;
     expected.own_type_receivers = Some(&["self"]);
     expected.base_receivers = &["super"];
     expected.type_uses = TypeUses::Nowhere;
