@@ -479,12 +479,55 @@ impl Resolver for Crates {
             }
             extraction.includes.push(IncludeRef { target });
         }
+        read_renamed_types(&mut extraction);
 
         extraction
     }
 
     fn resolves_as(&self, kept: &dyn Resolver) -> bool {
         (kept as &dyn Any).downcast_ref::<Self>() == Some(self)
+    }
+}
+
+// constraint: the owner tier finds a type by its own name, so a receiver or a return type spelled by a `use … as`
+// that the tree holds, `ClapError` after `use crate::error::Error as ClapError;`, reads as the type the `use` names; a
+// rename into code the tree does not hold leaves no binding, and its type stays outside the graph; a file whose `impl`s
+// spell the rename own their members under it, and one that declares a type of the `use`'s name would read the rename
+// as its own type, so either keeps the spelling
+fn read_renamed_types(extraction: &mut Extraction) {
+    let mut renamed: HashMap<&str, &str> = (extraction.bindings.iter())
+        .filter(|binding| {
+            binding
+                .last_segment
+                .starts_with(|first: char| first.is_ascii_uppercase())
+        })
+        .filter_map(|binding| Some((binding.alias.as_deref()?, binding.last_segment.as_str())))
+        .collect();
+    renamed.retain(|&alias, &mut source| {
+        !extraction.symbols.iter().any(|symbol| {
+            symbol.owner.as_deref() == Some(alias)
+                || (symbol.kind.is_type() && symbol.name == source)
+        })
+    });
+    if renamed.is_empty() {
+        return;
+    }
+    for receiver in (extraction.calls.iter_mut()).filter_map(|call| call.receiver.as_mut()) {
+        read_through(&renamed, receiver);
+    }
+    for returned in (extraction.symbols.iter_mut()).flat_map(|symbol| &mut symbol.value_types) {
+        read_through(&renamed, returned);
+    }
+}
+
+// constraint: a spelled type is `T`, `?T` for what an `Option` or a `Result` holds, or `T::m()`, a path of calls
+fn read_through(renamed: &HashMap<&str, &str>, spelled: &mut String) {
+    let start = usize::from(spelled.starts_with('?'));
+    let end = spelled[start..]
+        .find(':')
+        .map_or(spelled.len(), |end| start + end);
+    if let Some(source) = renamed.get(&spelled[start..end]) {
+        spelled.replace_range(start..end, source);
     }
 }
 
