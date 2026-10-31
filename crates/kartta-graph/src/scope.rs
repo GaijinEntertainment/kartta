@@ -1500,18 +1500,10 @@ impl Cascade<'_> {
         }
         let owned = owned.iter().copied();
         let at = match self.qualified_owner(call.caller_at()) {
-            Some(own) => self
-                .nearest(
-                    call,
-                    owned
-                        .clone()
-                        .filter(|&at| self.qualified_owner(at).is_none_or(|other| other == own)),
-                )
-                .or_else(|| {
-                    let namesake = self.nearest(call, owned)?;
-                    (!self.caller_s_class_declares_no_base(call, caller_owner, own))
-                        .then_some(namesake)
-                }),
+            Some(own) => self.nearest(
+                call,
+                owned.filter(|&at| self.qualified_owner(at).is_none_or(|other| other == own)),
+            ),
             None => self.nearest(call, owned),
         }?;
         let tier = if listed {
@@ -1629,20 +1621,6 @@ impl Cascade<'_> {
             .qualifier(at)?
             .trim_end_matches(QUALIFIER_SEPARATORS);
         (!owner.is_empty()).then_some(owner)
-    }
-
-    // constraint: a base's name is written as its file spells it, often through an alias, `BaseGrammar` for
-    // `Illuminate\Database\Grammar`, so a class of the caller's owner's name in another scope stands in for a base the
-    // graph cannot name; only a class that declares no base has no member but its own
-    /// Whether the caller's class declares no base: of the types of the bare name `owner` qualified as `qualified`, the
-    /// one nearest the call.
-    fn caller_s_class_declares_no_base(&self, call: &Call, owner: Str, qualified: &str) -> bool {
-        let types = self.named(owner).iter().copied().filter(|&ty| {
-            let symbol = self.graph.sym(ty);
-            derives(symbol.kind) && self.graph.strings.resolve(symbol.qualified_name) == qualified
-        });
-        self.nearest_of(call, types)
-            .is_some_and(|ty| self.graph.file(ty.file).parents_of(ty.index).is_empty())
     }
 
     fn chain_ends_in(&self, owner: Str, receiver: Str, separator: &str) -> bool {
