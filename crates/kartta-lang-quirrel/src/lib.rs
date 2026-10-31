@@ -39,9 +39,11 @@
 //! that cannot be read mounts nothing and adds no base path. A script that no `.sqconfig` governs resolves by the
 //! specifier's shape: `%root/rest` and any other slashed or `.nut` specifier name the file under the nearest directory
 //! of the script that holds them, `./` and `../` name the file relative to the script, and `.nut` is appended when the
-//! path as written names none. A bare name is a native module and names no file. Every match is case-sensitive. The
-//! file a specifier names is an include; a specifier that names no file is an import, kept as written, with the names
-//! a `from` import takes.
+//! path as written names none. A bare name is a native module and names no file. Under a `.sqconfig`, a path that names
+//! no file takes the one file that differs from it only in ASCII letter case, as the game's vromfs does; a mount's
+//! name, a specifier's `.nut` suffix, and every match without a `.sqconfig`, keep letter case. The file a specifier
+//! names is an include; a specifier that names no file is an import, kept as written, with the names a `from` import
+//! takes.
 //!
 //! The resolver keeps only what it derived: the mounts and base paths of each `.sqconfig`. A resolver built again over
 //! an edit that changes none of them, such as a comment or another key in a `.sqconfig`,
