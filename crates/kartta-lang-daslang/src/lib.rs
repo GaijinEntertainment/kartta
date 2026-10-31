@@ -93,8 +93,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    Conventions, DocComments, Language, RawExtraction, Repository, Resolver, SymbolKind, TypeUses,
-    ValueUses,
+    BareReceivers, Conventions, DocComments, Language, RawExtraction, Repository, Resolver,
+    SymbolKind, TypeUses, ValueUses,
 };
 
 use crate::resolve::DaslangResolver;
@@ -117,6 +117,7 @@ impl Daslang {
 
 const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
+    conventions.bare_receivers = BareReceivers::Modules;
     conventions.value_uses = ValueUses::Expanded;
     conventions.own_type_receivers = Some(&["self"]);
     conventions.base_receivers = &["super"];
