@@ -9,12 +9,13 @@
 //!
 //! A file yields its functions and methods, its classes, structs, unions (as structs) and enums that have a body, its
 //! type aliases (`using` and `typedef`), the data members of its classes as fields, and its namespace-scope variables
-//! and constants. A field declared as a value of a class, a reference to one or a pointer to one carries that class
-//! as its [value type](kartta_lang::Symbol::value_types), spelled as a member call's receiver spells it but without
-//! its template arguments, after a `*` for a pointer, and a value of a class template also the class its first
-//! template argument names, after a `*`, which `->` reaches through the template's `operator->`, as
-//! `eastl::unique_ptr<Lock>` does; a field of a builtin type, of a template parameter, an array or a pointer to a
-//! pointer carries none. A type alias of a class carries the class the same way, `List` for `typedef List<Node>
+//! and constants. A field declared as a value of a class, a reference to one, or a pointer or an array of those carries
+//! that class as its [value type](kartta_lang::Symbol::value_types), spelled as a member call's receiver spells it but
+//! without its template arguments, after a `*` for each pointer or array dimension, and a field of a class template
+//! also the class its first template argument names, after one `*` more, or two for an argument written as a pointer,
+//! which `->` reaches through the template's `operator->`, as `eastl::unique_ptr<Lock>` does, and `[]` through its
+//! `operator[]`, as `Tab<Lock>` does; a field of a builtin type or of a template parameter, and a type behind more than
+//! two pointers, carry none. A type alias of a class carries the class the same way, `List` for `typedef List<Node>
 //! NodeList;`; an alias of a pointer, a reference or a builtin type, of a template parameter, or of a class whose
 //! written scope holds template arguments or starts at a template parameter, `std::vector<T>::iterator` or
 //! `T::iterator`, carries none. A class's parents are its base
@@ -87,10 +88,10 @@
 //! `ns::Box<int>`, the arguments as written, and by its bare name where the spelling holds a space outside them.
 //! In a member, a name the body does not declare, `lock` or `this->lock`, names a field of the member's class or of a
 //! base, or a namespace's value, which the walk cannot tell apart, so the call records it after the operator that takes
-//! the member, `.lock` or `->lock`, for the graph to bind through the field it finds. `this` outside a member keeps
-//! `this`, and any other operand records the empty receiver, because the operand of `.` or `->` is a value whose name
-//! names no type. A call through a named scope keeps the scope as written, `ns::f`, and one through the root keeps the
-//! `::`, `::f`.
+//! the member, `.lock` or `->lock`, for the graph to bind through the field it finds, and an element of it, `locks[i]`,
+//! before a `[]`, `.locks[]` or `->locks[]`. `this` outside a member keeps `this`, and any other operand records the
+//! empty receiver, because the operand of `.` or `->` is a value whose name names no type. A call through a named
+//! scope keeps the scope as written, `ns::f`, and one through the root keeps the `::`, `::f`.
 //! `new ns::Widget<T>()` is a call of `Widget`. A cast, a call spelled by a type keyword, and a call or a `new` of a
 //! parameter of an enclosing template, `Compare()` in a template over `Compare`, are not recorded. A call outside every
 //! function is a call from file scope, before the file's first symbol too.
