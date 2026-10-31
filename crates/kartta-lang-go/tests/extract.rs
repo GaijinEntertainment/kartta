@@ -440,6 +440,170 @@ fn a_type_named_in_a_declaration_or_a_composite_literal_is_a_use_as_a_type_and_i
     assert_eq!(Go::new().conventions().type_uses, TypeUses::Every);
 }
 
+fn accesses_on_line(raw: &RawExtraction, line: u32) -> Vec<(&str, Access)> {
+    raw.uses
+        .iter()
+        .filter(|site| site.line == line)
+        .map(|site| (site.name.as_str(), site.access))
+        .collect()
+}
+
+#[test]
+fn a_type_argument_of_an_uncalled_generic_function_is_a_use_as_a_type() {
+    let raw = extract(
+        br#"package p
+
+import "example.com/sdk"
+
+type Item struct{}
+
+func errorIs[T error](err error) bool { return false }
+
+func F() {
+	_ = errorIs[*sdk.Timeout]
+	_ = errorIs[Item]
+	_ = errorIs[[]sdk.Timeout]
+	_ = errorIs[Box[Item]]
+	_ = pair[other, sdk.Timeout]
+	_ = sdk.Check[other]
+	_ = sibling[*sdk.Timeout]
+	_ = errorIs[sdk.Timeout](nil)
+}
+"#,
+    );
+
+    assert_eq!(
+        accesses_on_line(&raw, 10),
+        [("errorIs", Access::Read), ("Timeout", Access::Type)],
+        "a pointer to an imported type; the generic function itself is read"
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 11),
+        [("errorIs", Access::Read), ("Item", Access::Type)]
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 12),
+        [("errorIs", Access::Read), ("Timeout", Access::Type)]
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 13),
+        [
+            ("errorIs", Access::Read),
+            ("Box", Access::Type),
+            ("Item", Access::Type)
+        ],
+        "an instantiated type argument is recorded once"
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 14),
+        [
+            ("pair", Access::Read),
+            ("other", Access::Type),
+            ("Timeout", Access::Type)
+        ],
+        "two indices are a type argument list"
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 15),
+        [("Check", Access::Read), ("other", Access::Type)],
+        "a bare name indexing an imported name is a type argument"
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 16),
+        [("sibling", Access::Read), ("Timeout", Access::Type)],
+        "a generic function a sibling file declares, known by the pointer"
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 17),
+        [("Timeout", Access::Type)],
+        "a call instantiates what no argument's spelling shows"
+    );
+}
+
+#[test]
+fn an_index_of_a_slice_or_a_map_reads_its_index() {
+    let raw = extract(
+        br#"package p
+
+import "example.com/sdk"
+
+var table = map[string]int{}
+
+const first = "a"
+
+func F(xs []int, i int) {
+	_ = xs[i]
+	_ = table[first]
+	_ = xs[first]
+	_ = table[sdk.Key]
+	_ = sdk.Table[sdk.Key]
+	_ = sibling[other]
+	_ = sibling[sdk.Key]
+	_ = sdk.Pick[sdk.Timeout]
+}
+
+func G(sdk Client, xs []int) {
+	_ = sdk.Items[other]
+	_ = xs[*head]
+}
+
+func H(xs []int) {
+	_ = sdk.Table[*head]
+	_ = xs[*sdk.Head]
+}
+"#,
+    );
+
+    assert_eq!(accesses_on_line(&raw, 10), [] as [(&str, Access); 0]);
+    assert_eq!(
+        accesses_on_line(&raw, 11),
+        [("table", Access::Read), ("first", Access::Read)]
+    );
+    assert_eq!(accesses_on_line(&raw, 12), [("first", Access::Read)]);
+    assert_eq!(
+        accesses_on_line(&raw, 13),
+        [("table", Access::Read), ("Key", Access::Read)]
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 14),
+        [("Table", Access::Read), ("Key", Access::Read)]
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 15),
+        [("sibling", Access::Read), ("other", Access::Read)],
+        "a sibling file's map keyed by its constant"
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 16),
+        [("sibling", Access::Read), ("Key", Access::Read)]
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 17),
+        [("Pick", Access::Read), ("Timeout", Access::Read)],
+        "an imported name indexed by an imported name reads as a map keyed by a constant, which outnumbers it"
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 21),
+        [("Items", Access::Read), ("other", Access::Read)],
+        "a parameter that shadows an import holds a value"
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 22),
+        [("head", Access::Read)],
+        "a pointer read through in the index of a local"
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 26),
+        [("Table", Access::Read), ("head", Access::Read)],
+        "a pointer to a name the file declares as no type is read through"
+    );
+    assert_eq!(
+        accesses_on_line(&raw, 27),
+        [("Head", Access::Read)],
+        "a pointer on another package's name indexes a local value"
+    );
+}
+
 #[test]
 fn a_type_local_to_a_body_is_a_local_symbol_no_use_names() {
     let raw = extract(b"package p\n\nfunc f() {\n\ttype L struct{}\n\tvar l L\n\t_ = l\n}\n");

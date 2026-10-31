@@ -68,15 +68,7 @@ impl Emitter<'_> {
     // the operand in the parentheses is recorded as a use and the call as none
     fn invoked<'t>(&mut self, function: Node<'t>) -> Option<Node<'t>> {
         match function.kind() {
-            "index_expression" => {
-                let generic = self.instantiated(function)?;
-                let owner = self.use_owner();
-                let mut cursor = function.walk();
-                for argument in function.children_by_field_name("index", &mut cursor) {
-                    self.record_type_operand(argument, owner);
-                }
-                Some(generic)
-            }
+            "index_expression" => self.instantiated(function),
             "parenthesized_expression" => {
                 if let Some(inner) = first_operand(function) {
                     let owner = self.use_owner();
@@ -86,6 +78,67 @@ impl Emitter<'_> {
             }
             _ => Some(function),
         }
+    }
+
+    pub(super) fn record_type_arguments(&mut self, index: Node<'_>) {
+        let called = index
+            .child_by_field_name("operand")
+            .is_some_and(|operand| self.named_by_call == Some(operand.id()));
+        if called || (self.instantiated(index).is_some() && self.spells_type_arguments(index)) {
+            let owner = self.use_owner();
+            let mut cursor = index.walk();
+            for argument in index.children_by_field_name("index", &mut cursor) {
+                self.record_type_operand(argument, owner);
+            }
+        }
+    }
+
+    fn spells_type_arguments(&self, index: Node<'_>) -> bool {
+        let mut cursor = index.walk();
+        let mut arguments = index.children_by_field_name("index", &mut cursor);
+
+        arguments
+            .next()
+            .is_some_and(|first| arguments.next().is_some() || self.spells_type(first, index))
+    }
+
+    // constraint: `table[Key]` and `pick[Key]` have one tree, and outside a call most such trees index a value, so a
+    // type argument passes only as what a value's index does not spell, or as a bare name on an imported name, which a
+    // package exports far more often as a generic function than as a table a sibling file's constant keys
+    fn spells_type(&self, argument: Node<'_>, index: Node<'_>) -> bool {
+        match argument.kind() {
+            "identifier" => self.names_a_type(argument) || self.operand_is_imported(index),
+            "unary_expression" => {
+                is_pointer_indirection(argument)
+                    && (argument.child_by_field_name("operand")).is_some_and(|pointee| {
+                        pointee.kind() == "selector_expression" || self.names_a_type(pointee)
+                    })
+            }
+            "parenthesized_expression" => {
+                first_operand(argument).is_some_and(|inner| self.spells_type(inner, index))
+            }
+            "index_expression" => self.spells_type_arguments(argument),
+            kind => TYPE_ONLY_KINDS.contains(&kind),
+        }
+    }
+
+    fn names_a_type(&self, name: Node<'_>) -> bool {
+        name.kind() == "identifier"
+            && self
+                .declaration_of(self.borrowed(name), name.start_byte())
+                .is_some()
+    }
+
+    fn operand_is_imported(&self, index: Node<'_>) -> bool {
+        index
+            .child_by_field_name("operand")
+            .and_then(|operand| operand.child_by_field_name("operand"))
+            .filter(|qualifier| qualifier.kind() == "identifier")
+            .is_some_and(|qualifier| {
+                let name = self.borrowed(qualifier);
+                self.import_names.iter().any(|import| import == name)
+                    && !self.is_local(name, qualifier.start_byte())
+            })
     }
 
     // constraint: a type a body declares has fields local to it, which no use binds, so a value of one hands no
