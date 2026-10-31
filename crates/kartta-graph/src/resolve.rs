@@ -625,6 +625,21 @@ impl<'g> Cascade<'g> {
         )
     }
 
+    // constraint: daslang looks `mod::f` up through `mod` and what it requires publicly, never through the caller, so a
+    // module one file declares answers the call or nothing answers it, whether the caller's `require` or another's
+    // brought the module; of two declarers neither is known to be the one a call reaches
+    fn declared_module(&self, file: u32, qualifier: Str) -> Option<u32> {
+        if self.conventions.bare_receivers != BareReceivers::Modules
+            || self.graph.file(file).package == Some(qualifier)
+        {
+            return None;
+        }
+        let mut modules = (self.named(qualifier).iter())
+            .filter(|&&at| self.graph.sym(at).kind == SymbolKind::Namespace);
+        let module = modules.next()?.file;
+        modules.next().is_none().then_some(module)
+    }
+
     fn package_name(&self, dir: Str) -> Option<Str> {
         self.graph
             .package_files(dir)
@@ -1452,12 +1467,16 @@ impl<'g> Cascade<'g> {
             return self.imported_module_export(call).map(Ok);
         };
         let Some(binding) = self.binding(call.file, receiver) else {
-            return self
-                .required_definition(call.file, (receiver, call.callee), Pick::FreeTarget(call))
-                .map(|at| Ok((at, confidence::IMPORT)));
+            if let Some(at) =
+                self.required_definition(call.file, (receiver, call.callee), Pick::FreeTarget(call))
+            {
+                return Some(Ok((at, confidence::IMPORT)));
+            }
+            return self.through_declared_module(call, receiver);
         };
         let Some(target) = binding else {
-            return Some(Err(Miss::ExternalImport));
+            return (self.through_declared_module(call, receiver))
+                .or(Some(Err(Miss::ExternalImport)));
         };
         if let Some(module) = self.graph.slot_of(target) {
             return self.module_export(call, module).map(Ok);
@@ -1469,6 +1488,16 @@ impl<'g> Cascade<'g> {
                 Pick::FreeTarget(call),
             )
             .ok_or(Miss::NotExported),
+        )
+    }
+
+    fn through_declared_module(&self, call: &Call, qualifier: Str) -> Option<Result<Bound, Miss>> {
+        let module = self.declared_module(call.file, qualifier)?;
+        let defined = self.graph.in_file(self.named(call.callee), module);
+        Some(
+            self.pick(Pick::FreeTarget(call), defined.iter().copied())
+                .map(|at| (at, confidence::IMPORT))
+                .ok_or(Miss::NotExported),
         )
     }
 

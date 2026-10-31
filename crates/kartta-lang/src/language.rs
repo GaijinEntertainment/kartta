@@ -373,6 +373,10 @@ pub enum BareReceivers {
     /// of one.
     #[default]
     Any,
+    /// A module where exactly one other file declares a module of that name, as daslang's `mod::f()` qualifies a call,
+    /// whether or not the caller's file requires the module: the call binds that module's definition of the name or
+    /// nothing. Any other bare name reads as under [`BareReceivers::Any`].
+    Modules,
     /// A class, as a PHP static call writes `Mockery::mock()` while a value is written `$mock`, except for the scope
     /// keywords listed, `self`, `static` and `parent`, compared without case. A call on any other bare name that no
     /// type the graph holds is named calls a member of a class outside the graph, or of a class the file imports under

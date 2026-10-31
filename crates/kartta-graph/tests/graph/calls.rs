@@ -6260,6 +6260,111 @@ fn script_module(path: &str, module: &str, names: &[&str], calls: Vec<CallRef>) 
     extraction
 }
 
+fn modules() -> Conventions {
+    let mut conventions = Conventions::default();
+    conventions.bare_receivers = BareReceivers::Modules;
+    conventions
+}
+
+#[test]
+fn a_call_qualified_by_a_module_its_file_does_not_require_binds_that_module_s_function() {
+    let checks = script_module(
+        "game/checks.das",
+        "checks",
+        &["has_volume", "checks"],
+        Vec::new(),
+    );
+    let binds = script_module(
+        "game/client/binds.das",
+        "binds",
+        &["has_volume"],
+        vec![member_call(1, "checks", "has_volume", 21)],
+    );
+    let graph = graph_of(modules(), &[checks, binds]);
+
+    assert_eq!(
+        callees(&graph, "binds.has_volume"),
+        ["game/checks.das:20@95"],
+        "another module's `require` can bring it, and a function named for the module declares no second module"
+    );
+}
+
+#[test]
+fn a_module_declared_under_a_name_no_file_bears_answers_over_a_binding_outside_the_graph() {
+    let checks = script_module("game/rules.das", "checks", &["has_volume"], Vec::new());
+    let mut binds = script_module(
+        "game/client/binds.das",
+        "binds",
+        &["has_volume"],
+        vec![member_call(1, "checks", "has_volume", 21)],
+    );
+    binds.bindings = vec![ImportBinding {
+        alias: None,
+        target_dir: None,
+        last_segment: "checks".to_owned(),
+    }];
+    let graph = graph_of(modules(), &[checks, binds]);
+
+    assert_eq!(
+        callees(&graph, "binds.has_volume"),
+        ["game/rules.das:20@95"],
+        "the file names stand in for the module index, so a clause outside them still declares the module"
+    );
+}
+
+#[test]
+fn a_call_qualified_by_a_module_without_the_name_binds_nothing() {
+    let checks = script_module("game/checks.das", "checks", &["other"], Vec::new());
+    let elsewhere = script_module("game/elsewhere.das", "elsewhere", &["spare"], Vec::new());
+    let binds = script_module(
+        "game/client/binds.das",
+        "binds",
+        &["has_volume", "own"],
+        vec![
+            member_call(1, "checks", "has_volume", 21),
+            member_call(2, "checks", "spare", 31),
+        ],
+    );
+    let graph = graph_of(modules(), &[checks, elsewhere, binds]);
+
+    assert_eq!(
+        (
+            callees(&graph, "binds.has_volume"),
+            callees(&graph, "binds.own")
+        ),
+        (Vec::<String>::new(), Vec::new()),
+        "a qualifier names one module, so neither the caller's namesake nor another file's can answer"
+    );
+}
+
+#[test]
+fn a_qualifier_two_files_declare_leaves_the_call_to_the_tiers_below() {
+    let near = script_module("tools/fmt/log.das", "log", &["info"], Vec::new());
+    let far = script_module("tools/test/log.das", "log", &["info"], Vec::new());
+    let main = script_module(
+        "tools/fmt/main.das",
+        "main",
+        &["run"],
+        vec![member_call(1, "log", "info", 21)],
+    );
+    let graph = graph_of(modules(), &[far, near, main]);
+
+    assert_eq!(callees(&graph, "main.run"), ["tools/fmt/log.das:20@50"]);
+}
+
+#[test]
+fn a_qualifier_that_names_the_file_s_own_module_binds_as_a_bare_name() {
+    let own = script_module(
+        "tools/util.das",
+        "util",
+        &["run", "start"],
+        vec![member_call(2, "util", "run", 31)],
+    );
+    let graph = graph_of(modules(), &[own]);
+
+    assert_eq!(callees(&graph, "util.start"), ["tools/util.das:20@80"]);
+}
+
 #[test]
 fn a_call_qualified_by_a_required_module_binds_that_module_s_function_over_its_file_s_namesake() {
     let checks = script_module("game/checks.das", "checks", &["has_volume"], Vec::new());
