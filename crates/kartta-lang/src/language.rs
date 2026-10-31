@@ -519,7 +519,8 @@ pub enum ValueUses {
     /// and everything it includes compile as one script. A use that would bind an enum, or that two files tie on, binds
     /// the one variable of the name those files hold, its own included, where they hold one: an enum there names the
     /// ranges of the variable of its name. A use all that leaves unbound binds the one file that declares the name, of
-    /// all the files that compile in a script with the use's file: those that share a file no file includes with it.
+    /// all the files that compile in a script with the use's file: those that share a file no file includes with it. Of
+    /// several, the one that shares the most leading directories with the use's file, at least two, binds.
     ImportedThenReached,
     /// As [`Imported`](Self::Imported), else in the one definition that the files including the use's file bind the
     /// name to that way, the file itself first: a macro's quoted code names what the file that expands the macro

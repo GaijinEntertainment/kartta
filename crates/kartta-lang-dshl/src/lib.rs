@@ -41,7 +41,7 @@
 //! declare binds neither. An `interval` names the ranges of the global of its name, so a read it would take, or tie
 //! on, binds the one variable of the name those files hold, where they hold one. A use all that leaves unbound binds
 //! the one file that declares the name of all the scripts its file compiles in, since an included file reads what its
-//! includers declare.
+//! includers declare, and of several the copy nearest the use, since a game keeps its own copy of a global's file.
 //!
 //! # Fingerprint
 //!
