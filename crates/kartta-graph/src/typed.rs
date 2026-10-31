@@ -32,6 +32,8 @@ pub(crate) enum Value<'g> {
 
 const MAX_DEPTH: u8 = 16;
 
+const UNDERLYING: &str = "~";
+
 enum Step<'p> {
     Select(&'p str),
     Result(usize),
@@ -263,7 +265,10 @@ impl<'g> Cascade<'g> {
             .graph
             .file(ty.file)
             .value_types(ty.index)
-            .is_some_and(|types| !self.graph.strings.resolve(types).starts_with("[]"))
+            .is_some_and(|types| {
+                let types = self.graph.strings.resolve(types);
+                !types.starts_with("[]") && !types.starts_with(UNDERLYING)
+            })
     }
 
     fn element(&self, value: Value<'g>, depth: u8) -> Value<'g> {
@@ -379,14 +384,42 @@ impl<'g> Cascade<'g> {
     }
 
     fn embed(&self, walk: &mut Embedded, ty: SymbolAt, depth: u8) {
-        if self.graph.sym(ty).kind == SymbolKind::TypeAlias
-            && let Value::Type(aliased) = self.value_type(ty, 0, depth)
-        {
-            walk.follow(Value::Type(aliased));
+        match self.graph.sym(ty).kind {
+            SymbolKind::TypeAlias => {
+                if let Value::Type(aliased) = self.value_type(ty, 0, depth) {
+                    walk.follow(Value::Type(aliased));
+                }
+            }
+            SymbolKind::DefinedType => {
+                if let Some(interface) = self.interface_under(ty, depth) {
+                    walk.follow(Value::Type(interface));
+                }
+            }
+            _ => {}
         }
         for parent in self.graph.file(ty.file).parents_of(ty.index) {
             let written = self.graph.strings.resolve(parent.written);
             walk.follow(self.evaluate(self.body_of(ty), written, depth + 1));
+        }
+    }
+
+    // constraint: a type defined over another takes none of its methods, an interface's excepted, whose methods are the
+    // method set of every type defined over it
+    fn interface_under(&self, ty: SymbolAt, depth: u8) -> Option<SymbolAt> {
+        let kind = self.graph.sym(ty).kind;
+        if kind == SymbolKind::Interface {
+            return Some(ty);
+        }
+        let types = self.graph.file(ty.file).value_types(ty.index)?;
+        let types = self.graph.strings.resolve(types);
+        let path = match kind {
+            SymbolKind::DefinedType => types.strip_prefix(UNDERLYING)?,
+            SymbolKind::TypeAlias => types,
+            _ => return None,
+        };
+        match self.evaluate(self.body_of(ty), path, depth + 1) {
+            Value::Type(under) => self.interface_under(under, depth + 1),
+            _ => None,
         }
     }
 }
