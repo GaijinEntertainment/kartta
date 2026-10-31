@@ -6,16 +6,18 @@ use crate::extraction::{
 };
 use crate::symbol::{Symbol, SymbolFlags, SymbolId, SymbolKind};
 
-// constraint: a symbol's kind byte holds its kind in its low bits and these two marks in its high ones, so the byte
-// after it holds every `SymbolFlags` bit
+// constraint: a symbol's kind byte holds its kind in its low bits and these marks in its high ones, so the byte after
+// it holds every `SymbolFlags` bit; a symbol that takes any number of arguments spends no byte on its count
+const COUNTS_ARGUMENTS: u8 = 1 << 5;
 const QUALIFIED_AS_NAME: u8 = 1 << 6;
 const EXPORTED: u8 = 1 << 7;
 
 // constraint: a call's marks byte is the one an optional text writes for its receiver, with the macro and method marks
-// beside it, so a call that carries neither is written as before the marks
+// beside it, so a call that carries neither is written as before the marks; a call with no count spends no byte on it
 const CALL_RECEIVER: u8 = 1;
 const INVOKES_A_MACRO: u8 = 1 << 1;
 const CALLS_A_METHOD: u8 = 1 << 2;
+const CALL_ARGUMENTS: u8 = 1 << 3;
 
 const FORM: u8 = 0b11;
 const BARE: u8 = 0;
@@ -181,8 +183,14 @@ impl Writer<'_> {
         if symbol.exported {
             kind |= EXPORTED;
         }
+        if symbol.most_arguments != u8::MAX {
+            kind |= COUNTS_ARGUMENTS;
+        }
         self.0.push(kind);
         self.0.push(symbol.flags.bits());
+        if symbol.most_arguments != u8::MAX {
+            self.0.push(symbol.most_arguments);
+        }
         self.text(&symbol.name);
         if !qualified_as_name {
             self.text(&symbol.qualified_name);
@@ -208,8 +216,9 @@ impl Writer<'_> {
         self.id(call.site_of);
         self.text(&call.callee);
         let mark = |set, mark| if set { mark } else { 0 };
-        let marks =
-            mark(call.invokes_a_macro, INVOKES_A_MACRO) | mark(call.calls_a_method, CALLS_A_METHOD);
+        let marks = mark(call.invokes_a_macro, INVOKES_A_MACRO)
+            | mark(call.calls_a_method, CALLS_A_METHOD)
+            | mark(call.arguments != 0, CALL_ARGUMENTS);
         match call.receiver.as_deref() {
             Some(receiver) => {
                 self.0.push(marks | CALL_RECEIVER);
@@ -218,6 +227,9 @@ impl Writer<'_> {
             None => self.0.push(marks),
         }
         self.uint(call.line);
+        if call.arguments != 0 {
+            self.0.push(call.arguments);
+        }
     }
 
     fn use_ref<'t>(&mut self, site: &'t UseRef, spelled: &mut HashMap<&'t str, u32>) {
@@ -333,9 +345,16 @@ impl<'a> Reader<'a> {
     fn symbol(&mut self) -> Read<Symbol> {
         let marks = self.byte()?;
         let kind = *SymbolKind::ALL
-            .get(usize::from(marks & !(QUALIFIED_AS_NAME | EXPORTED)))
+            .get(usize::from(
+                marks & !(COUNTS_ARGUMENTS | QUALIFIED_AS_NAME | EXPORTED),
+            ))
             .ok_or(Malformed)?;
         let flags = self.byte()?;
+        let most_arguments = if marks & COUNTS_ARGUMENTS == 0 {
+            u8::MAX
+        } else {
+            self.byte()?
+        };
         let name = self.text()?;
         let qualified_name = if marks & QUALIFIED_AS_NAME == 0 {
             self.text()?
@@ -356,6 +375,7 @@ impl<'a> Reader<'a> {
         symbol.signature = signature;
         symbol.value_types = value_types;
         symbol.flags = SymbolFlags::from_bits(flags);
+        symbol.most_arguments = most_arguments;
         Ok(symbol)
     }
 
@@ -375,7 +395,7 @@ impl<'a> Reader<'a> {
         let site_of = self.id()?;
         let callee = self.text()?;
         let marks = self.byte()?;
-        if marks & !(INVOKES_A_MACRO | CALLS_A_METHOD | CALL_RECEIVER) != 0 {
+        if marks & !(INVOKES_A_MACRO | CALLS_A_METHOD | CALL_ARGUMENTS | CALL_RECEIVER) != 0 {
             return Err(Malformed);
         }
         let receiver = if marks & CALL_RECEIVER == 0 {
@@ -383,13 +403,20 @@ impl<'a> Reader<'a> {
         } else {
             Some(self.text()?)
         };
+        let line = self.uint()?;
+        let arguments = if marks & CALL_ARGUMENTS == 0 {
+            0
+        } else {
+            self.byte()?
+        };
         Ok(CallRef {
             site_of,
             callee,
             receiver,
-            line: self.uint()?,
+            line,
             invokes_a_macro: marks & INVOKES_A_MACRO != 0,
             calls_a_method: marks & CALLS_A_METHOD != 0,
+            arguments,
         })
     }
 
@@ -456,6 +483,7 @@ mod tests {
 
     fn every_channel() -> RawExtraction {
         let mut method = Symbol::new("parse", SymbolKind::Method, 3, 9);
+        method.most_arguments = 2;
         method.qualified_name = "Parser.parse".to_owned();
         method.owner = Some("Parser".to_owned());
         method.parents = vec!["Reader".to_owned(), "io.Closer".to_owned()];
@@ -514,19 +542,24 @@ mod tests {
     fn every_call_mark() -> Vec<CallRef> {
         let call = |(site_of, callee, receiver): (SymbolId, &str, Option<&str>),
                     line,
-                    (macro_, method)| CallRef {
+                    (macro_, method, arguments)| CallRef {
             site_of,
             callee: callee.to_owned(),
             receiver: receiver.map(str::to_owned),
             line,
             invokes_a_macro: macro_,
             calls_a_method: method,
+            arguments,
         };
         vec![
-            call((SymbolId(0), "read", Some("")), 4, (false, true)),
-            call((FILE_SCOPE, "init", None), 300_000, (false, false)),
-            call((SymbolId(0), "ready", None), 6, (true, false)),
-            call((SymbolId(0), "expand", Some("Parser")), 6, (true, false)),
+            call((SymbolId(0), "read", Some("")), 4, (false, true, 0)),
+            call((FILE_SCOPE, "init", None), 300_000, (false, false, 3)),
+            call((SymbolId(0), "ready", None), 6, (true, false, 0)),
+            call(
+                (SymbolId(0), "expand", Some("Parser")),
+                6,
+                (true, false, u8::MAX),
+            ),
         ]
     }
 
@@ -586,6 +619,7 @@ mod tests {
                 line: 200,
                 invokes_a_macro: false,
                 calls_a_method: false,
+                arguments: 0,
             };
             let (mut written, mut expected) = (Vec::new(), Vec::new());
             Writer(&mut written).call(&call);

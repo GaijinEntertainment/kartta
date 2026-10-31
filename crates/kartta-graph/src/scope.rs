@@ -1627,9 +1627,18 @@ impl Cascade<'_> {
         } else {
             self.shape(call, &nearby, reach)
         };
+        // constraint: code outside the graph can define a name the graph holds, and a definition a call's arguments turn
+        // away shows the name has overloads, so the nearest definition that fits is a guess
+        let guess = |at| {
+            if self.takes_too_few_arguments(call, candidates.named) {
+                (at, confidence::FIRST_PARTY)
+            } else {
+                (at, confidence)
+            }
+        };
         self.one_callable(&shape, nearby.clone())
             .or_else(|| self.constructor_of_a_type_outside(&shape, &nearby))
-            .map(|at| (at, confidence))
+            .map(guess)
     }
 
     fn constructor_of_a_type_outside(

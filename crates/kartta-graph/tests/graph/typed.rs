@@ -102,6 +102,36 @@ fn a_receiver_that_names_a_type_binds_its_method_in_the_type_s_own_package() {
 }
 
 #[test]
+fn a_receiver_that_names_a_type_binds_no_method_that_takes_fewer_than_the_call_passes() {
+    let passing = |arguments| kartta_lang::CallRef {
+        arguments,
+        ..member_call("Server", "Close", 2)
+    };
+    let mut library = server_package();
+    library.symbols[1].most_arguments = 0;
+    let fits = file(
+        "srv/fits.go",
+        "srv",
+        vec![function("srv", "Fits", 1)],
+        vec![passing(1)],
+    );
+    let over = file(
+        "srv/over.go",
+        "srv",
+        vec![function("srv", "Over", 1)],
+        vec![passing(2)],
+    );
+
+    let graph = graph(&[library, fits, over]);
+
+    assert_eq!(
+        callees_of(&graph, "srv.Fits"),
+        [("srv/server.go:srv.Server.Close".to_owned(), 85)]
+    );
+    assert_eq!(callees_of(&graph, "srv.Over"), Vec::new());
+}
+
+#[test]
 fn a_receiver_path_through_an_import_binds_a_method_of_the_imported_package_s_type() {
     let caller = importing(
         file(

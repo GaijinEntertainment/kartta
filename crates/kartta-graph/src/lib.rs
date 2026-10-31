@@ -34,6 +34,7 @@
 //!     line: 2,
 //!     invokes_a_macro: false,
 //!     calls_a_method: false,
+//!     arguments: 0,
 //! });
 //!
 //! let mut graph = Graph::new(Conventions::default());
