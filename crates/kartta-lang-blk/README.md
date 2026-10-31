@@ -17,7 +17,9 @@ An include names the file the engine loads for it, with the path read as the eng
 file is an import, kept as written. A relative path names the file beside the including file, a `#` path the one
 repository file that ends with it, and a `%name/rest` path `rest` below the directory a `mountPoints` block maps `name`
 to. The mount table is read from the files named `settings.blk`, `application.blk`, `aot_config.blk` and
-`libs_aot_config.blk`. An absolute path, a drive-letter one included, names no file, and every match is case-sensitive.
+`libs_aot_config.blk`. An absolute path, a drive-letter one included, names no file. A relative or a `%name/rest` path
+that names no file takes the one file that differs from it only in ASCII letter case, as the game's vromfs does; a `#`
+path and a mount's name keep letter case.
 
 ## Fingerprint
 
