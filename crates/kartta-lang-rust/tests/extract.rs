@@ -1155,6 +1155,101 @@ fn a_method_call_on_a_chain_keeps_the_empty_receiver_where_the_chain_names_no_ty
 }
 
 #[test]
+fn a_method_call_on_a_method_s_result_spells_the_path_of_calls_from_an_owner() {
+    let raw = extract(
+        b"struct Sink;\nstruct Own { field: Sink }\n\
+          impl Own {\n\
+          \x20   fn shapes(&self, s: &Sink, f: std::fs::File) {\n\
+          \x20       s.first().a();\n\
+          \x20       s.first()?.second::<u8>().b();\n\
+          \x20       self.first().c();\n\
+          \x20       self.field.first().unwrap().d();\n\
+          \x20       Sink::new().first().e();\n\
+          \x20       f.first().f();\n\
+          \x20       let local = s.first()?;\n\
+          \x20       local.g();\n\
+          \x20       local.second().h();\n\
+          \x20       local.unwrap().i();\n\
+          \x20       let foreign = f.first();\n\
+          \x20       foreign.j();\n\
+          \x20       s.a0().a1().a2().a3().a4().a5().a6().a7().k();\n\
+          \x20       s.a0().a1().a2().a3().a4().a5().a6().a7().a8().l();\n\
+          \x20   }\n\
+          }\n",
+    );
+
+    assert_eq!(
+        (raw.calls.iter())
+            .filter(|call| call.callee.len() == 1)
+            .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            ("a", Some("Sink::first()")),
+            ("b", Some("Sink::first()?::second()")),
+            ("c", Some("Own::first()")),
+            ("d", Some("Sink::first()?")),
+            ("e", Some("Sink::first()")),
+            ("f", Some("")),
+            ("g", Some("Sink::first()?|.local")),
+            ("h", Some("Sink::first()?::second()")),
+            ("i", Some("")),
+            ("j", Some(".foreign")),
+            (
+                "k",
+                Some("Sink::a0()::a1()::a2()::a3()::a4()::a5()::a6()::a7()")
+            ),
+            ("l", Some("")),
+        ]
+    );
+}
+
+#[test]
+fn a_function_records_the_owner_its_return_type_names_for_a_chain_to_read() {
+    let raw = extract(
+        b"use crate::outer::Held;\nuse std::fs::File;\nstruct Sink;\n\
+          impl Sink {\n\
+          \x20   fn plain() -> Sink { Sink }\n\
+          \x20   fn path() -> crate::outer::Held { todo!() }\n\
+          \x20   fn borrowed(&self) -> &mut Held { todo!() }\n\
+          \x20   fn own(&self) -> Self { todo!() }\n\
+          \x20   fn optional(&self) -> Option<&Held> { None }\n\
+          \x20   fn failing() -> Result<Box<Sink>, ()> { todo!() }\n\
+          \x20   fn pinned(self: Pin<&mut Self>) -> Pin<&mut Sink> { self }\n\
+          \x20   fn held_pin(&self) -> Option<Pin<&mut Sink>> { None }\n\
+          \x20   fn /* async */ noted(&self) -> Sink { Sink }\n\
+          \x20   async fn waited(&self) -> Sink { Sink }\n\
+          \x20   fn outside() -> File { todo!() }\n\
+          \x20   fn generic<T>() -> T { todo!() }\n\
+          \x20   fn number() -> Option<u8> { None }\n\
+          \x20   fn nothing() {}\n\
+          }\n",
+    );
+
+    assert_eq!(
+        (raw.symbols.iter())
+            .filter(|symbol| symbol.kind == SymbolKind::Method)
+            .map(|symbol| (symbol.name.as_str(), symbol.value_types.as_slice()))
+            .collect::<Vec<_>>(),
+        [
+            ("plain", ["Sink".to_owned()].as_slice()),
+            ("path", ["Held".to_owned()].as_slice()),
+            ("borrowed", ["Held".to_owned()].as_slice()),
+            ("own", ["Sink".to_owned()].as_slice()),
+            ("optional", ["?Held".to_owned()].as_slice()),
+            ("failing", ["?Sink".to_owned()].as_slice()),
+            ("pinned", ["Sink".to_owned()].as_slice()),
+            ("held_pin", ["?Sink".to_owned()].as_slice()),
+            ("noted", ["Sink".to_owned()].as_slice()),
+            ("waited", [].as_slice()),
+            ("outside", [].as_slice()),
+            ("generic", [].as_slice()),
+            ("number", [].as_slice()),
+            ("nothing", [].as_slice()),
+        ]
+    );
+}
+
+#[test]
 fn the_use_of_a_local_s_function_body_decides_its_type_and_reaches_no_signature() {
     let raw = extract(
         b"use other::*;\nstruct Sink;\n\
@@ -1213,12 +1308,12 @@ fn a_method_call_on_a_local_keeps_the_value_s_receiver_where_its_let_names_no_ty
             .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
             .collect::<Vec<_>>(),
         [
-            ("a", Some(".result")),
+            ("a", Some("Sink::map_err()|.result")),
             ("b", Some(".module")),
             ("c", Some(".free")),
             ("d", Some(".parameter")),
             ("e", Some(".left")),
-            ("f", Some(".chained")),
+            ("f", Some("Sink::inner()|.chained")),
             ("g", Some(".outside")),
             ("k", Some(".shared")),
             ("h", Some(".sink")),
