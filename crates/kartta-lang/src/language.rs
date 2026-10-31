@@ -429,10 +429,8 @@ pub enum BareReceivers {
     Modules,
     /// A class, as a PHP static call writes `Mockery::mock()` while a value is written `$mock`, except for the scope
     /// keywords listed, `self`, `static` and `parent`, compared without case. A call on any other bare name that no
-    /// type the graph holds is named calls a member of a class outside the graph, or of a class the file imports under
-    /// that name, as `use Illuminate\Database\Eloquent\Model as Eloquent;` does: it binds through the file's imports,
-    /// includes and the re-export chains through them alone, and no definition of the caller's own file or class, nor
-    /// the name's one callable or the one nearest the caller.
+    /// type the graph holds is named calls a member of a class outside the graph and binds nothing. The extraction
+    /// writes an alias of a class the graph holds as that class's name.
     Classes(&'static [&'static str]),
     /// A value, but for a name that starts in upper case, which names a constant: a class, a module or a value bound
     /// once, as Ruby writes them. A call through a receiver whose last segment is such a name, and of which the graph

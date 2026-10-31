@@ -1221,12 +1221,11 @@ impl<'g> Cascade<'g> {
         let reach = reach.as_ref();
         let path = (call, self.module_path(call));
 
-        // constraint: a class outside the graph has no member in the caller's file or class, and a bare name reaches a
-        // class the graph holds under another name only through the file's imports, as an alias does
-        let outside = self.names_a_class_outside_the_graph(call);
-        if !outside
-            && let Some(at) =
-                self.same_file_target(path, candidates.in_file(self.graph, call.file), reach)
+        if self.names_a_class_outside_the_graph(call) {
+            return Err(self.unadmitted(call));
+        }
+        if let Some(at) =
+            self.same_file_target(path, candidates.in_file(self.graph, call.file), reach)
         {
             return Ok((at, confidence::SAME_FILE));
         }
@@ -1273,9 +1272,6 @@ impl<'g> Cascade<'g> {
             && let Some(at) = self.re_exported(call)
         {
             return Ok((at, confidence::RE_EXPORT));
-        }
-        if outside {
-            return Err(self.unadmitted(call));
         }
         self.resolve_outside_scope(call, &candidates, reach)
             .and_then(|bound| {
@@ -1397,8 +1393,8 @@ impl<'g> Cascade<'g> {
             && self.binding(call.file, call.callee) == Some(None)
     }
 
-    /// Whether the call's receiver is a bare name that the language writes only for a class, and no type the graph
-    /// holds is named.
+    /// Whether the call's receiver is a bare name that the language writes only for a class, or a class's name written
+    /// from the root, and no type the graph holds is named.
     fn names_a_class_outside_the_graph(&self, call: &Call) -> bool {
         let (BareReceivers::Classes(keywords), Some(receiver)) =
             (self.conventions.bare_receivers, call.receiver)
@@ -1407,9 +1403,9 @@ impl<'g> Cascade<'g> {
         };
         let written = self.graph.strings.resolve(receiver);
         !written.is_empty()
-            && written
-                .bytes()
-                .all(|byte| !byte.is_ascii() || byte.is_ascii_alphanumeric() || byte == b'_')
+            && written.bytes().all(|byte| {
+                !byte.is_ascii() || byte.is_ascii_alphanumeric() || b"_\\".contains(&byte)
+            })
             && !keywords
                 .iter()
                 .any(|keyword| keyword.eq_ignore_ascii_case(written))
