@@ -88,6 +88,26 @@ fn a_bare_require_names_the_one_file_named_for_the_module() {
 }
 
 #[test]
+fn a_bare_require_names_the_file_beside_its_own_of_those_named_for_the_module() {
+    let files = ["tools/util.das", "game/util.das", "game/main.das"];
+
+    assert_eq!(targets(&files, "util", "game/main.das"), ["game/util.das"]);
+    assert_eq!(
+        targets(&files, "util.das", "game/main.das"),
+        ["game/util.das"]
+    );
+}
+
+#[test]
+fn a_bare_include_names_the_file_beside_its_own_of_those_of_its_name() {
+    let files = ["tools/util.das", "game/util.das", "game/main.das"];
+
+    let extraction = resolve(&files, "options gen2\ninclude util.das\n", "game/main.das");
+
+    assert_eq!(includes(&extraction), ["game/util.das"]);
+}
+
+#[test]
 fn a_require_two_files_could_satisfy_names_neither() {
     let files = ["a/util.das", "b/util.das", "main.das"];
 
