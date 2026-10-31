@@ -7,6 +7,10 @@ lost, and what would reopen it.
 - A task that conflicts with a listed decision stops and asks; it does not change the decision or work around it.
 - Writing, changing, or removing a record follows the `the-blueprint:adr` skill.
 
+## .github/workflows
+
+- [4.46 Cut one 1.0.0 of every artifact for macOS, Linux and Windows](/design-docs/adr/4.46-release-scope.md)
+
 ## bindings/node
 
 - [4.40 Ship the Node addon as one npm package per target](/design-docs/adr/4.40-node-addon-packaging.md)
