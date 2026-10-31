@@ -501,6 +501,32 @@ fn a_qualifier_that_names_a_require_alias_binds_that_module_s_definition() {
     );
 }
 
+#[test]
+fn a_qualifier_that_names_a_required_file_with_no_module_clause_binds_its_definition() {
+    let mut defined = free("create", SymbolKind::Function, [1, 3]);
+    defined.exported = true;
+    let decs = file("daslib/decs.das", vec![defined], &[]);
+    let mut boost = file(
+        "daslib/decs_boost.das",
+        vec![free("run", SymbolKind::Function, [1, 3])],
+        &["daslib/decs.das"],
+    );
+    boost.uses = vec![using(
+        0,
+        "create",
+        Receiver::Qualifier("decs".to_owned()),
+        2,
+    )];
+    let mut conventions = script();
+    conventions.bare_receivers = BareReceivers::Modules;
+    let graph = graph(conventions, &[decs, boost]);
+
+    assert_eq!(
+        sites_of(&graph, "create").0,
+        vec![("run".to_owned(), 2, 95)]
+    );
+}
+
 fn with_macro(conventions: Conventions, files: &[Extraction]) -> Graph {
     let mut quoting = file(
         "boost.das",
