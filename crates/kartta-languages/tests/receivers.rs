@@ -6,7 +6,8 @@
 //! the value holds and not an owner its name spells, as JS/TS names the type a parameter with no annotation takes from
 //! its function's context (ADR 3.101). Python, Ruby, Rust, PHP, Lua, Quirrel, Puppet and daslang record a value's
 //! own name instead, which the graph's receiver tiers read (ADR 3.171); Rust writes a lowercase one after a `.`,
-//! `.buf`, since alone it is the module that a path call names. Python, Ruby, Rust and daslang list the receivers they
+//! `.buf`, since alone it is the module that a path call names, and records the type instead where a parameter, a field
+//! of `self`, a local or a chain names one (ADR 3.55). Python, Ruby, Rust and daslang list the receivers they
 //! write for a value of the caller's own type in `Conventions::own_type_receivers`, so in each no other value's name is
 //! taken for one of the caller's type. Ruby and Rust list only `other`, since each records its own receiver as the name
 //! of the caller's owner.
