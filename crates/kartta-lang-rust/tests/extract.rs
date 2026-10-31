@@ -906,7 +906,7 @@ fn a_method_call_on_a_parameter_keeps_the_value_s_receiver_where_the_file_cannot
           \x20   file.sync_data();\n    error.kind();\n    names.len();\n    generic.clone();\n    assoc.next();\n\
           \x20   glob.run();\n}\n\
           fn g(ranking: Ranking, (left, right): (Ranking, Ranking), many: impl Ranked + Send) {\n\
-          \x20   let ranking = Other::new();\n    ranking.offer();\n    left.offer();\n    many.rank();\n\
+          \x20   let ranking = make();\n    ranking.offer();\n    left.offer();\n    many.rank();\n\
           \x20   [1].iter().for_each(|ranking| ranking.offer());\n\
           \x20   assert!(Some(1).map(|ranking| ranking.offer()));\n}\n",
     );
@@ -920,7 +920,7 @@ fn a_method_call_on_a_parameter_keeps_the_value_s_receiver_where_the_file_cannot
             ("clone", Some(".generic")),
             ("next", Some(".assoc")),
             ("run", Some("Globbed")),
-            ("new", Some("Other")),
+            ("make", None),
             ("offer", Some(".ranking")),
             ("offer", Some(".left")),
             ("rank", Some(".many")),
@@ -1015,6 +1015,119 @@ fn n(items: Vec<fn()>, hook: Option<fn()>) {
             ("run", id_of(&raw, "n")),
             ("go", id_of(&raw, "n")),
             ("helper", id_of(&raw, "nested")),
+        ]
+    );
+}
+
+#[test]
+fn a_method_call_on_a_local_records_the_type_its_initializer_constructs_or_its_let_declares() {
+    let raw = extract(
+        b"struct Sink;\nstruct Wrapped<T>(T);\n\
+          fn shapes() {\n\
+          \x20   let plain = Sink::new();\n    plain.a();\n\
+          \x20   let mut tried = a::Sink::new()?;\n    tried.b();\n\
+          \x20   let mapped = Sink::new().map_err(wrap)?;\n    mapped.c();\n\
+          \x20   let unwrapped = Sink::new().unwrap();\n    unwrapped.d();\n\
+          \x20   let expected = Sink::new().expect(\"sink\");\n    expected.e();\n\
+          \x20   let generic = Wrapped::<u8>::new();\n    generic.f();\n\
+          \x20   let declared: Sink = make();\n    declared.g();\n\
+          \x20   let referred: &mut Sink = make();\n    referred.h();\n\
+          \x20   { plain.i(); }\n    assert!(plain.j());\n    let run = || plain.k();\n\
+          }\n",
+    );
+
+    assert_eq!(
+        (raw.calls.iter())
+            .filter(|call| call.callee.len() == 1)
+            .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            ("a", Some("Sink")),
+            ("b", Some("Sink")),
+            ("c", Some("Sink")),
+            ("d", Some("Sink")),
+            ("e", Some("Sink")),
+            ("f", Some("Wrapped")),
+            ("g", Some("Sink")),
+            ("h", Some("Sink")),
+            ("i", Some("Sink")),
+            ("j", Some("Sink")),
+            ("k", Some("Sink")),
+        ]
+    );
+}
+
+#[test]
+fn the_use_of_a_local_s_function_body_decides_its_type_and_reaches_no_signature() {
+    let raw = extract(
+        b"use other::*;\nstruct Sink;\n\
+          fn outside() {\n    use std::fs::File;\n    let file = File::open()?;\n    file.a();\n}\n\
+          fn inside() {\n    use crate::sink::Tap;\n    let tap = Tap::new();\n    tap.b();\n}\n\
+          fn own() {\n    use std::io::Sink;\n    let sink = Sink::new();\n    sink.c();\n}\n\
+          fn nested() {\n    use std::fs::File;\n    {\n        use crate::Sink as File;\n\
+          \x20       let file = File::open()?;\n        file.d();\n    }\n}\n\
+          fn signature(file: File) {\n    use std::fs::File;\n    file.e();\n}\n\
+          fn globbed(parameter: Globbed) {\n    let local = Globbed::new();\n    local.f();\n    parameter.g();\n\
+          \x20   let built = Sink::builder();\n    built.h();\n}\n",
+    );
+
+    assert_eq!(
+        (raw.calls.iter())
+            .filter(|call| call.callee.len() == 1)
+            .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            ("a", Some(".file")),
+            ("b", Some("Tap")),
+            ("c", Some(".sink")),
+            ("d", Some("File")),
+            ("e", Some("File")),
+            ("f", Some(".local")),
+            ("g", Some("Globbed")),
+            ("h", Some(".built")),
+        ]
+    );
+}
+
+#[test]
+fn a_method_call_on_a_local_keeps_the_value_s_receiver_where_its_let_names_no_type() {
+    let raw = extract(
+        b"struct Sink;\nfn make() -> Sink { Sink }\n\
+          fn none<T: Default>() {\n\
+          \x20   let result = Sink::new().map_err(wrap);\n    result.a();\n\
+          \x20   let module = sinks::open();\n    module.b();\n\
+          \x20   let free = make();\n    free.c();\n\
+          \x20   let parameter = T::new();\n    parameter.d();\n\
+          \x20   let (left, right) = Sink::new();\n    left.e();\n\
+          \x20   let chained = Sink::new().inner();\n    chained.f();\n\
+          \x20   let outside: std::fs::File = open();\n    outside.g();\n\
+          \x20   let shared = triomphe::Arc::make_mut(place);\n    shared.k();\n\
+          }\n\
+          fn shadowed() {\n\
+          \x20   let sink = Sink::new();\n    let sink = make();\n    sink.h();\n\
+          \x20   let late = Sink::new();\n    { let late = make(); late.i(); }\n    late.j();\n\
+          \x20   let caught = Sink::new();\n    let run = |caught| caught.l();\n\
+          }\n",
+    );
+
+    assert_eq!(
+        (raw.calls.iter())
+            .filter(|call| call.callee.len() == 1)
+            .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            ("a", Some(".result")),
+            ("b", Some(".module")),
+            ("c", Some(".free")),
+            ("d", Some(".parameter")),
+            ("e", Some(".left")),
+            ("f", Some(".chained")),
+            ("g", Some(".outside")),
+            ("k", Some(".shared")),
+            ("h", Some(".sink")),
+            ("i", Some(".late")),
+            ("j", Some("Sink")),
+            ("l", Some(".caught")),
         ]
     );
 }
