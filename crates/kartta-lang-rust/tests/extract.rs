@@ -1058,6 +1058,103 @@ fn a_method_call_on_a_local_records_the_type_its_initializer_constructs_or_its_l
 }
 
 #[test]
+fn a_method_call_on_a_chain_records_the_type_the_chain_constructs_or_unwraps() {
+    let raw = extract(
+        b"use crate::Held;\nstruct Sink;\n\
+          struct Own<T> { held: Option<Held>, boxed: Result<Box<Sink>, ()>, generic: Option<T>, plain: Held }\n\
+          impl<T> Own<T> {\n\
+          \x20   fn make() -> Self { Own }\n\
+          \x20   fn shapes(&mut self, o: Option<Sink>, r: &mut std::result::Result<&Held, E>) {\n\
+          \x20       Sink::new().a();\n\
+          \x20       Sink::open()?.b();\n\
+          \x20       Sink::open().unwrap().c();\n\
+          \x20       Self::make().d();\n\
+          \x20       o.expect(\"a sink\").e();\n\
+          \x20       o.unwrap().f();\n\
+          \x20       r?.g();\n\
+          \x20       r.as_mut().map_err(wrap)?.h();\n\
+          \x20       o.as_ref().unwrap().i();\n\
+          \x20       self.held.as_ref().unwrap().j();\n\
+          \x20       self.boxed.as_mut().unwrap().k();\n\
+          \x20       let local: Option<Sink> = None;\n\
+          \x20       local.unwrap().l();\n\
+          \x20   }\n\
+          }\n",
+    );
+
+    assert_eq!(
+        (raw.calls.iter())
+            .filter(|call| call.callee.len() == 1)
+            .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            ("a", Some("Sink")),
+            ("b", Some("Sink")),
+            ("c", Some("Sink")),
+            ("d", Some("Own")),
+            ("e", Some("Sink")),
+            ("f", Some("Sink")),
+            ("g", Some("Held")),
+            ("h", Some("Held")),
+            ("i", Some("Sink")),
+            ("j", Some("Held")),
+            ("k", Some("Sink")),
+            ("l", Some("Sink")),
+        ]
+    );
+}
+
+#[test]
+fn a_method_call_on_a_chain_keeps_the_empty_receiver_where_the_chain_names_no_type_of_the_tree() {
+    let raw = extract(
+        b"use std::fs::File;\nstruct Sink;\n\
+          struct Own<T> { held: Option<Sink>, generic: Option<T>, plain: Sink }\n\
+          impl<T> Own<T> {\n\
+          \x20   fn shapes(&self, o: Option<Sink>, s: Sink, v: Option<T>, f: Option<File>, n: Option<(Sink, u8)>) {\n\
+          \x20       let nested: Option<Option<Sink>> = None;\n\
+          \x20       nested.unwrap().unwrap().z();\n\
+          \x20       o.as_ref().a();\n\
+          \x20       s.unwrap().b();\n\
+          \x20       v.unwrap().c();\n\
+          \x20       f.unwrap().d();\n\
+          \x20       n.unwrap().e();\n\
+          \x20       Sink::builder().f();\n\
+          \x20       sink::open().g();\n\
+          \x20       File::open().h();\n\
+          \x20       missing.unwrap().i();\n\
+          \x20       self.generic.unwrap().j();\n\
+          \x20       self.plain.unwrap().k();\n\
+          \x20       self.held.as_ref().l();\n\
+          \x20       o.map(wrap).unwrap().m();\n\
+          \x20   }\n\
+          }\n",
+    );
+
+    assert_eq!(
+        (raw.calls.iter())
+            .filter(|call| call.callee.len() == 1)
+            .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            ("z", Some("")),
+            ("a", Some("")),
+            ("b", Some("")),
+            ("c", Some("")),
+            ("d", Some("")),
+            ("e", Some("")),
+            ("f", Some("")),
+            ("g", Some("")),
+            ("h", Some("")),
+            ("i", Some("")),
+            ("j", Some("")),
+            ("k", Some("")),
+            ("l", Some("")),
+            ("m", Some("")),
+        ]
+    );
+}
+
+#[test]
 fn the_use_of_a_local_s_function_body_decides_its_type_and_reaches_no_signature() {
     let raw = extract(
         b"use other::*;\nstruct Sink;\n\
