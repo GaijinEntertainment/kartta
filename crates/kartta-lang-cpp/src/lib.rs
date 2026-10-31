@@ -167,8 +167,8 @@
 //! `PX_FORCE_INLINE const Gu::GeometryUnion& get()` or `PX_INLINE Shape() : mFlags(0) {}`, a misreading that can close
 //! the class at that member, the class's members up to the brace that closes it lose the macro that opens them before
 //! a type and a declarator, a destructor, a conversion operator or a constructor's initializer list, but where the
-//! first tree reads the member as written; the signature of such a member starts past its macro, and a file whose
-//! first tree fails at its top level is left as it is. A re-parse that fails keeps the first tree.
+//! first tree reads the member as written; the signature of such a member starts past its macro. A re-parse that fails
+//! keeps the first tree.
 //!
 //! A table's data is blanked too: a brace group of 4 KiB or more that holds nothing but numeric literals, signs,
 //! commas, comments and nested groups of the same, the initializer of `static const float weights[] = { 0.1, ... }`,

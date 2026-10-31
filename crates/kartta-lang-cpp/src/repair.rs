@@ -705,8 +705,8 @@ const fn is_type_byte(byte: u8) -> bool {
 // constraint: the grammar reads a conditional's branch as a run of whole statements, so a head each branch writes,
 // `#ifdef A` `void f(int a)` `#else` `void f(int a, int b)` `#endif` `{`, misses the `;` of the first branch and reads
 // the `#endif` as an error inside the definition the last branch opens; the conditional then stays open past that
-// definition and can take its class down, or fail the whole tree, which leaves the misread members of the file to
-// their macros. The first branch alone is a whole definition of what the others write, while heads of two names are
+// definition and can take its class down, or fail the whole tree, which flattens classes that then show no misread
+// member. The first branch alone is a whole definition of what the others write, while heads of two names are
 // two definitions, which the tree already holds, and a macro call may be a class head that goes on past the branch. An
 // `if` is half a statement whatever follows it, `#ifdef A` `if (x)` `#endif` `f();`, and fails the same way
 /// The lines from the first later branch through the `#endif` of the conditional whose first branch starts at `from`,
@@ -1291,7 +1291,6 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
         misread_bodies: Vec::new(),
         blanks: Vec::new(),
     };
-    let parsed_at_the_top = !tree.root_node().is_error();
 
     preorder(tree.root_node(), |node| {
         if node.is_error() {
@@ -1329,10 +1328,7 @@ fn recovery_of(tree: &Tree, source: &[u8]) -> Recovery {
         {
             recovery.blanks.push(annotation);
         }
-        if parsed_at_the_top
-            && kind == "field_declaration_list"
-            && holds_a_misread_member(node, source)
-        {
+        if kind == "field_declaration_list" && holds_a_misread_member(node, source) {
             recovery.misread_bodies.push(MisreadBody {
                 braced: node.start_byte()..closing_brace(source, node.start_byte()),
                 parsed_end: node.end_byte(),
@@ -3369,6 +3365,95 @@ namespace N
                 ("Size::reflect".to_owned(), 47, 54),
                 ("Size::operator==".to_owned(), 57, 60),
                 ("Size::w".to_owned(), 63, 63),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_file_whose_first_tree_fails_at_its_root_keeps_a_misread_class_open() {
+        const SOURCE: &[u8] = br"void first(int object)
+{
+#ifdef USE_MAP
+	const Entry* entry = find(object);
+	if(entry)
+	{
+		erase(entry);
+#else
+	int* entry = locate(object);
+	if(entry)
+	{
+		drop(entry);
+#endif
+	}
+}
+
+void second(int count)
+{
+#ifdef NODE_SORT
+	for(int i_=0;i_<count;i_++)
+	{
+		const int i = next(i_);
+#else
+	for(int i=0;i<count;i++)
+	{
+#endif
+		visit(i);
+	}
+}
+
+void third(int count)
+{
+#ifdef NODE_SORT
+	for(int i_=0;i_<count;i_++)
+	{
+		const int i = next(i_);
+#else
+	for(int i=0;i<count;i++)
+	{
+#endif
+		touch(i);
+	}
+}
+
+struct SphereTest
+{
+	SphereTest(const Sphere& sphere) :
+		mCenter(sphere.center)
+#ifdef CAN_USE_MOVEMASK
+		, mRadius(sphere.radius)
+#endif
+	{
+	}
+
+	PX_FORCE_INLINE Ps::IntBool operator()(const Vec3V center) const
+	{
+		return test(center);
+	}
+
+	Vec3V mCenter;
+	float mRadius;
+};
+
+void after(int count)
+{
+	done(count);
+}
+";
+        let tree = parse(&grammar(), SOURCE).expect("the first tree");
+        assert!(tree.root_node().is_error());
+
+        assert_eq!(
+            symbol_lines(SOURCE),
+            [
+                ("first".to_owned(), 1, 15),
+                ("second".to_owned(), 17, 29),
+                ("third".to_owned(), 31, 43),
+                ("SphereTest".to_owned(), 45, 62),
+                ("SphereTest::SphereTest".to_owned(), 47, 53),
+                ("SphereTest::operator()".to_owned(), 55, 58),
+                ("SphereTest::mCenter".to_owned(), 60, 60),
+                ("SphereTest::mRadius".to_owned(), 61, 61),
+                ("after".to_owned(), 64, 67),
             ]
         );
     }
