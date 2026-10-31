@@ -28,7 +28,8 @@
 //! - An absolute path, a drive-letter one such as `C:/x.blk` included, and a path relative to the working directory,
 //!   `:/`, name no file.
 //!
-//! Every match is case-sensitive.
+//! A relative or a `%name/rest` path that names no file takes the one file that differs from it only in ASCII letter
+//! case, as the game's vromfs does. A `#` path and a mount's name keep letter case.
 //!
 //! The resolver keeps only what it derived: the mount table. A resolver built again over an edit that changes no
 //! mount, such as a `settings.blk` setting outside its `mountPoints` block,
