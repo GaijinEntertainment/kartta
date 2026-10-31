@@ -14,8 +14,8 @@ use kartta_lang::{
 use tree_sitter::{Node, Tree};
 
 use self::data::{
-    alias_declarator_name, at_namespace_scope, data_declarator, data_signature, field_declarator,
-    field_owner, field_value_types, has_qualifier, has_storage_class,
+    alias_declarator_name, at_namespace_scope, data_declarator, data_signature, defines_class_tag,
+    field_declarator, field_owner, field_value_types, has_qualifier, has_storage_class,
 };
 use self::declarator::{
     function_symbol, is_macro_invocation, is_pure_virtual, line_gap_len, nested_scope,
@@ -184,9 +184,8 @@ impl<'s, 't> Replayer<'s, 't> {
                 let mut cursor = node.walk();
                 let names = node
                     .children_by_field_name("declarator", &mut cursor)
-                    .filter_map(|declarator| {
-                        Some((alias_declarator_name(declarator)?, declarator))
-                    });
+                    .filter_map(|declarator| Some((alias_declarator_name(declarator)?, declarator)))
+                    .filter(|&(name, plain)| !defines_class_tag(aliased, name, plain, self.source));
                 for (name, declarator) in names {
                     let plain = aliased.filter(|_| name == declarator);
                     self.push_type_alias(text(name, self.source), node, plain);
@@ -2440,6 +2439,59 @@ class K {
         let in_class_alias = symbol(&raw, "value_type");
         assert_eq!(in_class_alias.kind, SymbolKind::TypeAlias);
         assert_eq!(in_class_alias.owner.as_deref(), Some("K"));
+    }
+
+    #[test]
+    fn a_typedef_that_defines_the_tag_it_names_records_the_definition_alone() {
+        let raw = extract(
+            br"
+typedef struct S { int x; } S, *SP;
+typedef union U { int x; } U;
+class K {
+    typedef class N { int y; } N;
+};
+",
+        );
+
+        let kinds: Vec<_> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| {
+                symbol.kind != SymbolKind::Field && symbol.kind != SymbolKind::EnumVariant
+            })
+            .map(|symbol| (symbol.qualified_name.as_str(), symbol.kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("SP", SymbolKind::TypeAlias),
+                ("S", SymbolKind::Struct),
+                ("U", SymbolKind::Struct),
+                ("K", SymbolKind::Class),
+                ("K::N", SymbolKind::Class),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_typedef_of_another_name_or_shape_keeps_its_alias() {
+        let raw = extract(
+            br"
+typedef struct Tag { int x; } Name;
+typedef struct Same { int x; } *Same;
+struct Forward;
+typedef struct Forward Forward;
+typedef enum E { A } E;
+",
+        );
+
+        let aliases: Vec<_> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.kind == SymbolKind::TypeAlias)
+            .map(|symbol| symbol.name.as_str())
+            .collect();
+        assert_eq!(aliases, ["Name", "Same", "Forward", "E"]);
     }
 
     #[test]
