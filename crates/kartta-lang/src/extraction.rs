@@ -200,9 +200,10 @@ pub struct CallRef {
     /// Whether the call is written as a macro invocation where the language writes one apart from a function call,
     /// as Rust writes `name!()` beside `name()`. False where a call of either is written alike.
     pub invokes_a_macro: bool,
-    /// Whether the call is written as a method call where the language calls a value apart from a method, as Rust's
-    /// `x.f()` calls a method and `(x.f)()` the function a field holds: such a call binds no variable or constant.
-    /// False where a member call can call a value.
+    /// Whether the call is written as a member call where the language reads a member alone through that form, as
+    /// Rust's `x.f()` and C++'s `x.f()` and `p->f()` are: such a call binds no variable, constant, type or constructor.
+    /// False where a member call can call what a module or a table holds, a class among it, as Python's `models.User()`
+    /// does.
     pub calls_a_method: bool,
     /// How many arguments the call passes at least, the object of a member call among them, where the language counts
     /// them, or `0`. A call binds no definition that takes fewer ([`Symbol::most_arguments`](crate::Symbol)).

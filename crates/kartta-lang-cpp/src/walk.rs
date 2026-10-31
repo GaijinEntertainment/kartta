@@ -494,10 +494,10 @@ impl<'s, 't> Replayer<'s, 't> {
         self.raw.calls.push(CallRef {
             site_of: self.caller(),
             callee,
+            calls_a_method: receiver.is_some(),
             receiver,
             line: line(node.start_position().row),
             invokes_a_macro: false,
-            calls_a_method: false,
             arguments: 0,
         });
     }
@@ -1043,6 +1043,16 @@ int defined_and_declared(int x) { return x; }
             .find(|call| call.callee == "compute" && call.receiver.is_none())
             .expect("compute call");
         assert_eq!(bare_compute.site_of, render);
+    }
+
+    #[test]
+    fn a_call_through_a_dot_or_an_arrow_is_marked_apart_from_a_bare_or_a_qualified_call() {
+        let raw = extract(
+            b"void f(W &w) { w.draw(); (&w)->draw(); this->draw(); draw(); a::draw(); new W; }\n",
+        );
+
+        let marks: Vec<bool> = raw.calls.iter().map(|call| call.calls_a_method).collect();
+        assert_eq!(marks, [true, true, true, false, false, false]);
     }
 
     #[test]
