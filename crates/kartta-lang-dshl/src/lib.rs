@@ -36,6 +36,9 @@
 //! that climbs, `../common.dshl`, is taken relative to the including file. An include that names no file of the
 //! repository is kept as an import.
 //!
+//! A use binds what its own file declares, else what the one file it includes directly declares, as
+//! [`ValueUses::Imported`] says; a name two included files declare binds neither.
+//!
 //! # Fingerprint
 //!
 //! [`Dshl::fingerprint`] identifies this crate's name and version, a digest of its source, and the grammar: its
@@ -61,7 +64,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver, SymbolKind,
+    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver,
+    SymbolKind, ValueUses,
 };
 
 use crate::resolve::DshlResolver;
@@ -87,6 +91,7 @@ const CONVENTIONS: Conventions = {
     conventions.own_members = OwnMembers::Unreached;
     conventions.values_are_call_targets = false;
     conventions.unrecorded_data = &[SymbolKind::Field];
+    conventions.value_uses = ValueUses::Imported;
     conventions
 };
 

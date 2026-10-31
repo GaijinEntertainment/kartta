@@ -30,6 +30,9 @@ path ends in it, and of several takes the one that shares the most directories w
 equally near resolve to neither, and the include is kept as an import. A spelling that climbs, `../common.dshl`, is
 relative to the including file.
 
+A use binds what its own file declares, else what the one file it includes directly declares; a name two included files
+declare binds neither.
+
 ## Fingerprint
 
 The fingerprint covers the crate's version and source and the grammar's version, node types and table sizes, so a cache
