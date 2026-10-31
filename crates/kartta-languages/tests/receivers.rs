@@ -7,10 +7,10 @@
 //! its function's context (ADR 3.101). Python, Ruby, Rust, PHP, Lua, Quirrel, Puppet and daslang record a value's
 //! own name instead, which the graph's receiver tiers read (ADR 3.171); Rust writes a lowercase one after a `.`,
 //! `.buf`, since alone it is the module that a path call names, and records the type instead where a parameter, a field
-//! of `self`, a local or a chain names one (ADR 3.55). Python, Ruby, Rust and daslang list the receivers they
+//! of `self`, a local or a chain names one (ADR 3.55). Python, Ruby, Rust, daslang and PHP list the receivers they
 //! write for a value of the caller's own type in `Conventions::own_type_receivers`, so in each no other value's name is
-//! taken for one of the caller's type. Ruby and Rust list only `other`, since each records its own receiver as the name
-//! of the caller's owner.
+//! taken for one of the caller's type, past a guess in PHP. Ruby and Rust list only `other`, since each records its own
+//! receiver as the name of the caller's owner.
 
 use kartta_lang::CallRef;
 use kartta_languages::all;
@@ -184,6 +184,18 @@ fn a_member_call_on_a_value_of_the_caller_s_type_records_a_receiver_its_language
         (
             "daslang",
             "options gen2\nclass Pool {\n    def run() {\n        self.drain()\n    }\n}\n",
+        ),
+        (
+            "php",
+            "<?php\nclass Pool {\n    function run() { $this->drain(); }\n}\n",
+        ),
+        (
+            "php",
+            "<?php\nclass Pool {\n    function run() { self::drain(); }\n}\n",
+        ),
+        (
+            "php",
+            "<?php\nclass Pool {\n    function run() { static::drain(); }\n}\n",
         ),
     ];
 
