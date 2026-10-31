@@ -208,7 +208,9 @@ pub struct CallRef {
     /// How many arguments the call passes at least, the object of a member call among them, where the language counts
     /// them, or `0`. A call binds no definition that takes fewer ([`Symbol::most_arguments`](crate::Symbol)), and a
     /// count past `0` binds none that requires more ([`Symbol::fewest_arguments`](crate::Symbol)), so such a count
-    /// holds all the arguments the call passes, up to `u8::MAX`.
+    /// holds all the arguments the call passes, up to `u8::MAX`. The graph only compares a count with a definition's, so
+    /// a language in which a call of no arguments turns definitions away counts one past the written count on both
+    /// sides, as DSHL does.
     pub arguments: u8,
 }
 

@@ -327,8 +327,8 @@ pub struct Symbol {
     /// What the symbol is for besides its kind.
     pub flags: SymbolFlags,
     /// The most arguments the definition takes, besides the object a method is called on, where the language counts
-    /// them; `u8::MAX` for any number. A call that passes more ([`CallRef::arguments`](crate::CallRef)) does not bind
-    /// the definition.
+    /// them; `u8::MAX` for any number. A call that passes more ([`CallRef::arguments`](crate::CallRef), which also says
+    /// how a language may shift both counts) does not bind the definition.
     pub most_arguments: u8,
     /// The fewest arguments a call must pass the definition, besides the object a method is called on, where the
     /// language counts them; `0` where it does not. A call that counts its arguments and passes fewer

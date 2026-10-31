@@ -155,6 +155,28 @@ fn a_macro_invocation_is_a_call_made_by_the_declaration_around_it() {
 }
 
 #[test]
+fn a_macro_takes_exactly_its_parameters_counted_past_zero() {
+    let raw = extract("macro NONE() endmacro\nmacro TWO(a, /* the second */ b) endmacro\n");
+
+    let bounds = |name| {
+        let macro_symbol = symbol(&raw, name);
+        (macro_symbol.fewest_arguments, macro_symbol.most_arguments)
+    };
+    assert_eq!(bounds("NONE"), (1, 1));
+    assert_eq!(bounds("TWO"), (3, 3));
+}
+
+#[test]
+fn a_macro_invocation_counts_what_its_top_level_commas_split_past_zero() {
+    let raw = extract(
+        "A()\nA(1)\nA((x, y), /* the second */ {z})\nshader s { if (C(x, y)) { dont_render; } }\n",
+    );
+
+    let counts: Vec<u8> = raw.calls.iter().map(|call| call.arguments).collect();
+    assert_eq!(counts, [1, 2, 3, 3]);
+}
+
+#[test]
 fn names_a_condition_or_a_value_reads_are_uses_and_keywords_are_not() {
     let raw = extract(SAMPLE);
 
