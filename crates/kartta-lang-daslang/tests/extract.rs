@@ -482,6 +482,24 @@ fn a_module_scoped_call_keeps_its_scope_as_the_receiver() {
 }
 
 #[test]
+fn a_call_scoped_to_the_compiling_module_has_no_receiver() {
+    let raw = extract("options gen2\ndef g() {\n  _::dot()\n  __::top()\n}\n");
+
+    assert_eq!(calls(&raw), [("dot", None), ("top", None)]);
+}
+
+#[test]
+fn only_a_member_call_is_marked_as_one() {
+    let raw =
+        extract("options gen2\ndef g() {\n  geom::dot()\n  obj.go()\n  obj.run() <| $ { }\n}\n");
+
+    let marks: Vec<_> = (raw.calls.iter())
+        .map(|call| (call.callee.as_str(), call.calls_a_method))
+        .collect();
+    assert_eq!(marks, [("dot", false), ("go", true), ("run", true)]);
+}
+
+#[test]
 fn member_calls_capture_their_receiver() {
     let raw = extract(SAMPLE);
 
