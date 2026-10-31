@@ -253,8 +253,9 @@ pub enum Receiver {
     /// unexported namesake of one included file; under
     /// [`ImportedThenReached`](crate::ValueUses::ImportedThenReached), those, else a declaration of one file its
     /// includes reach in turn, the one variable they hold before an enum or a tie; under
-    /// [`Included`](crate::ValueUses::Included), the variable, constant or function of
-    /// the name in the file, then in its includes, then in the files those reach.
+    /// [`Expanded`](crate::ValueUses::Expanded), those of [`Imported`](crate::ValueUses::Imported), else the one
+    /// definition the files including the file bind the name to; under [`Included`](crate::ValueUses::Included), the
+    /// variable, constant or function of the name in the file, then in its includes, then in the files those reach.
     Bare,
     /// A qualifier as written, `pkg` in `pkg.Name`, which binds only through the file's imports.
     Qualifier(String),
