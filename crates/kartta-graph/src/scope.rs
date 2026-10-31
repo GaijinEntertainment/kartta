@@ -1504,44 +1504,69 @@ impl Cascade<'_> {
     // type holds, a class's traits before the class it extends in turn
     fn held_by_a_base(&self, class: SymbolAt, candidates: &Candidates<'_>) -> Option<SymbolAt> {
         let base = *self.declared_bases(class).first()?;
+        let mut level = self.base_types(base, class, holds_a_body);
+        level.retain(|&ty| self.graph.sym(ty).kind != SymbolKind::Trait);
+        self.nearest_holder((class, level), candidates, holds_a_body)
+    }
+
+    /// The member of the name that the nearest type holds, walking from `level`, the types nearest `class`, up through
+    /// the parents of each level, a level's traits first, taking the types `admitted` admits.
+    fn nearest_holder(
+        &self,
+        (class, mut level): (SymbolAt, Vec<SymbolAt>),
+        candidates: &Candidates<'_>,
+        admitted: fn(SymbolKind) -> bool,
+    ) -> Option<SymbolAt> {
         let mut walked: HashSet<SymbolAt, FixedState> = HashSet::default();
         walked.insert(class);
-        let mut level = self.base_types(base, class);
-        level.retain(|&ty| self.graph.sym(ty).kind != SymbolKind::Trait && walked.insert(ty));
+        level.retain(|&ty| walked.insert(ty));
         while !level.is_empty() {
-            let held = level.iter().find_map(|&ty| {
-                (candidates
-                    .with_owner(self.graph, self.member_owner(ty))
-                    .iter())
-                .copied()
-                .find(|&at| self.class_of(at) == Some(ty))
-            });
+            let held = level.iter().find_map(|&ty| self.held_by(ty, candidates));
             if held.is_some() {
                 return held;
             }
-            level = level
-                .iter()
-                .flat_map(|&ty| {
-                    (self.declared_bases(ty).into_iter())
-                        .flat_map(move |base| self.base_types(base, ty))
-                })
-                .filter(|&ty| walked.insert(ty))
-                .collect();
-            level.sort_by_key(|&ty| self.graph.sym(ty).kind != SymbolKind::Trait);
+            level = self.parents_of(&level, admitted);
+            level.retain(|&ty| walked.insert(ty));
         }
         None
     }
 
-    // constraint: an interface holds no body a call through the base receiver can run, and a class is never its own
-    // base, so a base that shares the class's name, Quirrel's `class (vehiclesModal.handlerClass)` in a
-    // `handlerClass` of its own, is the nearest other type of that name; a file reaches a type of another scope
-    // through an include, as PHP's `use` of a class the repository's autoload maps, so a type of another scope that the
-    // child's file neither holds, includes nor shares a directory with is a namesake of a base outside the graph,
-    // PHPUnit's `TestCase` for `Illuminate\Foundation\Testing\TestCase`
-    /// The types other than interfaces that `base`, which `child` declares, names, the nearest to `child` first.
-    fn base_types(&self, base: DeclaredBase, child: SymbolAt) -> Vec<SymbolAt> {
+    /// The types that the types of `level` name as parents, a trait before any other type.
+    fn parents_of(&self, level: &[SymbolAt], admitted: fn(SymbolKind) -> bool) -> Vec<SymbolAt> {
+        let mut parents: Vec<SymbolAt> = level
+            .iter()
+            .flat_map(|&ty| {
+                (self.declared_bases(ty).into_iter())
+                    .flat_map(move |base| self.base_types(base, ty, admitted))
+            })
+            .collect();
+        parents.sort_by_key(|&ty| self.graph.sym(ty).kind != SymbolKind::Trait);
+        parents
+    }
+
+    /// The candidate that `ty` itself holds.
+    fn held_by(&self, ty: SymbolAt, candidates: &Candidates<'_>) -> Option<SymbolAt> {
+        (candidates
+            .with_owner(self.graph, self.member_owner(ty))
+            .iter())
+        .copied()
+        .find(|&at| self.class_of(at) == Some(ty))
+    }
+
+    // constraint: a class is never its own base, so a base that shares the class's name, Quirrel's `class
+    // (vehiclesModal.handlerClass)` in a `handlerClass` of its own, is the nearest other type of that name; a file
+    // reaches a type of another scope through an include, as PHP's `use` of a class the repository's autoload maps, so
+    // a type of another scope that the child's file neither holds, includes nor shares a directory with is a namesake
+    // of a base outside the graph, PHPUnit's `TestCase` for `Illuminate\Foundation\Testing\TestCase`
+    /// The types of a kind `admitted` admits that `base`, which `child` declares, names, the nearest to `child` first.
+    fn base_types(
+        &self,
+        base: DeclaredBase,
+        child: SymbolAt,
+        admitted: fn(SymbolKind) -> bool,
+    ) -> Vec<SymbolAt> {
         let mut located = self.located_types(base.owner, child.file, |ty| {
-            ty != child && self.graph.sym(ty).kind != SymbolKind::Interface
+            ty != child && admitted(self.graph.sym(ty).kind)
         });
         if located
             .first()
@@ -1672,6 +1697,12 @@ impl Cascade<'_> {
         let first = constructors.next()?;
         (nearby.clone().all(outside) && self.is_one_callable(first, constructors)).then_some(first)
     }
+}
+
+// constraint: an interface holds no body a call through the base receiver can run
+/// Whether a type of `kind` can hold a member's body.
+fn holds_a_body(kind: SymbolKind) -> bool {
+    kind != SymbolKind::Interface
 }
 
 /// Whether a base of `kind` hands its members on to the types that name it: a class, a struct, an interface, a trait or
