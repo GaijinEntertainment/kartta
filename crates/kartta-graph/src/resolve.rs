@@ -131,6 +131,7 @@ pub(crate) struct Cascade<'g> {
     pub(crate) data_named: Derived<Str, Rc<DataNamed<'g>>>,
     includes: Derived<u32, Rc<[u32]>>,
     closures: Derived<u32, Rc<[u32]>>,
+    roots: Derived<u32, Rc<[u32]>>,
     canonical: Derived<SymbolAt, SymbolAt>,
     declarations: Derived<SymbolAt, Rc<[SymbolAt]>>,
     constructor_types: Derived<SymbolAt, Option<Rc<[SymbolAt]>>>,
@@ -162,6 +163,7 @@ impl<'g> Cascade<'g> {
             data_named: RefCell::default(),
             includes: RefCell::default(),
             closures: RefCell::default(),
+            roots: RefCell::default(),
             canonical: RefCell::default(),
             declarations: RefCell::default(),
             constructor_types: RefCell::default(),
@@ -1659,11 +1661,15 @@ impl<'g> Cascade<'g> {
         let roots = self.include_roots(other);
         self.include_roots(file)
             .iter()
-            .any(|root| roots.contains(root))
+            .any(|root| roots.binary_search(root).is_ok())
     }
 
     // constraint: a Rust crate is the files its root, which no file includes, includes directly or through others
-    fn include_roots(&self, file: u32) -> Vec<u32> {
+    fn include_roots(&self, file: u32) -> Rc<[u32]> {
+        derived(&self.roots, file, || self.walk_to_roots(file).into())
+    }
+
+    fn walk_to_roots(&self, file: u32) -> Vec<u32> {
         let mut visited: HashSet<u32, FixedState> = HashSet::default();
         visited.insert(file);
         let mut pending = vec![file];
@@ -1675,6 +1681,7 @@ impl<'g> Cascade<'g> {
             }
             pending.extend(includers.filter(|&includer| visited.insert(includer)));
         }
+        roots.sort_unstable();
         roots
     }
 
