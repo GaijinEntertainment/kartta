@@ -15,7 +15,9 @@
 //! file has given already takes a count, `{testRun·2}`. Its members are owned by that name,
 //! `App\{testRun·job}::handle`, and its creation is a call of it. A class takes the class it
 //! extends, the interfaces it implements and the traits it `use`s as parents, and an interface the interfaces it
-//! extends. A member is exported unless it is `private`.
+//! extends, each under the full name PHP compiles it to: through the file's `use` map by its first segment, in any
+//! case, else under the namespace, `Base` in `namespace App;` the parent `App\Base`, and `C` after `use A\B as C;` the
+//! parent `A\B`. A member is exported unless it is `private`.
 //!
 //! A call records its receiver: the variable of a member call, `$this` or `$svc`, the scope of a static call, `Logger`,
 //! `self` or `parent`, and the empty receiver where that is an expression, `$this->pool->get()`. A call on a variable
@@ -72,8 +74,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    BareReceivers, BlockComment, Conventions, DocComments, Language, OwnMembers, RawExtraction,
-    ReceiverMembers, Repository, Resolver, SymbolKind, TypeUses, UnlistedReceivers,
+    BareReceivers, BlockComment, Conventions, DocComments, Language, OwnMembers, ParentSpelling,
+    RawExtraction, ReceiverMembers, Repository, Resolver, SymbolKind, TypeUses, UnlistedReceivers,
 };
 
 use crate::resolve::Autoload;
@@ -110,6 +112,7 @@ const CONVENTIONS: Conventions = {
     conventions.unrecorded_data = &[SymbolKind::Field, SymbolKind::Constant];
     conventions.bare_receivers = BareReceivers::Classes(&["parent", "self", "static"]);
     conventions.base_receivers = &["parent"];
+    conventions.parent_spelling = ParentSpelling::FromRoot;
     conventions.receiver_members = ReceiverMembers::Inherited;
     conventions.own_type_receivers = Some(&["$this", "self", "static"]);
     conventions.unlisted_receivers = UnlistedReceivers::OwnMemberAsGuess;

@@ -61,8 +61,10 @@ impl Graph {
     /// bare one that lookup does not reach names nothing; where a module also imports a name from the module that
     /// exports it, as TypeScript does, the lookup reaches only the types of the naming file and of the files it
     /// imports, however deep. Where a language nests scopes, as C++ namespaces do, the same lookup runs out to the
-    /// root, and the innermost scope that holds a type of the parent's spelling decides. Elsewhere, and for a parent
-    /// those lookups do not reach, it names the type of that name nearest the file: in it, then in the files it
+    /// root, and the innermost scope that holds a type of the parent's spelling decides. A parent written from the
+    /// root, as every parent is under [`ParentSpelling::FromRoot`](kartta_lang::ParentSpelling::FromRoot), names the
+    /// type of exactly that qualified name. Elsewhere, and for a parent those lookups do not reach, it names the type
+    /// of that name nearest the file: in it, then in the files it
     /// includes, then in its directory, then anywhere, whose qualified name ends with what a qualified parent spells;
     /// types of the name tied at the nearest of those each count the parent. A type that implements an interface
     /// without naming it, as Go's structural typing allows, is not found. Every implementor within `depth` is found

@@ -5,8 +5,8 @@ use std::sync::{Arc, OnceLock};
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    Conventions, Extraction, IncludeReach, Receiver, Receivers, Symbol, SymbolFlags, SymbolId,
-    SymbolKind, path,
+    Conventions, Extraction, IncludeReach, ParentSpelling, Receiver, Receivers, Symbol,
+    SymbolFlags, SymbolId, SymbolKind, path,
 };
 
 use crate::order::PathOrder;
@@ -727,6 +727,7 @@ impl Graph {
     }
 
     fn store_parents(&mut self, symbols: &[Symbol]) -> Box<[Parent]> {
+        let all_from_root = self.conventions.parent_spelling == ParentSpelling::FromRoot;
         let mut parents = Vec::new();
         for (index, symbol) in symbols.iter().enumerate() {
             for written in &symbol.parents {
@@ -734,7 +735,7 @@ impl Graph {
                 parents.push(Parent {
                     symbol: narrow(index),
                     written: self.strings.intern(rooted.unwrap_or(written)),
-                    written_from_root: rooted.is_some(),
+                    written_from_root: all_from_root || rooted.is_some(),
                 });
             }
         }

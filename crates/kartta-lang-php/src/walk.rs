@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Range;
 
 use kartta_lang::tree::{
     child_nodes, line, named_child_nodes, preorder, signature, signature_from, text,
@@ -29,6 +30,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         types: Vec::new(),
         anonymous_counts: HashMap::new(),
         holders: Vec::new(),
+        imports: Vec::new(),
         namespace: String::new(),
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
         raw: RawExtraction::default(),
@@ -63,6 +65,13 @@ struct Holder {
     class: String,
 }
 
+// constraint: a class `use` binds the name at `alias`, or the imported name's last segment, to that name, which the
+// `use`'s directive holds; `use function` and `use const` bind their names in tables of their own
+struct Import {
+    alias: Range<usize>,
+    directive: usize,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Callables {
     Detach,
@@ -77,6 +86,7 @@ struct Emitter<'s> {
     types: Vec<Scope>,
     anonymous_counts: HashMap<String, u32>,
     holders: Vec<Holder>,
+    imports: Vec<Import>,
     // constraint: every `namespace` declaration replaces the namespace and `namespace { }` clears it; PHP admits no
     // declaration outside the braces of a file that uses the braced form, so a namespace needs no end
     namespace: String,
@@ -96,6 +106,7 @@ impl Emitter<'_> {
                     .child_by_field_name("name")
                     .map(|name| text(name, self.source))
                     .unwrap_or_default();
+                self.imports.clear();
             }
             "function_definition" => self.function(node),
             "method_declaration" => self.method(node),
@@ -272,6 +283,48 @@ impl Emitter<'_> {
         }
     }
 
+    // constraint: PHP compiles a class name written from the root as it stands, a `namespace\X` under the namespace
+    // alone, and any other name through the file's `use` map by its first segment, in any case, else under the
+    // namespace (`zend_resolve_class_name`, `Zend/zend_compile.c`)
+    fn class_name(&self, name: Node<'_>) -> String {
+        let written = text(name, self.source);
+        if name.kind() == "relative_name" {
+            let local = written.split_once('\\').map_or("", |(_, local)| local);
+            return self.qualify(local);
+        }
+        if let Some(rooted) = written.strip_prefix('\\') {
+            return rooted.to_owned();
+        }
+        let (first, rest) = written
+            .split_once('\\')
+            .map_or((written.as_str(), None), |(first, rest)| {
+                (first, Some(rest))
+            });
+        match (self.imported(first), rest) {
+            (Some(class), Some(rest)) => format!("{class}\\{rest}"),
+            (Some(class), None) => class.to_owned(),
+            (None, _) => self.qualify(&written),
+        }
+    }
+
+    fn imported(&self, alias: &str) -> Option<&str> {
+        let import = (self.imports.iter()).find(|import| {
+            self.source[import.alias.clone()].eq_ignore_ascii_case(alias.as_bytes())
+        })?;
+        let spec = &self.raw.directives[import.directive].spec;
+        Some(spec.strip_prefix('\\').unwrap_or(spec))
+    }
+
+    // constraint: a class takes its `extends` and `implements` names as parents, and an interface its `extends` names,
+    // which the grammar writes in the same clause
+    fn parents(&self, node: Node<'_>) -> Vec<String> {
+        child_nodes(node)
+            .filter(|clause| matches!(clause.kind(), "base_clause" | "class_interface_clause"))
+            .flat_map(|clause| child_nodes(clause).filter(|name| NAMES.contains(&name.kind())))
+            .map(|name| self.class_name(name))
+            .collect()
+    }
+
     fn qualify_member(&self, owner: &str, name: &str) -> String {
         if self.namespace.is_empty() {
             format!("{owner}::{name}")
@@ -320,7 +373,7 @@ impl Emitter<'_> {
         let qualified = self.qualify(&name);
 
         let mut symbol = declared(name, qualified, kind, node);
-        symbol.parents = parents(node, self.source);
+        symbol.parents = self.parents(node);
         symbol.exported = true;
         let id = self.push(symbol);
         self.types.push(Scope {
@@ -355,7 +408,7 @@ impl Emitter<'_> {
         };
 
         let mut symbol = declared(name.clone(), self.qualify(&name), SymbolKind::Class, class);
-        symbol.parents = parents(class, self.source);
+        symbol.parents = self.parents(class);
         let id = self.push(symbol);
         self.types.push(Scope {
             end: class.end_byte(),
@@ -473,6 +526,10 @@ impl Emitter<'_> {
         let Some(&open) = self.types.last() else {
             return;
         };
+        let names: Vec<String> = named_child_nodes(node)
+            .filter(|child| NAMES.contains(&child.kind()))
+            .map(|name| self.class_name(name))
+            .collect();
         let Some(definition) = usize::try_from(open.id.0)
             .ok()
             .and_then(|at| self.raw.symbols.get_mut(at))
@@ -480,8 +537,7 @@ impl Emitter<'_> {
             return;
         };
 
-        for name in named_child_nodes(node).filter(|child| NAMES.contains(&child.kind())) {
-            let name = text(name, self.source);
+        for name in names {
             if !definition.parents.contains(&name) {
                 definition.parents.push(name);
             }
@@ -524,6 +580,11 @@ impl Emitter<'_> {
         } else {
             USE_FORM
         };
+        let alias = clause
+            .child_by_field_name("alias")
+            .or_else(|| named_child_nodes(name).rfind(|segment| segment.kind() == "name"))
+            .unwrap_or(name)
+            .byte_range();
         let name = text(name, self.source);
         let name = if prefix.is_empty() {
             name
@@ -534,6 +595,12 @@ impl Emitter<'_> {
             return;
         }
 
+        if form == USE_FORM {
+            self.imports.push(Import {
+                alias,
+                directive: self.raw.directives.len(),
+            });
+        }
         self.raw.directives.push(RawDirective::new(
             form,
             name,
@@ -750,16 +817,6 @@ fn target_name(target: Node<'_>, source: &[u8]) -> Option<String> {
             .map(|name| text(name, source)),
         _ => None,
     }
-}
-
-// constraint: a class takes its `extends` and `implements` names as parents, and an interface its `extends` names,
-// which the grammar writes in the same clause
-fn parents(node: Node<'_>, source: &[u8]) -> Vec<String> {
-    child_nodes(node)
-        .filter(|clause| matches!(clause.kind(), "base_clause" | "class_interface_clause"))
-        .flat_map(|clause| child_nodes(clause).filter(|name| NAMES.contains(&name.kind())))
-        .map(|name| text(name, source))
-        .collect()
 }
 
 // constraint: `private` is the one modifier that hides a member; `protected`, `public`, `var` and none export it
