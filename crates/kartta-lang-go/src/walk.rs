@@ -271,6 +271,7 @@ impl<'a> Emitter<'a> {
             "const_declaration" | "var_declaration" => self.var_const(node),
             "const_spec" | "var_spec" => self.enter_spec(node),
             "call_expression" => self.call(node, caller),
+            "index_expression" => self.record_type_arguments(node),
             "type_identifier" | "qualified_identifier" | "selector_expression" => {
                 let owner = self.use_owner();
                 return self.record_use(node, owner);
