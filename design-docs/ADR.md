@@ -155,6 +155,7 @@ lost, and what would reopen it.
 - [3.188 Bind a C++ call a class does not declare through the class's bases](/design-docs/adr/3.188-cpp-inherited-member-calls.md)
 - [3.190 Bind a Ruby call on a constant or a literal only within the class it names](/design-docs/adr/3.190-ruby-constant-receivers.md)
 - [3.192 Bind no definition a call's count of arguments rules out](/design-docs/adr/3.192-call-argument-counts.md)
+- [3.193 Bind a call on a known class to the member the class or its nearest parent holds](/design-docs/adr/3.193-receiver-class-members.md)
 
 ## crates/kartta-lang
 
