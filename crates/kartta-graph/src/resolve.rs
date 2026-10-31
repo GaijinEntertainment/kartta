@@ -336,15 +336,56 @@ impl<'g> Cascade<'g> {
                 .any(|&at| self.names_a_type(call, self.graph.sym(at)))
     }
 
-    // constraint: the object a member call passes fills a method's implicit parameter, which `most_arguments` leaves out,
-    // and nothing of a namespace, whatever a bare call of its name passes the macro it holds
+    // constraint: the object a member call passes fills a method's implicit parameter, which its counts leave out, and
+    // nothing of a namespace, whatever a bare call of its name passes the macro it holds
+    const fn arguments_taken(call: &Call, symbol: &StoredSymbol) -> (u8, u8) {
+        match (call.receiver.is_some(), symbol.kind) {
+            (true, SymbolKind::Method) => (
+                symbol.fewest_arguments().saturating_add(1),
+                symbol.most_arguments.saturating_add(1),
+            ),
+            (true, SymbolKind::Namespace) => (0, 0),
+            _ => (symbol.fewest_arguments(), symbol.most_arguments),
+        }
+    }
+
     const fn takes_the_arguments(call: &Call, symbol: &StoredSymbol) -> bool {
-        let most = match (call.receiver.is_some(), symbol.kind) {
-            (true, SymbolKind::Method) => symbol.most_arguments.saturating_add(1),
-            (true, SymbolKind::Namespace) => 0,
-            _ => symbol.most_arguments,
-        };
-        call.arguments <= most
+        !Self::passes_too_many(call, symbol) && !Self::passes_too_few(call, symbol)
+    }
+
+    const fn passes_too_many(call: &Call, symbol: &StoredSymbol) -> bool {
+        call.arguments > Self::arguments_taken(call, symbol).1
+    }
+
+    // constraint: a use asks the tiers as a call of `0` arguments, and a construction counts none, so a count of `0`
+    // shows no call short of a definition
+    const fn passes_too_few(call: &Call, symbol: &StoredSymbol) -> bool {
+        call.arguments != 0 && call.arguments < Self::arguments_taken(call, symbol).0
+    }
+
+    // constraint: the definition a call passes too few sits as near as the one it fits, so nearness did not single that
+    // one out: the count did, and code outside the graph takes what the name's definitions do not
+    pub(crate) fn passes_too_few_as_near(
+        &self,
+        call: &Call,
+        named: &[SymbolAt],
+        confidence: u8,
+    ) -> bool {
+        let caller = self.graph.file(call.file);
+        call.arguments != 0
+            && named.iter().any(|&at| {
+                let file = self.graph.file(at.file);
+                let symbol = self.graph.sym(at);
+                let as_near = if confidence == confidence::SAME_DIR {
+                    file.dir == caller.dir
+                } else {
+                    file.parent_dir == caller.parent_dir
+                };
+                as_near
+                    && self.is_call_target(symbol)
+                    && self.is_of_the_call_s_form(call, symbol.kind)
+                    && Self::passes_too_few(call, symbol)
+            })
     }
 
     pub(crate) fn call_targets<'a>(
@@ -715,7 +756,7 @@ impl<'g> Cascade<'g> {
         let named = self.named(symbol.name);
         // constraint: a trait impl's members are never exported, and one type's impls of several traits, or of one
         // trait for several arguments, each define a member of one name
-        if named.len() < 2 || (symbol.owner.is_some() && !symbol.exported) {
+        if named.len() < 2 || (symbol.owner.is_some() && !symbol.exported()) {
             return Vec::new();
         }
         let holder = self.holder(bound);
@@ -724,7 +765,7 @@ impl<'g> Cascade<'g> {
             at != bound
                 && other.qualified_name == symbol.qualified_name
                 && other.kind == symbol.kind
-                && (other.owner.is_none() || other.exported)
+                && (other.owner.is_none() || other.exported())
                 && self.holder(at) == holder
         };
         let includes = (bound.file != call.file)
@@ -1031,7 +1072,7 @@ impl<'g> Cascade<'g> {
     // constraint: code outside the graph can define a name the graph holds, so the one definition of a name that takes
     // a call's arguments is no likelier its callee, by the name alone, than the others were before the arguments ruled
     // them out: a native overload takes what no script function of its name does
-    pub(crate) fn takes_too_few_arguments(&self, call: &Call, named: &[SymbolAt]) -> bool {
+    fn arguments_turn_one_away(&self, call: &Call, named: &[SymbolAt]) -> bool {
         call.arguments != 0
             && named.iter().any(|&at| {
                 let symbol = self.graph.sym(at);
@@ -1039,11 +1080,19 @@ impl<'g> Cascade<'g> {
             })
     }
 
+    pub(crate) fn takes_too_few_arguments(&self, call: &Call, named: &[SymbolAt]) -> bool {
+        call.arguments != 0
+            && named.iter().any(|&at| {
+                let symbol = self.graph.sym(at);
+                self.is_call_target(symbol) && Self::passes_too_many(call, symbol)
+            })
+    }
+
     pub(crate) fn candidates(&self, call: &Call) -> CandidateSet<'g> {
         let named = self.named(call.callee);
         let scoped = || {
             let gate = self.gate(call.file);
-            let mut turned_away = self.takes_too_few_arguments(call, named);
+            let mut turned_away = self.arguments_turn_one_away(call, named);
             let targets = self
                 .call_targets(call, named.iter().copied())
                 .filter(|&at| {
@@ -1548,12 +1597,12 @@ impl<'g> Cascade<'g> {
                 let symbol = self.graph.sym(at);
                 self.declared_at_top_level(at)
                     && (!self.graph.flags(at).is_test() || (tests_seen && in_one_crate()))
-                    && (symbol.exported || symbol.kind != SymbolKind::Macro)
+                    && (symbol.exported() || symbol.kind != SymbolKind::Macro)
             });
         let Some(at) = answers.min_by_key(|&at| self.graph.sym(at).kind.is_type()) else {
             return self.used_by_module(call, (module, name), visited);
         };
-        (self.graph.sym(at).exported || self.is_within_module(call.file, module))
+        (self.graph.sym(at).exported() || self.is_within_module(call.file, module))
             .then_some((at, confidence::IMPORT))
     }
 
@@ -1649,7 +1698,7 @@ impl<'g> Cascade<'g> {
         let mut exported = self.named(name).iter().copied().filter(|&at| {
             let symbol = self.graph.sym(at);
             symbol.kind == SymbolKind::Macro
-                && symbol.exported
+                && symbol.exported()
                 && at.file != module
                 && self.at_top_level(at)
                 && closure
@@ -1687,7 +1736,7 @@ impl<'g> Cascade<'g> {
         let at = self.pick(pick, declared.into_iter())?;
         self.graph
             .sym(at)
-            .exported
+            .exported()
             .then_some((at, confidence::IMPORT))
     }
 
@@ -1725,7 +1774,7 @@ impl<'g> Cascade<'g> {
         for &dir in &self.bindings(file).dot_dirs {
             let Some(at) = self
                 .pick(pick, self.declared_in(candidates, dir).into_iter())
-                .filter(|&at| self.graph.sym(at).exported)
+                .filter(|&at| self.graph.sym(at).exported())
             else {
                 continue;
             };
@@ -1819,7 +1868,8 @@ impl<'g> Cascade<'g> {
             IncludedRuntimeMembers::Any => false,
             IncludedRuntimeMembers::SpelledOrOwn => call.names_a_runtime_method,
             IncludedRuntimeMembers::SpelledOwnOrExported => {
-                call.names_a_runtime_method || (call.calls_a_method && !self.graph.sym(at).exported)
+                call.names_a_runtime_method
+                    || (call.calls_a_method && !self.graph.sym(at).exported())
             }
         };
         let kept = |at: SymbolAt| !narrowed(at) || self.spelled_or_own(call, at);
@@ -2077,7 +2127,8 @@ impl<'g> Cascade<'g> {
         let declaring = |exported: bool| {
             includes.iter().filter_map(move |&included| {
                 let declared = self.graph.in_file(named, included).iter().copied();
-                let declared = declared.filter(move |&at| self.graph.sym(at).exported == exported);
+                let declared =
+                    declared.filter(move |&at| self.graph.sym(at).exported() == exported);
                 self.pick(Pick::PackageLevel, declared)
             })
         };

@@ -608,7 +608,7 @@ impl Graph {
             signature: symbol
                 .signature
                 .map(|signature| self.strings.resolve(signature)),
-            exported: symbol.exported,
+            exported: symbol.exported(),
             flags,
         }
     }
@@ -703,7 +703,10 @@ impl Graph {
             end_line: symbol.end_line,
             kind: symbol.kind,
             flags: symbol.flags,
-            exported: symbol.exported,
+            exported_and_fewest_arguments: StoredSymbol::with_export_mark(
+                symbol.fewest_arguments,
+                symbol.exported,
+            ),
             most_arguments: symbol.most_arguments,
         }
     }
