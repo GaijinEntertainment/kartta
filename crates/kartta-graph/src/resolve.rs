@@ -2103,7 +2103,10 @@ impl<'g> Cascade<'g> {
                 let bound = imported();
                 match bound {
                     Some((at, _)) if self.graph.sym(at).kind != SymbolKind::Enum => bound,
-                    _ => self.reached_variable(site.file, name).or(bound),
+                    _ => self
+                        .reached_variable(site.file, name)
+                        .or(bound)
+                        .or_else(|| self.scripted_value(site.file, name)),
                 }
             }
             ValueUses::Expanded => imported().or_else(|| self.expanded_value((site, line), name)),
@@ -2187,6 +2190,15 @@ impl<'g> Cascade<'g> {
             .map(|at| (at, confidence::INCLUDE))
     }
 
+    // constraint: an included file compiles inside every script that includes it, so a name its closure leaves open
+    // binds the one file of all those scripts that declares it; each game's copy of a file declares it again and binds
+    // neither
+    fn scripted_value(&self, file: u32, name: Str) -> Option<Bound> {
+        let compiled_with = |declaring: u32| self.share_an_include_root(file, declaring);
+        self.one_declaring(self.named(name), compiled_with, |_| true)
+            .map(|at| (at, confidence::UNIQUE))
+    }
+
     fn one_reached(
         &self,
         file: u32,
@@ -2197,9 +2209,22 @@ impl<'g> Cascade<'g> {
             return None;
         }
         let closure = self.closure(file);
+        self.one_declaring(
+            named,
+            |declaring| closure.binary_search(&declaring).is_ok(),
+            wanted,
+        )
+    }
+
+    fn one_declaring(
+        &self,
+        named: &[SymbolAt],
+        in_scope: impl Fn(u32) -> bool,
+        wanted: impl Fn(SymbolAt) -> bool + Copy,
+    ) -> Option<SymbolAt> {
         let mut declaring = named
             .chunk_by(|left, right| left.file == right.file)
-            .filter(|defined| closure.binary_search(&defined[0].file).is_ok())
+            .filter(|defined| in_scope(defined[0].file))
             .filter_map(|defined| {
                 let wanted = defined.iter().copied().filter(move |&at| wanted(at));
                 self.pick(Pick::PackageLevel, wanted)
