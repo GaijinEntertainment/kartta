@@ -2286,6 +2286,135 @@ struct TORRENT_EXPORT torrent_removed_alert TORRENT_FINAL : torrent_alert
         assert_eq!(declared_and_defined, 1);
     }
 
+    fn spans_of(raw: &RawExtraction, qualified_name: &str) -> Vec<(u32, u32)> {
+        raw.symbols
+            .iter()
+            .filter(|symbol| symbol.qualified_name == qualified_name)
+            .map(|symbol| (symbol.line, symbol.end_line))
+            .collect()
+    }
+
+    #[test]
+    fn a_class_template_member_folds_into_its_out_of_line_definition() {
+        let raw = extract(
+            b"template <typename T>\nstruct Temp {\n    int eval(int c);\n};\n\n\
+              template <typename T>\nint Temp<T>::eval(int c)\n{\n    return c;\n}\n",
+        );
+
+        assert_eq!(spans_of(&raw, "Temp::eval"), [(7, 10)]);
+        assert_eq!(
+            raw.folded_declarations,
+            [FoldedDeclaration {
+                definition: id_of(&raw, "eval"),
+                line: 3
+            }]
+        );
+    }
+
+    #[test]
+    fn a_class_template_member_folds_whatever_the_definition_names_its_parameters() {
+        let raw = extract(
+            b"template <class T, int N>\nstruct Arr {\n    void set(const T &value);\n    struct Cell {\n\
+              void put(T value, int at);\n    };\n};\n\
+              template <class U, int M>\nvoid Arr<U, M>::set(const U &v) {}\n\
+              template <class U, int M>\nvoid Arr<U, M>::Cell::put(U v, int i) {}\n\
+              template <class... Ts>\nstruct Tuple {\n    void take(Ts... all);\n};\n\
+              template <class... Us>\nvoid Tuple<Us...>::take(Us... all) {}\n",
+        );
+
+        assert_eq!(spans_of(&raw, "Arr::set"), [(9, 9)]);
+        assert_eq!(spans_of(&raw, "Cell::put"), [(11, 11)]);
+        assert_eq!(spans_of(&raw, "Tuple::take"), [(17, 17)]);
+        assert_eq!(raw.folded_declarations.len(), 3);
+    }
+
+    #[test]
+    fn a_class_template_member_keys_alike_in_the_header_and_the_file_that_defines_it() {
+        let header = extract(b"template <class T>\nstruct Temp {\n    void set(T value);\n};\n");
+        let definition = extract(b"template <class U>\nvoid Temp<U>::set(U value) {}\n");
+
+        let keys = |raw: &RawExtraction| -> Vec<(String, CallableRole)> {
+            raw.callables
+                .iter()
+                .map(|callable| (callable.key.clone(), callable.role))
+                .collect()
+        };
+        assert_eq!(
+            keys(&header),
+            [("Temp::set($0)".to_owned(), CallableRole::Declaration)]
+        );
+        assert_eq!(
+            keys(&definition),
+            [("Temp::set($0)".to_owned(), CallableRole::Definition)]
+        );
+    }
+
+    #[test]
+    fn the_overloads_of_a_class_template_member_stay_apart() {
+        let raw = extract(
+            b"template <typename T>\nstruct Temp {\n    int eval(int c);\n    int eval(T c);\n};\n\
+              template <typename T>\nint Temp<T>::eval(int c) { return one(c); }\n\
+              template <typename T>\nint Temp<T>::eval(T c) { return two(c); }\n",
+        );
+
+        assert_eq!(spans_of(&raw, "Temp::eval"), [(7, 7), (9, 9)]);
+        let called: Vec<(&str, u32)> = raw
+            .calls
+            .iter()
+            .map(|call| {
+                (
+                    call.callee.as_str(),
+                    raw.symbols[call.site_of.0 as usize].line,
+                )
+            })
+            .collect();
+        assert_eq!(called, [("one", 7), ("two", 9)]);
+    }
+
+    #[test]
+    fn a_class_template_member_never_folds_a_specialization() {
+        let raw = extract(
+            b"template <typename T>\nstruct Temp {\n    int eval(int c);\n};\n\
+              template <>\nstruct Temp<char> {\n    int eval(int c);\n};\n\
+              template <typename T>\nstruct Temp<T *> {\n    int eval(int c);\n};\n\
+              template <>\nint Temp<int>::eval(int c) { return 1; }\n\
+              int Temp<char>::eval(int c) { return 2; }\n\
+              template <typename T>\nint Temp<T *>::eval(int c) { return 3; }\n",
+        );
+
+        assert_eq!(
+            spans_of(&raw, "Temp::eval"),
+            [(14, 14), (15, 15), (17, 17), (3, 3), (7, 7), (11, 11)]
+        );
+        assert_eq!(raw.folded_declarations.len(), 0);
+    }
+
+    #[test]
+    fn an_empty_head_folds_no_plain_member_into_a_specialization() {
+        let raw = extract(
+            b"struct Plain {\n    template <typename U>\n    void member(U value);\n    void member(int value);\n};\n\
+              template <>\nvoid Plain::member(int value) {}\n",
+        );
+
+        assert_eq!(spans_of(&raw, "Plain::member"), [(7, 7), (3, 3), (4, 4)]);
+    }
+
+    #[test]
+    fn a_template_of_its_own_keeps_its_declaration() {
+        let raw = extract(
+            b"template <typename T>\nvoid free_fn(T value);\n\
+              template <typename T>\nvoid free_fn(T value) {}\n\
+              struct Plain {\n    template <typename U>\n    void member(U value);\n};\n\
+              template <typename U>\nvoid Plain::member(U value) {}\n\
+              template <typename T>\nstruct Temp {\n    template <typename U>\n    void member(U value);\n};\n\
+              template <typename T>\ntemplate <typename U>\nvoid Temp<T>::member(U value) {}\n",
+        );
+
+        assert_eq!(spans_of(&raw, "free_fn").len(), 2);
+        assert_eq!(spans_of(&raw, "Plain::member").len(), 2);
+        assert_eq!(spans_of(&raw, "Temp::member").len(), 2);
+    }
+
     #[test]
     fn namespace_members_store_qualified_names() {
         let raw = extract(
