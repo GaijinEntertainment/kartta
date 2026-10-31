@@ -682,7 +682,8 @@ fn declared(name: String, qualified: String, kind: SymbolKind, node: Node<'_>) -
 
 // constraint: a member call names the receiver only by a variable and a scoped call only by a leaf scope, a class
 // name, `self`, `parent`, `static` or a variable; a chained or computed one is the empty receiver. A qualified name,
-// of a function or of a scope, reduces to its last segment, the bare name that owns a member.
+// of a function or of a scope, reduces to its last segment, the bare name that owns a member. PHP reads a keyword in
+// any case, and the graph's lists hold it in lower case.
 fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
     let (receiver, leaves): (&str, &[&str]) = match node.kind() {
         "function_call_expression" => {
@@ -720,6 +721,11 @@ fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
             kind if !leaves.contains(&kind) => String::new(),
             "qualified_name" | "relative_name" => {
                 last_segment(receiver, source).unwrap_or_default()
+            }
+            "relative_scope" => {
+                let mut keyword = text(receiver, source);
+                keyword.make_ascii_lowercase();
+                keyword
             }
             _ => text(receiver, source),
         });
