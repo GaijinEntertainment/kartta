@@ -305,7 +305,7 @@ impl<'g> Analysis<'g> {
             reach,
             by_depth,
             affected_files: includers.len() + caller_files.len(),
-            band: ReachBand::of(reach, symbol.kind, symbol.exported),
+            band: ReachBand::of(reach, symbol.kind, symbol.exported()),
             truncated: left_out.truncated,
             turned_away: left_out.turned_away,
             unexpanded: left_out.unexpanded,

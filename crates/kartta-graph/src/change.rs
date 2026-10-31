@@ -282,7 +282,7 @@ impl<'g> Analysis<'g> {
         Seed {
             symbol: graph.definition_at(at),
             reach,
-            band: ReachBand::of(reach, symbol.kind, symbol.exported),
+            band: ReachBand::of(reach, symbol.kind, symbol.exported()),
             caller_count,
             user_count,
             ambiguous: self.calls.ambiguous_calls(canonical),

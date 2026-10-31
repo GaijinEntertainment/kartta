@@ -183,13 +183,15 @@ impl Writer<'_> {
         if symbol.exported {
             kind |= EXPORTED;
         }
-        if symbol.most_arguments != u8::MAX {
+        let counts_arguments = symbol.most_arguments != u8::MAX || symbol.fewest_arguments != 0;
+        if counts_arguments {
             kind |= COUNTS_ARGUMENTS;
         }
         self.0.push(kind);
         self.0.push(symbol.flags.bits());
-        if symbol.most_arguments != u8::MAX {
+        if counts_arguments {
             self.0.push(symbol.most_arguments);
+            self.0.push(symbol.fewest_arguments);
         }
         self.text(&symbol.name);
         if !qualified_as_name {
@@ -350,10 +352,10 @@ impl<'a> Reader<'a> {
             ))
             .ok_or(Malformed)?;
         let flags = self.byte()?;
-        let most_arguments = if marks & COUNTS_ARGUMENTS == 0 {
-            u8::MAX
+        let (most_arguments, fewest_arguments) = if marks & COUNTS_ARGUMENTS == 0 {
+            (u8::MAX, 0)
         } else {
-            self.byte()?
+            (self.byte()?, self.byte()?)
         };
         let name = self.text()?;
         let qualified_name = if marks & QUALIFIED_AS_NAME == 0 {
@@ -376,6 +378,7 @@ impl<'a> Reader<'a> {
         symbol.value_types = value_types;
         symbol.flags = SymbolFlags::from_bits(flags);
         symbol.most_arguments = most_arguments;
+        symbol.fewest_arguments = fewest_arguments;
         Ok(symbol)
     }
 
@@ -484,6 +487,7 @@ mod tests {
     fn every_channel() -> RawExtraction {
         let mut method = Symbol::new("parse", SymbolKind::Method, 3, 9);
         method.most_arguments = 2;
+        method.fewest_arguments = 1;
         method.qualified_name = "Parser.parse".to_owned();
         method.owner = Some("Parser".to_owned());
         method.parents = vec!["Reader".to_owned(), "io.Closer".to_owned()];
