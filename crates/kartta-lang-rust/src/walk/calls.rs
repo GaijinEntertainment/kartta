@@ -132,8 +132,8 @@ impl Emitter<'_> {
     }
 
     // constraint: a scoped callee takes the last path segment before its name as the receiver, `Widget::new()`
-    // calling `new` on `Widget`; a member call takes a named operand, a named field of `self`, `self` as the type of
-    // the impl or trait around it, and anything else as the empty receiver
+    // calling `new` on `Widget`; a member call takes a named operand, a named field of `self`, the type a chain holds,
+    // `self` as the type of the impl or trait around it, and anything else as the empty receiver
     fn call_target(&self, function: Node<'_>) -> Target {
         match function.kind() {
             "identifier" => Target::new(text(function, self.source), None),
@@ -174,6 +174,9 @@ impl Emitter<'_> {
                 self.field_receiver(own),
                 &self.source[own.byte_range()],
             );
+        }
+        if let Some(chained) = value.and_then(|value| self.chain_receiver(value)) {
+            return typed_target(text(field, self.source), Some(chained), b"");
         }
         let receiver = value.map(|value| match value.kind() {
             "self" => self.enclosing_type_name().unwrap_or_default(),
@@ -313,7 +316,7 @@ fn typed_target(
 }
 
 // constraint: `self.name`, a named field of the caller's own value; a tuple field, `self.0`, is none
-fn own_field(value: Node<'_>) -> Option<Node<'_>> {
+pub(super) fn own_field(value: Node<'_>) -> Option<Node<'_>> {
     if value.kind() != "field_expression" || value.child_by_field_name("value")?.kind() != "self" {
         return None;
     }
