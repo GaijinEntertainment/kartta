@@ -1192,13 +1192,13 @@ impl Cascade<'_> {
 
     // constraint: C++ finds a name a member's body does not declare in the member's class before any namespace, then in
     // its bases, so a field of the caller's class, else of a class it derives from, that the caller's file reaches is
-    // the operand, and the class its declaration names, through `.` for a value and `->` for a pointer, holds the
+    // the operand, and the class its declaration names behind as many pointers as the call goes through holds the
     // member called; reached fields that name different classes leave the call to the tiers that read no class, as a
     // name no field answers does
     fn class_of_own_field<'s>(
         &'s self,
         call: &Call,
-        (arrow, name): (bool, &str),
+        (pointers, name): (usize, &str),
     ) -> Option<(Str, &'s str)> {
         let strings = &self.graph.strings;
         let name = strings.get(name)?;
@@ -1216,21 +1216,20 @@ impl Cascade<'_> {
             own_fields
         };
         let tier = self.reached_tier(call.file, &fields);
-        let mut declared = tier
-            .iter()
-            .map(|at| self.graph.file(at.file).value_types(at.index));
-        let first = declared.next()??;
-        if !declared.all(|other| other == Some(first)) {
+        let mut declared = tier.iter().map(|at| {
+            let types = self.graph.file(at.file).value_types(at.index)?;
+            strings
+                .resolve(types)
+                .split(VALUE_TYPE_SEPARATOR)
+                .find_map(|spelled| {
+                    let class = spelled.trim_start_matches('*');
+                    (spelled.len() - class.len() == pointers).then_some(class)
+                })
+        });
+        let class = declared.next()??;
+        if !declared.all(|other| other == Some(class)) {
             return None;
         }
-        let class = strings
-            .resolve(first)
-            .split(VALUE_TYPE_SEPARATOR)
-            .find_map(|spelled| match (spelled.strip_prefix('*'), arrow) {
-                (Some(pointee), true) => Some(pointee),
-                (None, false) => Some(spelled),
-                _ => None,
-            })?;
         let bare = self
             .conventions
             .scope_separator
@@ -1672,12 +1671,17 @@ const fn hands_members_on(kind: SymbolKind) -> bool {
     derives(kind) || matches!(kind, SymbolKind::Namespace)
 }
 
-/// The field a receiver spells after the operator that takes the member, `.lock` or `->lock`, and whether it is `->`.
-fn field_spelled(receiver: &str) -> Option<(bool, &str)> {
-    receiver
+/// The field a receiver spells after the operator that takes the member, `.lock` or `->lock`, before the `[]` of a call
+/// on an element, `->locks[]`, and how many pointers the call goes through: `->` is one, and `[]` one more.
+fn field_spelled(receiver: &str) -> Option<(usize, &str)> {
+    let (pointers, name) = receiver
         .strip_prefix("->")
-        .map(|name| (true, name))
-        .or_else(|| receiver.strip_prefix('.').map(|name| (false, name)))
+        .map(|name| (1, name))
+        .or_else(|| receiver.strip_prefix('.').map(|name| (0, name)))?;
+    Some(
+        name.strip_suffix("[]")
+            .map_or((pointers, name), |element| (pointers + 1, element)),
+    )
 }
 
 pub(crate) const fn is_value(kind: SymbolKind) -> bool {
