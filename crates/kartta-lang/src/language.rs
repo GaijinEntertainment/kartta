@@ -341,6 +341,13 @@ pub enum Receivers {
     /// [value types](crate::Symbol::value_types) and binds a member of the type the receiver reaches or of a type that
     /// type embeds; a path that leaves the code the graph holds binds nothing.
     TypePaths,
+    /// As [`Receivers::Owners`], where a receiver can also spell a chain of calls from an owner, which the extraction
+    /// cannot follow past its file: `T::m()::n()?` calls `m` on `T`, then `n` on what `m` returns, and `?` takes what
+    /// an `Option` or a `Result` holds. The graph finds each method as the owner tier does, reads the owner it returns
+    /// from its [value type](crate::Symbol::value_types), and binds the call as one on the last owner. A path that
+    /// reaches no type leaves the receiver the value after its `|`, `T::m()|.value` for `.value`, and without one the
+    /// empty receiver.
+    ReturnPaths,
 }
 
 /// What a receiver written as a bare name, of letters, digits and `_`, names.
