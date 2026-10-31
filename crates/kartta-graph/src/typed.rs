@@ -386,13 +386,14 @@ impl<'g> Cascade<'g> {
     fn embed(&self, walk: &mut Embedded, ty: SymbolAt, depth: u8) {
         match self.graph.sym(ty).kind {
             SymbolKind::TypeAlias => {
-                if let Value::Type(aliased) = self.value_type(ty, 0, depth) {
-                    walk.follow(Value::Type(aliased));
+                let aliased = self.value_type(ty, 0, depth);
+                if matches!(aliased, Value::Type(_) | Value::Imported) {
+                    walk.follow(aliased);
                 }
             }
             SymbolKind::DefinedType => {
-                if let Some(interface) = self.interface_under(ty, depth) {
-                    walk.follow(Value::Type(interface));
+                if let Some(under) = self.interface_under(ty, depth) {
+                    walk.follow(under);
                 }
             }
             _ => {}
@@ -404,11 +405,12 @@ impl<'g> Cascade<'g> {
     }
 
     // constraint: a type defined over another takes none of its methods, an interface's excepted, whose methods are the
-    // method set of every type defined over it
-    fn interface_under(&self, ty: SymbolAt, depth: u8) -> Option<SymbolAt> {
+    // method set of every type defined over it. An imported type may be an interface, and a struct's fields stay, so a
+    // member of a type over one is the imported type's
+    fn interface_under(&self, ty: SymbolAt, depth: u8) -> Option<Value<'g>> {
         let kind = self.graph.sym(ty).kind;
         if kind == SymbolKind::Interface {
-            return Some(ty);
+            return Some(Value::Type(ty));
         }
         let types = self.graph.file(ty.file).value_types(ty.index)?;
         let types = self.graph.strings.resolve(types);
@@ -419,6 +421,7 @@ impl<'g> Cascade<'g> {
         };
         match self.evaluate(self.body_of(ty), path, depth + 1) {
             Value::Type(under) => self.interface_under(under, depth + 1),
+            Value::Imported => Some(Value::Imported),
             _ => None,
         }
     }
