@@ -1573,8 +1573,18 @@ impl<'g> Cascade<'g> {
     }
 
     fn through_declared_module(&self, call: &Call, qualifier: Str) -> Option<Result<Bound, Miss>> {
-        let module = self.declared_module(call.file, qualifier)?;
-        Some(self.module_definition(call, module))
+        if let Some(module) = self.declared_module(call.file, qualifier) {
+            return Some(self.module_definition(call, module));
+        }
+        self.names_no_symbol(call, qualifier)
+            .then_some(Err(Miss::ExternalImport))
+    }
+
+    // constraint: daslang reads `mod::f` through `mod` and what it requires publicly, and a module whose definitions the
+    // graph holds is a symbol, so a qualifier no symbol holds, whoever's `require` reached it, leaves the graph; a member
+    // call's receiver is a value, which no symbol need hold
+    fn names_no_symbol(&self, call: &Call, qualifier: Str) -> bool {
+        self.reads_modules() && !call.calls_a_method && self.named(qualifier).is_empty()
     }
 
     fn module_definition(&self, call: &Call, module: u32) -> Result<Bound, Miss> {

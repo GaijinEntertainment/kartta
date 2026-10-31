@@ -573,7 +573,7 @@ impl<'a> Emitter<'a> {
                 .child_by_field_name("value")
                 .map(|object| member_receiver(object, self.source));
             let passed = self.passed(node).saturating_add(1);
-            self.push_call((method, receiver), node, passed);
+            self.push_member_call((method, receiver), node, passed);
         }
     }
 
@@ -634,7 +634,7 @@ impl<'a> Emitter<'a> {
         let receiver = head
             .child_by_field_name("value")
             .map(|object| member_receiver(object, self.source));
-        self.push_call((callee, receiver), node, 2);
+        self.push_member_call((callee, receiver), node, 2);
     }
 
     // constraint: a block bound to a name runs when the value is called later, so its body's calls are no call of
@@ -697,6 +697,16 @@ impl<'a> Emitter<'a> {
             calls_a_method: false,
             arguments,
         });
+    }
+
+    // constraint: a member call keeps its object as the receiver, as `mod::f` keeps its module, and only the mark tells
+    // a value, which the graph cannot look up, from a module
+    fn push_member_call(&mut self, parts: (String, Option<String>), node: Node<'_>, arguments: u8) {
+        let pushed = self.raw.calls.len();
+        self.push_call(parts, node, arguments);
+        if let Some(call) = self.raw.calls.get_mut(pushed) {
+            call.calls_a_method = true;
+        }
     }
 
     // constraint: `_::f` is the compiler's spelling of the scope that compiles the code, which a bare `f` names too
@@ -812,7 +822,8 @@ fn member_receiver(object: Node<'_>, source: &[u8]) -> String {
 }
 
 // constraint: `mod::f` keeps `mod` as the receiver, so same-named functions of two modules stay apart; a root-scoped
-// `::f` has no module and no receiver
+// `::f` has no module and no receiver, and `_::f` and `__::f` are the compiler's spellings of the scope that compiles
+// the code, which a bare `f` names too
 fn callee_parts(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
     if node.kind() != "qualified_name" {
         return (text(node, source), None);
@@ -823,7 +834,8 @@ fn callee_parts(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
         .map_or_else(String::new, |name| text(name, source));
     let receiver = node
         .child_by_field_name("module")
-        .map(|module| text(module, source));
+        .map(|module| text(module, source))
+        .filter(|module| module != "_" && module != "__");
     (callee, receiver)
 }
 
