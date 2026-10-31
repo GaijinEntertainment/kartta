@@ -5,6 +5,7 @@ use super::child_nodes;
 use super::name::type_base_name;
 
 const DATA_SIGNATURE_MAX: usize = 160;
+const POINTERS_A_CALL_READS: &str = "**";
 
 pub(super) fn has_storage_class(node: Node<'_>, class: &str, source: &[u8]) -> bool {
     has_child_spelled(node, "storage_class_specifier", class, source)
@@ -86,24 +87,20 @@ pub(super) fn field_owner(node: Node<'_>, source: &[u8]) -> Option<String> {
     }
 }
 
-/// The name a field declarator declares, and whether the field holds a pointer to a value of its type: `Some(false)`
-/// for a value or a reference, `Some(true)` for a pointer, and `None` for an array, a function or a pointer to a
-/// pointer, whose operand no member call names.
-pub(super) fn field_declarator(mut node: Node<'_>) -> Option<(Node<'_>, Option<bool>)> {
-    let mut pointer = Some(false);
+/// The name a field declarator declares, and how many pointers the field holds to a value of its type: each `*` and
+/// each array dimension counts one, a reference none, and a function makes it `None`, since no member call names its
+/// operand.
+pub(super) fn field_declarator(mut node: Node<'_>) -> Option<(Node<'_>, Option<usize>)> {
+    let mut pointers = Some(0);
     loop {
         match node.kind() {
-            "field_identifier" => return Some((node, pointer)),
-            "pointer_declarator" => {
-                pointer = pointer.filter(|&pointer| !pointer).map(|_| true);
-                node = node.child_by_field_name("declarator")?;
-            }
-            "array_declarator" => {
-                pointer = None;
+            "field_identifier" => return Some((node, pointers)),
+            "pointer_declarator" | "array_declarator" => {
+                pointers = pointers.map(|held| held + 1);
                 node = node.child_by_field_name("declarator")?;
             }
             "function_declarator" => {
-                pointer = None;
+                pointers = None;
                 node = parenthesized_declarator(node)?;
             }
             "reference_declarator" | "parenthesized_declarator" => node = node.named_child(0)?,
@@ -112,23 +109,27 @@ pub(super) fn field_declarator(mut node: Node<'_>) -> Option<(Node<'_>, Option<b
     }
 }
 
-/// The value types of a field of `class`: the class, a pointer's after a `*`, and for a value of a class template
-/// the class its `operator->` reaches, `arrow`, after a `*`. A field of a builtin type or of a template parameter has
-/// no `class`, and an array or a pointer to a pointer no `pointer`, so either records none.
+/// The value types of a field of `class`, each after a `*` per pointer: the class, and for a class template the class
+/// its first argument names, `reached`, behind the pointers it takes. `->` goes through one pointer and an element's
+/// `[]` through one more, so a type behind more than [`POINTERS_A_CALL_READS`] is left out. A field of a builtin type,
+/// of a template parameter or of a function has no `class` or no `pointers`, and records none.
 pub(super) fn field_value_types(
     class: Option<&str>,
-    pointer: Option<bool>,
-    arrow: Option<&str>,
+    pointers: Option<usize>,
+    reached: Option<(&str, usize)>,
 ) -> Vec<String> {
-    match (class, pointer) {
-        (Some(class), Some(true)) => vec![format!("*{class}")],
-        (Some(class), Some(false)) => {
-            let mut types = vec![class.to_owned()];
-            types.extend(arrow.map(|reached| format!("*{reached}")));
-            types
-        }
-        _ => Vec::new(),
-    }
+    let (Some(class), Some(pointers)) = (class, pointers) else {
+        return Vec::new();
+    };
+    let reached = reached.map(|(class, taken)| (class, pointers + taken));
+    std::iter::once((class, pointers))
+        .chain(reached)
+        .filter_map(|(class, held)| {
+            POINTERS_A_CALL_READS
+                .get(..held)
+                .map(|stars| format!("{stars}{class}"))
+        })
+        .collect()
 }
 
 pub(super) fn data_declarator<'t>(
