@@ -54,7 +54,7 @@ fn a_member_call_on_a_value_the_caller_declares_records_the_empty_receiver() {
         ),
         (
             "typescript",
-            "function run(items: Items) { items.close(); }\n",
+            "function run(items: Items[]) { items.close(); }\n",
             "close",
         ),
         (

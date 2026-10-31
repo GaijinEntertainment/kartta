@@ -13,7 +13,7 @@ use kartta_lang::{
 };
 use tree_sitter::{Node, Tree};
 
-use self::context::{parameters_of, untyped_name};
+use self::context::{parameter_name, parameters_of, untyped_name};
 use self::exports::binds_a_require;
 use self::locals::Locals;
 use self::uses::{annotated_type, constructed_type, names_a_value};
@@ -125,8 +125,8 @@ enum Binding {
     /// A variable or a constant a body declares by one name, local to that body: a call of the name calls it.
     Local(SymbolId, Option<Span>),
     Module(Option<Span>),
-    /// A parameter that no annotation types, of the one type the function type of its context spells.
-    Contextual(Span),
+    /// A parameter of the one type its annotation or, with no annotation, the function type of its context spells.
+    Parameter(Span),
     Type,
     /// A name an import or a `require` binds, or a function or a class the module declares at its top level: a name
     /// taken as a value uses it, and a member taken of it keeps the name as its receiver.
@@ -480,10 +480,15 @@ impl<'s> Emitter<'s> {
                 context = Some(contextual.map(|list| parameters_of(list).skip(at)));
             }
             let slot = context.as_mut().and_then(|rest| rest.as_mut()?.next());
-            let typed = name.zip(slot.and_then(|slot| self.contextual_type(slot)));
-            match typed {
+            let written = if name.is_some() {
+                slot
+            } else {
+                Some(parameter)
+            };
+            let name = name.or_else(|| parameter_name(parameter));
+            match name.zip(written.and_then(|written| self.parameter_type(written))) {
                 Some((name, typed)) => {
-                    self.declare(name.byte_range(), until, Binding::Contextual(typed));
+                    self.declare(name.byte_range(), until, Binding::Parameter(typed));
                 }
                 None => self.declare_pattern(parameter, until, Binding::Value),
             }
