@@ -15,7 +15,8 @@
 //! Every command is a call of its name, attributed to the function around it — a subshell, a loop, a `case` arm or a
 //! command substitution opens no scope of its own. A command made before the script defines anything is dropped, and
 //! a command after that outside every function is a call from file scope. `alias` with definitions, `source` and `.`
-//! are no calls.
+//! are no calls. A command binds a function or an alias of its name and never a variable, which no command name
+//! reaches.
 //!
 //! A function the shell runs later, named as one word, is a use of it: the handler of `trap cleanup EXIT`, of
 //! `trap 'cleanup' INT` or of `trap "cleanup" HUP`, and the completer of `complete -F _tool tool`. A quoted handler
@@ -69,6 +70,7 @@ use crate::resolve::BashResolver;
 
 const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
+    conventions.values_are_call_targets = false;
     conventions.unrecorded_data = &[SymbolKind::Variable];
     conventions
 };
