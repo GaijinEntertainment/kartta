@@ -6,8 +6,8 @@
 )]
 
 use kartta_lang::{
-    Access, BareReceivers, Conventions, FILE_SCOPE, Language, RawExtraction, Receiver, Symbol,
-    SymbolId, SymbolKind, TypeUses, ValueUses,
+    Access, BareReceivers, Conventions, FILE_SCOPE, Language, MacroInvocations, RawExtraction,
+    Receiver, Symbol, SymbolId, SymbolKind, TypeUses, ValueUses,
 };
 use kartta_lang_daslang::Daslang;
 
@@ -148,9 +148,10 @@ fn daslang_claims_files_with_the_das_extension_in_any_case() {
 }
 
 #[test]
-fn daslang_conventions_are_the_default_but_value_uses_type_uses_and_receivers() {
+fn daslang_conventions_are_the_default_but_macros_value_uses_type_uses_and_receivers() {
     let mut expected = Conventions::default();
     expected.bare_receivers = BareReceivers::Modules;
+    expected.macro_invocations = MacroInvocations::Apart;
     expected.value_uses = ValueUses::Expanded;
     expected.own_type_receivers = Some(&["self"]);
     expected.base_receivers = &["super"];
