@@ -40,8 +40,8 @@ pub struct Misses {
     pub not_admitted: usize,
     /// The sites [`Miss::Ambiguous`] names.
     pub ambiguous: usize,
-    /// Of the undefined and the not-admitted sites, those made through a receiver that names no import: a call of a
-    /// member of a value whose type the graph does not define, most often a library's.
+    /// Of the undefined and the not-admitted sites, those made through any receiver, one that names an import
+    /// included: most often a call of a member of a value whose type the graph does not define, a library's.
     pub through_a_receiver: usize,
 }
 

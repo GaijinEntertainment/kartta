@@ -141,8 +141,11 @@ impl Twin {
 }
 
 impl<'g> Cascade<'g> {
-    /// The owner a receiver names, `Widget` for `b::Widget`, since a member keeps its class's bare name as its owner;
-    /// `None` where no symbol has that name.
+    /// The owner a receiver names, `Widget` for `b::Widget` and for `Widget<int>`, since a member keeps its class's
+    /// bare name as its owner. A receiver that spells neither a scope nor template arguments, and any receiver where
+    /// the language has no scope separator, is its own answer, whatever the symbols hold. A spelling that needs cutting
+    /// answers `None` where the string table does not hold the cut name, and that table also holds file paths and the
+    /// names of calls and uses, so a `Some` does not say a symbol has the name.
     pub(crate) fn bare_owner(&self, receiver: Str) -> Option<Str> {
         let Some(separator) = self.conventions.scope_separator else {
             return Some(receiver);

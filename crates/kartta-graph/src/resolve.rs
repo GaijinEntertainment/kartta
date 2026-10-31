@@ -1340,9 +1340,6 @@ impl<'g> Cascade<'g> {
         })
     }
 
-    // constraint: test code is built apart from the code it tests, so of the definitions a call reaches by name alone,
-    // a test one binds a call from test code alone; it still counts among them, so a name test code shares, often a
-    // stub of a builtin or of a library outside the graph, is no surer to mean another definition of it
     // constraint: a method call on a value the graph cannot type, a name after its `.` or an expression's empty
     // receiver, holds no type the graph can tell from one outside the tree
     fn names_a_library_method_on_a_value(&self, call: &Call, at: SymbolAt) -> bool {
@@ -1368,6 +1365,9 @@ impl<'g> Cascade<'g> {
         }
     }
 
+    // constraint: test code is built apart from the code it tests, so of the definitions a call reaches by name alone,
+    // a test one binds a call from test code alone; it still counts among them, so a name test code shares, often a
+    // stub of a builtin or of a library outside the graph, is no surer to mean another definition of it
     fn can_bind_by_name(&self, call: &Call, at: SymbolAt) -> bool {
         !self.graph.flags(at).is_test() || self.graph.flags(call.caller_at()).is_test()
     }
@@ -1887,9 +1887,11 @@ impl<'g> Cascade<'g> {
     }
 
     // constraint: a member of a value binds through the type its path spells, or of the owner it names where receivers
-    // name owners, else the one field of the name its own file declares outside other bodies, or where the language
-    // says so, its includes' then theirs; the package, an import and the family bind a namesake too often, where a
-    // test table or an anonymous struct holds the value
+    // name owners, and a path neither reaches binds nothing but in three cases: an empty path, a Go path the graph
+    // cannot follow to a type, and a C++ path to a type the graph holds that declares no such member, nor does a base;
+    // those bind the one field of the name their own file declares outside other bodies, or where the language says
+    // so, its includes' then theirs, or nothing where the language leaves them unbound; the package, an import and the
+    // family bind a namesake too often, where a test table or an anonymous struct holds the value
     fn member_use(&self, site: SymbolAt, name: Str, path: Option<Str>) -> Result<Bound, UseMiss> {
         if let Some(path) = path
             && self.reads_type_paths()
