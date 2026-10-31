@@ -6290,6 +6290,39 @@ fn a_call_qualified_by_a_module_its_file_does_not_require_binds_that_module_s_fu
 }
 
 #[test]
+fn an_import_outside_the_graph_holds_a_qualifier_an_included_file_s_package_shares() {
+    let checks = script_module("vendor/checks.go", "checks", &["has_volume"], Vec::new());
+    let mut binds = crate::including(
+        script_module(
+            "game/binds.go",
+            "binds",
+            &["own"],
+            vec![member_call(1, "checks", "has_volume", 21)],
+        ),
+        &["vendor/checks.go"],
+    );
+    binds.bindings.push(ImportBinding {
+        alias: None,
+        target_dir: None,
+        last_segment: "checks".to_owned(),
+    });
+    binds.uses.push(UseRef {
+        site_of: SymbolId(1),
+        name: "has_volume".to_owned(),
+        receiver: Receiver::Qualifier("checks".to_owned()),
+        access: Access::Read,
+        line: 22,
+    });
+    let graph = graph_of(Conventions::default(), &[checks, binds]);
+
+    assert_eq!(callees(&graph, "binds.own"), Vec::<String>::new());
+    let references = graph
+        .references("checks.has_volume", SiteQuery::new(usize::MAX))
+        .expect("the name selects a symbol");
+    assert_eq!(references.sites.len(), 0);
+}
+
+#[test]
 fn a_module_declared_under_a_name_no_file_bears_answers_over_a_binding_outside_the_graph() {
     let checks = script_module("game/rules.das", "checks", &["has_volume"], Vec::new());
     let mut binds = script_module(

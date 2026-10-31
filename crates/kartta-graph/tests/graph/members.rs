@@ -4,9 +4,9 @@
 
 use kartta_graph::{Graph, Selector, SiteQuery};
 use kartta_lang::{
-    Access, Callable, CallableRole, CallsOnValues, Conventions, DataUses, Extraction, IncludeReach,
-    InheritedMembers, MemberCalls, OwnMembers, ReExport, Receiver, Symbol, SymbolId, SymbolKind,
-    UntypedMembers, UseRef, ValueUses,
+    Access, BareReceivers, Callable, CallableRole, CallsOnValues, Conventions, DataUses,
+    Extraction, ImportBinding, IncludeReach, InheritedMembers, MemberCalls, OwnMembers, ReExport,
+    Receiver, Symbol, SymbolId, SymbolKind, UntypedMembers, UseRef, ValueUses,
 };
 
 use crate::{graph_of as graph, including};
@@ -466,6 +466,38 @@ fn a_qualifier_that_names_a_module_the_file_requires_binds_that_module_s_definit
         ),
         (vec![("decs_boost.create".to_owned(), 2, 95)], Vec::new()),
         "a module the file does not require stays unbound"
+    );
+}
+
+#[test]
+fn a_qualifier_that_names_a_require_alias_binds_that_module_s_definition() {
+    let module = |path: &str, module: &str| {
+        let mut defined = free("create", SymbolKind::Function, [1, 3]);
+        defined.qualified_name = format!("{module}.create");
+        defined.exported = true;
+        let mut extraction = file(path, vec![defined], &[]);
+        extraction.package = Some(module.to_owned());
+        extraction
+    };
+    let decs = module("daslib/decs.das", "decs");
+    let mut boost = file(
+        "daslib/decs_boost.das",
+        vec![free("run", SymbolKind::Function, [1, 3])],
+        &["daslib/decs.das"],
+    );
+    boost.bindings = vec![ImportBinding {
+        alias: Some("d".to_owned()),
+        target_dir: Some("daslib/decs.das".to_owned()),
+        last_segment: "decs".to_owned(),
+    }];
+    boost.uses = vec![using(0, "create", Receiver::Qualifier("d".to_owned()), 2)];
+    let mut conventions = script();
+    conventions.bare_receivers = BareReceivers::Modules;
+    let graph = graph(conventions, &[decs, boost]);
+
+    assert_eq!(
+        sites_of(&graph, "decs.create").0,
+        vec![("run".to_owned(), 2, 95)]
     );
 }
 

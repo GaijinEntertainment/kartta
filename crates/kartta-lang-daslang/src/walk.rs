@@ -277,7 +277,11 @@ impl<'a> Emitter<'a> {
     // constraint: `require ?guard target` keeps its guard in its own field, so only `name` is the import
     fn require(&mut self, node: Node<'_>) {
         if let Some(module) = self.field_text(node, "name") {
-            self.directive(REQUIRE_FORM, module, node);
+            let directive = RawDirective {
+                names: self.field_text(node, "alias").into_iter().collect(),
+                ..RawDirective::new(REQUIRE_FORM, module, start_line(node))
+            };
+            self.directive(directive);
         }
     }
 
@@ -289,15 +293,17 @@ impl<'a> Emitter<'a> {
             .strip_prefix("include")
             .and_then(|rest| rest.split_whitespace().next())
         {
-            self.directive(INCLUDE_FORM, file.to_owned(), node);
+            self.directive(RawDirective::new(
+                INCLUDE_FORM,
+                file.to_owned(),
+                start_line(node),
+            ));
         }
     }
 
-    fn directive(&mut self, form: u32, spec: String, node: Node<'_>) {
-        if !spec.is_empty() {
-            self.raw
-                .directives
-                .push(RawDirective::new(form, spec, start_line(node)));
+    fn directive(&mut self, directive: RawDirective) {
+        if !directive.spec.is_empty() {
+            self.raw.directives.push(directive);
         }
     }
 
