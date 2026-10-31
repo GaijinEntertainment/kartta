@@ -68,6 +68,12 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
                 .or_else(|| {
                     macro_before_a_constructor(&source[at..])
                         .map(|annotation| (at + annotation.start, at + annotation.end))
+                })
+                .or_else(|| {
+                    split_head(source, at).map(|[opening, later]| {
+                        repaired.blank(later);
+                        (opening.start, opening.end)
+                    })
                 }),
             _ => None,
         };
@@ -593,6 +599,92 @@ impl FirstBranches {
             Directive::Other => {}
         }
     }
+}
+
+// constraint: the grammar reads a conditional's branch as a run of whole statements, so a head each branch writes,
+// `#ifdef A` `void f(int a)` `#else` `void f(int a, int b)` `#endif` `{`, misses the `;` of the first branch and reads
+// the `#endif` as an error inside the definition the last branch opens; the conditional then stays open past that
+// definition and can take its class down, or fail the whole tree, which leaves the misread members of the file to
+// their macros. The first branch alone is a whole definition of what the others write, while heads of two names are
+// two definitions, which the tree already holds, and a macro call may be a class head that goes on past the branch
+/// The directive of the conditional at `line` and the lines from its first later branch through its `#endif`, where
+/// each branch holds a [`branch_head`] of one name and a `{` follows the conditional.
+fn split_head(source: &[u8], line: usize) -> Option<[Range<usize>; 2]> {
+    if directive_at(source, line)? != Directive::Opens {
+        return None;
+    }
+    let first_branch = directive_end(source, line);
+    let mut branch = branch_head(source, first_branch)?;
+    let names = branch.names;
+    let later = branch.ended_by.start;
+    while branch.directive == Directive::Branches {
+        branch = branch_head(source, branch.ended_by.end).filter(|next| next.names == names)?;
+    }
+    let end = branch.ended_by;
+    (later != end.start && source.get(next_code(source, end.end)) == Some(&b'{'))
+        .then_some([line..first_branch, later..end.end])
+}
+
+/// The head a branch of a conditional holds: the names before its first and its last outermost `(`, since a return type
+/// or an attribute can hold the first of them, and the directive that ends the branch, with that directive's line.
+struct BranchHead<'s> {
+    names: [&'s [u8]; 2],
+    directive: Directive,
+    ended_by: Range<usize>,
+}
+
+/// The [`BranchHead`] of the branch at `from`, where the branch holds no `;`, no brace and no conditional, and its
+/// first `(` closes a name no macro spells.
+fn branch_head(source: &[u8], from: usize) -> Option<BranchHead<'_>> {
+    let mut first: Option<&[u8]> = None;
+    let mut last = None;
+    let mut depth = 0usize;
+    let mut code = from;
+    let mut at = from;
+    loop {
+        let byte = *source.get(at)?;
+        let line_start = source[at - 1] == b'\n';
+        match line_start.then(|| directive_at(source, at)).flatten() {
+            Some(Directive::Opens) => return None,
+            Some(Directive::Other) => {
+                at = directive_end(source, at);
+                code = at;
+                continue;
+            }
+            Some(directive) => {
+                return Some(BranchHead {
+                    names: [first.filter(|name| !is_macro_name(name))?, last?],
+                    directive,
+                    ended_by: at..directive_end(source, at),
+                });
+            }
+            None => {}
+        }
+        match byte {
+            b';' | b'{' | b'}' => return None,
+            b'(' if depth == 0 => {
+                depth = 1;
+                last = Some(head_name(&source[code..at]));
+                first = first.or(last);
+            }
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        at += opaque_len(source, at);
+    }
+}
+
+/// The name of the head a `(` ends `text` with: the scoped name before it, or the `:` that opens an initializer list.
+fn head_name(text: &[u8]) -> &[u8] {
+    let text = text.trim_ascii();
+    if text.starts_with(b":") {
+        return b":";
+    }
+    let spaced = text.iter().rposition(u8::is_ascii_whitespace);
+    let name = &text[spaced.map_or(0, |space| space + 1)..];
+    let pointers = name.iter().take_while(|byte| matches!(byte, b'*' | b'&'));
+    &name[pointers.count()..]
 }
 
 /// Whether the code before a `{` ends in a namespace head, `namespace`, `namespace a` or `namespace a::b`.
@@ -2956,5 +3048,363 @@ private:
                 ("SphereAABBTest_SIMD::mRadius2", 30, 30)
             ]
         );
+    }
+
+    fn symbol_lines(source: &[u8]) -> Vec<(String, u32, u32)> {
+        let mut lines: Vec<(String, u32, u32)> = Cpp::new()
+            .extract(source)
+            .symbols
+            .into_iter()
+            .map(|symbol| (symbol.qualified_name, symbol.line, symbol.end_line))
+            .collect();
+        lines.sort_by_key(|&(_, line, _)| line);
+        lines
+    }
+
+    #[test]
+    fn a_macro_line_above_a_template_leaves_its_class_a_destructor_and_a_constructor() {
+        const SOURCE: &[u8] = br"JPH_NAMESPACE_BEGIN
+
+template <class F>
+class ScopeExit : public NonCopyable
+{
+public:
+	JPH_INLINE explicit	ScopeExit(F &&inFunction) : mFunction(std::move(inFunction)) { }
+
+	JPH_INLINE			~ScopeExit() { if (!mInvoked) mFunction(); }
+
+	JPH_INLINE void		Invoke()
+	{
+		mFunction();
+	}
+
+private:
+	F					mFunction;
+	bool				mInvoked = false;
+};
+
+JPH_NAMESPACE_END
+";
+
+        let lines = symbol_lines(SOURCE);
+
+        let named = |name: &str| lines.iter().filter(|line| line.0 == name).count();
+        assert_eq!(named("ScopeExit::ScopeExit"), 1, "{lines:?}");
+        assert_eq!(named("ScopeExit::~ScopeExit"), 1, "{lines:?}");
+    }
+
+    #[test]
+    fn a_destructor_a_macro_precedes_under_a_conditional_keeps_its_name() {
+        const SOURCE: &[u8] = br"class PruningPool
+{
+public:
+	PruningPool();
+#ifdef __SPU__
+	PX_FORCE_INLINE ~PruningPool() {}
+#else
+	virtual ~PruningPool();
+#endif
+};
+";
+
+        let lines = symbol_lines(SOURCE);
+
+        assert_eq!(
+            lines
+                .iter()
+                .find(|line| line.1 == 6)
+                .map(|line| line.0.as_str()),
+            Some("PruningPool::~PruningPool"),
+            "{lines:?}"
+        );
+    }
+
+    #[test]
+    fn a_head_each_branch_writes_is_read_with_the_first_branch_taken() {
+        const SOURCE: &[u8] = br"#ifndef PX_TRIANGLE
+#define PX_TRIANGLE
+#ifndef PX_DOXYGEN
+namespace physx
+{
+#endif
+
+class PxTriangle
+{
+public:
+	PX_FORCE_INLINE	PxTriangle() {}
+	PX_FORCE_INLINE	~PxTriangle() {}
+
+#ifdef __SPU__
+	void normalOf(PxVec3& normal) const
+#else
+	PX_FORCE_INLINE	void normalOf(PxVec3& normal) const
+#endif
+	{
+		normal = 1;
+	}
+
+	PX_FORCE_INLINE	PxReal area() const
+	{
+		return 1;
+	}
+};
+
+#ifndef PX_DOXYGEN
+}
+#endif
+
+#endif
+";
+
+        assert_eq!(
+            symbol_lines(SOURCE),
+            [
+                ("physx::PxTriangle".to_owned(), 8, 27),
+                ("PxTriangle::PxTriangle".to_owned(), 11, 11),
+                ("PxTriangle::~PxTriangle".to_owned(), 12, 12),
+                ("PxTriangle::normalOf".to_owned(), 15, 21),
+                ("PxTriangle::area".to_owned(), 23, 26),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_head_each_branch_writes_leaves_the_file_its_misread_destructor() {
+        const SOURCE: &[u8] = br"#ifdef WITH_TOPOLOGY
+bool Adjacencies::GetBoundaryVertices(PxU32 count, bool* status) const
+#else
+bool Adjacencies::GetBoundaryVertices(PxU32 count, bool* status, const Face* faces) const
+#endif
+{
+#ifndef WITH_TOPOLOGY
+	if(!faces)
+	{
+		return false;
+	}
+#endif
+	return true;
+}
+
+#ifdef WITH_TOPOLOGY
+bool Adjacencies::MakeLastRef(AdjTriangle& triangle, PxU32 vref)
+#else
+bool Adjacencies::MakeLastRef(AdjTriangle& triangle, PxU32 vref, Face* topology)
+#endif
+{
+#ifndef WITH_TOPOLOGY
+	if(!topology)
+	{
+		return false;
+	}
+#endif
+
+	PxU32 Id = 0;
+#ifdef WITH_TOPOLOGY
+	if(triangle.v[0]==vref)
+#else
+	if(topology->v[0]==vref)
+#endif
+	{
+		return true;
+	}
+#ifdef WITH_TOPOLOGY
+	else if(triangle.v[1]==vref)
+#else
+	else if(topology->v[1]==vref)
+#endif
+	{
+		return false;
+	}
+	return false;
+}
+
+class AdjEdge : public Gu::EdgeData, public Ps::UserAllocated
+{
+public:
+	PX_INLINE	AdjEdge()	{}
+	PX_INLINE	~AdjEdge()	{}
+
+	PxU32		mFaceNb;
+};
+";
+
+        assert_eq!(
+            symbol_lines(SOURCE),
+            [
+                ("Adjacencies::GetBoundaryVertices".to_owned(), 2, 14),
+                ("Adjacencies::MakeLastRef".to_owned(), 17, 47),
+                ("AdjEdge".to_owned(), 49, 56),
+                ("AdjEdge::AdjEdge".to_owned(), 52, 52),
+                ("AdjEdge::~AdjEdge".to_owned(), 53, 53),
+                ("AdjEdge::mFaceNb".to_owned(), 55, 55),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_pointer_written_against_a_heads_name_is_no_part_of_it() {
+        const SOURCE: &[u8] =
+            b"#ifdef ONE\nPxU32* Pool::find(int a)\n#else\nPxU32 *Pool::find(int a, int b)\n#endif\n{\n}\n";
+
+        assert!(for_parse(SOURCE).is_some());
+    }
+
+    #[test]
+    fn every_branch_of_a_split_head_names_it() {
+        const ALIKE: &[u8] =
+            b"#if ONE\nint run(int a)\n#elif TWO\nint run(long a)\n#else\nint run(char a)\n#endif\n{\n}\n";
+        const LAST_APART: &[u8] =
+            b"#if ONE\nint run(int a)\n#elif TWO\nint run(long a)\n#else\nint walk(char a)\n#endif\n{\n}\n";
+
+        assert!(for_parse(ALIKE).is_some());
+        assert_eq!(for_parse(LAST_APART), None);
+    }
+
+    #[test]
+    fn the_parentheses_of_a_parameter_name_no_head() {
+        const SOURCE: &[u8] =
+            b"#ifdef ONE\nint run(void (*callback)(int))\n#else\nint run(void (*hook)(int))\n#endif\n{\n}\n";
+
+        assert!(for_parse(SOURCE).is_some());
+    }
+
+    #[test]
+    fn a_conditional_of_initializer_lists_is_a_split_head() {
+        const SOURCE: &[u8] = br"Context::Context(Context&& rhs) noexcept
+#if WITH_LOADER
+	: m_loader(rhs.m_loader), m_dispatcher(rhs.m_dispatcher)
+#elif WITH_NAN
+#define invalid sqrt(-1.0f)
+	: m_dispatcher(invalid)
+#undef invalid
+#endif
+{
+}
+";
+
+        let repaired = for_parse(SOURCE).expect("a split head");
+
+        assert_eq!(
+            String::from_utf8_lossy(&repaired)
+                .lines()
+                .map(str::trim_end)
+                .collect::<Vec<_>>(),
+            [
+                "Context::Context(Context&& rhs) noexcept",
+                "",
+                "\t: m_loader(rhs.m_loader), m_dispatcher(rhs.m_dispatcher)",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "{",
+                "}",
+            ]
+        );
+    }
+
+    const HEADS_NO_BRANCH_CAN_STAND_FOR: &[u8] = br"#ifdef ONE
+int main_of_one()
+#else
+int main_of_other()
+#endif
+{
+}
+#ifdef ONE
+void One::run()
+#else
+void Other::run()
+#endif
+{
+}
+#ifdef ONE
+Value Value::operator+(int a)
+#else
+Value Value::operator-(int a)
+#endif
+{
+}
+#ifdef ONE
+decltype(factory()) One::first()
+#else
+decltype(factory()) One::second()
+#endif
+{
+}
+#ifdef ONE
+int guarded_one() LOCKED_BY(mtx)
+#else
+int guarded_other() LOCKED_BY(mtx)
+#endif
+{
+}
+#ifdef ONE
+DECLARED_AS(int) f()
+#else
+DECLARED_AS(int) f(int a)
+#endif
+{
+}
+#ifdef ONE
+int g()
+#endif
+{
+}
+#ifdef ONE
+#else
+int g()
+#endif
+{
+}
+#ifdef ONE
+int g()
+#else
+#endif
+{
+}
+#ifdef ONE
+int g();
+#else
+int g(int a);
+#endif
+{
+}
+#ifdef ONE
+int g() {
+#else
+int g(int a) {
+#endif
+}
+#ifdef ONE
+int g()
+#else
+int g(int a)
+#endif
+const int after = 0;
+#ifdef ONE
+int g()
+#else
+#ifdef TWO
+int g(int a)
+#endif
+{
+}
+#endif
+#ifdef ONE
+void h()
+{
+#else
+void h(int a)
+{
+#endif
+	{
+	}
+}
+";
+
+    #[test]
+    fn only_a_head_each_branch_names_alike_is_read_with_the_first_branch_taken() {
+        assert_eq!(for_parse(HEADS_NO_BRANCH_CAN_STAND_FOR), None);
     }
 }
