@@ -9,7 +9,7 @@
 
 use std::fs;
 
-use kartta::{BuildOptions, Engine, SiteQuery};
+use kartta::{BuildOptions, Engine, SiteQuery, SymbolKind};
 use tempfile::TempDir;
 
 const GLOBALS: &str = "texture frame_tex;\nblock(scene) global_frame {}\n";
@@ -91,6 +91,80 @@ shader own
 }
 "#;
 
+const VARS: &str = "int special_vision = 0;\n";
+
+const RANGES: &str = "interval special_vision: off<1, on;\n";
+
+const SEES_BOTH: &str = r#"include "vars.dshl"
+include "iv.dshl"
+
+shader lit
+{
+  if (special_vision == on) { dont_render; }
+}
+"#;
+
+const OWN_RANGES: &str = r#"include "vars.dshl"
+
+interval special_vision: off<1, on;
+
+shader lit
+{
+  if (special_vision == on) { dont_render; }
+}
+"#;
+
+const RANGES_OVER_VARS: &str = r#"include "vars.dshl"
+
+interval special_vision: off<1, on;
+"#;
+
+const THROUGH_RANGES: &str = r#"include "ranges.dshl"
+
+shader lit
+{
+  if (special_vision == on) { dont_render; }
+}
+"#;
+
+const ONLY_RANGES: &str = r"interval quality: low<1, high;
+
+shader lit
+{
+  if (quality == high) { dont_render; }
+}
+";
+
+const SEES_TWO_VARS: &str = r#"include "left.dshl"
+include "right.dshl"
+
+interval shared_value: low<1, high;
+
+shader lit
+{
+  if (shared_value == high) { dont_render; }
+}
+"#;
+
+const SHADER_OF_RANGES_NAME: &str = "shader special_vision\n{\n}\n";
+
+const SEES_SHADER: &str = r#"include "named.dshl"
+include "iv.dshl"
+
+shader lit
+{
+  if (special_vision == on) { dont_render; }
+}
+"#;
+
+const OWN_SHADER_OF_VARIABLE_NAME: &str = r#"include "vars.dshl"
+
+shader special_vision
+{
+  if (special_vision == 1) { dont_render; }
+}
+"#;
+
 fn build() -> (TempDir, Engine) {
     build_tree(&[
         ("globals.dshl", GLOBALS),
@@ -124,6 +198,100 @@ fn uses<'e>(engine: &'e Engine, name: &str) -> Vec<(&'e str, u32, u8)> {
         .filter(|site| !site.call)
         .map(|site| (site.site_of.qualified_name, site.line, site.confidence))
         .collect()
+}
+
+/// The file and the kind of the definition `name` selects.
+fn selected<'e>(engine: &'e Engine, name: &str) -> (&'e str, SymbolKind) {
+    let (_, graph) = engine.graph_of("water.dshl").expect("DSHL claims the file");
+    let references = graph
+        .references(name, SiteQuery::new(usize::MAX))
+        .expect("the name is defined");
+    (references.symbol.file, references.symbol.kind)
+}
+
+#[test]
+fn a_read_past_an_interval_in_another_file_selects_and_binds_the_variable() {
+    let (_tree, engine) = build_tree(&[
+        ("vars.dshl", VARS),
+        ("iv.dshl", RANGES),
+        ("top.dshl", SEES_BOTH),
+    ]);
+
+    assert_eq!(uses(&engine, "special_vision"), [("lit", 6, 70)]);
+    assert_eq!(
+        selected(&engine, "special_vision"),
+        ("vars.dshl", SymbolKind::Variable)
+    );
+}
+
+#[test]
+fn a_read_of_an_interval_its_own_file_writes_binds_the_variable() {
+    let (_tree, engine) = build_tree(&[("vars.dshl", VARS), ("top.dshl", OWN_RANGES)]);
+
+    assert_eq!(uses(&engine, "special_vision"), [("lit", 7, 70)]);
+    assert_eq!(
+        selected(&engine, "special_vision"),
+        ("vars.dshl", SymbolKind::Variable)
+    );
+}
+
+#[test]
+fn a_read_of_an_interval_a_direct_include_writes_binds_the_variable_it_includes() {
+    let (_tree, engine) = build_tree(&[
+        ("vars.dshl", VARS),
+        ("ranges.dshl", RANGES_OVER_VARS),
+        ("top.dshl", THROUGH_RANGES),
+    ]);
+
+    assert_eq!(uses(&engine, "special_vision"), [("lit", 5, 70)]);
+    assert_eq!(
+        selected(&engine, "special_vision"),
+        ("vars.dshl", SymbolKind::Variable)
+    );
+}
+
+#[test]
+fn an_interval_with_no_variable_its_includes_reach_stays_bound() {
+    let (_tree, engine) = build_tree(&[("top.dshl", ONLY_RANGES)]);
+
+    assert_eq!(uses(&engine, "quality"), [("lit", 5, 80)]);
+}
+
+#[test]
+fn an_interval_over_two_variables_its_includes_reach_stays_bound() {
+    let (_tree, engine) = build_tree(&[
+        ("left.dshl", LEFT),
+        ("right.dshl", RIGHT),
+        ("top.dshl", SEES_TWO_VARS),
+    ]);
+
+    assert_eq!(selected(&engine, "shared_value").1, SymbolKind::Enum);
+    assert_eq!(uses(&engine, "shared_value"), [("lit", 8, 80)]);
+}
+
+#[test]
+fn a_name_an_interval_and_a_shader_share_stays_unbound() {
+    let (_tree, engine) = build_tree(&[
+        ("named.dshl", SHADER_OF_RANGES_NAME),
+        ("iv.dshl", RANGES),
+        ("top.dshl", SEES_SHADER),
+    ]);
+
+    assert_eq!(uses(&engine, "special_vision"), []);
+}
+
+#[test]
+fn a_shader_its_own_file_writes_keeps_a_read_a_variable_past_it_could_take() {
+    let (_tree, engine) = build_tree(&[
+        ("vars.dshl", VARS),
+        ("top.dshl", OWN_SHADER_OF_VARIABLE_NAME),
+    ]);
+
+    assert_eq!(
+        selected(&engine, "special_vision"),
+        ("top.dshl", SymbolKind::Class)
+    );
+    assert_eq!(uses(&engine, "special_vision"), [("special_vision", 5, 80)]);
 }
 
 #[test]
