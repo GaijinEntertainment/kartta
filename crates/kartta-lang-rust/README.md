@@ -80,11 +80,13 @@ type names its member. A `use` inside a function body or an inline module is in 
 module nested in it: outside the blocks of the `use`s that alone bind a name, a path call reads the name as the crate
 it spells, and a bare call of the name leaves it no path.
 
-A name read where no call takes it, `items.map(helper)`, `Handler { on_event: helper }` or `SETTINGS.enabled`, is a use
-of it, and so are `Self::make` and `Service::make` of the member `make`. A name a pattern binds, a parameter, a `let`,
-a closure's parameter, a match arm or a `for`, hides it from the end of its binding to the end of its block, arm or
-loop. A bare read is kept only where its inline module declares an item of its name, since it binds only an item the
-file declares outside every owner and body, and a read through a type only where the file declares that member.
+A name read where no call takes it, `items.map(helper)`, `Handler { on_event: helper }` or the base `SETTINGS` of
+`SETTINGS.enabled`, is a use of it, and so are `Self::make` and `Service::make` of the member `make`. The field of a
+field access, `enabled` there, is recorded nowhere. A name a pattern binds hides it from the end of what the binding
+reads on: a parameter in its function or closure, a match arm's pattern in the arm, a `for`'s in its body, an `if let`'s
+in the operands after it and its consequence, and a `let`'s to the end of its block. A bare read is kept only where its
+inline module declares an item of its name, since it binds only an item the file declares outside every owner and body,
+and a read through a type only where the file declares that member.
 
 ## Resolution
 
