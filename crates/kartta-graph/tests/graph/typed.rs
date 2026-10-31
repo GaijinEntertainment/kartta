@@ -446,6 +446,7 @@ fn a_type_defined_over_a_type_that_is_no_interface_has_none_of_its_methods() {
             defined_over("Direct", "~Plain", 4),
             defined_over("Chained", "~Direct", 5),
             defined_over("Outside", "~missing", 6),
+            yielding(typed("main", "Builtin", SymbolKind::TypeAlias, 7), &["int"]),
         ],
         Vec::new(),
     );
@@ -453,6 +454,7 @@ fn a_type_defined_over_a_type_that_is_no_interface_has_none_of_its_methods() {
         member_call("Direct", "Close", 2),
         member_call("Chained", "Close", 3),
         member_call("Outside", "Close", 4),
+        member_call("Builtin", "Close", 5),
     ]);
 
     let graph = graph(&[declarations, caller]);
@@ -467,6 +469,56 @@ fn a_type_defined_over_a_type_that_is_no_interface_has_none_of_its_methods() {
             ("Close", Miss::NotAdmitted),
             ("Close", Miss::NotAdmitted),
             ("Close", Miss::NotAdmitted),
+            ("Close", Miss::NotAdmitted),
+        ]
+    );
+}
+
+#[test]
+fn a_type_over_an_imported_type_takes_its_members_from_outside_the_graph() {
+    let declarations = importing(
+        file(
+            "app/types.go",
+            "main",
+            vec![
+                defined_over("Direct", "~http.Handler", 1),
+                defined_over("Chained", "~Direct", 2),
+                yielding(
+                    typed("main", "Aliased", SymbolKind::TypeAlias, 3),
+                    &["http.Handler"],
+                ),
+                defined_over("OverAlias", "~Aliased", 4),
+                typed("main", "Namesake", SymbolKind::Interface, 5),
+                member("main.Namesake", "Transport", SymbolKind::Method, 6),
+                member("main.Namesake", "RoundTrip", SymbolKind::Method, 7),
+            ],
+            Vec::new(),
+        ),
+        &[("http", None)],
+    );
+    let caller = caller_of(vec![
+        member_call("Direct", "ServeHTTP", 2),
+        member_call("Chained", "ServeHTTP", 3),
+        member_call("Aliased", "ServeHTTP", 4),
+        member_call("OverAlias", "ServeHTTP", 5),
+        member_call("Direct.Transport", "RoundTrip", 6),
+    ]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        callees_of(&graph, "main.Run"),
+        Vec::new(),
+        "a member of the imported type is no namesake the graph holds"
+    );
+    assert_eq!(
+        misses_of(&graph),
+        [
+            ("ServeHTTP", Miss::ExternalImport),
+            ("ServeHTTP", Miss::ExternalImport),
+            ("ServeHTTP", Miss::ExternalImport),
+            ("ServeHTTP", Miss::ExternalImport),
+            ("RoundTrip", Miss::ExternalImport),
         ]
     );
 }
