@@ -1872,7 +1872,7 @@ impl<'g> Cascade<'g> {
         candidates: &Candidates<'_>,
         reach: Option<&Reach>,
     ) -> Option<SymbolAt> {
-        if self.conventions.include_reach != IncludeReach::Transitive {
+        if self.conventions.include_reach == IncludeReach::Direct {
             return None;
         }
         let named_receiver = call
@@ -1890,10 +1890,19 @@ impl<'g> Cascade<'g> {
             });
         match self.offered(call, reach, defined_further_in) {
             Scoped::One(at) if call.receiver.is_none() || self.graph.sym(at).owner.is_some() => {
-                Some(at)
+                Some(at).filter(|&at| !self.game_keeps_another_copy(call, named, at))
             }
             Scoped::One(_) | Scoped::Nothing | Scoped::Several => None,
         }
+    }
+
+    // constraint: an include of a shared file resolves to the copy nearest that file, not to the copy of the game that
+    // compiles it, so past the direct includes a reached macro is another game's where a copy sits nearer the call
+    fn game_keeps_another_copy(&self, call: &Call, named: &[SymbolAt], reached: SymbolAt) -> bool {
+        self.conventions.include_reach == IncludeReach::Script
+            && self
+                .nearest_copy(call.file, self.call_targets(call, named.iter().copied()))
+                .is_some_and(|nearest| nearest != reached)
     }
 
     fn offered<'a>(
