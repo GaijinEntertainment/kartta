@@ -5,7 +5,8 @@ use std::sync::{Arc, OnceLock};
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    Conventions, Extraction, Receiver, Symbol, SymbolFlags, SymbolId, SymbolKind, path,
+    Conventions, Extraction, IncludeReach, Receiver, Symbol, SymbolFlags, SymbolId, SymbolKind,
+    path,
 };
 
 use crate::order::PathOrder;
@@ -390,6 +391,29 @@ impl Graph {
         &named[start..start + len]
     }
 
+    /// Whether the file at `slot` is the source of `header`: nothing includes it, and it shares the header's directory
+    /// and stem.
+    fn is_source_of(&self, slot: u32, header: Str) -> bool {
+        fn stem(name: &str) -> &str {
+            name.rsplit_once('.').map_or(name, |(stem, _)| stem)
+        }
+        let source = self.strings.resolve(self.file(slot).path);
+        let header = self.strings.resolve(header);
+        self.includers_of(slot).next().is_none()
+            && path::dir(source) == path::dir(header)
+            && stem(path::base(source)) == stem(path::base(header))
+    }
+
+    /// Whether the file at `slot` directly includes a file that is test code by its own extraction.
+    fn pastes_test_file(&self, slot: u32) -> bool {
+        self.file(slot).includes.iter().any(|&target| {
+            self.slot_of(target).is_some_and(|included| {
+                let symbols = &self.file(included).symbols;
+                symbols.first().is_some_and(|symbol| symbol.flags.is_test())
+            })
+        })
+    }
+
     pub(crate) fn sites_into(&self, key: Str, sites: &mut Vec<Site>) {
         for &slot in self.sites.get(&key).into_iter().flatten() {
             self.sites_in(slot, key, sites);
@@ -537,8 +561,11 @@ impl Graph {
     }
 
     // constraint: a file is a test module when every file that includes it pulls it in as one or is a test module
-    // itself, since a module that code outside the tests reaches is compiled outside them
+    // itself, since a module that code outside the tests reaches is compiled outside them; where includes paste text,
+    // a file must also paste in a test file, since a library's interface that only its tests include in the tree
+    // reaches consumers outside it, and the source implementing such a header does not count against it and follows it
     fn find_test_modules(&self) -> HashSet<u32, FixedState> {
+        let pasted = self.conventions.include_reach == IncludeReach::Transitive;
         let mut modules = HashSet::default();
         let mut pending: Vec<Str> = self.test_included_by.keys().copied().collect();
         while let Some(path) = pending.pop() {
@@ -549,11 +576,20 @@ impl Graph {
                 continue;
             };
             let test_includers = listed(&self.test_included_by, &path);
-            let in_tests_only = includers
-                .iter()
-                .all(|includer| test_includers.contains(includer) || modules.contains(includer));
-            if in_tests_only && modules.insert(slot) {
+            let is_source = |includer: u32| pasted && self.is_source_of(includer, path);
+            let in_tests_only = includers.iter().all(|includer| {
+                test_includers.contains(includer)
+                    || modules.contains(includer)
+                    || is_source(*includer)
+            });
+            if in_tests_only && (!pasted || self.pastes_test_file(slot)) && modules.insert(slot) {
                 pending.extend_from_slice(&self.file(slot).includes);
+                modules.extend(
+                    includers
+                        .iter()
+                        .copied()
+                        .filter(|&includer| is_source(includer)),
+                );
             }
         }
         modules

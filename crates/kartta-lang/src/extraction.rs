@@ -166,7 +166,9 @@ pub struct Extraction {
     pub assertions: Vec<ImplementsAssertion>,
     /// Files of `includes` that this file pulls in as test-only modules. A file is test code, with every symbol in
     /// it, when every file that includes it lists it here or is such a file itself; one that a production file
-    /// includes is not.
+    /// includes is not. Under [`IncludeReach::Transitive`](crate::IncludeReach) it must also include a test file
+    /// itself, and the source of the same stem beside it, which nothing includes, does not count against it and is
+    /// test code with it.
     pub test_includes: Vec<String>,
 }
 

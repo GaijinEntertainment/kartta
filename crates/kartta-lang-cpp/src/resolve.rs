@@ -71,8 +71,9 @@ impl Includes<'_> {
     fn resolve(&self, raw: RawExtraction, path: &str) -> Extraction {
         let (mut extraction, directives) = raw.into_extraction(path);
 
+        let is_test = is_test_file(path);
         let path_flags = SymbolFlags::empty()
-            .with_test(is_test_file(path))
+            .with_test(is_test)
             .with_generated(name_marks_generated(base(path)));
         extraction.flag_symbols(path_flags);
         if is_c_source(path) {
@@ -88,6 +89,13 @@ impl Includes<'_> {
                     line: directive.line,
                 }),
             }
+        }
+        if is_test {
+            let includes = extraction.includes.iter();
+            extraction.test_includes = includes
+                .filter(|include| !is_test_file(&include.target))
+                .map(|include| include.target.clone())
+                .collect();
         }
 
         extraction
