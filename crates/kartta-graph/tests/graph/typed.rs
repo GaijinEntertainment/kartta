@@ -385,6 +385,110 @@ fn a_type_with_no_method_of_the_name_binds_none() {
     assert_eq!(misses_of(&graph), [("Close", Miss::NotAdmitted)]);
 }
 
+fn defined_over(name: &str, underlying: &str, line: u32) -> Symbol {
+    yielding(
+        typed("main", name, SymbolKind::DefinedType, line),
+        &[underlying],
+    )
+}
+
+fn caller_of(calls: Vec<kartta_lang::CallRef>) -> Extraction {
+    file(
+        "app/main.go",
+        "main",
+        vec![function("main", "Run", 1)],
+        calls,
+    )
+}
+
+#[test]
+fn a_type_defined_over_an_interface_has_its_methods_through_defined_types_and_aliases() {
+    let declarations = file(
+        "app/types.go",
+        "main",
+        vec![
+            typed("main", "Logger", SymbolKind::Interface, 1),
+            member("main.Logger", "Info", SymbolKind::Method, 2),
+            defined_over("Direct", "~Logger", 4),
+            yielding(
+                typed("main", "Named", SymbolKind::TypeAlias, 5),
+                &["Direct"],
+            ),
+            defined_over("Chained", "~Named", 6),
+            embedding(typed("main", "Holder", SymbolKind::Struct, 7), &["Chained"]),
+        ],
+        Vec::new(),
+    );
+    let caller = caller_of(vec![
+        member_call("Direct", "Info", 2),
+        member_call("Chained", "Info", 3),
+        member_call("Holder", "Info", 4),
+    ]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        callees_of(&graph, "main.Run"),
+        [("app/types.go:main.Logger.Info".to_owned(), 85)],
+        "every path reaches the interface"
+    );
+    assert_eq!(misses_of(&graph), Vec::new());
+}
+
+#[test]
+fn a_type_defined_over_a_type_that_is_no_interface_has_none_of_its_methods() {
+    let declarations = file(
+        "app/types.go",
+        "main",
+        vec![
+            typed("main", "Plain", SymbolKind::Struct, 1),
+            member("main.Plain", "Close", SymbolKind::Method, 2),
+            defined_over("Direct", "~Plain", 4),
+            defined_over("Chained", "~Direct", 5),
+            defined_over("Outside", "~missing", 6),
+        ],
+        Vec::new(),
+    );
+    let caller = caller_of(vec![
+        member_call("Direct", "Close", 2),
+        member_call("Chained", "Close", 3),
+        member_call("Outside", "Close", 4),
+    ]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert!(
+        callees_of(&graph, "main.Run").is_empty(),
+        "a defined type keeps its underlying type's fields and none of its methods"
+    );
+    assert_eq!(
+        misses_of(&graph),
+        [
+            ("Close", Miss::NotAdmitted),
+            ("Close", Miss::NotAdmitted),
+            ("Close", Miss::NotAdmitted),
+        ]
+    );
+}
+
+#[test]
+fn types_defined_over_one_another_end_the_walk_with_no_method() {
+    let declarations = file(
+        "app/types.go",
+        "main",
+        vec![
+            defined_over("Left", "~Right", 1),
+            defined_over("Right", "~Left", 2),
+        ],
+        Vec::new(),
+    );
+    let caller = caller_of(vec![member_call("Left", "Close", 2)]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(misses_of(&graph), [("Close", Miss::NotAdmitted)]);
+}
+
 #[test]
 fn a_path_the_graph_cannot_follow_leaves_the_call_to_the_tiers_that_read_no_type() {
     let declarations = file(
