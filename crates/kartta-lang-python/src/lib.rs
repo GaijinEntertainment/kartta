@@ -17,11 +17,14 @@
 //!
 //! Inside a definition, a class body included, and outside every definition, at file scope, each read, write (`=`)
 //! and update (`+=`) of an attribute or a module-level value is a data site; where the module binds a name is no site
-//! of it. An attribute on a method's first parameter is a member of the class around the
-//! method; on a name no function around it binds, a class or a module, a member of that owner; on anything else a
-//! member of a value of no known type. A name that no function around it binds, or that a `global` declaration gives
-//! the module, uses the module's name wherever the module binds it, by an import, an assignment, a `def` or a `class`,
-//! since a body runs once the module has bound its names.
+//! of it. An attribute on a method's first parameter is a member of the class around the method. One on a name that
+//! neither a function around it nor the class body it is read in binds, or that a `global` declaration gives the
+//! module, takes that name as its owner path where the module binds it to a class, a `def` or an import, or binds it
+//! not at all, and binds only a member of an owner of that name. On anything else, a value the module binds, a name
+//! those scopes bind or an expression that is no name, the path is empty, a member of a value of no known type, which
+//! binds the one field of the name the file declares. A name that no function around it binds, or that a `global`
+//! declaration gives the module, uses the module's name wherever the module binds it, by an import, an assignment, a
+//! `def` or a `class`, since a body runs once the module has bound its names.
 //!
 //! A call records its callee and, for a member call, its receiver: `self.greet()` records `greet` on `self`, and a
 //! member call on anything but a name, `items[0].close()`, records the empty receiver. A call is attributed to the
