@@ -425,6 +425,64 @@ fn sites_of<'r>(raw: &'r RawExtraction, callee: &str) -> Vec<(&'r str, Option<&'
 }
 
 #[test]
+fn a_let_or_a_subject_with_a_symbol_and_a_block_defines_a_method_local_to_the_file() {
+    let raw = extract(
+        b"RSpec.describe 'a' do
+  let(:one) { 1 }
+  let!(:two) { 2 }
+  subject(:three) { 3 }
+  subject!(:four) do
+    4
+  end
+  let(:no_block)
+  let('text') { 5 }
+  subject { 6 }
+  helper.let(:on_a_value) { 7 }
+end
+",
+    );
+
+    assert_eq!(names(&raw.symbols), ["one", "two", "three", "four"]);
+    assert_eq!(
+        raw.local_symbols,
+        [SymbolId(0), SymbolId(1), SymbolId(2), SymbolId(3)]
+    );
+    let four = symbol(&raw.symbols, "four");
+    assert_eq!(
+        (
+            four.kind,
+            four.signature.as_deref(),
+            four.line,
+            four.end_line
+        ),
+        (SymbolKind::Function, Some("subject!(:four)"), 5, 7)
+    );
+}
+
+#[test]
+fn a_group_on_one_line_holds_only_the_calls_inside_it() {
+    let raw = extract(
+        b"RSpec.describe('a') { let(:item) { 1 }; context('b') { let(:item) { 2 }; def inner; item; end }; \
+          context('c') { let(:other) { 3 }; def sibling; other; end }; context('d') { def outsider; other; end }; \
+          def outer; item; end }\n",
+    );
+
+    let bound: Vec<(u32, u32)> = raw
+        .local_calls
+        .iter()
+        .map(|call| (call.site_of.0, call.local.0))
+        .collect();
+    assert_eq!(
+        names(&raw.symbols),
+        [
+            "item", "item", "inner", "other", "sibling", "outsider", "outer"
+        ]
+    );
+    assert_eq!(bound, [(2, 1), (4, 3), (6, 0)]);
+    assert_eq!(calls(&raw).last(), Some(&("other", None)));
+}
+
+#[test]
 fn a_bare_word_is_a_call_unless_a_binding_before_it_makes_it_a_local() {
     let raw = extract(
         b"class Task
