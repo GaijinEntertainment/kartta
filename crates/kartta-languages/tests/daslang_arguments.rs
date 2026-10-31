@@ -348,6 +348,121 @@ fn a_call_binds_by_name_alone_no_definition_its_arguments_leave_alone_among_thos
 }
 
 #[test]
+fn a_block_query_binds_no_script_function_of_its_name() {
+    let source = "options gen2
+require uriparser_boost
+
+def run() {
+    query() <| $ [es] (eid : int) {
+        print(\"{eid}\");
+    }
+}
+
+def plain() {
+    let text = query(\"a=b\");
+}
+
+def two() {
+    query(\"a=b\", 1);
+}
+";
+    let library = "options gen2
+module uriparser_boost shared public
+
+def query(text : string) {
+    return text;
+}
+";
+    let tree = tree(&[("a.das", source), ("uriparser_boost.das", library)]);
+
+    let query = walk_of(&tree, "a.das", "run");
+    assert_eq!(reached(&query), Vec::<String>::new());
+    assert_eq!(query.unresolved, 2);
+    assert_eq!(
+        reached(&walk_of(&tree, "a.das", "plain")),
+        ["uriparser_boost.query:4"]
+    );
+    assert_eq!(
+        reached(&walk_of(&tree, "a.das", "two")),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_query_binds_nothing_however_it_passes_its_block() {
+    let source = "options gen2
+require uriparser_boost
+
+def trailing() {
+    query() $(eid : int) {
+        print(\"{eid}\");
+    }
+}
+
+def written() {
+    query($ [es] (eid : int) {
+        print(\"{eid}\");
+    })
+}
+
+def through_a_module() {
+    ecs::query() <| $ [es] (eid : int) {
+        print(\"{eid}\");
+    }
+}
+";
+    let library = "options gen2
+module uriparser_boost shared public
+
+def query(text : string) {
+    return text;
+}
+";
+    let tree = tree(&[("a.das", source), ("uriparser_boost.das", library)]);
+
+    for form in ["trailing", "written", "through_a_module"] {
+        let query = walk_of(&tree, "a.das", form);
+        assert_eq!(reached(&query), Vec::<String>::new(), "{form}");
+        assert_eq!(query.unresolved, 2, "{form}");
+    }
+}
+
+#[test]
+fn a_block_binds_a_def_of_another_name_annotated_or_not() {
+    let source = "options gen2
+require lib
+
+def piped() {
+    each_item() <| $ [es] (eid : int) {
+        print(\"{eid}\");
+    }
+}
+
+def trailing() {
+    each_item() $(eid : int) {
+        print(\"{eid}\");
+    }
+}
+";
+    let library = "options gen2
+module lib shared public
+
+def each_item(blk : block<(eid : int) : void>) {
+    invoke(blk, 1);
+}
+";
+    let tree = tree(&[("a.das", source), ("lib.das", library)]);
+
+    for form in ["piped", "trailing"] {
+        assert_eq!(
+            reached(&walk_of(&tree, "a.das", form)),
+            ["lib.each_item:4"],
+            "{form}"
+        );
+    }
+}
+
+#[test]
 fn the_arguments_decide_where_the_name_has_enough_candidates_to_share_an_index() {
     let lib = |at: usize| {
         format!("options gen2\nmodule lib{at}\ndef stat(path) {{\n    print(path)\n}}\n")
