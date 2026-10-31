@@ -88,13 +88,14 @@
 //! range's bound, a condition, an indexed value or an index, a returned, a broken-out, a block's or a closure's last
 //! value, the value a `let`, a `let` condition, an assignment, a `const`, a `static`, a field, a reference, a cast, a
 //! `match`, a match arm or a `for` takes, either side of `+=` and its kin, the base of a field access or a method
-//! call, `SETTINGS.enabled`, and an awaited or a `?` operand. `Self::make` read so is a use of the member `make` of the
-//! type around it, and `Service::make` one of the member of `Service`. A name a pattern binds hides it from the end of
-//! what the binding reads on: a parameter in its function or closure, a match arm's pattern in the arm, a `for`'s in
-//! its body, an `if let`'s in the operands after it and its consequence, and a `let`'s to the end of its block. A bare
-//! read binds only an item its own file declares outside every owner and body, so the walk keeps one only where its own
-//! inline module declares the item, and a read through `Self` or a type only where the file declares a member of the
-//! name under that type.
+//! call, `SETTINGS` of `SETTINGS.enabled`, and an awaited or a `?` operand. The field of a field access, `enabled`
+//! there, is recorded nowhere. `Self::make` read so is a use of the member `make` of the type around it, and
+//! `Service::make` one of the member of `Service`. A name a pattern binds hides it from the end of what the binding
+//! reads on: a parameter in its function or closure, a match arm's pattern in the arm, a `for`'s in its body, an
+//! `if let`'s in the operands after it and its consequence, and a `let`'s to the end of its block. A bare read binds
+//! only an item its own file declares outside every owner and body, so the walk keeps one only where its own inline
+//! module declares the item, and a read through `Self` or a type only where the file declares a member of the name
+//! under that type.
 //!
 //! # Resolution
 //!
