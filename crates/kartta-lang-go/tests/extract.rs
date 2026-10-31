@@ -1417,6 +1417,16 @@ type Factory func() (*Server, error)
 
 type Defined Server
 
+type OverImported pkg.Client
+
+type OverGeneric pkg.Box[Server]
+
+type OverPointer *Server
+
+type OverParenthesized (Server)
+
+type OverParenthesizedPointer (*Server)
+
 var Default = NewServer()
 
 var typed pkg.Client
@@ -1433,7 +1443,7 @@ func Each[T any](v T) T { return v }
 "#,
     );
 
-    let expected: [(&str, &[&str]); 15] = [
+    let expected: [(&str, &[&str]); 20] = [
         ("p.Server.client", &["pkg.Client"]),
         ("p.Server.backup", &["pkg.Client"]),
         ("p.Server.hooks", &["[]Hook"]),
@@ -1441,7 +1451,12 @@ func Each[T any](v T) T { return v }
         ("p.Alias", &["pkg.Client"]),
         ("p.Servers", &["[]Server"]),
         ("p.Factory", &["Server", "error"]),
-        ("p.Defined", &[]),
+        ("p.Defined", &["~Server"]),
+        ("p.OverImported", &["~pkg.Client"]),
+        ("p.OverGeneric", &["~pkg.Box"]),
+        ("p.OverPointer", &[]),
+        ("p.OverParenthesized", &["~Server"]),
+        ("p.OverParenthesizedPointer", &[]),
         ("p.Default", &["NewServer()"]),
         ("p.typed", &["pkg.Client"]),
         ("p.literal", &["Server"]),
@@ -1458,7 +1473,7 @@ func Each[T any](v T) T { return v }
             .unwrap_or_else(|| panic!("{qualified} is extracted"));
         assert_eq!(
             symbol.value_types, value_types,
-            "{qualified}: a function literal type, a defined type's underlying type and a type parameter name no path"
+            "{qualified}: a function literal type, a pointer a type is defined over and a type parameter name no path"
         );
     }
 }
