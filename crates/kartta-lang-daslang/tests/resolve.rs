@@ -234,6 +234,48 @@ fn a_module_no_file_provides_yields_no_include() {
 }
 
 #[test]
+fn a_require_no_file_is_named_for_binds_its_module_outside_the_graph() {
+    let extraction = resolve(
+        &["game/main.das"],
+        "options gen2\nrequire private_network\nrequire daslib/strings\nrequire daslib.fio.das\n",
+        "game/main.das",
+    );
+
+    let bound: Vec<_> = (extraction.bindings.iter())
+        .map(|binding| (binding.target_dir.as_deref(), binding.last_segment.as_str()))
+        .collect();
+    assert_eq!(
+        bound,
+        [(None, "private_network"), (None, "strings"), (None, "fio")]
+    );
+}
+
+#[test]
+fn a_require_two_files_could_satisfy_binds_nothing_outside_the_graph() {
+    let files = ["a/util.das", "b/util.das", "main.das"];
+
+    let extraction = resolve(&files, "options gen2\nrequire util\n", "main.das");
+
+    assert_eq!(extraction.bindings, []);
+}
+
+#[test]
+fn an_include_that_names_no_file_binds_nothing_outside_the_graph() {
+    let extraction = resolve(
+        &["main.das"],
+        "options gen2\ninclude shared.das\n",
+        "main.das",
+    );
+
+    assert_eq!(modules(&extraction), ["shared.das"]);
+    assert_eq!(
+        extraction.bindings,
+        [],
+        "an include pastes text, so it names no module"
+    );
+}
+
+#[test]
 fn an_optional_require_includes_its_target_and_not_its_guard() {
     let files = ["libs/llvm_tune.das", "libs/llvm.das", "game/a.das"];
 

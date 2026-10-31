@@ -7,7 +7,8 @@ use kartta_lang::{
 };
 use tree_sitter::{Node, Tree, TreeCursor};
 
-const REQUIRE_FORM: u32 = 0;
+pub(crate) const REQUIRE_FORM: u32 = 0;
+pub(crate) const INCLUDE_FORM: u32 = 1;
 
 const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT", "Code generated"])
     .with_lines(&["//"])
@@ -271,7 +272,7 @@ impl<'a> Emitter<'a> {
     // constraint: `require ?guard target` keeps its guard in its own field, so only `name` is the import
     fn require(&mut self, node: Node<'_>) {
         if let Some(module) = self.field_text(node, "name") {
-            self.directive(module, node);
+            self.directive(REQUIRE_FORM, module, node);
         }
     }
 
@@ -283,15 +284,15 @@ impl<'a> Emitter<'a> {
             .strip_prefix("include")
             .and_then(|rest| rest.split_whitespace().next())
         {
-            self.directive(file.to_owned(), node);
+            self.directive(INCLUDE_FORM, file.to_owned(), node);
         }
     }
 
-    fn directive(&mut self, spec: String, node: Node<'_>) {
+    fn directive(&mut self, form: u32, spec: String, node: Node<'_>) {
         if !spec.is_empty() {
             self.raw
                 .directives
-                .push(RawDirective::new(REQUIRE_FORM, spec, start_line(node)));
+                .push(RawDirective::new(form, spec, start_line(node)));
         }
     }
 

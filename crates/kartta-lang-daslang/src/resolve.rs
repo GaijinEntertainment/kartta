@@ -2,8 +2,11 @@ use std::iter;
 
 use kartta_lang::path::{base, dir, forward_slashes, has_component, join, sole};
 use kartta_lang::{
-    Extraction, ImportRef, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
+    Extraction, ImportBinding, ImportRef, IncludeRef, RawDirective, RawExtraction, Repository,
+    Resolver, SymbolFlags,
 };
+
+use crate::walk::REQUIRE_FORM;
 
 pub(crate) struct DaslangResolver;
 
@@ -93,17 +96,39 @@ impl Modules<'_> {
         extraction.flag_symbols(path_flags);
 
         for directive in directives {
-            match self.target(&directive.spec, path) {
-                Some(target) => extraction.includes.push(IncludeRef { target }),
-                None => extraction.imports.push(ImportRef {
+            if let Some(target) = self.target(&directive.spec, path) {
+                extraction.includes.push(IncludeRef { target });
+            } else {
+                extraction
+                    .bindings
+                    .extend(self.outside_the_graph(&directive));
+                extraction.imports.push(ImportRef {
                     module: directive.spec,
                     names: Vec::new(),
                     line: directive.line,
-                }),
+                });
             }
         }
 
         extraction
+    }
+
+    // constraint: a module no file is named for lies outside the repository, most often compiled into the runtime; of
+    // two files named for a module the resolver names neither, though the module is the graph's, so a file of its name
+    // keeps the binding off
+    fn outside_the_graph(&self, directive: &RawDirective) -> Option<ImportBinding> {
+        if directive.form != REQUIRE_FORM {
+            return None;
+        }
+        let spec = forward_slashes(&directive.spec);
+        let stem = spec.strip_suffix(".das").unwrap_or(&spec);
+        let module = stem.rsplit(['/', '.']).next()?;
+        let mut files = self.repository.files_named(&format!("{module}.das"));
+        files.next().is_none().then(|| ImportBinding {
+            alias: None,
+            target_dir: None,
+            last_segment: module.to_owned(),
+        })
     }
 }
 
