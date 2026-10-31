@@ -2704,6 +2704,155 @@ fn a_daslang_call_qualified_by_a_native_module_is_a_call_outside_the_graph() {
     );
 }
 
+fn alias_tree(requires: &str, body: &str) -> TempDir {
+    let source = format!(
+        "options gen2\n{requires}\n\ndef helper {{\n    return 2\n}}\n\n\
+         def through_alias {{\n    return {body}\n}}\n"
+    );
+    tree_of(&[
+        (
+            "fixture.das",
+            "options gen2\nmodule fixture shared public\n\ndef helper {\n    return 1\n}\n",
+        ),
+        ("a.das", &source),
+    ])
+}
+
+fn misses(engine: &Engine) -> Vec<(&str, Miss)> {
+    let [(_, resolution)] = engine
+        .resolution(usize::MAX)
+        .try_into()
+        .expect("one family");
+    (resolution.unbound.iter())
+        .map(|unbound| (unbound.callee, unbound.miss))
+        .collect()
+}
+
+#[test]
+fn a_daslang_call_through_a_require_alias_binds_the_module_over_its_file_s_namesake() {
+    let tree = alias_tree("require fixture as fx", "fx::helper()");
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(
+        callees(&engine, "a.das", "through_alias"),
+        (vec![("helper", SymbolKind::Function, "fixture.das")], 0)
+    );
+}
+
+#[test]
+fn a_daslang_require_alias_leaves_the_module_s_own_name_working() {
+    let tree = alias_tree("require fixture as fx", "fixture::helper()");
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(
+        callees(&engine, "a.das", "through_alias"),
+        (vec![("helper", SymbolKind::Function, "fixture.das")], 0)
+    );
+}
+
+#[test]
+fn a_daslang_call_through_a_require_alias_binds_no_namesake_for_a_name_the_module_lacks() {
+    let tree = alias_tree("require fixture as fx", "fx::through_alias()");
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(callees(&engine, "a.das", "through_alias"), (vec![], 1));
+    assert_eq!(misses(&engine), [("through_alias", Miss::NotExported)]);
+}
+
+#[test]
+fn a_daslang_call_through_a_file_alias_reaches_no_module_declared_under_the_specifier_s_name() {
+    let tree = tree_of(&[
+        (
+            "game/sub/event.das",
+            "options gen2\n\ndef other {\n    return 1\n}\n",
+        ),
+        (
+            "lib/events.das",
+            "options gen2\nmodule event shared public\n\ndef helper {\n    return 2\n}\n",
+        ),
+        (
+            "game/main.das",
+            "options gen2\nrequire sub/event as se\n\n\
+             def through_alias {\n    return se::helper()\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(
+        callees(&engine, "game/main.das", "through_alias"),
+        (vec![], 1)
+    );
+    assert_eq!(misses(&engine), [("helper", Miss::NotExported)]);
+}
+
+#[test]
+fn a_daslang_require_alias_names_the_file_it_requires_of_two_with_one_module_name() {
+    let tree = tree_of(&[
+        (
+            "game/event.das",
+            "options gen2\n\ndef fn_event {\n    return true\n}\n",
+        ),
+        (
+            "game/sub/event.das",
+            "options gen2\n\ndef fn_event {\n    return false\n}\n",
+        ),
+        (
+            "game/main.das",
+            "options gen2\nrequire ./event.das\nrequire sub/event as sub_event\n\n\
+             def fn_event {\n    return true\n}\n\n\
+             def test {\n    return sub_event::fn_event()\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(
+        callees(&engine, "game/main.das", "test"),
+        (
+            vec![("fn_event", SymbolKind::Function, "game/sub/event.das")],
+            0
+        )
+    );
+}
+
+#[test]
+fn a_daslang_call_through_an_alias_of_a_native_module_is_a_call_outside_the_graph() {
+    let tree = alias_tree("require math as m", "m::helper()");
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(callees(&engine, "a.das", "through_alias"), (vec![], 1));
+    assert_eq!(misses(&engine), [("helper", Miss::ExternalImport)]);
+}
+
+#[test]
+fn a_daslang_alias_of_a_native_module_leaves_its_own_name_outside_the_graph() {
+    let tree = alias_tree("require math as m", "math::helper()");
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(callees(&engine, "a.das", "through_alias"), (vec![], 1));
+    assert_eq!(misses(&engine), [("helper", Miss::ExternalImport)]);
+}
+
+#[test]
+fn a_daslang_alias_of_a_module_another_file_name_declares_binds_that_module() {
+    let tree = tree_of(&[
+        (
+            "lib/renamed.das",
+            "options gen2\nmodule hidden shared public\n\ndef helper {\n    return 1\n}\n",
+        ),
+        (
+            "a.das",
+            "options gen2\nrequire hidden as h\n\ndef helper {\n    return 2\n}\n\n\
+             def through_alias {\n    return h::helper()\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(
+        callees(&engine, "a.das", "through_alias"),
+        (vec![("helper", SymbolKind::Function, "lib/renamed.das")], 0)
+    );
+}
+
 #[test]
 fn a_python_call_of_a_builtin_binds_a_namesake_only_where_its_file_imports_it() {
     let tree = tree_of(&[

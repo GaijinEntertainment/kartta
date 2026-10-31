@@ -92,8 +92,8 @@ pub(crate) enum UseMiss {
 }
 
 // constraint: a named binding is the name it binds, the directory or file it imports, and the name the import reaches
-// there, which differs from the bound name under an alias; a required module is the module an included file declares,
-// beside that file
+// there, which differs from the bound name under an alias; a required module is the module an included file declares
+// or the alias a `require` gives that file, beside that file
 #[derive(Debug, Default)]
 struct Bindings {
     named: Vec<(Str, Option<Str>, Str)>,
@@ -633,19 +633,23 @@ impl<'g> Cascade<'g> {
                     .and_then(|dir| self.package_name(dir))
                     .unwrap_or(binding.last_segment)
             });
+            let mut target = binding.target_dir;
+            // constraint: a script alias names the file its `require` resolved to, which a module name cannot, since
+            // two files can share one or declare none; the name stays bound so that no tier below answers it
+            if self.reads_modules()
+                && let Some(module) = target.and_then(|file| self.graph.slot_of(file))
+            {
+                bindings.required.push((name, module));
+                target = None;
+            }
             bindings.named.retain(|&(held, _, _)| held != name);
-            bindings
-                .named
-                .push((name, binding.target_dir, binding.last_segment));
-            bindings.modules |= binding
-                .target_dir
-                .is_some_and(|target| self.graph.slot_of(target).is_some());
+            bindings.named.push((name, target, binding.last_segment));
+            bindings.modules |= target.is_some_and(|target| self.graph.slot_of(target).is_some());
         }
-        bindings.required = self
-            .includes(file)
-            .iter()
-            .filter_map(|&slot| Some((self.graph.file(slot).package?, slot)))
-            .collect();
+        bindings.required.extend(
+            (self.includes(file).iter())
+                .filter_map(|&slot| Some((self.graph.file(slot).package?, slot))),
+        );
         bindings
     }
 
@@ -657,30 +661,34 @@ impl<'g> Cascade<'g> {
         (qualifier, name): (Str, Str),
         pick: Pick<'_>,
     ) -> Option<SymbolAt> {
-        let &(_, module) = self
-            .bindings(file)
-            .required
-            .iter()
-            .find(|&&(declared, _)| declared == qualifier)?;
+        let module = self.required_module(file, qualifier)?;
         self.pick(
             pick,
             self.graph.in_file(self.named(name), module).iter().copied(),
         )
     }
 
+    fn required_module(&self, file: u32, qualifier: Str) -> Option<u32> {
+        (self.bindings(file).required.iter())
+            .find(|&&(declared, _)| declared == qualifier)
+            .map(|&(_, module)| module)
+    }
+
     // constraint: daslang looks `mod::f` up through `mod` and what it requires publicly, never through the caller, so a
     // module one file declares answers the call or nothing answers it, whether the caller's `require` or another's
     // brought the module; of two declarers neither is known to be the one a call reaches
     fn declared_module(&self, file: u32, qualifier: Str) -> Option<u32> {
-        if self.conventions.bare_receivers != BareReceivers::Modules
-            || self.graph.file(file).package == Some(qualifier)
-        {
+        if !self.reads_modules() || self.graph.file(file).package == Some(qualifier) {
             return None;
         }
         let mut modules = (self.named(qualifier).iter())
             .filter(|&&at| self.graph.sym(at).kind == SymbolKind::Namespace);
         let module = modules.next()?.file;
         modules.next().is_none().then_some(module)
+    }
+
+    fn reads_modules(&self) -> bool {
+        self.conventions.bare_receivers == BareReceivers::Modules
     }
 
     fn package_name(&self, dir: Str) -> Option<Str> {
@@ -1517,7 +1525,7 @@ impl<'g> Cascade<'g> {
         let Some(receiver) = call.receiver else {
             return self.imported_module_export(call).map(Ok);
         };
-        let Some(binding) = self.binding(call.file, receiver) else {
+        let Some((binding, source)) = self.binding_and_source(call.file, receiver) else {
             if let Some(at) =
                 self.required_definition(call.file, (receiver, call.callee), Pick::FreeTarget(call))
             {
@@ -1526,8 +1534,15 @@ impl<'g> Cascade<'g> {
             return self.through_declared_module(call, receiver);
         };
         let Some(target) = binding else {
-            return (self.through_declared_module(call, receiver))
-                .or(Some(Err(Miss::ExternalImport)));
+            // constraint: a Go file includes each package it imports, so a package named as an external import is not
+            // that import
+            let required = (self.reads_modules())
+                .then(|| self.required_module(call.file, receiver))
+                .flatten();
+            let module = required.or_else(|| self.declared_module(call.file, source));
+            return Some(module.map_or(Err(Miss::ExternalImport), |module| {
+                self.module_definition(call, module)
+            }));
         };
         if let Some(module) = self.graph.slot_of(target) {
             return self.module_export(call, module).map(Ok);
@@ -1544,12 +1559,14 @@ impl<'g> Cascade<'g> {
 
     fn through_declared_module(&self, call: &Call, qualifier: Str) -> Option<Result<Bound, Miss>> {
         let module = self.declared_module(call.file, qualifier)?;
+        Some(self.module_definition(call, module))
+    }
+
+    fn module_definition(&self, call: &Call, module: u32) -> Result<Bound, Miss> {
         let defined = self.graph.in_file(self.named(call.callee), module);
-        Some(
-            self.pick(Pick::FreeTarget(call), defined.iter().copied())
-                .map(|at| (at, confidence::IMPORT))
-                .ok_or(Miss::NotExported),
-        )
+        self.pick(Pick::FreeTarget(call), defined.iter().copied())
+            .map(|at| (at, confidence::IMPORT))
+            .ok_or(Miss::NotExported)
     }
 
     // constraint: a bare call names an import only where its file imports a module's file, which no Go import does, so
@@ -2069,7 +2086,10 @@ impl<'g> Cascade<'g> {
                 self.value_use((at, site.line), site.name)
                     .ok_or(UseMiss::Elsewhere)
             }),
-            UseReceiver::Qualifier(qualifier) => match self.binding(file, qualifier) {
+            UseReceiver::Qualifier(qualifier) => match self
+                .binding(file, qualifier)
+                .filter(|target| target.is_some() || !self.reads_modules())
+            {
                 Some(target) => {
                     let candidates = self.referenceable(site.name);
                     self.imported(&candidates, (file, target), Pick::PackageLevel)

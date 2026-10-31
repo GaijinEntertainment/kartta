@@ -250,6 +250,58 @@ fn a_require_no_file_is_named_for_binds_its_module_outside_the_graph() {
     );
 }
 
+type Bound<'e> = (Option<&'e str>, Option<&'e str>, &'e str);
+
+fn bound(extraction: &Extraction) -> Vec<Bound<'_>> {
+    (extraction.bindings.iter())
+        .map(|binding| {
+            (
+                binding.alias.as_deref(),
+                binding.target_dir.as_deref(),
+                binding.last_segment.as_str(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_require_alias_of_a_file_binds_that_file() {
+    let extraction = resolve(
+        &["game/util/event.das", "game/main.das"],
+        "options gen2\nrequire util/event as sub_event\n",
+        "game/main.das",
+    );
+
+    assert_eq!(
+        bound(&extraction),
+        [(Some("sub_event"), Some("game/util/event.das"), "event")]
+    );
+    assert_eq!(includes(&extraction), ["game/util/event.das"]);
+}
+
+#[test]
+fn a_require_alias_of_a_module_no_file_is_named_for_binds_both_names_outside_the_graph() {
+    let extraction = resolve(
+        &["game/main.das"],
+        "options gen2\nrequire daslib/strings as sb\n",
+        "game/main.das",
+    );
+
+    assert_eq!(
+        bound(&extraction),
+        [(None, None, "strings"), (Some("sb"), None, "strings")]
+    );
+}
+
+#[test]
+fn a_require_alias_two_files_could_satisfy_binds_nothing() {
+    let files = ["a/util.das", "b/util.das", "main.das"];
+
+    let extraction = resolve(&files, "options gen2\nrequire util as u\n", "main.das");
+
+    assert_eq!(extraction.bindings, []);
+}
+
 #[test]
 fn a_require_two_files_could_satisfy_binds_nothing_outside_the_graph() {
     let files = ["a/util.das", "b/util.das", "main.das"];
