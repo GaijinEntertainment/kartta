@@ -412,13 +412,13 @@ impl<'s, 't> Replayer<'s, 't> {
         let signature = signature(node, self.source);
         let written = node.child_by_field_name("type");
         let class = written.and_then(|written| self.owner_named(written));
-        let arrow = class
+        let reached = class
             .and(written)
             .and_then(|written| self.pointee_named(written));
 
-        for (name, pointer) in names {
+        for (name, pointers) in names {
             let mut symbol = exported_symbol(text(name, self.source), SymbolKind::Field, node);
-            symbol.value_types = field_value_types(class, pointer, arrow);
+            symbol.value_types = field_value_types(class, pointers, reached);
             symbol.qualified_name = format!("{owner}::{}", symbol.name);
             symbol.owner = Some(owner.clone());
             symbol.signature.clone_from(&signature);
@@ -2970,7 +2970,8 @@ template<> struct Traits<int> { int size; };
     fn a_field_of_a_class_names_the_class_as_its_value_type() {
         let raw = extract(
             b"template <typename T> struct Cache {\n  Lock lock;\n  Lock *held, spare;\n  ns::Box<int> box;\n\
-              const ::ns::Lock &shared;\n  int count;\n  T item;\n  Lock **chain;\n  Lock locks[2];\n};\n",
+              const ::ns::Lock &shared;\n  int count;\n  T item;\n  Lock **chain;\n  Lock locks[2];\n\
+              Lock *slots[2];\n  Lock ***deep;\n  Lock grid[2][2];\n  Lock (*on_lock)();\n};\n",
         );
 
         let types: Vec<(&str, &[String])> = raw
@@ -2990,8 +2991,70 @@ template<> struct Traits<int> { int size; };
                 ("shared", named("::ns::Lock").as_slice()),
                 ("count", &[][..]),
                 ("item", &[][..]),
-                ("chain", &[][..]),
-                ("locks", &[][..]),
+                ("chain", named("**Lock").as_slice()),
+                ("locks", named("*Lock").as_slice()),
+                ("slots", named("**Lock").as_slice()),
+                ("deep", &[][..]),
+                ("grid", named("**Lock").as_slice()),
+                ("on_lock", &[][..]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_member_call_on_an_element_spells_the_field_it_indexes() {
+        let raw = extract(
+            b"struct Cache {\n  void read(int i, Tab<Lock> local) {\n    objs[i]->tick();\n    vals[i].tick();\n\
+              this->objs[i]->tick();\n    local[i].tick();\n    other.objs[i].tick();\n    grid[i][0].tick();\n\
+              }\n};\nvoid outside(int i, Lock held) { objs[i]->tick(); held[i].tick(); }\n",
+        );
+
+        let receivers: Vec<(u32, Option<&str>)> = raw
+            .calls
+            .iter()
+            .map(|call| (call.line, call.receiver.as_deref()))
+            .collect();
+        assert_eq!(
+            receivers,
+            [
+                (3, Some("->objs[]")),
+                (4, Some(".vals[]")),
+                (5, Some("->objs[]")),
+                (6, Some("")),
+                (7, Some("")),
+                (8, Some("")),
+                (11, Some("")),
+                (11, Some("")),
+            ],
+            "a local's element, a field of another value and a second index name no field of the caller's class"
+        );
+    }
+
+    #[test]
+    fn a_field_of_a_class_template_names_the_class_an_element_holds() {
+        let raw = extract(
+            b"struct Cache {\n  Tab<Lock> items;\n  Tab<const ns::Lock *> pointers;\n  Tab<Lock **> deep;\n\
+              Tab<Lock> rows[2];\n  Tab<Lock *> tables[2];\n  Tab<Lock(*)()> calls;\n};\n",
+        );
+
+        let types: Vec<(&str, Vec<&str>)> = raw
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.kind == SymbolKind::Field)
+            .map(|symbol| {
+                let types = symbol.value_types.iter().map(String::as_str).collect();
+                (symbol.name.as_str(), types)
+            })
+            .collect();
+        assert_eq!(
+            types,
+            [
+                ("items", vec!["Tab", "*Lock"]),
+                ("pointers", vec!["Tab", "**ns::Lock"]),
+                ("deep", vec!["Tab"]),
+                ("rows", vec!["*Tab", "**Lock"]),
+                ("tables", vec!["*Tab"]),
+                ("calls", vec!["Tab"]),
             ]
         );
     }
@@ -3041,7 +3104,7 @@ template<> struct Traits<int> { int size; };
                 ("owned", vec!["eastl::unique_ptr", "*Lock"]),
                 ("shared", vec!["Ptr", "*ns::Lock"]),
                 ("box", vec!["Box"]),
-                ("slot", vec!["*eastl::unique_ptr"]),
+                ("slot", vec!["*eastl::unique_ptr", "**Lock"]),
                 ("many", vec!["eastl::unique_ptr"]),
             ]
         );

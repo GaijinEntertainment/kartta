@@ -245,9 +245,12 @@ impl<'s, 't> Replayer<'s, 't> {
     }
 
     // constraint: `->` on a value of a class template calls its `operator->`, which a smart pointer, an optional or a
-    // handle aims at the class its first argument names, `Lock` of `eastl::unique_ptr<Lock>`; a template without the
-    // operator does not compile under `->`, so no call reads the class through one
-    pub(super) fn pointee_named(&self, written: Node<'_>) -> Option<&'s str> {
+    // handle aims at the class its first argument names, `Lock` of `eastl::unique_ptr<Lock>`, and `[]` calls its
+    // `operator[]`, which a sequence aims at the same class, `Lock` of `Tab<Lock>`; a template without the operator
+    // does not compile under it, so no call reads the class through one
+    /// The class a class template's first argument names, and how many pointers from a value of the template it
+    /// lies: one, and one more for an argument written as a pointer, `Tab<Lock *>`.
+    pub(super) fn pointee_named(&self, written: Node<'_>) -> Option<(&'s str, usize)> {
         let mut template = written;
         while template.kind() == "qualified_identifier" {
             template = template.child_by_field_name("name")?;
@@ -256,11 +259,19 @@ impl<'s, 't> Replayer<'s, 't> {
             .child_by_field_name("arguments")
             .filter(|_| template.kind() == "template_type")?
             .named_child(0)
-            .filter(|first| {
-                first.kind() == "type_descriptor"
-                    && first.child_by_field_name("declarator").is_none()
-            })?;
+            .filter(|first| first.kind() == "type_descriptor")?;
+        let pointers = match first.child_by_field_name("declarator") {
+            None => 1,
+            Some(declarator)
+                if declarator.kind() == "abstract_pointer_declarator"
+                    && declarator.child_by_field_name("declarator").is_none() =>
+            {
+                2
+            }
+            Some(_) => return None,
+        };
         self.owner_named(first.child_by_field_name("type")?)
+            .map(|class| (class, pointers))
     }
 
     /// The class a type names as a field's value type spells it: with the scopes it writes and without its template's
@@ -391,7 +402,8 @@ impl<'s, 't> Replayer<'s, 't> {
     /// The receiver of a member call on a named operand: the class a local or a parameter is declared as, as
     /// `declared_owner` reads it, and in a member the name of what the body does not declare, `lock` or `this->lock`,
     /// after the operator, `.lock` or `->lock`, which may be a field of the caller's class or of a base, or a
-    /// namespace's value, for the graph to tell apart; else empty.
+    /// namespace's value, for the graph to tell apart, before a `[]` for an element of it, `locks[i]` as `.locks[]`;
+    /// else empty.
     pub(super) fn called_owner(&self, call: Node<'_>) -> String {
         let Some(function) = call
             .child_by_field_name("function")
@@ -407,6 +419,13 @@ impl<'s, 't> Replayer<'s, 't> {
         };
         let arrow = operator.kind() == "->";
         let in_member = self.callers_owner().is_some();
+        let (operand, element) = match operand.kind() {
+            "subscript_expression" => match operand.child_by_field_name("argument") {
+                Some(indexed) => (indexed, "[]"),
+                None => return String::new(),
+            },
+            _ => (operand, ""),
+        };
         let field = match operand.kind() {
             "identifier" => match self.borrowed(operand) {
                 Some(name)
@@ -416,7 +435,8 @@ impl<'s, 't> Replayer<'s, 't> {
                 {
                     name
                 }
-                _ => return self.declared_owner(operand, arrow).to_owned(),
+                _ if element.is_empty() => return self.declared_owner(operand, arrow).to_owned(),
+                _ => return String::new(),
             },
             "field_expression" if in_member => match self.field_of_this(operand) {
                 Some(name) => name,
@@ -425,7 +445,7 @@ impl<'s, 't> Replayer<'s, 't> {
             _ => return String::new(),
         };
         let operator = if arrow { "->" } else { "." };
-        format!("{operator}{field}")
+        format!("{operator}{field}{element}")
     }
 
     /// The field `this->field` names.
