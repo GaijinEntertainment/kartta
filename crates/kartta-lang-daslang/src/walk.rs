@@ -2,8 +2,8 @@ use std::num::NonZeroU16;
 
 use kartta_lang::tree::{child_nodes, line, preorder, signature, text};
 use kartta_lang::{
-    Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol,
-    SymbolFlags, SymbolId, SymbolKind, UseRef,
+    Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, RawReExport, Receiver,
+    Symbol, SymbolFlags, SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree, TreeCursor};
 
@@ -277,6 +277,13 @@ impl<'a> Emitter<'a> {
     // constraint: `require ?guard target` keeps its guard in its own field, so only `name` is the import
     fn require(&mut self, node: Node<'_>) {
         if let Some(module) = self.field_text(node, "name") {
+            if node.child_by_field_name("public").is_some() {
+                self.raw.re_exports.push(RawReExport {
+                    local_name: "*".to_owned(),
+                    source_name: "*".to_owned(),
+                    source_path: module.clone(),
+                });
+            }
             let directive = RawDirective {
                 names: self.field_text(node, "alias").into_iter().collect(),
                 ..RawDirective::new(REQUIRE_FORM, module, start_line(node))
