@@ -184,7 +184,7 @@ lost, and what would reopen it.
 - [3.52 Scope a Rust `use` inside a block to that block](/design-docs/adr/3.52-rust-block-use-scope.md)
 - [3.53 Record no Rust call through a value, and bind a call of a body's item as a local call](/design-docs/adr/3.53-rust-local-calls.md)
 - [3.54 Read the calls and the reads a Rust macro's arguments write from its tokens](/design-docs/adr/3.54-rust-macro-arguments.md)
-- [3.55 Name a Rust method call's receiver by the type its parameter or field of `self` is declared as](/design-docs/adr/3.55-rust-parameter-receivers.md)
+- [3.55 Name a Rust method call's receiver by the type its parameter, field of `self` or local names](/design-docs/adr/3.55-rust-parameter-receivers.md)
 - [3.56 Name a Rust call's receiver only where its syntax spells it](/design-docs/adr/3.56-rust-call-receivers.md)
 - [3.60 Record every Go data site its walk can place](/design-docs/adr/3.60-go-data-sites.md)
 - [3.62 Record TypeScript and JavaScript data sites through what a value declares](/design-docs/adr/3.62-jsts-data-sites.md)
