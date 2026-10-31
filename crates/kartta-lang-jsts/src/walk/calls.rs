@@ -2,7 +2,7 @@ use kartta_lang::tree::{signature_from, text};
 use kartta_lang::{CallRef, LocalCall, SymbolId, SymbolKind};
 use tree_sitter::Node;
 
-use super::{Binding, Emitter, Scope};
+use super::{Binding, Emitter, Held, Scope};
 use crate::syntax::{
     call_target, first_string_argument, function_value, named_child_nodes, start_line, trim_quotes,
     unquote,
@@ -122,14 +122,53 @@ impl Emitter<'_> {
     }
 
     // constraint: a receiver the caller declares as a value names no type, so it is the empty receiver of a member call
-    // on a value of no known type, unless it is a parameter whose annotation or context spells its type; an import
-    // binding, a class and a namespace keep their name
+    // on a value of no known type, unless its annotation, its context or its `new` spells its type, or a call
+    // initializes it, which spells the path of calls the graph follows; an import binding, a class and a namespace keep
+    // their name
     fn value_receiver(&self, receiver: Option<String>) -> Option<String> {
         let name = receiver?;
-        match self.bindings.get(name.as_bytes()) {
-            Some(Binding::Parameter(typed)) => Some(self.spelled(*typed)),
-            _ if self.names_a_declared_value(&name) => Some(String::new()),
-            _ => Some(name),
+        Some(match self.bindings.get(name.as_bytes()) {
+            Some(Binding::Parameter(typed)) => self.spelled(*typed),
+            Some(Binding::Value(held) | Binding::Local(_, held) | Binding::Module(held)) => {
+                match held {
+                    Some(Held::Type(typed)) => self.spelled(*typed),
+                    Some(Held::Constructed(class)) => format!("{}()", self.spelled(*class)),
+                    Some(Held::Returned(path)) => self.returned[*path].clone(),
+                    None => String::new(),
+                }
+            }
+            _ => name,
+        })
+    }
+
+    /// The path of calls a call spells from the owner it is written on: `opened()`, `Kartta::open()`,
+    /// `Kartta::open()::child()`, with `?` after a call an `await` takes. A call on a value of no known type spells none.
+    pub(super) fn returned_path(&self, value: Node<'_>) -> Option<String> {
+        let (call, awaited) = match value.kind() {
+            "await_expression" => (value.named_child(0)?, "?"),
+            _ => (value, ""),
+        };
+        if call.kind() != "call_expression" {
+            return None;
+        }
+        let (callee, written) = call_target(call, self.source);
+        if callee.is_empty() {
+            return None;
+        }
+        let chained = (call.child_by_field_name("function"))
+            .and_then(|function| function.child_by_field_name("object"))
+            .filter(|object| object.kind() == "call_expression");
+        if let Some(object) = chained {
+            let path = self.returned_path(object)?;
+            return Some(format!("{path}::{callee}(){awaited}"));
+        }
+        let owner = self
+            .this_owner(call)
+            .or_else(|| self.value_receiver(written));
+        match owner.as_deref() {
+            None => Some(format!("{callee}(){awaited}")),
+            Some("") => None,
+            Some(owner) => Some(format!("{owner}::{callee}(){awaited}")),
         }
     }
 

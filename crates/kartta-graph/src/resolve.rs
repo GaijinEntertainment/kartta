@@ -920,9 +920,7 @@ impl<'g> Cascade<'g> {
         let Some((head, rest)) = spelled.split_once("()") else {
             return call;
         };
-        let Some(called) = head.rsplit_once("::") else {
-            return call;
-        };
+        let called = head.rsplit_once("::").unwrap_or(("", head));
         let (rest, value) = rest.split_once('|').unwrap_or((rest, ""));
         Call {
             receiver: self
@@ -932,9 +930,10 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    // constraint: each method of the path is found as the owner tier finds a call's, and its value type gives the next
-    // owner; a `?` after a call takes what an `Option` or a `Result` holds, a value type marked `?` spells only that,
-    // and the two meet or the path reaches no type
+    // constraint: each method of the path is found as the owner tier finds a call's, a path's first call written on no
+    // owner as a bare call binds, and its value type gives the next owner, as a type such a call constructs does; a `?`
+    // after a call takes what an `Option`, a `Result` or a `Promise` holds, a value type marked `?` spells only that, and
+    // the two meet or the path reaches no type
     fn returned_owner(
         &self,
         call: &Call,
@@ -945,14 +944,29 @@ impl<'g> Cascade<'g> {
         loop {
             let unwrapped = rest.strip_prefix('?');
             rest = unwrapped.unwrap_or(rest);
-            let step = Call {
-                callee: strings.get(method)?,
-                receiver: Some(strings.get(owner)?),
-                ..*call
+            let callee = strings.get(method)?;
+            let at = if owner.is_empty() {
+                let step = Call {
+                    callee,
+                    receiver: None,
+                    ..*call
+                };
+                self.resolve_by_tiers(&step).ok()?.0
+            } else {
+                let step = Call {
+                    callee,
+                    receiver: Some(strings.get(owner)?),
+                    ..*call
+                };
+                let candidates = self.candidates(&step);
+                self.member_of_the_receiver_s_owner(&step, &candidates)?
             };
-            let candidates = self.candidates(&step);
-            let at = self.member_of_the_receiver_s_owner(&step, &candidates)?;
-            let types = self.graph.file(at.file).value_types(at.index)?;
+            let symbol = self.graph.sym(at);
+            let types = if owner.is_empty() && symbol.kind.is_type() {
+                symbol.qualified_name
+            } else {
+                self.graph.file(at.file).value_types(at.index)?
+            };
             let returned = strings.resolve(types);
             let returned = match (returned.strip_prefix('?'), unwrapped) {
                 (Some(held), Some(_)) => held,

@@ -2090,6 +2090,279 @@ fn a_typescript_call_on_a_typed_parameter_binds_a_member_of_that_type_and_no_nam
 }
 
 #[test]
+fn a_typescript_call_on_a_local_a_static_call_initializes_binds_no_literal_of_its_file() {
+    let tree = tree_of(&[
+        (
+            "src/kartta.ts",
+            "export class Kartta {\n\
+             \x20 static open(root: string): Kartta { return new Kartta(); }\n\
+             \x20 version() { return 1; }\n\
+             }\n",
+        ),
+        (
+            "test/golden.test.ts",
+            "import { Kartta } from \"../src/kartta\";\n\n\
+             const replays = {\n  version: async () => 1,\n};\n\n\
+             export function covers() {\n\
+             \x20 const kartta = Kartta.open(\"fixture\");\n\
+             \x20 kartta.version();\n\
+             }\n",
+        ),
+    ]);
+    let engine = build(&tree, &["typescript"]);
+    let (_, graph) = engine
+        .graph_of("src/kartta.ts")
+        .expect("a language claims the file");
+    let callers_of = |selector: Selector<'_>| {
+        let callers = graph
+            .callers(selector, Limits::new(1))
+            .expect("the name is defined");
+        (callers.reached.iter())
+            .map(|reached| (reached.symbol.name, reached.confidence))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        callers_of(Selector::new("version", Some("test/golden.test.ts"))),
+        []
+    );
+    assert_eq!(
+        callers_of(Selector::new("Kartta.version", None)),
+        [("covers", confidence::RECEIVER)]
+    );
+}
+
+#[test]
+fn a_typescript_call_on_a_local_a_free_function_initializes_binds_no_literal_beside_it() {
+    let tree = tree_of(&[
+        (
+            "src/kartta.ts",
+            "export class Kartta {\n  build() { return 1; }\n}\n",
+        ),
+        (
+            "test/golden.test.ts",
+            "export const replays = {\n  build: async () => 1,\n};\n",
+        ),
+        (
+            "test/kartta.test.ts",
+            "import { Kartta } from \"../src/kartta\";\n\n\
+             function opened(root: string): Kartta {\n  return new Kartta();\n}\n\n\
+             export function cancels() {\n\
+             \x20 const kartta = opened(\"large\");\n\
+             \x20 kartta.build();\n\
+             }\n",
+        ),
+    ]);
+    let engine = build(&tree, &["typescript"]);
+    let (_, graph) = engine
+        .graph_of("src/kartta.ts")
+        .expect("a language claims the file");
+    let callers_of = |selector: Selector<'_>| {
+        let callers = graph
+            .callers(selector, Limits::new(1))
+            .expect("the name is defined");
+        (callers.reached.iter())
+            .map(|reached| (reached.symbol.name, reached.confidence))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        callers_of(Selector::new("build", Some("test/golden.test.ts"))),
+        []
+    );
+    assert_eq!(
+        callers_of(Selector::new("Kartta.build", None)),
+        [("cancels", confidence::RECEIVER)]
+    );
+}
+
+const RETURNS_A_TYPE: &str = "export class Kartta {\n\
+     \x20 static async connect(): Promise<Kartta> { return new Kartta(); }\n\
+     \x20 child(): Kartta { return this; }\n\
+     \x20 build() { return 1; }\n\
+     \x20 cancel() { return 2; }\n\
+     \x20 refresh() { return 3; }\n\
+     \x20 version() { return 4; }\n\
+     \x20 stats() { return 5; }\n\
+     }\n\n\
+     export function opened(root: string): Kartta {\n  return new Kartta();\n}\n\n\
+     export const reopened = (root: string): Kartta => new Kartta();\n\n\
+     export function held<T>(value: T): T {\n  return value;\n}\n";
+
+const CALLS_WHAT_IT_RETURNS: &str = "import { Kartta, held, opened, reopened } from \"../src/kartta\";\n\n\
+     export function imported() {\n\
+     \x20 const kartta = opened(\"large\");\n\
+     \x20 kartta.build();\n\
+     }\n\n\
+     export async function awaited() {\n\
+     \x20 const kartta = await Kartta.connect();\n\
+     \x20 kartta.cancel();\n\
+     }\n\n\
+     export function chained() {\n\
+     \x20 const kartta = opened(\"large\");\n\
+     \x20 const child = kartta.child();\n\
+     \x20 child.refresh();\n\
+     }\n\n\
+     export class Suite {\n\
+     \x20 made(): Kartta { return new Kartta(); }\n\
+     \x20 run() {\n\
+     \x20   const kartta = this.made();\n\
+     \x20   kartta.version();\n\
+     \x20 }\n\
+     }\n\n\
+     export function arrow() {\n\
+     \x20 const kartta = reopened(\"large\");\n\
+     \x20 kartta.stats();\n\
+     }\n\n\
+     export function generic(value: unknown) {\n\
+     \x20 const kept = held(value);\n\
+     \x20 kept.stop();\n\
+     }\n";
+
+#[test]
+fn a_typescript_call_on_a_local_follows_the_return_types_of_the_calls_that_initialize_it() {
+    let tree = tree_of(&[
+        ("src/kartta.ts", RETURNS_A_TYPE),
+        (
+            "test/golden.test.ts",
+            "export const replays = {\n\
+             \x20 build: async () => 1,\n\
+             \x20 cancel: async () => 2,\n\
+             \x20 refresh: async () => 3,\n\
+             \x20 version: async () => 4,\n\
+             \x20 stats: async () => 5,\n\
+             \x20 stop: async () => 6,\n\
+             };\n",
+        ),
+        ("test/kartta.test.ts", CALLS_WHAT_IT_RETURNS),
+    ]);
+    let engine = build(&tree, &["typescript"]);
+    let (_, graph) = engine
+        .graph_of("src/kartta.ts")
+        .expect("a language claims the file");
+    let callers_of = |selector: Selector<'_>| {
+        let callers = graph
+            .callers(selector, Limits::new(1))
+            .expect("the name is defined");
+        (callers.reached.iter())
+            .map(|reached| (reached.symbol.name, reached.confidence))
+            .collect::<Vec<_>>()
+    };
+
+    for (method, caller) in [
+        ("build", "imported"),
+        ("cancel", "awaited"),
+        ("refresh", "chained"),
+        ("version", "run"),
+        ("stats", "arrow"),
+    ] {
+        assert_eq!(
+            callers_of(Selector::new(method, Some("test/golden.test.ts"))),
+            [],
+            "{method}"
+        );
+        assert_eq!(
+            callers_of(Selector::new(&format!("Kartta.{method}"), None)),
+            [(caller, confidence::RECEIVER)],
+            "{method}"
+        );
+    }
+    let stopped = callers_of(Selector::new("stop", Some("test/golden.test.ts")));
+    assert_eq!(stopped.first().map(|caller| caller.0), Some("generic"));
+}
+
+#[test]
+fn a_javascript_call_on_a_local_a_package_class_constructs_keeps_the_binding_of_a_value() {
+    let tree = tree_of(&[
+        (
+            "vendor/three.min.js",
+            "export class La {\n  setFromPoint() {}\n}\n",
+        ),
+        (
+            "vendor/controls.js",
+            "import { Plane } from \"three\";\n\n\
+             const plane = new Plane();\n\n\
+             export function aim() {\n  plane.setFromPoint();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["javascript"]);
+    let (_, graph) = engine
+        .graph_of("vendor/controls.js")
+        .expect("a language claims the file");
+
+    let callers = graph
+        .callers("La.setFromPoint", Limits::new(1))
+        .expect("the name is defined");
+    assert_eq!(
+        (callers.reached.iter())
+            .map(|reached| reached.symbol.name)
+            .collect::<Vec<_>>(),
+        ["aim"]
+    );
+}
+
+#[test]
+fn a_typescript_call_on_a_typed_or_constructed_local_binds_a_member_of_that_type() {
+    let tree = tree_of(&[
+        (
+            "src/kartta.ts",
+            "export class Kartta {\n\
+             \x20 build() { return 1; }\n\
+             \x20 cancel() { return 2; }\n\
+             }\n",
+        ),
+        (
+            "test/golden.test.ts",
+            "export const replays = {\n\
+             \x20 build: async () => 1,\n\
+             \x20 cancel: async () => 2,\n\
+             };\n",
+        ),
+        (
+            "test/kartta.test.ts",
+            "import { Kartta } from \"../src/kartta\";\n\n\
+             export function typed(made: unknown) {\n\
+             \x20 const kartta: Kartta = made as Kartta;\n\
+             \x20 kartta.build();\n\
+             }\n\n\
+             export function constructed() {\n\
+             \x20 const kartta = new Kartta();\n\
+             \x20 kartta.cancel();\n\
+             }\n",
+        ),
+    ]);
+    let engine = build(&tree, &["typescript"]);
+    let (_, graph) = engine
+        .graph_of("src/kartta.ts")
+        .expect("a language claims the file");
+    let callers_of = |selector: Selector<'_>| {
+        let callers = graph
+            .callers(selector, Limits::new(1))
+            .expect("the name is defined");
+        (callers.reached.iter())
+            .map(|reached| (reached.symbol.name, reached.confidence))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        callers_of(Selector::new("build", Some("test/golden.test.ts"))),
+        []
+    );
+    assert_eq!(
+        callers_of(Selector::new("cancel", Some("test/golden.test.ts"))),
+        []
+    );
+    assert_eq!(
+        callers_of(Selector::new("Kartta.build", None)),
+        [("typed", confidence::RECEIVER)]
+    );
+    assert_eq!(
+        callers_of(Selector::new("Kartta.cancel", None)),
+        [("constructed", confidence::RECEIVER)]
+    );
+}
+
+#[test]
 fn a_javascript_call_through_a_class_binds_no_function_outside_every_type() {
     let tree = tree_of(&[
         (

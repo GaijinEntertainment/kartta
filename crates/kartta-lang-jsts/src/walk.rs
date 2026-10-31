@@ -16,7 +16,7 @@ use tree_sitter::{Node, Tree};
 use self::context::{parameter_name, parameters_of, untyped_name};
 use self::exports::binds_a_require;
 use self::locals::Locals;
-use self::uses::{annotated_type, constructed_type, names_a_value};
+use self::uses::{constructed_type, names_a_value};
 use crate::generated::is_generated_source;
 use crate::syntax::{
     BLOCK_STATEMENTS, declaration_start_line, declarator_kind, declared_var, end_line,
@@ -114,17 +114,28 @@ struct DeclScope {
 
 type Span = (usize, usize);
 
-/// The binding a name a declaration holds gets for the one type the declaration spells, if any.
-type ValueBinding = fn(Option<Span>) -> Binding;
+/// The binding a name a declaration holds gets for what the declaration says it holds, if anything.
+type ValueBinding = fn(Option<Held>) -> Binding;
 
-/// What a name the file declares stands for where a use spells it; a value carries the span of the one type its
-/// declaration spells, if any.
+/// What a value's declaration says it holds.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Held {
+    /// The span of the one type the declaration spells.
+    Type(Span),
+    /// The span of the name its `new` constructs.
+    Constructed(Span),
+    /// The index in [`Emitter::returned`] of the call that initializes it, spelled as a path of calls.
+    Returned(usize),
+}
+
+/// What a name the file declares stands for where a use spells it; a value carries what its declaration says it
+/// holds, if anything.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Binding {
-    Value(Option<Span>),
+    Value(Option<Held>),
     /// A variable or a constant a body declares by one name, local to that body: a call of the name calls it.
-    Local(SymbolId, Option<Span>),
-    Module(Option<Span>),
+    Local(SymbolId, Option<Held>),
+    Module(Option<Held>),
     /// A parameter of the one type its annotation or, with no annotation, the function type of its context spells.
     Parameter(Span),
     Type,
@@ -157,6 +168,8 @@ struct Emitter<'s> {
     module_bindings: HashMap<&'s [u8], Binding>,
     /// The span of each type alias and interface the module declares at its top level, by its name.
     type_declarations: HashMap<&'s [u8], Range<usize>>,
+    /// The path of calls each value a call initializes spells, by the index its [`Held::Returned`] carries.
+    returned: Vec<String>,
     exported_ids: (Option<usize>, Option<usize>),
     exported_names: Vec<String>,
     file_is_generated: bool,
@@ -178,6 +191,7 @@ impl<'s> Emitter<'s> {
             bindings: HashMap::new(),
             module_bindings: HashMap::new(),
             type_declarations: HashMap::new(),
+            returned: Vec::new(),
             exported_ids: (None, None),
             exported_names: Vec::new(),
             file_is_generated: is_generated_source(source),
@@ -518,11 +532,8 @@ impl<'s> Emitter<'s> {
             .is_some_and(|declaration| declaration.kind() == "variable_declaration");
         let value = self.value_binding(is_var);
         if name.kind() == "identifier" {
-            let typed = declarator
-                .child_by_field_name("type")
-                .and_then(annotated_type)
-                .or_else(|| constructed_type(declarator));
-            let binding = local.map_or_else(|| value(typed), |id| Binding::Local(id, typed));
+            let held = self.held_by(declarator);
+            let binding = local.map_or_else(|| value(held), |id| Binding::Local(id, held));
             let spans = if is_var {
                 &self.function_spans
             } else {
@@ -538,6 +549,20 @@ impl<'s> Emitter<'s> {
         }
     }
 
+    fn held_by(&mut self, declarator: Node<'_>) -> Option<Held> {
+        let annotated = (declarator.child_by_field_name("type"))
+            .and_then(|annotation| self.named_type(annotation));
+        if annotated.is_some() {
+            return annotated.map(Held::Type);
+        }
+        if let Some(constructed) = constructed_type(declarator) {
+            return Some(Held::Constructed(constructed));
+        }
+        let path = self.returned_path(declarator.child_by_field_name("value")?)?;
+        self.returned.push(path);
+        Some(Held::Returned(self.returned.len() - 1))
+    }
+
     // constraint: a pattern binds its identifiers and its shorthand properties; a property key, a default value and a
     // type annotation bind nothing, though a parameter's name keeps the one type its annotation spells
     fn declare_pattern(&mut self, pattern: Node<'_>, until: usize, value: ValueBinding) {
@@ -548,8 +573,8 @@ impl<'s> Emitter<'s> {
             }
             "required_parameter" | "optional_parameter" => match inner("pattern") {
                 Some(bound) if bound.kind() == "identifier" => {
-                    let typed = inner("type").and_then(annotated_type);
-                    self.declare(bound.byte_range(), until, value(typed));
+                    let typed = inner("type").and_then(|written| self.named_type(written));
+                    self.declare(bound.byte_range(), until, value(typed.map(Held::Type)));
                 }
                 Some(bound) => self.declare_pattern(bound, until, value),
                 None => {}
@@ -571,13 +596,6 @@ impl<'s> Emitter<'s> {
             }
             _ => {}
         }
-    }
-
-    fn names_a_declared_value(&self, receiver: &str) -> bool {
-        matches!(
-            self.bindings.get(receiver.as_bytes()),
-            Some(Binding::Value(_) | Binding::Local(..) | Binding::Module(_))
-        )
     }
 
     fn function_declaration(&mut self, node: Node<'_>) {
@@ -658,6 +676,8 @@ impl<'s> Emitter<'s> {
         symbol.exported = exported;
         symbol.signature =
             function.and_then(|function| signature_from(node.start_byte(), function, self.source));
+        symbol.value_types =
+            function.map_or_else(Vec::new, |function| self.returned_type(function));
         let id = self.raw.push_symbol(symbol);
 
         if let (Some(value), Some(function)) = (value, function) {
@@ -726,6 +746,8 @@ impl<'s> Emitter<'s> {
         symbol.exported = is_member_exported(node, self.source);
         symbol.signature =
             function.and_then(|function| signature_from(node.start_byte(), function, self.source));
+        symbol.value_types =
+            function.map_or_else(Vec::new, |function| self.returned_type(function));
         let id = self.raw.push_symbol(symbol);
 
         if let (Some(value), Some(function)) = (value, function) {
@@ -764,6 +786,7 @@ impl<'s> Emitter<'s> {
         let mut symbol = self.member(name, kind, node);
         symbol.exported = exported;
         symbol.signature = signature(node, self.source);
+        symbol.value_types = self.returned_type(node);
         Some(self.raw.push_symbol(symbol))
     }
 

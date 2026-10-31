@@ -320,7 +320,7 @@ pub struct Symbol {
     /// spelled as a receiver names one, after a `*` where the field holds a pointer to a value of it, and for a value
     /// of a class template, after a `*`, the owner its first template argument names, which its `operator->` reaches.
     /// Where they are [`Receivers::ReturnPaths`](crate::Receivers::ReturnPaths), a function's is the owner its return
-    /// type names, after a `?` where an `Option` or a `Result` holds it. Where they are
+    /// type names, after a `?` where an `Option`, a `Result` or a `Promise` holds it. Where they are
     /// [`Receivers::TypePaths`](crate::Receivers::TypePaths), a type defined over a named type records that type after
     /// a `~`, which tells it from the results of a type defined over a function type.
     pub value_types: Vec<String>,
