@@ -573,6 +573,46 @@ fn bound_through_an_import<'e>(engine: &'e Engine, path: &str, name: &str) -> Ve
         .collect()
 }
 
+fn renaming_crate() -> TempDir {
+    tree_of(&[
+        ("Cargo.toml", "[package]\nname = \"fx\"\n"),
+        (
+            "src/lib.rs",
+            "mod m;\nmod other;\nmod plain;\npub use m::f as g;\n\npub fn in_the_root() {\n    g();\n}\n",
+        ),
+        ("src/m.rs", "pub fn f() {}\n"),
+        (
+            "src/other.rs",
+            "use crate::m::f as local_alias;\n\npub fn through_crate() {\n    crate::g();\n}\n\n\
+             pub fn through_alias() {\n    local_alias();\n}\n",
+        ),
+        (
+            "src/plain.rs",
+            "use crate::m::f;\n\npub fn through_plain() {\n    f();\n}\n",
+        ),
+    ])
+}
+
+#[test]
+fn a_rust_call_of_a_name_a_use_renames_binds_the_item_the_use_names() {
+    let tree = renaming_crate();
+    let engine = build(&tree, &["rust"]);
+    let renamed = ["src/m.rs"];
+
+    for (path, caller) in [
+        ("src/other.rs", "through_alias"),
+        ("src/other.rs", "through_crate"),
+        ("src/plain.rs", "through_plain"),
+        ("src/lib.rs", "in_the_root"),
+    ] {
+        assert_eq!(
+            bound_through_an_import(&engine, path, caller),
+            renamed,
+            "{caller} in {path}"
+        );
+    }
+}
+
 #[test]
 fn a_rust_path_through_crate_self_or_super_binds_the_item_of_the_module_it_names() {
     let tree = tree_of(&[
