@@ -64,7 +64,11 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
                     repaired.blank(before);
                     (after.start, after.end)
                 }),
-            _ if at == 0 || source[at - 1] == b'\n' => lone_macro_line(source, at, &mut macro_run),
+            _ if at == 0 || source[at - 1] == b'\n' => lone_macro_line(source, at, &mut macro_run)
+                .or_else(|| {
+                    macro_before_a_constructor(&source[at..])
+                        .map(|annotation| (at + annotation.start, at + annotation.end))
+                }),
             _ => None,
         };
         at = match blanked {
@@ -1339,9 +1343,9 @@ fn declares_a_function(mut declarator: Node<'_>) -> bool {
     declarator.kind() == "function_declarator"
 }
 
-/// The macro that opens the line `text` starts with, past the specifiers before it, where it annotates the declaration
-/// after it.
-fn annotation_macro(text: &[u8]) -> Option<Range<usize>> {
+/// The macro that opens the line `text` starts with, past the specifiers before it, and the offset of the code after
+/// it on that line.
+fn opening_macro(text: &[u8]) -> Option<(Range<usize>, usize)> {
     let mut at = indent_len(text);
     loop {
         let len = word_len(&text[at..]);
@@ -1353,9 +1357,32 @@ fn annotation_macro(text: &[u8]) -> Option<Range<usize>> {
     }
     let annotation = at..at + word_len(&text[at..]);
     let declaration = annotation.end + indent_len(&text[annotation.end..]);
-    (is_macro_name(&text[annotation.clone()])
-        && declaration > annotation.end
-        && annotates(&text[declaration..]))
+    (is_macro_name(&text[annotation.clone()]) && declaration > annotation.end)
+        .then_some((annotation, declaration))
+}
+
+/// The macro that opens the line `text` starts with, past the specifiers before it, where it annotates the declaration
+/// after it.
+fn annotation_macro(text: &[u8]) -> Option<Range<usize>> {
+    opening_macro(text)
+        .filter(|(_, declaration)| annotates(&text[*declaration..]))
+        .map(|(annotation, _)| annotation)
+}
+
+// constraint: the grammar reads a macro before an out-of-line constructor, `PX_INLINE Sc::Shape::Shape(bool b)\n\t:
+// mFlags(0)\n{`, as the constructor's type, and an initializer list takes no type, so the name and the `:` fall into an
+// error, the first initializer reads as the function and the body can follow it into the error. A scoped name, its
+// parameters and a `:` written after a word hold no other reading
+/// The macro that opens the line `text` starts with, past the specifiers before it, where an out-of-line constructor
+/// with an initializer list follows it.
+fn macro_before_a_constructor(text: &[u8]) -> Option<Range<usize>> {
+    let (annotation, name) = opening_macro(text)?;
+    let declaration = &text[name..];
+    let len = term_len(declaration)?;
+    let parameters = &declaration[len + whitespace_len(&declaration[len..])..];
+    (bounded_find(&declaration[..len], b"::").is_some()
+        && parameters.starts_with(b"(")
+        && initializes_members(parameters))
     .then_some(annotation)
 }
 
@@ -2658,6 +2685,36 @@ void print(std::ostream& os, format_string<T...> fmt, T&&... args) {}
         assert_eq!(
             changed_offsets(&repaired, SOURCE),
             (0.."DAS_API".len()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn only_a_macro_before_an_out_of_line_constructors_initializer_list_is_blanked() {
+        const SOURCE: &[u8] = br"static PX_INLINE Sc::Shape::Shape(bool b)
+    : mFlags(0) {}
+HACD_INLINE Plane<T>::Plane(int a) noexcept : Vec(a) {}
+HACD_INLINE Plane::Plane(float x) { m_w = x; }
+HACD_INLINE Plane::Plane(float x) ;
+HACD_INLINE Plane::Plane();
+HACD_INLINE plane();
+HACD_INLINE Widget(int x) : mX(x) {}
+HACD_INLINE void Widget::Widget(int x) {}
+inline Widget::Widget(int x) : mX(x) {}
+Inline Widget::Widget(int x) : mX(x) {}
+";
+
+        let repaired = for_parse(SOURCE).expect("two constructors");
+
+        let first = "static ".len();
+        let second = SOURCE
+            .windows(11)
+            .position(|word| word == b"HACD_INLINE")
+            .expect("the macro");
+        assert_eq!(
+            changed_offsets(&repaired, SOURCE),
+            (first..first + "PX_INLINE".len())
+                .chain(second..second + "HACD_INLINE".len())
+                .collect::<Vec<_>>()
         );
     }
 

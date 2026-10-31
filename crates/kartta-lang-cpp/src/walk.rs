@@ -755,8 +755,8 @@ impl<'s, 't> Replayer<'s, 't> {
     }
 }
 
-// constraint: the grammar can end a definition before its body and read the body apart: a macro before an out-of-line
-// constructor whose initializer list follows its parameters, `PX_INLINE Sc::Shape::Shape(bool b)\n\t: mFlags(0)\n{`,
+// constraint: the grammar can end a definition before its body and read the body apart: a macro alone on its line
+// above an out-of-line constructor with an initializer list, `NS_BEGIN\n\nVec4::Vec4(float x) :\n\tmX(x)\n{`,
 // reads as the type of a declaration that holds the name and the `:` in an error and the initializers as its
 // declarators, its body as a block after it; a macro call after the parameters of a function that takes a scoped type,
 // `void lock(ns::id_t token) ACQUIRE()\n{`, reads as a function of its own that owns the body
@@ -3241,7 +3241,7 @@ static int free_helper() { return 2; }
               \t\tPX_FORCE_INLINE const Gu::GeometryUnion& geometry() const { return mShape; }\n\
               \t\tDAGOR_NOINLINE void lockRead(::da_profiler::desc_id_t token) DAG_TS_ACQUIRE_SHARED()\n\
               \t\t{\n\t\t\twait(token);\n\t\t}\n\t\tPxU16 mFlags;\n\t};\n} // namespace Sc\n\n\
-              PX_INLINE Sc::CoreInteraction::CoreInteraction(bool element)\n\t: mDirty(ALL), mFlags(0)\n{\n\
+              PX_INLINE\nSc::CoreInteraction::CoreInteraction(bool element)\n\t: mDirty(ALL), mFlags(0)\n{\n\
               \tif (element)\n\t\tsetup(ELEMENT);\n}\n}\n",
         );
 
@@ -3257,7 +3257,7 @@ static int free_helper() { return 2; }
                 ("CoreInteraction::geometry", 9, 9),
                 ("CoreInteraction::lockRead", 10, 13),
                 ("CoreInteraction::mFlags", 14, 14),
-                ("CoreInteraction::CoreInteraction", 18, 23)
+                ("CoreInteraction::CoreInteraction", 18, 24)
             ]
         );
         let constructor = raw
@@ -3281,7 +3281,7 @@ static int free_helper() { return 2; }
                 .signature
                 .as_deref(),
             Some(
-                "PX_INLINE Sc::CoreInteraction::CoreInteraction(bool element)\n\t: mDirty(ALL), mFlags(0)"
+                "PX_INLINE\nSc::CoreInteraction::CoreInteraction(bool element)\n\t: mDirty(ALL), mFlags(0)"
             )
         );
         let sites: Vec<(&str, SymbolId)> = raw
@@ -3292,6 +3292,87 @@ static int free_helper() { return 2; }
         assert_eq!(
             sites,
             [("wait", id_of(&raw, "lockRead")), ("setup", constructor)]
+        );
+    }
+
+    #[test]
+    fn a_macro_before_a_constructors_initializer_list_keeps_the_method() {
+        let raw = extract(
+            b"class Plane : public Vec\n{\npublic:\n\tPlane();\n\tPlane(float x);\n};\n\n\
+              HACD_INLINE Plane::Plane()\n\t: Vec()\n{\n}\n\n\
+              HACD_INLINE Plane::Plane(float x)\n\t: Vec(x)\n{\n\tm_w = x;\n}\n\n\
+              HACD_INLINE Widget::Widget(int x) : mX(x) {}\n\nvoid after() {}\n",
+        );
+
+        assert_eq!(
+            spans(&raw),
+            [
+                ("Plane", 1, 6),
+                ("Plane::Plane", 8, 11),
+                ("Plane::Plane", 13, 17),
+                ("Widget::Widget", 19, 19),
+                ("after", 21, 21)
+            ]
+        );
+        assert!(
+            raw.symbols[1..4]
+                .iter()
+                .all(|symbol| symbol.kind == SymbolKind::Method)
+        );
+    }
+
+    #[test]
+    fn a_macro_before_a_constructor_keeps_a_body_the_error_would_take() {
+        let raw = extract(
+            b"PX_INLINE Sc::CoreInteraction::CoreInteraction(bool element)\n\t: mFlags(0)\n{\n\
+              \tsetup(element);\n}\n\nPX_INLINE Widget::Widget(int x) : mX(x) {}\n\nvoid after() {}\n",
+        );
+
+        assert_eq!(
+            spans(&raw),
+            [
+                ("CoreInteraction::CoreInteraction", 1, 5),
+                ("Widget::Widget", 7, 7),
+                ("after", 9, 9)
+            ]
+        );
+        assert_eq!(
+            qualified(&raw, "CoreInteraction::CoreInteraction").kind,
+            SymbolKind::Method
+        );
+        assert_eq!(qualified(&raw, "Widget::Widget").kind, SymbolKind::Method);
+        assert_eq!(symbol(&raw, "after").kind, SymbolKind::Function);
+        assert!(
+            raw.callables
+                .iter()
+                .any(|callable| callable.key == "Sc::CoreInteraction::CoreInteraction(bool)")
+        );
+        assert_eq!(callees(&raw), ["setup"]);
+    }
+
+    #[test]
+    fn a_macro_stays_before_a_constructor_without_an_initializer_list() {
+        let raw = extract(
+            b"HACD_INLINE Plane::Plane(float x)\n{\n\tm_w = x;\n}\n\n\
+              Plane::Plane() : Vec() {}\n",
+        );
+
+        assert_eq!(
+            spans(&raw),
+            [("Plane::Plane", 1, 4), ("Plane::Plane", 6, 6)]
+        );
+        assert_eq!(
+            raw.symbols[0].signature.as_deref(),
+            Some("HACD_INLINE Plane::Plane(float x)")
+        );
+        assert_eq!(
+            raw.symbols[1].signature.as_deref(),
+            Some("Plane::Plane() : Vec()")
+        );
+        assert!(
+            raw.symbols
+                .iter()
+                .all(|symbol| symbol.kind == SymbolKind::Method)
         );
     }
 }
