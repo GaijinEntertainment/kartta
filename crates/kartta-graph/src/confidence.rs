@@ -68,6 +68,9 @@ pub const RE_EXPORT: u8 = 65;
 ///
 /// A DSHL use its own file and includes leave unbound binds here the one file that declares the name, of all the
 /// scripts the use's file compiles in.
+///
+/// Under [`Conventions::module_seen_everywhere`](kartta_lang::Conventions::module_seen_everywhere), a call with no
+/// receiver binds here and at the steps below only a definition its file reaches or that module holds.
 pub const UNIQUE: u8 = 60;
 /// A definition a macro invocation writes binds at a tier this high at most, and none below [`SAME_DIR`].
 ///

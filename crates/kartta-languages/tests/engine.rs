@@ -2805,6 +2805,134 @@ fn a_daslang_qualifier_the_graph_can_read_keeps_its_binding() {
     assert_eq!(callees(&engine, "a.das", "on_a_value"), (vec![helper], 0));
 }
 
+#[test]
+fn a_bare_daslang_call_binds_no_definition_its_file_does_not_reach() {
+    let tree = tree_of(&[
+        (
+            "render/shader.das",
+            "options gen2\nmodule shader\n\ndef public cross(a, b) {\n    return a\n}\n",
+        ),
+        (
+            "game/ai.das",
+            "options gen2\nrequire math\n\ndef steer(a, b) {\n    return cross(a, b)\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(
+        callees(&engine, "game/ai.das", "steer"),
+        (vec![], 1),
+        "`math` is a native module, and no require reaches `shader`"
+    );
+}
+
+#[test]
+fn a_bare_daslang_call_binds_no_type_its_file_does_not_reach() {
+    let tree = tree_of(&[
+        (
+            "lib/probe.das",
+            "options gen2\nmodule probe\n\nstruct public Probe {\n    x : int\n}\n",
+        ),
+        (
+            "tests/probe.das",
+            "options gen2\nmodule probe_fixture\n\nstruct public Probe {\n    y : int\n}\n",
+        ),
+        (
+            "game/ai.das",
+            "options gen2\n\ndef steer {\n    return Probe()\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(callees(&engine, "game/ai.das", "steer"), (vec![], 1));
+}
+
+#[test]
+fn a_bare_daslang_call_binds_the_definition_a_module_it_requires_requires() {
+    let tree = tree_of(&[
+        (
+            "lib/deep.das",
+            "options gen2\nmodule deep\n\ndef public twist(a) {\n    return a\n}\n",
+        ),
+        (
+            "lib/near.das",
+            "options gen2\nmodule near\nrequire deep public\n",
+        ),
+        (
+            "game/ai.das",
+            "options gen2\nrequire near\n\ndef steer(a) {\n    return twist(a)\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(
+        reached(&engine, "game/ai.das", "steer"),
+        [("lib/deep.das", 4, confidence::UNIQUE)]
+    );
+}
+
+#[test]
+fn a_bare_daslang_call_binds_the_definition_a_file_it_includes_includes() {
+    let tree = tree_of(&[
+        (
+            "game/deep.das",
+            "options gen2\n\ndef twist(a) {\n    return a\n}\n",
+        ),
+        ("game/near.das", "options gen2\ninclude deep\n"),
+        (
+            "game/ai.das",
+            "options gen2\ninclude near\n\ndef steer(a) {\n    return twist(a)\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(
+        reached(&engine, "game/ai.das", "steer"),
+        [("game/deep.das", 3, confidence::UNIQUE)]
+    );
+}
+
+#[test]
+fn a_bare_daslang_call_binds_the_builtin_module_with_no_require() {
+    let tree = tree_of(&[
+        (
+            "daslib/builtin.das",
+            "options gen2\nmodule builtin shared public\n\ndef twist(a) {\n    return a\n}\n",
+        ),
+        (
+            "game/ai.das",
+            "options gen2\n\ndef steer(a) {\n    return twist(a)\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(
+        reached(&engine, "game/ai.das", "steer"),
+        [("daslib/builtin.das", 4, confidence::UNIQUE)]
+    );
+}
+
+#[test]
+fn a_daslang_member_call_binds_a_method_of_a_file_it_does_not_reach() {
+    let tree = tree_of(&[
+        (
+            "lib/unit.das",
+            "options gen2\nmodule unit\n\nclass Unit {\n    def twist {\n        return 1\n    }\n}\n",
+        ),
+        (
+            "game/ai.das",
+            "options gen2\n\ndef steer(u) {\n    return u.twist()\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(
+        reached(&engine, "game/ai.das", "steer"),
+        [("lib/unit.das", 5, confidence::UNIQUE)],
+        "a member call reads its object's type, which no require of the caller's has to name"
+    );
+}
+
 fn alias_tree(requires: &str, body: &str) -> TempDir {
     let source = format!(
         "options gen2\n{requires}\n\ndef helper {{\n    return 2\n}}\n\n\

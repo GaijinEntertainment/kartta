@@ -152,6 +152,7 @@ fn daslang_conventions_are_the_default_but_macros_value_uses_type_uses_and_recei
     let mut expected = Conventions::default();
     expected.bare_receivers = BareReceivers::Modules;
     expected.macro_invocations = MacroInvocations::Apart;
+    expected.module_seen_everywhere = Some("builtin");
     expected.value_uses = ValueUses::Expanded;
     expected.own_type_receivers = Some(&["self"]);
     expected.base_receivers = &["super"];
