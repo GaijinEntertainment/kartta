@@ -799,9 +799,29 @@ impl Cascade<'_> {
         }
     }
 
+    // constraint: a type of that name the caller's file neither holds nor includes is a namesake, as a minified bundle's
+    // `class $` is of jQuery's `$`, and in generated code a name says nothing of what it holds
+    fn receiver_names_a_type(&self, call: &Call) -> bool {
+        let strings = &self.graph.strings;
+        let written = call
+            .receiver
+            .map_or("", |receiver| strings.resolve(receiver));
+        if written.is_empty() || self.graph.flags(call.caller_at()).is_generated() {
+            return false;
+        }
+        let last = (self.conventions.owner_chain_separator)
+            .and_then(|separator| written.rsplit(separator).next())
+            .unwrap_or(written);
+        strings.get(last).is_some_and(|last| {
+            (self.named(last).iter())
+                .any(|&at| self.graph.sym(at).kind.is_type() && self.sees(call.file, at))
+        })
+    }
+
     fn takes_a_member_alone(&self, call: &Call) -> bool {
         match self.conventions.member_calls {
             MemberCalls::NearbyFreeFunctions => false,
+            MemberCalls::NearbyFreeFunctionsUnlessTyped => self.receiver_names_a_type(call),
             MemberCalls::Members => true,
             MemberCalls::ModulePaths => !self.receiver_names_a_module(call),
         }
