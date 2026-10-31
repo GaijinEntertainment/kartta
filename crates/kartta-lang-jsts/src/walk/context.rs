@@ -19,9 +19,9 @@ impl Emitter<'_> {
             .child_by_field_name("parameters")
     }
 
-    /// The span of the one type the context gives a parameter, unless that type is a type parameter of a declaration
-    /// around the context's own parameter.
-    pub(super) fn contextual_type(&self, parameter: Node<'_>) -> Option<Span> {
+    /// The span of the one type a parameter's annotation spells, unless that type is a type parameter of a declaration
+    /// around the parameter.
+    pub(super) fn parameter_type(&self, parameter: Node<'_>) -> Option<Span> {
         let span = annotated_type(parameter.child_by_field_name("type")?)?;
         let written = &self.source[span.0..span.1];
         let generic = std::iter::successors(parameter.parent(), Node::parent)
@@ -122,6 +122,13 @@ pub(super) fn untyped_name(parameter: Node<'_>) -> Option<Node<'_>> {
         }
         _ => None,
     }
+}
+
+/// The name a parameter binds where it is one identifier.
+pub(super) fn parameter_name(parameter: Node<'_>) -> Option<Node<'_>> {
+    parameter
+        .child_by_field_name("pattern")
+        .filter(|pattern| pattern.kind() == "identifier")
 }
 
 /// The type an object literal's annotation, `as` or `satisfies` writes beside it.

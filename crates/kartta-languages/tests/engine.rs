@@ -1909,6 +1909,84 @@ fn a_typescript_call_on_a_parameter_typed_by_its_context_binds_the_method_of_tha
 }
 
 #[test]
+fn a_typescript_call_on_a_typed_parameter_binds_a_member_of_that_type_and_no_namesake() {
+    let tree = tree_of(&[
+        (
+            "src/kartta.ts",
+            "export class Kartta {\n  build(p: number) { return p; }\n}\n\n\
+             export interface Handler {\n  handle(p: number): void;\n}\n\n\
+             export type Callbacks = Pick<Options, 'onSuccess'>;\n",
+        ),
+        (
+            "src/hooks.ts",
+            "import type { Callbacks, Handler } from \"./kartta\";\n\
+             import type { Outside } from \"outside\";\n\n\
+             export function useInit(options: Callbacks) {\n\
+             \x20 return make({\n\
+             \x20   onSuccess(data) {\n\
+             \x20     options?.onSuccess?.(data);\n\
+             \x20   },\n\
+             \x20 });\n\
+             }\n\n\
+             export function useOutside(options: Outside) {\n\
+             \x20 return make({\n\
+             \x20   onError(data) {\n\
+             \x20     options.onError(data);\n\
+             \x20   },\n\
+             \x20 });\n\
+             }\n\n\
+             export function route(handler: Handler) {\n  handler.handle(1);\n}\n",
+        ),
+        (
+            "test/golden.test.ts",
+            "import { Kartta } from \"../src/kartta\";\n\n\
+             type Replay = (kartta: Kartta) => unknown;\n\n\
+             export const replays: Record<string, Replay> = {\n\
+             \x20 build: async () => 1,\n\
+             };\n",
+        ),
+        (
+            "test/kartta.test.ts",
+            "import { Kartta } from \"../src/kartta\";\n\n\
+             function walking(kartta: Kartta) {\n  kartta.build(1);\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["typescript"]);
+    let (_, graph) = engine
+        .graph_of("src/hooks.ts")
+        .expect("a language claims the file");
+    let callers_of = |selector: Selector<'_>| {
+        let callers = graph
+            .callers(selector, Limits::new(1))
+            .expect("the name is defined");
+        (callers.reached.iter())
+            .map(|reached| (reached.symbol.name, reached.confidence))
+            .collect::<Vec<_>>()
+    };
+    let self_call = |name: &str| {
+        graph
+            .callers(name, Limits::new(1))
+            .expect("the name is defined")
+            .self_call
+    };
+
+    assert_eq!(self_call("onSuccess"), None);
+    assert_eq!(self_call("onError"), None);
+    assert_eq!(
+        callers_of(Selector::new("Handler.handle", None)),
+        [("route", confidence::RECEIVER)]
+    );
+    assert_eq!(
+        callers_of(Selector::new("Kartta.build", None)),
+        [("walking", confidence::RECEIVER)]
+    );
+    assert_eq!(
+        callers_of(Selector::new("build", Some("test/golden.test.ts"))),
+        []
+    );
+}
+
+#[test]
 fn a_javascript_call_through_a_class_binds_no_function_outside_every_type() {
     let tree = tree_of(&[
         (

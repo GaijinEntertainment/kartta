@@ -33,8 +33,9 @@
 //!   `this` names the type that owns the enclosing method as its receiver. A call on a value the file declares before
 //!   it, inside the scope that declares it — a parameter, a `let`, `const` or `var`, a destructured name, a catch
 //!   binding, a loop variable, a function declared inside a function body, the name of a function expression inside
-//!   it — records the empty receiver, because a value's name names no type; an import binding, a class, a namespace
-//!   and a class declared in a nearer scope keep their name.
+//!   it — records the empty receiver, because a value's name names no type, unless it is a parameter written as one
+//!   name whose annotation or, with no annotation, whose function's context spells its one type, which it records; an
+//!   import binding, a class, a namespace and a class declared in a nearer scope keep their name.
 //! - A variable or a constant a function body declares by one name, unless a function or a class is its value, is
 //!   local to that body: no use binds it, a call of its name inside the scope that declares it calls it, and a read or
 //!   a call of a namesake the module declares never binds it.
