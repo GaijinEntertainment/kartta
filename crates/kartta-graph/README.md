@@ -80,14 +80,16 @@ call binds more narrowly: through the import its qualifier names, else a package
 dot import, or of its package directory, and where a language's uses reach its imports, of the one included file that
 declares it or of a re-export from one. A member a use takes on a value binds a field or a method through the type path
 its language spells, or of the owner a path names in its own file or in one included file, or the definition outside
-every owner of the one included module whose name the path ends, where a qualified name starts with its module; else,
-where the language allows it, only the one field of the name its own file declares outside other bodies; a guess by
-package, import or family binds a namesake too often to be taken. A member of `this` or `self` binds the member of the
-class around the use, else one of a base that every base searched before it was found for. Where includes are transitive
-and a bare name in a member reads the class first, as in C++, the tiers follow the includes instead: a member of the own
-receiver, and a bare name in a member, binds the own class's field, else the field of the one base the class-scope
-lookup of a bare call certainly finds; a member on a value binds the field of the class its declaration names or of the
-one base of it that declares the name, else the one field of the name in the file, then in its includes, then, for a
+every owner of the one included module whose name the path ends, where a qualified name starts with its module. A path
+none of those reach binds nothing but in three cases: an empty path, a Go path the graph cannot follow to a type, and a
+C++ path to a type the graph holds that declares no such member, nor does a base. Those, where the language allows it,
+bind only the one field of the name their own file declares outside other bodies; a guess by package, import or family
+binds a namesake too often to be taken. A member of `this` or `self` binds the member of the class around the use, else
+one of a base that every base searched before it was found for. Where includes are transitive and a bare name in a
+member reads the class first, as in C++, the tiers follow the includes instead: a member of the own receiver, and a bare
+name in a member, binds the own class's field, else the field of the one base the class-scope lookup of a bare call
+certainly finds; a member on a value binds the field of the class its declaration names or of the one base of it that
+declares the name, else, in those three cases, the one field of the name in the file, then in its includes, then, for a
 name at most 32 fields share, in the files those reach. A member defined in a header its class's header includes, an
 inline implementation header, reaches the classes its declaration's file sees too. Of namesake classes that hold the
 field, the own class is the method's, the one a member defined outside it declares it in, else the one its scope's
@@ -118,9 +120,11 @@ file holds goes stale when another file changes.
   call of itself, which the symbols reached do not list. The callers also count the calls of the callable's name that
   bound none because several of its definitions may be meant.
 - `Graph::references` — the sites that call or use a symbol, a field included, by file and line, each marked a read, a
-  write or an update; it can keep the readers or the writers alone, counts every site by kind whatever it keeps, and
-  counts what the floor and the limit left out, the uses of a member's name it could not tell apart, and the calls of
-  the symbol's name that `Graph::callers` counts as left ambiguous between several of its definitions.
+  write, an update or a use as a type; it can keep one access, where the readers take the updates and the uses as a type
+  too, the writers take the updates too, the updates and the uses as a type stand alone, and none keeps a call. It
+  counts every site by kind whatever it keeps, and counts what the floor and the limit left out, the uses of a member's
+  name it could not tell apart, and the calls of the symbol's name that `Graph::callers` counts as left ambiguous
+  between several of its definitions.
 - `Graph::call_path` — the shortest chain of calls from one callable to another, counting what the cap, the depth bound
   and the floor left out.
 - `Graph::dependents` — the files that include a file, transitively, nearest first, to a depth and under a file cap,
@@ -153,9 +157,10 @@ file holds goes stale when another file changes.
   only by proximity, may reach; a method a call through another type may reach; and a definition no use reaches that
   a library or a host reads by its name, as a Go field whose struct tag hands it to a library, a field of a struct a
   marshal call takes, or a Go plugin's export. A field, a variable and a constant are judged through their reads and
-  writes where the language records one wherever code reads or writes one, as Go's conventions say, and a free value
-  a call's receiver spells, in a file that sees it, counts as one a use may reach. Every call and use that spells a
-  judged name is resolved, so a query over a whole graph costs what resolving its calls and uses costs.
+  writes where the language records one wherever code reads or writes one, as Go's conventions say, and a call's
+  receiver leaves no value unjudged, since such a language records the read of a value a call goes through. Every call
+  and use that spells a judged name is resolved, so a query over a whole graph costs what resolving its calls and uses
+  costs.
 - `Graph::stats` — what the graph holds: its files and those with no definition, its definitions by kind, the calls,
   local calls and uses inside definitions, and the includes, counted when asked.
 - `Graph::resolution` — how every call site binds: the sites bound at each confidence, the caller and callee pairs they
