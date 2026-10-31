@@ -60,7 +60,8 @@
 //! directories, nearest first, then the one file anywhere whose path ends with it, then the one file named for its last
 //! component. A bare name names the one file named for it. A specifier two files could satisfy names neither, and
 //! every match is case-sensitive, as the compiler's is. The file a `require` or an `include` names is an include; one
-//! that names no file is an import, kept as written.
+//! that names no file is an import, kept as written. A module no file is named for, most often one compiled into the
+//! runtime, lies outside the repository, so a call that a `require` of it qualifies lies outside the graph.
 //!
 //! A file with a `test` or `tests` directory in its path, in any case, or whose stem ends in `_test` or starts with
 //! `test_`, is test code. A file whose name holds `.gen.` or `_gen.`, or whose leading comments carry `@generated`,
