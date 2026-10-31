@@ -339,7 +339,9 @@ pub enum IncludeReach {
     /// Every file it reaches through includes, however deep, as a DSHL script joins its includes, under
     /// [`IncludeReach::Transitive`]'s rule for a call past the direct includes, unless a copy of the name sits nearer
     /// the call than the file reached. A name's one callable binds a call wherever it is, since no name comes from
-    /// outside the repository and it can sit in a file behind an include the resolver cannot follow.
+    /// outside the repository and it can sit in a file behind an include the resolver cannot follow. For the same
+    /// reason, a definition a call's arguments turn away shows no overload the graph lacks, so what is left binds as
+    /// though the name held nothing else.
     Script,
 }
 

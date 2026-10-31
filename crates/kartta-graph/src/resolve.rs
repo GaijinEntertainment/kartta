@@ -374,7 +374,7 @@ impl<'g> Cascade<'g> {
         confidence: u8,
     ) -> bool {
         let caller = self.graph.file(call.file);
-        call.arguments != 0
+        self.overloads_can_lie_outside(call)
             && named.iter().any(|&at| {
                 let file = self.graph.file(at.file);
                 let symbol = self.graph.sym(at);
@@ -1098,15 +1098,21 @@ impl<'g> Cascade<'g> {
     // a call's arguments is no likelier its callee, by the name alone, than the others were before the arguments ruled
     // them out: a native overload takes what no script function of its name does
     fn arguments_turn_one_away(&self, call: &Call, named: &[SymbolAt]) -> bool {
-        call.arguments != 0
+        self.overloads_can_lie_outside(call)
             && named.iter().any(|&at| {
                 let symbol = self.graph.sym(at);
                 self.is_call_target(symbol) && !Self::takes_the_arguments(call, symbol)
             })
     }
 
+    // constraint: a DSHL script defines every macro it calls, so the macro left of those a call's arguments turn away is
+    // the macro called, and not a guess among overloads the graph does not hold
+    fn overloads_can_lie_outside(&self, call: &Call) -> bool {
+        call.arguments != 0 && self.conventions.include_reach != IncludeReach::Script
+    }
+
     pub(crate) fn takes_too_few_arguments(&self, call: &Call, named: &[SymbolAt]) -> bool {
-        call.arguments != 0
+        self.overloads_can_lie_outside(call)
             && named.iter().any(|&at| {
                 let symbol = self.graph.sym(at);
                 self.is_call_target(symbol) && Self::passes_too_many(call, symbol)
@@ -1151,6 +1157,7 @@ impl<'g> Cascade<'g> {
     fn shared_candidates(&self, call: &Call, named: &'g [SymbolAt]) -> Rc<Candidates<'g>> {
         let every = derived(&self.candidates, (call.callee, call.form(), None), || {
             let mut turned_away = false;
+            let overloads_can_lie_outside = self.overloads_can_lie_outside(call);
             let (locals, targets): (Vec<SymbolAt>, Vec<SymbolAt>) = named
                 .iter()
                 .copied()
@@ -1158,7 +1165,7 @@ impl<'g> Cascade<'g> {
                     let symbol = self.graph.sym(at);
                     let target = self.is_call_target(symbol);
                     let takes = Self::takes_the_arguments(call, symbol);
-                    turned_away |= target && !takes;
+                    turned_away |= overloads_can_lie_outside && target && !takes;
                     target
                         && takes
                         && self.is_of_the_call_s_form(call, symbol.kind)
