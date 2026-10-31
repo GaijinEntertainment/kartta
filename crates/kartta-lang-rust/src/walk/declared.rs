@@ -6,17 +6,18 @@ use kartta_lang::tree::named_child_nodes;
 use tree_sitter::Node;
 
 use super::blocks::block_use;
-use super::calls::value_receiver;
+use super::calls::{own_field, value_receiver};
 use super::syntax::type_base;
 use super::{Emitter, GLOB_FORM};
 
 // constraint: a method call on a parameter whose type its function declares names that type; `written` is the type's
 // path in the source, `value` the parameter's name, which the receiver falls back to where the file cannot tell the
-// type is one the tree may hold, and `module` the chain of the inline module around the call, whose `use`s it sees,
-// `module_end` that module's end, which keys the `use`s of its blocks, and `local` whether a `let` names the type
+// type is one the tree may hold, and which a chain has none of, and `module` the chain of the inline module around the
+// call, whose `use`s it sees, `module_end` that module's end, which keys the `use`s of its blocks, and `local` whether
+// a `let` or a call names the type
 pub(super) struct DeclaredReceiver {
     pub(super) written: Range<usize>,
-    pub(super) value: Range<usize>,
+    pub(super) value: Option<Range<usize>>,
     pub(super) module: Option<String>,
     pub(super) module_end: Option<usize>,
     pub(super) local: bool,
@@ -67,16 +68,46 @@ impl Emitter<'_> {
         let source = self.source;
         let written = match declared {
             Some(_) => declared,
-            None => constructed_path(local.child_by_field_name("value")?, false, source),
+            None => constructed_path(
+                peeled(local.child_by_field_name("value")?, false, source).0,
+                source,
+            ),
         }?;
         let function = enclosing_function(local)?;
         let named = if declared.is_some() {
             named_type(written, function, source)
         } else {
-            let named = named_type(type_base(written), function, source)?;
-            names_a_type(named, source).then_some(named)
+            constructed_name(written, function, source)
         };
         named.map(|named| named.byte_range())
+    }
+
+    // constraint: a method call on a chain names the type the chain holds: the type `T::f()` constructs, read as a
+    // `let`'s initializer is, or what a name or a field of `self` declared `Option<T>` or `Result<T, E>` holds once the
+    // chain unwraps it; any other chain names none and keeps the empty receiver
+    pub(super) fn chain_receiver(
+        &self,
+        chain: Node<'_>,
+    ) -> Option<(String, bool, Option<DeclaredReceiver>)> {
+        let source = self.source;
+        let (held, unwrapped) = peeled(chain, false, source);
+        if let Some(path) = constructed_path(held, source) {
+            let named = constructed_name(path, enclosing_function(chain)?, source)?;
+            return self.receiver_of(named.byte_range(), true, None);
+        }
+        if !unwrapped {
+            return None;
+        }
+        if held.kind() == "identifier" {
+            let (written, local) = self.declared_type(&source[held.byte_range()])?;
+            let function = enclosing_function(chain)?;
+            let declared = function.descendant_for_byte_range(written.start, written.end)?;
+            let named = held_type(declared, function, source)?;
+            return self.receiver_of(named.byte_range(), local, None);
+        }
+        let (declared, structure) = field_type(own_field(held)?, source)?;
+        let named = held_type(declared, structure, source)?;
+        self.receiver_of(named.byte_range(), false, None)
     }
 
     // constraint: the receiver of a method call on a parameter of a declared type is the type's last segment, `Self`
@@ -87,7 +118,7 @@ impl Emitter<'_> {
         value: Node<'_>,
     ) -> Option<(String, bool, Option<DeclaredReceiver>)> {
         let (written, local) = self.declared_type(&self.source[value.byte_range()])?;
-        self.receiver_of(written, local, value)
+        self.receiver_of(written, local, Some(value))
     }
 
     // constraint: a field of `self` names the type its declaration does, as a parameter's does, where the struct the
@@ -96,15 +127,15 @@ impl Emitter<'_> {
         &self,
         field: Node<'_>,
     ) -> Option<(String, bool, Option<DeclaredReceiver>)> {
-        let written = field_type(field, self.source)?;
-        self.receiver_of(written.byte_range(), false, field)
+        let (written, _) = field_type(field, self.source)?;
+        self.receiver_of(written.byte_range(), false, Some(field))
     }
 
     fn receiver_of(
         &self,
         written: Range<usize>,
         local: bool,
-        value: Node<'_>,
+        value: Option<Node<'_>>,
     ) -> Option<(String, bool, Option<DeclaredReceiver>)> {
         let spelled = String::from_utf8_lossy(&self.source[written.clone()]);
         if spelled == "Self" {
@@ -118,7 +149,7 @@ impl Emitter<'_> {
             .to_owned();
         let declared = DeclaredReceiver {
             written,
-            value: value.byte_range(),
+            value: value.map(|value| value.byte_range()),
             module: self.modules.last().map(|module| module.chain.clone()),
             module_end: self.modules.last().map(|module| module.end),
             local,
@@ -196,7 +227,11 @@ impl Emitter<'_> {
                 ),
             };
             if !shown {
-                self.raw.calls[call].receiver = Some(value_receiver(&source[declared.value]));
+                self.raw.calls[call].receiver = Some(
+                    declared
+                        .value
+                        .map_or_else(String::new, |value| value_receiver(&source[value])),
+                );
             }
         }
     }
@@ -218,26 +253,34 @@ fn enclosing_function(node: Node<'_>) -> Option<Node<'_>> {
     Some(around)
 }
 
-// constraint: the path of the type an initializer constructs: `T::f()`, whose type `?`, `.unwrap()` or `.expect(..)`
-// leaves where `f` fails, with `.map_err(..)` between them, and which `.map_err(..)` alone leaves a `Result`; a
-// function named for a builder constructs that builder, another type; `f`'s return type goes unread, so any other
-// function that returns another type still names `T`, an approximation ADR 3.55 accepts by its measured precision
-fn constructed_path<'t>(value: Node<'t>, unwrapped: bool, source: &[u8]) -> Option<Node<'t>> {
-    if value.kind() == "try_expression" {
-        return constructed_path(value.named_child(0)?, true, source);
-    }
+// constraint: what a value holds under the methods of a `Result` or an `Option` that leave what they hold, and whether
+// it is unwrapped: `?`, `.unwrap()` and `.expect(..)` take what `f` holds where `f` fails, with `.map_err(..)`,
+// `.as_ref()` or `.as_mut()` between them, which alone leave a `Result` or an `Option`
+fn peeled<'t>(value: Node<'t>, unwrapped: bool, source: &[u8]) -> (Node<'t>, bool) {
+    let operand = match value.kind() {
+        "try_expression" => value.named_child(0),
+        "call_expression" => value
+            .child_by_field_name("function")
+            .filter(|function| function.kind() == "field_expression")
+            .and_then(|function| {
+                let method = &source[function.child_by_field_name("field")?.byte_range()];
+                let keeps = matches!(method, b"map_err" | b"as_ref" | b"as_mut");
+                (matches!(method, b"unwrap" | b"expect") || (unwrapped && keeps))
+                    .then(|| function.child_by_field_name("value"))?
+            }),
+        _ => None,
+    };
+    operand.map_or((value, unwrapped), |operand| peeled(operand, true, source))
+}
+
+// constraint: the path of the type a call constructs: `T::f()`; a function named for a builder constructs that builder,
+// another type; `f`'s return type goes unread, so any other function that returns another type still names `T`, an
+// approximation ADR 3.55 accepts by its measured precision
+fn constructed_path<'t>(value: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
     if value.kind() != "call_expression" {
         return None;
     }
     let function = value.child_by_field_name("function")?;
-    if function.kind() == "field_expression" {
-        let method = &source[function.child_by_field_name("field")?.byte_range()];
-        let unwraps = matches!(method, b"unwrap" | b"expect");
-        return (unwraps || (unwrapped && method == b"map_err"))
-            .then(|| function.child_by_field_name("value"))
-            .flatten()
-            .and_then(|inner| constructed_path(inner, true, source));
-    }
     let named = if function.kind() == "generic_function" {
         function.child_by_field_name("function")?
     } else {
@@ -247,6 +290,25 @@ fn constructed_path<'t>(value: Node<'t>, unwrapped: bool, source: &[u8]) -> Opti
     (named.kind() == "scoped_identifier" && !name.ends_with(b"builder"))
         .then(|| named.child_by_field_name("path"))
         .flatten()
+}
+
+fn constructed_name<'t>(path: Node<'t>, function: Node<'_>, source: &[u8]) -> Option<Node<'t>> {
+    let named = named_type(type_base(path), function, source)?;
+    names_a_type(named, source).then_some(named)
+}
+
+// constraint: the type a declared `Option<T>` or `Result<T, E>` holds, through a path or an alias of the name; `named`
+// is the node `named_type` gives for the declaration, the base of its generic type
+fn held_type<'t>(named: Node<'t>, around: Node<'_>, source: &[u8]) -> Option<Node<'t>> {
+    let last = named.child_by_field_name("name").unwrap_or(named);
+    if !matches!(&source[last.byte_range()], b"Option" | b"Result") {
+        return None;
+    }
+    let generic = named
+        .parent()
+        .filter(|parent| parent.kind() == "generic_type")?;
+    let held = named_child_nodes(generic.child_by_field_name("type_arguments")?).next()?;
+    named_type(held, around, source)
 }
 
 // constraint: a capitalised last segment names a type, and a lowercase one the module a free function lives in; `Box`,
@@ -263,7 +325,7 @@ fn head(path: &str) -> &str {
     path.split("::").next().unwrap_or(path).trim()
 }
 
-fn field_type<'t>(field: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
+fn field_type<'t>(field: Node<'t>, source: &[u8]) -> Option<(Node<'t>, Node<'t>)> {
     let mut around = field.parent()?;
     while around.kind() != "impl_item" {
         if around.kind() == "trait_item" {
@@ -289,7 +351,8 @@ fn field_type<'t>(field: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
     .find(|declared| {
         (declared.child_by_field_name("name")).is_some_and(|name| spelled(name) == spelled(field))
     })?;
-    named_type(declared.child_by_field_name("type")?, structure, source)
+    let named = named_type(declared.child_by_field_name("type")?, structure, source)?;
+    Some((named, structure))
 }
 
 // constraint: the node whose text is the path of the type a parameter names, a type or a trait

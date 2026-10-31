@@ -1597,6 +1597,42 @@ fn a_rust_call_on_a_local_binds_the_method_of_the_type_its_initializer_construct
 }
 
 #[test]
+fn a_rust_call_on_a_chain_binds_the_method_of_the_type_the_chain_holds() {
+    let tree = tree_of(&[(
+        "src/lib.rs",
+        "pub struct Watcher;\n\
+         impl Watcher {\n\
+         \x20   pub fn drain(&self) {}\n\
+         }\n\
+         pub struct Other;\n\
+         impl Other {\n\
+         \x20   pub fn drain(&self) {}\n\
+         }\n\
+         pub fn chain(o: Option<Watcher>) {\n\
+         \x20   o.expect(\"a watcher\").drain();\n\
+         }\n",
+    )]);
+    let engine = build(&tree, &["rust"]);
+    let (_, graph) = engine
+        .graph_of("src/lib.rs")
+        .expect("a language claims the file");
+    let callers = graph
+        .callers("Watcher::drain", Limits::new(1))
+        .expect("the name is defined");
+
+    assert_eq!(
+        (callers.reached.iter())
+            .map(|reached| (reached.symbol.name, reached.symbol.line, reached.confidence))
+            .collect::<Vec<_>>(),
+        [("chain", 9, confidence::RECEIVER)]
+    );
+    let others = graph
+        .callers("Other::drain", Limits::new(1))
+        .expect("the name is defined");
+    assert_eq!(others.reached.len(), 0);
+}
+
+#[test]
 fn a_rust_call_on_a_type_two_versions_of_its_crate_declare_binds_the_method_of_the_caller_s_copy() {
     let manifest =
         |version: &str| format!("[package]\nname = \"hashbrown\"\nversion = \"{version}\"\n");
