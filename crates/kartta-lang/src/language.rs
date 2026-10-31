@@ -254,6 +254,8 @@ pub struct Conventions {
     /// holds, else the one the nearest class above that base holds, and nothing where the graph holds neither, so never
     /// a member of the caller's own class. Empty where a language writes none.
     pub base_receivers: &'static [&'static str],
+    /// What a member call on a class the graph holds reaches of the types above that class.
+    pub receiver_members: ReceiverMembers,
     /// Where the language records a use of a type.
     pub type_uses: TypeUses,
     /// Where the language records a read or a write of a field, a variable or a constant.
@@ -297,6 +299,7 @@ impl Conventions {
         own_type_receivers: None,
         unlisted_receivers: UnlistedReceivers::NoOwnMember,
         base_receivers: &[],
+        receiver_members: ReceiverMembers::Declared,
         type_uses: TypeUses::Partial,
         data_uses: DataUses::Partial,
         unrecorded_data: &[],
@@ -322,6 +325,21 @@ pub enum UnlistedReceivers {
     NoOwnMember,
     /// Its member, as a guess, ahead of the guesses by nearness.
     OwnMemberAsGuess,
+}
+
+/// What a member call on a class the graph holds, named by the receiver or one of
+/// [`Conventions::own_type_receivers`], reaches of the types above that class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ReceiverMembers {
+    /// Nothing the receiver's tier reads, as a language with no opt-in stands, and as C++ and Go stay: C++ looks its
+    /// bases up under [`InheritedMembers::Found`], and Go through [`Receivers::TypePaths`].
+    #[default]
+    Declared,
+    /// The member the nearest type above the class holds, where the class holds none, ahead of a namesake of the
+    /// class: the `parents` of each type breadth-first, a level's traits first, as PHP's method table takes a class's
+    /// own method, then its traits', then its parent's, and an interface's declaration only where no body above the
+    /// class holds the member.
+    Inherited,
 }
 
 /// How far through its includes a file's calls bind the names they define.
