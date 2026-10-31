@@ -341,12 +341,13 @@ impl Emitter<'_> {
 
     // constraint: `method(:render)`, `send(:render)` and their kin name a method by a symbol, of the object's own type
     // where the receiver is none or `self` and of a class where it is a constant or a constant path; a receiver of any
-    // other kind names a type the walk cannot tell, and `instance_method` and `respond_to?` most often only inspect. In
-    // a class body outside every method, the class makes the use and names its own method through its name, as a use
-    // at file scope keeps only the name it spells and would reach every namesake the file sees. A top-level `def` is a
-    // private method of `Object`, which every object reaches, so at a site no class owns, file scope, a top-level
-    // `def`, `def self.x` or `def obj.x`, the use is bare. `singleton_method` with no receiver or `self` names a method
-    // of the object itself, which only a class body names, through its class
+    // other kind names a type the walk cannot tell, and `instance_method` and `respond_to?` most often only inspect.
+    // The object's own type is the path the use records, as an own receiver binds fields alone where a bare name reads
+    // the class first; in a class body outside every method the class makes the use, as a use at file scope keeps only
+    // the name it spells and would reach every namesake the file sees. A top-level `def` is a private method of
+    // `Object`, which every object reaches, so at a site no class owns, file scope, a top-level `def`, `def self.x` or
+    // `def obj.x`, the use is bare. `singleton_method` with no receiver or `self` names a method of the object itself,
+    // which only a class body names, through its class
     fn method_reference(&mut self, callee: &str, call: Node<'_>, site_of: SymbolId) {
         if !matches!(
             callee,
@@ -369,20 +370,15 @@ impl Emitter<'_> {
             }
             Some(_) => return,
         };
-        let class = self.is_type_body(site_of).then_some(site_of);
-        if callee == "singleton_method" && receiver == Receiver::Own && class.is_none() {
+        if callee == "singleton_method" && receiver == Receiver::Own && !self.is_type_body(site_of)
+        {
             return;
         }
-        let (site_of, receiver) = match class {
-            Some(class) if receiver == Receiver::Own => (
-                class,
-                Receiver::Path(on_the_class(self.qualified_name(class))),
-            ),
-            Some(class) => (class, receiver),
-            None if receiver == Receiver::Own && !self.has_owner(site_of) => {
-                (site_of, Receiver::Bare)
-            }
-            None => (site_of, receiver),
+        let receiver = if receiver == Receiver::Own {
+            self.type_of_self(site_of)
+                .map_or(Receiver::Bare, Receiver::Path)
+        } else {
+            receiver
         };
         let spelled = &self.source[symbol.byte_range()];
         self.raw.uses.push(UseRef {
@@ -485,10 +481,6 @@ impl Emitter<'_> {
         self.symbol(id)
             .map(|symbol| symbol.qualified_name.clone())
             .unwrap_or_default()
-    }
-
-    fn has_owner(&self, id: SymbolId) -> bool {
-        self.symbol(id).is_some_and(|symbol| symbol.owner.is_some())
     }
 }
 

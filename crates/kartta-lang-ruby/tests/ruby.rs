@@ -1308,12 +1308,12 @@ end
     assert_eq!(
         uses(&raw),
         [
-            ("render", &Receiver::Own, boot, 3),
-            ("refresh", &Receiver::Own, boot, 4),
-            ("refresh", &Receiver::Own, boot, 5),
+            ("render", &Receiver::Path("Feed".to_owned()), boot, 3),
+            ("refresh", &Receiver::Path("Feed".to_owned()), boot, 4),
+            ("refresh", &Receiver::Path("Feed".to_owned()), boot, 5),
             ("flush", &Receiver::Path("Cache.".to_owned()), boot, 6),
             ("open", &Receiver::Path("Cache::Store.".to_owned()), boot, 7),
-            ("render", &Receiver::Own, boot, 11),
+            ("render", &Receiver::Path("Feed".to_owned()), boot, 11),
             ("refresh", &Receiver::Path("Feed.".to_owned()), feed, 14),
             ("make", &Receiver::Path("Feed.".to_owned()), feed, 15),
             ("setup", &Receiver::Bare, FILE_SCOPE, 17),
