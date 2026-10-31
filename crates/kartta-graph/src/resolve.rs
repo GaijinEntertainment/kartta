@@ -1482,11 +1482,12 @@ impl<'g> Cascade<'g> {
         if !bindings.modules {
             return None;
         }
-        let &(_, target, _) = bindings
+        let &(_, target, source) = bindings
             .named
             .iter()
             .find(|&&(held, _, _)| held == call.callee)?;
-        self.module_export(call, self.graph.slot_of(target?)?)
+        let module = self.graph.slot_of(target?)?;
+        self.module_item(call, (module, source), &mut Vec::new())
     }
 
     fn module_export(&self, call: &Call, module: u32) -> Option<Bound> {
