@@ -7,8 +7,8 @@ use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
     BareReceivers, CallableRole, Conventions, IncludeReach, IncludedRuntimeMembers,
-    InheritedMembers, MacroInvocations, MemberCalls, NamespaceCalls, OwnMembers, SymbolFlags,
-    SymbolKind, Twins, UntypedMembers, ValueUses,
+    InheritedMembers, MacroInvocations, MemberCalls, NamespaceCalls, OwnMembers, Receivers,
+    SymbolFlags, SymbolKind, Twins, UntypedMembers, ValueUses,
 };
 
 use crate::candidates::{CandidateSet, Candidates, Gate, INDEXED_FROM};
@@ -173,7 +173,7 @@ impl<'g> Cascade<'g> {
         match site.entry() {
             Entry::Call(index) => {
                 let call = file.calls[index as usize];
-                Call {
+                self.with_returned_receiver(Call {
                     file: site.file,
                     caller: call.caller(),
                     callee: call.callee,
@@ -186,7 +186,7 @@ impl<'g> Cascade<'g> {
                     calls_a_method: call.calls_a_method(),
                     local: None,
                     line: call.line,
-                }
+                })
             }
             Entry::LocalCall(index) => {
                 let call = file.local_calls[index as usize];
@@ -860,6 +860,66 @@ impl<'g> Cascade<'g> {
         }
 
         self.resolve_by_name(call)
+    }
+
+    // constraint: a receiver that spells a chain of calls, `T::m()::n()?`, names the owner its last call returns; one
+    // that reaches no type takes the value after its `|`, else the empty receiver, which the graph interned with it
+    fn with_returned_receiver(&self, call: Call) -> Call {
+        let strings = &self.graph.strings;
+        if self.conventions.receivers != Receivers::ReturnPaths {
+            return call;
+        }
+        let spelled = call
+            .receiver
+            .map_or("", |receiver| strings.resolve(receiver));
+        let Some((head, rest)) = spelled.split_once("()") else {
+            return call;
+        };
+        let Some(called) = head.rsplit_once("::") else {
+            return call;
+        };
+        let (rest, value) = rest.split_once('|').unwrap_or((rest, ""));
+        Call {
+            receiver: self
+                .returned_owner(&call, called, rest)
+                .or_else(|| strings.get(value)),
+            ..call
+        }
+    }
+
+    // constraint: each method of the path is found as the owner tier finds a call's, and its value type gives the next
+    // owner; a `?` after a call takes what an `Option` or a `Result` holds, a value type marked `?` spells only that,
+    // and the two meet or the path reaches no type
+    fn returned_owner(
+        &self,
+        call: &Call,
+        (mut owner, mut method): (&str, &str),
+        mut rest: &str,
+    ) -> Option<Str> {
+        let strings = &self.graph.strings;
+        loop {
+            let unwrapped = rest.strip_prefix('?');
+            rest = unwrapped.unwrap_or(rest);
+            let step = Call {
+                callee: strings.get(method)?,
+                receiver: Some(strings.get(owner)?),
+                ..*call
+            };
+            let candidates = self.candidates(&step);
+            let at = self.member_of_the_receiver_s_owner(&step, &candidates)?;
+            let types = self.graph.file(at.file).value_types(at.index)?;
+            let returned = strings.resolve(types);
+            let returned = match (returned.strip_prefix('?'), unwrapped) {
+                (Some(held), Some(_)) => held,
+                (None, None) => returned,
+                _ => return None,
+            };
+            owner = returned;
+            if rest.is_empty() {
+                return strings.get(owner);
+            }
+            (method, rest) = rest.strip_prefix("::")?.split_once("()")?;
+        }
     }
 
     // constraint: a qualified name written inside a namespace is looked up from the scopes around the call outward, so

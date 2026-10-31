@@ -812,3 +812,56 @@ fn a_type_counts_its_uses_as_a_type_apart_from_its_reads_and_a_read_query_keeps_
         [(2, Access::Type), (3, Access::Type)]
     );
 }
+
+fn return_paths() -> Graph {
+    let mut conventions = Conventions::default();
+    conventions.own_members = OwnMembers::Unreached;
+    conventions.owner_chain_separator = Some("::");
+    conventions.receivers = Receivers::ReturnPaths;
+    let calls = vec![
+        member_call("Root::open()?::inner()", "drain", 2),
+        member_call("Root::open()::inner()|.held", "drain", 3),
+        member_call("Root::open()?::missing()", "tick", 4),
+    ];
+    graph_of(
+        conventions,
+        &[
+            file("a/a.rs", "a", vec![function("a", "caller", 1)], calls),
+            file(
+                "b/b.rs",
+                "b",
+                vec![
+                    yielding(member("b.Root", "open", SymbolKind::Method, 1), &["?Mid"]),
+                    yielding(member("b.Mid", "inner", SymbolKind::Method, 3), &["Held"]),
+                    member("b.Held", "drain", SymbolKind::Method, 5),
+                    member("b.Other", "drain", SymbolKind::Method, 7),
+                    member("b.Other", "tick", SymbolKind::Method, 9),
+                    member("b.Held", "tick", SymbolKind::Method, 11),
+                ],
+                Vec::new(),
+            ),
+        ],
+    )
+}
+
+#[test]
+fn a_return_path_binds_the_method_of_the_type_its_last_call_returns_in_another_file() {
+    assert_eq!(
+        callees_of(&return_paths(), "caller"),
+        [("b/b.rs:b.Held.drain".to_owned(), 85)]
+    );
+}
+
+#[test]
+fn a_return_path_that_reaches_no_type_leaves_the_value_after_it_or_the_empty_receiver() {
+    let graph = return_paths();
+    let unbound = graph.resolution(usize::MAX).unbound;
+
+    assert_eq!(
+        unbound
+            .iter()
+            .map(|unbound| (unbound.line, unbound.receiver))
+            .collect::<Vec<_>>(),
+        [(3, Some(".held")), (4, Some(""))]
+    );
+}

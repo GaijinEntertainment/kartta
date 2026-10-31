@@ -319,6 +319,8 @@ pub struct Symbol {
     /// receivers are [`Receivers::Owners`](crate::Receivers::Owners), a field's is the owner its declaration names,
     /// spelled as a receiver names one, after a `*` where the field holds a pointer to a value of it, and for a value
     /// of a class template, after a `*`, the owner its first template argument names, which its `operator->` reaches.
+    /// Where they are [`Receivers::ReturnPaths`](crate::Receivers::ReturnPaths), a function's is the owner its return
+    /// type names, after a `?` where an `Option` or a `Result` holds it.
     pub value_types: Vec<String>,
     /// What the symbol is for besides its kind.
     pub flags: SymbolFlags,

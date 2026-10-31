@@ -5,8 +5,8 @@ use std::sync::{Arc, OnceLock};
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    Conventions, Extraction, IncludeReach, Receiver, Symbol, SymbolFlags, SymbolId, SymbolKind,
-    path,
+    Conventions, Extraction, IncludeReach, Receiver, Receivers, Symbol, SymbolFlags, SymbolId,
+    SymbolKind, path,
 };
 
 use crate::order::PathOrder;
@@ -768,6 +768,7 @@ impl Graph {
     // constraint: a stored call keeps its caller in the bits its marks leave, so a call inside a definition past the
     // `StoredCall::CALLERS`th of its file is not kept
     fn store_calls(&mut self, extraction: &Extraction) -> Box<[StoredCall]> {
+        let return_paths = self.conventions.receivers == Receivers::ReturnPaths;
         let mut calls: Vec<StoredCall> = extraction
             .calls
             .iter()
@@ -777,6 +778,12 @@ impl Graph {
                 let callee = rooted.unwrap_or(&call.callee);
                 let receiver = call.receiver.as_deref();
                 let class = receiver.and_then(|receiver| self.class_named(receiver));
+                if return_paths
+                    && let Some((_, rest)) = receiver.and_then(|receiver| receiver.split_once("()"))
+                {
+                    self.strings
+                        .intern(rest.split_once('|').map_or("", |(_, value)| value));
+                }
                 let mut stored = StoredCall::new(
                     call.site_of.0,
                     self.strings.intern(callee),
