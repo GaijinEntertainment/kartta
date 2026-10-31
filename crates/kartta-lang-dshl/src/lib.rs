@@ -36,8 +36,9 @@
 //! that climbs, `../common.dshl`, is taken relative to the including file. An include that names no file of the
 //! repository is kept as an import.
 //!
-//! A use binds what its own file declares, else what the one file it includes directly declares, as
-//! [`ValueUses::Imported`] says; a name two included files declare binds neither.
+//! A use binds what its own file declares, else what the one file it includes directly declares, else what the one
+//! file those include in turn declares, as [`ValueUses::ImportedThenReached`] says; a name two files of one such step
+//! declare binds neither.
 //!
 //! # Fingerprint
 //!
@@ -91,7 +92,7 @@ const CONVENTIONS: Conventions = {
     conventions.own_members = OwnMembers::Unreached;
     conventions.values_are_call_targets = false;
     conventions.unrecorded_data = &[SymbolKind::Field];
-    conventions.value_uses = ValueUses::Imported;
+    conventions.value_uses = ValueUses::ImportedThenReached;
     conventions
 };
 

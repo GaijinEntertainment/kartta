@@ -2011,7 +2011,9 @@ impl<'g> Cascade<'g> {
         let bare = || self.bare_use((site.file, line), name);
         match self.conventions.value_uses {
             ValueUses::Declared => bare(),
-            ValueUses::Imported => bare().or_else(|| self.imported_value(site, name)),
+            ValueUses::Imported | ValueUses::ImportedThenReached => {
+                bare().or_else(|| self.imported_value(site, name))
+            }
             ValueUses::Included => self.included_value(site.file, name),
         }
     }
@@ -2051,6 +2053,25 @@ impl<'g> Cascade<'g> {
         }
         let mut unexported = declaring(false);
         match (unexported.next(), unexported.next()) {
+            (Some(at), None) => Some((at, confidence::INCLUDE)),
+            (Some(_), Some(_)) => None,
+            (None, _) => self.reached_value(site.file, named),
+        }
+    }
+
+    // constraint: a file and everything it includes compile as one script, so a name no direct include offers binds the
+    // one file of those the includes reach in turn that declares it; two such files bind neither, as two direct
+    // includes do
+    fn reached_value(&self, file: u32, named: &[SymbolAt]) -> Option<Bound> {
+        if self.conventions.value_uses != ValueUses::ImportedThenReached || named.is_empty() {
+            return None;
+        }
+        let closure = self.closure(file);
+        let mut declaring = named
+            .chunk_by(|left, right| left.file == right.file)
+            .filter(|defined| closure.binary_search(&defined[0].file).is_ok())
+            .filter_map(|defined| self.pick(Pick::PackageLevel, defined.iter().copied()));
+        match (declaring.next(), declaring.next()) {
             (Some(at), None) => Some((at, confidence::INCLUDE)),
             _ => None,
         }

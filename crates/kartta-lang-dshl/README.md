@@ -30,8 +30,8 @@ path ends in it, and of several takes the one that shares the most directories w
 equally near resolve to neither, and the include is kept as an import. A spelling that climbs, `../common.dshl`, is
 relative to the including file.
 
-A use binds what its own file declares, else what the one file it includes directly declares; a name two included files
-declare binds neither.
+A use binds what its own file declares, else what the one file it includes directly declares, else what the one file
+those include in turn declares; a name two files of one such step declare binds neither.
 
 ## Fingerprint
 
