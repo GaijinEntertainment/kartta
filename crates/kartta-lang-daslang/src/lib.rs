@@ -67,6 +67,10 @@
 //! that names no file is an import, kept as written. A module no file is named for, most often one compiled into the
 //! runtime, lies outside the repository, so a call that a `require` of it qualifies lies outside the graph.
 //!
+//! Only a `require` or an `include` puts another file's script definition in a file's scope, and `module builtin` is
+//! in every file's, so a call with no receiver binds by its name alone only a definition of a file its own file reaches
+//! or of that module: the name is otherwise a native function's, of which the tree holds a namesake.
+//!
 //! A file with a `test` or `tests` directory in its path, in any case, or whose stem ends in `_test` or starts with
 //! `test_`, is test code. A file whose name holds `.gen.` or `_gen.`, or whose leading comments carry `@generated`,
 //! `DO NOT EDIT` or `Code generated`, is generated code. A `def` that carries an annotation other than one of the
@@ -123,6 +127,7 @@ const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.bare_receivers = BareReceivers::Modules;
     conventions.macro_invocations = MacroInvocations::Apart;
+    conventions.module_seen_everywhere = Some("builtin");
     conventions.value_uses = ValueUses::Expanded;
     conventions.own_type_receivers = Some(&["self"]);
     conventions.base_receivers = &["super"];

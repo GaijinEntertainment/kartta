@@ -213,6 +213,10 @@ pub struct Conventions {
     pub directory_packages: bool,
     /// How far through its includes a file's calls bind the names they define.
     pub include_reach: IncludeReach,
+    /// The module every file sees with no include, where only includes put a definition in a file's scope: a call with
+    /// no receiver binds by its name alone only a definition of a file its own file reaches through includes, however
+    /// deep, or of the file whose package this names. `None` where the language's scope reaches further.
+    pub module_seen_everywhere: Option<&'static str>,
     /// What a member call, `x.f()`, can call besides a member.
     pub member_calls: MemberCalls,
     /// The methods the language's runtime gives its own values, a string's, an array's or a table's, in ascending
@@ -288,6 +292,7 @@ impl Conventions {
         scope_separator: None,
         directory_packages: false,
         include_reach: IncludeReach::Direct,
+        module_seen_everywhere: None,
         member_calls: MemberCalls::NearbyFreeFunctions,
         runtime_methods: &[],
         library_methods: &[],
