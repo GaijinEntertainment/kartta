@@ -103,7 +103,8 @@ impl Crates {
     // one through `self::` at the caller's module and one through `super::` at the module above, and each segment
     // after names the module file Cargo's layout gives it until one names none: a path that ends at a module binds its
     // file, and one that ends a segment further, at an item, binds the file of the module that holds it; a longer rest
-    // binds nothing; a glob binds the file of the module it ends at as a dot import, and none past it
+    // binds nothing; a glob binds the file of the module it ends at as a dot import, and none past it; a binding of a
+    // module names no item, so a rename of one is its bare name
     fn crate_binding(
         &self,
         directive: &RawDirective,
@@ -133,6 +134,7 @@ impl Crates {
             }
         };
         let (file, last) = match Self::reach(start, head, segments, repository)? {
+            Reached::Module { file, .. } if !glob => (file, name),
             Reached::Module { file, name } => (file, name),
             Reached::Item { holder, name } if !glob => (holder, name),
             Reached::Item { .. } => return None,

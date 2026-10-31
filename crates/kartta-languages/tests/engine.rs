@@ -614,6 +614,54 @@ fn a_rust_call_of_a_name_a_use_renames_binds_the_item_the_use_names() {
 }
 
 #[test]
+fn a_rust_use_that_renames_a_module_spells_no_function_of_the_module_s_name() {
+    let tree = tree_of(&[
+        ("Cargo.toml", "[package]\nname = \"fx\"\n"),
+        ("src/lib.rs", "mod apart;\nmod m;\nmod user;\n"),
+        ("src/apart.rs", "pub fn m() {}\n"),
+        ("src/m.rs", "pub fn f() {}\n"),
+        (
+            "src/user.rs",
+            "use crate::m as renamed;\n\npub fn through_it() {\n    renamed::f();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["rust"]);
+    let (_, graph) = engine.graph_of("src/m.rs").expect("rust claims the file");
+
+    let dead = graph.dead_code(&[], None, 10);
+
+    let apart = (dead.found.iter())
+        .find(|found| found.definition.name == "m")
+        .expect("no call reaches the function");
+    assert!(!apart.spelled);
+}
+
+#[test]
+fn a_rust_item_lists_the_calls_of_each_name_a_use_renames_it_to() {
+    let tree = renaming_crate();
+    let engine = build(&tree, &["rust"]);
+    let (_, graph) = engine.graph_of("src/m.rs").expect("rust claims the file");
+
+    let callers = graph
+        .callers("f", Limits::new(1))
+        .expect("the name is defined");
+
+    let mut named: Vec<&str> = (callers.reached.iter())
+        .map(|reached| reached.symbol.name)
+        .collect();
+    named.sort_unstable();
+    assert_eq!(
+        named,
+        [
+            "in_the_root",
+            "through_alias",
+            "through_crate",
+            "through_plain"
+        ]
+    );
+}
+
+#[test]
 fn a_rust_path_through_crate_self_or_super_binds_the_item_of_the_module_it_names() {
     let tree = tree_of(&[
         ("Cargo.toml", "[package]\nname = \"app\"\n"),
