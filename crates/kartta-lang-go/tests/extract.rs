@@ -2318,6 +2318,77 @@ fn a_member_taken_on_a_value_is_a_use_spelled_with_its_type_and_how_it_is_touche
 }
 
 #[test]
+fn a_literal_key_takes_its_type_from_the_literal_around_it_at_any_depth() {
+    let raw = extract(
+        br#"package svc
+
+type Config struct {
+	Timeout int
+}
+
+type Holder struct {
+	Run   func()
+	Limit int
+}
+
+func Load() {
+	_ = map[Config]Config{{Timeout: 1}: {Timeout: 2}}
+	_ = [][]Config{{{Timeout: 3}}, {{Timeout: 4}}}
+	_ = map[string][]Config{"k": {{Timeout: 5}}}
+	_ = Holder{Run: func() { _ = Config{Timeout: 6} }, Limit: 7}
+}
+"#,
+    );
+
+    assert_eq!(
+        members(&raw),
+        [
+            ("Timeout", "Config", Access::Write, 13),
+            ("Timeout", "Config", Access::Write, 14),
+            ("Timeout", "Config", Access::Write, 14),
+            ("Timeout", "Config", Access::Write, 15),
+            ("Run", "Holder", Access::Write, 16),
+            ("Timeout", "Config", Access::Write, 16),
+            ("Limit", "Holder", Access::Write, 16),
+        ],
+        "an element's type comes down through each literal that elides it, a map key's literal keeps none, and a key \
+         after a closed literal belongs to the literal still open"
+    );
+    assert!(
+        !raw.uses
+            .iter()
+            .any(|site| site.receiver == Receiver::Bare && site.name == "Timeout"),
+        "a key the walk cannot type is no bare use"
+    );
+}
+
+#[test]
+fn a_key_inside_a_parse_error_reads_one_literal_deeper_than_the_error() {
+    let raw = extract(
+        br"package svc
+
+type T struct {
+	A int
+}
+
+func Load() {
+	_ = T{B: {A: 1 ) A: 2}}
+}
+",
+    );
+
+    assert_eq!(
+        members(&raw),
+        [
+            ("B", "T", Access::Write, 8),
+            ("A", "T[][]", Access::Write, 8),
+            ("A", "T[]", Access::Write, 8),
+        ],
+        "an error node stands in the chain of literals as an elided element does"
+    );
+}
+
+#[test]
 fn a_key_of_a_named_container_or_an_unexported_key_of_another_packages_type_is_a_value() {
     let raw = extract(
         br#"package svc

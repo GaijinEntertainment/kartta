@@ -93,10 +93,7 @@ impl<'a> Emitter<'a> {
         else {
             return;
         };
-        let keys = keyed
-            .parent()
-            .map_or(Keys::Unknown, |value| self.keys_of(value));
-        match keys {
+        match self.keys_of(&self.literals) {
             Keys::Fields(path) if !self.takes_value_keys(&path, (key, keyed.start_byte())) => {
                 let field = (text(key, self.source), Receiver::Path(path), Access::Write);
                 self.push_site(owner, key, field);
@@ -128,8 +125,11 @@ impl<'a> Emitter<'a> {
 
     // constraint: Go leaves a literal's type unwritten only for an element of a slice, array or map literal, which the
     // enclosing literal's element type gives
-    fn keys_of(&self, value: Node<'_>) -> Keys {
-        let Some(holder) = value.parent() else {
+    fn keys_of(&self, open: &[Node<'_>]) -> Keys {
+        let [held @ .., value] = open else {
+            return Keys::Unknown;
+        };
+        let [outer @ .., holder] = held else {
             return Keys::Unknown;
         };
         match holder.kind() {
@@ -140,15 +140,13 @@ impl<'a> Emitter<'a> {
                 Some(written) => self.type_path(written).map_or(Keys::Unknown, Keys::Fields),
                 None => Keys::Unknown,
             },
-            "literal_value" => self.element_keys(holder),
+            "literal_value" => self.element_keys(held),
             "keyed_element"
                 if holder
                     .child_by_field_name("element")
                     .is_some_and(|element| element.id() == value.id()) =>
             {
-                holder
-                    .parent()
-                    .map_or(Keys::Unknown, |outer| self.element_keys(outer))
+                self.element_keys(outer)
             }
             _ => Keys::Unknown,
         }
@@ -294,8 +292,8 @@ impl<'a> Emitter<'a> {
         types
     }
 
-    fn element_keys(&self, outer: Node<'_>) -> Keys {
-        elements_of(&self.keys_of(outer))
+    fn element_keys(&self, open: &[Node<'_>]) -> Keys {
+        elements_of(&self.keys_of(open))
     }
 
     pub(super) fn record_type_operand(&mut self, node: Node<'_>, owner: SymbolId) {
