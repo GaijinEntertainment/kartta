@@ -1,7 +1,7 @@
 //! The types that name a type as a parent: how a written parent meets the type it names, transitively, and what the
 //! depth bound and the limit left out.
 
-use kartta_graph::{Graph, Implementations, Selector};
+use kartta_graph::{Graph, Implementations, Limits, Selector};
 use kartta_lang::{Conventions, ImportBinding, Symbol, SymbolKind, ValueUses};
 
 use crate::{file, graph_of as graph, including};
@@ -545,6 +545,38 @@ fn a_name_several_types_share_selects_the_most_implemented_and_counts_the_rest()
     assert_eq!(
         (passed_over.root.qualified_name, passed_over.total),
         ("a::Node", 0)
+    );
+}
+
+#[test]
+fn a_name_several_types_end_with_selects_alike_in_every_query() {
+    let graph = graph(
+        cpp(),
+        &[
+            file("a.h", vec![ty("Node", "a::ns::Node", 1, &[])]),
+            file("b.h", vec![ty("Node", "b::ns::Node", 1, &[])]),
+            file("c.h", vec![ty("Leaf", "Leaf", 1, &["b::ns::Node"])]),
+        ],
+    );
+    let narrowed = Selector::new("ns::Node", Some("b.h"));
+
+    assert!(graph.callers("ns::Node", Limits::new(1)).is_none());
+    assert!(graph.implementations("ns::Node", 1, 10).is_none());
+    assert_eq!(
+        graph
+            .callers(narrowed, Limits::new(1))
+            .expect("one Node is in b.h")
+            .root
+            .qualified_name,
+        "b::ns::Node",
+    );
+    assert_eq!(
+        graph
+            .implementations(narrowed, 1, 10)
+            .expect("one Node is in b.h")
+            .root
+            .qualified_name,
+        "b::ns::Node",
     );
 }
 
