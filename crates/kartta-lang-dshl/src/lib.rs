@@ -17,8 +17,8 @@
 //! - A `supports` statement makes each block it names a parent of the shader or block around it, of every name of a
 //!   shader with several, the way a type implements an interface, and is a use of that block.
 //! - A macro invocation, in a body or in a condition, is a call of the macro, made by the declaration around it. Only
-//!   a macro is called: a call reaches no variable, constant or field. An invocation at file scope has no caller, and
-//!   the graph drops it.
+//!   a macro is called: a call reaches no variable, constant or field. An invocation at file scope is a call from file
+//!   scope, whose name the graph keeps.
 //! - A name a condition, an `assume`, a `##if`, `##bool` or `##declare` directive, a preshader value or a variable's
 //!   initial value reads is a use, attributed to the declaration around it; so is a shader a `shader ==` condition
 //!   names and a render pass a `pass` statement names. Keyword-like values — a sampler state, a render state, a

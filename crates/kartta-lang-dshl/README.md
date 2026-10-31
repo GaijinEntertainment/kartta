@@ -17,10 +17,10 @@ declaration at file scope is qualified by its own name: `frame_tex`, and `water.
 first, so a call bound to it may run the game's own.
 
 A `supports` statement makes each block it names a parent of the shader or block around it, of every name of a shader
-with several. A macro invocation is a call of the macro, made by the declaration around it. A name that a condition,
-an `assume`, a `##if`, `##bool` or `##declare` directive, a preshader value or an initial value reads is a use;
-keyword-like values, intrinsics and hardware features are not. The text of an `hlsl { }` block is HLSL: no HLSL
-declaration is a symbol, and only its `#include` lines are read, as includes.
+with several. A macro invocation is a call of the macro, made by the declaration around it, or from file scope outside
+every declaration. A name that a condition, an `assume`, a `##if`, `##bool` or `##declare` directive, a preshader value
+or an initial value reads is a use; keyword-like values, intrinsics and hardware features are not. The text of an
+`hlsl { }` block is HLSL: no HLSL declaration is a symbol, and only its `#include` lines are read, as includes.
 
 ## Resolution
 
