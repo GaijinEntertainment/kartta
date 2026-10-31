@@ -6,6 +6,7 @@
 )]
 
 mod analyze;
+mod arguments;
 mod assertions;
 mod calls;
 mod contract;
@@ -65,6 +66,7 @@ fn call(from: u32, callee: &str, line: u32) -> CallRef {
         line,
         invokes_a_macro: false,
         calls_a_method: false,
+        arguments: 0,
     }
 }
 

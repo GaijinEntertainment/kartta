@@ -704,6 +704,7 @@ impl Graph {
             kind: symbol.kind,
             flags: symbol.flags,
             exported: symbol.exported,
+            most_arguments: symbol.most_arguments,
         }
     }
 
@@ -790,7 +791,7 @@ impl Graph {
                     class
                         .or(receiver)
                         .map(|receiver| self.strings.intern(receiver)),
-                    call.line,
+                    (call.line, call.arguments),
                 );
                 if rooted.is_some() {
                     stored = stored.written_from_root();
