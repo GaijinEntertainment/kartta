@@ -1565,6 +1565,63 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
+    fn a_macro_before_a_scoped_pointer_return_type_keeps_the_function() {
+        let raw = extract(
+            b"PX_INLINE physx::PxPhysics* PxCreatePhysics(physx::PxU32 version, int x)\n{\n\treturn 0;\n}\n\n\
+              DAS_API das::Context * get_context( int stackSize = 0 );\n\n\
+              namespace das {\n\
+              DAS_API das::Program* compile(int stackSize);\n\
+              DAS_API das::detail::Heap* make_heap(int size)\n{\n\treturn 0;\n}\n}\n\n\
+              DAS_API das::Pool<int>* make_pool(int size);\n\n\
+              PX_INLINE physx::PxScene* Engine::scene(int id)\n{\n\treturn 0;\n}\n\n\
+              DAS_API das::Context * MD5(int n);\n\n\
+              IMGUI_API ImGuiTabItem* FindTab(int id);\n\n\
+              void after(int n);\n",
+        );
+
+        assert_eq!(
+            qualified_names(&raw),
+            [
+                "PxCreatePhysics",
+                "das::make_heap",
+                "Engine::scene",
+                "get_context",
+                "das::compile",
+                "make_pool",
+                "MD5",
+                "FindTab",
+                "after"
+            ]
+        );
+        for name in [
+            "PxCreatePhysics",
+            "get_context",
+            "compile",
+            "make_heap",
+            "make_pool",
+            "MD5",
+            "FindTab",
+            "after",
+        ] {
+            assert_eq!(symbol(&raw, name).kind, SymbolKind::Function, "{name}");
+            assert_eq!(symbol(&raw, name).owner, None, "{name}");
+        }
+        assert_eq!(symbol(&raw, "scene").owner.as_deref(), Some("Engine"));
+        let keys: Vec<&str> = raw
+            .callables
+            .iter()
+            .map(|callable| callable.key.as_str())
+            .collect();
+        for key in [
+            "PxCreatePhysics(physx :: PxU32,int)",
+            "get_context(int)",
+            "das::make_heap(int)",
+        ] {
+            assert!(keys.contains(&key), "{key} in {keys:?}");
+        }
+    }
+
+    #[test]
     fn a_macro_before_a_name_set_apart_from_its_parameters_keeps_the_name() {
         let raw = extract(
             b"namespace glm {\n\
