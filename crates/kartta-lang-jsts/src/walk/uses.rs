@@ -98,7 +98,7 @@ impl Emitter<'_> {
             Some(Binding::Value(typed) | Binding::Local(_, typed) | Binding::Module(typed)) => {
                 typed.map_or_else(String::new, |span| self.spelled(span))
             }
-            Some(Binding::Contextual(span)) => self.spelled(*span),
+            Some(Binding::Parameter(span)) => self.spelled(*span),
             Some(Binding::Type | Binding::Definition) | None => {
                 String::from_utf8_lossy(name).into_owned()
             }

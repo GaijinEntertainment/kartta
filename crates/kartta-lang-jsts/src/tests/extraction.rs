@@ -486,7 +486,7 @@ fn calls_are_attributed_to_their_caller() {
         .find(|call| call.callee == "area")
         .expect("area call");
     assert_eq!(compute_caller.qualified_name, "Circle.area");
-    assert_eq!(area_call.receiver.as_deref(), Some(""));
+    assert_eq!(area_call.receiver.as_deref(), Some("Circle"));
 }
 
 #[test]
@@ -507,7 +507,7 @@ fn a_receiver_the_caller_declares_names_no_type() {
             ("make", None),
             ("step", Some("Widget")),
             ("create", Some("")),
-            ("go", Some("")),
+            ("go", Some("Svc")),
             ("go", Some("")),
             ("go", Some("")),
             ("go", Some("")),
@@ -562,12 +562,49 @@ fn a_parameter_its_context_types_names_the_type_the_context_spells() {
             ("start", Some("Job")),
             ("go", Some("")),
             ("go", Some("Rest")),
-            ("typed", Some("")),
+            ("typed", Some("Other")),
             ("run", Some("")),
-            ("left", Some("")),
+            ("left", Some("Other")),
             ("right", Some("Second")),
             ("down", Some("Deep")),
             ("around", Some("")),
+        ]
+    );
+}
+
+#[test]
+fn a_parameter_names_the_one_type_its_annotation_spells() {
+    let extraction = extracted(
+        "src/f.ts",
+        "export function f(a: Svc, b?: Svc, c: Svc = make(), d: ns.Svc, e: Box<Svc>) {\n  \
+         a.required(); b.optional(); c.defaulted(); d.qualified(); e.generic();\n  \
+         new a.Pool();\n  [1].forEach(() => a.nested());\n  { const a = 1; a.shadowed(); }\n}\n\
+         export function g(s: string, u: Svc | null, l: Svc[], o: { go(): void }, { w }: Svc) {\n  \
+         s.go(); u.go(); l.go(); o.go(); w.go();\n}\n\
+         export function h<T extends Svc>(t: T) { t.go(); }\n\
+         export class Box<V> { put(v: V) { v.go(); } }\n",
+    );
+
+    assert_eq!(
+        calls(&extraction),
+        [
+            ("make", None),
+            ("required", Some("Svc")),
+            ("optional", Some("Svc")),
+            ("defaulted", Some("Svc")),
+            ("qualified", Some("ns.Svc")),
+            ("generic", Some("Box")),
+            ("Pool", Some("Svc")),
+            ("forEach", Some("")),
+            ("nested", Some("Svc")),
+            ("shadowed", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
+            ("go", Some("")),
         ]
     );
 }
