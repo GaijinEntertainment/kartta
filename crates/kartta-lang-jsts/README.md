@@ -16,7 +16,9 @@ named by the hook; no call or use of either name binds them. A declared
 class owns the calls of its body outside those functions, in a field's initializer, a decorator or a static block, where
 `this` names the class, and a class expression's body makes them as the name that binds it, `Box` in
 `const Box = class {}`. A capitalised JSX tag is a call of its component, and `new Foo()` a call of `Foo`. A call on
-`this` names the class around the method as its receiver, and a call on a value the file declares before it, a parameter
+`this` names the class as its receiver in a method, a function a class field holds and a class body outside them, and
+an arrow function keeps the `this` of the scope it is written in; any other function gives a `this` of no known type, so
+a call on it names none. A call on a value the file declares before it, a parameter
 or a variable, names none inside the scope that declares it, because a value's name names no type, unless it is a
 parameter written as one name whose annotation or, with no annotation, whose function's context, an annotation the file
 writes, spells its one type, a type parameter aside, or a variable written as one name whose annotation or `new` spells
