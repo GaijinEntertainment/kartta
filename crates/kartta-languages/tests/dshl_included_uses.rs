@@ -311,6 +311,29 @@ shader lit
 
 const SHARED_THAT_INCLUDES_THE_MACRO: &str = "include \"deep.dshl\"\n";
 
+const MACRO_IN_A_BODY: &str = r"shader lit
+{
+  macro LOCAL_M()
+    dont_render;
+  endmacro
+
+  LOCAL_M()
+}
+
+shader later
+{
+  LOCAL_M()
+}
+";
+
+const CALLS_A_MACRO_AN_INCLUDED_BODY_DECLARES: &str = r#"include "body.dshl"
+
+shader includer
+{
+  LOCAL_M()
+}
+"#;
+
 fn build() -> (TempDir, Engine) {
     build_tree(&[
         ("globals.dshl", GLOBALS),
@@ -737,6 +760,28 @@ fn a_macro_call_binds_the_macro_past_the_first_include() {
         callers(&engine, "MID_M", "middle.dshl"),
         (vec![("lit", 70)], 0)
     );
+}
+
+#[test]
+fn a_macro_a_body_declares_binds_the_call_in_that_body_and_in_a_later_shader() {
+    let (_tree, engine) = build_tree(&[("body.dshl", MACRO_IN_A_BODY)]);
+
+    assert_eq!(
+        callers(&engine, "LOCAL_M", "body.dshl"),
+        (vec![("lit", 80), ("later", 80)], 0)
+    );
+}
+
+#[test]
+fn a_macro_a_body_declares_binds_a_call_in_the_file_that_includes_it() {
+    let (_tree, engine) = build_tree(&[
+        ("body.dshl", MACRO_IN_A_BODY),
+        ("top.dshl", CALLS_A_MACRO_AN_INCLUDED_BODY_DECLARES),
+    ]);
+
+    let (callers, ambiguous) = callers(&engine, "LOCAL_M", "body.dshl");
+    assert!(callers.contains(&("includer", 70)), "{callers:?}");
+    assert_eq!(ambiguous, 0);
 }
 
 #[test]

@@ -8,7 +8,8 @@
 //!
 //! - A `shader`, each of its names, is a class, a `block` an interface, a `macro` a macro, and a render pass, a render
 //!   pass group and a framebuffer layout each a class. Each is qualified by its own name: DSHL has one namespace per
-//!   compilation, which its includes join. A `define_macro_if_not_defined` is a macro flagged as a fallback: the build
+//!   compilation, which its includes join. A macro a body declares belongs to no declaration, since the shader compiler
+//!   takes every definition into one table. A `define_macro_if_not_defined` is a macro flagged as a fallback: the build
 //!   skips it where a game defines the macro first, so a call bound to it may run the game's own.
 //! - A variable and a sampler at file scope are variables: the global variables the engine sets by name. Inside a
 //!   shader, a block or a macro, a variable is a field of the declaration around it, and a `local` variable is a
