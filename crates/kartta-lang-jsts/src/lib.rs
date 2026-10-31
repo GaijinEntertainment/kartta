@@ -30,7 +30,11 @@
 //!   hook. Either name is a label, so no call or use of the name binds the registration. A registration whose
 //!   description is not a plain string opens no scope.
 //! - Calls, with a capitalised JSX tag as a call of the component and `new Foo()` as a call of `Foo`. A call on
-//!   `this` names the type that owns the enclosing method as its receiver. A call on a value the file declares before
+//!   `this` names the class as its receiver in a method, a function a class field holds and a class body outside
+//!   them, an instance field's initializer and a static one's alike, and an arrow function keeps the `this` of the
+//!   scope it is written in. Any other function, a function expression or a declaration inside a method, an object
+//!   literal's method or a function outside every class, gives a `this` of no known type, and a call on it records
+//!   the empty receiver. A call on a value the file declares before
 //!   it, inside the scope that declares it — a parameter, a `let`, `const` or `var`, a destructured name, a catch
 //!   binding, a loop variable, a function declared inside a function body, the name of a function expression inside
 //!   it — records the empty receiver, because a value's name names no type, unless it is a parameter written as one
