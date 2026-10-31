@@ -3,7 +3,9 @@ use std::rc::Rc;
 
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
-use kartta_lang::{CallsOnValues, InheritedMembers, MemberCalls, SymbolKind, UntypedOwners};
+use kartta_lang::{
+    CallsOnValues, InheritedMembers, MemberCalls, SymbolKind, UnlistedReceivers, UntypedOwners,
+};
 
 use crate::candidates::Candidates;
 use crate::confidence;
@@ -1441,9 +1443,9 @@ impl Cascade<'_> {
         candidates: &Candidates<'_>,
     ) -> Option<Bound> {
         let receiver = self.named_receiver(call)?;
-        if let Some(own_type) = self.conventions.own_type_receivers
-            && !own_type.contains(&self.graph.strings.resolve(receiver))
-        {
+        let listed = (self.conventions.own_type_receivers)
+            .is_none_or(|own| own.contains(&self.graph.strings.resolve(receiver)));
+        if !listed && self.conventions.unlisted_receivers == UnlistedReceivers::NoOwnMember {
             return None;
         }
         let caller_owner = self
@@ -1472,7 +1474,12 @@ impl Cascade<'_> {
                 }),
             None => self.nearest(call, owned),
         }?;
-        Some((at, confidence::SAME_FILE))
+        let tier = if listed {
+            confidence::SAME_FILE
+        } else {
+            confidence::FIRST_PARTY
+        };
+        Some((at, tier))
     }
 
     /// What a call through one of [`kartta_lang::Conventions::base_receivers`] binds: the member of the name that the
