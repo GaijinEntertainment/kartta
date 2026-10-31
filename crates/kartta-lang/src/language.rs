@@ -242,10 +242,13 @@ pub struct Conventions {
     pub bare_receivers: BareReceivers,
     /// The receivers a member call writes for a value of the caller's own type: its own receiver, as `self` and `cls`
     /// in Python, and `other`, as a comparison names its second operand. Where the language lists them, a member call
-    /// on any other name that names no owner, a value's, binds no member of the caller's own owner. A language that
-    /// records its own receiver as the name of the caller's owner, as Rust does `self` and `Self`, lists only `other`,
-    /// since a call on that name binds through the owner it names. `None` keeps the caller's own owner for every name.
+    /// on any other name that names no owner, a value's, binds as [`Conventions::unlisted_receivers`] says. A language
+    /// that records its own receiver as the name of the caller's owner, as Rust does `self` and `Self`, lists only
+    /// `other`, since a call on that name binds through the owner it names. `None` keeps the caller's own owner for
+    /// every name.
     pub own_type_receivers: Option<&'static [&'static str]>,
+    /// What a member call on a name outside [`Conventions::own_type_receivers`] binds of the caller's own owner.
+    pub unlisted_receivers: UnlistedReceivers,
     /// The receivers a member call writes for the caller's base class, as Quirrel's `base`, daslang's `super` and PHP's
     /// `parent`. A member call on one binds the member of the name that the first base the caller's class declares
     /// holds, else the one the nearest class above that base holds, and nothing where the graph holds neither, so never
@@ -292,6 +295,7 @@ impl Conventions {
         receivers: Receivers::Owners,
         bare_receivers: BareReceivers::Any,
         own_type_receivers: None,
+        unlisted_receivers: UnlistedReceivers::NoOwnMember,
         base_receivers: &[],
         type_uses: TypeUses::Partial,
         data_uses: DataUses::Partial,
@@ -307,6 +311,17 @@ impl Default for Conventions {
     fn default() -> Self {
         Self::DEFAULT
     }
+}
+
+/// What a member call on a receiver a language does not list among its [`Conventions::own_type_receivers`] binds of the
+/// caller's own owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum UnlistedReceivers {
+    /// Nothing: the call goes on to the tiers after the caller's own owner.
+    #[default]
+    NoOwnMember,
+    /// Its member, as a guess, ahead of the guesses by nearness.
+    OwnMemberAsGuess,
 }
 
 /// How far through its includes a file's calls bind the names they define.

@@ -34,7 +34,8 @@ pub const RECEIVER: u8 = 85;
 /// receiver that names no owner.
 ///
 /// The caller's owner binds only once the scope tiers bind nothing, and where a language lists
-/// [`kartta_lang::Conventions::own_type_receivers`], only on one of those receivers.
+/// [`kartta_lang::Conventions::own_type_receivers`], only on one of those receivers, or else at [`FIRST_PARTY`] where
+/// its [`kartta_lang::Conventions::unlisted_receivers`] guess.
 ///
 /// A call on a bare name that the language writes only for a class, of which the graph holds no type, binds neither
 /// here nor at any tier below the include tiers.
@@ -77,5 +78,6 @@ pub const PARENT_DIR: u8 = 30;
 /// The one callable of the name outside vendored code binds.
 ///
 /// The one callable of the name nearest the caller binds here too, at any step, where the call's arguments turned
-/// another definition of the name away.
+/// another definition of the name away. So does a member of the caller's owner on a receiver the language does not
+/// list, where its [`kartta_lang::Conventions::unlisted_receivers`] guess.
 pub const FIRST_PARTY: u8 = 15;
