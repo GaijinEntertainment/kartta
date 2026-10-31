@@ -215,7 +215,8 @@ pub struct Conventions {
     pub include_reach: IncludeReach,
     /// The module every file sees with no include, where only includes put a definition in a file's scope: a call with
     /// no receiver binds by its name alone only a definition of a file its own file reaches through includes, however
-    /// deep, or of the file whose package this names. `None` where the language's scope reaches further.
+    /// deep, or of the file whose package this names, and a bare use under [`ValueUses::Expanded`] that the use's file
+    /// and includes leave open binds its definition. `None` where the language's scope reaches further.
     pub module_seen_everywhere: Option<&'static str>,
     /// What a member call, `x.f()`, can call besides a member.
     pub member_calls: MemberCalls,
@@ -271,6 +272,9 @@ pub struct Conventions {
     pub unrecorded_data: &'static [SymbolKind],
     /// Where a bare use of a name that its own file does not declare binds.
     pub value_uses: ValueUses,
+    /// The names the runtime answers before [`module_seen_everywhere`](Self::module_seen_everywhere) does, in functions
+    /// no file holds: such a use binds nothing past the use's file and includes.
+    pub native_names: &'static [&'static str],
     /// What a member use on a value of a type the language cannot name binds.
     pub untyped_members: UntypedMembers,
     /// How the language writes a macro invocation beside a function call.
@@ -309,6 +313,7 @@ impl Conventions {
         data_uses: DataUses::Partial,
         unrecorded_data: &[],
         value_uses: ValueUses::Declared,
+        native_names: &[],
         untyped_members: UntypedMembers::FileField,
         macro_invocations: MacroInvocations::AsCalls,
         twins: Twins::First,
@@ -553,9 +558,9 @@ pub enum ValueUses {
     /// all the files that compile in a script with the use's file: those that share a file no file includes with it. Of
     /// several, the one that shares the most leading directories with the use's file, at least two, binds.
     ImportedThenReached,
-    /// As [`Imported`](Self::Imported), else in the one definition that the files including the use's file bind the
-    /// name to that way, the file itself first: a macro's quoted code names what the file that expands the macro
-    /// reaches. Two definitions among those files bind none.
+    /// As [`Imported`](Self::Imported), else in [`Conventions::module_seen_everywhere`], else in the one definition
+    /// that the files including the use's file bind the name to that way, the file itself first: a macro's quoted code
+    /// names what the file that expands the macro reaches. Two definitions among those files bind none.
     Expanded,
     /// In the one variable, constant or function of the name outside every owner and body that the use's own file
     /// declares, else that the files it includes declare, else, for a name few of them share, that the files those

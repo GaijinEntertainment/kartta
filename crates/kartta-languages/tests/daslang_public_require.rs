@@ -113,6 +113,90 @@ fn two_definitions_past_two_required_files_bind_a_quoted_name_to_neither() {
 }
 
 #[test]
+fn a_quoted_name_the_module_seen_everywhere_declares_binds_there_over_a_namesake_an_expanding_file_reaches()
+ {
+    let (_tree, engine) = build(&[
+        QUOTING,
+        ("client.das", "options gen2\nrequire boost\nrequire lib\n"),
+        ("lib.das", HELPER),
+        (
+            "daslib/builtin.das",
+            "options gen2\nmodule builtin shared public !inscope\n\ndef helper {\n    return 2\n}\n",
+        ),
+    ]);
+
+    assert_eq!(
+        (
+            sites(&engine, "daslib/builtin.das"),
+            sites(&engine, "lib.das")
+        ),
+        (vec![("visit", 70)], Vec::new())
+    );
+}
+
+#[test]
+fn a_name_the_macro_s_own_file_requires_binds_there_over_the_module_seen_everywhere() {
+    let quoting = "options gen2\nmodule boost shared\nrequire lib\n\ndef visit {\n    return <- qmacro(helper())\n}\n";
+    let (_tree, engine) = build(&[
+        ("boost.das", quoting),
+        ("lib.das", HELPER),
+        (
+            "daslib/builtin.das",
+            "options gen2\nmodule builtin shared public !inscope\n\ndef helper {\n    return 2\n}\n",
+        ),
+    ]);
+
+    assert_eq!(
+        (
+            sites(&engine, "daslib/builtin.das"),
+            sites(&engine, "lib.das")
+        ),
+        (Vec::new(), vec![("visit", 70)])
+    );
+}
+
+#[test]
+fn a_quoted_name_the_runtime_answers_first_binds_nothing_past_its_own_file() {
+    let source = |use_require: &str| {
+        format!(
+            "options gen2\nmodule boost shared\n{use_require}\n\ndef visit {{\n    return <- qmacro(length(1))\n}}\n"
+        )
+    };
+    let library = "options gen2\n\ndef length(a) {\n    return 1\n}\n";
+    let builtin =
+        "options gen2\nmodule builtin shared public !inscope\n\ndef length(a) {\n    return 2\n}\n";
+    let length_sites = |boost: &str, client: &str| {
+        let (_tree, engine) = build(&[
+            ("boost.das", boost),
+            ("client.das", client),
+            ("lib.das", library),
+            ("daslib/builtin.das", builtin),
+        ]);
+        let (_, graph) = engine.graph_of("lib.das").expect("daslang claims the file");
+        let site_count = |path| {
+            graph
+                .references(
+                    kartta::Selector::new("length", Some(path)),
+                    SiteQuery::new(usize::MAX),
+                )
+                .expect("the file defines the name")
+                .sites
+                .len()
+        };
+        (site_count("lib.das"), site_count("daslib/builtin.das"))
+    };
+
+    assert_eq!(
+        length_sites(&source(""), "options gen2\nrequire boost\nrequire lib\n"),
+        (0, 0)
+    );
+    assert_eq!(
+        length_sites(&source("require lib"), "options gen2\nrequire boost\n"),
+        (1, 0)
+    );
+}
+
+#[test]
 fn a_public_require_reaches_no_call_past_the_file_that_writes_it() {
     let (_tree, engine) = build(&[
         (

@@ -129,6 +129,9 @@ const CONVENTIONS: Conventions = {
     conventions.macro_invocations = MacroInvocations::Apart;
     conventions.module_seen_everywhere = Some("builtin");
     conventions.value_uses = ValueUses::Expanded;
+    conventions.native_names = &[
+        "length", "float2", "float3", "float4", "int2", "int3", "int4", "uint2", "uint3", "uint4",
+    ];
     conventions.own_type_receivers = Some(&["self"]);
     conventions.base_receivers = &["super"];
     conventions.type_uses = TypeUses::Nowhere;
