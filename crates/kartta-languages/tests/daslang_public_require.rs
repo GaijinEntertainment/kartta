@@ -155,6 +155,106 @@ fn a_name_the_macro_s_own_file_requires_binds_there_over_the_module_seen_everywh
     );
 }
 
+const THROUGH_FACADE: [(&str, &str); 3] = [
+    QUOTING,
+    ("lib.das", HELPER),
+    ("facade.das", "options gen2\nrequire boost public\n"),
+];
+
+#[test]
+fn a_file_that_requires_a_macro_through_a_public_require_expands_it() {
+    let client = ("client.das", "options gen2\nrequire facade\nrequire lib\n");
+    let (_tree, engine) = build(&[THROUGH_FACADE.as_slice(), &[client]].concat());
+
+    assert_eq!(sites(&engine, "lib.das"), [("visit", 60)]);
+}
+
+#[test]
+fn a_file_past_a_plain_require_of_the_macro_expands_nothing() {
+    let (_tree, engine) = build(&[
+        QUOTING,
+        ("lib.das", HELPER),
+        ("facade.das", "options gen2\nrequire boost\n"),
+        ("client.das", "options gen2\nrequire facade\nrequire lib\n"),
+    ]);
+
+    assert_eq!(sites(&engine, "lib.das"), []);
+}
+
+#[test]
+fn a_file_requiring_the_macro_itself_answers_before_those_past_a_public_require() {
+    let (_tree, engine) = build(
+        &[
+            THROUGH_FACADE.as_slice(),
+            &[
+                ("own.das", "options gen2\nrequire boost\nrequire a/lib\n"),
+                (
+                    "client.das",
+                    "options gen2\nrequire facade\nrequire b/lib\n",
+                ),
+                ("a/lib.das", HELPER),
+                ("b/lib.das", HELPER),
+            ],
+        ]
+        .concat(),
+    );
+
+    assert_eq!(
+        (sites(&engine, "a/lib.das"), sites(&engine, "b/lib.das")),
+        (vec![("visit", 60)], Vec::new())
+    );
+}
+
+#[test]
+fn two_files_past_a_public_require_that_reach_two_definitions_bind_neither() {
+    let (_tree, engine) = build(
+        &[
+            THROUGH_FACADE.as_slice(),
+            &[
+                ("one.das", "options gen2\nrequire facade\nrequire a/lib\n"),
+                ("two.das", "options gen2\nrequire facade\nrequire b/lib\n"),
+                ("a/lib.das", HELPER),
+                ("b/lib.das", HELPER),
+            ],
+        ]
+        .concat(),
+    );
+
+    assert_eq!(
+        (sites(&engine, "a/lib.das"), sites(&engine, "b/lib.das")),
+        (Vec::new(), Vec::new())
+    );
+}
+
+#[test]
+fn a_cycle_of_public_requires_ends_the_walk_for_the_files_it_expands_in() {
+    let (_tree, engine) = build(&[
+        QUOTING,
+        ("lib.das", HELPER),
+        (
+            "one.das",
+            "options gen2\nrequire boost public\nrequire two public\n",
+        ),
+        ("two.das", "options gen2\nrequire one public\n"),
+        ("client.das", "options gen2\nrequire two\nrequire lib\n"),
+    ]);
+
+    assert_eq!(sites(&engine, "lib.das"), [("visit", 60)]);
+}
+
+#[test]
+fn a_namesake_in_a_module_nothing_requires_is_no_module_seen_everywhere() {
+    let (_tree, engine) = build(&[
+        QUOTING,
+        (
+            "other.das",
+            "options gen2\nmodule other shared public !inscope\n\ndef helper {\n    return 2\n}\n",
+        ),
+    ]);
+
+    assert_eq!(sites(&engine, "other.das"), []);
+}
+
 #[test]
 fn a_quoted_name_the_runtime_answers_first_binds_nothing_past_its_own_file() {
     let source = |use_require: &str| {
