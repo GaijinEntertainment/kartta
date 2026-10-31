@@ -7,6 +7,7 @@ use tree_sitter::{Node, Tree};
 
 use crate::bindings::{Bindings, MethodKind, NameKey};
 use crate::locals::{Locals, Role, is_keyword, role};
+use crate::macros::GroupMethod;
 use crate::owner::{constant_type, enclosing_type, in_singleton_class, type_qualification};
 
 pub(crate) const REQUIRE_FORM: u32 = 0;
@@ -35,6 +36,8 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
         bindings: Bindings::default(),
         locals: Locals::default(),
+        group_methods: Vec::new(),
+        plain_calls: Vec::new(),
         raw: RawExtraction::default(),
     };
 
@@ -44,6 +47,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         }
         true
     });
+    emitter.bind_group_methods();
 
     let Emitter {
         bindings, mut raw, ..
@@ -74,6 +78,8 @@ pub(crate) struct Emitter<'s> {
     flags: SymbolFlags,
     pub(crate) bindings: Bindings,
     locals: Locals<'s>,
+    pub(crate) group_methods: Vec<GroupMethod<'s>>,
+    pub(crate) plain_calls: Vec<(usize, usize)>,
     pub(crate) raw: RawExtraction,
 }
 
@@ -132,6 +138,7 @@ impl Emitter<'_> {
             Role::Read if !self.locals.is_local(name) && !is_keyword(name) => {
                 self.visibility_statement(node);
                 let site_of = self.site_of();
+                self.plain_call(node, site_of);
                 self.raw.calls.push(CallRef {
                     site_of,
                     callee: text(node, source),
@@ -152,11 +159,15 @@ impl Emitter<'_> {
         definition: fn(&mut Self, Node<'t>) -> Option<SymbolId>,
     ) {
         if let Some(id) = definition(self, node) {
-            self.scopes.push(Scope {
-                end: node.end_byte(),
-                id,
-            });
+            self.open_method(node, id);
         }
+    }
+
+    pub(crate) fn open_method(&mut self, node: Node<'_>, id: SymbolId) {
+        self.scopes.push(Scope {
+            end: node.end_byte(),
+            id,
+        });
     }
 
     pub(crate) fn push(&mut self, mut symbol: Symbol) -> SymbolId {
@@ -328,6 +339,9 @@ impl Emitter<'_> {
             self.class_body_macro(node, &callee);
         }
         self.method_reference(&callee, node, site_of);
+        if receiver_node.is_none() && passes_nothing(node) {
+            self.plain_call(node, site_of);
+        }
         self.raw.calls.push(CallRef {
             site_of,
             callee,
@@ -498,6 +512,13 @@ pub(crate) fn declared(
     );
     symbol.qualified_name = qualified;
     symbol
+}
+
+fn passes_nothing(call: Node<'_>) -> bool {
+    call.child_by_field_name("block").is_none()
+        && call
+            .child_by_field_name("arguments")
+            .is_none_or(|arguments| named_child_nodes(arguments).next().is_none())
 }
 
 /// The class of Ruby's runtime that the literal `literal` makes a value of, a parenthesised range's included; empty for
