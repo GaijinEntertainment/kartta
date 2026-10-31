@@ -11,7 +11,8 @@ extension is `rs`, in any case.
 Every function, struct, union, enum, trait, type alias, `macro_rules!`, constant, static and inline module is a
 symbol, and so is every named field and every enum variant. A member of a `trait`, or of an `impl` whose target names a
 type, is owned by that type and qualified under it, `Service::new`; a member of an `impl` for a tuple, `dyn` or
-function type has no owner. A function of an `extern` block that `#[wasm_bindgen(method)]` marks is owned by the type
+function type is owned by the type as written inside a function body, `(u8, u8)::show`, and has no owner outside one.
+A function of an `extern` block that `#[wasm_bindgen(method)]` marks is owned by the type
 its first parameter, `this`, refers to, since wasm-bindgen makes it that type's method; one `constructor` marks is
 owned by the type it returns, `T` of a `Result<T, E>`, and one `static_method_of = T` marks by `T`, since wasm-bindgen
 makes them that type's members. An item of an inline module is qualified by the chain of its modules, `a::b::Worker`,
@@ -112,9 +113,10 @@ so a bare call in a separate `src/tests.rs` that `use super::*;` opens binds wha
 items included, where the caller's own file declares nothing of the name. A function there wins over a type of its name,
 which Rust keeps apart from values, so `kevent()` binds the `extern` function `kevent` beside a `struct kevent`.
 
-Code gated by `#[test]`, `#[bench]` or a `cfg` that holds only under `test` is test code, and so is a file below a
-`tests` directory outside `src`, in the lower case of Cargo's own target directory. A `*.gen.rs` or `*_generated.rs`
-file, or one with a `@generated` or `DO NOT EDIT` marker in its leading comments, is generated code.
+Code gated by an attribute whose path ends in `test` or `bench`, as `#[test]` and `#[tokio::test]` do, or by a `cfg`
+that holds only under `test` is test code, and so is a file below a `tests` directory outside `src`, in the lower case
+of Cargo's own target directory. A `*.gen.rs` or `*_generated.rs` file, or one with a `@generated` or `DO NOT EDIT`
+marker in its leading comments, is generated code.
 
 ## Fingerprint
 
