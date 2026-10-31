@@ -70,7 +70,7 @@ pub(crate) fn for_parse(source: &[u8]) -> Option<Vec<u8>> {
                         .map(|annotation| (at + annotation.start, at + annotation.end))
                 })
                 .or_else(|| {
-                    split_head(source, at).map(|[opening, later]| {
+                    split_conditional(source, at).map(|[opening, later]| {
                         repaired.blank(later);
                         (opening.start, opening.end)
                     })
@@ -601,20 +601,77 @@ impl FirstBranches {
     }
 }
 
+/// The directive of the conditional at `line` and the lines from its first later branch through its `#endif`, where
+/// the conditional splits one declaration the bytes show.
+fn split_conditional(source: &[u8], line: usize) -> Option<[Range<usize>; 2]> {
+    if directive_at(source, line)? != Directive::Opens {
+        return None;
+    }
+    let first_branch = directive_end(source, line);
+    split_head(source, first_branch)
+        .or_else(|| split_return_type(source, first_branch))
+        .map(|later| [line..first_branch, later])
+}
+
+// constraint: the grammar reads a conditional's branch as a run of whole statements, so a return type each branch
+// writes, `#if A` `auto` `#else` `std::tuple<int>` `#endif` `reflect() const`, takes the declarator for a declaration
+// of its own and reads the `#endif` as an error; a conditional around it then stays open, and a file of such members
+// fails at its top level, which reads every class's members as free functions. The first branch alone reads as the
+// return type of the declarator after the conditional
+/// The lines from the first later branch through the `#endif` of the conditional whose first branch starts at `from`,
+/// where each branch holds a type alone and a function's name follows the conditional.
+fn split_return_type(source: &[u8], from: usize) -> Option<Range<usize>> {
+    let (mut directive, mut ended_by) = type_branch(source, from)?;
+    let later = ended_by.start;
+    while directive == Directive::Branches {
+        (directive, ended_by) = type_branch(source, ended_by.end)?;
+    }
+    let code = next_code(source, ended_by.end);
+    let name_end = code + word_len(&source[code..]);
+    let parameters = name_end + whitespace_len(&source[name_end..]);
+    let names_a_function = name_end > code
+        && (source.get(parameters) == Some(&b'(') || &source[code..name_end] == b"operator");
+    (later != ended_by.start && names_a_function).then_some(later..ended_by.end)
+}
+
+/// The directive that ends the branch at `from`, with its lines, where the branch holds code and nothing but a type's
+/// bytes.
+fn type_branch(source: &[u8], from: usize) -> Option<(Directive, Range<usize>)> {
+    let mut holds_code = false;
+    let mut at = from;
+    loop {
+        let byte = *source.get(at)?;
+        if source[at - 1] == b'\n'
+            && let Some(directive) = directive_at(source, at)
+        {
+            return (holds_code && matches!(directive, Directive::Branches | Directive::Closes))
+                .then(|| (directive, at..directive_end(source, at)));
+        }
+        let len = opaque_len(source, at);
+        if len == 1 && !byte.is_ascii_whitespace() {
+            if !is_type_byte(byte) {
+                return None;
+            }
+            holds_code = true;
+        }
+        at += len;
+    }
+}
+
+const fn is_type_byte(byte: u8) -> bool {
+    is_word_byte(byte) || matches!(byte, b':' | b'<' | b'>' | b',' | b'&' | b'*')
+}
+
 // constraint: the grammar reads a conditional's branch as a run of whole statements, so a head each branch writes,
 // `#ifdef A` `void f(int a)` `#else` `void f(int a, int b)` `#endif` `{`, misses the `;` of the first branch and reads
 // the `#endif` as an error inside the definition the last branch opens; the conditional then stays open past that
 // definition and can take its class down, or fail the whole tree, which leaves the misread members of the file to
 // their macros. The first branch alone is a whole definition of what the others write, while heads of two names are
 // two definitions, which the tree already holds, and a macro call may be a class head that goes on past the branch
-/// The directive of the conditional at `line` and the lines from its first later branch through its `#endif`, where
-/// each branch holds a [`branch_head`] of one name and a `{` follows the conditional.
-fn split_head(source: &[u8], line: usize) -> Option<[Range<usize>; 2]> {
-    if directive_at(source, line)? != Directive::Opens {
-        return None;
-    }
-    let first_branch = directive_end(source, line);
-    let mut branch = branch_head(source, first_branch)?;
+/// The lines from the first later branch through the `#endif` of the conditional whose first branch starts at `from`,
+/// where each branch holds a [`branch_head`] of one name and a `{` follows the conditional.
+fn split_head(source: &[u8], from: usize) -> Option<Range<usize>> {
+    let mut branch = branch_head(source, from)?;
     let names = branch.names;
     let later = branch.ended_by.start;
     while branch.directive == Directive::Branches {
@@ -622,7 +679,7 @@ fn split_head(source: &[u8], line: usize) -> Option<[Range<usize>; 2]> {
     }
     let end = branch.ended_by;
     (later != end.start && source.get(next_code(source, end.end)) == Some(&b'{'))
-        .then_some([line..first_branch, later..end.end])
+        .then_some(later..end.end)
 }
 
 /// The head a branch of a conditional holds: the names before its first and its last outermost `(`, since a return type
@@ -3172,6 +3229,134 @@ public:
                 ("PxTriangle::area".to_owned(), 23, 26),
             ]
         );
+    }
+
+    #[test]
+    fn a_return_type_each_branch_writes_keeps_the_classes_around_it() {
+        const SOURCE: &[u8] = br"#ifndef G
+#define G
+
+namespace N
+{
+  struct Pos
+  {
+    using NativeType = VkPos;
+
+    Pos & operator=( VkPos const & rhs ) NOEXCEPT
+    {
+      return *this;
+    }
+
+#if defined( REFLECT )
+#  if 14 <= VERSION
+    auto
+#  else
+    std::tuple<float const &>
+#  endif
+      reflect() const NOEXCEPT
+    {
+      return std::tie( x );
+    }
+#endif
+
+    bool operator==( Pos const & rhs ) const NOEXCEPT
+    {
+      return x == rhs.x;
+    }
+
+  public:
+    float x = {};
+  };
+
+  struct Size
+  {
+    using NativeType = VkSize;
+
+    Size & operator=( VkSize const & rhs ) NOEXCEPT
+    {
+      return *this;
+    }
+
+#if defined( REFLECT )
+#  if 14 <= VERSION
+    auto
+#  else
+    std::tuple<int const &>
+#  endif
+      reflect() const NOEXCEPT
+    {
+      return std::tie( w );
+    }
+#endif
+
+    bool operator==( Size const & rhs ) const NOEXCEPT
+    {
+      return w == rhs.w;
+    }
+
+  public:
+    int w = {};
+  };
+}
+#endif
+";
+
+        assert_eq!(
+            symbol_lines(SOURCE),
+            [
+                ("N::Pos".to_owned(), 6, 34),
+                ("N::Pos::NativeType".to_owned(), 8, 8),
+                ("Pos::operator=".to_owned(), 10, 13),
+                ("Pos::reflect".to_owned(), 17, 24),
+                ("Pos::operator==".to_owned(), 27, 30),
+                ("Pos::x".to_owned(), 33, 33),
+                ("N::Size".to_owned(), 36, 64),
+                ("N::Size::NativeType".to_owned(), 38, 38),
+                ("Size::operator=".to_owned(), 40, 43),
+                ("Size::reflect".to_owned(), 47, 54),
+                ("Size::operator==".to_owned(), 57, 60),
+                ("Size::w".to_owned(), 63, 63),
+            ]
+        );
+    }
+
+    #[test]
+    fn only_a_function_after_branches_of_types_alone_takes_the_first_branch() {
+        for (source, read) in [
+            (
+                "#if A\nint\n#else\nlong\n#endif\nf(int a);\n",
+                "int f(int a);",
+            ),
+            (
+                "#if A\nstd::tuple<int, Pair<int>> *\n#elif B\nauto\n#else\nvoid\n#endif\nf ();\n",
+                "std::tuple<int, Pair<int>> * f ();",
+            ),
+            (
+                "#if A\nauto\n#else\nbool\n#endif\noperator==(int a) const;\n",
+                "auto operator==(int a) const;",
+            ),
+        ] {
+            let source = source.as_bytes();
+            let repaired = for_parse(source).expect("a split return type");
+            let words: Vec<&str> = str::from_utf8(&repaired)
+                .expect("the fixture is text")
+                .split_whitespace()
+                .collect();
+
+            assert_eq!(repaired.len(), source.len());
+            assert_eq!(words.join(" "), read);
+        }
+
+        for source in [
+            "#if A\nint\n#endif\nf(int a);\n",
+            "#if A\n#else\nint\n#endif\nf(int a);\n",
+            "#if A\nint\n#else\nlong\n#endif\nvalue = 1;\n",
+            "#if A\nx = \n#else\ny = \n#endif\nf(1);\n",
+            "#if A\n#pragma once\nint\n#else\nlong\n#endif\nf(int a);\n",
+            "#if A\nint\n#else\nlong\n#pragma once\nf(int a);\n#endif\n",
+        ] {
+            assert_eq!(for_parse(source.as_bytes()), None, "{source}");
+        }
     }
 
     #[test]
