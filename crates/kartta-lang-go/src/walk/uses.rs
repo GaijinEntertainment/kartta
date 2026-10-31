@@ -253,7 +253,7 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn declaration_of(&self, name: &str, at: usize) -> Option<Node<'a>> {
+    pub(super) fn declaration_of(&self, name: &str, at: usize) -> Option<Node<'a>> {
         match self.innermost_local(name, at) {
             Some(Local {
                 kind: LocalKind::TypeSymbol(_),
