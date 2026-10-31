@@ -154,6 +154,9 @@ fn daslang_conventions_are_the_default_but_macros_value_uses_type_uses_and_recei
     expected.macro_invocations = MacroInvocations::Apart;
     expected.module_seen_everywhere = Some("builtin");
     expected.value_uses = ValueUses::Expanded;
+    expected.native_names = &[
+        "length", "float2", "float3", "float4", "int2", "int3", "int4", "uint2", "uint3", "uint4",
+    ];
     expected.own_type_receivers = Some(&["self"]);
     expected.base_receivers = &["super"];
     expected.type_uses = TypeUses::Nowhere;
