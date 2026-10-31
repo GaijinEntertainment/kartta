@@ -1326,6 +1326,137 @@ fn a_cpp_call_through_a_class_template_field_s_arrow_binds_the_member_of_the_cla
 }
 
 #[test]
+fn a_cpp_call_on_an_element_of_a_field_binds_the_member_of_the_class_of_the_element() {
+    let mut items = field_of("Cache", "items", 7, "Tab");
+    items.value_types.push("*Lock".to_owned());
+    let mut pointers = field_of("Cache", "pointers", 8, "Tab");
+    pointers.value_types.push("**Lock".to_owned());
+    let [locks, mut cache] = locks_and_cache();
+    cache.symbols.extend([
+        field_of("Cache", "objs", 4, "**Lock"),
+        field_of("Cache", "vals", 5, "*Lock"),
+        field_of("Cache", "name", 6, "Lock"),
+        items,
+        pointers,
+    ]);
+    let mut source = including(
+        "cache.cpp",
+        &["cache.h"],
+        vec![
+            member_call(0, "->objs[]", "unlockRead", 2),
+            member_call(1, ".vals[]", "unlockRead", 4),
+            member_call(2, ".items[]", "unlockRead", 6),
+            member_call(3, "->pointers[]", "unlockRead", 8),
+            member_call(4, ".objs[]", "unlockRead", 10),
+            member_call(5, "->vals[]", "unlockRead", 12),
+            member_call(6, ".name[]", "unlockRead", 14),
+            member_call(7, "->objs", "unlockRead", 16),
+        ],
+    );
+    source.symbols = vec![
+        member("Cache", "viaIndex", SymbolKind::Method, 1),
+        member("Cache", "viaValue", SymbolKind::Method, 3),
+        member("Cache", "viaItems", SymbolKind::Method, 5),
+        member("Cache", "viaPointers", SymbolKind::Method, 7),
+        member("Cache", "elementPointer", SymbolKind::Method, 9),
+        member("Cache", "elementValue", SymbolKind::Method, 11),
+        member("Cache", "plainClass", SymbolKind::Method, 13),
+        member("Cache", "wholeArray", SymbolKind::Method, 15),
+    ];
+
+    let graph = graph_of(cpp(), &[locks, cache, source]);
+
+    for caller in [
+        "Cache::viaIndex",
+        "Cache::viaValue",
+        "Cache::viaItems",
+        "Cache::viaPointers",
+    ] {
+        assert_eq!(
+            callees(&graph, caller),
+            ["lock.h:2@85"],
+            "{caller}: an element holds the class one pointer down from its field's"
+        );
+    }
+    for caller in [
+        "Cache::elementPointer",
+        "Cache::elementValue",
+        "Cache::plainClass",
+        "Cache::wholeArray",
+    ] {
+        assert_eq!(
+            callees(&graph, caller),
+            Vec::<String>::new(),
+            "{caller}: an operator that does not fit the pointers the field holds names no class"
+        );
+    }
+    assert_eq!(graph.resolution(0).misses.ambiguous, 4);
+}
+
+#[test]
+fn a_cpp_call_on_fields_of_one_template_binds_its_member_whatever_their_elements_hold() {
+    let field_of_tab = |line, element: &str| {
+        let mut field = field_of("Holder", "tab", line, "Tab");
+        field.value_types.push(element.to_owned());
+        field
+    };
+    let holder = |path: &str, element: &str| {
+        let mut holder = file(
+            path,
+            vec![class_in("", "Holder", 1, 3), field_of_tab(2, element)],
+            Vec::new(),
+        );
+        holder.includes = vec![IncludeRef {
+            target: "lock.h".to_owned(),
+        }];
+        holder
+    };
+    let tab = file(
+        "tab.h",
+        vec![
+            class_in("", "Tab", 1, 3),
+            member("Tab", "unlockRead", SymbolKind::Method, 2),
+        ],
+        Vec::new(),
+    );
+    let mut source = including(
+        "holder.cpp",
+        &["tab.h", "one.h", "two.h"],
+        vec![
+            member_call(0, ".tab", "unlockRead", 2),
+            member_call(1, "->tab[]", "unlockRead", 4),
+        ],
+    );
+    source.symbols = vec![
+        member("Holder", "whole", SymbolKind::Method, 1),
+        member("Holder", "element", SymbolKind::Method, 3),
+    ];
+    let [locks, _] = locks_and_cache();
+
+    let graph = graph_of(
+        cpp(),
+        &[
+            locks,
+            tab,
+            holder("one.h", "**Lock"),
+            holder("two.h", "**SpinLock"),
+            source,
+        ],
+    );
+
+    assert_eq!(
+        callees(&graph, "Holder::whole"),
+        ["tab.h:2@85"],
+        "both fields are of `Tab`, whatever they hold"
+    );
+    assert_eq!(
+        callees(&graph, "Holder::element"),
+        ["tab.h:2@70"],
+        "an element is a different class per field, which leaves the call on a value"
+    );
+}
+
+#[test]
 fn a_cpp_operand_s_class_binds_the_first_of_namesakes_of_one_qualified_name() {
     let files = [
         file(
