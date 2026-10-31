@@ -19,7 +19,8 @@
 //! another type; a Rust call binds by name only within the crates its crate is built with. A JavaScript bare call of a
 //! name imported from a package binds no namesake of the project, unless the caller's file defines it. A TypeScript or
 //! JavaScript call of a runtime method on a value binds an imported class's member of its name only where its receiver
-//! spells the class, and an imported interface's member on any value. A Python call of a builtin binds a function of
+//! spells the class, and an imported interface's member on any value. A JavaScript call through a class its file sees
+//! binds no function outside every type, unless its file is minified. A Python call of a builtin binds a function of
 //! its name only where its file imports or defines that name, and a Python call through or of a name that an import of
 //! a module outside the tree binds binds no namesake of the project.
 #![expect(
@@ -1905,6 +1906,63 @@ fn a_typescript_call_on_a_parameter_typed_by_its_context_binds_the_method_of_tha
     );
     assert_eq!(self_call("dependents"), None);
     assert_eq!(self_call("grep"), None);
+}
+
+#[test]
+fn a_javascript_call_through_a_class_binds_no_function_outside_every_type() {
+    let tree = tree_of(&[
+        (
+            "src/popup.js",
+            "export class Popup {\n  show() {\n    this.onOpen();\n  }\n}\n",
+        ),
+        ("src/picker.js", "export const picker = { onOpen() {} };\n"),
+    ]);
+    let engine = build(&tree, &["javascript"]);
+    let (_, graph) = engine
+        .graph_of("src/popup.js")
+        .expect("a language claims the file");
+
+    let callers = graph
+        .callers("onOpen", Limits::new(1))
+        .expect("the name is defined");
+    assert_eq!(callers.reached.len(), 0);
+}
+
+#[test]
+fn a_javascript_call_through_a_type_s_namesake_its_file_does_not_see_binds_a_function() {
+    let tree = tree_of(&[
+        ("lib/jquery.js", "function ajax() {}\n"),
+        ("lib/bundle.js", "class $ {}\n"),
+        ("lib/admin.js", "export function load() {\n  $.ajax();\n}\n"),
+    ]);
+    let engine = build(&tree, &["javascript"]);
+    let (_, graph) = engine
+        .graph_of("lib/admin.js")
+        .expect("a language claims the file");
+
+    let callers = graph
+        .callers("ajax", Limits::new(1))
+        .expect("the name is defined");
+    assert_eq!(callers.reached.len(), 1);
+}
+
+#[test]
+fn a_javascript_call_through_a_class_of_a_minified_bundle_binds_a_function() {
+    let padding = "/".repeat(600);
+    let bundle = format!(
+        "var pad = '{padding}';class Fs {{}}\nconst fs = {{ isFile() {{}} }};\n\
+         export function load() {{ Fs.isFile(); }}\n"
+    );
+    let tree = tree_of(&[("lib/bundle.js", &bundle)]);
+    let engine = build(&tree, &["javascript"]);
+    let (_, graph) = engine
+        .graph_of("lib/bundle.js")
+        .expect("a language claims the file");
+
+    let callers = graph
+        .callers("isFile", Limits::new(1))
+        .expect("the name is defined");
+    assert_eq!(callers.reached.len(), 1);
 }
 
 #[test]

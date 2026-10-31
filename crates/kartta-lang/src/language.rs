@@ -376,6 +376,9 @@ pub enum MemberCalls {
     /// property, a table's slot, a module that a name holds or a path a call spells.
     #[default]
     NearbyFreeFunctions,
+    /// As [`MemberCalls::NearbyFreeFunctions`], but a receiver that names a type the caller's file holds or includes
+    /// takes a member alone, unless that file is generated, whose names say nothing of a type.
+    NearbyFreeFunctionsUnlessTyped,
     /// Nothing: a Go member call calls a method or a field of its value and reaches a package's function only through
     /// the import of the package, which binds before any tier that takes a member.
     Members,
