@@ -50,6 +50,11 @@ pub const PACKAGE: u8 = 75;
 /// otherwise at [`FIRST_PARTY`]: `src.as_ptr().cast()` binds the `Ptr::cast` of a module the file declares as a guess.
 /// A method call binds at [`FIRST_PARTY`] too where another file the caller includes directly offers a type of the
 /// name, which it cannot call: `hasher.hash()` binds the one `hash` member beside `eastl::hash` as a guess.
+///
+/// A bare use under [`ValueUses::Expanded`](kartta_lang::ValueUses::Expanded) that its file and includes leave open
+/// binds here the definition of
+/// [`Conventions::module_seen_everywhere`](kartta_lang::Conventions::module_seen_everywhere), unless
+/// [`Conventions::native_names`](kartta_lang::Conventions::native_names) holds its name.
 pub const INCLUDE: u8 = 70;
 /// A re-export chain from an included file binds the definition it renames.
 pub const RE_EXPORT: u8 = 65;
@@ -64,7 +69,7 @@ pub const RE_EXPORT: u8 = 65;
 /// its name, except against the one type outside test code, which such a call binds.
 ///
 /// A bare use under [`ValueUses::Expanded`](kartta_lang::ValueUses::Expanded) binds here the one definition the files
-/// including its file bind the name to.
+/// including its file bind the name to, or, where they bind none, the files a public `require` hands its file to.
 ///
 /// A DSHL use its own file and includes leave unbound binds here the one file that declares the name, of all the
 /// scripts the use's file compiles in.

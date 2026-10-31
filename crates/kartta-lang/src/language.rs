@@ -559,8 +559,10 @@ pub enum ValueUses {
     /// several, the one that shares the most leading directories with the use's file, at least two, binds.
     ImportedThenReached,
     /// As [`Imported`](Self::Imported), else in [`Conventions::module_seen_everywhere`], else in the one definition
-    /// that the files including the use's file bind the name to that way, the file itself first: a macro's quoted code
-    /// names what the file that expands the macro reaches. Two definitions among those files bind none.
+    /// that the files including the use's file bind the name to that way, the file itself first, else in the one those
+    /// files and every file a re-export hands the use's file to bind it to: a macro's quoted code names what the file
+    /// that expands the macro reaches. Two definitions among those files bind none. A name of
+    /// [`Conventions::native_names`] stops after `Imported`.
     Expanded,
     /// In the one variable, constant or function of the name outside every owner and body that the use's own file
     /// declares, else that the files it includes declare, else, for a name few of them share, that the files those
