@@ -938,6 +938,17 @@ impl Graph {
                 renames.push(rename);
             }
         }
+        for at in 0..self.file(slot).bindings.len() {
+            let binding = self.file(slot).bindings[at];
+            if let Some(local_name) = self.renamed_item(binding) {
+                let rename = Rename {
+                    file: slot,
+                    local_name,
+                };
+                let renames = self.renamed_from.entry(binding.last_segment).or_default();
+                renames.push(rename);
+            }
+        }
         self.index_sites(slot);
         for key in self.parent_keys_of(slot) {
             self.parented.entry(key).or_default().push(slot);
@@ -953,6 +964,16 @@ impl Graph {
         if self.conventions.directory_packages {
             self.index_package(slot);
         }
+    }
+
+    // constraint: a binding names an item under a name of its own only where its target is a module's file, as a Rust
+    // `use … as` is; a directory package's alias renames a package, and `.` and `_` bind no name
+    fn renamed_item(&self, binding: StoredBinding) -> Option<Str> {
+        let alias = binding.alias?;
+        (binding.target_dir.is_some()
+            && !self.conventions.directory_packages
+            && !matches!(self.strings.resolve(alias), "." | "_"))
+        .then_some(alias)
     }
 
     fn index_sites(&mut self, slot: u32) {
@@ -1041,6 +1062,13 @@ impl Graph {
             unlist(&mut self.renamed_from, re_export.source_name, |rename| {
                 rename.file != slot
             });
+        }
+        let renamed = file
+            .bindings
+            .iter()
+            .filter(|binding| binding.alias.is_some());
+        for name in distinct(renamed.map(|binding| binding.last_segment)) {
+            unlist(&mut self.renamed_from, name, |rename| rename.file != slot);
         }
         unlist(&mut self.package_files, file.dir, |&held| held != slot);
         for &target in &file.includes {

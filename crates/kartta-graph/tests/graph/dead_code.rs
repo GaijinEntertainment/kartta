@@ -1,11 +1,11 @@
 //! The definitions no call and no use reaches: what the query judges, what keeps a definition alive, and what it counts
 //! as left out.
 
-use kartta_graph::DeadCode;
+use kartta_graph::{DeadCode, Graph};
 use kartta_lang::{
     Access, CallRef, Callable, CallableRole, Conventions, DataUses, Extraction, FILE_SCOPE,
-    IncludeRef, OwnMembers, Receiver, Receivers, Symbol, SymbolFlags, SymbolId, SymbolKind,
-    TypeUses, UntypedMembers, UseRef,
+    ImportBinding, IncludeRef, OwnMembers, Receiver, Receivers, Symbol, SymbolFlags, SymbolId,
+    SymbolKind, TypeUses, UntypedMembers, UseRef,
 };
 
 use crate::{call, function, graph, graph_of, member_call};
@@ -910,4 +910,44 @@ fn the_limit_bounds_the_answer_and_a_path_prefix_the_files_judged() {
         (0, 3, 1, 1)
     );
     assert_eq!(names(&in_app), ["one", "two"]);
+}
+
+fn binding_of_f(alias: &str) -> Extraction {
+    let mut extraction = file("src/user.rs", Vec::new(), Vec::new());
+    extraction.bindings = vec![ImportBinding {
+        alias: Some(alias.to_owned()),
+        target_dir: Some("src/m.rs".to_owned()),
+        last_segment: "f".to_owned(),
+    }];
+    extraction
+}
+
+fn f_is_spelled(graph: &Graph) -> bool {
+    graph.dead_code(&[], None, 10).found[0].spelled
+}
+
+#[test]
+fn a_rename_of_an_item_spells_its_name_until_the_file_that_writes_it_goes() {
+    let module = file("src/m.rs", vec![function("f", 1)], Vec::new());
+    let mut graph = graph(&[module, binding_of_f("g")]);
+
+    assert!(f_is_spelled(&graph));
+
+    graph.remove("src/user.rs");
+
+    assert!(!f_is_spelled(&graph));
+}
+
+#[test]
+fn a_glob_or_a_directory_package_s_alias_renames_no_item() {
+    let module = || file("src/m.rs", vec![function("f", 1)], Vec::new());
+    let mut packages = Conventions::default();
+    packages.directory_packages = true;
+
+    assert!(!f_is_spelled(&graph(&[module(), binding_of_f(".")])));
+    assert!(!f_is_spelled(&graph(&[module(), binding_of_f("_")])));
+    assert!(!f_is_spelled(&graph_of(
+        packages,
+        &[module(), binding_of_f("g")]
+    )));
 }
