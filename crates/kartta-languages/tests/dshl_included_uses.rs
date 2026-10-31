@@ -1,6 +1,7 @@
 //! What a DSHL use binds past its own file: a shader file and its includes are one script, so a read of a global and a
 //! `supports` of a block bind what an included file declares, and a declaration of the file itself of any kind stays
-//! bound, a shader that a `shader ==` condition names included.
+//! bound, a shader that a `shader ==` condition names included. An included file compiles inside its includers, so a
+//! use all that leaves open binds the one file of every script above it that declares the name.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -9,7 +10,7 @@
 
 use std::fs;
 
-use kartta::{BuildOptions, Engine, SiteQuery, SymbolKind};
+use kartta::{BuildOptions, Engine, Selector, SiteQuery, SymbolKind};
 use tempfile::TempDir;
 
 const GLOBALS: &str = "texture frame_tex;\nblock(scene) global_frame {}\n";
@@ -164,6 +165,76 @@ shader special_vision
   if (special_vision == 1) { dont_render; }
 }
 "#;
+
+const INCLUDER: &str = r#"float up_value = 1;
+float side_value = 2;
+include "lib.dshl"
+
+shader own
+{
+  (ps) { own@f1 = side_value; }
+}
+"#;
+
+const LIB: &str = r"shader lit
+{
+  (ps) { past@f1 = up_value; }
+}
+";
+
+const OTHER_INCLUDER: &str = r#"float up_value = 3;
+include "lib.dshl"
+"#;
+
+const INCLUDER_WITHOUT_IT: &str = r#"include "lib.dshl"
+"#;
+
+const INCLUDER_OF_MIDDLE: &str = r#"float up_value = 1;
+include "pass.dshl"
+"#;
+
+const PASS: &str = r#"include "lib.dshl"
+"#;
+
+const GLOBAL: &str = "float up_value = 1;\n";
+
+const GLOBAL_THEN_LIB: &str = r#"include "global.dshl"
+include "lib.dshl"
+"#;
+
+const GLOBAL_INCLUDER: &str = r#"include "global.dshl"
+"#;
+
+const SHADER_WITH_THE_FIELD: &str = r#"include "lib.dshl"
+
+shader holder
+{
+  (ps) { up_value@f1 = 1; }
+}
+"#;
+
+const TWO_GLOBALS_THEN_LIB: &str = r#"include "left.dshl"
+include "right.dshl"
+include "shared_lib.dshl"
+"#;
+
+const SHARED_LIB: &str = r"shader lit
+{
+  (ps) { read@f1 = shared_value; }
+}
+";
+
+const INCLUDER_OF_VARIABLE: &str = r#"int special_vision = 0;
+include "ranges_lib.dshl"
+"#;
+
+const RANGES_LIB: &str = r"interval special_vision: off<1, on;
+
+shader lit
+{
+  if (special_vision == on) { dont_render; }
+}
+";
 
 fn build() -> (TempDir, Engine) {
     build_tree(&[
@@ -365,4 +436,127 @@ fn a_value_the_file_declares_binds_before_one_its_includes_reach() {
     let (_tree, engine) = build_tree(&[("deep.dshl", DEEP), ("own.dshl", OWN_VALUE)]);
 
     assert_eq!(uses(&engine, "deep_value"), [("own", 7, 80)]);
+}
+
+#[test]
+fn a_read_of_a_global_its_includer_declares_binds_it() {
+    let (_tree, engine) = build_tree(&[("a.dshl", INCLUDER), ("lib.dshl", LIB)]);
+
+    assert_eq!(uses(&engine, "up_value"), [("lit", 3, 60)]);
+    assert_eq!(uses(&engine, "side_value"), [("own", 7, 80)]);
+}
+
+#[test]
+fn a_name_two_includers_declare_binds_neither() {
+    let (_tree, engine) = build_tree(&[
+        ("a.dshl", INCLUDER),
+        ("b.dshl", OTHER_INCLUDER),
+        ("lib.dshl", LIB),
+    ]);
+
+    assert_eq!(uses(&engine, "up_value"), []);
+}
+
+#[test]
+fn an_includer_that_declares_nothing_of_the_name_leaves_the_one_that_does() {
+    let (_tree, engine) = build_tree(&[
+        ("a.dshl", INCLUDER),
+        ("b.dshl", INCLUDER_WITHOUT_IT),
+        ("lib.dshl", LIB),
+    ]);
+
+    assert_eq!(uses(&engine, "up_value"), [("lit", 3, 60)]);
+}
+
+#[test]
+fn a_file_no_script_of_the_read_holds_binds_nothing() {
+    let (_tree, engine) = build_tree(&[
+        ("a.dshl", INCLUDER_WITHOUT_IT),
+        ("lib.dshl", LIB),
+        ("apart.dshl", GLOBAL),
+    ]);
+
+    assert_eq!(uses(&engine, "up_value"), []);
+}
+
+#[test]
+fn a_read_binds_a_global_many_scripts_hold_when_it_shares_one_of_them() {
+    for shared in ["a.dshl", "b.dshl", "c.dshl", "d.dshl", "e.dshl"] {
+        let includer = |name: &str| {
+            if name == shared {
+                GLOBAL_THEN_LIB
+            } else {
+                GLOBAL_INCLUDER
+            }
+        };
+        let (_tree, engine) = build_tree(&[
+            ("global.dshl", GLOBAL),
+            ("lib.dshl", LIB),
+            ("a.dshl", includer("a.dshl")),
+            ("b.dshl", includer("b.dshl")),
+            ("c.dshl", includer("c.dshl")),
+            ("d.dshl", includer("d.dshl")),
+            ("e.dshl", includer("e.dshl")),
+        ]);
+
+        assert_eq!(uses(&engine, "up_value"), [("lit", 3, 60)], "{shared}");
+    }
+}
+
+#[test]
+fn a_read_binds_a_global_an_includer_of_its_includer_declares() {
+    let (_tree, engine) = build_tree(&[
+        ("a.dshl", INCLUDER_OF_MIDDLE),
+        ("pass.dshl", PASS),
+        ("lib.dshl", LIB),
+    ]);
+
+    assert_eq!(uses(&engine, "up_value"), [("lit", 3, 60)]);
+}
+
+#[test]
+fn a_read_binds_a_global_another_include_of_its_includer_declares() {
+    let (_tree, engine) = build_tree(&[
+        ("global.dshl", GLOBAL),
+        ("a.dshl", GLOBAL_THEN_LIB),
+        ("lib.dshl", LIB),
+    ]);
+
+    assert_eq!(uses(&engine, "up_value"), [("lit", 3, 60)]);
+}
+
+#[test]
+fn a_member_of_an_includer_binds_no_read_of_its_name() {
+    let (_tree, engine) = build_tree(&[("a.dshl", SHADER_WITH_THE_FIELD), ("lib.dshl", LIB)]);
+
+    assert_eq!(uses(&engine, "up_value"), []);
+}
+
+#[test]
+fn a_name_two_files_of_one_script_declare_binds_neither() {
+    let (_tree, engine) = build_tree(&[
+        ("left.dshl", LEFT),
+        ("right.dshl", RIGHT),
+        ("a.dshl", TWO_GLOBALS_THEN_LIB),
+        ("shared_lib.dshl", SHARED_LIB),
+    ]);
+
+    assert_eq!(uses(&engine, "shared_value"), []);
+}
+
+#[test]
+fn a_read_of_an_interval_its_file_writes_stays_bound_past_a_variable_its_includer_declares() {
+    let (_tree, engine) = build_tree(&[
+        ("a.dshl", INCLUDER_OF_VARIABLE),
+        ("ranges_lib.dshl", RANGES_LIB),
+    ]);
+
+    let (_, graph) = engine.graph_of("a.dshl").expect("DSHL claims the file");
+    let interval = Selector::new("special_vision", Some("ranges_lib.dshl"));
+    let references = graph
+        .references(interval, SiteQuery::new(usize::MAX))
+        .expect("the interval is defined");
+    assert_eq!(references.symbol.kind, SymbolKind::Enum);
+    let lines: Vec<u32> = references.sites.iter().map(|site| site.line).collect();
+    assert_eq!(lines, [5]);
 }
