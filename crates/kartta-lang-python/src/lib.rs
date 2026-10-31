@@ -24,7 +24,9 @@
 //! those scopes bind or an expression that is no name, the path is empty, a member of a value of no known type, which
 //! binds the one field of the name the file declares. A name that no function around it binds, or that a `global`
 //! declaration gives the module, uses the module's name wherever the module binds it, by an import, an assignment, a
-//! `def` or a `class`, since a body runs once the module has bound its names.
+//! `def` or a `class`, since a body runs once the module has bound its names. A class body's read or update of a name
+//! that body binds is a member of the class; the name reaches no method, nested class, lambda or comprehension past
+//! its first iterable.
 //!
 //! A call records its callee and, for a member call, its receiver: `self.greet()` records `greet` on `self`, and a
 //! member call on anything but a name, `items[0].close()`, records the empty receiver. A call is attributed to the

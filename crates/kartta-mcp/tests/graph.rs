@@ -916,6 +916,40 @@ fn find_references_lists_a_python_attribute_s_sites_and_a_module_value_read_thro
 }
 
 #[test]
+fn find_references_lists_the_read_a_python_class_body_makes_of_its_own_attribute() {
+    let module = tree(&[(
+        "devices.py",
+        "class Devices:\n    ONE = \"one\"\n    TWO = \"two\"\n    KNOWN = (ONE, TWO)\n\n\n\
+         def known():\n    return Devices.KNOWN\n\n\nMODULE = 1\n\n\ndef read_module():\n    return MODULE\n",
+    )]);
+    let mut client = Client::start(&[]);
+    client.index(module.path());
+
+    for (name, line) in [("ONE", 2), ("TWO", 3)] {
+        assert_eq!(
+            client.answer("find_references", &json!({"name": name})),
+            lines(&[
+                &format!(r#"<references of="{name}" matches="1">"#),
+                &format!(
+                    "<match lang=\"python\" of=\"{name}\" qn=\"devices.Devices.{name}\" loc=\"devices.py:{line}\" \
+                     kind=\"field\" count=\"1\" files=\"1\" reads=\"1\">"
+                ),
+                concat!(
+                    "<note>an attribute of a value whose class the extraction cannot name binds only where one field ",
+                    "of the name is in its own file; ambiguous counts the rest</note>",
+                ),
+                r#"<file path="devices.py" sites="1">"#,
+                r#"<ref name="Devices" qn="devices.Devices" line="1" role="consumer" site="read" at="4"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            "the class body reads {name}"
+        );
+    }
+}
+
+#[test]
 fn find_references_lists_a_cpp_field_s_sites_and_says_what_an_untyped_access_leaves_out() {
     let module = tree(&[
         (
