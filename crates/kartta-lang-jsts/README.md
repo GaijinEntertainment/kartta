@@ -19,7 +19,9 @@ class owns the calls of its body outside those functions, in a field's initializ
 `this` names the class around the method as its receiver, and a call on a value the file declares before it, a parameter
 or a variable, names none inside the scope that declares it, because a value's name names no type, unless it is a
 parameter written as one name whose annotation or, with no annotation, whose function's context, an annotation the file
-writes, spells its one type, a type parameter aside; as a receiver a
+writes, spells its one type, a type parameter aside, or a variable written as one name whose annotation or `new` spells
+it, or that a call initializes, which names the type the call's return annotation spells, where the call's definition
+has one; as a receiver a
 `var` counts for the block that declares it only, so a call on it after that block keeps the name, though a use of it is
 a use of a module-level value as below. A variable or a constant a function body declares by one name, unless a function
 or a class is its value, is local to that body: no use binds it, a call of its name inside the scope that declares it

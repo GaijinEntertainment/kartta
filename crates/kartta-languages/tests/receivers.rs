@@ -49,7 +49,7 @@ fn a_member_call_on_a_value_the_caller_declares_records_the_empty_receiver() {
         ),
         (
             "typescript",
-            "function run() { const buf = make(); buf.resize(); }\n",
+            "function run(bufs: Buffer[]) { const buf = bufs[0]; buf.resize(); }\n",
             "resize",
         ),
         (
@@ -59,7 +59,7 @@ fn a_member_call_on_a_value_the_caller_declares_records_the_empty_receiver() {
         ),
         (
             "javascript",
-            "function run() { let row = next(); row.save(); }\n",
+            "function run(rows) { let row = rows[0]; row.save(); }\n",
             "save",
         ),
     ];

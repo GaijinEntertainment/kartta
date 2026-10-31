@@ -323,7 +323,7 @@ fn a_var_in_a_block_keeps_its_name_as_a_receiver_after_the_block_and_names_no_ty
         .filter(|call| call.callee == "load" && call.receiver.is_some())
         .map(|call| call.receiver.as_deref())
         .collect();
-    assert_eq!(receivers, [Some(""), Some("config")]);
+    assert_eq!(receivers, [Some("load()"), Some("config")]);
     let members: Vec<_> = (uses(&extraction).into_iter())
         .filter(|&(_, name, ..)| name == "port")
         .collect();
