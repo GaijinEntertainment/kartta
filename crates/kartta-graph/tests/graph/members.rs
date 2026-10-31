@@ -5,8 +5,8 @@
 use kartta_graph::{Graph, Selector, SiteQuery};
 use kartta_lang::{
     Access, Callable, CallableRole, CallsOnValues, Conventions, DataUses, Extraction, IncludeReach,
-    InheritedMembers, OwnMembers, ReExport, Receiver, Symbol, SymbolId, SymbolKind, UntypedMembers,
-    UseRef, ValueUses,
+    InheritedMembers, MemberCalls, OwnMembers, ReExport, Receiver, Symbol, SymbolId, SymbolKind,
+    UntypedMembers, UseRef, ValueUses,
 };
 
 use crate::{graph_of as graph, including};
@@ -246,6 +246,55 @@ fn a_receiver_that_ends_an_included_module_s_name_binds_that_module_s_own_defini
             0
         ),
         "a module named by an alias it does not end is no owner"
+    );
+}
+
+#[test]
+fn a_bare_use_binds_its_inline_module_s_first_item_only_where_a_path_alone_reaches_a_free_item() {
+    let of_module = |chain: &str, line: u32| {
+        let mut symbol = free("X", SymbolKind::Variable, [line, line]);
+        symbol.qualified_name = format!("{chain}::X");
+        symbol
+    };
+    let namespace = |name: &str, lines| free(name, SymbolKind::Namespace, lines);
+    let mut lib = file(
+        "src/lib.rs",
+        vec![
+            namespace("first", [1, 3]),
+            of_module("first", 2),
+            namespace("second", [5, 9]),
+            of_module("second", 6),
+            of_module("second", 7),
+            free("read", SymbolKind::Function, [8, 9]),
+        ],
+        &[],
+    );
+    lib.uses = vec![using(5, "X", Receiver::Bare, 9)];
+    let sites_on = |conventions: &Conventions, chain: &str, line: u32| {
+        let graph = graph(*conventions, std::slice::from_ref(&lib));
+        let selector = Selector::new(chain, None).with_line(Some(line));
+        (graph.references(selector, SiteQuery::new(usize::MAX)))
+            .expect("the selector picks a symbol")
+            .sites
+            .len()
+    };
+    let mut paths = Conventions::default();
+    paths.owner_chain_separator = Some("::");
+
+    assert_eq!(
+        sites_on(&paths, "first::X", 2),
+        1,
+        "where a call without a path binds a nearby free function, the file's first item binds"
+    );
+    paths.member_calls = MemberCalls::ModulePaths;
+    assert_eq!(
+        [
+            sites_on(&paths, "first::X", 2),
+            sites_on(&paths, "second::X", 6),
+            sites_on(&paths, "second::X", 7),
+        ],
+        [0, 1, 0],
+        "where only a path reaches a free item, the first item of the use's own module binds"
     );
 }
 

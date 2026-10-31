@@ -350,11 +350,13 @@ impl<'g> Cascade<'g> {
     ) -> Option<SymbolAt> {
         match pick {
             Pick::FreeTarget(call) => self.free_target(call, candidates),
-            Pick::PackageLevel => candidates.find(|&at| {
-                let symbol = self.graph.sym(at);
-                symbol.owner.is_none() && is_call_target_symbol(symbol) && self.holder(at).is_none()
-            }),
+            Pick::PackageLevel => candidates.find(|&at| self.is_package_level(at)),
         }
+    }
+
+    fn is_package_level(&self, at: SymbolAt) -> bool {
+        let symbol = self.graph.sym(at);
+        symbol.owner.is_none() && is_call_target_symbol(symbol) && self.holder(at).is_none()
     }
 
     fn declared_in(&self, candidates: &Candidates<'_>, dir: Str) -> Vec<SymbolAt> {
@@ -1934,9 +1936,10 @@ impl<'g> Cascade<'g> {
         let site = self.graph.file(file).uses[index as usize];
         let at = SymbolAt::new(file, site.site_of());
         match site.receiver() {
-            UseReceiver::Bare => self
-                .class_scope_use(at, site.name)
-                .unwrap_or_else(|| self.value_use(at, site.name).ok_or(UseMiss::Elsewhere)),
+            UseReceiver::Bare => self.class_scope_use(at, site.name).unwrap_or_else(|| {
+                self.value_use((at, site.line), site.name)
+                    .ok_or(UseMiss::Elsewhere)
+            }),
             UseReceiver::Qualifier(qualifier) => match self.binding(file, qualifier) {
                 Some(target) => {
                     let candidates = self.referenceable(site.name);
@@ -1949,7 +1952,7 @@ impl<'g> Cascade<'g> {
                 // constraint: a script module is the file that declares it, so its own name as a qualifier names what
                 // the bare name its file declares does
                 None if self.graph.file(file).package == Some(qualifier) => {
-                    self.bare_use(file, site.name).ok_or(UseMiss::Elsewhere)
+                    (self.bare_use((file, site.line), site.name)).ok_or(UseMiss::Elsewhere)
                 }
                 None => self
                     .required_definition(file, (qualifier, site.name), Pick::PackageLevel)
@@ -1961,12 +1964,11 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    fn value_use(&self, site: SymbolAt, name: Str) -> Option<Bound> {
+    fn value_use(&self, (site, line): (SymbolAt, u32), name: Str) -> Option<Bound> {
+        let bare = || self.bare_use((site.file, line), name);
         match self.conventions.value_uses {
-            ValueUses::Declared => self.bare_use(site.file, name),
-            ValueUses::Imported => self
-                .bare_use(site.file, name)
-                .or_else(|| self.imported_value(site, name)),
+            ValueUses::Declared => bare(),
+            ValueUses::Imported => bare().or_else(|| self.imported_value(site, name)),
             ValueUses::Included => self.included_value(site.file, name),
         }
     }
@@ -2011,13 +2013,29 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    fn bare_use(&self, file: u32, name: Str) -> Option<Bound> {
+    // constraint: where only a module's path reaches a free item, a name written without a path reads the item of the
+    // innermost inline module that holds its line and declares the name; the modules that hold one line nest, so the
+    // longest qualifier is the innermost, of two items of one module, as `#[cfg]` writes, the first binds, and a module
+    // is no value, so one of the name leaves the item outside it that a glob brings in
+    fn declared_value(&self, named: &[SymbolAt], (file, line): (u32, u32)) -> Option<SymbolAt> {
+        let declared = self.graph.in_file(named, file).iter().copied();
+        if self.conventions.member_calls != MemberCalls::ModulePaths {
+            return self.pick(Pick::PackageLevel, declared);
+        }
+        declared
+            .rev()
+            .filter(|&at| {
+                self.is_package_level(at)
+                    && self.graph.sym(at).kind != SymbolKind::Namespace
+                    && self.held_around(at, line)
+            })
+            .max_by_key(|&at| self.graph.qualifier(at).map_or(0, str::len))
+    }
+
+    fn bare_use(&self, (file, line): (u32, u32), name: Str) -> Option<Bound> {
         let stored = self.graph.file(file);
         let named = self.named(name);
-        if let Some(at) = self.pick(
-            Pick::PackageLevel,
-            self.graph.in_file(named, file).iter().copied(),
-        ) {
+        if let Some(at) = self.declared_value(named, (file, line)) {
             return Some((at, confidence::SAME_FILE));
         }
         if !self.bindings(file).dot_dirs.is_empty()

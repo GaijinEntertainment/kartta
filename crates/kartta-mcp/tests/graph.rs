@@ -918,6 +918,193 @@ fn find_references_says_the_rust_graph_records_no_use_of_a_type_as_one() {
     );
 }
 
+fn sites_of_each(source: &str, names: &[&str]) -> Vec<Vec<String>> {
+    let calls: Vec<_> = names
+        .iter()
+        .map(|&name| ("find_references", json!({ "name": name })))
+        .collect();
+    answers_over(
+        &[
+            ("Cargo.toml", "[package]\nname = \"probe\"\n"),
+            ("src/lib.rs", source),
+        ],
+        &calls,
+    )
+    .iter()
+    .map(|answer| {
+        answer
+            .lines()
+            .filter(|line| line.starts_with("<ref "))
+            .map(str::to_owned)
+            .collect()
+    })
+    .collect()
+}
+
+fn read_site(qualified: &str, line: u32, at: u32) -> String {
+    let name = qualified.rsplit("::").next().unwrap_or(qualified);
+    format!(
+        r#"<ref name="{name}" qn="{qualified}" line="{line}" role="consumer" site="read" at="{at}"/>"#
+    )
+}
+
+#[test]
+fn find_references_credits_a_rust_bare_read_to_the_item_of_its_own_inline_module() {
+    let declares = |module: &str, value: u8| {
+        format!("pub mod {module} {{\n    pub static X: i32 = {value};\n}}\n")
+    };
+    let reads = |module: &str, value: u8| {
+        let read = "    pub fn read() -> i32 {\n        X\n    }\n";
+        format!("pub mod {module} {{\n    pub static X: i32 = {value};\n\n{read}}}\n")
+    };
+    let second_last = format!("{}\n{}", declares("first", 1), reads("second", 2));
+    let second_first = format!("{}\n{}", reads("second", 2), declares("first", 1));
+    let in_first = format!("{}\n{}", reads("first", 1), declares("second", 2));
+    let names = ["first::X", "second::X"];
+
+    assert_eq!(
+        sites_of_each(&second_last, &names),
+        [Vec::new(), vec![read_site("second::read", 8, 9)]],
+        "the read binds its own module's item, written last"
+    );
+    assert_eq!(
+        sites_of_each(&second_first, &names),
+        [Vec::new(), vec![read_site("second::read", 4, 5)]],
+        "the read binds its own module's item, written first"
+    );
+    assert_eq!(
+        sites_of_each(&in_first, &names),
+        [vec![read_site("first::read", 4, 5)], Vec::new()],
+        "a read in the first module binds the first"
+    );
+}
+
+#[test]
+fn find_references_credits_a_rust_bare_read_to_the_nearest_module_that_holds_it_and_no_other() {
+    let root_first = "static X: i32 = 0;
+
+mod inner {
+    pub static X: i32 = 1;
+    pub fn read() -> i32 {
+        X
+    }
+}
+";
+    let module_first = "mod inner {
+    pub static X: i32 = 1;
+}
+
+static X: i32 = 0;
+
+fn read() -> i32 {
+    X
+}
+";
+    let beside = "mod outer {
+    pub static X: i32 = 1;
+    pub mod inner {
+        pub static X: i32 = 2;
+    }
+    pub fn read() -> i32 {
+        X
+    }
+}
+";
+    let undeclared = "pub mod first {
+    pub static X: i32 = 1;
+}
+
+pub mod third {
+    pub fn read() -> i32 {
+        X
+    }
+}
+";
+
+    assert_eq!(
+        sites_of_each(root_first, &["inner::X"]),
+        [vec![read_site("inner::read", 5, 6)]],
+        "a module's item hides the file root's, written before it"
+    );
+    assert_eq!(
+        sites_of_each(module_first, &["inner::X"]),
+        [Vec::<String>::new()],
+        "a read at the file root reaches no inline module's item"
+    );
+    assert_eq!(
+        sites_of_each(beside, &["outer::X", "outer::inner::X"]),
+        [vec![read_site("outer::read", 6, 7)], Vec::new()],
+        "a module the read is outside of holds no item it reaches"
+    );
+    assert_eq!(
+        sites_of_each(undeclared, &["first::X"]),
+        [Vec::<String>::new()],
+        "a module that declares no item of the name keeps no read of it"
+    );
+}
+
+#[test]
+fn find_references_credits_a_rust_bare_read_past_a_module_of_its_name_and_within_its_cfg_block() {
+    let module_of_the_name = "fn handler() {}
+
+mod test {
+    use super::*;
+
+    fn run() {
+        let _ = handler;
+    }
+
+    mod handler {}
+}
+";
+    assert_eq!(
+        sites_of_each(module_of_the_name, &["handler"]),
+        [vec![read_site("test::run", 6, 7)]],
+        "a module is no value, so the item a glob brings in binds"
+    );
+
+    let blocks = "#[cfg(unix)]
+mod gate {
+    pub static X: i32 = 1;
+    pub fn read() -> i32 {
+        X
+    }
+}
+
+#[cfg(not(unix))]
+mod gate {
+    pub static X: i32 = 2;
+    pub fn read() -> i32 {
+        X
+    }
+}
+";
+    let answers = answers_over(
+        &[
+            ("Cargo.toml", "[package]\nname = \"probe\"\n"),
+            ("src/lib.rs", blocks),
+        ],
+        &[
+            ("find_references", json!({"name": "gate::X", "line": 3})),
+            ("find_references", json!({"name": "gate::X", "line": 11})),
+        ],
+    );
+    let of_block = |answer: &str| {
+        (answer.lines())
+            .filter(|line| line.starts_with("<ref "))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        [of_block(&answers[0]), of_block(&answers[1])],
+        [
+            vec![read_site("gate::read", 4, 5)],
+            vec![read_site("gate::read", 12, 13)]
+        ],
+        "a read binds the item of the block of its module that holds it"
+    );
+}
+
 #[test]
 fn find_references_keeps_its_answer_for_a_type_where_go_and_python_record_type_uses() {
     let answers = answers_over(
