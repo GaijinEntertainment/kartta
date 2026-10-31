@@ -1286,10 +1286,7 @@ fn misreads_a_members_macro(member: Node<'_>, source: &[u8]) -> bool {
 fn misread_data_macro(declaration: Node<'_>, source: &[u8]) -> Option<Range<usize>> {
     let written = declaration
         .child_by_field_name("type")
-        .and_then(|written| match written.kind() {
-            "sized_type_specifier" => written.child_by_field_name("type"),
-            _ => Some(written),
-        })
+        .and_then(leading_type_word)
         .filter(|written| {
             let after = &source[written.end_byte()..];
             let gap = after
@@ -1331,6 +1328,15 @@ fn misread_data_macro(declaration: Node<'_>, source: &[u8]) -> Option<Range<usiz
         misread = misread.max(Misread::of_part(child));
     }
     (misread == Misread::Yes).then(|| written.byte_range())
+}
+
+/// The word that opens a declaration's type `written`, which is `written` itself or, where a macro opens it, `MACRO` of
+/// `MACRO unsigned`, the word the parser's `sized_type_specifier` holds.
+pub(crate) fn leading_type_word(written: Node<'_>) -> Option<Node<'_>> {
+    match written.kind() {
+        "sized_type_specifier" => written.child_by_field_name("type"),
+        _ => Some(written),
+    }
 }
 
 /// What a part of a declaration a macro opens shows, the worst of its parts deciding: no error, the error of a type

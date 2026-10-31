@@ -1504,6 +1504,67 @@ int defined_and_declared(int x) { return x; }
     }
 
     #[test]
+    fn a_macro_before_a_multi_word_return_type_keeps_the_function() {
+        let raw = extract(
+            b"STBIWDEF unsigned char *write_png_to_mem(const unsigned char *pixels, int stride_bytes)\n\
+              {\n\treturn 0;\n}\n\n\
+              MY_API unsigned int *make_uints(int n);\n\n\
+              OSSL_DEPRECATEDIN_3_0 unsigned char *MD5(const unsigned char *d, size_t n, unsigned char *md);\n\n\
+              static MY_API unsigned char *read_bytes(int n)\n{\n\treturn 0;\n}\n\n\
+              MY_API unsigned long long *read_longs(int n);\n\n\
+              MY_API unsigned int count(int n);\n\n\
+              MY_API const unsigned char *keep_const(int n);\n\n\
+              MY_API unsigned char *guarded_ GUARDED_BY(mtx);\n\n\
+              MY_API unsigned char *Buffer::data(int n)\n{\n\treturn 0;\n}\n\n\
+              namespace pack {\nMY_API unsigned char *encode(int n)\n{\n\treturn 0;\n}\n}\n\n\
+              void after(int n);\n",
+        );
+
+        assert_eq!(
+            qualified_names(&raw),
+            [
+                "write_png_to_mem",
+                "read_bytes",
+                "Buffer::data",
+                "pack::encode",
+                "make_uints",
+                "MD5",
+                "read_longs",
+                "count",
+                "keep_const",
+                "after"
+            ]
+        );
+        for name in [
+            "write_png_to_mem",
+            "make_uints",
+            "MD5",
+            "read_bytes",
+            "read_longs",
+            "count",
+            "keep_const",
+            "encode",
+            "after",
+        ] {
+            assert_eq!(symbol(&raw, name).kind, SymbolKind::Function, "{name}");
+            assert_eq!(symbol(&raw, name).owner, None, "{name}");
+        }
+        assert_eq!(symbol(&raw, "data").owner.as_deref(), Some("Buffer"));
+        assert!(!symbol(&raw, "read_bytes").exported);
+        assert_eq!(
+            symbol(&raw, "make_uints").signature.as_deref(),
+            Some("MY_API unsigned int *make_uints(int n)")
+        );
+        let keys: Vec<&str> = raw
+            .callables
+            .iter()
+            .map(|callable| callable.key.as_str())
+            .collect();
+        assert!(keys.contains(&"make_uints(int)"), "{keys:?}");
+        assert!(keys.contains(&"pack::encode(int)"), "{keys:?}");
+    }
+
+    #[test]
     fn a_macro_before_a_name_set_apart_from_its_parameters_keeps_the_name() {
         let raw = extract(
             b"namespace glm {\n\
