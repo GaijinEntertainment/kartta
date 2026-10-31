@@ -41,6 +41,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         module_uses: Vec::new(),
         builtin_calls: Vec::new(),
         type_names_end: 0,
+        calls_end: 0,
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
         raw: RawExtraction::default(),
     };
@@ -154,6 +155,9 @@ struct Emitter<'a> {
     /// Where the last annotation or list of bases the walk entered ends: a name the walk meets before it names a type
     /// as one.
     type_names_end: usize,
+    /// Where the farthest call the walk entered ends: a name the walk meets before it is an expression's, even inside
+    /// an annotation or a list of bases.
+    calls_end: usize,
     flags: SymbolFlags,
     raw: RawExtraction,
 }
@@ -648,6 +652,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn call(&mut self, node: Node<'_>, site_of: SymbolId) {
+        self.calls_end = self.calls_end.max(node.end_byte());
         let line = line(node.start_position().row);
         let at = node.start_byte();
         let source = self.source;

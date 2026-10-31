@@ -1218,6 +1218,76 @@ fn an_annotation_or_a_base_names_a_type_as_one_and_a_member_taken_through_a_clas
     );
 }
 
+#[test]
+fn a_call_in_an_annotation_or_in_a_list_of_bases_reads_the_names_around_its_callee() {
+    let raw = extract(
+        br#"import bpy
+
+rgb_options = []
+other_options = []
+LIMIT = 1
+
+class Foo:
+    pass
+
+class Panel:
+    rgb2: bpy.props.EnumProperty(items=rgb_options)
+    plain = bpy.props.EnumProperty(items=other_options)
+    bare: Foo
+    many: list[Foo]
+    quoted: "Foo"
+    tagged: Annotated[Foo, measure(wrap(LIMIT), width=Foo)]
+    chained: Registry[wrap(LIMIT)[Foo]]
+
+def run(*sizes: Sized(LIMIT), size: Foo = LIMIT) -> Sized(Foo):
+    pass
+
+class Capped(capped(Foo, LIMIT), Foo, metaclass=Foo):
+    pass
+"#,
+    );
+    let mut uses: Vec<(&str, &str, Access, u32)> = raw
+        .uses
+        .iter()
+        .map(|site| {
+            (
+                raw.symbols[site.site_of.0 as usize].name.as_str(),
+                site.name.as_str(),
+                site.access,
+                site.line,
+            )
+        })
+        .collect();
+    uses.sort_by_key(|&(_, name, access, line)| (line, name, access));
+
+    assert_eq!(
+        uses,
+        [
+            ("Panel", "props", Access::Read, 11),
+            ("Panel", "rgb_options", Access::Read, 11),
+            ("Panel", "other_options", Access::Read, 12),
+            ("Panel", "props", Access::Read, 12),
+            ("Panel", "Foo", Access::Type, 13),
+            ("Panel", "Foo", Access::Type, 14),
+            ("Panel", "Foo", Access::Read, 16),
+            ("Panel", "Foo", Access::Type, 16),
+            ("Panel", "LIMIT", Access::Read, 16),
+            ("Panel", "Foo", Access::Type, 17),
+            ("Panel", "LIMIT", Access::Read, 17),
+            ("run", "Foo", Access::Read, 19),
+            ("run", "Foo", Access::Type, 19),
+            ("run", "LIMIT", Access::Read, 19),
+            ("run", "LIMIT", Access::Read, 19),
+            ("Capped", "Foo", Access::Read, 22),
+            ("Capped", "Foo", Access::Type, 22),
+            ("Capped", "Foo", Access::Type, 22),
+            ("Capped", "LIMIT", Access::Read, 22),
+        ],
+        "a call's arguments and the path to its callee are read wherever the call sits, and a name outside the call, \
+         a subscript's included, still names a type; a string annotation records nothing"
+    );
+}
+
 fn doc_line(source: &str, name: &str) -> u32 {
     let line = named(&extract(source.as_bytes()), name).line;
     let lines: Vec<&[u8]> = source.lines().map(str::as_bytes).collect();
