@@ -15,14 +15,16 @@ const FILE_MARKER: &str = "\u{1}F";
 const UP_MARKER: &str = "\u{1}U";
 
 // constraint: a string, `__DIR__`, `__FILE__`, a `.` concatenation of those and `dirname` of one fold to a path; any
-// other operand, a variable or an interpolated string among them, folds to nothing
+// other operand, a variable or an interpolated string among them, folds to nothing; PHP's scanner matches both
+// constants in any letter case and lowers a function's name before its lookup, so those names match in any ASCII case,
+// while it compares a named argument's name exactly
 pub(crate) fn fold(node: Node<'_>, source: &[u8]) -> Option<String> {
     match node.kind() {
         "parenthesized_expression" => fold(node.named_child(0)?, source),
         "string" | "encapsed_string" => string_literal(node, source),
         "name" => match &source[node.byte_range()] {
-            b"__DIR__" => Some(DIR_MARKER.to_owned()),
-            b"__FILE__" => Some(FILE_MARKER.to_owned()),
+            name if name.eq_ignore_ascii_case(b"__DIR__") => Some(DIR_MARKER.to_owned()),
+            name if name.eq_ignore_ascii_case(b"__FILE__") => Some(FILE_MARKER.to_owned()),
             _ => None,
         },
         "binary_expression" => {
@@ -94,7 +96,9 @@ fn dirname(call: Node<'_>, source: &[u8]) -> Option<String> {
     let function = call.child_by_field_name("function")?;
     // constraint: PHP resolves `\dirname` to the global function in any namespace, and `Foo\dirname` into `Foo`; the
     // fold does not read the namespace `namespace\dirname` depends on, so it folds that to nothing
-    if !matches!(&source[function.byte_range()], b"dirname" | b"\\dirname") {
+    let name = &source[function.byte_range()];
+    let name = name.strip_prefix(b"\\").unwrap_or(name);
+    if !name.eq_ignore_ascii_case(b"dirname") {
         return None;
     }
     let (path, levels) = dirname_arguments(call.child_by_field_name("arguments")?, source)?;
