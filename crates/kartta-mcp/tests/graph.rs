@@ -2718,6 +2718,35 @@ fn index_stats_counts_how_the_calls_bind_when_asked_for_coverage() {
 }
 
 #[test]
+fn coverage_counts_a_call_through_a_type_over_an_import_as_external() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module example.com/b\n\ngo 1.22\n"),
+        (
+            "b.go",
+            "package b\n\nimport \"net/http\"\n\ntype H http.Handler\n\n\
+             func viaDefinedExternal(h H) {\n\th.ServeHTTP(nil, nil)\n}\n",
+        ),
+        (
+            "held.go",
+            "package b\n\ntype S struct{}\n\nfunc (S) M() {}\n\ntype T S\n\n\
+             func viaDefinedHeld(t T) {\n\tt.M()\n}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("index_stats", &json!({"coverage": true}));
+
+    assert!(
+        answer.contains(
+            r#"<coverage lang="go" sites="2" bound="0" edges="0" external_import="1" not_admitted="1" "#
+        ),
+        "the imported type's member lies outside the graph, and the held type refuses its own: {answer}"
+    );
+}
+
+#[test]
 fn a_wrong_call_answers_a_tool_error() {
     let tree = go_module();
     let mut client = Client::start(&[]);
