@@ -10,17 +10,17 @@
 //! constructor parameter promotes, an enum case and a closure assigned to a variable are symbols. A declaration is
 //! qualified by the namespace in effect, `App\Service`, and a member by its type as well, `App\Service::greet`; its
 //! owner is the type's bare name, `Service`. An anonymous class is an unexported class named by the names that lead
-//! to it, joined by `·` in braces: the callable that creates it, with that callable's owner, and the variable or
-//! property it is assigned to, `{Suite·testRun·job}` for `$job = new class {}` in `Suite::testRun`, or `{class}` where
-//! no name leads to it. A name the file has given already takes a count, `{Suite·testRun·2}`. Its members are owned
-//! by that name, `App\{Suite·testRun·job}::handle`, and its creation is a call of it. A class takes the class it
+//! to it, joined by `·` in braces: the callable that creates it and the variable or property it is assigned to,
+//! `{testRun·job}` for `$job = new class {}` in `Suite::testRun`, or `{class}` where no name leads to it. A name the
+//! file has given already takes a count, `{testRun·2}`. Its members are owned by that name,
+//! `App\{testRun·job}::handle`, and its creation is a call of it. A class takes the class it
 //! extends, the interfaces it implements and the traits it `use`s as parents, and an interface the interfaces it
 //! extends. A member is exported unless it is `private`.
 //!
 //! A call records its receiver: the variable of a member call, `$this` or `$svc`, the scope of a static call, `Logger`,
 //! `self` or `parent`, and the empty receiver where that is an expression, `$this->pool->get()`. A call on a variable
 //! that its callable last assigned an anonymous class to records that class's name as its receiver, `$job->handle()`
-//! the receiver `{Suite·testRun·job}`. A qualified scope,
+//! the receiver `{testRun·job}`. A qualified scope,
 //! `\App\Logger::log()`, is the receiver `Logger`, the bare name that owns the member. A qualified function call,
 //! `\App\run()`, and a construction, `new \App\User()`, call the last segment of the name. `new self`,
 //! `new static` and `new parent` call nothing. A closure assigned to a variable, `$f = function () {}`, makes the calls
