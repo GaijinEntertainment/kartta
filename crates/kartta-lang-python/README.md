@@ -17,8 +17,11 @@ starts with `_` is not exported.
 
 Inside a definition, a class body included, and outside every definition, at file scope, each read, write and update
 of an attribute or a module-level value is a data site; where the module binds a name is no site of it. An attribute on
-a method's first parameter binds the class around the method, or a base found without a guess; on a name no function
-around it binds, a class or a module, a member of that owner; on anything else the one field of the name the file
+a method's first parameter binds the class around the method, or a base found without a guess. One on a name that
+neither a function around it nor the class body it is read in binds, or that a `global` declaration gives the module,
+takes that name as its owner path where the module binds it to a class, a `def` or an import, or binds it not at all,
+and binds only a member of an owner of that name. On anything else, a value the module binds, a name those scopes bind
+or an expression that is no name, the path is empty, and the attribute binds the one field of the name the file
 declares. A name that no function around it binds, or that a `global` declaration gives the module, uses the module's
 name wherever the module binds it, by an import, an assignment, a `def` or a `class`, and binds the declaration in the
 file or the one imported module that declares it.
