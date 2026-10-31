@@ -3649,8 +3649,7 @@ fn the_caller_s_owner_binds_no_class_of_its_name_in_another_scope() {
 }
 
 #[test]
-fn a_bare_receiver_naming_no_class_of_the_graph_binds_through_includes_alone_where_it_names_a_class()
- {
+fn a_bare_receiver_naming_no_class_of_the_graph_binds_nothing_where_it_names_a_class() {
     let callees_of = |bare_receivers: BareReceivers, callee: &str, receiver: &str| {
         let mut conventions = Conventions::default();
         conventions.own_members = OwnMembers::Unreached;
@@ -3700,8 +3699,13 @@ fn a_bare_receiver_naming_no_class_of_the_graph_binds_through_includes_alone_whe
     );
     assert_eq!(
         callees_of(classes, "boot", "Eloquent"),
-        ["b/model.php:2@70"],
-        "a class the file imports under another name binds through the import"
+        Vec::<String>::new(),
+        "a class outside the graph has no member in a file the caller's file includes"
+    );
+    assert_eq!(
+        callees_of(classes, "boot", "Model"),
+        ["b/model.php:2@85"],
+        "a class the graph holds binds its member"
     );
     assert_eq!(
         callees_of(classes, "query", "Model"),

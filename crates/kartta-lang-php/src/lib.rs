@@ -44,7 +44,9 @@
 //! the root, or else from the one file whose path ends in it, for any other. A path built from a variable includes
 //! nothing. A `use` includes the file that the PSR-4 autoload of the repository's `composer.json` files maps its name
 //! to, or else, for a `use function` or a `use const`, the file it maps the name's namespace to; a `use` that maps to
-//! no file of the repository is an import as written.
+//! no file of the repository is an import as written. A call on the alias of a `use` that maps to a file has the
+//! class's last name as its receiver, `Model` for `Eloquent::boot()` after `use App\Model as Eloquent;`; the alias of
+//! any other `use` has the class's name from the root, `\Vendor\Thing`, which no symbol is named.
 //!
 //! A file whose name ends in `Test.php`, or under a `test` or `tests` directory in any case, is test code. A file
 //! named `*.generated.php` or `*_pb.php`, or whose leading comments carry `@generated` or `DO NOT EDIT`, is generated
