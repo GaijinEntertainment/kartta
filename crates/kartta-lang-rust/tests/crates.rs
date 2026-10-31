@@ -416,10 +416,7 @@ fn a_path_into_a_workspace_crate_binds_the_module_file_its_segments_name() {
         got,
         [
             binding("crates/lang/src/tree.rs", "text"),
-            ImportBinding {
-                alias: Some("paths".to_owned()),
-                ..binding("crates/lang/src/path/mod.rs", "path")
-            },
+            binding("crates/lang/src/path/mod.rs", "paths"),
             binding("crates/walk/walk.rs", "walk"),
         ]
     );
