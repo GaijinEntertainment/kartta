@@ -4,7 +4,8 @@ use std::rc::Rc;
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    CallsOnValues, InheritedMembers, MemberCalls, SymbolKind, UnlistedReceivers, UntypedOwners,
+    CallsOnValues, InheritedMembers, MemberCalls, ReceiverMembers, SymbolKind, UnlistedReceivers,
+    UntypedOwners,
 };
 
 use crate::candidates::Candidates;
@@ -1390,6 +1391,9 @@ impl Cascade<'_> {
         candidates: &Candidates<'_>,
     ) -> Option<SymbolAt> {
         let receiver = self.named_receiver(call)?;
+        if let Some(at) = self.member_above_the_receiver_s_class(call, receiver, candidates) {
+            return Some(at);
+        }
         if let Some(rooted) = self.rooted_constant(receiver) {
             let owner = self.graph.strings.get(rooted)?;
             return self.nearest(
@@ -1414,6 +1418,42 @@ impl Cascade<'_> {
             return None;
         }
         self.nearest(call, std::iter::once(first).chain(ending))
+    }
+
+    // constraint: an interface hands a class only a declaration, which a body any type above the class holds fulfils
+    // however far up it stands, and an interface of a parent's name is no parent where a class of that name stands as
+    // near, so the walk over the types that hold bodies goes first
+    /// What [`ReceiverMembers::Inherited`] binds: the member of the name that the nearest type above the receiver's
+    /// class holds, where the class holds none itself.
+    fn member_above_the_receiver_s_class(
+        &self,
+        call: &Call,
+        receiver: Str,
+        candidates: &Candidates<'_>,
+    ) -> Option<SymbolAt> {
+        if self.conventions.receiver_members != ReceiverMembers::Inherited {
+            return None;
+        }
+        let class = self.receiver_class(call, receiver)?;
+        if self.held_by(class, candidates).is_some() {
+            return None;
+        }
+        let walk = |admitted: fn(SymbolKind) -> bool| {
+            let parents = self.parents_of(&[class], admitted);
+            self.nearest_holder((class, parents), candidates, admitted)
+        };
+        walk(holds_a_body).or_else(|| walk(|_| true))
+    }
+
+    /// The class a receiver names: the caller's own for a receiver the language writes for a value of that type, else
+    /// the class of the receiver's name nearest the call.
+    fn receiver_class(&self, call: &Call, receiver: Str) -> Option<SymbolAt> {
+        let written = self.graph.strings.resolve(receiver);
+        if (self.conventions.own_type_receivers).is_some_and(|own| own.contains(&written)) {
+            return self.class_of(call.caller_at());
+        }
+        let located = self.located_types(receiver, call.file, |_| true);
+        self.nearest_of(call, located.into_iter())
     }
 
     /// Whether the call's receiver, at its last segment, spells the owner of `at` in any case: `session` or

@@ -73,7 +73,7 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{
     BareReceivers, BlockComment, Conventions, DocComments, Language, OwnMembers, RawExtraction,
-    Repository, Resolver, SymbolKind, TypeUses, UnlistedReceivers,
+    ReceiverMembers, Repository, Resolver, SymbolKind, TypeUses, UnlistedReceivers,
 };
 
 use crate::resolve::Autoload;
@@ -107,6 +107,7 @@ const CONVENTIONS: Conventions = {
     conventions.unrecorded_data = &[SymbolKind::Field, SymbolKind::Constant];
     conventions.bare_receivers = BareReceivers::Classes(&["parent", "self", "static"]);
     conventions.base_receivers = &["parent"];
+    conventions.receiver_members = ReceiverMembers::Inherited;
     conventions.own_type_receivers = Some(&["$this", "self", "static"]);
     conventions.unlisted_receivers = UnlistedReceivers::OwnMemberAsGuess;
     conventions
