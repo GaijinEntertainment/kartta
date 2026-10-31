@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use kartta_lang::tree::text;
-use kartta_lang::{Access, Receiver, UseRef};
+use kartta_lang::{Access, CallRef, Receiver, UseRef};
 use tree_sitter::Node;
 
 use super::data::data_declarator;
@@ -473,13 +473,55 @@ impl<'s, 't> Replayer<'s, 't> {
     }
 
     fn record_initialized_field(&mut self, node: Node<'_>) {
-        if let Some(field) = node
-            .named_child(0)
-            .filter(|field| field.kind() == "field_identifier")
-        {
-            let name = text(field, self.source);
-            self.push_site(field, (name, Receiver::Own, Access::Write));
+        let Some(written) = node.named_child(0) else {
+            return;
+        };
+        if written.kind() == "field_identifier" {
+            let name = text(written, self.source);
+            if self.class_derives_from(&name) {
+                self.push_base_call(name.clone(), written);
+            }
+            self.push_site(written, (name, Receiver::Own, Access::Write));
+        } else if let Some(base) = scoped_initializer(written) {
+            let name = text(base, self.source);
+            let names_a_namesake = written.kind() == "qualified_identifier"
+                && self.callers_owner() == Some(name.as_str());
+            let callee = if names_a_namesake {
+                let class = &self.source[written.start_byte()..base.end_byte()];
+                format!("{}::{name}", String::from_utf8_lossy(class))
+            } else {
+                name
+            };
+            self.push_base_call(callee, written);
         }
+    }
+
+    // constraint: a constructor defined outside its class body sees no class, which usually lives in a header, so its
+    // bare names stay writes
+    fn class_derives_from(&self, name: &str) -> bool {
+        self.classes.last().is_some_and(|scope| {
+            self.raw.symbols[scope.id.0 as usize]
+                .parents
+                .iter()
+                .any(|parent| parent.rsplit("::").next() == Some(name))
+        })
+    }
+
+    // constraint: an initializer of the caller's own name delegates, or names another specialization of the caller's
+    // template as its base, and a bare call of that name binds the caller
+    fn push_base_call(&mut self, callee: String, at: Node<'_>) {
+        if self.is_template_parameter(&callee) || self.callers_owner() == Some(callee.as_str()) {
+            return;
+        }
+        self.raw.calls.push(CallRef {
+            site_of: self.caller(),
+            callee,
+            calls_a_method: false,
+            receiver: None,
+            line: line(at.start_position().row),
+            invokes_a_macro: false,
+            arguments: 0,
+        });
     }
 
     fn record_designated_field(&mut self, node: Node<'_>) {
@@ -561,6 +603,18 @@ pub(super) fn body_start(definition: Node<'_>) -> usize {
     initializers
         .or_else(|| definition.child_by_field_name("body"))
         .map_or_else(|| definition.end_byte(), |body| body.start_byte())
+}
+
+/// The bare name of a base an initializer spells with a scope or a template's arguments, `B` for `ns::B<int>`, which a
+/// field's name takes neither of.
+fn scoped_initializer(written: Node<'_>) -> Option<Node<'_>> {
+    match written.kind() {
+        "field_identifier" => Some(written),
+        "qualified_identifier" | "template_method" => {
+            scoped_initializer(written.child_by_field_name("name")?)
+        }
+        _ => None,
+    }
 }
 
 fn borrowed<'s>(source: &'s [u8], node: Node<'_>) -> Option<&'s str> {

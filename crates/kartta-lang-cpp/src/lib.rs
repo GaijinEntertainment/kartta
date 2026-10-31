@@ -94,7 +94,9 @@
 //! scope keeps the scope as written, `ns::f`, and one through the root keeps the `::`, `::f`.
 //! `new ns::Widget<T>()` is a call of `Widget`. A cast, a call spelled by a type keyword, and a call or a `new` of a
 //! parameter of an enclosing template, `Compare()` in a template over `Compare`, are not recorded. A call outside every
-//! function is a call from file scope, before the file's first symbol too.
+//! function is a call from file scope, before the file's first symbol too. A name in a constructor's initializer list
+//! is a call of its bare name where it spells a scope or a template's arguments, or where the class around the
+//! constructor derives from a class of that name, unless it names the caller's own class.
 //!
 //! # Uses
 //!
