@@ -474,8 +474,8 @@ pub enum TypeUses {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum DataUses {
     /// Where some code reads or writes one, or nowhere: code can read or write one where the language records no use,
-    /// as a Python module's top level reads a variable and a C macro's expansion a field, so such a definition that no
-    /// use names may still be used.
+    /// as a Python framework reads a class's attribute by its name and a C macro's expansion a field, so such a
+    /// definition that no use names may still be used.
     #[default]
     Partial,
     /// Wherever code reads or writes one that is not local to a body, as Go's extraction records a selector, a
