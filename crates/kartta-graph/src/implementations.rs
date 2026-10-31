@@ -350,8 +350,11 @@ impl Types<'_> {
     }
 
     fn owners_reached(&self, file: u32, owner: Str, asked: Namesakes<'_>) -> Vec<SymbolAt> {
-        let imported = (self.cascade.conventions.value_uses == ValueUses::Imported)
-            .then(|| self.cascade.closure(file));
+        let imported = matches!(
+            self.cascade.conventions.value_uses,
+            ValueUses::Imported | ValueUses::Expanded
+        )
+        .then(|| self.cascade.closure(file));
         asked
             .types
             .iter()

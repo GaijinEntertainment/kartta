@@ -62,6 +62,9 @@ pub const RE_EXPORT: u8 = 65;
 /// the callable's owner, and otherwise at [`FIRST_PARTY`]: `found.start()` binds `Watcher::start` as a guess. A call
 /// from outside test code binds no test definition here, and a test definition still counts among the definitions of
 /// its name, except against the one type outside test code, which such a call binds.
+///
+/// A bare use under [`ValueUses::Expanded`](kartta_lang::ValueUses::Expanded) binds here the one definition the files
+/// including its file bind the name to.
 pub const UNIQUE: u8 = 60;
 /// A definition a macro invocation writes binds at a tier this high at most, and none below [`SAME_DIR`].
 ///
