@@ -1605,9 +1605,13 @@ impl Cascade<'_> {
         child: SymbolAt,
         admitted: fn(SymbolKind) -> bool,
     ) -> Vec<SymbolAt> {
-        let mut located = self.located_types(base.owner, child.file, |ty| {
-            ty != child && admitted(self.graph.sym(ty).kind)
-        });
+        let admits = |ty: SymbolAt| ty != child && admitted(self.graph.sym(ty).kind);
+        if base.written_from_root {
+            let mut located = self.located_base_types(base, child);
+            located.retain(|&ty| admits(ty));
+            return located;
+        }
+        let mut located = self.located_types(base.owner, child.file, admits);
         if located
             .first()
             .is_some_and(|&ty| self.distance_from(child.file)(ty) == FAR)
