@@ -44,8 +44,8 @@
 //! which keeps every lookup free of writes. A pack is rewritten without its expired entries once they hold half of
 //! its payload bytes, or when it is merged anyway; until then a lookup still finds them, which serves nothing wrong,
 //! since an entry's key names exactly what it was computed from. The merge also removes the temporary files of writers
-//! that never published, an hour after they were last written, and the packs of another format version once they are
-//! older than both the time to live and an hour.
+//! that never published, once an hour has passed since they were last written and no writer holds their lock, and the
+//! packs of another format version once they are older than both the time to live and an hour.
 //!
 //! # Examples
 //!

@@ -133,9 +133,9 @@ pub struct BuildOptions {
     /// entry every build finds is computed again at most once per time to live; a shorter one holds the directory
     /// closer to what the trees sharing it contain, and recomputes more often. A pack that holds expired entries is
     /// rewritten without them once they make up half of its payload bytes, and until then they are still found. The
-    /// same merge removes the temporary files of builds killed before they published, an hour after their last write,
-    /// and the packs of another cache format once both the time to live and an hour have passed since their last
-    /// write.
+    /// same merge removes the temporary files of builds that never published, once an hour has passed since their last
+    /// write and no writer holds their lock, and the packs of another cache format once both the time to live and an
+    /// hour have passed since their last write.
     pub content_cache_ttl: Duration,
     /// Whether the index keeps a stamp of each file the build reads — the time it last changed, eight bytes a file — so
     /// that [`Index::refresh`](crate::Index::refresh) reads again only the files that changed since. `false`, the
