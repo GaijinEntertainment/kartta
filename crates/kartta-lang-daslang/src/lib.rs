@@ -24,6 +24,12 @@
 //! position record nothing. A block applied to a field, `obj.handler { ... }` or `obj.handler <| ${ ... }`, is a call
 //! of `handler` on `obj`.
 //!
+//! A call also counts the arguments it passes, and a `def` the parameters it takes, so a call binds no `def` that takes
+//! fewer: a native overload of a script function's name passes what the script function cannot take. A value a pipe or
+//! a trailing block gives a call counts, a member call's object counts, and a `def` under `[class_method]` or
+//! `[explicit_const_class_method]` takes the `self` the macro gives it. A construction counts nothing, so it binds by
+//! its name alone, and a count stops at `u8::MAX`.
+//!
 //! A block applied in place — the argument of a call or a pipe — runs in its enclosing `def`, so its calls are that
 //! `def`'s. A block or a local function stored in a name runs when the value is called, so its calls belong to no
 //! symbol, and the graph drops them.

@@ -1,3 +1,5 @@
+use std::num::NonZeroU16;
+
 use kartta_lang::tree::{child_nodes, line, preorder, signature, text};
 use kartta_lang::{
     Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol,
@@ -45,12 +47,14 @@ const COMPILE_HINTS: [&str; 28] = [
     "unused_argument",
 ];
 
+const SELF_MACROS: [&str; 2] = ["class_method", "explicit_const_class_method"];
+
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     if !opts_into_gen2(tree.root_node(), source) {
         return RawExtraction::default();
     }
 
-    let mut emitter = Emitter::new(source);
+    let mut emitter = Emitter::new(tree, source);
     preorder(tree.root_node(), |node| {
         if node.is_named() {
             emitter.handle(node);
@@ -150,17 +154,24 @@ struct Emitter<'a> {
     scopes: Vec<Scope>,
     types: Vec<TypeScope>,
     data_spans: Vec<DataSpan>,
+    piped: Vec<usize>,
+    arguments: Option<NonZeroU16>,
+    non_named_arguments: Option<NonZeroU16>,
     flags: SymbolFlags,
     raw: RawExtraction,
 }
 
 impl<'a> Emitter<'a> {
-    fn new(source: &'a [u8]) -> Self {
+    fn new(tree: &Tree, source: &'a [u8]) -> Self {
+        let language = tree.language();
         Self {
             source,
             scopes: Vec::new(),
             types: Vec::new(),
             data_spans: Vec::new(),
+            piped: Vec::new(),
+            arguments: language.field_id_for_name("arguments"),
+            non_named_arguments: language.field_id_for_name("non_named_arguments"),
             flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
             raw: RawExtraction::default(),
         }
@@ -215,6 +226,7 @@ impl<'a> Emitter<'a> {
             "new_expression" => self.new_call(node),
             "invoke" => self.member_call(node),
             "pipe" => {
+                self.piped_head(node);
                 self.block_call(node);
                 self.data_block(node);
             }
@@ -300,6 +312,7 @@ impl<'a> Emitter<'a> {
         symbol.exported = !is_private(node);
         symbol.signature = arrow_trimmed_signature(node, self.source);
         symbol.flags = symbol.flags.with_entry(is_registered(node, self.source));
+        symbol.most_arguments = parameters(node, self.source);
         let id = self.raw.push_symbol(symbol);
         self.scopes.push(Scope {
             end: node.end_byte(),
@@ -416,7 +429,8 @@ impl<'a> Emitter<'a> {
         if let Some(callee) = node.child_by_field_name("name") {
             self.data_arguments(node, callee);
             let (callee, receiver) = callee_parts(callee, self.source);
-            self.push_call(callee, receiver, node);
+            let passed = self.passed(node);
+            self.push_call((callee, receiver), node, passed);
         }
     }
 
@@ -522,8 +536,7 @@ impl<'a> Emitter<'a> {
             return;
         }
         if let Some(type_name) = node.child_by_field_name("make_type").and_then(nominal_type) {
-            let (callee, receiver) = callee_parts(type_name, self.source);
-            self.push_call(callee, receiver, node);
+            self.push_call(callee_parts(type_name, self.source), node, 0);
         }
     }
 
@@ -534,8 +547,7 @@ impl<'a> Emitter<'a> {
             .child_by_field_name("type_expression")
             .and_then(nominal_type);
         if let Some(type_name) = type_name {
-            let (callee, receiver) = callee_parts(type_name, self.source);
-            self.push_call(callee, receiver, node);
+            self.push_call(callee_parts(type_name, self.source), node, 0);
         }
     }
 
@@ -544,8 +556,42 @@ impl<'a> Emitter<'a> {
             let receiver = node
                 .child_by_field_name("value")
                 .map(|object| member_receiver(object, self.source));
-            self.push_call(method, receiver, node);
+            let passed = self.passed(node).saturating_add(1);
+            self.push_call((method, receiver), node, passed);
         }
+    }
+
+    // constraint: `a |> f(b)`, `f(a) <| b` and `f(a) { b }` pass the piped value to the call at the pipe's head, whose
+    // node the walk reaches after the pipe's
+    fn piped_head(&mut self, pipe: Node<'_>) {
+        let head = pipe
+            .child_by_field_name("function_call")
+            .filter(|head| matches!(head.kind(), "call" | "named_call" | "invoke"));
+        if let Some(head) = head {
+            self.piped.push(head.id());
+        }
+    }
+
+    // constraint: a parameter takes one argument wherever it is written, so a call's own list and the pipe at its head
+    // count alike; a count past `u8::MAX` is cut, and a cut count never turns a definition away
+    fn passed(&mut self, call: Node<'_>) -> u8 {
+        let piped = self.piped.iter().position(|&head| head == call.id());
+        if let Some(at) = piped {
+            self.piped.swap_remove(at);
+        }
+        let mut written = 0_usize;
+        let mut cursor = call.walk();
+        let mut more = cursor.goto_first_child();
+        while more {
+            let field = cursor.field_id();
+            written += usize::from(
+                (field == self.arguments || field == self.non_named_arguments)
+                    && cursor.node().is_named(),
+            );
+            more = cursor.goto_next_sibling();
+        }
+
+        u8::try_from(written + usize::from(piped.is_some())).unwrap_or(u8::MAX)
     }
 
     // constraint: `obj.handler { ... }` and `obj.handler <| ${ ... }` are a `pipe` whose head is a `field` no call
@@ -571,7 +617,7 @@ impl<'a> Emitter<'a> {
         let receiver = head
             .child_by_field_name("value")
             .map(|object| member_receiver(object, self.source));
-        self.push_call(callee, receiver, node);
+        self.push_call((callee, receiver), node, 2);
     }
 
     // constraint: a block bound to a name runs when the value is called later, so its body's calls are no call of
@@ -614,7 +660,12 @@ impl<'a> Emitter<'a> {
         self.raw.push_symbol(symbol);
     }
 
-    fn push_call(&mut self, callee: String, receiver: Option<String>, node: Node<'_>) {
+    fn push_call(
+        &mut self,
+        (callee, receiver): (String, Option<String>),
+        node: Node<'_>,
+        arguments: u8,
+    ) {
         if callee.is_empty() {
             return;
         }
@@ -627,7 +678,7 @@ impl<'a> Emitter<'a> {
             line: start_line(node),
             invokes_a_macro: false,
             calls_a_method: false,
-            arguments: 0,
+            arguments,
         });
     }
 
@@ -667,6 +718,23 @@ impl<'a> Emitter<'a> {
 // constraint: `def f() => expr` keeps the expression as its body, so the signature would end in a dangling `=>`
 fn arrow_trimmed_signature(node: Node<'_>, source: &[u8]) -> Option<String> {
     signature(node, source).map(|header| header.trim_end_matches("=>").trim_end().to_owned())
+}
+
+// constraint: one parameter list entry declares every name it lists, `def f(a, b : int)`, and the `class_method` macros
+// of `daslib/class_boost` give a `def static` the `self` it does not write
+fn parameters(function: Node<'_>, source: &[u8]) -> u8 {
+    let mut entries = function.walk();
+    let names = function
+        .children_by_field_name("arguments", &mut entries)
+        .filter(Node::is_named)
+        .map(|entry| {
+            let mut cursor = entry.walk();
+            entry.children_by_field_name("name", &mut cursor).count()
+        })
+        .sum::<usize>();
+    let own_self = is_annotated(function, source, |name| SELF_MACROS.contains(&name));
+
+    u8::try_from(names + usize::from(own_self)).unwrap_or(u8::MAX)
 }
 
 fn data_macro_named(name: Node<'_>, source: &[u8]) -> Option<DataMacro> {
@@ -738,16 +806,17 @@ fn is_private(node: Node<'_>) -> bool {
 }
 
 fn is_registered(function: Node<'_>, source: &[u8]) -> bool {
+    is_annotated(function, source, |name| !COMPILE_HINTS.contains(&name))
+}
+
+fn is_annotated(function: Node<'_>, source: &[u8], is_it: impl Fn(&str) -> bool) -> bool {
     function
         .child_by_field_name("annotations")
         .is_some_and(|list| {
             child_nodes(list)
                 .filter(|annotation| annotation.kind() == "annotation_declaration")
                 .filter_map(|annotation| annotation.child_by_field_name("name"))
-                .any(|name| {
-                    name.utf8_text(source)
-                        .is_ok_and(|name| !COMPILE_HINTS.contains(&name))
-                })
+                .any(|name| name.utf8_text(source).is_ok_and(&is_it))
         })
 }
 
