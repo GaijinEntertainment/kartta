@@ -260,6 +260,7 @@ impl<'a> Emitter<'a> {
         &mut self,
         Frame {
             end,
+            caller,
             kind,
             bindings,
             calls,
@@ -270,7 +271,11 @@ impl<'a> Emitter<'a> {
         if kind == FrameKind::Class {
             self.declare_attributes(end);
         }
-        self.settle_uses(&bindings, uses);
+        self.settle_uses(
+            &bindings,
+            (kind == FrameKind::Class).then_some(caller),
+            uses,
+        );
         let binds_locals = kind == FrameKind::Function || self.in_function();
         for call in calls {
             let binding = bindings
