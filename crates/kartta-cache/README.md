@@ -37,9 +37,9 @@ is given — `DEFAULT_TTL`, a week, unless the caller picks another. A lookup do
 build finds expires once per time to live and the next build computes it again, and no lookup ever writes. A pack is
 rewritten without its expired entries once they hold half of its payload bytes, or when the merge takes it anyway;
 until then they are still found, which serves nothing wrong. The merge also removes the temporary files of writers that
-never published, an hour after their last write, and the packs of another format version once they are older than both
-the time to live and an hour. `Merged` counts what it removed by age, and what is past its time to live but still in
-place.
+never published, once an hour has passed since they were last written and no writer holds their lock, and the packs of
+another format version once they are older than both the time to live and an hour. `Merged` counts what it removed by
+age, and what is past its time to live but still in place.
 
 `design-docs/adr/2.1-shared-cache-store.md` records the store's rules and why the
 alternatives were rejected, and `design-docs/adr/2.4-cache-pack-merge.md` the merge's;
