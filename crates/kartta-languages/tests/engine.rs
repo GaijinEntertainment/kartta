@@ -2704,6 +2704,107 @@ fn a_daslang_call_qualified_by_a_native_module_is_a_call_outside_the_graph() {
     );
 }
 
+#[test]
+fn a_daslang_qualifier_that_names_nothing_is_a_call_outside_the_graph() {
+    let tree = tree_of(&[
+        (
+            "lib.das",
+            "options gen2\nmodule lib shared public\n\ndef helper(a : int) {\n    return a;\n}\n",
+        ),
+        (
+            "a.das",
+            "options gen2\n\ndef run() {\n    other::helper(1);\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(callees(&engine, "a.das", "run"), (vec![], 1));
+    let [(_, resolution)] = engine
+        .resolution(usize::MAX)
+        .try_into()
+        .expect("one family");
+    let misses: Vec<_> = (resolution.unbound.iter())
+        .map(|unbound| (unbound.callee, unbound.miss))
+        .collect();
+    assert_eq!(misses, [("helper", Miss::ExternalImport)]);
+}
+
+#[test]
+fn a_daslang_call_through_a_native_module_another_module_requires_binds_no_wrapper() {
+    let tree = tree_of(&[
+        (
+            "boost.das",
+            "options gen2\nmodule boost shared public\nrequire imgui public\n\n\
+             def Begin(name : string) {\n    return imgui::Begin(name)\n}\n",
+        ),
+        (
+            "a.das",
+            "options gen2\nmodule a\nrequire boost\n\n\
+             def Begin(name : string) {\n    return 0\n}\n\n\
+             def run() {\n    imgui::Begin(\"x\")\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(callees(&engine, "a.das", "run"), (vec![], 1));
+}
+
+#[test]
+fn a_daslang_call_into_a_module_of_an_older_syntax_binds_no_namesake() {
+    let tree = tree_of(&[
+        (
+            "modules/old.das",
+            "module old shared\n\ndef play()\n  return 1\n",
+        ),
+        (
+            "other.das",
+            "options gen2\nmodule other\n\ndef play() {\n    return 2\n}\n",
+        ),
+        (
+            "a.das",
+            "options gen2\nrequire modules.old\n\ndef run() {\n    old::play()\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    assert_eq!(callees(&engine, "a.das", "run"), (vec![], 1));
+}
+
+#[test]
+fn a_daslang_qualifier_the_graph_can_read_keeps_its_binding() {
+    let tree = tree_of(&[
+        (
+            "lib.das",
+            "options gen2\nmodule lib shared public\n\ndef helper(a : int) {\n    return a;\n}\n",
+        ),
+        (
+            "a.das",
+            "options gen2\nmodule a\nrequire lib\n\nstruct Pool {\n    size : int\n}\n\n\
+             def own() {\n    return 1\n}\n\n\
+             def through_module() {\n    lib::helper(1)\n}\n\n\
+             def through_own() {\n    a::own()\n}\n\n\
+             def through_compiling_scope() {\n    _::own()\n}\n\n\
+             def through_a_type() {\n    Pool::own()\n}\n\n\
+             def on_a_value(value : int) {\n    value.helper()\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["daslang"]);
+
+    let helper = ("helper", SymbolKind::Function, "lib.das");
+    let own = ("own", SymbolKind::Function, "a.das");
+    assert_eq!(
+        callees(&engine, "a.das", "through_module"),
+        (vec![helper], 0)
+    );
+    assert_eq!(callees(&engine, "a.das", "through_own"), (vec![own], 0));
+    assert_eq!(
+        callees(&engine, "a.das", "through_compiling_scope"),
+        (vec![own], 0)
+    );
+    assert_eq!(callees(&engine, "a.das", "through_a_type"), (vec![own], 0));
+    assert_eq!(callees(&engine, "a.das", "on_a_value"), (vec![helper], 0));
+}
+
 fn alias_tree(requires: &str, body: &str) -> TempDir {
     let source = format!(
         "options gen2\n{requires}\n\ndef helper {{\n    return 2\n}}\n\n\
