@@ -61,8 +61,9 @@
 //! starts with `./` or `../` names the file relative to the importer. A dotted or slashed specifier, `daslib/strings`
 //! or `engine.core.mesh`, reads its dots as slashes and names the first file it reaches under the importer's
 //! directories, nearest first, then the one file anywhere whose path ends with it, then the one file named for its last
-//! component. A bare name names the one file named for it. A specifier two files could satisfy names neither, and
-//! every match is case-sensitive, as the compiler's is. The file a `require` or an `include` names is an include; one
+//! component. A bare name names the file of its name beside the importer, as the compiler's default lookup reads it,
+//! then the one file named for it. A specifier two files could satisfy at one step names neither, and every match is
+//! case-sensitive, as the compiler's is. The file a `require` or an `include` names is an include; one
 //! that names no file is an import, kept as written. A module no file is named for, most often one compiled into the
 //! runtime, lies outside the repository, so a call that a `require` of it qualifies lies outside the graph.
 //!

@@ -32,7 +32,10 @@ impl Modules<'_> {
 
         let stem = spec.strip_suffix(".das").unwrap_or(&spec);
         if !stem.contains(['/', '.']) {
-            return self.unique_named(&format!("{stem}.das"));
+            let name = format!("{stem}.das");
+            return join(dir(path), &name)
+                .and_then(|sibling| self.probe(&sibling))
+                .or_else(|| self.unique_named(&name));
         }
 
         let module_path = stem.replace('.', "/");
