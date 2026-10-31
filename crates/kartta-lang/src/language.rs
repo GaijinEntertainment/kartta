@@ -512,7 +512,9 @@ pub enum ValueUses {
     Imported,
     /// As [`ValueUses::Imported`], else, where no file the use's file includes declares the name, in the one file of
     /// those its includes reach in turn that declares the name outside every body and owner, whatever its kind: a file
-    /// and everything it includes compile as one script.
+    /// and everything it includes compile as one script. A use that would bind an enum, or that two files tie on, binds
+    /// the one variable of the name those files hold, its own included, where they hold one: an enum there names the
+    /// ranges of the variable of its name.
     ImportedThenReached,
     /// In the one variable, constant or function of the name outside every owner and body that the use's own file
     /// declares, else that the files it includes declare, else, for a name few of them share, that the files those

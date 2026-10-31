@@ -38,7 +38,8 @@
 //!
 //! A use binds what its own file declares, else what the one file it includes directly declares, else what the one
 //! file those include in turn declares, as [`ValueUses::ImportedThenReached`] says; a name two files of one such step
-//! declare binds neither.
+//! declare binds neither. An `interval` names the ranges of the global of its name, so a read it would take, or tie
+//! on, binds the one variable of the name those files hold, where they hold one.
 //!
 //! # Fingerprint
 //!
