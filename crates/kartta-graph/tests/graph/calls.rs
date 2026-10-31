@@ -3596,7 +3596,7 @@ fn the_caller_s_owner_binds_the_copy_of_its_member_nearest_the_caller() {
 }
 
 #[test]
-fn the_caller_s_owner_binds_a_namesake_class_only_where_its_own_class_declares_a_base() {
+fn the_caller_s_owner_binds_no_class_of_its_name_in_another_scope() {
     let qualified = |namespace: &str, name: &str, line: u32| {
         let mut symbol = member("App", name, SymbolKind::Method, line);
         symbol.qualified_name = format!("{namespace}\\App::{name}");
@@ -3631,21 +3631,13 @@ fn the_caller_s_owner_binds_a_namesake_class_only_where_its_own_class_declares_a
     );
     assert_eq!(
         calling(Some(&["BaseApp"]), vec![qualified("B", "m", 1)]),
-        ["b/app.php:1@80"],
-        "a base written as an alias can be the class of the caller's owner's name in another scope"
-    );
-    assert_eq!(
-        calling(
-            Some(&["BaseApp"]),
-            vec![class(&[]), qualified("B", "m", 12)]
-        ),
-        ["b/app.php:12@80"],
-        "the caller's own class declares the base, not a copy of it elsewhere"
+        Vec::<String>::new(),
+        "a base is not the class of the caller's owner's name in another scope"
     );
     assert_eq!(
         calling(None, vec![qualified("B", "m", 1)]),
-        ["b/app.php:1@80"],
-        "a caller's class the graph does not hold may declare a base"
+        Vec::<String>::new(),
+        "a caller's class the graph does not hold is no class of another scope"
     );
     assert_eq!(
         calling(
