@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ops::Range;
 
 use kartta_lang::tree::{line, named_child_nodes, signature, text};
 use kartta_lang::{
@@ -136,9 +135,6 @@ struct Emitter<'a> {
     module_parents: HashMap<usize, usize>,
     regions: Vec<bindings::Region<'a>>,
     pending_bindings: Vec<bindings::PendingBindings<'a>>,
-    // constraint: the name and the type path of each parameter of a declared type of the functions open around the
-    // walk, a stack each function region spans its part of
-    parameter_types: Vec<(&'a [u8], Range<usize>)>,
     // constraint: each call recorded on a declared type, by its index, until the walk ends and the file's declarations
     // and `use`s tell whether the type may be one of the tree
     declared_receivers: Vec<(usize, declared::DeclaredReceiver)>,
@@ -174,7 +170,6 @@ impl<'a> Emitter<'a> {
             module_parents: HashMap::new(),
             regions: Vec::new(),
             pending_bindings: Vec::new(),
-            parameter_types: Vec::new(),
             declared_receivers: Vec::new(),
             branches: Vec::new(),
             read_scopes: vec![String::new()],

@@ -19,7 +19,7 @@ struct Reading<'a, 't> {
 
 // constraint: a read carries the path it is written through, `Kind` of `Kind::A`, or none for a bare name
 enum Found {
-    Call(Called),
+    Call(Box<Called>),
     Macro(MacroName),
     Read(Option<String>),
 }
@@ -147,7 +147,7 @@ impl<'a> Emitter<'a> {
         }
         for (name, found) in reading.found {
             match found {
-                Found::Call(called) => self.record_call(name, site_of, called),
+                Found::Call(called) => self.record_call(name, site_of, *called),
                 Found::Macro(macro_name) => self.record_macro_call(name, site_of, macro_name),
                 Found::Read(None) => self.bare_read(name),
                 Found::Read(Some(path)) => self.path_read(path, name),
@@ -457,7 +457,7 @@ impl<'a> Emitter<'a> {
                 }
             }
         };
-        Some((name, Found::Call(found)))
+        Some((name, Found::Call(Box::new(found))))
     }
 
     // constraint: a member call takes a named operand, `self` as the type of the impl or trait around it, and anything
