@@ -14,8 +14,9 @@ is a variable symbol; an assignment that prefixes a command, `LANG=C sort`, or o
 no namespaces, so the qualified name of a symbol is its name.
 
 Every command is a call of its name from the function around it. A subshell, a loop or a command substitution opens no
-scope. A command outside every function is a call from file scope, before the script's first definition too. The
-handler of `trap cleanup EXIT` and the completer of `complete -F _tool tool`, named as one word, are uses of them.
+scope. A command outside every function is a call from file scope, before the script's first definition too. A command
+binds a function or an alias of its name and never a variable. The handler of `trap cleanup EXIT` and the completer of
+`complete -F _tool tool`, named as one word, are uses of them.
 
 ## Resolution
 
