@@ -13,9 +13,8 @@
 //! every symbol is exported.
 //!
 //! Every command is a call of its name, attributed to the function around it — a subshell, a loop, a `case` arm or a
-//! command substitution opens no scope of its own. A command made before the script defines anything is dropped, and
-//! a command after that outside every function is a call from file scope. `alias` with definitions, `source` and `.`
-//! are no calls. A command binds a function or an alias of its name and never a variable, which no command name
+//! command substitution opens no scope of its own. A command outside every function is a call from file scope, before
+//! the script's first definition too. `alias` with definitions, `source` and `.` are no calls. A command binds a function or an alias of its name and never a variable, which no command name
 //! reaches.
 //!
 //! A function the shell runs later, named as one word, is a use of it: the handler of `trap cleanup EXIT`, of
