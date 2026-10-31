@@ -99,7 +99,13 @@ impl Modules<'_> {
         extraction.flag_symbols(path_flags);
 
         for directive in directives {
-            if let Some(target) = self.target(&directive.spec, path) {
+            let target = self.target(&directive.spec, path);
+            extraction
+                .re_exports
+                .iter_mut()
+                .filter(|re_export| re_export.source_path == directive.spec)
+                .for_each(|re_export| re_export.source_file.clone_from(&target));
+            if let Some(target) = target {
                 extraction
                     .bindings
                     .extend(aliased(&directive, Some(&target)));

@@ -1993,7 +1993,12 @@ impl<'g> Cascade<'g> {
             })
     }
 
+    // constraint: a daslang call picks its overload by argument types the graph does not read, and what a public
+    // `require` brings overloads the names of every file, `empty` and `string` first, so it reaches no call
     fn re_exported(&self, call: &Call) -> Option<SymbolAt> {
+        if self.conventions.value_uses == ValueUses::Expanded {
+            return None;
+        }
         let mut walk = ReExportWalk {
             cascade: self,
             call,
