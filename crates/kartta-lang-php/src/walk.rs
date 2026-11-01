@@ -189,14 +189,14 @@ impl<'s> Emitter<'s> {
             }
             "member_call_expression" | "nullsafe_member_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
-                let receiver = self.held_receiver(receiver, start);
+                let receiver = self.called_class(node).or(receiver);
                 let receiver = self.field_call(&callee, node).or(receiver);
                 self.call(callee, receiver, node);
             }
             "scoped_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
                 let receiver = self.class_from_the_root(node).or(receiver);
-                let receiver = self.held_receiver(receiver, start);
+                let receiver = self.called_class(node).or(receiver);
                 let receiver = self.field_call(&callee, node).or(receiver);
                 self.call(callee, receiver, node);
             }
@@ -557,8 +557,8 @@ impl<'s> Emitter<'s> {
         if !operator_is(test, b"instanceof", self.source) {
             return;
         }
-        let subject =
-            (test.child_by_field_name("left")).and_then(|left| self.narrowed_subject(left));
+        let subject = (test.child_by_field_name("left"))
+            .and_then(|left| self.narrowed_subject(inside_parentheses(left)));
         let class =
             (test.child_by_field_name("right")).filter(|right| NAMES.contains(&right.kind()));
         let (Some(subject), Some(class)) = (subject, class) else {
@@ -752,13 +752,11 @@ impl<'s> Emitter<'s> {
         Some(&holder.class)
     }
 
-    // constraint: a call on a variable that holds a class is a call on that class, so its receiver is the class's name,
-    // as a static call's is
-    fn held_receiver(&self, receiver: Option<String>, at: usize) -> Option<String> {
-        let held = receiver
-            .as_deref()
-            .and_then(|receiver| self.held_class(receiver.as_bytes(), at));
-        held.map(str::to_owned).or(receiver)
+    // constraint: a call on a `new` or on a variable that holds a class is a call on that class, so its receiver is the
+    // class's name, as a static call's is; `::` on an object fetches the object's class (`ZEND_FETCH_CLASS`,
+    // `Zend/zend_vm_def.h`)
+    fn called_class(&self, call: Node<'_>) -> Option<String> {
+        self.assigned_class(called_value(call)?)
     }
 
     // constraint: a name in braces is an expression (`simple_variable`, `Zend/zend_language_parser.y`), so it is no
@@ -804,10 +802,7 @@ impl<'s> Emitter<'s> {
 
     // constraint: a test's class stands ahead of the property's own, whichever the file settles once it
     fn field_call(&mut self, callee: &str, call: Node<'_>) -> Option<String> {
-        let held = call
-            .child_by_field_name("object")
-            .or_else(|| call.child_by_field_name("scope"))?;
-        let field = self.own_field(held)?;
+        let field = self.own_field(called_value(call)?)?;
         if let Some(class) = self.held_class(field.1, call.start_byte()) {
             return Some(class.to_owned());
         }
@@ -1150,6 +1145,7 @@ impl<'s> Emitter<'s> {
         };
         let Some(closure) = node
             .child_by_field_name("right")
+            .map(inside_parentheses)
             .filter(|right| matches!(right.kind(), "anonymous_function" | "arrow_function"))
         else {
             return;
@@ -1271,7 +1267,8 @@ fn declared(name: String, qualified: String, kind: SymbolKind, node: Node<'_>) -
 // name, `self`, `parent`, `static` or a variable; a chained or computed one is the empty receiver, as a qualified scope
 // is here, whose class the emitter reads through the file's imports. A qualified function name reduces to its last
 // segment. PHP reads a keyword in any case, and the graph's lists hold it in lower case. A constant in braces is a
-// name PHP computes, which the call records as it does `$this->$name()`, under a `$` no symbol's name holds.
+// name PHP computes, which the call records as it does `$this->$name()`, under a `$` no symbol's name holds. A name in
+// parentheses is a constant's value (`constant`, `Zend/zend_language_parser.y`), so only a variable reads past them.
 fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
     let (receiver, leaves): (&str, &[&str]) = match node.kind() {
         "function_call_expression" => {
@@ -1296,6 +1293,10 @@ fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
     };
     let receiver = node
         .child_by_field_name(receiver)
+        .map(|receiver| match assigned_value(receiver) {
+            variable if variable.kind() == "variable_name" => variable,
+            _ => receiver,
+        })
         .map(|receiver| match receiver.kind() {
             kind if !leaves.contains(&kind) => String::new(),
             "relative_scope" => {
@@ -1492,19 +1493,42 @@ fn branch_end(assignment: Node<'_>) -> usize {
 // yields it (`Zend/zend_vm_def.h`), past `__set` and a `set` hook too (`zend_std_write_property`), and a list target
 // yields the right side (`zend_compile_list_assign`); a `string` target turns an object to text, on which no call runs
 fn assigned_value(value: Node<'_>) -> Node<'_> {
-    let mut assigned = value;
+    let mut assigned = inside_parentheses(value);
     while assigned.kind() == "assignment_expression"
         && let Some(right) = assigned.child_by_field_name("right")
     {
-        assigned = right;
+        assigned = inside_parentheses(right);
     }
     assigned
 }
 
+fn called_value(call: Node<'_>) -> Option<Node<'_>> {
+    call.child_by_field_name("object")
+        .or_else(|| call.child_by_field_name("scope"))
+        .map(assigned_value)
+}
+
+// constraint: `'(' expr ')'` yields the expression itself and compiles to no node of its own
+// (`Zend/zend_language_parser.y`), where the grammar keeps a node that also holds any comment written in the parentheses
+fn inside_parentheses(value: Node<'_>) -> Node<'_> {
+    let mut inner = value;
+    while inner.kind() == "parenthesized_expression"
+        && let Some(expression) = named_child_nodes(inner).find(|child| child.kind() != "comment")
+    {
+        inner = expression;
+    }
+    inner
+}
+
 fn assignment_target(value: Node<'_>) -> Option<Node<'_>> {
-    value
-        .parent()
-        .filter(|parent| parent.kind() == "assignment_expression")
+    let mut value = value;
+    let mut parent = value.parent()?;
+    while parent.kind() == "parenthesized_expression" {
+        value = parent;
+        parent = value.parent()?;
+    }
+    (parent.kind() == "assignment_expression")
+        .then_some(parent)
         .filter(|assignment| assignment.child_by_field_name("right") == Some(value))?
         .child_by_field_name("left")
 }
@@ -1562,6 +1586,7 @@ fn names_a_class(alternative: Node<'_>, source: &[u8]) -> bool {
 }
 
 fn creates_an_anonymous_class(value: Node<'_>) -> bool {
+    let value = inside_parentheses(value);
     value.kind() == "object_creation_expression"
         && named_child_nodes(value).any(|child| child.kind() == "anonymous_class")
 }
