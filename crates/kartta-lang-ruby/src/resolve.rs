@@ -79,17 +79,24 @@ impl Requires<'_> {
 }
 
 // constraint: a library keeps its code under `lib`, and a tree that vendors one copies it whole, a gem or the standard
-// library with the gems it bundles, so the directory above the outermost `lib` roots the copy a file belongs to
-/// The directory that roots the library `path` belongs to, the one above its outermost `lib` component, empty for a
-/// `lib` at the root; `None` for a file under no `lib`.
+// library with the gems it bundles, so the directory above the outermost `lib` roots the copy a file belongs to; a
+// library's tests and an engine's application code sit beside that `lib`, so `test`, `spec` and `app` root the same one
+/// The directory that roots the library `path` belongs to, the one above its outermost `lib` component, or failing that
+/// its outermost test or application root, empty for one at the root; `None` for a file under neither.
 fn library(path: &str) -> Option<&str> {
     let dir = dir(path);
-    if dir == "lib" || dir.starts_with("lib/") {
-        return Some("");
+    root_above(dir, &["lib"]).or_else(|| root_above(dir, &["test", "spec", "app"]))
+}
+
+fn root_above<'p>(dir: &'p str, names: &[&str]) -> Option<&'p str> {
+    let mut at = 0;
+    for component in dir.split('/') {
+        if names.contains(&component) {
+            return Some(dir[..at].trim_end_matches('/'));
+        }
+        at += component.len() + 1;
     }
-    dir.match_indices("/lib")
-        .find(|&(at, _)| matches!(dir.as_bytes().get(at + "/lib".len()), None | Some(b'/')))
-        .map(|(at, _)| &dir[..at])
+    None
 }
 
 fn is_test_file(path: &str) -> bool {

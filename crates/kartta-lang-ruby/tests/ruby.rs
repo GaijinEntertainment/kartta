@@ -423,9 +423,33 @@ fn a_file_under_lib_belongs_to_the_library_its_outermost_lib_roots() {
             Some("vendor/ruby/3.4"),
         ),
         ("gems/rake/lib/rake/task.rb", Some("gems/rake")),
-        ("app/models/user.rb", None),
         ("Library/Homebrew/formula.rb", None),
         ("vendor/library/x.rb", None),
+    ] {
+        assert_eq!(
+            resolve(WIDGET, path, &[]).package.as_deref(),
+            library,
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn a_file_under_no_lib_belongs_to_the_library_above_its_outermost_source_root() {
+    for (path, library) in [
+        ("spec/models/user_spec.rb", Some("")),
+        ("test/test_helper.rb", Some("")),
+        ("app/models/user.rb", Some("")),
+        (
+            "railties/test/application/routing_test.rb",
+            Some("railties"),
+        ),
+        ("railties/test/app/routing_test.rb", Some("railties")),
+        ("activestorage/app/models/blob.rb", Some("activestorage")),
+        ("gems/rake/spec/task_spec.rb", Some("gems/rake")),
+        ("gems/rake/test/lib/helper.rb", Some("gems/rake/test")),
+        ("contest/foo.rb", None),
+        ("guides/rails_guides/markdown.rb", None),
     ] {
         assert_eq!(
             resolve(WIDGET, path, &[]).package.as_deref(),
