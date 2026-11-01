@@ -529,7 +529,7 @@ impl<'a> Emitter<'a> {
             "field_access_expression" => {
                 if let Some(name) = field_text(callee, "field", self.source) {
                     let receiver = field_text(callee, "receiver", self.source);
-                    self.push_call(name, receiver, node);
+                    self.push_call(name, receiver.map(plain_access_on_this), node);
                 }
             }
             _ => {}
@@ -684,6 +684,15 @@ fn declared_names<'a>(callable: Node<'_>, source: &'a [u8]) -> HashMap<&'a [u8],
         _ => true,
     });
     names
+}
+
+// constraint: `?.` reads what `.` reads, and yields null only where that read fails (`OP_GET_FLAG_NO_ERROR`,
+// `_OP_GETK`), so `this?.slot` is the one receiver `this.slot`
+fn plain_access_on_this(mut receiver: String) -> String {
+    if receiver.starts_with("this?.") {
+        receiver.remove("this".len());
+    }
+    receiver
 }
 
 // constraint: error recovery inserts MISSING nodes, which have a field but no text

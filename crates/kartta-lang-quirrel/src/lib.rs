@@ -35,11 +35,12 @@
 //! applies its own body over them. `this` in a function value inside a member reads as the member's class, though the
 //! language takes it from whatever calls the value, which the walk does not see.
 //!
-//! A `this.slot.f()` records the name a slot's value is built from as its receiver, when every write the body of the
-//! caller's owner makes to the slot, a default or a `this.slot =` in any member, is either `null` or a call of that one
-//! bare name, and the file binds the name to anything but a function: `slot = Part()` makes it `Part.f()`. A slot
-//! written anything else, or from two names, keeps `this.slot`, and so does one its owner's body never writes, whatever
-//! a base, a derived class or another file's code writes there.
+//! A receiver that starts `this?.` records as `this.`, so `this?.slot.f()` is `this.slot.f()`. A `this.slot.f()`
+//! records the name a slot's value is built from as its receiver, when every write the body of the caller's owner
+//! makes to the slot, a default or a `this.slot =` in any member, is either `null` or a call of that one bare name, and
+//! the file binds the name to anything but a function: `slot = Part()` makes it `Part.f()`. A slot written anything
+//! else, or from two names, keeps `this.slot`, and so does one its owner's body never writes, whatever a base, a
+//! derived class or another file's code writes there.
 //!
 //! # Resolution
 //!
