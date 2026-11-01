@@ -160,6 +160,41 @@ fn two_classes_written_to_a_property_bind_neither() {
     );
 }
 
+#[test]
+fn a_compound_assignment_to_a_property_binds_no_class_but_for_null_coalescing() {
+    let source = r"<?php
+namespace App;
+class C { public function m() {} }
+class D { public function m() {} }
+class S {
+    private $p;
+    public function run() { $this->p->m(); }
+    public function set() { $v = new C; $this->p .= $v; }
+}
+class T {
+    private $p;
+    public function run() { $this->p->m(); }
+    public function set() { $this->p += new C; }
+}
+class Ctl {
+    private $p;
+    public function run() { $this->p->m(); }
+    public function set($v) { $this->p .= $v; }
+}
+class Coalesced {
+    private $p;
+    public function run() { $this->p->m(); }
+    public function set() { $v = new C; $this->p ??= $v; }
+}
+";
+    let files = [("src/A.php", source), COMPOSER];
+    for caller in ["S", "T", "Ctl"] {
+        let run = format!("App\\{caller}::run");
+        assert!(callees(&files, &run).is_empty(), "{caller}");
+    }
+    assert_eq!(callees(&files, "App\\Coalesced::run"), ["App\\C::m"]);
+}
+
 const NARROWED: &str = r"<?php
 namespace App;
 use Vendor\Outside;

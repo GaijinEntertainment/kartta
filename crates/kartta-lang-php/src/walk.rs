@@ -922,10 +922,11 @@ impl<'s> Emitter<'s> {
         }
     }
 
-    // constraint: `null` and `unset` clear a property and say nothing of what it holds; `??=`, the one compound
-    // assignment an object survives, writes its value over `null` alone; an anonymous class has its name once the walk
-    // reaches it; any other write that names no class, a list or `foreach` target or either side of `=&`, leaves the
-    // property holding what the file cannot name
+    // constraint: `null` and `unset` clear a property and say nothing of what it holds; `??=` writes its value over
+    // `null` alone, and every other compound assignment stores its operator's result, a string from `.=`, where only a
+    // class with a `do_operation` handler, which an extension alone sets, takes the rest (`zend_binop_error`,
+    // `Zend/zend_operators.c`); an anonymous class has its name once the walk reaches it; any other write that names no
+    // class, a list or `foreach` target or either side of `=&`, leaves the property holding what the file cannot name
     fn field_written(&mut self, written: Node<'_>) {
         let (Some(field), Some(write)) = (self.own_field(written), written.parent()) else {
             return;
@@ -939,7 +940,9 @@ impl<'s> Emitter<'s> {
                 }
                 value
             }
-            "augmented_assignment_expression" => write.child_by_field_name("right"),
+            "augmented_assignment_expression" if operator_is(write, b"??=", self.source) => {
+                write.child_by_field_name("right")
+            }
             _ => None,
         };
         let value = value.map(assigned_value);
