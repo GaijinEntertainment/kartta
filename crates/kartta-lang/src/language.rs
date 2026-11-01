@@ -380,10 +380,13 @@ pub enum ReceiverMembers {
     /// class holds the member.
     Inherited,
     /// [`ReceiverMembers::Inherited`], where a field of the name that the walk meets ahead of the member hides it and the
-    /// call binds nothing, as a class's values and methods share one table: Python's `__dict__`, Quirrel's `_members`.
-    /// For Python the walk stands in for the C3 order. A field with [`value_types`](crate::Symbol::value_types) only
-    /// declares the name, so the walk goes past it.
+    /// call binds nothing, as a class's values and methods share one table: Quirrel's `_members`. A field with no member
+    /// above it leaves the call to the name tiers, since a Quirrel class hands on a function of its file as `f = f`.
     InheritedUpToFields,
+    /// [`ReceiverMembers::InheritedUpToFields`], where a field answers with no member above it too, as a call on a field
+    /// runs what the field holds, and standing in for Python's C3 order. A field with
+    /// [`value_types`](crate::Symbol::value_types) only declares the name, so the walk goes past it.
+    InheritedUpToAnyField,
 }
 
 /// How far through its includes a file's calls bind the names they define.

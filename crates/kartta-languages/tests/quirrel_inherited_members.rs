@@ -187,6 +187,20 @@ fn a_static_field_of_the_class_hides_its_parent_s_method() {
 }
 
 #[test]
+fn a_field_with_no_member_above_it_leaves_the_function_it_hands_on_to_the_tiers() {
+    assert_eq!(
+        callees(
+            &[(
+                "field.nut",
+                "function shared() {}\nclass Events {\n  shared = shared\n  function run() {\n    this.shared()\n  }\n}\n",
+            )],
+            "Events.run",
+        ),
+        pairs(&["shared"], 80),
+    );
+}
+
+#[test]
 fn a_field_of_a_class_between_hides_the_method_above_it() {
     assert_eq!(
         callees(

@@ -1443,9 +1443,8 @@ impl Cascade<'_> {
         self.nearest_of(call, types.into_iter())
     }
 
-    /// What [`ReceiverMembers::Inherited`] and [`ReceiverMembers::InheritedUpToFields`] bind: the member of the name
-    /// that the nearest type above the receiver's class holds, where the class holds none itself, or the field that
-    /// hides that member.
+    /// What every [`ReceiverMembers`] but `Declared` binds: the member of the name that the nearest type above the
+    /// receiver's class holds, where the class holds none itself, or the field that answers ahead of it.
     fn member_above_the_receiver_s_class(
         &self,
         call: &Call,
@@ -1470,8 +1469,12 @@ impl Cascade<'_> {
             let parents = self.parents_of(&[class], admitted);
             self.nearest_holder((class, parents), candidates, admitted)
         };
+        let own_field = self.field_held_by(class, candidates);
+        if own_field.is_some() && self.a_field_answers_alone() {
+            return own_field;
+        }
         let member = walk(holds_a_body).or_else(|| walk(|_| true))?;
-        Some(self.field_held_by(class, candidates).unwrap_or(member))
+        Some(own_field.unwrap_or(member))
     }
 
     // constraint: a class's table holds what its parents gave it, so a member no type of the graph above the class has
@@ -1676,7 +1679,7 @@ impl Cascade<'_> {
 
     /// The member of the name that the nearest type holds, walking from `level`, the types nearest `class`, up through
     /// the parents of each level, a level's traits first, taking the types `admitted` admits; the first field of the
-    /// name in that walk where one stands ahead of the member and hides it.
+    /// name in that walk where one stands ahead of the member, or where the walk finds none and a field answers alone.
     fn nearest_holder(
         &self,
         (class, mut level): (SymbolAt, Vec<SymbolAt>),
@@ -1695,7 +1698,7 @@ impl Cascade<'_> {
             level = self.parents_of(&level, admitted);
             level.retain(|&ty| walked.insert(ty));
         }
-        None
+        field.filter(|_| self.a_field_answers_alone())
     }
 
     /// The member of the name that the first type of `level` to hold one holds, keeping in `field` the first field of
@@ -1785,10 +1788,18 @@ impl Cascade<'_> {
             })
     }
 
-    /// The field of the name that `ty` itself holds, where [`ReceiverMembers::InheritedUpToFields`] has a field hide a
-    /// member, and the field holds a value: one recorded with a value type only declares the name.
+    /// Whether a field stops the walk with no member above it, not only ahead of one.
+    fn a_field_answers_alone(&self) -> bool {
+        self.conventions.receiver_members == ReceiverMembers::InheritedUpToAnyField
+    }
+
+    /// The field of the name that `ty` itself holds, where the convention has a field stop the walk, and the field holds
+    /// a value: one recorded with a value type only declares the name.
     fn field_held_by(&self, ty: SymbolAt, candidates: &Candidates<'_>) -> Option<SymbolAt> {
-        if self.conventions.receiver_members != ReceiverMembers::InheritedUpToFields {
+        if !matches!(
+            self.conventions.receiver_members,
+            ReceiverMembers::InheritedUpToFields | ReceiverMembers::InheritedUpToAnyField
+        ) {
             return None;
         }
         let strings = &self.graph.strings;
