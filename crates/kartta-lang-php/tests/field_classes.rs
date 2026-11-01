@@ -481,6 +481,100 @@ fn a_computed_name_reads_no_property() {
 }
 
 #[test]
+fn a_scoped_call_on_a_property_reads_the_class_the_property_holds() {
+    for read in [
+        "$this->c::m();",
+        "$this?->c::m();",
+        "self::$c::m();",
+        "SELF::$c::m();",
+        "static::$c::m();",
+        "Suite::$c::m();",
+        "\\App\\Suite::$c::m();",
+        "Alias::$c::m();",
+    ] {
+        assert_eq!(
+            static_receiver(read, "private Container $c;").as_deref(),
+            CONTAINER,
+            "{read}",
+        );
+        assert_eq!(
+            static_receiver(
+                read,
+                "private $c;\npublic function set() { $this->c = new Container; }",
+            )
+            .as_deref(),
+            CONTAINER,
+            "{read} on a write",
+        );
+    }
+}
+
+#[test]
+fn a_scoped_call_on_a_property_that_holds_no_one_class_names_none() {
+    for members in [
+        "private string $c;",
+        "private ?string $c;",
+        "private $c;",
+        "private object $c;",
+        "private $c = 'Container';",
+        "public function set($a) { $this->c = $a; }",
+        "public function set() { $this->c = Container::class; }",
+        "public function set() { $this->c = new Container; $this->c = 'Other'; }",
+    ] {
+        for read in ["$this->c::m();", "self::$c::m();", "static::$c::m();"] {
+            assert_eq!(
+                static_receiver(read, members).as_deref(),
+                UNNAMED,
+                "{read} on {members}",
+            );
+        }
+    }
+}
+
+#[test]
+fn a_scoped_call_past_the_class_around_it_or_a_computed_name_names_none() {
+    for read in [
+        "parent::$c::m();",
+        "Base::$c::m();",
+        "$other->c::m();",
+        "$this->$c::m();",
+        "$this->{c}::m();",
+        "self::$$c::m();",
+        "$this->c->d::m();",
+        "$this->c::$d::m();",
+        "$this->c()::m();",
+    ] {
+        assert_eq!(
+            static_receiver(read, "private Container $c;").as_deref(),
+            UNNAMED,
+            "{read}",
+        );
+    }
+}
+
+#[test]
+fn a_computed_method_on_a_property_keeps_its_name_and_takes_the_class() {
+    for (read, callee) in [("$this->c::{X}();", "$X"), ("$this->c::$m();", "$m")] {
+        let source = format!(
+            "<?php\nnamespace App;\nclass Suite {{\n    private Container $c;\n    public function run() {{ {read} \
+             }}\n}}\n"
+        );
+        let raw = Php::new().extract(source.as_bytes());
+        assert_eq!(raw.calls[0].callee, callee, "{read}");
+        assert_eq!(raw.calls[0].receiver.as_deref(), CONTAINER, "{read}");
+    }
+}
+
+#[test]
+fn a_constant_on_a_property_is_no_call() {
+    let raw = Php::new().extract(
+        b"<?php\nclass Suite {\n    private Container $c;\n    public function run() { return $this->c::NAME; \
+          }\n}\n",
+    );
+    assert_eq!(raw.calls, [] as [kartta_lang::CallRef; 0]);
+}
+
+#[test]
 fn a_spelled_name_beside_a_comment_stays_the_property() {
     for read in ["$this->c /* note */ ->m();", "self::$c /* note */ ->m();"] {
         assert_eq!(
