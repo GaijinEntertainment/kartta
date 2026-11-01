@@ -38,7 +38,8 @@
 //! written from the root keeping its `::`, and `.` alone for `self.class`. A call on a literal, or on a constant the
 //! tree holds no value of, binds only a method of the class it names or of one that class derives from. Of a class's
 //! methods of one name, a call on the class binds the class method, `Geo::Shape.build`, before the instance method,
-//! `Geo::Shape#build`, and a call on any other receiver the instance method first. A bare `new` that reads no local
+//! `Geo::Shape#build`, and a call on any other receiver the instance method first. A call never binds a constant. A
+//! bare `new` that reads no local
 //! makes, in a class method, an instance of the owner, so `new.getopts` there records `Geo::Shape`. A call outside
 //! every method and type is a call from file scope, before the file's first symbol too.
 //!
@@ -140,6 +141,9 @@ const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.own_members = OwnMembers::First;
     conventions.inherited_members = InheritedMembers::Admitted;
+    // constraint: a name with arguments or parentheses after a `::` sends a method (`method_call`, parse.y:5306), even
+    // where a constant shares the name, so no call reads a constant
+    conventions.values_are_call_targets = false;
     conventions.owner_chain_separator = Some("::");
     conventions.class_member_separator = Some(walk::CLASS_MEMBER_SEPARATOR);
     conventions.setter_suffix = Some('=');
