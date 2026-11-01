@@ -7,7 +7,7 @@
 
 use kartta_lang::{
     Access, BareReceivers, Conventions, FILE_SCOPE, Language, MacroInvocations, RawExtraction,
-    Receiver, Symbol, SymbolId, SymbolKind, TypeUses, ValueUses,
+    Receiver, ReceiverMembers, Symbol, SymbolId, SymbolKind, TypeUses, ValueUses,
 };
 use kartta_lang_daslang::Daslang;
 
@@ -159,6 +159,7 @@ fn daslang_conventions_are_the_default_but_macros_value_uses_type_uses_and_recei
     ];
     expected.own_type_receivers = Some(&["self"]);
     expected.base_receivers = &["super"];
+    expected.receiver_members = ReceiverMembers::Inherited;
     expected.type_uses = TypeUses::Nowhere;
     expected.unrecorded_data = &[
         SymbolKind::Field,
