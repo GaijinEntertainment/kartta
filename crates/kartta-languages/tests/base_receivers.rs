@@ -56,7 +56,7 @@ fn reached(language: &str, files: &[(&str, &str)], path: &str) -> [Vec<(String, 
 
 const QUIRREL_BASE: &str = "class BaseMap {\n  function goBack() {}\n}\n";
 
-const QUIRREL_CHILD: &str = "class ArtilleryMap (BaseMap) {
+const QUIRREL_CHILD: &str = "class DetailMap (BaseMap) {
   function goBack() {}
   function doQuit() {
     base.goBack()
@@ -73,10 +73,10 @@ fn quirrel_base_binds_the_base_class_s_member() {
     assert_eq!(
         callees(
             "quirrel",
-            &[("artillery_map.nut", &one_file)],
-            "artillery_map.nut"
+            &[("detail_map.nut", &one_file)],
+            "detail_map.nut"
         ),
-        [["BaseMap.goBack"], ["ArtilleryMap.goBack"]]
+        [["BaseMap.goBack"], ["DetailMap.goBack"]]
     );
 
     let base = format!("{QUIRREL_BASE}return BaseMap\n");
@@ -84,10 +84,10 @@ fn quirrel_base_binds_the_base_class_s_member() {
     assert_eq!(
         callees(
             "quirrel",
-            &[("base_map.nut", &base), ("artillery_map.nut", &child)],
-            "artillery_map.nut"
+            &[("base_map.nut", &base), ("detail_map.nut", &child)],
+            "detail_map.nut"
         ),
-        [["BaseMap.goBack"], ["ArtilleryMap.goBack"]]
+        [["BaseMap.goBack"], ["DetailMap.goBack"]]
     );
 }
 
@@ -97,12 +97,8 @@ fn quirrel_base_binds_a_member_the_base_inherits() {
         "class Root {{\n  function goBack() {{}}\n}}\nclass BaseMap (Root) {{}}\n{QUIRREL_CHILD}"
     );
     assert_eq!(
-        callees(
-            "quirrel",
-            &[("artillery_map.nut", &source)],
-            "artillery_map.nut"
-        ),
-        [["Root.goBack"], ["ArtilleryMap.goBack"]]
+        callees("quirrel", &[("detail_map.nut", &source)], "detail_map.nut"),
+        [["Root.goBack"], ["DetailMap.goBack"]]
     );
 }
 
@@ -119,12 +115,8 @@ fn quirrel_base_never_binds_the_caller_s_override() {
         (QUIRREL_CHILD, "a base the graph does not hold"),
     ] {
         assert_eq!(
-            callees(
-                "quirrel",
-                &[("artillery_map.nut", source)],
-                "artillery_map.nut"
-            ),
-            [Vec::<String>::new(), vec!["ArtilleryMap.goBack".to_owned()]],
+            callees("quirrel", &[("detail_map.nut", source)], "detail_map.nut"),
+            [Vec::<String>::new(), vec!["DetailMap.goBack".to_owned()]],
             "{case}"
         );
     }
@@ -134,20 +126,20 @@ fn quirrel_base_never_binds_the_caller_s_override() {
 fn quirrel_base_of_the_class_s_own_name_is_the_other_class() {
     let base = "local handlerClass = class {\n  function goBack() {}\n}\nreturn { handlerClass }\n";
     let child = format!(
-        "let vehiclesModal = require(\"vehicles.nut\")\n{}",
+        "let itemsModal = require(\"itemsModal.nut\")\n{}",
         QUIRREL_CHILD.replace(
-            "class ArtilleryMap (BaseMap)",
-            "local handlerClass = class (vehiclesModal.handlerClass)"
+            "class DetailMap (BaseMap)",
+            "local handlerClass = class (itemsModal.handlerClass)"
         )
     );
     let go_back_in = |file: &str| vec![(file.to_owned(), "handlerClass.goBack".to_owned())];
     assert_eq!(
         reached(
             "quirrel",
-            &[("vehicles.nut", base), ("select.nut", &child)],
+            &[("itemsModal.nut", base), ("select.nut", &child)],
             "select.nut",
         ),
-        [go_back_in("vehicles.nut"), go_back_in("select.nut")]
+        [go_back_in("itemsModal.nut"), go_back_in("select.nut")]
     );
 }
 
@@ -170,7 +162,7 @@ fn quirrel_base_in_a_class_without_a_name_binds_as_before() {
 
 const DASLANG_BASE: &str = "class BaseMap {\n  def goBack() {\n    pass\n  }\n}\n";
 
-const DASLANG_CHILD: &str = "class ArtilleryMap : BaseMap {
+const DASLANG_CHILD: &str = "class DetailMap : BaseMap {
   def override goBack() {
     pass
   }
@@ -189,10 +181,10 @@ fn daslang_super_binds_the_base_class_s_member() {
     assert_eq!(
         callees(
             "daslang",
-            &[("artillery_map.das", &one_file)],
-            "artillery_map.das"
+            &[("detail_map.das", &one_file)],
+            "detail_map.das"
         ),
-        [["BaseMap.goBack"], ["ArtilleryMap.goBack"]]
+        [["BaseMap.goBack"], ["DetailMap.goBack"]]
     );
 
     let base = format!("options gen2\n{DASLANG_BASE}");
@@ -200,10 +192,10 @@ fn daslang_super_binds_the_base_class_s_member() {
     assert_eq!(
         callees(
             "daslang",
-            &[("base_map.das", &base), ("artillery_map.das", &child)],
-            "artillery_map.das"
+            &[("base_map.das", &base), ("detail_map.das", &child)],
+            "detail_map.das"
         ),
-        [["BaseMap.goBack"], ["ArtilleryMap.goBack"]]
+        [["BaseMap.goBack"], ["DetailMap.goBack"]]
     );
 }
 
@@ -213,12 +205,8 @@ fn daslang_super_binds_a_member_the_base_inherits() {
         "options gen2\nclass Root {{\n  def goBack() {{\n    pass\n  }}\n}}\nclass BaseMap : Root {{}}\n{DASLANG_CHILD}"
     );
     assert_eq!(
-        callees(
-            "daslang",
-            &[("artillery_map.das", &source)],
-            "artillery_map.das"
-        ),
-        [["Root.goBack"], ["ArtilleryMap.goBack"]]
+        callees("daslang", &[("detail_map.das", &source)], "detail_map.das"),
+        [["Root.goBack"], ["DetailMap.goBack"]]
     );
 }
 
@@ -226,18 +214,14 @@ fn daslang_super_binds_a_member_the_base_inherits() {
 fn daslang_super_never_binds_the_caller_s_override() {
     let source = format!("options gen2\n{DASLANG_CHILD}");
     assert_eq!(
-        callees(
-            "daslang",
-            &[("artillery_map.das", &source)],
-            "artillery_map.das"
-        ),
-        [Vec::<String>::new(), vec!["ArtilleryMap.goBack".to_owned()]]
+        callees("daslang", &[("detail_map.das", &source)], "detail_map.das"),
+        [Vec::<String>::new(), vec!["DetailMap.goBack".to_owned()]]
     );
 }
 
 const PHP_BASE: &str = "class BaseMap {\n  public function goBack() {}\n}\n";
 
-const PHP_CHILD: &str = "class ArtilleryMap extends BaseMap {
+const PHP_CHILD: &str = "class DetailMap extends BaseMap {
   public function goBack() {}
   public function doQuit() {
     parent::goBack();
@@ -252,12 +236,8 @@ const PHP_CHILD: &str = "class ArtilleryMap extends BaseMap {
 fn php_parent_binds_the_base_class_s_member() {
     let one_file = format!("<?php\n{PHP_BASE}{PHP_CHILD}");
     assert_eq!(
-        callees(
-            "php",
-            &[("ArtilleryMap.php", &one_file)],
-            "ArtilleryMap.php"
-        ),
-        [["BaseMap::goBack"], ["ArtilleryMap::goBack"]]
+        callees("php", &[("DetailMap.php", &one_file)], "DetailMap.php"),
+        [["BaseMap::goBack"], ["DetailMap::goBack"]]
     );
 
     let base = format!("<?php\n{PHP_BASE}");
@@ -265,10 +245,10 @@ fn php_parent_binds_the_base_class_s_member() {
     assert_eq!(
         callees(
             "php",
-            &[("BaseMap.php", &base), ("ArtilleryMap.php", &child)],
-            "ArtilleryMap.php"
+            &[("BaseMap.php", &base), ("DetailMap.php", &child)],
+            "DetailMap.php"
         ),
-        [["BaseMap::goBack"], ["ArtilleryMap::goBack"]]
+        [["BaseMap::goBack"], ["DetailMap::goBack"]]
     );
 }
 
@@ -276,11 +256,8 @@ fn php_parent_binds_the_base_class_s_member() {
 fn php_parent_never_binds_the_caller_s_override() {
     let source = format!("<?php\n{PHP_CHILD}");
     assert_eq!(
-        callees("php", &[("ArtilleryMap.php", &source)], "ArtilleryMap.php"),
-        [
-            Vec::<String>::new(),
-            vec!["ArtilleryMap::goBack".to_owned()]
-        ]
+        callees("php", &[("DetailMap.php", &source)], "DetailMap.php"),
+        [Vec::<String>::new(), vec!["DetailMap::goBack".to_owned()]]
     );
 }
 
@@ -295,8 +272,8 @@ class BaseMap extends Root implements Navigates {{ use GoesBack; }}
 {PHP_CHILD}"
     );
     assert_eq!(
-        callees("php", &[("ArtilleryMap.php", &source)], "ArtilleryMap.php"),
-        [["GoesBack::goBack"], ["ArtilleryMap::goBack"]]
+        callees("php", &[("DetailMap.php", &source)], "DetailMap.php"),
+        [["GoesBack::goBack"], ["DetailMap::goBack"]]
     );
 
     let source = format!(
@@ -304,11 +281,8 @@ class BaseMap extends Root implements Navigates {{ use GoesBack; }}
         PHP_CHILD.replace("extends", "implements")
     );
     assert_eq!(
-        callees("php", &[("ArtilleryMap.php", &source)], "ArtilleryMap.php"),
-        [
-            Vec::<String>::new(),
-            vec!["ArtilleryMap::goBack".to_owned()]
-        ]
+        callees("php", &[("DetailMap.php", &source)], "DetailMap.php"),
+        [Vec::<String>::new(), vec!["DetailMap::goBack".to_owned()]]
     );
 }
 
@@ -320,14 +294,14 @@ fn php_parent_imported_from_outside_binds_no_namesake() {
         callees(
             "php",
             &[
-                ("src/Maps/ArtilleryMap.php", &child),
+                ("src/Maps/DetailMap.php", &child),
                 ("src/Testing/BaseMap.php", &namesake)
             ],
-            "src/Maps/ArtilleryMap.php"
+            "src/Maps/DetailMap.php"
         ),
         [
             Vec::<String>::new(),
-            vec!["Maps\\ArtilleryMap::goBack".to_owned()]
+            vec!["Maps\\DetailMap::goBack".to_owned()]
         ]
     );
 }
