@@ -193,6 +193,7 @@ impl<'s> Emitter<'s> {
                 let (callee, receiver) = call_target(node, self.source);
                 let receiver = self.class_from_the_root(node).or(receiver);
                 let receiver = self.held_receiver(receiver, start);
+                self.field_call(&callee, node);
                 self.call(callee, receiver, node);
             }
             "array_creation_expression" => self.array_callable(node),
@@ -754,8 +755,10 @@ impl<'s> Emitter<'s> {
     }
 
     fn field_call(&mut self, callee: &str, call: Node<'_>) {
-        let object = call.child_by_field_name("object");
-        if let Some(field) = object.and_then(|object| self.own_field(object))
+        let held = call
+            .child_by_field_name("object")
+            .or_else(|| call.child_by_field_name("scope"));
+        if let Some(field) = held.and_then(|held| self.own_field(held))
             && !callee.is_empty()
         {
             self.field_calls.push((self.raw.calls.len(), field));

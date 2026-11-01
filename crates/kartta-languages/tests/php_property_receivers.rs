@@ -189,6 +189,75 @@ class Child {
 }
 
 #[test]
+fn a_scoped_call_on_a_property_binds_the_class_it_holds() {
+    let source = r"<?php
+namespace App;
+class Container {
+    public static function make() {}
+    public function instance($k) {}
+}
+class Other {
+    public static function make() {}
+    public function instance($k) {}
+}
+class Uses {
+    private static Container $own;
+    private Container $held;
+    private $written;
+    public function __construct() { $this->written = new Container; }
+    public function viaColon() { self::$own::make(); }
+    public function viaColonLate() { static::$own::make(); }
+    public function viaColonThis() { $this->held::make(); }
+    public function viaColonWrite() { $this->written::make(); }
+    public function viaColonInstance() { $this->held::instance(1); }
+    public function viaArrow() { $this->held->instance(1); }
+}
+";
+    let files = [("src/A.php", source), COMPOSER];
+    for (caller, callee) in [
+        ("viaColon", "App\\Container::make"),
+        ("viaColonLate", "App\\Container::make"),
+        ("viaColonThis", "App\\Container::make"),
+        ("viaColonWrite", "App\\Container::make"),
+        ("viaColonInstance", "App\\Container::instance"),
+        ("viaArrow", "App\\Container::instance"),
+    ] {
+        assert_eq!(
+            callees(&files, &format!("App\\Uses::{caller}")),
+            [callee],
+            "{caller}",
+        );
+    }
+}
+
+#[test]
+fn a_scoped_call_on_a_string_property_binds_nothing() {
+    let source = r"<?php
+namespace App;
+class Container {
+    public static function make() {}
+}
+class Other {
+    public static function make() {}
+}
+class Uses {
+    private string $class = Container::class;
+    private static string $late;
+    public function viaThis() { $this->class::make(); }
+    public function viaLate() { static::$late::make(); }
+}
+";
+    let files = [("src/A.php", source), COMPOSER];
+    for caller in ["viaThis", "viaLate"] {
+        assert_eq!(
+            callees(&files, &format!("App\\Uses::{caller}")),
+            [""; 0],
+            "{caller}",
+        );
+    }
+}
+
+#[test]
 fn a_write_to_a_computed_static_name_binds_no_call_on_the_text_in_its_braces() {
     let source = r#"<?php
 namespace App;
