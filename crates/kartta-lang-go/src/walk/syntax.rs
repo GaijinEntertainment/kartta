@@ -234,32 +234,53 @@ pub(super) fn receiver_type(receiver: Node<'_>, source: &[u8]) -> String {
         .unwrap_or_default()
 }
 
-// constraint: only `T{}`, `&T{}`, `new(T)` and `(*T)(nil)` name the implementing type statically; a constructor call's
-// return type is unknown, so it names none
+// constraint: only `T{}`, `&T{}`, `new(T)` and a conversion name the implementing type statically; a constructor call's
+// return type is unknown, so it names none. A conversion takes one operand (doc/go_spec.html, Conversions), and a call
+// of one operand cannot be told from it here: the name it records is then a function's, which no type of that package
+// can share, so it reaches no type
 pub(super) fn assertion_value_type(expression: Node<'_>, source: &[u8]) -> Option<String> {
+    let expression = unparenthesized(expression);
     match expression.kind() {
         "composite_literal" => base_type_name(expression.child_by_field_name("type")?, source),
         "unary_expression" => {
             assertion_value_type(expression.child_by_field_name("operand")?, source)
         }
         "call_expression" => {
-            let function = expression.child_by_field_name("function")?;
+            let function = unparenthesized(expression.child_by_field_name("function")?);
+            let arguments = expression.child_by_field_name("arguments")?;
             if function.kind() == "identifier" && text(function, source) == "new" {
-                let operand = first_operand(expression.child_by_field_name("arguments")?)?;
-                return operand_type_name(operand, source);
+                return operand_type_name(first_operand(arguments)?, source);
+            }
+            let mut operands =
+                named_child_nodes(arguments).filter(|child| child.kind() != "comment");
+            if operands.next().is_none() || operands.next().is_some() {
+                return None;
             }
 
-            let pointer = (function.kind() == "parenthesized_expression")
-                .then(|| first_operand(function))
-                .flatten()
-                .filter(|inner| inner.kind() == "unary_expression")?;
-            operand_type_name(pointer.child_by_field_name("operand")?, source)
+            let converted = match function.kind() {
+                "unary_expression" => function.child_by_field_name("operand")?,
+                _ => function,
+            };
+            operand_type_name(converted, source)
         }
         _ => None,
     }
 }
 
+pub(super) fn unparenthesized(mut node: Node<'_>) -> Node<'_> {
+    while matches!(
+        node.kind(),
+        "parenthesized_expression" | "parenthesized_type"
+    ) && let Some(inner) = first_operand(node)
+    {
+        node = inner;
+    }
+
+    node
+}
+
 fn operand_type_name(node: Node<'_>, source: &[u8]) -> Option<String> {
+    let node = unparenthesized(node);
     match node.kind() {
         "identifier" => Some(text(node, source)),
         "selector_expression" => node
