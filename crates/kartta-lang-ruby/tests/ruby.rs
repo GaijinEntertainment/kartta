@@ -879,10 +879,79 @@ fn an_endless_method_a_builder_and_a_singleton_object() {
 }
 
 #[test]
-fn a_qualified_constant_assignment_defines_nothing() {
-    let raw = extract(b"Foo::BAR = 5\nlimit = 3\n$debug = true\n");
+fn a_write_to_an_identifier_or_a_global_defines_nothing() {
+    let raw = extract(b"limit = 3\n$debug = true\n");
 
     assert_eq!(raw.symbols.len(), 0);
+}
+
+#[test]
+fn a_scoped_constant_write_defines_the_constant_on_the_module_its_path_names() {
+    let raw = extract(
+        b"Foo::BAR = 5\nA::B::C = 6\n::Rooted = 7\n::A::Deep = 8\nmodule Geo\n  module Shape\n    Geo::MAX = 9\n    \
+          Shape::Edge::MIN = 10\n    Other::LIMIT = 11\n    ::Top = 12\n  end\nend\n",
+    );
+
+    let qualified: Vec<(&str, &str, Option<&str>)> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Constant)
+        .map(|symbol| {
+            (
+                symbol.name.as_str(),
+                symbol.qualified_name.as_str(),
+                symbol.owner.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        qualified,
+        [
+            ("BAR", "Foo::BAR", Some("Foo")),
+            ("C", "A::B::C", Some("A::B")),
+            ("Rooted", "Rooted", None),
+            ("Deep", "A::Deep", Some("A")),
+            ("MAX", "Geo::MAX", Some("Geo")),
+            ("MIN", "Geo::Shape::Edge::MIN", Some("Geo::Shape::Edge")),
+            ("LIMIT", "Other::LIMIT", Some("Other")),
+            ("Top", "Top", None),
+        ]
+    );
+}
+
+#[test]
+fn a_scoped_constant_write_on_a_path_the_source_does_not_spell_defines_nothing() {
+    let raw = extract(b"a::B = 1\nself::C = 2\nfoo.bar::D = 3\nA.b::E = 4\n");
+
+    assert_eq!(raw.symbols.len(), 0);
+}
+
+#[test]
+fn a_scoped_constant_bound_to_a_struct_is_a_class() {
+    let raw = extract(b"Geo::Point = Struct.new(:x, :y)\n");
+
+    assert_eq!(symbol(&raw.symbols, "Geo::Point").kind, SymbolKind::Class);
+}
+
+#[test]
+fn a_scoped_constant_records_the_class_its_value_holds() {
+    let raw = extract(
+        b"A::Made = Foo.new(1)\nA::Same = Foo\nA::Deep = Foo::Bar\nA::Rooted = ::Foo::Bar.new\nA::Lit = 5\n\
+          A::Call = compute\nA::Cls = Class.new(Foo)\nA::Mod = Module.new\nA::Other = Foo.build\n\
+          module Geo\n  Geo::Near = Geo::Shape.new\n  Geo::Same = Geo\nend\nPlain = Foo.new\n",
+    );
+
+    let held = |name: &str| symbol(&raw.symbols, name).value_types.clone();
+    assert_eq!(held("A::Made"), ["Foo"]);
+    assert_eq!(held("A::Same"), ["Foo."]);
+    assert_eq!(held("A::Deep"), ["Foo::Bar."]);
+    assert_eq!(held("A::Rooted"), ["Foo::Bar"]);
+    assert_eq!(held("Geo::Near"), ["Geo::Shape"]);
+    assert_eq!(held("Geo::Same"), ["Geo."]);
+    for untold in ["A::Lit", "A::Call", "A::Cls", "A::Mod", "A::Other"] {
+        assert_eq!(held(untold), [""], "{untold}");
+    }
+    assert_eq!(held("Plain"), Vec::<String>::new());
 }
 
 #[test]
