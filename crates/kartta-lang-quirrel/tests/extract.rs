@@ -125,7 +125,7 @@ fn a_bare_call_in_a_member_reaches_the_class_first() {
     expected.included_runtime_members = IncludedRuntimeMembers::SpelledOrOwn;
     expected.untyped_owners = UntypedOwners::Tables;
     expected.base_receivers = &["base"];
-    expected.receiver_members = ReceiverMembers::Inherited;
+    expected.receiver_members = ReceiverMembers::InheritedUpToFields;
     expected.own_type_receivers = Some(&["this"]);
     expected.unlisted_receivers = UnlistedReceivers::OwnMemberFieldsAsGuess;
 
