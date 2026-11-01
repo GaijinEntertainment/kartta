@@ -372,7 +372,7 @@ fn a_write_of_a_static_property_names_the_class_as_a_write_of_an_instance_one_do
             "public static function set() { self::$c = new class { public function m() {} }; }",
         )
         .as_deref(),
-        Some("{set}"),
+        Some("{set·c}"),
     );
 }
 
