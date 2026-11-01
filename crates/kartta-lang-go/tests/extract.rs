@@ -352,6 +352,66 @@ func f(infos Infos, shown Shown) {
 }
 
 #[test]
+fn a_marshal_call_reaches_the_struct_fields_through_a_defined_type() {
+    let raw = extract(
+        br#"
+package b
+
+type S struct {
+    Name   string
+    Hidden string `json:"-"`
+    Inner  Held
+}
+
+type C struct {
+    Tag string
+}
+
+type Held Kept
+
+type Kept struct {
+    Deep string
+}
+
+type T S
+
+type Twice T
+
+type U = C
+
+func run() {
+    _, _ = json.Marshal(Twice{})
+    _, _ = json.Marshal(U{})
+}
+"#,
+    );
+
+    assert!(qualified(&raw, "b.S.Name").flags.is_reflected());
+    assert!(!qualified(&raw, "b.S.Hidden").flags.is_reflected());
+    assert!(qualified(&raw, "b.Kept.Deep").flags.is_reflected());
+    assert!(qualified(&raw, "b.C.Tag").flags.is_reflected());
+}
+
+#[test]
+fn a_defined_type_no_reflective_call_takes_hands_its_struct_s_fields_to_nothing() {
+    let raw = extract(
+        br"
+package b
+
+type S struct {
+    Name string
+}
+
+type T S
+
+func run() ([]byte, error) { return json.Marshal(1) }
+",
+    );
+
+    assert!(!qualified(&raw, "b.S.Name").flags.is_reflected());
+}
+
+#[test]
 fn a_value_of_a_type_a_body_declares_hands_no_package_level_namesake_s_fields_to_reflection() {
     let raw = extract(
         br"
