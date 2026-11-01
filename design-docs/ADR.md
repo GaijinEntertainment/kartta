@@ -235,6 +235,7 @@ lost, and what would reopen it.
 - [3.186 Bind a name a TypeScript or JavaScript package import binds outside the repository](/design-docs/adr/3.186-jsts-package-bindings.md)
 - [3.189 Place a Ruby file in the library its outermost `lib` roots](/design-docs/adr/3.189-ruby-libraries.md)
 - [3.191 Record the items a Rust macro of the file names by a metavariable](/design-docs/adr/3.191-rust-macro-items.md)
+- [3.196 Record a Ruby attribute write as a call of its setter](/design-docs/adr/3.196-ruby-attribute-writes.md)
 
 ## crates/kartta-languages
 
