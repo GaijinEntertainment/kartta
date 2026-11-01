@@ -3445,6 +3445,79 @@ fn find_unused_counts_a_method_of_an_interface_outside_the_graph_its_file_assert
     );
 }
 
+const GO_HANDLER: &str = "package a\n\nimport \"net/http\"\n\ntype handler struct{}\n\n\
+     func (*handler) ServeHTTP(http.ResponseWriter, *http.Request) {}\n";
+
+#[test]
+fn find_unused_counts_a_method_another_file_of_its_package_asserts_as_dispatched() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module m\n\ngo 1.22\n"),
+        ("a/a.go", GO_HANDLER),
+        (
+            "a/b.go",
+            "package a\n\nimport \"net/http\"\n\nvar _ http.Handler = (*handler)(nil)\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_unused", &json!({}));
+
+    assert!(
+        !answer.contains("ServeHTTP") && answer.contains(r#"dispatched="1""#),
+        "a package's files say the same thing: {answer}"
+    );
+}
+
+#[test]
+fn find_unused_lists_a_method_whose_namesake_type_in_another_package_is_asserted() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module m\n\ngo 1.22\n"),
+        ("a/a.go", GO_HANDLER),
+        (
+            "b/b.go",
+            "package b\n\nimport \"net/http\"\n\ntype handler struct{}\n\n\
+             func (*handler) ServeHTTP(http.ResponseWriter, *http.Request) {}\n\n\
+             var _ http.Handler = (*handler)(nil)\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_unused", &json!({}));
+
+    assert!(
+        answer.contains(r#"loc="a/a.go:7""#) && answer.contains(r#"dispatched="1""#),
+        "only b's method is the one its package asserts: {answer}"
+    );
+}
+
+#[test]
+fn find_unused_lists_a_method_whose_namesake_an_external_test_package_asserts() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module m\n\ngo 1.22\n"),
+        ("a/a.go", GO_HANDLER),
+        (
+            "a/a_test.go",
+            "package a_test\n\nimport \"net/http\"\n\ntype handler struct{}\n\n\
+             func (*handler) ServeHTTP(http.ResponseWriter, *http.Request) {}\n\n\
+             var _ http.Handler = (*handler)(nil)\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_unused", &json!({}));
+
+    assert!(
+        answer.contains(r#"loc="a/a.go:7""#),
+        "the external test package's handler is its own: {answer}"
+    );
+}
+
 fn embedded_field_named_like_a_promoted_member() -> tempfile::TempDir {
     tree(&[
         (".git/HEAD", "ref: refs/heads/main\n"),

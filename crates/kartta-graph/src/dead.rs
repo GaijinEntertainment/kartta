@@ -369,13 +369,35 @@ impl Judge<'_, '_> {
         if declared_by_interfaces.unwrap_or(0) > own {
             return true;
         }
-        if let Some(&held) = self.dispatching.get(&(owner, symbol.name)) {
+        self.is_asserted_to_dispatch(method, owner)
+            || self.has_a_parent_dispatching(owner, symbol.name)
+    }
+
+    // constraint: Go scopes a type name to its package and a method to its type's package, so what any file of the
+    // method's package asserts of the owner's name it asserts of this type, and an external test package beside it is
+    // another package
+    fn is_asserted_to_dispatch(&self, method: SymbolAt, owner: Str) -> bool {
+        let file = self.graph.file(method.file);
+        let name = self.graph.sym(method).name;
+        (self.graph.package_files(file.dir).iter())
+            .map(|&slot| self.graph.file(slot))
+            .filter(|other| other.package == file.package)
+            .flat_map(|other| other.assertions.iter())
+            .filter(|assertion| assertion.type_name == owner)
+            .any(|assertion| self.may_dispatch(assertion.interface, name))
+    }
+
+    fn has_a_parent_dispatching(&mut self, owner: Str, name: Str) -> bool {
+        if let Some(&held) = self.dispatching.get(&(owner, name)) {
             return held;
         }
-        let dispatched = self
-            .types_named(owner)
-            .any(|ty| self.has_a_dispatching_parent(ty, symbol.name));
-        self.dispatching.insert((owner, symbol.name), dispatched);
+        let dispatched = self.types_named(owner).any(|ty| {
+            let parents = self.graph.file(ty.file).parents_of(ty.index);
+            parents
+                .iter()
+                .any(|parent| self.may_dispatch(parent.written, name))
+        });
+        self.dispatching.insert((owner, name), dispatched);
         dispatched
     }
 
@@ -429,26 +451,15 @@ impl Judge<'_, '_> {
             })
     }
 
-    fn has_a_dispatching_parent(&self, ty: SymbolAt, name: Str) -> bool {
-        let file = self.graph.file(ty.file);
-        let type_name = self.graph.sym(ty).name;
-        let parents = file
-            .parents_of(ty.index)
-            .iter()
-            .map(|parent| parent.written);
-        let asserted = (file.assertions.iter())
-            .filter(|assertion| assertion.type_name == type_name)
-            .map(|assertion| assertion.interface);
-        parents.chain(asserted).any(|written| {
-            let mut bases = self
-                .graph
-                .listing_key(written)
-                .into_iter()
-                .flat_map(|key| self.graph.named(key).iter().copied())
-                .filter(|&base| self.graph.sym(base).kind.is_type())
-                .peekable();
-            bases.peek().is_none() || bases.any(|base| self.declares(base, name))
-        })
+    fn may_dispatch(&self, written: Str, name: Str) -> bool {
+        let mut bases = self
+            .graph
+            .listing_key(written)
+            .into_iter()
+            .flat_map(|key| self.graph.named(key).iter().copied())
+            .filter(|&base| self.graph.sym(base).kind.is_type())
+            .peekable();
+        bases.peek().is_none() || bases.any(|base| self.declares(base, name))
     }
 
     fn declares(&self, ty: SymbolAt, name: Str) -> bool {
