@@ -669,7 +669,9 @@ impl<'s> Emitter<'s> {
     fn forget_written(&mut self, written: Node<'_>, until: usize) {
         match written.kind() {
             "variable_name" => self.forget(written, until),
-            "member_access_expression" => self.field_written(written),
+            "member_access_expression" | "scoped_property_access_expression" => {
+                self.field_written(written);
+            }
             "list_literal" | "pair" | "by_ref" => {
                 for element in named_child_nodes(written) {
                     self.forget_written(element, until);
@@ -711,18 +713,40 @@ impl<'s> Emitter<'s> {
     }
 
     fn own_field(&self, access: Node<'_>) -> Option<Field<'s>> {
-        if !matches!(
-            access.kind(),
-            "member_access_expression" | "nullsafe_member_access_expression"
-        ) {
-            return None;
+        let open = *self.types.last()?;
+        let name = match access.kind() {
+            "member_access_expression" | "nullsafe_member_access_expression" => {
+                let object = access.child_by_field_name("object")?;
+                if &self.source[object.byte_range()] != b"$this" {
+                    return None;
+                }
+                access
+                    .child_by_field_name("name")
+                    .filter(|name| name.kind() == "name")?
+            }
+            "scoped_property_access_expression" => {
+                if !self.is_own_class(access.child_by_field_name("scope")?, open) {
+                    return None;
+                }
+                let variable = access.child_by_field_name("name")?;
+                named_child_nodes(variable).find(|child| child.kind() == "name")?
+            }
+            _ => return None,
+        };
+        Some((open.id, &self.source[name.byte_range()]))
+    }
+
+    // constraint: `self`, `static` and the class's own name fetch a static property through the class's own table
+    // (`zend_std_get_static_property_with_info`, `Zend/zend_object_handlers.c`); `parent` skips a redeclaration the
+    // class's body makes, so its property is not the one the body declares
+    fn is_own_class(&self, scope: Node<'_>, open: Scope) -> bool {
+        match scope.kind() {
+            "relative_scope" => !self.source[scope.byte_range()].eq_ignore_ascii_case(b"parent"),
+            "name" | "qualified_name" | "relative_name" => self
+                .class_name(scope)
+                .eq_ignore_ascii_case(&self.raw.symbols[open.id.0 as usize].qualified_name),
+            _ => false,
         }
-        let object = access.child_by_field_name("object")?;
-        if &self.source[object.byte_range()] != b"$this" {
-            return None;
-        }
-        let name = (access.child_by_field_name("name")).filter(|name| name.kind() == "name")?;
-        Some((self.types.last()?.id, &self.source[name.byte_range()]))
     }
 
     fn field_call(&mut self, callee: &str, call: Node<'_>) {

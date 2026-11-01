@@ -1,5 +1,5 @@
-//! What class a PHP call on a property of `$this` records as its receiver: the one the property's declared type names,
-//! or, for a property with no type, the one every write in the class's own body gives it.
+//! What class a PHP call on a property of the class around it records as its receiver: the one the property's declared
+//! type names, or, for a property with no type, the one every write in the class's own body gives it.
 
 use kartta_lang::Language;
 use kartta_lang_php::Php;
@@ -309,6 +309,118 @@ fn a_receiver_past_the_property_keeps_its_shape() {
             .expect("the call");
         assert_eq!(call.receiver.as_deref(), Some(""), "{read}");
     }
+}
+
+/// The receiver of the call of `m` in `read`, the body of a method of `App\Suite` next to `members`.
+fn static_receiver(read: &str, members: &str) -> Option<String> {
+    let source = format!(
+        "<?php\nnamespace App;\nuse App\\Suite as Alias;\nclass Suite extends Base {{\n    public static function \
+         run() {{ {read} }}\n{members}\n}}\n"
+    );
+    let raw = Php::new().extract(source.as_bytes());
+    raw.calls
+        .into_iter()
+        .find(|call| call.callee == "m")
+        .and_then(|call| call.receiver)
+}
+
+#[test]
+fn a_static_property_of_the_class_around_the_call_reads_as_an_instance_one_does() {
+    for read in [
+        "self::$c->m();",
+        "SELF::$c->m();",
+        "static::$c->m();",
+        "self::$c?->m();",
+        "Suite::$c->m();",
+        "suite::$c->m();",
+        "\\App\\Suite::$c->m();",
+        "namespace\\Suite::$c->m();",
+        "Alias::$c->m();",
+    ] {
+        assert_eq!(
+            static_receiver(read, "private static Container $c;").as_deref(),
+            CONTAINER,
+            "{read}",
+        );
+    }
+}
+
+#[test]
+fn a_write_of_a_static_property_names_the_class_as_a_write_of_an_instance_one_does() {
+    for members in [
+        "private static $c;\npublic static function set() { self::$c = new Container; }",
+        "public static function set() { static::$c = new Container; }\nprivate static $c = null;",
+        "public static function set() { Suite::$c ??= new Container; }",
+    ] {
+        assert_eq!(
+            static_receiver("self::$c->m();", members).as_deref(),
+            CONTAINER,
+            "{members}",
+        );
+    }
+    assert_eq!(
+        static_receiver(
+            "self::$c->m();",
+            "public static function set() { self::$c = new Container; self::$c = new Client; }",
+        )
+        .as_deref(),
+        UNNAMED,
+    );
+    assert_eq!(
+        static_receiver(
+            "self::$c->m();",
+            "public static function set() { self::$c = new class { public function m() {} }; }",
+        )
+        .as_deref(),
+        Some("{set}"),
+    );
+}
+
+#[test]
+fn a_static_property_of_a_class_but_the_one_around_the_call_names_nothing() {
+    for read in [
+        "parent::$c->m();",
+        "Base::$c->m();",
+        "$class::$c->m();",
+        "Suite::$$c->m();",
+        "self::$$c->m();",
+    ] {
+        assert_eq!(
+            static_receiver(read, "private static Container $c;").as_deref(),
+            UNNAMED,
+            "{read}",
+        );
+    }
+    assert_eq!(
+        static_receiver(
+            "self::$c->m();",
+            "public static function set() { parent::$c = new Container; Base::$c = new Container; }",
+        )
+        .as_deref(),
+        UNNAMED,
+    );
+}
+
+#[test]
+fn a_static_property_a_trait_declares_reads_from_the_trait() {
+    let raw = Php::new().extract(
+        br"<?php
+trait Holds {
+    private static Container $c;
+    public function run() { self::$c->m(); }
+}
+class Using {
+    use Holds;
+    public function run() { self::$c->m(); }
+}
+",
+    );
+    let receivers: Vec<Option<&str>> = raw
+        .calls
+        .iter()
+        .map(|call| call.receiver.as_deref())
+        .collect();
+    assert_eq!(receivers, [Some("\\Container"), Some("")]);
 }
 
 #[test]
