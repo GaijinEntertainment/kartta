@@ -1,5 +1,5 @@
-//! Compile-time implements assertions a file states about a type it does not declare, `var _ io.Reader = (*File)(nil)`
-//! in Go: the type they name implements the interface they name, both names read from the asserting file.
+//! Compile-time implements assertions, `var _ io.Reader = (*File)(nil)` in Go: the type they name implements the
+//! interface they name, both names read from the asserting file.
 
 use kartta_graph::{Graph, Implementations};
 use kartta_lang::{
@@ -134,6 +134,32 @@ fn a_type_name_two_types_of_the_package_share_names_neither() {
     let closer = graph.implementations("app.Closer", 1, 10).expect("a type");
 
     assert_eq!(found(&closer), [] as [&str; 0]);
+}
+
+#[test]
+fn a_type_name_the_asserting_file_declares_names_that_type_beside_a_namesake() {
+    let mut files = package();
+    let mut own = asserting("app/file_test.go", &[("File", "Closer")], &[]);
+    own.symbols = vec![ty("File", "app_test.File", SymbolKind::Struct)];
+    files.push(own);
+    let graph = graph(&files);
+
+    let closer = graph.implementations("app.Closer", 1, 10).expect("a type");
+
+    assert_eq!(found(&closer), ["app/file_test.go:app_test.File"]);
+}
+
+#[test]
+fn a_qualified_type_name_names_the_imported_type_beside_the_file_s_namesake() {
+    let mut files = package();
+    let mut own = asserting("app/own.go", &[("lib.Handle", "Closer")], &[("lib", "lib")]);
+    own.symbols = vec![ty("Handle", "app.Handle", SymbolKind::Struct)];
+    files.push(own);
+    let graph = graph(&files);
+
+    let closer = graph.implementations("app.Closer", 1, 10).expect("a type");
+
+    assert_eq!(found(&closer), ["lib/handle.go:lib.Handle"]);
 }
 
 #[test]

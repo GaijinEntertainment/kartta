@@ -31,7 +31,7 @@ pub struct RawExtraction {
     pub re_exports: Vec<RawReExport>,
     /// The package or module the file declares itself part of; `None` for a language without one.
     pub package: Option<String>,
-    /// Compile-time implements assertions whose implementing type the file does not declare.
+    /// Compile-time implements assertions the file states.
     pub assertions: Vec<ImplementsAssertion>,
     /// The file's imports and includes, in source order, for the resolver to replay.
     pub directives: Vec<RawDirective>,
@@ -162,7 +162,7 @@ pub struct Extraction {
     /// definition is no test code; what an import or a path names binds wherever it lies. The files of one package
     /// share one list, so it is joined once per package.
     pub dependencies: Option<Arc<str>>,
-    /// Compile-time implements assertions whose implementing type the file does not declare.
+    /// Compile-time implements assertions the file states.
     pub assertions: Vec<ImplementsAssertion>,
     /// Files of `includes` that this file pulls in as test-only modules. A file is test code, with every symbol in
     /// it, when every file that includes it lists it here or is such a file itself; one that a production file
@@ -352,11 +352,13 @@ pub struct ImportBinding {
     pub last_segment: String,
 }
 
-/// A compile-time assertion that a type implements an interface, where the asserting file does not declare the type.
+/// A compile-time assertion that a type implements an interface. It declares nothing of the type, so it is no parent
+/// the type's members come from.
 ///
 /// The graph reads both names from the asserting file by the rules it reads a parent the file writes by: where a
 /// package is a directory, a bare name in the file's own package and a qualified one in the package its import binds.
-/// A type name that reaches no type, or several, adds nothing.
+/// A bare type name the asserting file declares names that type. Any other type name that reaches no type, or several,
+/// adds nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ImplementsAssertion {
     /// The implementing type as written: `T` or `pkg.T`.

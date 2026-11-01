@@ -430,20 +430,25 @@ impl Judge<'_, '_> {
     }
 
     fn has_a_dispatching_parent(&self, ty: SymbolAt, name: Str) -> bool {
-        self.graph
-            .file(ty.file)
+        let file = self.graph.file(ty.file);
+        let type_name = self.graph.sym(ty).name;
+        let parents = file
             .parents_of(ty.index)
             .iter()
-            .any(|parent| {
-                let mut bases = self
-                    .graph
-                    .listing_key(parent.written)
-                    .into_iter()
-                    .flat_map(|key| self.graph.named(key).iter().copied())
-                    .filter(|&base| self.graph.sym(base).kind.is_type())
-                    .peekable();
-                bases.peek().is_none() || bases.any(|base| self.declares(base, name))
-            })
+            .map(|parent| parent.written);
+        let asserted = (file.assertions.iter())
+            .filter(|assertion| assertion.type_name == type_name)
+            .map(|assertion| assertion.interface);
+        parents.chain(asserted).any(|written| {
+            let mut bases = self
+                .graph
+                .listing_key(written)
+                .into_iter()
+                .flat_map(|key| self.graph.named(key).iter().copied())
+                .filter(|&base| self.graph.sym(base).kind.is_type())
+                .peekable();
+            bases.peek().is_none() || bases.any(|base| self.declares(base, name))
+        })
     }
 
     fn declares(&self, ty: SymbolAt, name: Str) -> bool {
