@@ -365,7 +365,7 @@ impl Judge<'_, '_> {
         let Some(owner) = symbol.owner else {
             return false;
         };
-        let own = self.is_interface(owner);
+        let own = self.is_interface(method, owner);
         let declared_by_interfaces = self.interface_methods().get(&symbol.name).copied();
         if declared_by_interfaces.unwrap_or(0) > usize::from(own)
             || (!own && self.a_library_interface_declares(symbol.name))
@@ -428,17 +428,23 @@ impl Judge<'_, '_> {
         dispatched
     }
 
-    fn is_interface(&mut self, owner: Str) -> bool {
-        if let Some(&held) = self.interface_owners.get(&owner) {
+    // constraint: a Go interface spells its methods inside its own declaration (`doc/go_spec.html`, Interface types), so
+    // a Go method's owner is an interface only where the method's own file declares one of the name
+    fn is_interface(&mut self, member: SymbolAt, owner: Str) -> bool {
+        let of_a_directory_package = self.graph.conventions.directory_packages;
+        if !of_a_directory_package && let Some(&held) = self.interface_owners.get(&owner) {
             return held;
         }
         let interface = self.types_named(owner).any(|ty| {
-            matches!(
-                self.graph.sym(ty).kind,
-                SymbolKind::Interface | SymbolKind::Trait
-            )
+            (!of_a_directory_package || ty.file == member.file)
+                && matches!(
+                    self.graph.sym(ty).kind,
+                    SymbolKind::Interface | SymbolKind::Trait
+                )
         });
-        self.interface_owners.insert(owner, interface);
+        if !of_a_directory_package {
+            self.interface_owners.insert(owner, interface);
+        }
         interface
     }
 
@@ -454,15 +460,17 @@ impl Judge<'_, '_> {
 
     fn gather_interface_methods(&mut self) -> HashMap<Str, usize, FixedState> {
         let graph = self.graph;
-        let members = graph
-            .file_slots()
-            .flat_map(|slot| graph.file(slot).symbols.iter())
-            .filter(|symbol| symbol.kind == SymbolKind::Method)
-            .filter_map(|symbol| Some((symbol.name, symbol.owner?)));
+        let members = graph.file_slots().flat_map(|file| {
+            (0..narrow(graph.file(file).symbols.len())).map(move |index| SymbolAt { file, index })
+        });
         let mut methods: HashMap<Str, usize, FixedState> = HashMap::default();
-        for (name, owner) in members {
-            if self.is_interface(owner) {
-                *methods.entry(name).or_default() += 1;
+        for member in members {
+            let symbol = graph.sym(member);
+            if symbol.kind == SymbolKind::Method
+                && let Some(owner) = symbol.owner
+                && self.is_interface(member, owner)
+            {
+                *methods.entry(symbol.name).or_default() += 1;
             }
         }
         methods
