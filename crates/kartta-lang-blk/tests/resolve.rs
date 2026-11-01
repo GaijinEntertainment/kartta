@@ -288,15 +288,15 @@ fn a_mount_target_matches_its_name_in_letter_case_and_its_file_without() {
     );
 }
 
-const WT_SETTINGS: &str = "wt/prog/gameBase/gamebase/config/settings.blk";
+const GAME_A_SETTINGS: &str = "game_a/prog/gameBase/gamebase/config/settings.blk";
 
 #[test]
 fn a_source_directory_resolves_below_the_ancestor_of_the_stating_file_that_holds_the_target() {
     let settings = "mountPoints {\n  \"%gameBase\"{forSource:t=\"../prog/gameBase/gamebase\"; forVromfs:t=\"\";}\n  \
                     \"%gameLibs\"{forSource:t=\"..\\..\\prog\\gameLibs\"; forVromfs:t=\"gameLibs\";}\n}\n";
     let files = [
-        (WT_SETTINGS, settings),
-        ("wt/prog/gameBase/gamebase/gameData/units/tank.blk", ""),
+        (GAME_A_SETTINGS, settings),
+        ("game_a/prog/gameBase/gamebase/gameData/units/tank.blk", ""),
         ("prog/gameLibs/render/shaders.blk", ""),
     ];
 
@@ -304,33 +304,33 @@ fn a_source_directory_resolves_below_the_ancestor_of_the_stating_file_that_holds
         target(
             &files,
             "%gameBase/gameData/units/tank.blk",
-            "wt/prog/gameBase/gamebase/gameData/units/a.blk"
+            "game_a/prog/gameBase/gamebase/gameData/units/a.blk"
         )
         .as_deref(),
-        Some("wt/prog/gameBase/gamebase/gameData/units/tank.blk")
+        Some("game_a/prog/gameBase/gamebase/gameData/units/tank.blk")
     );
     assert_eq!(
-        target(&files, "%gameLibs/render\\shaders.blk", "wt/prog/x.blk").as_deref(),
+        target(&files, "%gameLibs/render\\shaders.blk", "game_a/prog/x.blk").as_deref(),
         Some("prog/gameLibs/render/shaders.blk")
     );
 }
 
 #[test]
 fn a_mount_parameter_resolves_against_the_directory_of_the_stating_file() {
-    let config = "mountPoints{\n  \"%daslib\":t=\"../../prog/daslib\"\n  \"%appGame\":t=\"scripts/wt/game\"\n}\n";
+    let config = "mountPoints{\n  \"%daslib\":t=\"../../prog/daslib\"\n  \"%appMain\":t=\"scripts/game_a/game\"\n}\n";
     let files = [
-        ("wt/prog/aot_config.blk", config),
+        ("game_a/prog/aot_config.blk", config),
         ("prog/daslib/a.blk", ""),
-        ("wt/prog/scripts/wt/game/b.blk", ""),
+        ("game_a/prog/scripts/game_a/game/b.blk", ""),
     ];
 
     assert_eq!(
-        target(&files, "%daslib/a.blk", "wt/prog/x.blk").as_deref(),
+        target(&files, "%daslib/a.blk", "game_a/prog/x.blk").as_deref(),
         Some("prog/daslib/a.blk")
     );
     assert_eq!(
-        target(&files, "%appGame/b.blk", "wt/prog/x.blk").as_deref(),
-        Some("wt/prog/scripts/wt/game/b.blk")
+        target(&files, "%appMain/b.blk", "game_a/prog/x.blk").as_deref(),
+        Some("game_a/prog/scripts/game_a/game/b.blk")
     );
 }
 
@@ -371,27 +371,27 @@ fn every_file_name_that_states_mounts_is_read() {
 fn the_mapping_stated_nearest_the_including_file_decides() {
     let files = [
         (
-            WT_SETTINGS,
+            GAME_A_SETTINGS,
             "mountPoints{ \"%gameBase\"{ forSource:t=\"../prog/gameBase/gamebase\"; } }\n",
         ),
         (
-            "wt/prog/gamebase_wtm/gamebase/config/settings.blk",
-            "mountPoints{ \"%gameBase\"{ forSource:t=\"../../wt/prog/gamebase_wtm/gamebase\"; } }\n",
+            "game_a/prog/gamebase_alt/gamebase/config/settings.blk",
+            "mountPoints{ \"%gameBase\"{ forSource:t=\"../../game_a/prog/gamebase_alt/gamebase\"; } }\n",
         ),
-        ("wt/prog/gameBase/gamebase/config/units.blk", ""),
-        ("wt/prog/gamebase_wtm/gamebase/config/units.blk", ""),
+        ("game_a/prog/gameBase/gamebase/config/units.blk", ""),
+        ("game_a/prog/gamebase_alt/gamebase/config/units.blk", ""),
     ];
     let units = |including: &str| target(&files, "%gameBase/config/units.blk", including);
 
     assert_eq!(
-        units("wt/prog/gameBase/gamebase/gameData/a.blk").as_deref(),
-        Some("wt/prog/gameBase/gamebase/config/units.blk")
+        units("game_a/prog/gameBase/gamebase/gameData/a.blk").as_deref(),
+        Some("game_a/prog/gameBase/gamebase/config/units.blk")
     );
     assert_eq!(
-        units("wt/prog/gamebase_wtm/pkg_dev/a.blk").as_deref(),
-        Some("wt/prog/gamebase_wtm/gamebase/config/units.blk")
+        units("game_a/prog/gamebase_alt/pkg_extra/a.blk").as_deref(),
+        Some("game_a/prog/gamebase_alt/gamebase/config/units.blk")
     );
-    assert_eq!(units("wt/prog/scripts/a.blk"), None);
+    assert_eq!(units("game_a/prog/scripts/a.blk"), None);
 }
 
 #[test]
