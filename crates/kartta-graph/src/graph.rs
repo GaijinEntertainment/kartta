@@ -276,7 +276,7 @@ impl Graph {
     /// of its last segment whose own qualified name, of two segments or more, it ends with: `ns::Owner::parse` selects
     /// a member qualified as `Owner::parse`. Its last segment is the part after its last separator; where neither the
     /// name nor that part selects a definition, it is each longer part after a separator, so a name whose own last
-    /// part holds a separator, `das::operator/`, `UIImage.operator . nineGrid :=` or `Kartta.#handle`, selects the
+    /// part holds a separator, `das::operator/`, `Sprite.operator . frameSize :=` or `Kartta.#handle`, selects the
     /// definition it names. The separators are those the languages qualify with: `.`, `:`, `\`, `#` and `/`.
     #[must_use]
     pub fn definitions(&self, name: &str, from: Option<&str>, limit: usize) -> Definitions<'_> {

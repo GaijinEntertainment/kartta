@@ -4032,7 +4032,7 @@ fn a_member_call_binds_past_a_namesake_of_a_table_it_does_not_reach() {
         vec![
             Symbol::new("Events", SymbolKind::Class, 1, 9),
             get("Events", 2),
-            get("leaderboards", 12),
+            get("scores", 12),
         ]
     };
 
@@ -4048,16 +4048,12 @@ fn a_member_call_binds_past_a_namesake_of_a_table_it_does_not_reach() {
         "where an owner no type declares can be a type outside the graph, the two owners tie"
     );
     assert_eq!(
-        calling(
-            tables,
-            "events",
-            vec![get("leaderboards", 2), get("tournaments", 12)]
-        ),
+        calling(tables, "events", vec![get("scores", 2), get("ranks", 12)]),
         Vec::<String>::new(),
         "two tables the receiver does not spell tie"
     );
     assert_eq!(
-        calling(tables, "lb", vec![get("leaderboards", 2)]),
+        calling(tables, "sc", vec![get("scores", 2)]),
         ["lib/events.nut:2@70"],
         "a table's member alone binds a call on a name that renames the table"
     );

@@ -451,40 +451,40 @@ fn an_imported_parent_names_a_type_of_its_name_only_where_its_file_declares_or_i
             file(
                 "audit/filters.ts",
                 vec![
-                    ty("FilterValue", "FilterValue", 1, &[]),
-                    ty("RepoFilterValue", "RepoFilterValue", 9, &["FilterValue"]),
+                    ty("MatchValue", "MatchValue", 1, &[]),
+                    ty("RepoMatchValue", "RepoMatchValue", 9, &["MatchValue"]),
                 ],
             ),
             file(
                 "logs/item.tsx",
-                vec![ty("FilterValue", "FilterValue", 1, &[])],
+                vec![ty("MatchValue", "MatchValue", 1, &[])],
             ),
             including(file("logs/index.ts", Vec::new()), &["logs/item.tsx"]),
             including(
                 file(
                     "logs/list.tsx",
-                    vec![ty("LogFilter", "LogFilter", 1, &["FilterValue"])],
+                    vec![ty("LogMatch", "LogMatch", 1, &["MatchValue"])],
                 ),
                 &["logs/index.ts"],
             ),
             file(
                 "misc/loose.ts",
-                vec![ty("Loose", "Loose", 1, &["FilterValue"])],
+                vec![ty("Loose", "Loose", 1, &["MatchValue"])],
             ),
         ],
     );
     let implementors = |path| {
-        let selector = Selector::new("FilterValue", Some(path));
+        let selector = Selector::new("MatchValue", Some(path));
         found(&graph.implementations(selector, 1, 10).expect("a type"))
     };
 
     assert_eq!(
         implementors("audit/filters.ts"),
-        [("audit/filters.ts:RepoFilterValue".to_owned(), 1)]
+        [("audit/filters.ts:RepoMatchValue".to_owned(), 1)]
     );
     assert_eq!(
         implementors("logs/item.tsx"),
-        [("logs/list.tsx:LogFilter".to_owned(), 1)]
+        [("logs/list.tsx:LogMatch".to_owned(), 1)]
     );
 }
 
