@@ -1265,8 +1265,9 @@ fn assignment_target(value: Node<'_>) -> Option<Node<'_>> {
         .child_by_field_name("left")
 }
 
-// constraint: a value is assigned to a name where the assignment's target is a variable, `$job`, or a property,
-// `$this->job`
+// constraint: a value is assigned to a name where the assignment's target is a variable, `$job`, or a property of any
+// class, `$this->job` or `self::$job`; a static property's `$$job` or `${job}` is computed (`simple_variable`,
+// `Zend/zend_language_parser.y`), so it gives none
 fn target_name(target: Node<'_>, source: &[u8]) -> Option<String> {
     match target.kind() {
         "variable_name" => variable_identifier(target, source),
@@ -1274,6 +1275,9 @@ fn target_name(target: Node<'_>, source: &[u8]) -> Option<String> {
             .child_by_field_name("name")
             .filter(|name| name.kind() == "name")
             .map(|name| text(name, source)),
+        "scoped_property_access_expression" => {
+            target_name(target.child_by_field_name("name")?, source)
+        }
         _ => None,
     }
 }
