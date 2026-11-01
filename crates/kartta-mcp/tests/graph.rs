@@ -913,6 +913,145 @@ func calledAfter(f F) {{
 }
 
 #[test]
+fn a_go_conversion_to_a_type_its_function_declares_yields_that_type() {
+    let source = "package a
+
+type E struct{}
+
+func (E) M() {}
+
+type Z struct{}
+
+func (Z) M() {}
+
+type P struct{ E }
+
+func useP(s struct{ E }) { P(s).M() }
+
+func useL(s struct{ E }) {
+\ttype L struct{ E }
+\tL(s).M()
+}
+
+func held(s struct{ E }) {
+\ttype L struct{ E }
+\tconverted := L(s)
+\tconverted.M()
+}
+";
+
+    assert_eq!(
+        methods_bound_by(source, &["useP", "useL", "held"]),
+        each_binds(&[("useP", "a.E.M"), ("useL", "a.E.M"), ("held", "a.E.M")]),
+    );
+}
+
+const GO_BODY_TYPES: &str = "package a
+
+type E struct{}
+
+func (E) M() {}
+
+type Z struct{}
+
+func (Z) M() {}
+
+type P struct{ E }
+
+func shadowed(s struct{ Z }) {
+\ttype P struct{ Z }
+\tP(s).M()
+}
+
+func declared() {
+\ttype P struct{ Z }
+\tvar p P
+\tp.M()
+}
+
+func literal() {
+\ttype P struct{ Z }
+\tP{}.M()
+}
+
+func allocated() {
+\ttype P struct{ Z }
+\tnew(P).M()
+}
+
+func expression() {
+\ttype P struct{ Z }
+\tP.M(P{})
+}
+
+func before(s struct{ E }) {
+\tP(s).M()
+\ttype P struct{ Z }
+\t_ = P{}
+}
+
+func past() {
+\t{
+\t\ttype P struct{ Z }
+\t\t_ = P{}
+\t}
+\tP{}.M()
+}
+
+func siblings() {
+\t{
+\t\ttype B struct{ E }
+\t\tB{}.M()
+\t}
+\t{
+\t\ttype B struct{ Z }
+\t\tB{}.M()
+\t}
+}
+
+func embedded() {
+\ttype I struct{ Z }
+\ttype O struct{ I }
+\tO{}.M()
+}
+";
+
+#[test]
+fn a_go_type_a_body_declares_reads_as_the_scope_at_the_site_gives_it() {
+    let mut expected = each_binds(&[
+        ("shadowed", "a.Z.M"),
+        ("declared", "a.Z.M"),
+        ("literal", "a.Z.M"),
+        ("allocated", "a.Z.M"),
+        ("expression", "a.Z.M"),
+        ("before", "a.E.M"),
+        ("past", "a.E.M"),
+    ]);
+    expected.push((
+        "siblings".to_owned(),
+        vec!["a.E.M".to_owned(), "a.Z.M".to_owned()],
+    ));
+    expected.push(("embedded".to_owned(), vec!["a.Z.M".to_owned()]));
+    assert_eq!(
+        methods_bound_by(
+            GO_BODY_TYPES,
+            &[
+                "shadowed",
+                "declared",
+                "literal",
+                "allocated",
+                "expression",
+                "before",
+                "past",
+                "siblings",
+                "embedded",
+            ]
+        ),
+        expected,
+    );
+}
+
+#[test]
 fn a_go_value_of_a_function_type_is_called_wherever_it_is_held() {
     let source = format!(
         "{GO_DECLARATIONS}

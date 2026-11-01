@@ -1672,6 +1672,28 @@ fn a_key_of_a_literal_assigned_to_a_name_writes_its_anonymous_struct_s_field() {
 }
 
 #[test]
+fn a_value_s_struct_keeps_its_field_keys_beside_a_container_type_of_the_value_s_name() {
+    let raw = extract(
+        br"package app
+
+type cases map[string]int
+
+func f() {
+	cases := struct{ in int }{in: 1}
+	_ = cases
+}
+",
+    );
+
+    let hosted = |name, path: &str, access, line| (name, path.to_owned(), access, line);
+    assert_eq!(
+        hosted_members(&raw),
+        [hosted("in", "{app.cases}", Access::Write, 6)],
+        "`{{N}}` here names a value, so the package's type of its name says nothing of the keys"
+    );
+}
+
+#[test]
 fn a_field_whose_first_rune_is_unicode_upper_case_is_exported() {
     let raw = extract("package sample\n\ntype T struct {\n\tÄ int\n\té string\n}\n".as_bytes());
 
@@ -1825,8 +1847,61 @@ func (r Recv) F(g G, q pkg.G) {
             ("E", Some("pkg.G()")),
             ("I", Some("G~()")),
             ("J", Some("G~()#1")),
-            ("K", Some("")),
+            ("K", Some("{1}")),
         ]
+    );
+}
+
+#[test]
+fn a_type_a_body_declares_is_spelled_by_its_symbol_from_its_identifier_on() {
+    let raw = extract(
+        br"package p
+
+func f(s S) {
+	s.A()
+	type S struct{ next *S }
+	var t S
+	t.B()
+	t.next.C()
+	new(S).D()
+	S.E(t)
+	[]S{t}[0].F()
+	type U S
+	U{}.G()
+	new(t).H()
+}
+",
+    );
+
+    let symbol = raw
+        .symbols
+        .iter()
+        .position(|symbol| symbol.name == "S")
+        .expect("the walk declares the local type");
+    let held = format!("{{{symbol}}}");
+    let next = format!("{held}.next");
+    let own = raw
+        .symbols
+        .iter()
+        .position(|symbol| symbol.name == "U")
+        .expect("the walk declares the local type");
+    let defined = format!("{{{own}}}");
+    assert_eq!(
+        receivers(&raw)
+            .into_iter()
+            .filter(|(callee, _)| callee.len() == 1)
+            .collect::<Vec<_>>(),
+        [
+            ("A", Some("S")),
+            ("B", Some(held.as_str())),
+            ("C", Some(next.as_str())),
+            ("D", Some(held.as_str())),
+            ("E", Some(held.as_str())),
+            ("F", Some(held.as_str())),
+            ("G", Some(defined.as_str())),
+            ("H", Some(held.as_str())),
+        ],
+        "a name reads as what the scope at its site gives, so the site before the declaration names the parameter's type"
     );
 }
 
@@ -2943,6 +3018,9 @@ func Build() {
 	_ = []a.Filter{{fieldName: 2}}
 	_ = a.Options{Debug: true}
 	_ = Remote{KindA: "r"}
+	type Own map[Kind]string
+	_ = Own{KindB: "o"}
+	_ = []Own{{KindA: "o"}}
 }
 
 const fieldName = "f"
@@ -2965,6 +3043,8 @@ const fieldName = "f"
             ("KindB", 22),
             ("fieldName", 23),
             ("fieldName", 24),
+            ("KindB", 28),
+            ("KindA", 29),
         ],
         "a key of a map or an array type the file declares, or an unexported key of a type another package declares, \
          reads the value it names"
@@ -3036,8 +3116,8 @@ func Build() {
             ("X", "P", 23),
             ("Y", "P", 23),
             ("Name", "Rows[]", 24),
-            ("L", "pair", 25),
-            ("R", "pair", 25),
+            ("L", "{svc.pair}", 25),
+            ("R", "{svc.pair}", 25),
             ("in", "{svc.cases}", 26),
             ("want", "{svc.cases}", 26),
         ],

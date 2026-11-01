@@ -119,18 +119,21 @@ impl<'a> Emitter<'a> {
     // a sibling file declares is left a struct, which the walk cannot tell from a container
     fn takes_value_keys(&self, path: &str, (key, at): (Node<'_>, usize)) -> bool {
         let plain = |name: &str| name.chars().all(|c| c == '_' || c.is_alphanumeric());
-        match path.split_once('.') {
-            Some((package, name)) => {
-                plain(package) && plain(name) && !is_exported(self.borrowed(key))
-            }
-            None => {
-                plain(path)
-                    && self
-                        .declaration_of(path, at)
-                        .and_then(|declared| self.declared_type(declared, at))
-                        .is_some_and(is_container_type)
-            }
+        if let Some((package, name)) = path.split_once('.') {
+            return plain(package) && plain(name) && !is_exported(self.borrowed(key));
         }
+        let name = self.local_type_name(path).unwrap_or(path);
+        plain(name)
+            && self
+                .declaration_of(name, at)
+                .and_then(|declared| self.declared_type(declared, at))
+                .is_some_and(is_container_type)
+    }
+
+    fn local_type_name(&self, path: &str) -> Option<&str> {
+        let index = path.strip_prefix('{')?.strip_suffix('}')?.parse().ok()?;
+        let symbol = self.raw.symbols.get::<usize>(index)?;
+        symbol.kind.is_type().then_some(symbol.name.as_str())
     }
 
     // constraint: Go leaves a literal's type unwritten only for an element of a slice, array or map literal, which the

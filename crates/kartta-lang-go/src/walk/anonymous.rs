@@ -5,19 +5,18 @@ use tree_sitter::Node;
 use super::Emitter;
 use super::locals::Block;
 use super::syntax::{first_operand, parents_of};
-use super::types::is_container_type;
+use super::types::{is_container_type, symbol_path};
 
 /// An anonymous struct the walk declares: its type, the scope that qualifies its fields, and the position of the name
 /// that owns them among the names of its declaration.
 pub(super) type Anonymous<'t> = (Node<'t>, String, usize);
 
 impl<'a> Emitter<'a> {
-    // constraint: the graph reads a path's `{N}` as the field or the variable at index N of the path's file, which owns
-    // the fields of the struct it types (ADR 3.170), and no Go identifier or path step holds a brace
+    // constraint: the field or the variable a struct types owns the struct's fields (ADR 3.170)
     pub(super) fn anonymous_name(&self, struct_type: Node<'_>) -> Option<String> {
         self.anonymous
             .get(&struct_type.id())
-            .map(|host| format!("{{{}}}", host.0))
+            .map(|&host| symbol_path(host))
     }
 
     // constraint: the fields of one declaration share their type, so its struct is owned by the first of them, the
