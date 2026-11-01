@@ -17,8 +17,9 @@ records its receiver: a plain name as written, `self` as the caller's own type, 
 `String` for `"a"`, and any other expression as the empty receiver; a type's body runs with `self` as the type, so a
 call there with no receiver records the type. A receiver that is a class, `self` in a class method or a type's body,
 `self.class` in an instance method, or a constant, ends in `.`, the separator of a class method's name: `Geo::Shape.`
-for `self`, a constant's path as written, `Shape.`, and `.` alone for `self.class`, so a call on the class binds
-`Shape.build` before `Shape#build`, and any other receiver the reverse. A call on a literal, or on a constant the tree
+for `self`, a constant's path as written, `Shape.`, and for `self.class` the owner from the root, `::Geo::Shape.`, or
+`.` alone in a module's method or a class written as a path, so a call on the class binds `Shape.build` before
+`Shape#build`, and any other receiver the reverse. A call on a literal, or on a constant the tree
 holds no value of, binds only a method of the class it names or of one that class derives from, so `Hash.new` binds
 nothing where the tree defines no `Hash`. A write to a scoped constant, `Foo::BAR = 5`, defines it on the module its
 path names, and a call on it binds through the class its value holds, `Foo` for `A::B = Foo.new`, and on any other value

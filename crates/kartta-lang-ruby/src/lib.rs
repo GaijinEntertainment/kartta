@@ -47,11 +47,12 @@
 //! type, so a call there with no receiver, `track :size`, records the type as its receiver. A receiver that is a
 //! class, `self` in a class method or a type's body, `self.class` in an instance method, or a constant, ends in `.`,
 //! the separator of a class method's name: `Geo::Shape.` for `self`, a constant's path as written, `Shape.`, one
-//! written from the root keeping its `::`, and `.` alone for `self.class`. A call on a literal, or on a constant the
-//! tree holds no value of, binds only a method of the class it names or of one that class derives from. Of a class's
-//! methods of one name, a call on the class binds the class method, `Geo::Shape.build`, before the instance method,
-//! `Geo::Shape#build`, and a call on any other receiver the instance method first. A call on a scoped constant binds
-//! through the class its value holds, as on the class for `A::B = Foo` and as on an instance for `A::B = Foo.new`, and
+//! written from the root keeping its `::`, and for `self.class` the owner from the root, `::Geo::Shape.`, or `.` alone
+//! in a module's method or a class written as a path. A call on a literal, or on a constant the tree holds no value of,
+//! binds only a method of the class it names or of one that class derives from. Of a class's methods of one name, a
+//! call on the class binds the class method, `Geo::Shape.build`, before the instance method, `Geo::Shape#build`, and a
+//! call on any other receiver the instance method first. A call on a scoped constant binds through the class its value
+//! holds, as on the class for `A::B = Foo` and as on an instance for `A::B = Foo.new`, and
 //! on one of any other value only as a guess. A call never binds a constant. A bare `new` that reads no local
 //! makes, in a class method, an instance of the owner, so `new.getopts` there records `Geo::Shape`. A call outside
 //! every method and type is a call from file scope, before the file's first symbol too.

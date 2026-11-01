@@ -972,7 +972,9 @@ impl<'g> Cascade<'g> {
     // constraint: a receiver that names a constant holds the class or the module of that name, or a value where the
     // graph holds only a value of it, so a member of a class that one does not derive from is no method it has, and a
     // class the graph does not hold is the runtime's or a library's outside the graph; a value that records its type
-    // stands only for the spelling that names it, as `IRB::TOPLEVEL_BINDING` is no `TOPLEVEL_BINDING`
+    // stands only for the spelling that names it, as `IRB::TOPLEVEL_BINDING` is no `TOPLEVEL_BINDING`. The caller's own
+    // class written from the root answers none of its instance methods, and a method of any module where the class
+    // can gain it at run time, as a module's `included` hook extends it
     /// Whether the call reaches `at`: where the receiver names a constant, `at` is a member of the class or the module
     /// the receiver names or of one it derives from, or the graph holds only values of the name; any other receiver
     /// reaches every definition.
@@ -992,6 +994,10 @@ impl<'g> Cascade<'g> {
         let written = strings.resolve(receiver);
         if !ends_in_a_constant(written, separator) {
             return true;
+        }
+        let on_own_class = self.is_on_the_caller_s_class(call);
+        if on_own_class && self.is_instance_member(at) {
+            return false;
         }
         let (written, from) = written.strip_prefix(separator).map_or_else(
             || (written, strings.resolve(caller.qualified_name)),
@@ -1023,9 +1029,30 @@ impl<'g> Cascade<'g> {
                         || spells(symbol.qualified_name))
             });
         }
-        owner.is_some_and(|owner| {
-            classes.any(|class| self.owner_derives_from(class.qualified_name, owner))
-        })
+        (on_own_class && !self.is_of_the_kind(true, at))
+            || owner.is_some_and(|owner| {
+                classes.any(|class| self.owner_derives_from(class.qualified_name, owner))
+            })
+    }
+
+    /// Whether `call`'s receiver is the class that owns the caller, written from the root, as an extraction records a
+    /// class it read from the caller and not from a spelling.
+    pub(crate) fn is_on_the_caller_s_class(&self, call: &Call) -> bool {
+        let owner = self.graph.sym(call.caller_at()).owner;
+        call.on_a_class
+            && (call.receiver)
+                .and_then(|receiver| self.rooted_constant(receiver))
+                .zip(owner)
+                .is_some_and(|(rooted, owner)| rooted == self.graph.strings.resolve(owner))
+    }
+
+    /// Whether `at` is a member of a class that its instances answer, and no class's own method.
+    fn is_instance_member(&self, at: SymbolAt) -> bool {
+        !self.is_of_the_kind(true, at)
+            && self.graph.sym(at).owner.is_some_and(|owner| {
+                self.qualified_as(owner)
+                    .any(|ty| derives(self.graph.sym(ty).kind))
+            })
     }
 
     // constraint: a class of the spelling answers ahead of a value, as a write can stand in a branch that runs only
