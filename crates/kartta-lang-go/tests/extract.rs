@@ -1849,24 +1849,21 @@ fn receivers(raw: &RawExtraction) -> Vec<(&str, Option<&str>)> {
 
 #[test]
 fn a_member_call_on_a_chain_records_the_type_path_of_its_operand() {
-    let raw = extract(b"package p\nfunc f(s S) { s.Findings().Verdict(v) }\n");
+    let raw = extract(b"package p\nfunc f(s S) { s.Items().First(v) }\n");
 
     assert_eq!(
         receivers(&raw),
-        [("Verdict", Some("S.Findings()")), ("Findings", Some("S"))]
+        [("First", Some("S.Items()")), ("Items", Some("S"))]
     );
 }
 
 #[test]
 fn a_member_call_on_a_value_the_walk_cannot_type_keeps_an_empty_receiver() {
     let raw = extract(
-        b"package p\nfunc f(fn func() S, one, two T) {\n\tfn().Verdict()\n\tsum := one + two\n\tsum.Close()\n}\n",
+        b"package p\nfunc f(fn func() S, one, two T) {\n\tfn().First()\n\tsum := one + two\n\tsum.Close()\n}\n",
     );
 
-    assert_eq!(
-        receivers(&raw),
-        [("Verdict", Some("")), ("Close", Some(""))]
-    );
+    assert_eq!(receivers(&raw), [("First", Some("")), ("Close", Some(""))]);
 }
 
 #[test]
