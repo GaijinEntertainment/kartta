@@ -191,6 +191,62 @@ fn attr_writer_defines_only_the_setter() {
 }
 
 #[test]
+fn every_attribute_write_target_calls_the_setter_alone() {
+    for (shape, source) in [
+        ("plain", "def f\n  a.b = 1\nend\n"),
+        ("safe navigation", "def f\n  a&.b = 1\nend\n"),
+        ("colons", "def f\n  a::b = 1\nend\n"),
+        ("list", "def f\n  c, a.b = 1, 2\nend\n"),
+        ("nested list", "def f\n  c, (d, a.b) = 1, [2, 3]\nend\n"),
+        ("splat", "def f\n  c, *a.b = 1, 2\nend\n"),
+        ("rescue", "def f\n  1\nrescue => a.b\n  2\nend\n"),
+        ("for", "def f\n  for a.b in [] do end\nend\n"),
+    ] {
+        let raw = extract(source.as_bytes());
+
+        assert_eq!(sites_of(&raw, "b="), [("f", Some("a"))], "{shape}");
+        assert_eq!(sites_of(&raw, "b"), [], "{shape}");
+    }
+}
+
+#[test]
+fn a_constant_attribute_write_calls_the_setter_of_the_constant_name() {
+    let raw = extract(b"def f\n  a.B = 1\nend\n");
+
+    assert_eq!(sites_of(&raw, "B="), [("f", Some("a"))]);
+    assert_eq!(sites_of(&raw, "B"), []);
+}
+
+#[test]
+fn an_operator_write_calls_the_reader_before_the_setter() {
+    for operator in ["+=", "||=", "&&="] {
+        let source = format!("def f\n  a.b {operator} 1\nend\n");
+        let raw = extract(source.as_bytes());
+
+        assert_eq!(
+            calls(&raw),
+            [("b", Some("a")), ("b=", Some("a")), ("a", None)],
+            "{operator}"
+        );
+    }
+}
+
+#[test]
+fn only_the_written_attribute_of_a_chain_is_a_setter() {
+    let raw = extract(b"def f\n  self.b.c = d.e\nend\n");
+
+    assert_eq!(
+        calls(&raw),
+        [
+            ("c=", Some("")),
+            ("b", Some("")),
+            ("e", Some("d")),
+            ("d", None)
+        ]
+    );
+}
+
+#[test]
 fn a_call_is_made_by_the_method_around_it() {
     let raw = extract(SAMPLE);
 
