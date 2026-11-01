@@ -177,9 +177,43 @@ fn a_chained_assignment_writes_the_value_assigned_whatever_the_target_between() 
 }
 
 #[test]
+fn a_parenthesized_write_is_the_value_inside() {
+    for write in [
+        "$this->c = (new Container);",
+        "$this->c = ((new Container));",
+        "$this->c ??= (new Container);",
+        "$this->c = ($this->d = new Container);",
+        "$this->c = ($v = (new Container));",
+        "$v = new Container; $this->c = ($v);",
+    ] {
+        let members = in_a_method(write);
+        assert_eq!(receiver(&members).as_deref(), CONTAINER, "{write}");
+    }
+}
+
+#[test]
 fn a_chained_null_says_nothing_of_the_property() {
-    let members = in_a_method("$this->c = new Container; $this->c = $v = null;");
-    assert_eq!(receiver(&members).as_deref(), CONTAINER);
+    for clear in ["$this->c = $v = null;", "$this->c = (null);"] {
+        let members = in_a_method(&format!("$this->c = new Container; {clear}"));
+        assert_eq!(receiver(&members).as_deref(), CONTAINER, "{clear}");
+    }
+}
+
+#[test]
+fn a_call_on_a_parenthesized_property_reads_the_property() {
+    for read in [
+        "($this->c)->m();",
+        "($this->c)::m();",
+        "(self::$c)->m();",
+        "($v = $this->c)->m();",
+    ] {
+        let source = format!(
+            "<?php\nnamespace App;\nclass Suite {{\n    private Container $c;\n    public function run() {{ \
+             {read} }}\n}}\n"
+        );
+        let raw = Php::new().extract(source.as_bytes());
+        assert_eq!(raw.calls[0].receiver.as_deref(), CONTAINER, "{read}");
+    }
 }
 
 #[test]
@@ -289,8 +323,13 @@ fn a_default_or_an_untyped_promotion_is_another_value_beside_a_write() {
 
 #[test]
 fn an_anonymous_class_written_to_a_property_goes_by_the_name_the_walk_gave_it() {
-    let members = in_a_method("$this->c = new class { public function m() {} };");
-    assert_eq!(receiver(&members).as_deref(), Some("{set·c}"));
+    for write in [
+        "$this->c = new class { public function m() {} };",
+        "$this->c = (new class { public function m() {} });",
+    ] {
+        let members = in_a_method(write);
+        assert_eq!(receiver(&members).as_deref(), Some("{set·c}"), "{write}");
+    }
 }
 
 #[test]

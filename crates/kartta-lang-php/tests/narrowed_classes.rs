@@ -27,6 +27,12 @@ fn receiver_given(parameters: &str, body: &str, name: &str) -> Option<String> {
 }
 
 #[test]
+fn a_parenthesized_subject_is_the_subject() {
+    let body = "if (($v) instanceof Local) { $v->m(); }";
+    assert_eq!(receiver(body, "m").as_deref(), LOCAL);
+}
+
+#[test]
 fn a_test_names_its_class_as_php_compiles_it() {
     for (class, narrowed) in [
         ("Local", "\\App\\Local"),
