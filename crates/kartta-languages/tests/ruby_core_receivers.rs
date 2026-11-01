@@ -53,6 +53,25 @@ fn a_call_on_a_core_class_or_a_literal_binds_no_namesake_of_another_class() {
 }
 
 #[test]
+fn a_call_with_a_capital_name_binds_the_method_and_no_constant_of_the_name() {
+    let (_tree, engine) = build(&[
+        (
+            "gem.rb",
+            "module Gem\n  URI = compute\n\n  def URI(uri)\n    uri\n  end\nend\n",
+        ),
+        (
+            "run.rb",
+            "class Runner\n  def go\n    Gem::URI(1)\n  end\nend\n",
+        ),
+    ]);
+
+    assert_eq!(
+        callees(&engine, "run.rb", "Runner#go"),
+        (vec!["Gem#URI"], 0)
+    );
+}
+
+#[test]
 fn a_block_that_eval_runs_on_a_constant_binds_the_members_of_that_class() {
     let (_tree, engine) = build(&[(
         "shape.rb",
