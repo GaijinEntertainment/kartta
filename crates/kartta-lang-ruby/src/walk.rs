@@ -384,9 +384,9 @@ impl Emitter<'_> {
                     IDENTIFIER => self.named_receiver(receiver, site_of),
                     "self" => self.type_of_self(site_of).unwrap_or_default(),
                     "constant" | "scope_resolution" => on_the_class(text(receiver, self.source)),
-                    "call" if self.is_class_of_an_instance(receiver, site_of) => {
-                        CLASS_MEMBER_SEPARATOR.to_owned()
-                    }
+                    "call" => self
+                        .class_of_an_instance(receiver, site_of)
+                        .unwrap_or_default(),
                     _ => literal_class(receiver).to_owned(),
                 })
             },
@@ -563,10 +563,13 @@ impl Emitter<'_> {
         Some((owner, class_method))
     }
 
-    // constraint: `self.class` in an instance method is the owner's class; elsewhere `self` is a type, whose class is
-    // `Class`, or the receiver of the block around it
-    fn is_class_of_an_instance(&self, receiver: Node<'_>, site_of: SymbolId) -> bool {
-        receiver
+    // constraint: `self.class` in an instance method is the owner's class, or `.` alone in a module's, whose instance is
+    // of a class that mixes the module in, and in a class written as a path, whose bases no walk over its last name
+    // finds. Elsewhere `self` is a type, whose class is `Class`, or the receiver of the block around it, and any other
+    // call names no class
+    /// The receiver `receiver`, a call, spells where it is `self.class` of an instance.
+    fn class_of_an_instance(&self, receiver: Node<'_>, site_of: SymbolId) -> Option<String> {
+        let is_self_class = receiver
             .child_by_field_name("arguments")
             .is_none_or(|arguments| named_child_nodes(arguments).next().is_none())
             && receiver
@@ -576,10 +579,19 @@ impl Emitter<'_> {
                 .child_by_field_name("receiver")
                 .is_some_and(|of| of.kind() == "self")
             && !self.is_type_body(site_of)
-            && self.self_of_block().is_none()
-            && self
-                .owner_of_method(site_of)
-                .is_some_and(|(_, class_method)| !class_method)
+            && self.self_of_block().is_none();
+        let (owner, _) = self
+            .owner_of_method(site_of)
+            .filter(|(_, class_method)| is_self_class && !class_method)?;
+        let body = self.open_types.last().and_then(|body| self.symbol(body.id));
+        Some(
+            if body.is_some_and(|body| body.kind == SymbolKind::Class && !body.name.contains("::"))
+            {
+                on_the_class(format!("::{owner}"))
+            } else {
+                CLASS_MEMBER_SEPARATOR.to_owned()
+            },
+        )
     }
 
     fn symbol(&self, id: SymbolId) -> Option<&Symbol> {
