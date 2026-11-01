@@ -1047,6 +1047,241 @@ fn sites_of(graph: &Graph, name: &str) -> Vec<(String, u32, u8)> {
         .collect()
 }
 
+fn struct_with_a_promoted_method() -> Vec<Symbol> {
+    vec![
+        typed("main", "Inner", SymbolKind::Struct, 1),
+        member("main.Inner", "Deep", SymbolKind::Field, 2),
+        member("main.Inner", "Promoted", SymbolKind::Method, 3),
+        member("main.Inner", "Shadowed", SymbolKind::Method, 4),
+        embedding(typed("main", "S", SymbolKind::Struct, 5), &["Inner"]),
+        member("main.S", "X", SymbolKind::Field, 6),
+        member("main.S", "Own", SymbolKind::Method, 7),
+        member("main.S", "Shadowed", SymbolKind::Method, 8),
+    ]
+}
+
+fn over_the_struct(line: u32) -> Vec<Symbol> {
+    vec![
+        defined_over("T", "~S", line),
+        member("main.T", "Mine", SymbolKind::Method, line + 1),
+        defined_over("Chained", "~T", line + 2),
+        yielding(
+            typed("main", "Named", SymbolKind::TypeAlias, line + 3),
+            &["S"],
+        ),
+        defined_over("OverAlias", "~Named", line + 4),
+    ]
+}
+
+#[test]
+fn a_type_defined_over_a_struct_keeps_what_its_embedded_fields_promote() {
+    let mut symbols = struct_with_a_promoted_method();
+    symbols.extend(over_the_struct(10));
+    let declarations = file("app/types.go", "main", symbols, Vec::new());
+    let caller = caller_of(vec![
+        member_call("T", "Promoted", 2),
+        member_call("Chained", "Promoted", 3),
+        member_call("OverAlias", "Promoted", 4),
+        member_call("T.Inner", "Promoted", 5),
+    ]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        callees_of(&graph, "main.Run"),
+        [("app/types.go:main.Inner.Promoted".to_owned(), 85)],
+        "over a struct, over a defined type and over an alias, and through the embedded field's own name"
+    );
+    assert_eq!(misses_of(&graph), Vec::new());
+}
+
+#[test]
+fn a_type_defined_over_a_struct_keeps_its_fields_at_every_depth() {
+    let mut symbols = struct_with_a_promoted_method();
+    symbols.extend(over_the_struct(10));
+    let declarations = file("app/types.go", "main", symbols, Vec::new());
+    let mut caller = caller_of(Vec::new());
+    caller.uses = vec![
+        accessing("X", "T", Access::Read, 2),
+        accessing("X", "Chained", Access::Read, 3),
+        accessing("X", "OverAlias", Access::Read, 4),
+        accessing("Deep", "T", Access::Read, 5),
+        accessing("Deep", "T.Inner", Access::Read, 6),
+    ];
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        sites_of(&graph, "main.S.X"),
+        [
+            ("main.Run".to_owned(), 2, 85),
+            ("main.Run".to_owned(), 3, 85),
+            ("main.Run".to_owned(), 4, 85)
+        ]
+    );
+    assert_eq!(
+        sites_of(&graph, "main.Inner.Deep"),
+        [
+            ("main.Run".to_owned(), 5, 85),
+            ("main.Run".to_owned(), 6, 85)
+        ]
+    );
+}
+
+#[test]
+fn a_type_defined_over_a_struct_takes_a_promoted_method_past_the_struct_s_own() {
+    let mut symbols = struct_with_a_promoted_method();
+    symbols.extend(over_the_struct(10));
+    let declarations = file("app/types.go", "main", symbols, Vec::new());
+    let caller = caller_of(vec![
+        member_call("T", "Shadowed", 2),
+        member_call("Named", "Shadowed", 3),
+    ]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        callees_of(&graph, "main.Run"),
+        [
+            ("app/types.go:main.Inner.Shadowed".to_owned(), 85),
+            ("app/types.go:main.S.Shadowed".to_owned(), 85),
+        ],
+        "T drops S.Shadowed and reaches the embedded one, where an alias of S keeps it"
+    );
+    assert_eq!(misses_of(&graph), Vec::new());
+}
+
+#[test]
+fn a_selector_past_a_type_over_a_struct_goes_on_through_the_promoted_method_s_result() {
+    let declarations = file(
+        "app/types.go",
+        "main",
+        vec![
+            typed("main", "Inner", SymbolKind::Struct, 1),
+            yielding(
+                member("main.Inner", "Open", SymbolKind::Method, 2),
+                &["Right"],
+            ),
+            embedding(typed("main", "S", SymbolKind::Struct, 3), &["Inner"]),
+            yielding(member("main.S", "Open", SymbolKind::Method, 4), &["Wrong"]),
+            defined_over("T", "~S", 5),
+            typed("main", "Right", SymbolKind::Struct, 6),
+            member("main.Right", "Close", SymbolKind::Method, 7),
+            typed("main", "Wrong", SymbolKind::Struct, 8),
+            member("main.Wrong", "Close", SymbolKind::Method, 9),
+        ],
+        Vec::new(),
+    );
+    let caller = caller_of(vec![member_call("T.Open()", "Close", 2)]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        callees_of(&graph, "main.Run"),
+        [("app/types.go:main.Right.Close".to_owned(), 85)],
+        "the read of Open passes S.Open as the walk of a last selector does"
+    );
+}
+
+#[test]
+fn a_type_defined_over_a_struct_has_only_its_own_methods_at_its_own_depth() {
+    let mut symbols = struct_with_a_promoted_method();
+    symbols.extend(over_the_struct(10));
+    let declarations = file("app/types.go", "main", symbols, Vec::new());
+    let caller = caller_of(vec![
+        member_call("T", "Own", 2),
+        member_call("Chained", "Mine", 3),
+        member_call("T", "Mine", 4),
+    ]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        callees_of(&graph, "main.Run"),
+        [("app/types.go:main.T.Mine".to_owned(), 85)],
+        "the struct's method and the method of the defined type in between stay off"
+    );
+    assert_eq!(
+        misses_of(&graph),
+        [("Own", Miss::NotAdmitted), ("Mine", Miss::NotAdmitted)]
+    );
+}
+
+#[test]
+fn a_struct_under_a_defined_type_sits_at_that_type_s_depth() {
+    let declarations = file(
+        "app/types.go",
+        "main",
+        vec![
+            typed("main", "Near", SymbolKind::Struct, 1),
+            member("main.Near", "Y", SymbolKind::Field, 2),
+            embedding(typed("main", "Far", SymbolKind::Struct, 3), &["Near"]),
+            typed("main", "Under", SymbolKind::Struct, 4),
+            member("main.Under", "Y", SymbolKind::Field, 5),
+            defined_over("Sib", "~Under", 6),
+            embedding(
+                typed("main", "Order", SymbolKind::Struct, 7),
+                &["Far", "Sib"],
+            ),
+        ],
+        Vec::new(),
+    );
+    let mut caller = caller_of(Vec::new());
+    caller.uses = vec![accessing("Y", "Order", Access::Read, 2)];
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        sites_of(&graph, "main.Under.Y"),
+        [("main.Run".to_owned(), 2, 85)],
+        "Sib holds Y at depth 1, and Far only at depth 2"
+    );
+}
+
+#[test]
+fn a_method_promoted_through_a_struct_that_embeds_itself_past_a_defined_type_binds() {
+    let declarations = file(
+        "app/types.go",
+        "main",
+        vec![
+            embedding(typed("main", "S", SymbolKind::Struct, 1), &["S"]),
+            member("main.S", "M", SymbolKind::Method, 2),
+            defined_over("T", "~S", 3),
+        ],
+        Vec::new(),
+    );
+    let caller = caller_of(vec![member_call("T", "M", 2)]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        callees_of(&graph, "main.Run"),
+        [("app/types.go:main.S.M".to_owned(), 85)],
+        "the embedded S keeps the methods the S under T drops"
+    );
+}
+
+#[test]
+fn a_member_a_type_over_a_struct_cannot_give_reaches_the_import_the_struct_embeds() {
+    let declarations = importing(
+        file(
+            "app/types.go",
+            "main",
+            vec![
+                embedding(typed("main", "S", SymbolKind::Struct, 1), &["http.Client"]),
+                defined_over("T", "~S", 2),
+            ],
+            Vec::new(),
+        ),
+        &[("http", None)],
+    );
+    let caller = caller_of(vec![member_call("T", "Do", 2)]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(misses_of(&graph), [("Do", Miss::ExternalImport)]);
+}
+
 #[test]
 fn a_member_on_a_value_binds_the_field_or_method_its_type_path_reaches() {
     let mut caller = file(
