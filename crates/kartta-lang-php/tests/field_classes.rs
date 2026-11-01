@@ -232,6 +232,46 @@ fn a_class_beside_any_other_value_names_none() {
 }
 
 #[test]
+fn a_compound_assignment_stores_its_operator_s_result_whatever_its_right_side_names() {
+    for operator in [
+        ".=", "+=", "-=", "*=", "/=", "%=", "**=", "|=", "&=", "^=", "<<=", ">>=",
+    ] {
+        for write in [
+            format!("$this->c {operator} new Container;"),
+            format!("self::$c {operator} new Container;"),
+            format!("$v = new Container; $this->c {operator} $v;"),
+            format!("$this->c {operator} $v = new Container;"),
+        ] {
+            assert_eq!(
+                receiver(&in_a_method(&write)).as_deref(),
+                UNNAMED,
+                "{write}"
+            );
+        }
+        let beside_a_class = format!("$this->c = new Container; $this->c {operator} null;");
+        assert_eq!(
+            receiver(&in_a_method(&beside_a_class)).as_deref(),
+            UNNAMED,
+            "{beside_a_class}",
+        );
+    }
+}
+
+#[test]
+fn a_null_coalescing_assignment_writes_its_right_side() {
+    for write in [
+        "$v = new Container; $this->c ??= $v;",
+        "$this->c = new Container; $this->c ??= null;",
+    ] {
+        assert_eq!(
+            receiver(&in_a_method(write)).as_deref(),
+            CONTAINER,
+            "{write}"
+        );
+    }
+}
+
+#[test]
 fn a_default_or_an_untyped_promotion_is_another_value_beside_a_write() {
     let write = in_a_method("$this->c = new Container;");
     assert_eq!(
