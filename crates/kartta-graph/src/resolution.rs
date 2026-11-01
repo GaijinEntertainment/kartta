@@ -24,6 +24,9 @@ pub enum Miss {
     /// Several definitions of the name may be meant, and neither scope nor nearness picks one, or, for a call from
     /// outside test code, nearness picks a test definition.
     Ambiguous,
+    /// The graph stopped reading the receiver at a bound, so nothing is known of what the call reaches: a cycle of
+    /// declarations, which a compiler refuses, or a valid chain longer than the graph follows.
+    PastBound,
 }
 
 /// The call sites that bound no definition, by reason.
@@ -40,6 +43,8 @@ pub struct Misses {
     pub not_admitted: usize,
     /// The sites [`Miss::Ambiguous`] names.
     pub ambiguous: usize,
+    /// The sites [`Miss::PastBound`] names.
+    pub past_bound: usize,
     /// Of the undefined and the not-admitted sites, those made through any receiver, one that names an import
     /// included: most often a call of a member of a value whose type the graph does not define, a library's.
     pub through_a_receiver: usize,
@@ -53,6 +58,7 @@ impl Misses {
             Miss::Undefined => &mut self.undefined,
             Miss::NotAdmitted => &mut self.not_admitted,
             Miss::Ambiguous => &mut self.ambiguous,
+            Miss::PastBound => &mut self.past_bound,
         };
         *count += 1;
         if matches!(miss, Miss::Undefined | Miss::NotAdmitted) && call.receiver.is_some() {
@@ -66,6 +72,7 @@ impl Misses {
         self.undefined += other.undefined;
         self.not_admitted += other.not_admitted;
         self.ambiguous += other.ambiguous;
+        self.past_bound += other.past_bound;
         self.through_a_receiver += other.through_a_receiver;
     }
 }
@@ -183,6 +190,7 @@ impl<'g> Tally<'g> {
             + misses.undefined
             + misses.not_admitted
             + misses.ambiguous
+            + misses.past_bound
     }
 
     fn files(&mut self, run: &[u32]) {

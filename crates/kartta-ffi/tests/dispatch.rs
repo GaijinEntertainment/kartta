@@ -335,6 +335,30 @@ fn a_search_only_the_fill_up_matches_answers_the_graph_with_its_fuzzy_hits() {
 }
 
 #[test]
+fn resolution_names_a_read_past_its_bound_and_counts_it_only_where_one_exists() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+    let counts = ok(&kartta, "resolution", &json!({ "limit": 1 }));
+    assert!(counts["matches"][0]["misses"].get("past_bound").is_none());
+
+    fs::write(
+        tree.path().join("cycle.go"),
+        "package main\n\nvar a = b\nvar b = a\n\nfunc cycle() {\n\ta.Set()\n}\n",
+    )
+    .expect("cycle.go");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let answer = ok(&kartta, "resolution", &json!({ "limit": 1 }));
+
+    let matched = &answer["matches"][0];
+    assert_eq!(matched["misses"]["past_bound"], 1);
+    assert_eq!(matched["misses"]["not_admitted"], 0);
+    assert_eq!(matched["unbound"][0]["miss"], "past_bound");
+}
+
+#[test]
 fn callers_answers_each_graph_s_walk_with_what_it_left_out() {
     let tree = tree();
     let kartta = open(tree.path());

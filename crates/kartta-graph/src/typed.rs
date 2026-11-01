@@ -14,8 +14,9 @@ pub(crate) enum Typed {
     /// A name that nothing the graph holds declares, a builtin type among them.
     Undeclared,
     /// A type the graph holds, with no member of the name the site can bind: a method for a call, any member for a use.
-    /// A read past a bound answers this too, since a cycle of declarations gives its name no type to bind through.
     NoMethod,
+    /// A read past a bound, which binds nothing, since a cycle of declarations gives its name no type to bind through.
+    PastBound,
     /// A path the graph cannot follow, which leaves the call to the tiers that read no type.
     Unknown,
 }
@@ -106,7 +107,7 @@ impl<'g> Cascade<'g> {
             }
             Value::Imported => Typed::Imported,
             Value::Undeclared => Typed::Undeclared,
-            Value::Unbounded => Typed::NoMethod,
+            Value::Unbounded => Typed::PastBound,
             Value::Package(_)
             | Value::Callable(_)
             | Value::Container { .. }

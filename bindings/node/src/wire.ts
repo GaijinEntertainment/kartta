@@ -752,6 +752,8 @@ export type Resolution = {
 		undefined: number;
 		not_admitted: number;
 		ambiguous: number;
+		/** The sites the graph stopped reading at a bound, absent when none did. */
+		past_bound?: number;
 		through_a_receiver: number;
 	};
 	unbound: Unbound[];
@@ -765,7 +767,7 @@ export type Unbound = {
 	line: number;
 	callee: string;
 	receiver?: string;
-	/** `external_import`, `not_exported`, `undefined`, `not_admitted` or `ambiguous`. */
+	/** `external_import`, `not_exported`, `undefined`, `not_admitted`, `ambiguous` or `past_bound`. */
 	miss: string;
 };
 
