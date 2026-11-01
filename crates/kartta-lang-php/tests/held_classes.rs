@@ -115,6 +115,46 @@ fn every_write_to_the_variable_ends_the_class() {
 }
 
 #[test]
+fn a_chained_assignment_holds_the_value_assigned_in_each_variable() {
+    for body in [
+        "$v = $w = new Local; $v->m();",
+        "$w = $v = new Local; $v->m();",
+        "$v = $w = $x = new Local; $v->m();",
+        "$v = $this->p = new Local; $v->m();",
+        "$v = self::$s = new Local; $v->m();",
+        "$v = $a->p = new Local; $v->m();",
+        "$v = $a['k'] = new Local; $v->m();",
+        "$v = [$w] = new Local; $v->m();",
+        "$v = $w = new Local; $w = 1; $v->m();",
+    ] {
+        assert_eq!(receiver(body, "m").as_deref(), LOCAL, "{body}");
+    }
+}
+
+#[test]
+fn a_chain_ends_in_a_new_or_it_holds_no_class() {
+    for body in [
+        "$w = new Local; $v = $x = $w; $v->m();",
+        "$v = $w ??= new Local; $v->m();",
+        "$v = $w = &$a; $v->m();",
+        "$v = $w = $a ? new Local : null; $v->m();",
+        "$v = $w = new class {}; $v->m();",
+    ] {
+        assert_eq!(receiver(body, "m").as_deref(), UNTYPED, "{body}");
+    }
+}
+
+#[test]
+fn a_chain_holds_from_its_end_to_the_end_of_its_branch() {
+    let body = "$v = $w = new Local($v->with()); $v->m();";
+    assert_eq!(receiver(body, "with").as_deref(), UNTYPED);
+    assert_eq!(receiver(body, "m").as_deref(), LOCAL);
+
+    let body = "if ($a) { $v = $w = new Local; } $v->m();";
+    assert_eq!(receiver(body, "m").as_deref(), UNTYPED);
+}
+
+#[test]
 fn a_write_to_something_the_variable_reaches_keeps_the_class() {
     for write in [
         "$v->p = 1;",

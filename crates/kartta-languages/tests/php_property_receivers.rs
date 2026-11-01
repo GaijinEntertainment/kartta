@@ -111,6 +111,43 @@ fn a_call_on_a_typed_or_a_promoted_property_binds_the_class() {
 }
 
 #[test]
+fn a_call_on_what_a_chained_assignment_wrote_binds_the_class() {
+    let source = r"<?php
+namespace App;
+
+class DB {
+    public function connect() {}
+}
+class Other {
+    public function connect() {}
+}
+class Uses {
+    private $db;
+    private $plain;
+    public function __construct() {
+        $this->db = $db = new DB;
+        $this->plain = new DB;
+    }
+    public function viaNested() { $this->db->connect(); }
+    public function viaPlain() { $this->plain->connect(); }
+    public function viaLocal() { $held = $this->fresh = new DB; $held->connect(); }
+}
+";
+    let files = [("src/A.php", source), COMPOSER];
+    for caller in ["viaNested", "viaPlain"] {
+        assert_eq!(
+            callees(&files, &format!("App\\Uses::{caller}")),
+            ["App\\DB::connect"],
+            "{caller}",
+        );
+    }
+    assert_eq!(
+        callees(&files, "App\\Uses::viaLocal"),
+        ["App\\DB", "App\\DB::connect"],
+    );
+}
+
+#[test]
 fn two_classes_written_to_a_property_bind_neither() {
     let reached = callees_of_run(
         "private $container;

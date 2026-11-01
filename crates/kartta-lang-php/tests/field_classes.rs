@@ -157,6 +157,31 @@ fn a_write_of_a_variable_names_the_class_the_variable_holds() {
 }
 
 #[test]
+fn a_chained_assignment_writes_the_value_assigned_whatever_the_target_between() {
+    for write in [
+        "$this->c = $v = new Container;",
+        "$this->c = $v = $w = new Container;",
+        "$this->c = $this->d = new Container;",
+        "$this->c = $this->typed = new Container;",
+        "$this->c = self::$s = new Container;",
+        "$this->c = $a->p = new Container;",
+        "$this->c = $a['k'] = new Container;",
+        "$this->c = [$v] = new Container;",
+        "$this->c ??= $v = new Container;",
+        "$v = new Container; $this->c = $w = $v;",
+    ] {
+        let members = format!("private string $typed;\n{}", in_a_method(write));
+        assert_eq!(receiver(&members).as_deref(), CONTAINER, "{write}");
+    }
+}
+
+#[test]
+fn a_chained_null_says_nothing_of_the_property() {
+    let members = in_a_method("$this->c = new Container; $this->c = $v = null;");
+    assert_eq!(receiver(&members).as_deref(), CONTAINER);
+}
+
+#[test]
 fn a_cleared_property_keeps_its_class() {
     for clear in ["$this->c = null;", "$this->c = NULL;", "unset($this->c);"] {
         let members = in_a_method(&format!("$this->c = new Container; {clear}"));
@@ -185,6 +210,11 @@ fn a_class_beside_any_other_value_names_none() {
         "$this->c = $this->make();",
         "$this->c = new $a;",
         "$this->c = $a ? new Container : null;",
+        "$this->c = $b = $a;",
+        "$this->c = $b = $this->make();",
+        "$this->c = $b ??= new Container;",
+        "$this->c = $b = &$a;",
+        "$this->c = $b = new class {};",
         "$this->c = &$a;",
         "$this->c .= 'x';",
         "$other = &$this->c;",
