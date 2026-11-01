@@ -37,7 +37,7 @@ fn the_fingerprint_stays_put_and_names_the_crate() {
 
 #[test]
 fn every_include_form_records_its_path_as_written() {
-    let source = br##"include "#/develop/gameBase/_common.blk"
+    let source = br##"include "#/develop/gameBase/_shared.blk"
 include '%dngSceneBlk/base.blk';
 include shaders_game_internal.blk
 INCLUDE /abs/path.blk // comment
@@ -55,7 +55,7 @@ block{
     assert_eq!(
         paths(&raw),
         [
-            ("#/develop/gameBase/_common.blk", 1),
+            ("#/develop/gameBase/_shared.blk", 1),
             ("%dngSceneBlk/base.blk", 2),
             ("shaders_game_internal.blk", 3),
             ("/abs/path.blk", 4),
