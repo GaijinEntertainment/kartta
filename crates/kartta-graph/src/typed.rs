@@ -404,16 +404,17 @@ impl<'g> Cascade<'g> {
     fn member(&self, ty: SymbolAt, (name, members): (&str, &[SymbolAt]), depth: u8) -> Found<'g> {
         let mut walk = Embedded::new(ty);
         while let Some(next) = walk.next() {
-            if let Some(at) = self.declared_member(next, members) {
+            if let Some(at) = self.walked_member(next, members) {
                 return Found::Member(at);
             }
-            if let Some(written) = self.embedded_field(next, name) {
-                return match self.evaluate(self.body_of(next), written, depth + 1) {
+            let Walked { ty, .. } = next;
+            if let Some(written) = self.embedded_field(ty, name) {
+                return match self.evaluate(self.body_of(ty), written, depth + 1) {
                     Value::Type(at) => Found::Member(at),
                     value => Found::Reached(value),
                 };
             }
-            self.embed(&mut walk, next, depth);
+            self.embed(&mut walk, ty, depth);
         }
         if walk.reaches_outside {
             Found::Reached(Value::Imported)
@@ -436,6 +437,12 @@ impl<'g> Cascade<'g> {
             .iter()
             .map(|parent| self.graph.strings.resolve(parent.written))
             .find(|written| written.rsplit('.').next() == Some(name))
+    }
+
+    fn walked_member(&self, walked: Walked, named: &[SymbolAt]) -> Option<SymbolAt> {
+        self.declared_member(walked.ty, named).filter(|&at| {
+            !walked.drops_own_methods || self.graph.sym(at).kind != SymbolKind::Method
+        })
     }
 
     // constraint: a type's members are declared in its own package and qualified by its name, so a member of its name
@@ -495,11 +502,17 @@ impl<'g> Cascade<'g> {
                 Value::Imported => walk.follow(Value::Imported),
                 _ => {}
             },
-            SymbolKind::DefinedType => {
-                if let Some(under) = self.interface_under(ty, depth) {
-                    walk.follow(under);
+            SymbolKind::DefinedType => match self.underlying(ty, depth) {
+                Some(Value::Type(under)) => {
+                    let drops_own_methods = self.graph.sym(under).kind == SymbolKind::Struct;
+                    walk.descend_in_place(Walked {
+                        ty: under,
+                        drops_own_methods,
+                    });
                 }
-            }
+                Some(imported) => walk.follow(imported),
+                None => {}
+            },
             _ => {}
         }
         for parent in self.graph.file(ty.file).parents_of(ty.index) {
@@ -508,12 +521,12 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    // constraint: a type defined over another takes none of its methods, an interface's excepted, whose methods are the
-    // method set of every type defined over it. An imported type may be an interface, and a struct's fields stay, so a
-    // member of a type over one is the imported type's
-    fn interface_under(&self, ty: SymbolAt, depth: u8) -> Option<Value<'g>> {
+    // constraint: a type defined over another shares its underlying type: an interface's methods, or a struct's fields
+    // and what they promote, and none of the struct's own methods. An imported type may be either, so a member of a
+    // type over one is the imported type's (ADR 3.201)
+    fn underlying(&self, ty: SymbolAt, depth: u8) -> Option<Value<'g>> {
         let kind = self.graph.sym(ty).kind;
-        if kind == SymbolKind::Interface {
+        if matches!(kind, SymbolKind::Interface | SymbolKind::Struct) {
             return Some(Value::Type(ty));
         }
         let types = self.graph.file(ty.file).value_types(ty.index)?;
@@ -524,7 +537,7 @@ impl<'g> Cascade<'g> {
             _ => return None,
         };
         match self.evaluate(self.body_of(ty), path, depth + 1) {
-            Value::Type(under) => self.interface_under(under, depth + 1),
+            Value::Type(under) => self.underlying(under, depth + 1),
             Value::Imported => Some(Value::Imported),
             _ => None,
         }
@@ -539,9 +552,24 @@ enum Found<'g> {
     Nothing,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Walked {
+    ty: SymbolAt,
+    drops_own_methods: bool,
+}
+
+impl Walked {
+    const fn whole(ty: SymbolAt) -> Self {
+        Self {
+            ty,
+            drops_own_methods: false,
+        }
+    }
+}
+
 struct Embedded {
-    pending: Vec<SymbolAt>,
-    walked: Vec<SymbolAt>,
+    pending: Vec<Walked>,
+    walked: Vec<Walked>,
     aliases: Vec<(SymbolAt, SymbolAt)>,
     reaches_outside: bool,
     reaches_unknown: bool,
@@ -550,9 +578,10 @@ struct Embedded {
 
 impl Embedded {
     fn new(ty: SymbolAt) -> Self {
+        let start = Walked::whole(ty);
         Self {
-            pending: vec![ty],
-            walked: vec![ty],
+            pending: vec![start],
+            walked: vec![start],
             aliases: Vec::new(),
             reaches_outside: false,
             reaches_unknown: false,
@@ -575,7 +604,7 @@ impl Embedded {
         self.follow(Value::Type(target));
     }
 
-    fn next(&mut self) -> Option<SymbolAt> {
+    fn next(&mut self) -> Option<Walked> {
         if self.walked.len() > EMBEDDED_TYPES {
             self.reaches_unknown = true;
             return None;
@@ -583,13 +612,24 @@ impl Embedded {
         (!self.pending.is_empty()).then(|| self.pending.remove(0))
     }
 
+    // constraint: what a defined type holds of the type under it sits at that type's own depth, ahead of the types the
+    // walk holds for the next one
+    fn descend_in_place(&mut self, under: Walked) {
+        if !self.walked.contains(&under) {
+            self.walked.push(under);
+            self.pending.insert(0, under);
+        }
+    }
+
     fn follow(&mut self, value: Value<'_>) {
         match value {
-            Value::Type(at) if !self.walked.contains(&at) => {
-                self.walked.push(at);
-                self.pending.push(at);
+            Value::Type(ty) => {
+                let embedded = Walked::whole(ty);
+                if !self.walked.contains(&embedded) {
+                    self.walked.push(embedded);
+                    self.pending.push(embedded);
+                }
             }
-            Value::Type(_) => {}
             Value::Imported | Value::Undeclared => self.reaches_outside = true,
             Value::Package(_)
             | Value::Callable(_)
