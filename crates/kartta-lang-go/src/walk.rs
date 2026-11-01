@@ -1,12 +1,12 @@
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use kartta_lang::tree::{child_nodes, line, named_child_nodes, preorder, signature, text};
+use kartta_lang::tree::{child_nodes, line, named_child_nodes, signature, text};
 use kartta_lang::{
     FILE_SCOPE, ImplementsAssertion, RawDirective, RawExtraction, Symbol, SymbolFlags, SymbolId,
     SymbolKind,
 };
-use tree_sitter::{Node, Tree};
+use tree_sitter::{Node, Tree, TreeCursor};
 
 use self::anonymous::literal_type;
 use self::locals::{Block, Local, LocalKind, declares_left, header_statement};
@@ -30,8 +30,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let root = tree.root_node();
     let mut emitter = Emitter::new((source, root), package, package_values(tree, source));
 
-    preorder(root, |node| !node.is_named() || emitter.handle(node));
-
+    emitter.walk();
     emitter.apply_pending_parents();
     emitter.mark_reflected_fields();
     emitter.raw
@@ -95,6 +94,9 @@ struct Emitter<'a> {
     locals: Vec<Local>,
     package_values: HashSet<&'a str>,
     root: Node<'a>,
+    /// The nodes above the walk's position, outermost first, which `Node::parent` could only find by searching from the
+    /// root past every earlier sibling.
+    ancestors: Vec<Node<'a>>,
     package_types: OnceCell<HashMap<&'a str, Node<'a>>>,
     blocks: Vec<Block>,
     spec_owners: VecDeque<(usize, SymbolId)>,
@@ -141,6 +143,7 @@ impl<'a> Emitter<'a> {
             locals: Vec::new(),
             package_values,
             root,
+            ancestors: Vec::new(),
             package_types: OnceCell::new(),
             blocks: Vec::new(),
             spec_owners: VecDeque::new(),
@@ -242,6 +245,28 @@ impl<'a> Emitter<'a> {
             .map(|(_, symbol)| symbol)
     }
 
+    fn walk(&mut self) {
+        let mut cursor = self.root.walk();
+        loop {
+            let node = cursor.node();
+            if (!node.is_named() || self.handle(node)) && cursor.goto_first_child() {
+                self.ancestors.push(node);
+            } else if !self.step_past_subtree(&mut cursor) {
+                return;
+            }
+        }
+    }
+
+    fn step_past_subtree(&mut self, cursor: &mut TreeCursor<'a>) -> bool {
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return false;
+            }
+            self.ancestors.pop();
+        }
+        true
+    }
+
     fn handle(&mut self, node: Node<'a>) -> bool {
         self.close_scopes(node.start_byte());
         let caller = self.callers.last().map_or(FILE_SCOPE, |scope| scope.id);
@@ -272,10 +297,11 @@ impl<'a> Emitter<'a> {
             "const_spec" | "var_spec" => self.enter_spec(node),
             "call_expression" => self.call(node, caller),
             "index_expression" => self.record_type_arguments(node),
-            "type_identifier" | "qualified_identifier" | "selector_expression" => {
+            "type_identifier" | "qualified_identifier" => {
                 let owner = self.use_owner();
                 return self.record_use(node, owner);
             }
+            "selector_expression" => self.record_walked_selector(node, self.use_owner()),
             "identifier" => self.record_identifier(node, self.use_owner()),
             "keyed_element" => {
                 self.record_literal_key(node, self.use_owner());
@@ -359,9 +385,8 @@ impl<'a> Emitter<'a> {
 
     // constraint: in a clause that names one type, the switch's variable holds a value of that type
     fn enter_type_case(&mut self, clause: Node<'_>) {
-        let Some(name) = clause
-            .parent()
-            .and_then(|switch| switch.child_by_field_name("name"))
+        let Some(name) =
+            (self.ancestors.last()).and_then(|switch| switch.child_by_field_name("name"))
         else {
             return;
         };
@@ -383,7 +408,7 @@ impl<'a> Emitter<'a> {
     fn declare_short(&mut self, node: Node<'_>) {
         if let Some(left) = node.child_by_field_name("left")
             && declares_left(node)
-            && let Some(block) = header_statement(node)
+            && let Some(block) = header_statement(&self.ancestors)
                 .map(Block::of)
                 .or_else(|| self.blocks.last().copied())
         {

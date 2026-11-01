@@ -30,27 +30,37 @@ impl<'a> Emitter<'a> {
                 false
             }
             "selector_expression" => {
-                if self.named_by_call == Some(node.id()) {
-                    return true;
-                }
-                let access = if self.takes_type_operand(node) {
-                    Access::Type
-                } else {
-                    access_of(node, node.parent())
-                };
-                if let Some((package, field)) = self.import_qualifier(node) {
-                    let qualifier = Receiver::Qualifier(text(package, self.source));
-                    self.push_site(owner, node, (text(field, self.source), qualifier, access));
-                } else if let (Some(operand), Some(field)) = (
-                    node.child_by_field_name("operand"),
-                    node.child_by_field_name("field"),
-                ) {
-                    let path = Receiver::Path(self.value_path(operand).unwrap_or_default());
-                    self.push_site(owner, node, (text(field, self.source), path, access));
-                }
+                let holders = std::iter::successors(node.parent(), Node::parent);
+                self.record_selector(node, owner, access_of(node, holders));
                 true
             }
             _ => true,
+        }
+    }
+
+    pub(super) fn record_walked_selector(&mut self, node: Node<'_>, owner: SymbolId) {
+        let access = access_of(node, self.ancestors.iter().rev().copied());
+        self.record_selector(node, owner, access);
+    }
+
+    fn record_selector(&mut self, node: Node<'_>, owner: SymbolId, access: Access) {
+        if self.named_by_call == Some(node.id()) {
+            return;
+        }
+        let access = if self.takes_type_operand(node) {
+            Access::Type
+        } else {
+            access
+        };
+        if let Some((package, field)) = self.import_qualifier(node) {
+            let qualifier = Receiver::Qualifier(text(package, self.source));
+            self.push_site(owner, node, (text(field, self.source), qualifier, access));
+        } else if let (Some(operand), Some(field)) = (
+            node.child_by_field_name("operand"),
+            node.child_by_field_name("field"),
+        ) {
+            let path = Receiver::Path(self.value_path(operand).unwrap_or_default());
+            self.push_site(owner, node, (text(field, self.source), path, access));
         }
     }
 
@@ -68,16 +78,16 @@ impl<'a> Emitter<'a> {
         if skipped {
             return;
         }
-        let Some(parent) = node.parent() else {
+        let Some((&parent, above)) = self.ancestors.split_last() else {
             return;
         };
         let names_an_import = parent.kind() == "selector_expression"
             && self.import_names.iter().any(|import| import == name);
-        if !names_an_import && !declares(node, parent) {
+        if !names_an_import && !declares(node, parent, above) {
             let access = if self.takes_type_operand(node) {
                 Access::Type
             } else {
-                access_of(node, Some(parent))
+                access_of(node, self.ancestors.iter().rev().copied())
             };
             self.push_site(owner, node, (name.to_owned(), Receiver::Bare, access));
         }
@@ -460,13 +470,13 @@ fn field_places(struct_type: Node<'_>) -> impl Iterator<Item = Option<Node<'_>>>
         })
 }
 
-fn declares(name: Node<'_>, parent: Node<'_>) -> bool {
+fn declares(name: Node<'_>, parent: Node<'_>, above: &[Node<'_>]) -> bool {
     match parent.kind() {
         "parameter_declaration" | "function_declaration" | "var_spec" | "const_spec" => true,
         "type_switch_statement" => parent
             .child_by_field_name("name")
             .is_some_and(|declared| declared.id() == name.id()),
-        "expression_list" => parent.parent().is_some_and(|statement| {
+        "expression_list" => above.last().is_some_and(|&statement| {
             matches!(
                 statement.kind(),
                 "short_var_declaration" | "range_clause" | "receive_statement"
@@ -478,14 +488,11 @@ fn declares(name: Node<'_>, parent: Node<'_>) -> bool {
 }
 
 // constraint: only the outermost expression on the left of an assignment is assigned; `a.b` in `a.b.c = v` is read
-fn access_of(site: Node<'_>, parent: Option<Node<'_>>) -> Access {
-    let (mut at, mut holder) = (site, parent);
-    while let Some(statement) = holder {
+fn access_of<'t>(site: Node<'t>, holders: impl Iterator<Item = Node<'t>>) -> Access {
+    let mut at = site;
+    for statement in holders {
         match statement.kind() {
-            "expression_list" | "parenthesized_expression" => {
-                at = statement;
-                holder = statement.parent();
-            }
+            "expression_list" | "parenthesized_expression" => at = statement,
             "inc_dec_statement" => return Access::Update,
             "assignment" if is_left(statement, at) => {
                 let plain = statement
