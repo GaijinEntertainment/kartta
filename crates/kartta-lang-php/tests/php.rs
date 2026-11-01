@@ -664,7 +664,7 @@ class Suite {
     assert_eq!(call(&raw.calls, "make").receiver.as_deref(), job);
     assert_eq!(
         call(&raw.calls, "dispatch").receiver.as_deref(),
-        Some("$job")
+        Some("\\Job")
     );
     assert_eq!(call(&raw.calls, "retry").receiver.as_deref(), Some("$job"));
 }

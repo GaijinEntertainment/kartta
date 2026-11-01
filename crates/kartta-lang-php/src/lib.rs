@@ -21,8 +21,9 @@
 //!
 //! A call records its receiver: the variable of a member call, `$this` or `$svc`, the scope of a static call, `Logger`,
 //! `self` or `parent`, and the empty receiver where that is an expression, `$this->pool->get()`. A call on a variable
-//! that its callable last assigned an anonymous class to records that class's name as its receiver, `$job->handle()`
-//! the receiver `{testRun·job}`. A qualified scope,
+//! that still holds what a `new` assigned it records the class: the anonymous class's name, `$job->handle()` the
+//! receiver `{testRun·job}`, the name PHP compiles a written class to, from the root, `\App\Job`, or `self`, `static` or
+//! `parent`. A qualified scope,
 //! `\App\Logger::log()`, is the receiver `Logger`, the bare name that owns the member. A qualified function call,
 //! `\App\run()`, and a construction, `new \App\User()`, call the last segment of the name. `new self`,
 //! `new static` and `new parent` call nothing. A closure assigned to a variable, `$f = function () {}`, makes the calls
