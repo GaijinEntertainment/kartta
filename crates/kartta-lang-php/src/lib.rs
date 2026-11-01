@@ -20,11 +20,13 @@
 //! parent `A\B`. A member is exported unless it is `private`.
 //!
 //! A call records its receiver: the variable of a member call, `$this` or `$svc`, the scope of a static call, `Logger`,
-//! `self` or `parent`, and the empty receiver where that is an expression, `$this->pool->get()`. A call on a variable
+//! `self` or `parent`, and the empty receiver where that is an expression, `$this->pool()->get()`. A call on a variable
 //! that still holds what a `new` assigned it records the class: the anonymous class's name, `$job->handle()` the
 //! receiver `{testRun·job}`, the name PHP compiles a written class to, from the root, `\App\Job`, or `self`, `static` or
-//! `parent`. A qualified scope is the name PHP compiles it to, from the root: `Sub\Logger::log()` in the namespace
-//! `App` is the receiver `\App\Sub\Logger`. A qualified function call,
+//! `parent`. A call on a property of `$this` records the class the property's declared type names, or else the one
+//! class the writes in its class's body give it, `\App\Pool` for `$this->pool->get()`. A qualified scope is the name
+//! PHP compiles it to, from the root: `Sub\Logger::log()` in the namespace `App` is the receiver `\App\Sub\Logger`. A
+//! qualified function call,
 //! `\App\run()`, and a construction, `new \App\User()`, call the last segment of the name. A construction of the alias
 //! of a `use` calls `__construct` with the class's name from the root as its receiver, `\App\Model` for `new Eloquent`
 //! after `use App\Model as Eloquent;`. `new self`, `new static` and `new parent`, in any case, call nothing. A closure
