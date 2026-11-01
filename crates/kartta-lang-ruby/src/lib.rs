@@ -11,7 +11,9 @@
 //! instance method by `#`, `Geo::Shape#area`, a class method by `.`, `Geo::Shape.build`, and a constant or a nested
 //! type by `::`. A `def` inside `class << self` is a class method. `attr_reader :x` defines `x`, `attr_writer :x`
 //! defines `x=` and `attr_accessor :x` both, each a class method inside `class << self`. A constant bound to
-//! `Struct.new` or `Data.define` is a class.
+//! `Struct.new` or `Data.define` is a class. A write to a scoped constant whose path the source spells, `Foo::BAR = 5`
+//! or `::BAR = 5`, defines the constant on the module the path names, read as `def Foo.x` reads its `Foo`; `self::B`
+//! and `a::B` name a module only a run shows, and define nothing.
 //!
 //! A class takes its superclass as a parent, and so the modules it `include`s, `extend`s or `prepend`s. A method, an
 //! accessor or an alias is exported unless a `private` modifier covers it: a bare `private` for the instance methods
@@ -38,8 +40,9 @@
 //! written from the root keeping its `::`, and `.` alone for `self.class`. A call on a literal, or on a constant the
 //! tree holds no value of, binds only a method of the class it names or of one that class derives from. Of a class's
 //! methods of one name, a call on the class binds the class method, `Geo::Shape.build`, before the instance method,
-//! `Geo::Shape#build`, and a call on any other receiver the instance method first. A call never binds a constant. A
-//! bare `new` that reads no local
+//! `Geo::Shape#build`, and a call on any other receiver the instance method first. A call on a scoped constant binds
+//! through the class its value holds, as on the class for `A::B = Foo` and as on an instance for `A::B = Foo.new`, and
+//! on one of any other value only as a guess. A call never binds a constant. A bare `new` that reads no local
 //! makes, in a class method, an instance of the owner, so `new.getopts` there records `Geo::Shape`. A call outside
 //! every method and type is a call from file scope, before the file's first symbol too.
 //!

@@ -20,12 +20,14 @@ call there with no receiver records the type. A receiver that is a class, `self`
 for `self`, a constant's path as written, `Shape.`, and `.` alone for `self.class`, so a call on the class binds
 `Shape.build` before `Shape#build`, and any other receiver the reverse. A call on a literal, or on a constant the tree
 holds no value of, binds only a method of the class it names or of one that class derives from, so `Hash.new` binds
-nothing where the tree defines no `Hash`. A bare `new` that reads no local makes, in a class method, an instance of the
-owner, so `new.getopts` there records `Geo::Shape`. A bare name, `setup`, is a call with no receiver unless a binding
-before it in its scope makes it a local variable, as Ruby decides. The conventions list `other` alone as the receiver of
-a value of the caller's own type, since a call on `self` binds through the type it records, so `path.to_s` inside
-`Keg#to_s` binds no member of the caller's own class. A method named by a symbol, `method(:render)` or `send(:render)`,
-is a use of the method of the object's own type, or of a class's for a constant receiver, `Cache.send(:flush)` or
+nothing where the tree defines no `Hash`. A write to a scoped constant, `Foo::BAR = 5`, defines it on the module its
+path names, and a call on it binds through the class its value holds, `Foo` for `A::B = Foo.new`, and on any other value
+only as a guess. A bare `new` that reads no local makes, in a class method, an instance of the owner, so `new.getopts`
+there records `Geo::Shape`. A bare name, `setup`, is a call with no receiver unless a binding before it in its scope
+makes it a local variable, as Ruby decides. The conventions list `other` alone as the receiver of a value of the
+caller's own type, since a call on `self` binds through the type it records, so `path.to_s` inside `Keg#to_s` binds no
+member of the caller's own class. A method named by a symbol, `method(:render)` or `send(:render)`, is a use of the
+method of the object's own type, or of a class's for a constant receiver, `Cache.send(:flush)` or
 `Cache::Store.send(:flush)`, its class method of the name first. At a site no class owns, the symbol names a top-level
 method, a private method of `Object` that every object reaches.
 

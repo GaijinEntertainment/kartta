@@ -8,7 +8,10 @@ use tree_sitter::{Node, Tree};
 use crate::bindings::{Bindings, MethodKind, NameKey};
 use crate::locals::{Locals, Role, is_keyword, role};
 use crate::macros::GroupMethod;
-use crate::owner::{constant_type, enclosing_type, in_singleton_class, type_qualification};
+use crate::owner::{
+    constant_type, enclosing_type, in_singleton_class, is_constant_path, owner_of_path,
+    scoped_constant, type_qualification,
+};
 
 pub(crate) const REQUIRE_FORM: u32 = 0;
 pub(crate) const REQUIRE_RELATIVE_FORM: u32 = 1;
@@ -330,21 +333,28 @@ impl Emitter<'_> {
         });
     }
 
-    // constraint: only a constant on the left defines a symbol; a qualified one, `Foo::BAR = 5`, reopens another
-    // type, and an identifier or a global is a variable
+    // constraint: only a constant on the left defines a symbol, and an identifier or a global is a variable
     fn constant_assignment(&mut self, node: Node<'_>) {
-        let Some(left) = node
-            .child_by_field_name("left")
-            .filter(|left| left.kind() == "constant")
-        else {
+        let Some(left) = node.child_by_field_name("left") else {
             return;
         };
-        let name = text(left, self.source);
-        let (owner, qualified) = type_qualification(node, &name, self.source);
-        let kind = if node
-            .child_by_field_name("right")
-            .is_some_and(|right| builds_a_class(right, self.source))
-        {
+        let right = node.child_by_field_name("right");
+        let (name, owner, qualified, held) = match left.kind() {
+            "constant" => {
+                let name = text(left, self.source);
+                let (owner, qualified) = type_qualification(node, &name, self.source);
+                (name, owner, qualified, None)
+            }
+            "scope_resolution" => {
+                let Some((name, owner, qualified)) = scoped_constant(left, self.source) else {
+                    return;
+                };
+                let held = right.and_then(|right| held_class(right, self.source));
+                (name, owner, qualified, Some(held.unwrap_or_default()))
+            }
+            _ => return,
+        };
+        let kind = if right.is_some_and(|right| builds_a_class(right, self.source)) {
             SymbolKind::Class
         } else {
             SymbolKind::Constant
@@ -353,6 +363,7 @@ impl Emitter<'_> {
         let mut symbol = declared(name, qualified, kind, node);
         symbol.owner = owner;
         symbol.exported = true;
+        symbol.value_types.extend(held);
         self.push(symbol);
     }
 
@@ -671,6 +682,26 @@ fn strip_endless_eq(signature: String) -> String {
         Some(head) if head.ends_with(char::is_whitespace) => head.trim_end().to_owned(),
         _ => signature,
     }
+}
+
+// constraint: `Class.new` and `Module.new` make a class of their own, which no constant the source spells names
+/// The class the value `right` holds, as a call's receiver spells it: `Foo.` for a constant, the class itself, and
+/// `Foo` for `Foo.new`, an instance of it. `None` for any other value.
+fn held_class(right: Node<'_>, source: &[u8]) -> Option<String> {
+    if is_constant_path(right) {
+        return Some(on_the_class(owner_of_path(
+            right,
+            text(right, source),
+            source,
+        )));
+    }
+    let receiver = right
+        .child_by_field_name("receiver")
+        .filter(|receiver| is_constant_path(*receiver))?;
+    let method = right.child_by_field_name("method")?;
+    let class = text(receiver, source);
+    (&source[method.byte_range()] == b"new" && !matches!(class.as_str(), "Class" | "Module"))
+        .then(|| owner_of_path(receiver, class, source))
 }
 
 // constraint: `Struct.new(...)` and `Data.define(...)` bound to a constant build a class

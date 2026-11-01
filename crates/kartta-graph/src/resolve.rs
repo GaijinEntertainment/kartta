@@ -24,6 +24,18 @@ use crate::typed::{Typed, Value};
 
 pub(crate) const THROUGH_INCLUDES_MAX_DEFINITIONS: usize = 32;
 
+/// What the constant a receiver names holds, where capitalised receivers name constants, as its
+/// [value types](kartta_lang::Symbol::value_types) record.
+#[derive(Clone, Copy)]
+enum ConstantValue<'g> {
+    /// The receiver names a class or a module, a constant the graph does not hold, or a value that records no type.
+    NoValueType,
+    /// A value of a class the empty path says the extraction cannot name, or values of several classes.
+    Untold,
+    /// The class, spelled as a receiver names it, and whether the constant is that class rather than an instance.
+    Holds(&'g str, bool),
+}
+
 #[derive(Debug, Clone, Copy)]
 #[expect(
     clippy::struct_excessive_bools,
@@ -737,10 +749,26 @@ impl<'g> Cascade<'g> {
     }
 
     pub(crate) fn resolve_call(&self, call: &Call) -> Result<Bound, Miss> {
+        let through;
+        let constant = self.constant_value(call);
+        let call = match constant {
+            ConstantValue::Holds(class, on_a_class) => {
+                through = Call {
+                    receiver: Some(self.graph.strings.get(class).ok_or(Miss::NotAdmitted)?),
+                    on_a_class,
+                    ..*call
+                };
+                &through
+            }
+            ConstantValue::NoValueType | ConstantValue::Untold => call,
+        };
         let resolved = self.resolve_by_tiers(call).and_then(|(at, confidence)| {
             if self.is_unbound_namespace(at) || !self.constant_receiver_reaches(call, at) {
                 Err(Miss::NotAdmitted)
-            } else if self.writes_on_a_value(call) || self.own_member_on_a_field(call, at) {
+            } else if matches!(constant, ConstantValue::Untold)
+                || self.writes_on_a_value(call)
+                || self.own_member_on_a_field(call, at)
+            {
                 Ok((at, confidence::FIRST_PARTY))
             } else {
                 Ok((at, confidence))
@@ -939,7 +967,8 @@ impl<'g> Cascade<'g> {
 
     // constraint: a receiver that names a constant holds the class or the module of that name, or a value where the
     // graph holds only a value of it, so a member of a class that one does not derive from is no method it has, and a
-    // class the graph does not hold is the runtime's or a library's outside the graph
+    // class the graph does not hold is the runtime's or a library's outside the graph; a value that records its type
+    // stands only for the spelling that names it, as `IRB::TOPLEVEL_BINDING` is no `TOPLEVEL_BINDING`
     /// Whether the call reaches `at`: where the receiver names a constant, `at` is a member of the class or the module
     /// the receiver names or of one it derives from, or the graph holds only values of the name; any other receiver
     /// reaches every definition.
@@ -957,11 +986,7 @@ impl<'g> Cascade<'g> {
         }
         let strings = &self.graph.strings;
         let written = strings.resolve(receiver);
-        if !written
-            .rsplit(separator)
-            .next()
-            .is_some_and(|last| last.starts_with(|first: char| first.is_ascii_uppercase()))
-        {
+        if !ends_in_a_constant(written, separator) {
             return true;
         }
         let (written, from) = written.strip_prefix(separator).map_or_else(
@@ -978,19 +1003,88 @@ impl<'g> Cascade<'g> {
             tail.split_once(separator).map(|(_, tail)| tail)
         })
         .filter_map(|tail| strings.get(tail))
-        .flat_map(|tail| self.named(tail).iter().map(|&at| self.graph.sym(at)));
+        .flat_map(|tail| self.named(tail).iter().copied());
         let mut classes = (symbols.clone())
+            .map(|at| self.graph.sym(at))
             .filter(|symbol| {
                 (derives(symbol.kind) || symbol.kind == SymbolKind::Namespace)
                     && spells(symbol.qualified_name)
             })
             .peekable();
         if classes.peek().is_none() {
-            return symbols.clone().any(|symbol| is_value(symbol.kind));
+            return symbols.clone().any(|at| {
+                let symbol = self.graph.sym(at);
+                is_value(symbol.kind)
+                    && (self.graph.file(at.file).value_types(at.index).is_none()
+                        || spells(symbol.qualified_name))
+            });
         }
         owner.is_some_and(|owner| {
             classes.any(|class| self.owner_derives_from(class.qualified_name, owner))
         })
+    }
+
+    // constraint: a class of the spelling answers ahead of a value, as a write can stand in a branch that runs only
+    // where the class is missing: `Gem::URI = Bundler::URI` in a `rescue LoadError` beside a `module Gem::URI`
+    /// What the constant that `call`'s receiver names holds.
+    fn constant_value(&self, call: &Call) -> ConstantValue<'_> {
+        let (BareReceivers::Constants, Some(separator), Some(receiver)) = (
+            self.conventions.bare_receivers,
+            self.conventions.owner_chain_separator,
+            call.receiver,
+        ) else {
+            return ConstantValue::NoValueType;
+        };
+        let strings = &self.graph.strings;
+        let spelled = strings.resolve(receiver);
+        if !ends_in_a_constant(spelled, separator) {
+            return ConstantValue::NoValueType;
+        }
+        let (written, from) = spelled.strip_prefix(separator).map_or_else(
+            || {
+                let caller = self.graph.sym(call.caller_at());
+                (spelled, strings.resolve(caller.qualified_name))
+            },
+            |rooted| (rooted, ""),
+        );
+        let spelled = std::iter::successors(Some(written), |tail| {
+            tail.split_once(separator).map(|(_, tail)| tail)
+        })
+        .filter_map(|tail| strings.get(tail))
+        .flat_map(|tail| self.named(tail).iter().copied())
+        .filter(|&at| {
+            spelled_from(
+                from,
+                (written, separator),
+                strings.resolve(self.graph.sym(at).qualified_name),
+            )
+        });
+        if spelled.clone().any(|at| {
+            let kind = self.graph.sym(at).kind;
+            derives(kind) || kind == SymbolKind::Namespace
+        }) {
+            return ConstantValue::NoValueType;
+        }
+        let mut held = spelled
+            .filter(|&at| is_value(self.graph.sym(at).kind))
+            .map(|at| self.graph.file(at.file).value_types(at.index));
+        let Some(first) = held.next() else {
+            return ConstantValue::NoValueType;
+        };
+        if !held.all(|types| types == first) {
+            return ConstantValue::Untold;
+        }
+        let Some(class) = first.map(|types| strings.resolve(types)) else {
+            return ConstantValue::NoValueType;
+        };
+        if class.is_empty() {
+            return ConstantValue::Untold;
+        }
+        self.graph
+            .class_named(class)
+            .map_or(ConstantValue::Holds(class, false), |class| {
+                ConstantValue::Holds(class, true)
+            })
     }
 
     /// Where capitalised receivers name constants, the owner that a receiver written from the root spells, `Shape` for
@@ -2608,6 +2702,13 @@ impl ReExportWalk<'_, '_> {
         }
         None
     }
+}
+
+fn ends_in_a_constant(written: &str, separator: &str) -> bool {
+    written
+        .rsplit(separator)
+        .next()
+        .is_some_and(|last| last.starts_with(|first: char| first.is_ascii_uppercase()))
 }
 
 // constraint: a constant is looked up from the scopes around its use outward, so `Version` inside `module Gem` names
