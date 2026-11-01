@@ -14,11 +14,18 @@ use tempfile::TempDir;
 
 const LET_SPEC: &str = "let_spec.rb";
 const OTHER_SPEC: &str = "other_spec.rb";
+const SHARED: &str = "spec/support/value.rb";
+const JOB_SPEC: &str = "spec/job_spec.rb";
+const WITH_VALUE: &str =
+    "RSpec.shared_context \"with value\" do\n  let(:shared_value) { 3 }\nend\n";
 
 fn build(files: &[(&str, &str)]) -> (TempDir, Engine) {
     let tree = tempfile::tempdir().expect("a temporary directory");
     for (name, source) in files {
-        fs::write(tree.path().join(name), source).expect("the file is written");
+        let path = tree.path().join(name);
+        fs::create_dir_all(path.parent().expect("a file has a directory"))
+            .expect("the directory is made");
+        fs::write(path, source).expect("the file is written");
     }
     let languages = kartta_languages::select(["ruby"]).expect("the language is known");
     let outcome = Engine::build(tree.path(), &BuildOptions::default(), languages, None)
@@ -214,5 +221,331 @@ fn a_let_s_block_is_its_body_and_a_call_at_file_scope_keeps_its_name() {
             callers(&engine, LET_SPEC, "total", None),
         ),
         ((vec!["total"], Vec::new()), (Vec::new(), vec![LET_SPEC]))
+    );
+}
+
+#[test]
+fn a_group_that_includes_a_shared_context_of_another_file_reads_its_let() {
+    let job = "RSpec.describe \"job\" do\n\
+               \x20 include_context \"with value\"\n\
+               \n\
+               \x20 let(:own_value) { 2 }\n\
+               \x20 let(:derived) { shared_value }\n\
+               \n\
+               \x20 it \"reads\" do\n\
+               \x20   own_value\n\
+               \x20   shared_value\n\
+               \x20 end\n\
+               end\n";
+    let (_tree, engine) = build(&[(SHARED, WITH_VALUE), (JOB_SPEC, job)]);
+
+    assert_eq!(
+        callers(&engine, SHARED, "shared_value", None),
+        (vec!["derived"], vec![JOB_SPEC])
+    );
+}
+
+#[test]
+fn a_read_of_the_name_outside_a_group_that_includes_the_context_binds_nothing_of_it() {
+    let job = "RSpec.describe \"job\" do\n\
+               \x20 context \"with it\" do\n\
+               \x20   include_context \"with value\"\n\
+               \x20 end\n\
+               \n\
+               \x20 context \"without it\" do\n\
+               \x20   let(:derived) { shared_value }\n\
+               \n\
+               \x20   it \"reads\" do\n\
+               \x20     shared_value\n\
+               \x20   end\n\
+               \x20 end\n\
+               end\n";
+    let other = "RSpec.describe \"other\" do\n\
+                 \x20 let(:derived) { shared_value }\n\
+                 \n\
+                 \x20 it \"reads\" do\n\
+                 \x20   shared_value\n\
+                 \x20 end\n\
+                 end\n";
+    let (_tree, engine) = build(&[(SHARED, WITH_VALUE), (JOB_SPEC, job), (OTHER_SPEC, other)]);
+
+    assert_eq!(
+        callers(&engine, SHARED, "shared_value", None),
+        (Vec::new(), Vec::new())
+    );
+}
+
+#[test]
+fn a_group_s_own_let_stands_before_the_context_it_includes() {
+    let job = "RSpec.describe \"job\" do\n\
+               \x20 include_context \"with value\"\n\
+               \n\
+               \x20 let(:shared_value) { 4 }\n\
+               \x20 let(:derived) { shared_value }\n\
+               \n\
+               \x20 it \"reads\" do\n\
+               \x20   shared_value\n\
+               \x20 end\n\
+               end\n";
+    let (_tree, engine) = build(&[(SHARED, WITH_VALUE), (JOB_SPEC, job)]);
+
+    assert_eq!(
+        (
+            callers(&engine, SHARED, "shared_value", None),
+            callers(&engine, JOB_SPEC, "shared_value", None),
+        ),
+        ((Vec::new(), Vec::new()), (vec!["derived"], vec![JOB_SPEC]))
+    );
+}
+
+#[test]
+fn every_form_that_defines_a_shared_group_and_include_examples_reach_its_let() {
+    let shared = "shared_examples \"with examples\" do\n\
+                  \x20 let(:from_examples) { 1 }\n\
+                  end\n\
+                  \n\
+                  shared_examples_for \"with examples for\" do\n\
+                  \x20 let(:from_examples_for) { 2 }\n\
+                  end\n\
+                  \n\
+                  RSpec.describe \"holder\" do\n\
+                  \x20 RSpec.shared_context :inside_a_group do\n\
+                  \x20   let(:from_a_symbol) { 3 }\n\
+                  \x20 end\n\
+                  end\n";
+    let job = "RSpec.describe \"job\" do\n\
+               \x20 include_examples \"with examples\"\n\
+               \x20 include_examples 'with examples for'\n\
+               \x20 include_context :inside_a_group\n\
+               \n\
+               \x20 let(:first) { from_examples }\n\
+               \x20 let(:second) { from_examples_for }\n\
+               \x20 let(:third) { from_a_symbol }\n\
+               end\n";
+    let (_tree, engine) = build(&[(SHARED, shared), (JOB_SPEC, job)]);
+
+    assert_eq!(
+        (
+            callers(&engine, SHARED, "from_examples", None).0,
+            callers(&engine, SHARED, "from_examples_for", None).0,
+            callers(&engine, SHARED, "from_a_symbol", None).0,
+        ),
+        (vec!["first"], vec!["second"], vec!["third"])
+    );
+}
+
+#[test]
+fn a_string_and_a_symbol_of_one_spelling_are_two_names() {
+    let job = "RSpec.describe \"job\" do\n\
+               \x20 include_context :with_value\n\
+               \n\
+               \x20 let(:derived) { shared_value }\n\
+               end\n";
+    let shared = "RSpec.shared_context \"with_value\" do\n  let(:shared_value) { 3 }\nend\n";
+    let (_tree, engine) = build(&[(SHARED, shared), (JOB_SPEC, job)]);
+
+    assert_eq!(
+        callers(&engine, SHARED, "shared_value", None),
+        (Vec::new(), Vec::new())
+    );
+}
+
+#[test]
+fn a_shared_group_a_group_of_another_file_defines_is_not_reached() {
+    let scoped = "RSpec.describe \"holder\" do\n\
+                  \x20 shared_context \"with value\" do\n\
+                  \x20   let(:shared_value) { 3 }\n\
+                  \x20 end\n\
+                  end\n";
+    let job = "RSpec.describe \"job\" do\n\
+               \x20 include_context \"with value\"\n\
+               \n\
+               \x20 let(:derived) { shared_value }\n\
+               end\n";
+    let (_tree, engine) = build(&[(SHARED, scoped), (JOB_SPEC, job)]);
+
+    assert_eq!(
+        callers(&engine, SHARED, "shared_value", None),
+        (Vec::new(), Vec::new())
+    );
+}
+
+#[test]
+fn it_behaves_like_reaches_the_group_s_let_from_its_own_block_alone() {
+    let job = "RSpec.describe \"job\" do\n\
+               \x20 it_behaves_like \"with value\" do\n\
+               \x20   let(:inside) { shared_value }\n\
+               \x20 end\n\
+               \n\
+               \x20 it_should_behave_like \"with value\"\n\
+               \n\
+               \x20 let(:outside) { shared_value }\n\
+               end\n";
+    let (_tree, engine) = build(&[(SHARED, WITH_VALUE), (JOB_SPEC, job)]);
+
+    assert_eq!(
+        callers(&engine, SHARED, "shared_value", None),
+        (vec!["inside"], Vec::new())
+    );
+}
+
+#[test]
+fn a_let_nested_in_a_shared_group_s_own_group_stays_there() {
+    let shared = "RSpec.shared_context \"with value\" do\n\
+                  \x20 context \"inner\" do\n\
+                  \x20   let(:shared_value) { 3 }\n\
+                  \x20 end\n\
+                  end\n";
+    let job = "RSpec.describe \"job\" do\n\
+               \x20 include_context \"with value\"\n\
+               \n\
+               \x20 let(:derived) { shared_value }\n\
+               end\n";
+    let (_tree, engine) = build(&[(SHARED, shared), (JOB_SPEC, job)]);
+
+    assert_eq!(
+        callers(&engine, SHARED, "shared_value", None),
+        (Vec::new(), Vec::new())
+    );
+}
+
+#[test]
+fn of_two_files_that_define_one_shared_group_the_nearest_binds() {
+    let near = "RSpec.shared_context \"with value\" do\n  let(:shared_value) { 1 }\nend\n";
+    let job = "RSpec.describe \"job\" do\n\
+               \x20 include_context \"with value\"\n\
+               \n\
+               \x20 let(:derived) { shared_value }\n\
+               end\n";
+    let far_path = "spec/aaa/value.rb";
+    let (_tree, engine) = build(&[
+        (far_path, WITH_VALUE),
+        ("spec/near.rb", near),
+        (JOB_SPEC, job),
+    ]);
+
+    assert_eq!(
+        (
+            callers(&engine, far_path, "shared_value", None).0,
+            callers(&engine, "spec/near.rb", "shared_value", None).0,
+        ),
+        (Vec::new(), vec!["derived"])
+    );
+}
+
+#[test]
+fn of_two_contexts_a_group_includes_the_later_binds_and_a_nearer_group_stands_first() {
+    let shared = "RSpec.shared_context \"first\" do\n  let(:item) { 1 }\nend\n\n\
+                  RSpec.shared_context \"second\" do\n  let(:item) { 2 }\nend\n\n\
+                  RSpec.shared_context \"third\" do\n  let(:item) { 3 }\nend\n";
+    let job = "RSpec.describe \"job\" do\n\
+               \x20 context \"inner\" do\n\
+               \x20   include_context \"third\"\n\
+               \n\
+               \x20   let(:inner) { item }\n\
+               \x20 end\n\
+               \n\
+               \x20 include_context \"first\"\n\
+               \x20 include_context \"second\"\n\
+               \n\
+               \x20 let(:outer) { item }\n\
+               end\n";
+    let (_tree, engine) = build(&[(SHARED, shared), (JOB_SPEC, job)]);
+
+    assert_eq!(
+        (
+            callers(&engine, SHARED, "item", Some(2)).0,
+            callers(&engine, SHARED, "item", Some(6)).0,
+            callers(&engine, SHARED, "item", Some(10)).0,
+        ),
+        (Vec::new(), vec!["outer"], vec!["inner"])
+    );
+}
+
+#[test]
+fn a_file_that_requires_the_context_lists_a_read_at_file_scope_once() {
+    let job = "require_relative \"support/value\"\n\n\
+               RSpec.describe \"job\" do\n\
+               \x20 include_context \"with value\"\n\
+               \n\
+               \x20 it \"reads\" do\n\
+               \x20   shared_value\n\
+               \x20 end\n\
+               end\n";
+    let (_tree, engine) = build(&[(SHARED, WITH_VALUE), (JOB_SPEC, job)]);
+
+    assert_eq!(
+        callers(&engine, SHARED, "shared_value", None).1,
+        vec![JOB_SPEC]
+    );
+}
+
+#[test]
+fn a_read_at_file_scope_of_another_file_reaches_no_let_outside_a_shared_group() {
+    let other = "RSpec.describe \"other\" do\n\
+                 \x20 it \"reads\" do\n\
+                 \x20   item\n\
+                 \x20 end\n\
+                 end\n";
+    let (_tree, engine) = build(&[
+        (
+            LET_SPEC,
+            "RSpec.describe \"a\" do\n  let(:item) { 1 }\nend\n",
+        ),
+        (OTHER_SPEC, other),
+    ]);
+
+    assert_eq!(
+        callers(&engine, LET_SPEC, "item", None).1,
+        Vec::<&str>::new()
+    );
+}
+
+#[test]
+fn a_let_of_another_file_binds_at_the_receiver_tier_and_of_the_same_file_at_its_tier() {
+    let job = format!(
+        "{WITH_VALUE}\nRSpec.shared_context \"near\" do\n  let(:near_value) {{ 1 }}\nend\n\n\
+         RSpec.describe \"job\" do\n\
+         \x20 include_context \"near\"\n\
+         \n\
+         \x20 let(:derived) {{ near_value }}\n\
+         end\n"
+    );
+    let other = "RSpec.describe \"other\" do\n\
+                 \x20 include_context \"near\"\n\
+                 \n\
+                 \x20 let(:derived) { near_value }\n\
+                 end\n";
+    let (_tree, engine) = build(&[(JOB_SPEC, &job), (OTHER_SPEC, other)]);
+
+    let (_, graph) = engine.graph_of(JOB_SPEC).expect("Ruby claims the file");
+    let selector = Selector::new("near_value", Some(JOB_SPEC));
+    let walk = graph
+        .callers(selector, Limits::new(1))
+        .expect("the file defines the name");
+    let mut tiers: Vec<(&str, u8)> = (walk.reached.iter())
+        .map(|reached| (reached.symbol.file, reached.confidence))
+        .collect();
+    tiers.sort_unstable();
+    assert_eq!(tiers, [(OTHER_SPEC, 85), (JOB_SPEC, 80)]);
+}
+
+#[test]
+fn a_bare_call_no_included_group_answers_binds_as_any_bare_call() {
+    let helper = "def helper_method\n  1\nend\n";
+    let job = "RSpec.describe \"job\" do\n\
+               \x20 include_context \"with value\"\n\
+               \n\
+               \x20 let(:derived) { helper_method }\n\
+               end\n";
+    let (_tree, engine) = build(&[
+        (SHARED, WITH_VALUE),
+        ("spec/helper.rb", helper),
+        (JOB_SPEC, job),
+    ]);
+
+    assert_eq!(
+        callers(&engine, "spec/helper.rb", "helper_method", None).0,
+        vec!["derived"]
     );
 }

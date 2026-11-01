@@ -648,6 +648,90 @@ fn sites_of<'r>(raw: &'r RawExtraction, callee: &str) -> Vec<(&'r str, Option<&'
 }
 
 #[test]
+fn a_let_records_the_shared_group_every_file_reaches_and_a_group_names_what_it_includes() {
+    let raw = extract(
+        b"RSpec.shared_context 'text' do
+  let(:from_text) { 1 }
+end
+
+shared_examples :symbol do
+  let(:from_symbol) { 2 }
+end
+
+helper.shared_context 'on a value' do
+  let(:from_a_value) { 4 }
+end
+
+RSpec.describe 'a' do
+  shared_context 'scoped' do
+    let(:from_scoped) { 3 }
+  end
+
+  include_context 'text'
+  include_examples :symbol
+
+  context 'b' do
+    include_context \"inner\"
+
+    def helper
+      read
+    end
+  end
+
+  it 'reads' do
+    read
+  end
+end
+",
+    );
+
+    let groups = |name| symbol(&raw.symbols, name).value_types.as_slice();
+    assert_eq!(
+        (
+            groups("from_text"),
+            groups("from_symbol"),
+            groups("from_a_value"),
+            groups("from_scoped"),
+        ),
+        (
+            &["'text'".to_owned()][..],
+            &[":symbol".to_owned()][..],
+            &[][..],
+            &[][..]
+        )
+    );
+    let read = raw.calls.iter().find(|call| call.callee == "read");
+    assert_eq!(
+        read.and_then(|call| call.receiver.as_deref()),
+        Some("+'inner'\n:symbol\n'text'")
+    );
+    let uses: Vec<&str> = raw.uses.iter().map(|site| site.name.as_str()).collect();
+    assert_eq!(uses, [":symbol#read", "'text'#read"]);
+}
+
+#[test]
+fn a_block_that_runs_on_a_receiver_keeps_it_inside_a_group_that_includes_a_context() {
+    let raw = extract(
+        b"RSpec.describe 'a' do
+  include_context 'text'
+
+  def helper
+    Other.class_eval do
+      read
+    end
+  end
+end
+",
+    );
+
+    let read = raw.calls.iter().find(|call| call.callee == "read");
+    assert_eq!(
+        read.and_then(|call| call.receiver.as_deref()),
+        Some("Other.")
+    );
+}
+
+#[test]
 fn a_let_or_a_subject_with_a_symbol_and_a_block_defines_a_method_local_to_the_file() {
     let raw = extract(
         b"RSpec.describe 'a' do

@@ -852,15 +852,28 @@ impl<'g> Calls<'g> {
     /// indexes them, each with how sure the name is to mean it. A file keeps only the names its top level spells, so
     /// neither the line nor whether a call or a use spelled it is known.
     pub(crate) fn file_scope_callers(&self, at: SymbolAt) -> impl Iterator<Item = (u32, u8)> + '_ {
+        let symbol = self.graph.sym(at);
         let files = self
             .graph
-            .listing_key(self.graph.sym(at).name)
+            .listing_key(symbol.name)
             .map_or(&[][..], |key| self.graph.named_at_file_scope(key));
-        files.iter().filter_map(move |&file| {
+        let strings = &self.graph.strings;
+        let pasted = (self.graph.file(at.file).value_types(at.index))
+            .filter(|_| self.cascade.reads_pasted_bodies())
+            .and_then(|body| {
+                let body = strings.resolve(body);
+                strings.get(&format!("{body}#{}", strings.resolve(symbol.name)))
+            })
+            .map_or(&[][..], |read| self.graph.named_at_file_scope(read));
+        let seen = files.iter().filter_map(move |&file| {
             self.cascade
                 .seen_from(file, at)
                 .map(|confidence| (file, confidence))
-        })
+        });
+        let read_through_a_body = (pasted.iter().copied())
+            .filter(move |&file| self.cascade.seen_from(file, at).is_none())
+            .map(|file| (file, confidence::RECEIVER));
+        seen.chain(read_through_a_body)
     }
 
     pub(crate) fn caller_edges(&mut self, target: SymbolAt) -> &[Edge] {

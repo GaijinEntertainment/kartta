@@ -53,7 +53,7 @@ pub(crate) struct Call {
     pub(crate) invokes_a_macro: bool,
     pub(crate) calls_a_method: bool,
     pub(crate) arguments: u8,
-    pub(crate) local: Option<u32>,
+    pub(crate) local: Option<SymbolAt>,
     pub(crate) line: u32,
 }
 
@@ -225,7 +225,7 @@ impl<'g> Cascade<'g> {
                     invokes_a_macro: false,
                     calls_a_method: false,
                     arguments: 0,
-                    local: Some(call.local),
+                    local: Some(SymbolAt::new(site.file, call.local)),
                     line: call.line,
                 }
             }
@@ -238,6 +238,10 @@ impl<'g> Cascade<'g> {
             && methods
                 .binary_search(&self.graph.strings.resolve(callee))
                 .is_ok()
+    }
+
+    pub(crate) fn reads_pasted_bodies(&self) -> bool {
+        self.conventions.receivers == Receivers::PastedBodies
     }
 
     pub(crate) fn implicit_receiver(&self) -> bool {
@@ -1100,11 +1104,15 @@ impl<'g> Cascade<'g> {
     fn resolve_by_tiers(&self, call: &Call) -> Result<Bound, Miss> {
         let caller = call.caller_at();
 
-        if let Some(local) = call.local {
-            let at = SymbolAt::new(call.file, local);
+        if let Some(at) = call.local {
+            let tier = if at.file == call.file {
+                confidence::SAME_FILE
+            } else {
+                confidence::RECEIVER
+            };
             return self
                 .is_call_target(self.graph.sym(at))
-                .then_some((at, confidence::SAME_FILE))
+                .then_some((at, tier))
                 .ok_or(Miss::NotAdmitted);
         }
 
@@ -1173,12 +1181,23 @@ impl<'g> Cascade<'g> {
     fn with_returned_receiver(&self, call: Call) -> Call {
         let strings = &self.graph.strings;
         let reads_fields = self.conventions.receivers == Receivers::InheritedFields;
-        if self.conventions.receivers != Receivers::ReturnPaths && !reads_fields {
+        let reads_bodies = self.reads_pasted_bodies();
+        if self.conventions.receivers != Receivers::ReturnPaths && !reads_fields && !reads_bodies {
             return call;
         }
         let spelled = call
             .receiver
             .map_or("", |receiver| strings.resolve(receiver));
+        if reads_bodies {
+            let Some(bodies) = spelled.strip_prefix('+') else {
+                return call;
+            };
+            return Call {
+                receiver: None,
+                local: self.member_of_a_pasted_body(&call, bodies),
+                ..call
+            };
+        }
         if reads_fields {
             let Some(field) = spelled.strip_prefix("->") else {
                 return call;
