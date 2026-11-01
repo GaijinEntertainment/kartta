@@ -13,6 +13,8 @@ const CONTAINER: &str = "[]";
 
 const UNDERLYING: &str = "~";
 
+const RESULTS: &str = "()";
+
 impl Emitter<'_> {
     pub(super) fn underlying_path(&self, node: Node<'_>) -> Option<String> {
         match node.kind() {
@@ -122,6 +124,14 @@ impl Emitter<'_> {
         }
         if paths.iter().all(String::is_empty) {
             paths.clear();
+        }
+        paths
+    }
+
+    pub(super) fn function_type_paths(&self, function: Node<'_>) -> Vec<String> {
+        let mut paths = self.result_paths(function);
+        if !paths.is_empty() {
+            paths.insert(0, RESULTS.to_owned());
         }
         paths
     }

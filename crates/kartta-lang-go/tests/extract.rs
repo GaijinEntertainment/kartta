@@ -1941,6 +1941,10 @@ type Servers []*Server
 
 type Factory func() (*Server, error)
 
+type AliasOfFunction = func() Server
+
+type NoResults func()
+
 type Defined Server
 
 type OverImported pkg.Client
@@ -1969,14 +1973,16 @@ func Each[T any](v T) T { return v }
 "#,
     );
 
-    let expected: [(&str, &[&str]); 20] = [
+    let expected: [(&str, &[&str]); 22] = [
         ("p.Server.client", &["pkg.Client"]),
         ("p.Server.backup", &["pkg.Client"]),
         ("p.Server.hooks", &["[]Hook"]),
         ("p.Server.handler", &[]),
         ("p.Alias", &["pkg.Client"]),
         ("p.Servers", &["[]Server"]),
-        ("p.Factory", &["Server", "error"]),
+        ("p.Factory", &["()", "Server", "error"]),
+        ("p.AliasOfFunction", &["()", "Server"]),
+        ("p.NoResults", &[]),
         ("p.Defined", &["~Server"]),
         ("p.OverImported", &["~pkg.Client"]),
         ("p.OverGeneric", &["~pkg.Box"]),

@@ -628,7 +628,7 @@ impl<'a> Emitter<'a> {
         let type_params = spec.child_by_field_name("type_parameters");
         self.push_type_params(type_params, spec.end_byte());
         let value_types = match type_node {
-            Some(written) if written.kind() == "function_type" => self.result_paths(written),
+            Some(written) if written.kind() == "function_type" => self.function_type_paths(written),
             Some(written) if spec.kind() == "alias_declaration" || is_container_type(written) => {
                 self.type_path(written).into_iter().collect()
             }
