@@ -2906,6 +2906,32 @@ fn coverage_counts_a_read_past_its_bound_under_a_reason_of_its_own() {
 }
 
 #[test]
+fn find_callees_binds_a_call_through_a_field_embedded_beside_an_import() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module example.com/b\n\ngo 1.22\n"),
+        (
+            "b.go",
+            "package b\n\nimport \"net/http\"\n\ntype Base struct{}\n\nfunc (Base) M() {}\n\n\
+             type Outer struct {\n\thttp.Client\n\tBase\n}\n\n\
+             type Plain struct {\n\tBase\n}\n\n\
+             func run(o Outer) { o.Base.M() }\n\nfunc ctl(p Plain) { p.Base.M() }\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    for caller in ["run", "ctl"] {
+        let answer = client.answer("find_callees", &json!({"name": caller}));
+
+        assert!(
+            answer.contains(r#"count="1""#) && answer.contains("b.Base.M"),
+            "{caller} binds the embedded field's method: {answer}"
+        );
+    }
+}
+
+#[test]
 fn a_wrong_call_answers_a_tool_error() {
     let tree = go_module();
     let mut client = Client::start(&[]);
