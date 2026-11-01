@@ -820,9 +820,11 @@ impl Emitter<'_> {
         else {
             return;
         };
+        if scope_keyword(&self.source[created.byte_range()]).is_some() {
+            return;
+        }
         let class = if created.kind() == "name" {
-            let name = text(created, self.source);
-            (!matches!(name.as_str(), "self" | "static" | "parent")).then_some(name)
+            Some(text(created, self.source))
         } else {
             last_segment(created, self.source)
         };
@@ -832,17 +834,10 @@ impl Emitter<'_> {
     }
 
     // constraint: `new self` and `new parent` create a class of the class around them and `new static` one of the class
-    // called, which PHP reads in any case and a receiver of the name reads alike (`zend_get_class_fetch_type`,
-    // `Zend/zend_compile.c`); any other name is the class PHP compiles it to
+    // called, which a receiver of the name reads alike; any other name is the class PHP compiles it to
     fn receiver_class(&self, created: Node<'_>) -> String {
-        let written = &self.source[created.byte_range()];
-        ["self", "static", "parent"]
-            .iter()
-            .find(|keyword| written.eq_ignore_ascii_case(keyword.as_bytes()))
-            .map_or_else(
-                || format!("\\{}", self.class_name(created)),
-                |keyword| (*keyword).to_owned(),
-            )
+        scope_keyword(&self.source[created.byte_range()])
+            .map_or_else(|| format!("\\{}", self.class_name(created)), str::to_owned)
     }
 
     // constraint: a member's type is the class, interface, trait or enum around it, or the anonymous class, which
@@ -1119,6 +1114,13 @@ fn sole_value(element: Node<'_>) -> Option<Node<'_>> {
         return None;
     };
     (!matches!(value.kind(), "by_ref" | "variadic_unpacking")).then_some(value)
+}
+
+// constraint: PHP reads `self`, `static` and `parent` in any case (`zend_get_class_fetch_type`, `Zend/zend_compile.c`)
+fn scope_keyword(written: &[u8]) -> Option<&'static str> {
+    ["self", "static", "parent"]
+        .into_iter()
+        .find(|keyword| written.eq_ignore_ascii_case(keyword.as_bytes()))
 }
 
 // constraint: `X::class` names the class `X`, the last segment of a qualified name, or a relative scope, `self`,

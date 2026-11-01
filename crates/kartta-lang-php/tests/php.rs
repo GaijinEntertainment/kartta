@@ -312,6 +312,9 @@ class Foo extends Bar {
     public function a() { return new self(); }
     public function b() { return new parent(); }
     public function c() { return new Widget(); }
+    public function d() { return new SELF(); }
+    public function e() { return new Static; }
+    public function f() { return new PARENT(); }
 }
 ",
     );
