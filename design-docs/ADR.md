@@ -240,7 +240,7 @@ lost, and what would reopen it.
 - [3.196 Record a Ruby attribute write as a call of its setter](/design-docs/adr/3.196-ruby-attribute-writes.md)
 - [3.197 Read a bare daslang call in a method as a call on self](/design-docs/adr/3.197-daslang-bare-method-calls.md)
 - [3.198 Read the class a Quirrel field of `this` holds from the writes its owner's body makes](/design-docs/adr/3.198-quirrel-field-receivers.md)
-- [3.199 Read a PHP variable's class from the `new` the walk can show it still holds](/design-docs/adr/3.199-php-variable-classes.md)
+- [3.199 Read a PHP variable's class from the `new` or the type the walk can show it still holds](/design-docs/adr/3.199-php-variable-classes.md)
 
 ## crates/kartta-languages
 
