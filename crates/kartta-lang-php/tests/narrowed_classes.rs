@@ -319,6 +319,52 @@ fn a_write_ends_the_class() {
 }
 
 #[test]
+fn a_test_of_an_assignment_settles_the_variable_it_assigns() {
+    for body in [
+        "if (($v = f()) instanceof Local) { $v->m(); }",
+        "if ((($v = f())) instanceof Local) { $v->m(); }",
+        "if (!($v = f()) instanceof Local) { return; } $v->m();",
+        "while (($v = f()) instanceof Local) { $v->m(); }",
+        "($v = f()) instanceof Local && $v->m();",
+        "$b = ($v = f()) instanceof Local ? $v->m() : null;",
+        "$v = ($v = f()) instanceof Local ? $v->m() : null;",
+    ] {
+        assert_eq!(receiver(body, "m").as_deref(), LOCAL, "{body}");
+    }
+}
+
+#[test]
+fn a_test_of_a_chain_settles_its_outer_target_alone() {
+    let body = "if (($v = $a = f()) instanceof Local) { $v->m(); }";
+    assert_eq!(receiver(body, "m").as_deref(), LOCAL);
+
+    let body = "if (($a = $v = f()) instanceof Local) { $v->m(); }";
+    assert_eq!(receiver(body, "m").as_deref(), UNTYPED);
+}
+
+#[test]
+fn a_write_past_a_test_of_an_assignment_ends_the_class() {
+    for body in [
+        "if (($v = f()) instanceof Local) { $v = $a; $v->m(); }",
+        "if (!($v = f()) instanceof Local) { return; } $v = $a; $v->m();",
+        "if (($v = f()) instanceof Local && ($v = g())) { $v->m(); }",
+        "if (($v = g($v = f())) instanceof Local) { $v->m(); }",
+    ] {
+        assert_eq!(receiver(body, "m").as_deref(), UNTYPED, "{body}");
+    }
+}
+
+#[test]
+fn a_test_of_an_assignment_that_names_no_variable_leaves_it() {
+    for body in [
+        "if (([$v] = f()) instanceof Local) { $v->m(); }",
+        "if (($a['k'] = $v) instanceof Local) { $v->m(); }",
+    ] {
+        assert_eq!(receiver(body, "m").as_deref(), UNTYPED, "{body}");
+    }
+}
+
+#[test]
 fn a_closure_and_an_arrow_function_take_the_class_past_the_test() {
     for body in [
         "if ($v instanceof Local) { $f = function () use ($v) { $v->m(); }; }",
@@ -374,6 +420,8 @@ fn a_property_of_this_takes_the_class_past_a_test() {
         "if ($this->c instanceof Local) { $this->other(); $this->c->m(); }",
         "if ($this->c instanceof Local) { $this->c::m(); }",
         "if (self::$c instanceof Local) { self::$c->m(); }",
+        "if (($this->c = f()) instanceof Local) { $this->c->m(); }",
+        "if (!(self::$c = f()) instanceof Local) { return; } self::$c->m();",
     ] {
         assert_eq!(on_property(body).as_deref(), LOCAL, "{body}");
     }
@@ -397,6 +445,7 @@ fn a_write_to_the_property_ends_the_test() {
         "if ($this->c instanceof Local) { $this->c = $a; $this->c->m(); }",
         "if ($this->c instanceof Local) { unset($this->c); $this->c->m(); }",
         "if (!$this->c instanceof Local) { return; } [$this->c] = $a; $this->c->m();",
+        "if (($this->c = f()) instanceof Local) { $this->c = $a; $this->c->m(); }",
     ] {
         assert_eq!(on_property(body).as_deref(), FAR, "{body}");
     }

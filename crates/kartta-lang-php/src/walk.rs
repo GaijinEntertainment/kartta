@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Range;
+use std::ptr;
 
 use kartta_lang::tree::{
     child_nodes, line, named_child_nodes, preorder, signature, signature_from, text,
@@ -578,8 +579,12 @@ impl<'s> Emitter<'s> {
     }
 
     // constraint: a property's holder is its name, which no variable's spelling equals, so `$this->c` and `$this?->c`
-    // read as one; `$this` stays the class around the call, whose own members a test's interface does not hold
+    // read as one; `$this` stays the class around the call, whose own members a test's interface does not hold; a test
+    // of an assignment tests its target, which holds the value the assignment yields (`assigned_value`)
     fn narrowed_subject(&self, subject: Node<'_>) -> Option<Range<usize>> {
+        if subject.kind() == "assignment_expression" {
+            return self.narrowed_subject(subject.child_by_field_name("left")?);
+        }
         if subject.kind() != "variable_name" {
             self.own_field(subject)?;
             let name = subject.child_by_field_name("name")?.byte_range();
@@ -733,10 +738,13 @@ impl<'s> Emitter<'s> {
         }
     }
 
+    // constraint: PHP runs the assignment a test reads before the test, and the walk meets the test first, so a holder
+    // spelled at the very bytes of the write is that test's and stands
     fn forget(&mut self, variable: &[u8], until: usize) {
         let source = self.source;
         for holder in self.frame_holders() {
-            if source[holder.variable.clone()] == *variable {
+            let held = &source[holder.variable.clone()];
+            if held == variable && !ptr::eq(held, variable) {
                 holder.until = holder.until.min(until);
             }
         }

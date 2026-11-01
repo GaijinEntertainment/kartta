@@ -119,6 +119,27 @@ fn a_type_outside_the_graph_binds_no_namesake_of_the_tree() {
 }
 
 #[test]
+fn a_test_of_an_assignment_binds_as_a_test_of_the_variable_does() {
+    for (body, control) in [
+        (
+            "if (($c = make()) instanceof Container) { $c->instance(1); }",
+            "$c = make(); if ($c instanceof Container) { $c->instance(1); }",
+        ),
+        (
+            "if (!($c = make()) instanceof Container) { return; } $c->instance(1);",
+            "$c = make(); if (!$c instanceof Container) { return; } $c->instance(1);",
+        ),
+    ] {
+        assert_eq!(callees_of_typed("", control), ["App\\Container::instance"]);
+        assert_eq!(
+            callees_of_typed("", body),
+            ["App\\Container::instance"],
+            "{body}"
+        );
+    }
+}
+
+#[test]
 fn a_write_to_the_parameter_leaves_the_call_to_the_tiers_that_read_no_class() {
     assert_eq!(
         callees_of_typed("Container $c", "$c = make(); $c->instance(1);"),
