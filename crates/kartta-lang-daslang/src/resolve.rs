@@ -23,7 +23,9 @@ struct Modules<'r> {
 impl Modules<'_> {
     // constraint: the compiler binds a `require` to the module a file declares by name, matching letter case, and the
     // module path it searches is a compiler input no repository holds; a module almost always declares its own file
-    // stem, so the file names stand in for the module index
+    // stem, so the file names stand in for the module index; a project roots a name and mounts its first component by
+    // a program the engine does not run, so the nearest ancestor stands in for the root and the path below that
+    // component for the mount
     fn target(&self, spec: &str, path: &str) -> Option<String> {
         let spec = forward_slashes(spec);
         if spec.starts_with("./") || spec.starts_with("../") {
@@ -34,7 +36,11 @@ impl Modules<'_> {
         let module_path = stem.replace('.', "/");
         self.nearest_ancestor(&format!("{module_path}.das"), path)
             .or_else(|| self.unique_suffix(&module_path))
-            .or_else(|| self.unique_named(&format!("{}.das", base(&module_path))))
+            .or_else(|| {
+                let (_, below_mount) = module_path.split_once('/')?;
+                self.unique_suffix(below_mount)
+                    .or_else(|| self.unique_named(&format!("{}.das", base(below_mount))))
+            })
     }
 
     fn nearest_ancestor(&self, module_file: &str, path: &str) -> Option<String> {

@@ -204,6 +204,42 @@ fn a_specifier_no_ancestor_holds_names_the_one_file_whose_path_ends_with_it() {
 }
 
 #[test]
+fn a_specifier_of_two_candidates_names_the_one_that_ends_with_it_below_its_mount_point() {
+    let files = [
+        "modules/llvm_support/daslib/llvm_tune.das",
+        "modules/llvm_support/tests/llvm_tune.das",
+        "game/a.das",
+    ];
+
+    assert_eq!(
+        targets(&files, "llvm/daslib/llvm_tune", "game/a.das"),
+        ["modules/llvm_support/daslib/llvm_tune.das"]
+    );
+    assert_eq!(
+        targets(&files, "llvm.daslib.llvm_tune", "game/a.das"),
+        ["modules/llvm_support/daslib/llvm_tune.das"]
+    );
+}
+
+#[test]
+fn a_specifier_two_files_end_with_below_its_mount_point_names_neither() {
+    let files = [
+        "prog/libs/fx/fx_events.das",
+        "game_a/game/fx/fx_events.das",
+        "game/a.das",
+    ];
+
+    let extraction = resolve(
+        &files,
+        "options gen2\nrequire danetlibs.fx.fx_events\n",
+        "game/a.das",
+    );
+
+    assert_eq!(includes(&extraction), NOTHING);
+    assert_eq!(modules(&extraction), ["danetlibs.fx.fx_events"]);
+}
+
+#[test]
 fn a_path_that_matches_nothing_falls_back_to_its_module_name() {
     let files = ["engine/components/rigid_body.das", "game/a.das"];
 
