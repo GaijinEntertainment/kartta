@@ -1,7 +1,9 @@
 //! The package rules of a language whose package is a directory: which package a call sees.
 
 use kartta_graph::Graph;
-use kartta_lang::{CallRef, Conventions, Extraction, MemberCalls, OwnMembers, SymbolFlags};
+use kartta_lang::{
+    BuiltApart, CallRef, Conventions, Extraction, MemberCalls, OwnMembers, SymbolFlags, Twins,
+};
 
 use crate::go_code::{callees_of, file, function, importing};
 use crate::{call, graph_of, member_call};
@@ -27,6 +29,39 @@ fn test_file(mut extraction: Extraction) -> Extraction {
 
 fn graph(files: &[Extraction]) -> Graph {
     graph_of(go(), files)
+}
+
+#[test]
+fn a_build_constraint_goes_with_its_file_when_the_file_is_replaced_or_removed() {
+    let declaring = |path: &str, constraint: Option<&str>| {
+        let mut extraction = file(path, "lib", vec![function("lib", "New", 1)], Vec::new());
+        extraction.build_constraint = constraint.map(str::to_owned);
+        extraction
+    };
+    let mut caller = file(
+        "lib/run.go",
+        "lib",
+        vec![function("lib", "run", 1)],
+        vec![bare_call("New", 1)],
+    );
+    caller.build_constraint = Some("here".to_owned());
+    let mut conventions = go();
+    conventions.twins = Twins::Package(BuiltApart(|one, other| one == "apart" || other == "apart"));
+    let mut graph = graph_of(
+        conventions,
+        &[caller, declaring("lib/new.go", Some("apart"))],
+    );
+    assert_eq!(callees_of(&graph, "lib.run").len(), 0);
+
+    graph.insert(&declaring("lib/new.go", None));
+    assert_eq!(callees_of(&graph, "lib.run").len(), 1);
+
+    graph.insert(&declaring("lib/new.go", Some("apart")));
+    assert_eq!(callees_of(&graph, "lib.run").len(), 0);
+
+    graph.remove("lib/new.go");
+    graph.insert(&declaring("lib/other.go", None));
+    assert_eq!(callees_of(&graph, "lib.run").len(), 1);
 }
 
 #[test]

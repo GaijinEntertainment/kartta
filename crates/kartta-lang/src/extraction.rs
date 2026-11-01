@@ -33,7 +33,8 @@ pub struct RawExtraction {
     pub package: Option<String>,
     /// Compile-time implements assertions the file states.
     pub assertions: Vec<ImplementsAssertion>,
-    /// The file's imports and includes, in source order, for the resolver to replay.
+    /// The file's imports and includes, in source order, for the resolver to replay, and whatever else of the file only
+    /// its resolver reads.
     pub directives: Vec<RawDirective>,
     /// Symbols that become entry points when the file's path qualifies them, such as a `main` at a crate root.
     pub entry_candidates: Vec<SymbolId>,
@@ -87,7 +88,8 @@ impl RawExtraction {
     }
 }
 
-/// One import or include as the file wrote it, for the resolver to replay against the path and the repository.
+/// One import or include as the file wrote it, for the resolver to replay against the path and the repository, or
+/// another fact of the file that only its resolver reads, as Go's build constraint.
 ///
 /// Only the language that recorded it reads it: `form` tells its resolver which shape of directive it is, `spec` is
 /// the specifier with its delimiters stripped, and `names` the companion strings the form carries, such as an alias.
@@ -99,7 +101,7 @@ pub struct RawDirective {
     pub spec: String,
     /// The strings that come with the form.
     pub names: Vec<String>,
-    /// The one-based line of the directive.
+    /// The one-based line of the directive; 1 for a fact of the whole file, which several lines may state.
     pub line: u32,
 }
 
@@ -170,6 +172,9 @@ pub struct Extraction {
     /// itself, and the source of the same stem beside it, which nothing includes, does not count against it and is
     /// test code with it.
     pub test_includes: Vec<String>,
+    /// What keeps the file from some builds, in the form the language's [`BuiltApart`](crate::BuiltApart) reads; `None`
+    /// where nothing does.
+    pub build_constraint: Option<String>,
 }
 
 impl Extraction {

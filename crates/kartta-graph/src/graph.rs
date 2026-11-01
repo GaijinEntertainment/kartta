@@ -47,6 +47,9 @@ pub struct Graph {
     test_modules: OnceLock<HashSet<u32, FixedState>>,
     parented: HashMap<Str, Vec<u32>, FixedState>,
     named_at_file_scope: HashMap<Str, Vec<u32>, FixedState>,
+    // constraint: by slot and apart from `StoredFile`, as most files of a language that has any hold none and most
+    // languages have none
+    build_constraints: HashMap<u32, Str, FixedState>,
     pub(crate) symbols: usize,
 }
 
@@ -234,6 +237,10 @@ impl Graph {
         }
         self.symbols += file.symbols.len();
         self.files[slot as usize] = Some(file);
+        if let Some(constraint) = &extraction.build_constraint {
+            let constraint = self.strings.intern(constraint);
+            self.build_constraints.insert(slot, constraint);
+        }
         self.index(slot);
         for target in &extraction.test_includes {
             let Some(target) = self.strings.get(target) else {
@@ -653,6 +660,11 @@ impl Graph {
         (self.built_with).insert(package, (Arc::clone(dependencies), reached.into()));
     }
 
+    pub(crate) fn build_constraint(&self, slot: u32) -> Option<&str> {
+        let constraint = self.build_constraints.get(&slot)?;
+        Some(self.strings.resolve(*constraint))
+    }
+
     /// The packages the files of `package` are built with, sorted, where their extraction lists them.
     pub(crate) fn built_with(&self, package: Str) -> Option<&[Str]> {
         (self.built_with.get(&package)).map(|(_, reached)| &reached[..])
@@ -1064,6 +1076,7 @@ impl Graph {
         let Some(file) = self.files[slot as usize].take() else {
             return;
         };
+        self.build_constraints.remove(&slot);
         for key in parent_keys {
             unlist(&mut self.parented, key, |&held| held != slot);
         }

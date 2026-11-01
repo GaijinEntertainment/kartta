@@ -555,7 +555,8 @@ pub enum Twins {
     Package(BuiltApart),
 }
 
-/// Says from two paths whether no build compiles both files.
+/// Says from two files' [build constraints](crate::Extraction::build_constraint), the empty one for a file with none,
+/// whether no build compiles both files. A pair it cannot tell within its bound reads as built together.
 #[derive(Debug, Clone, Copy)]
 pub struct BuiltApart(pub fn(&str, &str) -> bool);
 
