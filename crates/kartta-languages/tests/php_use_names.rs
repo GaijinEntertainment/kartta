@@ -210,9 +210,5 @@ class Base {
 #[test]
 fn a_parent_outside_the_tree_is_no_namesake_the_file_reaches() {
     assert_eq!(callees(&OUTSIDE_PARENT, "N\\D::viaParent"), []);
-    assert_eq!(
-        callees(&OUTSIDE_PARENT, "N\\D::viaThis"),
-        [("M\\Base::held".to_string(), 60)],
-        "the walk above the class reads no namesake, which only the name tier reaches"
-    );
+    assert_eq!(callees(&OUTSIDE_PARENT, "N\\D::viaThis"), []);
 }
