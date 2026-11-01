@@ -225,6 +225,11 @@ pub(super) fn is_container_path(path: &str) -> bool {
     path.starts_with(CONTAINER)
 }
 
+pub(super) fn is_one_container(path: &str) -> bool {
+    path.strip_prefix(CONTAINER)
+        .is_some_and(|element| !is_container_path(element))
+}
+
 pub(super) fn inside_containers(path: &str) -> &str {
     path.trim_start_matches(CONTAINER)
 }

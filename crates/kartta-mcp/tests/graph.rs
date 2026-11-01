@@ -2794,6 +2794,33 @@ fn find_unused_lists_a_go_field_a_marshal_call_meets_only_through_a_channel() {
 }
 
 #[test]
+fn a_go_range_over_a_channel_reads_its_value_as_the_element() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "b/a.go",
+            "package b\n\nimport \"encoding/json\"\n\ntype S struct {\n\tName string\n}\n\n\
+             func (s S) Run() {}\n\n\
+             func run(h chan S) {\n\tfor v := range h {\n\t\t_, _ = json.Marshal(v)\n\t\tv.Run()\n\t}\n}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("find_unused", &json!({})),
+        lines(&[
+            r#"<unused count="1" live="2">"#,
+            r#"<excluded reflected="1"/>"#,
+            r#"<symbol name="run" qn="b.run" kind="function" lang="go" loc="b/a.go:11-16"/>"#,
+            "</unused>",
+        ])
+    );
+    let callers = client.answer("find_callers", &json!({"name": "b.S.Run"}));
+    assert!(callers.contains(r#"qn="b.run""#), "{callers}");
+}
+
+#[test]
 fn find_unused_counts_the_exports_a_go_plugin_s_host_looks_up_by_name_as_reflected() {
     let tree = tree(&[
         ("go.mod", "module example.com/app\n\ngo 1.22\n"),

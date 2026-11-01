@@ -14,7 +14,9 @@ use self::syntax::{
     assertion_value_type, default_name_candidates, is_exported, is_generated_source, parents_of,
     receiver_type, tag_hands_over_its_field, trim_quotes,
 };
-use self::types::{element_of, holds_channel, is_container_path, is_container_type, named_type};
+use self::types::{
+    element_of, holds_channel, is_container_path, is_container_type, is_one_container, named_type,
+};
 
 mod anonymous;
 mod calls;
@@ -433,7 +435,8 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    // constraint: a range yields an index or a key first, which no path names, and an element second
+    // constraint: a range yields an index or a key first, which no path names, and an element second; a channel yields
+    // its element and takes one name, and it is the one holder of a channel whose path has a single container step
     fn declared_paths(
         &self,
         node: Node<'_>,
@@ -442,11 +445,16 @@ impl<'a> Emitter<'a> {
     ) -> Vec<Option<String>> {
         let names = left.named_child_count();
         if node.kind() == "range_clause" {
-            let element = node
-                .child_by_field_name("right")
-                .and_then(|ranged| self.value_path(ranged))
-                .and_then(|ranged| element_of(&ranged));
-            return vec![None, element];
+            let ranged = node.child_by_field_name("right");
+            let path = ranged.and_then(|ranged| self.value_path(ranged));
+            let element = path.as_deref().and_then(element_of);
+            let over_channel = path.as_deref().is_some_and(is_one_container)
+                && ranged.is_some_and(|ranged| self.value_holds_channel(ranged));
+            return if over_channel {
+                vec![element]
+            } else {
+                vec![None, element]
+            };
         }
         (0..names)
             .map(|position| self.value_path_at(values, names, position))
