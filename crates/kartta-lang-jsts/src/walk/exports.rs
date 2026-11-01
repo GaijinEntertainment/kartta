@@ -3,7 +3,7 @@ use kartta_lang::{RawDirective, RawReExport, SymbolKind};
 use tree_sitter::Node;
 
 use super::{Binding, Emitter, Scope};
-use crate::syntax::{child_nodes, named_child_nodes, start_line, unquote};
+use crate::syntax::{child_nodes, named_child_nodes, parents, start_line, unquote};
 
 const IMPORT_FORM: u32 = 0;
 
@@ -111,6 +111,7 @@ impl Emitter<'_> {
             self.scopes
                 .push(Scope::spanning(target, target, id, this_of));
         } else {
+            symbol.parents = parents(target, self.source);
             let id = self.raw.push_symbol(symbol);
             self.scopes
                 .push(Scope::spanning(target, target, id, Some(id)));

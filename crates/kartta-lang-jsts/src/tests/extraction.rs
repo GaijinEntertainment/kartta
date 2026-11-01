@@ -795,6 +795,40 @@ interface Page extends Layout<Slots> {}
 }
 
 #[test]
+fn a_heritage_expression_records_the_class_it_names_in_every_grammar() {
+    let source = r"
+class Controller extends Target {}
+class Widget extends React.Component {}
+class Deep extends a.b.Base {}
+class Mixed extends mixin(Base) {}
+class Chosen extends (flag ? First : Second) {}
+class Keyed extends registry['Base'] {}
+class Root extends null {}
+";
+
+    for path in ["src/h.js", "src/h.ts", "src/h.tsx"] {
+        let extraction = extracted(path, source);
+
+        let parents = |name| symbol(&extraction, name).parents.as_slice();
+        assert_eq!(parents("Controller"), ["Target"], "{path}");
+        assert_eq!(parents("Widget"), ["Component"], "{path}");
+        assert_eq!(parents("Deep"), ["Base"], "{path}");
+        for name in ["Mixed", "Chosen", "Keyed", "Root"] {
+            assert_eq!(parents(name), [] as [&str; 0], "{path} {name}");
+        }
+    }
+}
+
+#[test]
+fn an_anonymous_default_class_records_the_class_it_extends() {
+    for path in ["src/h.js", "src/h.ts"] {
+        let extraction = extracted(path, "export default class extends Base {}\n");
+
+        assert_eq!(symbol(&extraction, "default").parents, ["Base"], "{path}");
+    }
+}
+
+#[test]
 fn class_fields_split_into_fields_and_arrow_methods() {
     let extraction = extracted(
         "src/store.ts",
