@@ -157,6 +157,7 @@ lost, and what would reopen it.
 - [3.192 Bind no definition a call's count of arguments rules out](/design-docs/adr/3.192-call-argument-counts.md)
 - [3.193 Bind a call on a known class to the member the class or its nearest parent holds](/design-docs/adr/3.193-receiver-class-members.md)
 - [3.194 Bind a bare daslang call only within what its file reaches](/design-docs/adr/3.194-daslang-call-scope.md)
+- [3.195 Bind a daslang qualifier to the module it names](/design-docs/adr/3.195-daslang-module-qualifiers.md)
 
 ## crates/kartta-lang
 
