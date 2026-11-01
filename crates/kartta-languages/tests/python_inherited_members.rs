@@ -585,7 +585,7 @@ else:
 }
 
 #[test]
-fn an_attribute_with_no_method_above_it_leaves_the_call_to_the_tiers() {
+fn an_attribute_with_no_method_above_it_binds_no_namesake() {
     let source = "\
 class Stranger:
     def size(self):
@@ -598,8 +598,140 @@ class Child:
         self.size()
 ";
 
+    assert_eq!(callees(source, "app.Child.run"), []);
+}
+
+const LONE_CLASS: &str = "\
+from other import Other
+
+class Lone:
+    def __init__(self, fn):
+        self.size = fn
+
+    def run(self):
+        return self.size()
+";
+
+const OTHER_CLASS: &str = "\
+class Other:
+    def size(self):
+        return 2
+";
+
+#[test]
+fn an_attribute_an_instance_is_given_binds_no_namesake_of_another_file() {
     assert_eq!(
-        callees(source, "app.Child.run"),
+        callees_in(
+            &[("app.py", LONE_CLASS), ("other.py", OTHER_CLASS)],
+            "app.Lone.run"
+        ),
+        []
+    );
+}
+
+const SIZE_OF_A_STRANGER: &str = "\
+class Stranger:
+    def size(self):
+        pass
+
+";
+
+#[test]
+fn an_attribute_of_a_parent_with_no_method_above_it_binds_no_namesake() {
+    let source = format!(
+        "{SIZE_OF_A_STRANGER}class Holder:
+    def __init__(self, fn):
+        self.size = fn
+
+class Child(Holder):
+    def run(self):
+        self.size()
+"
+    );
+
+    assert_eq!(callees(&source, "app.Child.run"), []);
+}
+
+#[test]
+fn an_attribute_of_a_class_with_a_parent_outside_the_graph_binds_no_namesake() {
+    let source = format!(
+        "import outside
+
+{SIZE_OF_A_STRANGER}class Child(outside.Base):
+    def __init__(self, fn):
+        self.size = fn
+
+    def run(self):
+        self.size()
+"
+    );
+
+    assert_eq!(callees(&source, "app.Child.run"), []);
+}
+
+#[test]
+fn an_attribute_holding_a_function_of_the_name_binds_nothing() {
+    let source = "\
+def size():
+    pass
+
+class Child:
+    def __init__(self):
+        self.size = size
+
+    def run(self):
+        self.size()
+";
+
+    assert_eq!(callees(source, "app.Child.run"), []);
+}
+
+#[test]
+fn an_attribute_on_a_call_naming_the_class_binds_no_namesake() {
+    let source = format!(
+        "{SIZE_OF_A_STRANGER}class Child:
+    size = 3
+
+    def run(self):
+        Child.size()
+"
+    );
+
+    assert_eq!(callees(&source, "app.Child.run"), []);
+}
+
+#[test]
+fn an_annotation_without_a_value_leaves_the_call_to_the_tiers() {
+    let source = format!(
+        "{SIZE_OF_A_STRANGER}class Child:
+    size: int
+
+    def run(self):
+        self.size()
+"
+    );
+
+    assert_eq!(
+        callees(&source, "app.Child.run"),
+        [("app.Stranger.size".to_owned(), 80)]
+    );
+}
+
+#[test]
+fn an_attribute_a_subclass_writes_leaves_the_mixin_s_call_to_the_tiers() {
+    let source = format!(
+        "{SIZE_OF_A_STRANGER}class Mixin:
+    def run(self):
+        self.size()
+
+class Concrete(Mixin):
+    def __init__(self, fn):
+        self.size = fn
+"
+    );
+
+    assert_eq!(
+        callees(&source, "app.Mixin.run"),
         [("app.Stranger.size".to_owned(), 80)]
     );
 }
