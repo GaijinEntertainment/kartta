@@ -7,7 +7,7 @@
 
 use kartta_lang::{
     Access, Conventions, FILE_SCOPE, IncludedRuntimeMembers, Language, OwnMembers, RawExtraction,
-    Receiver, Symbol, SymbolId, SymbolKind, UntypedOwners,
+    Receiver, ReceiverMembers, Symbol, SymbolId, SymbolKind, UnlistedReceivers, UntypedOwners,
 };
 use kartta_lang_quirrel::Quirrel;
 
@@ -125,6 +125,9 @@ fn a_bare_call_in_a_member_reaches_the_class_first() {
     expected.included_runtime_members = IncludedRuntimeMembers::SpelledOrOwn;
     expected.untyped_owners = UntypedOwners::Tables;
     expected.base_receivers = &["base"];
+    expected.receiver_members = ReceiverMembers::Inherited;
+    expected.own_type_receivers = Some(&["this"]);
+    expected.unlisted_receivers = UnlistedReceivers::OwnMember;
 
     assert_eq!(conventions, expected);
 }
