@@ -369,35 +369,52 @@ impl Judge<'_, '_> {
         if declared_by_interfaces.unwrap_or(0) > own {
             return true;
         }
-        self.is_asserted_to_dispatch(method, owner)
-            || self.has_a_parent_dispatching(owner, symbol.name)
+        self.is_asserted_to_dispatch(method, owner) || self.has_a_parent_dispatching(method, owner)
     }
 
     // constraint: Go scopes a type name to its package and a method to its type's package, so what any file of the
     // method's package asserts of the owner's name it asserts of this type, and an external test package beside it is
     // another package
     fn is_asserted_to_dispatch(&self, method: SymbolAt, owner: Str) -> bool {
-        let file = self.graph.file(method.file);
         let name = self.graph.sym(method).name;
-        (self.graph.package_files(file.dir).iter())
-            .map(|&slot| self.graph.file(slot))
-            .filter(|other| other.package == file.package)
-            .flat_map(|other| other.assertions.iter())
-            .filter(|assertion| assertion.type_name == owner)
-            .any(|assertion| self.may_dispatch(assertion.interface, name))
+        (self
+            .graph
+            .package_files(self.graph.file(method.file).dir)
+            .iter())
+        .filter(|&&slot| self.in_one_package(slot, method.file))
+        .flat_map(|&slot| {
+            let assertions = self.graph.file(slot).assertions.iter();
+            assertions.map(move |assertion| (slot, assertion))
+        })
+        .filter(|(_, assertion)| assertion.type_name == owner)
+        .any(|(slot, assertion)| self.may_dispatch(slot, assertion.interface, name))
     }
 
-    fn has_a_parent_dispatching(&mut self, owner: Str, name: Str) -> bool {
-        if let Some(&held) = self.dispatching.get(&(owner, name)) {
+    fn in_one_package(&self, a: u32, b: u32) -> bool {
+        let (a, b) = (self.graph.file(a), self.graph.file(b));
+        a.dir == b.dir && a.package == b.package
+    }
+
+    // constraint: a Go owner's name means a type of the method's own package, so an answer holds per name only
+    // elsewhere, where an owner crosses files and directories as a C++ class's out-of-line method does
+    fn has_a_parent_dispatching(&mut self, method: SymbolAt, owner: Str) -> bool {
+        let name = self.graph.sym(method).name;
+        let directory_packages = self.graph.conventions.directory_packages;
+        if !directory_packages && let Some(&held) = self.dispatching.get(&(owner, name)) {
             return held;
         }
-        let dispatched = self.types_named(owner).any(|ty| {
-            let parents = self.graph.file(ty.file).parents_of(ty.index);
-            parents
-                .iter()
-                .any(|parent| self.may_dispatch(parent.written, name))
-        });
-        self.dispatching.insert((owner, name), dispatched);
+        let dispatched = self
+            .types_named(owner)
+            .filter(|ty| !directory_packages || self.in_one_package(ty.file, method.file))
+            .any(|ty| {
+                let parents = self.graph.file(ty.file).parents_of(ty.index);
+                parents
+                    .iter()
+                    .any(|parent| self.may_dispatch(ty.file, parent.written, name))
+            });
+        if !directory_packages {
+            self.dispatching.insert((owner, name), dispatched);
+        }
         dispatched
     }
 
@@ -451,7 +468,10 @@ impl Judge<'_, '_> {
             })
     }
 
-    fn may_dispatch(&self, written: Str, name: Str) -> bool {
+    fn may_dispatch(&self, file: u32, written: Str, name: Str) -> bool {
+        if self.graph.conventions.directory_packages {
+            return self.may_dispatch_in_packages(file, written, name);
+        }
         let mut bases = self
             .graph
             .listing_key(written)
@@ -460,6 +480,29 @@ impl Judge<'_, '_> {
             .filter(|&base| self.graph.sym(base).kind.is_type())
             .peekable();
         bases.peek().is_none() || bases.any(|base| self.declares(base, name))
+    }
+
+    // constraint: a Go interface holds the methods of what it embeds, and an alias or a type defined over an interface
+    // holds that interface's, so a name that leaves the graph, or a type that does not spell every member it holds, may
+    // declare any method (`doc/go_spec.html`, Embedded interfaces, Alias declarations, Type definitions)
+    fn may_dispatch_in_packages(&self, file: u32, written: Str, name: Str) -> bool {
+        let types = self.types.named_in_file(file, written);
+        types.is_empty() || types.iter().any(|&ty| self.may_declare(ty, name))
+    }
+
+    fn may_declare(&self, ty: SymbolAt, name: Str) -> bool {
+        let type_name = self.graph.sym(ty).name;
+        let spells_its_members = matches!(
+            self.graph.sym(ty).kind,
+            SymbolKind::Interface | SymbolKind::Struct
+        ) && self.graph.file(ty.file).parents_of(ty.index).is_empty();
+        !spells_its_members
+            || self.graph.named(name).iter().any(|&member| {
+                let symbol = self.graph.sym(member);
+                symbol.kind == SymbolKind::Method
+                    && symbol.owner == Some(type_name)
+                    && self.in_one_package(member.file, ty.file)
+            })
     }
 
     fn declares(&self, ty: SymbolAt, name: Str) -> bool {

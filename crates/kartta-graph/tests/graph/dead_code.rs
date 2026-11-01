@@ -784,6 +784,30 @@ fn a_method_a_call_through_another_type_may_reach_is_counted_as_dispatched() {
 }
 
 #[test]
+fn a_method_defined_apart_from_its_owner_reads_the_parents_of_its_owners_name() {
+    let graph = graph(&[
+        file(
+            "include/widget.h",
+            vec![with_parent(
+                Symbol::new("Widget", SymbolKind::Class, 1, 6),
+                "Component",
+            )],
+            Vec::new(),
+        ),
+        file(
+            "src/widget.cpp",
+            vec![member("Widget", "render", 2)],
+            Vec::new(),
+        ),
+    ]);
+
+    let dead = graph.dead_code(&[SymbolKind::Method], None, 10);
+
+    assert_eq!(dead.total, 0);
+    assert_eq!(dead.excluded.dispatched, 1);
+}
+
+#[test]
 fn a_declaration_and_the_definition_it_links_to_are_judged_once() {
     let mut header = file("src/api.h", vec![function("open", 1)], Vec::new());
     header.callables.push(Callable {
