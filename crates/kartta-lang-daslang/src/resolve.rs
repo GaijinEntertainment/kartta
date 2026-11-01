@@ -151,13 +151,20 @@ fn is_file_path(spec: &str) -> bool {
         && (spec.starts_with("./") || spec.starts_with("../") || spec.starts_with("%/"))
 }
 
+// constraint: the compiler names a file-path `require` by the whole stem of its path, dots included
+// (`src/simulate/fs_file_info.cpp:278`), and every other `require` by what follows its last dot or slash
+// (`src/simulate/debug_info.cpp:1003`, `src/simulate/fs_file_info.cpp:289`)
 fn module_named(directive: &RawDirective) -> String {
     let spec = forward_slashes(&directive.spec);
-    let stem = (spec.rsplit_once('.'))
-        .filter(|_| is_file_path(&spec))
-        .map_or(&*spec, |(stem, _)| stem);
-    let start = stem.rfind(['/', '.']).map_or(0, |separator| separator + 1);
-    stem[start..].to_owned()
+    if is_file_path(&spec) {
+        let file = base(&spec);
+        return file
+            .rsplit_once('.')
+            .map_or(file, |(stem, _)| stem)
+            .to_owned();
+    }
+    let start = spec.rfind(['/', '.']).map_or(0, |separator| separator + 1);
+    spec[start..].to_owned()
 }
 
 fn aliased(directive: &RawDirective, target: Option<&str>) -> Option<ImportBinding> {
