@@ -379,6 +379,42 @@ class Runner {
 }
 
 #[test]
+fn a_constant_in_braces_records_a_call_as_a_variable_name_does() {
+    for (written, callee, receiver) in [
+        ("$this->$X()", "$X", "$this"),
+        ("$this->{$X}()", "$X", "$this"),
+        ("$this->{X}()", "$X", "$this"),
+        ("$this?->{X}()", "$X", "$this"),
+        ("$o::{X}()", "$X", "$o"),
+        ("Foo::{X}()", "$X", "Foo"),
+        ("self::{X}()", "$X", "self"),
+        ("$this->{/* note */ X}()", "$X", "$this"),
+        ("$this->{__FUNCTION__}()", "$__FUNCTION__", "$this"),
+    ] {
+        let source = format!("<?php\nfunction f($o) {{ {written}; }}\n");
+        let raw = extract(source.as_bytes());
+        let [call] = raw.calls.as_slice() else {
+            unreachable!("{written} is one call");
+        };
+        assert_eq!(call.callee, callee, "{written}");
+        assert_eq!(call.receiver.as_deref(), Some(receiver), "{written}");
+    }
+}
+
+#[test]
+fn a_brace_beside_a_spelled_name_leaves_the_name() {
+    for written in [
+        "$this->X /* {note} */ ()",
+        "$this->X([$this->{Y}])",
+        "$this->{Y}->X()",
+    ] {
+        let source = format!("<?php\nfunction f() {{ {written}; }}\n");
+        let raw = extract(source.as_bytes());
+        assert!(callees(&raw.calls).contains(&"X"), "{written}");
+    }
+}
+
+#[test]
 fn a_qualified_scope_is_the_receiver_php_compiles_it_to() {
     let raw = extract(
         br#"<?php
@@ -730,6 +766,20 @@ fn an_anonymous_class_is_named_by_a_static_property_of_any_scope() {
         let raw = extract(source.as_bytes());
         assert_eq!(
             symbol(&raw.symbols, name).kind,
+            SymbolKind::Class,
+            "{write}"
+        );
+    }
+}
+
+#[test]
+fn an_anonymous_class_takes_no_name_from_a_constant_in_braces() {
+    for write in ["$this->{X}", "$this->{ X }", "$this->{/* note */ X}"] {
+        let source =
+            format!("<?php\nclass Own {{\n    function f() {{ {write} = new class {{}}; }}\n}}\n");
+        let raw = extract(source.as_bytes());
+        assert_eq!(
+            symbol(&raw.symbols, "{f}").kind,
             SymbolKind::Class,
             "{write}"
         );

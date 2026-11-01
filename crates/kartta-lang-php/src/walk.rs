@@ -712,9 +712,8 @@ impl<'s> Emitter<'s> {
         held.map(str::to_owned).or(receiver)
     }
 
-    // constraint: braces hold an expression (`simple_variable`, `property_name`, `Zend/zend_language_parser.y`), and
-    // the grammar writes a constant there as a `name`: `$this->{X}` ends past its name, `self::${X}` holds it in a
-    // `dynamic_variable_name`, and the property is the constant's value, which the walk does not hold
+    // constraint: a name in braces is an expression (`simple_variable`, `Zend/zend_language_parser.y`), so it is no
+    // property: `self::${X}` holds a constant in a `dynamic_variable_name`, and `in_braces` reads `$this->{X}`
     fn own_field(&self, access: Node<'_>) -> Option<Field<'s>> {
         let open = *self.types.last()?;
         let name = match access.kind() {
@@ -725,7 +724,7 @@ impl<'s> Emitter<'s> {
                 }
                 access
                     .child_by_field_name("name")
-                    .filter(|name| name.kind() == "name" && name.end_byte() == access.end_byte())?
+                    .filter(|name| name.kind() == "name" && !in_braces(access))?
             }
             "scoped_property_access_expression" => {
                 if !self.is_own_class(access.child_by_field_name("scope")?, open) {
@@ -1187,7 +1186,8 @@ fn declared(name: String, qualified: String, kind: SymbolKind, node: Node<'_>) -
 // constraint: a member call names the receiver only by a variable and a scoped call only by a leaf scope, a class
 // name, `self`, `parent`, `static` or a variable; a chained or computed one is the empty receiver, as a qualified scope
 // is here, whose class the emitter reads through the file's imports. A qualified function name reduces to its last
-// segment. PHP reads a keyword in any case, and the graph's lists hold it in lower case.
+// segment. PHP reads a keyword in any case, and the graph's lists hold it in lower case. A constant in braces is a
+// name PHP computes, which the call records as it does `$this->$name()`, under a `$` no symbol's name holds.
 fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
     let (receiver, leaves): (&str, &[&str]) = match node.kind() {
         "function_call_expression" => {
@@ -1222,7 +1222,17 @@ fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
             _ => text(receiver, source),
         });
 
+    if name.kind() == "name" && in_braces(node) {
+        return (format!("${}", text(name, source)), receiver);
+    }
     (text(name, source), receiver)
+}
+
+// constraint: braces around a member's name hold an expression (`property_name` and `member_name`,
+// `Zend/zend_language_parser.y`), and the grammar writes a constant there as the `name` a spelled member has; the
+// member is the constant's value, which the walk does not hold. The braces are the access's own tokens
+fn in_braces(access: Node<'_>) -> bool {
+    child_nodes(access).any(|child| child.kind() == "{")
 }
 
 // constraint: a variable a function starts with, a parameter or what a closure binds, holds its class through the
@@ -1278,7 +1288,7 @@ fn target_name(target: Node<'_>, source: &[u8]) -> Option<String> {
         "variable_name" => variable_identifier(target, source),
         "member_access_expression" => target
             .child_by_field_name("name")
-            .filter(|name| name.kind() == "name")
+            .filter(|name| name.kind() == "name" && !in_braces(target))
             .map(|name| text(name, source)),
         "scoped_property_access_expression" => {
             target_name(target.child_by_field_name("name")?, source)

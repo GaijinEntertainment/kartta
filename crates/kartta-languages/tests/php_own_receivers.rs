@@ -53,6 +53,27 @@ class Holder {
 }
 ";
 
+const BRACES: &str = r#"<?php
+namespace App;
+
+const X = "real";
+
+$X = new class {};
+
+class Suite {
+    public function real() {}
+    public function X() {}
+    public function run() { $this->{X}(); }
+    public function nullsafe() { $this?->{X}(); }
+    public function onVariable($o) { $o::{X}(); }
+    public function onSelf() { self::{X}(); }
+    public function onClass() { Suite::{X}(); }
+    public function spelled() { $this->real(); }
+}
+
+function outside($o) { $o->{X}(); }
+"#;
+
 fn build(source: &str) -> Engine {
     let tree = tempfile::tempdir().expect("a temporary directory");
     fs::write(tree.path().join("Loop.php"), source).expect("the file is written");
@@ -95,6 +116,26 @@ fn a_php_constant_is_no_call_s_target_through_any_receiver() {
             "{caller}"
         );
     }
+}
+
+#[test]
+fn a_php_constant_in_braces_binds_nothing_through_its_spelling() {
+    let engine = build(BRACES);
+
+    for caller in [
+        "App\\Suite::run",
+        "App\\Suite::nullsafe",
+        "App\\Suite::onVariable",
+        "App\\Suite::onSelf",
+        "App\\Suite::onClass",
+        "App\\outside",
+    ] {
+        assert_eq!(callees(&engine, caller), [], "{caller}");
+    }
+    assert_eq!(
+        callees(&engine, "App\\Suite::spelled"),
+        [("App\\Suite::real".to_owned(), confidence::SAME_FILE)],
+    );
 }
 
 #[test]
