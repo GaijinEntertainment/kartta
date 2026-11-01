@@ -17,11 +17,11 @@
 //! header, from its declaration or binding to its body.
 //!
 //! A call records its callee: a bare name, a root-table `::f`, or the field of a member call, whose receiver is the
-//! whole receiver expression as written. A computed callee, `a[k]()` or `f()()`, records nothing, and neither does a
-//! bare call of a parameter or a local of an enclosing function, `cb()` in `function run(cb)`, which calls whatever
-//! value the name holds, unless the file defines a free function or a class of the name, which is most often the
-//! value it passes. A local that destructures a table, `let { build } = cfg`, takes the slot of its name and keeps
-//! its call.
+//! whole receiver expression as written, but for a field of `this`, below. A computed callee, `a[k]()` or `f()()`,
+//! records nothing, and neither does a bare call of a parameter or a local of an enclosing function, `cb()` in
+//! `function run(cb)`, which calls whatever value the name holds, unless the file defines a free function or a class of
+//! the name, which is most often the value it passes. A local that destructures a table, `let { build } = cfg`, takes
+//! the slot of its name and keeps its call.
 //!
 //! A name read where no call takes it, `subscribe("evt", onEvent)`, `{ onClick = handler, handler }` or `return
 //! handler`, and that no parameter or local of an enclosing function declares, is a bare use of it; so is a root-table
@@ -34,6 +34,12 @@
 //! does not hold binds where the nearest class above it holds one, since a class copies its base's members and then
 //! applies its own body over them. `this` in a function value inside a member reads as the member's class, though the
 //! language takes it from whatever calls the value, which the walk does not see.
+//!
+//! A `this.slot.f()` records the name a slot's value is built from as its receiver, when every write the body of the
+//! caller's owner makes to the slot, a default or a `this.slot =` in any member, is either `null` or a call of that one
+//! bare name, and the file binds the name to anything but a function: `slot = Part()` makes it `Part.f()`. A slot
+//! written anything else, or from two names, keeps `this.slot`, and so does one its owner's body never writes, whatever
+//! a base, a derived class or another file's code writes there.
 //!
 //! # Resolution
 //!

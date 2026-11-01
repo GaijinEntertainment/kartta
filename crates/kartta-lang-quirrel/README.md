@@ -16,13 +16,15 @@ slot of that table binds, `{ f = @() 1 }`, stays a free function, as an importer
 value with no binding and no name of its own is no symbol: its calls and uses belong to the function around it, or to
 the file at its top level.
 
-A call records its callee and, for a member call, the whole receiver expression as written. A bare call of a parameter
-or a local of an enclosing function, `cb()` in `function run(cb)`, calls whatever value the name holds and is no call,
-unless the file defines a free function or a class of the name, which is most often the value it passes; a local that
-destructures a table, `let { build } = cfg`, takes the slot of its name and keeps its call. The conventions name the
-methods of Quirrel's built-in types and of the native values the game engine binds for its scripts, its watched state,
-`DataBlock`, the ECS entity manager and templates and `DaGuiObject`, so a member call of one, `list.len()`,
-`state.get()` or `blk.getBlockByName()`, binds a member of the name and no free function of the repository.
+A call records its callee and, for a member call, the whole receiver expression as written, except that `this.slot`
+gives way to the name the slot's value is built from where every write its owner's body makes settles on one name the
+file binds, so `this.slot.f()` binds as `Part.f()` after `slot = Part()`. A bare call of a parameter or a local of an
+enclosing function, `cb()` in `function run(cb)`, calls whatever value the name holds and is no call, unless the file
+defines a free function or a class of the name, which is most often the value it passes; a local that destructures a
+table, `let { build } = cfg`, takes the slot of its name and keeps its call. The conventions name the methods of
+Quirrel's built-in types and of the native values the game engine binds for its scripts, its watched state, `DataBlock`,
+the ECS entity manager and templates and `DaGuiObject`, so a member call of one, `list.len()`, `state.get()` or
+`blk.getBlockByName()`, binds a member of the name and no free function of the repository.
 
 A name read where no call takes it, `subscribe("evt", onEvent)` or `{ onClick = handler }`, and that no parameter or
 local of an enclosing function declares, is a use of it. It binds a definition of its own file only: the graph does not
