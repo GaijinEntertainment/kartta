@@ -1203,6 +1203,114 @@ var _ Codec = (*Box[int])(nil)
 }
 
 #[test]
+fn an_assertion_on_an_instantiated_or_parenthesized_interface_names_its_base() {
+    let raw = extract(
+        br#"
+package sample
+
+import "example.com/ext"
+
+var _ I[int] = T{}
+
+var _ ext.I[int] = T{}
+
+var _ P[int, string] = T{}
+
+var _ ext.P[int, string] = T{}
+
+var _ (I) = T{}
+
+var _ (ext.I) = T{}
+
+var _ ((I[int])) = T{}
+
+var _ interface{ M() } = T{}
+"#,
+    );
+
+    assert_eq!(
+        assertions(&raw),
+        [
+            ("T", "I"),
+            ("T", "ext.I"),
+            ("T", "P"),
+            ("T", "ext.P"),
+            ("T", "I"),
+            ("T", "ext.I"),
+            ("T", "I"),
+        ],
+        "an interface literal names nothing"
+    );
+}
+
+#[test]
+fn an_assertion_reads_each_spelling_of_a_conversion_to_its_type() {
+    let shapes: [(&str, &str); 20] = [
+        ("(*X)(nil)", "X"),
+        ("(X)(nil)", "X"),
+        ("X(nil)", "X"),
+        ("X(0)", "X"),
+        ("X(nil,)", "X"),
+        ("X(nil /* no value */)", "X"),
+        ("((X))(nil)", "X"),
+        ("(*(X))(nil)", "X"),
+        ("(pkg.X)(nil)", "pkg.X"),
+        ("pkg.X(nil)", "pkg.X"),
+        ("(*X[int])(nil)", "X"),
+        ("(*X[int, string])(nil)", "X"),
+        ("(*X[[]int])(nil)", "X"),
+        ("(X[int])(nil)", "X"),
+        ("X[int](nil)", "X"),
+        ("X[int, string](nil)", "X"),
+        ("X[[]int](nil)", "X"),
+        ("(*pkg.X[int])(nil)", "pkg.X"),
+        ("pkg.X[int](nil)", "pkg.X"),
+        ("((X{}))", "X"),
+    ];
+
+    for (value, type_name) in shapes {
+        let source = format!("package sample\n\nvar _ I = {value}\n");
+        let raw = extract(source.as_bytes());
+
+        assert_eq!(assertions(&raw), [(type_name, "I")], "{value}");
+    }
+}
+
+#[test]
+fn an_assertion_reads_past_parentheses_around_a_literal_or_an_allocation() {
+    let shapes: [(&str, &str); 7] = [
+        ("(&X{})", "X"),
+        ("(X{})", "X"),
+        ("(new(X))", "X"),
+        ("new((X))", "X"),
+        ("new(X[[]int])", "X"),
+        ("&X[[]int]{}", "X"),
+        ("new(pkg.X)", "pkg.X"),
+    ];
+
+    for (value, type_name) in shapes {
+        let source = format!("package sample\n\nvar _ I = {value}\n");
+        let raw = extract(source.as_bytes());
+
+        assert_eq!(assertions(&raw), [(type_name, "I")], "{value}");
+    }
+}
+
+#[test]
+fn an_assertion_through_a_call_of_other_than_one_argument_names_none() {
+    for value in ["NewT()", "NewT(a, b)", "pkg.NewT()", "pkg.NewT(a, b)"] {
+        let source = format!("package sample\n\nvar _ I = {value}\n");
+        let raw = extract(source.as_bytes());
+
+        assert_eq!(
+            assertions(&raw),
+            [],
+            "{value}: a conversion takes one operand"
+        );
+    }
+}
+
+#[test]
 fn struct_fields_are_field_symbols_and_an_embedded_type_is_none() {
     let raw = extract(SAMPLE);
 

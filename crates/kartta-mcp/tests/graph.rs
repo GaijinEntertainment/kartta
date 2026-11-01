@@ -3720,6 +3720,38 @@ fn find_unused_counts_a_method_of_an_interface_outside_the_graph_its_file_assert
     );
 }
 
+#[test]
+fn find_unused_counts_a_method_asserted_on_a_generic_interface_or_through_a_plain_conversion() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module a\n\ngo 1.24\n"),
+        (
+            "a.go",
+            "package a\n\nimport (\n\t\"example.com/ext\"\n\t\"io\"\n)\n\n\
+             type Y []int\n\nfunc (Y) Close() error { return nil }\n\n\
+             var _ io.Closer = (Y)(nil)\n\n\
+             type X struct{}\n\nfunc (*X) Get() int { return 0 }\n\n\
+             var _ ext.I[int] = (*X)(nil)\n\n\
+             type Z []int\n\nfunc (Z) Write(p []byte) (int, error) { return 0, nil }\n\n\
+             var _ io.Writer = Z(nil)\n\n\
+             type Ctl struct{}\n\nfunc (*Ctl) Read(p []byte) (int, error) { return 0, nil }\n\n\
+             var _ io.Reader = (*Ctl)(nil)\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_unused", &json!({"languages": ["go"]}));
+
+    assert!(
+        answer.contains(r#"dispatched="4""#),
+        "each assertion says what dispatches its method: {answer}"
+    );
+    for method in ["a.Y.Close", "a.X.Get", "a.Z.Write", "a.Ctl.Read"] {
+        assert!(!answer.contains(method), "{method}: {answer}");
+    }
+}
+
 const GO_HANDLER: &str = "package a\n\nimport \"example.com/lib\"\n\ntype handler struct{}\n\n\
      func (*handler) Serve() {}\n";
 
