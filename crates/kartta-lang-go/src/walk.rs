@@ -102,10 +102,6 @@ struct Emitter<'a> {
     spec_owners: VecDeque<(usize, SymbolId)>,
     named_by_call: Option<usize>,
     literal_key: Option<usize>,
-    /// The nodes of a literal open at the walk's position, outermost first, a parse error inside one among them: each
-    /// one's parent stands before it, so a key finds its literal's type without `Node::parent`, which searches from
-    /// the root past every element before it.
-    literals: Vec<Node<'a>>,
     /// The identifiers a conversion, an allocation or a type argument names as a type, which the walk reaches after
     /// the call that holds them.
     type_operands: Vec<usize>,
@@ -149,7 +145,6 @@ impl<'a> Emitter<'a> {
             spec_owners: VecDeque::new(),
             named_by_call: None,
             literal_key: None,
-            literals: Vec::new(),
             type_operands: Vec::new(),
             import_names: Vec::new(),
             pending_parents: Vec::new(),
@@ -303,15 +298,8 @@ impl<'a> Emitter<'a> {
             }
             "selector_expression" => self.record_walked_selector(node, self.use_owner()),
             "identifier" => self.record_identifier(node, self.use_owner()),
-            "keyed_element" => {
-                self.record_literal_key(node, self.use_owner());
-                self.literals.push(node);
-            }
-            "composite_literal" => {
-                self.literals.push(node);
-                self.record_positional_literal(node, self.use_owner());
-            }
-            "literal_value" | "ERROR" => self.literals.push(node),
+            "keyed_element" => self.record_literal_key(node, self.use_owner()),
+            "composite_literal" => self.record_positional_literal(node, self.use_owner()),
             "import_declaration" => {
                 self.import_declaration(node);
                 return false;
@@ -328,11 +316,6 @@ impl<'a> Emitter<'a> {
         while self.use_owners.pop_if(|scope| scope.end <= start).is_some() {}
         while self.type_params.pop_if(|(end, _)| *end <= start).is_some() {}
         while self.blocks.pop_if(|block| block.end <= start).is_some() {}
-        while self
-            .literals
-            .pop_if(|open| open.end_byte() <= start)
-            .is_some()
-        {}
     }
 
     fn enter_function(&mut self, node: Node<'_>) {
