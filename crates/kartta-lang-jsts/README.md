@@ -30,6 +30,10 @@ or a class is its value, is local to that body: no use binds it, a call of its n
 calls it, and a read or a call of a namesake the module declares never binds it. CommonJS export assignments are not
 modelled.
 
+A class records the base its `extends` names, in JavaScript as in TypeScript: `Base` for `extends Base` and for
+`extends ns.Base`. An expression that names no class, `mixin(Base)` or `null`, records nothing, and a class expression a
+declarator binds records no base.
+
 Inside a definition, each read, write and update of a member or a module-level value is a data site. A member on
 `this` binds the class around the method, or a base found without a guess; on a value whose declaration spells one
 type, a parameter `p: Props`, a `const cfg: Config` or a `new Pool()`, or a parameter its context types, a member of
