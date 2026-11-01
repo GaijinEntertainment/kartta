@@ -1561,6 +1561,41 @@ class Feed {
 }
 
 #[test]
+fn a_callable_on_a_scope_keyword_reads_the_keyword_in_any_case() {
+    let raw = extract(
+        br"<?php
+class Feed {
+    public function boot() {
+        return [[SELF::class, 'a'], [Static::class, 'b'], [PARENT::class, 'c'], [self::class, 'd']];
+    }
+}
+",
+    );
+
+    let receivers: Vec<_> = raw.uses.iter().map(|used| &used.receiver).collect();
+    assert_eq!(receivers, [&Receiver::Own; 4]);
+}
+
+#[test]
+fn a_callable_on_a_qualified_class_reads_the_class_s_last_name() {
+    let raw = extract(
+        br"<?php
+namespace App;
+use App\Sub as S;
+class Feed {
+    public function boot() {
+        return [[S\Thing::class, 'a'], [\Other\Thing::class, 'b'], [namespace\Thing::class, 'c']];
+    }
+}
+",
+    );
+
+    let thing = Receiver::Path("Thing".to_owned());
+    let receivers: Vec<_> = raw.uses.iter().map(|used| &used.receiver).collect();
+    assert_eq!(receivers, [&thing; 3]);
+}
+
+#[test]
 fn a_callable_string_names_a_function_of_the_namespace_it_spells() {
     let raw = extract(
         br"<?php
