@@ -407,7 +407,9 @@ impl Emitter<'_> {
         if callee.is_empty() {
             return;
         }
-        if receiver_node.is_none() {
+        if let Some(receiver) = receiver_node {
+            self.filter_macro(node, &callee, receiver);
+        } else {
             self.class_body_macro(node, &callee);
         }
         self.method_reference(&callee, node, site_of);

@@ -34,8 +34,11 @@
 //! file reaches, one on `RSpec` or one with no receiver outside every block, records the group's name as its value
 //! type, a string in single quotes or a symbol. `include_context` and `include_examples` with no receiver pull the
 //! group of their first argument into the block or type around them, and `it_behaves_like` and `it_should_behave_like`
-//! into their own block. Such a call that binds none of the file's definitions names the groups pulled in around it,
-//! nearest first and the later of two in one, and the graph binds the first one's definition, in any file.
+//! into their own block. A symbol after the first argument of `describe`, `it` or another method that makes an example
+//! group or an example, with no receiver or on `RSpec`, is a filter of its block, and `include_context` with a receiver
+//! pulls the group of its first argument into each block of a symbol it passes. Such a call that binds none of the
+//! file's definitions names the groups pulled in around it, nearest first and the later of two in one, and the graph
+//! binds the first one's definition, in any file.
 //!
 //! A call inside a method is a call made by it, and a call in the body of a class or a module outside every method is
 //! a call made by that type. A call records its receiver: a plain name as written, `self` as the caller's own type,
