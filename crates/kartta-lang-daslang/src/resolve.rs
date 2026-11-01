@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::iter;
 
 use kartta_lang::path::{base, dir, forward_slashes, has_component, join, sole};
@@ -28,18 +29,17 @@ impl Modules<'_> {
     // component for the mount
     fn target(&self, directive: &RawDirective, path: &str) -> Option<String> {
         let spec = forward_slashes(&directive.spec);
+        let file = file_named(directive.form, &spec);
         if spec.starts_with("./") || spec.starts_with("../") {
-            return self.probe(&relative_file(directive.form, &spec, dir(path))?);
+            return self.probe(&join(dir(path), &file)?);
         }
 
-        let stem = spec.strip_suffix(".das").unwrap_or(&spec);
-        let module_path = stem.replace('.', "/");
-        self.nearest_ancestor(&format!("{module_path}.das"), path)
-            .or_else(|| self.unique_suffix(&module_path))
+        self.nearest_ancestor(&file, path)
+            .or_else(|| self.unique_suffix(&file))
             .or_else(|| {
-                let (_, below_mount) = module_path.split_once('/')?;
+                let (_, below_mount) = file.split_once('/')?;
                 self.unique_suffix(below_mount)
-                    .or_else(|| self.unique_named(&format!("{}.das", base(below_mount))))
+                    .or_else(|| self.unique_named(base(below_mount)))
             })
     }
 
@@ -65,13 +65,12 @@ impl Modules<'_> {
         sole(self.repository.files_named(name))
     }
 
-    fn unique_suffix(&self, module_path: &str) -> Option<String> {
-        let tail = format!("{module_path}.das");
-        let nested = format!("/{tail}");
+    fn unique_suffix(&self, file: &str) -> Option<String> {
+        let nested = format!("/{file}");
         sole(
             self.repository
-                .files_named(base(&tail))
-                .filter(|found| *found == tail || found.ends_with(&nested)),
+                .files_named(base(file))
+                .filter(|found| found == file || found.ends_with(&nested)),
         )
     }
 }
@@ -130,25 +129,33 @@ impl Modules<'_> {
     }
 }
 
-// constraint: the compiler takes an `include` as a path as written, and a `require` as one only where it ends in a
-// file's extension (`src/simulate/fs_file_info.cpp:253`); any other `require` is a module name, each dot a slash
-// (`src/simulate/debug_info.cpp:1009`), which leaves a leading `.` or `..` an empty component under the importer's
-// directory
+// constraint: the compiler takes an `include` as a file name as written (`src/simulate/debug_info.cpp:993`), and a
+// `require` as one only where it both starts with `./`, `../` or `%/` and ends in a file's extension
+// (`src/simulate/fs_file_info.cpp:253`); any other `require` is a module name, each dot a slash
+// (`src/simulate/debug_info.cpp:1009`), so `x/y.das` is `x/y/das.das` and a leading `.` or `..` leaves an empty
+// component under the importer's directory
+fn file_named(form: u32, spec: &str) -> Cow<'_, str> {
+    if form != REQUIRE_FORM || is_file_path(spec) {
+        return Cow::Borrowed(spec);
+    }
+    let module_path = spec.trim_start_matches(['.', '/']).replace('.', "/");
+    Cow::Owned(format!("{module_path}.das"))
+}
+
 #[expect(
     clippy::case_sensitive_file_extension_comparisons,
     reason = "the compiler compares the specifier's last bytes, which matches a file's case"
 )]
-fn relative_file(form: u32, spec: &str, importer_dir: &str) -> Option<String> {
-    if form != REQUIRE_FORM || spec.ends_with(".das") || spec.ends_with(".das_project") {
-        return join(importer_dir, spec);
-    }
-    let module_path = spec.trim_start_matches(['.', '/']).replace('.', "/");
-    join(importer_dir, &format!("{module_path}.das"))
+fn is_file_path(spec: &str) -> bool {
+    (spec.ends_with(".das") || spec.ends_with(".das_project"))
+        && (spec.starts_with("./") || spec.starts_with("../") || spec.starts_with("%/"))
 }
 
 fn module_named(directive: &RawDirective) -> String {
     let spec = forward_slashes(&directive.spec);
-    let stem = spec.strip_suffix(".das").unwrap_or(&spec);
+    let stem = (spec.rsplit_once('.'))
+        .filter(|_| is_file_path(&spec))
+        .map_or(&*spec, |(stem, _)| stem);
     let start = stem.rfind(['/', '.']).map_or(0, |separator| separator + 1);
     stem[start..].to_owned()
 }

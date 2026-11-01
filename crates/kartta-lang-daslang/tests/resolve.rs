@@ -92,10 +92,6 @@ fn a_bare_require_names_the_file_beside_its_own_of_those_named_for_the_module() 
     let files = ["tools/util.das", "game/util.das", "game/main.das"];
 
     assert_eq!(targets(&files, "util", "game/main.das"), ["game/util.das"]);
-    assert_eq!(
-        targets(&files, "util.das", "game/main.das"),
-        ["game/util.das"]
-    );
 }
 
 #[test]
@@ -119,6 +115,54 @@ fn a_bare_require_of_two_candidates_names_the_one_under_the_nearest_ancestor() {
         targets(&files, "profile", "game/server/actions/buy.das"),
         ["game/server/profile.das"]
     );
+}
+
+#[test]
+fn a_bare_include_names_the_file_as_written() {
+    let source = "options gen2\ninclude containers.inc\n";
+    let importer = "tests/language/containers.das";
+
+    assert_eq!(
+        includes(&resolve(
+            &[importer, "tests/language/containers.inc"],
+            source,
+            importer
+        )),
+        ["tests/language/containers.inc"]
+    );
+    assert_eq!(
+        includes(&resolve(
+            &[importer, "tests/language/containers/inc.das"],
+            source,
+            importer
+        )),
+        NOTHING
+    );
+}
+
+#[test]
+fn a_bare_include_without_the_extension_does_not_take_it() {
+    let extraction = resolve(
+        &["game/shared.das", "game/main.das"],
+        "options gen2\ninclude shared\n",
+        "game/main.das",
+    );
+
+    assert_eq!(includes(&extraction), NOTHING);
+    assert_eq!(modules(&extraction), ["shared"]);
+}
+
+#[test]
+fn a_bare_include_no_ancestor_holds_names_the_one_file_of_its_name() {
+    let importer = "tests/modules/main_inc.das";
+
+    let extraction = resolve(
+        &[importer, "tests/modules/include/sample.inc"],
+        "options gen2\ninclude sample.inc\n",
+        importer,
+    );
+
+    assert_eq!(includes(&extraction), ["tests/modules/include/sample.inc"]);
 }
 
 #[test]
@@ -370,16 +414,70 @@ fn an_include_written_with_backslashes_reads_them_as_slashes() {
 }
 
 #[test]
-fn an_explicit_extension_is_not_doubled() {
-    let files = ["tools/common.das", "tools/a.das"];
+fn a_bare_require_of_a_file_name_reads_its_last_dot_as_a_slash() {
+    let importer = "game/main.das";
+    let beside = [importer, "game/x/y.das", "game/x/y/das.das"];
+
+    assert_eq!(targets(&beside, "x/y.das", importer), ["game/x/y/das.das"]);
+    assert_eq!(
+        targets(&[importer, "game/common.das"], "common.das", importer),
+        NOTHING
+    );
+
+    let extraction = resolve(
+        &[importer, "game/x/y.das"],
+        "options gen2\nrequire x/y.das\n",
+        importer,
+    );
+
+    assert_eq!(includes(&extraction), NOTHING);
+    assert_eq!(modules(&extraction), ["x/y.das"]);
+}
+
+#[test]
+fn a_require_from_the_compiler_root_names_the_file_as_written() {
+    let files = [
+        "libs/daScript/daslib/random.das",
+        "libs/daScript/tests/v1.2/fixture.das",
+        "libs/other/fixture.das",
+        "game/a.das",
+    ];
 
     assert_eq!(
-        targets(&files, "common.das", "tools/a.das"),
-        ["tools/common.das"]
+        targets(&files, "%/daslib/random.das", "game/a.das"),
+        ["libs/daScript/daslib/random.das"]
     );
     assert_eq!(
-        targets(&files, "tools/common.das", "tools/a.das"),
-        ["tools/common.das"]
+        targets(&files, "%/tests/v1.2/fixture.das", "game/a.das"),
+        ["libs/daScript/tests/v1.2/fixture.das"]
+    );
+}
+
+#[test]
+fn a_require_by_path_names_its_module_by_the_file_stem() {
+    let extraction = resolve(
+        &["tools/util.das", "tools/plugin.das_project", "tools/a.das"],
+        "options gen2\nrequire ./util.das as u\nrequire ./plugin.das_project as p\n",
+        "tools/a.das",
+    );
+
+    assert_eq!(
+        bound(&extraction),
+        [
+            (Some("u"), Some("tools/util.das"), "util"),
+            (Some("p"), Some("tools/plugin.das_project"), "plugin"),
+        ]
+    );
+
+    let outside = resolve(
+        &["game/main.das"],
+        "options gen2\nrequire %/daslib/random.das as rng\n",
+        "game/main.das",
+    );
+
+    assert_eq!(
+        bound(&outside),
+        [(None, None, "random"), (Some("rng"), None, "random")]
     );
 }
 
@@ -416,7 +514,7 @@ fn a_require_no_file_is_named_for_binds_its_module_outside_the_graph() {
         .collect();
     assert_eq!(
         bound,
-        [(None, "private_network"), (None, "strings"), (None, "fio")]
+        [(None, "private_network"), (None, "strings"), (None, "das")]
     );
 }
 
