@@ -177,6 +177,11 @@ pub(super) fn inside_containers(path: &str) -> &str {
     path.trim_start_matches(CONTAINER)
 }
 
+pub(super) fn named_type(path: &str) -> &str {
+    let name = inside_containers(path);
+    name.strip_prefix(UNDERLYING).unwrap_or(name)
+}
+
 pub(super) fn element_of(path: &str) -> Option<String> {
     path.strip_prefix(CONTAINER).map_or_else(
         || bounded(format!("{path}{CONTAINER}")),
