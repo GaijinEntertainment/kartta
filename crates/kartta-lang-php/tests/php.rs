@@ -323,6 +323,36 @@ class Foo extends Bar {
 }
 
 #[test]
+fn a_construction_of_an_alias_calls_the_constructor_of_the_class_it_imports() {
+    let raw = extract(
+        br"<?php
+namespace App;
+use Other\Pool as Clients;
+use Other\Client;
+class Foo {
+    public function a() { return new Clients(); }
+    public function b() { return new clients; }
+    public function c() { return new Client(); }
+    public function d() { return new Sub\Clients(); }
+}
+",
+    );
+
+    let calls: Vec<_> = (raw.calls.iter())
+        .map(|call| (call.callee.as_str(), call.receiver.as_deref()))
+        .collect();
+    assert_eq!(
+        calls,
+        [
+            ("__construct", Some("\\Other\\Pool")),
+            ("__construct", Some("\\Other\\Pool")),
+            ("Client", None),
+            ("Clients", None),
+        ]
+    );
+}
+
+#[test]
 fn a_chained_or_computed_receiver_is_empty() {
     let raw = extract(
         br#"<?php
