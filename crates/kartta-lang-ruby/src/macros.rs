@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use kartta_lang::tree::{named_child_nodes, signature_from, text};
+use kartta_lang::tree::{line, named_child_nodes, signature_from, text};
 use kartta_lang::{
     Access, CallRef, FILE_SCOPE, LocalCall, RawExtraction, Receiver, SymbolId, SymbolKind, UseRef,
 };
@@ -56,7 +56,52 @@ impl Emitter<'_> {
                     self.included_group(call, block);
                 }
             }
+            _ if is_example_group_or_example(callee) => self.filtered_block(call),
             _ => {}
+        }
+    }
+
+    /// Reads a call with a receiver that names a metadata filter: `RSpec.describe` and `config.include_context`.
+    pub(crate) fn filter_macro(&mut self, call: Node<'_>, callee: &str, receiver: Node<'_>) {
+        if callee == "include_context" {
+            self.group_a_filter_includes(call);
+        } else if is_example_group_or_example(callee)
+            && &self.source[receiver.byte_range()] == b"RSpec"
+        {
+            self.filtered_block(call);
+        }
+    }
+
+    // constraint: RSpec applies `config.include_context` to a group or an example whose metadata matches any of its
+    // filters when the group is made, ahead of its block, and a nested group is a subclass that inherits it
+    // (`configuration.rb:1475`, `:533`, `:1571`, `:1587`, `example_group.rb:453`, `metadata_filter.rb:12`), so the
+    // block's own methods replace the included ones whatever their order. A call passes its metadata after the
+    // description (`metadata.rb:80`)
+    fn filtered_block(&mut self, call: Node<'_>) {
+        let Some(block) = call.child_by_field_name("block") else {
+            return;
+        };
+        for filter in filters(call, self.source) {
+            self.included_groups.push(IncludedGroup {
+                name: format!("@{filter}"),
+                group: block.byte_range(),
+            });
+        }
+    }
+
+    // constraint: the name and the group's metadata stand in two files, so the file records what the filter pastes in
+    // for the graph to join: the group alone, to find this file from the group, and the group with each filter
+    fn group_a_filter_includes(&mut self, call: Node<'_>) {
+        let Some(group) = shared_group_name(call, self.source) else {
+            return;
+        };
+        let line = line(call.start_position().row);
+        let mut filtered = filters(call, self.source)
+            .map(|filter| file_scope_read(format!("{group}@{filter}"), line))
+            .peekable();
+        if filtered.peek().is_some() {
+            self.raw.uses.extend(filtered);
+            self.raw.uses.push(file_scope_read(group, line));
         }
     }
 
@@ -377,13 +422,9 @@ fn read_included_groups(
         return;
     }
     if call.site_of == FILE_SCOPE {
-        uses.extend(groups.map(|group| UseRef {
-            site_of: FILE_SCOPE,
-            name: format!("{group}#{}", call.callee),
-            receiver: Receiver::Bare,
-            access: Access::Read,
-            line: call.line,
-        }));
+        uses.extend(
+            groups.map(|group| file_scope_read(format!("{group}#{}", call.callee), call.line)),
+        );
     } else {
         call.receiver = Some(format!("+{}", groups.collect::<Vec<_>>().join("\n")));
     }
@@ -407,6 +448,51 @@ fn shared_group_name(call: Node<'_>, source: &[u8]) -> Option<String> {
 // constraint: `RSpec.shared_context` registers its group for every file, and so does a bare one outside every block,
 // while a bare one in a group's block registers it for that group and the groups nested in it
 // (`shared_example_group.rb:98`, `:111`, `:174`), so another file reaches only the first two
+/// The names of the symbols `call` passes after its first argument, a description or a shared group's name.
+fn filters<'a>(call: Node<'a>, source: &'a [u8]) -> impl Iterator<Item = String> + 'a {
+    (call.child_by_field_name("arguments").into_iter())
+        .flat_map(named_child_nodes)
+        .skip(1)
+        .filter(|argument| argument.kind() == "simple_symbol")
+        .map(|filter| text(filter, source).trim_start_matches(':').to_owned())
+}
+
+const fn file_scope_read(name: String, line: u32) -> UseRef {
+    UseRef {
+        site_of: FILE_SCOPE,
+        name,
+        receiver: Receiver::Bare,
+        access: Access::Read,
+        line,
+    }
+}
+
+// constraint: `example_group.rb:158-198` and `:282-308` define these, and `RSpec.describe` is an alias of the group's
+fn is_example_group_or_example(callee: &str) -> bool {
+    matches!(
+        callee,
+        "example_group"
+            | "describe"
+            | "context"
+            | "xdescribe"
+            | "xcontext"
+            | "fdescribe"
+            | "fcontext"
+            | "example"
+            | "it"
+            | "specify"
+            | "focus"
+            | "fexample"
+            | "fit"
+            | "fspecify"
+            | "xexample"
+            | "xit"
+            | "xspecify"
+            | "skip"
+            | "pending"
+    )
+}
+
 /// The name of the shared group `block` is the block of, where every file reaches it.
 fn shared_group_of_every_file(block: Node<'_>, source: &[u8]) -> Option<String> {
     let definition = block.parent().filter(|parent| parent.kind() == "call")?;

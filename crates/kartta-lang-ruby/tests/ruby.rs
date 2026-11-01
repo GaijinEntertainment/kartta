@@ -710,6 +710,55 @@ end
 }
 
 #[test]
+fn a_filter_of_a_block_marks_its_reads_and_a_config_records_what_each_filter_includes() {
+    let raw = extract(
+        b"RSpec.configure do |config|
+  config.include_context 'text', :first, :second
+  config.include_context 'for every group'
+end
+
+RSpec.describe 'a', :first, type: :system do
+  include_context 'nearer'
+
+  it 'reads', :second do
+    def helper
+      read
+    end
+
+    at_top
+  end
+end
+
+Other.describe 'b', :third do
+  def beside
+    read_beside
+  end
+end
+",
+    );
+
+    let read = raw.calls.iter().find(|call| call.callee == "read");
+    assert_eq!(
+        read.and_then(|call| call.receiver.as_deref()),
+        Some("+@second\n'nearer'\n@first")
+    );
+    let beside = raw.calls.iter().find(|call| call.callee == "read_beside");
+    assert_eq!(beside.and_then(|call| call.receiver.as_deref()), None);
+    let uses: Vec<&str> = raw.uses.iter().map(|site| site.name.as_str()).collect();
+    assert_eq!(
+        uses,
+        [
+            "'text'@first",
+            "'text'@second",
+            "'text'",
+            "@second#at_top",
+            "'nearer'#at_top",
+            "@first#at_top"
+        ]
+    );
+}
+
+#[test]
 fn a_block_that_runs_on_a_receiver_keeps_it_inside_a_group_that_includes_a_context() {
     let raw = extract(
         b"RSpec.describe 'a' do

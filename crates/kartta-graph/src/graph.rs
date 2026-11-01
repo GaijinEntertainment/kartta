@@ -489,6 +489,22 @@ impl Graph {
         listed(&self.named_at_file_scope, &key)
     }
 
+    /// Whether a file's top level pastes the body named `body` in by `filter`.
+    pub(crate) fn pastes(&self, body: Str, filter: &str) -> bool {
+        let spelled = format!("{}@{filter}", self.strings.resolve(body));
+        (self.strings.get(&spelled)).is_some_and(|key| !self.named_at_file_scope(key).is_empty())
+    }
+
+    /// The filters by which file top levels paste the body named `body` in.
+    pub(crate) fn filters_pasting(&self, body: Str) -> impl Iterator<Item = &str> {
+        let name = self.strings.resolve(body);
+        (self.named_at_file_scope(body).iter())
+            .flat_map(|&file| self.file(file).file_scope_names.iter())
+            .filter_map(move |&held| {
+                (self.strings.resolve(held).strip_prefix(name)?).strip_prefix('@')
+            })
+    }
+
     pub(crate) fn file_slots(&self) -> impl Iterator<Item = u32> + '_ {
         self.by_path.values().copied()
     }

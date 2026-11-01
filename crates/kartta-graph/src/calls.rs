@@ -857,23 +857,35 @@ impl<'g> Calls<'g> {
             .graph
             .listing_key(symbol.name)
             .map_or(&[][..], |key| self.graph.named_at_file_scope(key));
-        let strings = &self.graph.strings;
         let pasted = (self.graph.file(at.file).value_types(at.index))
             .filter(|_| self.cascade.reads_pasted_bodies())
-            .and_then(|body| {
-                let body = strings.resolve(body);
-                strings.get(&format!("{body}#{}", strings.resolve(symbol.name)))
-            })
-            .map_or(&[][..], |read| self.graph.named_at_file_scope(read));
+            .map_or_else(Vec::new, |body| self.read_through_a_body(body, symbol.name));
         let seen = files.iter().filter_map(move |&file| {
             self.cascade
                 .seen_from(file, at)
                 .map(|confidence| (file, confidence))
         });
-        let read_through_a_body = (pasted.iter().copied())
+        let read_through_a_body = (pasted.into_iter())
             .filter(move |&file| self.cascade.seen_from(file, at).is_none())
             .map(|file| (file, confidence::RECEIVER));
         seen.chain(read_through_a_body)
+    }
+
+    /// The files whose top level reads `name` through the body named `body`, by that name or a filter that pastes it.
+    fn read_through_a_body(&self, body: Str, name: Str) -> Vec<u32> {
+        let strings = &self.graph.strings;
+        let name = strings.resolve(name);
+        let read = |spelled: &str| {
+            (strings.get(&format!("{spelled}#{name}")))
+                .map_or(&[][..], |read| self.graph.named_at_file_scope(read))
+        };
+        let mut files = read(strings.resolve(body)).to_vec();
+        for filter in self.graph.filters_pasting(body) {
+            files.extend_from_slice(read(&format!("@{filter}")));
+        }
+        files.sort_unstable();
+        files.dedup();
+        files
     }
 
     pub(crate) fn caller_edges(&mut self, target: SymbolAt) -> &[Edge] {

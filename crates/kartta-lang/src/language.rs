@@ -449,10 +449,12 @@ pub enum Receivers {
     InheritedFields,
     /// As [`Receivers::Owners`], where a bare call can also spell the named bodies a library pastes into the scope
     /// around it, which the extraction cannot read from its file: `+` and the bodies' names one a line, nearest first.
+    /// A line of `@` and a filter stands for every body some file's top level pastes in by that filter, which a file
+    /// records as a use of the body's name, and one of the body's name, `@` and the filter per filter.
     /// The call binds the definition of its name whose [value type](crate::Symbol::value_types) is the first such body
     /// that holds one, nearest the caller where several files define it, even one local to its file; a name no body
-    /// holds binds as a call with no receiver. A file's top level records such a read as a use of the body's name, `#`
-    /// and the call's name, per body.
+    /// holds binds as a call with no receiver. A file's top level records such a read as a use of the line, `#` and the
+    /// call's name, per line.
     PastedBodies,
 }
 
