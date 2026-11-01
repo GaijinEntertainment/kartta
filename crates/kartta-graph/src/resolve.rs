@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -138,6 +138,7 @@ pub(crate) struct Cascade<'g> {
     pub(crate) type_ancestors: Derived<SymbolAt, Option<Rc<Ancestors>>>,
     pub(crate) owner_ancestors: Derived<Str, Option<Rc<Ancestors>>>,
     pub(crate) receiver_types: Derived<(SymbolAt, Str), Value<'g>>,
+    pub(crate) evaluations: Cell<u16>,
     empty_receiver: Option<Str>,
     // constraint: a written definition is likelier a call's callee than a namesake a macro invocation writes, so a call
     // the cascade binds to a made one or leaves ambiguous among a name's made ones runs again on a twin that holds the
@@ -170,6 +171,7 @@ impl<'g> Cascade<'g> {
             type_ancestors: RefCell::default(),
             owner_ancestors: RefCell::default(),
             receiver_types: RefCell::default(),
+            evaluations: Cell::new(0),
             empty_receiver: graph.strings.get(""),
             written_only,
             written: OnceCell::new(),
