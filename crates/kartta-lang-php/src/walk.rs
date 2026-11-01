@@ -279,9 +279,7 @@ impl<'s> Emitter<'s> {
                 Receiver::Own
             }
             "class_constant_access_expression" => match self.class_constant_scope(target) {
-                Some(scope) if matches!(scope.as_str(), "self" | "static" | "parent") => {
-                    Receiver::Own
-                }
+                Some(scope) if scope_keyword(scope.as_bytes()).is_some() => Receiver::Own,
                 Some(scope) => Receiver::Path(scope),
                 None => return,
             },
