@@ -2905,6 +2905,81 @@ fn coverage_counts_a_read_past_its_bound_under_a_reason_of_its_own() {
     );
 }
 
+fn go_coverage(source: &str) -> String {
+    let tree = tree(&[
+        ("go.mod", "module example.com/a\n\ngo 1.26\n"),
+        ("a.go", source),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+    client.answer("index_stats", &json!({"coverage": true}))
+}
+
+#[test]
+fn coverage_counts_a_read_that_closes_a_cycle_of_aliases_as_a_stopped_read() {
+    for source in [
+        "package a\n\ntype A = B\ntype B = A\n\nfunc run(v A) { v.M() }\n",
+        "package a\n\ntype A = A\n\nfunc run(v A) { v.M() }\n",
+        "package a\n\ntype T = A\ntype A = B\ntype B = A\n\nfunc run(v T) { v.M() }\n",
+        "package a\n\ntype A = B\ntype B = A\ntype S struct {\n\tA\n}\n\nfunc run(v S) { v.M() }\n",
+        "package a\n\ntype A = B\ntype B = A\ntype T = A\ntype U = T\ntype S struct {\n\tA\n\tU\n}\n\n\
+         func run(v S) { v.M() }\n",
+        "package a\n\ntype A = B\ntype B = A\nfunc g() {}\ntype S struct {\n\tA\n\tg.x\n}\n\n\
+         func run(v S) { v.M() }\n",
+    ] {
+        let answer = go_coverage(source);
+
+        assert!(
+            answer
+                .contains(r#"<coverage lang="go" sites="1" bound="0" edges="0" past_bound="1"/>"#),
+            "the cycle gives the read no type to judge the call by: {source}\n{answer}"
+        );
+    }
+}
+
+#[test]
+fn coverage_keeps_a_cycle_a_defined_type_breaks_and_aliases_that_meet_as_not_admitted() {
+    for source in [
+        "package a\n\ntype Link = Node\ntype Node struct {\n\t*Link\n}\n\nfunc run(v Link) { v.M() }\n",
+        "package a\n\ntype Top = Mid\ntype Mid = Base\ntype Side = Mid\ntype Base struct{}\n\
+         type D struct {\n\tTop\n\tSide\n}\n\nfunc run(v D) { v.M() }\n",
+    ] {
+        let answer = go_coverage(source);
+
+        assert!(
+            answer.contains(r#"not_admitted="1" through_receiver="1""#)
+                && !answer.contains("past_bound"),
+            "the type holds no member of the name: {source}\n{answer}"
+        );
+    }
+}
+
+#[test]
+fn coverage_counts_a_cycle_of_aliases_beside_an_import_as_external() {
+    let answer = go_coverage(
+        "package a\n\nimport \"net/http\"\n\ntype A = B\ntype B = A\n\
+         type S struct {\n\tA\n\thttp.Client\n}\n\nfunc run(v S) { v.M() }\n",
+    );
+
+    assert!(
+        answer.contains(r#"external_import="1""#) && !answer.contains("past_bound"),
+        "the import may give the member: {answer}"
+    );
+}
+
+#[test]
+fn a_selector_past_a_cycle_of_aliases_binds_no_namesake() {
+    let answer = go_coverage(
+        "package a\n\ntype A = B\ntype B = A\ntype U struct{}\n\nfunc (U) M() {}\n\n\
+         func run(v A) { v.f.M() }\n",
+    );
+
+    assert!(
+        answer.contains(r#"<coverage lang="go" sites="1" bound="0" edges="0" past_bound="1"/>"#),
+        "a selector the cycle stops is left to no tier that reads no type: {answer}"
+    );
+}
+
 #[test]
 fn find_callees_binds_a_call_through_a_field_embedded_beside_an_import() {
     let tree = tree(&[

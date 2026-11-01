@@ -1,3 +1,5 @@
+use std::iter::successors;
+
 use kartta_lang::{Receivers, SymbolKind};
 
 use crate::resolve::{Cascade, derived};
@@ -35,7 +37,8 @@ pub(crate) enum Value<'g> {
     Imported,
     Undeclared,
     Unknown,
-    /// A read that ran past a bound, as every cycle of declarations does, which leaves it no type.
+    /// A read that ran past a bound, as a cycle of declarations does, or that a member walk closed on a cycle of
+    /// aliases, which leaves it no type.
     Unbounded,
 }
 
@@ -102,6 +105,7 @@ impl<'g> Cascade<'g> {
                     Found::Member(at) if binds(self.graph.sym(at)) => Typed::Member(at),
                     Found::Member(_) | Found::Nothing => Typed::NoMethod,
                     Found::Outside => Typed::Imported,
+                    Found::Unbounded => Typed::PastBound,
                     Found::Unknown => Typed::Unknown,
                 }
             }
@@ -402,6 +406,8 @@ impl<'g> Cascade<'g> {
         }
         if walk.reaches_outside {
             Value::Imported
+        } else if walk.closes_aliases {
+            Value::Unbounded
         } else {
             Value::Unknown
         }
@@ -420,6 +426,8 @@ impl<'g> Cascade<'g> {
         }
         if walk.reaches_outside {
             Found::Outside
+        } else if walk.closes_aliases {
+            Found::Unbounded
         } else if walk.reaches_unknown {
             Found::Unknown
         } else {
@@ -479,12 +487,11 @@ impl<'g> Cascade<'g> {
 
     fn embed(&self, walk: &mut Embedded, ty: SymbolAt, depth: u8) {
         match self.graph.sym(ty).kind {
-            SymbolKind::TypeAlias => {
-                let aliased = self.value_type(ty, 0, depth);
-                if matches!(aliased, Value::Type(_) | Value::Imported) {
-                    walk.follow(aliased);
-                }
-            }
+            SymbolKind::TypeAlias => match self.value_type(ty, 0, depth) {
+                Value::Type(target) => walk.follow_alias(ty, target),
+                Value::Imported => walk.follow(Value::Imported),
+                _ => {}
+            },
             SymbolKind::DefinedType => {
                 if let Some(under) = self.interface_under(ty, depth) {
                     walk.follow(under);
@@ -525,14 +532,17 @@ enum Found {
     Member(SymbolAt),
     Outside,
     Nothing,
+    Unbounded,
     Unknown,
 }
 
 struct Embedded {
     pending: Vec<SymbolAt>,
     walked: Vec<SymbolAt>,
+    aliases: Vec<(SymbolAt, SymbolAt)>,
     reaches_outside: bool,
     reaches_unknown: bool,
+    closes_aliases: bool,
 }
 
 impl Embedded {
@@ -540,9 +550,26 @@ impl Embedded {
         Self {
             pending: vec![ty],
             walked: vec![ty],
+            aliases: Vec::new(),
             reaches_outside: false,
             reaches_unknown: false,
+            closes_aliases: false,
         }
+    }
+
+    // constraint: a cycle with no type definition in it never ends, so the compiler refuses it, and a walked type two
+    // aliases meet at is no cycle (ADR 3.201)
+    fn follow_alias(&mut self, alias: SymbolAt, target: SymbolAt) {
+        self.aliases.push((alias, target));
+        let aliased = |at: &SymbolAt| {
+            self.aliases
+                .iter()
+                .find(|(from, _)| from == at)
+                .map(|&(_, to)| to)
+        };
+        let mut chain = successors(Some(target), aliased).take(self.aliases.len());
+        self.closes_aliases |= chain.any(|at| at == alias);
+        self.follow(Value::Type(target));
     }
 
     fn next(&mut self) -> Option<SymbolAt> {
