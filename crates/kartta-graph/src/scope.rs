@@ -1623,6 +1623,27 @@ impl Cascade<'_> {
         Some((at, tier))
     }
 
+    /// Whether `call` reaches `at`, a member of the caller's own owner, through one field of a receiver the language
+    /// lists for that owner, `this.slot` and not `this.a.b`, where [`UnlistedReceivers::OwnMemberFieldsAsGuess`] holds.
+    pub(crate) fn own_member_on_a_field(&self, call: &Call, at: SymbolAt) -> bool {
+        if self.conventions.unlisted_receivers != UnlistedReceivers::OwnMemberFieldsAsGuess {
+            return false;
+        }
+        let owner = self.owner(at);
+        let Some((root, field)) = self
+            .named_receiver(call)
+            .and_then(|receiver| self.graph.strings.resolve(receiver).split_once('.'))
+        else {
+            return false;
+        };
+        owner.is_some()
+            && owner == self.owner(call.caller_at())
+            && (self.conventions.own_type_receivers).is_some_and(|own| own.contains(&root))
+            && field
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    }
+
     /// What a call through one of [`kartta_lang::Conventions::base_receivers`] binds: the member of the name that the
     /// first base the caller's class declares holds, else the nearest class above that base, and nothing where the
     /// graph holds neither. `None` for any other receiver, and for a caller in no class the graph holds, as a method of

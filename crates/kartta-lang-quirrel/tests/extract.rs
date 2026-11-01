@@ -127,7 +127,7 @@ fn a_bare_call_in_a_member_reaches_the_class_first() {
     expected.base_receivers = &["base"];
     expected.receiver_members = ReceiverMembers::Inherited;
     expected.own_type_receivers = Some(&["this"]);
-    expected.unlisted_receivers = UnlistedReceivers::OwnMember;
+    expected.unlisted_receivers = UnlistedReceivers::OwnMemberFieldsAsGuess;
 
     assert_eq!(conventions, expected);
 }
