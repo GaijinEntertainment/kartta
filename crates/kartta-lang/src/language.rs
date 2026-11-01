@@ -344,8 +344,9 @@ pub enum UnlistedReceivers {
     NoOwnMember,
     /// Its member, as a guess, ahead of the guesses by nearness.
     OwnMemberAsGuess,
-    /// Its member, as on a listed receiver: the list then says only which receivers name the caller's class.
-    OwnMember,
+    /// Its member, as on a listed receiver, and as a guess on one field of a listed receiver, `this.slot`, which holds
+    /// any class: the list then says only which receivers name the caller's class.
+    OwnMemberFieldsAsGuess,
 }
 
 /// How the extraction writes each entry of `Symbol::parents`.

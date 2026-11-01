@@ -1,5 +1,5 @@
 //! What a Quirrel call on a field of `this` binds: a slot the walk reads as holding one class calls that class's
-//! member, and any other slot keeps the tiers of a receiver that names no owner.
+//! member, and any other slot binds the caller's own member only as a guess.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -106,7 +106,7 @@ fn a_new_slot_write_on_an_instance_names_no_class() {
     let source = view_with("  function set() {\n    this.slot <- A()\n  }");
     assert_eq!(
         callees(&[("a.nut", &source)], "View.run"),
-        one("View.get", 80)
+        one("View.get", 15)
     );
 }
 
@@ -123,7 +123,7 @@ fn a_field_set_from_two_classes_keeps_the_caller_s_own_member() {
     let source = view_with("  function set() {\n    this.slot = A()\n    this.slot = B()\n  }");
     assert_eq!(
         callees(&[("a.nut", &source)], "View.run"),
-        one("View.get", 80),
+        one("View.get", 15),
     );
 }
 
@@ -132,8 +132,35 @@ fn a_field_set_from_a_parameter_keeps_the_caller_s_own_member() {
     let source = view_with("  constructor(slot) {\n    this.slot = slot\n  }");
     assert_eq!(
         callees(&[("a.nut", &source)], "View.run"),
+        one("View.get", 15),
+    );
+}
+
+#[test]
+fn a_field_binds_the_file_s_one_definition_of_the_name_only_as_a_guess() {
+    let source = "class View {\n  slot = null\n  constructor(slot) {\n    this.slot = slot\n  }\n  \
+                  function get() {}\n  function run() {\n    this.slot.get()\n  }\n}\n";
+    assert_eq!(
+        callees(&[("a.nut", source)], "View.run"),
+        one("View.get", 15),
+    );
+}
+
+#[test]
+fn a_chain_off_a_field_keeps_the_caller_s_own_member() {
+    let source = "class View {\n  slot = null\n  function get() {}\n  \
+                  function run() {\n    this.slot.part.get()\n  }\n}\n";
+    assert_eq!(
+        callees(&[("a.nut", source)], "View.run"),
         one("View.get", 80),
     );
+}
+
+#[test]
+fn a_field_binds_another_class_of_the_file_at_its_tier() {
+    let source = "class A {\n  function get() {}\n}\n\
+                  class View {\n  slot = null\n  function run() {\n    this.slot.get()\n  }\n}\n";
+    assert_eq!(callees(&[("a.nut", source)], "View.run"), one("A.get", 80));
 }
 
 #[test]
@@ -141,7 +168,7 @@ fn a_parameter_named_as_a_class_builds_no_class() {
     let source = view_with("  constructor(A) {\n    this.slot = A()\n  }");
     assert_eq!(
         callees(&[("a.nut", &source)], "View.run"),
-        one("View.get", 80),
+        one("View.get", 15),
     );
 }
 
@@ -153,7 +180,7 @@ fn a_write_in_another_class_says_nothing_of_this_one_s_field() {
     );
     assert_eq!(
         callees(&[("a.nut", &source)], "View.run"),
-        one("View.get", 80),
+        one("View.get", 15),
     );
 }
 
@@ -162,7 +189,7 @@ fn a_write_on_another_value_says_nothing_of_the_field() {
     let source = view_with("  function set(other) {\n    other.slot = A()\n  }");
     assert_eq!(
         callees(&[("a.nut", &source)], "View.run"),
-        one("View.get", 80),
+        one("View.get", 15),
     );
 }
 
@@ -178,7 +205,7 @@ fn a_class_the_file_binds_no_name_for_is_a_namesake() {
             ],
             "View.run",
         ),
-        one("View.get", 80),
+        one("View.get", 15),
     );
 }
 
@@ -204,7 +231,7 @@ fn a_function_the_file_binds_builds_no_class() {
                 ],
                 "View.run",
             ),
-            one("View.get", 80),
+            one("View.get", 15),
             "{factory}",
         );
     }

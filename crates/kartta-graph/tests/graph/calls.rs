@@ -3876,27 +3876,34 @@ fn a_language_whose_unlisted_receivers_guess_binds_one_at_the_guess_tier() {
 }
 
 #[test]
-fn a_language_that_keeps_its_unlisted_receivers_binds_one_at_the_owner_tier() {
+fn a_language_that_guesses_its_own_fields_binds_only_those_at_the_guess_tier() {
     let mut conventions = Conventions::default();
     conventions.own_type_receivers = Some(&["this"]);
-    conventions.unlisted_receivers = UnlistedReceivers::OwnMember;
-    let graph = graph_of(
-        conventions,
-        &[
-            file(
-                "a/x.nut",
-                vec![member("Pool", "run", SymbolKind::Method, 1)],
-                vec![member_call(0, "conn", "drain", 2)],
-            ),
-            file(
-                "b/y.nut",
-                vec![member("Pool", "drain", SymbolKind::Method, 1)],
-                Vec::new(),
-            ),
-        ],
-    );
+    conventions.unlisted_receivers = UnlistedReceivers::OwnMemberFieldsAsGuess;
+    let calling = |receiver: &str| {
+        let graph = graph_of(
+            conventions,
+            &[
+                file(
+                    "a/x.nut",
+                    vec![member("Pool", "run", SymbolKind::Method, 1)],
+                    vec![member_call(0, receiver, "drain", 2)],
+                ),
+                file(
+                    "b/y.nut",
+                    vec![member("Pool", "drain", SymbolKind::Method, 1)],
+                    Vec::new(),
+                ),
+            ],
+        );
+        callees(&graph, "Pool::run")
+    };
 
-    assert_eq!(callees(&graph, "Pool::run"), ["b/y.nut:1@80"]);
+    assert_eq!(calling("this"), ["b/y.nut:1@80"]);
+    assert_eq!(calling("this.conn"), ["b/y.nut:1@15"]);
+    for receiver in ["conn", "conn.pool", "this.a.b", "this.a[0]", "this.a()"] {
+        assert_eq!(calling(receiver), ["b/y.nut:1@80"], "{receiver}");
+    }
 }
 
 #[test]
