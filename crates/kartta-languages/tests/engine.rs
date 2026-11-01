@@ -2285,6 +2285,65 @@ fn a_typescript_call_on_a_typed_parameter_binds_a_member_of_that_type_and_no_nam
 }
 
 #[test]
+fn a_typescript_bare_call_of_a_parameter_binds_no_method_of_its_name() {
+    let tree = tree_of(&[
+        (
+            "src/mutation.ts",
+            "export function useMutation(options: object) {\n  return options;\n}\n\n\
+             export function onDone() {}\n",
+        ),
+        (
+            "src/modal.tsx",
+            "import { useMutation } from \"./mutation\";\n\n\
+             export interface Props {\n  onSuccess?: () => void;\n}\n\n\
+             export function Modal({ onSuccess }: Props) {\n\
+             \x20 return useMutation({\n\
+             \x20   onSuccess() {\n\
+             \x20     onSuccess?.();\n\
+             \x20   },\n\
+             \x20 });\n\
+             }\n\n\
+             export function plain(onError: () => void) {\n\
+             \x20 return useMutation({\n\
+             \x20   onError() {\n\
+             \x20     onError();\n\
+             \x20   },\n\
+             \x20 });\n\
+             }\n\n\
+             export function ownName() {\n\
+             \x20 return useMutation({\n\
+             \x20   onSettled() {\n\
+             \x20     onSettled();\n\
+             \x20   },\n\
+             \x20 });\n\
+             }\n\n\
+             export function finish(onDone: () => void) {\n  onDone();\n}\n",
+        ),
+    ]);
+    let engine = build(&tree, &["typescript", "tsx"]);
+    assert_eq!(callees(&engine, "src/modal.tsx", "finish"), (vec![], 1));
+    let (_, graph) = engine
+        .graph_of("src/modal.tsx")
+        .expect("a language claims the file");
+    let self_call = |name: &str| {
+        graph
+            .callers(name, Limits::new(1))
+            .expect("the name is defined")
+            .self_call
+            .is_some()
+    };
+
+    assert!(!self_call("onSuccess"));
+    assert!(!self_call("onError"));
+    assert!(self_call("onSettled"));
+    let resolution = graph.resolution(16);
+    assert!(
+        (resolution.unbound.iter()).any(|site| site.callee == "onSuccess"),
+        "the site counts as not bound"
+    );
+}
+
+#[test]
 fn a_typescript_call_on_a_local_a_static_call_initializes_binds_no_literal_of_its_file() {
     let tree = tree_of(&[
         (

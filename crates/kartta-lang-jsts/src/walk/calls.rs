@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use kartta_lang::tree::{signature_from, text};
-use kartta_lang::{CallRef, LocalCall, SymbolId, SymbolKind};
+use kartta_lang::{CallRef, LocalCall, RawExtraction, Symbol, SymbolId, SymbolKind};
 use tree_sitter::Node;
 
 use super::{Binding, Emitter, Held, Scope};
@@ -32,6 +34,10 @@ const TEST_MODIFIERS: [&str; 6] = [
 ];
 
 const TEST_HOOKS: [&str; 4] = ["beforeEach", "afterEach", "beforeAll", "afterAll"];
+
+/// The `arguments` of a bare call of a parameter until [`settle_parameter_calls`] reads it: the walk counts no call's
+/// arguments, so every other call holds 0.
+const THROUGH_A_PARAMETER: u8 = u8::MAX;
 
 impl Emitter<'_> {
     pub(super) fn jsx_call(&mut self, node: Node<'_>, site_of: SymbolId) {
@@ -128,15 +134,17 @@ impl Emitter<'_> {
     fn value_receiver(&self, receiver: Option<String>) -> Option<String> {
         let name = receiver?;
         Some(match self.bindings.get(name.as_bytes()) {
-            Some(Binding::Parameter(typed)) => self.spelled(*typed),
-            Some(Binding::Value(held) | Binding::Local(_, held) | Binding::Module(held)) => {
-                match held {
-                    Some(Held::Type(typed)) => self.spelled(*typed),
-                    Some(Held::Constructed(class)) => format!("{}()", self.spelled(*class)),
-                    Some(Held::Returned(path)) => self.returned[*path].clone(),
-                    None => String::new(),
-                }
-            }
+            Some(
+                Binding::Value(held)
+                | Binding::Local(_, held)
+                | Binding::Module(held)
+                | Binding::Parameter(held),
+            ) => match held {
+                Some(Held::Type(typed)) => self.spelled(*typed),
+                Some(Held::Constructed(class)) => format!("{}()", self.spelled(*class)),
+                Some(Held::Returned(path)) => self.returned[*path].clone(),
+                None => String::new(),
+            },
             _ => name,
         })
     }
@@ -230,6 +238,7 @@ impl Emitter<'_> {
         if callee.is_empty() {
             return;
         }
+        let (mut arguments, mut invokes_a_macro) = (0, false);
         if receiver.is_none() && !self.function_spans.is_empty() {
             match self.bindings.get(callee.as_bytes()) {
                 Some(&Binding::Local(local, _)) => {
@@ -240,6 +249,11 @@ impl Emitter<'_> {
                     });
                     return;
                 }
+                Some(Binding::Parameter(_)) if self.file_is_generated => invokes_a_macro = true,
+                Some(Binding::Parameter(_)) => {
+                    self.parameter_calls = true;
+                    arguments = THROUGH_A_PARAMETER;
+                }
                 None => self.locals.defer(self.raw.calls.len(), node.start_byte()),
                 Some(_) => {}
             }
@@ -249,10 +263,41 @@ impl Emitter<'_> {
             callee,
             receiver,
             line: start_line(node),
-            invokes_a_macro: false,
+            invokes_a_macro,
             calls_a_method: false,
-            arguments: 0,
+            arguments,
         });
+    }
+}
+
+// constraint: the language has no macro and sets `MacroInvocations::Apart`, so a call marked as a macro invocation binds
+// nothing and stays a site, whose name `find_unused` reads as called
+/// Settles the bare calls of a parameter: one binds nothing unless the file defines a function or a class of the name
+/// that no type or namespace owns, other than the definition that makes the call.
+pub(super) fn settle_parameter_calls(raw: &mut RawExtraction) {
+    let RawExtraction { calls, symbols, .. } = raw;
+    let mut defined: HashMap<&str, (usize, bool)> = HashMap::new();
+    let free = |symbol: &&Symbol| {
+        symbol.owner.is_none()
+            && !symbol.flags.is_label()
+            && matches!(symbol.kind, SymbolKind::Function | SymbolKind::Class)
+    };
+    for (id, symbol) in symbols
+        .iter()
+        .enumerate()
+        .filter(|(_, symbol)| free(symbol))
+    {
+        defined
+            .entry(&symbol.name)
+            .and_modify(|(_, several)| *several = true)
+            .or_insert((id, false));
+    }
+    let through_a_parameter = |call: &&mut CallRef| call.arguments == THROUGH_A_PARAMETER;
+    for call in calls.iter_mut().filter(through_a_parameter) {
+        call.arguments = 0;
+        call.invokes_a_macro = !defined
+            .get(call.callee.as_str())
+            .is_some_and(|&(id, several)| several || id != call.site_of.0 as usize);
     }
 }
 
