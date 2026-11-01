@@ -1662,14 +1662,7 @@ impl Cascade<'_> {
             ),
             None => self.nearest(call, owned),
         }?;
-        let guess =
-            !listed && self.conventions.unlisted_receivers == UnlistedReceivers::OwnMemberAsGuess;
-        let tier = if guess {
-            confidence::FIRST_PARTY
-        } else {
-            confidence::SAME_FILE
-        };
-        Some((at, tier))
+        Some((at, confidence::SAME_FILE))
     }
 
     /// Whether `call` reaches `at`, a member of the caller's own owner, through one field of a receiver the language
