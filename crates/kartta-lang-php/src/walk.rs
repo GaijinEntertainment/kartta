@@ -30,6 +30,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         types: Vec::new(),
         anonymous_counts: HashMap::new(),
         holders: Vec::new(),
+        frames: Vec::new(),
         imports: Vec::new(),
         namespace: String::new(),
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
@@ -58,11 +59,20 @@ struct Member {
     exported: bool,
 }
 
-// constraint: a variable is the callable's own, so one of a name in another callable holds another value
+// constraint: a variable holds its class from the end of the assignment, whose right side reads the value before it, up
+// to the end of the branch that assigned it, where another path may have left another value, or the next write
 struct Holder {
-    scope: SymbolId,
-    variable: String,
+    variable: Range<usize>,
     class: String,
+    from: usize,
+    until: usize,
+}
+
+// constraint: a variable is the function's own, a closure's included, whether or not the closure opens a symbol, so a
+// frame's holders are the ones past `holders`, and the frame's end takes them away
+struct Frame {
+    end: usize,
+    holders: usize,
 }
 
 // constraint: a class `use` binds the name at `alias`, or the imported name's last segment, to that name, which the
@@ -86,6 +96,7 @@ struct Emitter<'s> {
     types: Vec<Scope>,
     anonymous_counts: HashMap<String, u32>,
     holders: Vec<Holder>,
+    frames: Vec<Frame>,
     imports: Vec<Import>,
     // constraint: every `namespace` declaration replaces the namespace and `namespace { }` clears it; PHP admits no
     // declaration outside the braces of a file that uses the braced form, so a namespace needs no end
@@ -99,6 +110,9 @@ impl Emitter<'_> {
         let start = node.start_byte();
         while self.scopes.pop_if(|scope| scope.end <= start).is_some() {}
         while self.types.pop_if(|scope| scope.end <= start).is_some() {}
+        while let Some(frame) = self.frames.pop_if(|frame| frame.end <= start) {
+            self.holders.truncate(frame.holders);
+        }
 
         match node.kind() {
             "namespace_definition" => {
@@ -108,8 +122,16 @@ impl Emitter<'_> {
                     .unwrap_or_default();
                 self.imports.clear();
             }
-            "function_definition" => self.function(node),
-            "method_declaration" => self.method(node),
+            "function_definition" => {
+                self.open_frame(node);
+                self.function(node);
+            }
+            "method_declaration" => {
+                self.open_frame(node);
+                self.method(node);
+            }
+            "anonymous_function" => self.closure(node),
+            "arrow_function" => self.arrow_function(node),
             "class_declaration" => self.type_declaration(node, SymbolKind::Class),
             "interface_declaration" => self.type_declaration(node, SymbolKind::Interface),
             "trait_declaration" => self.type_declaration(node, SymbolKind::Trait),
@@ -127,9 +149,15 @@ impl Emitter<'_> {
                 self.include(node);
             }
             "assignment_expression" => {
-                self.forget_holder(node);
+                self.forget_writes(node);
+                self.hold_created(node);
                 self.closure_binding(node);
             }
+            "augmented_assignment_expression"
+            | "reference_assignment_expression"
+            | "foreach_statement"
+            | "catch_clause"
+            | "unset_statement" => self.forget_writes(node),
             "object_creation_expression" => self.object_creation(node),
             "function_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
@@ -138,13 +166,13 @@ impl Emitter<'_> {
             }
             "member_call_expression" | "nullsafe_member_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
-                let receiver = self.held_receiver(receiver);
+                let receiver = self.held_receiver(receiver, start);
                 self.call(callee, receiver, node);
             }
             "scoped_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
                 let receiver = self.aliased_class(node).or(receiver);
-                let receiver = self.held_receiver(receiver);
+                let receiver = self.held_receiver(receiver, start);
                 self.call(callee, receiver, node);
             }
             "array_creation_expression" => self.array_callable(node),
@@ -424,48 +452,165 @@ impl Emitter<'_> {
             end: class.end_byte(),
             id,
         });
-        if let Some(variable) = target.filter(|target| target.kind() == "variable_name") {
-            self.holders.push(Holder {
-                scope: self.scope(),
-                variable: text(variable, self.source),
-                class: name.clone(),
-            });
+        if let Some(assignment) = target.and_then(|target| target.parent()) {
+            self.hold(assignment, name.clone());
         }
         name
     }
 
-    // constraint: an assignment to a variable ends what it held before; the walk visits the assignment before the
-    // value it assigns, so a variable assigned an anonymous class holds the new one
-    fn forget_holder(&mut self, assignment: Node<'_>) {
-        if self.holders.is_empty() {
-            return;
+    fn hold_created(&mut self, assignment: Node<'_>) {
+        let created = (assignment.child_by_field_name("right"))
+            .filter(|right| right.kind() == "object_creation_expression")
+            .and_then(|new| named_child_nodes(new).find(|child| NAMES.contains(&child.kind())));
+        if let Some(created) = created {
+            let class = self.receiver_class(created);
+            self.hold(assignment, class);
         }
-        let Some(variable) = assignment
+    }
+
+    fn hold(&mut self, assignment: Node<'_>, class: String) {
+        let Some(target) = assignment
             .child_by_field_name("left")
             .filter(|left| left.kind() == "variable_name")
         else {
             return;
         };
-        let scope = self.scope();
-        let variable = &self.source[variable.byte_range()];
-        self.holders
-            .retain(|holder| holder.scope != scope || holder.variable.as_bytes() != variable);
-    }
-
-    // constraint: a call on a variable the same callable assigned an anonymous class to is a call on that class, so
-    // its receiver is the class's name, as a static call's is
-    fn held_receiver(&self, receiver: Option<String>) -> Option<String> {
-        let held = receiver.as_deref().and_then(|receiver| {
-            let scope = self.scope();
-            self.holders
-                .iter()
-                .rfind(|holder| holder.scope == scope && holder.variable == receiver)
+        self.holders.push(Holder {
+            variable: target.byte_range(),
+            class,
+            from: assignment.end_byte(),
+            until: branch_end(assignment),
         });
-        held.map_or(receiver, |holder| Some(holder.class.clone()))
     }
 
-    fn scope(&self) -> SymbolId {
-        self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id)
+    fn open_frame(&mut self, function: Node<'_>) {
+        self.frames.push(Frame {
+            end: function.end_byte(),
+            holders: self.holders.len(),
+        });
+    }
+
+    fn frame_holders(&mut self) -> &mut [Holder] {
+        let frame = self.frames.last().map_or(0, |frame| frame.holders);
+        &mut self.holders[frame..]
+    }
+
+    // constraint: a closure's `use ($v)` copies the value as the closure is created, and a `use (&$v)` shares the
+    // variable, which the closure can then write whenever it runs (`zend_compile_closure_uses`, `Zend/zend_compile.c`;
+    // php-langspec `spec/10-expressions.md`, Anonymous Function Creation)
+    fn closure(&mut self, closure: Node<'_>) {
+        let start = closure.start_byte();
+        let mut bound = Vec::new();
+        let clause = named_child_nodes(closure)
+            .find(|child| child.kind() == "anonymous_function_use_clause");
+        for used in clause.iter().flat_map(|clause| named_child_nodes(*clause)) {
+            if used.kind() == "by_ref" {
+                self.forget_written(used, start);
+            } else if let Some(class) = self.held_class(&self.source[used.byte_range()], start) {
+                let class = class.to_owned();
+                bound.push(whole_frame(used.byte_range(), class));
+            }
+        }
+        self.open_frame(closure);
+        self.holders.append(&mut bound);
+    }
+
+    // constraint: an arrow function copies each variable of the function around it as it is created, but for its
+    // parameters (`find_implicit_binds`, `Zend/zend_compile.c`)
+    fn arrow_function(&mut self, arrow: Node<'_>) {
+        let start = arrow.start_byte();
+        let mut bound: Vec<Holder> = (self.frame_holders().iter())
+            .filter(|holder| holder.from <= start && start < holder.until)
+            .map(|holder| whole_frame(holder.variable.clone(), holder.class.clone()))
+            .collect();
+        self.open_frame(arrow);
+        self.holders.append(&mut bound);
+        let parameters = arrow.child_by_field_name("parameters");
+        for parameter in parameters.iter().flat_map(|list| named_child_nodes(*list)) {
+            if let Some(name) = parameter.child_by_field_name("name") {
+                self.forget_written(name, start);
+            }
+        }
+    }
+
+    // constraint: a variable an assignment writes keeps its value through the right side, a variable `=&` binds shares
+    // its value with the other side, and `foreach` writes its value and key, which the grammar places after the subject
+    fn forget_writes(&mut self, node: Node<'_>) {
+        let end = node.end_byte();
+        match node.kind() {
+            "foreach_statement" => {
+                if let Some(value) = named_child_nodes(node).nth(1) {
+                    self.forget_written(value, value.end_byte());
+                }
+            }
+            "catch_clause" => {
+                if let Some(name) = node.child_by_field_name("name") {
+                    self.forget_written(name, name.end_byte());
+                }
+            }
+            "unset_statement" => {
+                for variable in named_child_nodes(node) {
+                    self.forget_written(variable, end);
+                }
+            }
+            kind => {
+                if let Some(target) = node.child_by_field_name("left") {
+                    self.forget_written(target, end);
+                }
+                if let Some(aliased) = node
+                    .child_by_field_name("right")
+                    .filter(|_| kind == "reference_assignment_expression")
+                {
+                    self.forget_written(aliased, end);
+                }
+            }
+        }
+    }
+
+    // constraint: a write to a variable ends what it held, and only a write to the variable itself does: `$v->p = 1`
+    // and `$v['k'] = 1` leave it holding the object; a list assigns each variable it names, under its key or by
+    // reference
+    fn forget_written(&mut self, written: Node<'_>, until: usize) {
+        match written.kind() {
+            "variable_name" => self.forget(written, until),
+            "list_literal" | "pair" | "by_ref" => {
+                for element in named_child_nodes(written) {
+                    self.forget_written(element, until);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn forget(&mut self, variable: Node<'_>, until: usize) {
+        let source = self.source;
+        let variable = &source[variable.byte_range()];
+        for holder in self.frame_holders() {
+            if source[holder.variable.clone()] == *variable {
+                holder.until = holder.until.min(until);
+            }
+        }
+    }
+
+    // constraint: the class a variable of the frame holds at a byte of the source; the holder's own span settles which,
+    // as a write ends one where the next starts
+    fn held_class(&self, variable: &[u8], at: usize) -> Option<&str> {
+        let frame = self.frames.last().map_or(0, |frame| frame.holders);
+        let holder = self.holders[frame..].iter().rfind(|holder| {
+            holder.from <= at
+                && at < holder.until
+                && self.source[holder.variable.clone()] == *variable
+        })?;
+        Some(&holder.class)
+    }
+
+    // constraint: a call on a variable that holds a class is a call on that class, so its receiver is the class's name,
+    // as a static call's is
+    fn held_receiver(&self, receiver: Option<String>, at: usize) -> Option<String> {
+        let held = receiver
+            .as_deref()
+            .and_then(|receiver| self.held_class(receiver.as_bytes(), at));
+        held.map(str::to_owned).or(receiver)
     }
 
     // constraint: `private int $x, $y;` declares one member per element, each with the declaration's visibility
@@ -671,18 +816,33 @@ impl Emitter<'_> {
             self.call(name, None, node);
             return;
         }
-        let class = named_child_nodes(node).find_map(|child| match child.kind() {
-            "name" => {
-                let name = text(child, self.source);
-                (!matches!(name.as_str(), "self" | "static" | "parent")).then_some(name)
-            }
-            "qualified_name" | "relative_name" => last_segment(child, self.source),
-            _ => None,
-        });
-
+        let Some(created) = named_child_nodes(node).find(|child| NAMES.contains(&child.kind()))
+        else {
+            return;
+        };
+        let class = if created.kind() == "name" {
+            let name = text(created, self.source);
+            (!matches!(name.as_str(), "self" | "static" | "parent")).then_some(name)
+        } else {
+            last_segment(created, self.source)
+        };
         if let Some(class) = class {
             self.call(class, None, node);
         }
+    }
+
+    // constraint: `new self` and `new parent` create a class of the class around them and `new static` one of the class
+    // called, which PHP reads in any case and a receiver of the name reads alike (`zend_get_class_fetch_type`,
+    // `Zend/zend_compile.c`); any other name is the class PHP compiles it to
+    fn receiver_class(&self, created: Node<'_>) -> String {
+        let written = &self.source[created.byte_range()];
+        ["self", "static", "parent"]
+            .iter()
+            .find(|keyword| written.eq_ignore_ascii_case(keyword.as_bytes()))
+            .map_or_else(
+                || format!("\\{}", self.class_name(created)),
+                |keyword| (*keyword).to_owned(),
+            )
     }
 
     // constraint: a member's type is the class, interface, trait or enum around it, or the anonymous class, which
@@ -806,6 +966,42 @@ fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
         });
 
     (text(name, source), receiver)
+}
+
+// constraint: a variable a closure binds holds its class through the closure, whose frame ends it
+const fn whole_frame(variable: Range<usize>, class: String) -> Holder {
+    Holder {
+        variable,
+        class,
+        from: 0,
+        until: usize::MAX,
+    }
+}
+
+// constraint: each child of these nodes may run or not, whichever way the walk reads it, so an assignment under one
+// holds to the end of that child; a function's body runs apart from the code around it
+fn branch_end(assignment: Node<'_>) -> usize {
+    let mut child = assignment;
+    while let Some(parent) = child.parent() {
+        match parent.kind() {
+            "if_statement"
+            | "while_statement"
+            | "do_statement"
+            | "for_statement"
+            | "foreach_statement"
+            | "switch_block"
+            | "try_statement"
+            | "match_block"
+            | "conditional_expression"
+            | "binary_expression" => return child.end_byte(),
+            "function_definition"
+            | "method_declaration"
+            | "anonymous_function"
+            | "arrow_function" => break,
+            _ => child = parent,
+        }
+    }
+    usize::MAX
 }
 
 fn assignment_target(value: Node<'_>) -> Option<Node<'_>> {
