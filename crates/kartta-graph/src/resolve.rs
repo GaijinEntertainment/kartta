@@ -740,7 +740,7 @@ impl<'g> Cascade<'g> {
         let resolved = self.resolve_by_tiers(call).and_then(|(at, confidence)| {
             if self.is_unbound_namespace(at) || !self.constant_receiver_reaches(call, at) {
                 Err(Miss::NotAdmitted)
-            } else if self.writes_on_a_value(call) {
+            } else if self.writes_on_a_value(call) || self.own_member_on_a_field(call, at) {
                 Ok((at, confidence::FIRST_PARTY))
             } else {
                 Ok((at, confidence))

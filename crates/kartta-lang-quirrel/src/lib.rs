@@ -126,7 +126,7 @@ const CONVENTIONS: Conventions = {
     conventions.base_receivers = &["base"];
     conventions.receiver_members = ReceiverMembers::Inherited;
     conventions.own_type_receivers = Some(&["this"]);
-    conventions.unlisted_receivers = UnlistedReceivers::OwnMember;
+    conventions.unlisted_receivers = UnlistedReceivers::OwnMemberFieldsAsGuess;
     conventions
 };
 
