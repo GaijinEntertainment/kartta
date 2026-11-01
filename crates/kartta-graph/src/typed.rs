@@ -377,34 +377,34 @@ impl<'g> Cascade<'g> {
         }
     }
 
+    // constraint: an embedded field is named by its type's name, `x.Base` for an embedded `Base` or `*pkg.Base`. An
+    // imported type's members are unknown, and one at the depth of a name found here would make the selector illegal,
+    // so the import can give only a name no type the graph holds does (ADR 3.201)
     fn member_value(&self, ty: SymbolAt, name: &str, depth: u8) -> Value<'g> {
-        let Some(key) = self.graph.strings.get(name) else {
-            return Value::Unknown;
-        };
-        match self.member(ty, key, depth) {
-            Found::Member(at) => self.value_of(at, depth),
-            Found::Outside => Value::Imported,
-            Found::Nothing | Found::Unknown => self.embedded_named(ty, name, depth),
-        }
-    }
-
-    // constraint: an embedded field is named by its type's name, `x.Base` for an embedded `Base` or `*pkg.Base`
-    fn embedded_named(&self, ty: SymbolAt, name: &str, depth: u8) -> Value<'g> {
+        let key = self.graph.strings.get(name);
+        let members = key.map_or(&[][..], |key| self.named(key));
         let mut walk = Embedded::new(ty);
         while let Some(next) = walk.next() {
-            let named = self
+            if let Some(at) = self.declared_member(next, members) {
+                return self.value_of(at, depth);
+            }
+            let embedded = self
                 .graph
                 .file(next.file)
                 .parents_of(next.index)
                 .iter()
                 .map(|parent| self.graph.strings.resolve(parent.written))
                 .find(|written| written.rsplit('.').next() == Some(name));
-            if let Some(written) = named {
+            if let Some(written) = embedded {
                 return self.evaluate(self.body_of(next), written, depth + 1);
             }
             self.embed(&mut walk, next, depth);
         }
-        Value::Unknown
+        if walk.reaches_outside {
+            Value::Imported
+        } else {
+            Value::Unknown
+        }
     }
 
     // constraint: an embedded type's members are promoted, the shallowest first, and a member of a type that the graph
