@@ -819,8 +819,13 @@ impl<'g> Cascade<'g> {
     }
 
     fn apart(&self, built_apart: BuiltApart, file: u32, other: u32) -> bool {
-        let path = |slot: u32| self.graph.strings.resolve(self.graph.file(slot).path);
-        (built_apart.0)(path(file), path(other))
+        match (
+            self.graph.build_constraint(file),
+            self.graph.build_constraint(other),
+        ) {
+            (None, None) => false,
+            (one, other) => (built_apart.0)(one.unwrap_or_default(), other.unwrap_or_default()),
+        }
     }
 
     // constraint: a tier below the import's, the package's and the receiver's does not know the name is the package's,
