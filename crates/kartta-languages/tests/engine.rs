@@ -2878,10 +2878,10 @@ fn a_bare_daslang_call_binds_the_definition_a_file_it_includes_includes() {
             "game/deep.das",
             "options gen2\n\ndef twist(a) {\n    return a\n}\n",
         ),
-        ("game/near.das", "options gen2\ninclude deep\n"),
+        ("game/near.das", "options gen2\ninclude deep.das\n"),
         (
             "game/ai.das",
-            "options gen2\ninclude near\n\ndef steer(a) {\n    return twist(a)\n}\n",
+            "options gen2\ninclude near.das\n\ndef steer(a) {\n    return twist(a)\n}\n",
         ),
     ]);
     let engine = build(&tree, &["daslang"]);
