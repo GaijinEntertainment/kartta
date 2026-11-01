@@ -1395,6 +1395,11 @@ impl Cascade<'_> {
     ) -> Option<SymbolAt> {
         let receiver = self.named_receiver(call)?;
         if let Some(class) = self.class_from_the_root(call, receiver) {
+            // constraint: a call of a class by its own name on that class is how an extraction writes a construction,
+            // which names the class, whatever method of the name it holds
+            if self.graph.sym(class).name == call.callee {
+                return Some(class);
+            }
             return (self.held_by(class, candidates))
                 .or_else(|| self.member_above(class, candidates));
         }

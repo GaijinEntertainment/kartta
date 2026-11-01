@@ -122,7 +122,7 @@ fn a_call_on_a_variable_a_new_assigned_binds_the_class_a_rooted_name_spells() {
 fn a_call_on_a_variable_a_new_of_an_alias_assigned_binds_the_class_the_alias_names() {
     assert_eq!(
         callees_of_set_up("$container = new Held; $container->instance('a');"),
-        ["App\\Container::instance"],
+        ["App\\Container", "App\\Container::instance"],
     );
 }
 
