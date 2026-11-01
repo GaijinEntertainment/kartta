@@ -3,6 +3,7 @@ use kartta_lang::tree::{named_child_nodes, preorder, text};
 use tree_sitter::Node;
 
 use super::Emitter;
+use super::types::{holds_channel, is_container_path};
 
 pub(super) struct Local {
     pub(super) from: usize,
@@ -10,6 +11,7 @@ pub(super) struct Local {
     pub(super) name: String,
     pub(super) kind: LocalKind,
     pub(super) type_path: Option<String>,
+    pub(super) holds_channel: bool,
 }
 
 // constraint: two blocks can end at the same byte, so a block is told apart by its node's id
@@ -48,9 +50,10 @@ impl Emitter<'_> {
         let from = body.map_or_else(|| function.start_byte(), |body| body.start_byte());
         let block = Block::of(body.unwrap_or(function));
         for param in named_child_nodes(list) {
-            let type_path = param
-                .child_by_field_name("type")
-                .and_then(|written| self.type_path(written));
+            let written = param.child_by_field_name("type");
+            let type_path = written.and_then(|written| self.type_path(written));
+            let holds_channel = type_path.as_deref().is_some_and(is_container_path)
+                && written.is_some_and(holds_channel);
             let mut cursor = param.walk();
             for name in param.children_by_field_name("name", &mut cursor) {
                 self.locals.push(Local {
@@ -59,6 +62,7 @@ impl Emitter<'_> {
                     name: text(name, self.source),
                     kind,
                     type_path: type_path.clone(),
+                    holds_channel,
                 });
             }
         }
@@ -67,7 +71,7 @@ impl Emitter<'_> {
     pub(super) fn push_locals(
         &mut self,
         left: Node<'_>,
-        (from, block): (usize, Block),
+        (from, block, values): (usize, Block, &[Node<'_>]),
         type_paths: &mut dyn FnMut(usize) -> Option<String>,
     ) {
         let names = named_child_nodes(left)
@@ -76,12 +80,16 @@ impl Emitter<'_> {
         for (position, name) in names {
             let name = text(name, self.source);
             if !self.is_reassigned(&name, block) {
+                let type_path = type_paths(position);
+                let holds_channel = type_path.as_deref().is_some_and(is_container_path)
+                    && (values.get(position)).is_some_and(|&value| self.value_holds_channel(value));
                 self.locals.push(Local {
                     from,
                     block,
                     name,
                     kind: LocalKind::Value,
-                    type_path: type_paths(position),
+                    type_path,
+                    holds_channel,
                 });
             }
         }

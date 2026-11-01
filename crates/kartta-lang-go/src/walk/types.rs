@@ -138,16 +138,57 @@ impl Emitter<'_> {
         }
     }
 
+    // constraint: a channel's path reads as a slice's, because the element a receive yields is what the graph reads, so
+    // only the value's declaration or its expression tells the two apart
+    pub(super) fn value_holds_channel(&self, value: Node<'_>) -> bool {
+        match value.kind() {
+            "identifier" => self
+                .innermost_local(self.borrowed(value), value.start_byte())
+                .is_some_and(|local| local.holds_channel),
+            "parenthesized_expression" => {
+                first_operand(value).is_some_and(|inner| self.value_holds_channel(inner))
+            }
+            "index_expression" => value
+                .child_by_field_name("operand")
+                .is_some_and(|operand| self.value_holds_channel(operand)),
+            "unary_expression" => {
+                let address = value
+                    .child_by_field_name("operator")
+                    .is_some_and(|operator| matches!(operator.kind(), "&" | "*"));
+                address
+                    && value
+                        .child_by_field_name("operand")
+                        .is_some_and(|operand| self.value_holds_channel(operand))
+            }
+            "type_assertion_expression" | "composite_literal" => {
+                value.child_by_field_name("type").is_some_and(holds_channel)
+            }
+            "call_expression" => {
+                value
+                    .child_by_field_name("function")
+                    .is_some_and(|function| self.is_allocator(function))
+                    && value
+                        .child_by_field_name("arguments")
+                        .and_then(first_operand)
+                        .is_some_and(holds_channel)
+            }
+            _ => false,
+        }
+    }
+
+    fn is_allocator(&self, function: Node<'_>) -> bool {
+        function.kind() == "identifier"
+            && matches!(self.borrowed(function), "new" | "make")
+            && !self.is_local(self.borrowed(function), function.start_byte())
+    }
+
     // constraint: `new(T)` and `make(T, n)` yield a value of the type they name, which only their first argument spells
     fn result_path(&self, call: Node<'_>) -> Option<String> {
         let mut function = call.child_by_field_name("function")?;
         if function.kind() == "index_expression" {
             function = function.child_by_field_name("operand")?;
         }
-        if function.kind() == "identifier"
-            && matches!(self.borrowed(function), "new" | "make")
-            && !self.is_local(self.borrowed(function), function.start_byte())
-        {
+        if self.is_allocator(function) {
             let argument = first_operand(call.child_by_field_name("arguments")?)?;
             return self.type_path(argument).or_else(|| match argument.kind() {
                 "identifier" => Some(text(argument, self.source)),
@@ -167,6 +208,17 @@ pub(super) fn is_container_type(node: Node<'_>) -> bool {
         node.kind(),
         "slice_type" | "array_type" | "implicit_length_array_type" | "map_type" | "channel_type"
     )
+}
+
+pub(super) fn holds_channel(written: Node<'_>) -> bool {
+    match written.kind() {
+        "channel_type" => true,
+        "pointer_type" | "parenthesized_type" => first_operand(written).is_some_and(holds_channel),
+        _ if is_container_type(written) => written
+            .child_by_field_name("element")
+            .is_some_and(holds_channel),
+        _ => false,
+    }
 }
 
 pub(super) fn is_container_path(path: &str) -> bool {
