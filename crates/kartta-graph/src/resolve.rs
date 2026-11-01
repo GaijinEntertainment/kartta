@@ -1078,12 +1078,24 @@ impl<'g> Cascade<'g> {
     // that reaches no type takes the value after its `|`, else the empty receiver, which the graph interned with it
     fn with_returned_receiver(&self, call: Call) -> Call {
         let strings = &self.graph.strings;
-        if self.conventions.receivers != Receivers::ReturnPaths {
+        let reads_fields = self.conventions.receivers == Receivers::InheritedFields;
+        if self.conventions.receivers != Receivers::ReturnPaths && !reads_fields {
             return call;
         }
         let spelled = call
             .receiver
             .map_or("", |receiver| strings.resolve(receiver));
+        if reads_fields {
+            let Some(field) = spelled.strip_prefix("->") else {
+                return call;
+            };
+            return Call {
+                receiver: self
+                    .class_of_an_inherited_field(&call, field)
+                    .or(self.empty_receiver),
+                ..call
+            };
+        }
         let Some((head, rest)) = spelled.split_once("()") else {
             return call;
         };

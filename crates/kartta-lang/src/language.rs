@@ -436,6 +436,12 @@ pub enum Receivers {
     /// type leaves the receiver the value after its `|`, `T::m()|.value` for `.value`, and without one the empty
     /// receiver.
     ReturnPaths,
+    /// As [`Receivers::Owners`], where a receiver can also spell a property the extraction cannot read from its file,
+    /// `->name`. The graph walks up from the caller's class to the nearest type that declares a field of the name,
+    /// a type's traits before the class it extends. Where the caller's class can read that field, its
+    /// [value type](crate::Symbol::value_types) is the call's receiver. A field with no value type, one private to a
+    /// type above the caller's class, and a name no type declares leave the empty receiver.
+    InheritedFields,
 }
 
 /// What a receiver written as a bare name, of letters, digits and `_`, names.

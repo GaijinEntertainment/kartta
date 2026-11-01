@@ -36,6 +36,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         imports: Vec::new(),
         fields: HashMap::new(),
         field_calls: Vec::new(),
+        declared_fields: Vec::new(),
         namespace: String::new(),
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
         raw: RawExtraction::default(),
@@ -49,6 +50,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     });
 
     emitter.name_field_receivers();
+    emitter.name_field_types();
     emitter.raw
 }
 
@@ -112,6 +114,7 @@ struct Emitter<'s> {
     imports: Vec<Import>,
     fields: HashMap<Field<'s>, FieldClass>,
     field_calls: Vec<(usize, Field<'s>)>,
+    declared_fields: Vec<(SymbolId, SymbolId)>,
     // constraint: every `namespace` declaration replaces the namespace and `namespace { }` clears it; PHP admits no
     // declaration outside the braces of a file that uses the braced form, so a namespace needs no end
     namespace: String,
@@ -818,11 +821,42 @@ impl<'s> Emitter<'s> {
     // receivers are read once the whole file has been walked
     fn name_field_receivers(&mut self) {
         for (call, field) in &self.field_calls {
-            if let Some(FieldClass::Settled(Some(class)) | FieldClass::Written(class)) =
-                self.fields.get(field)
-            {
-                self.raw.calls[*call].receiver = Some(class.clone());
-            }
+            let held = match self.fields.get(field) {
+                Some(FieldClass::Settled(Some(class)) | FieldClass::Written(class)) => {
+                    class.clone()
+                }
+                None if !self.raw.symbols[field.0.0 as usize].parents.is_empty() => {
+                    format!("->{}", String::from_utf8_lossy(field.1))
+                }
+                _ => continue,
+            };
+            self.raw.calls[*call].receiver = Some(held);
+        }
+    }
+
+    // constraint: a child's call reads the class from another file, so `self` and `parent` become the classes they name
+    // where the property is declared; `self` in a trait is each using class, and an anonymous class is named in its file
+    // alone; `new static` makes the class of the `$this` it runs on, which a read on `$this` calls too, so it stays
+    fn name_field_types(&mut self) {
+        for &(owner, field) in &self.declared_fields {
+            let symbol = &self.raw.symbols[field.0 as usize];
+            let (Some(FieldClass::Settled(Some(class)) | FieldClass::Written(class)), declaring) = (
+                self.fields.get(&(owner, symbol.name.as_bytes())),
+                &self.raw.symbols[owner.0 as usize],
+            ) else {
+                continue;
+            };
+            let rooted = match class.as_str() {
+                kept if kept.starts_with('\\') || kept == "static" => kept.to_owned(),
+                _ if declaring.kind == SymbolKind::Trait => continue,
+                "self" => format!("\\{}", declaring.qualified_name),
+                "parent" => match declaring.parents.first() {
+                    Some(parent) => format!("\\{parent}"),
+                    None => continue,
+                },
+                _ => continue,
+            };
+            self.raw.symbols[field.0 as usize].value_types = vec![rooted];
         }
     }
 
@@ -994,7 +1028,10 @@ impl<'s> Emitter<'s> {
         let mut symbol = declared(name, qualified, member.kind, node);
         symbol.owner.clone_from(&member.owner);
         symbol.exported = member.exported;
-        self.push(symbol);
+        let id = self.push(symbol);
+        if let (SymbolKind::Field, Some(open)) = (member.kind, self.types.last()) {
+            self.declared_fields.push((open.id, id));
+        }
     }
 
     fn trait_use(&mut self, node: Node<'_>) {
