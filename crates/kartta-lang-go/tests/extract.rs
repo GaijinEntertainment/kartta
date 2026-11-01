@@ -3242,3 +3242,20 @@ func After() {}
     assert_eq!(doc_line(source, "a.Render"), 7);
     assert_eq!(doc_line(source, "a.After"), 13);
 }
+
+#[test]
+fn the_library_interface_methods_ascend_without_a_repeat_and_name_the_library_s() {
+    let methods = Go::new().conventions().library_interface_methods;
+
+    assert!(methods.is_sorted_by(|earlier, later| earlier < later));
+    for method in [
+        "Error",
+        "Is",
+        "Less",
+        "ServeHTTP",
+        "Unwrap",
+        "UnmarshalJSONFrom",
+    ] {
+        assert!(methods.binary_search(&method).is_ok(), "{method}");
+    }
+}
