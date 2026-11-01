@@ -179,12 +179,15 @@ pub(crate) fn parents(declaration: Node<'_>, source: &[u8]) -> Vec<String> {
 
     for child in child_nodes(declaration) {
         match child.kind() {
+            // constraint: JavaScript's grammar holds the expression `extends` takes in the heritage itself, and
+            // TypeScript's wraps it in a clause, which `parent_name` reads as no name
             "class_heritage" => parents.extend(
                 child_nodes(child)
                     .filter(|clause| {
                         matches!(clause.kind(), "extends_clause" | "implements_clause")
                     })
                     .flat_map(child_nodes)
+                    .chain(child_nodes(child))
                     .filter_map(|entry| parent_name(entry, source)),
             ),
             "extends_type_clause" => {
