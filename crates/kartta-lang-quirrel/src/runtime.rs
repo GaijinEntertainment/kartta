@@ -3,7 +3,7 @@
 // engine binds on the native values its scripts hold: the watched state of `frp` (`Watched`, `Computed`,
 // `NativeWatched`, in `prog/gameLibs/quirrel/frp/frp.cpp`), `DataBlock`
 // (`prog/gameLibs/quirrel/bindQuirrelEx/sqratDataBlock.cpp`), the ECS entity manager and templates
-// (`prog/gameLibs/ecs/scripts/sq/sqcoredaECS.cpp`) and `DaGuiObject` (`skyquake/prog/gameLibs/daGUISq/guiSqBind.cpp`);
+// (`prog/gameLibs/ecs/scripts/sq/sqcoredaECS.cpp`) and the GUI object a game binds;
 // of those, `isEmpty`, `isEqual`, `isValid`, `isVisible`, `isEnabled`, `getName`, `getTypeName` and `size` stay out,
 // as the scripts' own helper modules and classes define them and call them through members
 pub(crate) const METHODS: &[&str] = &[

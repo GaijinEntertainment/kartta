@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn mount_and_base_path_lines_resolve_against_the_directory_of_the_file() {
         let config = SqConfig::parse(
-            "enlisted/prog",
+            "game_a/prog",
             "\u{feff}mount = %x=kept\n; mount = %y=ignored\nmount = %darg=../../prog/scripts/sq/daRg/\n\
              mount=scripts=scripts\nmount = %ui=\n  base_path\t= ../../prog/scripts/sq/stubs/ ;adds basepaths\n\
              base_path = .\n",
@@ -116,15 +116,12 @@ mod tests {
             config,
             SqConfig {
                 mounts: mounts(&[
-                    ("x", "enlisted/prog/kept"),
+                    ("x", "game_a/prog/kept"),
                     ("darg", "prog/scripts/sq/daRg"),
-                    ("scripts", "enlisted/prog/scripts"),
-                    ("ui", "enlisted/prog"),
+                    ("scripts", "game_a/prog/scripts"),
+                    ("ui", "game_a/prog"),
                 ]),
-                base_paths: vec![
-                    "prog/scripts/sq/stubs".to_owned(),
-                    "enlisted/prog".to_owned()
-                ],
+                base_paths: vec!["prog/scripts/sq/stubs".to_owned(), "game_a/prog".to_owned()],
             }
         );
     }

@@ -48,17 +48,17 @@ fn flags(path: &str) -> SymbolFlags {
     extraction.symbols[0].flags
 }
 
-const ENLISTED: &str = "mount = %darg=../../prog/scripts/sq/daRg\nmount = %ui=ui\nmount = %here=\n";
+const GAME_A: &str = "mount = %darg=../../prog/scripts/sq/daRg\nmount = %ui=ui\nmount = %here=\n";
 
 #[test]
 fn a_mount_path_resolves_below_the_mounted_directory() {
     let files = [
-        ("enlisted/prog/.sqconfig", ENLISTED),
+        ("game_a/prog/.sqconfig", GAME_A),
         ("prog/scripts/sq/daRg/components/button.nut", ""),
-        ("enlisted/prog/ui/style.nut", ""),
-        ("enlisted/prog/hud/style.nut", ""),
+        ("game_a/prog/ui/style.nut", ""),
+        ("game_a/prog/hud/style.nut", ""),
     ];
-    let target = |spec: &str| target(&files, spec, "enlisted/prog/hud/main.nut");
+    let target = |spec: &str| target(&files, spec, "game_a/prog/hud/main.nut");
 
     assert_eq!(
         target("%darg/components/button.nut").as_deref(),
@@ -66,11 +66,11 @@ fn a_mount_path_resolves_below_the_mounted_directory() {
     );
     assert_eq!(
         target("%ui/style.nut").as_deref(),
-        Some("enlisted/prog/ui/style.nut")
+        Some("game_a/prog/ui/style.nut")
     );
     assert_eq!(
         target("%here/hud/style.nut").as_deref(),
-        Some("enlisted/prog/hud/style.nut")
+        Some("game_a/prog/hud/style.nut")
     );
     assert_eq!(
         target("%darg/components\\\\button.nut").as_deref(),
@@ -81,11 +81,11 @@ fn a_mount_path_resolves_below_the_mounted_directory() {
 #[test]
 fn a_mount_path_the_config_cannot_place_resolves_nothing() {
     let files = [
-        ("enlisted/prog/.sqconfig", ENLISTED),
+        ("game_a/prog/.sqconfig", GAME_A),
         ("prog/scripts/sq/daRg/components/button.nut", ""),
-        ("enlisted/prog/hud/style.nut", ""),
+        ("game_a/prog/hud/style.nut", ""),
     ];
-    let target = |spec: &str| target(&files, spec, "enlisted/prog/hud/main.nut");
+    let target = |spec: &str| target(&files, spec, "game_a/prog/hud/main.nut");
 
     assert_eq!(
         target("%hud/style.nut"),
@@ -232,14 +232,14 @@ fn the_nearest_sqconfig_governs_and_another_file_contributes_nothing() {
 fn a_governing_sqconfig_never_falls_back_to_the_shape_of_the_specifier() {
     let files = [
         (
-            "enlisted/prog/.sqconfig",
+            "game_a/prog/.sqconfig",
             "mount = %darg=../../prog/scripts/sq/daRg\nmount = %ui=ui\nbase_path = ../../prog/scripts/sq/stubs/\n",
         ),
         ("prog/scripts/sq/daRg/components/button.nut", ""),
         ("prog/scripts/sq/stubs/frp.nut", ""),
-        ("enlisted/prog/ui/style.nut", ""),
-        ("enlisted/prog/hud/local.nut", ""),
-        ("enlisted/prog/scripts/lib.nut", ""),
+        ("game_a/prog/ui/style.nut", ""),
+        ("game_a/prog/hud/local.nut", ""),
+        ("game_a/prog/scripts/lib.nut", ""),
         ("other/scripts/lib.nut", ""),
     ];
 
@@ -248,15 +248,15 @@ fn a_governing_sqconfig_never_falls_back_to_the_shape_of_the_specifier() {
         "require(\"%darg/components/button.nut\")\nimport \"%ui/style.nut\"\n\
          require(\"frp.nut\")\nrequire(\"./local.nut\")\nrequire(\"%scripts/lib.nut\")\n\
          require(\"ui/style\")\nrequire(\"math\")\nlet x = 1\n",
-        "enlisted/prog/hud/main.nut",
+        "game_a/prog/hud/main.nut",
     );
     assert_eq!(
         includes(&governed),
         [
             "prog/scripts/sq/daRg/components/button.nut",
-            "enlisted/prog/ui/style.nut",
+            "game_a/prog/ui/style.nut",
             "prog/scripts/sq/stubs/frp.nut",
-            "enlisted/prog/hud/local.nut",
+            "game_a/prog/hud/local.nut",
         ]
     );
     let unresolved: Vec<&str> = governed
