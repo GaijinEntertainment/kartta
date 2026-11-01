@@ -41,9 +41,11 @@ compiles in the file that expands the macro, which is the one that requires what
 
 A `require` or an `include` that names a file is an include of it; one that names no file is an import, kept as written.
 The resolver reads the repository's file names as the module index, because a module almost always declares its own
-file stem: a relative specifier names the file beside the importer, a dotted or slashed one the first file it reaches
-under the importer's directories, then the one file whose path ends with it, then the one file named for its last
-component, and a bare name the one file named for it. A specifier two files could satisfy names neither, and every
+file stem: a relative `include`, or a relative `require` that ends in `.das` or `.das_project`, names that path from
+the importer, another relative `require` the `.das` file of its module name under the importer's directory, a dotted or
+slashed specifier the first file it reaches under the importer's directories, then the one file whose path ends with
+it, then the one file named for its last component, and a bare name the one file named for it. A specifier two files
+could satisfy names neither, and every
 match is case-sensitive. A file under a `test` or `tests`
 directory in any case, or named `*_test.das` or `test_*.das`, is test code; a file named `*.gen.*` or `*_gen.*`, or
 whose leading comments carry `@generated`, `DO NOT EDIT` or `Code generated`, is generated code. A `def` that carries an
