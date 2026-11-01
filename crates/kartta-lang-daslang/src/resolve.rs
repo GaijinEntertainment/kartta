@@ -26,10 +26,10 @@ impl Modules<'_> {
     // stem, so the file names stand in for the module index; a project roots a name and mounts its first component by
     // a program the engine does not run, so the nearest ancestor stands in for the root and the path below that
     // component for the mount
-    fn target(&self, spec: &str, path: &str) -> Option<String> {
-        let spec = forward_slashes(spec);
+    fn target(&self, directive: &RawDirective, path: &str) -> Option<String> {
+        let spec = forward_slashes(&directive.spec);
         if spec.starts_with("./") || spec.starts_with("../") {
-            return self.probe(&join(dir(path), &spec)?);
+            return self.probe(&relative_file(directive.form, &spec, dir(path))?);
         }
 
         let stem = spec.strip_suffix(".das").unwrap_or(&spec);
@@ -55,22 +55,10 @@ impl Modules<'_> {
         })
     }
 
-    #[expect(
-        clippy::case_sensitive_file_extension_comparisons,
-        reason = "the compiler opens a module by the name as written, which matches a file's case"
-    )]
     fn probe(&self, candidate: &str) -> Option<String> {
-        if self.repository.contains(candidate) {
-            return Some(candidate.to_owned());
-        }
-        if candidate.ends_with(".das") {
-            return None;
-        }
-
-        let with_extension = format!("{candidate}.das");
         self.repository
-            .contains(&with_extension)
-            .then_some(with_extension)
+            .contains(candidate)
+            .then(|| candidate.to_owned())
     }
 
     fn unique_named(&self, name: &str) -> Option<String> {
@@ -98,7 +86,7 @@ impl Modules<'_> {
         extraction.flag_symbols(path_flags);
 
         for directive in directives {
-            let target = self.target(&directive.spec, path);
+            let target = self.target(&directive, path);
             extraction
                 .re_exports
                 .iter_mut()
@@ -140,6 +128,22 @@ impl Modules<'_> {
             bindings.extend(aliased(directive, None));
         }
     }
+}
+
+// constraint: the compiler takes an `include` as a path as written, and a `require` as one only where it ends in a
+// file's extension (`src/simulate/fs_file_info.cpp:253`); any other `require` is a module name, each dot a slash
+// (`src/simulate/debug_info.cpp:1009`), which leaves a leading `.` or `..` an empty component under the importer's
+// directory
+#[expect(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "the compiler compares the specifier's last bytes, which matches a file's case"
+)]
+fn relative_file(form: u32, spec: &str, importer_dir: &str) -> Option<String> {
+    if form != REQUIRE_FORM || spec.ends_with(".das") || spec.ends_with(".das_project") {
+        return join(importer_dir, spec);
+    }
+    let module_path = spec.trim_start_matches(['.', '/']).replace('.', "/");
+    join(importer_dir, &format!("{module_path}.das"))
 }
 
 fn module_named(directive: &RawDirective) -> String {
