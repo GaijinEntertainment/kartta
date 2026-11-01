@@ -35,6 +35,59 @@ pub(crate) fn type_qualification(
     )
 }
 
+// constraint: a scoped write sets the constant on the module its path evaluates to, `::B` on `Object` (`compile_cpath`,
+// compile.c:5953, then `setconstant`). What `self::B` or `a::B` sets only a run shows: `self` in a `Struct.new` block
+// is the new class
+/// What a write to the scoped constant `left` defines: the constant's name, then its owner and its qualified name as
+/// [`type_qualification`] gives them. `None` where the path names no constant the source spells, `self::B` or `a::B`.
+pub(crate) fn scoped_constant(
+    left: Node<'_>,
+    source: &[u8],
+) -> Option<(String, Option<String>, String)> {
+    let name = left
+        .child_by_field_name("name")
+        .filter(|name| name.kind() == "constant")?;
+    let name = text(name, source);
+    let Some(scope) = left.child_by_field_name("scope") else {
+        return Some((name.clone(), None, name));
+    };
+    if !is_constant_path(scope) {
+        return None;
+    }
+    let owner = owner_of_path(left, text(scope, source), source);
+    let qualified = format!("{owner}::{name}");
+    Some((name, Some(owner), qualified))
+}
+
+pub(crate) fn is_constant_path(scope: Node<'_>) -> bool {
+    match scope.kind() {
+        "constant" => true,
+        "scope_resolution" => {
+            scope
+                .child_by_field_name("scope")
+                .is_none_or(is_constant_path)
+                && scope
+                    .child_by_field_name("name")
+                    .is_some_and(|name| name.kind() == "constant")
+        }
+        _ => false,
+    }
+}
+
+// constraint: a path's first name is found as `constant_type` finds it, and the rest of it is that module's
+pub(crate) fn owner_of_path(node: Node<'_>, path: String, source: &[u8]) -> String {
+    if let Some(rooted) = path.strip_prefix("::") {
+        return rooted.to_owned();
+    }
+    match path.split_once("::") {
+        Some((first, rest)) => {
+            let first = constant_type(node, first.to_owned(), source);
+            format!("{first}::{rest}")
+        }
+        None => constant_type(node, path, source),
+    }
+}
+
 pub(crate) fn in_singleton_class(node: Node<'_>) -> bool {
     let mut ancestor = node.parent();
     while let Some(parent) = ancestor {
