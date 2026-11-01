@@ -3672,6 +3672,10 @@ fn find_unused_lists_a_method_no_interface_declares_whatever_its_type_is_named()
                      var _ storage.Storage = (*{name})(nil)\n"
                 ),
             ),
+            (
+                "other/o.go",
+                "package other\n\ntype Other struct{}\n\nfunc (*Other) Extra() {}\n",
+            ),
         ]);
         let mut client = Client::start(&[]);
         client.index(tree.path());
@@ -3686,6 +3690,15 @@ fn find_unused_lists_a_method_no_interface_declares_whatever_its_type_is_named()
             !answer.contains(r#"loc="impl/i.go:7""#),
             "it declares Read: {answer}"
         );
+        assert!(
+            answer.contains(r#"qn="storage.Storage.Read""#),
+            "a struct is no second interface that declares Read: {answer}"
+        );
+        assert!(
+            answer.contains(r#"qn="other.Other.Extra""#),
+            "a struct's method counts for no interface: {answer}"
+        );
+        assert!(answer.contains(r#"dispatched="1""#), "{answer}");
     }
 }
 
