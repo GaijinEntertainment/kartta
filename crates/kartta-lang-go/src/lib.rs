@@ -1,7 +1,8 @@
 //! Go for the kartta code graph: the definitions, calls, uses and imports of Go source.
 //!
 //! [`Go`] implements [`Language`] over the `tree-sitter-golang` grammar. It claims every file whose extension is `go`,
-//! in any case.
+//! in any case, unless its name starts with `_` or `.`, which no build of the go command reads: the graph holds no such
+//! file, and the repository's file index does.
 //!
 //! # What a file extracts to
 //!
@@ -58,7 +59,7 @@
 //! prefix of the import, the importing file's own module where several declare that path; an import that matches no
 //! module, or whose
 //! directory holds no files, is external. A resolved import includes every Go file of the package's
-//! directory that is not a test file, except the importing file itself.
+//! directory that is neither a test file nor one it leaves unclaimed, except the importing file itself.
 //!
 //! The resolver keeps only what it derived: the modules, their local replaces, and which of them vendor. A resolver
 //! built again over an edit that changes none of them, such as a `require` bump or a `go.mod` added under `vendor`,
@@ -150,7 +151,7 @@ impl Language for Go {
     }
 
     fn claims(&self, path: &str) -> bool {
-        has_extension(path, &["go"])
+        has_extension(path, &["go"]) && !build::is_skipped(path)
     }
 
     fn fingerprint(&self) -> &[u8] {
