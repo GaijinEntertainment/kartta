@@ -740,6 +740,8 @@ impl<'g> Cascade<'g> {
         let resolved = self.resolve_by_tiers(call).and_then(|(at, confidence)| {
             if self.is_unbound_namespace(at) || !self.constant_receiver_reaches(call, at) {
                 Err(Miss::NotAdmitted)
+            } else if self.writes_on_a_value(call) {
+                Ok((at, confidence::FIRST_PARTY))
             } else {
                 Ok((at, confidence))
             }
@@ -1566,6 +1568,24 @@ impl<'g> Cascade<'g> {
                 .binary_search(&strings.resolve(call.callee))
                 .is_ok()
             && !self.receiver_spells_owner(call, at)
+    }
+
+    /// Whether `call` is an attribute write, by [`Conventions::setter_suffix`], on a receiver that names no type: an
+    /// expression's empty receiver or a name in lower case.
+    fn writes_on_a_value(&self, call: &Call) -> bool {
+        let strings = &self.graph.strings;
+        let is_setter = self.conventions.setter_suffix.is_some_and(|suffix| {
+            let callee = strings.resolve(call.callee);
+            callee.strip_suffix(suffix).is_some_and(|attribute| {
+                attribute.ends_with(|last: char| last.is_alphanumeric() || last == '_')
+            })
+        });
+        is_setter
+            && call.receiver.is_some_and(|receiver| {
+                let written = strings.resolve(receiver);
+                written.is_empty()
+                    || written.starts_with(|first: char| first.is_lowercase() || first == '_')
+            })
     }
 
     /// The confidence of a guess where `call` names a library method on a value and its receiver does not spell

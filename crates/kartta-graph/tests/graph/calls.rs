@@ -3938,6 +3938,66 @@ fn a_member_call_of_a_runtime_method_binds_the_one_callable_whose_owner_its_rece
 }
 
 #[test]
+fn an_attribute_write_on_a_value_binds_by_name_only_as_a_guess() {
+    let mut conventions = Conventions::default();
+    conventions.setter_suffix = Some('=');
+    let calling = |call: CallRef| {
+        let config = vec![
+            member("Config", "level=", SymbolKind::Method, 1),
+            member("Config", "==", SymbolKind::Method, 3),
+            member("Config", "level", SymbolKind::Method, 5),
+            member("Config", "level_=", SymbolKind::Method, 7),
+        ];
+        let files = [
+            file("a/x.rb", vec![function("run", 1)], vec![call]),
+            file("b/y.rb", config, Vec::new()),
+        ];
+        callees(&graph_of(conventions, &files), "run")
+    };
+
+    assert_eq!(
+        calling(member_call(0, "ui", "level=", 2)),
+        ["b/y.rb:1@15"],
+        "a name"
+    );
+    assert_eq!(
+        calling(member_call(0, "", "level=", 2)),
+        ["b/y.rb:1@15"],
+        "an expression's value"
+    );
+    assert_eq!(
+        calling(member_call(0, "_ui", "level=", 2)),
+        ["b/y.rb:1@15"],
+        "a name with a leading underscore"
+    );
+    assert_eq!(
+        calling(member_call(0, "ui", "level_=", 2)),
+        ["b/y.rb:7@15"],
+        "an attribute that ends in an underscore"
+    );
+    assert_eq!(
+        calling(member_call(0, "Config", "level=", 2)),
+        ["b/y.rb:1@85"],
+        "a receiver that names the owner"
+    );
+    assert_eq!(
+        calling(member_call(0, "Settings", "level=", 2)),
+        ["b/y.rb:1@60"],
+        "a receiver that names a type"
+    );
+    assert_eq!(
+        calling(member_call(0, "ui", "level", 2)),
+        ["b/y.rb:5@60"],
+        "a read"
+    );
+    assert_eq!(
+        calling(member_call(0, "ui", "==", 2)),
+        ["b/y.rb:3@60"],
+        "an operator whose name ends in the suffix"
+    );
+}
+
+#[test]
 fn a_method_call_of_a_library_method_on_a_value_binds_the_one_method_of_its_name_only_as_a_guess() {
     let mut conventions = Conventions::default();
     conventions.library_methods = &["start"];
