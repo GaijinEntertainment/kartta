@@ -105,12 +105,13 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    Conventions, DataUses, DocComments, Language, MemberCalls, OwnMembers, RawExtraction,
-    Receivers, Repository, Resolver, TypeUses,
+    BuiltApart, Conventions, DataUses, DocComments, Language, MemberCalls, OwnMembers,
+    RawExtraction, Receivers, Repository, Resolver, Twins, TypeUses,
 };
 
 use crate::resolve::GoResolver;
 
+mod build;
 mod resolve;
 mod walk;
 
@@ -135,6 +136,7 @@ const CONVENTIONS: Conventions = {
     conventions.receivers = Receivers::TypePaths;
     conventions.type_uses = TypeUses::Every;
     conventions.data_uses = DataUses::Every;
+    conventions.twins = Twins::Package(BuiltApart(build::built_apart));
     conventions
 };
 
