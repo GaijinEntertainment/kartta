@@ -25,8 +25,8 @@
 //! receiver `{testRun·job}`, the name PHP compiles a written class to, from the root, `\App\Job`, or `self`, `static` or
 //! `parent`. A qualified scope,
 //! `\App\Logger::log()`, is the receiver `Logger`, the bare name that owns the member. A qualified function call,
-//! `\App\run()`, and a construction, `new \App\User()`, call the last segment of the name. `new self`,
-//! `new static` and `new parent` call nothing. A closure assigned to a variable, `$f = function () {}`, makes the calls
+//! `\App\run()`, and a construction, `new \App\User()`, call the last segment of the name. `new self`, `new static` and
+//! `new parent`, in any case, call nothing. A closure assigned to a variable, `$f = function () {}`, makes the calls
 //! in its body; a closure passed as an argument leaves them to the callable around it. A call before the file's first
 //! symbol records nothing.
 //!
