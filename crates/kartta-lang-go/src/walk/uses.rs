@@ -103,7 +103,7 @@ impl<'a> Emitter<'a> {
         else {
             return;
         };
-        match self.keys_of(&self.literals) {
+        match self.keys_of(&self.ancestors) {
             Keys::Fields(path) if !self.takes_value_keys(&path, (key, keyed.start_byte())) => {
                 let field = (text(key, self.source), Receiver::Path(path), Access::Write);
                 self.push_site(owner, key, field);
