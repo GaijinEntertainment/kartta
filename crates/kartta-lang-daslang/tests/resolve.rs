@@ -518,6 +518,70 @@ fn a_require_no_file_is_named_for_binds_its_module_outside_the_graph() {
     );
 }
 
+#[test]
+fn a_file_path_require_names_the_module_of_its_whole_stem() {
+    let extraction = resolve(
+        &["game/main.das"],
+        "options gen2\nrequire ./x.y.das\nrequire ../a/p.q.das_project\nrequire %/r.s.das\n",
+        "game/main.das",
+    );
+
+    let bound: Vec<_> = (extraction.bindings.iter())
+        .map(|binding| (binding.target_dir.as_deref(), binding.last_segment.as_str()))
+        .collect();
+    assert_eq!(bound, [(None, "x.y"), (None, "p.q"), (None, "r.s")]);
+}
+
+#[test]
+fn a_module_name_require_names_what_follows_its_last_dot() {
+    let extraction = resolve(
+        &["game/main.das"],
+        "options gen2\nrequire daslib.fio\nrequire ./daslib.fio\n",
+        "game/main.das",
+    );
+
+    let bound: Vec<_> = (extraction.bindings.iter())
+        .map(|binding| (binding.target_dir.as_deref(), binding.last_segment.as_str()))
+        .collect();
+    assert_eq!(bound, [(None, "fio"), (None, "fio")]);
+}
+
+#[test]
+fn a_file_of_the_whole_stem_keeps_a_file_path_require_inside_the_graph() {
+    let extraction = resolve(
+        &["game/main.das", "other/x.y.das"],
+        "options gen2\nrequire ./x.y.das\n",
+        "game/main.das",
+    );
+
+    assert_eq!(bound(&extraction), []);
+}
+
+#[test]
+fn a_file_named_for_the_stem_s_last_part_leaves_a_file_path_require_outside_the_graph() {
+    let extraction = resolve(
+        &["game/main.das", "other/y.das"],
+        "options gen2\nrequire ./x.y.das\n",
+        "game/main.das",
+    );
+
+    assert_eq!(bound(&extraction), [(None, None, "x.y")]);
+}
+
+#[test]
+fn a_require_alias_of_a_file_with_a_dotted_stem_keeps_the_whole_stem() {
+    let extraction = resolve(
+        &["game/x.y.das", "game/main.das"],
+        "options gen2\nrequire ./x.y.das as sub\n",
+        "game/main.das",
+    );
+
+    assert_eq!(
+        bound(&extraction),
+        [(Some("sub"), Some("game/x.y.das"), "x.y")]
+    );
+}
+
 type Bound<'e> = (Option<&'e str>, Option<&'e str>, &'e str);
 
 fn bound(extraction: &Extraction) -> Vec<Bound<'_>> {
