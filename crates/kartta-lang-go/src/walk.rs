@@ -114,6 +114,8 @@ struct Emitter<'a> {
     reflected_values: Vec<(String, bool)>,
     /// The fields whose tag makes every serializing library skip them.
     skipped_fields: Vec<SymbolId>,
+    /// The types declared over a func type, whose value types are the func's results.
+    func_types: Vec<SymbolId>,
     file_is_generated: bool,
     is_plugin: bool,
     symbol_count: u32,
@@ -151,6 +153,7 @@ impl<'a> Emitter<'a> {
             anonymous: HashMap::new(),
             reflected_values: Vec::new(),
             skipped_fields: Vec::new(),
+            func_types: Vec::new(),
             file_is_generated: is_generated_source(source),
             is_plugin,
             symbol_count: 0,
@@ -197,10 +200,15 @@ impl<'a> Emitter<'a> {
             let seen = followed
                 .iter()
                 .any(|(held, honors)| held == name && *honors == honors_skip_tags);
-            let Some(declared) = self.package_type_symbol(name).filter(|_| !seen) else {
+            let Some((id, declared)) = self.package_type_symbol(name).filter(|_| !seen) else {
                 continue;
             };
             followed.push((name.to_owned(), honors_skip_tags));
+            // constraint: a serializing library refuses a func value and reads nothing behind it, where `reflect`
+            // reaches the results through `Type.Out` and `Value.Call`
+            if honors_skip_tags && self.func_types.contains(&id) {
+                continue;
+            }
             if declared.kind != SymbolKind::Struct {
                 let named = declared.value_types.iter().cloned();
                 pending.extend(named.map(|path| (path, honors_skip_tags)));
@@ -227,18 +235,16 @@ impl<'a> Emitter<'a> {
     // constraint: an alias and a defined type record the type they name as their value type, which a library reaches
     // through them: a defined type shares the underlying type of the type it names, so it takes those fields, though
     // not the methods
-    fn package_type_symbol(&self, name: &str) -> Option<&Symbol> {
+    fn package_type_symbol(&self, name: &str) -> Option<(SymbolId, &Symbol)> {
         let mut declared = (0..).map(SymbolId).zip(&self.raw.symbols);
-        declared
-            .find(|(id, symbol)| {
-                matches!(
-                    symbol.kind,
-                    SymbolKind::Struct | SymbolKind::TypeAlias | SymbolKind::DefinedType
-                ) && symbol.owner.is_none()
-                    && symbol.name == name
-                    && self.raw.local_symbols.binary_search(id).is_err()
-            })
-            .map(|(_, symbol)| symbol)
+        declared.find(|(id, symbol)| {
+            matches!(
+                symbol.kind,
+                SymbolKind::Struct | SymbolKind::TypeAlias | SymbolKind::DefinedType
+            ) && symbol.owner.is_none()
+                && symbol.name == name
+                && self.raw.local_symbols.binary_search(id).is_err()
+        })
     }
 
     fn walk(&mut self) {
@@ -648,6 +654,9 @@ impl<'a> Emitter<'a> {
         let Some((owner, type_id)) = self.named_type(spec, kind, (parents, value_types)) else {
             return;
         };
+        if type_node.is_some_and(|written| written.kind() == "function_type") {
+            self.func_types.push(type_id);
+        }
 
         if let Some(list) = type_params {
             self.record_uses_in(list, type_id);
