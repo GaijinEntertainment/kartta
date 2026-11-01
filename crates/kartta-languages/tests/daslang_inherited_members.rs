@@ -106,6 +106,213 @@ class Leaf : Root {
 }
 
 #[test]
+fn a_bare_call_in_a_method_binds_the_member_its_class_inherits() {
+    let source = "options gen2
+class Root {
+    def reset() {
+    }
+}
+class Other {
+    def reset() {
+    }
+}
+class Leaf : Root {
+    def tick() {
+        reset()
+    }
+}
+";
+
+    assert_eq!(
+        callees(&[("a.das", source)], "Leaf.tick"),
+        [("Root.reset".to_owned(), 80)],
+    );
+}
+
+#[test]
+fn a_bare_call_in_a_method_binds_the_override_nearest_the_class() {
+    let source = "options gen2
+class Root {
+    def reset() {
+    }
+}
+class Mid : Root {
+    def override reset() {
+    }
+}
+class Leaf : Mid {
+    def tick() {
+        reset()
+    }
+}
+";
+
+    assert_eq!(
+        callees(&[("a.das", source)], "Leaf.tick"),
+        [("Mid.reset".to_owned(), 80)],
+    );
+}
+
+#[test]
+fn a_bare_call_in_a_method_binds_the_class_s_own_member_ahead_of_its_parent_s() {
+    let source = "options gen2
+class Root {
+    def reset() {
+    }
+}
+class Leaf : Root {
+    def override reset() {
+    }
+    def tick() {
+        reset()
+    }
+}
+";
+
+    assert_eq!(
+        callees(&[("a.das", source)], "Leaf.tick"),
+        [("Leaf.reset".to_owned(), 80)],
+    );
+}
+
+#[test]
+fn a_bare_call_in_a_method_binds_a_member_of_a_parent_in_a_required_module() {
+    let leaf = "options gen2
+require base
+class Leaf : base::Root {
+    def tick() {
+        reset()
+    }
+}
+class Other {
+    def reset() {
+    }
+}
+";
+    let base = "options gen2
+module base
+class Root {
+    def reset() {
+    }
+}
+";
+
+    assert_eq!(
+        callees(&[("leaf.das", leaf), ("base.das", base)], "Leaf.tick"),
+        [("base.Root.reset".to_owned(), 70)],
+    );
+}
+
+#[test]
+fn a_bare_call_in_a_method_binds_a_static_member_of_a_parent() {
+    let source = "options gen2
+class Root {
+    def static reset() {
+    }
+}
+class Other {
+    def static reset() {
+    }
+}
+class Leaf : Root {
+    def tick() {
+        reset()
+    }
+}
+";
+
+    assert_eq!(
+        callees(&[("a.das", source)], "Leaf.tick"),
+        [("Root.reset".to_owned(), 80)],
+    );
+}
+
+#[test]
+fn a_global_function_of_the_file_stands_ahead_of_an_inherited_member() {
+    let source = "options gen2
+def reset() {
+}
+class Root {
+    def reset() {
+    }
+}
+class Leaf : Root {
+    def tick() {
+        reset()
+    }
+}
+";
+
+    assert_eq!(
+        callees(&[("a.das", source)], "Leaf.tick"),
+        [("reset".to_owned(), 80)],
+    );
+}
+
+#[test]
+fn a_global_function_of_a_required_module_stands_ahead_of_a_member_of_a_required_parent() {
+    let leaf = "options gen2
+require base
+class Leaf : base::Root {
+    def tick() {
+        reset()
+    }
+}
+";
+    let base = "options gen2
+module base
+def reset() {
+}
+class Root {
+    def reset() {
+    }
+}
+";
+
+    assert_eq!(
+        callees(&[("leaf.das", leaf), ("base.das", base)], "Leaf.tick"),
+        [("base.reset".to_owned(), 70)],
+    );
+}
+
+#[test]
+fn a_global_function_that_cannot_take_the_arguments_leaves_the_call_to_the_member() {
+    let source = "options gen2
+def reset() {
+}
+class Root {
+    def reset(hard : bool) {
+    }
+}
+class Leaf : Root {
+    def tick() {
+        reset(true)
+    }
+}
+";
+
+    assert_eq!(
+        callees(&[("a.das", source)], "Leaf.tick"),
+        [("Root.reset".to_owned(), 80)],
+    );
+}
+
+#[test]
+fn a_bare_call_in_a_plain_function_binds_no_member() {
+    let source = "options gen2
+class Root {
+    def reset() {
+    }
+}
+def tick() {
+    reset()
+}
+";
+
+    assert_eq!(callees(&[("a.das", source)], "tick"), []);
+}
+
+#[test]
 fn a_parent_of_a_required_module_hands_its_members_on() {
     let leaf = "options gen2
 require base

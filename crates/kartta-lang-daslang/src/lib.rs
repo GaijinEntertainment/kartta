@@ -73,7 +73,8 @@
 //! or of that module: the name is otherwise a native function's, of which the tree holds a namesake.
 //!
 //! A class starts as a copy of its parent's fields, and a `def` is a field, so a member call on a class the graph holds
-//! that holds no member of the name binds the one its nearest parent holds.
+//! that holds no member of the name binds the one its nearest parent holds. A bare call in a method binds the same
+//! member once no global function of the name takes it, as the compiler reads such a call on `self`.
 //!
 //! A file with a `test` or `tests` directory in its path, in any case, or whose stem ends in `_test` or starts with
 //! `test_`, is test code. A file whose name holds `.gen.` or `_gen.`, or whose leading comments carry `@generated`,
@@ -105,8 +106,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    BareReceivers, Conventions, DocComments, Language, MacroInvocations, RawExtraction,
-    ReceiverMembers, Repository, Resolver, SymbolKind, TypeUses, ValueUses,
+    BareReceivers, Conventions, DocComments, InheritedMembers, Language, MacroInvocations,
+    RawExtraction, ReceiverMembers, Repository, Resolver, SymbolKind, TypeUses, ValueUses,
 };
 
 use crate::resolve::DaslangResolver;
@@ -130,6 +131,7 @@ impl Daslang {
 const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.bare_receivers = BareReceivers::Modules;
+    conventions.inherited_members = InheritedMembers::Found;
     conventions.macro_invocations = MacroInvocations::Apart;
     conventions.module_seen_everywhere = Some("builtin");
     conventions.value_uses = ValueUses::Expanded;
