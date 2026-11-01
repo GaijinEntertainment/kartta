@@ -314,7 +314,7 @@ boot(2)
             ("Geo::Widget", "each", Some("items")),
             ("Geo::Widget", "items", Some("Geo::Widget.")),
             ("Geo::Widget", "register", Some("Geo::Widget.")),
-            ("Geo::Widget#read", "track", Some(".")),
+            ("Geo::Widget#read", "track", Some("::Geo::Widget.")),
             ("Geo::Widget#read", "class", Some("Geo::Widget")),
             ("Geo", "helper", Some("Geo.")),
             ("", "boot", None),
@@ -355,7 +355,7 @@ fn a_self_receiver_names_the_type_chain_and_a_receiver_on_a_class_ends_in_the_cl
             ("area", Some("Geo::Shape")),
             ("build", Some("Shape.")),
             ("build", Some("::Geo::Shape.")),
-            ("build", Some(".")),
+            ("build", Some("::Geo::Shape.")),
             ("class", Some("Geo::Shape")),
             ("build", Some("")),
             ("class", Some("item")),
@@ -609,7 +609,27 @@ fn self_class_in_the_block_is_no_class_of_an_instance_of_the_owner() {
     );
 
     assert_eq!(sites_of(&raw, "name")[0].1, Some(""));
-    assert_eq!(sites_of(&raw, "outer")[0].1, Some("."));
+    assert_eq!(sites_of(&raw, "outer")[0].1, Some("::Shape."));
+}
+
+#[test]
+fn self_class_in_a_module_s_instance_method_names_no_class() {
+    let raw = extract(
+        b"module Cached\n  def reload\n    self.class.fetch\n  end\n  class Entry\n    def load\n      \
+          self.class.parse\n    end\n  end\nend\n",
+    );
+
+    assert_eq!(sites_of(&raw, "fetch")[0].1, Some("."));
+    assert_eq!(sites_of(&raw, "parse")[0].1, Some("::Cached::Entry."));
+}
+
+#[test]
+fn self_class_in_a_class_written_as_a_path_names_no_class() {
+    let raw = extract(
+        b"class Gem::Cargo < Gem::Builder\n  def flags\n    self.class.split\n  end\nend\n",
+    );
+
+    assert_eq!(sites_of(&raw, "split")[0].1, Some("."));
 }
 
 #[test]

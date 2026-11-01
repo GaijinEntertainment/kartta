@@ -1408,6 +1408,9 @@ impl Cascade<'_> {
         }
         if let Some(rooted) = self.rooted_constant(receiver) {
             let owner = self.graph.strings.get(rooted)?;
+            if self.is_on_the_caller_s_class(call) {
+                return self.member_of_the_caller_s_class(call, owner, candidates);
+            }
             return self.nearest(
                 call,
                 candidates.with_owner(self.graph, owner).iter().copied(),
@@ -1464,6 +1467,27 @@ impl Cascade<'_> {
             return None;
         }
         self.member_above(class, candidates)
+    }
+
+    // constraint: an instance method of a class is no method of the class object, so a class's own method above the
+    // class answers `self.class.generators` where the class itself holds only `def generators`
+    /// The member of the name that the class `owner` holds as its own, else the nearest type above it.
+    fn member_of_the_caller_s_class(
+        &self,
+        call: &Call,
+        owner: Str,
+        candidates: &Candidates<'_>,
+    ) -> Option<SymbolAt> {
+        let classes: Vec<SymbolAt> = (self.qualified_as(owner))
+            .filter(|&at| derives(self.graph.sym(at).kind))
+            .collect();
+        let members = candidates.with_owner(self.graph, owner);
+        let own = (members.iter().copied())
+            .filter(|&at| classes.is_empty() || self.is_of_the_kind(true, at));
+        self.nearest(call, own).or_else(|| {
+            let class = self.nearest_of(call, classes.iter().copied())?;
+            self.member_above(class, candidates)
+        })
     }
 
     // constraint: an interface hands a class only a declaration, which a body any type above the class holds fulfils
