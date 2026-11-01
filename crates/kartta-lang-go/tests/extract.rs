@@ -73,6 +73,13 @@ fn named<'a>(raw: &'a RawExtraction, name: &str) -> &'a Symbol {
         .unwrap_or_else(|| panic!("no symbol {name}"))
 }
 
+fn assertions(raw: &RawExtraction) -> Vec<(&str, &str)> {
+    raw.assertions
+        .iter()
+        .map(|assertion| (assertion.type_name.as_str(), assertion.interface.as_str()))
+        .collect()
+}
+
 fn symbol(raw: &RawExtraction, id: SymbolId) -> &Symbol {
     &raw.symbols[id.0 as usize]
 }
@@ -991,12 +998,14 @@ fn an_alias_is_a_type_alias_and_a_defined_non_struct_type_a_defined_type() {
 }
 
 #[test]
-fn an_embedded_type_and_an_asserted_interface_are_parents() {
+fn an_embedded_type_is_a_parent_and_an_asserted_interface_is_an_assertion() {
     let raw = extract(SAMPLE);
 
+    assert_eq!(qualified(&raw, "sample.Service").parents, ["Base"]);
     assert_eq!(
-        qualified(&raw, "sample.Service").parents,
-        ["Base", "Greeter"]
+        assertions(&raw),
+        [("Service", "Greeter")],
+        "an assertion embeds nothing"
     );
 }
 
@@ -1018,8 +1027,7 @@ var _ I = NewU()
 ",
     );
 
-    assert_eq!(qualified(&raw, "sample.T").parents, ["I"]);
-    assert_eq!(qualified(&raw, "sample.U").parents, [] as [&str; 0]);
+    assert_eq!(assertions(&raw), [("T", "I")]);
 }
 
 #[test]
@@ -1048,7 +1056,7 @@ func alloc(x int64) {
 
     let raw = extract(source);
 
-    assert_eq!(qualified(&raw, "sample.T").parents, ["I"]);
+    assert_eq!(assertions(&raw), [("T", "I")]);
     let callees: Vec<&str> = raw.calls.iter().map(|call| call.callee.as_str()).collect();
     assert!(callees.contains(&"seed"), "callees: {callees:?}");
 }
@@ -1183,13 +1191,8 @@ var _ Codec = (*Box[int])(nil)
 "#,
     );
 
-    let pairs: Vec<(&str, &str)> = raw
-        .assertions
-        .iter()
-        .map(|assertion| (assertion.type_name.as_str(), assertion.interface.as_str()))
-        .collect();
     assert_eq!(
-        pairs,
+        assertions(&raw),
         [
             ("Provider", "Codec"),
             ("pkg.Remote", "Codec"),
@@ -1999,7 +2002,7 @@ var _ Pusher = Stack[int]{}
     assert_eq!(push.qualified_name, "pkg.Stack.Push");
     assert_eq!(named(&raw, "Wrapper").parents, ["Stack"]);
     assert_eq!(named(&raw, "Pusher").parents, ["Stack"]);
-    assert_eq!(named(&raw, "Stack").parents, ["Pusher"]);
+    assert_eq!(assertions(&raw), [("Stack", "Pusher")]);
 }
 
 #[test]
