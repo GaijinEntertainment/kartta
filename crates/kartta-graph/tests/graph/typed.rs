@@ -237,7 +237,7 @@ fn fields_results_and_elements_carry_the_path_to_the_receiver_s_type() {
                 yielding(function("main", "All", 6), &["[]Holder"]),
                 yielding(
                     typed("main", "Factory", SymbolKind::DefinedType, 8),
-                    &["Holder", "error"],
+                    &["()", "Holder", "error"],
                 ),
                 yielding(
                     typed("main", "Holders", SymbolKind::TypeAlias, 9),
@@ -956,7 +956,7 @@ fn a_call_through_a_package_converts_at_a_type_and_calls_at_a_value() {
             member("lib.Result", "Close", SymbolKind::Method, 2),
             yielding(
                 typed("lib", "Func", SymbolKind::DefinedType, 3),
-                &["Result"],
+                &["()", "Result"],
             ),
             member("lib.Func", "Close", SymbolKind::Method, 4),
             yielding(typed("lib", "Held", SymbolKind::Variable, 5), &["Func"]),
