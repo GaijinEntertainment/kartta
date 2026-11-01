@@ -151,6 +151,27 @@ fn a_trait_s_member_overrides_the_parent_s_and_the_class_s_own_overrides_the_tra
     );
 }
 
+#[test]
+fn a_property_of_the_name_leaves_the_parent_s_method() {
+    let source = r"<?php
+namespace App;
+
+class Base {
+    public function size() {}
+}
+
+class Child extends Base {
+    public $size = 3;
+    public function run() { $this->size(); }
+}
+";
+
+    assert_eq!(
+        callees(source, "App\\Child::run"),
+        [("App\\Base::size".to_owned(), 85)]
+    );
+}
+
 const INTERFACE_ABOVE: &str = r"<?php
 namespace App;
 

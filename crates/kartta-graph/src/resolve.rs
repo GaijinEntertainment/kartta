@@ -1502,14 +1502,19 @@ impl<'g> Cascade<'g> {
     // constraint: a type the graph does not hold, from the standard library, the prelude or a crate outside the tree,
     // has no member in the graph, and a module the caller includes is no scope its name is looked up in, so a call
     // through it that no member of the owner binds binds nothing; nor does a call through an owner whose members of
-    // the name lie only in packages the caller's is not built with, as `Vec::new()` beside a crate's own `Vec`
+    // the name lie only in packages the caller's is not built with, as `Vec::new()` beside a crate's own `Vec`; nor
+    // does a call a field answers, since the name tiers would bind the member the field hides
     fn through_the_receiver_s_owner(
         &self,
         call: &Call,
         candidates: &Candidates<'_>,
     ) -> Option<Result<Bound, Miss>> {
         if let Some(at) = self.member_of_the_receiver_s_owner(call, candidates) {
-            return Some(Ok((at, confidence::RECEIVER)));
+            return Some(if self.graph.sym(at).kind == SymbolKind::Field {
+                Err(Miss::NotAdmitted)
+            } else {
+                Ok((at, confidence::RECEIVER))
+            });
         }
         (self.names_a_type_outside_the_graph(call)
             || self.owned_out_of_reach(call, candidates)
