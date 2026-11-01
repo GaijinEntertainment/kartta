@@ -10,7 +10,8 @@
 //! of `self`, a local or a chain names one (ADR 3.55). Python, Ruby, Rust, daslang and PHP list the receivers they
 //! write for a value of the caller's own type in `Conventions::own_type_receivers`, so in each no other value's name is
 //! taken for one of the caller's type, past a guess in PHP. Ruby and Rust list only `other`, since each records its own
-//! receiver as the name of the caller's owner.
+//! receiver as the name of the caller's owner. Quirrel lists `this`, which names the caller's class, and keeps the
+//! caller's owner for every other name.
 
 use kartta_lang::CallRef;
 use kartta_languages::all;
@@ -196,6 +197,10 @@ fn a_member_call_on_a_value_of_the_caller_s_type_records_a_receiver_its_language
         (
             "php",
             "<?php\nclass Pool {\n    function run() { static::drain(); }\n}\n",
+        ),
+        (
+            "quirrel",
+            "class Pool {\n  function run() {\n    this.drain()\n  }\n}\n",
         ),
     ];
 

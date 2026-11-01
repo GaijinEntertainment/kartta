@@ -30,6 +30,11 @@
 //! owner and body, a field of the enclosing class first: a `from` import or a destructured `require` names the module
 //! a name comes from, which the graph does not keep, so a name another module exports binds nothing.
 //!
+//! A `this.f()` starts at the class around the caller, and a call on a name of a class at that class. A member the class
+//! does not hold binds where the nearest class above it holds one, since a class copies its base's members and then
+//! applies its own body over them. `this` in a function value inside a member reads as the member's class, though the
+//! language takes it from whatever calls the value, which the walk does not see.
+//!
 //! # Resolution
 //!
 //! Every `import`, `from ... import`, and `require("spec")` or `require_optional("spec")` with one string literal
@@ -80,7 +85,7 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{
     BlockComment, Conventions, DocComments, IncludedRuntimeMembers, Language, OwnMembers,
-    RawExtraction, Repository, Resolver, UntypedOwners,
+    RawExtraction, ReceiverMembers, Repository, Resolver, UnlistedReceivers, UntypedOwners,
 };
 
 use crate::resolve::QuirrelResolver;
@@ -113,6 +118,9 @@ const CONVENTIONS: Conventions = {
     conventions.included_runtime_members = IncludedRuntimeMembers::SpelledOrOwn;
     conventions.untyped_owners = UntypedOwners::Tables;
     conventions.base_receivers = &["base"];
+    conventions.receiver_members = ReceiverMembers::Inherited;
+    conventions.own_type_receivers = Some(&["this"]);
+    conventions.unlisted_receivers = UnlistedReceivers::OwnMember;
     conventions
 };
 
