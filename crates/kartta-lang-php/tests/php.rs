@@ -685,6 +685,58 @@ function boot() { return new class {}; }
 }
 
 #[test]
+fn an_anonymous_class_is_named_by_the_static_property_it_is_assigned_to() {
+    let raw = extract(
+        br"<?php
+namespace App;
+class Uses {
+    private static $own;
+    private $held;
+    public function anon() {
+        self::$own = new class {
+            public function ran() {}
+        };
+        $this->held = new class {
+            public function run() {}
+        };
+    }
+}
+",
+    );
+
+    assert_eq!(
+        symbol(&raw.symbols, "ran").qualified_name,
+        "App\\{anon\u{b7}own}::ran"
+    );
+    assert_eq!(
+        symbol(&raw.symbols, "run").qualified_name,
+        "App\\{anon\u{b7}held}::run"
+    );
+}
+
+#[test]
+fn an_anonymous_class_is_named_by_a_static_property_of_any_scope() {
+    for (write, name) in [
+        ("static::$x", "{f\u{b7}x}"),
+        ("Own::$x", "{f\u{b7}x}"),
+        ("Other::$x", "{f\u{b7}x}"),
+        ("parent::$x", "{f\u{b7}x}"),
+        ("$c::$x", "{f\u{b7}x}"),
+        ("self::$$x", "{f}"),
+        ("self::${X}", "{f}"),
+    ] {
+        let source =
+            format!("<?php\nclass Own {{\n    function f() {{ {write} = new class {{}}; }}\n}}\n");
+        let raw = extract(source.as_bytes());
+        assert_eq!(
+            symbol(&raw.symbols, name).kind,
+            SymbolKind::Class,
+            "{write}"
+        );
+    }
+}
+
+#[test]
 fn an_anonymous_class_is_constructed_by_the_callable_that_creates_it() {
     let raw = extract(
         b"<?php\nclass Factory {\n    public function make() { return new class {}; }\n}\n",
