@@ -3838,44 +3838,6 @@ fn a_language_that_lists_its_own_type_receivers_binds_the_caller_s_owner_only_on
 }
 
 #[test]
-fn a_language_whose_unlisted_receivers_guess_binds_one_at_the_guess_tier() {
-    let mut conventions = Conventions::default();
-    conventions.own_type_receivers = Some(&["$this"]);
-    conventions.unlisted_receivers = UnlistedReceivers::OwnMemberAsGuess;
-    let calling = |receiver: &str| {
-        let graph = graph_of(
-            conventions,
-            &[
-                file(
-                    "a/x.php",
-                    vec![member("Pool", "run", SymbolKind::Method, 1)],
-                    vec![member_call(0, receiver, "drain", 2)],
-                ),
-                file(
-                    "b/y.php",
-                    vec![member("Pool", "drain", SymbolKind::Method, 1)],
-                    Vec::new(),
-                ),
-                file(
-                    "c/z.php",
-                    vec![member("Queue", "drain", SymbolKind::Method, 1)],
-                    Vec::new(),
-                ),
-            ],
-        );
-        callees(&graph, "Pool::run")
-    };
-
-    assert_eq!(calling("$this"), ["b/y.php:1@80"]);
-    assert_eq!(calling("$conn"), ["b/y.php:1@15"]);
-    assert_eq!(
-        calling("Queue"),
-        ["c/z.php:1@85"],
-        "a receiver that names an owner still binds that owner's member"
-    );
-}
-
-#[test]
 fn a_language_that_guesses_its_own_fields_binds_only_those_at_the_guess_tier() {
     let mut conventions = Conventions::default();
     conventions.own_type_receivers = Some(&["this"]);

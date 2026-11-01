@@ -1,6 +1,5 @@
 //! What a PHP member call binds of the caller's own class: `$this`, `self` and `static` bind its member at the caller's
-//! owner tier, and a variable the walk reads no class of binds it only as a guess. A constant is no call's target
-//! through any of them.
+//! owner tier, and a variable the walk reads no class of binds none. A constant is no call's target through any of them.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -74,9 +73,23 @@ class Suite {
 function outside($o) { $o->{X}(); }
 "#;
 
+const QUEUE: &str = r"<?php
+class Pool { function run($conn) { $conn->drain(); } }
+";
+
+const COPY: &str = r"<?php
+class Pool { function drain() {} }
+";
+
 fn build(source: &str) -> Engine {
+    build_files(&[("Loop.php", source)])
+}
+
+fn build_files(files: &[(&str, &str)]) -> Engine {
     let tree = tempfile::tempdir().expect("a temporary directory");
-    fs::write(tree.path().join("Loop.php"), source).expect("the file is written");
+    for (name, source) in files {
+        fs::write(tree.path().join(name), source).expect("the file is written");
+    }
     let languages = kartta_languages::select(["php"]).expect("the language is known");
     let outcome = Engine::build(tree.path(), &BuildOptions::default(), languages, None)
         .expect("the tree builds");
@@ -139,6 +152,16 @@ fn a_php_constant_in_braces_binds_nothing_through_its_spelling() {
 }
 
 #[test]
+fn a_php_call_on_a_variable_goes_on_to_the_tiers_after_the_caller_s_class() {
+    let engine = build_files(&[("Loop.php", QUEUE), ("Copy.php", COPY)]);
+
+    assert_eq!(
+        callees(&engine, "Pool::run"),
+        [("Pool::drain".to_owned(), confidence::UNIQUE)],
+    );
+}
+
+#[test]
 fn a_php_member_call_binds_the_caller_s_class_by_its_receiver() {
     let engine = build(LOOP);
     let callees = |name| callees(&engine, name);
@@ -157,7 +180,7 @@ fn a_php_member_call_binds_the_caller_s_class_by_its_receiver() {
     );
     assert_eq!(
         callees("App\\Loop::accept"),
-        close(confidence::FIRST_PARTY),
-        "a variable's type is unknown, so its call is a guess at the caller's class"
+        [],
+        "a variable's type is unknown, so its call binds no member of the caller's class"
     );
 }
