@@ -754,6 +754,42 @@ class Suite {
 }
 
 #[test]
+fn an_anonymous_class_is_named_by_the_target_of_a_null_coalescing_assignment_alone() {
+    let raw = extract(
+        br"<?php
+class Suite {
+    public function testRun() {
+        $job ??= new class {};
+        $this->handler ??= (new class {});
+        self::$pool ??= new class {};
+        $this->handler->inner ??= new class {};
+        $late .= new class {};
+        $this->sum += new class {};
+    }
+}
+",
+    );
+
+    let classes: Vec<&str> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.name.starts_with('{'))
+        .map(|symbol| symbol.name.as_str())
+        .collect();
+    assert_eq!(
+        classes,
+        [
+            "{testRun\u{b7}job}",
+            "{testRun\u{b7}handler}",
+            "{testRun\u{b7}pool}",
+            "{testRun\u{b7}inner}",
+            "{testRun}",
+            "{testRun\u{b7}2}",
+        ]
+    );
+}
+
+#[test]
 fn a_parenthesized_closure_bound_to_a_variable_makes_the_calls_in_its_body() {
     let raw = extract(b"<?php\n$f = (function () { bar(); });\n$g = (fn ($x) => baz($x));\n");
 

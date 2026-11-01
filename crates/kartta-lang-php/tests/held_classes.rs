@@ -92,6 +92,8 @@ fn every_write_to_the_variable_ends_the_class() {
         "$v = new $a;",
         "$v .= 'x';",
         "$v ??= new Other;",
+        "$v ??= new class {};",
+        "$v ??= (new class {});",
         "$v = &$a;",
         "$a = &$v;",
         "[$v, $b] = $a;",
@@ -136,6 +138,7 @@ fn a_chain_ends_in_a_new_or_it_holds_no_class() {
     for body in [
         "$w = new Local; $v = $x = $w; $v->m();",
         "$v = $w ??= new Local; $v->m();",
+        "$v = $w ??= new class {}; $v->m();",
         "$v = $w = &$a; $v->m();",
         "$v = $w = $a ? new Local : null; $v->m();",
         "$v = $w = new class {}; $v->m();",

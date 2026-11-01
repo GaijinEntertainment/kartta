@@ -497,7 +497,7 @@ impl<'s> Emitter<'s> {
             leading.push_str(&self.raw.symbols[callable.id.0 as usize].name);
             leading.push_str(JOIN);
         }
-        let target = assignment_target(creation);
+        let target = assignment_target(creation, self.source);
         if let Some(name) = target.and_then(|target| target_name(target, self.source)) {
             leading.push_str(&name);
             leading.push_str(JOIN);
@@ -521,7 +521,9 @@ impl<'s> Emitter<'s> {
             end: class.end_byte(),
             id,
         });
-        if let Some(assignment) = target.and_then(|target| target.parent()) {
+        let assignment = target.and_then(|target| target.parent());
+        if let Some(assignment) = assignment.filter(|write| write.kind() == "assignment_expression")
+        {
             self.hold(assignment, name.clone());
         }
         name
@@ -928,18 +930,12 @@ impl<'s> Emitter<'s> {
         };
         let value = match write.kind() {
             "unset_statement" => return,
-            "assignment_expression" => {
-                let value = write.child_by_field_name("right");
-                if value.is_some_and(creates_an_anonymous_class) {
-                    return;
-                }
-                value
-            }
-            "augmented_assignment_expression" if operator_is(write, b"??=", self.source) => {
-                write.child_by_field_name("right")
-            }
+            _ if stores_its_right_side(write, self.source) => write.child_by_field_name("right"),
             _ => None,
         };
+        if value.is_some_and(creates_an_anonymous_class) {
+            return;
+        }
         let value = value.map(assigned_value);
         if value.is_some_and(|value| value.kind() == "null") {
             return;
@@ -1520,17 +1516,24 @@ fn inside_parentheses(value: Node<'_>) -> Node<'_> {
     inner
 }
 
-fn assignment_target(value: Node<'_>) -> Option<Node<'_>> {
+fn assignment_target<'t>(value: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
     let mut value = value;
     let mut parent = value.parent()?;
     while parent.kind() == "parenthesized_expression" {
         value = parent;
         parent = value.parent()?;
     }
-    (parent.kind() == "assignment_expression")
+    stores_its_right_side(parent, source)
         .then_some(parent)
         .filter(|assignment| assignment.child_by_field_name("right") == Some(value))?
         .child_by_field_name("left")
+}
+
+// constraint: `??=` compiles to `ZEND_COALESCE` around the assignment of `=` (`zend_compile_assign_coalesce`,
+// `Zend/zend_compile.c`), so what it stores is its right side, where another compound assignment stores its result
+fn stores_its_right_side(write: Node<'_>, source: &[u8]) -> bool {
+    write.kind() == "assignment_expression"
+        || write.kind() == "augmented_assignment_expression" && operator_is(write, b"??=", source)
 }
 
 // constraint: a value is assigned to a name where the assignment's target is a variable, `$job`, or a property of any

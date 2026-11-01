@@ -326,9 +326,36 @@ fn an_anonymous_class_written_to_a_property_goes_by_the_name_the_walk_gave_it() 
     for write in [
         "$this->c = new class { public function m() {} };",
         "$this->c = (new class { public function m() {} });",
+        "$this->c ??= new class { public function m() {} };",
+        "$this->c ??= (new class { public function m() {} });",
+        "self::$c ??= new class { public function m() {} };",
     ] {
         let members = in_a_method(write);
         assert_eq!(receiver(&members).as_deref(), Some("{set·c}"), "{write}");
+    }
+}
+
+#[test]
+fn an_anonymous_class_beside_another_class_names_none_through_a_null_coalescing_assignment() {
+    for write in [
+        "$this->c = new Container; $this->c ??= new class {};",
+        "$this->c ??= new class {}; $this->c = new Container;",
+    ] {
+        assert_eq!(receiver(&in_a_method(write)).as_deref(), UNNAMED, "{write}");
+    }
+}
+
+#[test]
+fn a_compound_assignment_of_an_anonymous_class_names_none() {
+    for operator in [
+        ".=", "+=", "-=", "*=", "/=", "%=", "**=", "|=", "&=", "^=", "<<=", ">>=",
+    ] {
+        let write = format!("$this->c {operator} new class {{ public function m() {{}} }};");
+        assert_eq!(
+            receiver(&in_a_method(&write)).as_deref(),
+            UNNAMED,
+            "{write}"
+        );
     }
 }
 
