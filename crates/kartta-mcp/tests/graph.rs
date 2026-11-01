@@ -2757,6 +2757,43 @@ fn find_unused_lists_a_go_field_a_marshal_call_meets_only_through_a_func_type() 
 }
 
 #[test]
+fn find_unused_lists_a_go_field_a_marshal_call_meets_only_through_a_channel() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "b/a.go",
+            "package b\n\nimport \"encoding/json\"\n\ntype S struct {\n\tName string\n}\n\n\
+             func run(h chan S) ([]byte, error) { return json.Marshal(h) }\n",
+        ),
+        (
+            "b/c.go",
+            "package b\n\ntype C struct {\n\tTag string\n}\n\nvar Keep chan C\n",
+        ),
+        (
+            "b/d.go",
+            "package b\n\nimport \"encoding/json\"\n\ntype D struct {\n\tKept string\n}\n\n\
+             func show(d []D) ([]byte, error) { return json.Marshal(d) }\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("find_unused", &json!({})),
+        lines(&[
+            r#"<unused count="5" live="3">"#,
+            r#"<excluded reflected="1"/>"#,
+            r#"<symbol name="Name" qn="b.S.Name" kind="field" lang="go" loc="b/a.go:6"/>"#,
+            r#"<symbol name="run" qn="b.run" kind="function" lang="go" loc="b/a.go:9"/>"#,
+            r#"<symbol name="Tag" qn="b.C.Tag" kind="field" lang="go" loc="b/c.go:4"/>"#,
+            r#"<symbol name="Keep" qn="b.Keep" kind="variable" lang="go" loc="b/c.go:7"/>"#,
+            r#"<symbol name="show" qn="b.show" kind="function" lang="go" loc="b/d.go:9"/>"#,
+            "</unused>",
+        ])
+    );
+}
+
+#[test]
 fn find_unused_counts_the_exports_a_go_plugin_s_host_looks_up_by_name_as_reflected() {
     let tree = tree(&[
         ("go.mod", "module example.com/app\n\ngo 1.22\n"),
