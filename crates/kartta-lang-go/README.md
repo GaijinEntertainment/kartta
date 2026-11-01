@@ -3,7 +3,8 @@
 Go for the kartta code graph: the definitions, calls, uses and imports of Go source.
 
 `Go` implements the `kartta_lang::Language` contract over the `tree-sitter-golang` grammar. It claims every file whose
-extension is `go`, in any case.
+extension is `go`, in any case, unless its name starts with `_` or `.`, which no build of the go command reads: the
+graph holds no such file, and the repository's file index does.
 
 ## What a file extracts to
 
@@ -36,8 +37,9 @@ The resolver reads every `go.mod` outside a `vendor` directory. An import names 
 the `vendor` directory of the module that builds the importing file holds one, that file's own module or, where that
 one holds no `vendor/modules.txt`, the module that replaces it onto its directory, and otherwise the directory under
 the module whose path is its longest prefix, `replace` directives onto local directories included. A resolved import
-includes every Go file of the package that is not a test file, except the importing file itself. A `_test.go` file is
-test code, and a `*.pb.go` file or one with the `// Code generated ... DO NOT EDIT.` banner is generated code.
+includes every Go file of the package that is neither a test file nor one it leaves unclaimed, except the importing
+file itself. A `_test.go` file is test code, and a `*.pb.go` file or one with the `// Code generated ... DO NOT EDIT.`
+banner is generated code.
 
 ## Fingerprint
 

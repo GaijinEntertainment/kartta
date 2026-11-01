@@ -6,6 +6,8 @@ use kartta_lang::{
     Extraction, ImportBinding, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
 
+use crate::build::is_skipped;
+
 #[derive(PartialEq)]
 pub(crate) struct GoResolver {
     modules: Vec<Module>,
@@ -144,9 +146,9 @@ impl GoResolver {
     reason = "the go command builds only the files of a package whose names end in `.go` in lower case"
 )]
 fn includes(files: Vec<String>, path: &str, includes: &mut Vec<IncludeRef>) {
-    let package_files = files
-        .into_iter()
-        .filter(|file| file.ends_with(".go") && !file.ends_with("_test.go") && file != path);
+    let package_files = files.into_iter().filter(|file| {
+        file.ends_with(".go") && !file.ends_with("_test.go") && !is_skipped(file) && file != path
+    });
     includes.extend(package_files.map(|target| IncludeRef { target }));
 }
 

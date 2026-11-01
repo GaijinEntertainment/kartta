@@ -278,6 +278,24 @@ fn a_name_no_build_compiles_with_the_caller_binds_nothing() {
 }
 
 #[test]
+fn a_file_the_go_command_skips_declares_nothing() {
+    let declaring = "package dec\n\nfunc New() {}\n";
+    let reader = "package m\n\nimport \"x/dec\"\n\nfunc run() {\n\tdec.New()\n}\n";
+    let (_tree, engine) = build(&[
+        ("dec/_a.go", declaring),
+        ("dec/.b.go", declaring),
+        ("dec/c.go", declaring),
+        ("m.go", reader),
+    ]);
+
+    assert_eq!(
+        callees(&engine, "m.go", "run"),
+        [pair("dec.New", "dec/c.go")]
+    );
+    assert!(engine.graph_of("dec/_a.go").is_none());
+}
+
+#[test]
 fn the_methods_of_two_types_of_one_package_are_no_declarations_of_one_name() {
     let one = "package dec\n\ntype One struct{}\n\nfunc (One) Set() {}\n";
     let other = "package dec\n\ntype Two struct{}\n\nfunc (Two) Set() {}\n";
