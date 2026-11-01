@@ -5,12 +5,12 @@ use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
     BareReceivers, CallsOnValues, InheritedMembers, MemberCalls, ReceiverMembers, SymbolKind,
-    UnlistedReceivers, UntypedOwners,
+    UnlistedReceivers, UntypedOwners, ValueUses,
 };
 
 use crate::candidates::Candidates;
 use crate::confidence;
-use crate::graph::{QUALIFIER_SEPARATORS, agree, distinct, last_segment};
+use crate::graph::{QUALIFIER_SEPARATORS, agree, distinct, last_segment, tails};
 use crate::resolution::Miss;
 use crate::resolve::{Bound, Call, Cascade, derived, derives};
 use crate::stored::{SymbolAt, VALUE_TYPE_SEPARATOR};
@@ -20,6 +20,9 @@ use crate::twins::{Twin, kept};
 /// The distance [`Cascade::distance_from`] gives a definition in a file that the file it measures from neither is,
 /// includes nor shares a directory with.
 const FAR: u8 = 3;
+
+/// The distance [`Cascade::distance_from`] gives a definition in a file that the file it measures from includes.
+const IMPORTED: u8 = 1;
 
 /// What a set of candidates offers a call: no target its shape admits, one, or several on different owners.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1455,6 +1458,9 @@ impl Cascade<'_> {
         self.class_in_the_caller_s_scope(call, receiver)
             .or_else(|| {
                 let located = self.located_types(receiver, call.file, |_| true);
+                if self.past_the_imports(call.file, &located) {
+                    return None;
+                }
                 self.nearest_of(call, located.into_iter())
             })
     }
@@ -1597,7 +1603,15 @@ impl Cascade<'_> {
         let mut parents: Vec<SymbolAt> = level
             .iter()
             .flat_map(|&ty| {
-                (self.declared_bases(ty).into_iter())
+                let parents = self.graph.file(ty.file).parents_of(ty.index).iter();
+                parents
+                    .filter_map(move |parent| {
+                        Some(DeclaredBase {
+                            owner: self.parent_name(ty, parent.written)?,
+                            written: parent.written,
+                            written_from_root: parent.written_from_root,
+                        })
+                    })
                     .flat_map(move |base| self.base_types(base, ty, admitted))
             })
             .collect();
@@ -1605,13 +1619,53 @@ impl Cascade<'_> {
         parents
     }
 
+    // constraint: a parent is often a class of another module, which no scope around the child spells, so the walk
+    // reads it by its last name, as `Base` for `b.Base`, and the file's imports tell the namesakes of that name apart
+    /// The last name of the parent `ty` writes as `written`, which a type of the graph can hold: `None` where the name
+    /// the parent starts with comes from outside the repository.
+    fn parent_name(&self, ty: SymbolAt, written: Str) -> Option<Str> {
+        let strings = &self.graph.strings;
+        let written = strings.resolve(written);
+        let head = written
+            .split(QUALIFIER_SEPARATORS)
+            .next()
+            .unwrap_or(written);
+        if self.conventions.value_uses == ValueUses::Imported
+            && strings
+                .get(head)
+                .is_some_and(|head| self.binding(ty.file, head) == Some(None))
+        {
+            return None;
+        }
+        strings.get(last_segment(written))
+    }
+
+    // constraint: a module sees another file's class only through an import, so a class of the name in its directory
+    // that it does not import is a namesake, not the name it writes
+    /// Whether `located`, the types of one name nearest `file`, lie past what `file` imports, where the language
+    /// imports what a module uses.
+    fn past_the_imports(&self, file: u32, located: &[SymbolAt]) -> bool {
+        self.conventions.value_uses == ValueUses::Imported
+            && located
+                .first()
+                .is_some_and(|&ty| self.distance_from(file)(ty) > IMPORTED)
+    }
+
+    // constraint: a member's owner is the chain of classes inside its file, which a qualified name runs past into the
+    // module, so the owner is a tail of the type's qualified name, and the body tells a namesake's members apart
     /// The candidate that `ty` itself holds.
     fn held_by(&self, ty: SymbolAt, candidates: &Candidates<'_>) -> Option<SymbolAt> {
-        (candidates
-            .with_owner(self.graph, self.member_owner(ty))
-            .iter())
-        .copied()
-        .find(|&at| self.class_of(at) == Some(ty))
+        let strings = &self.graph.strings;
+        let qualified = strings.resolve(self.graph.sym(ty).qualified_name);
+        let body = self.body(ty);
+        std::iter::once(qualified)
+            .chain(tails(qualified))
+            .filter_map(|owner| strings.get(owner))
+            .find_map(|owner| {
+                (candidates.with_owner(self.graph, owner).iter())
+                    .copied()
+                    .find(|&at| body.contains(at.file, self.graph.sym(at).line))
+            })
     }
 
     // constraint: a class is never its own base, so a base that shares the class's name, Quirrel's `class
@@ -1633,6 +1687,9 @@ impl Cascade<'_> {
             return located;
         }
         let mut located = self.located_types(base.owner, child.file, admits);
+        if self.past_the_imports(child.file, &located) {
+            return Vec::new();
+        }
         if located
             .first()
             .is_some_and(|&ty| self.distance_from(child.file)(ty) == FAR)
