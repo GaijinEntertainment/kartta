@@ -237,6 +237,7 @@ lost, and what would reopen it.
 - [3.191 Record the items a Rust macro of the file names by a metavariable](/design-docs/adr/3.191-rust-macro-items.md)
 - [3.196 Record a Ruby attribute write as a call of its setter](/design-docs/adr/3.196-ruby-attribute-writes.md)
 - [3.197 Read a bare daslang call in a method as a call on self](/design-docs/adr/3.197-daslang-bare-method-calls.md)
+- [3.198 Read the class a Quirrel field of `this` holds from the writes its owner's body makes](/design-docs/adr/3.198-quirrel-field-receivers.md)
 
 ## crates/kartta-languages
 
