@@ -173,10 +173,7 @@ impl Emitter<'_> {
             }
             "scoped_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
-                let class = node.child_by_field_name("scope");
-                let receiver = class
-                    .and_then(|class| self.aliased_class(class))
-                    .or(receiver);
+                let receiver = self.class_from_the_root(node).or(receiver);
                 let receiver = self.held_receiver(receiver, start);
                 self.call(callee, receiver, node);
             }
@@ -381,6 +378,16 @@ impl Emitter<'_> {
         }
         let import = self.import(&self.source[name.byte_range()])?;
         (!import.names.is_empty()).then(|| format!("\\{}", imported_class(import)))
+    }
+
+    // constraint: a qualified scope names the class from the root as an alias does, so a namesake of its last name
+    // never answers it
+    fn class_from_the_root(&self, call: Node<'_>) -> Option<String> {
+        let scope = call.child_by_field_name("scope")?;
+        match scope.kind() {
+            "qualified_name" | "relative_name" => Some(format!("\\{}", self.class_name(scope))),
+            _ => self.aliased_class(scope),
+        }
     }
 
     // constraint: a class takes its `extends` and `implements` names as parents, and an interface its `extends` names,
@@ -947,9 +954,9 @@ fn declared(name: String, qualified: String, kind: SymbolKind, node: Node<'_>) -
 }
 
 // constraint: a member call names the receiver only by a variable and a scoped call only by a leaf scope, a class
-// name, `self`, `parent`, `static` or a variable; a chained or computed one is the empty receiver. A qualified name,
-// of a function or of a scope, reduces to its last segment, the bare name that owns a member. PHP reads a keyword in
-// any case, and the graph's lists hold it in lower case.
+// name, `self`, `parent`, `static` or a variable; a chained or computed one is the empty receiver, as a qualified scope
+// is here, whose class the emitter reads through the file's imports. A qualified function name reduces to its last
+// segment. PHP reads a keyword in any case, and the graph's lists hold it in lower case.
 fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
     let (receiver, leaves): (&str, &[&str]) = match node.kind() {
         "function_call_expression" => {
@@ -965,16 +972,7 @@ fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
         "member_call_expression" | "nullsafe_member_call_expression" => {
             ("object", &["variable_name"])
         }
-        "scoped_call_expression" => (
-            "scope",
-            &[
-                "name",
-                "qualified_name",
-                "relative_name",
-                "relative_scope",
-                "variable_name",
-            ],
-        ),
+        "scoped_call_expression" => ("scope", &["name", "relative_scope", "variable_name"]),
         _ => return (String::new(), None),
     };
 
@@ -985,9 +983,6 @@ fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
         .child_by_field_name(receiver)
         .map(|receiver| match receiver.kind() {
             kind if !leaves.contains(&kind) => String::new(),
-            "qualified_name" | "relative_name" => {
-                last_segment(receiver, source).unwrap_or_default()
-            }
             "relative_scope" => {
                 let mut keyword = text(receiver, source);
                 keyword.make_ascii_lowercase();

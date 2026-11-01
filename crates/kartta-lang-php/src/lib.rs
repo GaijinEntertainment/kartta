@@ -23,8 +23,8 @@
 //! `self` or `parent`, and the empty receiver where that is an expression, `$this->pool->get()`. A call on a variable
 //! that still holds what a `new` assigned it records the class: the anonymous class's name, `$job->handle()` the
 //! receiver `{testRun·job}`, the name PHP compiles a written class to, from the root, `\App\Job`, or `self`, `static` or
-//! `parent`. A qualified scope,
-//! `\App\Logger::log()`, is the receiver `Logger`, the bare name that owns the member. A qualified function call,
+//! `parent`. A qualified scope is the name PHP compiles it to, from the root: `Sub\Logger::log()` in the namespace
+//! `App` is the receiver `\App\Sub\Logger`. A qualified function call,
 //! `\App\run()`, and a construction, `new \App\User()`, call the last segment of the name. A construction of the alias
 //! of a `use` calls `__construct` with the class's name from the root as its receiver, `\App\Model` for `new Eloquent`
 //! after `use App\Model as Eloquent;`. `new self`, `new static` and `new parent`, in any case, call nothing. A closure
