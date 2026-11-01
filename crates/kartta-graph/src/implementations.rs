@@ -436,8 +436,9 @@ impl Types<'_> {
         }
     }
 
-    // constraint: an assertion names its implementing type as the file writes it, and a name that selects several
-    // types, as an external test package shadowing its own package's type does, names none
+    // constraint: an assertion names its implementing type as the file writes it: a type the file declares is the one
+    // a bare name means, and any other name that selects several types, as an external test package shadowing its own
+    // package's type does, names none
     fn asserted_type(&self, file: u32, type_name: Str) -> Option<SymbolAt> {
         let written = self
             .graph
@@ -452,6 +453,11 @@ impl Types<'_> {
             .copied()
             .filter(|&at| self.graph.sym(at).kind.is_type())
             .collect();
+        if name == type_name
+            && let Some(&own) = types.iter().find(|at| at.file == file)
+        {
+            return Some(own);
+        }
         match self.file_named_by(
             file,
             type_name,

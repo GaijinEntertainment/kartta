@@ -3079,6 +3079,127 @@ fn find_callees_binds_a_call_through_a_field_embedded_beside_an_import() {
     }
 }
 
+#[test]
+fn find_callees_takes_no_member_from_an_interface_a_file_asserts() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module example.com/a\n\ngo 1.22\n"),
+        (
+            "a.go",
+            "package a\n\ntype I interface{ M() }\n\ntype Deep struct{}\n\nfunc (Deep) M() {}\n\n\
+             type Mid struct{ Deep }\n\ntype T struct{ Mid }\n\nvar _ I = (*T)(nil)\n\n\
+             func run(t T) { t.M() }\n\ntype U struct{ Mid }\n\nfunc ctl(u U) { u.M() }\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    for caller in ["run", "ctl"] {
+        let answer = client.answer("find_callees", &json!({"name": caller}));
+
+        assert!(
+            answer.contains(r#"count="1""#) && answer.contains("a.Deep.M"),
+            "{caller} binds the method Go selects: {answer}"
+        );
+    }
+}
+
+#[test]
+fn a_selector_reads_no_embedded_field_from_an_interface_a_file_asserts() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module m\n\ngo 1.22\n"),
+        ("base/b.go", "package base\n\ntype Named interface{ M() }\n"),
+        (
+            "a/a.go",
+            "package a\n\nimport \"m/base\"\n\n\
+             type Mid struct{ Named string }\n\ntype T struct{ Mid }\n\n\
+             func (T) M() {}\n\nvar _ base.Named = T{}\n\n\
+             func read(t T) string { return t.Named }\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let field = client.answer("find_references", &json!({"name": "a.Mid.Named"}));
+    let interface = client.answer("find_references", &json!({"name": "base.Named"}));
+
+    assert!(
+        field.contains("a.read"),
+        "the promoted field answers the read: {field}"
+    );
+    assert!(
+        !interface.contains("a.read"),
+        "an assertion names no field: {interface}"
+    );
+}
+
+#[test]
+fn coverage_reads_no_import_from_an_interface_a_file_asserts() {
+    let answer = go_coverage(
+        "package a\n\nimport \"io\"\n\ntype T struct{}\n\nvar _ io.Closer = T{}\n\n\
+         func run(v T) { v.Close() }\n",
+    );
+
+    assert!(
+        !answer.contains("external_import"),
+        "an assertion embeds no imported type: {answer}"
+    );
+}
+
+#[test]
+fn find_implementations_keeps_a_type_asserted_where_it_is_declared_beside_a_namesake() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module m\n\ngo 1.22\n"),
+        (
+            "a/a.go",
+            "package a\n\ntype I interface{ M() }\n\ntype T struct{}\n\nfunc (T) M() {}\n",
+        ),
+        (
+            "a/a_test.go",
+            "package a_test\n\nimport \"m/a\"\n\ntype T struct{}\n\nfunc (T) M() {}\n\nvar _ a.I = T{}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_implementations", &json!({"name": "a.I"}));
+
+    assert!(
+        answer.contains("a/a_test.go") && !answer.contains("a/a.go\""),
+        "the asserting file's own type implements the interface: {answer}"
+    );
+}
+
+#[test]
+fn find_unused_counts_a_method_of_an_interface_outside_the_graph_its_file_asserts_as_dispatched() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module m\n\ngo 1.22\n"),
+        (
+            "a.go",
+            "package a\n\nimport \"net/http\"\n\ntype handler struct{}\n\n\
+             func (*handler) ServeHTTP(http.ResponseWriter, *http.Request) {}\n\n\
+             var _ http.Handler = (*handler)(nil)\n\n\
+             type other struct{}\n\nfunc (*other) stale() {}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_unused", &json!({}));
+
+    assert!(
+        !answer.contains("ServeHTTP") && answer.contains(r#"dispatched="1""#),
+        "the assertion says what dispatches the method: {answer}"
+    );
+    assert!(
+        answer.contains("stale"),
+        "it says nothing of the file's other types: {answer}"
+    );
+}
+
 fn embedded_field_named_like_a_promoted_member() -> tempfile::TempDir {
     tree(&[
         (".git/HEAD", "ref: refs/heads/main\n"),

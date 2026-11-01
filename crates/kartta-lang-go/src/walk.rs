@@ -33,7 +33,6 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let mut emitter = Emitter::new((source, root), package, package_values(tree, source));
 
     emitter.walk();
-    emitter.apply_pending_parents();
     emitter.mark_reflected_fields();
     emitter.raw
 }
@@ -108,7 +107,6 @@ struct Emitter<'a> {
     /// the call that holds them.
     type_operands: Vec<usize>,
     import_names: Vec<String>,
-    pending_parents: Vec<(String, String)>,
     /// The symbol that owns the fields of each anonymous struct, by the struct's node.
     anonymous: HashMap<usize, SymbolId>,
     /// The type paths of the values that a call which marshals, unmarshals or reflects on them receives, each with
@@ -152,7 +150,6 @@ impl<'a> Emitter<'a> {
             literal_key: None,
             type_operands: Vec::new(),
             import_names: Vec::new(),
-            pending_parents: Vec::new(),
             anonymous: HashMap::new(),
             reflected_values: Vec::new(),
             skipped_fields: Vec::new(),
@@ -161,31 +158,6 @@ impl<'a> Emitter<'a> {
             is_plugin,
             symbol_count: 0,
             raw,
-        }
-    }
-
-    // constraint: an assertion may precede the type it names, so the pairs wait for the end of the walk; a pair whose
-    // type the file does not declare goes out as an assertion, for the graph to apply where it sees the whole package
-    fn apply_pending_parents(&mut self) {
-        for (type_name, interface) in std::mem::take(&mut self.pending_parents) {
-            let declared = self.raw.symbols.iter_mut().find(|symbol| {
-                symbol.name == type_name
-                    && matches!(
-                        symbol.kind,
-                        SymbolKind::Struct
-                            | SymbolKind::Interface
-                            | SymbolKind::TypeAlias
-                            | SymbolKind::DefinedType
-                    )
-            });
-            match declared {
-                Some(symbol) if symbol.parents.contains(&interface) => {}
-                Some(symbol) => symbol.parents.push(interface),
-                None => self.raw.assertions.push(ImplementsAssertion {
-                    type_name,
-                    interface,
-                }),
-            }
         }
     }
 
@@ -870,8 +842,10 @@ impl<'a> Emitter<'a> {
             return;
         };
 
-        self.pending_parents
-            .push((type_name, text(iface_node, self.source)));
+        self.raw.assertions.push(ImplementsAssertion {
+            type_name,
+            interface: text(iface_node, self.source),
+        });
     }
 }
 
