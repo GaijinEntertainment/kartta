@@ -35,7 +35,8 @@ A `require_relative` resolves from the requiring file's directory, and a `requir
 `test`, `spec` and `app` that holds it. A required file of the repository is an include, and any other require an
 import as written; a require whose string holds an interpolation or an escape names nothing. A file under a `lib`
 directory belongs to the library the directory above its outermost `lib` roots, a gem or a vendored copy of the
-standard library, so a call on an owner binds the owner of its own copy first. A `*_test.rb` or
+standard library, and a file under no `lib` to the library above its outermost `test`, `spec` or `app` directory, so a
+call on an owner binds the owner of its own copy first. A `*_test.rb` or
 `*_spec.rb` file, or one under `test`, `tests` or `spec` in any case, is test code; a `*_pb.rb` file, or one whose
 leading comments carry `@generated`, `DO NOT EDIT` or `This file is auto-generated`, is generated code.
 
