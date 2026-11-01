@@ -266,6 +266,10 @@ pub struct Conventions {
     /// holds, else the one the nearest class above that base holds, and nothing where the graph holds neither, so never
     /// a member of the caller's own class. Empty where a language writes none.
     pub base_receivers: &'static [&'static str],
+    /// The method a construction runs where a class declares it under one name, as PHP's `__construct`. A call of it on
+    /// a receiver written from the root binds what that class's table holds, and nothing where the table holds none, so
+    /// never another class's. `None` where a language has no such name.
+    pub constructor: Option<&'static str>,
     /// What a member call on a class the graph holds reaches of the types above that class.
     pub receiver_members: ReceiverMembers,
     /// Where the language records a use of a type.
@@ -317,6 +321,7 @@ impl Conventions {
         own_type_receivers: None,
         unlisted_receivers: UnlistedReceivers::NoOwnMember,
         base_receivers: &[],
+        constructor: None,
         receiver_members: ReceiverMembers::Declared,
         type_uses: TypeUses::Partial,
         data_uses: DataUses::Partial,

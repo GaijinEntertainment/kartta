@@ -1119,7 +1119,7 @@ impl Cascade<'_> {
         )
     }
 
-    fn named_receiver(&self, call: &Call) -> Option<Str> {
+    pub(crate) fn named_receiver(&self, call: &Call) -> Option<Str> {
         call.receiver
             .filter(|&receiver| !self.graph.strings.resolve(receiver).is_empty())
     }

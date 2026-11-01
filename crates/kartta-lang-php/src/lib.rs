@@ -115,6 +115,7 @@ const CONVENTIONS: Conventions = {
     conventions.unrecorded_data = &[SymbolKind::Field, SymbolKind::Constant];
     conventions.bare_receivers = BareReceivers::Classes(&["parent", "self", "static"]);
     conventions.base_receivers = &["parent"];
+    conventions.constructor = Some(walk::CONSTRUCTOR);
     conventions.parent_spelling = ParentSpelling::FromRoot;
     conventions.receiver_members = ReceiverMembers::Inherited;
     conventions.own_type_receivers = Some(&["$this", "self", "static"]);
