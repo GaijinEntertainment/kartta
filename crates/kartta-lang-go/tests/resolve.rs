@@ -271,6 +271,7 @@ fn imports_become_bindings_and_package_includes() {
         ("lib/cache/cache.go", ""),
         ("lib/cache/keys.go", ""),
         ("lib/cache/cache_test.go", ""),
+        ("lib/cache/_skipped.go", ""),
         ("lib/util/util.go", ""),
         ("main.go", ""),
     ]);

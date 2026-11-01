@@ -143,6 +143,17 @@ fn go_claims_files_with_the_go_extension_in_any_case() {
 }
 
 #[test]
+fn go_claims_no_file_whose_name_the_go_command_skips() {
+    let go = Go::new();
+
+    assert!(!go.claims("lua/_state.go"));
+    assert!(!go.claims("lua/.state.go"));
+    assert!(!go.claims("_state.go"));
+    assert!(go.claims("_lua/state.go"));
+    assert!(go.claims("lua/state_.go"));
+}
+
+#[test]
 fn a_bare_call_never_reaches_a_member_and_a_value_is_callable() {
     let conventions = Go::new().conventions();
 

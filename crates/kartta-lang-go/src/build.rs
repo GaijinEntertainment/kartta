@@ -58,11 +58,22 @@ fn is_architecture(segment: &str) -> bool {
     ARCHITECTURES.contains(&segment)
 }
 
+fn file_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+// constraint: go/build's `matchFile` drops such a name before it reads a constraint, even for a file the command line
+// names
+/// Whether no build reads the file at `path`, whose name starts with `_` or `.`.
+pub(crate) fn is_skipped(path: &str) -> bool {
+    file_name(path).starts_with(['_', '.'])
+}
+
 // constraint: as go/build's `goodOSArchFile`: the name up to its first `.`, past its first `_`, less a last `_test`,
 // ends in `_$GOOS_$GOARCH`, `_$GOOS` or `_$GOARCH`
 /// The operating system and the architecture that the name of the file at `path` constrains it to.
 fn constrained_to(path: &str) -> (Option<&str>, Option<&str>) {
-    let name = path.rsplit('/').next().unwrap_or(path);
+    let name = file_name(path);
     let stem = name.split('.').next().unwrap_or(name);
     let Some((_, constrained)) = stem.split_once('_') else {
         return (None, None);
