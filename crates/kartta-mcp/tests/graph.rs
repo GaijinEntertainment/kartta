@@ -3752,6 +3752,39 @@ fn find_unused_counts_a_method_asserted_on_a_generic_interface_or_through_a_plai
     }
 }
 
+#[test]
+fn find_unused_counts_the_method_each_value_of_a_blank_spec_asserts() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module a\n\ngo 1.24\n"),
+        (
+            "a.go",
+            "package a\n\nimport \"example.com/ext\"\n\n\
+             type A struct{}\n\nfunc (A) Put() {}\n\n\
+             type B struct{}\n\nfunc (B) Take() {}\n\n\
+             var _, _ ext.Pair = A{}, B{}\n\n\
+             type C struct{}\n\nfunc (C) Hold() {}\n\n\
+             type D struct{}\n\nfunc (D) Keep() {}\n\n\
+             var kept, _ ext.Named = C{}, D{}\n\n\
+             type E struct{}\n\nfunc (E) Plain() {}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_unused", &json!({"languages": ["go"]}));
+
+    for asserted in ["a.A.Put", "a.B.Take", "a.D.Keep"] {
+        assert!(!answer.contains(asserted), "{asserted}: {answer}");
+    }
+    for unread in ["a.C.Hold", "a.E.Plain"] {
+        assert!(
+            answer.contains(unread),
+            "{unread}: a value given to a named variable asserts nothing: {answer}"
+        );
+    }
+}
+
 const GO_HANDLER: &str = "package a\n\nimport \"example.com/lib\"\n\ntype handler struct{}\n\n\
      func (*handler) Serve() {}\n";
 

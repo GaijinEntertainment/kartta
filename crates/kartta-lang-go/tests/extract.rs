@@ -1311,6 +1311,27 @@ fn an_assertion_through_a_call_of_other_than_one_argument_names_none() {
 }
 
 #[test]
+fn a_blank_name_asserts_the_value_at_its_own_position() {
+    type Asserted = &'static [(&'static str, &'static str)];
+    let shapes: [(&str, Asserted); 7] = [
+        ("_, _ I = A{}, B{}", &[("A", "I"), ("B", "I")]),
+        ("_, _ I = pair(), B{}", &[("B", "I")]),
+        ("_, _ I = A{}, /* second */ B{}", &[("A", "I"), ("B", "I")]),
+        ("_, kept I = A{}, B{}", &[("A", "I")]),
+        ("kept, _ I = A{}, B{}", &[("B", "I")]),
+        ("_, _ I = pair(T{})", &[]),
+        ("_, kept I = pair(T{})", &[]),
+    ];
+
+    for (spec, expected) in shapes {
+        let source = format!("package sample\n\nvar {spec}\n");
+        let raw = extract(source.as_bytes());
+
+        assert_eq!(assertions(&raw), expected, "{spec}");
+    }
+}
+
+#[test]
 fn struct_fields_are_field_symbols_and_an_embedded_type_is_none() {
     let raw = extract(SAMPLE);
 
