@@ -440,19 +440,7 @@ impl Types<'_> {
     // a bare name means, and any other name that selects several types, as an external test package shadowing its own
     // package's type does, names none
     fn asserted_type(&self, file: u32, type_name: Str) -> Option<SymbolAt> {
-        let written = self
-            .graph
-            .strings
-            .resolve(type_name)
-            .trim_start_matches(QUALIFIER_SEPARATORS);
-        let name = self.graph.strings.get(last_segment(written))?;
-        let types: Vec<SymbolAt> = self
-            .graph
-            .named(name)
-            .iter()
-            .copied()
-            .filter(|&at| self.graph.sym(at).kind.is_type())
-            .collect();
+        let (name, types) = self.of_last_segment(type_name)?;
         if name == type_name
             && let Some(&own) = types.iter().find(|at| at.file == file)
         {
@@ -470,6 +458,38 @@ impl Types<'_> {
             [found] => Some(found),
             _ => None,
         }
+    }
+
+    /// The types `written` names from `file`, read as a parent that file writes.
+    pub(crate) fn named_in_file(&self, file: u32, written: Str) -> Vec<SymbolAt> {
+        self.of_last_segment(written)
+            .map_or_else(Vec::new, |(name, types)| {
+                self.file_named_by(
+                    file,
+                    written,
+                    Namesakes {
+                        name,
+                        types: &types,
+                    },
+                )
+            })
+    }
+
+    fn of_last_segment(&self, written: Str) -> Option<(Str, Vec<SymbolAt>)> {
+        let written = self
+            .graph
+            .strings
+            .resolve(written)
+            .trim_start_matches(QUALIFIER_SEPARATORS);
+        let name = self.graph.strings.get(last_segment(written))?;
+        let types = self
+            .graph
+            .named(name)
+            .iter()
+            .copied()
+            .filter(|&at| self.graph.sym(at).kind.is_type())
+            .collect();
+        Some((name, types))
     }
 
     fn in_packages(&self, file: u32, written: &str, asked: Namesakes<'_>) -> Vec<SymbolAt> {
