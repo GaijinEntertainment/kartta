@@ -1252,6 +1252,72 @@ fn an_anonymous_class_goes_by_the_name_that_binds_it() {
 }
 
 #[test]
+fn a_class_expression_a_member_write_or_a_property_binds_goes_by_the_name_there() {
+    let extraction = extracted(
+        "src/kinds.ts",
+        r#"ns.Box = class extends Base {
+  size = this.measure();
+  copy = this.size;
+  measure() { return this.size; }
+};
+const table = {
+  K: class { value = 1; },
+  "quoted": class { run() {} },
+};
+ns.Picked = class Chosen { pick() {} };
+ns[key] = class { computed() {} };
+target = class { assigned() {} };
+const spread = { [key]: class { spreaded() {} } };
+"#,
+    );
+
+    let owned: Vec<(&str, Option<&str>, SymbolKind)> = (extraction.symbols.iter())
+        .map(|symbol| {
+            (
+                symbol.qualified_name.as_str(),
+                symbol.owner.as_deref(),
+                symbol.kind,
+            )
+        })
+        .collect();
+    assert_eq!(
+        owned,
+        [
+            ("Box", None, SymbolKind::Class),
+            ("Box.size", Some("Box"), SymbolKind::Field),
+            ("Box.copy", Some("Box"), SymbolKind::Field),
+            ("Box.measure", Some("Box"), SymbolKind::Method),
+            ("table", None, SymbolKind::Constant),
+            ("K", None, SymbolKind::Class),
+            ("K.value", Some("K"), SymbolKind::Field),
+            ("quoted", None, SymbolKind::Class),
+            ("quoted.run", Some("quoted"), SymbolKind::Method),
+            ("Chosen", None, SymbolKind::Class),
+            ("Chosen.pick", Some("Chosen"), SymbolKind::Method),
+            ("computed", None, SymbolKind::Function),
+            ("assigned", None, SymbolKind::Function),
+            ("spread", None, SymbolKind::Constant),
+            ("spreaded", None, SymbolKind::Function),
+        ]
+    );
+    assert_eq!(extraction.symbols[0].parents, ["Base"]);
+    assert_eq!(calls(&extraction), [("measure", Some("Box"))]);
+    let reads: Vec<(&str, &Receiver)> = (extraction.uses.iter())
+        .map(|site| {
+            let site_of = extraction.symbols[site.site_of.0 as usize].name.as_str();
+            (site_of, &site.receiver)
+        })
+        .collect();
+    assert_eq!(
+        reads,
+        [
+            ("Box", &Receiver::Path("Box".to_owned())),
+            ("measure", &Receiver::Own),
+        ]
+    );
+}
+
+#[test]
 fn a_construction_and_a_tag_on_a_declared_value_name_no_type() {
     let extraction = extracted(
         "src/f.tsx",

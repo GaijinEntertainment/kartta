@@ -12,9 +12,9 @@
 //!   `namespace A { export const limit = 1 }` is `A.limit`. A body never owns members, a class's static block
 //!   included, so a class declared inside a function starts a new chain. A class with no name goes by the name that
 //!   binds it, as JavaScript names it: `default` for an anonymous `export default class`, `Box` for
-//!   `const Box = class {}`, `A.Box` inside `namespace A`; the methods of one that nothing names are free functions. A
-//!   type alias owns the members its type spells, as an interface does: `open` in `type Api = { open(): void }` is
-//!   `Api.open`.
+//!   `const Box = class {}`, `A.Box` inside `namespace A`, and flat, as an object key is, `Box` for `ns.Box = class {}`
+//!   and `{ Box: class {} }`; the methods of one that nothing names are free functions. A type alias owns the members
+//!   its type spells, as an interface does: `open` in `type Api = { open(): void }` is `Api.open`.
 //! - A function bound to a name is a function that owns the calls in its body: `const f = () => {}`, a function
 //!   wrapped in `memo`, `forwardRef`, `useCallback`, `useMemo`, `observer` or `debounce`, an object property
 //!   `{ onClick: () => {} }`, named by its key and owned by nothing, a class field `handler = () => {}`, a method of
@@ -22,8 +22,8 @@
 //!   `default`. An anonymous callback such as an inline JSX prop opens no scope: its calls belong to the function
 //!   around it. A declared class, an anonymous `export default class` included, owns the calls of its body outside
 //!   every such function, a field's initializer, a decorator and a static block, and `this` there names the class; a
-//!   class expression, `const Box = class {}`, has them made by the name that binds it, and `this` there names
-//!   the class too.
+//!   class expression, `const Box = class {}`, `ns.Box = class {}` or `{ Box: class {} }`, has them made by the name
+//!   that binds it, and `this` there names the class too.
 //! - A test registration — `describe`, `it` and `test` with their `x` and `f` forms, `suite`, `bench`, and their
 //!   `.skip`, `.only`, `.todo`, `.concurrent`, `.sequential` and `.failing` modifiers — is a function named by its
 //!   description, and a bare lifecycle hook, `beforeEach`, `afterEach`, `beforeAll` or `afterAll`, one named by the

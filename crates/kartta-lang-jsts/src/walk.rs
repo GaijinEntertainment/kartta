@@ -225,12 +225,7 @@ impl<'s> Emitter<'s> {
             }
             "interface_declaration" => self.type_with_members(node, SymbolKind::Interface),
             "internal_module" | "module" => self.type_with_members(node, SymbolKind::Namespace),
-            "class" => {
-                if let Some(name) = node.child_by_field_name("name") {
-                    self.declare(name.byte_range(), node.end_byte(), Binding::Type);
-                }
-                self.push_type_scope(node);
-            }
+            "class" => self.class_expression(node),
             "type_alias_declaration" => {
                 self.type_declaration(node, SymbolKind::TypeAlias, Vec::new());
                 self.push_type_scope(node);
@@ -458,6 +453,27 @@ impl<'s> Emitter<'s> {
         if let Some(id) = id {
             self.scopes.push(Scope::spanning(node, node, id, Some(id)));
         }
+    }
+
+    fn class_expression(&mut self, class: Node<'_>) {
+        let own_name = class.child_by_field_name("name");
+        if let Some(name) = own_name {
+            self.declare(name.byte_range(), class.end_byte(), Binding::Type);
+        }
+        let Some(written) = bound_class_name(class, self.source) else {
+            self.push_type_scope(class);
+            return;
+        };
+        let name = own_name.map_or(written, |name| text(name, self.source));
+        let mut symbol = self.unowned(name.clone(), SymbolKind::Class, class);
+        symbol.parents = parents(class, self.source);
+        let id = self.raw.push_symbol(symbol);
+        self.types.push(TypeScope {
+            end: class.end_byte(),
+            owner: Some(name),
+        });
+        self.scopes
+            .push(Scope::spanning(class, class, id, Some(id)));
     }
 
     // constraint: a function declared inside a function body names a value of its scope, while one at module or
@@ -705,17 +721,9 @@ impl<'s> Emitter<'s> {
         let Some(function) = function_value(value, self.source) else {
             return;
         };
-        let Some(key) = node.child_by_field_name("key") else {
+        let Some(name) = key_name(node, self.source) else {
             return;
         };
-        let name = match key.kind() {
-            "property_identifier" | "identifier" => text(key, self.source),
-            "string" => trim_quotes(&text(key, self.source)).to_owned(),
-            _ => return,
-        };
-        if name.is_empty() {
-            return;
-        }
 
         let mut symbol = self.unowned(name, SymbolKind::Function, node);
         symbol.signature = signature_from(node.start_byte(), function, self.source);
@@ -895,5 +903,31 @@ impl<'s> Emitter<'s> {
         let mut symbol = Symbol::new(name, kind, declaration_start_line(node), end_line(node));
         symbol.flags = SymbolFlags::empty().with_generated(self.file_is_generated);
         symbol
+    }
+}
+
+fn key_name(pair: Node<'_>, source: &[u8]) -> Option<String> {
+    let key = pair.child_by_field_name("key")?;
+    let name = match key.kind() {
+        "property_identifier" | "identifier" => text(key, source),
+        "string" => trim_quotes(&text(key, source)).to_owned(),
+        _ => return None,
+    };
+    (!name.is_empty()).then_some(name)
+}
+
+// constraint: ECMAScript's PropertyDefinitionEvaluation names an anonymous class by its key, and its assignment gives a
+// member target no name, so there the written member is the one name the source holds for the class; an identifier
+// target binds a declared name, which the declaration's own symbol holds
+fn bound_class_name(class: Node<'_>, source: &[u8]) -> Option<String> {
+    let binder = class.parent()?;
+    match binder.kind() {
+        "pair" => key_name(binder, source),
+        "assignment_expression" => {
+            let member = (binder.child_by_field_name("left"))
+                .filter(|left| left.kind() == "member_expression")?;
+            Some(text(member.child_by_field_name("property")?, source))
+        }
+        _ => None,
     }
 }
