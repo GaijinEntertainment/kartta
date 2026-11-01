@@ -61,11 +61,12 @@
 //! starts with `./` or `../` names the file relative to the importer. Any other specifier, `profile`, `daslib/strings`
 //! or `engine.core.mesh`, reads its dots as slashes and names the first file it reaches under the importer's
 //! directories, nearest first, the first of them the compiler's default lookup, then the one file anywhere whose path
-//! ends with it, then the one file named for its last component. A specifier two files could satisfy at one step names
+//! ends with it, then the one file whose path ends with it below its first component, which the compiler reads as a
+//! mount point, then the one file named for its last component. A specifier two files could satisfy at one step names
 //! neither, and every match is case-sensitive, as the compiler's is. The file a `require` or an `include` names is an
-//! include; one
-//! that names no file is an import, kept as written. A module no file is named for, most often one compiled into the
-//! runtime, lies outside the repository, so a call that a `require` of it qualifies lies outside the graph.
+//! include; one that names no file is an import, kept as written. A module no file is named for, most often one
+//! compiled into the runtime, lies outside the repository, so a call that a `require` of it qualifies lies outside the
+//! graph.
 //!
 //! Only a `require` or an `include` puts another file's script definition in a file's scope, and `module builtin` is
 //! in every file's, so a call with no receiver binds by its name alone only a definition of a file its own file reaches
