@@ -39,6 +39,8 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         group_methods: Vec::new(),
         plain_calls: Vec::new(),
         raw: RawExtraction::default(),
+        receiver_blocks: Vec::new(),
+        position: 0,
     };
 
     preorder(tree.root_node(), |node| {
@@ -81,11 +83,25 @@ pub(crate) struct Emitter<'s> {
     pub(crate) group_methods: Vec<GroupMethod<'s>>,
     pub(crate) plain_calls: Vec<(usize, usize)>,
     pub(crate) raw: RawExtraction,
+    receiver_blocks: Vec<ReceiverBlock>,
+    position: usize,
+}
+
+// constraint: `class_eval`, `module_eval`, `instance_eval` and the `_exec` forms set `self` to their receiver for a
+// literal block (`yield_under`, vm_eval.c:2148), and differ only in where a `def` lands, which no call reads. `methods`
+// and `types` count those open at the block, since a `def` or a type inside it opens a `self` of its own
+struct ReceiverBlock {
+    start: usize,
+    end: usize,
+    methods: usize,
+    types: usize,
+    receiver: String,
 }
 
 impl Emitter<'_> {
     fn handle(&mut self, node: Node<'_>) {
         let start = node.start_byte();
+        self.position = start;
         while self.scopes.last().is_some_and(|scope| scope.end <= start) {
             self.scopes.pop();
         }
@@ -102,6 +118,13 @@ impl Emitter<'_> {
             .is_some_and(|visibility| visibility.end <= start)
         {
             self.visibilities.pop();
+        }
+        while self
+            .receiver_blocks
+            .last()
+            .is_some_and(|block| block.end <= start)
+        {
+            self.receiver_blocks.pop();
         }
         self.locals.leave(start);
         self.locals.enter(node, self.source);
@@ -128,6 +151,41 @@ impl Emitter<'_> {
             "call" => self.call(node),
             _ => {}
         }
+    }
+
+    // constraint: with no receiver or `self` the block keeps the `self` around it. A constant names a class and a
+    // literal a value of its class; any other expression names a value the walk cannot tell, the empty receiver
+    fn receiver_block(&mut self, call: Node<'_>, callee: &str) {
+        if !runs_on_its_receiver(callee) {
+            return;
+        }
+        let (Some(block), Some(receiver)) = (
+            call.child_by_field_name("block"),
+            call.child_by_field_name("receiver")
+                .filter(|receiver| receiver.kind() != "self"),
+        ) else {
+            return;
+        };
+        self.receiver_blocks.push(ReceiverBlock {
+            start: block.start_byte(),
+            end: block.end_byte(),
+            methods: self.scopes.len(),
+            types: self.open_types.len(),
+            receiver: match receiver.kind() {
+                "constant" | "scope_resolution" => on_the_class(text(receiver, self.source)),
+                _ => literal_class(receiver).to_owned(),
+            },
+        });
+    }
+
+    fn self_of_block(&self) -> Option<&str> {
+        self.receiver_blocks
+            .iter()
+            .rfind(|block| block.start <= self.position)
+            .filter(|block| {
+                block.methods == self.scopes.len() && block.types == self.open_types.len()
+            })
+            .map(|block| block.receiver.as_str())
     }
 
     fn identifier(&mut self, node: Node<'_>) {
@@ -305,6 +363,7 @@ impl Emitter<'_> {
         let callee = text(method, self.source);
         let site_of = self.site_of();
         let receiver_node = node.child_by_field_name("receiver");
+        self.receiver_block(node, &callee);
         let receiver = receiver_node.map_or_else(
             || self.implicit_receiver(site_of),
             |receiver| {
@@ -361,7 +420,8 @@ impl Emitter<'_> {
     // the name it spells and would reach every namesake the file sees. A top-level `def` is a private method of
     // `Object`, which every object reaches, so at a site no class owns, file scope, a top-level `def`, `def self.x` or
     // `def obj.x`, the use is bare. `singleton_method` with no receiver or `self` names a method of the object itself,
-    // which only a class body names, through its class
+    // which only a class body names, through its class. In a block on a receiver the walk cannot tell, `self` is of a
+    // type it cannot tell too
     fn method_reference(&mut self, callee: &str, call: Node<'_>, site_of: SymbolId) {
         if !matches!(
             callee,
@@ -389,8 +449,11 @@ impl Emitter<'_> {
             return;
         }
         let receiver = if receiver == Receiver::Own {
-            self.type_of_self(site_of)
-                .map_or(Receiver::Bare, Receiver::Path)
+            match self.type_of_self(site_of) {
+                Some(path) if path.is_empty() => return,
+                Some(path) => Receiver::Path(path),
+                None => Receiver::Bare,
+            }
         } else {
             receiver
         };
@@ -425,15 +488,17 @@ impl Emitter<'_> {
     }
 
     fn implicit_receiver(&self, site_of: SymbolId) -> Option<String> {
-        self.is_type_body(site_of)
-            .then(|| on_the_class(self.qualified_name(site_of)))
+        self.self_of_block().map(str::to_owned).or_else(|| {
+            self.is_type_body(site_of)
+                .then(|| on_the_class(self.qualified_name(site_of)))
+        })
     }
 
-    // constraint: `self` is the type itself in a type's body and in a class method, and an instance of the owner in an
-    // instance method
+    // constraint: `self` is the receiver in a block that runs on one, the type itself in a type's body and in a class
+    // method, and an instance of the owner in an instance method
     fn type_of_self(&self, site_of: SymbolId) -> Option<String> {
-        if self.is_type_body(site_of) {
-            return Some(on_the_class(self.qualified_name(site_of)));
+        if let Some(receiver) = self.implicit_receiver(site_of) {
+            return Some(receiver);
         }
         let (owner, class_method) = self.owner_of_method(site_of)?;
         Some(if class_method {
@@ -443,19 +508,21 @@ impl Emitter<'_> {
         })
     }
 
-    // constraint: a bare `new` that no binding makes a local is `self.new`, which in a class method makes an instance
-    // of the owner. A type's body is left out: its blocks most often run with another `self`, `class_eval` or
-    // `define_method`
+    // constraint: a bare `new` that no binding makes a local is `self.new`, which in a block that runs on a class makes
+    // an instance of that class, and in a class method an instance of the owner. A type's body is left out: its blocks
+    // most often run with another `self`, `define_method` or a `class_eval` the walk cannot name
     fn named_receiver(&self, receiver: Node<'_>, site_of: SymbolId) -> String {
         let name = &self.source[receiver.byte_range()];
-        if name == b"new"
-            && !self.is_type_body(site_of)
-            && !self.locals.is_local(name)
-            && let Some((owner, true)) = self.owner_of_method(site_of)
-        {
-            return owner.to_owned();
+        if name != b"new" || self.locals.is_local(name) {
+            return text(receiver, self.source);
         }
-        text(receiver, self.source)
+        if let Some(receiver) = self.self_of_block() {
+            return receiver.trim_end_matches(CLASS_MEMBER_SEPARATOR).to_owned();
+        }
+        match self.owner_of_method(site_of) {
+            Some((owner, true)) if !self.is_type_body(site_of) => owner.to_owned(),
+            _ => text(receiver, self.source),
+        }
     }
 
     /// The owner of the method `site_of` names, and whether it is a class method.
@@ -470,7 +537,7 @@ impl Emitter<'_> {
     }
 
     // constraint: `self.class` in an instance method is the owner's class; elsewhere `self` is a type, whose class is
-    // `Class`
+    // `Class`, or the receiver of the block around it
     fn is_class_of_an_instance(&self, receiver: Node<'_>, site_of: SymbolId) -> bool {
         receiver
             .child_by_field_name("arguments")
@@ -482,6 +549,7 @@ impl Emitter<'_> {
                 .child_by_field_name("receiver")
                 .is_some_and(|of| of.kind() == "self")
             && !self.is_type_body(site_of)
+            && self.self_of_block().is_none()
             && self
                 .owner_of_method(site_of)
                 .is_some_and(|(_, class_method)| !class_method)
@@ -512,6 +580,18 @@ pub(crate) fn declared(
     );
     symbol.qualified_name = qualified;
     symbol
+}
+
+fn runs_on_its_receiver(method: &str) -> bool {
+    matches!(
+        method,
+        "class_eval"
+            | "module_eval"
+            | "instance_eval"
+            | "class_exec"
+            | "module_exec"
+            | "instance_exec"
+    )
 }
 
 fn passes_nothing(call: Node<'_>) -> bool {
