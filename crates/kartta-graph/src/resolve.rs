@@ -1495,6 +1495,7 @@ impl<'g> Cascade<'g> {
                 .named(receiver)
                 .iter()
                 .any(|&at| self.graph.sym(at).kind.is_type())
+            && self.class_from_the_root(call, receiver).is_none()
     }
 
     // constraint: a type the graph does not hold, from the standard library, the prelude or a crate outside the tree,

@@ -10,7 +10,7 @@ use std::fs;
 
 use kartta::{BuildOptions, Engine, Limits};
 
-const FILES: [(&str, &str); 7] = [
+const FILES: [(&str, &str); 8] = [
     (
         "src/T/Calls.php",
         r"<?php
@@ -22,6 +22,7 @@ use Mockery;
 use Testing\Assert as PHPUnit;
 use Vendor\Thing as Response;
 use Assert as GlobalAssert;
+use App\Assert as Unmapped;
 
 class Calls {
     public function inherited() { Eloquent::timestamps(); }
@@ -29,6 +30,19 @@ class Calls {
     public function outsideAlias() { PHPUnit::assertSame(); }
     public function aliasOfATreeClass() { Response::held(); }
     public function aliasOfAGlobalClass() { GlobalAssert::assertSame(); }
+    public function aliasPsr4MapsNoFileTo() { Unmapped::assertSame(); }
+    public function memberTheClassLacks() { Eloquent::close(); }
+}
+",
+    ),
+    (
+        "src/T/Model.php",
+        r"<?php
+namespace T;
+
+class Model {
+    public static function timestamps() {}
+    public static function held() {}
 }
 ",
     ),
@@ -133,6 +147,22 @@ fn a_static_call_on_an_alias_binds_a_member_of_a_trait_its_class_uses() {
     assert_eq!(
         callees("T\\Calls::inherited"),
         [("App\\HasTimestamps::timestamps".to_owned(), 85)]
+    );
+}
+
+#[test]
+fn an_alias_of_a_class_no_autoload_rule_maps_binds_the_class_it_names() {
+    assert_eq!(
+        callees("T\\Calls::aliasPsr4MapsNoFileTo"),
+        [("App\\Assert::assertSame".to_owned(), 85)]
+    );
+}
+
+#[test]
+fn a_member_the_alias_s_class_lacks_stays_with_the_tiers_that_read_no_class() {
+    assert_eq!(
+        callees("T\\Calls::memberTheClassLacks"),
+        [("App\\Response::close".to_owned(), 60)]
     );
 }
 

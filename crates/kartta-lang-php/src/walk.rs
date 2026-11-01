@@ -317,8 +317,8 @@ impl Emitter<'_> {
         Some(&self.raw.directives[import.directive])
     }
 
-    // constraint: the resolver alone knows whether a class lies in the repository, so a call on a name a `use ... as`
-    // binds in this namespace keeps the class's name from the root for it to read
+    // constraint: a call on a name a `use ... as` binds in this namespace names the class from the root, which the
+    // graph reads exactly, since an outside class's last name or its alias can be a class of the repository
     fn aliased_class(&self, call: Node<'_>) -> Option<String> {
         let scope = (call.child_by_field_name("scope")).filter(|scope| scope.kind() == "name")?;
         let import = self.import(&self.source[scope.byte_range()])?;
