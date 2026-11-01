@@ -755,6 +755,52 @@ fn a_go_type_defined_over_a_struct_takes_none_of_the_struct_s_methods() {
 }
 
 #[test]
+fn a_go_type_defined_over_a_struct_keeps_its_fields_and_what_they_promote() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/p\n\ngo 1.22\n"),
+            (
+                "a.go",
+                "package p\n\ntype Inner struct{}\n\nfunc (Inner) Promoted() {}\n\ntype S struct {\n\tInner\n\
+                 \tX int\n}\n\ntype T S\n\nfunc viaStruct(s S) int {\n\ts.Promoted()\n\treturn s.X\n}\n\n\
+                 func viaDefined(t T) int {\n\tt.Promoted()\n\treturn t.X\n}\n",
+            ),
+        ],
+        &[
+            ("find_callees", json!({"name": "viaDefined"})),
+            ("find_references", json!({"name": "S.X"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<callees of="viaDefined" matches="1">"#,
+                r#"<match lang="go" of="viaDefined" qn="p.viaDefined" loc="a.go:19" count="1" unexpanded="1">"#,
+                concat!(
+                    r#"<ref name="Promoted" qn="p.Inner.Promoted" loc="a.go:5" role="consumer" hops="1" "#,
+                    r#"at="a.go:20"/>"#,
+                ),
+                "</match>",
+                "</callees>",
+            ]),
+            lines(&[
+                r#"<references of="S.X" matches="1">"#,
+                r#"<match lang="go" of="X" qn="p.S.X" loc="a.go:9" kind="field" count="2" files="1" reads="2">"#,
+                r#"<file path="a.go" sites="2">"#,
+                r#"<ref name="viaStruct" qn="p.viaStruct" line="14" role="consumer" site="read" at="16"/>"#,
+                r#"<ref name="viaDefined" qn="p.viaDefined" line="19" role="consumer" site="read" at="21"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+        ],
+        "a defined type holds the struct's fields and what its embedded fields promote"
+    );
+}
+
+#[test]
 fn a_go_closure_reads_a_field_through_the_type_its_enclosing_function_declares() {
     let source = "package app\n\nfunc First() int {\n\ttype fields struct {\n\t\tSize int\n\t}\n\
                   \treturn fields{Size: 1}.Size\n}\n\nfunc Second() func() int {\n\ttype fields struct {\n\
