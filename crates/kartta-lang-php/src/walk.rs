@@ -173,7 +173,10 @@ impl Emitter<'_> {
             }
             "scoped_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
-                let receiver = self.aliased_class(node).or(receiver);
+                let class = node.child_by_field_name("scope");
+                let receiver = class
+                    .and_then(|class| self.aliased_class(class))
+                    .or(receiver);
                 let receiver = self.held_receiver(receiver, start);
                 self.call(callee, receiver, node);
             }
@@ -259,7 +262,7 @@ impl Emitter<'_> {
             {
                 Receiver::Own
             }
-            "class_constant_access_expression" => match class_constant_scope(target, self.source) {
+            "class_constant_access_expression" => match self.class_constant_scope(target) {
                 Some(scope) if matches!(scope.as_str(), "self" | "static" | "parent") => {
                     Receiver::Own
                 }
@@ -269,6 +272,29 @@ impl Emitter<'_> {
             _ => return,
         };
         self.value_use(name.to_owned(), receiver, method);
+    }
+
+    // constraint: `X::class` names the class `X`, the last name of the class an alias imports, which owns a member as
+    // `X` does, the last segment of a qualified name, or a relative scope, `self`, `static` or `parent`
+    fn class_constant_scope(&self, access: Node<'_>) -> Option<String> {
+        let mut children = named_child_nodes(access);
+        let (Some(scope), Some(constant), None) =
+            (children.next(), children.next(), children.next())
+        else {
+            return None;
+        };
+        if &self.source[constant.byte_range()] != b"class" {
+            return None;
+        }
+        match scope.kind() {
+            "name" => Some(self.aliased_class(scope).map_or_else(
+                || text(scope, self.source),
+                |class| last_name(&class).to_owned(),
+            )),
+            "relative_scope" => Some(text(scope, self.source)),
+            "qualified_name" | "relative_name" => last_segment(scope, self.source),
+            _ => None,
+        }
     }
 
     // constraint: a use in a class body outside every method, a property's default, is made by the class, whose own
@@ -347,11 +373,13 @@ impl Emitter<'_> {
         Some(&self.raw.directives[import.directive])
     }
 
-    // constraint: a call on a name a `use ... as` binds in this namespace names the class from the root, which the
-    // graph reads exactly, since an outside class's last name or its alias can be a class of the repository
-    fn aliased_class(&self, call: Node<'_>) -> Option<String> {
-        let scope = (call.child_by_field_name("scope")).filter(|scope| scope.kind() == "name")?;
-        let import = self.import(&self.source[scope.byte_range()])?;
+    // constraint: a name a `use ... as` binds in this namespace names the class from the root, which the graph reads
+    // exactly, since an outside class's last name or its alias can be a class of the repository
+    fn aliased_class(&self, name: Node<'_>) -> Option<String> {
+        if name.kind() != "name" {
+            return None;
+        }
+        let import = self.import(&self.source[name.byte_range()])?;
         (!import.names.is_empty()).then(|| format!("\\{}", imported_class(import)))
     }
 
@@ -810,7 +838,9 @@ impl Emitter<'_> {
         self.open_scope(symbol, closure.end_byte());
     }
 
-    // constraint: `new self`, `new static` and `new parent` name no class; the grammar parses `static` as a plain name
+    // constraint: `new self`, `new static` and `new parent` name no class; the grammar parses `static` as a plain name;
+    // `new` of a name a `use ... as` binds runs the constructor of the class it imports, which that class's table holds
+    // (`zend_compile_new`, `Zend/zend_compile.c`)
     fn object_creation(&mut self, node: Node<'_>) {
         if let Some(class) = named_child_nodes(node).find(|child| child.kind() == "anonymous_class")
         {
@@ -823,6 +853,10 @@ impl Emitter<'_> {
             return;
         };
         if scope_keyword(&self.source[created.byte_range()]).is_some() {
+            return;
+        }
+        if let Some(class) = self.aliased_class(created) {
+            self.call(CONSTRUCTOR.to_owned(), Some(class), node);
             return;
         }
         let class = if created.kind() == "name" {
@@ -1123,24 +1157,6 @@ fn scope_keyword(written: &[u8]) -> Option<&'static str> {
     ["self", "static", "parent"]
         .into_iter()
         .find(|keyword| written.eq_ignore_ascii_case(keyword.as_bytes()))
-}
-
-// constraint: `X::class` names the class `X`, the last segment of a qualified name, or a relative scope, `self`,
-// `static` or `parent`
-fn class_constant_scope(access: Node<'_>, source: &[u8]) -> Option<String> {
-    let mut children = named_child_nodes(access);
-    let (Some(scope), Some(constant), None) = (children.next(), children.next(), children.next())
-    else {
-        return None;
-    };
-    if &source[constant.byte_range()] != b"class" {
-        return None;
-    }
-    match scope.kind() {
-        "name" | "relative_scope" => Some(text(scope, source)),
-        "qualified_name" | "relative_name" => last_segment(scope, source),
-        _ => None,
-    }
 }
 
 fn last_segment(name: Node<'_>, source: &[u8]) -> Option<String> {
