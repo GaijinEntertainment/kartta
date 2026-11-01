@@ -125,7 +125,7 @@ const CONVENTIONS: Conventions = {
     conventions.included_runtime_members = IncludedRuntimeMembers::SpelledOrOwn;
     conventions.untyped_owners = UntypedOwners::Tables;
     conventions.base_receivers = &["base"];
-    conventions.receiver_members = ReceiverMembers::Inherited;
+    conventions.receiver_members = ReceiverMembers::InheritedUpToFields;
     conventions.own_type_receivers = Some(&["this"]);
     conventions.unlisted_receivers = UnlistedReceivers::OwnMemberFieldsAsGuess;
     conventions

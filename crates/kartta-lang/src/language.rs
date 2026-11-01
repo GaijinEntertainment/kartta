@@ -379,10 +379,10 @@ pub enum ReceiverMembers {
     /// own method, then its traits', then its parent's, and an interface's declaration only where no body above the
     /// class holds the member.
     Inherited,
-    /// [`ReceiverMembers::Inherited`], standing in for Python's C3 order, where a field of the name that the walk meets
-    /// ahead of the member hides it and the call binds nothing, as a class's attributes and methods share its
-    /// `__dict__`. A field with [`value_types`](crate::Symbol::value_types) only declares the name, so the walk goes
-    /// past it.
+    /// [`ReceiverMembers::Inherited`], where a field of the name that the walk meets ahead of the member hides it and the
+    /// call binds nothing, as a class's values and methods share one table: Python's `__dict__`, Quirrel's `_members`.
+    /// For Python the walk stands in for the C3 order. A field with [`value_types`](crate::Symbol::value_types) only
+    /// declares the name, so the walk goes past it.
     InheritedUpToFields,
 }
 

@@ -147,6 +147,105 @@ fn a_value_s_name_keeps_the_caller_s_owner() {
     );
 }
 
+const FIELD_OVER_A_METHOD: &str = "class Base {
+  function hide() {}
+  function other() {}
+}
+class Child (Base) {
+  hide = null
+  constructor(fn) {
+    this.hide = fn
+  }
+  function run() {
+    this.hide()
+    this.other()
+  }
+}
+";
+
+#[test]
+fn a_field_of_the_class_hides_its_parent_s_method() {
+    assert_eq!(
+        callees(&[("field.nut", FIELD_OVER_A_METHOD)], "Child.run"),
+        pairs(&["Base.other"], 85),
+    );
+}
+
+#[test]
+fn a_static_field_of_the_class_hides_its_parent_s_method() {
+    assert_eq!(
+        callees(
+            &[(
+                "field.nut",
+                "class Base {\n  function hide() {}\n}\n\
+                 class Child(Base) {\n  static hide = 1\n  function run() {\n    this.hide()\n  }\n}\n",
+            )],
+            "Child.run",
+        ),
+        [],
+    );
+}
+
+#[test]
+fn a_field_of_a_class_between_hides_the_method_above_it() {
+    assert_eq!(
+        callees(
+            &[(
+                "field.nut",
+                "class Root {\n  function hide() {}\n}\nclass Middle(Root) {\n  hide = null\n}\n\
+                 class Leaf(Middle) {\n  function run() {\n    this.hide()\n  }\n}\n",
+            )],
+            "Leaf.run",
+        ),
+        [],
+    );
+}
+
+#[test]
+fn a_base_call_stops_at_the_field_of_the_base() {
+    assert_eq!(
+        callees(
+            &[(
+                "field.nut",
+                "class Root {\n  function hide() {}\n}\nclass Middle(Root) {\n  hide = null\n}\n\
+                 class Leaf(Middle) {\n  function run() {\n    base.hide()\n  }\n}\n",
+            )],
+            "Leaf.run",
+        ),
+        [],
+    );
+}
+
+#[test]
+fn a_write_outside_the_class_body_leaves_the_method_in_its_slot() {
+    assert_eq!(
+        callees(
+            &[(
+                "field.nut",
+                "class Base {\n  function hide() {}\n}\n\
+                 class Child(Base) {\n  function run() {\n    this.hide = 1\n    this.hide()\n  }\n}\n",
+            )],
+            "Child.run",
+        ),
+        pairs(&["Base.hide"], 85),
+    );
+}
+
+#[test]
+fn a_function_over_a_parent_s_field_answers_for_its_class_and_those_below() {
+    let source = "class Base {\n  hide = null\n}\n\
+                  class Child(Base) {\n  function hide() {}\n  function run() {\n    this.hide()\n  }\n}\n\
+                  class Leaf(Child) {\n  function run() {\n    this.hide()\n  }\n}\n";
+    assert_eq!(
+        callees(&[("field.nut", source)], "Child.run"),
+        pairs(&["Child.hide"], 80),
+    );
+    assert_eq!(
+        callees(&[("field.nut", source)], "Leaf.run"),
+        pairs(&["Child.hide"], 85),
+    );
+}
+
 #[test]
 fn this_in_a_table_s_member_binds_the_table_s_sibling() {
     assert_eq!(
