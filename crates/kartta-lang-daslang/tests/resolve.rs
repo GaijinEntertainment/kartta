@@ -108,6 +108,49 @@ fn a_bare_include_names_the_file_beside_its_own_of_those_of_its_name() {
 }
 
 #[test]
+fn a_bare_require_of_two_candidates_names_the_one_under_the_nearest_ancestor() {
+    let files = [
+        "game/server/profile.das",
+        "game/server/actions/buy.das",
+        "tools/profile.das",
+    ];
+
+    assert_eq!(
+        targets(&files, "profile", "game/server/actions/buy.das"),
+        ["game/server/profile.das"]
+    );
+}
+
+#[test]
+fn a_bare_include_of_two_candidates_names_the_one_under_the_nearest_ancestor() {
+    let files = ["game/common.das", "game/server/buy.das", "tools/common.das"];
+
+    let extraction = resolve(
+        &files,
+        "options gen2\ninclude common.das\n",
+        "game/server/buy.das",
+    );
+
+    assert_eq!(includes(&extraction), ["game/common.das"]);
+}
+
+#[test]
+fn a_file_without_the_extension_answers_no_module() {
+    let files = [
+        "game/profile",
+        "game/server/a.das",
+        "tools/profile.das",
+        "other/profile.das",
+    ];
+
+    assert_eq!(targets(&files, "profile", "game/server/a.das"), NOTHING);
+    assert_eq!(
+        targets(&files, "game/profile", "game/server/a.das"),
+        NOTHING
+    );
+}
+
+#[test]
 fn a_require_two_files_could_satisfy_names_neither() {
     let files = ["a/util.das", "b/util.das", "main.das"];
 

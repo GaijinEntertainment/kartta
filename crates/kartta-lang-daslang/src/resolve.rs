@@ -31,27 +31,20 @@ impl Modules<'_> {
         }
 
         let stem = spec.strip_suffix(".das").unwrap_or(&spec);
-        if !stem.contains(['/', '.']) {
-            let name = format!("{stem}.das");
-            return join(dir(path), &name)
-                .and_then(|sibling| self.probe(&sibling))
-                .or_else(|| self.unique_named(&name));
-        }
-
         let module_path = stem.replace('.', "/");
-        self.nearest_ancestor(&module_path, path)
+        self.nearest_ancestor(&format!("{module_path}.das"), path)
             .or_else(|| self.unique_suffix(&module_path))
             .or_else(|| self.unique_named(&format!("{}.das", base(&module_path))))
     }
 
-    fn nearest_ancestor(&self, module_path: &str, path: &str) -> Option<String> {
+    fn nearest_ancestor(&self, module_file: &str, path: &str) -> Option<String> {
         let mut ancestors =
             iter::successors(Some(dir(path)), |&above| (above != ".").then(|| dir(above)));
         ancestors.find_map(|ancestor| {
             if ancestor == "." {
-                self.probe(module_path)
+                self.probe(module_file)
             } else {
-                self.probe(&format!("{ancestor}/{module_path}"))
+                self.probe(&format!("{ancestor}/{module_file}"))
             }
         })
     }
