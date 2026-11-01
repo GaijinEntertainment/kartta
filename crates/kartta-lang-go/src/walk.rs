@@ -11,8 +11,9 @@ use tree_sitter::{Node, Tree, TreeCursor};
 use self::anonymous::literal_type;
 use self::locals::{Block, Local, LocalKind, declares_left, header_statement};
 use self::syntax::{
-    assertion_value_type, default_name_candidates, is_exported, is_generated_source, parents_of,
-    receiver_type, tag_hands_over_its_field, trim_quotes,
+    assertion_value_type, base_type_name, default_name_candidates, is_exported,
+    is_generated_source, parents_of, receiver_type, tag_hands_over_its_field, trim_quotes,
+    unparenthesized,
 };
 use self::types::{
     element_of, holds_channel, is_container_path, is_container_type, is_one_container, named_type,
@@ -827,9 +828,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn assertion_implements(&mut self, spec: Node<'_>) {
-        let Some(iface_node) = spec
+        let Some(interface) = spec
             .child_by_field_name("type")
-            .filter(|node| matches!(node.kind(), "type_identifier" | "qualified_identifier"))
+            .and_then(|written| base_type_name(unparenthesized(written), self.source))
         else {
             return;
         };
@@ -844,7 +845,7 @@ impl<'a> Emitter<'a> {
 
         self.raw.assertions.push(ImplementsAssertion {
             type_name,
-            interface: text(iface_node, self.source),
+            interface,
         });
     }
 }

@@ -16,9 +16,9 @@
 //! `:=` name that owns such a struct is a variable of its body. The owner's value is the struct, spelled `{N}` for the
 //! owner's index in the file, so a type path through it reaches the fields, and the owner holds the types the struct
 //! embeds. A value a body declares qualifies its fields by the callable too, `api.TestRun.tests.name`. An embedded
-//! field or interface is a parent of its type. A compile-time assertion (`var _ I = T{}`, `&T{}`, `new(T)` or
-//! `(*T)(nil)`) embeds nothing, so it is recorded as an assertion, for the graph to apply where it sees the whole
-//! package.
+//! field or interface is a parent of its type. A compile-time assertion (`var _ I = T{}`, `&T{}`, `new(T)`, `T(nil)` or
+//! `(*T)(nil)`, on an interface `I` or an instantiated `I[A]`) embeds nothing, so it is recorded as an assertion, for
+//! the graph to apply where it sees the whole package.
 //!
 //! A call records its callee and, for a member call, its receiver as a type path
 //! ([`Receivers::TypePaths`]): the type of the operand's value, as far as the
