@@ -199,7 +199,9 @@ impl Emitter<'_> {
         if !matches!(function.kind(), "identifier" | "selector_expression") {
             return None;
         }
-        bounded(format!("{}()", self.value_path(function)?))
+        let path = self.value_path(function)?;
+        let held = self.is_local(self.borrowed(function), function.start_byte());
+        bounded(format!("{path}{}()", if held { UNDERLYING } else { "" }))
     }
 }
 

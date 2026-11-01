@@ -256,7 +256,7 @@ fn fields_results_and_elements_carry_the_path_to_the_receiver_s_type() {
             member_call("Holder.server", "Close", 2),
             member_call("Open()#1.server", "Close", 3),
             member_call("All()[].server", "Close", 4),
-            member_call("Factory().server", "Close", 5),
+            member_call("Factory~().server", "Close", 5),
             member_call("Holders[].server", "Close", 6),
         ],
     );
@@ -882,6 +882,102 @@ fn a_type_defined_over_a_type_that_is_no_interface_has_none_of_its_methods() {
             ("Close", Miss::NotAdmitted),
             ("Close", Miss::NotAdmitted),
             ("Close", Miss::NotAdmitted),
+        ]
+    );
+}
+
+#[test]
+fn a_read_through_a_type_over_an_import_stays_outside_the_graph() {
+    let declarations = importing(
+        file(
+            "app/types.go",
+            "main",
+            vec![
+                defined_over("Elements", "~lib.List", 1),
+                defined_over("Calls", "~lib.Func", 2),
+                yielding(
+                    typed("main", "Aliased", SymbolKind::TypeAlias, 3),
+                    &["lib.List"],
+                ),
+            ],
+            Vec::new(),
+        ),
+        &[("lib", None)],
+    );
+    let caller = caller_of(vec![
+        member_call("Elements[]", "Close", 2),
+        member_call("Calls~()", "Close", 3),
+        member_call("Aliased[]", "Close", 4),
+    ]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        misses_of(&graph),
+        [
+            ("Close", Miss::ExternalImport),
+            ("Close", Miss::ExternalImport),
+            ("Close", Miss::ExternalImport),
+        ]
+    );
+}
+
+#[test]
+fn a_read_through_a_cycle_of_defined_types_stops_past_its_bound() {
+    let declarations = file(
+        "app/types.go",
+        "main",
+        vec![
+            defined_over("Loop", "~Back", 1),
+            defined_over("Back", "~Loop", 2),
+        ],
+        Vec::new(),
+    );
+    let caller = caller_of(vec![
+        member_call("Loop[]", "Close", 2),
+        member_call("Loop~()", "Close", 3),
+    ]);
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        misses_of(&graph),
+        [("Close", Miss::PastBound), ("Close", Miss::PastBound)]
+    );
+}
+
+#[test]
+fn a_call_through_a_package_converts_at_a_type_and_calls_at_a_value() {
+    let declarations = file(
+        "lib/lib.go",
+        "lib",
+        vec![
+            typed("lib", "Result", SymbolKind::Struct, 1),
+            member("lib.Result", "Close", SymbolKind::Method, 2),
+            yielding(
+                typed("lib", "Func", SymbolKind::DefinedType, 3),
+                &["Result"],
+            ),
+            member("lib.Func", "Close", SymbolKind::Method, 4),
+            yielding(typed("lib", "Held", SymbolKind::Variable, 5), &["Func"]),
+        ],
+        Vec::new(),
+    );
+    let caller = importing(
+        caller_of(vec![
+            member_call("lib.Func()", "Close", 2),
+            member_call("lib.Held()", "Close", 3),
+        ]),
+        &[("lib", Some("lib"))],
+    );
+
+    let graph = graph(&[declarations, caller]);
+
+    assert_eq!(
+        callees_of(&graph, "main.Run"),
+        [
+            ("lib/lib.go:lib.Result.Close".to_owned(), 85),
+            ("lib/lib.go:lib.Func.Close".to_owned(), 85),
         ]
     );
 }

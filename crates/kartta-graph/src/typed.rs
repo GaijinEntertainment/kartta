@@ -27,7 +27,11 @@ pub(crate) enum Typed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Value<'g> {
     Package(Str),
+    /// A value of the type.
     Type(SymbolAt),
+    /// The type a path's name declares, which a call converts to, and which any other step reads as a value of the
+    /// type: a local's path spells the type of the value it holds. A read past its last step never holds one.
+    Named(SymbolAt),
     Callable(SymbolAt),
     Container {
         body: SymbolAt,
@@ -41,6 +45,15 @@ pub(crate) enum Value<'g> {
     /// A read that ran past a bound, as a cycle of declarations does, or that a member walk closed on a cycle of
     /// aliases, which leaves it no type.
     Unbounded,
+}
+
+impl Value<'_> {
+    const fn held(self) -> Self {
+        match self {
+            Value::Named(ty) => Value::Type(ty),
+            value => value,
+        }
+    }
 }
 
 /// A name a package declares, as the file `viewer` sees it, or as an import does.
@@ -61,14 +74,18 @@ enum Step<'p> {
     Select(&'p str),
     Result(usize),
     Element,
+    Held,
 }
 
 fn head(path: &str) -> (&str, &str) {
-    let end = path.find(['.', '(', '[']).unwrap_or(path.len());
+    let end = path.find(['.', '(', '[', '~']).unwrap_or(path.len());
     path.split_at(end)
 }
 
 fn step(rest: &str) -> Option<(Step<'_>, &str)> {
+    if let Some(after) = rest.strip_prefix(UNDERLYING) {
+        return Some((Step::Held, after));
+    }
     if let Some(after) = rest.strip_prefix('.') {
         let (name, rest) = head(after);
         return (!name.is_empty()).then_some((Step::Select(name), rest));
@@ -116,6 +133,7 @@ impl<'g> Cascade<'g> {
             Value::Undeclared => Typed::Undeclared,
             Value::Unbounded => Typed::PastBound,
             Value::Type(_)
+            | Value::Named(_)
             | Value::Package(_)
             | Value::Callable(_)
             | Value::Container { .. }
@@ -162,7 +180,7 @@ impl<'g> Cascade<'g> {
                 return self.highest_ranked(read, rest, depth);
             }
             if rest.is_empty() || value == Value::Unbounded {
-                return value;
+                return value.held();
             }
             let Some((step, after)) = step(rest) else {
                 return Value::Unknown;
@@ -171,6 +189,7 @@ impl<'g> Cascade<'g> {
                 Step::Select(name) => self.select(value, name, depth),
                 Step::Result(index) => self.result(value, index, depth),
                 Step::Element => self.element(value, depth),
+                Step::Held => value.held(),
             };
             if matches!(value, Value::Unknown | Value::Imported | Value::Undeclared) {
                 return value;
@@ -197,7 +216,7 @@ impl<'g> Cascade<'g> {
             {
                 self.value_rank(self.value_type(at, 0, depth), depth + 1)
             }
-            Value::Type(at) | Value::Callable(at) => {
+            Value::Type(at) | Value::Named(at) | Value::Callable(at) => {
                 (3, strings.resolve(self.graph.sym(at).qualified_name))
             }
             Value::Container { element, .. } => (3, element),
@@ -304,7 +323,7 @@ impl<'g> Cascade<'g> {
     fn value_of(&self, at: SymbolAt, depth: u8) -> Value<'g> {
         match self.graph.sym(at).kind {
             SymbolKind::Function | SymbolKind::Method => Value::Callable(at),
-            kind if kind.is_type() => Value::Type(at),
+            kind if kind.is_type() => Value::Named(at),
             _ => self.value_type(at, 0, depth),
         }
     }
@@ -337,7 +356,7 @@ impl<'g> Cascade<'g> {
                     self.package_level(read, depth)
                 })
                 .unwrap_or(Value::Unknown),
-            Value::Type(ty) => self.member_value(ty, name, depth),
+            Value::Type(ty) | Value::Named(ty) => self.member_value(ty, name, depth),
             Value::Imported | Value::Undeclared => value,
             Value::Callable(_)
             | Value::Container { .. }
@@ -347,14 +366,26 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    // constraint: calling a function type yields its results, which its value types give, and calling any other type
-    // converts a value to it
+    // constraint: a call of a value yields the results of the function type under its type, and a call of a type's
+    // name converts to that type, whatever is under it
     fn result(&self, value: Value<'g>, index: usize, depth: u8) -> Value<'g> {
         match value {
             Value::Callable(at) => self.value_type(at, index, depth),
-            Value::Type(ty) if self.is_function_type(ty) => self.value_type(ty, index, depth),
-            Value::Type(_) if index == 0 => value,
+            Value::Named(_) if index == 0 => value.held(),
+            Value::Type(ty) | Value::Named(ty) => self.called(ty, index, depth),
             Value::Imported | Value::Undeclared => value,
+            _ => Value::Unknown,
+        }
+    }
+
+    fn called(&self, ty: SymbolAt, index: usize, depth: u8) -> Value<'g> {
+        match self.underlying(ty, depth) {
+            Some(Value::Type(under)) if self.is_function_type(under) => {
+                self.value_type(under, index, depth)
+            }
+            Some(reached @ (Value::Imported | Value::Unbounded)) => reached,
+            _ if self.is_function_type(ty) => self.value_type(ty, index, depth),
+            _ if index == 0 => Value::Type(ty),
             _ => Value::Unknown,
         }
     }
@@ -374,13 +405,17 @@ impl<'g> Cascade<'g> {
     }
 
     fn element(&self, value: Value<'g>, depth: u8) -> Value<'g> {
-        match value {
-            Value::Container { body, element } => self.evaluate(body, element, depth + 1),
-            Value::Type(ty) => match self.value_type(ty, 0, depth) {
-                Value::Container { body, element } => self.evaluate(body, element, depth + 1),
-                _ => Value::Unknown,
+        let holder = match value {
+            Value::Type(ty) | Value::Named(ty) => match self.underlying(ty, depth) {
+                Some(Value::Type(under)) => self.value_type(under, 0, depth),
+                Some(reached) => reached,
+                None => Value::Unknown,
             },
-            Value::Imported | Value::Undeclared => value,
+            value => value,
+        };
+        match holder {
+            Value::Container { body, element } => self.evaluate(body, element, depth + 1),
+            Value::Imported | Value::Undeclared | Value::Unbounded => holder,
             _ => Value::Unknown,
         }
     }
@@ -389,7 +424,7 @@ impl<'g> Cascade<'g> {
         let key = self.graph.strings.get(name);
         let members = key.map_or(&[][..], |key| self.named(key));
         match self.member(ty, (name, members), depth) {
-            Found::Member(at) => self.value_of(at, depth),
+            Found::Member(at) => self.value_of(at, depth).held(),
             Found::Reached(value) => value,
             Found::Nothing => Value::Unknown,
         }
@@ -504,14 +539,16 @@ impl<'g> Cascade<'g> {
             },
             SymbolKind::DefinedType => match self.underlying(ty, depth) {
                 Some(Value::Type(under)) => {
-                    let drops_own_methods = self.graph.sym(under).kind == SymbolKind::Struct;
-                    walk.descend_in_place(Walked {
-                        ty: under,
-                        drops_own_methods,
-                    });
+                    let kind = self.graph.sym(under).kind;
+                    if matches!(kind, SymbolKind::Struct | SymbolKind::Interface) {
+                        walk.descend_in_place(Walked {
+                            ty: under,
+                            drops_own_methods: kind == SymbolKind::Struct,
+                        });
+                    }
                 }
-                Some(imported) => walk.follow(imported),
-                None => {}
+                Some(Value::Imported) => walk.follow(Value::Imported),
+                _ => {}
             },
             _ => {}
         }
@@ -521,9 +558,9 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    // constraint: a type defined over another shares its underlying type: an interface's methods, or a struct's fields
-    // and what they promote, and none of the struct's own methods. An imported type may be either, so a member of a
-    // type over one is the imported type's (ADR 3.201)
+    // constraint: a type defined over another shares its underlying type: an interface's methods, a struct's fields and
+    // what they promote and none of the struct's own methods, a function's results, a container's element. An imported
+    // type may be any of them, so what a type over one gives is the imported type's (ADR 3.201)
     fn underlying(&self, ty: SymbolAt, depth: u8) -> Option<Value<'g>> {
         let kind = self.graph.sym(ty).kind;
         if matches!(kind, SymbolKind::Interface | SymbolKind::Struct) {
@@ -532,13 +569,17 @@ impl<'g> Cascade<'g> {
         let types = self.graph.file(ty.file).value_types(ty.index)?;
         let types = self.graph.strings.resolve(types);
         let path = match kind {
-            SymbolKind::DefinedType => types.strip_prefix(UNDERLYING)?,
+            SymbolKind::DefinedType => match types.strip_prefix(UNDERLYING) {
+                Some(named) => named,
+                None => return Some(Value::Type(ty)),
+            },
             SymbolKind::TypeAlias => types,
             _ => return None,
         };
         match self.evaluate(self.body_of(ty), path, depth + 1) {
             Value::Type(under) => self.underlying(under, depth + 1),
-            Value::Imported => Some(Value::Imported),
+            Value::Container { .. } => Some(Value::Type(ty)),
+            reached @ (Value::Imported | Value::Unbounded) => Some(reached),
             _ => None,
         }
     }
@@ -623,7 +664,7 @@ impl Embedded {
 
     fn follow(&mut self, value: Value<'_>) {
         match value {
-            Value::Type(ty) => {
+            Value::Type(ty) | Value::Named(ty) => {
                 let embedded = Walked::whole(ty);
                 if !self.walked.contains(&embedded) {
                     self.walked.push(embedded);
