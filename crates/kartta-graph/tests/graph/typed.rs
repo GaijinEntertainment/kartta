@@ -314,6 +314,119 @@ fn a_method_an_embedded_type_promotes_binds_and_one_outside_the_graph_binds_noth
     );
 }
 
+fn embedded_beside_an_import() -> Extraction {
+    importing(
+        file(
+            "app/types.go",
+            "main",
+            vec![
+                embedding(
+                    typed("main", "Outer", SymbolKind::Struct, 1),
+                    &["http.Client", "srv.Server"],
+                ),
+                embedding(
+                    typed("main", "Plain", SymbolKind::Struct, 3),
+                    &["srv.Server"],
+                ),
+                embedding(typed("main", "Mid", SymbolKind::Struct, 5), &["srv.Server"]),
+                embedding(typed("main", "Upper", SymbolKind::Struct, 7), &["Mid"]),
+                embedding(
+                    typed("main", "SameDepth", SymbolKind::Struct, 9),
+                    &["http.Client", "Mid"],
+                ),
+                embedding(
+                    typed("main", "ImportNearer", SymbolKind::Struct, 11),
+                    &["http.Client", "Upper"],
+                ),
+            ],
+            Vec::new(),
+        ),
+        &[("srv", Some("srv")), ("http", None)],
+    )
+}
+
+#[test]
+fn an_embedded_field_beside_an_import_binds_at_any_depth() {
+    let caller = file(
+        "app/main.go",
+        "main",
+        vec![function("main", "Run", 1)],
+        vec![
+            member_call("Outer.Server", "Close", 2),
+            member_call("Plain.Server", "Close", 3),
+            member_call("SameDepth.Server", "Close", 4),
+            member_call("ImportNearer.Server", "Close", 5),
+        ],
+    );
+
+    let graph = graph(&[server_package(), embedded_beside_an_import(), caller]);
+
+    assert_eq!(
+        callees_of(&graph, "main.Run"),
+        [("srv/server.go:srv.Server.Close".to_owned(), 85)]
+    );
+    assert_eq!(misses_of(&graph), Vec::new(), "every path binds");
+}
+
+#[test]
+fn a_shallower_embedded_field_outranks_a_deeper_promoted_member_of_its_name() {
+    let declarations = importing(
+        file(
+            "app/types.go",
+            "main",
+            vec![
+                typed("main", "Mid", SymbolKind::Struct, 1),
+                member("main.Mid", "Server", SymbolKind::Method, 2),
+                embedding(typed("main", "Wrap", SymbolKind::Struct, 3), &["Mid"]),
+                embedding(
+                    typed("main", "Outer", SymbolKind::Struct, 5),
+                    &["Wrap", "srv.Server"],
+                ),
+            ],
+            Vec::new(),
+        ),
+        &[("srv", Some("srv"))],
+    );
+    let caller = file(
+        "app/main.go",
+        "main",
+        vec![function("main", "Run", 1)],
+        vec![member_call("Outer.Server", "Close", 2)],
+    );
+
+    let graph = graph(&[server_package(), declarations, caller]);
+
+    assert_eq!(
+        callees_of(&graph, "main.Run"),
+        [("srv/server.go:srv.Server.Close".to_owned(), 85)]
+    );
+}
+
+#[test]
+fn a_name_no_embedded_field_gives_stays_outside_the_graph_beside_an_import() {
+    let caller = file(
+        "app/main.go",
+        "main",
+        vec![function("main", "Run", 1)],
+        vec![
+            member_call("Outer.Transport", "RoundTrip", 2),
+            member_call("Outer.Client", "Do", 3),
+        ],
+    );
+
+    let graph = graph(&[server_package(), embedded_beside_an_import(), caller]);
+
+    assert_eq!(callees_of(&graph, "main.Run"), Vec::new());
+    assert_eq!(
+        misses_of(&graph),
+        [
+            ("RoundTrip", Miss::ExternalImport),
+            ("Do", Miss::ExternalImport)
+        ],
+        "the import may give what no held type names"
+    );
+}
+
 #[test]
 fn a_name_two_files_of_a_package_declare_is_read_from_the_caller_s_own_file() {
     let other_build = importing(
