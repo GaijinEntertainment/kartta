@@ -393,6 +393,48 @@ func run() {
 }
 
 #[test]
+fn a_marshal_call_reads_no_field_through_a_func_type() {
+    for declared in [
+        "type H func() S",
+        "type H = func() S",
+        "type F func() S\ntype H F",
+        "type F func() S\ntype H []F",
+        "type F func() S\ntype H struct{ Run F }",
+    ] {
+        let source = format!(
+            "package b\n\ntype S struct {{\n\tName string\n}}\n\n{declared}\n\n\
+             func run(h H) {{\n\t_, _ = json.Marshal(h)\n}}\n"
+        );
+
+        let raw = extract(source.as_bytes());
+
+        assert!(
+            !qualified(&raw, "b.S.Name").flags.is_reflected(),
+            "{declared}"
+        );
+    }
+}
+
+#[test]
+fn a_reflect_call_reaches_the_struct_fields_through_a_func_type() {
+    let raw = extract(
+        br"
+package b
+
+type S struct {
+    Name string
+}
+
+type H func() S
+
+func run(h H) int { return reflect.TypeOf(h).Out(0).NumField() }
+",
+    );
+
+    assert!(qualified(&raw, "b.S.Name").flags.is_reflected());
+}
+
+#[test]
 fn a_defined_type_no_reflective_call_takes_hands_its_struct_s_fields_to_nothing() {
     let raw = extract(
         br"
