@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::io;
 
 use crate::doc::DocComments;
@@ -506,6 +507,28 @@ pub enum Twins {
     /// each: those in the bound one's file, and, where the caller's file reaches it through a file it includes, those
     /// in every file it includes; of members, the exported ones, and in one file those of a type it defines twice.
     Every,
+    /// Every one of them in the other files of its package, as a Go build constraint keeps files that declare one name
+    /// apart and some build selects each, unless the caller's own file holds one, the one that file is built with, and
+    /// none in a file [`BuiltApart`] keeps from the caller's.
+    Package(BuiltApart),
+}
+
+/// Says from two paths whether no build compiles both files.
+#[derive(Debug, Clone, Copy)]
+pub struct BuiltApart(pub fn(&str, &str) -> bool);
+
+impl PartialEq for BuiltApart {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::fn_addr_eq(self.0, other.0)
+    }
+}
+
+impl Eq for BuiltApart {}
+
+impl Hash for BuiltApart {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
 }
 
 /// Whether a call can bind a namespace of the name it calls.

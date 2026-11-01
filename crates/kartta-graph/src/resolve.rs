@@ -6,9 +6,9 @@ use std::rc::Rc;
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    BareReceivers, CallableRole, Conventions, FILE_SCOPE, IncludeReach, IncludedRuntimeMembers,
-    InheritedMembers, MacroInvocations, MemberCalls, NamespaceCalls, OwnMembers, Receivers,
-    SymbolFlags, SymbolKind, Twins, UntypedMembers, ValueUses, path,
+    BareReceivers, BuiltApart, CallableRole, Conventions, FILE_SCOPE, IncludeReach,
+    IncludedRuntimeMembers, InheritedMembers, MacroInvocations, MemberCalls, NamespaceCalls,
+    OwnMembers, Receivers, SymbolFlags, SymbolKind, Twins, UntypedMembers, ValueUses, path,
 };
 
 use crate::candidates::{CandidateSet, Candidates, Gate, INDEXED_FROM};
@@ -757,7 +757,7 @@ impl<'g> Cascade<'g> {
         }
         resolved.and_then(|(at, confidence)| {
             if !self.graph.sym(at).flags.is_made() {
-                Ok((at, confidence))
+                self.built_with_caller(call, (at, confidence))
             } else if confidence < confidence::SAME_DIR {
                 Err(Miss::Ambiguous)
             } else {
@@ -766,15 +766,93 @@ impl<'g> Cascade<'g> {
         })
     }
 
-    /// The definitions beside `bound` that `call` reaches too where the language binds every twin and the tier that
-    /// bound it, the caller's file or the type its receiver names, holds them equal: those of its qualified name, kind
-    /// and holder in its file, and, where the caller's file reaches `bound` through a file it includes, in every file
-    /// it includes. A member and its twins are exported, and in `bound`'s own file only those of a type the file defines
-    /// more than once. None where the call is made inside `bound` or one of them, which a build compiles alone.
-    pub(crate) fn twins(&self, call: &Call, (bound, confidence): Bound) -> Vec<SymbolAt> {
-        if self.conventions.twins != Twins::Every
-            || !matches!(confidence, confidence::SAME_FILE | confidence::RECEIVER)
-        {
+    /// The definitions beside `bound` that `call` reaches too, as the language's [`Twins`] say.
+    pub(crate) fn twins(&self, call: &Call, bound: Bound) -> Vec<SymbolAt> {
+        match self.conventions.twins {
+            Twins::First => Vec::new(),
+            Twins::Every => self.twins_in_reach(call, bound),
+            Twins::Package(_)
+                if bound.0.file == call.file || !Self::stands_for_a_package(bound) =>
+            {
+                Vec::new()
+            }
+            Twins::Package(built_apart) => (self.declarations_of(call, bound.0))
+                .filter(|&at| at != bound.0 && !self.apart(built_apart, call.file, at.file))
+                .collect(),
+        }
+    }
+
+    fn apart(&self, built_apart: BuiltApart, file: u32, other: u32) -> bool {
+        let path = |slot: u32| self.graph.strings.resolve(self.graph.file(slot).path);
+        (built_apart.0)(path(file), path(other))
+    }
+
+    // constraint: a tier below the import's, the package's and the receiver's does not know the name is the package's,
+    // and a file's own declaration is the one it is built with
+    const fn stands_for_a_package((_, confidence): Bound) -> bool {
+        matches!(
+            confidence,
+            confidence::IMPORT | confidence::PACKAGE | confidence::RECEIVER
+        )
+    }
+
+    /// Whether a definition is one of `bound`'s qualified name, kind and holder in its package that `call` sees.
+    fn alike(&self, call: &Call, bound: SymbolAt) -> impl Fn(&SymbolAt) -> bool {
+        let symbol = self.graph.sym(bound);
+        let dir = self.graph.file(bound.file).dir;
+        let sees_tests = self.graph.sym(call.caller_at()).flags.is_test();
+        let holder = self.holder(bound);
+        move |&at| {
+            let other = self.graph.sym(at);
+            other.qualified_name == symbol.qualified_name
+                && self.graph.file(at.file).dir == dir
+                && (sees_tests || !other.flags.is_test())
+                && self.holder(at) == holder
+        }
+    }
+
+    /// The declarations `bound` stands for in its package, itself among them.
+    fn declarations_of(&self, call: &Call, bound: SymbolAt) -> impl Iterator<Item = SymbolAt> {
+        let named = self.named(self.graph.sym(bound).name);
+        self.graph
+            .package_files(self.graph.file(bound.file).dir)
+            .iter()
+            .flat_map(move |&slot| self.graph.in_file(named, slot).iter().copied())
+            .filter(self.alike(call, bound))
+    }
+
+    /// Of the declarations `bound` stands for, the caller file's own, else `bound` unless a build never compiles it with
+    /// the caller's file, else the first such a build does. A name no such build declares binds nothing.
+    fn built_with_caller(&self, call: &Call, (bound, confidence): Bound) -> Result<Bound, Miss> {
+        let Twins::Package(built_apart) = self.conventions.twins else {
+            return Ok((bound, confidence));
+        };
+        if bound.file == call.file || !Self::stands_for_a_package((bound, confidence)) {
+            return Ok((bound, confidence));
+        }
+        let named = self.named(self.graph.sym(bound).name);
+        let own =
+            (self.graph.in_file(named, call.file).iter().copied()).find(self.alike(call, bound));
+        let apart = |file: u32| self.apart(built_apart, call.file, file);
+        let built = || {
+            if apart(bound.file) {
+                self.declarations_of(call, bound).find(|at| !apart(at.file))
+            } else {
+                Some(bound)
+            }
+        };
+        (own.or_else(built))
+            .map(|at| (at, confidence))
+            .ok_or(Miss::NotAdmitted)
+    }
+
+    /// The definitions beside `bound` where the tier that bound it, the caller's file or the type its receiver names,
+    /// holds them equal: those of its qualified name, kind and holder in its file, and, where the caller's file reaches
+    /// `bound` through a file it includes, in every file it includes. A member and its twins are exported, and in
+    /// `bound`'s own file only those of a type the file defines more than once. None where the call is made inside
+    /// `bound` or one of them, which a build compiles alone.
+    fn twins_in_reach(&self, call: &Call, (bound, confidence): Bound) -> Vec<SymbolAt> {
+        if !matches!(confidence, confidence::SAME_FILE | confidence::RECEIVER) {
             return Vec::new();
         }
         let symbol = self.graph.sym(bound);
