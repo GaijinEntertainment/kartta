@@ -1510,8 +1510,10 @@ impl<'g> Cascade<'g> {
         if let Some(at) = self.member_of_the_receiver_s_owner(call, candidates) {
             return Some(Ok((at, confidence::RECEIVER)));
         }
-        (self.names_a_type_outside_the_graph(call) || self.owned_out_of_reach(call, candidates))
-            .then(|| Err(self.unadmitted(call)))
+        (self.names_a_type_outside_the_graph(call)
+            || self.owned_out_of_reach(call, candidates)
+            || self.inherits_from_outside_the_graph(call, candidates))
+        .then(|| Err(self.unadmitted(call)))
     }
 
     fn owned_out_of_reach(&self, call: &Call, candidates: &Candidates<'_>) -> bool {

@@ -282,3 +282,106 @@ fn a_variable_an_anonymous_class_holds_binds_what_the_class_inherits() {
         ]
     );
 }
+
+const OUTSIDE_PARENT: &str = r"<?php
+namespace App;
+
+use Vendor\Assert as VendorAssert;
+
+class Disk {
+    public function assertEmpty() {}
+    public function own() {}
+    public function above() {}
+    public function spare() {}
+}
+
+class Tree {
+    public function above() {}
+}
+
+class Assert extends VendorAssert {
+    public function own() {}
+    public function callsItsOwn() { $this->own(); }
+}
+
+class Middle extends Assert {}
+
+class Both extends Tree implements \Vendor\Contract {}
+
+interface Listed extends \Vendor\Contract {}
+
+class Listing implements Listed {}
+
+trait Concern {
+    public function fromATrait() {}
+}
+
+class Test extends Middle {
+    public function ownReceiver() { $this->assertEmpty(); }
+    public function staticReceiver() { static::assertEmpty(); }
+    public function holdsIt() { $this->own(); }
+    public function traitHolds() { $this->fromATrait(); }
+}
+
+class Caller {
+    public function namedClass() { Assert::assertEmpty(); }
+    public function parentAbove() { Both::above(); }
+    public function pastAnInterface() { Both::spare(); }
+    public function pastAnInterfaceParent() { Listing::spare(); }
+}
+";
+
+#[test]
+fn a_member_a_parent_outside_the_graph_can_hold_binds_no_namesake() {
+    assert_eq!(callees(OUTSIDE_PARENT, "App\\Test::ownReceiver"), []);
+    assert_eq!(callees(OUTSIDE_PARENT, "App\\Test::staticReceiver"), []);
+    assert_eq!(callees(OUTSIDE_PARENT, "App\\Caller::namedClass"), []);
+}
+
+#[test]
+fn a_member_of_a_trait_stays_with_the_tiers_under_a_parent_outside_the_graph() {
+    assert_eq!(
+        callees(OUTSIDE_PARENT, "App\\Test::traitHolds"),
+        [("App\\Concern::fromATrait".to_owned(), 80)]
+    );
+}
+
+#[test]
+fn a_trait_that_shares_the_bare_name_of_the_member_s_class_keeps_no_namesake() {
+    let namesake_trait = "<?php\nnamespace Other;\n\ntrait Disk {}\n";
+    assert_eq!(
+        callees_in(
+            &[("App.php", OUTSIDE_PARENT), ("Other.php", namesake_trait)],
+            "App\\Test::ownReceiver"
+        ),
+        []
+    );
+}
+
+#[test]
+fn an_interface_outside_the_graph_behind_the_class_a_type_extends_hands_it_no_member() {
+    assert_eq!(
+        callees(OUTSIDE_PARENT, "App\\Caller::pastAnInterface"),
+        [("App\\Disk::spare".to_owned(), 80)]
+    );
+    assert_eq!(
+        callees(OUTSIDE_PARENT, "App\\Caller::pastAnInterfaceParent"),
+        [("App\\Disk::spare".to_owned(), 80)]
+    );
+}
+
+#[test]
+fn a_member_the_tree_holds_binds_past_a_parent_outside_the_graph() {
+    assert_eq!(
+        callees(OUTSIDE_PARENT, "App\\Test::holdsIt"),
+        [("App\\Assert::own".to_owned(), 85)]
+    );
+    assert_eq!(
+        callees(OUTSIDE_PARENT, "App\\Assert::callsItsOwn"),
+        [("App\\Assert::own".to_owned(), 80)]
+    );
+    assert_eq!(
+        callees(OUTSIDE_PARENT, "App\\Caller::parentAbove"),
+        [("App\\Tree::above".to_owned(), 85)]
+    );
+}
