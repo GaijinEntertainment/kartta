@@ -76,10 +76,11 @@
 //! `UnmarshalRead`, `Encode` or `Decode`, unless a tag skips the field, or to `ValueOf` or `TypeOf`, whatever its tags,
 //! as `encoding/json`, `encoding/xml`, `reflect` and their kin name theirs: `json.Unmarshal(data, &info)` for
 //! `var info Info` marks the exported fields of `Info`, and those of the structs they hold, when `Info` is a
-//! package-level struct of the file, or an alias or a container type of one, and the walk names the value's type by
-//! its name. An exported function or package-level variable of a `package main` file that declares no `func main`, as
-//! a plugin's files are, is read by name too: the plugin's host looks it up through `plugin.Lookup`. The walk reads one
-//! file, so a file of a program's `package main` that leaves `func main` to a sibling file is taken for a plugin's.
+//! package-level struct of the file, or an alias, a defined type or a container type of one, and the walk names the
+//! value's type by its name. An exported function or package-level variable of a `package main` file that declares no
+//! `func main`, as a plugin's files are, is read by name too: the plugin's host looks it up through `plugin.Lookup`.
+//! The walk reads one file, so a file of a program's `package main` that leaves `func main` to a sibling file is taken
+//! for a plugin's.
 //!
 //! # Fingerprint
 //!

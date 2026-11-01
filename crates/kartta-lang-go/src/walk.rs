@@ -14,7 +14,7 @@ use self::syntax::{
     assertion_value_type, default_name_candidates, is_exported, is_generated_source, parents_of,
     receiver_type, tag_hands_over_its_field, trim_quotes,
 };
-use self::types::{element_of, inside_containers, is_container_type};
+use self::types::{element_of, is_container_type, named_type};
 
 mod anonymous;
 mod calls;
@@ -193,7 +193,7 @@ impl<'a> Emitter<'a> {
         let mut pending = std::mem::take(&mut self.reflected_values);
         let mut followed: Vec<(String, bool)> = Vec::new();
         while let Some((path, honors_skip_tags)) = pending.pop() {
-            let name = inside_containers(&path);
+            let name = named_type(&path);
             let seen = followed
                 .iter()
                 .any(|(held, honors)| held == name && *honors == honors_skip_tags);
@@ -224,8 +224,9 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    // constraint: an alias and a defined container type record the type they name as their value type, which a
-    // library reaches through them
+    // constraint: an alias and a defined type record the type they name as their value type, which a library reaches
+    // through them: a defined type shares the underlying type of the type it names, so it takes those fields, though
+    // not the methods
     fn package_type_symbol(&self, name: &str) -> Option<&Symbol> {
         let mut declared = (0..).map(SymbolId).zip(&self.raw.symbols);
         declared
