@@ -8,7 +8,6 @@ use super::syntax::{
     INSPECTING_CALLS, SERIALIZING_CALLS, TYPE_ONLY_KINDS, call_target, first_operand,
     is_pointer_indirection,
 };
-use super::types::inside_containers;
 
 impl Emitter<'_> {
     pub(super) fn call(&mut self, node: Node<'_>, site_of: SymbolId) {
@@ -45,7 +44,7 @@ impl Emitter<'_> {
     }
 
     // constraint: the receiver is the type path of the operand's value, and the empty receiver of a member call on a
-    // value of no known type where the walk names none; a local type's name is kept as written
+    // value of no known type where the walk names none
     fn spelled_receiver(
         &self,
         invoked: Node<'_>,
@@ -54,13 +53,6 @@ impl Emitter<'_> {
         let Some(operand) = invoked.child_by_field_name("operand") else {
             return (callee, receiver);
         };
-        let local_type = operand.kind() == "identifier"
-            && self
-                .innermost_local(self.borrowed(operand), operand.start_byte())
-                .is_some_and(|local| matches!(local.kind, LocalKind::TypeSymbol(_)));
-        if local_type {
-            return (callee, receiver);
-        }
         (callee, Some(self.value_path(operand).unwrap_or_default()))
     }
 
@@ -141,8 +133,6 @@ impl Emitter<'_> {
             })
     }
 
-    // constraint: a type a body declares has fields local to it, which no use binds, so a value of one hands no
-    // package-level namesake's fields over
     fn note_reflected_values(&mut self, call: Node<'_>, honors_skip_tags: bool) {
         let Some(arguments) = call.child_by_field_name("arguments") else {
             return;
@@ -151,13 +141,7 @@ impl Emitter<'_> {
             if honors_skip_tags && self.value_holds_channel(argument) {
                 continue;
             }
-            let Some(path) = self.value_path(argument) else {
-                continue;
-            };
-            let of_a_local_type = self
-                .innermost_local(inside_containers(&path), argument.start_byte())
-                .is_some_and(|local| matches!(local.kind, LocalKind::TypeSymbol(_)));
-            if !of_a_local_type {
+            if let Some(path) = self.value_path(argument) {
                 self.reflected_values.push((path, honors_skip_tags));
             }
         }
