@@ -1,8 +1,8 @@
 use kartta_lang::tree::named_child_nodes;
 use tree_sitter::Node;
 
-/// What an identifier is where it stands: a binding of a local, a read that names a local or calls a method, or a name
-/// that is neither.
+/// What an identifier or an attribute call is where it stands: the target of a binding, a read that names a local or
+/// calls a method, or a name that is neither.
 pub(crate) enum Role {
     Binding,
     Read,
@@ -142,14 +142,14 @@ pub(crate) const fn is_keyword(name: &[u8]) -> bool {
 
 // constraint: the grammar parses a bare name as an `identifier` everywhere a value stands, and in the binding and the
 // naming positions below
-pub(crate) fn role(identifier: Node<'_>) -> Role {
-    let Some(parent) = identifier.parent() else {
+pub(crate) fn role(node: Node<'_>) -> Role {
+    let Some(parent) = node.parent() else {
         return Role::Read;
     };
     let in_field = |field| {
         parent
             .child_by_field_name(field)
-            .is_some_and(|child| child.id() == identifier.id())
+            .is_some_and(|child| child.id() == node.id())
     };
     match parent.kind() {
         "method_parameters"
