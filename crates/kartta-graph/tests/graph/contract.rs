@@ -187,30 +187,30 @@ fn a_cpp_operator_is_selected_by_its_qualified_name() {
 #[test]
 fn a_daslang_property_operator_is_selected_by_its_owner_qualified_name() {
     let graph = graph(&[file(
-        "ui/ui_image_component.das",
+        "ui/sprite_component.das",
         vec![
             member(
                 SymbolKind::Method,
-                "operator . nineGrid",
-                "ui_image_component.UIImage.operator . nineGrid",
+                "operator . frameSize",
+                "sprite_component.Sprite.operator . frameSize",
                 118,
             ),
             member(
                 SymbolKind::Method,
-                "operator . nineGrid :=",
-                "ui_image_component.UIImage.operator . nineGrid :=",
+                "operator . frameSize :=",
+                "sprite_component.Sprite.operator . frameSize :=",
                 123,
             ),
         ],
     )]);
 
-    let setter = graph.definitions("UIImage.operator . nineGrid :=", None, 10);
-    let getter = graph.definitions("UIImage.operator . nineGrid", None, 10);
+    let setter = graph.definitions("Sprite.operator . frameSize :=", None, 10);
+    let getter = graph.definitions("Sprite.operator . frameSize", None, 10);
 
-    assert_eq!(places(&setter), ["ui/ui_image_component.das:123"]);
-    assert_eq!(places(&getter), ["ui/ui_image_component.das:118"]);
+    assert_eq!(places(&setter), ["ui/sprite_component.das:123"]);
+    assert_eq!(places(&getter), ["ui/sprite_component.das:118"]);
     assert_eq!(
-        callers_root(&graph, "ui_image_component.UIImage.operator . nineGrid :="),
+        callers_root(&graph, "sprite_component.Sprite.operator . frameSize :="),
         Some(123)
     );
 }

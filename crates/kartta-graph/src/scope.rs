@@ -1859,7 +1859,7 @@ impl Cascade<'_> {
     }
 
     // constraint: a class is never its own base, so a base that shares the class's name, Quirrel's `class
-    // (vehiclesModal.handlerClass)` in a `handlerClass` of its own, is the nearest other type of that name; a file
+    // (itemsModal.handlerClass)` in a `handlerClass` of its own, is the nearest other type of that name; a file
     // reaches a type of another scope through an include, as PHP's `use` of a class the repository's autoload maps, so
     // a type of another scope that the child's file neither holds, includes nor shares a directory with is a namesake
     // of a base outside the graph, PHPUnit's `TestCase` for `Illuminate\Foundation\Testing\TestCase`
