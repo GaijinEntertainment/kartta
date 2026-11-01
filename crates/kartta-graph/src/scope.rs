@@ -1564,12 +1564,21 @@ impl Cascade<'_> {
     /// The definition of the call's name, nearest the call, that the first of `bodies`, one a line, holding one gives.
     pub(crate) fn member_of_a_pasted_body(&self, call: &Call, bodies: &str) -> Option<SymbolAt> {
         let named = self.named(call.callee).iter().copied();
-        bodies.split('\n').find_map(|body| {
-            let body = self.graph.strings.get(body)?;
-            let held =
-                move |at: &SymbolAt| self.graph.file(at.file).value_types(at.index) == Some(body);
+        bodies.split('\n').find_map(|line| {
+            let held = |at: &SymbolAt| self.held_by_a_body(*at, line);
             self.nearest_of(call, named.clone().filter(held))
         })
+    }
+
+    /// Whether the body that `line`, a name or `@` and a filter, stands for holds the definition at `at`.
+    fn held_by_a_body(&self, at: SymbolAt, line: &str) -> bool {
+        let Some(body) = self.graph.file(at.file).value_types(at.index) else {
+            return false;
+        };
+        line.strip_prefix('@').map_or_else(
+            || self.graph.strings.resolve(body) == line,
+            |filter| self.graph.pastes(body, filter),
+        )
     }
 
     /// The field among `named` that the body of `ty` declares.
