@@ -1018,14 +1018,17 @@ impl<'g> Calls<'g> {
             };
             let stored = self.graph.file(site.file).uses[site.index as usize];
             let at = SymbolAt::new(site.file, stored.site_of());
-            let key = (
-                self.cascade.canonical(used),
-                at,
-                stored.line,
-                stored.access(),
-            );
-            let held = best.entry(key).or_insert(confidence);
-            *held = (*held).max(confidence);
+            let twins = self.cascade.use_twins(site.file, (used, confidence));
+            for used in twins.into_iter().chain([used]) {
+                let key = (
+                    self.cascade.canonical(used),
+                    at,
+                    stored.line,
+                    stored.access(),
+                );
+                let held = best.entry(key).or_insert(confidence);
+                *held = (*held).max(confidence);
+            }
         }
         if ambiguous > 0 {
             self.ambiguous.insert(name, ambiguous);

@@ -8,7 +8,7 @@
 
 use std::fs;
 
-use kartta::{BuildOptions, Engine, Limits, Selector};
+use kartta::{BuildOptions, Engine, Limits, Selector, SiteQuery};
 use tempfile::TempDir;
 
 const OVER_AN_IMPORT: &str = "//go:build amd64
@@ -300,6 +300,88 @@ fn a_caller_a_header_constrains_binds_no_declaration_a_build_never_compiles_with
             pair("dec.New", "dec/d.go"),
             pair("dec.New", "dec/e_amd64.go")
         ]
+    );
+}
+
+/// The lines of the file `reader` at which the declaration in `file` of `name` is used.
+fn used_at(engine: &Engine, name: &str, file: &str, reader: &str) -> Vec<u32> {
+    let (_, graph) = engine.graph_of(file).expect("Go claims the file");
+    let selector = Selector::new(name, Some(file));
+    let references = graph
+        .references(selector, SiteQuery::new(100))
+        .expect("the declaration is held");
+    assert_eq!(references.symbol.file, file);
+    (references.sites.iter())
+        .filter(|site| site.site_of.file == reader)
+        .map(|site| site.line)
+        .collect()
+}
+
+const NO_LINE: [u32; 0] = [];
+
+const DEC_OF_LINUX: &str = "//go:build linux\n\npackage dec\n\ntype Dec struct{}\n";
+
+const DEC_OF_WINDOWS: &str = "//go:build windows\n\npackage dec\n\ntype Dec struct{}\n";
+
+#[test]
+fn a_use_of_a_name_two_files_declare_reaches_both_from_a_file_either_builds_with() {
+    let reader = "package m\n\nimport \"x/dec\"\n\nvar held dec.Dec\n";
+    let beside = "package dec\n\nvar held Dec\n";
+    let (_tree, engine) = build(&[
+        ("dec/a.go", DEC_OF_LINUX),
+        ("dec/b.go", DEC_OF_WINDOWS),
+        ("dec/c.go", beside),
+        ("m.go", reader),
+    ]);
+
+    for file in ["dec/a.go", "dec/b.go"] {
+        assert_eq!(used_at(&engine, "dec.Dec", file, "m.go"), [5], "{file}");
+        assert_eq!(used_at(&engine, "dec.Dec", file, "dec/c.go"), [3], "{file}");
+    }
+}
+
+#[test]
+fn a_use_reaches_no_declaration_a_build_never_compiles_with_it_and_stands_on_its_file_s_own() {
+    let reader = "//go:build windows\n\npackage m\n\nimport \"x/dec\"\n\nvar held dec.Dec\n";
+    let beside = "//go:build windows\n\npackage dec\n\nvar held Dec\n";
+    let declaring = "//go:build windows\n\npackage dec\n\ntype Dec struct{}\n\nvar own Dec\n";
+    let (_tree, engine) = build(&[
+        ("dec/a.go", DEC_OF_LINUX),
+        ("dec/b.go", declaring),
+        ("dec/c.go", beside),
+        ("dec/d.go", "package dec\n\ntype Dec struct{}\n"),
+        ("m.go", reader),
+    ]);
+
+    assert_eq!(used_at(&engine, "dec.Dec", "dec/a.go", "m.go"), NO_LINE);
+    assert_eq!(used_at(&engine, "dec.Dec", "dec/a.go", "dec/c.go"), NO_LINE);
+    assert_eq!(used_at(&engine, "dec.Dec", "dec/a.go", "dec/b.go"), NO_LINE);
+    assert_eq!(used_at(&engine, "dec.Dec", "dec/b.go", "m.go"), [7]);
+    assert_eq!(used_at(&engine, "dec.Dec", "dec/b.go", "dec/b.go"), [7]);
+    assert_eq!(used_at(&engine, "dec.Dec", "dec/d.go", "dec/b.go"), NO_LINE);
+}
+
+#[test]
+fn a_use_no_declaration_is_built_with_binds_nothing() {
+    let reader = "//go:build windows\n\npackage m\n\nimport \"x/dec\"\n\nvar held dec.Dec\n";
+    let (_tree, engine) = build(&[("dec/a.go", DEC_OF_LINUX), ("m.go", reader)]);
+
+    assert_eq!(used_at(&engine, "dec.Dec", "dec/a.go", "m.go"), NO_LINE);
+}
+
+#[test]
+fn a_use_outside_test_code_reaches_no_declaration_of_a_test_file() {
+    let reader = "package m\n\nimport \"x/dec\"\n\nvar held dec.Dec\n";
+    let (_tree, engine) = build(&[
+        ("dec/a.go", "package dec\n\ntype Dec struct{}\n"),
+        ("dec/b_test.go", "package dec\n\ntype Dec struct{}\n"),
+        ("m.go", reader),
+    ]);
+
+    assert_eq!(used_at(&engine, "dec.Dec", "dec/a.go", "m.go"), [5]);
+    assert_eq!(
+        used_at(&engine, "dec.Dec", "dec/b_test.go", "m.go"),
+        NO_LINE
     );
 }
 
