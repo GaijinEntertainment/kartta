@@ -268,19 +268,19 @@ fn a_specifier_of_two_candidates_names_the_one_that_ends_with_it_below_its_mount
 #[test]
 fn a_specifier_two_files_end_with_below_its_mount_point_names_neither() {
     let files = [
-        "prog/libs/dm/dm_events.das",
-        "skyquake/game/dm/dm_events.das",
+        "prog/libs/fx/fx_events.das",
+        "game_a/game/fx/fx_events.das",
         "game/a.das",
     ];
 
     let extraction = resolve(
         &files,
-        "options gen2\nrequire danetlibs.dm.dm_events\n",
+        "options gen2\nrequire danetlibs.fx.fx_events\n",
         "game/a.das",
     );
 
     assert_eq!(includes(&extraction), NOTHING);
-    assert_eq!(modules(&extraction), ["danetlibs.dm.dm_events"]);
+    assert_eq!(modules(&extraction), ["danetlibs.fx.fx_events"]);
 }
 
 #[test]
