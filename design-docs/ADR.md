@@ -140,7 +140,7 @@ lost, and what would reopen it.
 - [3.132 Walk from a field, a variable or a constant to its users](/design-docs/adr/3.132-data-symbol-reach.md)
 - [3.133 Count a blast's files from its callers and its file's includers apart](/design-docs/adr/3.133-blast-file-count.md)
 - [3.166 Break a Quirrel member call's tie by the tables its receiver reaches](/design-docs/adr/3.166-quirrel-member-call-ties.md)
-- [3.167 Bind nothing for a PHP static call on a class outside the graph](/design-docs/adr/3.167-php-outside-class-calls.md)
+- [3.167 Bind nothing for a PHP call on a class outside the graph](/design-docs/adr/3.167-php-outside-class-calls.md)
 - [3.168 Bind a call through the base receiver to the base class's member](/design-docs/adr/3.168-base-receiver-calls.md)
 - [3.171 Bind a call through the import, type, qualified name or owner it is written on](/design-docs/adr/3.171-receiver-call-binding.md)
 - [3.172 Bind a bare call through the scope that offers its name, then the nearest callable](/design-docs/adr/3.172-bare-call-binding.md)
