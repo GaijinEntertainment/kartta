@@ -1,8 +1,9 @@
-use kartta_lang::tree::{named_child_nodes, text};
+use kartta_lang::SymbolId;
+use kartta_lang::tree::named_child_nodes;
 use tree_sitter::Node;
 
 use super::Emitter;
-use super::locals::LocalKind;
+use super::locals::{Local, LocalKind};
 use super::syntax::first_operand;
 
 // constraint: a path grows with the expression it names, and a long chain is rare, so a path past this length is
@@ -30,6 +31,13 @@ impl Emitter<'_> {
         match node.kind() {
             "type_identifier" => {
                 let name = self.borrowed(node);
+                if let Some(Local {
+                    kind: LocalKind::TypeSymbol(symbol),
+                    ..
+                }) = self.innermost_local(name, node.start_byte())
+                {
+                    return Some(symbol_path(*symbol));
+                }
                 let is_parameter = self.type_params.iter().any(|(_, param)| param == name);
                 (!is_parameter).then(|| name.to_owned())
             }
@@ -144,7 +152,7 @@ impl Emitter<'_> {
         match local.kind {
             LocalKind::ReceiverOf(method) => self.raw.symbols[method.0 as usize].owner.clone(),
             LocalKind::Value | LocalKind::ValueSymbol(_) => local.type_path.clone(),
-            LocalKind::TypeSymbol(_) => None,
+            LocalKind::TypeSymbol(symbol) => Some(symbol_path(symbol)),
         }
     }
 
@@ -201,8 +209,7 @@ impl Emitter<'_> {
         if self.is_allocator(function) {
             let argument = first_operand(call.child_by_field_name("arguments")?)?;
             return self.type_path(argument).or_else(|| match argument.kind() {
-                "identifier" => Some(text(argument, self.source)),
-                "selector_expression" => self.value_path(argument),
+                "identifier" | "selector_expression" => self.value_path(argument),
                 _ => None,
             });
         }
@@ -210,9 +217,19 @@ impl Emitter<'_> {
             return None;
         }
         let path = self.value_path(function)?;
-        let held = self.is_local(self.borrowed(function), function.start_byte());
-        bounded(format!("{path}{}()", if held { UNDERLYING } else { "" }))
+        let local = self.innermost_local(self.borrowed(function), function.start_byte());
+        match local.map(|local| local.kind) {
+            Some(LocalKind::TypeSymbol(_)) => Some(path),
+            Some(_) => bounded(format!("{path}{UNDERLYING}()")),
+            None => bounded(format!("{path}()")),
+        }
     }
+}
+
+// constraint: the graph reads a path's `{N}` as the symbol at index N of the path's file, whatever the scopes around it
+// declare (ADR 3.170), and no Go identifier or path step holds a brace
+pub(super) fn symbol_path(symbol: SymbolId) -> String {
+    format!("{{{}}}", symbol.0)
 }
 
 pub(super) fn is_container_type(node: Node<'_>) -> bool {
@@ -242,7 +259,7 @@ pub(super) fn is_one_container(path: &str) -> bool {
         .is_some_and(|element| !is_container_path(element))
 }
 
-pub(super) fn inside_containers(path: &str) -> &str {
+fn inside_containers(path: &str) -> &str {
     path.trim_start_matches(CONTAINER)
 }
 
