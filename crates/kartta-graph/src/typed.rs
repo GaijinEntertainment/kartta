@@ -9,7 +9,8 @@ use crate::strings::Str;
 /// What a receiver that spells a type path binds a member call to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Typed {
-    /// The member the call names, of the receiver's type or of a type it embeds.
+    /// The member the site names, of the receiver's type or of a type it embeds, or the type an embedded field of the
+    /// name holds, which stands for that field.
     Member(SymbolAt),
     /// A type that an import of code outside the graph declares, or a member such a type may give.
     Imported,
@@ -96,23 +97,26 @@ impl<'g> Cascade<'g> {
         name: Str,
         binds: impl Fn(&StoredSymbol) -> bool,
     ) -> Typed {
-        match self.receiver_type(self.body_of(reader), path) {
+        let reached = match self.receiver_type(self.body_of(reader), path) {
             Value::Type(ty) => {
                 // constraint: a held read spends nothing, so a walk that took over its count would answer by the calls
                 // before it
                 self.evaluations.set(0);
-                match self.member(ty, name, 0) {
-                    Found::Member(at) if binds(self.graph.sym(at)) => Typed::Member(at),
-                    Found::Member(_) | Found::Nothing => Typed::NoMethod,
-                    Found::Outside => Typed::Imported,
-                    Found::Unbounded => Typed::PastBound,
-                    Found::Unknown => Typed::Unknown,
+                let members = self.named(name);
+                match self.member(ty, (self.graph.strings.resolve(name), members), 0) {
+                    Found::Member(at) if binds(self.graph.sym(at)) => return Typed::Member(at),
+                    Found::Member(_) | Found::Nothing => return Typed::NoMethod,
+                    Found::Reached(value) => value,
                 }
             }
+            value => value,
+        };
+        match reached {
             Value::Imported => Typed::Imported,
             Value::Undeclared => Typed::Undeclared,
             Value::Unbounded => Typed::PastBound,
-            Value::Package(_)
+            Value::Type(_)
+            | Value::Package(_)
             | Value::Callable(_)
             | Value::Container { .. }
             | Value::Declarations(_)
@@ -381,58 +385,57 @@ impl<'g> Cascade<'g> {
         }
     }
 
-    // constraint: an embedded field is named by its type's name, `x.Base` for an embedded `Base` or `*pkg.Base`. An
-    // imported type's members are unknown, and one at the depth of a name found here would make the selector illegal,
-    // so the import can give only a name no type the graph holds does (ADR 3.201)
     fn member_value(&self, ty: SymbolAt, name: &str, depth: u8) -> Value<'g> {
         let key = self.graph.strings.get(name);
         let members = key.map_or(&[][..], |key| self.named(key));
-        let mut walk = Embedded::new(ty);
-        while let Some(next) = walk.next() {
-            if let Some(at) = self.declared_member(next, members) {
-                return self.value_of(at, depth);
-            }
-            let embedded = self
-                .graph
-                .file(next.file)
-                .parents_of(next.index)
-                .iter()
-                .map(|parent| self.graph.strings.resolve(parent.written))
-                .find(|written| written.rsplit('.').next() == Some(name));
-            if let Some(written) = embedded {
-                return self.evaluate(self.body_of(next), written, depth + 1);
-            }
-            self.embed(&mut walk, next, depth);
-        }
-        if walk.reaches_outside {
-            Value::Imported
-        } else if walk.closes_aliases {
-            Value::Unbounded
-        } else {
-            Value::Unknown
+        match self.member(ty, (name, members), depth) {
+            Found::Member(at) => self.value_of(at, depth),
+            Found::Reached(value) => value,
+            Found::Nothing => Value::Unknown,
         }
     }
 
     // constraint: an embedded type's members are promoted, the shallowest first, and a member of a type that the graph
-    // does not hold, or that a path the graph cannot follow names, may be the one the name reaches
-    fn member(&self, ty: SymbolAt, name: Str, depth: u8) -> Found {
-        let named = self.named(name);
+    // does not hold, or that a path the graph cannot follow names, may be the one the name reaches. A struct's embedded
+    // field is named by its type's name, `x.Base` for an embedded `Base` or `*pkg.Base`, and has no symbol of its own,
+    // so its type answers; an interface's embedded interface names no member. An imported type's members are unknown,
+    // and one at the depth of a name found here would make the selector illegal, so the import can give only a name no
+    // type the graph holds does (ADR 3.201)
+    fn member(&self, ty: SymbolAt, (name, members): (&str, &[SymbolAt]), depth: u8) -> Found<'g> {
         let mut walk = Embedded::new(ty);
         while let Some(next) = walk.next() {
-            if let Some(at) = self.declared_member(next, named) {
+            if let Some(at) = self.declared_member(next, members) {
                 return Found::Member(at);
+            }
+            if let Some(written) = self.embedded_field(next, name) {
+                return match self.evaluate(self.body_of(next), written, depth + 1) {
+                    Value::Type(at) => Found::Member(at),
+                    value => Found::Reached(value),
+                };
             }
             self.embed(&mut walk, next, depth);
         }
         if walk.reaches_outside {
-            Found::Outside
+            Found::Reached(Value::Imported)
         } else if walk.closes_aliases {
-            Found::Unbounded
+            Found::Reached(Value::Unbounded)
         } else if walk.reaches_unknown {
-            Found::Unknown
+            Found::Reached(Value::Unknown)
         } else {
             Found::Nothing
         }
+    }
+
+    fn embedded_field(&self, ty: SymbolAt, name: &str) -> Option<&'g str> {
+        if self.graph.sym(ty).kind == SymbolKind::Interface {
+            return None;
+        }
+        self.graph
+            .file(ty.file)
+            .parents_of(ty.index)
+            .iter()
+            .map(|parent| self.graph.strings.resolve(parent.written))
+            .find(|written| written.rsplit('.').next() == Some(name))
     }
 
     // constraint: a type's members are declared in its own package and qualified by its name, so a member of its name
@@ -528,12 +531,12 @@ impl<'g> Cascade<'g> {
     }
 }
 
-enum Found {
+enum Found<'g> {
+    /// The member of the name, or the type that an embedded field of the name holds.
     Member(SymbolAt),
-    Outside,
+    /// No symbol: the name lies past what the graph holds, or past what a path can follow.
+    Reached(Value<'g>),
     Nothing,
-    Unbounded,
-    Unknown,
 }
 
 struct Embedded {
