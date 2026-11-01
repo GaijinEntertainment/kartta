@@ -800,6 +800,251 @@ fn a_go_type_defined_over_a_struct_keeps_its_fields_and_what_they_promote() {
     );
 }
 
+/// The `M` each of `callers` of package `a` binds, read from `find_callees` over `source`.
+fn methods_bound_by(source: &str, callers: &[&str]) -> Vec<(String, Vec<String>)> {
+    let tree = tree(&[
+        ("go.mod", "module example.com/a\n\ngo 1.22\n"),
+        ("a.go", source),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+    callers
+        .iter()
+        .map(|caller| {
+            let answer = client.answer("find_callees", &json!({"name": format!("a.{caller}")}));
+            let bound = answer
+                .split(r#"<ref name="M" qn=""#)
+                .skip(1)
+                .filter_map(|rest| rest.split('"').next())
+                .map(str::to_owned)
+                .collect();
+            ((*caller).to_owned(), bound)
+        })
+        .collect()
+}
+
+fn each_binds(cases: &[(&str, &str)]) -> Vec<(String, Vec<String>)> {
+    cases
+        .iter()
+        .map(|&(caller, method)| (caller.to_owned(), vec![method.to_owned()]))
+        .collect()
+}
+
+const GO_DECLARATIONS: &str = "package a
+
+type E struct{}
+
+func (E) M() {}
+
+type Z struct{}
+
+func (Z) M() {}
+
+type L []E
+type T L
+
+func (L) M() {}
+
+type F func() E
+type G F
+
+func (F) M() {}
+func (G) M() {}
+";
+
+#[test]
+fn a_go_value_reads_through_a_type_defined_over_a_slice_or_a_function() {
+    let source = format!(
+        "{GO_DECLARATIONS}
+func index(t T) {{ t[0].M() }}
+func direct(l L) {{ l[0].M() }}
+func call(g G) {{ g().M() }}
+func plain(f F) {{ f().M() }}
+func dropped(t T) {{ t.M() }}
+"
+    );
+
+    let mut expected = each_binds(&[
+        ("index", "a.E.M"),
+        ("direct", "a.E.M"),
+        ("call", "a.E.M"),
+        ("plain", "a.E.M"),
+    ]);
+    expected.push(("dropped".to_owned(), Vec::new()));
+    assert_eq!(
+        methods_bound_by(&source, &["index", "direct", "call", "plain", "dropped"]),
+        expected,
+    );
+}
+
+#[test]
+fn a_go_conversion_to_a_function_type_yields_that_type() {
+    let source = format!(
+        "{GO_DECLARATIONS}
+type A = F
+
+func defined(f F) {{ G(f).M() }}
+func plain(f func() E) {{ F(f).M() }}
+func aliased(f func() E) {{ A(f).M() }}
+func held(f F) {{
+\tconverted := G(f)
+\tconverted.M()
+}}
+func calledAfter(f F) {{
+\tconverted := G(f)
+\tconverted().M()
+}}
+"
+    );
+
+    assert_eq!(
+        methods_bound_by(
+            &source,
+            &["defined", "plain", "aliased", "held", "calledAfter"]
+        ),
+        each_binds(&[
+            ("defined", "a.G.M"),
+            ("plain", "a.F.M"),
+            ("aliased", "a.F.M"),
+            ("held", "a.G.M"),
+            ("calledAfter", "a.E.M"),
+        ]),
+    );
+}
+
+#[test]
+fn a_go_value_of_a_function_type_is_called_wherever_it_is_held() {
+    let source = format!(
+        "{GO_DECLARATIONS}
+type A = F
+type AG = G
+type Literal = func() E
+type LiteralTwo = func() (Z, E)
+
+type S struct {{
+\tG
+\tNamed G
+}}
+
+type Two func() (Z, E)
+type TwoDefined Two
+
+var held G
+
+func source() E {{ return E{{}} }}
+
+func packageValue() {{ held().M() }}
+func embedded(s S) {{ s.G().M() }}
+func field(s S) {{ s.Named().M() }}
+func alias(a A) {{ a().M() }}
+func aliasOfDefined(a AG) {{ a().M() }}
+func literal(l Literal) {{ l().M() }}
+func literalSecond(l LiteralTwo) {{
+\t_, e := l()
+\te.M()
+}}
+func second(t TwoDefined) {{
+\t_, e := t()
+\te.M()
+}}
+func first(t TwoDefined) {{
+\tz, _ := t()
+\tz.M()
+}}
+func viaFunction() {{
+\tf := source
+\tf().M()
+}}
+"
+    );
+
+    assert_eq!(
+        methods_bound_by(
+            &source,
+            &[
+                "packageValue",
+                "embedded",
+                "field",
+                "alias",
+                "aliasOfDefined",
+                "literal",
+                "literalSecond",
+                "second",
+                "first",
+                "viaFunction",
+            ]
+        ),
+        each_binds(&[
+            ("packageValue", "a.E.M"),
+            ("embedded", "a.E.M"),
+            ("field", "a.E.M"),
+            ("alias", "a.E.M"),
+            ("aliasOfDefined", "a.E.M"),
+            ("literal", "a.E.M"),
+            ("literalSecond", "a.E.M"),
+            ("second", "a.E.M"),
+            ("first", "a.Z.M"),
+            ("viaFunction", "a.E.M"),
+        ]),
+    );
+}
+
+#[test]
+fn a_go_element_reads_through_a_map_a_channel_an_array_and_an_alias_under_a_defined_type() {
+    let source = format!(
+        "{GO_DECLARATIONS}
+type Mapped map[Z]E
+type MappedDefined Mapped
+type Chan chan E
+type ChanDefined Chan
+type Array [1]E
+type ArrayDefined Array
+type AliasOfDefined = T
+type AliasOfSlice = []E
+type OverAlias AliasOfSlice
+
+func mapped(n MappedDefined) {{ n[Z{{}}].M() }}
+func ranged(n MappedDefined) {{
+\tfor _, value := range n {{
+\t\tvalue.M()
+\t}}
+}}
+func received(d ChanDefined) {{ (<-d).M() }}
+func array(a ArrayDefined) {{ a[0].M() }}
+func pointer(a *ArrayDefined) {{ a[0].M() }}
+func alias(a AliasOfDefined) {{ a[0].M() }}
+func overAlias(a OverAlias) {{ a[0].M() }}
+func converted(l L) {{ T(l)[0].M() }}
+"
+    );
+
+    assert_eq!(
+        methods_bound_by(
+            &source,
+            &[
+                "mapped",
+                "ranged",
+                "received",
+                "array",
+                "pointer",
+                "alias",
+                "overAlias",
+                "converted",
+            ]
+        ),
+        each_binds(&[
+            ("mapped", "a.E.M"),
+            ("ranged", "a.E.M"),
+            ("received", "a.E.M"),
+            ("array", "a.E.M"),
+            ("pointer", "a.E.M"),
+            ("alias", "a.E.M"),
+            ("overAlias", "a.E.M"),
+            ("converted", "a.E.M"),
+        ]),
+    );
+}
+
 #[test]
 fn a_go_closure_reads_a_field_through_the_type_its_enclosing_function_declares() {
     let source = "package app\n\nfunc First() int {\n\ttype fields struct {\n\t\tSize int\n\t}\n\
