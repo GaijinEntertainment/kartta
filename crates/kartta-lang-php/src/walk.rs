@@ -712,6 +712,9 @@ impl<'s> Emitter<'s> {
         held.map(str::to_owned).or(receiver)
     }
 
+    // constraint: braces hold an expression (`simple_variable`, `property_name`, `Zend/zend_language_parser.y`), and
+    // the grammar writes a constant there as a `name`: `$this->{X}` ends past its name, `self::${X}` holds it in a
+    // `dynamic_variable_name`, and the property is the constant's value, which the walk does not hold
     fn own_field(&self, access: Node<'_>) -> Option<Field<'s>> {
         let open = *self.types.last()?;
         let name = match access.kind() {
@@ -722,13 +725,15 @@ impl<'s> Emitter<'s> {
                 }
                 access
                     .child_by_field_name("name")
-                    .filter(|name| name.kind() == "name")?
+                    .filter(|name| name.kind() == "name" && name.end_byte() == access.end_byte())?
             }
             "scoped_property_access_expression" => {
                 if !self.is_own_class(access.child_by_field_name("scope")?, open) {
                     return None;
                 }
-                let variable = access.child_by_field_name("name")?;
+                let variable = access
+                    .child_by_field_name("name")
+                    .filter(|variable| variable.kind() == "variable_name")?;
                 named_child_nodes(variable).find(|child| child.kind() == "name")?
             }
             _ => return None,

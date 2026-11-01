@@ -189,6 +189,35 @@ class Child {
 }
 
 #[test]
+fn a_write_to_a_computed_static_name_binds_no_call_on_the_text_in_its_braces() {
+    let source = r#"<?php
+namespace App;
+class Container {
+    public function m() {}
+}
+class Other {
+    public function m() {}
+}
+const X = "other";
+class Suite {
+    public static $other;
+    public static $X;
+    public static function set() { self::${X} = new Container; }
+    public function run() { self::$X->m(); }
+}
+"#;
+    let spelled = source.replace("self::${X} =", "self::$X =");
+    assert_eq!(
+        callees(&[("src/A.php", &spelled), COMPOSER], "App\\Suite::run"),
+        ["App\\Container::m"],
+    );
+    assert_eq!(
+        callees(&[("src/A.php", source), COMPOSER], "App\\Suite::run"),
+        [""; 0],
+    );
+}
+
+#[test]
 fn a_write_from_a_parent_or_a_trait_is_outside_what_the_caller_reads() {
     let base = r"<?php
 namespace App;

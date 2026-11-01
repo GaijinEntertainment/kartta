@@ -438,3 +438,55 @@ class Suite {
     let call = raw.calls.iter().find(|call| call.callee == "m");
     assert_eq!(call.and_then(|call| call.receiver.as_deref()), Some(""));
 }
+
+#[test]
+fn a_computed_name_writes_no_property() {
+    for write in [
+        "$this->$c = new Container;",
+        "$this->{$c} = new Container;",
+        "$this->{c} = new Container;",
+        "self::$$c = new Container;",
+        "self::${$c} = new Container;",
+        "self::${c} = new Container;",
+    ] {
+        assert_eq!(
+            static_receiver(
+                "self::$c->m();",
+                &format!("public function set($c) {{ {write} }}"),
+            )
+            .as_deref(),
+            UNNAMED,
+            "{write}",
+        );
+    }
+}
+
+#[test]
+fn a_computed_name_reads_no_property() {
+    for read in [
+        "$this->$c->m();",
+        "$this->{$c}->m();",
+        "$this->{c}->m();",
+        "$this?->{c}->m();",
+        "self::$$c->m();",
+        "self::${$c}->m();",
+        "self::${c}->m();",
+    ] {
+        assert_eq!(
+            static_receiver(read, "private Container $c;").as_deref(),
+            UNNAMED,
+            "{read}",
+        );
+    }
+}
+
+#[test]
+fn a_spelled_name_beside_a_comment_stays_the_property() {
+    for read in ["$this->c /* note */ ->m();", "self::$c /* note */ ->m();"] {
+        assert_eq!(
+            static_receiver(read, "private Container $c;").as_deref(),
+            CONTAINER,
+            "{read}",
+        );
+    }
+}
