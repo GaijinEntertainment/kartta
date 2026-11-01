@@ -777,7 +777,7 @@ impl<'a> Emitter<'a> {
         for (position, &name_node) in names.iter().enumerate() {
             let name = text(name_node, self.source);
             if name == "_" {
-                self.assertion_implements(spec);
+                self.assertion_implements(spec, position, names.len());
             } else {
                 let type_path = written.map_or_else(
                     || self.value_path_at(&values, names.len(), position),
@@ -827,18 +827,26 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn assertion_implements(&mut self, spec: Node<'_>) {
+    // constraint: the nth expression initializes the nth name, and one expression over several names is a multi-valued
+    // call whose results no spelling names (doc/go_spec.html, Assignment statements)
+    fn assertion_implements(&mut self, spec: Node<'_>, position: usize, names: usize) {
         let Some(interface) = spec
             .child_by_field_name("type")
             .and_then(|written| base_type_name(unparenthesized(written), self.source))
         else {
             return;
         };
-        let Some(value) = spec.child_by_field_name("value") else {
+        let Some(list) = spec.child_by_field_name("value") else {
             return;
         };
+        let values: Vec<Node<'_>> = named_child_nodes(list)
+            .filter(|value| value.kind() != "comment")
+            .collect();
+        if values.len() != names {
+            return;
+        }
         let Some(type_name) =
-            child_nodes(value).find_map(|expression| assertion_value_type(expression, self.source))
+            (values.get(position)).and_then(|&value| assertion_value_type(value, self.source))
         else {
             return;
         };
