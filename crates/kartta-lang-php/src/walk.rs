@@ -526,6 +526,7 @@ impl<'s> Emitter<'s> {
 
     fn hold_created(&mut self, assignment: Node<'_>) {
         let created = (assignment.child_by_field_name("right"))
+            .map(assigned_value)
             .filter(|right| right.kind() == "object_creation_expression")
             .and_then(|new| named_child_nodes(new).find(|child| NAMES.contains(&child.kind())));
         if let Some(created) = created {
@@ -907,6 +908,7 @@ impl<'s> Emitter<'s> {
             "augmented_assignment_expression" => write.child_by_field_name("right"),
             _ => None,
         };
+        let value = value.map(assigned_value);
         if value.is_some_and(|value| value.kind() == "null") {
             return;
         }
@@ -1444,6 +1446,19 @@ fn branch_end(assignment: Node<'_>) -> usize {
         }
     }
     usize::MAX
+}
+
+// constraint: an assignment's value is the value assigned, whatever its target does with it: each `ZEND_ASSIGN*` handler
+// yields it (`Zend/zend_vm_def.h`), past `__set` and a `set` hook too (`zend_std_write_property`), and a list target
+// yields the right side (`zend_compile_list_assign`); a `string` target turns an object to text, on which no call runs
+fn assigned_value(value: Node<'_>) -> Node<'_> {
+    let mut assigned = value;
+    while assigned.kind() == "assignment_expression"
+        && let Some(right) = assigned.child_by_field_name("right")
+    {
+        assigned = right;
+    }
+    assigned
 }
 
 fn assignment_target(value: Node<'_>) -> Option<Node<'_>> {
