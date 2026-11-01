@@ -3560,9 +3560,9 @@ fn find_unused_counts_a_method_of_an_interface_outside_the_graph_its_file_assert
         ("go.mod", "module m\n\ngo 1.22\n"),
         (
             "a.go",
-            "package a\n\nimport \"net/http\"\n\ntype handler struct{}\n\n\
-             func (*handler) ServeHTTP(http.ResponseWriter, *http.Request) {}\n\n\
-             var _ http.Handler = (*handler)(nil)\n\n\
+            "package a\n\nimport \"example.com/lib\"\n\ntype handler struct{}\n\n\
+             func (*handler) Serve() {}\n\n\
+             var _ lib.Server = (*handler)(nil)\n\n\
              type other struct{}\n\nfunc (*other) stale() {}\n",
         ),
     ]);
@@ -3572,7 +3572,7 @@ fn find_unused_counts_a_method_of_an_interface_outside_the_graph_its_file_assert
     let answer = client.answer("find_unused", &json!({}));
 
     assert!(
-        !answer.contains("ServeHTTP") && answer.contains(r#"dispatched="1""#),
+        !answer.contains("Serve") && answer.contains(r#"dispatched="1""#),
         "the assertion says what dispatches the method: {answer}"
     );
     assert!(
@@ -3581,8 +3581,8 @@ fn find_unused_counts_a_method_of_an_interface_outside_the_graph_its_file_assert
     );
 }
 
-const GO_HANDLER: &str = "package a\n\nimport \"net/http\"\n\ntype handler struct{}\n\n\
-     func (*handler) ServeHTTP(http.ResponseWriter, *http.Request) {}\n";
+const GO_HANDLER: &str = "package a\n\nimport \"example.com/lib\"\n\ntype handler struct{}\n\n\
+     func (*handler) Serve() {}\n";
 
 #[test]
 fn find_unused_counts_a_method_another_file_of_its_package_asserts_as_dispatched() {
@@ -3592,7 +3592,7 @@ fn find_unused_counts_a_method_another_file_of_its_package_asserts_as_dispatched
         ("a/a.go", GO_HANDLER),
         (
             "a/b.go",
-            "package a\n\nimport \"net/http\"\n\nvar _ http.Handler = (*handler)(nil)\n",
+            "package a\n\nimport \"example.com/lib\"\n\nvar _ lib.Server = (*handler)(nil)\n",
         ),
     ]);
     let mut client = Client::start(&[]);
@@ -3601,7 +3601,7 @@ fn find_unused_counts_a_method_another_file_of_its_package_asserts_as_dispatched
     let answer = client.answer("find_unused", &json!({}));
 
     assert!(
-        !answer.contains("ServeHTTP") && answer.contains(r#"dispatched="1""#),
+        !answer.contains("Serve") && answer.contains(r#"dispatched="1""#),
         "a package's files say the same thing: {answer}"
     );
 }
@@ -3614,9 +3614,9 @@ fn find_unused_lists_a_method_whose_namesake_type_in_another_package_is_asserted
         ("a/a.go", GO_HANDLER),
         (
             "b/b.go",
-            "package b\n\nimport \"net/http\"\n\ntype handler struct{}\n\n\
-             func (*handler) ServeHTTP(http.ResponseWriter, *http.Request) {}\n\n\
-             var _ http.Handler = (*handler)(nil)\n",
+            "package b\n\nimport \"example.com/lib\"\n\ntype handler struct{}\n\n\
+             func (*handler) Serve() {}\n\n\
+             var _ lib.Server = (*handler)(nil)\n",
         ),
     ]);
     let mut client = Client::start(&[]);
@@ -3638,9 +3638,9 @@ fn find_unused_lists_a_method_whose_namesake_an_external_test_package_asserts() 
         ("a/a.go", GO_HANDLER),
         (
             "a/a_test.go",
-            "package a_test\n\nimport \"net/http\"\n\ntype handler struct{}\n\n\
-             func (*handler) ServeHTTP(http.ResponseWriter, *http.Request) {}\n\n\
-             var _ http.Handler = (*handler)(nil)\n",
+            "package a_test\n\nimport \"example.com/lib\"\n\ntype handler struct{}\n\n\
+             func (*handler) Serve() {}\n\n\
+             var _ lib.Server = (*handler)(nil)\n",
         ),
     ]);
     let mut client = Client::start(&[]);
@@ -3652,6 +3652,123 @@ fn find_unused_lists_a_method_whose_namesake_an_external_test_package_asserts() 
         answer.contains(r#"loc="a/a.go:7""#),
         "the external test package's handler is its own: {answer}"
     );
+}
+
+#[test]
+fn find_unused_lists_a_method_no_interface_declares_whatever_its_type_is_named() {
+    for name in ["Storage", "Store"] {
+        let tree = tree(&[
+            (".git/HEAD", "ref: refs/heads/main\n"),
+            ("go.mod", "module x\n\ngo 1.22\n"),
+            (
+                "storage/s.go",
+                "package storage\n\ntype Storage interface{ Read() }\n",
+            ),
+            (
+                "impl/i.go",
+                &format!(
+                    "package impl\n\nimport \"x/storage\"\n\ntype {name} struct{{}}\n\n\
+                     func (*{name}) Read()  {{}}\nfunc (*{name}) Extra() {{}}\n\n\
+                     var _ storage.Storage = (*{name})(nil)\n"
+                ),
+            ),
+        ]);
+        let mut client = Client::start(&[]);
+        client.index(tree.path());
+
+        let answer = client.answer("find_unused", &json!({}));
+
+        assert!(
+            answer.contains(&format!(r#"qn="impl.{name}.Extra""#)),
+            "the interface the assertion names declares no Extra: {answer}"
+        );
+        assert!(
+            !answer.contains(r#"loc="impl/i.go:7""#),
+            "it declares Read: {answer}"
+        );
+    }
+}
+
+#[test]
+fn find_unused_lists_a_method_whose_namesake_embeds_a_type_outside_the_graph() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module m\n\ngo 1.22\n"),
+        (
+            "a/a.go",
+            "package a\n\nimport \"net/http\"\n\ntype T struct{ http.Server }\n\nfunc (*T) One() {}\n",
+        ),
+        (
+            "b/b.go",
+            "package b\n\ntype T struct{}\n\nfunc (*T) Two() {}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_unused", &json!({}));
+
+    assert!(
+        answer.contains(r#"qn="b.T.Two""#) && !answer.contains(r#"qn="a.T.One""#),
+        "only a's T embeds what the graph does not hold: {answer}"
+    );
+}
+
+#[test]
+fn find_unused_lists_a_method_whose_namesake_embeds_a_type_that_declares_it() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module m\n\ngo 1.22\n"),
+        (
+            "a/a.go",
+            "package a\n\ntype Base struct{}\n\nfunc (*Base) Run() {}\n\n\
+             type T struct{ Base }\n\nfunc (*T) Run() {}\n",
+        ),
+        (
+            "b/b.go",
+            "package b\n\ntype Base struct{}\n\ntype T struct{ Base }\n\nfunc (*T) Run() {}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_unused", &json!({}));
+
+    assert!(
+        answer.contains(r#"qn="b.T.Run""#) && !answer.contains(r#"qn="a.T.Run""#),
+        "only a's Base declares Run: {answer}"
+    );
+}
+
+#[test]
+fn find_unused_reads_what_an_asserted_interface_may_hold_past_the_graph() {
+    for declared in [
+        "type I interface{ lib.Fetcher }",
+        "type Inner interface{ lib.Fetcher }\n\ntype I interface{ Inner }",
+        "type I = lib.Fetcher",
+        "type I lib.Fetcher",
+    ] {
+        let tree = tree(&[
+            (".git/HEAD", "ref: refs/heads/main\n"),
+            ("go.mod", "module m\n\ngo 1.22\n"),
+            (
+                "a/a.go",
+                &format!(
+                    "package a\n\nimport \"example.com/lib\"\n\n{declared}\n\ntype T struct{{}}\n\n\
+                     func (*T) Fetch() {{}}\n\nvar _ I = (*T)(nil)\n"
+                ),
+            ),
+        ]);
+        let mut client = Client::start(&[]);
+        client.index(tree.path());
+
+        let answer = client.answer("find_unused", &json!({}));
+
+        assert!(
+            !answer.contains("a.T.Fetch") && answer.contains(r#"dispatched="1""#),
+            "{declared} may declare Fetch: {answer}"
+        );
+    }
 }
 
 fn embedded_field_named_like_a_promoted_member() -> tempfile::TempDir {
