@@ -3006,6 +3006,90 @@ fn find_callees_binds_a_call_through_a_field_embedded_beside_an_import() {
     }
 }
 
+fn embedded_field_named_like_a_promoted_member() -> tempfile::TempDir {
+    tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module m\n\ngo 1.22\n"),
+        (
+            "base/b.go",
+            "package base\n\ntype Config struct {\n\tConfig string\n\tName   string\n}\n\n\
+             type Run func() int\n\n\
+             type Plain struct{}\n\nfunc (Plain) Run() int { return 0 }\n\n\
+             type Named interface {\n\tNamed() string\n}\n",
+        ),
+        (
+            "a/c.go",
+            "package a\n\nimport \"m/base\"\n\n\
+             type C struct {\n\tbase.Config\n}\n\n\
+             type Both struct {\n\tbase.Run\n\tbase.Plain\n}\n\n\
+             type Embedding interface {\n\tbase.Named\n}\n\n\
+             func use(c *C) *base.Config { return &c.Config }\n\n\
+             func set(c *C, v base.Config) { c.Config = v }\n\n\
+             func read(c *C) string { return c.Name }\n\n\
+             func run(b Both) int { return b.Run() }\n\n\
+             func name(e Embedding) string { return e.Named() }\n",
+        ),
+    ])
+}
+
+#[test]
+fn find_references_reads_an_embedded_field_over_a_promoted_field_of_its_name() {
+    let tree = embedded_field_named_like_a_promoted_member();
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let promoted = client.answer("find_references", &json!({"name": "base.Config.Config"}));
+    assert!(
+        promoted.contains(r#"count="0""#) && !promoted.contains("<ref "),
+        "the embedded field shadows the promoted one: {promoted}"
+    );
+
+    let control = client.answer("find_references", &json!({"name": "base.Config.Name"}));
+    assert!(
+        control.contains(r#"name="read""#),
+        "a promoted field no embedded field shadows binds: {control}"
+    );
+
+    let named_type = client.answer("find_references", &json!({"name": "base.Config"}));
+    for expected in [
+        r#"name="use" qn="a.use" line="18" role="consumer" site="read""#,
+        r#"name="set" qn="a.set" line="20" role="consumer" site="write""#,
+    ] {
+        assert!(
+            named_type.contains(expected),
+            "the type that names the field holds the use: {named_type}"
+        );
+    }
+}
+
+#[test]
+fn find_callees_calls_no_type_through_an_embedded_field() {
+    let tree = embedded_field_named_like_a_promoted_member();
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_callees", &json!({"name": "a.run"}));
+
+    assert!(
+        answer.contains(r#"count="0""#) && !answer.contains("<ref "),
+        "the embedded func field shadows Plain.Run, and its type is no callee: {answer}"
+    );
+}
+
+#[test]
+fn find_callees_reads_no_field_of_an_interface_embedded_in_an_interface() {
+    let tree = embedded_field_named_like_a_promoted_member();
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_callees", &json!({"name": "a.name"}));
+
+    assert!(
+        answer.contains("base.Named.Named"),
+        "an interface holds no fields, so its embedded interface's method answers: {answer}"
+    );
+}
+
 #[test]
 fn a_wrong_call_answers_a_tool_error() {
     let tree = go_module();
