@@ -19,6 +19,8 @@ pub(crate) const FUNCTION_OR_CONST_USE_FORM: u32 = 2;
 
 const NAMES: [&str; 3] = ["name", "qualified_name", "relative_name"];
 
+pub(crate) const CONSTRUCTOR: &str = "__construct";
+
 // constraint: an anonymous class is named by the names that lead to it, joined by `·` as a Go anonymous struct is, in
 // braces, which no PHP name holds, so the name stays apart from a class and a variable of those names: `{make·job}`
 const JOIN: &str = "\u{b7}";
