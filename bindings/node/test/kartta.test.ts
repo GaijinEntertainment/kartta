@@ -401,13 +401,13 @@ test('a watched build takes an edit in without a refresh', {timeout: 30_000}, as
 });
 
 test.skipIf(process.platform !== 'linux')('close ends the watch thread', {timeout: 30_000}, async () => {
-	const kartta = Kartta.open(tree(1));
+	const kartta = opened(tree(1));
 	await kartta.build({watch: true});
-	const watching = watchThreads();
+	// constraint: build answers once the watch thread exists, and std names a thread from inside it, so the name can lag
+	await expect.poll(watchThreads, {timeout: 20_000}).toBeGreaterThan(0);
 
 	kartta.close();
 
-	expect(watching).toBeGreaterThan(0);
 	await expect.poll(watchThreads, {timeout: 20_000}).toBe(0);
 });
 
