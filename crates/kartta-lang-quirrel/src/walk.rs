@@ -76,6 +76,8 @@ struct Emitter<'a> {
     containers: Vec<SlotContainer>,
     flags: SymbolFlags,
     calls_through_values: Vec<usize>,
+    built_slots: HashMap<String, Option<&'a [u8]>>,
+    file_names: HashSet<&'a [u8]>,
     raw: RawExtraction,
 }
 
@@ -87,7 +89,34 @@ impl<'a> Emitter<'a> {
             containers: Vec::new(),
             flags: SymbolFlags::empty().with_generated(BANNER.opens(source)),
             calls_through_values: Vec::new(),
+            built_slots: HashMap::new(),
+            file_names: HashSet::new(),
             raw: RawExtraction::default(),
+        }
+    }
+
+    // constraint: a call on a field precedes a later member's write as often as it follows one, so the receivers are
+    // read once the whole file has been walked; a class the file binds no name for comes from the runtime or a star
+    // import, and a class of that name in the tree is a namesake
+    fn name_field_receivers(&mut self) {
+        if self.built_slots.is_empty() {
+            return;
+        }
+        let RawExtraction { symbols, calls, .. } = &mut self.raw;
+        let mut slot = String::new();
+        for call in calls {
+            let field = (call.receiver.as_deref()).and_then(|r| r.strip_prefix("this."));
+            let site = symbols.get(call.site_of.0 as usize);
+            let (Some(field), Some(owner)) = (field, site.and_then(|s| s.owner.as_deref())) else {
+                continue;
+            };
+            slot.clear();
+            slot.extend([owner, ".", field]);
+            if let Some(&Some(name)) = self.built_slots.get(&slot)
+                && self.file_names.contains(name)
+            {
+                call.receiver = Some(String::from_utf8_lossy(name).into_owned());
+            }
         }
     }
 
@@ -95,6 +124,7 @@ impl<'a> Emitter<'a> {
     // the value, so a call through the value keeps the name; any other such call binds no definition and is not
     // recorded
     fn finish(mut self) -> RawExtraction {
+        self.name_field_receivers();
         if self.calls_through_values.is_empty() {
             return self.raw;
         }
@@ -129,6 +159,9 @@ impl<'a> Emitter<'a> {
         {
             self.containers.pop();
         }
+        if self.scopes.is_empty() {
+            self.file_name(node);
+        }
 
         match node.kind() {
             "table" => {
@@ -149,6 +182,7 @@ impl<'a> Emitter<'a> {
             "const_declaration" => self.const_declaration(node),
             "function_expression" | "lambda_expression" => self.function_value(node),
             "call_expression" => self.call(node),
+            "assignment_expression" | "newslot_expression" => self.field_write(node),
             "import_statement" => self.import(node),
             "enum_declaration" => self.enum_declaration(node),
             _ => {}
@@ -224,11 +258,86 @@ impl<'a> Emitter<'a> {
         };
 
         let owner = owner.to_owned();
+        self.hold(&owner, &name, value);
         let mut symbol = self.declared(SymbolKind::Field, slot, (Some(owner), name));
         symbol.signature = is_simple_value(value)
             .then(|| signature_from(slot.start_byte(), value, self.source))
             .flatten();
         self.raw.push_symbol(symbol);
+    }
+
+    // constraint: a function the file binds returns a value of any class, whatever class its name shares
+    fn file_name(&mut self, node: Node<'_>) {
+        let names_no_function = match node.kind() {
+            "class_declaration" | "pattern_field" | "import_slot" => true,
+            "local_declaration" => {
+                node.child_by_field_name("body").map(|body| body.kind()) == Some("class_body")
+            }
+            "variable_declaration" => !node.child_by_field_name("value").is_some_and(|value| {
+                matches!(value.kind(), "function_expression" | "lambda_expression")
+            }),
+            _ => false,
+        };
+        if names_no_function
+            && let Some(name) = node
+                .child_by_field_name("name")
+                .filter(|name| name.kind() == "identifier")
+        {
+            self.file_names.insert(&self.source[name.byte_range()]);
+        }
+    }
+
+    fn field_write(&mut self, assignment: Node<'_>) {
+        let (Some(left), Some(value)) = (
+            assignment.child_by_field_name("left"),
+            assignment.child_by_field_name("right"),
+        ) else {
+            return;
+        };
+        if left.kind() != "field_access_expression"
+            || left.child_by_field_name("receiver").map(|r| r.kind()) != Some("this")
+        {
+            return;
+        }
+        // constraint: `<-` on an instance throws unless its class's `_newslot` takes it (`SQVM::NewSlot`), so it
+        // writes no slot of a class, where a table takes it
+        if assignment.kind() == "newslot_expression" && self.member_owner().is_some() {
+            return;
+        }
+        let (Some(owner), Some(name)) = (
+            self.field_owner().map(str::to_owned),
+            field_text(left, "field", self.source),
+        ) else {
+            return;
+        };
+        self.hold(&owner, &name, value);
+    }
+
+    // constraint: a slot holds whatever was last written, with no check of its type (`SQInstance::Set`), so only every
+    // write its owner's body makes names what it holds; `null` names nothing and leaves the others to say
+    fn hold(&mut self, owner: &str, name: &str, value: Node<'_>) {
+        if value.kind() == "null" {
+            return;
+        }
+        let built = self.built_class(value);
+        self.built_slots
+            .entry(format!("{owner}.{name}"))
+            .and_modify(|held| {
+                if *held != built {
+                    *held = None;
+                }
+            })
+            .or_insert(built);
+    }
+
+    // constraint: only the graph knows whether the name is a class; a receiver of any other name is one that names no
+    // owner, as the field was
+    fn built_class(&self, value: Node<'_>) -> Option<&'a [u8]> {
+        let callee = value
+            .child_by_field_name("callee")
+            .filter(|callee| value.kind() == "call_expression" && callee.kind() == "identifier")?;
+        let name = &self.source[callee.byte_range()];
+        self.local(name).is_none().then_some(name)
     }
 
     fn local_declaration(&mut self, node: Node<'_>) {
