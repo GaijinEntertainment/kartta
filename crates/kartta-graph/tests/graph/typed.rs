@@ -438,6 +438,92 @@ fn a_name_two_files_declare_reads_what_either_reaches_whichever_comes_first_in_p
     }
 }
 
+fn variable_file(path: &str, name: &str, read: &str) -> Extraction {
+    let declared = typed("x", name, SymbolKind::Variable, 1);
+    file(path, "x", vec![yielding(declared, &[read])], Vec::new())
+}
+
+fn doubled_chain(steps: usize, calls: Vec<kartta_lang::CallRef>) -> Graph {
+    let mut files = vec![
+        file(
+            "x/t.go",
+            "x",
+            vec![
+                typed("x", "T", SymbolKind::Struct, 1),
+                member("x.T", "Set", SymbolKind::Method, 2),
+                member("x.T", "Get", SymbolKind::Method, 3),
+                embedding(typed("x", "Over", SymbolKind::Struct, 4), &["T"]),
+                typed("x", "U", SymbolKind::Struct, 5),
+                member("x.U", "Get", SymbolKind::Method, 6),
+                yielding(typed("x", "over", SymbolKind::Variable, 7), &["Over"]),
+                embedding(
+                    typed("x", "Own", SymbolKind::Struct, 8),
+                    &["own.a", "own.b", "own.c"],
+                ),
+                yielding(typed("x", "own", SymbolKind::Variable, 9), &["Own"]),
+            ],
+            Vec::new(),
+        ),
+        file("x/run.go", "x", vec![function("x", "run", 1)], calls),
+    ];
+    for step in 0..steps {
+        let name = format!("v{step}");
+        let read = format!("v{}", step + 1);
+        for copy in 0..2 {
+            files.push(variable_file(&format!("x/{name}_{copy}.go"), &name, &read));
+        }
+    }
+    files.push(variable_file("x/v0_t.go", "v0", "T"));
+    graph(&files)
+}
+
+#[test]
+fn a_read_whose_declarations_multiply_past_the_bound_binds_nothing() {
+    let read = || vec![member_call("v0", "Set", 2)];
+    assert_eq!(
+        callees_of(&doubled_chain(4, read()), "x.run"),
+        [("x/t.go:x.T.Set".to_owned(), 85)],
+        "a read inside the bound reaches the last declaration"
+    );
+
+    let past = doubled_chain(11, read());
+
+    assert_eq!(callees_of(&past, "x.run"), []);
+    assert_eq!(misses_of(&past), [("Set", Miss::NotAdmitted)]);
+}
+
+#[test]
+fn a_member_walk_after_a_read_past_the_bound_has_a_bound_of_its_own() {
+    let graph = doubled_chain(
+        11,
+        vec![
+            member_call("over", "Get", 2),
+            member_call("v0", "Set", 3),
+            member_call("over", "Get", 4),
+        ],
+    );
+
+    assert_eq!(
+        callees_of(&graph, "x.run"),
+        [("x/t.go:x.T.Get".to_owned(), 85)]
+    );
+    assert_eq!(misses_of(&graph), [("Set", Miss::NotAdmitted)]);
+}
+
+#[test]
+fn a_read_after_a_member_walk_past_the_bound_has_a_bound_of_its_own() {
+    let graph = doubled_chain(
+        1,
+        vec![member_call("own", "Zap", 2), member_call("over", "Get", 3)],
+    );
+
+    assert_eq!(
+        callees_of(&graph, "x.run"),
+        [("x/t.go:x.T.Get".to_owned(), 85)]
+    );
+    assert_eq!(misses_of(&graph), [("Zap", Miss::Undefined)]);
+}
+
 #[test]
 fn a_third_file_of_the_package_reads_what_either_declaration_reaches() {
     for (first, second) in [("dec/a.go", "dec/b.go"), ("dec/b.go", "dec/a.go")] {
@@ -838,6 +924,25 @@ fn a_member_on_a_value_binds_the_field_or_method_its_type_path_reaches() {
         [("main.Run".to_owned(), 4, 85)],
         "a method taken as a value is a use of it"
     );
+}
+
+#[test]
+fn a_use_through_a_cycle_binds_no_field_its_file_declares() {
+    let mut cycle = file(
+        "x/x.go",
+        "x",
+        vec![
+            function("x", "run", 1),
+            yielding(typed("x", "a", SymbolKind::Variable, 2), &["b"]),
+            yielding(typed("x", "b", SymbolKind::Variable, 3), &["a"]),
+            typed("x", "Holder", SymbolKind::Struct, 4),
+            member("x.Holder", "Timeout", SymbolKind::Field, 5),
+        ],
+        Vec::new(),
+    );
+    cycle.uses = vec![accessing("Timeout", "a", Access::Read, 1)];
+
+    assert_eq!(sites_of(&graph(&[cycle]), "Holder.Timeout"), []);
 }
 
 const fn spanning(mut symbol: Symbol, end_line: u32) -> Symbol {

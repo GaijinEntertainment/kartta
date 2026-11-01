@@ -48,6 +48,8 @@ pub(crate) struct PackageName {
 
 const MAX_DEPTH: u8 = 16;
 
+const MAX_EVALUATIONS: u16 = 1024;
+
 const UNDERLYING: &str = "~";
 
 enum Step<'p> {
@@ -91,12 +93,17 @@ impl<'g> Cascade<'g> {
         binds: impl Fn(&StoredSymbol) -> bool,
     ) -> Typed {
         match self.receiver_type(self.body_of(reader), path) {
-            Value::Type(ty) => match self.member(ty, name, 0) {
-                Found::Member(at) if binds(self.graph.sym(at)) => Typed::Member(at),
-                Found::Member(_) | Found::Nothing => Typed::NoMethod,
-                Found::Outside => Typed::Imported,
-                Found::Unknown => Typed::Unknown,
-            },
+            Value::Type(ty) => {
+                // constraint: a held read spends nothing, so a walk that took over its count would answer by the calls
+                // before it
+                self.evaluations.set(0);
+                match self.member(ty, name, 0) {
+                    Found::Member(at) if binds(self.graph.sym(at)) => Typed::Member(at),
+                    Found::Member(_) | Found::Nothing => Typed::NoMethod,
+                    Found::Outside => Typed::Imported,
+                    Found::Unknown => Typed::Unknown,
+                }
+            }
             Value::Imported => Typed::Imported,
             Value::Undeclared => Typed::Undeclared,
             Value::Unbounded => Typed::NoMethod,
@@ -116,14 +123,17 @@ impl<'g> Cascade<'g> {
 
     fn receiver_type(&self, body: SymbolAt, receiver: Str) -> Value<'g> {
         derived(&self.receiver_types, (body, receiver), || {
+            self.evaluations.set(0);
             self.evaluate(body, self.graph.strings.resolve(receiver), 0)
         })
     }
 
     fn evaluate(&self, body: SymbolAt, path: &'g str, depth: u8) -> Value<'g> {
-        if depth > MAX_DEPTH {
+        let evaluations = self.evaluations.get();
+        if depth > MAX_DEPTH || evaluations >= MAX_EVALUATIONS {
             return Value::Unbounded;
         }
+        self.evaluations.set(evaluations + 1);
         if path.is_empty() {
             return Value::Unknown;
         }
