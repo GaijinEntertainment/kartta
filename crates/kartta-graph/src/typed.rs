@@ -14,6 +14,7 @@ pub(crate) enum Typed {
     /// A name that nothing the graph holds declares, a builtin type among them.
     Undeclared,
     /// A type the graph holds, with no member of the name the site can bind: a method for a call, any member for a use.
+    /// A read past a bound answers this too, since a cycle of declarations gives its name no type to bind through.
     NoMethod,
     /// A path the graph cannot follow, which leaves the call to the tiers that read no type.
     Unknown,
@@ -33,6 +34,8 @@ pub(crate) enum Value<'g> {
     Imported,
     Undeclared,
     Unknown,
+    /// A read that ran past a bound, as every cycle of declarations does, which leaves it no type.
+    Unbounded,
 }
 
 /// A name a package declares, as the file `viewer` sees it, or as an import does.
@@ -96,6 +99,7 @@ impl<'g> Cascade<'g> {
             },
             Value::Imported => Typed::Imported,
             Value::Undeclared => Typed::Undeclared,
+            Value::Unbounded => Typed::NoMethod,
             Value::Package(_)
             | Value::Callable(_)
             | Value::Container { .. }
@@ -117,7 +121,10 @@ impl<'g> Cascade<'g> {
     }
 
     fn evaluate(&self, body: SymbolAt, path: &'g str, depth: u8) -> Value<'g> {
-        if depth > MAX_DEPTH || path.is_empty() {
+        if depth > MAX_DEPTH {
+            return Value::Unbounded;
+        }
+        if path.is_empty() {
             return Value::Unknown;
         }
         if let Some(element) = path.strip_prefix("[]") {
@@ -126,7 +133,7 @@ impl<'g> Cascade<'g> {
         let (name, rest) = head(path);
         let value = self
             .anonymous_host(body.file, name)
-            .unwrap_or_else(|| self.in_scope(body, name));
+            .unwrap_or_else(|| self.in_scope(body, name, depth));
         self.along(value, rest, depth)
     }
 
@@ -135,7 +142,7 @@ impl<'g> Cascade<'g> {
             if let Value::Declarations(read) = value {
                 return self.highest_ranked(read, rest, depth);
             }
-            if rest.is_empty() {
+            if rest.is_empty() || value == Value::Unbounded {
                 return value;
             }
             let Some((step, after)) = step(rest) else {
@@ -177,7 +184,7 @@ impl<'g> Cascade<'g> {
             Value::Container { element, .. } => (3, element),
             Value::Package(dir) => (3, strings.resolve(dir)),
             Value::Imported => (2, ""),
-            Value::Unknown | Value::Declarations(_) => (1, ""),
+            Value::Unknown | Value::Unbounded | Value::Declarations(_) => (1, ""),
             Value::Undeclared => (0, ""),
         }
     }
@@ -196,7 +203,7 @@ impl<'g> Cascade<'g> {
 
     // constraint: a name of a type position that neither the file's package nor an import declares is predeclared,
     // from a dot import of code outside the graph, or from a file the graph does not hold
-    fn in_scope(&self, body: SymbolAt, name: &str) -> Value<'g> {
+    fn in_scope(&self, body: SymbolAt, name: &str, depth: u8) -> Value<'g> {
         let file = body.file;
         let Some(key) = self.graph.strings.get(name) else {
             return Value::Undeclared;
@@ -204,12 +211,21 @@ impl<'g> Cascade<'g> {
         if let Some(target) = self.binding(file, key) {
             return target.map_or(Value::Imported, Value::Package);
         }
-        let own = self.graph.file(file).dir;
-        if let Some(declared) = self.package_level(own, key, Some(file)) {
+        let own = PackageName {
+            dir: self.graph.file(file).dir,
+            name: key,
+            viewer: Some(file),
+        };
+        if let Some(declared) = self.package_level(own, depth) {
             return declared;
         }
         for dir in self.dot_imported_dirs(file).iter().copied() {
-            if let Some(declared) = self.package_level(dir, key, None) {
+            let read = PackageName {
+                dir,
+                name: key,
+                viewer: None,
+            };
+            if let Some(declared) = self.package_level(read, depth) {
                 return declared;
             }
         }
@@ -218,18 +234,17 @@ impl<'g> Cascade<'g> {
 
     // constraint: two files declare one name only when build constraints keep them apart, so a file's own declaration
     // is the one it is built with
-    fn package_level(&self, dir: Str, name: Str, viewer: Option<u32>) -> Option<Value<'g>> {
-        let read = PackageName { dir, name, viewer };
-        let own = viewer.and_then(|slot| self.declaration_in(read, slot));
+    fn package_level(&self, read: PackageName, depth: u8) -> Option<Value<'g>> {
+        let own = read.viewer.and_then(|slot| self.declaration_in(read, slot));
         if let Some(own) = own {
-            return Some(self.value_of(own, 0));
+            return Some(self.value_of(own, depth));
         }
         let mut declared = self.declarers(read);
         let first = declared.next()?;
         Some(if declared.next().is_some() {
             Value::Declarations(read)
         } else {
-            self.value_of(first, 0)
+            self.value_of(first, depth)
         })
     }
 
@@ -294,14 +309,22 @@ impl<'g> Cascade<'g> {
                 .graph
                 .strings
                 .get(name)
-                .and_then(|key| self.package_level(dir, key, None))
+                .and_then(|name| {
+                    let read = PackageName {
+                        dir,
+                        name,
+                        viewer: None,
+                    };
+                    self.package_level(read, depth)
+                })
                 .unwrap_or(Value::Unknown),
             Value::Type(ty) => self.member_value(ty, name, depth),
             Value::Imported | Value::Undeclared => value,
             Value::Callable(_)
             | Value::Container { .. }
             | Value::Declarations(_)
-            | Value::Unknown => Value::Unknown,
+            | Value::Unknown
+            | Value::Unbounded => Value::Unknown,
         }
     }
 
@@ -531,7 +554,8 @@ impl Embedded {
             | Value::Callable(_)
             | Value::Container { .. }
             | Value::Declarations(_)
-            | Value::Unknown => self.reaches_unknown = true,
+            | Value::Unknown
+            | Value::Unbounded => self.reaches_unknown = true,
         }
     }
 }

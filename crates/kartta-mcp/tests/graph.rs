@@ -2086,6 +2086,71 @@ fn impact_of_edit_lists_a_called_variable_s_callers_once_among_its_users() {
 }
 
 #[test]
+fn find_callees_binds_nothing_through_a_package_level_cycle() {
+    const RUN: &str = "\nfunc run() {\n\ta.Set()\n}\n";
+
+    let one_file = format!("package x\n\nvar a = b\nvar b = a\n{RUN}");
+    let self_read = format!("package x\n\nvar a = a\n{RUN}");
+    let first_of_two = format!("package x\n\nvar a = b\n{RUN}");
+    let three_steps = format!("package x\n\nvar a = b\nvar b = c\nvar c = a\n{RUN}");
+    let element = format!("package x\n\nvar a = b[0]\nvar b = a\n{RUN}");
+    let trees: [&[(&str, &str)]; 5] = [
+        &[("x.go", &one_file)],
+        &[("x.go", &self_read)],
+        &[
+            ("x.go", &first_of_two),
+            ("y.go", "package x\n\nvar b = a\n"),
+        ],
+        &[("x.go", &three_steps)],
+        &[("x.go", &element)],
+    ];
+    let namesake = (
+        "u.go",
+        "package x\n\ntype U struct{}\n\nfunc (U) Set() {}\n",
+    );
+
+    for files in trees {
+        let tree = tree(
+            &[
+                files,
+                &[("go.mod", "module example.com/x\n\ngo 1.26\n"), namesake],
+            ]
+            .concat(),
+        );
+        let mut client = Client::start(&[]);
+        client.index(tree.path());
+
+        let answer = client.answer("find_callees", &json!({"name": "run"}));
+
+        assert!(
+            answer.contains(r#"count="0" unresolved="1""#),
+            "{files:?} answered {answer}"
+        );
+    }
+}
+
+#[test]
+fn find_callees_binds_nothing_through_a_cycle_across_packages() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/x\n\ngo 1.26\n"),
+        (
+            "p/p.go",
+            "package p\n\nimport \"example.com/x/q\"\n\nvar A = q.B\n\nfunc run() {\n\tA.Set()\n}\n",
+        ),
+        (
+            "q/q.go",
+            "package q\n\nimport \"example.com/x/p\"\n\nvar B = p.A\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_callees", &json!({"name": "run"}));
+
+    assert!(answer.contains(r#"count="0" unresolved="1""#), "{answer}");
+}
+
+#[test]
 fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
     let answers = answers(&[
         ("find_callees", json!({"name": "main"})),
