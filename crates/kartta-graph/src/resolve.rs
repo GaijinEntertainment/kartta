@@ -1021,8 +1021,11 @@ impl<'g> Cascade<'g> {
             && let Some(receiver) = call.receiver
             && !self.graph.strings.resolve(receiver).is_empty()
         {
+            // constraint: a call through an embedded field calls the field's value, and the type that answers for the
+            // field is no callee
             let binds = |symbol: &StoredSymbol| {
-                self.is_call_target(symbol)
+                !symbol.kind.is_type()
+                    && self.is_call_target(symbol)
                     && self.is_of_the_call_s_form(call, symbol.kind)
                     && Self::takes_the_arguments(call, symbol)
             };
