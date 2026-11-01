@@ -409,6 +409,149 @@ fn a_bare_new_in_a_class_method_names_an_instance_of_the_owner_and_elsewhere_is_
     );
 }
 
+#[test]
+fn every_block_form_of_eval_and_exec_runs_on_a_receiver_the_constant_names() {
+    for name in [
+        "class_eval",
+        "module_eval",
+        "instance_eval",
+        "class_exec",
+        "module_exec",
+        "instance_exec",
+    ] {
+        let source = format!(
+            "class Shape\n  def self.parse\n    Geo::Other.{name} do\n      helper\n      self.reach\n      \
+             new.getopts\n    end\n    after\n  end\nend\n"
+        );
+        let raw = extract(source.as_bytes());
+
+        assert_eq!(
+            calls(&raw)
+                .into_iter()
+                .filter(|(callee, _)| *callee != "new" && *callee != name)
+                .collect::<Vec<_>>(),
+            [
+                ("helper", Some("Geo::Other.")),
+                ("reach", Some("Geo::Other.")),
+                ("getopts", Some("Geo::Other")),
+                ("after", None),
+            ],
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn a_block_on_a_receiver_the_walk_cannot_name_records_an_empty_receiver() {
+    let raw = extract(
+        b"class Shape\n  def self.parse(klass)\n    klass.class_eval do\n      helper\n      self.reach\n      \
+          new.getopts\n      self.class.name\n    end\n    @obj.instance_eval { late }\n  end\nend\n",
+    );
+
+    assert_eq!(
+        calls(&raw)
+            .into_iter()
+            .filter(|(callee, _)| !matches!(
+                *callee,
+                "new" | "class" | "class_eval" | "instance_eval"
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("helper", Some("")),
+            ("reach", Some("")),
+            ("getopts", Some("")),
+            ("name", Some("")),
+            ("late", Some("")),
+        ]
+    );
+}
+
+#[test]
+fn a_block_on_a_literal_runs_on_a_value_of_the_literal_s_class() {
+    let raw =
+        extract(b"class Shape\n  def run\n    \"hello\".instance_exec { reverse }\n  end\nend\n");
+
+    assert_eq!(sites_of(&raw, "reverse"), [("Shape#run", Some("String"))]);
+}
+
+#[test]
+fn a_block_keeps_the_self_around_it_unless_eval_or_exec_runs_it_on_another_receiver() {
+    let raw = extract(
+        b"class Shape\n  class_eval { own }\n  self.instance_eval { own }\n  Other.tap { own }\n  \
+          Other.instance_exec(own) { }\n  Other.class_eval(&own)\n  Other.class_eval(\"own\")\n  \
+          class_eval(Other) { own }\nend\n",
+    );
+
+    assert_eq!(
+        sites_of(&raw, "own"),
+        [("Shape", Some("Shape.")); 6],
+        "a call with no receiver in the body records the type"
+    );
+}
+
+#[test]
+fn a_method_or_a_type_inside_the_block_opens_its_own_self() {
+    let raw = extract(
+        b"class Shape\n  Other.class_eval do\n    def build\n      inner\n    end\n    class Nested\n      \
+          nested\n    end\n    after\n  end\nend\n",
+    );
+
+    assert_eq!(sites_of(&raw, "inner")[0].1, None);
+    assert_eq!(sites_of(&raw, "nested")[0].1, Some("Shape::Nested."));
+    assert_eq!(sites_of(&raw, "after")[0], ("Shape", Some("Other.")));
+}
+
+#[test]
+fn the_innermost_of_nested_blocks_names_self_and_a_block_of_own_self_keeps_it() {
+    let raw = extract(
+        b"def run\n  Other.class_eval do\n    Third.instance_eval { first }\n    \
+          self.class_eval { second }\n    class_eval { third }\n    fourth\n  end\nend\n",
+    );
+
+    assert_eq!(sites_of(&raw, "first")[0].1, Some("Third."));
+    for name in ["second", "third", "fourth"] {
+        assert_eq!(sites_of(&raw, name)[0].1, Some("Other."), "{name}");
+    }
+}
+
+#[test]
+fn an_argument_of_the_inner_call_runs_on_the_receiver_of_the_outer_block() {
+    let raw = extract(b"def run\n  Other.class_eval do\n    Third.instance_exec(argument) { inner }\n  end\nend\n");
+
+    assert_eq!(sites_of(&raw, "argument")[0].1, Some("Other."));
+    assert_eq!(sites_of(&raw, "inner")[0].1, Some("Third."));
+}
+
+#[test]
+fn self_class_in_the_block_is_no_class_of_an_instance_of_the_owner() {
+    let raw = extract(
+        b"class Shape\n  def run\n    Other.class_eval { self.class.name }\n    self.class.outer\n  end\nend\n",
+    );
+
+    assert_eq!(sites_of(&raw, "name")[0].1, Some(""));
+    assert_eq!(sites_of(&raw, "outer")[0].1, Some("."));
+}
+
+#[test]
+fn a_bound_new_in_the_block_stays_a_local() {
+    let raw = extract(b"def run(new)\n  Other.class_eval { new.getopts }\nend\n");
+
+    assert_eq!(sites_of(&raw, "getopts")[0].1, Some("new"));
+}
+
+#[test]
+fn a_use_through_a_symbol_in_the_block_is_of_its_receiver() {
+    let raw = extract(
+        b"def run(klass)\n  Other.class_eval { send(:named) }\n  klass.class_eval { send(:unnamed) }\nend\n",
+    );
+
+    let used: Vec<_> = uses(&raw)
+        .into_iter()
+        .map(|(name, receiver, _, _)| (name, receiver))
+        .collect();
+    assert_eq!(used, [("named", &Receiver::Path("Other.".to_owned()))]);
+}
+
 fn sites_of<'r>(raw: &'r RawExtraction, callee: &str) -> Vec<(&'r str, Option<&'r str>)> {
     raw.calls
         .iter()
