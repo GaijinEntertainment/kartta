@@ -145,6 +145,62 @@ fn a_chain_ends_in_a_new_or_it_holds_no_class() {
 }
 
 #[test]
+fn a_parenthesized_value_is_the_value_inside() {
+    for body in [
+        "$v = (new Local); $v->m();",
+        "$v = ((new Local)); $v->m();",
+        "$v = ( /* made */ new Local /* here */ ); $v->m();",
+        "$v = ($w = new Local); $v->m();",
+        "$v = ($w = (new Local)); $w->m();",
+    ] {
+        assert_eq!(receiver(body, "m").as_deref(), LOCAL, "{body}");
+    }
+}
+
+#[test]
+fn a_call_on_a_new_runs_on_the_class_it_creates() {
+    for body in [
+        "(new Local)->m();",
+        "(new Local)?->m();",
+        "((new Local))->m();",
+        "(new Local)::m();",
+        "new Local()->m();",
+        "($w = new Local)->m();",
+        "$w = new Local; ($x = $w)->m();",
+        "$w = new Local; ($w)->m();",
+        "$w = new Local; ($w)::m();",
+    ] {
+        assert_eq!(receiver(body, "m").as_deref(), LOCAL, "{body}");
+    }
+    assert_eq!(receiver("(new self)->m();", "m").as_deref(), Some("self"));
+    assert_eq!(
+        receiver("(new static)->m();", "m").as_deref(),
+        Some("static")
+    );
+}
+
+#[test]
+fn a_parenthesized_variable_that_holds_no_class_stays_the_variable() {
+    assert_eq!(receiver("($v)->m();", "m").as_deref(), UNTYPED);
+    assert_eq!(receiver("($w = $v)->m();", "m").as_deref(), UNTYPED);
+    assert_eq!(receiver("($this)->m();", "m").as_deref(), Some("$this"));
+}
+
+#[test]
+fn a_call_on_anything_else_in_parentheses_names_no_class() {
+    for body in [
+        "(new $a)->m();",
+        "(new class {})->m();",
+        "(new Local)->other()->m();",
+        "(clone $a)->m();",
+        "(Local)::m();",
+        "($a ? new Local : null)->m();",
+    ] {
+        assert_eq!(receiver(body, "m").as_deref(), Some(""), "{body}");
+    }
+}
+
+#[test]
 fn a_chain_holds_from_its_end_to_the_end_of_its_branch() {
     let body = "$v = $w = new Local($v->with()); $v->m();";
     assert_eq!(receiver(body, "with").as_deref(), UNTYPED);

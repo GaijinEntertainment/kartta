@@ -728,6 +728,40 @@ function boot() { return new class {}; }
 }
 
 #[test]
+fn a_parenthesized_anonymous_class_is_named_by_the_name_it_is_assigned_to() {
+    let raw = extract(
+        br"<?php
+class Suite {
+    public function testRun() {
+        $job = (new class {});
+        $this->handler = ((new class {}));
+        $made = (new class {})->make();
+    }
+}
+",
+    );
+
+    let classes: Vec<&str> = raw
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.name.starts_with('{'))
+        .map(|symbol| symbol.name.as_str())
+        .collect();
+    assert_eq!(
+        classes,
+        ["{testRun\u{b7}job}", "{testRun\u{b7}handler}", "{testRun}"]
+    );
+}
+
+#[test]
+fn a_parenthesized_closure_bound_to_a_variable_makes_the_calls_in_its_body() {
+    let raw = extract(b"<?php\n$f = (function () { bar(); });\n$g = (fn ($x) => baz($x));\n");
+
+    assert_eq!(call(&raw.calls, "bar").site_of, id_of(&raw.symbols, "f"));
+    assert_eq!(call(&raw.calls, "baz").site_of, id_of(&raw.symbols, "g"));
+}
+
+#[test]
 fn an_anonymous_class_is_named_by_the_static_property_it_is_assigned_to() {
     let raw = extract(
         br"<?php
