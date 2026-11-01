@@ -2735,6 +2735,69 @@ func Drain(ch chan int, items []int) {
 }
 
 #[test]
+fn a_name_a_for_clause_declares_is_local_through_the_loop_s_body() {
+    let raw = extract(
+        b"package svc
+
+func Sum(items []int) int {
+	sum := 0
+	for index := 0; index < 3; index++ {
+		sum += items[index]
+	}
+	return sum
+}
+",
+    );
+
+    assert_eq!(values(&raw), []);
+}
+
+#[test]
+fn a_type_case_gives_the_switch_s_variable_the_type_it_names() {
+    let raw = extract(
+        b"package svc
+
+type T struct{}
+
+func (T) Run() {}
+
+func Drive(value any) {
+	switch held := value.(type) {
+	case T:
+		held.Run()
+	}
+}
+",
+    );
+
+    assert_eq!(receivers(&raw), [("Run", Some("T"))]);
+}
+
+#[test]
+fn a_selector_a_type_declaration_holds_finds_its_access_past_the_walk() {
+    let raw = extract(
+        br#"package svc
+
+import "unsafe"
+
+type Config struct {
+	Limit int
+}
+
+var cfg Config
+
+type Table [unsafe.Sizeof(func() { cfg.Limit = 1 })]int
+"#,
+    );
+
+    assert_eq!(
+        members(&raw),
+        [("Limit", "cfg", Access::Write, 11)],
+        "the walk never descends a type declaration, so its stack of ancestors stops above this selector"
+    );
+}
+
+#[test]
 fn a_name_no_local_binds_is_a_read_or_a_write_of_what_the_package_declares() {
     let raw = extract(ACCESSES);
 

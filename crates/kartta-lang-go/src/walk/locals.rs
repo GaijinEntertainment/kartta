@@ -148,10 +148,10 @@ pub(super) fn declares_left(node: Node<'_>) -> bool {
     node.children(&mut cursor).any(|child| child.kind() == ":=")
 }
 
-pub(super) fn header_statement(node: Node<'_>) -> Option<Node<'_>> {
-    let parent = node.parent()?;
+pub(super) fn header_statement<'t>(ancestors: &[Node<'t>]) -> Option<Node<'t>> {
+    let (&parent, above) = ancestors.split_last()?;
     match parent.kind() {
-        "for_clause" => parent.parent(),
+        "for_clause" => above.last().copied(),
         "if_statement"
         | "for_statement"
         | "expression_switch_statement"
