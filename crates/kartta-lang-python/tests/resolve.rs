@@ -148,12 +148,12 @@ fn an_absolute_import_of_a_module_the_repository_does_not_hold_binds_its_names_o
             "pkg/service.py",
             "app/__init__.py",
             "app/config.py",
-            "tools/confiture.py",
+            "tools/envflags.py",
             "vendor/code_index/search.py",
         ]),
         b"import json\nimport os.path\nimport xml.etree as tree\n\
           from sphinx.util import Field, Typed as T\nfrom outside import *\nfrom . import missing\n\
-          import app.config\nimport app.native\nfrom confiture import envbool\n\
+          import app.config\nimport app.native\nfrom envflags import envbool\n\
           from code_index import search\n",
         "pkg/service.py",
     );
