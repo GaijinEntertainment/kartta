@@ -24,10 +24,23 @@ pub(crate) enum Value<'g> {
     Package(Str),
     Type(SymbolAt),
     Callable(SymbolAt),
-    Container { body: SymbolAt, element: &'g str },
+    Container {
+        body: SymbolAt,
+        element: &'g str,
+    },
+    /// A name several files of a package declare, read where no file of them is the reader's own.
+    Declarations(PackageName),
     Imported,
     Undeclared,
     Unknown,
+}
+
+/// A name a package declares, as the file `viewer` sees it, or as an import does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PackageName {
+    dir: Str,
+    name: Str,
+    viewer: Option<u32>,
 }
 
 const MAX_DEPTH: u8 = 16;
@@ -83,9 +96,11 @@ impl<'g> Cascade<'g> {
             },
             Value::Imported => Typed::Imported,
             Value::Undeclared => Typed::Undeclared,
-            Value::Package(_) | Value::Callable(_) | Value::Container { .. } | Value::Unknown => {
-                Typed::Unknown
-            }
+            Value::Package(_)
+            | Value::Callable(_)
+            | Value::Container { .. }
+            | Value::Declarations(_)
+            | Value::Unknown => Typed::Unknown,
         }
     }
 
@@ -108,11 +123,21 @@ impl<'g> Cascade<'g> {
         if let Some(element) = path.strip_prefix("[]") {
             return Value::Container { body, element };
         }
-        let (name, mut rest) = head(path);
-        let mut value = self
+        let (name, rest) = head(path);
+        let value = self
             .anonymous_host(body.file, name)
             .unwrap_or_else(|| self.in_scope(body, name));
-        while !rest.is_empty() {
+        self.along(value, rest, depth)
+    }
+
+    fn along(&self, mut value: Value<'g>, mut rest: &'g str, depth: u8) -> Value<'g> {
+        loop {
+            if let Value::Declarations(read) = value {
+                return self.highest_ranked(read, rest, depth);
+            }
+            if rest.is_empty() {
+                return value;
+            }
             let Some((step, after)) = step(rest) else {
                 return Value::Unknown;
             };
@@ -126,7 +151,35 @@ impl<'g> Cascade<'g> {
             }
             rest = after;
         }
-        value
+    }
+
+    // constraint: a build compiles one of the declarations and the graph cannot tell which, so the path goes on through
+    // each, and what they reach decides by what it is and never by the path of its file
+    fn highest_ranked(&self, read: PackageName, rest: &'g str, depth: u8) -> Value<'g> {
+        self.declarers(read)
+            .map(|at| self.along(self.value_of(at, depth), rest, depth))
+            .max_by_key(|&value| self.value_rank(value, depth))
+            .unwrap_or(Value::Unknown)
+    }
+
+    // constraint: an alias of one name in each file can name a held type in one and an import's in another
+    fn value_rank(&self, value: Value<'g>, depth: u8) -> (u8, &'g str) {
+        let strings = &self.graph.strings;
+        match value {
+            Value::Type(at)
+                if self.graph.sym(at).kind == SymbolKind::TypeAlias && depth < MAX_DEPTH =>
+            {
+                self.value_rank(self.value_type(at, 0, depth), depth + 1)
+            }
+            Value::Type(at) | Value::Callable(at) => {
+                (3, strings.resolve(self.graph.sym(at).qualified_name))
+            }
+            Value::Container { element, .. } => (3, element),
+            Value::Package(dir) => (3, strings.resolve(dir)),
+            Value::Imported => (2, ""),
+            Value::Unknown | Value::Declarations(_) => (1, ""),
+            Value::Undeclared => (0, ""),
+        }
     }
 
     // constraint: a path names an anonymous struct by the index, in braces, of the field or the variable of its file
@@ -163,40 +216,44 @@ impl<'g> Cascade<'g> {
         self.local_type(body, key).unwrap_or(Value::Undeclared)
     }
 
-    // constraint: a file sees the package its own package clause names, its test files only from a test file; an
-    // import sees the package's other files. Two files declare one name only when build constraints keep them apart,
-    // so a file's own declaration is the one it is built with
+    // constraint: two files declare one name only when build constraints keep them apart, so a file's own declaration
+    // is the one it is built with
     fn package_level(&self, dir: Str, name: Str, viewer: Option<u32>) -> Option<Value<'g>> {
-        let named = self.named(name);
-        let viewer = viewer.map(|slot| {
-            let file = self.graph.file(slot);
-            let test = file
-                .symbols
-                .first()
-                .is_some_and(|symbol| symbol.flags.is_test());
-            (slot, file.package, test)
+        let read = PackageName { dir, name, viewer };
+        let own = viewer.and_then(|slot| self.declaration_in(read, slot));
+        if let Some(own) = own {
+            return Some(self.value_of(own, 0));
+        }
+        let mut declared = self.declarers(read);
+        let first = declared.next()?;
+        Some(if declared.next().is_some() {
+            Value::Declarations(read)
+        } else {
+            self.value_of(first, 0)
+        })
+    }
+
+    // constraint: a file sees the package its own package clause names, its test files only from a test file; an
+    // import sees the package's other files
+    fn declarers(&self, read: PackageName) -> impl Iterator<Item = SymbolAt> {
+        let package = read.viewer.map(|slot| self.graph.file(slot).package);
+        (self.graph.package_files(read.dir).iter())
+            .filter(move |&&slot| package.is_none_or(|own| self.graph.file(slot).package == own))
+            .filter_map(move |&slot| self.declaration_in(read, slot))
+    }
+
+    fn declaration_in(&self, read: PackageName, slot: u32) -> Option<SymbolAt> {
+        let sees_tests = read.viewer.is_some_and(|viewer| {
+            let symbols = &self.graph.file(viewer).symbols;
+            symbols.first().is_some_and(|first| first.flags.is_test())
         });
-        let sees_tests = viewer.is_some_and(|(_, _, test)| test);
-        let declared_in = |slot: u32| {
-            self.graph.in_file(named, slot).iter().copied().find(|&at| {
-                let symbol = self.graph.sym(at);
-                symbol.owner.is_none()
-                    && self.holder(at).is_none()
-                    && (sees_tests || !symbol.flags.is_test())
-            })
-        };
-        let seen = |slot: &&u32| {
-            viewer.is_none_or(|(_, package, _)| self.graph.file(**slot).package == package)
-        };
-        let own = viewer.and_then(|(slot, _, _)| declared_in(slot));
-        let declared = own.or_else(|| {
-            self.graph
-                .package_files(dir)
-                .iter()
-                .filter(seen)
-                .find_map(|&slot| declared_in(slot))
-        })?;
-        Some(self.value_of(declared, 0))
+        let named = self.named(read.name);
+        self.graph.in_file(named, slot).iter().copied().find(|&at| {
+            let symbol = self.graph.sym(at);
+            symbol.owner.is_none()
+                && self.holder(at).is_none()
+                && (sees_tests || !symbol.flags.is_test())
+        })
     }
 
     // constraint: a type declared in a body is named only inside that body, and a body rarely declares two types of one
@@ -241,7 +298,10 @@ impl<'g> Cascade<'g> {
                 .unwrap_or(Value::Unknown),
             Value::Type(ty) => self.member_value(ty, name, depth),
             Value::Imported | Value::Undeclared => value,
-            Value::Callable(_) | Value::Container { .. } | Value::Unknown => Value::Unknown,
+            Value::Callable(_)
+            | Value::Container { .. }
+            | Value::Declarations(_)
+            | Value::Unknown => Value::Unknown,
         }
     }
 
@@ -467,9 +527,11 @@ impl Embedded {
             }
             Value::Type(_) => {}
             Value::Imported | Value::Undeclared => self.reaches_outside = true,
-            Value::Package(_) | Value::Callable(_) | Value::Container { .. } | Value::Unknown => {
-                self.reaches_unknown = true;
-            }
+            Value::Package(_)
+            | Value::Callable(_)
+            | Value::Container { .. }
+            | Value::Declarations(_)
+            | Value::Unknown => self.reaches_unknown = true,
         }
     }
 }
