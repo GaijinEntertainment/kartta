@@ -358,6 +358,179 @@ fn a_name_two_files_of_a_package_declare_is_read_from_the_caller_s_own_file() {
 }
 
 #[test]
+fn a_file_s_own_declaration_stands_beside_a_type_a_sibling_file_names_later() {
+    let other_build = file(
+        "dec/z.go",
+        "dec",
+        vec![
+            typed("dec", "Zed", SymbolKind::Struct, 1),
+            member("dec.Zed", "Set", SymbolKind::Method, 2),
+            yielding(typed("dec", "held", SymbolKind::Variable, 3), &["Zed"]),
+        ],
+        Vec::new(),
+    );
+    let caller = file(
+        "dec/a.go",
+        "dec",
+        vec![
+            function("dec", "run", 1),
+            typed("dec", "Ace", SymbolKind::Struct, 3),
+            member("dec.Ace", "Set", SymbolKind::Method, 4),
+            yielding(typed("dec", "held", SymbolKind::Variable, 5), &["Ace"]),
+        ],
+        vec![member_call("held", "Set", 2)],
+    );
+
+    let graph = graph(&[other_build, caller]);
+
+    assert_eq!(
+        callees_of(&graph, "dec.run"),
+        [("dec/a.go:dec.Ace.Set".to_owned(), 85)]
+    );
+}
+
+fn declaring_new_over(path: &str, value_type: &str) -> Extraction {
+    importing(
+        file(
+            path,
+            "dec",
+            vec![
+                typed("dec", "Dec", SymbolKind::Struct, 1),
+                member("dec.Dec", "Set", SymbolKind::Method, 2),
+                yielding(function("dec", "New", 3), &[value_type]),
+            ],
+            Vec::new(),
+        ),
+        &[("http", None)],
+    )
+}
+
+fn reading_new_of(path: &str, package: &str, spelled: &str, imports: &[&str]) -> Extraction {
+    let imports: Vec<(&str, Option<&str>)> = imports
+        .iter()
+        .map(|&import| (import, Some(import)))
+        .collect();
+    importing(
+        file(
+            path,
+            package,
+            vec![function(package, "run", 1)],
+            vec![member_call(spelled, "Set", 2)],
+        ),
+        &imports,
+    )
+}
+
+#[test]
+fn a_name_two_files_declare_reads_what_either_reaches_whichever_comes_first_in_path_order() {
+    for (first, second) in [("dec/a.go", "dec/b.go"), ("dec/b.go", "dec/a.go")] {
+        let graph = graph(&[
+            declaring_new_over(first, "http.Client"),
+            declaring_new_over(second, "Dec"),
+            reading_new_of("m.go", "m", "dec.New()", &["dec"]),
+        ]);
+
+        assert_eq!(
+            callees_of(&graph, "m.run"),
+            [("dec/a.go:dec.Dec.Set".to_owned(), 85)],
+            "with the import's declaration in {first}"
+        );
+    }
+}
+
+#[test]
+fn a_third_file_of_the_package_reads_what_either_declaration_reaches() {
+    for (first, second) in [("dec/a.go", "dec/b.go"), ("dec/b.go", "dec/a.go")] {
+        let graph = graph(&[
+            declaring_new_over(first, "http.Client"),
+            declaring_new_over(second, "Dec"),
+            reading_new_of("dec/c.go", "dec", "New()", &[]),
+        ]);
+
+        assert_eq!(
+            callees_of(&graph, "dec.run"),
+            [("dec/a.go:dec.Dec.Set".to_owned(), 85)],
+            "with the import's declaration in {first}"
+        );
+    }
+}
+
+#[test]
+fn a_declaration_that_reaches_an_import_outranks_one_that_reaches_nothing_declared() {
+    for (first, second) in [("dec/a.go", "dec/b.go"), ("dec/b.go", "dec/a.go")] {
+        let graph = graph(&[
+            declaring_new_over(first, "http.Client"),
+            declaring_new_over(second, "int"),
+            reading_new_of("m.go", "m", "dec.New()", &["dec"]),
+        ]);
+
+        assert_eq!(
+            misses_of(&graph),
+            [("Set", Miss::ExternalImport)],
+            "with the import's declaration in {first}"
+        );
+    }
+}
+
+#[test]
+fn a_declaration_whose_path_stops_outranks_one_that_reaches_nothing_declared() {
+    for (first, second) in [("dec/a.go", "dec/b.go"), ("dec/b.go", "dec/a.go")] {
+        let graph = graph(&[
+            declaring_new_over(first, "Dec.Set()"),
+            declaring_new_over(second, "int"),
+            reading_new_of("m.go", "m", "dec.New()", &["dec"]),
+        ]);
+
+        assert!(
+            !misses_of(&graph).contains(&("Set", Miss::Undefined)),
+            "with the path that stops in {first}: {:?}",
+            misses_of(&graph)
+        );
+    }
+}
+
+#[test]
+fn an_alias_of_an_import_reads_as_the_import_beside_a_held_type() {
+    let alias = |path: &str, target: &str| {
+        importing(
+            file(
+                path,
+                "dec",
+                vec![
+                    yielding(typed("dec", "Dec", SymbolKind::TypeAlias, 1), &[target]),
+                    yielding(function("dec", "New", 2), &["Dec"]),
+                ],
+                Vec::new(),
+            ),
+            &[("http", None), ("held", Some("held"))],
+        )
+    };
+    let held = file(
+        "held/held.go",
+        "held",
+        vec![
+            typed("held", "Dec", SymbolKind::Struct, 1),
+            member("held.Dec", "Set", SymbolKind::Method, 2),
+        ],
+        Vec::new(),
+    );
+    for (first, second) in [("dec/a.go", "dec/b.go"), ("dec/b.go", "dec/a.go")] {
+        let graph = graph(&[
+            alias(first, "held.Dec"),
+            alias(second, "http.Client"),
+            held.clone(),
+            reading_new_of("m.go", "m", "dec.New()", &["dec"]),
+        ]);
+
+        assert_eq!(
+            callees_of(&graph, "m.run"),
+            [("held/held.go:held.Dec.Set".to_owned(), 85)],
+            "with the held alias in {first}"
+        );
+    }
+}
+
+#[test]
 fn a_type_with_no_method_of_the_name_binds_none() {
     let declarations = file(
         "app/types.go",
