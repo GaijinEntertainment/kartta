@@ -162,6 +162,33 @@ class Sender {
 }
 
 #[test]
+fn a_call_on_a_static_property_binds_the_class_it_holds() {
+    let source = r"<?php
+namespace App;
+class Container {
+    public function instance($k) {}
+}
+class Other {
+    public function instance($k) {}
+}
+class Child {
+    private static Container $shared;
+    public function viaStatic() { self::$shared->instance(1); }
+    public function viaLate() { static::$shared->instance(1); }
+    public function viaName() { Child::$shared->instance(1); }
+}
+";
+    let files = [("src/A.php", source), COMPOSER];
+    for caller in ["viaStatic", "viaLate", "viaName"] {
+        assert_eq!(
+            callees(&files, &format!("App\\Child::{caller}")),
+            ["App\\Container::instance"],
+            "{caller}",
+        );
+    }
+}
+
+#[test]
 fn a_write_from_a_parent_or_a_trait_is_outside_what_the_caller_reads() {
     let base = r"<?php
 namespace App;
