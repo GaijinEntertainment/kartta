@@ -386,7 +386,6 @@ impl<'g> Cascade<'g> {
                 self.value_type(under, index + 1, depth)
             }
             Some(reached @ (Value::Imported | Value::Unbounded)) => reached,
-            _ if index == 0 => Value::Type(ty),
             _ => Value::Unknown,
         }
     }

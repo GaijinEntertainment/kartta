@@ -990,6 +990,79 @@ func viaFunction() {{
 }
 
 #[test]
+fn a_go_call_of_a_function_type_with_unspelled_results_binds_none_of_its_own_methods() {
+    let source = "package a
+
+type E struct{}
+
+func (E) M() {}
+
+type F func() interface{ M() }
+
+func (F) M() {}
+
+type G func() E
+
+func (G) M() {}
+
+type Over F
+
+func (Over) M() {}
+
+type Generic[T interface{ M() }] func() T
+
+func (Generic[T]) M() {}
+
+type Literal func() struct{ E }
+
+func (Literal) M() {}
+
+type Funcs []func() E
+
+func (Funcs) M() {}
+
+type N func()
+
+func (N) M() {}
+
+func useF(f F) { f().M() }
+func useG(g G) { g().M() }
+func over(o Over) { o().M() }
+func generic(g Generic[E]) { g().M() }
+func literal(l Literal) { l().M() }
+func element(c Funcs) { c[0]().M() }
+func noResults(n N) {
+\tn()
+\tn.M()
+}
+";
+
+    assert_eq!(
+        methods_bound_by(
+            source,
+            &[
+                "useF",
+                "useG",
+                "over",
+                "generic",
+                "literal",
+                "element",
+                "noResults",
+            ]
+        ),
+        vec![
+            ("useF".to_owned(), Vec::new()),
+            ("useG".to_owned(), vec!["a.E.M".to_owned()]),
+            ("over".to_owned(), Vec::new()),
+            ("generic".to_owned(), Vec::new()),
+            ("literal".to_owned(), Vec::new()),
+            ("element".to_owned(), Vec::new()),
+            ("noResults".to_owned(), vec!["a.N.M".to_owned()]),
+        ],
+    );
+}
+
+#[test]
 fn a_go_function_type_s_results_read_past_an_alias_and_a_first_container() {
     let source = format!(
         "{GO_DECLARATIONS}
