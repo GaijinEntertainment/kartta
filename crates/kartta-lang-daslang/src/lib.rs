@@ -72,6 +72,9 @@
 //! in every file's, so a call with no receiver binds by its name alone only a definition of a file its own file reaches
 //! or of that module: the name is otherwise a native function's, of which the tree holds a namesake.
 //!
+//! A class starts as a copy of its parent's fields, and a `def` is a field, so a member call on a class the graph holds
+//! that holds no member of the name binds the one its nearest parent holds.
+//!
 //! A file with a `test` or `tests` directory in its path, in any case, or whose stem ends in `_test` or starts with
 //! `test_`, is test code. A file whose name holds `.gen.` or `_gen.`, or whose leading comments carry `@generated`,
 //! `DO NOT EDIT` or `Code generated`, is generated code. A `def` that carries an annotation other than one of the
@@ -102,8 +105,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    BareReceivers, Conventions, DocComments, Language, MacroInvocations, RawExtraction, Repository,
-    Resolver, SymbolKind, TypeUses, ValueUses,
+    BareReceivers, Conventions, DocComments, Language, MacroInvocations, RawExtraction,
+    ReceiverMembers, Repository, Resolver, SymbolKind, TypeUses, ValueUses,
 };
 
 use crate::resolve::DaslangResolver;
@@ -135,6 +138,7 @@ const CONVENTIONS: Conventions = {
     ];
     conventions.own_type_receivers = Some(&["self"]);
     conventions.base_receivers = &["super"];
+    conventions.receiver_members = ReceiverMembers::Inherited;
     conventions.type_uses = TypeUses::Nowhere;
     conventions.unrecorded_data = &[
         SymbolKind::Field,
