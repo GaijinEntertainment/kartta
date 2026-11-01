@@ -280,7 +280,78 @@ fn a_relative_specifier_names_the_file_beside_the_importer() {
         ["tools/build/util.das"]
     );
     assert_eq!(
-        targets(&files, "../../../common", "tools/build/gen.das"),
+        targets(&files, "../../../common.das", "tools/build/gen.das"),
+        NOTHING
+    );
+}
+
+#[test]
+fn a_relative_require_of_a_file_name_is_a_path_from_the_importer() {
+    let files = ["tools/plugin.das_project", "tools/build/gen.das"];
+
+    assert_eq!(
+        targets(&files, "../plugin.das_project", "tools/build/gen.das"),
+        ["tools/plugin.das_project"]
+    );
+}
+
+#[test]
+fn a_relative_require_without_the_extension_takes_it() {
+    let gen_file = "tools/build/gen.das";
+
+    assert_eq!(
+        targets(
+            &[gen_file, "tools/build/x", "tools/build/x.das"],
+            "../x",
+            gen_file
+        ),
+        ["tools/build/x.das"]
+    );
+    assert_eq!(
+        targets(&[gen_file, "tools/build/x"], "../x", gen_file),
+        NOTHING
+    );
+}
+
+#[test]
+fn a_relative_require_without_the_extension_reads_as_a_module_name_under_the_importer() {
+    let gen_file = "tools/build/gen.das";
+
+    assert_eq!(
+        targets(&[gen_file, "tools/x.das"], "../x", gen_file),
+        NOTHING
+    );
+    assert_eq!(targets(&[gen_file, "x.das"], "../../x", gen_file), NOTHING);
+    assert_eq!(
+        targets(
+            &[gen_file, "tools/build/sub/x.das", "tools/sub/x.das"],
+            "../sub/x",
+            gen_file
+        ),
+        ["tools/build/sub/x.das"]
+    );
+    assert_eq!(
+        targets(&[gen_file, "tools/build/a/b.das"], "./a.b", gen_file),
+        ["tools/build/a/b.das"]
+    );
+    assert_eq!(targets(&["top.das", "x.das"], "../x", "top.das"), ["x.das"]);
+}
+
+#[test]
+fn a_relative_include_names_the_file_as_written() {
+    let source = "options gen2\ninclude ../x\n";
+    let gen_file = "tools/build/gen.das";
+
+    assert_eq!(
+        includes(&resolve(
+            &[gen_file, "tools/x", "tools/x.das"],
+            source,
+            gen_file
+        )),
+        ["tools/x"]
+    );
+    assert_eq!(
+        includes(&resolve(&[gen_file, "tools/x.das"], source, gen_file)),
         NOTHING
     );
 }
