@@ -325,7 +325,8 @@ pub struct Symbol {
     /// a `~`, and a function type, defined or aliased, records its results after one `()` path, which tells them from
     /// the path a type or an alias names. Where they are
     /// [`Receivers::InheritedFields`](crate::Receivers::InheritedFields), a field's is the class it holds, written from
-    /// the root, or a receiver the language lists for the caller's own type. Under
+    /// the root, or a receiver the language lists for the caller's own type. Where they are
+    /// [`Receivers::PastedBodies`](crate::Receivers::PastedBodies), a definition in such a body records its name. Under
     /// [`ReceiverMembers::InheritedUpToAnyField`](crate::ReceiverMembers::InheritedUpToAnyField), one empty path marks a
     /// field that a class only declares and holds no value of. Where they are
     /// [`BareReceivers::Constants`](crate::BareReceivers::Constants), a constant's is the class it holds, spelled as a
