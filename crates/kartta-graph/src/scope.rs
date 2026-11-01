@@ -13,7 +13,7 @@ use crate::confidence;
 use crate::graph::{QUALIFIER_SEPARATORS, agree, distinct, last_segment, tails};
 use crate::resolution::Miss;
 use crate::resolve::{Bound, Call, Cascade, derived, derives};
-use crate::stored::{SymbolAt, VALUE_TYPE_SEPARATOR};
+use crate::stored::{Parent, SymbolAt, VALUE_TYPE_SEPARATOR};
 use crate::strings::Str;
 use crate::twins::{Twin, kept};
 
@@ -1470,6 +1470,56 @@ impl Cascade<'_> {
             self.nearest_holder((class, parents), candidates, admitted)
         };
         walk(holds_a_body).or_else(|| walk(|_| true))
+    }
+
+    // constraint: a class's table holds what its parents gave it, so a member no type of the graph above the class has
+    // stands in a class the graph does not hold, and no class's namesake answers it; only a name written in full tells
+    // such a parent from a type the walk failed to find. A language writes the class a type extends as its first base,
+    // and a class outside the graph can use a trait of the tree, so a trait's member stays with the tiers
+    /// Whether the receiver's class holds no member of the name, no trait of the graph does, and it, or a type above
+    /// it, extends a class no type of the graph is named.
+    pub(crate) fn inherits_from_outside_the_graph(
+        &self,
+        call: &Call,
+        candidates: &Candidates<'_>,
+    ) -> bool {
+        if self.conventions.parent_spelling != ParentSpelling::FromRoot {
+            return false;
+        }
+        let Some(class) = (self.named_receiver(call))
+            .and_then(|receiver| self.receiver_class(call, receiver))
+            .filter(|&class| self.held_by(class, candidates).is_none())
+        else {
+            return false;
+        };
+        let held_by_a_trait = |&at: &SymbolAt| {
+            self.class_of(at)
+                .is_some_and(|ty| self.graph.sym(ty).kind == SymbolKind::Trait)
+        };
+        if candidates.targets.iter().any(held_by_a_trait) {
+            return false;
+        }
+        let mut walked: HashSet<SymbolAt, FixedState> = HashSet::default();
+        walked.insert(class);
+        let mut pending = vec![class];
+        while let Some(ty) = pending.pop() {
+            let parents = self.graph.file(ty.file).parents_of(ty.index);
+            let types_of = |parent: &Parent| {
+                self.qualified_as(parent.written)
+                    .filter(|&at| derives(self.graph.sym(at).kind))
+            };
+            if parents
+                .first()
+                .is_some_and(|base| types_of(base).next().is_none())
+            {
+                return true;
+            }
+            pending.extend(
+                (parents.iter().flat_map(types_of))
+                    .filter(|&at| holds_a_body(self.graph.sym(at).kind) && walked.insert(at)),
+            );
+        }
+        false
     }
 
     /// The class a receiver names: the caller's own for a receiver the language writes for a value of that type, else
