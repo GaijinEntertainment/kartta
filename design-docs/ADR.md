@@ -159,6 +159,7 @@ lost, and what would reopen it.
 - [3.194 Bind a bare daslang call only within what its file reaches](/design-docs/adr/3.194-daslang-call-scope.md)
 - [3.195 Bind a daslang qualifier to the module it names](/design-docs/adr/3.195-daslang-module-qualifiers.md)
 - [3.200 Walk a Python class's parents up to the field that hides a member, within what the file imports](/design-docs/adr/3.200-python-class-members.md)
+- [3.201 Read a Go selector by depth through the embedded types the graph can see](/design-docs/adr/3.201-go-embedded-selectors.md)
 
 ## crates/kartta-lang
 
