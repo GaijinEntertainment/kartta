@@ -272,7 +272,9 @@ pub struct Conventions {
     pub base_receivers: &'static [&'static str],
     /// The method a construction runs where a class declares it under one name, as PHP's `__construct`. A call of it on
     /// a receiver written from the root binds what that class's table holds, and nothing where the table holds none, so
-    /// never another class's. `None` where a language has no such name.
+    /// never another class's. A construction records it right after a call of the class's last name on the class
+    /// written from the root; on a class the graph does not hold, that call alone counts among the calls that bound
+    /// nothing. `None` where a language has no such name.
     pub constructor: Option<&'static str>,
     /// What a member call on a class the graph holds reaches of the types above that class.
     pub receiver_members: ReceiverMembers,

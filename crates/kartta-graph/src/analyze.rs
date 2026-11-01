@@ -124,7 +124,8 @@ pub struct SegmentSymbol<'g> {
     /// The symbols it calls.
     pub callees: DirectCalls<'g>,
     /// The calls of its body that bound no definition the graph holds: calls into code outside it, and calls the
-    /// cascade could not tell apart.
+    /// cascade could not tell apart. A construction of a class outside the graph is one such call, whatever the
+    /// language records for its constructor.
     pub unresolved: usize,
     /// The reach of a change to it.
     pub blast: Blast,

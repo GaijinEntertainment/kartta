@@ -1641,6 +1641,28 @@ impl<'g> Cascade<'g> {
                 .is_some_and(|receiver| self.class_from_the_root(call, receiver).is_some())
     }
 
+    /// Whether a call that bound nothing runs the constructor of a construction of a class the graph does not hold,
+    /// which the file's call just before it names: the class's last name on the class written from the root. The
+    /// class's call stands for the site, so the counts of the calls that bound nothing leave this one out, and a
+    /// constructor called by hand stays among them.
+    pub(crate) fn constructs_outside_the_graph(&self, site: Site, call: &Call) -> bool {
+        let Entry::Call(index) = site.entry() else {
+            return false;
+        };
+        let strings = &self.graph.strings;
+        self.conventions.constructor == Some(strings.resolve(call.callee))
+            && self.names_a_class_outside_the_graph(call)
+            && index.checked_sub(1).is_some_and(|before| {
+                let class = self.graph.file(call.file).calls[before as usize];
+                class.receiver.is_some_and(|receiver| {
+                    let written = strings.resolve(receiver);
+                    written.starts_with(QUALIFIER_SEPARATORS)
+                        && written.rsplit(QUALIFIER_SEPARATORS).next()
+                            == Some(strings.resolve(class.callee))
+                })
+            })
+    }
+
     fn owned_out_of_reach(&self, call: &Call, candidates: &Candidates<'_>) -> bool {
         candidates.turned_away
             && call.receiver.is_some_and(|receiver| {
