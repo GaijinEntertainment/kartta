@@ -370,7 +370,7 @@ pub enum ReceiverMembers {
     /// The member the nearest type above the class holds, where the class holds none, ahead of a namesake of the
     /// class: the `parents` of each type breadth-first, a level's traits first, as PHP's method table takes a class's
     /// own method, then its traits', then its parent's, and an interface's declaration only where no body above the
-    /// class holds the member.
+    /// class holds the member. Python takes the same walk, which stands in for its C3 order.
     Inherited,
 }
 

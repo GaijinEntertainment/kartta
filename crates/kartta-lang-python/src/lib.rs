@@ -62,6 +62,11 @@
 //! `__init__.py` holds counts there only where the probe reaches it. `import a.b` binds no `a` that the repository
 //! holds.
 //!
+//! A member call on `self`, `cls` or `other`, or on a class the module defines or imports, binds the member the nearest
+//! class above that class holds, where the class holds none itself. A parent is read by the last name its base writes,
+//! among the classes of the module and of the files its imports reach, unless the name the base starts with comes from
+//! outside the repository.
+//!
 //! A file named `test_*`, `*_test` or `conftest`, or below a `test` or `tests` directory in any case, is test code. A
 //! `*_pb2` or `*_pb2_grpc` file, or one with a `@generated` or `DO NOT EDIT` marker in the comments and module
 //! docstring that open it, outside a backtick span, is generated code. The header is read after a UTF-8 byte order
@@ -98,7 +103,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    Conventions, DocComments, Language, OwnMembers, RawExtraction, Repository, Resolver, ValueUses,
+    Conventions, DocComments, Language, OwnMembers, RawExtraction, ReceiverMembers, Repository,
+    Resolver, ValueUses,
 };
 
 use crate::resolve::Modules;
@@ -128,6 +134,7 @@ const CONVENTIONS: Conventions = {
     conventions.runtime_methods = runtime::METHODS;
     conventions.value_uses = ValueUses::Imported;
     conventions.own_type_receivers = Some(&["cls", "other", "self"]);
+    conventions.receiver_members = ReceiverMembers::Inherited;
     conventions
 };
 
