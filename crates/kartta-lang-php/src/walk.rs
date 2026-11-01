@@ -34,6 +34,8 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         holders: Vec::new(),
         frames: Vec::new(),
         imports: Vec::new(),
+        fields: HashMap::new(),
+        field_calls: Vec::new(),
         namespace: String::new(),
         flags: SymbolFlags::empty().with_generated(is_generated_source(source)),
         raw: RawExtraction::default(),
@@ -46,6 +48,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         true
     });
 
+    emitter.name_field_receivers();
     emitter.raw
 }
 
@@ -84,6 +87,13 @@ struct Import {
     directive: usize,
 }
 
+type Field<'s> = (SymbolId, &'s [u8]);
+
+enum FieldClass {
+    Settled(Option<String>),
+    Written(String),
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Callables {
     Detach,
@@ -100,6 +110,8 @@ struct Emitter<'s> {
     holders: Vec<Holder>,
     frames: Vec<Frame>,
     imports: Vec<Import>,
+    fields: HashMap<Field<'s>, FieldClass>,
+    field_calls: Vec<(usize, Field<'s>)>,
     // constraint: every `namespace` declaration replaces the namespace and `namespace { }` clears it; PHP admits no
     // declaration outside the braces of a file that uses the braced form, so a namespace needs no end
     namespace: String,
@@ -107,7 +119,7 @@ struct Emitter<'s> {
     raw: RawExtraction,
 }
 
-impl Emitter<'_> {
+impl<'s> Emitter<'s> {
     fn handle(&mut self, node: Node<'_>) {
         let start = node.start_byte();
         while self.scopes.pop_if(|scope| scope.end <= start).is_some() {}
@@ -140,7 +152,10 @@ impl Emitter<'_> {
             "interface_declaration" => self.type_declaration(node, SymbolKind::Interface),
             "trait_declaration" => self.type_declaration(node, SymbolKind::Trait),
             "enum_declaration" => self.type_declaration(node, SymbolKind::Enum),
-            "property_declaration" => self.members(node, "property_element", SymbolKind::Field),
+            "property_declaration" => {
+                self.declare_fields(node);
+                self.members(node, "property_element", SymbolKind::Field);
+            }
             "const_declaration" => self.members(node, "const_element", SymbolKind::Constant),
             "property_promotion_parameter" => self.promoted_property(node),
             "enum_case" => self.enum_case(node),
@@ -171,6 +186,7 @@ impl Emitter<'_> {
             "member_call_expression" | "nullsafe_member_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
                 let receiver = self.held_receiver(receiver, start);
+                self.field_call(&callee, node);
                 self.call(callee, receiver, node);
             }
             "scoped_call_expression" => {
@@ -487,6 +503,9 @@ impl Emitter<'_> {
         let mut symbol = declared(name.clone(), self.qualify(&name), SymbolKind::Class, class);
         symbol.parents = self.parents(class);
         let id = self.push(symbol);
+        if let Some(field) = target.and_then(|target| self.own_field(target)) {
+            self.write_field(field, Some(name.clone()));
+        }
         self.types.push(Scope {
             end: class.end_byte(),
             id,
@@ -650,6 +669,7 @@ impl Emitter<'_> {
     fn forget_written(&mut self, written: Node<'_>, until: usize) {
         match written.kind() {
             "variable_name" => self.forget(written, until),
+            "member_access_expression" => self.field_written(written),
             "list_literal" | "pair" | "by_ref" => {
                 for element in named_child_nodes(written) {
                     self.forget_written(element, until);
@@ -690,6 +710,145 @@ impl Emitter<'_> {
         held.map(str::to_owned).or(receiver)
     }
 
+    fn own_field(&self, access: Node<'_>) -> Option<Field<'s>> {
+        if !matches!(
+            access.kind(),
+            "member_access_expression" | "nullsafe_member_access_expression"
+        ) {
+            return None;
+        }
+        let object = access.child_by_field_name("object")?;
+        if &self.source[object.byte_range()] != b"$this" {
+            return None;
+        }
+        let name = (access.child_by_field_name("name")).filter(|name| name.kind() == "name")?;
+        Some((self.types.last()?.id, &self.source[name.byte_range()]))
+    }
+
+    fn field_call(&mut self, callee: &str, call: Node<'_>) {
+        let object = call.child_by_field_name("object");
+        if let Some(field) = object.and_then(|object| self.own_field(object))
+            && !callee.is_empty()
+        {
+            self.field_calls.push((self.raw.calls.len(), field));
+        }
+    }
+
+    // constraint: a method reads a property that a later member declares or writes as often as an earlier one, so the
+    // receivers are read once the whole file has been walked
+    fn name_field_receivers(&mut self) {
+        for (call, field) in &self.field_calls {
+            if let Some(FieldClass::Settled(Some(class)) | FieldClass::Written(class)) =
+                self.fields.get(field)
+            {
+                self.raw.calls[*call].receiver = Some(class.clone());
+            }
+        }
+    }
+
+    fn declare_fields(&mut self, declaration: Node<'_>) {
+        let elements =
+            named_child_nodes(declaration).filter(|element| element.kind() == "property_element");
+        for element in elements {
+            let valued = element
+                .child_by_field_name("default_value")
+                .is_some_and(|value| value.kind() != "null");
+            if let Some(variable) = element.child_by_field_name("name") {
+                self.declare_field(declaration, variable, valued);
+            }
+        }
+    }
+
+    // constraint: a declared type settles a property whatever a write says, since PHP checks every write against it
+    fn declare_field(&mut self, declaration: Node<'_>, variable: Node<'_>, valued: bool) {
+        let name = named_child_nodes(variable).find(|child| child.kind() == "name");
+        let (Some(name), Some(open)) = (name, self.types.last()) else {
+            return;
+        };
+        let field = (open.id, &self.source[name.byte_range()]);
+        if let Some(declared) = declaration.child_by_field_name("type") {
+            let class = self.property_class(declared);
+            self.fields.insert(field, FieldClass::Settled(class));
+        } else if valued {
+            self.write_field(field, None);
+        }
+    }
+
+    // constraint: a call on anything but an object throws (`zend_invalid_method_call`, `Zend/zend_execute.c`), so a
+    // type's class is its one alternative that names a class; `iterable` compiles to `Traversable|array`
+    // (`zend_compile_single_typename`, `Zend/zend_compile.c`), so it makes a second beside a class and alone gives none
+    fn property_class(&self, declared: Node<'_>) -> Option<String> {
+        match declared.kind() {
+            "named_type" => declared
+                .named_child(0)
+                .map(|name| self.receiver_class(name)),
+            "optional_type" => self.property_class(declared.named_child(0)?),
+            "union_type" => {
+                let mut classes = named_child_nodes(declared)
+                    .filter(|alternative| names_a_class(*alternative, self.source));
+                let (Some(class), None) = (classes.next(), classes.next()) else {
+                    return None;
+                };
+                self.property_class(class)
+            }
+            _ => None,
+        }
+    }
+
+    // constraint: every write the class's own body makes reads as one class or none, whichever order the walk meets
+    // them in, so a second class settles the property on none; a declaration replaces what the writes before it said
+    fn write_field(&mut self, field: Field<'s>, class: Option<String>) {
+        let Some(held) = self.fields.get_mut(&field) else {
+            let first = class.map_or(FieldClass::Settled(None), FieldClass::Written);
+            self.fields.insert(field, first);
+            return;
+        };
+        if matches!(held, FieldClass::Written(written) if class.as_ref() != Some(&*written)) {
+            *held = FieldClass::Settled(None);
+        }
+    }
+
+    // constraint: `null` and `unset` clear a property and say nothing of what it holds; `??=`, the one compound
+    // assignment an object survives, writes its value over `null` alone; an anonymous class has its name once the walk
+    // reaches it; any other write that names no class, a list or `foreach` target or either side of `=&`, leaves the
+    // property holding what the file cannot name
+    fn field_written(&mut self, written: Node<'_>) {
+        let (Some(field), Some(write)) = (self.own_field(written), written.parent()) else {
+            return;
+        };
+        let value = match write.kind() {
+            "unset_statement" => return,
+            "assignment_expression" => {
+                let value = write.child_by_field_name("right");
+                if value.is_some_and(creates_an_anonymous_class) {
+                    return;
+                }
+                value
+            }
+            "augmented_assignment_expression" => write.child_by_field_name("right"),
+            _ => None,
+        };
+        if value.is_some_and(|value| value.kind() == "null") {
+            return;
+        }
+        let class = value.and_then(|value| self.assigned_class(value));
+        self.write_field(field, class);
+    }
+
+    fn assigned_class(&self, value: Node<'_>) -> Option<String> {
+        match value.kind() {
+            "object_creation_expression" => named_child_nodes(value)
+                .find(|child| NAMES.contains(&child.kind()))
+                .map(|created| self.receiver_class(created)),
+            "variable_name" => {
+                let variable = &self.source[value.byte_range()];
+                self.held_class(variable, value.start_byte())
+                    .map(str::to_owned)
+            }
+            _ => None,
+        }
+    }
+
     // constraint: `private int $x, $y;` declares one member per element, each with the declaration's visibility
     fn members(&mut self, node: Node<'_>, element_kind: &str, kind: SymbolKind) {
         let member = Member {
@@ -727,6 +886,9 @@ impl Emitter<'_> {
             exported: !is_private(node, self.source),
         };
         self.member(name, &member, node);
+        if let Some(variable) = parameter_variable(node) {
+            self.declare_field(node, variable, true);
+        }
     }
 
     fn enum_case(&mut self, node: Node<'_>) {
@@ -1120,6 +1282,16 @@ fn parameter_variable(parameter: Node<'_>) -> Option<Node<'_>> {
     } else {
         Some(name)
     }
+}
+
+fn names_a_class(alternative: Node<'_>, source: &[u8]) -> bool {
+    alternative.kind() != "primitive_type"
+        || source[alternative.byte_range()].eq_ignore_ascii_case(b"iterable")
+}
+
+fn creates_an_anonymous_class(value: Node<'_>) -> bool {
+    value.kind() == "object_creation_expression"
+        && named_child_nodes(value).any(|child| child.kind() == "anonymous_class")
 }
 
 // constraint: the builtins and the WordPress hook functions that take a callable, with the positional argument that
