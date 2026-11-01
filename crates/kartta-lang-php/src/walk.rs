@@ -126,10 +126,12 @@ impl Emitter<'_> {
             }
             "function_definition" => {
                 self.open_frame(node);
+                self.hold_parameters(node);
                 self.function(node);
             }
             "method_declaration" => {
                 self.open_frame(node);
+                self.hold_parameters(node);
                 self.method(node);
             }
             "anonymous_function" => self.closure(node),
@@ -527,6 +529,42 @@ impl Emitter<'_> {
         });
     }
 
+    // constraint: a function checks each argument against its type on entry, through a reference too, and a variadic
+    // parameter's type bounds each element of its array (`ZEND_RECV`, `zend_check_type`, `Zend/zend_execute.c`)
+    fn hold_parameters(&mut self, function: Node<'_>) {
+        let parameters = function.child_by_field_name("parameters");
+        for parameter in parameters.iter().flat_map(|list| named_child_nodes(*list)) {
+            let class = parameter
+                .child_by_field_name("type")
+                .filter(|_| parameter.kind() != "variadic_parameter")
+                .and_then(|declared| self.declared_class(declared));
+            if let (Some(variable), Some(class)) = (parameter_variable(parameter), class) {
+                self.holders.push(whole_frame(variable.byte_range(), class));
+            }
+        }
+    }
+
+    // constraint: a type settles a class where one name is all a call can run on: a member call on null never runs, and
+    // a value of a union can be any member's (`zend_check_type_slow`, `Zend/zend_execute.c`), so the class is the one
+    // name, spelled as after `new` (`zend_compile_single_typename`, `Zend/zend_compile.c`)
+    fn declared_class(&self, declared: Node<'_>) -> Option<String> {
+        match declared.kind() {
+            "named_type" => declared
+                .named_child(0)
+                .map(|name| self.receiver_class(name)),
+            "optional_type" => self.declared_class(declared.named_child(0)?),
+            "union_type" => {
+                let mut members = named_child_nodes(declared)
+                    .filter(|member| self.source[member.byte_range()] != *b"null");
+                let (Some(class), None) = (members.next(), members.next()) else {
+                    return None;
+                };
+                self.declared_class(class)
+            }
+            _ => None,
+        }
+    }
+
     fn frame_holders(&mut self) -> &mut [Holder] {
         let frame = self.frames.last().map_or(0, |frame| frame.holders);
         &mut self.holders[frame..]
@@ -550,6 +588,7 @@ impl Emitter<'_> {
         }
         self.open_frame(closure);
         self.holders.append(&mut bound);
+        self.hold_parameters(closure);
     }
 
     // constraint: an arrow function copies each variable of the function around it as it is created, but for its
@@ -568,6 +607,7 @@ impl Emitter<'_> {
                 self.forget_written(name, start);
             }
         }
+        self.hold_parameters(arrow);
     }
 
     // constraint: a variable an assignment writes keeps its value through the right side, a variable `=&` binds shares
@@ -994,7 +1034,8 @@ fn call_target(node: Node<'_>, source: &[u8]) -> (String, Option<String>) {
     (text(name, source), receiver)
 }
 
-// constraint: a variable a closure binds holds its class through the closure, whose frame ends it
+// constraint: a variable a function starts with, a parameter or what a closure binds, holds its class through the
+// function, whose frame ends it
 const fn whole_frame(variable: Range<usize>, class: String) -> Holder {
     Holder {
         variable,
@@ -1068,6 +1109,16 @@ fn promoted_identifier(node: Node<'_>, source: &[u8]) -> Option<String> {
         "variable_name" => variable_identifier(node, source),
         "by_ref" => promoted_identifier(node.named_child(0)?, source),
         _ => None,
+    }
+}
+
+// constraint: the grammar writes a promoted parameter's name as a `variable_name` or a `by_ref` around one
+fn parameter_variable(parameter: Node<'_>) -> Option<Node<'_>> {
+    let name = parameter.child_by_field_name("name")?;
+    if name.kind() == "by_ref" {
+        name.named_child(0)
+    } else {
+        Some(name)
     }
 }
 
