@@ -551,7 +551,7 @@ pub enum Twins {
     Every,
     /// Every one of them in the other files of its package, as a Go build constraint keeps files that declare one name
     /// apart and some build selects each, unless the caller's own file holds one, the one that file is built with, and
-    /// none in a file [`BuiltApart`] keeps from the caller's.
+    /// none in a file [`BuiltApart`] keeps from the caller's. A use reaches them as a call does.
     Package(BuiltApart),
 }
 

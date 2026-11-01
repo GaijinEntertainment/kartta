@@ -793,7 +793,8 @@ impl<'g> Cascade<'g> {
         }
         resolved.and_then(|(at, confidence)| {
             if !self.graph.sym(at).flags.is_made() {
-                self.built_with_caller(call, (at, confidence))
+                self.built_with(call.file, (at, confidence))
+                    .ok_or(Miss::NotAdmitted)
             } else if confidence < confidence::SAME_DIR {
                 Err(Miss::Ambiguous)
             } else {
@@ -807,15 +808,26 @@ impl<'g> Cascade<'g> {
         match self.conventions.twins {
             Twins::First => Vec::new(),
             Twins::Every => self.twins_in_reach(call, bound),
-            Twins::Package(_)
-                if bound.0.file == call.file || !Self::stands_for_a_package(bound) =>
-            {
-                Vec::new()
-            }
-            Twins::Package(built_apart) => (self.declarations_of(call, bound.0))
-                .filter(|&at| at != bound.0 && !self.apart(built_apart, call.file, at.file))
-                .collect(),
+            Twins::Package(built_apart) => self.package_twins(built_apart, call.file, bound),
         }
+    }
+
+    /// The definitions beside `bound` that a use in `file` reaches too, as a call does where a package holds them; a
+    /// use of a definition with twins in a file reaches that one alone.
+    pub(crate) fn use_twins(&self, file: u32, bound: Bound) -> Vec<SymbolAt> {
+        match self.conventions.twins {
+            Twins::First | Twins::Every => Vec::new(),
+            Twins::Package(built_apart) => self.package_twins(built_apart, file, bound),
+        }
+    }
+
+    fn package_twins(&self, built_apart: BuiltApart, file: u32, bound: Bound) -> Vec<SymbolAt> {
+        if bound.0.file == file || !Self::stands_for_a_package(bound) {
+            return Vec::new();
+        }
+        (self.declarations_of(file, bound.0))
+            .filter(|&at| at != bound.0 && !self.apart(built_apart, file, at.file))
+            .collect()
     }
 
     fn apart(&self, built_apart: BuiltApart, file: u32, other: u32) -> bool {
@@ -837,11 +849,12 @@ impl<'g> Cascade<'g> {
         )
     }
 
-    /// Whether a definition is one of `bound`'s qualified name, kind and holder in its package that `call` sees.
-    fn alike(&self, call: &Call, bound: SymbolAt) -> impl Fn(&SymbolAt) -> bool {
+    /// Whether a definition is one of `bound`'s qualified name, kind and holder in its package that `file` sees.
+    fn alike(&self, file: u32, bound: SymbolAt) -> impl Fn(&SymbolAt) -> bool {
         let symbol = self.graph.sym(bound);
         let dir = self.graph.file(bound.file).dir;
-        let sees_tests = self.graph.sym(call.caller_at()).flags.is_test();
+        let held = self.graph.file(file).symbols.first();
+        let sees_tests = held.is_some_and(|symbol| symbol.flags.is_test());
         let holder = self.holder(bound);
         move |&at| {
             let other = self.graph.sym(at);
@@ -853,38 +866,35 @@ impl<'g> Cascade<'g> {
     }
 
     /// The declarations `bound` stands for in its package, itself among them.
-    fn declarations_of(&self, call: &Call, bound: SymbolAt) -> impl Iterator<Item = SymbolAt> {
+    fn declarations_of(&self, file: u32, bound: SymbolAt) -> impl Iterator<Item = SymbolAt> {
         let named = self.named(self.graph.sym(bound).name);
         self.graph
             .package_files(self.graph.file(bound.file).dir)
             .iter()
             .flat_map(move |&slot| self.graph.in_file(named, slot).iter().copied())
-            .filter(self.alike(call, bound))
+            .filter(self.alike(file, bound))
     }
 
-    /// Of the declarations `bound` stands for, the caller file's own, else `bound` unless a build never compiles it with
-    /// the caller's file, else the first such a build does. A name no such build declares binds nothing.
-    fn built_with_caller(&self, call: &Call, (bound, confidence): Bound) -> Result<Bound, Miss> {
+    /// Of the declarations `bound` stands for, the own one of `file`, the file of the site, else `bound` unless a build
+    /// never compiles it with `file`, else the first such a build does. A name no such build declares binds nothing.
+    pub(crate) fn built_with(&self, file: u32, (bound, confidence): Bound) -> Option<Bound> {
         let Twins::Package(built_apart) = self.conventions.twins else {
-            return Ok((bound, confidence));
+            return Some((bound, confidence));
         };
-        if bound.file == call.file || !Self::stands_for_a_package((bound, confidence)) {
-            return Ok((bound, confidence));
+        if bound.file == file || !Self::stands_for_a_package((bound, confidence)) {
+            return Some((bound, confidence));
         }
         let named = self.named(self.graph.sym(bound).name);
-        let own =
-            (self.graph.in_file(named, call.file).iter().copied()).find(self.alike(call, bound));
-        let apart = |file: u32| self.apart(built_apart, call.file, file);
+        let own = (self.graph.in_file(named, file).iter().copied()).find(self.alike(file, bound));
+        let apart = |other: u32| self.apart(built_apart, file, other);
         let built = || {
             if apart(bound.file) {
-                self.declarations_of(call, bound).find(|at| !apart(at.file))
+                self.declarations_of(file, bound).find(|at| !apart(at.file))
             } else {
                 Some(bound)
             }
         };
-        (own.or_else(built))
-            .map(|at| (at, confidence))
-            .ok_or(Miss::NotAdmitted)
+        own.or_else(built).map(|at| (at, confidence))
     }
 
     /// The definitions beside `bound` where the tier that bound it, the caller's file or the type its receiver names,
@@ -2440,6 +2450,11 @@ impl<'g> Cascade<'g> {
     }
 
     pub(crate) fn resolve_use(&self, file: u32, index: u32) -> Result<Bound, UseMiss> {
+        let bound = self.bound_use(file, index)?;
+        self.built_with(file, bound).ok_or(UseMiss::Elsewhere)
+    }
+
+    fn bound_use(&self, file: u32, index: u32) -> Result<Bound, UseMiss> {
         let site = self.graph.file(file).uses[index as usize];
         let at = SymbolAt::new(file, site.site_of());
         match site.receiver() {
