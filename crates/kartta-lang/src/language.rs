@@ -447,6 +447,13 @@ pub enum Receivers {
     /// [value type](crate::Symbol::value_types) is the call's receiver. A field with no value type, one private to a
     /// type above the caller's class, and a name no type declares leave the empty receiver.
     InheritedFields,
+    /// As [`Receivers::Owners`], where a bare call can also spell the named bodies a library pastes into the scope
+    /// around it, which the extraction cannot read from its file: `+` and the bodies' names one a line, nearest first.
+    /// The call binds the definition of its name whose [value type](crate::Symbol::value_types) is the first such body
+    /// that holds one, nearest the caller where several files define it, even one local to its file; a name no body
+    /// holds binds as a call with no receiver. A file's top level records such a read as a use of the body's name, `#`
+    /// and the call's name, per body.
+    PastedBodies,
 }
 
 /// What a receiver written as a bare name, of letters, digits and `_`, names.

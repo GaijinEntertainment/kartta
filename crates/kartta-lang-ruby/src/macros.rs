@@ -2,17 +2,25 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use kartta_lang::tree::{named_child_nodes, signature_from, text};
-use kartta_lang::{FILE_SCOPE, LocalCall, RawExtraction, SymbolId, SymbolKind};
+use kartta_lang::{
+    Access, CallRef, FILE_SCOPE, LocalCall, RawExtraction, Receiver, SymbolId, SymbolKind, UseRef,
+};
 use tree_sitter::Node;
 
 use crate::bindings::MethodKind;
 use crate::owner::{enclosing_type, in_singleton_class};
-use crate::walk::{Emitter, declared, visibility_exports};
+use crate::walk::{Emitter, declared, plain_string, visibility_exports};
 
 /// A method `let` or `subject` defines, with the bytes of its example group.
 pub(crate) struct GroupMethod<'s> {
     name: &'s [u8],
     id: SymbolId,
+    group: Range<usize>,
+}
+
+/// A shared group an example group includes: its name as [`shared_group_name`] spells it, and the bytes that reach it.
+pub(crate) struct IncludedGroup {
+    name: String,
     group: Range<usize>,
 }
 
@@ -40,7 +48,28 @@ impl Emitter<'_> {
             }
             "alias_method" => self.alias_method(call),
             "let" | "let!" | "subject" | "subject!" => self.example_group_method(call),
+            "include_context" | "include_examples" => {
+                self.included_group(call, enclosing_group(call));
+            }
+            "it_behaves_like" | "it_should_behave_like" => {
+                if let Some(block) = call.child_by_field_name("block") {
+                    self.included_group(call, block);
+                }
+            }
             _ => {}
+        }
+    }
+
+    // constraint: RSpec runs a shared group's block on the group that includes it, in that group for `include_context`
+    // and `include_examples` (`example_group.rb:350`, `:360`) and in a group of its own, with the block the call
+    // passes, for `it_behaves_like` (`example_group.rb:329`, `shared_example_group.rb:38`), so that block alone reads
+    // its lets
+    fn included_group(&mut self, call: Node<'_>, group: Node<'_>) {
+        if let Some(name) = shared_group_name(call, self.source) {
+            self.included_groups.push(IncludedGroup {
+                name,
+                group: group.byte_range(),
+            });
         }
     }
 
@@ -63,61 +92,80 @@ impl Emitter<'_> {
         let source = self.source;
         let spelled = &source[symbol.byte_range()];
         let name = text(symbol, source).trim_start_matches(':').to_owned();
+        let group = enclosing_group(call);
         let mut definition = declared(name.clone(), name, SymbolKind::Function, call);
         definition.signature = signature_from(call.start_byte(), arguments, source);
+        definition
+            .value_types
+            .extend(shared_group_of_every_file(group, source));
         let id = self.push(definition);
         self.raw.local_symbols.push(id);
         self.open_method(call, id);
         self.group_methods.push(GroupMethod {
             name: spelled.strip_prefix(b":").unwrap_or(spelled),
             id,
-            group: enclosing_group(call),
+            group: group.byte_range(),
         });
     }
 
     // constraint: a method of an example group takes no argument and no block, so a call that passes one is a DSL's
-    // method of the name, and a call at file scope keeps its name, which is all the graph keeps of it
-    pub(crate) fn plain_call(&mut self, node: Node<'_>, site_of: SymbolId) {
-        if site_of != FILE_SCOPE {
-            self.plain_calls
-                .push((self.raw.calls.len(), node.start_byte()));
-        }
+    // method of the name
+    pub(crate) fn plain_call(&mut self, node: Node<'_>) {
+        self.plain_calls
+            .push((self.raw.calls.len(), node.start_byte()));
     }
 
     // constraint: a method of an example group is reached from the group and the groups nested in it, wherever in them
     // it is defined, so a call binds the innermost one around it, and of two in one group the later, which replaces the
-    // earlier
+    // earlier. A call at file scope keeps its name, which is all the graph keeps of it. A group's own method stands
+    // ahead of the groups it includes, whose methods the graph alone can read; of those a later include in one group
+    // replaces an earlier one, since each runs its block on the group
     pub(crate) fn bind_group_methods(&mut self) {
         let mut named: HashMap<&[u8], Vec<&GroupMethod<'_>>> = HashMap::new();
         for method in &self.group_methods {
             named.entry(method.name).or_default().push(method);
         }
-        if named.is_empty() {
+        if named.is_empty() && self.included_groups.is_empty() {
             return;
         }
+        self.included_groups.reverse();
+        self.included_groups
+            .sort_by_key(|included| included.group.len());
+        let included = &self.included_groups;
         let RawExtraction {
-            calls, local_calls, ..
+            calls,
+            local_calls,
+            uses,
+            ..
         } = &mut self.raw;
         let mut plain = self.plain_calls.iter().copied().peekable();
         let mut at = 0;
-        calls.retain(|call| {
-            let innermost = plain
-                .next_if(|&(call, _)| call == at)
-                .and_then(|(_, byte)| {
-                    let methods = named.get(call.callee.as_bytes())?;
-                    (methods.iter().rev())
-                        .filter(|method| method.group.contains(&byte))
-                        .min_by_key(|method| method.group.len())
-                });
+        calls.retain_mut(|call| {
+            let byte = plain.next_if(|&(call, _)| call == at).map(|(_, byte)| byte);
             at += 1;
-            if let Some(method) = innermost {
-                local_calls.push(LocalCall {
-                    site_of: call.site_of,
-                    local: method.id,
-                    line: call.line,
-                });
+            let Some(byte) = byte else {
+                return true;
+            };
+            let innermost = named.get(call.callee.as_bytes()).and_then(|methods| {
+                (methods.iter().rev())
+                    .filter(|method| method.group.contains(&byte))
+                    .min_by_key(|method| method.group.len())
+            });
+            match innermost {
+                Some(method) if call.site_of != FILE_SCOPE => {
+                    local_calls.push(LocalCall {
+                        site_of: call.site_of,
+                        local: method.id,
+                        line: call.line,
+                    });
+                    false
+                }
+                Some(_) => true,
+                None => {
+                    read_included_groups(call, byte, included, uses);
+                    true
+                }
             }
-            innermost.is_none()
         });
     }
 
@@ -310,8 +358,83 @@ impl Emitter<'_> {
     }
 }
 
-/// The bytes of the example group that holds `call`: the block or the type around it, else the whole file.
-fn enclosing_group(call: Node<'_>) -> Range<usize> {
+/// Marks a bare `call` at `byte` with the groups in `included` around it, nearest first, or at file scope, where a call
+/// keeps its name alone, records a use of what each would define under the name.
+fn read_included_groups(
+    call: &mut CallRef,
+    byte: usize,
+    included: &[IncludedGroup],
+    uses: &mut Vec<UseRef>,
+) {
+    if call.receiver.is_some() {
+        return;
+    }
+    let mut groups = (included.iter())
+        .filter(|included| included.group.contains(&byte))
+        .map(|included| included.name.as_str())
+        .peekable();
+    if groups.peek().is_none() {
+        return;
+    }
+    if call.site_of == FILE_SCOPE {
+        uses.extend(groups.map(|group| UseRef {
+            site_of: FILE_SCOPE,
+            name: format!("{group}#{}", call.callee),
+            receiver: Receiver::Bare,
+            access: Access::Read,
+            line: call.line,
+        }));
+    } else {
+        call.receiver = Some(format!("+{}", groups.collect::<Vec<_>>().join("\n")));
+    }
+}
+
+// constraint: a shared group's name is a key of a hash, so a string and a symbol of one spelling are two names
+// (`shared_example_group.rb:171`, `:176`); a `Module` or a computed name is not read
+/// The name of the shared group `call` defines or includes, its first argument as a string in single quotes or a symbol
+/// with its `:`; `None` for any other argument.
+fn shared_group_name(call: Node<'_>, source: &[u8]) -> Option<String> {
+    let name = named_child_nodes(call.child_by_field_name("arguments")?).next()?;
+    match name.kind() {
+        "simple_symbol" => Some(text(name, source)),
+        "string" => plain_string(name, source)
+            .filter(|content| !content.contains('\n'))
+            .map(|content| format!("'{content}'")),
+        _ => None,
+    }
+}
+
+// constraint: `RSpec.shared_context` registers its group for every file, and so does a bare one outside every block,
+// while a bare one in a group's block registers it for that group and the groups nested in it
+// (`shared_example_group.rb:98`, `:111`, `:174`), so another file reaches only the first two
+/// The name of the shared group `block` is the block of, where every file reaches it.
+fn shared_group_of_every_file(block: Node<'_>, source: &[u8]) -> Option<String> {
+    let definition = block.parent().filter(|parent| parent.kind() == "call")?;
+    let method = definition.child_by_field_name("method")?;
+    if !matches!(
+        &source[method.byte_range()],
+        b"shared_context" | b"shared_examples" | b"shared_examples_for"
+    ) {
+        return None;
+    }
+    let of_every_file = definition.child_by_field_name("receiver").map_or_else(
+        || !in_a_block(definition),
+        |receiver| &source[receiver.byte_range()] == b"RSpec",
+    );
+    if of_every_file {
+        shared_group_name(definition, source)
+    } else {
+        None
+    }
+}
+
+fn in_a_block(node: Node<'_>) -> bool {
+    std::iter::successors(node.parent(), Node::parent)
+        .any(|parent| matches!(parent.kind(), "block" | "do_block"))
+}
+
+/// The example group that holds `call`: the block or the type around it, else the whole file.
+fn enclosing_group(call: Node<'_>) -> Node<'_> {
     let mut group = call;
     while let Some(parent) = group.parent() {
         group = parent;
@@ -322,7 +445,7 @@ fn enclosing_group(call: Node<'_>) -> Range<usize> {
             break;
         }
     }
-    group.byte_range()
+    group
 }
 
 fn method_kind(node: Node<'_>) -> (MethodKind, &'static str) {

@@ -1561,6 +1561,17 @@ impl Cascade<'_> {
         None
     }
 
+    /// The definition of the call's name, nearest the call, that the first of `bodies`, one a line, holding one gives.
+    pub(crate) fn member_of_a_pasted_body(&self, call: &Call, bodies: &str) -> Option<SymbolAt> {
+        let named = self.named(call.callee).iter().copied();
+        bodies.split('\n').find_map(|body| {
+            let body = self.graph.strings.get(body)?;
+            let held =
+                move |at: &SymbolAt| self.graph.file(at.file).value_types(at.index) == Some(body);
+            self.nearest_of(call, named.clone().filter(held))
+        })
+    }
+
     /// The field among `named` that the body of `ty` declares.
     fn field_declared_by(&self, ty: SymbolAt, named: &[SymbolAt]) -> Option<SymbolAt> {
         let symbol = self.graph.sym(ty);

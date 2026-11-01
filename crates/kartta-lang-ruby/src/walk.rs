@@ -7,7 +7,7 @@ use tree_sitter::{Node, Tree};
 
 use crate::bindings::{Bindings, MethodKind, NameKey};
 use crate::locals::{Locals, Role, is_keyword, role};
-use crate::macros::GroupMethod;
+use crate::macros::{GroupMethod, IncludedGroup};
 use crate::owner::{
     constant_type, enclosing_type, in_singleton_class, is_constant_path, owner_of_path,
     scoped_constant, type_qualification,
@@ -40,6 +40,7 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
         bindings: Bindings::default(),
         locals: Locals::default(),
         group_methods: Vec::new(),
+        included_groups: Vec::new(),
         plain_calls: Vec::new(),
         raw: RawExtraction::default(),
         receiver_blocks: Vec::new(),
@@ -84,6 +85,7 @@ pub(crate) struct Emitter<'s> {
     pub(crate) bindings: Bindings,
     locals: Locals<'s>,
     pub(crate) group_methods: Vec<GroupMethod<'s>>,
+    pub(crate) included_groups: Vec<IncludedGroup>,
     pub(crate) plain_calls: Vec<(usize, usize)>,
     pub(crate) raw: RawExtraction,
     receiver_blocks: Vec<ReceiverBlock>,
@@ -199,7 +201,7 @@ impl Emitter<'_> {
             Role::Read if !self.locals.is_local(name) && !is_keyword(name) => {
                 self.visibility_statement(node);
                 let site_of = self.site_of();
-                self.plain_call(node, site_of);
+                self.plain_call(node);
                 self.raw.calls.push(CallRef {
                     site_of,
                     callee: text(node, source),
@@ -410,7 +412,7 @@ impl Emitter<'_> {
         }
         self.method_reference(&callee, node, site_of);
         if receiver_node.is_none() && passes_nothing(node) {
-            self.plain_call(node, site_of);
+            self.plain_call(node);
         }
         let mut call = CallRef {
             site_of,
@@ -667,6 +669,11 @@ fn require_form(callee: &str) -> Option<u32> {
 fn first_string_argument(call: Node<'_>, source: &[u8]) -> Option<String> {
     let arguments = call.child_by_field_name("arguments")?;
     let string = named_child_nodes(arguments).find(|argument| argument.kind() == "string")?;
+    plain_string(string, source)
+}
+
+/// The text of a string of one plain run, its only child.
+pub(crate) fn plain_string(string: Node<'_>, source: &[u8]) -> Option<String> {
     let mut parts = named_child_nodes(string);
     let content = parts
         .next()

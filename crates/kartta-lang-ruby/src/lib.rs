@@ -30,6 +30,13 @@
 //! binds the one of the innermost block or type around the call that defines it, the later of two in one, wherever the
 //! definition stands there. No other call binds it, and a call at file scope keeps its name.
 //!
+//! Such a definition directly in the block of a `shared_context`, `shared_examples` or `shared_examples_for` that every
+//! file reaches, one on `RSpec` or one with no receiver outside every block, records the group's name as its value
+//! type, a string in single quotes or a symbol. `include_context` and `include_examples` with no receiver pull the
+//! group of their first argument into the block or type around them, and `it_behaves_like` and `it_should_behave_like`
+//! into their own block. Such a call that binds none of the file's definitions names the groups pulled in around it,
+//! nearest first and the later of two in one, and the graph binds the first one's definition, in any file.
+//!
 //! A call inside a method is a call made by it, and a call in the body of a class or a module outside every method is
 //! a call made by that type. A call records its receiver: a plain name as written, `self` as the caller's own type,
 //! which in a type's body is the type itself, a literal as the class of Ruby's runtime its value is of, `String` for
@@ -112,7 +119,7 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{
     BareReceivers, BlockComment, Conventions, DocComments, InheritedMembers, Language, OwnMembers,
-    RawExtraction, Repository, Resolver, SymbolKind, TypeUses,
+    RawExtraction, Receivers, Repository, Resolver, SymbolKind, TypeUses,
 };
 
 use crate::resolve::RubyResolver;
@@ -142,6 +149,7 @@ const DOC_COMMENTS: DocComments =
 
 const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
+    conventions.receivers = Receivers::PastedBodies;
     conventions.own_members = OwnMembers::First;
     conventions.inherited_members = InheritedMembers::Admitted;
     // constraint: a name with arguments or parentheses after a `::` sends a method (`method_call`, parse.y:5306), even
