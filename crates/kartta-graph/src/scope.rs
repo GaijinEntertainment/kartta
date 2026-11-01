@@ -1443,15 +1443,16 @@ impl Cascade<'_> {
         self.nearest_of(call, types.into_iter())
     }
 
-    /// What [`ReceiverMembers::Inherited`] binds: the member of the name that the nearest type above the receiver's
-    /// class holds, where the class holds none itself.
+    /// What [`ReceiverMembers::Inherited`] and [`ReceiverMembers::InheritedUpToFields`] bind: the member of the name
+    /// that the nearest type above the receiver's class holds, where the class holds none itself, or the field that
+    /// hides that member.
     fn member_above_the_receiver_s_class(
         &self,
         call: &Call,
         receiver: Str,
         candidates: &Candidates<'_>,
     ) -> Option<SymbolAt> {
-        if self.conventions.receiver_members != ReceiverMembers::Inherited {
+        if self.conventions.receiver_members == ReceiverMembers::Declared {
             return None;
         }
         let class = self.receiver_class(call, receiver)?;
@@ -1469,7 +1470,8 @@ impl Cascade<'_> {
             let parents = self.parents_of(&[class], admitted);
             self.nearest_holder((class, parents), candidates, admitted)
         };
-        walk(holds_a_body).or_else(|| walk(|_| true))
+        let member = walk(holds_a_body).or_else(|| walk(|_| true))?;
+        Some(self.field_held_by(class, candidates).unwrap_or(member))
     }
 
     // constraint: a class's table holds what its parents gave it, so a member no type of the graph above the class has
@@ -1672,7 +1674,8 @@ impl Cascade<'_> {
     }
 
     /// The member of the name that the nearest type holds, walking from `level`, the types nearest `class`, up through
-    /// the parents of each level, a level's traits first, taking the types `admitted` admits.
+    /// the parents of each level, a level's traits first, taking the types `admitted` admits; the first field of the
+    /// name in that walk where one stands ahead of the member and hides it.
     fn nearest_holder(
         &self,
         (class, mut level): (SymbolAt, Vec<SymbolAt>),
@@ -1682,15 +1685,33 @@ impl Cascade<'_> {
         let mut walked: HashSet<SymbolAt, FixedState> = HashSet::default();
         walked.insert(class);
         level.retain(|&ty| walked.insert(ty));
+        let mut field = None;
         while !level.is_empty() {
-            let held = level.iter().find_map(|&ty| self.held_by(ty, candidates));
+            let held = self.held_at_level(&level, candidates, &mut field);
             if held.is_some() {
-                return held;
+                return field.or(held);
             }
             level = self.parents_of(&level, admitted);
             level.retain(|&ty| walked.insert(ty));
         }
         None
+    }
+
+    /// The member of the name that the first type of `level` to hold one holds, keeping in `field` the first field of
+    /// the name a type ahead of that one holds.
+    fn held_at_level(
+        &self,
+        level: &[SymbolAt],
+        candidates: &Candidates<'_>,
+        field: &mut Option<SymbolAt>,
+    ) -> Option<SymbolAt> {
+        level.iter().find_map(|&ty| {
+            let held = self.held_by(ty, candidates);
+            if held.is_none() {
+                *field = field.or_else(|| self.field_held_by(ty, candidates));
+            }
+            held
+        })
     }
 
     /// The types that the types of `level` name as parents, a trait before any other type.
@@ -1761,6 +1782,31 @@ impl Cascade<'_> {
                     .copied()
                     .find(|&at| body.contains(at.file, self.graph.sym(at).line))
             })
+    }
+
+    /// The field of the name that `ty` itself holds, where [`ReceiverMembers::InheritedUpToFields`] has a field hide a
+    /// member, and the field holds a value: one recorded with a value type only declares the name.
+    fn field_held_by(&self, ty: SymbolAt, candidates: &Candidates<'_>) -> Option<SymbolAt> {
+        if self.conventions.receiver_members != ReceiverMembers::InheritedUpToFields {
+            return None;
+        }
+        let strings = &self.graph.strings;
+        let qualified = strings.resolve(self.graph.sym(ty).qualified_name);
+        let body = self.body(ty);
+        let holds = |owner: Str| {
+            let owner = strings.resolve(owner);
+            std::iter::once(qualified)
+                .chain(tails(qualified))
+                .any(|tail| tail == owner)
+        };
+        let mut named = candidates.in_file(self.graph, ty.file).iter().copied();
+        named.find(|&at| {
+            let symbol = self.graph.sym(at);
+            symbol.kind == SymbolKind::Field
+                && body.contains(at.file, symbol.line)
+                && symbol.owner.is_some_and(holds)
+                && self.graph.file(at.file).value_types(at.index).is_none()
+        })
     }
 
     // constraint: a class is never its own base, so a base that shares the class's name, Quirrel's `class

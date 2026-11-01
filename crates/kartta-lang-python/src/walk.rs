@@ -533,6 +533,11 @@ impl<'a> Emitter<'a> {
         let qualified_name = format!("{owner}.{name}");
         let mut symbol = symbol(name, Some(qualified_name), SymbolKind::Field, lines(node));
         symbol.owner = Some(owner);
+        // constraint: `codegen_annassign` stores no value for an annotation without one, so the class's `__dict__`
+        // holds no such name and a parent's member stays what a lookup finds
+        if node.child_by_field_name("right").is_none() {
+            symbol.value_types = vec![String::new()];
+        }
         self.push_symbol(symbol);
     }
 

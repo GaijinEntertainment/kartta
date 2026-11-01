@@ -322,7 +322,9 @@ pub struct Symbol {
     /// Where they are [`Receivers::ReturnPaths`](crate::Receivers::ReturnPaths), a function's is the owner its return
     /// type names, after a `?` where an `Option`, a `Result` or a `Promise` holds it. Where they are
     /// [`Receivers::TypePaths`](crate::Receivers::TypePaths), a type defined over a named type records that type after
-    /// a `~`, which tells it from the results of a type defined over a function type.
+    /// a `~`, which tells it from the results of a type defined over a function type. Under
+    /// [`ReceiverMembers::InheritedUpToFields`](crate::ReceiverMembers::InheritedUpToFields), one empty path marks a
+    /// field that a class only declares and holds no value of.
     pub value_types: Vec<String>,
     /// What the symbol is for besides its kind.
     pub flags: SymbolFlags,

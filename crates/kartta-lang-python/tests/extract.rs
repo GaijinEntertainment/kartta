@@ -161,6 +161,15 @@ fn only_the_first_name_of_a_chained_assignment_and_no_tuple_is_a_symbol() {
 }
 
 #[test]
+fn a_field_a_class_annotates_without_a_value_is_marked_as_declared_alone() {
+    let raw = extract(b"class K:\n    declared: int\n    typed: int = 0\n    state = 0\n");
+
+    assert_eq!(qualified(&raw, "K.declared").value_types, [""]);
+    assert_eq!(qualified(&raw, "K.typed").value_types, Vec::<String>::new());
+    assert_eq!(qualified(&raw, "K.state").value_types, Vec::<String>::new());
+}
+
+#[test]
 fn an_attribute_a_method_gives_its_instance_is_a_field_declared_once_after_the_class_members() {
     let raw = extract(
         b"class Pool:\n    size: int = 0\n\n    def __init__(this, size):\n        this.size = size\n        \
