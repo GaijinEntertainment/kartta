@@ -50,6 +50,9 @@ jobs:
       - run: cargo clippy --locked -p kartta-fs --features watch --target x86_64-unknown-freebsd -- -D warnings
 
   test:
+    env:
+      # constraint: the Ubuntu runner starts with 12 GB free, and full debug info fills it with `target` alone
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     strategy:
       fail-fast: false
       matrix:
