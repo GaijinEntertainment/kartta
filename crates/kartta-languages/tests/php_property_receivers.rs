@@ -195,6 +195,26 @@ class Coalesced {
     assert_eq!(callees(&files, "App\\Coalesced::run"), ["App\\C::m"]);
 }
 
+#[test]
+fn an_anonymous_class_written_through_a_null_coalescing_assignment_binds_as_a_plain_write() {
+    let source = r"<?php
+namespace App;
+class Coalesced {
+    private $c;
+    public function run() { $this->c->m(); }
+    public function set() { $this->c ??= new class { public function m() {} }; }
+}
+class Plain {
+    private $c;
+    public function run() { $this->c->m(); }
+    public function set() { $this->c = new class { public function m() {} }; }
+}
+";
+    let files = [("src/A.php", source), COMPOSER];
+    assert_eq!(callees(&files, "App\\Coalesced::run"), ["App\\{set·c}::m"]);
+    assert_eq!(callees(&files, "App\\Plain::run"), ["App\\{set·c·2}::m"]);
+}
+
 const NARROWED: &str = r"<?php
 namespace App;
 use Vendor\Outside;
