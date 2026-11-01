@@ -489,7 +489,47 @@ fn a_read_whose_declarations_multiply_past_the_bound_binds_nothing() {
     let past = doubled_chain(11, read());
 
     assert_eq!(callees_of(&past, "x.run"), []);
-    assert_eq!(misses_of(&past), [("Set", Miss::NotAdmitted)]);
+    assert_eq!(misses_of(&past), [("Set", Miss::PastBound)]);
+}
+
+#[test]
+fn a_chain_of_declarations_past_the_depth_counts_as_a_read_the_graph_stopped() {
+    let chain = |steps: usize| {
+        let mut files: Vec<Extraction> = (0..steps)
+            .map(|step| {
+                let read = if step + 1 == steps {
+                    "T".to_owned()
+                } else {
+                    format!("v{}", step + 1)
+                };
+                variable_file(&format!("x/v{step}.go"), &format!("v{step}"), &read)
+            })
+            .collect();
+        files.push(file(
+            "x/t.go",
+            "x",
+            vec![
+                typed("x", "T", SymbolKind::Struct, 1),
+                member("x.T", "Set", SymbolKind::Method, 2),
+            ],
+            Vec::new(),
+        ));
+        let calls = vec![member_call("v0", "Set", 2)];
+        files.push(file("x/run.go", "x", vec![function("x", "run", 1)], calls));
+        graph(&files)
+    };
+    assert_eq!(misses_of(&chain(4)), []);
+
+    let past = chain(20);
+
+    let resolution = past.resolution(0);
+    assert_eq!(resolution.sites, 1, "a site past the bound is a site");
+    assert_eq!(resolution.misses.past_bound, 1);
+    assert_eq!(resolution.misses.not_admitted, 0);
+    assert_eq!(
+        resolution.misses.through_a_receiver, 0,
+        "the receiver has no type at all, so it is no value of a type the graph lacks"
+    );
 }
 
 #[test]
@@ -507,7 +547,7 @@ fn a_member_walk_after_a_read_past_the_bound_has_a_bound_of_its_own() {
         callees_of(&graph, "x.run"),
         [("x/t.go:x.T.Get".to_owned(), 85)]
     );
-    assert_eq!(misses_of(&graph), [("Set", Miss::NotAdmitted)]);
+    assert_eq!(misses_of(&graph), [("Set", Miss::PastBound)]);
 }
 
 #[test]

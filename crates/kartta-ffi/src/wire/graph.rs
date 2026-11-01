@@ -131,6 +131,7 @@ mod label {
             Miss::NotExported => "not_exported",
             Miss::Undefined => "undefined",
             Miss::NotAdmitted => "not_admitted",
+            Miss::PastBound => "past_bound",
             _ => "ambiguous",
         })
     }
@@ -724,6 +725,8 @@ struct MissesDef {
     undefined: usize,
     not_admitted: usize,
     ambiguous: usize,
+    #[serde(skip_serializing_if = "is_zero")]
+    past_bound: usize,
     through_a_receiver: usize,
 }
 

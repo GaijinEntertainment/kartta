@@ -1031,6 +1031,7 @@ impl<'g> Cascade<'g> {
                 Typed::Imported => Err(Miss::ExternalImport),
                 Typed::Undeclared => Err(Miss::Undefined),
                 Typed::NoMethod => Err(Miss::NotAdmitted),
+                Typed::PastBound => Err(Miss::PastBound),
                 Typed::Unknown => self.resolve_by_name(&Call {
                     receiver: self.empty_receiver.or(call.receiver),
                     ..*call
@@ -2205,7 +2206,7 @@ impl<'g> Cascade<'g> {
             // label
             match self.typed_member((site, path), name, |symbol| !symbol.flags.is_label()) {
                 Typed::Member(at) => return Ok((at, confidence::RECEIVER)),
-                Typed::Imported | Typed::Undeclared | Typed::NoMethod => {
+                Typed::Imported | Typed::Undeclared | Typed::NoMethod | Typed::PastBound => {
                     return Err(UseMiss::Elsewhere);
                 }
                 Typed::Unknown => {}
