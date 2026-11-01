@@ -53,6 +53,30 @@ fn a_call_on_a_core_class_or_a_literal_binds_no_namesake_of_another_class() {
 }
 
 #[test]
+fn a_block_that_eval_runs_on_a_constant_binds_the_members_of_that_class() {
+    let (_tree, engine) = build(&[(
+        "shape.rb",
+        "class Other\n  def getopts\n  end\n\n  def self.getopts\n  end\nend\n\nclass Shape\n  def getopts\n  end\n\n  \
+         def self.getopts\n  end\n\n  def self.parse\n    Other.class_eval { new.getopts }\n  end\n\n  \
+         def self.look\n    Other.instance_eval { getopts }\n  end\n\n  def self.keep\n    Other.tap { getopts }\n  \
+         end\nend\n",
+    )]);
+
+    assert_eq!(
+        callees(&engine, "shape.rb", "Shape.parse").0,
+        ["Other#getopts"]
+    );
+    assert_eq!(
+        callees(&engine, "shape.rb", "Shape.look").0,
+        ["Other.getopts"]
+    );
+    assert_eq!(
+        callees(&engine, "shape.rb", "Shape.keep").0,
+        ["Shape.getopts"]
+    );
+}
+
+#[test]
 fn a_call_on_a_constant_naming_a_class_of_the_tree_binds_its_method() {
     let (_tree, engine) = build(&[
         ("opt.rb", OPTION_PARSER),
