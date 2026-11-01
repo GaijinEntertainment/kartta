@@ -29,7 +29,10 @@
 //!   description, and a bare lifecycle hook, `beforeEach`, `afterEach`, `beforeAll` or `afterAll`, one named by the
 //!   hook. Either name is a label, so no call or use of the name binds the registration. A registration whose
 //!   description is not a plain string opens no scope.
-//! - Calls, with a capitalised JSX tag as a call of the component and `new Foo()` as a call of `Foo`. A call on
+//! - Calls, with a capitalised JSX tag as a call of the component and `new Foo()` as a call of `Foo`. A bare call of a
+//!   name a parameter holds binds nothing and counts as a site, unless the file, not a minified one, defines a function
+//!   or a class of the name that no type or namespace owns, other than the definition that makes the call, which is
+//!   most often the value it passes. A call on
 //!   `this` names the class as its receiver in a method, a function a class field holds and a class body outside
 //!   them, an instance field's initializer and a static one's alike, and an arrow function keeps the `this` of the
 //!   scope it is written in. Any other function, a function expression or a declaration inside a method, an object
@@ -137,8 +140,9 @@ mod tsconfig;
 mod walk;
 
 use kartta_lang::{
-    Conventions, DocComments, IncludedRuntimeMembers, Language, MemberCalls, OwnMembers,
-    RawExtraction, Receivers, Repository, Resolver, TypeUses, UntypedMembers, ValueUses,
+    Conventions, DocComments, IncludedRuntimeMembers, Language, MacroInvocations, MemberCalls,
+    OwnMembers, RawExtraction, Receivers, Repository, Resolver, TypeUses, UntypedMembers,
+    ValueUses,
 };
 
 use crate::flavor::Flavor;
@@ -153,6 +157,7 @@ const CONVENTIONS: Conventions = {
     conventions.bare_call_reaches_enclosing_owners = true;
     conventions.member_calls = MemberCalls::NearbyFreeFunctionsUnlessTyped;
     conventions.receivers = Receivers::ReturnPaths;
+    conventions.macro_invocations = MacroInvocations::Apart;
     conventions.runtime_methods = runtime::METHODS;
     conventions.included_runtime_members = IncludedRuntimeMembers::SpelledOrOwn;
     conventions.value_uses = ValueUses::Imported;

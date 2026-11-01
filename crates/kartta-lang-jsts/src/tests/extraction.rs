@@ -41,6 +41,13 @@ fn calls(extraction: &Extraction) -> Vec<(&str, Option<&str>)> {
         .collect()
 }
 
+fn calls_that_may_bind(extraction: &Extraction) -> Vec<&str> {
+    (extraction.calls.iter())
+        .filter(|call| !call.invokes_a_macro)
+        .map(|call| call.callee.as_str())
+        .collect()
+}
+
 #[test]
 fn each_language_names_itself_and_shares_the_jsts_family() {
     let identities = LANGUAGES.map(|language| (language.name(), language.family()));
@@ -1332,6 +1339,89 @@ fn a_construction_and_a_tag_on_a_declared_value_name_no_type() {
             ("Thing", Some("ui")),
             ("Panel", Some("")),
             ("Panel", Some("ui")),
+        ]
+    );
+}
+
+#[test]
+fn a_bare_call_of_a_parameter_is_a_site_that_binds_nothing() {
+    let extraction = extracted(
+        "src/f.tsx",
+        "export function f(plain, typed: Run, { shorthand, key: renamed }: Opts, [item], tail = plain, ...rest) {\n  \
+         plain(); typed(); shorthand(); renamed(); item(); tail(); rest();\n  \
+         key();\n}\n\
+         export const g = (arrow) => arrow();\n\
+         export function h({ Icon }: Props, Pool) {\n  new Pool();\n  return <Icon />;\n}\n",
+    );
+
+    assert_eq!(calls_that_may_bind(&extraction), ["key"]);
+    assert_eq!(calls(&extraction).len(), 11);
+}
+
+#[test]
+fn a_bare_call_of_a_parameter_stays_where_another_definition_of_the_file_has_its_name() {
+    for path in ["src/f.ts", "src/f.js"] {
+        let extraction = extracted(
+            path,
+            "function run(save, Pool, late, cb) {\n  save(); new Pool(); late(); cb(); miss();\n}\n\
+             function save() {}\nclass Pool {}\nconst late = () => {};\n\
+             export function pass() {\n  return run(save, Pool, late);\n}\n\
+             const handlers = { save(cb) { save(); } };\n\
+             export function hook(onDone) {\n  return { onDone() { onDone(); } };\n}\n\
+             export const first = { retry(retry) { retry(); } };\nexport const second = { retry() {} };\n",
+        );
+
+        assert_eq!(
+            calls_that_may_bind(&extraction),
+            ["save", "Pool", "late", "miss", "run", "save", "retry"]
+        );
+    }
+}
+
+#[test]
+fn a_bare_call_of_a_parameter_binds_no_member_label_or_namespace_function_of_its_name() {
+    let extraction = extracted(
+        "src/f.test.ts",
+        "namespace Tools {\n  export function nested() {}\n}\nclass Box {\n  member() {}\n}\n\
+         it(\"labelled\", () => {});\n\
+         export function run(nested, member, labelled) {\n  nested(); member(); labelled();\n}\n",
+    );
+
+    assert_eq!(calls_that_may_bind(&extraction), ["it"]);
+}
+
+#[test]
+fn a_bare_call_of_a_parameter_of_a_minified_file_binds_nothing() {
+    let padding = "x".repeat(600);
+    let extraction = extracted(
+        "src/f.min.js",
+        &format!("function t(){{}}function f(t){{t()}}var a=\"{padding}\";\n"),
+    );
+
+    assert_eq!(calls_that_may_bind(&extraction), Vec::<&str>::new());
+    assert_eq!(calls(&extraction), [("t", None)]);
+}
+
+#[test]
+fn a_bare_call_of_a_name_a_parameter_does_not_hold_keeps_its_call() {
+    let extraction = extracted(
+        "src/f.ts",
+        "export function outer(run) {\n  \
+         function nested() {}\n  nested();\n  \
+         { const run = () => {}; run(); }\n  \
+         const self = function walk() { walk(); };\n  \
+         return { run() { return (run) => {}; }, done() { other(); } };\n}\n\
+         export function after() { run(); }\n",
+    );
+
+    assert_eq!(
+        calls(&extraction),
+        [
+            ("nested", None),
+            ("run", None),
+            ("walk", None),
+            ("other", None),
+            ("run", None),
         ]
     );
 }

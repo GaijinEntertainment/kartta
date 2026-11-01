@@ -95,13 +95,15 @@ impl Emitter<'_> {
     fn named_owner(&self, object: Node<'_>) -> String {
         let name = &self.source[object.byte_range()];
         match self.binding(name) {
-            Some(Binding::Value(held) | Binding::Local(_, held) | Binding::Module(held)) => {
-                match held {
-                    Some(Held::Type(typed) | Held::Constructed(typed)) => self.spelled(*typed),
-                    Some(Held::Returned(_)) | None => String::new(),
-                }
-            }
-            Some(Binding::Parameter(span)) => self.spelled(*span),
+            Some(
+                Binding::Value(held)
+                | Binding::Local(_, held)
+                | Binding::Module(held)
+                | Binding::Parameter(held),
+            ) => match held {
+                Some(Held::Type(typed) | Held::Constructed(typed)) => self.spelled(*typed),
+                Some(Held::Returned(_)) | None => String::new(),
+            },
             Some(Binding::Type | Binding::Definition) | None => {
                 String::from_utf8_lossy(name).into_owned()
             }
