@@ -235,6 +235,10 @@ pub struct Conventions {
     /// often one of the library's or of a crate outside the tree as one of the repository's. Empty where a language
     /// names none.
     pub library_methods: &'static [&'static str],
+    /// The character that ends the name of the method an attribute write calls, Ruby's `=` in `f=`, where the language
+    /// names one so. A call of such a method on a value whose type the graph does not follow, `x.f = 1`, binds only as
+    /// a guess, because many types declare a writer of one name. `None` where a language names none.
+    pub setter_suffix: Option<char>,
     /// Which members of the files a file includes a member call of one of the
     /// [`Conventions::runtime_methods`] binds, and under [`IncludedRuntimeMembers::SpelledOwnOrExported`] any method
     /// call on a value.
@@ -304,6 +308,7 @@ impl Conventions {
         member_calls: MemberCalls::NearbyFreeFunctions,
         runtime_methods: &[],
         library_methods: &[],
+        setter_suffix: None,
         included_runtime_members: IncludedRuntimeMembers::Any,
         untyped_owners: UntypedOwners::Types,
         calls_on_values: CallsOnValues::NearestGuessed,
