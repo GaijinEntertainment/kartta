@@ -277,6 +277,31 @@ fn a_member_the_class_inherits_binds_where_its_parent_holds_it() {
 }
 
 #[test]
+fn a_field_of_this_read_with_a_null_safe_access_binds_as_a_guess() {
+    let source = "class Model {\n  function getView() {}\n}\n\
+                  class Holder {\n  slot = null\n  function getView() {}\n  \
+                  function a() {\n    this.slot.getView()\n  }\n  \
+                  function b() {\n    this?.slot.getView()\n  }\n  \
+                  function c() {\n    this?.slot?.getView()\n  }\n}\n";
+    for caller in ["Holder.a", "Holder.b", "Holder.c"] {
+        assert_eq!(
+            callees(&[("a.nut", source)], caller),
+            one("Holder.getView", 15),
+            "{caller}",
+        );
+    }
+}
+
+#[test]
+fn a_field_read_with_a_null_safe_access_names_the_class_its_writes_build() {
+    let source = VIEW.replace("this.formation.getClanId", "this?.formation.getClanId");
+    assert_eq!(
+        callees(&[("a.nut", &source)], "View.run"),
+        one("Formation.getClanId", 85),
+    );
+}
+
+#[test]
 fn a_new_slot_write_on_a_table_names_the_class() {
     let source = "class Part {\n  function get() {}\n}\n\
                   let t = {\n  function get() {}\n  function set() {\n    this.slot <- Part()\n  }\n  \
