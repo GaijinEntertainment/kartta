@@ -37,29 +37,29 @@ fn one(name: &str, confidence: u8) -> Vec<(String, u8)> {
     vec![(name.to_owned(), confidence)]
 }
 
-const VIEW: &str = "class Formation {
-  function getClanId() {
+const VIEW: &str = "class Record {
+  function getOwnerId() {
     return 1
   }
 }
 
 class View {
-  formation = null
+  record = null
 
   constructor() {
-    this.formation = Formation()
+    this.record = Record()
   }
 
-  function getClanId() {
+  function getOwnerId() {
     return 2
   }
 
   function run() {
-    return this.formation.getClanId()
+    return this.record.getOwnerId()
   }
 
   function own() {
-    return this.getClanId()
+    return this.getOwnerId()
   }
 }
 ";
@@ -68,7 +68,7 @@ class View {
 fn a_field_a_constructor_sets_to_a_class_binds_that_class_s_member() {
     assert_eq!(
         callees(&[("a.nut", VIEW)], "View.run"),
-        one("Formation.getClanId", 85),
+        one("Record.getOwnerId", 85),
     );
 }
 
@@ -76,7 +76,7 @@ fn a_field_a_constructor_sets_to_a_class_binds_that_class_s_member() {
 fn a_call_on_this_keeps_the_caller_s_own_member() {
     assert_eq!(
         callees(&[("a.nut", VIEW)], "View.own"),
-        one("View.getClanId", 80),
+        one("View.getOwnerId", 80),
     );
 }
 
@@ -294,10 +294,10 @@ fn a_field_of_this_read_with_a_null_safe_access_binds_as_a_guess() {
 
 #[test]
 fn a_field_read_with_a_null_safe_access_names_the_class_its_writes_build() {
-    let source = VIEW.replace("this.formation.getClanId", "this?.formation.getClanId");
+    let source = VIEW.replace("this.record.getOwnerId", "this?.record.getOwnerId");
     assert_eq!(
         callees(&[("a.nut", &source)], "View.run"),
-        one("Formation.getClanId", 85),
+        one("Record.getOwnerId", 85),
     );
 }
 

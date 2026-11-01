@@ -12,26 +12,26 @@ use std::fs;
 use kartta::{BuildOptions, Engine, Limits};
 use tempfile::TempDir;
 
-const MANAGER: &str = "let _leaderboards = {
-  function getMainLbRequest(event) {
+const MANAGER: &str = "let _scores = {
+  function getMainRequest(event) {
     return event
   }
   function refresh(event) {
-    return this.getMainLbRequest(event)
+    return this.getMainRequest(event)
   }
 }
 
-let Events = class {
-  function getMainLbRequest(event) {
-    return _leaderboards.getMainLbRequest(event)
+let Feed = class {
+  function getMainRequest(event) {
+    return _scores.getMainRequest(event)
   }
 }
 
-let events = Events()
+let feed = Feed()
 
 return {
-  events
-  _leaderboards
+  feed
+  _scores
 }
 ";
 
@@ -64,95 +64,91 @@ fn callees<'e>(engine: &'e Engine, path: &str, name: &str) -> Vec<&'e str> {
 #[test]
 fn a_member_call_on_a_value_binds_the_class_method_past_a_module_table_s_namesake() {
     let (_tree, engine) = build(&[
-        ("events/eventsManager.nut", MANAGER),
+        ("feed/feedManager.nut", MANAGER),
         (
-            "events/eSport.nut",
-            "from \"eventsManager.nut\" import events\n\
-             function fetchLbData(event) {\n  return events.getMainLbRequest(event)\n}\n",
+            "feed/feedView.nut",
+            "from \"feedManager.nut\" import feed\n\
+             function fetchData(event) {\n  return feed.getMainRequest(event)\n}\n",
         ),
     ]);
 
     assert_eq!(
-        callees(&engine, "events/eSport.nut", "fetchLbData"),
-        ["Events.getMainLbRequest"]
+        callees(&engine, "feed/feedView.nut", "fetchData"),
+        ["Feed.getMainRequest"]
     );
 }
 
 #[test]
 fn a_member_call_reaches_a_module_table_s_method_through_the_table_s_name_or_from_its_members() {
     let (_tree, engine) = build(&[
-        ("events/eventsManager.nut", MANAGER),
+        ("feed/feedManager.nut", MANAGER),
         (
-            "events/eSport.nut",
-            "from \"eventsManager.nut\" import _leaderboards\n\
-             function fetchLbData(event) {\n  return _leaderboards.getMainLbRequest(event)\n}\n",
+            "feed/feedView.nut",
+            "from \"feedManager.nut\" import _scores\n\
+             function fetchData(event) {\n  return _scores.getMainRequest(event)\n}\n",
         ),
     ]);
 
     assert_eq!(
-        callees(&engine, "events/eSport.nut", "fetchLbData"),
-        ["_leaderboards.getMainLbRequest"],
+        callees(&engine, "feed/feedView.nut", "fetchData"),
+        ["_scores.getMainRequest"],
         "an importer writes the table's name"
     );
     assert_eq!(
-        callees(
-            &engine,
-            "events/eventsManager.nut",
-            "Events.getMainLbRequest"
-        ),
-        ["_leaderboards.getMainLbRequest"],
+        callees(&engine, "feed/feedManager.nut", "Feed.getMainRequest"),
+        ["_scores.getMainRequest"],
         "so does the table's own file"
     );
     assert_eq!(
-        callees(&engine, "events/eventsManager.nut", "_leaderboards.refresh"),
-        ["_leaderboards.getMainLbRequest"],
+        callees(&engine, "feed/feedManager.nut", "_scores.refresh"),
+        ["_scores.getMainRequest"],
         "and a member of the table reaches its sibling through `this`"
     );
 }
 
-const POST_FX: &str = "let PostFxSettings = class {
+const PANEL: &str = "let PanelSettings = class {
   function setValue(name, value) {
     return value
   }
 }
 
-let g_hud_live_stats = {
+let g_live_panel = {
   function show(doShow) {
     return doShow
   }
 }
 
-function guiStartPostfxSettings() {
-  return PostFxSettings()
+function openPanelSettings() {
+  return PanelSettings()
 }
 
 return {
-  guiStartPostfxSettings
-  g_hud_live_stats
+  openPanelSettings
+  g_live_panel
 }
 ";
 
 #[test]
 fn a_runtime_method_s_call_on_a_value_binds_no_member_of_an_imported_file() {
     let (_tree, engine) = build(&[
-        ("options/postFxSettings.nut", POST_FX),
+        ("options/panelSettings.nut", PANEL),
         (
-            "options/optionsWnd.nut",
-            "from \"postFxSettings.nut\" import guiStartPostfxSettings, g_hud_live_stats\n\
-             function onGroupSelect(obj) {\n  obj.setValue(1)\n  obj.show(true)\n  \
-             guiStartPostfxSettings()\n}\n\
-             function onPostFx(postFxSettings) {\n  postFxSettings.setValue(1)\n  \
-             g_hud_live_stats.show(true)\n}\n",
+            "options/optionsView.nut",
+            "from \"panelSettings.nut\" import openPanelSettings, g_live_panel\n\
+             function onSelect(obj) {\n  obj.setValue(1)\n  obj.show(true)\n  \
+             openPanelSettings()\n}\n\
+             function onPanel(panelSettings) {\n  panelSettings.setValue(1)\n  \
+             g_live_panel.show(true)\n}\n",
         ),
     ]);
 
     assert_eq!(
-        callees(&engine, "options/optionsWnd.nut", "onGroupSelect"),
-        ["guiStartPostfxSettings"]
+        callees(&engine, "options/optionsView.nut", "onSelect"),
+        ["openPanelSettings"]
     );
     assert_eq!(
-        callees(&engine, "options/optionsWnd.nut", "onPostFx"),
-        ["PostFxSettings.setValue", "g_hud_live_stats.show"],
+        callees(&engine, "options/optionsView.nut", "onPanel"),
+        ["PanelSettings.setValue", "g_live_panel.show"],
         "a receiver that spells the class or the table still reaches its member"
     );
 }

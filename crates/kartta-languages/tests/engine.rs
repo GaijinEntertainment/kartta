@@ -2666,24 +2666,24 @@ fn a_javascript_bare_call_of_a_name_imported_from_a_package_binds_no_namesake_of
 fn a_daslang_call_qualified_by_a_native_module_is_a_call_outside_the_graph() {
     let tree = tree_of(&[
         (
-            "net/net_core.das",
-            "options gen2\nmodule net_core shared\nrequire private_network\n\n\
-             def public get_ping_msec(connection : int) : int {\n\
-             \x20   return private_network::get_ping_msec(connection)\n}\n",
+            "net/link_core.das",
+            "options gen2\nmodule link_core shared\nrequire private_network\n\n\
+             def public get_delay_msec(connection : int) : int {\n\
+             \x20   return private_network::get_delay_msec(connection)\n}\n",
         ),
         (
-            "net/replication.das",
-            "options gen2\nmodule replication\nrequire net_core\nrequire private_network\n\n\
+            "net/link_stats.das",
+            "options gen2\nmodule link_stats\nrequire link_core\nrequire private_network\n\n\
              def public measure() : int {\n\
-             \x20   return private_network::get_ping_msec(0)\n}\n",
+             \x20   return private_network::get_delay_msec(0)\n}\n",
         ),
     ]);
     let engine = build(&tree, &["daslang"]);
 
     assert_eq!(
         (
-            callees(&engine, "net/net_core.das", "get_ping_msec"),
-            callees(&engine, "net/replication.das", "measure")
+            callees(&engine, "net/link_core.das", "get_delay_msec"),
+            callees(&engine, "net/link_stats.das", "measure")
         ),
         ((vec![], 1), (vec![], 1)),
         "no `.das` file holds a native module, so its call binds no namesake here or in a required file"
@@ -2698,8 +2698,8 @@ fn a_daslang_call_qualified_by_a_native_module_is_a_call_outside_the_graph() {
     assert_eq!(
         misses,
         [
-            ("get_ping_msec", Miss::ExternalImport),
-            ("get_ping_msec", Miss::ExternalImport)
+            ("get_delay_msec", Miss::ExternalImport),
+            ("get_delay_msec", Miss::ExternalImport)
         ]
     );
 }
