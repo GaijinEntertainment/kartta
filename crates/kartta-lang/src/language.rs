@@ -235,6 +235,10 @@ pub struct Conventions {
     /// often one of the library's or of a crate outside the tree as one of the repository's. Empty where a language
     /// names none.
     pub library_methods: &'static [&'static str],
+    /// The methods of the standard library's interfaces that a repository's type can declare, in ascending order,
+    /// where a type implements an interface without naming it: the library may call such a method on a value of the
+    /// type, so a dead-code query counts a type's method of one as dispatched. Empty where a language names none.
+    pub library_interface_methods: &'static [&'static str],
     /// The character that ends the name of the method an attribute write calls, Ruby's `=` in `f=`, where the language
     /// names one so. A call of such a method on a value whose type the graph does not follow, `x.f = 1`, binds only as
     /// a guess, because many types declare a writer of one name. `None` where a language names none.
@@ -312,6 +316,7 @@ impl Conventions {
         member_calls: MemberCalls::NearbyFreeFunctions,
         runtime_methods: &[],
         library_methods: &[],
+        library_interface_methods: &[],
         setter_suffix: None,
         included_runtime_members: IncludedRuntimeMembers::Any,
         untyped_owners: UntypedOwners::Types,

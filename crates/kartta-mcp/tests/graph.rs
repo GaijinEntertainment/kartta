@@ -3690,6 +3690,41 @@ fn find_unused_lists_a_method_no_interface_declares_whatever_its_type_is_named()
 }
 
 #[test]
+fn find_unused_counts_a_method_a_library_interface_declares_as_dispatched() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module m\n\ngo 1.22\n"),
+        (
+            "a/a.go",
+            "package a\n\nimport \"sort\"\n\ntype L []int\n\n\
+             func (l L) Len() int           { return len(l) }\n\
+             func (l L) Less(i, j int) bool { return l[i] < l[j] }\n\
+             func (l L) Swap(i, j int)      { l[i], l[j] = l[j], l[i] }\n\
+             func (l L) Own()               {}\n\n\
+             type E struct{ cause error }\n\n\
+             func (e *E) Error() string { return \"e\" }\n\
+             func (e *E) Unwrap() error { return e.cause }\n\n\
+             type I interface{ Close() error }\n\n\
+             func Run(l L) error {\n\tsort.Sort(l)\n\treturn &E{}\n}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_unused", &json!({}));
+
+    assert!(answer.contains(r#"dispatched="5""#), "{answer}");
+    assert!(
+        answer.contains(r#"qn="a.L.Own""#),
+        "no interface declares Own: {answer}"
+    );
+    assert!(
+        answer.contains(r#"qn="a.I.Close""#),
+        "a library interface runs what implements it, not another interface's declaration: {answer}"
+    );
+}
+
+#[test]
 fn find_unused_lists_a_method_whose_namesake_embeds_a_type_outside_the_graph() {
     let tree = tree(&[
         (".git/HEAD", "ref: refs/heads/main\n"),

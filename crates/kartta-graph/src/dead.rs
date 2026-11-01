@@ -47,7 +47,8 @@ pub struct Excluded {
     /// ambiguous among members of every kind may reach any member of its name, a method among them.
     pub uncertain: usize,
     /// Methods a call through another type may reach: one an interface or a trait declares a method of the name for,
-    /// one that a parent of its owner declares too, and one of an owner with a parent the graph does not hold.
+    /// one that a parent of its owner declares too, one of an owner with a parent the graph does not hold, and a type's
+    /// method whose name [`Conventions::library_interface_methods`](kartta_lang::Conventions) lists.
     pub dispatched: usize,
     /// Definitions that the language's runtime reads or writes by their name, through reflection, as Go's
     /// `encoding/json` does a field its struct tag names, and that no call and no use the graph holds reaches.
@@ -364,12 +365,21 @@ impl Judge<'_, '_> {
         let Some(owner) = symbol.owner else {
             return false;
         };
-        let own = usize::from(self.is_interface(owner));
+        let own = self.is_interface(owner);
         let declared_by_interfaces = self.interface_methods().get(&symbol.name).copied();
-        if declared_by_interfaces.unwrap_or(0) > own {
+        if declared_by_interfaces.unwrap_or(0) > usize::from(own)
+            || (!own && self.a_library_interface_declares(symbol.name))
+        {
             return true;
         }
         self.is_asserted_to_dispatch(method, owner) || self.has_a_parent_dispatching(method, owner)
+    }
+
+    fn a_library_interface_declares(&self, name: Str) -> bool {
+        let methods = self.graph.conventions.library_interface_methods;
+        methods
+            .binary_search(&self.graph.strings.resolve(name))
+            .is_ok()
     }
 
     // constraint: Go scopes a type name to its package and a method to its type's package, so what any file of the
