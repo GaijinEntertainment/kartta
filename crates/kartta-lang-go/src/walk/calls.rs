@@ -148,6 +148,9 @@ impl Emitter<'_> {
             return;
         };
         for argument in named_child_nodes(arguments) {
+            if honors_skip_tags && self.value_holds_channel(argument) {
+                continue;
+            }
             let Some(path) = self.value_path(argument) else {
                 continue;
             };

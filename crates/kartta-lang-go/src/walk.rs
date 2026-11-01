@@ -14,7 +14,7 @@ use self::syntax::{
     assertion_value_type, default_name_candidates, is_exported, is_generated_source, parents_of,
     receiver_type, tag_hands_over_its_field, trim_quotes,
 };
-use self::types::{element_of, is_container_type, named_type};
+use self::types::{element_of, holds_channel, is_container_path, is_container_type, named_type};
 
 mod anonymous;
 mod calls;
@@ -114,8 +114,9 @@ struct Emitter<'a> {
     reflected_values: Vec<(String, bool)>,
     /// The fields whose tag makes every serializing library skip them.
     skipped_fields: Vec<SymbolId>,
-    /// The types declared over a func type, whose value types are the func's results.
-    func_types: Vec<SymbolId>,
+    /// The types and fields a serializing library refuses: a type over a func type, whose value types are the func's
+    /// results, and a type or a field that holds a channel.
+    unserialized: Vec<SymbolId>,
     file_is_generated: bool,
     is_plugin: bool,
     symbol_count: u32,
@@ -153,7 +154,7 @@ impl<'a> Emitter<'a> {
             anonymous: HashMap::new(),
             reflected_values: Vec::new(),
             skipped_fields: Vec::new(),
-            func_types: Vec::new(),
+            unserialized: Vec::new(),
             file_is_generated: is_generated_source(source),
             is_plugin,
             symbol_count: 0,
@@ -204,9 +205,9 @@ impl<'a> Emitter<'a> {
                 continue;
             };
             followed.push((name.to_owned(), honors_skip_tags));
-            // constraint: a serializing library refuses a func value and reads nothing behind it, where `reflect`
-            // reaches the results through `Type.Out` and `Value.Call`
-            if honors_skip_tags && self.func_types.contains(&id) {
+            // constraint: a serializing library refuses a func or a channel value and reads nothing behind it, where
+            // `reflect` reaches a result through `Type.Out` and `Value.Call` and an element through `Type.Elem`
+            if honors_skip_tags && self.unserialized.contains(&id) {
                 continue;
             }
             if declared.kind != SymbolKind::Struct {
@@ -215,18 +216,18 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             let (local, skipped) = (&self.raw.local_symbols, &self.skipped_fields);
-            let fields = ((0..).map(SymbolId).zip(self.raw.symbols.iter_mut()))
-                .filter(|(id, field)| {
+            let fields =
+                ((0..).map(SymbolId).zip(self.raw.symbols.iter_mut())).filter(|(id, field)| {
                     field.kind == SymbolKind::Field
                         && field.exported
                         && field.owner.as_deref() == Some(name)
                         && !(honors_skip_tags && skipped.contains(id))
                         && local.binary_search(id).is_err()
-                })
-                .map(|(_, field)| field);
-            for field in fields {
+                });
+            for (id, field) in fields {
                 field.flags = field.flags.with_reflected(true);
-                let held = field.value_types.iter().cloned();
+                let refused = honors_skip_tags && self.unserialized.contains(&id);
+                let held = field.value_types.iter().filter(|_| !refused).cloned();
                 pending.extend(held.map(|path| (path, honors_skip_tags)));
             }
         }
@@ -369,6 +370,7 @@ impl<'a> Emitter<'a> {
                 name: text(name, self.source),
                 kind: LocalKind::Value,
                 type_path: guard.and_then(|guard| self.value_path(guard)),
+                holds_channel: false,
             });
         }
     }
@@ -391,6 +393,7 @@ impl<'a> Emitter<'a> {
                 name: text(name, self.source),
                 kind: LocalKind::Value,
                 type_path: Some(type_path),
+                holds_channel: holds_channel(single),
             });
         }
     }
@@ -421,7 +424,7 @@ impl<'a> Emitter<'a> {
                 host.value_types = paths.get(position).cloned().flatten().into_iter().collect();
                 self.push_symbol(host);
             }
-            self.push_locals(left, (node.end_byte(), block), &mut |position| {
+            self.push_locals(left, (node.end_byte(), block, &values), &mut |position| {
                 paths.get_mut(position).and_then(Option::take)
             });
             for (struct_type, scope, _) in literals {
@@ -621,6 +624,7 @@ impl<'a> Emitter<'a> {
                     name: text(name, self.source),
                     kind: LocalKind::TypeSymbol(SymbolId(self.symbol_count)),
                     type_path: None,
+                    holds_channel: false,
                 });
             }
             self.type_spec(spec);
@@ -654,8 +658,10 @@ impl<'a> Emitter<'a> {
         let Some((owner, type_id)) = self.named_type(spec, kind, (parents, value_types)) else {
             return;
         };
-        if type_node.is_some_and(|written| written.kind() == "function_type") {
-            self.func_types.push(type_id);
+        if type_node
+            .is_some_and(|written| written.kind() == "function_type" || holds_channel(written))
+        {
+            self.unserialized.push(type_id);
         }
 
         if let Some(list) = type_params {
@@ -724,9 +730,8 @@ impl<'a> Emitter<'a> {
 
     fn field_names(&mut self, field: Node<'_>, (owner, scope): (&str, &str)) {
         let nested = self.name_field_struct(field, scope);
-        let type_path = field
-            .child_by_field_name("type")
-            .and_then(|written| self.type_path(written));
+        let written = field.child_by_field_name("type");
+        let type_path = written.and_then(|written| self.type_path(written));
         let own_owner = (owner != scope).then(|| owner.to_owned());
         let tag = field.child_by_field_name("tag");
         let reflected = tag.is_some_and(|tag| tag_hands_over_its_field(&text(tag, self.source)));
@@ -745,6 +750,11 @@ impl<'a> Emitter<'a> {
         }
         if tag.is_some() && !reflected {
             self.skipped_fields
+                .extend((first..self.symbol_count).map(SymbolId));
+        }
+        if type_path.as_deref().is_some_and(is_container_path) && written.is_some_and(holds_channel)
+        {
+            self.unserialized
                 .extend((first..self.symbol_count).map(SymbolId));
         }
         if let Some((struct_type, nested_scope)) = nested {
@@ -782,6 +792,7 @@ impl<'a> Emitter<'a> {
                 .and_then(|(written, first)| self.name_value_struct(written, (first, host)))
                 .map(|(struct_type, scope)| (struct_type, scope, 0)),
         );
+        let written_channel = written.is_some_and(holds_channel);
         for (position, &name_node) in names.iter().enumerate() {
             let name = text(name_node, self.source);
             if name == "_" {
@@ -791,7 +802,11 @@ impl<'a> Emitter<'a> {
                     || self.value_path_at(&values, names.len(), position),
                     |written| self.type_path(written),
                 );
-                self.spec_name(spec, kind, (name, type_path));
+                let channel = written_channel
+                    || type_path.as_deref().is_some_and(is_container_path)
+                        && (values.get(position))
+                            .is_some_and(|&value| self.value_holds_channel(value));
+                self.spec_name(spec, kind, (name, type_path, channel));
             }
         }
         for (struct_type, scope, _) in nested {
@@ -803,7 +818,7 @@ impl<'a> Emitter<'a> {
         &mut self,
         spec: Node<'_>,
         kind: SymbolKind,
-        (name, type_path): (String, Option<String>),
+        (name, type_path, holds_channel): (String, Option<String>, bool),
     ) {
         let id = SymbolId(self.symbol_count);
         if let Some(&block) = self.blocks.last() {
@@ -813,6 +828,7 @@ impl<'a> Emitter<'a> {
                 name: name.clone(),
                 kind: LocalKind::ValueSymbol(id),
                 type_path: type_path.clone(),
+                holds_channel,
             });
         }
         let mut symbol = self.declared(kind, spec, (None, name));

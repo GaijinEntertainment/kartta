@@ -435,6 +435,143 @@ func run(h H) int { return reflect.TypeOf(h).Out(0).NumField() }
 }
 
 #[test]
+fn a_marshal_call_reads_no_field_through_a_channel() {
+    for (declared, parameter, body) in [
+        ("", "h chan S", ""),
+        ("", "h <-chan S", ""),
+        ("", "h chan<- S", ""),
+        ("", "h *chan S", ""),
+        ("", "h (chan S)", ""),
+        ("", "h []chan S", ""),
+        ("", "h map[string]chan S", ""),
+        ("", "h chan []S", ""),
+        ("", "g chan S", "h := g\n\t"),
+        ("", "g chan S", "h := &g\n\t"),
+        ("", "g chan S", "h := (g)\n\t"),
+        ("", "g any", "h := g.(chan S)\n\t"),
+        ("", "g []chan S", "h := g[0]\n\t"),
+        ("", "g map[string]chan S", "h := g[\"a\"]\n\t"),
+        ("", "", "h := new(chan S)\n\t"),
+        ("", "", "var h chan S\n\t"),
+        ("", "", "var h []chan S\n\t"),
+        ("", "", "var h = make(chan S)\n\t"),
+        ("", "", "h := make(chan S)\n\t"),
+        ("", "", "h := make([]chan S, 1)\n\t"),
+        ("", "", "h := []chan S{}\n\t"),
+        ("type H chan S", "h H", ""),
+        ("type H = chan S", "h H", ""),
+        ("type H []chan S", "h H", ""),
+        ("type F chan S\ntype H F", "h H", ""),
+        ("type F chan S\ntype H []F", "h H", ""),
+        ("type H struct{ Run chan S }", "h H", ""),
+        ("type H struct{ Run []chan S }", "h H", ""),
+        ("type F chan S\ntype H struct{ Run F }", "h H", ""),
+    ] {
+        let source = format!(
+            "package b\n\ntype S struct {{\n\tName string\n}}\n\n{declared}\n\n\
+             func run({parameter}) {{\n\t{body}_, _ = json.Marshal(h)\n}}\n"
+        );
+
+        let raw = extract(source.as_bytes());
+
+        assert!(
+            !qualified(&raw, "b.S.Name").flags.is_reflected(),
+            "{declared} {parameter} {body}"
+        );
+    }
+}
+
+#[test]
+fn a_marshal_call_reaches_the_struct_fields_of_a_value_a_channel_yields() {
+    for (parameter, body, value) in [
+        ("h chan S", "", "<-h"),
+        ("h chan []S", "", "<-h"),
+        ("h chan S", "v := <-h\n\t", "v"),
+        ("h []S", "", "h"),
+        ("h map[string]S", "", "h"),
+        ("h *S", "", "*h"),
+    ] {
+        let source = format!(
+            "package b\n\ntype S struct {{\n\tName string\n}}\n\n\
+             func run({parameter}) {{\n\t{body}_, _ = json.Marshal({value})\n}}\n"
+        );
+
+        let raw = extract(source.as_bytes());
+
+        assert!(
+            qualified(&raw, "b.S.Name").flags.is_reflected(),
+            "{parameter} {body} {value}"
+        );
+    }
+}
+
+#[test]
+fn a_type_switch_case_that_names_a_channel_reads_no_field_behind_it() {
+    let raw = extract(
+        br"
+package b
+
+type S struct {
+    Name string
+}
+
+func run(g any) {
+    switch h := g.(type) {
+    case chan S:
+        _, _ = json.Marshal(h)
+    }
+}
+",
+    );
+
+    assert!(!qualified(&raw, "b.S.Name").flags.is_reflected());
+}
+
+#[test]
+fn a_shadowing_value_is_not_a_channel_the_outer_name_holds() {
+    let raw = extract(
+        br"
+package b
+
+type S struct {
+    Name string
+}
+
+func run(h chan S) {
+    {
+        h := []S{}
+        _, _ = json.Marshal(h)
+    }
+}
+",
+    );
+
+    assert!(qualified(&raw, "b.S.Name").flags.is_reflected());
+}
+
+#[test]
+fn a_reflect_call_reaches_the_struct_fields_through_a_channel() {
+    for (declared, parameter, body) in [
+        ("", "h chan S", ""),
+        ("", "", "h := make(chan S)\n\t"),
+        ("type H chan S", "h H", ""),
+        ("type H struct{ Run chan S }", "h H", ""),
+    ] {
+        let source = format!(
+            "package b\n\ntype S struct {{\n\tName string\n}}\n\n{declared}\n\n\
+             func run({parameter}) {{\n\t{body}_ = reflect.TypeOf(h).Elem().NumField()\n}}\n"
+        );
+
+        let raw = extract(source.as_bytes());
+
+        assert!(
+            qualified(&raw, "b.S.Name").flags.is_reflected(),
+            "{declared} {parameter} {body}"
+        );
+    }
+}
+
+#[test]
 fn a_defined_type_no_reflective_call_takes_hands_its_struct_s_fields_to_nothing() {
     let raw = extract(
         br"
