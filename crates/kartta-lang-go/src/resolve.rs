@@ -6,7 +6,8 @@ use kartta_lang::{
     Extraction, ImportBinding, IncludeRef, RawExtraction, Repository, Resolver, SymbolFlags,
 };
 
-use crate::build::is_skipped;
+use crate::build::{file_constraint, is_skipped};
+use crate::walk::CONSTRAINT_FORM;
 
 #[derive(PartialEq)]
 pub(crate) struct GoResolver {
@@ -163,7 +164,12 @@ impl Resolver for GoResolver {
         extraction.flag_symbols(path_flags);
 
         let owner = self.main_module(self.owner(path));
+        let mut header = None;
         for directive in directives {
+            if directive.form == CONSTRAINT_FORM {
+                header = Some(directive.spec);
+                continue;
+            }
             let target_dir =
                 self.package(&directive.spec, owner, repository)
                     .map(|(dir, files)| {
@@ -177,6 +183,7 @@ impl Resolver for GoResolver {
                 last_segment: package_name(&directive.spec).to_owned(),
             });
         }
+        extraction.build_constraint = file_constraint(path, header);
 
         extraction
     }

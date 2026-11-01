@@ -278,6 +278,32 @@ fn a_name_no_build_compiles_with_the_caller_binds_nothing() {
 }
 
 #[test]
+fn a_caller_a_header_constrains_binds_no_declaration_a_build_never_compiles_with_it() {
+    let declaring = |constraint: &str| format!("{constraint}\n\npackage dec\n\nfunc New() {{}}\n");
+    let reader = "//go:build linux && !purego\n\npackage m\n\nimport \"x/dec\"\n\nfunc run() {\n\tdec.New()\n}\n";
+    let not_windows = declaring("//go:build !windows");
+    let linux_amd64 = declaring("// +build amd64,linux");
+    let (_tree, engine) = build(&[
+        ("dec/a.go", &declaring("//go:build windows")),
+        ("dec/b.go", &declaring("// +build darwin")),
+        ("dec/c.go", &declaring("//go:build purego")),
+        ("dec/d.go", &not_windows),
+        ("dec/e_amd64.go", &linux_amd64),
+        ("dec/f_arm64.go", &linux_amd64),
+        ("dec/g_windows.go", &not_windows),
+        ("m.go", reader),
+    ]);
+
+    assert_eq!(
+        callees(&engine, "m.go", "run"),
+        [
+            pair("dec.New", "dec/d.go"),
+            pair("dec.New", "dec/e_amd64.go")
+        ]
+    );
+}
+
+#[test]
 fn a_file_the_go_command_skips_declares_nothing() {
     let declaring = "package dec\n\nfunc New() {}\n";
     let reader = "package m\n\nimport \"x/dec\"\n\nfunc run() {\n\tdec.New()\n}\n";

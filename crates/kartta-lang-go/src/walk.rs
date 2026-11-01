@@ -8,6 +8,8 @@ use kartta_lang::{
 };
 use tree_sitter::{Node, Tree, TreeCursor};
 
+use crate::build::of_header;
+
 use self::anonymous::literal_type;
 use self::locals::{Block, Local, LocalKind, declares_left, header_statement};
 use self::syntax::{
@@ -28,6 +30,8 @@ mod uses;
 
 pub(crate) const IMPORT_FORM: u32 = 0;
 
+pub(crate) const CONSTRAINT_FORM: u32 = 1;
+
 pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     let package = package_name(tree, source);
     let root = tree.root_node();
@@ -35,7 +39,10 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
 
     emitter.walk();
     emitter.mark_reflected_fields();
-    emitter.raw
+    let mut raw = emitter.raw;
+    let constraint = of_header(source).map(|spec| RawDirective::new(CONSTRAINT_FORM, spec, 1));
+    raw.directives.extend(constraint);
+    raw
 }
 
 fn package_name(tree: &Tree, source: &[u8]) -> String {

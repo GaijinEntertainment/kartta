@@ -66,6 +66,12 @@
 //! [resolves as](kartta_lang::Resolver::resolves_as) the one built before, so an engine that follows the tree
 //! resolves no Go file again for it.
 //!
+//! A file's build constraint is what its `//go:build` line says, else its `// +build` lines, as go/build reads them, and
+//! the tags its `_$GOOS`, `_$GOARCH` or `_$GOOS_$GOARCH` name requires. Two files are built apart where no build
+//! satisfies both: a build has one `GOOS`, which sets `linux` under `android`, `solaris` under `illumos`, `darwin` under
+//! `ios` and `unix` under a Unix one, one `GOARCH`, one compiler of `gc` and `gccgo`, one release, which sets every
+//! `go1.N` up to its own, and any other tags.
+//!
 //! A `_test.go` file is test code, and a file named `*.pb.go` or carrying the `// Code generated ... DO NOT EDIT.`
 //! banner is generated code. A file under a `vendor` directory is vendored code. A free `func main` in `package main`
 //! is the program's entry point, and so is a free `func init()` in any package, which the runtime calls and no code

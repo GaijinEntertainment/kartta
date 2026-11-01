@@ -41,6 +41,12 @@ includes every Go file of the package that is neither a test file nor one it lea
 file itself. A `_test.go` file is test code, and a `*.pb.go` file or one with the `// Code generated ... DO NOT EDIT.`
 banner is generated code.
 
+A file's build constraint is what its `//go:build` line says, else its `// +build` lines, as go/build reads them, and
+the tags its `_$GOOS`, `_$GOARCH` or `_$GOOS_$GOARCH` name requires. Two files are built apart where no build satisfies
+both: a build has one `GOOS`, which sets `linux` under `android`, `solaris` under `illumos`, `darwin` under `ios` and
+`unix` under a Unix one, one `GOARCH`, one compiler of `gc` and `gccgo`, one release, which sets every `go1.N` up to its
+own, and any other tags.
+
 ## Fingerprint
 
 The fingerprint covers the crate's version and source and the grammar's version, node types and table sizes, so a cache

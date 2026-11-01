@@ -1,4 +1,8 @@
-//! What a Go file's name alone says of the builds that compile it.
+//! What a Go file's name and header say of the builds that compile it.
+
+pub(crate) use self::constraint::{built_apart, of_header};
+
+mod constraint;
 
 // constraint: go/build's `syslist.KnownOS`, whose names a file name constrains
 const OPERATING_SYSTEMS: [&str; 18] = [
@@ -94,28 +98,19 @@ fn constrained_to(path: &str) -> (Option<&str>, Option<&str>) {
     }
 }
 
-// constraint: go/build's `matchTag` takes `linux` as true under GOOS=android, `solaris` under illumos and `darwin`
-// under ios, so a file of the first of a pair builds with a file of the second
-fn share_a_system(one: &str, other: &str) -> bool {
-    let builds_on = |general: &str, specific: &str| {
-        matches!(
-            (general, specific),
-            ("linux", "android") | ("solaris", "illumos") | ("darwin", "ios")
-        )
+// constraint: go/build's `matchFile` reads a name through `matchTag` as it reads a tag of the header, and asks both
+/// The constraint of the file at `path`: `header`, the one its source states, and the tags its name requires.
+pub(crate) fn file_constraint(path: &str, header: Option<String>) -> Option<String> {
+    let (system, architecture) = constrained_to(path);
+    let named = match (system, architecture) {
+        (Some(system), Some(architecture)) => format!("{system}&&{architecture}"),
+        (Some(tag), None) | (None, Some(tag)) => tag.to_owned(),
+        (None, None) => return header,
     };
-    one == other || builds_on(one, other) || builds_on(other, one)
-}
-
-/// Whether the names of the files at `one` and `other` keep every build from compiling both.
-pub(crate) fn built_apart(one: &str, other: &str) -> bool {
-    let (one_system, one_architecture) = constrained_to(one);
-    let (other_system, other_architecture) = constrained_to(other);
-    let differ = |one: Option<&str>, other: Option<&str>, share: fn(&str, &str) -> bool| {
-        one.zip(other)
-            .is_some_and(|(one, other)| !share(one, other))
-    };
-    differ(one_system, other_system, share_a_system)
-        || differ(one_architecture, other_architecture, str::eq)
+    Some(match header {
+        Some(header) => format!("{named}&&({header})"),
+        None => named,
+    })
 }
 
 #[cfg(test)]
@@ -143,6 +138,20 @@ mod tests {
     }
 
     #[test]
+    fn a_file_s_constraint_joins_its_name_and_its_header() {
+        for (path, header, constraint) in [
+            ("a.go", None, None),
+            ("a.go", Some("cgo"), Some("cgo")),
+            ("a_linux.go", None, Some("linux")),
+            ("a_linux_amd64.go", None, Some("linux&&amd64")),
+            ("a_arm64.go", Some("a||b"), Some("arm64&&(a||b)")),
+        ] {
+            let header = header.map(str::to_owned);
+            assert_eq!(file_constraint(path, header).as_deref(), constraint);
+        }
+    }
+
+    #[test]
     fn files_are_built_apart_only_where_their_names_exclude_each_other() {
         for (one, other, apart) in [
             ("a_linux.go", "a_windows.go", true),
@@ -158,7 +167,12 @@ mod tests {
             ("a_ios.go", "a_darwin.go", false),
             ("a_android.go", "a_ios.go", true),
         ] {
-            assert_eq!(built_apart(one, other), apart, "{one} {other}");
+            let constraint = |path| file_constraint(path, None).unwrap_or_default();
+            assert_eq!(
+                built_apart(&constraint(one), &constraint(other)),
+                apart,
+                "{one} {other}"
+            );
         }
     }
 }
