@@ -178,6 +178,7 @@ impl<'s> Emitter<'s> {
             | "catch_clause"
             | "unset_statement" => self.forget_writes(node),
             "object_creation_expression" => self.object_creation(node),
+            "binary_expression" => self.narrow(node),
             "function_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
                 self.callable_argument(&callee, node);
@@ -186,14 +187,14 @@ impl<'s> Emitter<'s> {
             "member_call_expression" | "nullsafe_member_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
                 let receiver = self.held_receiver(receiver, start);
-                self.field_call(&callee, node);
+                let receiver = self.field_call(&callee, node).or(receiver);
                 self.call(callee, receiver, node);
             }
             "scoped_call_expression" => {
                 let (callee, receiver) = call_target(node, self.source);
                 let receiver = self.class_from_the_root(node).or(receiver);
                 let receiver = self.held_receiver(receiver, start);
-                self.field_call(&callee, node);
+                let receiver = self.field_call(&callee, node).or(receiver);
                 self.call(callee, receiver, node);
             }
             "array_creation_expression" => self.array_callable(node),
@@ -548,6 +549,39 @@ impl<'s> Emitter<'s> {
         });
     }
 
+    fn narrow(&mut self, test: Node<'_>) {
+        if !operator_is(test, b"instanceof", self.source) {
+            return;
+        }
+        let subject =
+            (test.child_by_field_name("left")).and_then(|left| self.narrowed_subject(left));
+        let class =
+            (test.child_by_field_name("right")).filter(|right| NAMES.contains(&right.kind()));
+        let (Some(subject), Some(class)) = (subject, class) else {
+            return;
+        };
+        let class = self.receiver_class(class);
+        for span in narrowed_spans(test, self.source) {
+            self.holders.push(Holder {
+                variable: subject.clone(),
+                class: class.clone(),
+                from: span.start,
+                until: span.end,
+            });
+        }
+    }
+
+    // constraint: a property's holder is its name, which no variable's spelling equals, so `$this->c` and `$this?->c`
+    // read as one; `$this` stays the class around the call, whose own members a test's interface does not hold
+    fn narrowed_subject(&self, subject: Node<'_>) -> Option<Range<usize>> {
+        if subject.kind() != "variable_name" {
+            self.own_field(subject)?;
+            let name = subject.child_by_field_name("name")?.byte_range();
+            return Some(name.start + usize::from(self.source[name.start] == b'$')..name.end);
+        }
+        (self.source[subject.byte_range()] != *b"$this").then(|| subject.byte_range())
+    }
+
     fn open_frame(&mut self, function: Node<'_>) {
         self.frames.push(Frame {
             end: function.end_byte(),
@@ -621,8 +655,10 @@ impl<'s> Emitter<'s> {
     // parameters (`find_implicit_binds`, `Zend/zend_compile.c`)
     fn arrow_function(&mut self, arrow: Node<'_>) {
         let start = arrow.start_byte();
+        let source = self.source;
         let mut bound: Vec<Holder> = (self.frame_holders().iter())
             .filter(|holder| holder.from <= start && start < holder.until)
+            .filter(|holder| source[holder.variable.start] == b'$')
             .map(|holder| whole_frame(holder.variable.clone(), holder.class.clone()))
             .collect();
         self.open_frame(arrow);
@@ -675,9 +711,12 @@ impl<'s> Emitter<'s> {
     // reference
     fn forget_written(&mut self, written: Node<'_>, until: usize) {
         match written.kind() {
-            "variable_name" => self.forget(written, until),
+            "variable_name" => self.forget(&self.source[written.byte_range()], until),
             "member_access_expression" | "scoped_property_access_expression" => {
                 self.field_written(written);
+                if let Some((_, name)) = self.own_field(written) {
+                    self.forget(name, until);
+                }
             }
             "list_literal" | "pair" | "by_ref" => {
                 for element in named_child_nodes(written) {
@@ -688,9 +727,8 @@ impl<'s> Emitter<'s> {
         }
     }
 
-    fn forget(&mut self, variable: Node<'_>, until: usize) {
+    fn forget(&mut self, variable: &[u8], until: usize) {
         let source = self.source;
-        let variable = &source[variable.byte_range()];
         for holder in self.frame_holders() {
             if source[holder.variable.clone()] == *variable {
                 holder.until = holder.until.min(until);
@@ -760,15 +798,19 @@ impl<'s> Emitter<'s> {
         }
     }
 
-    fn field_call(&mut self, callee: &str, call: Node<'_>) {
+    // constraint: a test's class stands ahead of the property's own, whichever the file settles once it
+    fn field_call(&mut self, callee: &str, call: Node<'_>) -> Option<String> {
         let held = call
             .child_by_field_name("object")
-            .or_else(|| call.child_by_field_name("scope"));
-        if let Some(field) = held.and_then(|held| self.own_field(held))
-            && !callee.is_empty()
-        {
+            .or_else(|| call.child_by_field_name("scope"))?;
+        let field = self.own_field(held)?;
+        if let Some(class) = self.held_class(field.1, call.start_byte()) {
+            return Some(class.to_owned());
+        }
+        if !callee.is_empty() {
             self.field_calls.push((self.raw.calls.len(), field));
         }
+        None
     }
 
     // constraint: a method reads a property that a later member declares or writes as often as an earlier one, so the
@@ -1244,6 +1286,138 @@ const fn whole_frame(variable: Range<usize>, class: String) -> Holder {
         from: 0,
         until: usize::MAX,
     }
+}
+
+fn operator_is(expression: Node<'_>, operator: &[u8], source: &[u8]) -> bool {
+    (expression.child_by_field_name("operator"))
+        .is_some_and(|written| source[written.byte_range()].eq_ignore_ascii_case(operator))
+}
+
+// constraint: `instanceof` is true of an object of the class or below it alone, and false of a class not loaded
+// (`ZEND_INSTANCEOF`, `Zend/zend_vm_def.h`), so its class holds on the paths only its truth reaches; `outcome` is the
+// value of the expression walked up to from which the test's truth follows, and `!` turns it over
+fn narrowed_spans(test: Node<'_>, source: &[u8]) -> Vec<Range<usize>> {
+    let mut spans = Vec::new();
+    let mut outcome = true;
+    let mut child = test;
+    while let Some(parent) = child.parent() {
+        match parent.kind() {
+            "parenthesized_expression" => {}
+            "unary_op_expression" if operator_is(parent, b"!", source) => outcome = !outcome,
+            "binary_expression" if settles_both_operands(parent, outcome, source) => {
+                spans.push(child.end_byte()..parent.end_byte());
+            }
+            "conditional_expression" if parent.child_by_field_name("condition") == Some(child) => {
+                let path = if outcome { "body" } else { "alternative" };
+                spans.extend(
+                    parent
+                        .child_by_field_name(path)
+                        .map(|path| path.byte_range()),
+                );
+                break;
+            }
+            "if_statement" | "else_if_clause" => {
+                if_spans(parent, outcome, source, &mut spans);
+                break;
+            }
+            "while_statement" => {
+                spans.extend(
+                    (parent.child_by_field_name("body"))
+                        .filter(|_| outcome)
+                        .map(|body| body.byte_range()),
+                );
+                break;
+            }
+            "match_condition_list" => {
+                spans.extend(match_arm_span(parent, outcome, source));
+                break;
+            }
+            _ => break,
+        }
+        child = parent;
+    }
+    spans
+}
+
+// constraint: `&&` is true only with both operands true and `||` false only with both false, and each runs its right
+// operand on that value of its left alone (`zend_compile_short_circuiting`, `Zend/zend_compile.c`)
+fn settles_both_operands(binary: Node<'_>, outcome: bool, source: &[u8]) -> bool {
+    let operators: [&[u8]; 2] = if outcome {
+        [b"&&", b"and"]
+    } else {
+        [b"||", b"or"]
+    };
+    operators
+        .iter()
+        .any(|operator| operator_is(binary, operator, source))
+}
+
+// constraint: a body that leaves sends every path that goes on past the `if` through the other outcome, and an `if`'s
+// first test alone is on every such path, which a later `elseif` is not
+fn if_spans(branch: Node<'_>, outcome: bool, source: &[u8], spans: &mut Vec<Range<usize>>) {
+    let (Some(condition), Some(body)) = (
+        branch.child_by_field_name("condition"),
+        branch.child_by_field_name("body"),
+    ) else {
+        return;
+    };
+    let first = branch.kind() == "if_statement";
+    let Some(statement) = (if first { Some(branch) } else { branch.parent() }) else {
+        return;
+    };
+    if !outcome {
+        let until = if first && leaves(body, source) {
+            branch_end(statement)
+        } else {
+            statement.end_byte()
+        };
+        spans.push(body.end_byte()..until);
+        return;
+    }
+    spans.push(condition.end_byte()..body.end_byte());
+    let sole_else = statement
+        .child_by_field_name("alternative")
+        .filter(|alternative| alternative.kind() == "else_clause");
+    let else_body = sole_else.and_then(|sole_else| sole_else.child_by_field_name("body"));
+    if else_body.is_some_and(|body| leaves(body, source)) {
+        spans.push(statement.end_byte()..branch_end(statement));
+    }
+}
+
+// constraint: control never reaches the end of a body whose last statement leaves it; PHP reads `die` as the token of
+// `exit`, in any case (`Zend/zend_language_scanner.l`), and the grammar reads it as a name or a call of one
+fn leaves(body: Node<'_>, source: &[u8]) -> bool {
+    let last = match body.kind() {
+        "compound_statement" | "colon_block" => {
+            named_child_nodes(body).rfind(|statement| statement.kind() != "comment")
+        }
+        _ => Some(body),
+    };
+    last.is_some_and(|statement| match statement.kind() {
+        "return_statement" | "break_statement" | "continue_statement" | "exit_statement" => true,
+        "expression_statement" => statement.named_child(0).is_some_and(|expression| {
+            let called = expression.child_by_field_name("function");
+            expression.kind() == "throw_expression"
+                || source[called.unwrap_or(expression).byte_range()].eq_ignore_ascii_case(b"die")
+        }),
+        _ => false,
+    })
+}
+
+// constraint: `match (true)` runs the first arm whose condition is identical to `true`, so a true test settles the
+// result of an arm it alone guards (`zend_compile_match`, `Zend/zend_compile.c`)
+fn match_arm_span(conditions: Node<'_>, outcome: bool, source: &[u8]) -> Option<Range<usize>> {
+    let arm = conditions.parent()?;
+    let subject = arm
+        .parent()?
+        .parent()?
+        .child_by_field_name("condition")?
+        .named_child(0)?;
+    let alone = conditions.named_child_count() == 1;
+    (outcome && alone && source[subject.byte_range()].eq_ignore_ascii_case(b"true"))
+        .then(|| arm.child_by_field_name("return_expression"))
+        .flatten()
+        .map(|result| result.byte_range())
 }
 
 // constraint: each child of these nodes may run or not, whichever way the walk reads it, so an assignment under one

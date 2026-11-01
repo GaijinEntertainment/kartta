@@ -123,6 +123,67 @@ fn two_classes_written_to_a_property_bind_neither() {
     );
 }
 
+const NARROWED: &str = r"<?php
+namespace App;
+use Vendor\Outside;
+interface Decider {
+    public function decide();
+}
+class Traced implements Decider {
+    public function decide() {}
+    public function voters() {}
+}
+class Plain {
+    public function voters() {}
+}
+class Namesake {
+    public function outside() {}
+}
+class Collector {
+    private Decider $manager;
+    public function run() {
+        if ($this->manager instanceof Traced) {
+            $this->manager->voters();
+        }
+    }
+    public function local(Decider $d) {
+        if ($d instanceof Traced) {
+            $d->voters();
+        }
+    }
+    public function early(Decider $d) {
+        if (!$d instanceof Traced) {
+            return;
+        }
+        $d->voters();
+    }
+    public function declared(Decider $d) {
+        if ($d instanceof Outside) {
+            $d->decide();
+            $d->outside();
+        }
+    }
+}
+";
+
+#[test]
+fn a_member_only_a_child_holds_binds_past_an_instanceof() {
+    let files = [("src/A.php", NARROWED), COMPOSER];
+    for caller in ["run", "local", "early"] {
+        assert_eq!(
+            callees(&files, &format!("App\\Collector::{caller}")),
+            ["App\\Traced::voters"],
+            "{caller}",
+        );
+    }
+}
+
+#[test]
+fn a_test_for_a_class_outside_the_graph_binds_no_namesake() {
+    let files = [("src/A.php", NARROWED), COMPOSER];
+    assert_eq!(callees(&files, "App\\Collector::declared"), [""; 0]);
+}
+
 #[test]
 fn a_property_of_a_class_outside_the_graph_binds_no_namesake() {
     let source = r"<?php
