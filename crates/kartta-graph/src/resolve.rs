@@ -1503,7 +1503,7 @@ impl<'g> Cascade<'g> {
     // has no member in the graph, and a module the caller includes is no scope its name is looked up in, so a call
     // through it that no member of the owner binds binds nothing; nor does a call through an owner whose members of
     // the name lie only in packages the caller's is not built with, as `Vec::new()` beside a crate's own `Vec`; nor
-    // does a call a field answers, since the name tiers would bind the member the field hides
+    // does a call a field answers, since the name tiers would bind the member it hides or a namesake
     fn through_the_receiver_s_owner(
         &self,
         call: &Call,

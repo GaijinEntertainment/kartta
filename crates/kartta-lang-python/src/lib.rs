@@ -134,7 +134,7 @@ const CONVENTIONS: Conventions = {
     conventions.runtime_methods = runtime::METHODS;
     conventions.value_uses = ValueUses::Imported;
     conventions.own_type_receivers = Some(&["cls", "other", "self"]);
-    conventions.receiver_members = ReceiverMembers::InheritedUpToFields;
+    conventions.receiver_members = ReceiverMembers::InheritedUpToAnyField;
     conventions
 };
 
