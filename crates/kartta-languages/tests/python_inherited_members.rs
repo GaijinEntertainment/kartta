@@ -402,3 +402,204 @@ fn a_nested_parent_that_overrides_the_member_answers_ahead_of_its_own_parent() {
         [("app.Outer.Inner.member".to_owned(), 85)]
     );
 }
+
+const PARENT: &str = "\
+class Base:
+    def size(self):
+        return 1
+
+    def shape(self):
+        return 2
+
+";
+
+/// `app.Child.run`'s callees where `Child(Base)` opens with `body`, which holds whatever writes `size`, and `run` calls
+/// `self.size()` and `self.shape()`, a member nothing writes, in that order.
+fn callees_under(body: &str) -> Vec<(String, u8)> {
+    let run = "    def run(self):\n        self.size()\n        self.shape()\n";
+    callees(
+        &format!("{PARENT}class Child(Base):\n{body}\n{run}"),
+        "app.Child.run",
+    )
+}
+
+fn shape_alone() -> Vec<(String, u8)> {
+    vec![("app.Base.shape".to_owned(), 85)]
+}
+
+fn size_and_shape() -> Vec<(String, u8)> {
+    vec![
+        ("app.Base.size".to_owned(), 85),
+        ("app.Base.shape".to_owned(), 85),
+    ]
+}
+
+#[test]
+fn a_value_the_class_writes_hides_the_parent_s_method() {
+    assert_eq!(callees_under("    size = 3\n"), shape_alone());
+}
+
+#[test]
+fn a_function_the_class_writes_hides_the_parent_s_method() {
+    assert_eq!(
+        callees_under("    size = len\n    def other(self):\n        pass\n"),
+        shape_alone()
+    );
+}
+
+#[test]
+fn an_annotated_value_the_class_writes_hides_the_parent_s_method() {
+    assert_eq!(callees_under("    size: int = 3\n"), shape_alone());
+}
+
+#[test]
+fn a_property_the_class_writes_hides_the_parent_s_method() {
+    assert_eq!(
+        callees_under("    size = property(lambda self: 1)\n"),
+        shape_alone()
+    );
+}
+
+#[test]
+fn an_attribute_an_instance_is_given_hides_the_parent_s_method_on_self() {
+    assert_eq!(
+        callees_under("    def __init__(self):\n        self.size = 3\n"),
+        shape_alone()
+    );
+}
+
+#[test]
+fn an_annotation_without_a_value_leaves_the_parent_s_method() {
+    assert_eq!(callees_under("    size: int\n"), size_and_shape());
+}
+
+#[test]
+fn a_class_that_writes_no_attribute_of_the_name_keeps_the_parent_s_method() {
+    assert_eq!(callees_under("    width = 3\n"), size_and_shape());
+}
+
+#[test]
+fn a_call_a_hidden_method_turns_away_binds_no_namesake() {
+    let namesake = "class Stranger:\n    def size(self):\n        pass\n\n";
+    let source = format!(
+        "{PARENT}{namesake}class Child(Base):\n    size = 3\n\n    def run(self):\n        self.size()\n"
+    );
+
+    assert_eq!(callees(&source, "app.Child.run"), []);
+}
+
+const ATTRIBUTE_ON_THE_WAY: &str = "\
+class Top:
+    def size(self):
+        pass
+
+class Middle(Top):
+    size = 3
+
+class Child(Middle):
+    def run(self):
+        self.size()
+
+    def on_the_class(self):
+        Child.size()
+";
+
+#[test]
+fn an_attribute_between_the_class_and_the_method_hides_the_method() {
+    assert_eq!(callees(ATTRIBUTE_ON_THE_WAY, "app.Child.run"), []);
+    assert_eq!(callees(ATTRIBUTE_ON_THE_WAY, "app.Child.on_the_class"), []);
+}
+
+const METHOD_BELOW_THE_ATTRIBUTE: &str = "\
+class Top:
+    size = 3
+
+class Middle(Top):
+    def size(self):
+        pass
+
+class Child(Middle):
+    def run(self):
+        self.size()
+";
+
+#[test]
+fn a_method_below_an_attribute_answers() {
+    assert_eq!(
+        callees(METHOD_BELOW_THE_ATTRIBUTE, "app.Child.run"),
+        [("app.Middle.size".to_owned(), 85)]
+    );
+}
+
+const TWO_PARENTS: &str = "\
+class Holder:
+    size = 3
+
+class Sized:
+    def size(self):
+        pass
+
+class HolderFirst(Holder, Sized):
+    def run(self):
+        self.size()
+
+class SizedFirst(Sized, Holder):
+    def run(self):
+        self.size()
+";
+
+#[test]
+fn the_earlier_of_two_parents_answers_with_what_it_holds() {
+    assert_eq!(callees(TWO_PARENTS, "app.HolderFirst.run"), []);
+    assert_eq!(
+        callees(TWO_PARENTS, "app.SizedFirst.run"),
+        [("app.Sized.size".to_owned(), 85)]
+    );
+}
+
+#[test]
+fn an_attribute_of_a_class_nested_in_the_class_hides_nothing() {
+    assert_eq!(
+        callees_under("    class Inner:\n        size = 3\n"),
+        size_and_shape()
+    );
+}
+
+#[test]
+fn an_attribute_of_a_namesake_of_the_class_hides_nothing() {
+    let source = format!(
+        "{PARENT}if flag:
+    class Child:
+        size = 3
+else:
+    class Child(Base):
+        def run(self):
+            self.size()
+"
+    );
+
+    assert_eq!(
+        callees(&source, "app.Child.run"),
+        [("app.Base.size".to_owned(), 85)]
+    );
+}
+
+#[test]
+fn an_attribute_with_no_method_above_it_leaves_the_call_to_the_tiers() {
+    let source = "\
+class Stranger:
+    def size(self):
+        pass
+
+class Child:
+    size = 3
+
+    def run(self):
+        self.size()
+";
+
+    assert_eq!(
+        callees(source, "app.Child.run"),
+        [("app.Stranger.size".to_owned(), 80)]
+    );
+}
