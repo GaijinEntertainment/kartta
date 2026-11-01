@@ -70,6 +70,8 @@ const MAX_EVALUATIONS: u16 = 1024;
 
 const UNDERLYING: &str = "~";
 
+const RESULTS: &str = "()";
+
 enum Step<'p> {
     Select(&'p str),
     Result(usize),
@@ -381,27 +383,18 @@ impl<'g> Cascade<'g> {
     fn called(&self, ty: SymbolAt, index: usize, depth: u8) -> Value<'g> {
         match self.underlying(ty, depth) {
             Some(Value::Type(under)) if self.is_function_type(under) => {
-                self.value_type(under, index, depth)
+                self.value_type(under, index + 1, depth)
             }
             Some(reached @ (Value::Imported | Value::Unbounded)) => reached,
-            _ if self.is_function_type(ty) => self.value_type(ty, index, depth),
             _ if index == 0 => Value::Type(ty),
             _ => Value::Unknown,
         }
     }
 
     fn is_function_type(&self, ty: SymbolAt) -> bool {
-        matches!(
-            self.graph.sym(ty).kind,
-            SymbolKind::TypeAlias | SymbolKind::DefinedType
-        ) && self
-            .graph
-            .file(ty.file)
-            .value_types(ty.index)
-            .is_some_and(|types| {
-                let types = self.graph.strings.resolve(types);
-                !types.starts_with("[]") && !types.starts_with(UNDERLYING)
-            })
+        let file = self.graph.file(ty.file);
+        file.value_types(ty.index)
+            .is_some_and(|types| self.graph.strings.resolve(types).starts_with(RESULTS))
     }
 
     fn element(&self, value: Value<'g>, depth: u8) -> Value<'g> {
@@ -573,6 +566,7 @@ impl<'g> Cascade<'g> {
                 Some(named) => named,
                 None => return Some(Value::Type(ty)),
             },
+            SymbolKind::TypeAlias if types.starts_with(RESULTS) => return Some(Value::Type(ty)),
             SymbolKind::TypeAlias => types,
             _ => return None,
         };

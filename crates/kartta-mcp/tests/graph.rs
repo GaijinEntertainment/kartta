@@ -990,6 +990,69 @@ func viaFunction() {{
 }
 
 #[test]
+fn a_go_function_type_s_results_read_past_an_alias_and_a_first_container() {
+    let source = format!(
+        "{GO_DECLARATIONS}
+type AliasOfFunction = func() F
+type AliasOfAlias = AliasOfFunction
+type DefinedOverAlias AliasOfFunction
+
+type Containers func() ([]E, Z)
+type OverContainers Containers
+type AliasOfContainers = func() ([]E, Z)
+type OneContainer func() []E
+
+func aliasOfFunction(a AliasOfFunction) {{ a().M() }}
+func aliasOfAlias(a AliasOfAlias) {{ a().M() }}
+func overAlias(d DefinedOverAlias) {{ d().M() }}
+func laterResult(c Containers) {{
+\t_, z := c()
+\tz.M()
+}}
+func firstResult(c Containers) {{
+\te, _ := c()
+\te[0].M()
+}}
+func laterThroughDefined(c OverContainers) {{
+\t_, z := c()
+\tz.M()
+}}
+func laterThroughAlias(c AliasOfContainers) {{
+\t_, z := c()
+\tz.M()
+}}
+func oneContainer(c OneContainer) {{ c()[0].M() }}
+"
+    );
+
+    assert_eq!(
+        methods_bound_by(
+            &source,
+            &[
+                "aliasOfFunction",
+                "aliasOfAlias",
+                "overAlias",
+                "laterResult",
+                "firstResult",
+                "laterThroughDefined",
+                "laterThroughAlias",
+                "oneContainer",
+            ]
+        ),
+        each_binds(&[
+            ("aliasOfFunction", "a.F.M"),
+            ("aliasOfAlias", "a.F.M"),
+            ("overAlias", "a.F.M"),
+            ("laterResult", "a.Z.M"),
+            ("firstResult", "a.E.M"),
+            ("laterThroughDefined", "a.Z.M"),
+            ("laterThroughAlias", "a.Z.M"),
+            ("oneContainer", "a.E.M"),
+        ]),
+    );
+}
+
+#[test]
 fn a_go_element_reads_through_a_map_a_channel_an_array_and_an_alias_under_a_defined_type() {
     let source = format!(
         "{GO_DECLARATIONS}
