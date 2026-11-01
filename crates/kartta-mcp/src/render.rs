@@ -390,6 +390,7 @@ fn bound(family: &str, resolution: &Resolution<'_>) -> String {
         .count("undefined", misses.undefined)
         .count("not_admitted", misses.not_admitted)
         .count("ambiguous", misses.ambiguous)
+        .count("past_bound", misses.past_bound)
         .count("through_receiver", misses.through_a_receiver)
         .close()
 }

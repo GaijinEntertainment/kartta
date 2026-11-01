@@ -299,8 +299,10 @@ impl Server {
                        edges (distinct caller-callee pairs), and why the other sites bound no definition, each only \
                        when it is not zero - external_import (through an import of a module outside the repository), \
                        not_exported, undefined (a builtin or code outside the graph), not_admitted, ambiguous (several \
-                       candidates, none nearer), and through_receiver (of the undefined and not admitted, calls on a \
-                       value of a type the graph does not define). Use it to tell \"no callers\" from a language whose \
+                       candidates, none nearer), past_bound (the graph stopped reading the receiver, at a cycle of \
+                       declarations or a chain too long to follow, so it cannot judge the call), and through_receiver \
+                       (of the undefined and not admitted, calls on a value of a type the graph does not define). Use \
+                       it to tell \"no callers\" from a language whose \
                        calls the graph binds poorly. coverage resolves every call in the repository, about half a \
                        second on a large one, each time it is asked."
     )]

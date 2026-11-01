@@ -2849,6 +2849,26 @@ fn coverage_counts_a_call_through_a_type_over_an_import_as_external() {
 }
 
 #[test]
+fn coverage_counts_a_read_past_its_bound_under_a_reason_of_its_own() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/x\n\ngo 1.26\n"),
+        (
+            "x.go",
+            "package x\n\nvar a = b\nvar b = a\n\nfunc run() {\n\ta.Set()\n}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("index_stats", &json!({"coverage": true}));
+
+    assert!(
+        answer.contains(r#"<coverage lang="go" sites="1" bound="0" edges="0" past_bound="1"/>"#),
+        "the graph stopped reading, which says nothing of what the call reaches: {answer}"
+    );
+}
+
+#[test]
 fn a_wrong_call_answers_a_tool_error() {
     let tree = go_module();
     let mut client = Client::start(&[]);
