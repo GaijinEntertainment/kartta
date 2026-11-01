@@ -774,6 +774,7 @@ impl Graph {
     // `StoredCall::CALLERS`th of its file is not kept
     fn store_calls(&mut self, extraction: &Extraction) -> Box<[StoredCall]> {
         let return_paths = self.conventions.receivers == Receivers::ReturnPaths;
+        let inherited_fields = self.conventions.receivers == Receivers::InheritedFields;
         let mut calls: Vec<StoredCall> = extraction
             .calls
             .iter()
@@ -788,6 +789,9 @@ impl Graph {
                 {
                     self.strings
                         .intern(rest.split_once('|').map_or("", |(_, value)| value));
+                }
+                if inherited_fields && receiver.is_some_and(|receiver| receiver.starts_with("->")) {
+                    self.strings.intern("");
                 }
                 let mut stored = StoredCall::new(
                     call.site_of.0,

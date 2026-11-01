@@ -1,11 +1,12 @@
 //! What class a PHP call on a property of the class around it records as its receiver: the one the property's declared
 //! type names, or, for a property with no type, the one every write in the class's own body gives it.
 
-use kartta_lang::Language;
+use kartta_lang::{Language, SymbolKind};
 use kartta_lang_php::Php;
 
 const CONTAINER: Option<&str> = Some("\\App\\Container");
 const UNNAMED: Option<&str> = Some("");
+const INHERITED: Option<&str> = Some("->c");
 
 /// The receiver of the call of `m` in `Suite`, whose body is `members` and which calls `m` on the property `c`, in the
 /// namespace `App`.
@@ -193,7 +194,7 @@ fn a_cleared_property_keeps_its_class() {
 fn only_writes_of_null_name_no_class() {
     assert_eq!(
         receiver(&in_a_method("$this->c = null;")).as_deref(),
-        UNNAMED
+        INHERITED
     );
 }
 
@@ -273,7 +274,7 @@ fn a_write_elsewhere_than_the_callers_class_names_nothing() {
         "public function set() { $this->c->d = new Container; }",
         "public function set() { $k = new class { public function s() { $this->c = new Container; } }; }",
     ] {
-        assert_eq!(receiver(members).as_deref(), UNNAMED, "{members}");
+        assert_eq!(receiver(members).as_deref(), INHERITED, "{members}");
     }
 }
 
@@ -427,7 +428,7 @@ fn a_static_property_of_a_class_but_the_one_around_the_call_names_nothing() {
             "public static function set() { parent::$c = new Container; Base::$c = new Container; }",
         )
         .as_deref(),
-        UNNAMED,
+        INHERITED,
     );
 }
 
@@ -450,7 +451,7 @@ class Using {
         .iter()
         .map(|call| call.receiver.as_deref())
         .collect();
-    assert_eq!(receivers, [Some("\\Container"), Some("")]);
+    assert_eq!(receivers, [Some("\\Container"), Some("->c")]);
 }
 
 #[test]
@@ -485,7 +486,7 @@ fn a_computed_name_writes_no_property() {
                 &format!("public function set($c) {{ {write} }}"),
             )
             .as_deref(),
-            UNNAMED,
+            INHERITED,
             "{write}",
         );
     }
@@ -541,23 +542,101 @@ fn a_scoped_call_on_a_property_reads_the_class_the_property_holds() {
 
 #[test]
 fn a_scoped_call_on_a_property_that_holds_no_one_class_names_none() {
-    for members in [
-        "private string $c;",
-        "private ?string $c;",
-        "private $c;",
-        "private object $c;",
-        "private $c = 'Container';",
-        "public function set($a) { $this->c = $a; }",
-        "public function set() { $this->c = Container::class; }",
-        "public function set() { $this->c = new Container; $this->c = 'Other'; }",
+    for (members, class) in [
+        ("private string $c;", UNNAMED),
+        ("private ?string $c;", UNNAMED),
+        ("private $c;", INHERITED),
+        ("private object $c;", UNNAMED),
+        ("private $c = 'Container';", UNNAMED),
+        ("public function set($a) { $this->c = $a; }", UNNAMED),
+        (
+            "public function set() { $this->c = Container::class; }",
+            UNNAMED,
+        ),
+        (
+            "public function set() { $this->c = new Container; $this->c = 'Other'; }",
+            UNNAMED,
+        ),
     ] {
         for read in ["$this->c::m();", "self::$c::m();", "static::$c::m();"] {
             assert_eq!(
                 static_receiver(read, members).as_deref(),
-                UNNAMED,
+                class,
                 "{read} on {members}",
             );
         }
+    }
+}
+
+#[test]
+fn a_property_a_class_with_no_parents_holds_nothing_of_keeps_the_empty_receiver() {
+    let raw = Php::new().extract(b"<?php\nclass A { function f() { $this->c->m(); } }\n");
+    assert_eq!(raw.calls[0].receiver.as_deref(), UNNAMED);
+}
+
+#[test]
+fn a_trait_a_class_uses_after_the_call_counts_as_a_parent() {
+    let raw = Php::new().extract(b"<?php\nclass A { function f() { $this->c->m(); } use T; }\n");
+    assert_eq!(raw.calls[0].receiver.as_deref(), INHERITED);
+}
+
+/// The value type of the field `c` of each class of `source`, in the namespace `App`, in the order of the file.
+fn field_types(source: &str) -> Vec<Vec<String>> {
+    let source = format!("<?php\nnamespace App;\n{source}\n");
+    let raw = Php::new().extract(source.as_bytes());
+    let fields = raw.symbols.into_iter();
+    fields
+        .filter(|symbol| symbol.kind == SymbolKind::Field)
+        .map(|symbol| symbol.value_types)
+        .collect()
+}
+
+#[test]
+fn a_field_holds_the_class_a_child_reads_from_the_root() {
+    for (declaration, class) in [
+        ("class K { protected Container $c; }", "\\App\\Container"),
+        (
+            "class K { protected $c; function f() { $this->c = new Container; } }",
+            "\\App\\Container",
+        ),
+        (
+            "class K { function __construct(protected ?Container $c) {} }",
+            "\\App\\Container",
+        ),
+        ("class K { protected self $c; }", "\\App\\K"),
+        (
+            "class K { protected $c; function f() { $this->c = new static; } }",
+            "static",
+        ),
+        (
+            "trait K { protected $c; function f() { $this->c = new static; } }",
+            "static",
+        ),
+        ("class K extends B { protected parent $c; }", "\\App\\B"),
+    ] {
+        assert_eq!(
+            field_types(declaration),
+            [[class.to_owned()]],
+            "{declaration}"
+        );
+    }
+}
+
+#[test]
+fn a_field_with_no_class_a_child_can_name_holds_none() {
+    for declaration in [
+        "class K { protected int $c; }",
+        "class K { protected $c; }",
+        "class K { protected parent $c; }",
+        "trait K { protected self $c; }",
+        "trait K { protected parent $c; }",
+        "class K { protected $c; function f() { $this->c = new class {}; } }",
+    ] {
+        assert_eq!(
+            field_types(declaration),
+            [Vec::<String>::new()],
+            "{declaration}"
+        );
     }
 }
 
