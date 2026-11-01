@@ -32,6 +32,11 @@ class Calls {
     public function aliasOfAGlobalClass() { GlobalAssert::assertSame(); }
     public function aliasPsr4MapsNoFileTo() { Unmapped::assertSame(); }
     public function memberTheClassLacks() { Eloquent::close(); }
+    public function constructorTheClassLacks() { Eloquent::__construct(); }
+}
+
+class Near {
+    public function __construct() {}
 }
 ",
     ),
@@ -164,6 +169,11 @@ fn a_member_the_alias_s_class_lacks_stays_with_the_tiers_that_read_no_class() {
         callees("T\\Calls::memberTheClassLacks"),
         [("App\\Response::close".to_owned(), 60)]
     );
+}
+
+#[test]
+fn a_constructor_the_alias_s_class_lacks_binds_no_other_class_s() {
+    assert_eq!(callees("T\\Calls::constructorTheClassLacks"), []);
 }
 
 #[test]

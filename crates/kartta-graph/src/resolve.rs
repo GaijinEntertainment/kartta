@@ -1518,8 +1518,18 @@ impl<'g> Cascade<'g> {
         }
         (self.names_a_type_outside_the_graph(call)
             || self.owned_out_of_reach(call, candidates)
-            || self.inherits_from_outside_the_graph(call, candidates))
+            || self.inherits_from_outside_the_graph(call, candidates)
+            || self.constructs_a_class_written_from_the_root(call))
         .then(|| Err(self.unadmitted(call)))
+    }
+
+    // constraint: a construction runs the constructor of its class's own table, and nothing where the table holds none,
+    // so another class's constructor never answers it
+    fn constructs_a_class_written_from_the_root(&self, call: &Call) -> bool {
+        self.conventions.constructor == Some(self.graph.strings.resolve(call.callee))
+            && self
+                .named_receiver(call)
+                .is_some_and(|receiver| self.class_from_the_root(call, receiver).is_some())
     }
 
     fn owned_out_of_reach(&self, call: &Call, candidates: &Candidates<'_>) -> bool {
