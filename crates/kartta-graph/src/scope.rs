@@ -1648,8 +1648,8 @@ impl Cascade<'_> {
 
     /// What a call through one of [`kartta_lang::Conventions::base_receivers`] binds: the member of the name that the
     /// first base the caller's class declares holds, else the nearest class above that base, and nothing where the
-    /// graph holds neither. `None` for any other receiver, and for a caller in no class the graph holds, as a method of
-    /// a class the language writes without a name, whose call the tiers below bind.
+    /// graph holds neither or a field hides the member. `None` for any other receiver, and for a caller in no class the
+    /// graph holds, as a method of a class the language writes without a name, whose call the tiers below bind.
     pub(crate) fn member_of_the_caller_s_base(&self, call: &Call) -> Option<Result<Bound, Miss>> {
         let receiver = self.named_receiver(call)?;
         if !(self.conventions.base_receivers).contains(&self.graph.strings.resolve(receiver)) {
@@ -1658,6 +1658,7 @@ impl Cascade<'_> {
         let class = self.class_of(call.caller_at())?;
         Some(
             self.held_by_a_base(class, &self.candidates(call))
+                .filter(|&at| self.graph.sym(at).kind != SymbolKind::Field)
                 .map(|at| (at, confidence::RECEIVER))
                 .ok_or(Miss::NotAdmitted),
         )
