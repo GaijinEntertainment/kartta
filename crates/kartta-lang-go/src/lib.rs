@@ -115,6 +115,7 @@ use crate::resolve::GoResolver;
 
 mod build;
 mod resolve;
+mod runtime;
 mod walk;
 
 /// The Go language.
@@ -139,6 +140,7 @@ const CONVENTIONS: Conventions = {
     conventions.type_uses = TypeUses::Every;
     conventions.data_uses = DataUses::Every;
     conventions.twins = Twins::Package(BuiltApart(build::built_apart));
+    conventions.library_interface_methods = runtime::INTERFACE_METHODS;
     conventions
 };
 
