@@ -379,23 +379,46 @@ class Runner {
 }
 
 #[test]
-fn a_qualified_scope_is_the_receiver_of_its_last_segment() {
+fn a_qualified_scope_is_the_receiver_php_compiles_it_to() {
     let raw = extract(
         br#"<?php
+namespace App;
+
+use Other\Log;
+use Other\Log as Journal;
+
 class Runner {
     public function go(): void {
-        App\Logger::qlog("x");
-        \App\Logger::flog("x");
+        Sub\Logger::qlog("x");
+        \Vendor\Logger::flog("x");
+        \Logger::glog("x");
         namespace\Helper::nhelp();
+        Log\Writer::ilog("x");
+        LOG\Writer::clog("x");
+        Journal\Writer::alog("x");
     }
 }
 "#,
     );
     let receiver = |callee: &str| call(&raw.calls, callee).receiver.as_deref();
 
-    assert_eq!(receiver("qlog"), Some("Logger"));
-    assert_eq!(receiver("flog"), Some("Logger"));
-    assert_eq!(receiver("nhelp"), Some("Helper"));
+    assert_eq!(receiver("qlog"), Some("\\App\\Sub\\Logger"));
+    assert_eq!(receiver("flog"), Some("\\Vendor\\Logger"));
+    assert_eq!(receiver("glog"), Some("\\Logger"));
+    assert_eq!(receiver("nhelp"), Some("\\App\\Helper"));
+    assert_eq!(receiver("ilog"), Some("\\Other\\Log\\Writer"));
+    assert_eq!(receiver("clog"), Some("\\Other\\Log\\Writer"));
+    assert_eq!(receiver("alog"), Some("\\Other\\Log\\Writer"));
+}
+
+#[test]
+fn a_qualified_scope_outside_a_namespace_is_the_receiver_it_spells() {
+    let raw =
+        extract(b"<?php\nfunction go() { Sub\\Logger::qlog(); namespace\\Helper::nhelp(); }\n");
+    let receiver = |callee: &str| call(&raw.calls, callee).receiver.as_deref();
+
+    assert_eq!(receiver("qlog"), Some("\\Sub\\Logger"));
+    assert_eq!(receiver("nhelp"), Some("\\Helper"));
 }
 
 #[test]
