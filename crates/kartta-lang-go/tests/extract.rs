@@ -505,6 +505,77 @@ fn a_marshal_call_reaches_the_struct_fields_of_a_value_a_channel_yields() {
     }
 }
 
+fn ranged_one_name(declared: &str, parameter: &str, body: &str, ranged: &str) -> RawExtraction {
+    let source = format!(
+        "package b\n\ntype S struct {{\n\tName string\n}}\n\nfunc (s S) Run() {{}}\n\n{declared}\n\n\
+         func run({parameter}) {{\n\t{body}for v := range {ranged} {{\n\t\t\
+         _, _ = json.Marshal(v)\n\t\tv.Run()\n\t}}\n}}\n"
+    );
+    extract(source.as_bytes())
+}
+
+#[test]
+fn one_name_over_a_channel_holds_the_element() {
+    for (parameter, body, ranged) in [
+        ("h chan S", "", "h"),
+        ("h <-chan S", "", "h"),
+        ("h (chan S)", "", "h"),
+        ("h chan *S", "", "h"),
+        ("h chan S", "", "(h)"),
+        ("g chan S", "h := g\n\t", "h"),
+        ("", "h := make(chan S)\n\t", "h"),
+        ("", "var h chan S\n\t", "h"),
+        ("", "", "make(chan S)"),
+        ("g any", "", "g.(chan S)"),
+        ("h []chan S", "", "h[0]"),
+        ("h map[string]chan S", "", "h[\"a\"]"),
+    ] {
+        let raw = ranged_one_name("", parameter, body, ranged);
+
+        assert!(
+            qualified(&raw, "b.S.Name").flags.is_reflected(),
+            "{parameter} {body} {ranged}"
+        );
+        assert!(
+            calls(&raw)
+                .iter()
+                .any(|&(_, callee, receiver, _)| callee == "Run" && receiver == Some("S")),
+            "{parameter} {body} {ranged}"
+        );
+    }
+}
+
+#[test]
+fn one_name_stays_unread_where_the_walk_cannot_tell_a_channel_yields_it() {
+    for (declared, parameter, ranged) in [
+        ("", "h []S", "h"),
+        ("", "h [2]S", "h"),
+        ("", "h *[2]S", "h"),
+        ("", "h map[string]S", "h"),
+        ("", "h []chan S", "h"),
+        ("", "h map[string]chan S", "h"),
+        ("type H struct{ c chan S }", "h H", "h.c"),
+        ("func h() chan S { return nil }", "", "h()"),
+        ("type H chan S", "h H", "h"),
+        ("type H = chan S", "h H", "h"),
+        ("var h chan S", "", "h"),
+        ("", "h chan []S", "h"),
+    ] {
+        let raw = ranged_one_name(declared, parameter, "", ranged);
+
+        assert!(
+            !qualified(&raw, "b.S.Name").flags.is_reflected(),
+            "{declared} {parameter} {ranged}"
+        );
+        assert!(
+            !calls(&raw)
+                .iter()
+                .any(|&(_, callee, receiver, _)| callee == "Run" && receiver == Some("S")),
+            "{declared} {parameter} {ranged}"
+        );
+    }
+}
+
 #[test]
 fn a_type_switch_case_that_names_a_channel_reads_no_field_behind_it() {
     let raw = extract(
