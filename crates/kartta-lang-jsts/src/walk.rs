@@ -40,6 +40,9 @@ pub(crate) fn walk(tree: &Tree, source: &[u8]) -> RawExtraction {
     // seen every declaration
     emitter.locals.settle(&mut emitter.raw);
     let mut raw = emitter.raw;
+    if emitter.parameter_calls {
+        calls::settle_parameter_calls(&mut raw);
+    }
     for symbol in &mut raw.symbols {
         if symbol.owner.is_none() && emitter.exported_names.contains(&symbol.name) {
             symbol.exported = true;
@@ -136,8 +139,9 @@ enum Binding {
     /// A variable or a constant a body declares by one name, local to that body: a call of the name calls it.
     Local(SymbolId, Option<Held>),
     Module(Option<Held>),
-    /// A parameter of the one type its annotation or, with no annotation, the function type of its context spells.
-    Parameter(Span),
+    /// A parameter, of the one type its annotation or, with no annotation, the function type of its context spells: a
+    /// call of the name calls the value a caller passes.
+    Parameter(Option<Held>),
     Type,
     /// A name an import or a `require` binds, or a function or a class the module declares at its top level: a name
     /// taken as a value uses it, and a member taken of it keeps the name as its receiver.
@@ -173,6 +177,7 @@ struct Emitter<'s> {
     exported_ids: (Option<usize>, Option<usize>),
     exported_names: Vec<String>,
     file_is_generated: bool,
+    parameter_calls: bool,
     overloads: OverloadRun,
     raw: RawExtraction,
 }
@@ -195,6 +200,7 @@ impl<'s> Emitter<'s> {
             exported_ids: (None, None),
             exported_names: Vec::new(),
             file_is_generated: is_generated_source(source),
+            parameter_calls: false,
             overloads: OverloadRun::default(),
             raw: RawExtraction::default(),
         }
@@ -518,9 +524,10 @@ impl<'s> Emitter<'s> {
             let name = name.or_else(|| parameter_name(parameter));
             match name.zip(written.and_then(|written| self.parameter_type(written))) {
                 Some((name, typed)) => {
-                    self.declare(name.byte_range(), until, Binding::Parameter(typed));
+                    let held = Some(Held::Type(typed));
+                    self.declare(name.byte_range(), until, Binding::Parameter(held));
                 }
-                None => self.declare_pattern(parameter, until, Binding::Value),
+                None => self.declare_pattern(parameter, until, Binding::Parameter),
             }
         }
     }
