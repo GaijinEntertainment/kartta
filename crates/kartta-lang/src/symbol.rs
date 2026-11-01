@@ -323,7 +323,9 @@ pub struct Symbol {
     /// type names, after a `?` where an `Option`, a `Result` or a `Promise` holds it. Where they are
     /// [`Receivers::TypePaths`](crate::Receivers::TypePaths), a type defined over a named type records that type after
     /// a `~`, and a function type, defined or aliased, records its results after one `()` path, which tells them from
-    /// the path a type or an alias names. Under
+    /// the path a type or an alias names. Where they are
+    /// [`Receivers::InheritedFields`](crate::Receivers::InheritedFields), a field's is the class it holds, written from
+    /// the root, or a receiver the language lists for the caller's own type. Under
     /// [`ReceiverMembers::InheritedUpToAnyField`](crate::ReceiverMembers::InheritedUpToAnyField), one empty path marks a
     /// field that a class only declares and holds no value of.
     pub value_types: Vec<String>,

@@ -384,25 +384,140 @@ class Suite {
     );
 }
 
-#[test]
-fn a_write_from_a_parent_or_a_trait_is_outside_what_the_caller_reads() {
-    let base = r"<?php
+/// What `App\Child::run` calls, where `child` is the body of `Child`, which starts with `class Child extends Base` and
+/// holds its call on `$this->container`, `above` declares `Base` and more in a file of its own, and two classes hold
+/// `instance`.
+fn callees_of_a_child(above: &str, child: &str) -> Vec<String> {
+    let child = format!(
+        "<?php
 namespace App;
 
-class Base {
-    protected $container;
-    public function __construct() { $this->container = new Container; }
+class Child extends Base {{
+{child}
+}}
+"
+    );
+    let above = format!(
+        "<?php
+namespace App;
+
+class Container {{
+    public function instance($k) {{}}
+}}
+class Other {{
+    public function instance($k) {{}}
+}}
+{above}
+"
+    );
+    let files = [
+        ("src/Child.php", child.as_str()),
+        ("src/Base.php", above.as_str()),
+        COMPOSER,
+    ];
+    callees(&files, "App\\Child::run")
 }
-trait Holds {
-    private Container $container;
+
+const RUN: &str = "public function run() { $this->container->instance(1); }";
+const CONTAINER_INSTANCE: [&str; 1] = ["App\\Container::instance"];
+
+#[test]
+fn a_call_on_a_property_a_parent_gives_binds_the_class_in_another_file() {
+    for above in [
+        "class Base { protected Container $container; }",
+        "class Base { public ?Container $container; }",
+        "class Base { public function __construct(protected Container $container) {} }",
+        "class Base {
+             protected $container;
+             public function __construct() { $this->container = new Container; }
+         }",
+        "class Base {
+             protected $container;
+             public function __construct(Container $c) { $this->container = $c; }
+         }",
+        "class Top { protected Container $container; }
+         class Base extends Top {}",
+        "trait Holds { protected Container $container; }
+         class Base { use Holds; }",
+    ] {
+        assert_eq!(
+            callees_of_a_child(above, RUN),
+            CONTAINER_INSTANCE,
+            "{above}"
+        );
+    }
 }
-class Child extends Base {
+
+#[test]
+fn a_private_property_above_the_caller_s_class_binds_nothing() {
+    for above in [
+        "class Base { private Container $container; }",
+        "trait Holds { private Container $container; }
+         class Base { use Holds; }",
+        "class Top { protected Other $container; }
+         class Base extends Top { private Container $container; }",
+    ] {
+        assert_eq!(callees_of_a_child(above, RUN), [""; 0], "{above}");
+    }
+}
+
+#[test]
+fn a_private_property_of_a_trait_the_class_uses_binds_the_class() {
+    let trait_of_a_trait = "trait Inner { private Container $container; }
+                            trait Holds { use Inner; }
+                            class Base {}";
+    let trait_of_its_own = "trait Holds { private Container $container; }
+                            class Base {}";
+    let child = format!("use Holds;\n{RUN}");
+    for above in [trait_of_its_own, trait_of_a_trait] {
+        assert_eq!(
+            callees_of_a_child(above, &child),
+            CONTAINER_INSTANCE,
+            "{above}"
+        );
+    }
+}
+
+#[test]
+fn the_nearest_declaration_of_a_property_answers() {
+    let above = "class Top { protected Other $container; }
+                 class Base extends Top { protected Other $container; }";
+    assert_eq!(
+        callees_of_a_child(above, &format!("public Other $x;\n{RUN}")),
+        ["App\\Other::instance"],
+    );
+    let says_nothing = "class Top { protected Container $container; }
+                        class Base extends Top { protected $container; }";
+    assert_eq!(callees_of_a_child(says_nothing, RUN), [""; 0]);
+}
+
+#[test]
+fn a_property_of_a_parent_that_holds_no_class_binds_nothing() {
+    for above in [
+        "class Base { protected $container; }",
+        "class Base { protected string $container; }",
+        "class Base { protected $other; }",
+        "class Base {
+             protected $container;
+             public function __construct() { $this->container = new Container; $this->container = new Other; }
+         }",
+    ] {
+        assert_eq!(callees_of_a_child(above, RUN), [""; 0], "{above}");
+    }
+}
+
+#[test]
+fn a_parent_outside_the_graph_binds_nothing_on_a_property_it_may_hold() {
+    let child = "<?php
+namespace App;
+
+class Child extends \\Vendor\\Base {
     public function run() { $this->container->instance(1); }
 }
-class Using {
-    use Holds;
-    public function run() { $this->container->instance(1); }
-}
+";
+    let namesakes = "<?php
+namespace App;
+
 class Container {
     public function instance($k) {}
 }
@@ -410,12 +525,168 @@ class Other {
     public function instance($k) {}
 }
 ";
-    let files = [("src/Base.php", base), COMPOSER];
-    for caller in ["App\\Child::run", "App\\Using::run"] {
-        let reached = callees(&files, caller);
-        assert!(
-            !reached.contains(&"App\\Container::instance".to_owned()),
-            "{caller}: {reached:?}",
+    let files = [
+        ("src/Child.php", child),
+        ("src/Container.php", namesakes),
+        COMPOSER,
+    ];
+    assert_eq!(callees(&files, "App\\Child::run"), [""; 0]);
+}
+
+#[test]
+fn a_keyword_of_a_parent_s_property_names_the_class_it_names_there() {
+    let self_type = "class Base {
+                         protected self $container;
+                         public function instance($k) {}
+                     }";
+    let run = format!("public function instance($k) {{}}\n{RUN}");
+    assert_eq!(callees_of_a_child(self_type, &run), ["App\\Base::instance"]);
+    let parent_type = "class Top {
+                           public function instance($k) {}
+                       }
+                       class Base extends Top { protected parent $container; }";
+    assert_eq!(
+        callees_of_a_child(parent_type, &run),
+        ["App\\Top::instance"]
+    );
+    let created = "class Base {
+                       protected $container;
+                       public function instance($k) {}
+                       public function set() { $this->container = new static; }
+                   }";
+    assert_eq!(callees_of_a_child(created, &run), ["App\\Child::instance"]);
+}
+
+#[test]
+fn a_parent_s_static_property_binds_the_class_through_a_child_s_own_names() {
+    let above = "class Base { protected static Container $container; }";
+    for read in [
+        "self::$container->instance(1);",
+        "static::$container->instance(1);",
+        "Child::$container->instance(1);",
+    ] {
+        let child = format!("public function run() {{ {read} }}");
+        assert_eq!(
+            callees_of_a_child(above, &child),
+            CONTAINER_INSTANCE,
+            "{read}"
         );
     }
+}
+
+#[test]
+fn a_scoped_call_on_a_parent_s_property_binds_the_class() {
+    let above = "class Base { protected Container $container; }";
+    let child = "public function run() { $this->container::instance(1); }";
+    assert_eq!(callees_of_a_child(above, child), CONTAINER_INSTANCE);
+}
+
+#[test]
+fn a_property_named_as_a_method_of_the_parent_is_no_property() {
+    let above = "class Base {
+                     public function container() {}
+                     public function __construct(protected $other = null) {}
+                 }";
+    assert_eq!(callees_of_a_child(above, RUN), [""; 0]);
+}
+
+#[test]
+fn a_property_nothing_above_names_leaves_the_call_to_the_name_tiers() {
+    let child = "<?php
+namespace App;
+
+class Child extends Base {
+    public function run() { $this->container->only(1); }
+}
+";
+    let above = "<?php
+namespace App;
+
+class Base {}
+class Lone {
+    public function only($k) {}
+}
+";
+    let files = [("src/Child.php", child), ("src/Base.php", above), COMPOSER];
+    assert_eq!(callees(&files, "App\\Child::run"), ["App\\Lone::only"]);
+}
+
+#[test]
+fn a_property_nothing_above_names_is_no_receiver_a_namesake_of_the_caller_s_class_answers() {
+    let caller = "<?php
+class Base {}
+$x = new class extends Base {
+    public function run() { $this->container->only(); }
+};
+";
+    let namesake = "<?php
+$x = new class {
+    public function only() {}
+};
+";
+    let others = "<?php
+class One {
+    public function only() {}
+}
+class Two {
+    public function only() {}
+}
+";
+    let files = [
+        ("src/caller.php", caller),
+        ("src/namesake.php", namesake),
+        ("src/others.php", others),
+    ];
+    assert_eq!(callees(&files, "{x}::run"), [""; 0]);
+}
+
+#[test]
+fn a_property_of_an_anonymous_class_in_a_parent_is_not_the_parent_s() {
+    let above = "class Base {
+                     public function make() {
+                         return new class { public Container $container; };
+                     }
+                 }";
+    assert_eq!(callees_of_a_child(above, RUN), [""; 0]);
+}
+
+#[test]
+fn a_property_of_a_namesake_of_the_parent_in_its_file_is_not_the_parent_s() {
+    let child = "<?php
+namespace App;
+
+class Child extends Base {
+    public function run() { $this->container->instance(1); }
+}
+";
+    let above = "<?php
+namespace Elsewhere {
+    class Base { public \\App\\Container $container; }
+}
+namespace App {
+    class Container {
+        public function instance($k) {}
+    }
+    class Other {
+        public function instance($k) {}
+    }
+    class Base {}
+}
+";
+    let files = [("src/Child.php", child), ("src/Base.php", above), COMPOSER];
+    assert_eq!(callees(&files, "App\\Child::run"), [""; 0]);
+}
+
+#[test]
+fn a_cycle_of_parents_ends_the_read() {
+    let above = "class Base extends Child {}";
+    assert_eq!(callees_of_a_child(above, RUN), [""; 0]);
+}
+
+#[test]
+fn a_write_in_the_child_reads_ahead_of_a_parent_s_declaration() {
+    let above = "class Base { protected Other $container; }";
+    let child =
+        format!("public function __construct() {{ $this->container = new Container; }}\n{RUN}");
+    assert_eq!(callees_of_a_child(above, &child), CONTAINER_INSTANCE);
 }

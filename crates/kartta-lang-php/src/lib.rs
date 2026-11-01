@@ -24,7 +24,9 @@
 //! that still holds what a `new` assigned it records the class: the anonymous class's name, `$job->handle()` the
 //! receiver `{testRun·job}`, the name PHP compiles a written class to, from the root, `\App\Job`, or `self`, `static` or
 //! `parent`. A call on a property of `$this` records the class the property's declared type names, or else the one
-//! class the writes in its class's body give it, `\App\Pool` for `$this->pool->get()`. A qualified scope is the name
+//! class the writes in its class's body give it, `\App\Pool` for `$this->pool->get()`; a property a class with parents
+//! says nothing of records `->pool`, and a property with a class holds it from the root as its value type, for the graph
+//! to read up the parents. A qualified scope is the name
 //! PHP compiles it to, from the root: `Sub\Logger::log()` in the namespace `App` is the receiver `\App\Sub\Logger`. A
 //! qualified function call,
 //! `\App\run()`, and a construction, `new \App\User()`, call the last segment of the name. A construction of the alias
@@ -82,7 +84,8 @@
 use kartta_lang::path::has_extension;
 use kartta_lang::{
     BareReceivers, BlockComment, Conventions, DocComments, Language, OwnMembers, ParentSpelling,
-    RawExtraction, ReceiverMembers, Repository, Resolver, SymbolKind, TypeUses, UnlistedReceivers,
+    RawExtraction, ReceiverMembers, Receivers, Repository, Resolver, SymbolKind, TypeUses,
+    UnlistedReceivers,
 };
 
 use crate::resolve::Autoload;
@@ -122,6 +125,7 @@ const CONVENTIONS: Conventions = {
     conventions.constructor = Some(walk::CONSTRUCTOR);
     conventions.parent_spelling = ParentSpelling::FromRoot;
     conventions.receiver_members = ReceiverMembers::Inherited;
+    conventions.receivers = Receivers::InheritedFields;
     conventions.own_type_receivers = Some(&["$this", "self", "static"]);
     conventions.unlisted_receivers = UnlistedReceivers::OwnMemberAsGuess;
     conventions

@@ -1532,6 +1532,45 @@ impl Cascade<'_> {
         false
     }
 
+    // constraint: a child reads the table its parents gave it, so the nearest declaration is the property; a parent's
+    // private one stays behind in that parent, and the read names no slot of it (`zend_get_property_offset`,
+    // `Zend/zend_object_handlers.c`), while a trait's is copied into the class that uses it
+    // (`zend_do_traits_property_binding`, `Zend/zend_inheritance.c`), which a trait it uses in turn hands on
+    /// The class that the value type of the field `name` names, of the nearest type at or above the caller's class that
+    /// declares one, where the caller's class reads that field.
+    pub(crate) fn class_of_an_inherited_field(&self, call: &Call, name: &str) -> Option<Str> {
+        let named = self.named(self.graph.strings.get(name)?);
+        let class = self.class_of(call.caller_at())?;
+        let mut walked: HashSet<SymbolAt, FixedState> = HashSet::default();
+        walked.insert(class);
+        let mut level = vec![class];
+        let mut copied = level.clone();
+        while !level.is_empty() {
+            let declared = level
+                .iter()
+                .find_map(|&ty| Some((ty, self.field_declared_by(ty, named)?)));
+            if let Some((ty, field)) = declared {
+                return (self.graph.sym(field).exported() || copied.contains(&ty))
+                    .then(|| self.graph.file(field.file).value_types(field.index))
+                    .flatten();
+            }
+            copied = self.parents_of(&copied, |kind| kind == SymbolKind::Trait);
+            level = self.parents_of(&level, holds_a_body);
+            level.retain(|&ty| walked.insert(ty));
+        }
+        None
+    }
+
+    /// The field among `named` that the body of `ty` declares.
+    fn field_declared_by(&self, ty: SymbolAt, named: &[SymbolAt]) -> Option<SymbolAt> {
+        let symbol = self.graph.sym(ty);
+        let body = self.body(ty);
+        (self.graph.in_file(named, ty.file).iter().copied()).find(|&at| {
+            self.is_field_of(at, |owner| owner == symbol.name)
+                && body.contains(at.file, self.graph.sym(at).line)
+        })
+    }
+
     /// The class a receiver names: the caller's own for a receiver the language writes for a value of that type, else
     /// the class of the receiver's name nearest the call.
     fn receiver_class(&self, call: &Call, receiver: Str) -> Option<SymbolAt> {
