@@ -80,5 +80,8 @@ so cost per entry is the design pressure on every surface.
   structure or field, a new pass, a step whose complexity changes, or a new allocation or parse per item on the build
   path. Any other change states its added work instead: more records of an existing kind as their count times their
   size, and other work in one line.
+- A claim about how a language behaves comes from that language's compiler or specification, read or run, and cited.
+  Memory, kartta's own behavior and an issue's text are not evidence. A source that does not settle the claim is stated
+  as unsettled.
 
 </constraints>
