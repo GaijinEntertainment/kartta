@@ -1788,6 +1788,52 @@ func (w *Widget) Run(param Server) {
 }
 
 #[test]
+fn a_call_of_a_local_spells_a_value_apart_from_a_conversion_to_its_type() {
+    let raw = extract(
+        br#"package p
+
+import "example.com/pkg"
+
+func (r Recv) F(g G, q pkg.G) {
+	g().A()
+	q().B()
+	r().C()
+	G(g).D()
+	pkg.G(q).E()
+	s := g
+	s().I()
+	one, two := g()
+	two.J()
+	_ = one
+	type L func() E
+	L(g).K()
+}
+"#,
+    );
+
+    let calls = receivers(&raw);
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|(callee, _)| callee.len() == 1
+                && callee.as_bytes()[0] >= b'A'
+                && *callee != "G")
+            .copied()
+            .collect::<Vec<_>>(),
+        [
+            ("A", Some("G~()")),
+            ("B", Some("pkg.G~()")),
+            ("C", Some("Recv~()")),
+            ("D", Some("G()")),
+            ("E", Some("pkg.G()")),
+            ("I", Some("G~()")),
+            ("J", Some("G~()#1")),
+            ("K", Some("")),
+        ]
+    );
+}
+
+#[test]
 fn a_local_s_type_path_follows_how_its_declaration_gives_the_value() {
     let raw = extract(
         br#"package p
