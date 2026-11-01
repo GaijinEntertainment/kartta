@@ -401,7 +401,7 @@ impl Emitter<'_> {
         if receiver_node.is_none() && passes_nothing(node) {
             self.plain_call(node, site_of);
         }
-        self.raw.calls.push(CallRef {
+        let mut call = CallRef {
             site_of,
             callee,
             receiver,
@@ -409,7 +409,19 @@ impl Emitter<'_> {
             invokes_a_macro: false,
             calls_a_method: false,
             arguments: 0,
-        });
+        };
+        // constraint: a call in a target of a write sends the setter alone (`attrset`, parse.y:13717), and an operator
+        // write sends the reader first and then the setter (`compile_op_asgn2`, compile.c:9575)
+        if matches!(role(node), Role::Binding) {
+            if node
+                .parent()
+                .is_some_and(|parent| parent.kind() == "operator_assignment")
+            {
+                self.raw.calls.push(call.clone());
+            }
+            call.callee.push('=');
+        }
+        self.raw.calls.push(call);
     }
 
     // constraint: `method(:render)`, `send(:render)` and their kin name a method by a symbol, of the object's own type

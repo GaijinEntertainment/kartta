@@ -42,6 +42,11 @@
 //! makes, in a class method, an instance of the owner, so `new.getopts` there records `Geo::Shape`. A call outside
 //! every method and type is a call from file scope, before the file's first symbol too.
 //!
+//! An attribute write is a call of the setter, `b=` for `a.b = c`, in every target Ruby assigns to: an assignment, a
+//! list or a splat of one, `for` and `rescue =>`. An operator write, `a.b += c` or `a.b ||= c`, calls the reader and
+//! the setter. A setter on a value, a receiver that names no type, binds only as a guess. An index write, `a[1] = 2`, is
+//! a call of `[]=` in Ruby, and the walk records no call of `[]` or `[]=`.
+//!
 //! A bare name, `setup`, is a call with no receiver unless it reads a local variable, as Ruby decides: a binding of the
 //! name earlier in the source, in the same `def` or body of a class, a module or a `class << x`, or in a block or a
 //! lambda around it, makes it a local. A parameter of any kind, an assignment, a `for` target, a `rescue => e`, a
@@ -135,6 +140,7 @@ const CONVENTIONS: Conventions = {
     conventions.inherited_members = InheritedMembers::Admitted;
     conventions.owner_chain_separator = Some("::");
     conventions.class_member_separator = Some(walk::CLASS_MEMBER_SEPARATOR);
+    conventions.setter_suffix = Some('=');
     conventions.own_type_receivers = Some(&["other"]);
     conventions.bare_receivers = BareReceivers::Constants;
     conventions.type_uses = TypeUses::Nowhere;
