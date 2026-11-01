@@ -243,6 +243,7 @@ lost, and what would reopen it.
 - [3.199 Read a PHP variable's class from the `new`, the type or the `instanceof` the walk can show it still holds](/design-docs/adr/3.199-php-variable-classes.md)
 - [3.202 Read a PHP property's class from its declared type, else from the writes its class's body makes](/design-docs/adr/3.202-php-property-classes.md)
 - [3.203 Read a PHP property a class's own body leaves open up its parents at resolve time](/design-docs/adr/3.203-php-inherited-properties.md)
+- [3.204 Read a PHP value in parentheses as the value inside, and a call on a `new` as a call on its class](/design-docs/adr/3.204-php-parenthesized-values.md)
 
 ## crates/kartta-languages
 
