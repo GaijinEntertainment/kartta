@@ -4,8 +4,8 @@ use std::rc::Rc;
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    BareReceivers, CallsOnValues, InheritedMembers, MemberCalls, ReceiverMembers, SymbolKind,
-    UnlistedReceivers, UntypedOwners, ValueUses,
+    BareReceivers, CallsOnValues, InheritedMembers, MemberCalls, ParentSpelling, ReceiverMembers,
+    SymbolKind, UnlistedReceivers, UntypedOwners, ValueUses,
 };
 
 use crate::candidates::Candidates;
@@ -1394,6 +1394,10 @@ impl Cascade<'_> {
         candidates: &Candidates<'_>,
     ) -> Option<SymbolAt> {
         let receiver = self.named_receiver(call)?;
+        if let Some(class) = self.class_from_the_root(call, receiver) {
+            return (self.held_by(class, candidates))
+                .or_else(|| self.member_above(class, candidates));
+        }
         if let Some(at) = self.member_above_the_receiver_s_class(call, receiver, candidates) {
             return Some(at);
         }
@@ -1423,9 +1427,22 @@ impl Cascade<'_> {
         self.nearest(call, std::iter::once(first).chain(ending))
     }
 
-    // constraint: an interface hands a class only a declaration, which a body any type above the class holds fulfils
-    // however far up it stands, and an interface of a parent's name is no parent where a class of that name stands as
-    // near, so the walk over the types that hold bodies goes first
+    /// The type of exactly the qualified name a receiver spells from the root, under [`ParentSpelling::FromRoot`]; the
+    /// nearest where copies of the tree hold it, and `None` for a class outside the tree and for any other receiver.
+    pub(crate) fn class_from_the_root(&self, call: &Call, receiver: Str) -> Option<SymbolAt> {
+        if self.conventions.parent_spelling != ParentSpelling::FromRoot {
+            return None;
+        }
+        let strings = &self.graph.strings;
+        let written = strings.resolve(receiver);
+        let written = written.strip_prefix(QUALIFIER_SEPARATORS)?;
+        let types: Vec<SymbolAt> = self
+            .qualified_as(strings.get(written)?)
+            .filter(|&at| derives(self.graph.sym(at).kind))
+            .collect();
+        self.nearest_of(call, types.into_iter())
+    }
+
     /// What [`ReceiverMembers::Inherited`] binds: the member of the name that the nearest type above the receiver's
     /// class holds, where the class holds none itself.
     fn member_above_the_receiver_s_class(
@@ -1441,6 +1458,13 @@ impl Cascade<'_> {
         if self.held_by(class, candidates).is_some() {
             return None;
         }
+        self.member_above(class, candidates)
+    }
+
+    // constraint: an interface hands a class only a declaration, which a body any type above the class holds fulfils
+    // however far up it stands, and an interface of a parent's name is no parent where a class of that name stands as
+    // near, so the walk over the types that hold bodies goes first
+    fn member_above(&self, class: SymbolAt, candidates: &Candidates<'_>) -> Option<SymbolAt> {
         let walk = |admitted: fn(SymbolKind) -> bool| {
             let parents = self.parents_of(&[class], admitted);
             self.nearest_holder((class, parents), candidates, admitted)
