@@ -3876,6 +3876,30 @@ fn a_language_whose_unlisted_receivers_guess_binds_one_at_the_guess_tier() {
 }
 
 #[test]
+fn a_language_that_keeps_its_unlisted_receivers_binds_one_at_the_owner_tier() {
+    let mut conventions = Conventions::default();
+    conventions.own_type_receivers = Some(&["this"]);
+    conventions.unlisted_receivers = UnlistedReceivers::OwnMember;
+    let graph = graph_of(
+        conventions,
+        &[
+            file(
+                "a/x.nut",
+                vec![member("Pool", "run", SymbolKind::Method, 1)],
+                vec![member_call(0, "conn", "drain", 2)],
+            ),
+            file(
+                "b/y.nut",
+                vec![member("Pool", "drain", SymbolKind::Method, 1)],
+                Vec::new(),
+            ),
+        ],
+    );
+
+    assert_eq!(callees(&graph, "Pool::run"), ["b/y.nut:1@80"]);
+}
+
+#[test]
 fn a_member_call_of_a_runtime_method_binds_the_one_callable_whose_owner_its_receiver_spells() {
     let mut conventions = Conventions::default();
     conventions.runtime_methods = &["push"];

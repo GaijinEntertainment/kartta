@@ -1533,10 +1533,12 @@ impl Cascade<'_> {
             ),
             None => self.nearest(call, owned),
         }?;
-        let tier = if listed {
-            confidence::SAME_FILE
-        } else {
+        let guess =
+            !listed && self.conventions.unlisted_receivers == UnlistedReceivers::OwnMemberAsGuess;
+        let tier = if guess {
             confidence::FIRST_PARTY
+        } else {
+            confidence::SAME_FILE
         };
         Some((at, tier))
     }
