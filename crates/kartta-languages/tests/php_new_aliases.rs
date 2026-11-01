@@ -124,10 +124,13 @@ fn holders(name: &str) -> Vec<String> {
 }
 
 #[test]
-fn a_new_of_an_alias_binds_the_constructor_of_the_class_it_imports() {
+fn a_new_of_an_alias_binds_the_class_it_imports_and_the_constructor() {
     assert_eq!(
         callees("T\\Make::own"),
-        [("A\\B::__construct".to_owned(), 85)]
+        [
+            ("A\\B".to_owned(), 85),
+            ("A\\B::__construct".to_owned(), 85)
+        ]
     );
 }
 
@@ -135,7 +138,10 @@ fn a_new_of_an_alias_binds_the_constructor_of_the_class_it_imports() {
 fn a_new_of_an_alias_binds_the_constructor_the_class_inherits() {
     assert_eq!(
         callees("T\\Make::inherited"),
-        [("A\\B::__construct".to_owned(), 85)]
+        [
+            ("A\\B::__construct".to_owned(), 85),
+            ("A\\Child".to_owned(), 85)
+        ]
     );
 }
 
@@ -146,7 +152,10 @@ fn a_new_of_an_alias_of_an_outside_class_binds_no_class_of_the_alias_s_name() {
 
 #[test]
 fn a_new_of_a_class_that_has_no_constructor_binds_no_other_class_s_constructor() {
-    assert_eq!(callees("T\\Make::noConstructor"), []);
+    assert_eq!(
+        callees("T\\Make::noConstructor"),
+        [("A\\Plain".to_owned(), 85)]
+    );
 }
 
 #[test]

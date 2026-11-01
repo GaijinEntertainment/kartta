@@ -398,13 +398,21 @@ impl<'s> Emitter<'s> {
     }
 
     // constraint: a qualified scope names the class from the root as an alias does, so a namesake of its last name
-    // never answers it
+    // never answers it; a method of the class's own last name goes by that last name, because the graph reads a call of
+    // that name on the class from the root as a `new`
     fn class_from_the_root(&self, call: Node<'_>) -> Option<String> {
         let scope = call.child_by_field_name("scope")?;
-        match scope.kind() {
-            "qualified_name" | "relative_name" => Some(format!("\\{}", self.class_name(scope))),
-            _ => self.aliased_class(scope),
-        }
+        let class = match scope.kind() {
+            "qualified_name" | "relative_name" => format!("\\{}", self.class_name(scope)),
+            _ => self.aliased_class(scope)?,
+        };
+        let method = call.child_by_field_name("name")?;
+        let last = last_name(&class);
+        Some(if last.as_bytes() == &self.source[method.byte_range()] {
+            last.to_owned()
+        } else {
+            class
+        })
     }
 
     // constraint: a class takes its `extends` and `implements` names as parents, and an interface its `extends` names,
@@ -1077,8 +1085,8 @@ impl<'s> Emitter<'s> {
     }
 
     // constraint: `new self`, `new static` and `new parent` name no class; the grammar parses `static` as a plain name;
-    // `new` of a name a `use ... as` binds runs the constructor of the class it imports, which that class's table holds
-    // (`zend_compile_new`, `Zend/zend_compile.c`)
+    // any other `new` names the class PHP compiles the name to and runs the constructor that class's table holds, or
+    // none, so a construction is a call of each on the class from the root (`zend_compile_new`, `Zend/zend_compile.c`)
     fn object_creation(&mut self, node: Node<'_>) {
         if let Some(class) = named_child_nodes(node).find(|child| child.kind() == "anonymous_class")
         {
@@ -1093,18 +1101,9 @@ impl<'s> Emitter<'s> {
         if scope_keyword(&self.source[created.byte_range()]).is_some() {
             return;
         }
-        if let Some(class) = self.aliased_class(created) {
-            self.call(CONSTRUCTOR.to_owned(), Some(class), node);
-            return;
-        }
-        let class = if created.kind() == "name" {
-            Some(text(created, self.source))
-        } else {
-            last_segment(created, self.source)
-        };
-        if let Some(class) = class {
-            self.call(class, None, node);
-        }
+        let class = format!("\\{}", self.class_name(created));
+        self.call(last_name(&class).to_owned(), Some(class.clone()), node);
+        self.call(CONSTRUCTOR.to_owned(), Some(class), node);
     }
 
     // constraint: `new self` and `new parent` create a class of the class around them and `new static` one of the class

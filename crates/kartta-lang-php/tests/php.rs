@@ -290,14 +290,17 @@ fn member_and_static_calls_record_their_receivers() {
 }
 
 #[test]
-fn a_construction_calls_the_class_by_its_bare_name() {
+fn a_construction_calls_the_class_on_its_name_from_the_root() {
     let raw = extract(SAMPLE);
 
     assert_eq!(
         call(&raw.calls, "Widget").site_of,
         id_of(&raw.symbols, "App\\Service\\Service::secret")
     );
-    assert_eq!(call(&raw.calls, "User").receiver, None);
+    assert_eq!(
+        call(&raw.calls, "User").receiver.as_deref(),
+        Some("\\App\\Models\\User")
+    );
     assert!(raw.calls.iter().all(|call| call.callee != "$factory"));
 }
 
@@ -319,11 +322,11 @@ class Foo extends Bar {
 ",
     );
 
-    assert_eq!(callees(&raw.calls), ["Widget"]);
+    assert_eq!(callees(&raw.calls), ["Widget", "__construct"]);
 }
 
 #[test]
-fn a_construction_of_an_alias_calls_the_constructor_of_the_class_it_imports() {
+fn a_construction_calls_the_class_and_the_constructor_php_compiles_the_name_to() {
     let raw = extract(
         br"<?php
 namespace App;
@@ -344,10 +347,14 @@ class Foo {
     assert_eq!(
         calls,
         [
+            ("Pool", Some("\\Other\\Pool")),
             ("__construct", Some("\\Other\\Pool")),
+            ("Pool", Some("\\Other\\Pool")),
             ("__construct", Some("\\Other\\Pool")),
-            ("Client", None),
-            ("Clients", None),
+            ("Client", Some("\\Other\\Client")),
+            ("__construct", Some("\\Other\\Client")),
+            ("Clients", Some("\\App\\Sub\\Clients")),
+            ("__construct", Some("\\App\\Sub\\Clients")),
         ]
     );
 }
@@ -481,7 +488,7 @@ include "$base/x.php";
     );
 
     assert_eq!(symbol(&extraction.symbols, "C").parents, ["Base"]);
-    assert_eq!(callees(&extraction.calls), ["X", "helper"]);
+    assert_eq!(callees(&extraction.calls), ["X", "__construct", "helper"]);
     assert_eq!(includes(&extraction), Vec::<&str>::new());
 }
 
