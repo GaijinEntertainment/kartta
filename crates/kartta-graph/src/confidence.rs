@@ -34,8 +34,8 @@ pub const RECEIVER: u8 = 85;
 /// receiver that names no owner.
 ///
 /// The caller's owner binds only once the scope tiers bind nothing, and where a language lists
-/// [`kartta_lang::Conventions::own_type_receivers`], only on one of those receivers, or else at [`FIRST_PARTY`] where
-/// its [`kartta_lang::Conventions::unlisted_receivers`] guess.
+/// [`kartta_lang::Conventions::own_type_receivers`], off that list only as its
+/// [`kartta_lang::Conventions::unlisted_receivers`] say: nowhere, at [`FIRST_PARTY`] as a guess, or here.
 ///
 /// A call on a bare name that the language writes only for a class, of which the graph holds no type, binds neither
 /// here nor at any tier below the include tiers.
