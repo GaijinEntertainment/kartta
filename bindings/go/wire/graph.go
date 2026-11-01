@@ -82,7 +82,8 @@ type Walk struct {
 	Unexpanded int `json:"unexpanded"`
 	// BelowConfidence counts the calls under the confidence floor.
 	BelowConfidence int `json:"below_confidence"`
-	// Unresolved counts the calls that bound no symbol the graph holds.
+	// Unresolved counts the calls that bound no symbol the graph holds, a
+	// construction of a class outside the graph as one.
 	Unresolved int `json:"unresolved"`
 	// Ambiguous counts, for a walk over callers, the calls of the root's name that bound no definition because several
 	// definitions of the name may be meant: any of them may call the root, and none is among Reached. It is the root's

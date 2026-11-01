@@ -422,7 +422,7 @@ export type Walk = {
 	unexpanded: number;
 	/** The calls under the confidence floor. */
 	below_confidence: number;
-	/** The calls that bound no symbol the graph holds. */
+	/** The calls that bound no symbol the graph holds, a construction of a class outside the graph as one. */
 	unresolved: number;
 	/**
 	 * For a walk over callers, the calls of the root's name that bound no definition because several definitions of the

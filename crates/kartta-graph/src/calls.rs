@@ -99,7 +99,8 @@ pub struct Walk<'g> {
     /// callers also counts the files of [`file_scope`](Self::file_scope) the floor left out.
     pub below_confidence: usize,
     /// The calls at the symbols a walk over callees expanded that bound no definition the graph holds: calls into
-    /// code outside it, and calls the cascade could not tell apart. A walk over callers counts none.
+    /// code outside it, and calls the cascade could not tell apart. A construction of a class outside the graph is one
+    /// such call, whatever the language records for its constructor. A walk over callers counts none.
     pub unresolved: usize,
     /// The calls of the root's name that bound no definition because several definitions of the name may be meant and
     /// none is nearer, made as a call of the root can be made: through a receiver for a member, and for a free
@@ -934,7 +935,8 @@ impl<'g> Calls<'g> {
         for site in sites {
             let call = self.cascade.call(site);
             let Ok((callee, confidence)) = self.cascade.resolve_call(&call) else {
-                self.unresolved += 1;
+                self.unresolved +=
+                    usize::from(!self.cascade.constructs_outside_the_graph(site, &call));
                 continue;
             };
             let callable = self.cascade.canonical(callee);

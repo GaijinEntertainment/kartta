@@ -97,7 +97,8 @@ pub struct Unbound<'g> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Resolution<'g> {
-    /// The call sites resolved: every call and every local call inside a definition.
+    /// The call sites resolved: every call and every local call inside a definition, but for the constructor's call of
+    /// a construction of a class outside the graph, whose call of the class is the site.
     pub sites: usize,
     /// The sites that bound a definition, by the [`confidence`](crate::confidence) of the tier that bound them, the
     /// surest first, every confidence no site bound at left out.
@@ -210,7 +211,8 @@ impl<'g> Tally<'g> {
         let calls = (0..file.calls.len()).map(|index| Entry::Call(narrow(index)));
         let local_calls = (0..file.local_calls.len()).map(|index| Entry::LocalCall(narrow(index)));
         for entry in calls.chain(local_calls) {
-            let call = cascade.call(Site::new(slot, entry));
+            let site = Site::new(slot, entry);
+            let call = cascade.call(site);
             match cascade.resolve_call(&call) {
                 Ok((callee, confidence)) => {
                     self.bound[usize::from(confidence)] += 1;
@@ -218,6 +220,7 @@ impl<'g> Tally<'g> {
                     let twins = cascade.twins(&call, (callee, confidence));
                     pairs.extend(twins.into_iter().map(|twin| (call.caller, twin)));
                 }
+                Err(_) if cascade.constructs_outside_the_graph(site, &call) => {}
                 Err(miss) => self.miss(miss, &call),
             }
         }
