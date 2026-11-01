@@ -1,5 +1,5 @@
-//! What class a PHP call on a variable records as its receiver: the one a `new` last assigned the variable, where the
-//! file alone settles that the variable still holds it.
+//! What class a PHP call on a variable records as its receiver: the one a `new` last assigned the variable or its
+//! parameter's type declares, where the file alone settles that the variable still holds it.
 
 use kartta_lang::Language;
 use kartta_lang_php::Php;
@@ -10,9 +10,14 @@ const UNTYPED: Option<&str> = Some("$v");
 
 /// The receiver of the call of `name` in `body`, which runs in a method of `Suite` in the namespace `App`.
 fn receiver(body: &str, name: &str) -> Option<String> {
+    receiver_given("$a", body, name)
+}
+
+/// The receiver of the call of `name` in `body`, which runs in a method of `Suite` that declares `parameters`.
+fn receiver_given(parameters: &str, body: &str, name: &str) -> Option<String> {
     let source = format!(
         "<?php\nnamespace App;\nuse Other\\Client;\nuse Other\\Pool as Clients;\nclass Suite extends Base {{\n    \
-         public function run($a) {{\n{body}\n    }}\n}}\n"
+         public function run({parameters}) {{\n{body}\n    }}\n}}\n"
     );
     let raw = Php::new().extract(source.as_bytes());
     raw.calls
@@ -293,4 +298,203 @@ $v->top();
         assert_eq!(receiver(name), UNTYPED, "{name}");
     }
     assert_eq!(receiver("top"), Some("\\Local"));
+}
+
+#[test]
+fn a_parameter_holds_the_class_its_type_names_as_php_compiles_it() {
+    for (parameter, class) in [
+        ("Local $v", "\\App\\Local"),
+        ("\\App\\Local $v", "\\App\\Local"),
+        ("namespace\\Local $v", "\\App\\Local"),
+        ("Client $v", "\\Other\\Client"),
+        ("client $v", "\\Other\\Client"),
+        ("Clients $v", "\\Other\\Pool"),
+        ("Client\\Part $v", "\\Other\\Client\\Part"),
+        ("\\Exception $v", "\\Exception"),
+        ("#[Attribute] Local $v", "\\App\\Local"),
+        ("Local &$v", "\\App\\Local"),
+    ] {
+        assert_eq!(
+            receiver_given(parameter, "$v->m();", "m").as_deref(),
+            Some(class),
+            "{parameter}",
+        );
+    }
+}
+
+#[test]
+fn null_in_a_type_takes_nothing_from_the_class_a_call_can_run_on() {
+    for parameter in [
+        "?Local $v",
+        "Local|null $v",
+        "null|Local $v",
+        "Local $v = null",
+    ] {
+        assert_eq!(
+            receiver_given(parameter, "$v->m();", "m").as_deref(),
+            LOCAL,
+            "{parameter}",
+        );
+    }
+}
+
+#[test]
+fn a_scope_keyword_in_a_type_names_the_class_as_a_static_call_does() {
+    for (parameter, keyword) in [
+        ("self $v", "self"),
+        ("?self $v", "self"),
+        ("parent $v", "parent"),
+        ("SELF $v", "self"),
+    ] {
+        assert_eq!(
+            receiver_given(parameter, "$v->m();", "m").as_deref(),
+            Some(keyword),
+            "{parameter}",
+        );
+    }
+}
+
+#[test]
+fn a_type_that_settles_no_one_class_leaves_the_variable() {
+    for parameter in [
+        "$v",
+        "int $v",
+        "string $v",
+        "array $v",
+        "object $v",
+        "mixed $v",
+        "callable $v",
+        "iterable $v",
+        "?int $v",
+        "int|null $v",
+        "Local|Far $v",
+        "Local|Far|null $v",
+        "Local&Far $v",
+        "(Local&Far)|null $v",
+        "Local ...$v",
+    ] {
+        assert_eq!(
+            receiver_given(parameter, "$v->m();", "m").as_deref(),
+            UNTYPED,
+            "{parameter}",
+        );
+    }
+}
+
+#[test]
+fn a_promoted_parameter_holds_its_class_in_the_constructor() {
+    for parameter in [
+        "private Local $v",
+        "public readonly ?Local $v",
+        "protected Local &$v",
+    ] {
+        assert_eq!(
+            receiver_given(parameter, "$v->m();", "m").as_deref(),
+            LOCAL,
+            "{parameter}",
+        );
+    }
+}
+
+#[test]
+fn every_write_to_a_parameter_ends_its_class() {
+    for write in [
+        "$v = $a;",
+        "$v ??= new Far;",
+        "$v = &$a;",
+        "[$v] = $a;",
+        "unset($v);",
+        "foreach ($a as $v) {}",
+        "try { f(); } catch (E $v) {}",
+        "$f = function () use (&$v) {};",
+        "if ($a) { $v = $a; }",
+    ] {
+        let body = format!("{write} $v->m();");
+        assert_eq!(
+            receiver_given("Local $v, $a", &body, "m").as_deref(),
+            UNTYPED,
+            "{write}",
+        );
+    }
+}
+
+#[test]
+fn a_parameter_holds_its_class_through_its_function_up_to_a_write() {
+    let parameters = "Local $v, $a";
+    for body in [
+        "if ($a) { $v->m(); }",
+        "$v->m(); $v = $a;",
+        "$v = $v->m();",
+        "$v->p = 1; $v->m();",
+        "$v['k'] = 1; $v->m();",
+    ] {
+        assert_eq!(
+            receiver_given(parameters, body, "m").as_deref(),
+            LOCAL,
+            "{body}",
+        );
+    }
+    assert_eq!(
+        receiver_given(parameters, "$v = new Far; $v->m();", "m").as_deref(),
+        FAR,
+    );
+}
+
+#[test]
+fn a_closure_and_an_arrow_function_hold_their_own_parameters() {
+    for (body, class) in [
+        ("$f = function (Local $v) { $v->m(); };", LOCAL),
+        ("f(function (Local $v) { $v->m(); });", LOCAL),
+        ("$f = fn (Local $v) => $v->m();", LOCAL),
+        ("$f = fn (Far $v) => fn (Local $v) => $v->m();", LOCAL),
+        ("$v = new Far; $f = fn (Local $v) => $v->m();", LOCAL),
+        ("$v = new Far; $f = fn ($v) => $v->m();", UNTYPED),
+    ] {
+        assert_eq!(receiver(body, "m").as_deref(), class, "{body}");
+    }
+}
+
+#[test]
+fn a_closure_and_an_arrow_function_take_a_parameter_of_the_function_around_them() {
+    let parameters = "Local $v, $a";
+    for body in [
+        "$f = function () use ($v) { $v->m(); };",
+        "$f = fn () => $v->m();",
+    ] {
+        assert_eq!(
+            receiver_given(parameters, body, "m").as_deref(),
+            LOCAL,
+            "{body}",
+        );
+    }
+    assert_eq!(
+        receiver_given(parameters, "$f = function () { $v->m(); };", "m").as_deref(),
+        UNTYPED,
+    );
+}
+
+#[test]
+fn a_free_function_holds_its_parameters() {
+    let raw = Php::new().extract(b"<?php\nfunction free(Local $v) { $v->m(); }\n");
+    assert_eq!(raw.calls[0].receiver.as_deref(), Some("\\Local"));
+}
+
+#[test]
+fn a_parameter_is_its_function_s_own() {
+    let source = b"<?php
+function one(Local $v) {}
+function two() { $v->m(); }
+class Suite {
+    public function three(Local $v) { $o = new class { public function in() { $v->n(); } }; }
+}
+";
+    let raw = Php::new().extract(source);
+    for name in ["m", "n"] {
+        let call = raw.calls.iter().find(|call| call.callee == name);
+        assert_eq!(
+            call.and_then(|call| call.receiver.as_deref()),
+            UNTYPED,
+            "{name}",
+        );
+    }
 }

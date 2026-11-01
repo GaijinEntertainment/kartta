@@ -1,6 +1,6 @@
 //! What a PHP member call binds of the caller's own class: `$this`, `self` and `static` bind its member at the caller's
-//! owner tier, and a variable, whose type the graph does not follow, binds it only as a guess. A constant is no call's
-//! target through any of them.
+//! owner tier, and a variable the walk reads no class of binds it only as a guess. A constant is no call's target
+//! through any of them.
 #![expect(
     clippy::expect_used,
     reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and the build helpers of an integration \
@@ -32,7 +32,7 @@ const LISTENER: &str = r"<?php
 class Listener { public function preFoo() {} }
 class DispatchTest {
   private const preFoo = 'preFoo';
-  public function run(Listener $test) { $test->preFoo(); }
+  public function run($test) { $test->preFoo(); }
 }
 ";
 
