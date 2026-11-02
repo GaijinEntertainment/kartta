@@ -5,7 +5,8 @@ usage() {
   cat <<'USAGE'
 usage: scripts/dist.sh <target>   build the release artifacts of <target> into <target directory>/artifacts
 
-Writes kartta-mcp-<version>-<target>.tar.gz and kartta-ffi-<version>-<target>.tar.gz.
+Writes kartta-mcp-<version>-<target>.tar.gz and kartta-ffi-<version>-<target>.tar.gz, and fails when the second does
+not link as its WIRE.md states.
 USAGE
 }
 
@@ -55,3 +56,8 @@ cargo rustc --locked --profile dist --target "$target" -p kartta-ffi --crate-typ
 
 pack "kartta-mcp-$version-$target" "$built/$binary"
 pack "kartta-ffi-$version-$target" "$built/$archive" crates/kartta-ffi/include/kartta.h crates/kartta-ffi/WIRE.md
+
+mkdir -p "$out/check"
+tar -xzf "$out/kartta-ffi-$version-$target.tar.gz" -C "$out/check" --strip-components=1
+scripts/link-check.sh "$target" "$out/check"
+rm -r "$out/check"
