@@ -1445,10 +1445,19 @@ fn closing_row_of_the_class_it_opens(error: Node<'_>, source: &[u8]) -> Option<u
 // macro can sit under a conditional's branch, an artifact of a conditional the second parse takes apart included
 /// Whether a member of `body`, or of a conditional `body` holds, is one whose macro the grammar reads as its type.
 fn holds_a_misread_member(body: Node<'_>, source: &[u8]) -> bool {
-    body.children(&mut body.walk()).any(|member| {
-        misreads_a_members_macro(member, source)
-            || (member.kind().starts_with("preproc_") && holds_a_misread_member(member, source))
-    })
+    let mut waiting = Vec::new();
+    let mut next = Some(body);
+    while let Some(body) = next.take().or_else(|| waiting.pop()) {
+        for member in body.children(&mut body.walk()) {
+            if misreads_a_members_macro(member, source) {
+                return true;
+            }
+            if member.kind().starts_with("preproc_") {
+                waiting.push(member);
+            }
+        }
+    }
+    false
 }
 
 fn misreads_a_members_macro(member: Node<'_>, source: &[u8]) -> bool {
