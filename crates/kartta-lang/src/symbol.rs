@@ -53,8 +53,8 @@ pub enum SymbolKind {
 }
 
 impl SymbolKind {
-    /// Every kind, in the order the enum declares them.
-    pub const ALL: [Self; 15] = [
+    /// Every kind, in the order the enum declares them: a slice, whose type a new kind leaves as it is.
+    pub const ALL: &[Self] = &[
         Self::Function,
         Self::Method,
         Self::Class,

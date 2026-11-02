@@ -368,7 +368,8 @@ impl DeadCodeParams {
 
 fn kind_labelled(label: &str) -> Result<SymbolKind, Error> {
     SymbolKind::ALL
-        .into_iter()
+        .iter()
+        .copied()
         .find(|kind| kind.label() == label)
         .ok_or_else(|| {
             let known: Vec<&str> = SymbolKind::ALL.iter().map(|kind| kind.label()).collect();
