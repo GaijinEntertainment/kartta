@@ -14,4 +14,8 @@
 //
 //	go get dev.gaijin.team/go/kartta@vX.Y.Z
 //	CGO_LDFLAGS=-L<directory of libkartta_ffi.a> go build
+//
+// On Windows cgo needs MinGW-w64's gcc, whose linker refuses the x86_64-pc-windows-msvc archive, so the module links
+// libkartta_ffi.a from the release's kartta-ffi-X.Y.Z-x86_64-pc-windows-gnu.tar.gz. In a checkout, cargo build -p
+// kartta-ffi --target x86_64-pc-windows-gnu builds it into target/x86_64-pc-windows-gnu/debug.
 package kartta
