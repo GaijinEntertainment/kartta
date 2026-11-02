@@ -391,40 +391,40 @@ impl<'a> Emitter<'a> {
 
     // constraint: an attribute or a subscript target binds no name, and a default value or an annotation is no target
     fn bind(&mut self, target: Node<'_>, binding: Binding) {
-        match target.kind() {
-            IDENTIFIER => {
-                if let Some(frame) = self.frames.last_mut() {
-                    frame
-                        .bindings
-                        .push((&self.source[target.byte_range()], binding));
-                } else {
-                    self.bind_in_module(target, binding);
+        let mut waiting = Vec::new();
+        let mut next = Some(target);
+        while let Some(target) = next.take().or_else(|| waiting.pop()) {
+            match target.kind() {
+                IDENTIFIER => self.bind_identifier(target, binding),
+                "default_parameter" | "typed_default_parameter" => {
+                    waiting.extend(target.child_by_field_name("name"));
                 }
+                "parameters"
+                | "lambda_parameters"
+                | "typed_parameter"
+                | "list_splat_pattern"
+                | "dictionary_splat_pattern"
+                | "splat_pattern"
+                | "pattern_list"
+                | "tuple_pattern"
+                | "list_pattern"
+                | "as_pattern_target"
+                | "tuple"
+                | "list"
+                | "global_statement"
+                | "nonlocal_statement" => waiting.extend(named_child_nodes(target).rev()),
+                _ => {}
             }
-            "default_parameter" | "typed_default_parameter" => {
-                if let Some(name) = target.child_by_field_name("name") {
-                    self.bind(name, binding);
-                }
-            }
-            "parameters"
-            | "lambda_parameters"
-            | "typed_parameter"
-            | "list_splat_pattern"
-            | "dictionary_splat_pattern"
-            | "splat_pattern"
-            | "pattern_list"
-            | "tuple_pattern"
-            | "list_pattern"
-            | "as_pattern_target"
-            | "tuple"
-            | "list"
-            | "global_statement"
-            | "nonlocal_statement" => {
-                for child in named_child_nodes(target) {
-                    self.bind(child, binding);
-                }
-            }
-            _ => {}
+        }
+    }
+
+    fn bind_identifier(&mut self, target: Node<'_>, binding: Binding) {
+        if let Some(frame) = self.frames.last_mut() {
+            frame
+                .bindings
+                .push((&self.source[target.byte_range()], binding));
+        } else {
+            self.bind_in_module(target, binding);
         }
     }
 

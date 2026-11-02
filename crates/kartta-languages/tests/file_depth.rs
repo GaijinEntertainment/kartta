@@ -144,3 +144,17 @@ fn php_reads_past_a_folded_path_or_a_list() {
         ],
     );
 }
+
+#[test]
+fn python_reads_past_a_target() {
+    assert_read_past(
+        "python",
+        "def after(): pass",
+        &[
+            ("@ = b", ("[", "a", "]")),
+            ("@ = b", ("[", "*a", "]")),
+            ("with a as @:\n    pass", ("(", "b", ",)")),
+            ("for @ in b:\n    pass", ("(", "a", ",)")),
+        ],
+    );
+}
