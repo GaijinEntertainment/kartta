@@ -101,6 +101,24 @@ jobs:
       - run: cargo build --locked --workspace --all-targets --all-features
       - run: cargo test --locked --workspace --all-features
 
+  # The floor, the workspace's `rust-version`, over what a consumer builds: tests and dev-dependencies may be newer.
+  # Cargo refuses a toolchain below the field, so raising it fails here until this pin moves too, and a symbol or a
+  # dependency newer than the pin fails the check.
+  msrv:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each platform compiles code of its own, and no other job holds that code to the floor.
+        os: [ubuntu-24.04, macos-26, windows-2025-vs2026]
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTUP_TOOLCHAIN: 1.92.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install ${{ env.RUSTUP_TOOLCHAIN }} --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo check --locked --workspace --exclude kartta-node --all-features
+
   # The Go binding, linked against the static library the same checkout builds. Its cgo build compiles the
   # hand-written kartta.h and links every function it declares, so a header that drifts from the library fails here,
   # and the round trip exercises the ABI's ownership rules under the race detector.
@@ -221,7 +239,21 @@ jobs:
   # when every triggered job passed or was skipped — so conditional jobs never need enumerating in rulesets.
   ci-ok:
     if: always()
-    needs: [fmt, clippy, docs, package, unsupported-watch, test, go, node, markdown, versions, deny, notices, npm-audit]
+    needs:
+      - fmt
+      - clippy
+      - docs
+      - package
+      - unsupported-watch
+      - test
+      - msrv
+      - go
+      - node
+      - markdown
+      - versions
+      - deny
+      - notices
+      - npm-audit
     runs-on: ubuntu-24.04
     steps:
       - name: verify all jobs succeeded
