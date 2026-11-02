@@ -460,13 +460,11 @@ fn field_places(struct_type: Node<'_>) -> impl Iterator<Item = Option<Node<'_>>>
     child_nodes(struct_type)
         .filter(|field| field.kind() == "field_declaration")
         .flat_map(|field| {
-            let names = (0..field.child_count()).filter_map(move |index| {
-                (field.field_name_for_child(index) == Some("name"))
-                    .then(|| field.child(index))
-                    .flatten()
-            });
-            let embedded = field.child_by_field_name("name").is_none();
-            names.map(Some).chain(embedded.then_some(None))
+            let names: Vec<_> = field
+                .children_by_field_name("name", &mut field.walk())
+                .collect();
+            let embedded = names.is_empty();
+            names.into_iter().map(Some).chain(embedded.then_some(None))
         })
 }
 
