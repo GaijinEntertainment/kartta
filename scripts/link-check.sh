@@ -6,7 +6,8 @@ usage() {
 usage: scripts/link-check.sh <target> <directory>   link and run a C program as WIRE.md states for <target>
 
 <directory> holds what a kartta-ffi tarball unpacks to. Runs each command of WIRE.md's Linking table in it, prints the
-archive's size and each link's time, and leaves the last program there.
+archive's size and each link's time, and leaves the last program there. Every target but Windows links each command
+again beside a C file that defines a tree-sitter name.
 USAGE
 }
 
@@ -36,3 +37,14 @@ printf '%s\n' "$links" | while read -r link; do
   time $link
   "./$program"
 done
+
+case $target in
+  *-windows-msvc) ;;
+  *)
+    printf 'void ts_parser_new(void) {}\n' >clash.c
+    printf '%s\n' "$links" | while read -r link; do
+      $link clash.c
+      "./$program"
+    done
+    ;;
+esac

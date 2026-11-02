@@ -51,8 +51,7 @@ built=${CARGO_TARGET_DIR:-target}/$target/dist
 out=${CARGO_TARGET_DIR:-target}/artifacts
 
 cargo build --locked --profile dist --target "$target" -p kartta-mcp
-# constraint: cargo passes no `-C lto` for a crate that builds both staticlib and rlib (ADR 4.49)
-cargo rustc --locked --profile dist --target "$target" -p kartta-ffi --crate-type staticlib
+scripts/ffi-archive.sh "$target"
 
 pack "kartta-mcp-$version-$target" "$built/$binary"
 pack "kartta-ffi-$version-$target" "$built/$archive" crates/kartta-ffi/include/kartta.h crates/kartta-ffi/WIRE.md
