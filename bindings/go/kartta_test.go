@@ -103,6 +103,29 @@ func Test_Kartta(t *testing.T) {
 		}
 	})
 
+	t.Run("Build keeps the graphs of a content index it cannot store", func(t *testing.T) {
+		root := tree(t)
+		k := open(t, root)
+
+		stats, err := k.Build(t.Context(), wire.BuildOptions{
+			Languages: []string{"go"},
+			ContentIndex: &wire.ContentIndex{
+				Storage: wire.StorageFile,
+				Dir:     filepath.Join(root, "gone"),
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if stats.ContentIndex != nil || !strings.Contains(stats.ContentIndexFailure, "gone") {
+			t.Errorf("Build = %+v, want no content index and why", stats)
+		}
+		if len(stats.Graphs) != 1 || len(stats.Errors.Listed) != 1 || stats.Errors.Listed[0].Kind != "content_index" {
+			t.Errorf("Build = %+v, want the graph and the failure", stats)
+		}
+	})
+
 	t.Run("Build then Callers round-trips the wire", func(t *testing.T) {
 		k := open(t, tree(t))
 

@@ -135,8 +135,11 @@ type Stats struct {
 	Graphs    []GraphStats    `json:"graphs"`
 	// ContentIndex is nil when the build made none.
 	ContentIndex *ContentIndexStats `json:"content_index,omitempty"`
-	Errors       BuildErrors        `json:"errors"`
-	Watch        Watch              `json:"watch"`
+	// ContentIndexFailure says why the build made no content index though it was asked for one; a build of the handle
+	// tries again, and a refresh does not.
+	ContentIndexFailure string      `json:"content_index_failure,omitempty"`
+	Errors              BuildErrors `json:"errors"`
+	Watch               Watch       `json:"watch"`
 }
 
 // LanguageFiles counts what a build made of one language's files.
