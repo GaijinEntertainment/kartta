@@ -27,6 +27,7 @@
           "counts": {
             "calls": 1,
             "reads": 0,
+            "types": 0,
             "updates": 0,
             "writes": 0
           },

@@ -112,11 +112,10 @@ fn parsed(path: &Path) -> syn::File {
 /// The serde keys of `attrs` with their string values. A key this file does not read fails, so a serde attribute that
 /// changes what the wire spells cannot pass unread.
 fn serde_keys(attrs: &[Attribute]) -> BTreeMap<String, Option<String>> {
-    const READ: [&str; 11] = [
+    const READ: [&str; 10] = [
         "default",
         "deny_unknown_fields",
         "flatten",
-        "getter",
         "remote",
         "rename",
         "rename_all",
@@ -416,12 +415,7 @@ fn engine_value_sets() -> Vec<BTreeSet<String>> {
     ] {
         labels.visit_file(&parsed(&here(file)));
     }
-    let mut sets = labels.0.value_sets;
-    // constraint: the wire answers a use as a type as a read, so `type` is the one label it never spells
-    for set in sets.iter_mut().filter(|set| set.contains("update")) {
-        set.remove("type");
-    }
-    sets
+    labels.0.value_sets
 }
 
 /// The section each value set of the crate and the engine is, which fails naming a set no section lists.

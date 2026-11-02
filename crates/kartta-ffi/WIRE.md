@@ -316,17 +316,18 @@ Left empty, a refresh walks the whole tree again.
 - `line` (integer, optional): As in [`WalkParams`](#walkparams).
 - `lang` (string, optional): Names the graph to ask. Absent asks every graph.
 - `min_confidence` (integer, optional): The least confidence, 0 to 100, a site needs to be taken.
-- `access` ([`AccessParam`](#accessparam), optional): Keeps the uses that read, set or update the symbol, an update
-  counting as both, and drops the calls.
+- `access` ([`AccessParam`](#accessparam), optional): Keeps the uses of one access and drops the calls: `read` also
+  keeps the updates and the uses as a type, and `write` the updates.
 - `limit` (integer, optional): Caps the sites answered, `REFERENCES` by default, and 0 answers the counts alone.
 
 ### AccessParam
 
-How a site touches a symbol. A call, and a use as a type, read it.
+How a site touches a symbol. A call reads it.
 
 - `read`: Reads the symbol.
 - `write`: Assigns the symbol without reading it.
 - `update`: Reads and assigns the symbol.
+- `type`: Names the symbol as a type, which reads no value.
 
 ### ImplementationsParams
 
@@ -742,9 +743,10 @@ The fields of [`References`](#references), and:
 ### SiteCounts
 
 - `calls` (integer, always): The calls.
-- `reads` (integer, always): The other uses that read the symbol, a use as a type among them.
+- `reads` (integer, always): The other uses that read the symbol.
 - `writes` (integer, always): The uses that assign it without reading it.
 - `updates` (integer, always): The uses that read and assign it.
+- `types` (integer, always): The uses that name it as a type.
 
 ### DefinitionsView
 

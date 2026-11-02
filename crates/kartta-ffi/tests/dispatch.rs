@@ -142,6 +142,40 @@ fn a_file_query_refuses_what_it_cannot_take_with_its_own_code() {
 }
 
 #[test]
+fn access_keeps_the_uses_as_a_type_alone_or_among_the_reads() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("main.go"),
+        "package main\n\ntype T struct{}\n\nfunc (T) m() {}\n\nfunc f(t T) {\n\tT.m(t)\n}\n",
+    )
+    .expect("main.go");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &json!({ "languages": ["go"] }));
+    let accesses = |access: &str| {
+        let params = json!({ "name": "T", "access": access });
+        let part = ok(&kartta, "references", &params)["matches"][0].clone();
+        let sites = part["sites"].as_array().expect("the sites");
+        let mut accesses: Vec<String> = sites
+            .iter()
+            .map(|site| site["access"].as_str().expect("a word").to_owned())
+            .collect();
+        accesses.sort();
+        (accesses, part["counts"].clone())
+    };
+
+    let (types, counts) = accesses("type");
+    assert_eq!(types, ["type", "type"]);
+    assert_eq!(
+        (&counts["reads"], &counts["types"]),
+        (&json!(1), &json!(2)),
+        "{counts}"
+    );
+
+    let (reads, _) = accesses("read");
+    assert_eq!(reads, ["read", "type", "type"]);
+}
+
+#[test]
 fn a_fuzzy_limit_of_0_sets_no_cap_and_one_left_out_takes_the_default() {
     let tree = tree();
     for at in 0..60 {
