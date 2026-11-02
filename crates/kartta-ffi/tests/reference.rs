@@ -598,6 +598,32 @@ fn every_language_has_a_row_with_its_family() {
     }
 }
 
+/// A consumer of the release archive holds the header and no ADR, so each promise it must rely on is the header's.
+#[test]
+fn the_header_states_what_a_consumer_of_the_archive_relies_on() {
+    let header = read(&here("include/kartta.h"));
+    let comment: Vec<&str> = header
+        .lines()
+        .map(|line| line.trim_start_matches([' ', '*']))
+        .collect();
+    let comment = comment.join(" ");
+
+    for promise in [
+        "WIRE.md",
+        "ignores the keys it does not know",
+        "kartta_call blocks its thread",
+        "call the cancel method with {}",
+        "then join every thread",
+        "A string outlives the handle",
+        "the JSON null each read as {}",
+    ] {
+        assert!(
+            comment.contains(promise),
+            "the header leaves out {promise:?}"
+        );
+    }
+}
+
 fn collect_keys(value: &Value, keys: &mut BTreeSet<String>) {
     match value {
         Value::Object(object) => {
