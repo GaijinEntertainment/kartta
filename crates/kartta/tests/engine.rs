@@ -10,7 +10,7 @@
 use std::fmt::Write as _;
 use std::fs;
 use std::num::NonZeroUsize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,7 +19,7 @@ use kartta::{
     BuildError, BuildOptions, CancelToken, Definitions, Engine, Extraction, Language, Limits, Miss,
     RawExtraction, Region, Repository, Resolver, Symbol, SymbolKind, confidence,
 };
-use kartta_fs::{Content, ContentVisitor, Index, Namespace};
+use kartta_fs::{Content, ContentIndexStorage, ContentVisitor, Index, Namespace};
 use kartta_lang::{CallRef, SymbolId};
 use tempfile::TempDir;
 
@@ -173,10 +173,12 @@ impl Language for Probe {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum CancelAt {
     ResolverBuilt,
     FileResolved,
+    /// As `FileResolved`, with this file removed once the walk has read it.
+    FileResolvedWith(PathBuf),
 }
 
 #[derive(Debug)]
@@ -209,12 +211,16 @@ impl Language for Cancelling {
     }
 
     fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
-        match self.1 {
+        match &self.1 {
             CancelAt::ResolverBuilt => {
                 self.0.cancel();
                 Box::new(AtPath)
             }
             CancelAt::FileResolved => Box::new(CancelOnResolve(self.0.clone())),
+            CancelAt::FileResolvedWith(gone) => {
+                fs::remove_file(gone).expect("the file goes");
+                Box::new(CancelOnResolve(self.0.clone()))
+            }
         }
     }
 }
@@ -818,7 +824,85 @@ fn a_build_cancelled_after_its_walk_stops_before_it_resolves() {
         Some(&cancel),
     );
 
-    assert!(matches!(outcome, Err(BuildError::Cancelled)));
+    let stopped = match outcome.expect_err("the cancel stopped the build") {
+        BuildError::Stopped(stopped) => Some(stopped),
+        _ => None,
+    }
+    .expect("a cancelled build hands back what it made");
+    assert_eq!(stopped.unvisited, 0, "the walk saw every entry");
+    assert!(stopped.index.entry("a.defs").is_some());
+}
+
+#[test]
+fn a_build_cancelled_after_its_walk_keeps_the_content_index_it_finished() {
+    let tree = tree(&[("a.defs", "def parse\n")]);
+    let cancel = CancelToken::new();
+    let mut options = BuildOptions::default();
+    options.content_index = Some(ContentIndexStorage::Memory);
+
+    let outcome = Engine::build(
+        tree.path(),
+        &options,
+        vec![Box::new(Cancelling(
+            cancel.clone(),
+            CancelAt::ResolverBuilt,
+        ))],
+        Some(&cancel),
+    );
+
+    let stopped = match outcome.expect_err("the cancel stopped the build") {
+        BuildError::Stopped(stopped) => Some(stopped),
+        _ => None,
+    }
+    .expect("a cancelled build hands back what it made");
+    let held = stopped.index.content_index_stats();
+    assert_eq!(held.map(|held| held.files()), Some(1));
+}
+
+#[test]
+fn a_build_cancelled_between_batches_hands_back_the_read_failures_of_those_it_resolved() {
+    let names: Vec<(String, String)> = (0..1025)
+        .map(|at| (format!("f{at:04}.defs"), "def f\n".to_owned()))
+        .collect();
+    let spec: Vec<(&str, &str)> = names
+        .iter()
+        .map(|(path, content)| (path.as_str(), content.as_str()))
+        .collect();
+    let tree = tree(&spec);
+    let cache = tempfile::tempdir().expect("create cache dir");
+    let fingerprint = [&b"cancelling 1"[..], kartta_lang::FINGERPRINT].concat();
+    let namespace = Namespace::new("graph/cancelling", &fingerprint);
+    Index::build_with(
+        tree.path(),
+        &cached(cache.path()),
+        Some(&Junk(namespace)),
+        None,
+    )
+    .expect("fill the cache");
+    let cancel = CancelToken::new();
+    let gone = tree.path().join("f0000.defs");
+
+    let outcome = Engine::build(
+        tree.path(),
+        &cached(cache.path()),
+        vec![Box::new(Cancelling(
+            cancel.clone(),
+            CancelAt::FileResolvedWith(gone.clone()),
+        ))],
+        Some(&cancel),
+    );
+
+    let stopped = match outcome.expect_err("the cancel stopped the build") {
+        BuildError::Stopped(stopped) => Some(stopped),
+        _ => None,
+    }
+    .expect("a cancelled build hands back what it made");
+    let failed: Vec<_> = stopped
+        .errors
+        .iter()
+        .filter_map(BuildError::native_path)
+        .collect();
+    assert_eq!(failed, [gone.as_path()]);
 }
 
 #[test]

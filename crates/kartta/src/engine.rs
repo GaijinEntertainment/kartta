@@ -6,6 +6,7 @@ use std::{io, iter};
 use foldhash::fast::FixedState;
 use kartta_fs::{
     BuildError, BuildOptions, BuildOutcome, CancelToken, ContentVisitor, Index, RefreshOutcome,
+    Stopped,
 };
 #[cfg(feature = "watch")]
 use kartta_fs::{WatchError, Watcher};
@@ -179,8 +180,9 @@ impl Engine {
     ///
     /// # Errors
     ///
-    /// As [`kartta_fs::Index::build_with`], and [`BuildError::Cancelled`] when `cancel` stopped the build before it
-    /// resolved every extraction. Every deeper failure is collected into [`EngineOutcome::errors`]. An extraction the
+    /// As [`kartta_fs::Index::build_with`], and [`BuildError::Stopped`] when `cancel` stopped the build before it
+    /// resolved every extraction, which hands back the index and drops the graphs: a cancel past the walk leaves an
+    /// index of the whole tree. Every deeper failure is collected into [`EngineOutcome::errors`]. An extraction the
     /// cache holds in a form this build cannot read is extracted again from a second read of the file, and that read
     /// failing is collected as [`BuildError::Read`].
     pub fn build(
@@ -244,11 +246,19 @@ impl Engine {
             families,
             inserted,
             resolvers,
-        } = resolving.graphs(families, extracted)?;
+        } = resolving.graphs(families, extracted);
+        errors.extend(inserted.errors);
+        if inserted.cancelled {
+            release_freed_memory();
+            return Err(BuildError::Stopped(Box::new(Stopped {
+                index,
+                errors,
+                unvisited: 0,
+            })));
+        }
         for (counts, held) in file_counts.iter_mut().zip(inserted.held) {
             counts.held = held;
         }
-        errors.extend(inserted.errors);
         let following = options
             .stamps
             .then(|| Following::new(inserted.followed, resolvers));
@@ -427,11 +437,11 @@ impl Engine {
             outcome,
             extracted,
             counts,
-        })?;
+        });
         Ok((refresh, walked))
     }
 
-    fn brought_up(&mut self, walked: Walked) -> Result<EngineRefresh, BuildError> {
+    fn brought_up(&mut self, walked: Walked) -> EngineRefresh {
         let Some(following) = self.following.as_mut() else {
             return self.rebuilt(walked);
         };
@@ -447,7 +457,7 @@ impl Engine {
         )
     }
 
-    fn rebuilt(&mut self, walked: Walked) -> Result<EngineRefresh, BuildError> {
+    fn rebuilt(&mut self, walked: Walked) -> EngineRefresh {
         let Walked {
             outcome,
             extracted,
@@ -462,7 +472,7 @@ impl Engine {
         };
         let Graphs {
             families, inserted, ..
-        } = resolving.graphs(families(&self.languages).0, extracted)?;
+        } = resolving.graphs(families(&self.languages).0, extracted);
         for (counts, held) in counts.iter_mut().zip(inserted.held) {
             counts.held = held;
         }
@@ -471,7 +481,7 @@ impl Engine {
         self.file_counts = counts;
         release_freed_memory();
 
-        Ok(EngineRefresh {
+        EngineRefresh {
             index: outcome,
             errors: inserted.errors,
             extracted,
@@ -480,7 +490,7 @@ impl Engine {
             reconfigured: Vec::new(),
             rebuilt: true,
             widened: None,
-        })
+        }
     }
 
     /// The tree's file index.

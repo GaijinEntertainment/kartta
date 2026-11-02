@@ -105,8 +105,9 @@ crate, and `git ls-files` is the one that does not.
 ## A build reports what it could not read
 
 `Index::build` returns a `BuildOutcome`: the index plus the failures the build survived. Only an unlistable root and an
-unstartable thread pool are fatal, and a cancellation is returned rather than survived, because a cancelled walk holds
-whichever entries its threads reached. Each surviving kind costs something different, and the difference is the point:
+unstartable thread pool are fatal. `Index::build_with` takes a cancel token too, and a cancellation is returned rather
+than survived, as `BuildError::Stopped`, whose `Stopped` hands back the index of whichever entries the threads reached
+and counts those it turned away. Each surviving kind costs something different, and the difference is the point:
 
 - An unreadable directory costs its whole subtree, and an entry whose type will not resolve costs that entry.
 - An unreadable `.gitignore` costs its rules, so the index *holds* what that file would have hidden.

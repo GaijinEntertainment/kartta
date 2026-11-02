@@ -224,7 +224,7 @@ pub(crate) const fn kind_of(error: &BuildError) -> &'static str {
         BuildError::Name { .. } => "name",
         BuildError::Read { .. } => "read",
         BuildError::ContentIndex { .. } => "content_index",
-        BuildError::Cancelled => "cancelled",
+        BuildError::Stopped(_) | BuildError::Cancelled => "cancelled",
         BuildError::Cache { .. } => "cache",
         _ => "other",
     }

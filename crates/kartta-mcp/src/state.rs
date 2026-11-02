@@ -433,7 +433,7 @@ fn build(
     let languages =
         kartta_languages::select(&request.languages).map_err(|error| error.to_string())?;
     let failed = |error| match error {
-        BuildError::Cancelled => {
+        BuildError::Stopped(_) => {
             "a later index_repo replaced this build before it finished".to_owned()
         }
         error => format!("cannot index {}: {error}", request.root.display()),

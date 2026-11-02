@@ -16,8 +16,8 @@ use std::sync::Mutex;
 
 use common::tree;
 use kartta_fs::{
-    BuildError, BuildOptions, BuildOutcome, CancelToken, Content, ContentId, ContentVisitor, Index,
-    PrunedNames,
+    BuildError, BuildOptions, BuildOutcome, CancelToken, Case, Content, ContentId,
+    ContentIndexStorage, ContentVisitor, GrepOptions, Index, Patterns, PrunedNames, Stopped,
 };
 
 type Seen = BTreeMap<String, (ContentId, Vec<u8>)>;
@@ -368,23 +368,96 @@ fn a_build_without_a_visitor_reads_no_file() {
     assert_eq!(index.size("main.rs"), None, "nothing was read at the walk");
 }
 
-#[test]
-fn a_cancelled_build_returns_no_index() {
-    let dir = tree(&[("a.rs", "a"), ("b.rs", "b"), ("c.rs", "c")]);
+fn stopped(built: Result<BuildOutcome, BuildError>) -> Box<Stopped> {
+    match built.expect_err("the cancel stopped the build") {
+        BuildError::Stopped(stopped) => Some(stopped),
+        _ => None,
+    }
+    .expect("a cancelled build hands back what it reached")
+}
+
+/// What a one-threaded build of `dir` holds when `visitor` cancels it at the first file.
+fn stopped_at_first_file(
+    dir: &Path,
+    mut options: BuildOptions,
+    visitor: &mut Recorder,
+) -> Box<Stopped> {
     let cancel = CancelToken::new();
-    let mut visitor = Recorder::new(everything);
     visitor.cancel_after_first = Some(cancel.clone());
-    let mut options = BuildOptions::default();
     options.threads = std::num::NonZeroUsize::new(1);
 
-    let built = Index::build_with(dir.path(), &options, Some(&visitor), Some(&cancel));
+    stopped(Index::build_with(
+        dir,
+        &options,
+        Some(&*visitor),
+        Some(&cancel),
+    ))
+}
 
-    assert!(matches!(built, Err(BuildError::Cancelled)));
+#[test]
+fn a_cancelled_build_hands_back_the_index_of_what_its_walk_reached() {
+    let dir = tree(&[("a.rs", "a"), ("b.rs", "b"), ("c.rs", "c")]);
+    let mut visitor = Recorder::new(everything);
+
+    let stopped = stopped_at_first_file(dir.path(), BuildOptions::default(), &mut visitor);
+
+    assert_eq!(stopped.index.len(), 1, "the entry the walk reached");
+    assert!(stopped.index.entry("a.rs").is_some());
+    assert_eq!(stopped.unvisited, 2, "b.rs and c.rs were turned away");
     assert_eq!(
         visitor.seen().len(),
         1,
         "the first file was handed over before the stop"
     );
+}
+
+#[test]
+fn a_build_cancelled_in_its_walk_answers_a_search_though_it_asked_for_a_content_index() {
+    let dir = tree(&[("a.rs", "needle"), ("b.rs", "b"), ("c.rs", "c")]);
+    let mut options = BuildOptions::default();
+    options.content_index = Some(ContentIndexStorage::Memory);
+
+    let stopped = stopped_at_first_file(dir.path(), options, &mut Recorder::new(everything));
+
+    let patterns = Patterns::new(["needle"], Case::Sensitive).expect("the pattern compiles");
+    let found = stopped.index.grep(&patterns, &GrepOptions::default());
+    assert_eq!(
+        found.lines(),
+        1,
+        "no content index narrowed the search away"
+    );
+    assert_eq!(found.ruled_out(), 0);
+    assert!(stopped.index.content_index_stats().is_none());
+}
+
+#[test]
+fn a_cancel_past_the_walk_stops_the_content_index_and_hands_back_the_whole_tree() {
+    let dir = tree(&[("a.rs", "needle")]);
+    let mut options = BuildOptions::default();
+    options.content_index = Some(ContentIndexStorage::Memory);
+
+    let stopped = stopped_at_first_file(dir.path(), options, &mut Recorder::new(everything));
+
+    assert_eq!(stopped.index.len(), 1);
+    assert_eq!(stopped.unvisited, 0, "the walk saw every entry");
+    assert!(stopped.index.content_index_stats().is_none());
+}
+
+#[test]
+fn a_refresh_of_a_stopped_build_s_index_takes_in_the_whole_tree() {
+    let dir = tree(&[("a.rs", "a"), ("b.rs", "b"), ("c.rs", "c")]);
+    let stopped = stopped_at_first_file(
+        dir.path(),
+        BuildOptions::default(),
+        &mut Recorder::new(everything),
+    );
+
+    let mut index = stopped.index;
+    index
+        .refresh(None, None)
+        .expect("the refresh walks the tree");
+
+    assert_eq!(index.len(), 3);
 }
 
 #[test]
@@ -395,8 +468,17 @@ fn a_build_without_a_visitor_can_still_be_cancelled() {
     let quiet = Index::build_with(dir.path(), &BuildOptions::default(), None, Some(&cancel))
         .expect("an uncancelled token builds the whole index");
     cancel.cancel();
-    let stopped = Index::build_with(dir.path(), &BuildOptions::default(), None, Some(&cancel));
+    let cut = stopped(Index::build_with(
+        dir.path(),
+        &BuildOptions::default(),
+        None,
+        Some(&cancel),
+    ));
 
     assert_eq!(quiet.index.len(), 2);
-    assert!(matches!(stopped, Err(BuildError::Cancelled)));
+    assert!(
+        cut.index.is_empty(),
+        "a cancel ahead of the walk reached nothing"
+    );
+    assert_eq!(cut.unvisited, 2);
 }
