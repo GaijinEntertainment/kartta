@@ -1575,11 +1575,25 @@ fn a_listing_through_a_pruned_name_says_which_name_pruned_it() {
         Some(pruned("src/.git", ".git"))
     );
     assert_eq!(
-        index.list("src/absent", &ListOptions::default()).err(),
+        pruned("src/.git", ".git").label(),
+        "not_found",
+        "an answer spells a pruned path as any path the index holds nothing at"
+    );
+    let absent = index.list("src/absent", &ListOptions::default()).err();
+    assert_eq!(
+        absent,
         Some(ListError::NotFound {
             path: "src/absent".to_owned()
         }),
         "a path through no pruned name is merely not indexed"
+    );
+    assert_eq!(absent.map(|error| error.label()), Some("not_found"));
+    assert_eq!(
+        index
+            .list("src/main.rs", &ListOptions::default())
+            .err()
+            .map(|error| error.label()),
+        Some("not_a_directory")
     );
 }
 
@@ -1655,6 +1669,16 @@ fn a_listing_stops_at_a_sibling_whose_name_extends_the_directory_name() {
         ["src/main.rs"],
         "src-gen and src.bak are siblings of src, not entries beneath it"
     );
+}
+
+#[test]
+fn a_root_the_walk_cannot_list_fails_as_a_walk() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+
+    let error = Index::build(dir.path().join("gone"), &BuildOptions::default())
+        .expect_err("the root is missing");
+
+    assert_eq!(error.label(), "walk");
 }
 
 #[test]

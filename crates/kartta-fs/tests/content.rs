@@ -369,7 +369,9 @@ fn a_build_without_a_visitor_reads_no_file() {
 }
 
 fn stopped(built: Result<BuildOutcome, BuildError>) -> Box<Stopped> {
-    match built.expect_err("the cancel stopped the build") {
+    let error = built.expect_err("the cancel stopped the build");
+    assert_eq!(error.label(), "cancelled");
+    match error {
         BuildError::Stopped(stopped) => Some(stopped),
         _ => None,
     }
