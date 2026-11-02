@@ -11,8 +11,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/GaijinEntertainment/kartta/bindings/go/kartta"
-	"github.com/GaijinEntertainment/kartta/bindings/go/wire"
+	"dev.gaijin.team/go/kartta/kartta"
+	"dev.gaijin.team/go/kartta/wire"
 )
 
 type replay func(k *kartta.Kartta, params []byte) (any, error)
