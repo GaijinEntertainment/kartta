@@ -10,6 +10,7 @@ import analyzeSegment from '../../../crates/kartta-ffi/tests/golden/analyze_segm
 import build from '../../../crates/kartta-ffi/tests/golden/build.json' with {type: 'json'};
 import callPathUnmatched from '../../../crates/kartta-ffi/tests/golden/call_path-unmatched.json' with {type: 'json'};
 import callPath from '../../../crates/kartta-ffi/tests/golden/call_path.json' with {type: 'json'};
+import calleesOffLine from '../../../crates/kartta-ffi/tests/golden/callees-off_line.json' with {type: 'json'};
 import callees from '../../../crates/kartta-ffi/tests/golden/callees.json' with {type: 'json'};
 import callersOneEdit from '../../../crates/kartta-ffi/tests/golden/callers-one_edit.json' with {type: 'json'};
 import callers from '../../../crates/kartta-ffi/tests/golden/callers.json' with {type: 'json'};
@@ -68,6 +69,7 @@ const secondGoldens = {
 	analyze_change: analyzeChangeUsers,
 	analyze_segment: analyzeSegmentUsers,
 	call_path: callPathUnmatched,
+	callees: calleesOffLine,
 	callers: callersOneEdit,
 	cancel: cancelBindingId,
 	definitions: definitionsOneEdit,
