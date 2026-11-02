@@ -35,7 +35,7 @@ impl Emitter<'_> {
             return;
         };
         let first_directive = self.raw.directives.len();
-        self.use_paths(argument, "", line(node.start_position().row));
+        self.use_paths(argument, line(node.start_position().row));
         if self.in_a_block()
             && let Some(block) = node.parent()
         {
@@ -49,9 +49,29 @@ impl Emitter<'_> {
         !self.functions.is_empty() || !self.modules.is_empty()
     }
 
+    fn use_paths(&mut self, node: Node<'_>, line: u32) {
+        let mut prefix = String::new();
+        let mut waiting = vec![(node, 0)];
+        while let Some((node, prefix_end)) = waiting.pop() {
+            prefix.truncate(prefix_end);
+            match node.kind() {
+                "scoped_use_list" => {
+                    extend_prefix(&mut prefix, node, self.source);
+                    let list = node.child_by_field_name("list");
+                    waiting.extend(list.map(|list| (list, prefix.len())));
+                }
+                "use_list" => {
+                    let items = named_child_nodes(node).rev();
+                    waiting.extend(items.map(|item| (item, prefix_end)));
+                }
+                _ => self.use_path(node, &prefix, line),
+            }
+        }
+    }
+
     // constraint: a `use` binds each name its tree ends in, an alias where one is written, and `self` in a list the
     // module the list is under; a glob binds no name it spells, and `as _` binds none
-    fn use_paths(&mut self, node: Node<'_>, prefix: &str, line: u32) {
+    fn use_path(&mut self, node: Node<'_>, prefix: &str, line: u32) {
         let joined = |path: &str| {
             if prefix.is_empty() {
                 path.to_owned()
@@ -80,20 +100,6 @@ impl Emitter<'_> {
                     && alias != "_"
                 {
                     self.push_import(alias, joined(&path), line);
-                }
-            }
-            "scoped_use_list" => {
-                let path = node
-                    .child_by_field_name("path")
-                    .and_then(|path| path_text(path, source))
-                    .unwrap_or_default();
-                if let Some(list) = node.child_by_field_name("list") {
-                    self.use_paths(list, &joined(&path), line);
-                }
-            }
-            "use_list" => {
-                for item in named_child_nodes(node) {
-                    self.use_paths(item, prefix, line);
                 }
             }
             "use_wildcard" if !self.in_a_block() => {
@@ -483,6 +489,16 @@ fn bind<'a, P: PartialEq>(
             None => {}
         },
     }
+}
+
+fn extend_prefix(prefix: &mut String, scoped_list: Node<'_>, source: &[u8]) {
+    if !prefix.is_empty() {
+        prefix.push_str("::");
+    }
+    let path = scoped_list
+        .child_by_field_name("path")
+        .and_then(|path| path_text(path, source));
+    prefix.push_str(path.as_deref().unwrap_or_default());
 }
 
 fn head(path: &str) -> &str {

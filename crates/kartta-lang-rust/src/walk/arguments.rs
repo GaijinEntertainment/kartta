@@ -15,7 +15,12 @@ struct Reading<'a, 't> {
     found: Vec<(Node<'t>, Found)>,
     template: bool,
     quiet: bool,
+    nested_trees: usize,
 }
+
+// constraint: each token tree read inside another costs a stack frame of each reader, and the file picks how deep they
+// nest, so the trees past this depth stay unread (ADR 3.206)
+const MAX_NESTED_TREES: usize = 128;
 
 // constraint: a read carries the path it is written through, `Kind` of `Kind::A`, or none for a bare name
 enum Found {
@@ -136,6 +141,7 @@ impl<'a> Emitter<'a> {
             found: Vec::new(),
             template: false,
             quiet: false,
+            nested_trees: 0,
         };
         let name = invocation
             .child_by_field_name("macro")
@@ -377,6 +383,14 @@ impl<'a> Emitter<'a> {
     // names constructors and holds no call or read, since no expression continues with `if`; before a guarded arm's
     // `=>` it ends the guard, a call
     fn token_tree<'t>(&self, tokens: &[Node<'t>], at: usize, reading: &mut Reading<'a, 't>) {
+        if reading.nested_trees < MAX_NESTED_TREES {
+            reading.nested_trees += 1;
+            self.read_token_tree(tokens, at, reading);
+            reading.nested_trees -= 1;
+        }
+    }
+
+    fn read_token_tree<'t>(&self, tokens: &[Node<'t>], at: usize, reading: &mut Reading<'a, 't>) {
         let (tree, before) = (tokens[at], &tokens[..at]);
         match before.last().map(Node::kind) {
             Some("#") => return,
@@ -581,14 +595,18 @@ impl<'a> Emitter<'a> {
 // constraint: a name of a pattern binds, in a nested pattern too, unless a tree or a `::` follows it, which makes it a
 // constructor or a path, `Some(x)` or `Kind::A { x }`, or a `:`, which makes it a field's label, `Point { x: at }`
 fn bind_names<'t>(pattern: impl Iterator<Item = Node<'t>>, bind: &mut impl FnMut(Node<'t>)) {
-    let mut pattern = pattern.peekable();
-    while let Some(token) = pattern.next() {
-        let constructor = pattern
-            .peek()
-            .is_some_and(|next| matches!(next.kind(), "token_tree" | "::" | ":"));
+    let mut open = vec![(pattern.collect::<Vec<_>>(), 0)];
+    while let Some((tokens, at)) = open.last_mut() {
+        let Some(&token) = tokens.get(*at) else {
+            open.pop();
+            continue;
+        };
+        *at += 1;
+        let constructor =
+            (tokens.get(*at)).is_some_and(|next| matches!(next.kind(), "token_tree" | "::" | ":"));
         match token.kind() {
             "identifier" if !constructor => bind(token),
-            "token_tree" => bind_names(child_nodes(token), bind),
+            "token_tree" => open.push((child_nodes(token).collect(), 0)),
             _ => {}
         }
     }

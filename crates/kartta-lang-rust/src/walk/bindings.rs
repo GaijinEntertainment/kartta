@@ -201,30 +201,32 @@ impl<'a> Emitter<'a> {
 // constraint: a pattern binds its identifiers, a shorthand field of `S { helper }` among them, and never the type a
 // struct or tuple-struct pattern names
 pub(super) fn pattern_bindings<'t>(node: Node<'t>, bind: &mut impl FnMut(Node<'t>)) {
-    match node.kind() {
-        "identifier" | "shorthand_field_identifier" => bind(node),
-        "field_pattern" => {
-            if let Some(bound) = node
-                .child_by_field_name("pattern")
-                .or_else(|| node.child_by_field_name("name"))
-            {
-                pattern_bindings(bound, bind);
+    let mut waiting = Vec::new();
+    let mut next = Some(node);
+    while let Some(node) = next.take().or_else(|| waiting.pop()) {
+        match node.kind() {
+            "identifier" | "shorthand_field_identifier" => bind(node),
+            "field_pattern" => waiting.extend(
+                node.child_by_field_name("pattern")
+                    .or_else(|| node.child_by_field_name("name")),
+            ),
+            "mut_pattern"
+            | "ref_pattern"
+            | "reference_pattern"
+            | "or_pattern"
+            | "tuple_pattern"
+            | "captured_pattern"
+            | "slice_pattern"
+            | "struct_pattern"
+            | "tuple_struct_pattern" => {
+                let named_type = node.child_by_field_name("type");
+                waiting.extend(
+                    named_child_nodes(node)
+                        .rev()
+                        .filter(|inner| Some(*inner) != named_type),
+                );
             }
+            _ => {}
         }
-        "mut_pattern"
-        | "ref_pattern"
-        | "reference_pattern"
-        | "or_pattern"
-        | "tuple_pattern"
-        | "captured_pattern"
-        | "slice_pattern"
-        | "struct_pattern"
-        | "tuple_struct_pattern" => {
-            let named_type = node.child_by_field_name("type");
-            named_child_nodes(node)
-                .filter(|inner| Some(*inner) != named_type)
-                .for_each(|inner| pattern_bindings(inner, bind));
-        }
-        _ => {}
     }
 }

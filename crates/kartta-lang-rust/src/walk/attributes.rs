@@ -53,7 +53,11 @@ fn cfg_gates_test(attribute: Node<'_>, source: &[u8]) -> bool {
     let mut atoms = Vec::new();
     let Some(predicate) = attribute
         .child_by_field_name("arguments")
-        .and_then(|arguments| operands(arguments, source, &mut atoms).into_iter().next())
+        .and_then(|arguments| {
+            operands(arguments, (source, 0), &mut atoms)
+                .into_iter()
+                .next()
+        })
     else {
         return false;
     };
@@ -149,8 +153,15 @@ struct Atom<'s> {
 
 // constraint: an operand is an identifier, followed by its argument tree when it is an operator or by its string
 // value when it is a `key = "value"` atom; an operator other than `all`, `any` and a one-operand `not` is an atom
-// keyed by its name and argument text
-fn operands<'s>(tree: Node<'_>, source: &'s [u8], atoms: &mut Vec<Atom<'s>>) -> Vec<Cfg> {
+// keyed by its name and argument text, and so is any operator `nested` past `MAX_NESTED_OPERATORS`, as a tree of the
+// file's depth would cost a stack frame per level to read, to judge and to drop (ADR 3.206)
+fn operands<'s>(
+    tree: Node<'_>,
+    (source, nested): (&'s [u8], usize),
+    atoms: &mut Vec<Atom<'s>>,
+) -> Vec<Cfg> {
+    const MAX_NESTED_OPERATORS: usize = 64;
+
     let mut cursor = tree.walk();
     let mut children = tree.named_children(&mut cursor).peekable();
 
@@ -162,11 +173,14 @@ fn operands<'s>(tree: Node<'_>, source: &'s [u8], atoms: &mut Vec<Atom<'s>>) -> 
         let name = &source[lead.byte_range()];
         let predicate =
             if let Some(arguments) = children.next_if(|next| next.kind() == "token_tree") {
-                let mut inner = operands(arguments, source, atoms);
-                match name {
-                    b"all" => Cfg::All(inner),
-                    b"any" => Cfg::Any(inner),
-                    b"not" if inner.len() == 1 => Cfg::Not(Box::new(inner.swap_remove(0))),
+                let mut inner = (nested < MAX_NESTED_OPERATORS)
+                    .then(|| operands(arguments, (source, nested + 1), atoms));
+                match (name, inner.as_mut()) {
+                    (b"all", Some(inner)) => Cfg::All(std::mem::take(inner)),
+                    (b"any", Some(inner)) => Cfg::Any(std::mem::take(inner)),
+                    (b"not", Some(inner)) if inner.len() == 1 => {
+                        Cfg::Not(Box::new(inner.swap_remove(0)))
+                    }
                     _ => atom(atoms, (name, &source[arguments.byte_range()])),
                 }
             } else {
