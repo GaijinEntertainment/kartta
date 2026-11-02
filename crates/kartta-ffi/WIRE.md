@@ -844,7 +844,8 @@ The fields of [`Lines`](#lines), and:
 ### Lines
 
 - `start_line` (integer, always): The first line of the segment.
-- `end_line` (integer, always): The last line of the segment.
+- `end_line` (integer, always): The last line of the segment. Where the params left it open or named 4294967295, the
+  last line a symbol of the file reaches, and never before `start_line`.
 
 ### SegmentSymbol
 
