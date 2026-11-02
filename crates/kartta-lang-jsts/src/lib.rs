@@ -58,7 +58,8 @@
 //!   the file, in the one module it imports that declares it, or through a re-export. A `var` that a block outside
 //!   every body declares, `if (ready) { var root = window; }`, is a module-level variable, and so is a function such
 //!   a block declares in a script that is not strict code, one with no `import`, no `export` and no `"use strict"`,
-//!   as ECMAScript's Annex B.3.3 scopes it; a `let`, a `const` and a class stay their block's.
+//!   as ECMAScript's Annex B.3.3 scopes it; a `let`, a `const` and a class stay their block's. Outside every
+//!   definition, at file scope, the walk records the same uses of those names, and no member.
 //! - Overload signatures joined to the implementation that follows them, as one callable.
 //! - Imports, `require` and dynamic `import()` of a string, and `export … from` re-exports, a type-only one included.
 //!

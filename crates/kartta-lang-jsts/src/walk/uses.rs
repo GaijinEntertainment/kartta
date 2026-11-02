@@ -36,11 +36,11 @@ impl Emitter<'_> {
     // function or a class included, and a body that binds the name again hides it; a declaration, an import or an
     // export of the name is no use
     pub(super) fn value_use(&mut self, identifier: Node<'_>, caller: SymbolId) {
-        if caller == FILE_SCOPE || is_callee(identifier) || declares(identifier) {
-            return;
-        }
         let binding = self.binding(&self.source[identifier.byte_range()]);
-        if !matches!(binding, Some(Binding::Module(_) | Binding::Definition)) {
+        if !matches!(binding, Some(Binding::Module(_) | Binding::Definition))
+            || is_callee(identifier)
+            || declares(identifier)
+        {
             return;
         }
         let access = access_of(identifier);
@@ -157,21 +157,38 @@ fn is_callee(node: Node<'_>) -> bool {
 }
 
 fn declares(identifier: Node<'_>) -> bool {
-    let Some(parent) = identifier.parent() else {
-        return false;
-    };
-    let in_field = |field| parent.child_by_field_name(field) == Some(identifier);
-    match parent.kind() {
-        "variable_declarator"
-        | "function_declaration"
-        | "generator_function_declaration"
-        | "class_declaration"
-        | "abstract_class_declaration" => in_field("name"),
-        "assignment_pattern" => in_field("left"),
-        "required_parameter" | "optional_parameter" => in_field("pattern"),
-        "import_specifier" | "import_clause" | "namespace_import" | "export_specifier" => true,
-        _ => false,
+    let mut at = identifier;
+    while let Some(parent) = at.parent() {
+        let in_field = |field| parent.child_by_field_name(field) == Some(at);
+        return match parent.kind() {
+            "object_pattern" | "array_pattern" | "rest_pattern" => {
+                at = parent;
+                continue;
+            }
+            "pair_pattern" if in_field("value") => {
+                at = parent;
+                continue;
+            }
+            "assignment_pattern" | "object_assignment_pattern" if in_field("left") => {
+                at = parent;
+                continue;
+            }
+            "variable_declarator"
+            | "function_declaration"
+            | "generator_function_declaration"
+            | "function_signature"
+            | "class_declaration"
+            | "abstract_class_declaration"
+            | "internal_module"
+            | "module"
+            | "index_signature" => in_field("name"),
+            "for_in_statement" => in_field("left") && parent.child_by_field_name("kind").is_some(),
+            "required_parameter" | "optional_parameter" => in_field("pattern"),
+            "import_specifier" | "import_clause" | "namespace_import" | "export_specifier" => true,
+            _ => false,
+        };
     }
+    false
 }
 
 // constraint: only the outermost expression on the left of an assignment is assigned, a name a destructuring pattern
@@ -190,7 +207,11 @@ fn access_of(site: Node<'_>) -> Access {
                 at = parent;
                 continue;
             }
-            "assignment_expression" if left("left") => Access::Write,
+            "assignment_pattern" | "object_assignment_pattern" if left("left") => {
+                at = parent;
+                continue;
+            }
+            "assignment_expression" | "for_in_statement" if left("left") => Access::Write,
             "augmented_assignment_expression" if left("left") => Access::Update,
             "update_expression" => Access::Update,
             _ => Access::Read,

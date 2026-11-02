@@ -45,7 +45,8 @@ imports or declares at module level, before its declaration too, binds that decl
 declares it, or a re-export of it, and so does a function or a class the file declares at its top level, taken as a
 value. A `var` that a block outside every body declares is a module-level value, as ECMAScript scopes it, and so is a
 function such a block declares in a script that is not strict code, one with no `import`, no `export` and no
-`"use strict"`.
+`"use strict"`. Outside every definition, at file scope, a use of those names is recorded too, keeping its name alone,
+and a member is not.
 
 The conventions name the methods that ECMAScript's built-in objects and the DOM give a value, so a member call of one,
 `line.trim()` or `node.addEventListener()`, binds a member of the name and no free function of the repository.
