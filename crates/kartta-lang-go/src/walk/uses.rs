@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use kartta_lang::tree::{child_nodes, line, named_child_nodes, preorder, text};
 use kartta_lang::{Access, FILE_SCOPE, Receiver, SymbolId, UseRef};
@@ -7,7 +8,7 @@ use tree_sitter::Node;
 use super::Emitter;
 use super::locals::{Local, LocalKind, declares_left};
 use super::syntax::{PREDECLARED, first_operand, is_exported, is_pointer_indirection};
-use super::types::{element_of, is_container_path, is_container_type};
+use super::types::{MAX_STEPS, element_of, is_container_path, is_container_type};
 
 const MAX_NAMES_FOLLOWED: usize = 8;
 
@@ -139,29 +140,40 @@ impl<'a> Emitter<'a> {
     // constraint: Go leaves a literal's type unwritten only for an element of a slice, array or map literal, which the
     // enclosing literal's element type gives
     fn keys_of(&self, open: &[Node<'_>]) -> Keys {
-        let [held @ .., value] = open else {
-            return Keys::Unknown;
-        };
-        let [outer @ .., holder] = held else {
-            return Keys::Unknown;
-        };
-        match holder.kind() {
-            "composite_literal" => match holder.child_by_field_name("type") {
-                Some(written) if is_container_type(written) => {
-                    Keys::Values(self.type_path(written))
+        let mut open = open;
+        let mut elided = 0;
+        let keys = loop {
+            let [held @ .., value] = open else {
+                return Keys::Unknown;
+            };
+            let [outer @ .., holder] = held else {
+                return Keys::Unknown;
+            };
+            open = match holder.kind() {
+                "composite_literal" => break self.written_keys(*holder),
+                "literal_value" => held,
+                "keyed_element"
+                    if holder
+                        .child_by_field_name("element")
+                        .is_some_and(|element| element.id() == value.id()) =>
+                {
+                    outer
                 }
-                Some(written) => self.type_path(written).map_or(Keys::Unknown, Keys::Fields),
-                None => Keys::Unknown,
-            },
-            "literal_value" => self.element_keys(held),
-            "keyed_element"
-                if holder
-                    .child_by_field_name("element")
-                    .is_some_and(|element| element.id() == value.id()) =>
-            {
-                self.element_keys(outer)
+                _ => return Keys::Unknown,
+            };
+            elided += 1;
+            if elided > MAX_STEPS {
+                return Keys::Unknown;
             }
-            _ => Keys::Unknown,
+        };
+        (0..elided).fold(keys, |keys, _| elements_of(&keys))
+    }
+
+    fn written_keys(&self, literal: Node<'_>) -> Keys {
+        match literal.child_by_field_name("type") {
+            Some(written) if is_container_type(written) => Keys::Values(self.type_path(written)),
+            Some(written) => self.type_path(written).map_or(Keys::Unknown, Keys::Fields),
+            None => Keys::Unknown,
         }
     }
 
@@ -182,41 +194,32 @@ impl<'a> Emitter<'a> {
         let Some(declared) = self.declared_type(written, literal.start_byte()) else {
             return;
         };
-        let keys = if is_container_type(written) {
-            Keys::Values(self.type_path(written))
-        } else {
-            self.type_path(written).map_or(Keys::Unknown, Keys::Fields)
-        };
-        self.record_positional_level((value, declared), &keys, owner);
-    }
-
-    fn record_positional_level(
-        &mut self,
-        (value, declared): (Node<'a>, Node<'a>),
-        keys: &Keys,
-        owner: SymbolId,
-    ) {
-        if declared.kind() == "struct_type" {
-            if let Keys::Fields(path) = keys {
+        let mut waiting = vec![(value, declared, Rc::new(self.written_keys(literal)))];
+        while let Some((value, declared, keys)) = waiting.pop() {
+            if let ("struct_type", Keys::Fields(path)) = (declared.kind(), &*keys) {
                 self.record_positional_fields((value, declared), path, owner);
             }
-            return;
-        }
-        let element_keys = elements_of(keys);
-        let element = is_container_type(declared)
-            .then(|| declared.child_by_field_name("element"))
-            .flatten()
-            .filter(|_| !matches!(element_keys, Keys::Unknown))
-            .and_then(|element| self.declared_type(element, value.start_byte()))
-            .filter(|element| element.kind() == "struct_type" || is_container_type(*element));
-        let Some(element) = element else {
-            return;
-        };
-        let elided = named_child_nodes(value)
-            .filter_map(elided_or_positional)
-            .filter(|elided| elided.kind() == "literal_value");
-        for elided in elided {
-            self.record_positional_level((elided, element), &element_keys, owner);
+            if declared.kind() == "struct_type" {
+                continue;
+            }
+            let element_keys = elements_of(&keys);
+            let element = is_container_type(declared)
+                .then(|| declared.child_by_field_name("element"))
+                .flatten()
+                .filter(|_| !matches!(element_keys, Keys::Unknown))
+                .and_then(|element| self.declared_type(element, value.start_byte()))
+                .filter(|element| element.kind() == "struct_type" || is_container_type(*element));
+            let Some(element) = element else {
+                continue;
+            };
+            let element_keys = Rc::new(element_keys);
+            let elided = named_child_nodes(value)
+                .filter_map(elided_or_positional)
+                .filter(|elided| elided.kind() == "literal_value")
+                .map(|elided| (elided, element, Rc::clone(&element_keys)));
+            let first_waiting = waiting.len();
+            waiting.extend(elided);
+            waiting[first_waiting..].reverse();
         }
     }
 
@@ -305,36 +308,26 @@ impl<'a> Emitter<'a> {
         types
     }
 
-    fn element_keys(&self, open: &[Node<'_>]) -> Keys {
-        elements_of(&self.keys_of(open))
-    }
-
     pub(super) fn record_type_operand(&mut self, node: Node<'_>, owner: SymbolId) {
-        match node.kind() {
-            "identifier" => self.type_operands.push(node.id()),
-            "selector_expression" => self.record_qualified_type_operand(node, owner),
-            "unary_expression" => {
-                if is_pointer_indirection(node)
-                    && let Some(operand) = node.child_by_field_name("operand")
-                {
-                    self.record_type_operand(operand, owner);
+        let mut waiting = vec![node];
+        while let Some(node) = waiting.pop() {
+            match node.kind() {
+                "identifier" => self.type_operands.push(node.id()),
+                "selector_expression" => self.record_qualified_type_operand(node, owner),
+                "unary_expression" if is_pointer_indirection(node) => {
+                    waiting.extend(node.child_by_field_name("operand"));
                 }
+                "parenthesized_expression" => waiting.extend(first_operand(node)),
+                "index_expression" => {
+                    let mut cursor = node.walk();
+                    let arguments = node.children_by_field_name("index", &mut cursor);
+                    let first_waiting = waiting.len();
+                    waiting.extend(arguments);
+                    waiting[first_waiting..].reverse();
+                    waiting.extend(node.child_by_field_name("operand"));
+                }
+                _ => {}
             }
-            "parenthesized_expression" => {
-                if let Some(inner) = first_operand(node) {
-                    self.record_type_operand(inner, owner);
-                }
-            }
-            "index_expression" => {
-                if let Some(operand) = node.child_by_field_name("operand") {
-                    self.record_type_operand(operand, owner);
-                }
-                let mut cursor = node.walk();
-                for argument in node.children_by_field_name("index", &mut cursor) {
-                    self.record_type_operand(argument, owner);
-                }
-            }
-            _ => {}
         }
     }
 

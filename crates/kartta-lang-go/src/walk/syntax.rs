@@ -239,12 +239,12 @@ pub(super) fn receiver_type(receiver: Node<'_>, source: &[u8]) -> String {
 // of one operand cannot be told from it here: the name it records is then a function's, which no type of that package
 // can share, so it reaches no type
 pub(super) fn assertion_value_type(expression: Node<'_>, source: &[u8]) -> Option<String> {
-    let expression = unparenthesized(expression);
+    let mut expression = unparenthesized(expression);
+    while expression.kind() == "unary_expression" {
+        expression = unparenthesized(expression.child_by_field_name("operand")?);
+    }
     match expression.kind() {
         "composite_literal" => base_type_name(expression.child_by_field_name("type")?, source),
-        "unary_expression" => {
-            assertion_value_type(expression.child_by_field_name("operand")?, source)
-        }
         "call_expression" => {
             let function = unparenthesized(expression.child_by_field_name("function")?);
             let arguments = expression.child_by_field_name("arguments")?;
@@ -280,14 +280,16 @@ pub(super) fn unparenthesized(mut node: Node<'_>) -> Node<'_> {
 }
 
 fn operand_type_name(node: Node<'_>, source: &[u8]) -> Option<String> {
-    let node = unparenthesized(node);
+    let mut node = unparenthesized(node);
+    while node.kind() == "index_expression" {
+        node = unparenthesized(node.child_by_field_name("operand")?);
+    }
     match node.kind() {
         "identifier" => Some(text(node, source)),
         "selector_expression" => node
             .child_by_field_name("operand")
             .is_some_and(|operand| operand.kind() == "identifier")
             .then(|| text(node, source)),
-        "index_expression" => operand_type_name(node.child_by_field_name("operand")?, source),
         _ => base_type_name(node, source),
     }
 }
