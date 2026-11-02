@@ -125,3 +125,22 @@ fn go_reads_past_a_value_a_type_or_a_literal() {
         ],
     );
 }
+
+#[test]
+fn php_reads_past_a_folded_path_or_a_list() {
+    assert_read_past(
+        "php",
+        "function after() {}",
+        &[
+            ("<?php\ninclude @ . '/b.php';", ("dirname(", "__DIR__", ")")),
+            ("<?php\ninclude @;", ("", "__DIR__", " . '/b'")),
+            ("<?php\ninclude @;", ("(", "__DIR__", ")")),
+            ("<?php\nfunction f() { @ = $b; }", ("[", "$a", "]")),
+            ("<?php\nfunction f() { @ = $b; }", ("list(", "$a", ")")),
+            (
+                "<?php\nfunction f() { foreach ($x as @) {} }",
+                ("[", "$a", "]"),
+            ),
+        ],
+    );
+}
