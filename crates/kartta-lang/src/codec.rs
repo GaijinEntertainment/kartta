@@ -722,8 +722,8 @@ mod tests {
     #[test]
     fn every_kind_decodes_to_itself() {
         let raw = RawExtraction {
-            symbols: (SymbolKind::ALL.into_iter())
-                .map(|kind| Symbol::new("f", kind, 1, 1))
+            symbols: (SymbolKind::ALL.iter())
+                .map(|&kind| Symbol::new("f", kind, 1, 1))
                 .collect(),
             ..RawExtraction::default()
         };
