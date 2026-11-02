@@ -18,6 +18,10 @@ lost, and what would reopen it.
 - [4.49 Build the distributed artifacts with fat LTO and stripped symbols](/design-docs/adr/4.49-distribution-profile.md)
 - [4.50 Hold every published crate to one Rust floor that trails stable](/design-docs/adr/4.50-rust-floor.md)
 
+## bindings/go
+
+- [4.54 Serve the Go module from `bindings/go` under Gaijin's module prefix](/design-docs/adr/4.54-go-module-home.md)
+
 ## bindings/node
 
 - [4.40 Ship the Node addon as one npm package per target](/design-docs/adr/4.40-node-addon-packaging.md)
