@@ -83,3 +83,45 @@ fn javascript_reads_past_a_chain_or_a_pattern() {
         ],
     );
 }
+
+#[test]
+fn go_keeps_a_path_whose_steps_shorten_it_before_they_lengthen_it() {
+    let (containers, indices, fields) = ("[]".repeat(79), "[0]".repeat(79), ".b".repeat(79));
+    let source = format!("package x\nfunc f(v {containers}T) {{\n\tv{indices}{fields}.m()\n}}\n");
+    let raw = extraction("go", source);
+    let call = raw.calls.iter().find(|call| call.callee == "m");
+    let receiver = call.and_then(|call| call.receiver.as_deref());
+    assert_eq!(receiver, Some(format!("T{fields}").as_str()));
+}
+
+#[test]
+fn go_reads_past_a_value_a_type_or_a_literal() {
+    assert_read_past(
+        "go",
+        "func after() {}",
+        &[
+            ("package x\nvar t = @", ("", "a", ".b")),
+            ("package x\nvar t = @", ("", "a", ".b()")),
+            ("package x\nvar t = @", ("", "a", "[0]")),
+            ("package x\nvar t = @", ("(", "a", ")")),
+            ("package x\nvar t = @", ("*", "a", "")),
+            ("package x\nvar t = @", ("<-", "a", "")),
+            ("package x\nvar t = @", ("new(", "a", ").b")),
+            ("package x\nvar t @", ("[]", "int", "")),
+            ("package x\nvar t @", ("*", "int", "")),
+            ("package x\nvar t @", ("chan ", "int", "")),
+            ("package x\nvar t @", ("map[int]", "int", "")),
+            ("package x\nvar t @", ("(", "int", ")")),
+            ("package x\nvar t @", ("struct{a ", "int", "}")),
+            ("package x\ntype T @", ("struct{a ", "int", "}")),
+            ("package x\nfunc f() @ { return nil }", ("[]", "int", "")),
+            ("package x\nfunc (t @) m() {}", ("(", "*T", ")")),
+            ("package x\nvar t = a.(@)", ("(", "T", ")")),
+            ("package x\nvar t = T{@}", ("a:{", "", "}")),
+            ("package x\ntype T []T\nvar t = T{@}", ("{", "", "}")),
+            ("package x\nfunc f() { g[@](1) }", ("(", "T", ")")),
+            ("package x\nfunc f() { g[@](1) }", ("", "T", "[T]")),
+            ("package x\nfunc f() { g[@](1) }", ("g[", "T", "]")),
+        ],
+    );
+}

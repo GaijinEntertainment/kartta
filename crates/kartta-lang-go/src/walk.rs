@@ -410,7 +410,7 @@ impl<'a> Emitter<'a> {
                 paths.get_mut(position).and_then(Option::take)
             });
             for (struct_type, scope, _) in literals {
-                self.declare_anonymous(struct_type, &scope);
+                self.declare_anonymous(struct_type, scope);
             }
         }
     }
@@ -714,6 +714,18 @@ impl<'a> Emitter<'a> {
     }
 
     fn field_names(&mut self, field: Node<'_>, (owner, scope): (&str, &str)) {
+        if let Some((struct_type, nested_scope)) = self.declare_field(field, (owner, scope)) {
+            self.declare_anonymous(struct_type, nested_scope);
+        }
+    }
+
+    /// Declares the names of `field`, and gives the anonymous struct its type holds, whose fields stay to declare, with
+    /// the scope that qualifies them.
+    fn declare_field<'t>(
+        &mut self,
+        field: Node<'t>,
+        (owner, scope): (&str, &str),
+    ) -> Option<(Node<'t>, String)> {
         let nested = self.name_field_struct(field, scope);
         let written = field.child_by_field_name("type");
         let type_path = written.and_then(|written| self.type_path(written));
@@ -742,9 +754,7 @@ impl<'a> Emitter<'a> {
             self.unserialized
                 .extend((first..self.symbol_count).map(SymbolId));
         }
-        if let Some((struct_type, nested_scope)) = nested {
-            self.declare_anonymous(struct_type, &nested_scope);
-        }
+        nested
     }
 
     fn var_const(&mut self, node: Node<'_>) {
@@ -795,7 +805,7 @@ impl<'a> Emitter<'a> {
             }
         }
         for (struct_type, scope, _) in nested {
-            self.declare_anonymous(struct_type, &scope);
+            self.declare_anonymous(struct_type, scope);
         }
     }
 

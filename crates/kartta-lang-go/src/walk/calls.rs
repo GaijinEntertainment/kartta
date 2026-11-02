@@ -85,33 +85,39 @@ impl Emitter<'_> {
         }
     }
 
-    fn spells_type_arguments(&self, index: Node<'_>) -> bool {
-        let mut cursor = index.walk();
-        let mut arguments = index.children_by_field_name("index", &mut cursor);
-
-        arguments
-            .next()
-            .is_some_and(|first| arguments.next().is_some() || self.spells_type(first, index))
-    }
-
     // constraint: `table[Key]` and `pick[Key]` have one tree, and outside a call most such trees index a value, so a
     // type argument passes only as what a value's index does not spell, or as a bare name on an imported name, which a
     // package exports far more often as a generic function than as a table a sibling file's constant keys
-    fn spells_type(&self, argument: Node<'_>, index: Node<'_>) -> bool {
-        match argument.kind() {
-            "identifier" => self.names_a_type(argument) || self.operand_is_imported(index),
-            "unary_expression" => {
-                is_pointer_indirection(argument)
-                    && (argument.child_by_field_name("operand")).is_some_and(|pointee| {
-                        pointee.kind() == "selector_expression" || self.names_a_type(pointee)
-                    })
+    fn spells_type_arguments(&self, index: Node<'_>) -> bool {
+        let mut index = index;
+        let (argument, several) = indices(index);
+        let Some(mut argument) = argument.filter(|_| !several) else {
+            return several;
+        };
+        loop {
+            match argument.kind() {
+                "identifier" => {
+                    return self.names_a_type(argument) || self.operand_is_imported(index);
+                }
+                "unary_expression" => return self.spells_pointer_type(argument),
+                "parenthesized_expression" => match first_operand(argument) {
+                    Some(inner) => argument = inner,
+                    None => return false,
+                },
+                "index_expression" => match indices(argument) {
+                    (Some(inner), false) => (index, argument) = (argument, inner),
+                    (_, several) => return several,
+                },
+                kind => return TYPE_ONLY_KINDS.contains(&kind),
             }
-            "parenthesized_expression" => {
-                first_operand(argument).is_some_and(|inner| self.spells_type(inner, index))
-            }
-            "index_expression" => self.spells_type_arguments(argument),
-            kind => TYPE_ONLY_KINDS.contains(&kind),
         }
+    }
+
+    fn spells_pointer_type(&self, argument: Node<'_>) -> bool {
+        is_pointer_indirection(argument)
+            && (argument.child_by_field_name("operand")).is_some_and(|pointee| {
+                pointee.kind() == "selector_expression" || self.names_a_type(pointee)
+            })
     }
 
     fn names_a_type(&self, name: Node<'_>) -> bool {
@@ -175,36 +181,46 @@ impl Emitter<'_> {
     }
 
     fn has_type_arguments(&self, index: Node<'_>, at: usize) -> bool {
-        let mut cursor = index.walk();
-        let mut arguments = index.children_by_field_name("index", &mut cursor);
-
-        arguments
-            .next()
-            .is_some_and(|first| arguments.next().is_some() || self.is_type_argument(first, at))
+        match indices(index) {
+            (Some(first), false) => self.is_type_argument(first, at),
+            (_, several) => several,
+        }
     }
 
     // constraint: the syntax cannot tell a type from a value, so a name the file does not declare as a value is taken
     // as a type argument
     fn is_type_argument(&self, node: Node<'_>, at: usize) -> bool {
+        let mut waiting = vec![node];
+        while let Some(node) = waiting.pop() {
+            let inner = match node.kind() {
+                "unary_expression" if is_pointer_indirection(node) => {
+                    node.child_by_field_name("operand")
+                }
+                "parenthesized_expression" => first_operand(node),
+                "index_expression" => match indices(node) {
+                    (Some(first), several) => {
+                        waiting.extend((!several).then_some(first));
+                        node.child_by_field_name("operand")
+                    }
+                    (None, _) => None,
+                },
+                _ if self.is_type_name(node, at) => continue,
+                _ => None,
+            };
+            let Some(inner) = inner else {
+                return false;
+            };
+            waiting.push(inner);
+        }
+        true
+    }
+
+    fn is_type_name(&self, node: Node<'_>, at: usize) -> bool {
         match node.kind() {
             "identifier" => !self.is_value(self.borrowed(node), at),
             "selector_expression" => node.child_by_field_name("operand").is_some_and(|operand| {
                 operand.kind() == "identifier" && !self.is_value(self.borrowed(operand), at)
             }),
-            "unary_expression" => {
-                is_pointer_indirection(node)
-                    && node
-                        .child_by_field_name("operand")
-                        .is_some_and(|operand| self.is_type_argument(operand, at))
-            }
-            "parenthesized_expression" => {
-                first_operand(node).is_some_and(|inner| self.is_type_argument(inner, at))
-            }
-            "index_expression" => {
-                node.child_by_field_name("operand")
-                    .is_some_and(|operand| self.is_type_argument(operand, at))
-                    && self.has_type_arguments(node, at)
-            }
             kind => TYPE_ONLY_KINDS.contains(&kind),
         }
     }
@@ -226,4 +242,12 @@ impl Emitter<'_> {
             line(node.start_position().row),
         ));
     }
+}
+
+/// The first index of an index expression, and whether a second follows it.
+fn indices(index: Node<'_>) -> (Option<Node<'_>>, bool) {
+    let mut cursor = index.walk();
+    let mut written = index.children_by_field_name("index", &mut cursor);
+    let first = written.next();
+    (first, written.next().is_some())
 }
