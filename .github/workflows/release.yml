@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+  # A change to the dependencies, the toolchain or this build runs it here, where it can fail before a tag does. Only a
+  # tag push publishes.
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - Cargo.lock
+      - Cargo.toml
+      - crates/*/Cargo.toml
+      - rust-toolchain.toml
+      - scripts/dist.sh
+      - scripts/glibc-floor.sh
+
+permissions:
+  contents: read
+
+env:
+  # ADR 4.55: the floor the manylinux images hold, and a distribution at it that took no part in the build.
+  GLIBC_FLOOR: "2.28"
+  GLIBC_FLOOR_HOST: debian:10.13-slim@sha256:bb3dc79fddbca7e8903248ab916bb775c96ec61014b3d02b4f06043b604726dc
+
+jobs:
+  versions:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: scripts/version.sh --check
+      - name: the tag names the workspace version
+        if: github.ref_type == 'tag'
+        run: |
+          scripts/version.sh "${GITHUB_REF_NAME#v}"
+          git diff --exit-code
+
+  build:
+    needs: versions
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-26
+          - target: x86_64-pc-windows-msvc
+            os: windows-2025-vs2026
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+            image: "quay.io/pypa/manylinux_2_28_x86_64:2026.11.01-2@\
+              sha256:7e41b1c7fd64dfc69703a1124b43c404382973ee06ec5d764b85c34d2221fded"
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            image: "quay.io/pypa/manylinux_2_28_aarch64:2026.11.01-2@\
+              sha256:54b271d9562a3686298880df05367909e949ed317e7b1b79b59c696d75f78676"
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-24.04
+            image: rust:1.99.1-alpine3.24@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+            image: rust:1.99.1-alpine3.24@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: build on the runner
+        if: matrix.image == ''
+        run: |
+          rustup toolchain install
+          scripts/dist.sh ${{ matrix.target }}
+      # The image brings the toolchain, and its C library and compiler build the grammars.
+      - name: build in the musl image
+        if: endsWith(matrix.target, '-musl')
+        run: docker run --rm -v "$PWD:/src" -w /src ${{ matrix.image }} scripts/dist.sh ${{ matrix.target }}
+      # The image brings glibc and the compiler. rustup and rustc run on it from the runner.
+      - name: build in the glibc floor's image
+        if: endsWith(matrix.target, '-gnu')
+        run: |
+          rustup toolchain install
+          docker run --rm -v "$PWD:/src" -w /src -v "$HOME/.rustup:/rustup" -v "$HOME/.cargo:/cargo" \
+            -e RUSTUP_HOME=/rustup -e CARGO_HOME=/cargo ${{ matrix.image }} \
+            sh -c 'PATH=/cargo/bin:$PATH exec scripts/dist.sh ${{ matrix.target }}'
+      - name: prove the glibc floor
+        if: endsWith(matrix.target, '-gnu')
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src ${{ matrix.image }} scripts/glibc-floor.sh "$GLIBC_FLOOR" \
+            target/artifacts/kartta-mcp-*.tar.gz target/artifacts/kartta-ffi-*.tar.gz target/floor
+          docker run --rm -v "$PWD/target/floor:/floor" "$GLIBC_FLOOR_HOST" \
+            sh -c '/floor/kartta-mcp --version && /floor/kartta-abi'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.target }}
+          path: target/artifacts/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+
+  checksums:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+          merge-multiple: true
+      - run: sha256sum -- *.tar.gz | tee SHA256SUMS
+        working-directory: artifacts
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SHA256SUMS
+          path: artifacts/SHA256SUMS
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: checksums
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+          merge-multiple: true
+      # Before the release, because pushing a tag to the commit it names again changes nothing, so a re-run after a
+      # failed release passes here.
+      - run: git push origin "$GITHUB_SHA:refs/tags/bindings/go/$GITHUB_REF_NAME"
+      - run: gh release create "$GITHUB_REF_NAME" artifacts/* --verify-tag --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
