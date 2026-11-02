@@ -787,7 +787,7 @@ fn graphed<S: Serializer>(
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     #[derive(Serialize)]
-    struct Graphed<'g> {
+    struct GraphDefinition<'g> {
         graph: &'g str,
         #[serde(with = "DefinitionDef")]
         definition: Definition<'g>,
@@ -796,6 +796,6 @@ fn graphed<S: Serializer>(
     serializer.collect_seq(
         listed
             .iter()
-            .map(|&(graph, definition)| Graphed { graph, definition }),
+            .map(|&(graph, definition)| GraphDefinition { graph, definition }),
     )
 }
