@@ -18,6 +18,10 @@ lost, and what would reopen it.
 - [4.41 Check the Node package with the Vite+ that its lockfile pins](/design-docs/adr/4.41-node-toolchain.md)
 - [4.42 Stop a Node call by a binding id its handle gives it](/design-docs/adr/4.42-node-cancellation.md)
 
+## Cargo.toml
+
+- [4.49 Build the distributed artifacts with fat LTO and stripped symbols](/design-docs/adr/4.49-distribution-profile.md)
+
 ## crates/kartta
 
 - [1.67 Hold each extraction at its exact size](/design-docs/adr/1.67-extraction-memory.md)
