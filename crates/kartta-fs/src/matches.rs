@@ -222,7 +222,7 @@ impl Line {
 /// How many bytes of a long line its reported text leaves out on each side.
 ///
 /// A matching line is cut around its first match, so the part that matched is what survives, and a context line keeps
-/// its start. Either side may be zero.
+/// its start. Either side may be zero. Exhaustive on purpose: a line has two sides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Cut {
     /// The bytes left out before the reported text.
@@ -232,6 +232,9 @@ pub struct Cut {
 }
 
 /// Whether a [`Line`] matched or rides along as context.
+///
+/// Exhaustive on purpose: a reported line is one or the other, and the wire and the MCP answer map each to a word of
+/// their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LineKind {
     /// The line matched one of the patterns.

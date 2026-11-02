@@ -16,7 +16,7 @@ use std::{fs, io};
 
 use kartta::{
     BuildOptions, Conventions, DocComments, Engine, EngineRefresh, Language, Limits, RawExtraction,
-    Repository, Resolver, Widened,
+    Repository, Resolver,
 };
 use tempfile::TempDir;
 
@@ -234,12 +234,14 @@ fn named_paths_that_come_to_more_parts_than_the_limit_refresh_the_whole_tree() {
     let refresh = refreshed(engine.refresh_paths(named, None));
 
     assert_eq!(
-        refresh.widened,
-        Some(Widened {
-            named: EDITED.len() + limit + unheld.len(),
-            parts: EDITED.len() + limit + 1,
+        refresh
+            .widened
+            .map(|widened| (widened.named, widened.parts, widened.limit)),
+        Some((
+            EDITED.len() + limit + unheld.len(),
+            EDITED.len() + limit + 1,
             limit
-        }),
+        )),
         "the paths inside a directory the index does not hold come to one part"
     );
     assert_eq!(refresh.index.walked, [""]);

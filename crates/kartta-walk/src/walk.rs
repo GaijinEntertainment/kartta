@@ -11,14 +11,17 @@ use crate::error::WalkError;
 use crate::policy::{Dir, Entry, EntryKind, ListedEntry, Origin, Policy, Visit};
 use crate::tree::{Slot, Tree};
 
-/// Settings for one walk. Every field defaults to `None` or `false`; construct with functional-update syntax
-/// (`WalkOptions { listed_stats, ..Default::default() }`) — further fields may be added over time.
+/// Settings for one walk. Every field defaults to `None` or `false`.
+///
+/// Start from [`WalkOptions::default`] and set the fields that apply: the type is `#[non_exhaustive]`, so further fields
+/// may be added over time.
 ///
 /// There is deliberately no cap on entries recorded. Truncating a walk hands back an arbitrary subset — which entries
 /// survive depends on scheduling — that a consumer cannot tell from a complete tree without asking, so a guard against
 /// large trees becomes a source of quietly wrong answers. A bound worth having would *fail* the walk instead.
 /// Cancellation is safe only because the caller who cancelled is the one discarding the result.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct WalkOptions {
     /// An outside stop signal, checked before each directory and before each entry. `None` never cancels.
     pub cancel_token: Option<CancelToken>,
@@ -81,7 +84,7 @@ pub struct WalkOptions {
 /// std::fs::write(dir.path().join("visible.txt"), "12345")?;
 /// std::fs::write(dir.path().join(".hidden"), "x")?;
 ///
-/// let WalkOutcome { tree, errors, cancelled } = walk(dir.path(), &Sizes, &(), &WalkOptions::default())?;
+/// let WalkOutcome { tree, errors, cancelled, .. } = walk(dir.path(), &Sizes, &(), &WalkOptions::default())?;
 /// assert!(errors.is_empty() && !cancelled, "a complete answer");
 ///
 /// assert_eq!(tree.len(), 1, "the dotfile was skipped");
@@ -154,6 +157,7 @@ pub fn walk<P: Policy>(
 /// The tree is the part worth keeping; the rest is a report about this particular run, which a consumer surfaces or
 /// logs and then drops.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct WalkOutcome<V> {
     /// The tree the walk discovered.
     ///
