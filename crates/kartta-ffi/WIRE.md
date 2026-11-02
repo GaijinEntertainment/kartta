@@ -212,7 +212,7 @@ and no cache.
 
 ### Ignore
 
-- `in_tree`: Applies the `.gitignore` files inside the tree.
+- `in_tree` (default): Applies the `.gitignore` files inside the tree.
 - `none`: Applies no ignore rule.
 
 ### SetChange
@@ -246,7 +246,7 @@ that enters afterwards runs: to stop a call that may not have entered, name it.
 
 An id by one name never stops a call by the other.
 
-- `id`: The `id` the call's caller gave it.
+- `id` (default): The `id` the call's caller gave it.
 - `binding_id`: The `binding_id` a binding gave it.
 
 ### RefreshParams

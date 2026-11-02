@@ -81,6 +81,7 @@ struct Surface {
     value_sets: Vec<BTreeSet<String>>,
     bounds: BTreeMap<String, u64>,
     exports: BTreeSet<String>,
+    defaults: BTreeMap<String, String>,
 }
 
 impl Surface {
@@ -203,9 +204,18 @@ fn fields_of(item: &syn::ItemStruct, direction: Direction) -> Object {
     object
 }
 
+fn variant_name(item: &syn::ItemEnum, variant: &syn::Variant) -> String {
+    let ident = variant.ident.to_string();
+    let rename_all = serde_keys(&item.attrs).remove("rename_all").flatten();
+    renamed(&variant.attrs).unwrap_or_else(|| match rename_all.as_deref() {
+        Some("snake_case") => snake_case(&ident),
+        Some("lowercase") => ident.to_lowercase(),
+        other => panic!("{}: unread rename_all {other:?}", item.ident),
+    })
+}
+
 fn variants_of(item: &syn::ItemEnum) -> Object {
     let keys = serde_keys(&item.attrs);
-    let rename_all = keys.get("rename_all").cloned().flatten();
     let mut object: Object = keys
         .get("tag")
         .cloned()
@@ -214,13 +224,7 @@ fn variants_of(item: &syn::ItemEnum) -> Object {
         .map(|tag| (tag, None))
         .collect();
     for variant in &item.variants {
-        let ident = variant.ident.to_string();
-        let name = renamed(&variant.attrs).unwrap_or_else(|| match rename_all.as_deref() {
-            Some("snake_case") => snake_case(&ident),
-            Some("lowercase") => ident.to_lowercase(),
-            other => panic!("{}: unread rename_all {other:?}", item.ident),
-        });
-        object.insert(name, None);
+        object.insert(variant_name(item, variant), None);
         if let Fields::Named(fields) = &variant.fields {
             for field in &fields.named {
                 let ident = field.ident.as_ref().expect("a named field");
@@ -345,6 +349,16 @@ impl<'ast> Visit<'ast> for Surface {
     fn visit_item_enum(&mut self, item: &'ast syn::ItemEnum) {
         if direction(&item.attrs).is_some() {
             self.add_object(&item.ident.to_string(), variants_of(item));
+            let is_default = |variant: &&syn::Variant| {
+                variant
+                    .attrs
+                    .iter()
+                    .any(|attr| attr.path().is_ident("default"))
+            };
+            if let Some(default) = item.variants.iter().find(is_default) {
+                let name = variant_name(item, default);
+                self.defaults.insert(item.ident.to_string(), name);
+            }
         }
     }
 
@@ -479,6 +493,20 @@ fn every_section_answers_to_a_type_or_a_value_set_the_code_holds() {
         stale.is_empty(),
         "sections the code does not hold: {stale:?}"
     );
+}
+
+#[test]
+fn a_section_marks_the_variant_its_enum_defaults_to_and_no_other() {
+    let sections = reference();
+    let marked: Vec<(String, String)> = sections
+        .iter()
+        .flat_map(|(section, rows)| rows.iter().map(move |row| (section, row)))
+        .filter(|(_, row)| row.note.starts_with(" (default)"))
+        .map(|(section, row)| (section.clone(), row.name.clone()))
+        .collect();
+    let defaults: Vec<(String, String)> = Surface::of_the_crate().defaults.into_iter().collect();
+
+    assert_eq!(marked, defaults);
 }
 
 #[test]
