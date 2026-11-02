@@ -3692,6 +3692,160 @@ fn find_implementations_keeps_a_type_asserted_where_it_is_declared_beside_a_name
     );
 }
 
+/// The answer to `find_implementations` of `Tr` over a crate whose `src/tr.rs` declares the trait, `src/t.rs` the types
+/// `T` and `E`, `src/other.rs` a namesake `T` and `src/alias.rs` an associated type `Assoc`, with `implementing` as
+/// `src/i.rs` and `src/nested.rs` re-exporting what `src/nested/inner.rs` declares and holding an inline module.
+fn implementors_of_a_trait_a_third_file_implements(implementing: &str) -> String {
+    implementors_over_a_third_file(implementing, &json!({"name": "Tr"}))
+}
+
+fn implementors_over_a_third_file(implementing: &str, arguments: &Value) -> String {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "src/lib.rs",
+            "mod alias;\nmod i;\nmod nested;\nmod other;\nmod t;\nmod tr;\n",
+        ),
+        ("src/tr.rs", "pub trait Tr {\n    fn start(&self) {}\n}\n"),
+        ("src/t.rs", "pub struct T;\npub enum E {}\n"),
+        ("src/other.rs", "pub struct T;\npub struct Vec;\n"),
+        (
+            "src/alias.rs",
+            "pub struct Holder;\n\npub trait Has {\n    type Assoc;\n}\n\nimpl Has for Holder {\n    \
+             type Assoc = u8;\n}\n",
+        ),
+        (
+            "src/nested.rs",
+            "mod inner;\npub use inner::{Below, Deep};\n\npub mod inline {\n    pub struct Held;\n}\n",
+        ),
+        (
+            "src/nested/inner.rs",
+            "pub struct Below;\npub enum Deep {}\n",
+        ),
+        ("src/i.rs", implementing),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    client.answer("find_implementations", arguments)
+}
+
+#[test]
+fn find_implementations_lists_a_rust_impl_in_a_file_that_does_not_declare_its_type() {
+    for (implementing, (name, file)) in [
+        (
+            "use crate::t::T;\nuse crate::tr::Tr;\n\nimpl Tr for T {}\n",
+            ("T", "src/t.rs"),
+        ),
+        (
+            "use crate::t::T as Renamed;\nuse crate::tr::Tr;\n\nimpl Tr for &Renamed {}\n",
+            ("T", "src/t.rs"),
+        ),
+        ("impl crate::tr::Tr for crate::t::E {}\n", ("E", "src/t.rs")),
+        (
+            "use crate::t::*;\nuse crate::tr::*;\n\nimpl Tr for T {}\n",
+            ("T", "src/t.rs"),
+        ),
+        (
+            "use crate::other::T;\nuse crate::tr::Tr;\n\nimpl Tr for T {}\n",
+            ("T", "src/other.rs"),
+        ),
+        (
+            "mod inside {\n    use crate::t::T;\n    use crate::tr::Tr;\n\n    impl Tr for T {}\n}\n",
+            ("T", "src/t.rs"),
+        ),
+        (
+            "use crate::nested::Below;\nuse crate::tr::Tr;\n\nimpl Tr for Below {}\n",
+            ("Below", "src/nested/inner.rs"),
+        ),
+        (
+            "use crate::nested::Deep;\nuse crate::tr::Tr;\n\nimpl Tr for Deep {}\n",
+            ("Deep", "src/nested/inner.rs"),
+        ),
+        (
+            "use crate::nested::inline::Held;\nuse crate::tr::Tr;\n\nimpl Tr for Held {}\n",
+            ("Held", "src/nested.rs"),
+        ),
+    ] {
+        let answer = implementors_of_a_trait_a_third_file_implements(implementing);
+        let (named, located) = (format!("name=\"{name}\""), format!("loc=\"{file}:"));
+
+        assert!(
+            answer.contains("count=\"1\"") && answer.contains(&named) && answer.contains(&located),
+            "{implementing} implements the trait for {name} of {file}: {answer}"
+        );
+    }
+}
+
+#[test]
+fn find_implementations_lists_no_type_a_rust_impl_does_not_reach() {
+    for implementing in [
+        "use crate::tr::Tr;\n\nimpl Tr for u32 {}\n",
+        "use crate::t::*;\nuse crate::tr::Tr;\n\nimpl<T> Tr for T {}\n",
+        "use crate::tr::Tr;\n\nimpl<V> Tr for Vec<V> {}\n",
+        "use outside::Held;\nuse crate::tr::Tr;\n\nimpl Tr for Held {}\n",
+        "use crate::nested::Below;\n\nmod inside {\n    use crate::tr::Tr;\n\n    impl Tr for super::Below {}\n}\n",
+        "use crate::tr::Tr;\n\nimpl Tr for std::path::T {}\n",
+        "use crate::alias::Assoc;\nuse crate::tr::Tr;\n\nimpl Tr for Assoc {}\n",
+        "use crate::t::T;\n\nimpl outside::Tr for T {}\n",
+        "use crate::t::T;\n\nimpl Tr for T {}\n",
+        "use crate::t::T;\n\nimpl crate::nested::inline::Tr for T {}\n",
+        "use crate::tr::Tr;\n\npub struct Held;\n\nimpl Tr for crate::nested::inline::Held {}\n",
+    ] {
+        let answer = implementors_of_a_trait_a_third_file_implements(implementing);
+
+        assert!(
+            answer.contains("count=\"0\""),
+            "{implementing} implements the trait for no type of the tree: {answer}"
+        );
+    }
+}
+
+#[test]
+fn find_implementations_reads_a_trait_a_rust_file_declares_past_a_glob_that_holds_a_namesake() {
+    let implementing = "use crate::tr::*;\n\npub trait Tr {}\n\nimpl Tr for crate::t::T {}\n";
+
+    let globbed = implementors_over_a_third_file(
+        implementing,
+        &json!({"name": "Tr", "path_prefix": "src/tr.rs"}),
+    );
+    let declared = implementors_over_a_third_file(
+        implementing,
+        &json!({"name": "Tr", "path_prefix": "src/i.rs"}),
+    );
+
+    assert!(
+        globbed.contains("count=\"0\"") && declared.contains("count=\"1\""),
+        "the file's own item shadows the glob's: {globbed} {declared}"
+    );
+}
+
+#[test]
+fn find_implementations_lists_no_type_past_the_crates_a_rust_impl_is_built_with() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        (
+            "crates/app/src/lib.rs",
+            "pub mod inline {\n    pub trait Tr {}\n}\n\npub trait Own {}\n\n\
+             impl Own for crate::inline::Far {}\n",
+        ),
+        ("crates/far/Cargo.toml", "[package]\nname = \"far\"\n"),
+        ("crates/far/src/lib.rs", "pub struct Far;\n"),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_implementations", &json!({"name": "Own"}));
+
+    assert!(
+        answer.contains("count=\"0\""),
+        "the crate is not built with the one type of the name: {answer}"
+    );
+}
+
 #[test]
 fn find_unused_counts_a_method_of_an_interface_outside_the_graph_its_file_asserts_as_dispatched() {
     let tree = tree(&[

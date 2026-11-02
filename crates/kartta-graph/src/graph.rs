@@ -711,6 +711,9 @@ impl Graph {
             .map(|assertion| StoredAssertion {
                 type_name: self.strings.intern(&assertion.type_name),
                 interface: self.strings.intern(&assertion.interface),
+                type_file: (assertion.type_file.as_deref()).map(|file| self.strings.intern(file)),
+                interface_file: (assertion.interface_file.as_deref())
+                    .map(|file| self.strings.intern(file)),
             })
             .collect()
     }

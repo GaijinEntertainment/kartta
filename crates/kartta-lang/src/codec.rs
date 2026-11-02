@@ -99,6 +99,8 @@ impl RawExtraction {
                 Ok(ImplementsAssertion {
                     type_name: reader.text()?,
                     interface: reader.text()?,
+                    type_file: None,
+                    interface_file: None,
                 })
             })?,
             directives: reader.seq(Reader::directive)?,
@@ -532,6 +534,8 @@ mod tests {
             assertions: vec![ImplementsAssertion {
                 type_name: "pkg.T".to_owned(),
                 interface: "I".to_owned(),
+                type_file: None,
+                interface_file: None,
             }],
             directives: vec![RawDirective {
                 form: 2,

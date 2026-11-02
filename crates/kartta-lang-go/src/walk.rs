@@ -861,6 +861,8 @@ impl<'a> Emitter<'a> {
         self.raw.assertions.push(ImplementsAssertion {
             type_name,
             interface,
+            type_file: None,
+            interface_file: None,
         });
     }
 }

@@ -18,7 +18,9 @@ owned by the type it returns, `T` of a `Result<T, E>`, and one `static_method_of
 makes them that type's members. An item of an inline module is qualified by the chain of its modules, `a::b::Worker`,
 except a `macro_rules!`, which keeps its bare name and is exported only by `#[macro_export]`, at its crate's root path.
 A function marked `#[proc_macro]` is a macro, since it is invoked as one.
-`impl Trait for Type` adds `Trait` to the parents of the `Type` the file declares under that name or path.
+`impl Trait for Type` adds `Trait` to the parents of the `Type` the file declares under that name or path, and of a
+`Type` it does not declare the file asserts that `Type` implements `Trait`, where its `use`s, a glob or a path can lead
+each name into the tree.
 
 An invocation of a `macro_rules!` the file defines before it, in its block or module or one around it, by its bare
 name, defines the items the first arm its tokens match names by a metavariable, `pub struct $name;` or `fn $name()`,
