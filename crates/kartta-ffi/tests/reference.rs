@@ -1,0 +1,637 @@
+//! `WIRE.md`, held to the code: a method, a field, a value or a bound the code gains fails here until the reference
+//! names it, and a name the code loses fails here until the reference drops it.
+//!
+//! The reference's `###` sections are its objects and value sets, and a section's names are the bullets that open with
+//! a backticked name. The code's side is read from `src/` with `syn`: every struct and enum that derives `Serialize` or
+//! `Deserialize`, by the serde attributes that decide what the wire spells; every `match` that answers string literals,
+//! which is how the wire spells an engine enum; every numeric constant. The methods come from `version` and the params
+//! each takes from serde's own refusal of an unknown field, so neither rests on reading the source.
+#![expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "clippy's allow-expect-in-tests only covers #[cfg(test)] modules, and an integration test crate is built \
+              without cfg(test), so the workspace no-panic posture is waived here, where a failed expectation is the \
+              assertion"
+)]
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use kartta_ffi::Kartta;
+use serde_json::{Value, json};
+use syn::visit::{self, Visit};
+use syn::{Attribute, Expr, Fields, Lit, LitStr, Token};
+
+fn here(path: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
+}
+
+fn read(path: &Path) -> String {
+    fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+/// A name a section lists, and what its line says after the name.
+#[derive(Debug)]
+struct Row {
+    name: String,
+    note: String,
+}
+
+/// The reference's `###` sections by heading.
+fn reference() -> BTreeMap<String, Vec<Row>> {
+    let mut sections: BTreeMap<String, Vec<Row>> = BTreeMap::new();
+    let mut current = None;
+    for line in read(&here("WIRE.md")).lines() {
+        if let Some(heading) = line.strip_prefix("### ") {
+            let replaced = sections.insert(heading.to_owned(), Vec::new());
+            assert!(replaced.is_none(), "two sections are named {heading}");
+            current = Some(heading.to_owned());
+        } else if line.starts_with("## ") {
+            current = None;
+        } else if let (Some(section), Some(row)) = (&current, line.strip_prefix("- `"))
+            && let Some((name, note)) = row.split_once('`')
+        {
+            let rows = sections.get_mut(section).expect("the section just opened");
+            rows.push(Row {
+                name: name.to_owned(),
+                note: note.to_owned(),
+            });
+        } else if let (Some(section), true) = (&current, line.starts_with("  "))
+            && let Some(row) = sections.get_mut(section).and_then(|rows| rows.last_mut())
+        {
+            row.note.push(' ');
+            row.note.push_str(line.trim_start());
+        }
+    }
+    sections
+}
+
+fn names(rows: &[Row]) -> BTreeSet<&str> {
+    rows.iter().map(|row| row.name.as_str()).collect()
+}
+
+/// What the wire spells of one struct or enum: each name, and for a field of a struct whether it is always there.
+type Object = BTreeMap<String, Option<bool>>;
+
+/// What `src/` puts on the wire.
+#[derive(Default)]
+struct Surface {
+    objects: BTreeMap<String, Object>,
+    value_sets: Vec<BTreeSet<String>>,
+    bounds: BTreeMap<String, u64>,
+}
+
+impl Surface {
+    fn of_the_crate() -> Self {
+        let mut surface = Self::default();
+        let mut pending = vec![here("src")];
+        while let Some(path) = pending.pop() {
+            if path.is_dir() {
+                let entries = fs::read_dir(&path).expect("a source directory");
+                pending.extend(entries.map(|entry| entry.expect("an entry").path()));
+            } else {
+                surface.visit_file(&parsed(&path));
+            }
+        }
+        surface
+    }
+
+    fn add_object(&mut self, name: &str, object: Object) {
+        let replaced = self.objects.insert(name.to_owned(), object);
+        assert!(replaced.is_none(), "two wire types are named {name}");
+    }
+}
+
+fn parsed(path: &Path) -> syn::File {
+    syn::parse_file(&read(path)).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+/// The serde keys of `attrs` with their string values. A key this file does not read fails, so a serde attribute that
+/// changes what the wire spells cannot pass unread.
+fn serde_keys(attrs: &[Attribute]) -> BTreeMap<String, Option<String>> {
+    const READ: [&str; 11] = [
+        "default",
+        "deny_unknown_fields",
+        "flatten",
+        "getter",
+        "remote",
+        "rename",
+        "rename_all",
+        "serialize_with",
+        "skip_serializing_if",
+        "tag",
+        "with",
+    ];
+    let mut keys = BTreeMap::new();
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("serde")) {
+        let read = attr.parse_nested_meta(|meta| {
+            let key = meta.path.require_ident()?.to_string();
+            assert!(READ.contains(&key.as_str()), "unread serde key {key}");
+            let value = if meta.input.peek(Token![=]) {
+                Some(meta.value()?.parse::<LitStr>()?.value())
+            } else {
+                None
+            };
+            keys.insert(key, value);
+            Ok(())
+        });
+        read.expect("a serde attribute");
+    }
+    keys
+}
+
+#[derive(Clone, Copy)]
+enum Direction {
+    Answer,
+    Params,
+}
+
+fn direction(attrs: &[Attribute]) -> Option<Direction> {
+    let mut found = None;
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("derive")) {
+        let read = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("Serialize") {
+                found = Some(Direction::Answer);
+            } else if meta.path.is_ident("Deserialize") {
+                found = Some(Direction::Params);
+            }
+            Ok(())
+        });
+        read.expect("a derive list");
+    }
+    found
+}
+
+fn snake_case(name: &str) -> String {
+    let mut snake = String::new();
+    for character in name.chars() {
+        if character.is_uppercase() && !snake.is_empty() {
+            snake.push('_');
+        }
+        snake.push(character.to_ascii_lowercase());
+    }
+    snake
+}
+
+fn is_option(ty: &syn::Type) -> bool {
+    matches!(ty, syn::Type::Path(path)
+        if path.path.segments.last().is_some_and(|segment| segment.ident == "Option"))
+}
+
+fn fields_of(item: &syn::ItemStruct, direction: Direction) -> Object {
+    let keys = serde_keys(&item.attrs);
+    assert!(!keys.contains_key("rename_all"), "{}", item.ident);
+    let defaulted = keys.contains_key("default");
+    let mut object = Object::new();
+    for field in &item.fields {
+        let keys = serde_keys(&field.attrs);
+        if keys.contains_key("flatten") {
+            continue;
+        }
+        let always = match direction {
+            Direction::Answer => !keys.contains_key("skip_serializing_if"),
+            Direction::Params => {
+                !defaulted && !keys.contains_key("default") && !is_option(&field.ty)
+            }
+        };
+        let ident = field.ident.as_ref().expect("a named field");
+        let name = renamed(&field.attrs).unwrap_or_else(|| ident.to_string());
+        object.insert(name, Some(always));
+    }
+    object
+}
+
+fn variants_of(item: &syn::ItemEnum) -> Object {
+    let keys = serde_keys(&item.attrs);
+    let rename_all = keys.get("rename_all").cloned().flatten();
+    let mut object: Object = keys
+        .get("tag")
+        .cloned()
+        .flatten()
+        .into_iter()
+        .map(|tag| (tag, None))
+        .collect();
+    for variant in &item.variants {
+        let ident = variant.ident.to_string();
+        let name = renamed(&variant.attrs).unwrap_or_else(|| match rename_all.as_deref() {
+            Some("snake_case") => snake_case(&ident),
+            Some("lowercase") => ident.to_lowercase(),
+            other => panic!("{}: unread rename_all {other:?}", item.ident),
+        });
+        object.insert(name, None);
+        if let Fields::Named(fields) = &variant.fields {
+            for field in &fields.named {
+                let ident = field.ident.as_ref().expect("a named field");
+                let name = renamed(&field.attrs).unwrap_or_else(|| ident.to_string());
+                object.insert(name, None);
+            }
+        }
+    }
+    object
+}
+
+fn renamed(attrs: &[Attribute]) -> Option<String> {
+    serde_keys(attrs).remove("rename").flatten()
+}
+
+fn string_of(expr: &Expr) -> Option<String> {
+    let Expr::Lit(literal) = expr else {
+        return None;
+    };
+    let Lit::Str(text) = &literal.lit else {
+        return None;
+    };
+    Some(text.value())
+}
+
+fn integer_of(expr: &Expr) -> Option<u64> {
+    match expr {
+        Expr::Lit(literal) => {
+            let Lit::Int(value) = &literal.lit else {
+                return None;
+            };
+            value.base10_parse().ok()
+        }
+        Expr::Binary(shifted) if matches!(shifted.op, syn::BinOp::Shl(_)) => {
+            Some(integer_of(&shifted.left)? << integer_of(&shifted.right)?)
+        }
+        _ => None,
+    }
+}
+
+impl<'ast> Visit<'ast> for Surface {
+    fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
+        if module.ident != "tests" {
+            visit::visit_item_mod(self, module);
+        }
+    }
+
+    fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
+        if let Some(direction) = direction(&item.attrs) {
+            let remote = serde_keys(&item.attrs).remove("remote").flatten();
+            let name = remote.unwrap_or_else(|| item.ident.to_string());
+            self.add_object(&name, fields_of(item, direction));
+        }
+    }
+
+    fn visit_item_enum(&mut self, item: &'ast syn::ItemEnum) {
+        if direction(&item.attrs).is_some() {
+            self.add_object(&item.ident.to_string(), variants_of(item));
+        }
+    }
+
+    fn visit_item_const(&mut self, item: &'ast syn::ItemConst) {
+        if let Some(value) = integer_of(&item.expr) {
+            self.bounds.insert(item.ident.to_string(), value);
+        }
+    }
+
+    fn visit_expr_match(&mut self, matched: &'ast syn::ExprMatch) {
+        let values: BTreeSet<String> = matched
+            .arms
+            .iter()
+            .filter_map(|arm| string_of(&arm.body))
+            .collect();
+        if !values.is_empty() {
+            self.value_sets.push(values);
+        }
+        visit::visit_expr_match(self, matched);
+    }
+
+    fn visit_expr_array(&mut self, array: &'ast syn::ExprArray) {
+        let values: BTreeSet<String> = array
+            .elems
+            .iter()
+            .filter_map(|element| match element {
+                Expr::Tuple(tuple) => string_of(tuple.elems.first()?),
+                _ => None,
+            })
+            .collect();
+        if !values.is_empty() {
+            self.value_sets.push(values);
+        }
+        visit::visit_expr_array(self, array);
+    }
+}
+
+/// The value sets of the `label` functions of the engine's enums, which the wire spells through.
+fn engine_value_sets() -> Vec<BTreeSet<String>> {
+    struct Labels(Surface);
+
+    impl<'ast> Visit<'ast> for Labels {
+        fn visit_impl_item_fn(&mut self, function: &'ast syn::ImplItemFn) {
+            if function.sig.ident == "label" {
+                self.0.visit_block(&function.block);
+            }
+        }
+    }
+
+    let mut labels = Labels(Surface::default());
+    for file in [
+        "../kartta-graph/src/analyze.rs",
+        "../kartta-lang/src/extraction.rs",
+        "../kartta-lang/src/symbol.rs",
+    ] {
+        labels.visit_file(&parsed(&here(file)));
+    }
+    let mut sets = labels.0.value_sets;
+    // constraint: the wire answers a use as a type as a read, so `type` is the one label it never spells
+    for set in sets.iter_mut().filter(|set| set.contains("update")) {
+        set.remove("type");
+    }
+    sets
+}
+
+/// The section each value set of the crate and the engine is, which fails naming a set no section lists.
+fn value_sections(sections: &BTreeMap<String, Vec<Row>>, surface: &Surface) -> BTreeSet<String> {
+    let mut sets = surface.value_sets.clone();
+    sets.extend(engine_value_sets());
+    sets.iter()
+        .map(|values| {
+            let values: BTreeSet<&str> = values.iter().map(String::as_str).collect();
+            let section = sections.iter().find(|(_, rows)| names(rows) == values);
+            let (name, _) =
+                section.unwrap_or_else(|| panic!("no section of WIRE.md lists exactly {values:?}"));
+            name.clone()
+        })
+        .collect()
+}
+
+fn says_always(row: &Row) -> Option<bool> {
+    let always = [", always)", ", required)"].map(|mark| row.note.find(mark));
+    let always = always.into_iter().flatten().min();
+    let optional = row.note.find(", optional)");
+    match (always, optional) {
+        (Some(always), Some(optional)) => Some(always < optional),
+        (Some(_), None) => Some(true),
+        (None, Some(_)) => Some(false),
+        (None, None) => None,
+    }
+}
+
+#[test]
+fn every_struct_and_enum_of_the_wire_has_a_section_that_names_each_of_its_fields() {
+    let sections = reference();
+    for (name, object) in Surface::of_the_crate().objects {
+        let rows = sections
+            .get(&name)
+            .unwrap_or_else(|| panic!("WIRE.md has no section {name}"));
+        let wire: BTreeSet<&str> = object.keys().map(String::as_str).collect();
+        assert_eq!(names(rows), wire, "the names of section {name}");
+        for row in rows {
+            assert_eq!(
+                says_always(row),
+                object[&row.name],
+                "whether {name}.{} is always there",
+                row.name
+            );
+        }
+    }
+}
+
+#[test]
+fn every_value_the_wire_spells_is_named_by_a_section() {
+    value_sections(&reference(), &Surface::of_the_crate());
+}
+
+#[test]
+fn every_section_answers_to_a_type_or_a_value_set_the_code_holds() {
+    let sections = reference();
+    let surface = Surface::of_the_crate();
+    let mut claimed = value_sections(&sections, &surface);
+    claimed.extend(surface.objects.into_keys());
+    claimed.extend(["Bounds", "Languages", "Methods"].map(str::to_owned));
+
+    let stale: Vec<&String> = sections
+        .keys()
+        .filter(|name| !claimed.contains(*name))
+        .collect();
+
+    assert!(
+        stale.is_empty(),
+        "sections the code does not hold: {stale:?}"
+    );
+}
+
+#[test]
+fn every_numeric_constant_is_a_bound_at_its_value() {
+    let sections = reference();
+    let bounds = &sections["Bounds"];
+    let surface = Surface::of_the_crate();
+    let held: BTreeSet<&str> = surface.bounds.keys().map(String::as_str).collect();
+    assert_eq!(names(bounds), held, "the names of section Bounds");
+
+    for row in bounds {
+        let written: String = row
+            .note
+            .trim_start_matches(": ")
+            .chars()
+            .take_while(|&c| c != '.')
+            .collect();
+        let value: u64 = written.replace(',', "").parse().expect("a bound's value");
+        assert_eq!(value, surface.bounds[&row.name], "{}", row.name);
+    }
+}
+
+#[test]
+fn every_constant_the_reference_cites_is_a_bound() {
+    let sections = reference();
+    let bounds = names(&sections["Bounds"]);
+    let text = read(&here("WIRE.md"));
+
+    for quoted in text.split('`').skip(1).step_by(2) {
+        let constant =
+            quoted.len() > 2 && quoted.chars().all(|c| c.is_ascii_uppercase() || c == '_');
+        assert!(!constant || bounds.contains(quoted), "{quoted} is no bound");
+    }
+}
+
+/// What `version` answers of a handle on an empty tree that has built.
+fn built() -> (tempfile::TempDir, Kartta, Value) {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    let params = json!({ "root": tree.path() }).to_string();
+    let kartta = Kartta::open(params.as_bytes()).expect("the tree opens");
+    let answer = kartta.call("build", br#"{"languages":[]}"#);
+    let answer: Value = serde_json::from_slice(&answer).expect("JSON");
+    assert!(answer.get("ok").is_some(), "{answer}");
+    let version: Value = serde_json::from_slice(&kartta.call("version", b"")).expect("JSON");
+    (tree, kartta, version["ok"].clone())
+}
+
+fn listed(version: &Value, key: &str) -> BTreeSet<String> {
+    serde_json::from_value(version[key].clone()).expect("names")
+}
+
+/// The fields `method` takes, read from serde's refusal of one it does not.
+fn params_of(kartta: &Kartta, method: &str) -> BTreeSet<String> {
+    let answer = kartta.call(method, br#"{"reference_probe": 1}"#);
+    let answer: Value = serde_json::from_slice(&answer).expect("JSON");
+    let message = answer["err"]["message"].as_str().unwrap_or_else(|| {
+        panic!("{method} took a field it does not know: {answer}");
+    });
+    if message.contains("there are no fields") {
+        return BTreeSet::new();
+    }
+    let (_, expected) = message.split_once("expected").expect("serde's list");
+    expected
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn every_method_has_a_row_whose_params_section_names_what_it_takes() {
+    let sections = reference();
+    let (_tree, kartta, version) = built();
+    let methods = listed(&version, "methods");
+    let rows = &sections["Methods"];
+    assert_eq!(
+        names(rows),
+        methods.iter().map(String::as_str).collect(),
+        "the names of section Methods"
+    );
+
+    for row in rows {
+        let (_, params) = row.note.split_once("params [`").expect("the params' link");
+        let (params, _) = params.split_once('`').expect("the params' name");
+        let took = params_of(&kartta, &row.name);
+        assert_eq!(
+            names(&sections[params]),
+            took.iter().map(String::as_str).collect(),
+            "{} takes {params}",
+            row.name
+        );
+    }
+}
+
+/// The names of `section` and of the section whose fields it says it holds.
+fn fields_of_section<'s>(
+    sections: &'s BTreeMap<String, Vec<Row>>,
+    section: &str,
+) -> BTreeSet<&'s str> {
+    let mut fields = names(&sections[section]);
+    let text = read(&here("WIRE.md"));
+    let opening = format!("### {section}\n\nThe fields of [`");
+    if let Some((_, rest)) = text.split_once(&opening)
+        && let Some((flattened, _)) = rest.split_once('`')
+    {
+        fields.extend(names(&sections[flattened]));
+    }
+    fields
+}
+
+fn assert_keys_within(object: &Value, allowed: &BTreeSet<&str>, method: &str) {
+    let object = object.as_object().expect("an object");
+    for key in object.keys() {
+        assert!(
+            allowed.contains(key.as_str()),
+            "{method} answers {key}, which its row's sections do not name"
+        );
+    }
+}
+
+#[test]
+fn every_method_s_row_links_the_sections_its_golden_answer_holds() {
+    let sections = reference();
+    for entry in fs::read_dir(here("tests/golden")).expect("the golden directory") {
+        let golden: Value =
+            serde_json::from_str(&read(&entry.expect("an entry").path())).expect("JSON");
+        let Some(answer) = golden["answer"].get("ok") else {
+            continue;
+        };
+        let method = golden["method"].as_str().expect("a method");
+        let row = sections["Methods"]
+            .iter()
+            .find(|row| row.name == method)
+            .expect("a row");
+        let (_, linked) = row.note.split_once("answer ").expect("the answer's link");
+        let (linked, _) = linked.split_once(". ").unwrap_or((linked, ""));
+        let linked: Vec<&str> = linked
+            .split("[`")
+            .skip(1)
+            .filter_map(|link| link.split_once('`').map(|(name, _)| name))
+            .collect();
+        let fields = |of: &[&str]| -> BTreeSet<&str> {
+            of.iter()
+                .flat_map(|section| fields_of_section(&sections, section))
+                .collect()
+        };
+        if linked.first() == Some(&"Matches") {
+            assert_keys_within(answer, &names(&sections["Matches"]), method);
+            let mut part = fields(&linked[1..]);
+            part.extend(names(&sections["Graphed"]));
+            for answered in answer["matches"].as_array().expect("the parts") {
+                assert_keys_within(answered, &part, method);
+            }
+        } else {
+            assert_keys_within(answer, &fields(&linked), method);
+        }
+    }
+}
+
+#[test]
+fn every_language_has_a_row_with_its_family() {
+    let sections = reference();
+    let (_tree, _kartta, version) = built();
+    let rows = &sections["Languages"];
+    let languages = listed(&version, "languages");
+    assert_eq!(
+        names(rows),
+        languages.iter().map(String::as_str).collect(),
+        "the names of section Languages"
+    );
+
+    for language in kartta_languages::all() {
+        let row = rows
+            .iter()
+            .find(|row| row.name == language.name())
+            .expect("a row");
+        assert_eq!(
+            row.note,
+            format!(" (family `{}`)", language.family()),
+            "{}",
+            row.name
+        );
+    }
+}
+
+fn collect_keys(value: &Value, keys: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                keys.insert(key.clone());
+                collect_keys(value, keys);
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|item| collect_keys(item, keys)),
+        _ => {}
+    }
+}
+
+/// The goldens reach what a hand-written `Serialize` or a flattened field puts on the wire, which no derive states.
+#[test]
+fn every_key_of_a_golden_is_a_name_of_the_reference() {
+    let sections = reference();
+    let named: BTreeSet<&str> = sections.values().flat_map(|rows| names(rows)).collect();
+    let mut keys = BTreeSet::new();
+    for entry in fs::read_dir(here("tests/golden")).expect("the golden directory") {
+        let golden: Value =
+            serde_json::from_str(&read(&entry.expect("an entry").path())).expect("JSON");
+        collect_keys(&golden["params"], &mut keys);
+        collect_keys(&golden["answer"]["ok"], &mut keys);
+        collect_keys(&golden["answer"]["err"], &mut keys);
+    }
+
+    let unnamed: Vec<&String> = keys
+        .iter()
+        .filter(|key| !named.contains(key.as_str()))
+        .collect();
+
+    assert!(
+        unnamed.is_empty(),
+        "keys WIRE.md does not name: {unnamed:?}"
+    );
+}
