@@ -610,7 +610,8 @@ The fields of [`Walk`](#walk), and:
 - `reached` (array of [`Reached`](#reached), always): The symbols reached.
 - `truncated` (boolean, always): The symbol cap stopped the walk.
 - `turned_away` (integer, always): The symbols the cap kept out.
-- `unexpanded` (integer, always): The symbols at the depth bound whose own calls were not followed.
+- `unexpanded` (integer, always): The symbols reached whose own calls were not followed: those at the depth bound, the
+  root at a depth of 0, and those the symbol cap left.
 - `below_confidence` (integer, always): The calls under the confidence floor.
 - `unresolved` (integer, always): The calls that bound no symbol the graph holds.
 - `ambiguous` (integer, optional): For a walk over callers, the calls of the root's name that bound no definition
@@ -639,7 +640,9 @@ The fields of [`Walk`](#walk), and:
 - `hops` (array of [`Reached`](#reached), always): The path.
 - `truncated` (boolean, always): The symbol cap stopped the search.
 - `turned_away` (integer, always): The symbols the cap kept out.
-- `at_depth_bound` (integer, always): The symbols at the depth bound whose own calls were not followed.
+- `at_depth_bound` (integer, always): The callers other than `from` the search reached at the depth bound, whose own
+  callers it did not look at: a longer path may pass through them. Unlike `unexpanded`, it counts nothing the symbol
+  cap left, which `truncated` reports.
 - `below_confidence` (integer, always): The calls under the confidence floor.
 - `passed_over` ([`PassedOver`](#passedover), always): The other symbols each end's name selects.
 - `candidates` ([`Ends`](#ends), optional): The most called of each end's passed-over symbols. Absent when neither end
@@ -743,7 +746,8 @@ The fields of [`References`](#references), and:
 - `candidates` (array of [`Candidate`](#candidate), optional): The most implemented of those, the most first.
 - `found` (array of [`Implementor`](#implementor), always): The implementors answered.
 - `total` (integer, always): The implementors within the depth bound, before the limit.
-- `unexpanded` (integer, always): The implementors at the depth bound whose own implementors were not followed.
+- `unexpanded` (integer, always): The implementors at the depth bound whose own implementors were not followed, and the
+  type asked about at a depth of 0.
 
 ### Implementor
 
@@ -759,7 +763,8 @@ The fields of [`References`](#references), and:
 - `found` (array of [`Dependent`](#dependent), always): The files answered.
 - `truncated` (boolean, always): The file cap stopped the search.
 - `turned_away` (integer, always): The files the cap kept out.
-- `unexpanded` (integer, always): The files at the depth bound whose own dependents were not followed.
+- `unexpanded` (integer, always): The files reached whose own dependents were not followed: those at the depth bound,
+  the file asked about at a depth of 0, and those the file cap stopped at.
 
 ### Dependent
 
@@ -805,7 +810,8 @@ The fields of [`Lines`](#lines), and:
 - `band` ([`ReachBand`](#reachband), always): How wide the reach is.
 - `truncated` (boolean, always): The symbol cap stopped the walk.
 - `turned_away` (integer, always): The symbols the cap kept out.
-- `unexpanded` (integer, always): The symbols at the depth bound whose own callers were not followed.
+- `unexpanded` (integer, always): The symbols reached whose own callers were not followed: those at the depth bound, the
+  symbol itself at a depth of 0, and those the symbol cap left.
 - `below_confidence` (integer, always): The calls under the confidence floor.
 
 ### Change
@@ -845,7 +851,8 @@ The fields of [`Lines`](#lines), and:
 - `consumer_dirs` (array of [`DirCount`](#dircount), always): Those users or callers by directory when they are many.
 - `truncated` (boolean, always): The symbol cap stopped the walk.
 - `turned_away` (integer, always): The symbols the cap kept out.
-- `unexpanded` (integer, always): The symbols at the depth bound whose own callers were not followed.
+- `unexpanded` (integer, always): The symbols reached whose own callers were not followed: those at the depth bound, the
+  symbol itself at a depth of 0, and those the symbol cap left.
 - `below_confidence` (integer, always): The calls under the confidence floor.
 
 ### DirCount
