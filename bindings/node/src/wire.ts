@@ -73,7 +73,7 @@ export type BuildParams = {
 	binding_id?: number;
 	/** The languages to build graphs of, by the names `version` lists; absent builds every one, empty none. */
 	languages?: string[];
-	/** Bounds the threads the index runs on; absent takes every core. */
+	/** Bounds the threads the index runs on, at least 1; absent takes every core, and 0 rejects with invalid_params. */
 	threads?: number;
 	/** `in_tree` applies the `.gitignore` files inside the tree, the default; `none` applies no ignore rule. */
 	ignore?: 'in_tree' | 'none';
@@ -409,7 +409,7 @@ export type WalkParams = {
 	path_prefix?: string;
 	/**
 	 * Keeps only the symbols that start on this one-based line, as a `Definition`'s `line`; it reaches one of several
-	 * symbols of the name in one file. Absent looks at every line.
+	 * symbols of the name in one file. Absent looks at every line, and 0 selects no symbol.
 	 */
 	line?: number;
 	/** Names the graph to ask, by a language or its family; absent asks every graph. */
