@@ -285,7 +285,12 @@ export type GraphStats = {
 	kinds: Record<string, number>;
 	calls: number;
 	local_calls: number;
+	/** The uses of a name outside a call inside a definition: `reads`, `writes`, `updates` and `types` together. */
 	uses: number;
+	reads: number;
+	writes: number;
+	updates: number;
+	types: number;
 	includes: number;
 };
 
