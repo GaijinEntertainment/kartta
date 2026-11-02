@@ -9,12 +9,18 @@ readonly SITES=(
   'Cargo.lock|/^name = "kartta(-[a-z]+)*"$/,/^version = /'
   'crates/kartta-ffi/tests/golden/version.json|/^ +"version": "/'
   'bindings/node/package.json|/^[[:blank:]]"version": /'
+  'bindings/node/package.json|/^[[:blank:]]+"kartta-[a-z0-9-]+": /'
   'bindings/node/package-lock.json|/^  "name": "kartta",$/,/^      "license": /'
+  'bindings/node/package-lock.json|/^ +"kartta-[a-z0-9-]+": /'
+  'bindings/node/package-lock.json|/^    "node_modules\/kartta-[a-z0-9-]+": /,/^      "version": /'
   'bindings/node/npm/darwin-arm64/package.json|/^[[:blank:]]"version": /'
   'bindings/node/npm/linux-arm64-gnu/package.json|/^[[:blank:]]"version": /'
+  'bindings/node/npm/linux-arm64-musl/package.json|/^[[:blank:]]"version": /'
   'bindings/node/npm/linux-x64-gnu/package.json|/^[[:blank:]]"version": /'
+  'bindings/node/npm/linux-x64-musl/package.json|/^[[:blank:]]"version": /'
+  'bindings/node/npm/win32-x64-msvc/package.json|/^[[:blank:]]"version": /'
 )
-readonly VERSION_FIELD='version"?( =|:) "'
+readonly VERSION_FIELD='(version"?|"kartta-[a-z0-9-]+")( =|:) "'
 readonly SEMVER='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 
 usage() {
@@ -25,7 +31,7 @@ USAGE
 }
 
 versions_at() {
-  sed -En "${2}s/.*${VERSION_FIELD}([^\"]*)\".*/\\2/p" "$1"
+  sed -En "${2}s/.*${VERSION_FIELD}([^\"]*)\".*/\\3/p" "$1"
 }
 
 check() {
