@@ -151,6 +151,20 @@ jobs:
         with:
           command: check
 
+  # The notices file against Cargo.lock and the pinned toolchain. A dependency or toolchain bump fails here until
+  # `python3 notices/generate.py` writes the file that goes with it.
+  notices:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - run: rustup component add rust-src
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14.10"
+      - run: python notices/generate.py
+      - run: git diff --exit-code notices/THIRD-PARTY-NOTICES.txt
+
   npm-audit:
     runs-on: ubuntu-24.04
     steps:
@@ -165,7 +179,7 @@ jobs:
   # when every triggered job passed or was skipped — so conditional jobs never need enumerating in rulesets.
   ci-ok:
     if: always()
-    needs: [fmt, clippy, docs, unsupported-watch, test, go, node, markdown, versions, deny, npm-audit]
+    needs: [fmt, clippy, docs, unsupported-watch, test, go, node, markdown, versions, deny, notices, npm-audit]
     runs-on: ubuntu-24.04
     steps:
       - name: verify all jobs succeeded
