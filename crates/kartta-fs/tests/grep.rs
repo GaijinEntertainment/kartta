@@ -831,8 +831,8 @@ fn a_text_file_that_will_not_read_is_reported_and_left_out_of_the_index() {
         outcome
             .index
             .content_index_stats()
-            .map(|stats| stats.files()),
-        Some(1)
+            .map(|stats| (stats.files(), stats.unindexed())),
+        Some((1, 1))
     );
 }
 

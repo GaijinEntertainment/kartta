@@ -66,6 +66,7 @@ impl ContentIndexStorage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ContentIndexStats {
     files: usize,
+    unindexed: usize,
     trigrams: usize,
     bytes: u64,
 }
@@ -78,6 +79,13 @@ impl ContentIndexStats {
     #[must_use]
     pub const fn files(&self) -> usize {
         self.files
+    }
+
+    /// How many text files the index holds nothing of, because their read failed in the build or the refresh that last
+    /// read them. Every search that selects one reads it, so the index never rules it out.
+    #[must_use]
+    pub const fn unindexed(&self) -> usize {
+        self.unindexed
     }
 
     /// How many distinct trigrams those files hold, counted within each segment of the index.
@@ -186,6 +194,7 @@ impl ContentIndexes {
         let segments = self.segments.iter().map(|segment| segment.stats);
         ContentIndexStats {
             files: self.files,
+            unindexed: self.unindexed.len(),
             trigrams: segments.clone().map(|stats| stats.trigrams).sum(),
             bytes: size_of_val(&*self.unindexed) as u64
                 + segments.map(|stats| stats.bytes).sum::<u64>(),

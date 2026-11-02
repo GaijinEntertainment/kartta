@@ -294,6 +294,7 @@ impl Written {
         ContentIndex {
             stats: ContentIndexStats {
                 files,
+                unindexed: 0,
                 trigrams: self.trigrams,
                 bytes: self.blob.len() as u64,
             },
