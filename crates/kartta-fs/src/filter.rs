@@ -2,6 +2,11 @@ use std::fmt;
 
 use globset::{Candidate, Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 
+// constraint: `globset` translates and drops nested alternates by recursion with no limit of its own, so a glob's
+// braces set the stack it takes; a `{` that names a literal counts too, because telling them apart takes parsing the
+// glob
+const MAX_BRACES: usize = 1024;
+
 /// The globs a path search selects with, compiled once.
 ///
 /// Every pattern compiles when the filter is built, so holding a `Filter` is proof that its patterns parsed and a query
@@ -18,7 +23,7 @@ use globset::{Candidate, Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 ///
 /// [`globset`](https://crates.io/crates/globset), the one ripgrep and `fd` match with, so a pattern a caller already
 /// knows works unchanged. `*` and `?` match inside a segment, `**` crosses segments, `[a-z]` is a character class and
-/// `{a,b}` alternates. Three rules settle the rest:
+/// `{a,b}` alternates, and a pattern holds at most 1,024 `{`. Three rules settle the rest:
 ///
 /// - **A pattern is anchored at the index root**, which is what an indexed path is relative to. `src/*.rs` finds
 ///   `src/main.rs` and never `vendor/src/main.rs`; `**/src/*.rs` finds both.
@@ -117,6 +122,13 @@ impl fmt::Debug for Filter {
 
 /// Compiles one pattern, giving `*` its reach from whether the pattern names a place or a file.
 fn compile(pattern: &str) -> Result<Glob, FilterError> {
+    let braces = pattern.bytes().filter(|&byte| byte == b'{').count();
+    if braces > MAX_BRACES {
+        return Err(FilterError::Pattern {
+            pattern: pattern.to_owned(),
+            reason: format!("it holds {braces} `{{`, past the {MAX_BRACES} a glob may hold"),
+        });
+    }
     GlobBuilder::new(pattern)
         .literal_separator(pattern.contains('/'))
         .backslash_escape(true)
@@ -240,5 +252,28 @@ mod tests {
             matches!(&failed, FilterError::Pattern { pattern, .. } if pattern == "src/["),
             "expected the offending pattern, got {failed:?}"
         );
+    }
+
+    fn nested_alternates(depth: usize) -> String {
+        format!("{}b{}", "{a,".repeat(depth), "}".repeat(depth))
+    }
+
+    #[test]
+    fn nested_braces_past_the_limit_are_refused_before_they_recurse() {
+        let failed = Filter::new([nested_alternates(MAX_BRACES + 1)])
+            .expect_err("alternates nested past the limit compile to nothing");
+
+        assert!(
+            matches!(&failed, FilterError::Pattern { reason, .. } if reason.contains("1025 `{`")),
+            "expected the count of braces, got {failed:?}"
+        );
+    }
+
+    #[test]
+    fn the_limit_counts_every_brace_of_a_pattern() {
+        let at_the_limit = "{a,b}".repeat(MAX_BRACES);
+
+        assert!(Filter::new([&at_the_limit]).is_ok());
+        assert!(Filter::new([at_the_limit + "{a,b}"]).is_err());
     }
 }
