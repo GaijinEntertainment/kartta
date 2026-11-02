@@ -66,6 +66,7 @@ lost, and what would reopen it.
 - [4.36 Pin each wire method in a golden file both bindings replay](/design-docs/adr/4.36-wire-method-pinning.md)
 - [4.45 Drop a handle's engine before its next build walks](/design-docs/adr/4.45-wire-build-lifecycle.md)
 - [4.52 Publish the wire as a hand-written reference a test holds to the code](/design-docs/adr/4.52-wire-reference.md)
+- [4.57 State what each wire method takes and what its answer left out](/design-docs/adr/4.57-wire-params-answers.md)
 
 ## crates/kartta-fs
 
