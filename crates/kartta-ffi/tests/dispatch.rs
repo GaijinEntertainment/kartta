@@ -223,6 +223,17 @@ fn a_fuzzy_answer_counts_its_matches_unless_the_query_is_empty() {
         None,
         "an empty query is not counted: {everything}"
     );
+    assert_eq!(everything["truncated"], true, "{everything}");
+
+    let exact = ok(&kartta, "fuzzy", &json!({ "query": "", "limit": 2 }));
+    assert_eq!(
+        (
+            exact["matches"].as_array().map(Vec::len),
+            &exact["truncated"]
+        ),
+        (Some(2), &json!(false)),
+        "exactly the limit left nothing out: {exact}"
+    );
 }
 
 #[test]

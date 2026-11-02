@@ -238,9 +238,7 @@ impl FuzzyView {
     ) -> Result<Self, Error> {
         let exclude = filter(params.exclude.as_deref())?;
         let filter = filter(params.globs.as_deref())?;
-        let limit = NonZeroUsize::new(params.limit.unwrap_or(FUZZY_LIMIT));
-        let mut options =
-            FuzzyOptions::default().limit(limit.map_or(0, |limit| limit.get().saturating_add(1)));
+        let mut options = FuzzyOptions::default().limit(params.limit.unwrap_or(FUZZY_LIMIT));
         if let Some(filter) = &filter {
             options = options.filter(filter);
         }
@@ -248,23 +246,17 @@ impl FuzzyView {
             options = options.exclude(exclude);
         }
         let ranked = index.fuzzy(&params.query, &options);
-        let limit = limit.map_or(usize::MAX, NonZeroUsize::get);
-        let truncated = ranked.items().len() > limit;
-        let answered = if truncated {
-            &ranked.items()[..limit]
-        } else {
-            ranked.items()
-        };
         let mut paths = index.paths();
         Ok(Self {
-            matches: answered
+            matches: ranked
+                .items()
                 .iter()
                 .map(|found| FuzzyMatchView {
                     path: paths.get(found.position).to_owned(),
                     score: found.score,
                 })
                 .collect(),
-            truncated,
+            truncated: ranked.truncated(),
             matched: ranked.matched(),
             stopped_build: stopped,
         })
