@@ -66,7 +66,7 @@ impl Shared {
     fn new(outcome: kartta::EngineOutcome, stamps: bool, watch: Option<Watch>) -> Self {
         Self {
             built: RwLock::new(Built {
-                errors: StoredErrors::new(&outcome.errors),
+                errors: StoredErrors::new(outcome.engine.index().root(), &outcome.errors),
                 engine: outcome.engine,
                 stamps,
                 watch,
@@ -93,9 +93,8 @@ impl Followed for Shared {
     ) -> Result<T, String> {
         let mut built = self.built.write().map_err(|_| BROKEN.to_owned())?;
         let (refresh, walked) = refresh(&mut built.engine).map_err(|error| error.to_string())?;
-        let failed = StoredErrors::new(refresh.errors());
-        let Built { engine, errors, .. } = &mut *built;
-        errors.replace(engine.index().root(), &refresh.index.walked, failed);
+        let failed = StoredErrors::new(built.engine.index().root(), refresh.errors());
+        built.errors.replace(&refresh.index.walked, failed);
         drop(built);
         Ok(walked)
     }
@@ -206,10 +205,9 @@ impl Built {
                 format!("{error}; the engine answers as it did before the refresh"),
             ),
         })?;
-        let failed = StoredErrors::new(refresh.errors());
+        let failed = StoredErrors::new(self.engine.index().root(), refresh.errors());
         let answer = wire::ok(&RefreshAnswer::new(&refresh, &failed, self.watch.as_ref()));
-        self.errors
-            .replace(self.engine.index().root(), &refresh.index.walked, failed);
+        self.errors.replace(&refresh.index.walked, failed);
         answer
     }
 

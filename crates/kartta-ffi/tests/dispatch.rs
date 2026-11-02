@@ -1708,10 +1708,21 @@ fn a_refresh_that_reads_a_failed_file_takes_it_out_of_stats_errors() {
     let failed = ok(&kartta, "stats", &Value::Null)["errors"].clone();
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).expect("unlock");
 
-    let refreshed = ok(&kartta, "refresh", &json!({ "paths": ["run.go"] }));
+    let refused = code(
+        &kartta,
+        "refresh",
+        &json!({ "paths": [failed["listed"][0]["path"]] }),
+    );
+    let refreshed = ok(
+        &kartta,
+        "refresh",
+        &json!({ "paths": [failed["listed"][0]["file"]] }),
+    );
 
     assert_eq!(failed["total"], 1, "{failed}");
     assert_eq!(failed["listed"][0]["kind"], "read", "{failed}");
+    assert_eq!(failed["listed"][0]["file"], "run.go", "{failed}");
+    assert_eq!(refused, "invalid_params");
     assert_eq!(refreshed["errors"], json!({ "total": 0, "listed": [] }));
     assert_eq!(
         ok(&kartta, "stats", &Value::Null)["errors"],
