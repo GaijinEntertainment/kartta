@@ -24,6 +24,7 @@ lost, and what would reopen it.
 ## bindings/go
 
 - [4.54 Serve the Go module from `bindings/go` under Gaijin's module prefix](/design-docs/adr/4.54-go-module-home.md)
+- [4.60 Link the Go binding on Windows against the `windows-gnu` archive](/design-docs/adr/4.60-go-windows-link.md)
 
 ## bindings/node
 
