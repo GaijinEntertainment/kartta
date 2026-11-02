@@ -186,7 +186,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-26, windows-2025-vs2026]
         go: ["1.27.3"]
         # The floor, the go directive of go.mod. setup-go keeps the toolchain from switching, so a directive raised past
         # this entry fails its first go command, and a symbol or a behavior newer than the floor fails its build or
@@ -195,22 +195,41 @@ jobs:
           - os: ubuntu-24.04
             go: "1.25.0"
             floor: true
+          # constraint: cgo on Windows links with MinGW, which refuses the MSVC target's archive (ADR 4.60)
+          - os: windows-2025-vs2026
+            target: x86_64-pc-windows-gnu
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # constraint: Windows would run a step in PowerShell, and these use cmp, sha256sum and $GITHUB_PATH
+        shell: bash
     env:
-      CGO_LDFLAGS: -L${{ github.workspace }}/target/debug
+      CGO_LDFLAGS: -L${{ github.workspace }}/target/${{ matrix.target }}/debug
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # constraint: a fetched module holds bindings/go alone, so it carries a copy of the header
       - name: the module's kartta.h equals the library's
         run: cmp crates/kartta-ffi/include/kartta.h bindings/go/kartta.h
       - run: rustup toolchain install
+      - run: rustup target add ${{ matrix.target }}
+        if: ${{ matrix.target }}
+      # The image's own MinGW moves with the image, and this one is gcc for cargo's C and for cgo alike.
+      - name: install MinGW-w64
+        if: ${{ matrix.target }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          archive=x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev1.7z
+          curl -fsSLO "https://github.com/niXman/mingw-builds-binaries/releases/download/15.2.0-rt_v13-rev1/$archive"
+          echo "029bd02b5bce7c10fd9476165b3fe178239fe1838ad62516b5c3e0921bb283cf  $archive" | sha256sum -c
+          7z x -bd -y "$archive" | tail -3
+          cygpath -w "$PWD/mingw64/bin" >> "$GITHUB_PATH"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       # The module has no dependencies to cache.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ matrix.go }}
           cache: false
-      - run: cargo build --locked -p kartta-ffi
+      - run: cargo build --locked -p kartta-ffi ${{ matrix.target && format('--target {0}', matrix.target) }}
       - run: go vet ./...
         working-directory: bindings/go
       - run: go test -race ./...
