@@ -1,7 +1,7 @@
 use kartta_lang::tree::{line, named_child_nodes, preorder, text};
 use kartta_lang::{
-    Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol,
-    SymbolFlags, SymbolId, SymbolKind, UseRef,
+    Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol, SymbolFlags,
+    SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree};
 
@@ -120,15 +120,12 @@ impl Emitter<'_> {
             self.handler_use(node, command, site_of);
         }
 
-        self.raw.calls.push(CallRef {
+        self.raw.calls.push(CallRef::new(
             site_of,
-            callee: text(name, self.source),
-            receiver: None,
-            line: start_line(node),
-            binds_apart: false,
-            calls_a_method: false,
-            arguments: 0,
-        });
+            text(name, self.source),
+            None,
+            start_line(node),
+        ));
     }
 
     // constraint: a function the shell runs later is named as a word, the handler of `trap cleanup EXIT` and the
@@ -163,13 +160,12 @@ impl Emitter<'_> {
                 .iter()
                 .all(|&byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b':'));
         if is_name {
-            self.raw.uses.push(UseRef {
+            self.raw.uses.push(UseRef::new(
                 site_of,
-                name: String::from_utf8_lossy(spelled).into_owned(),
-                receiver: Receiver::Bare,
-                access: Access::Read,
-                line: start_line(handler),
-            });
+                String::from_utf8_lossy(spelled).into_owned(),
+                Receiver::Bare,
+                start_line(handler),
+            ));
         }
     }
 

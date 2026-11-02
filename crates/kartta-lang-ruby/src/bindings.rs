@@ -85,17 +85,9 @@ impl Bindings {
 
             let key = body.0.to_string();
             if defined.insert(body) {
-                callables.push(Callable {
-                    symbol: body,
-                    key: key.clone(),
-                    role: CallableRole::Definition,
-                });
+                callables.push(Callable::new(body, key.clone(), CallableRole::Definition));
             }
-            callables.push(Callable {
-                symbol: alias,
-                key,
-                role: CallableRole::Declaration,
-            });
+            callables.push(Callable::new(alias, key, CallableRole::Declaration));
         }
 
         callables

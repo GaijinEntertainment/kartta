@@ -385,13 +385,10 @@ impl<'a> Emitter<'a> {
         site: Node<'_>,
         (name, receiver, access): (String, Receiver, Access),
     ) {
-        self.raw.uses.push(UseRef {
-            site_of: owner,
-            name,
-            receiver,
-            access,
-            line: line(site.start_position().row),
-        });
+        let line = line(site.start_position().row);
+        let mut site = UseRef::new(owner, name, receiver, line);
+        site.access = access;
+        self.raw.uses.push(site);
     }
 
     // constraint: an import binds the name its package clause declares, which the import path need not spell, so a

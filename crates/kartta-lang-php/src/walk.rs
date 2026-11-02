@@ -6,8 +6,8 @@ use kartta_lang::tree::{
     child_nodes, line, named_child_nodes, preorder, signature, signature_from, text,
 };
 use kartta_lang::{
-    Access, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol, SymbolFlags,
-    SymbolId, SymbolKind, UseRef,
+    CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol, SymbolFlags, SymbolId,
+    SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree};
 
@@ -335,13 +335,12 @@ impl<'s> Emitter<'s> {
                 receiver,
             ),
         };
-        self.raw.uses.push(UseRef {
+        self.raw.uses.push(UseRef::new(
             site_of,
             name,
             receiver,
-            access: Access::Read,
-            line: line(node.start_position().row),
-        });
+            line(node.start_position().row),
+        ));
     }
 
     fn push(&mut self, mut symbol: Symbol) -> SymbolId {
@@ -1241,15 +1240,12 @@ impl<'s> Emitter<'s> {
             return;
         }
 
-        self.raw.calls.push(CallRef {
-            site_of: self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id),
+        self.raw.calls.push(CallRef::new(
+            self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id),
             callee,
             receiver,
-            line: line(node.start_position().row),
-            binds_apart: false,
-            calls_a_method: false,
-            arguments: 0,
-        });
+            line(node.start_position().row),
+        ));
     }
 }
 

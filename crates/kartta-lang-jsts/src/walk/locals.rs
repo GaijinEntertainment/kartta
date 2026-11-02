@@ -35,11 +35,8 @@ impl<'s> Locals<'s> {
                 .filter(|(scope, _)| scope.contains(&at))
                 .min_by_key(|(scope, _)| scope.len());
             if let Some(&(_, local)) = innermost {
-                raw.local_calls.push(LocalCall {
-                    site_of: written.site_of,
-                    local,
-                    line: written.line,
-                });
+                raw.local_calls
+                    .push(LocalCall::new(written.site_of, local, written.line));
                 bound.push(call);
             }
         }

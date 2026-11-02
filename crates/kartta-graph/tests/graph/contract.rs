@@ -325,9 +325,7 @@ fn a_removed_file_is_forgotten_and_its_slot_serves_the_next_file() {
 }
 
 fn including(mut extraction: Extraction, target: &str) -> Extraction {
-    extraction.includes.push(IncludeRef {
-        target: target.to_owned(),
-    });
+    extraction.includes.push(IncludeRef::new(target.to_owned()));
     extraction
 }
 

@@ -27,15 +27,7 @@
 //! let mut main = Extraction::default();
 //! main.file = "src/main.go".to_owned();
 //! main.symbols.push(Symbol::new("main", SymbolKind::Function, 1, 4));
-//! main.calls.push(CallRef {
-//!     site_of: SymbolId(0),
-//!     callee: "Parse".to_owned(),
-//!     receiver: None,
-//!     line: 2,
-//!     binds_apart: false,
-//!     calls_a_method: false,
-//!     arguments: 0,
-//! });
+//! main.calls.push(CallRef::new(SymbolId(0), "Parse".to_owned(), None, 2));
 //!
 //! let mut graph = Graph::new(Conventions::default());
 //! graph.insert(&parse);

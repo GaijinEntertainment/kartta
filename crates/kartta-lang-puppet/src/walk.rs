@@ -209,15 +209,12 @@ impl Emitter<'_> {
             return;
         }
         let site_of = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
-        self.raw.calls.push(CallRef {
+        self.raw.calls.push(CallRef::new(
             site_of,
             callee,
             receiver,
-            line: line(node.start_position().row),
-            binds_apart: false,
-            calls_a_method: false,
-            arguments: 0,
-        });
+            line(node.start_position().row),
+        ));
     }
 
     // constraint: a token that is no class name — an uppercase type reference such as `Class['foo']`, a `$var` — names

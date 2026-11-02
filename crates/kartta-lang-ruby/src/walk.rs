@@ -1,7 +1,7 @@
 use kartta_lang::tree::{line, named_child_nodes, preorder, signature, text};
 use kartta_lang::{
-    Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol,
-    SymbolFlags, SymbolId, SymbolKind, UseRef,
+    Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol, SymbolFlags,
+    SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree};
 
@@ -202,15 +202,12 @@ impl Emitter<'_> {
                 self.visibility_statement(node);
                 let site_of = self.site_of();
                 self.plain_call(node);
-                self.raw.calls.push(CallRef {
+                self.raw.calls.push(CallRef::new(
                     site_of,
-                    callee: text(node, source),
-                    receiver: self.implicit_receiver(site_of),
-                    line: line(node.start_position().row),
-                    binds_apart: false,
-                    calls_a_method: false,
-                    arguments: 0,
-                });
+                    text(node, source),
+                    self.implicit_receiver(site_of),
+                    line(node.start_position().row),
+                ));
             }
             Role::Read | Role::Name => {}
         }
@@ -416,15 +413,7 @@ impl Emitter<'_> {
         if receiver_node.is_none() && passes_nothing(node) {
             self.plain_call(node);
         }
-        let mut call = CallRef {
-            site_of,
-            callee,
-            receiver,
-            line: line(node.start_position().row),
-            binds_apart: false,
-            calls_a_method: false,
-            arguments: 0,
-        };
+        let mut call = CallRef::new(site_of, callee, receiver, line(node.start_position().row));
         // constraint: a call in a target of a write sends the setter alone (`attrset`, parse.y:13717), and an operator
         // write sends the reader first and then the setter (`compile_op_asgn2`, compile.c:9575)
         if matches!(role(node), Role::Binding) {
@@ -485,14 +474,12 @@ impl Emitter<'_> {
             receiver
         };
         let spelled = &self.source[symbol.byte_range()];
-        self.raw.uses.push(UseRef {
+        self.raw.uses.push(UseRef::new(
             site_of,
-            name: String::from_utf8_lossy(spelled.strip_prefix(b":").unwrap_or(spelled))
-                .into_owned(),
+            String::from_utf8_lossy(spelled.strip_prefix(b":").unwrap_or(spelled)).into_owned(),
             receiver,
-            access: Access::Read,
-            line: line(symbol.start_position().row),
-        });
+            line(symbol.start_position().row),
+        ));
     }
 
     // constraint: a call or a use outside every method is made by the class or the module whose body holds it, which

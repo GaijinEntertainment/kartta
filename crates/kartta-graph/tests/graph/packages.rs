@@ -93,9 +93,7 @@ fn a_bare_call_binds_in_the_package_its_file_declares_and_never_through_an_impor
         vec![function("main", "Run", 1)],
         vec![bare_call("Shared", 2)],
     );
-    through_import.includes = vec![kartta_lang::IncludeRef {
-        target: "lib/lib.go".to_owned(),
-    }];
+    through_import.includes = vec![kartta_lang::IncludeRef::new("lib/lib.go".to_owned())];
 
     let graph = graph(&[library, helpers, tests, through_import]);
 

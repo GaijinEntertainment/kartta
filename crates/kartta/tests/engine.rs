@@ -74,15 +74,12 @@ impl Language for Defs {
             } else if let Some(callee) = line.strip_prefix("call ")
                 && let Some(caller) = raw.symbols.len().checked_sub(1)
             {
-                raw.calls.push(CallRef {
-                    site_of: SymbolId(u32::try_from(caller).unwrap_or(u32::MAX)),
-                    callee: callee.to_owned(),
-                    receiver: None,
-                    line: number,
-                    binds_apart: false,
-                    calls_a_method: false,
-                    arguments: 0,
-                });
+                raw.calls.push(CallRef::new(
+                    SymbolId(u32::try_from(caller).unwrap_or(u32::MAX)),
+                    callee.to_owned(),
+                    None,
+                    number,
+                ));
             }
         }
         raw

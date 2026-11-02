@@ -363,11 +363,11 @@ fn a_package_parent_names_a_type_of_its_own_directory_or_of_the_directory_it_imp
             ty("Imported", "app.Imported", 9, &["io.Reader"]),
         ],
     );
-    user.bindings.push(ImportBinding {
-        alias: None,
-        target_dir: Some("io".to_owned()),
-        last_segment: "io".to_owned(),
-    });
+    user.bindings.push(ImportBinding::new(
+        None,
+        Some("io".to_owned()),
+        "io".to_owned(),
+    ));
     let graph = graph(
         conventions,
         &[

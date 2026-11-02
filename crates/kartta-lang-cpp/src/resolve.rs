@@ -82,12 +82,12 @@ impl Includes<'_> {
 
         for directive in directives {
             match self.include(&directive.spec, directive.form == QUOTED_INCLUDE, path) {
-                Some(target) => extraction.includes.push(IncludeRef { target }),
-                None => extraction.imports.push(ImportRef {
-                    module: directive.spec,
-                    names: Vec::new(),
-                    line: directive.line,
-                }),
+                Some(target) => extraction.includes.push(IncludeRef::new(target)),
+                None => extraction.imports.push(ImportRef::new(
+                    directive.spec,
+                    Vec::new(),
+                    directive.line,
+                )),
             }
         }
         if is_test {
@@ -115,11 +115,11 @@ fn export_c_constants(extraction: &mut Extraction) {
             continue;
         }
         symbol.exported = true;
-        extraction.callables.push(Callable {
-            symbol: SymbolId(index),
-            key: symbol.qualified_name.clone(),
-            role: CallableRole::Definition,
-        });
+        extraction.callables.push(Callable::new(
+            SymbolId(index),
+            symbol.qualified_name.clone(),
+            CallableRole::Definition,
+        ));
     }
 }
 

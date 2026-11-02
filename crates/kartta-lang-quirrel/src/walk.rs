@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use kartta_lang::tree::{line, named_child_nodes, preorder, signature_from, text};
 use kartta_lang::{
-    Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol,
-    SymbolFlags, SymbolId, SymbolKind, UseRef,
+    Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol, SymbolFlags,
+    SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree};
 
@@ -222,13 +222,12 @@ impl<'a> Emitter<'a> {
             return;
         }
 
-        self.raw.uses.push(UseRef {
-            site_of: self.site(),
-            name: text(name, self.source),
-            receiver: Receiver::Bare,
-            access: Access::Read,
-            line: start_line(name),
-        });
+        self.raw.uses.push(UseRef::new(
+            self.site(),
+            text(name, self.source),
+            Receiver::Bare,
+            start_line(name),
+        ));
     }
 
     fn class(&mut self, node: Node<'_>) {
@@ -602,15 +601,12 @@ impl<'a> Emitter<'a> {
             return;
         }
 
-        self.raw.calls.push(CallRef {
-            site_of: self.site(),
+        self.raw.calls.push(CallRef::new(
+            self.site(),
             callee,
             receiver,
-            line: start_line(node),
-            binds_apart: false,
-            calls_a_method: false,
-            arguments: 0,
-        });
+            start_line(node),
+        ));
     }
 }
 

@@ -65,12 +65,12 @@ impl Requires<'_> {
 
         for directive in directives {
             match self.required_file(&directive, path) {
-                Some(target) => extraction.includes.push(IncludeRef { target }),
-                None => extraction.imports.push(ImportRef {
-                    module: directive.spec,
-                    names: Vec::new(),
-                    line: directive.line,
-                }),
+                Some(target) => extraction.includes.push(IncludeRef::new(target)),
+                None => extraction.imports.push(ImportRef::new(
+                    directive.spec,
+                    Vec::new(),
+                    directive.line,
+                )),
             }
         }
 

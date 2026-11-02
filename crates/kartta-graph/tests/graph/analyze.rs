@@ -40,13 +40,9 @@ impl File {
     }
 
     fn uses(mut self, from: u32, name: &str, (line, access): (u32, Access)) -> Self {
-        self.extraction.uses.push(UseRef {
-            site_of: SymbolId(from),
-            name: name.to_owned(),
-            receiver: Receiver::Bare,
-            access,
-            line,
-        });
+        let mut site = UseRef::new(SymbolId(from), name.to_owned(), Receiver::Bare, line);
+        site.access = access;
+        self.extraction.uses.push(site);
         self
     }
 
@@ -58,18 +54,16 @@ impl File {
     }
 
     fn callable(mut self, symbol: u32, key: &str, role: CallableRole) -> Self {
-        self.extraction.callables.push(Callable {
-            symbol: SymbolId(symbol),
-            key: key.to_owned(),
-            role,
-        });
+        self.extraction
+            .callables
+            .push(Callable::new(SymbolId(symbol), key.to_owned(), role));
         self
     }
 
     fn includes(mut self, target: &str) -> Self {
-        self.extraction.includes.push(IncludeRef {
-            target: target.to_owned(),
-        });
+        self.extraction
+            .includes
+            .push(IncludeRef::new(target.to_owned()));
         self
     }
 }

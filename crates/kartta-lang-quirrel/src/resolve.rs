@@ -149,12 +149,12 @@ impl Scripts<'_> {
                 None => self.guessed(&directive.spec, path),
             };
             match target {
-                Some(target) => extraction.includes.push(IncludeRef { target }),
-                None => extraction.imports.push(ImportRef {
-                    module: directive.spec,
-                    names: directive.names,
-                    line: directive.line,
-                }),
+                Some(target) => extraction.includes.push(IncludeRef::new(target)),
+                None => extraction.imports.push(ImportRef::new(
+                    directive.spec,
+                    directive.names,
+                    directive.line,
+                )),
             }
         }
 

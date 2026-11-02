@@ -10,10 +10,9 @@ use kartta_lang::{
 use crate::function;
 
 fn call(from: u32, receiver: Option<&str>, callee: &str, line: u32) -> CallRef {
-    CallRef {
-        receiver: receiver.map(str::to_owned),
-        ..crate::call(from, callee, line)
-    }
+    let mut call = crate::call(from, callee, line);
+    call.receiver = receiver.map(str::to_owned);
+    call
 }
 
 fn file(path: &str, symbols: Vec<Symbol>, calls: Vec<CallRef>) -> Extraction {
@@ -44,11 +43,7 @@ fn program() -> Graph {
         ],
     );
     main.local_symbols = vec![SymbolId(1)];
-    main.local_calls = vec![LocalCall {
-        site_of: SymbolId(0),
-        local: SymbolId(1),
-        line: 9,
-    }];
+    main.local_calls = vec![LocalCall::new(SymbolId(0), SymbolId(1), 9)];
     let mut graph = Graph::new(Conventions::default());
     for extraction in [
         main,
@@ -166,16 +161,8 @@ fn a_call_through_an_import_misses_outside_the_repository_or_where_the_directory
         ],
     );
     app.bindings = vec![
-        ImportBinding {
-            alias: Some("ext".to_owned()),
-            target_dir: None,
-            last_segment: "ext".to_owned(),
-        },
-        ImportBinding {
-            alias: None,
-            target_dir: Some("lib".to_owned()),
-            last_segment: "lib".to_owned(),
-        },
+        ImportBinding::new(Some("ext".to_owned()), None, "ext".to_owned()),
+        ImportBinding::new(None, Some("lib".to_owned()), "lib".to_owned()),
     ];
     let mut shown = function("Shown", 5);
     shown.exported = true;
