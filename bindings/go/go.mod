@@ -1,3 +1,3 @@
 module github.com/GaijinEntertainment/kartta/bindings/go
 
-go 1.27.2
+go 1.25.0
