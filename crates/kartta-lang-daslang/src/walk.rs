@@ -452,7 +452,7 @@ impl<'a> Emitter<'a> {
             let block_query = callee == BLOCK_QUERY && passes_a_block(node);
             self.push_call((callee, receiver), node, passed);
             if let Some(call) = self.raw.calls.last_mut().filter(|_| block_query) {
-                call.invokes_a_macro = true;
+                call.binds_apart = true;
             }
         }
     }
@@ -700,7 +700,7 @@ impl<'a> Emitter<'a> {
             callee,
             receiver,
             line: start_line(node),
-            invokes_a_macro: false,
+            binds_apart: false,
             calls_a_method: false,
             arguments,
         });

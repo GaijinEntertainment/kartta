@@ -43,7 +43,7 @@ fn calls(extraction: &Extraction) -> Vec<(&str, Option<&str>)> {
 
 fn calls_that_may_bind(extraction: &Extraction) -> Vec<&str> {
     (extraction.calls.iter())
-        .filter(|call| !call.invokes_a_macro)
+        .filter(|call| !call.binds_apart)
         .map(|call| call.callee.as_str())
         .collect()
 }

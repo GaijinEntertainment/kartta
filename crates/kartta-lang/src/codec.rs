@@ -12,10 +12,10 @@ const COUNTS_ARGUMENTS: u8 = 1 << 5;
 const QUALIFIED_AS_NAME: u8 = 1 << 6;
 const EXPORTED: u8 = 1 << 7;
 
-// constraint: a call's marks byte is the one an optional text writes for its receiver, with the macro and method marks
+// constraint: a call's marks byte is the one an optional text writes for its receiver, with the apart and method marks
 // beside it, so a call that carries neither is written as before the marks; a call with no count spends no byte on it
 const CALL_RECEIVER: u8 = 1;
-const INVOKES_A_MACRO: u8 = 1 << 1;
+const BINDS_APART: u8 = 1 << 1;
 const CALLS_A_METHOD: u8 = 1 << 2;
 const CALL_ARGUMENTS: u8 = 1 << 3;
 
@@ -218,7 +218,7 @@ impl Writer<'_> {
         self.id(call.site_of);
         self.text(&call.callee);
         let mark = |set, mark| if set { mark } else { 0 };
-        let marks = mark(call.invokes_a_macro, INVOKES_A_MACRO)
+        let marks = mark(call.binds_apart, BINDS_APART)
             | mark(call.calls_a_method, CALLS_A_METHOD)
             | mark(call.arguments != 0, CALL_ARGUMENTS);
         match call.receiver.as_deref() {
@@ -398,7 +398,7 @@ impl<'a> Reader<'a> {
         let site_of = self.id()?;
         let callee = self.text()?;
         let marks = self.byte()?;
-        if marks & !(INVOKES_A_MACRO | CALLS_A_METHOD | CALL_ARGUMENTS | CALL_RECEIVER) != 0 {
+        if marks & !(BINDS_APART | CALLS_A_METHOD | CALL_ARGUMENTS | CALL_RECEIVER) != 0 {
             return Err(Malformed);
         }
         let receiver = if marks & CALL_RECEIVER == 0 {
@@ -417,7 +417,7 @@ impl<'a> Reader<'a> {
             callee,
             receiver,
             line,
-            invokes_a_macro: marks & INVOKES_A_MACRO != 0,
+            binds_apart: marks & BINDS_APART != 0,
             calls_a_method: marks & CALLS_A_METHOD != 0,
             arguments,
         })
@@ -546,12 +546,12 @@ mod tests {
     fn every_call_mark() -> Vec<CallRef> {
         let call = |(site_of, callee, receiver): (SymbolId, &str, Option<&str>),
                     line,
-                    (macro_, method, arguments)| CallRef {
+                    (apart, method, arguments)| CallRef {
             site_of,
             callee: callee.to_owned(),
             receiver: receiver.map(str::to_owned),
             line,
-            invokes_a_macro: macro_,
+            binds_apart: apart,
             calls_a_method: method,
             arguments,
         };
@@ -613,15 +613,14 @@ mod tests {
     }
 
     #[test]
-    fn a_call_that_invokes_no_macro_and_calls_no_method_is_written_as_its_receiver_s_optional_text()
-    {
+    fn a_call_that_carries_no_mark_is_written_as_its_receiver_s_optional_text() {
         for receiver in [None, Some("Parser")] {
             let call = CallRef {
                 site_of: SymbolId(3),
                 callee: "read".to_owned(),
                 receiver: receiver.map(str::to_owned),
                 line: 200,
-                invokes_a_macro: false,
+                binds_apart: false,
                 calls_a_method: false,
                 arguments: 0,
             };

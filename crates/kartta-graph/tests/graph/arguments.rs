@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use kartta_graph::confidence::{FIRST_PARTY, PARENT_DIR, SAME_DIR, SAME_FILE};
 use kartta_graph::{Graph, Limits};
-use kartta_lang::{CallRef, Conventions, Extraction, MacroInvocations, Symbol, SymbolKind};
+use kartta_lang::{CallRef, CallsApart, Conventions, Extraction, Symbol, SymbolKind};
 
 use crate::{call, file, function, graph, graph_of, member_call};
 
@@ -148,7 +148,7 @@ fn a_definition_of_another_form_as_near_leaves_the_nearest_its_tier() {
     );
     let caller = calling("x/p/a.das", "run", vec![passing(call(0, "cvt", 2), 2)]);
     let mut conventions = Conventions::default();
-    conventions.macro_invocations = MacroInvocations::Apart;
+    conventions.calls_apart = CallsApart::Marked;
 
     assert_eq!(
         confidences(

@@ -717,7 +717,7 @@ fn a_macro_invocation_is_marked_apart_from_a_call_of_its_name() {
           ready(x);\n}\n",
     );
     let calls: Vec<(&str, bool)> = (raw.calls.iter())
-        .map(|call| (call.callee.as_str(), call.invokes_a_macro))
+        .map(|call| (call.callee.as_str(), call.binds_apart))
         .collect();
 
     assert_eq!(
@@ -741,7 +741,7 @@ fn a_method_call_is_marked_apart_from_a_path_call_in_a_body_and_in_a_macro_s_arg
           a::b();\n        log!(\"{}\", x.len(), self.go(), Self::new(), F());\n    }\n}\n",
     );
     let calls: Vec<(&str, bool)> = (raw.calls.iter())
-        .filter(|call| !call.invokes_a_macro)
+        .filter(|call| !call.binds_apart)
         .map(|call| (call.callee.as_str(), call.calls_a_method))
         .collect();
 

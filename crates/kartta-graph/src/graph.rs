@@ -838,8 +838,8 @@ impl Graph {
                 if class.is_some() {
                     stored = stored.on_a_class();
                 }
-                if call.invokes_a_macro {
-                    stored = stored.invoking_a_macro();
+                if call.binds_apart {
+                    stored = stored.binding_apart();
                 }
                 if call.calls_a_method {
                     stored = stored.calling_a_method();

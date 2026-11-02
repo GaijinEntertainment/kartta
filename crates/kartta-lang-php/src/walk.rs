@@ -1246,7 +1246,7 @@ impl<'s> Emitter<'s> {
             callee,
             receiver,
             line: line(node.start_position().row),
-            invokes_a_macro: false,
+            binds_apart: false,
             calls_a_method: false,
             arguments: 0,
         });

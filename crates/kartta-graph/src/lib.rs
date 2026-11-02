@@ -32,7 +32,7 @@
 //!     callee: "Parse".to_owned(),
 //!     receiver: None,
 //!     line: 2,
-//!     invokes_a_macro: false,
+//!     binds_apart: false,
 //!     calls_a_method: false,
 //!     arguments: 0,
 //! });

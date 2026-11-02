@@ -202,11 +202,11 @@ pub struct CallRef {
     pub receiver: Option<String>,
     /// The one-based line of the call.
     pub line: u32,
-    /// Whether the call is written as a macro invocation where the language writes one apart from a function call,
-    /// as Rust writes `name!()` beside `name()`. False where a call of either is written alike. In a language that has
-    /// no macro and sets [`MacroInvocations::Apart`](crate::MacroInvocations::Apart), it marks a call site that binds
-    /// no definition, as TypeScript's bare call of a parameter is.
-    pub invokes_a_macro: bool,
+    /// Whether the call binds apart from the definitions other calls of its name bind, under
+    /// [`CallsApart::Marked`](crate::CallsApart::Marked): only a macro, which in a language with no macro leaves a site
+    /// that binds no definition. Rust marks `name!()`, written beside `name()`, and TypeScript a bare call of a
+    /// parameter. False for every other call.
+    pub binds_apart: bool,
     /// Whether the call is written as a member call where the language reads a member alone through that form, as
     /// Rust's `x.f()` and C++'s `x.f()` and `p->f()` are: such a call binds no variable, constant, type or constructor.
     /// False where a member call can call what a module or a table holds, a class among it, as Python's `models.User()`

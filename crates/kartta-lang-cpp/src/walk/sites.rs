@@ -519,7 +519,7 @@ impl<'s, 't> Replayer<'s, 't> {
             calls_a_method: false,
             receiver: None,
             line: line(at.start_position().row),
-            invokes_a_macro: false,
+            binds_apart: false,
             arguments: 0,
         });
     }

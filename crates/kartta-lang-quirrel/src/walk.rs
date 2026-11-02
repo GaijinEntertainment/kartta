@@ -607,7 +607,7 @@ impl<'a> Emitter<'a> {
             callee,
             receiver,
             line: start_line(node),
-            invokes_a_macro: false,
+            binds_apart: false,
             calls_a_method: false,
             arguments: 0,
         });
