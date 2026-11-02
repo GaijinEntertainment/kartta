@@ -27,21 +27,14 @@ fn limits(
     max_symbols: Option<usize>,
     defaults: (u32, usize),
 ) -> Limits {
-    Limits::new(bound(depth, defaults.0))
+    Limits::new(depth.unwrap_or(defaults.0))
         .with_min_confidence(min_confidence)
-        .with_max_symbols(bound(max_symbols, defaults.1))
-}
-
-/// `value`, or `default` when it is left out or 0.
-pub(crate) fn bound<T: Copy + Default + PartialEq>(value: Option<T>, default: T) -> T {
-    value
-        .filter(|&value| value != T::default())
-        .unwrap_or(default)
+        .with_max_symbols(max_symbols.unwrap_or(defaults.1))
 }
 
 fn lines(start_line: Option<u32>, end_line: u32) -> RangeInclusive<u32> {
     let end = if end_line == 0 { u32::MAX } else { end_line };
-    bound(start_line, 1)..=end
+    start_line.map_or(1, |start| start.max(1))..=end
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,8 +136,8 @@ impl ReferencesParams {
     }
 
     pub(crate) fn query(&self) -> SiteQuery {
-        let query =
-            SiteQuery::new(bound(self.limit, REFERENCES)).with_min_confidence(self.min_confidence);
+        let query = SiteQuery::new(self.limit.unwrap_or(REFERENCES))
+            .with_min_confidence(self.min_confidence);
         match self.access {
             Some(AccessParam::Read) => query.with_access(Access::Read),
             Some(AccessParam::Write) => query.with_access(Access::Write),
@@ -184,11 +177,11 @@ impl ImplementationsParams {
     }
 
     pub(crate) fn depth(&self) -> u32 {
-        bound(self.depth, IMPLEMENTATIONS_DEPTH)
+        self.depth.unwrap_or(IMPLEMENTATIONS_DEPTH)
     }
 
     pub(crate) fn limit(&self) -> usize {
-        bound(self.limit, IMPLEMENTATIONS)
+        self.limit.unwrap_or(IMPLEMENTATIONS)
     }
 }
 
@@ -206,7 +199,7 @@ pub(crate) struct DefinitionsParams {
 
 impl DefinitionsParams {
     pub(crate) fn limit(&self) -> usize {
-        bound(self.limit, DEFINITIONS)
+        self.limit.unwrap_or(DEFINITIONS)
     }
 }
 
@@ -228,7 +221,7 @@ pub(crate) struct SourcesParams {
 
 impl SourcesParams {
     pub(crate) fn limit(&self) -> usize {
-        bound(self.limit, DEFINITIONS)
+        self.limit.unwrap_or(DEFINITIONS)
     }
 }
 
@@ -244,7 +237,7 @@ pub(crate) struct SearchParams {
 
 impl SearchParams {
     pub(crate) fn limit(&self) -> usize {
-        bound(self.limit, SEARCH)
+        self.limit.unwrap_or(SEARCH)
     }
 }
 
@@ -266,7 +259,7 @@ pub(crate) struct DependentsParams {
 
 impl DependentsParams {
     pub(crate) fn depth(&self) -> u32 {
-        bound(self.depth, DEPENDENTS_DEPTH)
+        self.depth.unwrap_or(DEPENDENTS_DEPTH)
     }
 
     pub(crate) fn max_files(&self) -> usize {
@@ -362,7 +355,7 @@ impl DeadCodeParams {
     }
 
     pub(crate) fn limit(&self) -> usize {
-        bound(self.limit, DEAD_CODE)
+        self.limit.unwrap_or(DEAD_CODE)
     }
 }
 
@@ -392,6 +385,6 @@ pub(crate) struct ResolutionParams {
 
 impl ResolutionParams {
     pub(crate) fn limit(&self) -> usize {
-        bound(self.limit, UNBOUND)
+        self.limit.unwrap_or(UNBOUND)
     }
 }

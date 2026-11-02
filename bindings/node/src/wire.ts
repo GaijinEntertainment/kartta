@@ -1,6 +1,6 @@
 /**
  * The wire `kartta-ffi` answers: each method's params and answer, field for field as the JSON spells them. A bound
- * left out or 0 takes the method's default, except where a field says 0 sets no cap.
+ * left out takes the method's default, and a bound of 0 means what the field says.
  *
  * @module
  */
@@ -414,11 +414,11 @@ export type WalkParams = {
 	line?: number;
 	/** Names the graph to ask, by a language or its family; absent asks every graph. */
 	lang?: string;
-	/** How many calls away the walk goes; callers default to 3, callees to 1. */
+	/** How many calls away the walk goes; callers default to 3, callees to 1, and 0 follows no call. */
 	depth?: number;
 	/** The least confidence, 0 to 100, a call needs to be taken. */
 	min_confidence?: number;
-	/** Caps the symbols the walk reaches, its root included; 500 by default. */
+	/** Caps the symbols the walk reaches, its root included; 500 by default, and 0 sets no cap. */
 	max_symbols?: number;
 };
 
@@ -512,10 +512,10 @@ export type CallPathParams = {
 	/** Keeps the symbols `to` may select to those that start on this one-based line. Absent keeps every line. */
 	to_line?: number;
 	lang?: string;
-	/** How many calls long a path may be; 8 by default. */
+	/** How many calls long a path may be; 8 by default, and 0 follows no call. */
 	depth?: number;
 	min_confidence?: number;
-	/** Caps the symbols the search reaches; 20,000 by default. */
+	/** Caps the symbols the search reaches; 20,000 by default, and 0 sets no cap. */
 	max_symbols?: number;
 };
 
@@ -560,7 +560,7 @@ export type ReferencesParams = {
 	min_confidence?: number;
 	/** Keeps the uses that read, set or update the symbol, an update counting as both, and drops the calls. */
 	access?: Access;
-	/** Caps the sites answered; 500 by default. */
+	/** Caps the sites answered; 500 by default, and 0 answers the counts alone. */
 	limit?: number;
 };
 
@@ -625,7 +625,7 @@ export type DefinitionsParams = {
 	lang?: string;
 	/** The file the lookup asks from: definitions in its directory rank first. */
 	from?: string;
-	/** Caps the definitions answered; 10 by default. */
+	/** Caps the definitions answered; 10 by default, and 0 answers the total alone. */
 	limit?: number;
 };
 
@@ -672,7 +672,7 @@ export type Source = {
 export type SearchParams = {
 	query: string;
 	lang?: string;
-	/** Caps the hits answered; 20 by default. */
+	/** Caps the hits answered; 20 by default, and 0 answers the counts alone. */
 	limit?: number;
 };
 
@@ -715,9 +715,9 @@ export type ImplementationsParams = {
 	 */
 	line?: number;
 	lang?: string;
-	/** How many levels below the root the search goes; 3 by default. */
+	/** How many levels below the root the search goes; 3 by default, and 0 finds none. */
 	depth?: number;
-	/** Caps the implementors answered; 100 by default. */
+	/** Caps the implementors answered; 100 by default, and 0 answers the total alone. */
 	limit?: number;
 };
 
@@ -744,7 +744,7 @@ export type DeadCodeParams = {
 	kinds?: string[];
 	/** Judges only the definitions in files under this path. */
 	path_prefix?: string;
-	/** Caps the definitions answered; 100 by default. */
+	/** Caps the definitions answered; 100 by default, and 0 answers the counts alone. */
 	limit?: number;
 };
 
@@ -770,7 +770,7 @@ export type DeadCode = {
 /** The params of `resolution`. */
 export type ResolutionParams = {
 	lang?: string;
-	/** How many unbound call sites of each graph to list; 20 by default. */
+	/** How many unbound call sites of each graph to list; 20 by default, and 0 answers the counts alone. */
 	limit?: number;
 };
 
@@ -825,7 +825,7 @@ export type Outline = {
 /** The params of `dependents`. */
 export type DependentsParams = {
 	file: string;
-	/** How many includes away the search goes; 3 by default. */
+	/** How many includes away the search goes; 3 by default, and 0 finds none. */
 	depth?: number;
 	/** Caps the files answered; 100 by default, and 0 sets no cap. */
 	max_files?: number;
@@ -849,10 +849,10 @@ export type SegmentParams = {
 	start_line?: number;
 	/** The last line of the segment; absent takes the end of the file. */
 	end_line?: number;
-	/** How many calls away each symbol's blast goes; 3 by default. */
+	/** How many calls away each symbol's blast goes; 3 by default, and 0 follows no call. */
 	depth?: number;
 	min_confidence?: number;
-	/** Caps the symbols each blast reaches; 500 by default. */
+	/** Caps the symbols each blast reaches; 500 by default, and 0 sets no cap. */
 	max_symbols?: number;
 };
 
@@ -914,10 +914,10 @@ export type Blast = {
 /** The params of `analyze_change`. */
 export type ChangeParams = {
 	regions: Region[];
-	/** How many calls away each changed symbol's walk goes; 3 by default. */
+	/** How many calls away each changed symbol's walk goes; 3 by default, and 0 follows no call. */
 	depth?: number;
 	min_confidence?: number;
-	/** Caps the symbols each walk reaches; 500 by default. */
+	/** Caps the symbols each walk reaches; 500 by default, and 0 sets no cap. */
 	max_symbols?: number;
 };
 
@@ -1048,7 +1048,7 @@ export type FuzzyParams = {
 	globs?: string[];
 	/** Globs naming the paths left out, a directory with everything beneath it. */
 	exclude?: string[];
-	/** Caps the matches answered; 50 by default. */
+	/** Caps the matches answered; 50 by default, and 0 sets no cap. */
 	limit?: number;
 };
 
@@ -1085,9 +1085,9 @@ export type GrepParams = {
 	limit?: number;
 	/** Counts every matching line and file past the limit, into `total_lines` and `total_files`. */
 	count_all?: boolean;
-	/** Caps the bytes of each line answered; 1,024 by default. */
+	/** Caps the bytes of each line answered; 1,024 by default, and 0 answers lines whole. */
 	max_line_bytes?: number;
-	/** The size past which a file is not searched; 4 MiB by default. */
+	/** The size past which a file is not searched; 4 MiB by default, and 0 searches every size. */
 	max_file_bytes?: number;
 };
 

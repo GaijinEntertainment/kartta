@@ -7,7 +7,6 @@ use kartta::{
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, ErrorCode};
-use crate::wire::params::bound;
 
 const LIST_DEPTH: usize = 1;
 const LIST_LIMIT: usize = 1000;
@@ -216,8 +215,9 @@ impl FuzzyView {
     pub(crate) fn new(index: &Index, params: &FuzzyParams) -> Result<Self, Error> {
         let exclude = filter(params.exclude.as_deref())?;
         let filter = filter(params.globs.as_deref())?;
-        let limit = bound(params.limit, FUZZY_LIMIT);
-        let mut options = FuzzyOptions::default().limit(limit.saturating_add(1));
+        let limit = NonZeroUsize::new(params.limit.unwrap_or(FUZZY_LIMIT));
+        let mut options =
+            FuzzyOptions::default().limit(limit.map_or(0, |limit| limit.get().saturating_add(1)));
         if let Some(filter) = &filter {
             options = options.filter(filter);
         }
@@ -225,6 +225,7 @@ impl FuzzyView {
             options = options.exclude(exclude);
         }
         let ranked = index.fuzzy(&params.query, &options);
+        let limit = limit.map_or(usize::MAX, NonZeroUsize::get);
         let truncated = ranked.items().len() > limit;
         let answered = if truncated {
             &ranked.items()[..limit]
@@ -312,8 +313,8 @@ impl GrepParams {
         let mut options = GrepOptions::default()
             .context(self.context)
             .limit(self.limit.unwrap_or(GREP_LIMIT))
-            .max_line_bytes(bound(self.max_line_bytes, GREP_MAX_LINE_BYTES))
-            .max_file_bytes(bound(self.max_file_bytes, GREP_MAX_FILE_BYTES))
+            .max_line_bytes(self.max_line_bytes.unwrap_or(GREP_MAX_LINE_BYTES))
+            .max_file_bytes(self.max_file_bytes.unwrap_or(GREP_MAX_FILE_BYTES))
             .cancel(cancel);
         if self.count_all {
             options = options.count_all();

@@ -62,8 +62,8 @@ type FuzzyParams struct {
 	Globs []string `json:"globs,omitempty"`
 	// Exclude are globs naming the paths left out, a directory with everything beneath it.
 	Exclude []string `json:"exclude,omitempty"`
-	// Limit caps the matches answered; 0 takes the default, 50.
-	Limit int `json:"limit,omitempty"`
+	// Limit caps the matches answered; nil takes the default, 50, and 0 sets no cap.
+	Limit *int `json:"limit,omitempty"`
 }
 
 // Fuzzy is the answer of fuzzy: the best-ranked paths, best first.
@@ -101,10 +101,11 @@ type GrepParams struct {
 	Limit *int `json:"limit,omitempty"`
 	// CountAll counts every matching line and file past the limit, into TotalLines and TotalFiles.
 	CountAll bool `json:"count_all,omitempty"`
-	// MaxLineBytes caps the bytes of each line answered; 0 takes the default, 1,024.
-	MaxLineBytes int `json:"max_line_bytes,omitempty"`
-	// MaxFileBytes is the size past which a file is not searched; 0 takes the default, 4 MiB.
-	MaxFileBytes uint64 `json:"max_file_bytes,omitempty"`
+	// MaxLineBytes caps the bytes of each line answered; nil takes the default, 1,024, and 0 answers lines whole.
+	MaxLineBytes *int `json:"max_line_bytes,omitempty"`
+	// MaxFileBytes is the size past which a file is not searched; nil takes the default, 4 MiB, and 0 searches every
+	// size.
+	MaxFileBytes *uint64 `json:"max_file_bytes,omitempty"`
 }
 
 // Grep is the answer of grep: the files holding a match with their lines, and the account of every candidate.
