@@ -43,11 +43,12 @@ pub struct FuzzyMatch<'a> {
     index: PhantomData<&'a Index>,
 }
 
-/// What [`Index::fuzzy`] ranked: the best matches, and how many paths matched in all.
+/// What [`Index::fuzzy`] ranked: the best matches, how many paths matched in all, and whether the limit left any out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuzzyMatches<'a> {
     items: Vec<FuzzyMatch<'a>>,
     matched: Option<usize>,
+    truncated: bool,
 }
 
 impl<'a> FuzzyMatches<'a> {
@@ -66,6 +67,15 @@ impl<'a> FuzzyMatches<'a> {
     #[must_use]
     pub const fn matched(&self) -> Option<usize> {
         self.matched
+    }
+
+    /// Whether the limit turned a match away.
+    ///
+    /// An actual rejection: an answer holding exactly the limit is complete and says `false`. An empty query, which
+    /// [`matched`](Self::matched) does not count, stops at the first path past the limit, so this holds for it too.
+    #[must_use]
+    pub const fn truncated(&self) -> bool {
+        self.truncated
     }
 }
 
@@ -130,8 +140,8 @@ impl Index {
     /// A path matches when it contains every whitespace-separated term of the query as a subsequence, and ranks by how
     /// well those terms align against path structure — a hit inside a filename beats a hit inside a directory name, so
     /// `main` finds `src/main.rs` before `main/lib.rs`. An empty query matches everything in index order.
-    /// [`FuzzyOptions`] narrows what is ranked and caps what is returned, and [`FuzzyMatches::matched`] counts every
-    /// match, those past the cap included.
+    /// [`FuzzyOptions`] narrows what is ranked and caps what is returned, [`FuzzyMatches::matched`] counts every match,
+    /// those past the cap included, and [`FuzzyMatches::truncated`] says whether the cap left one out.
     ///
     /// Directories are not ranked. A path search answers "which file did you mean", and a directory that matches would
     /// otherwise arrive alongside every file beneath it that matches for the same reason. Symlinks *are* ranked: they
@@ -224,6 +234,7 @@ impl Index {
         });
 
         FuzzyMatches {
+            truncated: matched > ranked.len(),
             items: ranked
                 .into_iter()
                 .map(|found| FuzzyMatch {
@@ -297,5 +308,19 @@ mod tests {
             Some(6),
             "every match outside vendor, lib.rs holding no main"
         );
+        assert!(one_entry_each.truncated());
+
+        let exact = FuzzyOptions::default().exclude(&vendor).limit(7);
+        for chunk_len in 1..index.len() {
+            assert!(
+                !index.fuzzy_in_chunks("", &exact, chunk_len).truncated(),
+                "the seven files outside vendor, in chunks of {chunk_len}"
+            );
+            let cut = exact.limit(6);
+            assert!(
+                index.fuzzy_in_chunks("", &cut, chunk_len).truncated(),
+                "one of the seven past the limit, in chunks of {chunk_len}"
+            );
+        }
     }
 }
