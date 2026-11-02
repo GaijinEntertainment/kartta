@@ -118,12 +118,9 @@ impl Emitter<'_> {
             return;
         }
         self.globs.push(self.raw.directives.len());
-        self.raw.directives.push(RawDirective {
-            form: GLOB_FORM,
-            spec: path,
-            names: Vec::new(),
-            line,
-        });
+        self.raw
+            .directives
+            .push(RawDirective::new(GLOB_FORM, path, line));
     }
 
     // constraint: each name a `use` binds holds its place among the file's directives until the walk ends and tells
@@ -140,12 +137,9 @@ impl Emitter<'_> {
             in_body: !self.functions.is_empty(),
             module: self.modules.last().map(|module| module.chain.clone()),
         });
-        self.raw.directives.push(RawDirective {
-            form: USE_FORM,
-            spec: path,
-            names: vec![name],
-            line,
-        });
+        let mut directive = RawDirective::new(USE_FORM, path, line);
+        directive.names = vec![name];
+        self.raw.directives.push(directive);
     }
 
     // constraint: a path call, the path of its receiver, or a macro invocation, the path of its macro, holds a place
@@ -162,12 +156,10 @@ impl Emitter<'_> {
                 at,
                 module: self.modules.last().map(|module| module.end),
             });
-            self.raw.directives.push(RawDirective {
-                form: USE_FORM,
-                spec: written,
-                names: Vec::new(),
-                line: self.raw.calls[index].line,
-            });
+            let line = self.raw.calls[index].line;
+            self.raw
+                .directives
+                .push(RawDirective::new(USE_FORM, written, line));
         }
     }
 
@@ -247,12 +239,10 @@ impl Emitter<'_> {
                 !type_name.contains("::") || !declared.contains(last(type_name))
             })
             .filter_map(|(type_name, trait_name)| {
-                Some(ImplementsAssertion {
-                    type_name: reached(type_name)?,
-                    interface: reached(trait_name)?,
-                    type_file: None,
-                    interface_file: None,
-                })
+                Some(ImplementsAssertion::new(
+                    reached(type_name)?,
+                    reached(trait_name)?,
+                ))
             })
             .collect();
         self.raw.assertions = assertions;

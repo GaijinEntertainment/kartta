@@ -23,17 +23,11 @@ fn library() -> Extraction {
         call(0, "print", 5),
         call(FILE_SCOPE.0, "init", 20),
     ];
-    extraction.local_calls = vec![LocalCall {
-        site_of: SymbolId(0),
-        local: SymbolId(1),
-        line: 6,
-    }];
-    let point = |access, line| UseRef {
-        site_of: SymbolId(0),
-        name: "Point".to_owned(),
-        receiver: Receiver::Bare,
-        access,
-        line,
+    extraction.local_calls = vec![LocalCall::new(SymbolId(0), SymbolId(1), 6)];
+    let point = |access, line| {
+        let mut site = UseRef::new(SymbolId(0), "Point".to_owned(), Receiver::Bare, line);
+        site.access = access;
+        site
     };
     extraction.uses = vec![
         point(Access::Read, 7),
@@ -42,12 +36,8 @@ fn library() -> Extraction {
         point(Access::Write, 9),
     ];
     extraction.includes = vec![
-        IncludeRef {
-            target: "src/lib.h".to_owned(),
-        },
-        IncludeRef {
-            target: "/usr/include/stdio.h".to_owned(),
-        },
+        IncludeRef::new("src/lib.h".to_owned()),
+        IncludeRef::new("/usr/include/stdio.h".to_owned()),
     ];
     extraction
 }

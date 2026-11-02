@@ -51,14 +51,14 @@ impl Resolver for JstsResolver {
             }
 
             match target {
-                Some(target) => extraction.includes.push(IncludeRef { target }),
+                Some(target) => extraction.includes.push(IncludeRef::new(target)),
                 None if !directive.spec.is_empty() => {
                     bind_outside(&mut extraction.bindings, &directive.spec, directive.names);
-                    extraction.imports.push(ImportRef {
-                        module: directive.spec,
-                        names: Vec::new(),
-                        line: directive.line,
-                    });
+                    extraction.imports.push(ImportRef::new(
+                        directive.spec,
+                        Vec::new(),
+                        directive.line,
+                    ));
                 }
                 None => {}
             }
@@ -76,11 +76,11 @@ impl Resolver for JstsResolver {
 // it, `<Dialog.Footer>` or `z.object()`, binds no definition of the repository
 fn bind_outside(bindings: &mut Vec<ImportBinding>, spec: &str, names: Vec<String>) {
     let last_segment = spec.rsplit('/').next().unwrap_or(spec);
-    bindings.extend(names.into_iter().map(|name| ImportBinding {
-        alias: Some(name),
-        target_dir: None,
-        last_segment: last_segment.to_owned(),
-    }));
+    bindings.extend(
+        names
+            .into_iter()
+            .map(|name| ImportBinding::new(Some(name), None, last_segment.to_owned())),
+    );
 }
 
 fn is_test_file(path: &str) -> bool {

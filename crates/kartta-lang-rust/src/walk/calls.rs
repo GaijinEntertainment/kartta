@@ -84,15 +84,13 @@ impl Emitter<'_> {
         let path = written.as_deref().and_then(|path| self.module_path(path));
         let names_own_type = target.names_own_type;
         let declared = target.declared;
-        let call = CallRef {
+        let mut call = CallRef::new(
             site_of,
-            callee: target.callee,
-            receiver: target.receiver,
-            line: line(node.start_position().row),
-            binds_apart: false,
-            calls_a_method: target.calls_a_method,
-            arguments: 0,
-        };
+            target.callee,
+            target.receiver,
+            line(node.start_position().row),
+        );
+        call.calls_a_method = target.calls_a_method;
         if !self.push_call(call) {
             return;
         }
@@ -253,15 +251,8 @@ impl Emitter<'_> {
             MacroName::Bare(callee) => (callee, None),
             MacroName::Scoped(callee, written) => (callee, Some(written)),
         };
-        let call = CallRef {
-            site_of,
-            callee,
-            receiver: None,
-            line: line(node.start_position().row),
-            binds_apart: true,
-            calls_a_method: false,
-            arguments: 0,
-        };
+        let mut call = CallRef::new(site_of, callee, None, line(node.start_position().row));
+        call.binds_apart = true;
         if !self.push_call(call) {
             return;
         }

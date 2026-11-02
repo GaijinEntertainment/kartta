@@ -150,7 +150,7 @@ fn includes(files: Vec<String>, path: &str, includes: &mut Vec<IncludeRef>) {
     let package_files = files.into_iter().filter(|file| {
         file.ends_with(".go") && !file.ends_with("_test.go") && !is_skipped(file) && file != path
     });
-    includes.extend(package_files.map(|target| IncludeRef { target }));
+    includes.extend(package_files.map(IncludeRef::new));
 }
 
 impl Resolver for GoResolver {
@@ -177,11 +177,11 @@ impl Resolver for GoResolver {
                         dir
                     });
 
-            extraction.bindings.push(ImportBinding {
-                alias: directive.names.into_iter().next(),
-                target_dir,
-                last_segment: package_name(&directive.spec).to_owned(),
-            });
+            let last_segment = package_name(&directive.spec).to_owned();
+            let alias = directive.names.into_iter().next();
+            extraction
+                .bindings
+                .push(ImportBinding::new(alias, target_dir, last_segment));
         }
         extraction.build_constraint = file_constraint(path, header);
 

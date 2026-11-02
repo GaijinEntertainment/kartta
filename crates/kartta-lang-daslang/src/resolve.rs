@@ -95,14 +95,12 @@ impl Modules<'_> {
                 extraction
                     .bindings
                     .extend(aliased(&directive, Some(&target)));
-                extraction.includes.push(IncludeRef { target });
+                extraction.includes.push(IncludeRef::new(target));
             } else {
                 self.bind_outside_the_graph(&directive, &mut extraction.bindings);
-                extraction.imports.push(ImportRef {
-                    module: directive.spec,
-                    names: Vec::new(),
-                    line: directive.line,
-                });
+                extraction
+                    .imports
+                    .push(ImportRef::new(directive.spec, Vec::new(), directive.line));
             }
         }
 
@@ -119,11 +117,7 @@ impl Modules<'_> {
         let module = module_named(directive);
         let mut files = self.repository.files_named(&format!("{module}.das"));
         if files.next().is_none() {
-            bindings.push(ImportBinding {
-                alias: None,
-                target_dir: None,
-                last_segment: module,
-            });
+            bindings.push(ImportBinding::new(None, None, module));
             bindings.extend(aliased(directive, None));
         }
     }
@@ -168,11 +162,11 @@ fn module_named(directive: &RawDirective) -> String {
 }
 
 fn aliased(directive: &RawDirective, target: Option<&str>) -> Option<ImportBinding> {
-    Some(ImportBinding {
-        alias: Some(directive.names.first()?.clone()),
-        target_dir: target.map(str::to_owned),
-        last_segment: module_named(directive),
-    })
+    Some(ImportBinding::new(
+        Some(directive.names.first()?.clone()),
+        target.map(str::to_owned),
+        module_named(directive),
+    ))
 }
 
 fn is_test_path(path: &str) -> bool {

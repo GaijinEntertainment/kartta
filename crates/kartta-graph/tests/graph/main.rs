@@ -47,9 +47,7 @@ fn file(path: &str, symbols: Vec<Symbol>) -> Extraction {
 fn including(mut extraction: Extraction, targets: &[&str]) -> Extraction {
     extraction.includes = targets
         .iter()
-        .map(|&target| IncludeRef {
-            target: target.to_owned(),
-        })
+        .map(|&target| IncludeRef::new(target.to_owned()))
         .collect();
     extraction
 }
@@ -59,20 +57,14 @@ fn function(name: &str, line: u32) -> Symbol {
 }
 
 fn call(from: u32, callee: &str, line: u32) -> CallRef {
-    CallRef {
-        site_of: SymbolId(from),
-        callee: callee.to_owned(),
-        receiver: None,
-        line,
-        binds_apart: false,
-        calls_a_method: false,
-        arguments: 0,
-    }
+    CallRef::new(SymbolId(from), callee.to_owned(), None, line)
 }
 
 fn member_call(receiver: &str, callee: &str, line: u32) -> CallRef {
-    CallRef {
-        receiver: Some(receiver.to_owned()),
-        ..call(0, callee, line)
-    }
+    CallRef::new(
+        SymbolId(0),
+        callee.to_owned(),
+        Some(receiver.to_owned()),
+        line,
+    )
 }

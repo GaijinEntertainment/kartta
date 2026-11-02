@@ -49,11 +49,11 @@ impl Emitter<'_> {
                 .map_or_else(|| source_name.clone(), |alias| text(alias, self.source));
             self.raw
                 .re_exports
-                .push(re_export(local_name, source_name, specifier.clone()));
+                .push(RawReExport::new(local_name, source_name, specifier.clone()));
         }
         let names_a_clause = child_nodes(node).any(|clause| clause.kind() == "export_clause");
         if !names_a_clause {
-            let everything = re_export("*".to_owned(), "*".to_owned(), specifier.clone());
+            let everything = RawReExport::new("*".to_owned(), "*".to_owned(), specifier.clone());
             self.raw.re_exports.push(everything);
         }
 
@@ -166,12 +166,4 @@ fn export_specifiers(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
     (child_nodes(node).filter(|clause| clause.kind() == "export_clause"))
         .flat_map(child_nodes)
         .filter(|specifier| specifier.kind() == "export_specifier")
-}
-
-const fn re_export(local_name: String, source_name: String, source_path: String) -> RawReExport {
-    RawReExport {
-        local_name,
-        source_name,
-        source_path,
-    }
 }

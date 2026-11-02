@@ -491,15 +491,14 @@ impl<'s, 't> Replayer<'s, 't> {
             _ => receiver,
         });
 
-        self.raw.calls.push(CallRef {
-            site_of: self.caller(),
+        let mut call = CallRef::new(
+            self.caller(),
             callee,
-            calls_a_method: receiver.is_some(),
             receiver,
-            line: line(node.start_position().row),
-            binds_apart: false,
-            arguments: 0,
-        });
+            line(node.start_position().row),
+        );
+        call.calls_a_method = call.receiver.is_some();
+        self.raw.calls.push(call);
     }
 
     /// The class an alias of `written` names as its value type, spelled as a receiver spells it; a builtin, an unnamed
@@ -751,7 +750,7 @@ impl<'s, 't> Replayer<'s, 't> {
         };
         self.callable_keys.insert(key.clone());
         if self.raw.symbols[symbol.0 as usize].exported {
-            self.raw.callables.push(Callable { symbol, key, role });
+            self.raw.callables.push(Callable::new(symbol, key, role));
         }
     }
 }

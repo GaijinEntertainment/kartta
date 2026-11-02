@@ -827,14 +827,11 @@ impl<'s> Emitter<'s> {
             }
             CallableRole::Definition if continues => {
                 let key = symbol.0.to_string();
-                let declarations =
-                    (self.overloads.signatures.drain(..)).map(|declaration| Callable {
-                        symbol: declaration,
-                        key: key.clone(),
-                        role: CallableRole::Declaration,
-                    });
+                let declarations = (self.overloads.signatures.drain(..)).map(|declaration| {
+                    Callable::new(declaration, key.clone(), CallableRole::Declaration)
+                });
                 self.raw.callables.extend(declarations);
-                self.raw.callables.push(Callable { symbol, key, role });
+                self.raw.callables.push(Callable::new(symbol, key, role));
             }
             CallableRole::Definition => {}
         }

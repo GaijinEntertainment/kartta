@@ -126,13 +126,10 @@ impl Emitter<'_> {
         name: Node<'_>,
         (receiver, access): (Receiver, Access),
     ) {
-        self.raw.uses.push(UseRef {
-            site_of: caller,
-            name: String::from_utf8_lossy(&self.source[name.byte_range()]).into_owned(),
-            receiver,
-            access,
-            line: start_line(name),
-        });
+        let spelled = String::from_utf8_lossy(&self.source[name.byte_range()]).into_owned();
+        let mut site = UseRef::new(caller, spelled, receiver, start_line(name));
+        site.access = access;
+        self.raw.uses.push(site);
     }
 }
 

@@ -207,11 +207,7 @@ impl Emitter<'_> {
             let Some((_, local)) = bound.next_if(|&(bound_at, _)| bound_at == at) else {
                 return true;
             };
-            local_calls.push(LocalCall {
-                site_of: call.site_of,
-                local,
-                line: call.line,
-            });
+            local_calls.push(LocalCall::new(call.site_of, local, call.line));
             false
         });
     }

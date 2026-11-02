@@ -5,8 +5,9 @@
 use kartta_graph::{Graph, Selector, SiteQuery};
 use kartta_lang::{
     Access, BareReceivers, Callable, CallableRole, CallsOnValues, Conventions, DataUses,
-    Extraction, ImportBinding, IncludeReach, InheritedMembers, MemberCalls, OwnMembers, ReExport,
-    Receiver, Symbol, SymbolId, SymbolKind, UntypedMembers, UseRef, ValueUses,
+    Extraction, ImportBinding, IncludeReach, InheritedMembers, MemberCalls, OwnMembers,
+    RawReExport, ReExport, Receiver, Symbol, SymbolId, SymbolKind, UntypedMembers, UseRef,
+    ValueUses,
 };
 
 use crate::{graph_of as graph, including};
@@ -37,13 +38,17 @@ fn free(name: &str, kind: SymbolKind, lines: [u32; 2]) -> Symbol {
 }
 
 fn using(site_of: u32, name: &str, receiver: Receiver, line: u32) -> UseRef {
-    UseRef {
-        site_of: SymbolId(site_of),
-        name: name.to_owned(),
-        receiver,
-        access: Access::Read,
-        line,
-    }
+    UseRef::new(SymbolId(site_of), name.to_owned(), receiver, line)
+}
+
+fn re_exported(local: &str, source: &str, from: &str) -> ReExport {
+    let mut re_export = ReExport::from(RawReExport::new(
+        local.to_owned(),
+        source.to_owned(),
+        from.to_owned(),
+    ));
+    re_export.source_file = Some(from.to_owned());
+    re_export
 }
 
 fn file(path: &str, symbols: Vec<Symbol>, includes: &[&str]) -> Extraction {
@@ -313,19 +318,13 @@ fn a_bare_use_binds_the_one_included_module_that_declares_the_name_or_a_re_expor
         vec![free("NAME", SymbolKind::Constant, [1, 1])],
         &[],
     );
-    let re_export = |local: &str, source: &str, from: &str| ReExport {
-        local_name: local.to_owned(),
-        source_name: source.to_owned(),
-        source_path: from.to_owned(),
-        source_file: Some(from.to_owned()),
-    };
     let mut barrel = file("src/index.ts", Vec::new(), &["src/constants.ts"]);
     barrel.re_exports = vec![
-        re_export("MAX", "LIMIT", "src/constants.ts"),
-        re_export("NAME", "NAME", "src/constants.ts"),
+        re_exported("MAX", "LIMIT", "src/constants.ts"),
+        re_exported("NAME", "NAME", "src/constants.ts"),
     ];
     let mut again = file("src/again.ts", Vec::new(), &["src/other.ts"]);
-    again.re_exports = vec![re_export("NAME", "NAME", "src/other.ts")];
+    again.re_exports = vec![re_exported("NAME", "NAME", "src/other.ts")];
     let mut both = file(
         "app/both.ts",
         vec![free("show", SymbolKind::Function, [1, 9])],
@@ -377,12 +376,7 @@ fn an_imported_value_binds_an_export_or_a_re_export_before_an_unexported_namesak
         &[],
     );
     let mut barrel = file("src/index.ts", Vec::new(), &["src/constants.ts"]);
-    barrel.re_exports = vec![ReExport {
-        local_name: "LIMIT".to_owned(),
-        source_name: "LIMIT".to_owned(),
-        source_path: "src/constants.ts".to_owned(),
-        source_file: Some("src/constants.ts".to_owned()),
-    }];
+    barrel.re_exports = vec![re_exported("LIMIT", "LIMIT", "src/constants.ts")];
     let mut direct = file(
         "app/direct.ts",
         vec![free("go", SymbolKind::Function, [1, 9])],
@@ -485,11 +479,11 @@ fn a_qualifier_that_names_a_require_alias_binds_that_module_s_definition() {
         vec![free("run", SymbolKind::Function, [1, 3])],
         &["daslib/decs.das"],
     );
-    boost.bindings = vec![ImportBinding {
-        alias: Some("d".to_owned()),
-        target_dir: Some("daslib/decs.das".to_owned()),
-        last_segment: "decs".to_owned(),
-    }];
+    boost.bindings = vec![ImportBinding::new(
+        Some("d".to_owned()),
+        Some("daslib/decs.das".to_owned()),
+        "decs".to_owned(),
+    )];
     boost.uses = vec![using(0, "create", Receiver::Qualifier("d".to_owned()), 2)];
     let mut conventions = script();
     conventions.bare_receivers = BareReceivers::Modules;
@@ -805,11 +799,7 @@ fn a_class_the_file_neither_includes_nor_reaches_binds_none_of_its_fields() {
 fn callables(mut extraction: Extraction, role: CallableRole, keys: &[(u32, &str)]) -> Extraction {
     extraction.callables = keys
         .iter()
-        .map(|&(symbol, key)| Callable {
-            symbol: SymbolId(symbol),
-            key: key.to_owned(),
-            role,
-        })
+        .map(|&(symbol, key)| Callable::new(SymbolId(symbol), key.to_owned(), role))
         .collect();
     extraction
 }
@@ -844,10 +834,9 @@ fn a_member_defined_in_a_header_its_class_s_header_includes_binds_the_class_s_fi
             CallableRole::Definition,
             &[(0, "net::uri::reset()")],
         );
-        definitions.uses = vec![UseRef {
-            access: Access::Write,
-            ..using(0, "port_", Receiver::Bare, 3)
-        }];
+        let mut write = using(0, "port_", Receiver::Bare, 3);
+        write.access = Access::Write;
+        definitions.uses = vec![write];
         definitions
     };
 

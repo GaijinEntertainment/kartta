@@ -513,15 +513,12 @@ impl<'s, 't> Replayer<'s, 't> {
         if self.is_template_parameter(&callee) || self.callers_owner() == Some(callee.as_str()) {
             return;
         }
-        self.raw.calls.push(CallRef {
-            site_of: self.caller(),
+        self.raw.calls.push(CallRef::new(
+            self.caller(),
             callee,
-            calls_a_method: false,
-            receiver: None,
-            line: line(at.start_position().row),
-            binds_apart: false,
-            arguments: 0,
-        });
+            None,
+            line(at.start_position().row),
+        ));
     }
 
     fn record_designated_field(&mut self, node: Node<'_>) {
@@ -579,13 +576,9 @@ impl<'s, 't> Replayer<'s, 't> {
     }
 
     fn push_site(&mut self, at: Node<'_>, (name, receiver, access): (String, Receiver, Access)) {
-        self.raw.uses.push(UseRef {
-            site_of: self.caller(),
-            name,
-            receiver,
-            access,
-            line: line(at.start_position().row),
-        });
+        let mut site = UseRef::new(self.caller(), name, receiver, line(at.start_position().row));
+        site.access = access;
+        self.raw.uses.push(site);
     }
 
     fn borrowed(&self, node: Node<'_>) -> Option<&'s str> {

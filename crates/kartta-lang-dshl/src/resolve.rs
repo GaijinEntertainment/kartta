@@ -50,13 +50,13 @@ impl Includes<'_> {
 
         for directive in directives {
             match self.include(&directive.spec, path) {
-                Some(target) if target != path => extraction.includes.push(IncludeRef { target }),
+                Some(target) if target != path => extraction.includes.push(IncludeRef::new(target)),
                 Some(_) => {}
-                None => extraction.imports.push(ImportRef {
-                    module: directive.spec,
-                    names: Vec::new(),
-                    line: directive.line,
-                }),
+                None => extraction.imports.push(ImportRef::new(
+                    directive.spec,
+                    Vec::new(),
+                    directive.line,
+                )),
             }
         }
 

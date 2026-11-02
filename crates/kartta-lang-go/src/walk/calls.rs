@@ -32,11 +32,11 @@ impl Emitter<'_> {
             && let Some(local) = self.innermost_local(callee, invoked.start_byte())
         {
             if let LocalKind::ValueSymbol(symbol) | LocalKind::TypeSymbol(symbol) = local.kind {
-                self.raw.local_calls.push(LocalCall {
+                self.raw.local_calls.push(LocalCall::new(
                     site_of,
-                    local: symbol,
-                    line: line(node.start_position().row),
-                });
+                    symbol,
+                    line(node.start_position().row),
+                ));
             }
             return;
         }
@@ -219,14 +219,11 @@ impl Emitter<'_> {
             return;
         }
 
-        self.raw.calls.push(CallRef {
+        self.raw.calls.push(CallRef::new(
             site_of,
             callee,
             receiver,
-            line: line(node.start_position().row),
-            binds_apart: false,
-            calls_a_method: false,
-            arguments: 0,
-        });
+            line(node.start_position().row),
+        ));
     }
 }

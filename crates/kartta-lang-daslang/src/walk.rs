@@ -2,8 +2,8 @@ use std::num::NonZeroU16;
 
 use kartta_lang::tree::{child_nodes, line, preorder, signature, text};
 use kartta_lang::{
-    Access, Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, RawReExport, Receiver,
-    Symbol, SymbolFlags, SymbolId, SymbolKind, UseRef,
+    Banner, CallRef, FILE_SCOPE, RawDirective, RawExtraction, RawReExport, Receiver, Symbol,
+    SymbolFlags, SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::{Node, Tree, TreeCursor};
 
@@ -278,16 +278,14 @@ impl<'a> Emitter<'a> {
     fn require(&mut self, node: Node<'_>) {
         if let Some(module) = self.field_text(node, "name") {
             if node.child_by_field_name("public").is_some() {
-                self.raw.re_exports.push(RawReExport {
-                    local_name: "*".to_owned(),
-                    source_name: "*".to_owned(),
-                    source_path: module.clone(),
-                });
+                self.raw.re_exports.push(RawReExport::new(
+                    "*".to_owned(),
+                    "*".to_owned(),
+                    module.clone(),
+                ));
             }
-            let directive = RawDirective {
-                names: self.field_text(node, "alias").into_iter().collect(),
-                ..RawDirective::new(REQUIRE_FORM, module, start_line(node))
-            };
+            let mut directive = RawDirective::new(REQUIRE_FORM, module, start_line(node));
+            directive.names = self.field_text(node, "alias").into_iter().collect();
             self.directive(directive);
         }
     }
@@ -695,15 +693,9 @@ impl<'a> Emitter<'a> {
         }
 
         let site_of = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
-        self.raw.calls.push(CallRef {
-            site_of,
-            callee,
-            receiver,
-            line: start_line(node),
-            binds_apart: false,
-            calls_a_method: false,
-            arguments,
-        });
+        let mut call = CallRef::new(site_of, callee, receiver, start_line(node));
+        call.arguments = arguments;
+        self.raw.calls.push(call);
     }
 
     // constraint: a member call keeps its object as the receiver, as `mod::f` keeps its module, and only the mark tells
@@ -723,15 +715,12 @@ impl<'a> Emitter<'a> {
         }
 
         let site_of = self.scopes.last().map_or(FILE_SCOPE, |scope| scope.id);
-        self.raw.uses.push(UseRef {
-            site_of,
-            name,
-            receiver: module
-                .filter(|module| module != "_")
-                .map_or(Receiver::Bare, Receiver::Qualifier),
-            access: Access::Read,
-            line: start_line(node),
-        });
+        let receiver = module
+            .filter(|module| module != "_")
+            .map_or(Receiver::Bare, Receiver::Qualifier);
+        self.raw
+            .uses
+            .push(UseRef::new(site_of, name, receiver, start_line(node)));
     }
 
     fn qualify(&self, owner: Option<&str>, name: &str) -> String {

@@ -103,9 +103,10 @@ fn a_receiver_that_names_a_type_binds_its_method_in_the_type_s_own_package() {
 
 #[test]
 fn a_receiver_that_names_a_type_binds_no_method_that_takes_fewer_than_the_call_passes() {
-    let passing = |arguments| kartta_lang::CallRef {
-        arguments,
-        ..member_call("Server", "Close", 2)
+    let passing = |arguments| {
+        let mut call = member_call("Server", "Close", 2);
+        call.arguments = arguments;
+        call
     };
     let mut library = server_package();
     library.symbols[1].most_arguments = 0;
@@ -1104,13 +1105,14 @@ fn a_type_local_to_a_body_gives_its_fields() {
 }
 
 fn accessing(name: &str, path: &str, access: Access, line: u32) -> UseRef {
-    UseRef {
-        site_of: SymbolId(0),
-        name: name.to_owned(),
-        receiver: Receiver::Path(path.to_owned()),
-        access,
+    let mut site = UseRef::new(
+        SymbolId(0),
+        name.to_owned(),
+        Receiver::Path(path.to_owned()),
         line,
-    }
+    );
+    site.access = access;
+    site
 }
 
 fn config_package() -> Extraction {
@@ -1444,10 +1446,9 @@ fn anonymous_field(qualified_host: &str, name: &str, line: u32) -> Symbol {
 }
 
 fn used_in(site_of: u32, name: &str, path: &str, line: u32) -> UseRef {
-    UseRef {
-        site_of: SymbolId(site_of),
-        ..accessing(name, path, Access::Read, line)
-    }
+    let mut site = accessing(name, path, Access::Read, line);
+    site.site_of = SymbolId(site_of);
+    site
 }
 
 #[test]
@@ -1622,12 +1623,13 @@ fn a_qualifier_no_import_binds_reads_a_member_of_the_package_value_it_names() {
         vec![function("cfg", "Read", 1)],
         Vec::new(),
     );
-    let qualified = |qualifier: &str, line| UseRef {
-        site_of: SymbolId(0),
-        name: "Timeout".to_owned(),
-        receiver: Receiver::Qualifier(qualifier.to_owned()),
-        access: Access::Read,
-        line,
+    let qualified = |qualifier: &str, line| {
+        UseRef::new(
+            SymbolId(0),
+            "Timeout".to_owned(),
+            Receiver::Qualifier(qualifier.to_owned()),
+            line,
+        )
     };
     reader.uses = vec![
         qualified("current", 2),
@@ -1717,12 +1719,15 @@ fn a_type_counts_its_uses_as_a_type_apart_from_its_reads_and_a_read_query_keeps_
         vec![function("main", "Run", 1)],
         Vec::new(),
     );
-    let qualified = |access, line| UseRef {
-        site_of: SymbolId(0),
-        name: "Config".to_owned(),
-        receiver: Receiver::Qualifier("cfg".to_owned()),
-        access,
-        line,
+    let qualified = |access, line| {
+        let mut site = UseRef::new(
+            SymbolId(0),
+            "Config".to_owned(),
+            Receiver::Qualifier("cfg".to_owned()),
+            line,
+        );
+        site.access = access;
+        site
     };
     caller.uses = vec![
         qualified(Access::Type, 2),
