@@ -665,6 +665,29 @@ fn every_language_has_a_row_with_its_family() {
     }
 }
 
+/// The text between the first two `quote`s of each of `lines`.
+fn quoted_in<'t>(lines: impl Iterator<Item = &'t str>, quote: char) -> BTreeSet<&'t str> {
+    lines.filter_map(|line| line.split(quote).nth(1)).collect()
+}
+
+/// A binding compares a code by the string it holds, so a code it spells otherwise never matches.
+#[test]
+fn the_bindings_spell_every_error_code_and_no_other() {
+    let sections = reference();
+    let codes = names(&sections["ErrorCode"]);
+    let go = read(&here("../../bindings/go/wire/errors.go"));
+    let ts = read(&here("../../bindings/node/src/wire.ts"));
+    let (_, ts) = ts.split_once("export type Code =").expect("the type");
+    let (ts, _) = ts.split_once(';').expect("the type's end");
+
+    let spelled_by_go = quoted_in(go.lines().filter(|line| line.contains(" Code = ")), '"');
+    let mut spelled_by_ts = quoted_in(ts.lines(), '\'');
+    assert!(spelled_by_ts.remove("closed"), "the binding's own code");
+
+    assert_eq!(spelled_by_go, codes, "the Go binding");
+    assert_eq!(spelled_by_ts, codes, "the Node binding");
+}
+
 /// A cgo build links only the functions Go code names and reads each signature from the header alone, so a function
 /// the library lacks and a signature that drifted pass it.
 #[test]
