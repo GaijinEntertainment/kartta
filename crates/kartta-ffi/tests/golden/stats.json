@@ -2,11 +2,11 @@
   "answer": {
     "ok": {
       "content_index": {
-        "bytes": 787650,
-        "files": 8,
-        "trigrams": 402
+        "bytes": 787864,
+        "files": 9,
+        "trigrams": 456
       },
-      "entries": 10,
+      "entries": 12,
       "errors": {
         "listed": [],
         "total": 0
@@ -43,6 +43,21 @@
           "name": "cpp",
           "symbols": 8,
           "uses": 0
+        },
+        {
+          "calls": 0,
+          "files": 1,
+          "files_without_symbols": 0,
+          "includes": 0,
+          "kinds": {
+            "field": 1,
+            "func": 1,
+            "struct": 1
+          },
+          "local_calls": 0,
+          "name": "rust",
+          "symbols": 3,
+          "uses": 0
         }
       ],
       "languages": [
@@ -61,6 +76,14 @@
           "held": 3,
           "name": "cpp",
           "read": 3
+        },
+        {
+          "cached": 0,
+          "claimed": 1,
+          "family": "rust",
+          "held": 1,
+          "name": "rust",
+          "read": 1
         }
       ],
       "watch": {

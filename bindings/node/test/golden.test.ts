@@ -27,6 +27,7 @@ import implementations from '../../../crates/kartta-ffi/tests/golden/implementat
 import list from '../../../crates/kartta-ffi/tests/golden/list.json' with {type: 'json'};
 import outline from '../../../crates/kartta-ffi/tests/golden/outline.json' with {type: 'json'};
 import referencesUnmatched from '../../../crates/kartta-ffi/tests/golden/references-unmatched.json' with {type: 'json'};
+import referencesUnrecordedData from '../../../crates/kartta-ffi/tests/golden/references-unrecorded_data.json' with {type: 'json'};
 import references from '../../../crates/kartta-ffi/tests/golden/references.json' with {type: 'json'};
 import refreshPaths from '../../../crates/kartta-ffi/tests/golden/refresh-paths.json' with {type: 'json'};
 import refresh from '../../../crates/kartta-ffi/tests/golden/refresh.json' with {type: 'json'};
@@ -77,6 +78,9 @@ const secondGoldens = {
 	refresh: refreshPaths,
 };
 
+/** The goldens of the third request a method has one for, as `secondGoldens` holds the second's. */
+const thirdGoldens = {references: referencesUnrecordedData};
+
 type Golden = {params: unknown; answer: {ok: unknown}};
 
 /** The paths of the fields `Wire` holds and `Typed` does not name, at any depth; `never` when it names them all. */
@@ -105,9 +109,12 @@ type NamesEvery<Paths extends string> = [Paths] extends [never] ? true : `unname
 
 const typesNameEveryFieldTheGoldensHold: NamesEvery<UnnamedIn<Goldens>> = true;
 const typesNameEveryFieldTheSecondGoldensHold: NamesEvery<UnnamedIn<typeof secondGoldens>> = true;
+const typesNameEveryFieldTheThirdGoldensHold: NamesEvery<UnnamedIn<typeof thirdGoldens>> = true;
 const answersHoldTheirTypes: {[M in keyof Methods]: {answer: {ok: Methods[M]['answer']}}} = goldens;
 const secondAnswersHoldTheirTypes: {[M in keyof typeof secondGoldens]: {answer: {ok: Methods[M]['answer']}}} =
 	secondGoldens;
+const thirdAnswersHoldTheirTypes: {[M in keyof typeof thirdGoldens]: {answer: {ok: Methods[M]['answer']}}} =
+	thirdGoldens;
 
 type Replay<M extends keyof Methods> = (kartta: Kartta, params: Methods[M]['params']) => Promise<Methods[M]['answer']>;
 
@@ -186,8 +193,10 @@ function pinAgreeingScores(answer: unknown, golden: unknown): unknown {
 test("the goldens' fields are the ones the wire types name", () => {
 	expect(typesNameEveryFieldTheGoldensHold).toBe(true);
 	expect(typesNameEveryFieldTheSecondGoldensHold).toBe(true);
+	expect(typesNameEveryFieldTheThirdGoldensHold).toBe(true);
 	expect(answersHoldTheirTypes).toBe(goldens);
 	expect(secondAnswersHoldTheirTypes).toBe(secondGoldens);
+	expect(thirdAnswersHoldTheirTypes).toBe(thirdGoldens);
 });
 
 test('the typed calls cover every method the library answers', async () => {
@@ -225,6 +234,7 @@ test('every method answers its golden request through its typed call as pinned',
 		// oxlint-disable-next-line no-await-in-loop
 		answeredSecond[method] = await envelope(replay(kartta, golden.params));
 	}
+	const answeredThird = await envelope(replays.references(kartta, thirdGoldens.references.params));
 	const pinned = Object.fromEntries(Object.entries(goldens).map(([method, golden]) => [method, golden.answer]));
 	const pinnedSecond = Object.fromEntries(
 		Object.entries(secondGoldens).map(([method, golden]) => [method, golden.answer]),
@@ -232,6 +242,7 @@ test('every method answers its golden request through its typed call as pinned',
 
 	expect(pinAgreeingScores(answered, pinned)).toStrictEqual(pinned);
 	expect(pinAgreeingScores(answeredSecond, pinnedSecond)).toStrictEqual(pinnedSecond);
+	expect(answeredThird).toStrictEqual(thirdGoldens.references.answer);
 });
 
 const pinnedScore = 3.5799073758139874;

@@ -72,6 +72,22 @@
           "sites": 2,
           "unbound": [],
           "unlisted": 0
+        },
+        {
+          "bound": [],
+          "edges": 0,
+          "graph": "rust",
+          "misses": {
+            "ambiguous": 0,
+            "external_import": 0,
+            "not_admitted": 0,
+            "not_exported": 0,
+            "through_a_receiver": 0,
+            "undefined": 0
+          },
+          "sites": 0,
+          "unbound": [],
+          "unlisted": 0
         }
       ]
     }

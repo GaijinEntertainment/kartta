@@ -21,8 +21,8 @@
       ],
       "excluded": 0,
       "path": "",
-      "total": 10,
-      "truncated": false
+      "total": 12,
+      "truncated": true
     }
   },
   "method": "list",

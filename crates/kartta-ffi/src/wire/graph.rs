@@ -2,8 +2,8 @@ use std::io;
 use std::ops::RangeInclusive;
 
 use kartta::{
-    Access, Blast, CallPath, Candidate, Change, CutLine, Dead, DeadCode, Definition, Definitions,
-    Dependent, Dependents, DirCount, DirectCalls, Excluded, FileScope, Hit, Hotspot,
+    Access, Blast, CallPath, Candidate, Change, Conventions, CutLine, Dead, DeadCode, Definition,
+    Definitions, Dependent, Dependents, DirCount, DirectCalls, Excluded, FileScope, Hit, Hotspot,
     Implementations, Implementor, LanguageFiles, Miss, Misses, Nearness, ReachBand, Reached,
     Reference, References, Resolution, Search, Seed, Segment, SegmentSymbol, SelfCall, SiteCounts,
     Source, Stats, SymbolFlags, SymbolKind, TypeUses, Unbound, Unmatched, UnmatchedKind, Walk,
@@ -338,13 +338,16 @@ pub(crate) struct ReferencesView<'g> {
     references: Wired<References<'g>>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     type_uses_unrecorded: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    data_uses_unrecorded: bool,
 }
 
 impl<'g> ReferencesView<'g> {
-    pub(crate) fn new(references: References<'g>, type_uses: TypeUses) -> Self {
+    pub(crate) fn new(references: References<'g>, conventions: &Conventions) -> Self {
+        let kind = references.symbol.kind;
         Self {
-            type_uses_unrecorded: type_uses == TypeUses::Nowhere
-                && references.symbol.kind.is_type(),
+            type_uses_unrecorded: conventions.type_uses == TypeUses::Nowhere && kind.is_type(),
+            data_uses_unrecorded: conventions.unrecorded_data.contains(&kind),
             references: Wired(references),
         }
     }

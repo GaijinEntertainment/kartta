@@ -125,10 +125,7 @@ fn references(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         is_referent,
         |(name, graph), named| {
             let found = graph.references(named, params.query())?;
-            Some((
-                name,
-                ReferencesView::new(found, graph.conventions().type_uses),
-            ))
+            Some((name, ReferencesView::new(found, graph.conventions())))
         },
     ))
 }

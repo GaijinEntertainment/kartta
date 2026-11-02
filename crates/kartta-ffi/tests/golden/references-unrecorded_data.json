@@ -1,0 +1,38 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "ambiguous": 0,
+          "below_confidence": 0,
+          "counts": {
+            "calls": 0,
+            "reads": 0,
+            "updates": 0,
+            "writes": 0
+          },
+          "data_uses_unrecorded": true,
+          "graph": "rust",
+          "passed_over": 0,
+          "sites": [],
+          "symbol": {
+            "end_line": 2,
+            "exported": true,
+            "file": "rust/point.rs",
+            "kind": "field",
+            "line": 2,
+            "name": "x",
+            "owner": "Point",
+            "qualified_name": "Point::x"
+          },
+          "total": 0
+        }
+      ]
+    }
+  },
+  "method": "references",
+  "params": {
+    "lang": "rust",
+    "name": "x"
+  }
+}
