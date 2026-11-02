@@ -40,6 +40,38 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # What a publish reads, which only a publish would report otherwise. `cargo package` builds each crate from its own
+  # tarball, against the tarballs of the crates it depends on, so a file a crate reads from outside itself fails here.
+  package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo package --locked --workspace --exclude kartta-node
+      - name: every package holds the licence
+        run: |
+          for crate in target/package/*.crate; do
+            tar -xzOf "$crate" "$(basename "$crate" .crate)/LICENSE" | cmp - LICENSE
+          done
+      # constraint: crates.io joins a root-absolute link to the crate's own directory
+      - name: no README links a root-absolute path
+        run: "! grep -n '](/' crates/*/README.md"
+      - name: docs.rs documents every feature of a published crate
+        run: |
+          cargo metadata --locked --no-deps --format-version 1 | jq -e '[.packages[]
+            | select(.publish != [] and .features != {} and .metadata.docs.rs["all-features"] != true)] == []'
+      # constraint: `doc_cfg` is unstable, so docs.rs reads it on nightly and the pinned stable needs the bootstrap flag
+      - name: rustdoc marks a gated item with its feature
+        env:
+          RUSTC_BOOTSTRAP: 1
+          RUSTDOCFLAGS: --cfg docsrs -D warnings
+        run: |
+          cargo doc --locked -p kartta -p kartta-fs -p kartta-lang --all-features --no-deps
+          grep -q 'crate feature <code>watch' target/doc/kartta/struct.Watcher.html
+          grep -q 'crate feature <code>watch' target/doc/kartta_fs/struct.Watcher.html
+          grep -q 'crate feature <code>tree-sitter' target/doc/kartta_lang/tree/index.html
+
   # constraint: the target is one watch.rs gives `watch/unsupported.rs`, which no other job compiles
   unsupported-watch:
     runs-on: ubuntu-24.04
@@ -179,7 +211,7 @@ jobs:
   # when every triggered job passed or was skipped — so conditional jobs never need enumerating in rulesets.
   ci-ok:
     if: always()
-    needs: [fmt, clippy, docs, unsupported-watch, test, go, node, markdown, versions, deny, notices, npm-audit]
+    needs: [fmt, clippy, docs, package, unsupported-watch, test, go, node, markdown, versions, deny, notices, npm-audit]
     runs-on: ubuntu-24.04
     steps:
       - name: verify all jobs succeeded
