@@ -273,6 +273,28 @@ jobs:
       - run: vp run build
       - run: vp test
 
+  # The Node binding on each musl target of the support matrix: the addon its script builds there, and the tests against
+  # it. `node` holds the format, lint and type checks, which read the same files on every host. The Rust image builds,
+  # and takes Node from the Node image of `.nvmrc`'s version through a volume, because no image holds both.
+  node-musl:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    # A test that blocks the JS thread for good would hold the runner for GitHub's 6-hour default (#364).
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: >-
+          docker run --rm -v node:/usr/local
+          node:24.22.0-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f
+          true
+      - run: >-
+          docker run --rm -v "$PWD:/src" -v node:/opt/node:ro -w /src
+          rust:1.99.1-alpine3.24@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d
+          scripts/node-musl.sh
+
   markdown:
     runs-on: ubuntu-24.04
     steps:
@@ -340,6 +362,7 @@ jobs:
       - go
       - go-musl
       - node
+      - node-musl
       - markdown
       - versions
       - deny
