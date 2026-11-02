@@ -31,7 +31,9 @@ const SETTLE: Duration = Duration::from_millis(20);
 // refresh off
 const LONGEST: Duration = Duration::from_millis(500);
 // constraint: inotify queues a change as the call that made it returns, while FSEvents reported a write 12–13 ms
-// after it, and notify hands ReadDirectoryChangesW's reports over from a thread of its own
+// after it, and notify hands ReadDirectoryChangesW's reports over from a thread of its own; FSEvents reports a change
+// made in a stream's first 150 ms up to 323 ms after it, which a drain leaves to a later wait, as covering it would
+// hold every macOS drain of a short walk for that long
 #[cfg(target_os = "linux")]
 const REPORTED: Duration = Duration::ZERO;
 #[cfg(not(target_os = "linux"))]
