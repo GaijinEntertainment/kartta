@@ -295,7 +295,13 @@ export type BuildErrors = {
 export type BuildFailure = {
 	/** `walk`, `ignore`, `name`, `read`, `content_index`, `cache` or `other`. */
 	kind: string;
+	/** The path that failed, as the system spells it. One in the tree starts with the root as `open` was given it. */
 	path?: string;
+	/**
+	 * That path relative to the root, which `refresh`'s `paths` takes. Empty for the root itself; absent for a path
+	 * outside the tree, such as a cache directory.
+	 */
+	file?: string;
 	message: string;
 };
 

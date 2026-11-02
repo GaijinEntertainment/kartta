@@ -188,8 +188,12 @@ type BuildErrors struct {
 // BuildFailure is one failure a build collected.
 type BuildFailure struct {
 	// Kind is walk, ignore, name, read, content_index, cache or other.
-	Kind    string `json:"kind"`
-	Path    string `json:"path,omitempty"`
+	Kind string `json:"kind"`
+	// Path is the path that failed, as the system spells it. One in the tree starts with the root as Open was given it.
+	Path string `json:"path,omitempty"`
+	// File is Path relative to the root, which RefreshParams.Paths takes. It is empty for the root itself and for a path
+	// outside the tree, such as a cache directory, which Path tells apart.
+	File    string `json:"file,omitempty"`
 	Message string `json:"message"`
 }
 

@@ -156,46 +156,49 @@ struct StoredError {
     kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<String>,
     message: String,
 }
 
 impl StoredErrors {
-    pub(crate) fn new<'e>(errors: impl IntoIterator<Item = &'e BuildError>) -> Self {
+    /// The failures of a walk of the tree at `root`.
+    pub(crate) fn new<'e>(root: &Path, errors: impl IntoIterator<Item = &'e BuildError>) -> Self {
         Self(
             errors
                 .into_iter()
-                .map(|error| StoredError {
-                    kind: kind_of(error),
-                    path: error
-                        .native_path()
-                        .map(|path| path.to_string_lossy().into_owned()),
-                    message: error.to_string(),
+                .map(|error| {
+                    let path = error.native_path();
+                    StoredError {
+                        kind: kind_of(error),
+                        path: path.map(|path| path.to_string_lossy().into_owned()),
+                        file: path.and_then(|path| in_tree(path, root)),
+                        message: error.to_string(),
+                    }
                 })
                 .collect(),
         )
     }
 
     /// Takes in `failed`, the failures of a refresh that walked again the parts at the root-relative paths `walked`, as
-    /// [`kartta::replace_failures`] does, with each path read from the root `root`.
-    pub(crate) fn replace(&mut self, root: &Path, walked: &[String], failed: Self) {
+    /// [`kartta::replace_failures`] does.
+    pub(crate) fn replace(&mut self, walked: &[String], failed: Self) {
         kartta::replace_failures(&mut self.0, walked, failed.0, |error| {
-            (error.in_tree(root).map(Cow::Owned), &error.message)
+            (error.file.as_deref().map(Cow::Borrowed), &error.message)
         });
     }
 }
 
-impl StoredError {
-    /// The root-relative forward-slash path of what failed, when it is in the tree under `root`.
-    fn in_tree(&self, root: &Path) -> Option<String> {
-        let relative = Path::new(self.path.as_deref()?).strip_prefix(root).ok()?;
-        Some(
-            relative
-                .iter()
-                .map(|part| part.to_string_lossy())
-                .collect::<Vec<_>>()
-                .join("/"),
-        )
-    }
+/// The root-relative forward-slash path of `path`, when it is in the tree under `root`.
+fn in_tree(path: &Path, root: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?;
+    Some(
+        relative
+            .iter()
+            .map(|part| part.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
 }
 
 impl Serialize for StoredErrors {
@@ -369,6 +372,7 @@ mod tests {
                 .map(|&(path, message)| StoredError {
                     kind: "read",
                     path: path.map(|path| format!("/tree/{path}")),
+                    file: path.map(str::to_owned),
                     message: message.to_owned(),
                 })
                 .collect(),
@@ -395,7 +399,6 @@ mod tests {
         ]);
 
         errors.replace(
-            Path::new("/tree"),
             &["src".to_owned()],
             stored(&[
                 (Some("lib/d.rs"), "d unread again"),
@@ -418,13 +421,21 @@ mod tests {
     fn a_refresh_of_the_tree_replaces_every_failure() {
         let mut errors = stored(&[(Some("a.rs"), "a unread"), (None, "cache unwritable")]);
 
-        errors.replace(
-            Path::new("/tree"),
-            &[String::new()],
-            stored(&[(Some("b.rs"), "b unread")]),
-        );
+        errors.replace(&[String::new()], stored(&[(Some("b.rs"), "b unread")]));
 
         assert_eq!(messages(&errors), ["b unread"]);
+    }
+
+    #[test]
+    fn a_failure_in_the_tree_reads_from_the_root_however_the_root_is_spelled() {
+        let file = |root: &str, path: &str| in_tree(Path::new(path), Path::new(root));
+
+        assert_eq!(file("/tree", "/tree/a/b.rs").as_deref(), Some("a/b.rs"));
+        assert_eq!(file("/tree/", "/tree/a/b.rs").as_deref(), Some("a/b.rs"));
+        assert_eq!(file(".", "./a/b.rs").as_deref(), Some("a/b.rs"));
+        assert_eq!(file("/tree", "/tree").as_deref(), Some(""));
+        assert_eq!(file("/tree", "/cache/pack"), None);
+        assert_eq!(file("/tree", "/treetop/a.rs"), None);
     }
 
     #[test]
