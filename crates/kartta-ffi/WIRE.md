@@ -46,7 +46,8 @@ is no substitute: its `-lunwind` fails on Alpine, where gcc brings the unwinder.
 - A count holds what the graph records, so 0 does not show that nothing uses a symbol: a language records only some
   uses, and `type_uses_unrecorded` and `data_uses_unrecorded` name where it records none of a kind.
 - `version` needs no build. Every other method but `build` and `cancel` asks what the last finished build made, and
-  answers `not_built` or `building` when there is none.
+  answers `not_built` or `building` when there is none. `fuzzy`, `glob`, `grep`, `list` and `stats` also answer from the
+  index a build a cancel stopped left, and name it in `stopped_build`, [`StoppedView`](#stoppedview).
 - `build`, `grep` and `refresh` take an `id` of the caller's choosing, 0 among them, which `cancel` stops them by. A
   binding over the wire gives each call it runs a `binding_id` as well, so that its own cancels never meet its callers'
   ids. `cancel` with neither stops every call in flight. Each of these methods blocks its calling thread until it
@@ -61,8 +62,10 @@ is no substitute: its `-lunwind` fails on Alpine, where gcc brings the unwinder.
 - `analyze_segment`: params [`SegmentParams`](#segmentparams), answer [`FileView`](#fileview) of
   [`Segment`](#segment). What a change to a range of a file's lines reaches.
 - `build`: params [`BuildParams`](#buildparams), answer [`StatsAnswer`](#statsanswer). Walks the tree once and builds
-  the file index and every graph. Builds run one at a time, and each drops the engine the handle held before it walks.
-  A build that fails or is cancelled leaves the handle with no engine.
+  the file index and every graph. Builds run one at a time, and each drops the engine the handle held before it walks. A
+  build that fails leaves the handle with no engine. A build a cancel stops leaves the index of what it reached, unless
+  it reached nothing, and no engine. A build that finished before its cancel landed answers `build_cancelled` and leaves
+  its engine.
 - `call_path`: params [`CallPathParams`](#callpathparams), answer [`Matches`](#matches) of [`CallPath`](#callpath). A
   chain of calls between two symbols.
 - `callees`: params [`WalkParams`](#walkparams), answer [`Matches`](#matches) of [`Walk`](#walk). What a symbol calls,
@@ -170,7 +173,8 @@ Also what `kartta_open` writes to its error out-parameter.
 
 ### ErrorCode
 
-- `build_cancelled`: A cancel stopped the build, which leaves no index.
+- `build_cancelled`: A cancel stopped the build, whose index the file queries answer from when it holds an entry, or
+  that the cancel came too late to stop.
 - `build_failed`: The build stopped on a failure, which leaves no index.
 - `building`: A build is in flight; ask again once it finishes.
 - `internal`: The engine panicked, or an answer could not be encoded. The handle stays usable, though a refresh that
@@ -185,7 +189,8 @@ Also what `kartta_open` writes to its error out-parameter.
 - `invalid_root`: `kartta_open` could not read the root's metadata, or the root is not a directory.
 - `no_stamps`: The build kept no stamps, so a refresh is refused.
 - `not_a_directory`: `list` names a path that is not a directory.
-- `not_built`: No build has finished, or the last one failed or was cancelled.
+- `not_built`: No build has finished, or the last one failed, or a cancel stopped it and the method needs more than its
+  index; the message then says what still answers.
 - `not_found`: `list` names a path the index does not hold.
 - `refresh_cancelled`: A cancel stopped the refresh; the engine answers as it did before it.
 - `refresh_failed`: The refresh stopped on a failure; the engine answers as it did before it.
@@ -464,6 +469,18 @@ How a site touches a symbol. A call, and a use as a type, read it.
   tries again, and a refresh does not. Absent otherwise.
 - `errors` ([`Listed`](#listed), always): The failures the build collected rather than stopped on.
 - `watch` ([`WatchView`](#watchview), always): Whether the index follows its tree.
+- `stopped_build` ([`StoppedView`](#stoppedview), optional): The answer reads a stopped build's index, so `languages`
+  and `graphs` are empty. Absent after a build that finished.
+
+### StoppedView
+
+A cancel stopped the last build, so the handle holds its index and no graph, and an answer that carries this lacks what
+that index lacks: a path it does not name may exist. The next build replaces it. It answers no refresh and follows
+nothing.
+
+- `entries` (integer, always): The entries the index holds. Which ones depends on where the walk's threads stood.
+- `unvisited` (integer, always): The entries the walk listed and the cancel turned away: a floor on what the index
+  lacks, since one that is a directory holds more. 0 when the cancel turned nothing away.
 
 ### LanguageFiles
 
@@ -965,6 +982,8 @@ Each definition counts once, under the first reason that holds for it.
 - `truncated` (boolean, always): The limit left entries out.
 - `excluded` (integer, always): The entries `exclude` left out.
 - `total` (integer, always): The entries the index holds under the directory, at every depth.
+- `stopped_build` ([`StoppedView`](#stoppedview), optional): The answer reads a stopped build's index. Absent after a
+  build that finished.
 
 ### ListedView
 
@@ -980,6 +999,8 @@ Each definition counts once, under the first reason that holds for it.
 - `paths` (array of string, always): The matching paths in index order.
 - `truncated` (boolean, always): The limit left paths out.
 - `excluded` (integer, optional): The matching paths `exclude` left out before the answer ended. Absent when none.
+- `stopped_build` ([`StoppedView`](#stoppedview), optional): The answer reads a stopped build's index. Absent after a
+  build that finished.
 
 ### FuzzyView
 
@@ -987,6 +1008,8 @@ Each definition counts once, under the first reason that holds for it.
 - `truncated` (boolean, always): The limit left matches out.
 - `matched` (integer, optional): The paths that matched the query, those past the limit included. Absent for an empty
   query, which is not counted.
+- `stopped_build` ([`StoppedView`](#stoppedview), optional): The answer reads a stopped build's index. Absent after a
+  build that finished.
 
 ### FuzzyMatchView
 
@@ -1016,6 +1039,8 @@ A candidate is a regular file the filter selected and the exclusion kept. Each l
 - `unsearched` (integer, always): The candidates this answer does not cover, because a match past the limit proved the
   cut or a cancel landed first.
 - `failures` (array of [`GrepFailureView`](#grepfailureview), always): The candidates that could not be read.
+- `stopped_build` ([`StoppedView`](#stoppedview), optional): The answer reads a stopped build's index, whose candidates
+  are the files it holds. Absent after a build that finished.
 
 ### GrepFileView
 

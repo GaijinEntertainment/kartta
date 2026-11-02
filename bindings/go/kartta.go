@@ -97,9 +97,12 @@ func (k *Kartta) Close() error {
 // Build walks the tree and builds the file index and the graphs options name, replacing what an earlier build made and
 // ending its watch. With options.Watch the index then follows the tree by itself until the next Build or Close.
 // Once ctx is done, a build still running stops and answers an error matching both wire.BuildCancelled and ctx's
-// cause; one that finished first answers its stats, and the handle holds what it built. A build that fails or stops
-// leaves the handle without an index until the next one finishes. A ctx done before the call answers its cause alone
-// and leaves the handle as it was.
+// cause; one that finished first answers its stats, and the handle holds what it built. A cancel past the last file
+// answers that error too, and the handle holds the whole engine. A build that fails leaves the handle without an index
+// until the next one finishes. One that stops leaves the index of what it reached, and Stats and the file queries
+// answer from it, each naming it in StoppedBuild, until the next one begins; one that reached no entry leaves nothing,
+// so they answer wire.NotBuilt. A ctx done before the call answers its
+// cause alone and leaves the handle as it was.
 func (k *Kartta) Build(ctx context.Context, options wire.BuildOptions) (*wire.Stats, error) {
 	return tracked[wire.Stats](ctx, k, "build", func(id uint64) any {
 		options.BindingID = id

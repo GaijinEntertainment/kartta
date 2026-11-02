@@ -141,6 +141,18 @@ type Stats struct {
 	ContentIndexFailure string      `json:"content_index_failure,omitempty"`
 	Errors              BuildErrors `json:"errors"`
 	Watch               Watch       `json:"watch"`
+	// StoppedBuild is nil unless the answer reads a stopped build's index, which leaves Languages and Graphs empty.
+	StoppedBuild *StoppedBuild `json:"stopped_build,omitempty"`
+}
+
+// StoppedBuild says that a cancel stopped the last build, so the handle holds its index and no graph, and an answer
+// that carries it lacks what that index lacks: a path it does not name may exist.
+type StoppedBuild struct {
+	// Entries counts the entries the index holds.
+	Entries int `json:"entries"`
+	// Unvisited counts the entries the walk listed and the cancel turned away: a floor on what the index lacks, since
+	// one that is a directory holds more. 0 when the cancel turned nothing away.
+	Unvisited int `json:"unvisited"`
 }
 
 // LanguageFiles counts what a build made of one language's files.

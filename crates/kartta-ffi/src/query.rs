@@ -1,5 +1,5 @@
 use kartta::{
-    Graph, Region, Selector, SourceOptions, SymbolKind, ask_reading, is_parent, is_referent,
+    Graph, Index, Region, Selector, SourceOptions, SymbolKind, ask_reading, is_parent, is_referent,
     selects_as_callers, unmatched,
 };
 
@@ -14,9 +14,10 @@ use crate::wire::params::{
     DependentsParams, ImplementationsParams, OutlineParams, ReferencesParams, ResolutionParams,
     SearchParams, SegmentParams, SourcesParams, WalkParams,
 };
-use crate::wire::{self, NoParams, StatsAnswer};
+use crate::wire::{self, StoppedView};
 
 type Query = fn(&Built, &[u8]) -> Result<Vec<u8>, Error>;
+type FileQuery = fn(&Index, Option<StoppedView>, &[u8]) -> Result<Vec<u8>, Error>;
 
 /// How many of the definitions a name that selected nothing names instead an answer lists.
 const UNMATCHED_LISTED: usize = 5;
@@ -30,26 +31,17 @@ pub(crate) const QUERIES: &[(&str, Query)] = &[
     ("dead_code", dead_code),
     ("definitions", definitions),
     ("dependents", dependents),
-    ("fuzzy", fuzzy),
-    ("glob", glob),
     ("implementations", implementations),
-    ("list", list),
     ("outline", outline),
     ("references", references),
     ("resolution", resolution),
     ("search", search),
     ("sources", sources),
-    ("stats", stats),
 ];
 
-fn stats(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
-    let NoParams {} = wire::params(params)?;
-    wire::ok(&StatsAnswer::new(
-        &built.engine,
-        &built.errors,
-        built.watch.as_ref(),
-    ))
-}
+/// The queries an index alone answers, the index of a build a cancel stopped among them.
+pub(crate) const FILE_QUERIES: &[(&str, FileQuery)] =
+    &[("fuzzy", fuzzy), ("glob", glob), ("list", list)];
 
 /// What the `searched` graphs answer for `named`, as [`ask_reading`] asks them, and, where none answers, what the name
 /// names instead among the definitions of the kinds `selects` takes.
@@ -255,17 +247,17 @@ fn analyze_change(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     ))
 }
 
-fn list(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
+fn list(index: &Index, stopped: Option<StoppedView>, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: ListParams = wire::params(params)?;
-    wire::ok(&ListView::new(built.engine.index(), &params)?)
+    wire::ok(&ListView::new(index, &params, stopped)?)
 }
 
-fn glob(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
+fn glob(index: &Index, stopped: Option<StoppedView>, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: GlobParams = wire::params(params)?;
-    wire::ok(&GlobView::new(built.engine.index(), &params)?)
+    wire::ok(&GlobView::new(index, &params, stopped)?)
 }
 
-fn fuzzy(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
+fn fuzzy(index: &Index, stopped: Option<StoppedView>, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: FuzzyParams = wire::params(params)?;
-    wire::ok(&FuzzyView::new(built.engine.index(), &params)?)
+    wire::ok(&FuzzyView::new(index, &params, stopped)?)
 }

@@ -15,13 +15,15 @@ const (
 	UnknownMethod Code = "unknown_method"
 	// InvalidRoot: the root Open was given is not a directory that can be read.
 	InvalidRoot Code = "invalid_root"
-	// NotBuilt: the method needs a build and none has finished, or the last one failed or was cancelled.
+	// NotBuilt: the method needs a build and none has finished, or the last one failed, or a cancel stopped it and the
+	// method needs more than its index.
 	NotBuilt Code = "not_built"
 	// Building: the method needs a build and one is running.
 	Building Code = "building"
 	// BuildFailed: the build stopped on a failure that leaves no index.
 	BuildFailed Code = "build_failed"
-	// BuildCancelled: a cancel stopped the build, which leaves no index.
+	// BuildCancelled: a cancel stopped the build, whose index the file queries answer from when it holds an entry, or
+	// that the cancel came too late to stop.
 	BuildCancelled Code = "build_cancelled"
 	// NoStamps: the build kept no stamps, so refresh refuses; a build with Stamps set refreshes.
 	NoStamps Code = "no_stamps"
