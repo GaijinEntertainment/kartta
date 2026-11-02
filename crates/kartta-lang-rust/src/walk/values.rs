@@ -104,7 +104,7 @@ impl Emitter<'_> {
                     Receiver::Path(type_name) => {
                         members.contains(&(type_name.as_str(), name.as_ref()))
                     }
-                    Receiver::Qualifier(_) => false,
+                    _ => false,
                 };
                 known.then(|| UseRef {
                     site_of: read.site_of,

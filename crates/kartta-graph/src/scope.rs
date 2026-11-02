@@ -787,7 +787,7 @@ impl Cascade<'_> {
                 InheritedMembers::Found | InheritedMembers::Admitted => {
                     Some(Shape::FreeOrInherited(reach.clone()))
                 }
-                InheritedMembers::Unreached => None,
+                _ => None,
             }
         });
         match (own, reach) {
@@ -826,10 +826,10 @@ impl Cascade<'_> {
 
     fn takes_a_member_alone(&self, call: &Call) -> bool {
         match self.conventions.member_calls {
-            MemberCalls::NearbyFreeFunctions => false,
             MemberCalls::NearbyFreeFunctionsUnlessTyped => self.receiver_names_a_type(call),
             MemberCalls::Members => true,
             MemberCalls::ModulePaths => !self.receiver_names_a_module(call),
+            _ => false,
         }
     }
 

@@ -804,9 +804,9 @@ impl<'g> Cascade<'g> {
     /// The definitions beside `bound` that `call` reaches too, as the language's [`Twins`] say.
     pub(crate) fn twins(&self, call: &Call, bound: Bound) -> Vec<SymbolAt> {
         match self.conventions.twins {
-            Twins::First => Vec::new(),
             Twins::Every => self.twins_in_reach(call, bound),
             Twins::Package(built_apart) => self.package_twins(built_apart, call.file, bound),
+            _ => Vec::new(),
         }
     }
 
@@ -814,8 +814,8 @@ impl<'g> Cascade<'g> {
     /// use of a definition with twins in a file reaches that one alone.
     pub(crate) fn use_twins(&self, file: u32, bound: Bound) -> Vec<SymbolAt> {
         match self.conventions.twins {
-            Twins::First | Twins::Every => Vec::new(),
             Twins::Package(built_apart) => self.package_twins(built_apart, file, bound),
+            _ => Vec::new(),
         }
     }
 
@@ -2252,12 +2252,12 @@ impl<'g> Cascade<'g> {
     ) -> Scoped {
         let rule = self.conventions.included_runtime_members;
         let narrowed = |at: SymbolAt| match rule {
-            IncludedRuntimeMembers::Any => false,
             IncludedRuntimeMembers::SpelledOrOwn => call.names_a_runtime_method,
             IncludedRuntimeMembers::SpelledOwnOrExported => {
                 call.names_a_runtime_method
                     || (call.calls_a_method && !self.graph.sym(at).exported())
             }
+            _ => false,
         };
         let kept = |at: SymbolAt| !narrowed(at) || self.spelled_or_own(call, at);
         let turns_away = rule == IncludedRuntimeMembers::SpelledOwnOrExported;
@@ -2490,7 +2490,6 @@ impl<'g> Cascade<'g> {
         let bare = || self.bare_use((site.file, line), name);
         let imported = || bare().or_else(|| self.imported_value(site, name));
         match self.conventions.value_uses {
-            ValueUses::Declared => bare(),
             ValueUses::Imported => imported(),
             ValueUses::ImportedThenReached => {
                 let bound = imported();
@@ -2511,6 +2510,7 @@ impl<'g> Cascade<'g> {
                     .or_else(|| self.expanded_value((site, line), name))
             }),
             ValueUses::Included => self.included_value(site.file, name),
+            _ => bare(),
         }
     }
 

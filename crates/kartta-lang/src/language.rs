@@ -156,6 +156,11 @@ pub trait Repository: Sync {
 /// not ship included: outside `kartta-lang` no struct literal or `..` update builds it. A language cannot tell at compile
 /// time that a field it should set was added; the field keeps its default until the language states it.
 ///
+/// Each enum among its fields is `#[non_exhaustive]` for the same reason, so that a rule a language comes to need is a
+/// new variant in a minor release. A language that states a new variant needs a graph of that release: an older one
+/// reads the variant as the enum's default where it matches and as none of the others where it compares, and an unknown
+/// [`Receiver`](crate::Receiver) as an empty [`Path`](crate::Receiver::Path).
+///
 /// # Examples
 ///
 /// A language states its conventions as a `const` that sets the fields it changes on the default, which leaves a field
@@ -350,6 +355,7 @@ impl Default for Conventions {
 /// What a member call on a receiver a language does not list among its [`Conventions::own_type_receivers`] binds of the
 /// caller's own owner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum UnlistedReceivers {
     /// Nothing: the call goes on to the tiers after the caller's own owner.
     #[default]
@@ -361,6 +367,7 @@ pub enum UnlistedReceivers {
 
 /// How the extraction writes each entry of `Symbol::parents`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum ParentSpelling {
     /// As the file spells it, which the graph reads through the language's scopes.
     #[default]
@@ -374,6 +381,7 @@ pub enum ParentSpelling {
 /// What a member call on a class the graph holds, named by the receiver or one of
 /// [`Conventions::own_type_receivers`], reaches of the types above that class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum ReceiverMembers {
     /// Nothing the receiver's tier reads, as a language with no opt-in stands, and as C++ and Go stay: C++ looks its
     /// bases up under [`InheritedMembers::Found`], and Go through [`Receivers::TypePaths`].
@@ -396,6 +404,7 @@ pub enum ReceiverMembers {
 
 /// How far through its includes a file's calls bind the names they define.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum IncludeReach {
     /// The files it includes itself: an import names one module, and what that module imports in turn is not in the
     /// importing file's scope.
@@ -417,6 +426,7 @@ pub enum IncludeReach {
 
 /// What a member call's receiver spells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum Receivers {
     /// The owner of the member the call reaches, as the language writes owners, or an import: the graph binds a member
     /// of an owner of that name. Where scopes nest, a name the caller's body does not declare is spelled after the
@@ -460,6 +470,7 @@ pub enum Receivers {
 
 /// What a receiver written as a bare name, of letters, digits and `_`, names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum BareReceivers {
     /// A value, a module or a type alike, so a bare name that no type the graph holds is named can still hold a value
     /// of one.
@@ -489,6 +500,7 @@ pub enum BareReceivers {
 /// one callable of the name outside vendored code is left to guess at, a member call takes a member alone under each,
 /// so a lone free `trim` elsewhere in the tree is not guessed for `line.trim()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum MemberCalls {
     /// A free function the caller's file sees, the one definition of its name, or one in the caller's directory or the
     /// one above it, where no member of the name is a candidate: what a value holds can be read as free, an object's
@@ -516,6 +528,7 @@ pub enum MemberCalls {
 /// Whether a member call on a value, `x.f()` with an `x` that names no owner, guesses the callable of its name nearest
 /// the caller once nothing the caller's file sees binds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum CallsOnValues {
     /// The callable in the caller's directory or the one above it, then the one outside vendored code.
     #[default]
@@ -528,6 +541,7 @@ pub enum CallsOnValues {
 
 /// Which calls of a language bind apart from the definitions other calls of their name bind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum CallsApart {
     /// None: a call can bind a macro or anything else of its name, as a dshl one does.
     #[default]
@@ -540,6 +554,7 @@ pub enum CallsApart {
 /// What a call reaches where the tier that binds it, its caller's file or the type its receiver names, holds several
 /// definitions of one qualified name and kind equal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum Twins {
     /// The first of them, as an overload or a namesake copy is one definition among others.
     #[default]
@@ -575,6 +590,7 @@ impl Hash for BuiltApart {
 
 /// Whether a call can bind a namespace of the name it calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum NamespaceCalls {
     /// It can: a namespace is a candidate as any callable of its name is.
     #[default]
@@ -588,6 +604,7 @@ pub enum NamespaceCalls {
 
 /// Where a language records a use of a type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum TypeUses {
     /// Nowhere code names a type as one, such as a declaration, a signature, a generic argument or an import: a type's
     /// sites are the calls that name it and, where the language records them, its reads as a value, as a Rust unit
@@ -605,6 +622,7 @@ pub enum TypeUses {
 
 /// Where a language records a read or a write of a field, a variable or a constant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum DataUses {
     /// Where some code reads or writes one, or nowhere: code can read or write one where the language records no use,
     /// as a Python framework reads a class's attribute by its name and a C macro's expansion a field, so such a
@@ -620,6 +638,7 @@ pub enum DataUses {
 
 /// Where a bare use of a name that its own file does not declare binds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum ValueUses {
     /// In the use's package, where packages are directories, or a dot-imported one.
     #[default]
@@ -651,6 +670,7 @@ pub enum ValueUses {
 
 /// Which members of the files a file includes a member call of a runtime method, `obj.setValue(1)`, binds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum IncludedRuntimeMembers {
     /// Any member of the name, as the members of the caller's own file are.
     #[default]
@@ -671,6 +691,7 @@ pub enum IncludedRuntimeMembers {
 
 /// What an owner that no type of its name declares is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum UntypedOwners {
     /// A type the graph does not hold, which a member call reaches on any value of it.
     #[default]
@@ -684,6 +705,7 @@ pub enum UntypedOwners {
 
 /// What a member use on a value of a type the language cannot name binds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum UntypedMembers {
     /// The one field of the name its own file declares outside other bodies.
     #[default]
@@ -699,6 +721,7 @@ pub enum UntypedMembers {
 
 /// When a bare call inside a member reaches the members of that member's own owner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum OwnMembers {
     /// Before a free symbol of the name, as C++ name lookup does inside a member function: the caller's own class is
     /// searched first.
@@ -714,6 +737,7 @@ pub enum OwnMembers {
 /// How a bare call reaches the members of the types the caller's owner derives from, as the `parents` of its type
 /// name them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum InheritedMembers {
     /// A bare call reaches no inherited member.
     #[default]

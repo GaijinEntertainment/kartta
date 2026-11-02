@@ -889,6 +889,7 @@ impl Graph {
                     Receiver::Path(path) => {
                         UseReceiver::Path((!path.is_empty()).then(|| self.strings.intern(path)))
                     }
+                    _ => UseReceiver::Path(None),
                 };
                 let name = self.strings.intern(&site.name);
                 StoredUse::new(site.site_of.0, (name, receiver), site.access, site.line)
