@@ -75,7 +75,10 @@ type Handle = {
  */
 type Tracked = 'build' | 'grep' | 'refresh';
 
-/** A failure the engine answered, or a call on a closed handle: a code to branch on, and a message for a reader. */
+/**
+ * A failure the engine answered, a call on a closed handle, or `internal` for a failure of the addon or of reading its
+ * answer, the original error its `cause`: a code to branch on, and a message for a reader.
+ */
 export class KarttaError extends Error {
 	override name = 'KarttaError';
 	readonly code: Code;
@@ -93,7 +96,7 @@ export class KarttaError extends Error {
  * Every method but `open` and `close` answers a promise and runs off the event loop: a build and a refresh each on a
  * thread of its own, a query on libuv's thread pool. Queries run concurrently with each other; builds run one at a
  * time, and while one walks, a query rejects with `building`; a query waits for a refresh under way. A failure rejects
- * with a {@link KarttaError} carrying the wire's code.
+ * with a {@link KarttaError}.
  */
 export class Kartta {
 	#handle: Handle | undefined;
@@ -173,7 +176,7 @@ export class Kartta {
 		signal?.addEventListener('abort', cancel, {once: true});
 		try {
 			const text = JSON.stringify({...params, binding_id: id});
-			return answer(await (method === 'grep' ? handle.call(method, text) : handle[method](text)));
+			return await answered(async () => (method === 'grep' ? handle.call(method, text) : handle[method](text)));
 		} catch (error) {
 			if (!(error instanceof KarttaError) || error.code !== `${method}_cancelled`) {
 				throw error;
@@ -319,20 +322,22 @@ export class Kartta {
 		}
 		const handle = this.#open();
 		const text = JSON.stringify(params);
-		switch (method) {
-			case 'build': {
-				return answer(await handle.build(text));
+		return answered(async () => {
+			switch (method) {
+				case 'build': {
+					return handle.build(text);
+				}
+				case 'refresh': {
+					return handle.refresh(text);
+				}
+				case 'cancel': {
+					return handle.cancel(text);
+				}
+				default: {
+					return handle.call(method, text);
+				}
 			}
-			case 'refresh': {
-				return answer(await handle.refresh(text));
-			}
-			case 'cancel': {
-				return answer(handle.cancel(text));
-			}
-			default: {
-				return answer(await handle.call(method, text));
-			}
-		}
+		});
 	}
 
 	/**
@@ -395,6 +400,18 @@ function load(): Addon {
 		`kartta holds no addon for ${host}; it ships one for ${TARGETS.join(', ')}, ` +
 			'and `npm run build` in a checkout builds one for the host',
 	);
+}
+
+/** What `call` answers through the addon, a failure of the addon or of reading the answer rejecting with `internal`. */
+async function answered(call: () => Promise<Uint8Array>): Promise<unknown> {
+	try {
+		return answer(await call());
+	} catch (error) {
+		if (error instanceof KarttaError) {
+			throw error;
+		}
+		throw new KarttaError('internal', error instanceof Error ? error.message : String(error), {cause: error});
+	}
 }
 
 function answer(envelope: Uint8Array): unknown {

@@ -13,11 +13,11 @@
 )]
 
 use std::cell::RefCell;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use std::thread;
 
 use napi::bindgen_prelude::{AsyncTask, Buffer, Either, Object};
-use napi::{Env, Error, Result, Task};
+use napi::{Env, Error, JsDeferred, Result, Task};
 use napi_derive::napi;
 
 /// Opens a handle on the tree that `params`, the JSON `{"root": <path>}`, names, or answers why not as the wire's
@@ -103,14 +103,22 @@ impl Handle {
         params: String,
     ) -> Result<Object<'env>> {
         let kartta = self.kartta()?;
-        let (deferred, promise) = env.create_deferred()?;
+        // constraint: a deferred holds Node's event loop open until it settles, so one made before the thread starts
+        // would keep the process alive when no thread does
+        let (hand_over, handed) = mpsc::channel::<JsDeferred<Buffer, _>>();
         thread::Builder::new()
             .name(format!("kartta-{method}"))
             .spawn(move || {
-                let answer = kartta.call(method, params.as_bytes());
-                deferred.resolve(move |_| Ok(Buffer::from(answer)));
+                if let Ok(deferred) = handed.recv() {
+                    let answer = kartta.call(method, params.as_bytes());
+                    deferred.resolve(move |_| Ok(Buffer::from(answer)));
+                }
             })
             .map_err(|error| Error::from_reason(format!("no thread for the {method}: {error}")))?;
+        let (deferred, promise) = env.create_deferred()?;
+        hand_over
+            .send(deferred)
+            .map_err(|_| Error::from_reason(format!("the {method}'s thread ended")))?;
         Ok(promise)
     }
 
