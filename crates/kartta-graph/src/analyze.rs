@@ -135,7 +135,8 @@ pub struct SegmentSymbol<'g> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Segment<'g> {
-    /// The one-based lines asked about.
+    /// The one-based lines asked about. A range that ends at `u32::MAX` ends here at the last line a symbol of the file
+    /// reaches, and never before its start.
     pub lines: RangeInclusive<u32>,
     /// The symbols whose lines overlap them, ordered by the line each starts on, one that encloses others before them.
     pub symbols: Vec<SegmentSymbol<'g>>,
@@ -183,8 +184,16 @@ impl Graph {
             .filter_map(|&target| self.slot_of(target))
             .collect();
         let mut sources: Vec<u32> = self.includers_of(slot).collect();
+        let (start, mut end) = lines.into_inner();
+        if end == u32::MAX {
+            let reached = file
+                .symbols
+                .iter()
+                .map(|symbol| symbol.end_line.max(symbol.line));
+            end = reached.max().unwrap_or(start).max(start);
+        }
         Some(Segment {
-            lines,
+            lines: start..=end,
             symbols,
             includes: self.paths_in_order(&mut targets),
             included_by: self.paths_in_order(&mut sources),

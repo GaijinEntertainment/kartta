@@ -890,6 +890,7 @@ export type Segment = {
 	graph?: string;
 	held: boolean;
 	start_line: number;
+	/** Where the params left it open, the last line a symbol of the file reaches, and never before `start_line`. */
 	end_line: number;
 	symbols: SegmentSymbol[];
 	includes: string[];

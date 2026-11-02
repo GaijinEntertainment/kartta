@@ -125,11 +125,36 @@ fn a_segment_holds_the_symbols_its_lines_overlap_in_outline_order() {
         .analyze_segment("lib/core.c", 4..=4, Limits::new(3))
         .expect("held");
 
-    assert_eq!(whole.lines, 1..=u32::MAX);
+    assert_eq!(whole.lines, 1..=9, "the last line a symbol reaches");
     assert_eq!(names(&whole), ["core", "helper"]);
     assert_eq!(names(&one), ["helper"]);
     assert_eq!(names(&across), ["core", "helper"]);
     assert_eq!(names(&between), Vec::<&str>::new());
+}
+
+#[test]
+fn an_open_range_stays_a_range_past_every_symbol() {
+    let graph = chain();
+    let open = |path: &str, start: u32| {
+        graph
+            .analyze_segment(path, start..=u32::MAX, Limits::new(3))
+            .expect("held")
+            .lines
+    };
+
+    assert_eq!(open("lib/core.c", 50), 50..=50);
+    assert_eq!(open("lib/base.h", 1), 1..=1, "a file with no symbol");
+}
+
+#[test]
+fn a_named_end_stays_as_it_was_asked_past_every_symbol() {
+    let graph = chain();
+
+    let segment = graph
+        .analyze_segment("lib/core.c", 6..=40, Limits::new(3))
+        .expect("held");
+
+    assert_eq!(segment.lines, 6..=40);
 }
 
 #[test]
