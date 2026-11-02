@@ -12,7 +12,11 @@ mod common;
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::sync::Mutex;
+#[cfg(unix)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::{tree, write};
 use kartta_fs::{
@@ -1048,19 +1052,73 @@ fn an_index_kept_in_a_file_or_a_mapping_answers_as_one_in_memory_does() {
     }
 }
 
+fn assert_gave_up_content_index(outcome: &BuildOutcome, dir: &Path) {
+    assert_eq!(outcome.errors.len(), 1, "{:?}", outcome.errors);
+    let error = outcome.errors.first().expect("one collected failure");
+    assert!(
+        matches!(error, BuildError::ContentIndex { native_path, .. } if native_path == dir),
+        "{error:?}"
+    );
+    let failure = error.to_string();
+    let index = &outcome.index;
+    assert_eq!(index.content_index_failure(), Some(failure.as_str()));
+    assert_eq!(index.content_index_stats(), None);
+    let found = index.grep(&patterns(&["fn main"]), &GrepOptions::default());
+    assert_eq!(printed(index, &found), ["main.rs:1:fn main() {}"]);
+    assert_eq!(found.ruled_out(), 0, "nothing narrowed the search");
+}
+
 #[test]
-fn a_scratch_directory_that_does_not_exist_fails_the_build_naming_it() {
-    let dir = tree(&[("main.rs", "fn main() {}\n")]);
+fn a_scratch_directory_that_does_not_exist_costs_the_build_its_content_index_alone() {
+    let dir = tree(&[("main.rs", "fn main() {}\n"), ("other.txt", "text\n")]);
     let missing = dir.path().join("no such directory");
     let mut options = BuildOptions::default();
     options.content_index = Some(ContentIndexStorage::Mapped {
         dir: missing.clone(),
     });
 
-    let built = Index::build(dir.path(), &options);
+    let outcome = Index::build(dir.path(), &options).expect("the build goes on");
 
-    assert!(
-        matches!(&built, Err(BuildError::ContentIndex { native_path, .. }) if *native_path == missing),
-        "{built:?}"
-    );
+    assert_gave_up_content_index(&outcome, &missing);
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+struct RemovesDir {
+    dir: PathBuf,
+    visited: AtomicUsize,
+}
+
+#[cfg(unix)]
+impl ContentVisitor for RemovesDir {
+    fn wants(&self, _path: &str) -> bool {
+        true
+    }
+
+    fn visit(&self, _content: Content<'_>) {
+        drop(fs::remove_dir_all(&self.dir));
+        self.visited.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+// constraint: Windows refuses to remove a directory while the build's spill is open in it
+#[cfg(unix)]
+#[test]
+fn a_scratch_directory_lost_during_the_walk_costs_the_build_its_content_index_alone() {
+    let dir = tree(&[("main.rs", "fn main() {}\n"), ("other.txt", "text\n")]);
+    let scratch = TempDir::new().expect("a scratch directory");
+    let gone = scratch.path().join("gone");
+    fs::create_dir(&gone).expect("the directory");
+    let mut options = BuildOptions::default();
+    options.content_index = Some(ContentIndexStorage::File { dir: gone.clone() });
+    let visitor = RemovesDir {
+        dir: gone.clone(),
+        visited: AtomicUsize::new(0),
+    };
+
+    let outcome =
+        Index::build_with(dir.path(), &options, Some(&visitor), None).expect("the build goes on");
+
+    assert_gave_up_content_index(&outcome, &gone);
+    assert_eq!(visitor.visited.into_inner(), 2);
 }
