@@ -660,6 +660,23 @@ fn fuzzy_honours_a_limit_and_scores_descend() {
 }
 
 #[test]
+fn a_ranked_answer_is_truncated_only_when_the_limit_turned_a_match_away() {
+    let dir = tree(&[("a/main.rs", ""), ("b/main.rs", ""), ("c/main.rs", "")]);
+    let index = default_index(dir.path());
+
+    for query in ["main", ""] {
+        let truncated = |limit| {
+            index
+                .fuzzy(query, &FuzzyOptions::default().limit(limit))
+                .truncated()
+        };
+        assert!(truncated(2), "query {query:?} under the matches");
+        assert!(!truncated(3), "query {query:?} at exactly the matches");
+        assert!(!truncated(0), "query {query:?} with no limit");
+    }
+}
+
+#[test]
 fn an_empty_query_matches_every_indexed_file_in_index_order() {
     let dir = tree(&[("b.txt", ""), ("a.txt", ""), ("sub/", "")]);
     let index = default_index(dir.path());
