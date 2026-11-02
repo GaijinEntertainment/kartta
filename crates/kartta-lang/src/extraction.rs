@@ -94,6 +94,7 @@ impl RawExtraction {
 /// Only the language that recorded it reads it: `form` tells its resolver which shape of directive it is, `spec` is
 /// the specifier with its delimiters stripped, and `names` the companion strings the form carries, such as an alias.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct RawDirective {
     /// Which of its language's directive shapes this is.
     pub form: u32,
@@ -191,7 +192,11 @@ impl Extraction {
 }
 
 /// A call, unresolved.
+///
+/// Build one with [`CallRef::new`] and set the fields that apply. The type is `#[non_exhaustive]`, as every record of
+/// this module except [`FoldedDeclaration`] is, so it gains fields without breaking a language.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct CallRef {
     /// The symbol whose body makes the call, or [`FILE_SCOPE`](crate::FILE_SCOPE) at file scope.
     pub site_of: SymbolId,
@@ -247,6 +252,7 @@ impl CallRef {
 
 /// A call the language's own scoping binds to a local symbol in scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct LocalCall {
     /// The symbol whose body makes the call, or [`FILE_SCOPE`](crate::FILE_SCOPE) at file scope.
     pub site_of: SymbolId,
@@ -276,6 +282,7 @@ impl LocalCall {
 /// symbol and no field but one a class scope holds for a [`Receiver::Bare`], and a language records no use that a local
 /// binding of the name covers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct UseRef {
     /// The innermost symbol declared around the use, or [`FILE_SCOPE`](crate::FILE_SCOPE) at file scope, where
     /// the use binds no edge and the graph keeps only the name it spells.
@@ -380,6 +387,7 @@ impl Access {
 /// A file this file includes: its root-relative path, resolved by the language. A target outside the graph's files
 /// adds no edge.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct IncludeRef {
     /// The included file's root-relative, forward-slash path.
     pub target: String,
@@ -397,6 +405,7 @@ impl IncludeRef {
 /// A module dependency that names no file of the repository — a standard library module, an external package —
 /// kept as written for the questions about what a file depends on.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ImportRef {
     /// The module as written, its delimiters stripped.
     pub module: String,
@@ -424,6 +433,7 @@ impl ImportRef {
 /// A binding whose `target_dir` is `None` names code outside the repository: knowing that lets a call through it stop
 /// rather than guess.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ImportBinding {
     /// The name as the import writes it — an alias, `.` for an import into the file's own scope, `_` for one that binds
     /// nothing — or `None` when the import binds the module's own name.
@@ -464,6 +474,7 @@ impl ImportBinding {
 /// adds nothing. A name with a file beside it, which only a resolver sets, is read from that file instead, as a Rust
 /// path that reaches a module is.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ImplementsAssertion {
     /// The implementing type as written: `T` or `pkg.T`.
     pub type_name: String,
@@ -490,6 +501,7 @@ impl ImplementsAssertion {
 
 /// A name a module re-exports from another, as the bytes write it: `export { Foo } from './foo'`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct RawReExport {
     /// The name as re-exported, or `*` for all of them.
     pub local_name: String,
@@ -514,6 +526,7 @@ impl RawReExport {
 
 /// A re-export with the file its specifier names, which only the resolver can know.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ReExport {
     /// The name as re-exported, or `*` for all of them.
     pub local_name: String,
@@ -543,6 +556,7 @@ impl From<RawReExport> for ReExport {
 
 /// The identity of a callable, established by the language without guessing: one record at most per symbol.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct Callable {
     /// The callable's symbol.
     pub symbol: SymbolId,
@@ -583,3 +597,84 @@ pub struct FoldedDeclaration {
     /// The one-based line of the folded declaration, in the class's body.
     pub line: u32,
 }
+
+/// A doctest is a crate of its own, so each of these fails to compile for as long as the record stays
+/// `#[non_exhaustive]`: a field added in a minor release breaks no language crate.
+///
+/// ```compile_fail,E0639
+/// use kartta_lang::{CallRef, SymbolId};
+/// let _ = CallRef {
+///     site_of: SymbolId(0),
+///     callee: String::new(),
+///     receiver: None,
+///     line: 1,
+///     binds_apart: false,
+///     calls_a_method: false,
+///     arguments: 0,
+/// };
+/// ```
+///
+/// ```compile_fail,E0639
+/// use kartta_lang::{SymbolId, LocalCall};
+/// let _ = LocalCall { site_of: SymbolId(0), local: SymbolId(1), line: 1 };
+/// ```
+///
+/// ```compile_fail,E0639
+/// use kartta_lang::{Access, Receiver, SymbolId, UseRef};
+/// let _ = UseRef {
+///     site_of: SymbolId(0),
+///     name: String::new(),
+///     receiver: Receiver::Bare,
+///     access: Access::Read,
+///     line: 1,
+/// };
+/// ```
+///
+/// ```compile_fail,E0639
+/// let _ = kartta_lang::RawDirective { form: 0, spec: String::new(), names: Vec::new(), line: 1 };
+/// ```
+///
+/// ```compile_fail,E0639
+/// let _ = kartta_lang::IncludeRef { target: String::new() };
+/// ```
+///
+/// ```compile_fail,E0639
+/// let _ = kartta_lang::ImportRef { module: String::new(), names: Vec::new(), line: 1 };
+/// ```
+///
+/// ```compile_fail,E0639
+/// let _ = kartta_lang::ImportBinding { alias: None, target_dir: None, last_segment: String::new() };
+/// ```
+///
+/// ```compile_fail,E0639
+/// let _ = kartta_lang::RawReExport {
+///     local_name: String::new(),
+///     source_name: String::new(),
+///     source_path: String::new(),
+/// };
+/// ```
+///
+/// ```compile_fail,E0639
+/// let _ = kartta_lang::ReExport {
+///     local_name: String::new(),
+///     source_name: String::new(),
+///     source_path: String::new(),
+///     source_file: None,
+/// };
+/// ```
+///
+/// ```compile_fail,E0639
+/// use kartta_lang::{Callable, CallableRole, SymbolId};
+/// let _ = Callable { symbol: SymbolId(0), key: String::new(), role: CallableRole::Definition };
+/// ```
+///
+/// ```compile_fail,E0639
+/// let _ = kartta_lang::ImplementsAssertion {
+///     type_name: String::new(),
+///     interface: String::new(),
+///     type_file: None,
+///     interface_file: None,
+/// };
+/// ```
+#[cfg(doctest)]
+struct OpenRecords;
