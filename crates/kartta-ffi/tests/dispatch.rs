@@ -1972,6 +1972,22 @@ fn a_content_index_that_cannot_be_kept_leaves_the_graphs_and_says_why_through_a_
 }
 
 #[test]
+fn a_build_that_names_no_ignore_applies_the_tree_s_gitignore() {
+    let tree = tree();
+    fs::write(tree.path().join(".gitignore"), "ignored.go\n").expect(".gitignore");
+    fs::write(tree.path().join("ignored.go"), "package main\n").expect("ignored.go");
+    let kartta = open(tree.path());
+    let indexed = |params: &Value| {
+        ok(&kartta, "build", params);
+        globbed(&kartta, &["ignored.go"])
+    };
+
+    assert_eq!(indexed(&Value::Null), json!([]));
+    assert_eq!(indexed(&json!({ "ignore": "in_tree" })), json!([]));
+    assert_eq!(indexed(&json!({ "ignore": "none" })), json!(["ignored.go"]));
+}
+
+#[test]
 fn a_build_answers_the_threads_it_named_and_the_ambient_pool_s_when_it_named_none() {
     let tree = tree();
     let kartta = open(tree.path());
