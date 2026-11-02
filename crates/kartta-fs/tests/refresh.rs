@@ -228,6 +228,108 @@ fn search(index: &Index, pattern: &str) -> (usize, usize) {
     (found.files().len(), found.ruled_out())
 }
 
+// constraint: Windows refuses to remove a directory while the index's scratch file is open in it
+#[cfg(unix)]
+#[test]
+fn a_refresh_that_cannot_keep_the_content_index_leaves_it_answering_as_it_did() {
+    let dir = tree(&[("a.txt", "before\n"), ("b.txt", "other\n")]);
+    let scratch = TempDir::new().expect("a scratch directory");
+    let gone = scratch.path().join("gone");
+    fs::create_dir(&gone).expect("the directory");
+    let mut options = stamped();
+    options.content_index = Some(ContentIndexStorage::File { dir: gone.clone() });
+    let mut index = build(dir.path(), &options, None);
+    fs::remove_dir(&gone).expect("the directory goes");
+
+    write(dir.path(), "a.txt", "after\n");
+    let whole = index.refresh(None, None);
+    let named = index.refresh_paths(["a.txt"], None, None);
+
+    assert!(
+        matches!(whole, Err(BuildError::ContentIndex { .. })),
+        "{whole:?}"
+    );
+    assert!(
+        matches!(named, Err(BuildError::ContentIndex { .. })),
+        "{named:?}"
+    );
+    assert_eq!(index.content_index_failure(), None);
+    assert_eq!(
+        index.content_index_stats().map(|stats| stats.files()),
+        Some(2)
+    );
+    assert_eq!(search(&index, "before"), (0, 1), "the old index narrows");
+}
+
+#[cfg(unix)]
+struct RemovesDir(std::path::PathBuf);
+
+#[cfg(unix)]
+impl ContentVisitor for RemovesDir {
+    fn wants(&self, _path: &str) -> bool {
+        true
+    }
+
+    fn visit(&self, _content: Content<'_>) {
+        drop(fs::remove_dir_all(&self.0));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_refresh_that_loses_its_scratch_directory_during_the_walk_leaves_the_index_answering() {
+    let dir = tree(&[("a.txt", "before\n"), ("b.txt", "other\n")]);
+    let scratch = TempDir::new().expect("a scratch directory");
+    let gone = scratch.path().join("gone");
+    fs::create_dir(&gone).expect("the directory");
+    let mut options = stamped();
+    options.content_index = Some(ContentIndexStorage::File { dir: gone.clone() });
+    let mut index = build(dir.path(), &options, None);
+
+    write(dir.path(), "a.txt", "after\n");
+    let refreshed = index.refresh(Some(&RemovesDir(gone)), None);
+
+    assert!(
+        matches!(refreshed, Err(BuildError::ContentIndex { .. })),
+        "{refreshed:?}"
+    );
+    assert_eq!(index.content_index_failure(), None);
+    assert_eq!(
+        index.content_index_stats().map(|stats| stats.files()),
+        Some(2)
+    );
+    assert_eq!(search(&index, "before"), (0, 1), "the old index narrows");
+}
+
+#[test]
+fn a_content_index_a_build_gave_up_stays_absent_and_explained_through_refreshes() {
+    let dir = tree(&[("a.txt", "before\n"), ("b.txt", "other\n")]);
+    let mut options = stamped();
+    options.content_index = Some(ContentIndexStorage::File {
+        dir: dir.path().join("no such directory"),
+    });
+    let outcome = Index::build(dir.path(), &options).expect("the build goes on");
+    let failure = outcome
+        .errors
+        .first()
+        .expect("the build collected it")
+        .to_string();
+    let mut index = outcome.index;
+
+    write(dir.path(), "a.txt", "after\n");
+    let named = index
+        .refresh_paths(["a.txt"], None, None)
+        .expect("refresh the path");
+    write(dir.path(), "a.txt", "last\n");
+    let whole = index.refresh(None, None).expect("refresh the tree");
+
+    assert!(named.errors.is_empty(), "{:?}", named.errors);
+    assert!(whole.errors.is_empty(), "{:?}", whole.errors);
+    assert_eq!(index.content_index_failure(), Some(failure.as_str()));
+    assert_eq!(index.content_index_stats(), None);
+    assert_eq!(search(&index, "last"), (1, 0));
+}
+
 #[test]
 fn a_cancelled_refresh_leaves_the_index_as_it_was() {
     let dir = tree(&[("a.rs", "a")]);
