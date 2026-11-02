@@ -3479,8 +3479,7 @@ fn the_library_interface_methods_ascend_without_a_repeat_and_name_the_library_s(
     }
 }
 
-fn fastest_of_three_extractions(comment_lines: usize) -> Duration {
-    let source = format!("package p\n{}", "//\n".repeat(comment_lines));
+fn fastest_of_three_extractions(source: &str) -> Duration {
     let run = || {
         let started = Instant::now();
         extract(source.as_bytes());
@@ -3491,8 +3490,23 @@ fn fastest_of_three_extractions(comment_lines: usize) -> Duration {
 
 #[test]
 fn eight_times_the_top_level_comments_cost_about_eight_times_the_walk() {
-    let short = fastest_of_three_extractions(2_500);
-    let long = fastest_of_three_extractions(20_000);
+    let comments = |lines: usize| format!("package p\n{}", "//\n".repeat(lines));
+    let short = fastest_of_three_extractions(&comments(2_500));
+    let long = fastest_of_three_extractions(&comments(20_000));
+
+    assert!(long < short * 24, "{short:?} became {long:?}");
+}
+
+#[test]
+fn eight_times_the_comments_in_one_field_cost_about_eight_times_a_positional_literal() {
+    let literal = |lines: usize| {
+        let comments = "//\n".repeat(lines);
+        format!(
+            "package p\ntype T struct {{ a,\n{comments}b int }}\nfunc f() {{ _ = T{{ 1, 2 }} }}\n"
+        )
+    };
+    let short = fastest_of_three_extractions(&literal(2_500));
+    let long = fastest_of_three_extractions(&literal(20_000));
 
     assert!(long < short * 24, "{short:?} became {long:?}");
 }
