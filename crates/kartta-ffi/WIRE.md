@@ -24,6 +24,10 @@ appears on the wire; the names on the wire are the bulleted ones. A field reads 
   system as the caller wrote them.
 - A bound left out takes the default of [Bounds](#bounds) its field names. A bound of 0 means what its field says.
 - A `min_confidence` left out takes 0, which turns no call or site away.
+- A count left out of an answer reads as 0, except `dropped`, `fuzzy_total`, `matched`, `total_files` and `total_lines`,
+  whose fields say when they are counted: there, absent means not counted.
+- A count holds what the graph records, so 0 does not show that nothing uses a symbol: a language records only some
+  uses, and `type_uses_unrecorded` and `data_uses_unrecorded` name where it records none of a kind.
 - `version` needs no build. Every other method but `build` and `cancel` asks what the last finished build made, and
   answers `not_built` or `building` when there is none.
 - `build`, `grep` and `refresh` take an `id` of the caller's choosing, 0 among them, which `cancel` stops them by. A
@@ -598,7 +602,8 @@ The fields of the method's answer, and:
 A symbol a name also selects that the answer passed over.
 
 - `symbol` ([`Definition`](#definition), always): The symbol.
-- `count` (integer, always): What the query ranked it by: its callers, its sites or its direct implementors.
+- `count` (integer, always): What the query ranked it by: its callers, its sites or its direct implementors. A
+  symbol whose calls or uses its graph does not record answers 0 callers or sites and ranks last, whoever uses it.
 
 ### Reached
 
@@ -989,7 +994,8 @@ A candidate is a regular file the filter selected and the exclusion kept. Each l
 - `searched` (integer, always): The candidates read and covered by this answer.
 - `binary` (integer, always): The candidates skipped as binary, by extension or by a NUL in the first 64 KiB.
 - `oversized` (integer, always): The candidates larger than `max_file_bytes`.
-- `ruled_out` (integer, always): The candidates the content index ruled out unread.
+- `ruled_out` (integer, always): The candidates the content index ruled out unread. 0 does not show that an index
+  narrowed the search: with none to ask, or none it could read, the search reads every candidate and answers 0.
 - `unsearched` (integer, always): The candidates this answer does not cover, because a match past the limit proved the
   cut or a cancel landed first.
 - `failures` (array of [`GrepFailureView`](#grepfailureview), always): The candidates that could not be read.

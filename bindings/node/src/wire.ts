@@ -1,6 +1,6 @@
 /**
  * The wire `kartta-ffi` answers: each method's params and answer, field for field as the JSON spells them. A bound
- * left out takes the method's default, and a bound of 0 means what the field says.
+ * left out takes the method's default, and a bound of 0 means what the field says. A count absent at 0 reads as 0.
  *
  * @module
  */
