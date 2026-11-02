@@ -612,6 +612,81 @@ fn split_conditional(source: &[u8], line: usize) -> Option<[Range<usize>; 2]> {
         .or_else(|| split_return_type(source, first_branch))
         .or_else(|| split_statement(source, line, first_branch))
         .map(|later| [line..first_branch, later])
+        .or_else(|| split_linkage(source, line, first_branch))
+}
+
+// constraint: the grammar reads a conditional's branch as a run of whole statements, so `#ifdef __cplusplus`
+// `extern "C" {` `#endif` takes the `#endif` into the block it opens and the `#ifdef` that holds the `}` runs on
+// unterminated; the walk takes no data under a conditional holding an error, and a second such pair fails the file at
+// its top level. C reads neither branch, `__cplusplus` being undefined there, and a language linkage names no symbol,
+// so both conditionals go whole. The `}` is the one at the brace's own depth, each conditional's first branch taken
+/// The lines of the conditional at `line`, whose first branch starts at `from`, and of the conditional that closes its
+/// brace, where the first holds `extern "C" {` alone and the second that brace's `}` alone.
+fn split_linkage(source: &[u8], line: usize, from: usize) -> Option<[Range<usize>; 2]> {
+    let extern_key = next_code(source, from);
+    let brace = extern_key + linkage_brace(&source[extern_key..])?;
+    let opened = conditional_end(source, brace + 1)?;
+    Some([line..opened, closing_conditional(source, opened)?])
+}
+
+/// The offset of the `{` of the linkage specification that `text` opens with.
+fn linkage_brace(text: &[u8]) -> Option<usize> {
+    let language = text.strip_prefix(b"extern")?;
+    let quote = text.len() - language.len() + whitespace_len(language);
+    if text.get(quote) != Some(&b'"') {
+        return None;
+    }
+    let end = quote + quoted_len(&text[quote..], b'"')?;
+    let brace = end + whitespace_len(&text[end..]);
+    (text.get(brace) == Some(&b'{')).then_some(brace)
+}
+
+/// The end of the `#endif` that the code at `from` opens with.
+fn conditional_end(source: &[u8], from: usize) -> Option<usize> {
+    let code = next_code(source, from);
+    (directive_at(source, code)? == Directive::Closes).then(|| directive_end(source, code))
+}
+
+/// The end of the `#endif` of the conditional whose first branch, at `from`, holds a `}` alone.
+fn lone_brace_end(source: &[u8], from: usize) -> Option<usize> {
+    let code = next_code(source, from);
+    (source.get(code) == Some(&b'}'))
+        .then(|| conditional_end(source, code + 1))
+        .flatten()
+}
+
+/// The lines of the first conditional past `from` that holds a `}` alone with no brace open, each conditional before it
+/// read with its first branch taken; none where a brace outside such a conditional closes first.
+fn closing_conditional(source: &[u8], from: usize) -> Option<Range<usize>> {
+    let mut depth = 0usize;
+    let mut branches = FirstBranches::default();
+    let mut at = from;
+    while let Some(&byte) = source.get(at) {
+        if source[at - 1] == b'\n'
+            && let Some(directive) = directive_at(source, at)
+        {
+            let first_branch = directive_end(source, at);
+            let closes = depth == 0 && branches.untaken == 0 && directive == Directive::Opens;
+            if let Some(end) = closes
+                .then(|| lone_brace_end(source, first_branch))
+                .flatten()
+            {
+                return Some(at..end);
+            }
+            branches.read(directive);
+            at = first_branch;
+            continue;
+        }
+        if branches.untaken == 0 {
+            match byte {
+                b'{' => depth += 1,
+                b'}' => depth = depth.checked_sub(1)?,
+                _ => {}
+            }
+        }
+        at += opaque_len(source, at);
+    }
+    None
 }
 
 // constraint: the grammar reads a conditional's branch as a run of whole statements, so one that opens with the `else`
@@ -3605,6 +3680,158 @@ void after()
             "void f()\n{\n#ifdef A\n\tif(a) g();\n#endif\n}\n",
             "void f()\n{\n\tg(\n\t\t1);\n#ifdef A\n\th();\n#endif\n}\n",
             "void f()\n{\n#ifdef A\n\twhile(a)\n#endif\n\t\tg();\n}\n",
+        ] {
+            assert_eq!(for_parse(source.as_bytes()), None, "{source}");
+        }
+    }
+
+    #[test]
+    fn an_extern_c_a_conditional_splits_keeps_the_declarations_it_holds() {
+        const ONE: &[u8] = b"#ifdef __cplusplus
+extern \"C\" {
+#endif
+
+void api(void);
+
+#ifdef __cplusplus
+}
+#endif
+";
+        const TWO: &[u8] = b"#ifdef __cplusplus
+extern \"C\" {
+#endif
+void first(void);
+#ifdef __cplusplus
+}
+#endif
+
+#ifdef __cplusplus
+extern \"C\" {
+#endif
+void second(void);
+#ifdef __cplusplus
+}
+#endif
+
+void third(void);
+";
+
+        let names = |source: &[u8]| -> Vec<String> {
+            let lines = symbol_lines(source).into_iter();
+            lines.map(|(name, ..)| name).collect()
+        };
+
+        let repaired = for_parse(ONE).expect("a split extern \"C\"");
+        let tree = parse(&grammar(), &repaired).expect("a tree");
+        assert!(!tree.root_node().has_error());
+        assert_eq!(names(ONE), ["api"]);
+
+        let repaired = for_parse(TWO).expect("a split extern \"C\"");
+        let tree = parse(&grammar(), &repaired).expect("a tree");
+        assert!(!tree.root_node().has_error());
+        assert_eq!(names(TWO), ["first", "second", "third"]);
+    }
+
+    #[test]
+    fn a_split_extern_c_is_blanked_however_it_is_spelled() {
+        for source in [
+            "#if defined(__cplusplus)\nextern \"C\"\n{\n#endif\nvoid f(void);\n#if defined(__cplusplus)\n}\n#endif\n",
+            "#ifdef __cplusplus\n// a note\nextern\"C++\" { // open\n#endif\nvoid f(void);\n",
+            "#ifdef __cplusplus\r\nextern \"C\" {\r\n#endif\r\nvoid f(void);\r\n#ifdef __cplusplus\r\n}\r\n#endif\r\n",
+            "# ifdef CXX\n  extern \"C\" {\n# endif\nint a[] = {1};\n# ifdef CXX\n  } /* C */\n# endif\n",
+        ] {
+            let closed = if source.contains('}') {
+                source.to_owned()
+            } else {
+                format!("{source}#ifdef __cplusplus\n}} // extern\n#endif\n")
+            };
+            let repaired = for_parse(closed.as_bytes()).expect("a split extern \"C\"");
+            let text = str::from_utf8(&repaired).expect("the fixture is text");
+
+            assert!(!text.contains('#') && !text.contains("extern"), "{text}");
+            assert_eq!(repaired.len(), closed.len());
+        }
+    }
+
+    #[test]
+    fn a_split_extern_c_ends_at_the_conditional_that_closes_its_own_brace() {
+        const SOURCE: &str = "#ifdef __cplusplus
+extern \"C\" {
+#endif
+void f(int a) {
+#ifdef A
+}
+#endif
+#ifdef B
+void g(void) {
+#else
+void h(void) {
+#endif
+}
+#ifdef __cplusplus
+}
+#endif
+#ifdef A
+}
+#endif
+";
+
+        let repaired = for_parse(SOURCE.as_bytes()).expect("a split extern \"C\"");
+        let text = str::from_utf8(&repaired).expect("the fixture is text");
+        let kept: Vec<&str> = text.split_whitespace().collect();
+
+        assert_eq!(
+            kept,
+            [
+                "void", "f(int", "a)", "{", "#ifdef", "A", "}", "#endif", "#ifdef", "B", "void",
+                "g(void)", "{", "#else", "void", "h(void)", "{", "#endif", "}", "#ifdef", "A", "}",
+                "#endif",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_lone_brace_in_a_later_branch_leaves_a_split_extern_c_open() {
+        const SOURCE: &[u8] = b"#ifdef __cplusplus
+extern \"C\" {
+#endif
+#ifdef A
+#else
+#ifdef B
+}
+#endif
+#endif
+#ifdef __cplusplus
+}
+#endif
+";
+
+        let repaired = for_parse(SOURCE).expect("a split extern \"C\"");
+        let text = str::from_utf8(&repaired).expect("the fixture is text");
+        let kept: Vec<&str> = text.split_whitespace().collect();
+
+        assert_eq!(
+            kept,
+            [
+                "#ifdef", "A", "#else", "#ifdef", "B", "}", "#endif", "#endif"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_conditional_around_a_lone_brace_or_half_a_linkage_stays_as_written() {
+        for source in [
+            "void f(void) {\n#ifdef A\n}\n#endif\n",
+            "#ifdef A\n}\n#endif\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nvoid f(void);\n",
+            "#ifdef __cplusplus\nextern \"C\" {\n#endif\nvoid f(void);\n}\n#ifdef A\n}\n#endif\n",
+            "#ifdef __cplusplus\nextern \"C\" {\n#else\nint a;\n#endif\nvoid f(void);\n#ifdef A\n}\n#endif\n",
+            "#ifdef __cplusplus\nextern \"C\" {\nvoid f(void);\n#endif\n#ifdef A\n}\n#endif\n",
+            "#ifdef __cplusplus\nextern \"C\" void f(void);\n#endif\n#ifdef A\n}\n#endif\n",
+            "#ifdef __cplusplus\nextern int a;\n#endif\n#ifdef A\n}\n#endif\n",
+            "#ifdef __cplusplus\nextern LINKAGE {\n#endif\nvoid f(void);\n#ifdef A\n}\n#endif\n",
+            "#ifdef __cplusplus\nextern",
+            "#ifdef __cplusplus\nextern \"C\" {\n#endif\nvoid f(void);\n#ifdef A\n;\n#endif\n",
+            "#ifdef __cplusplus\nextern \"C\" {\n#endif\nvoid f(void);\n#ifdef A\n}\nint a;\n#endif\n",
         ] {
             assert_eq!(for_parse(source.as_bytes()), None, "{source}");
         }
