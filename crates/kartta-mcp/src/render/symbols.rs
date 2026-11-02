@@ -187,11 +187,12 @@ fn definition(read: &Read<'_>) -> String {
 }
 
 /// Where a definition sits from the file a lookup asks from: its directory, vendored code, or elsewhere.
-const fn scope(nearness: Nearness, definition: &Definition<'_>) -> &'static str {
-    match nearness {
-        Nearness::SameDirectory => "same-directory",
-        _ if definition.flags.is_vendored() => "vendored",
-        _ => "other",
+fn scope(nearness: Nearness, definition: &Definition<'_>) -> &'static str {
+    match nearness.label() {
+        "same_directory" => "same-directory",
+        "elsewhere" if definition.flags.is_vendored() => "vendored",
+        "elsewhere" => "other",
+        label => label,
     }
 }
 

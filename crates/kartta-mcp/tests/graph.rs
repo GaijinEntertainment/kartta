@@ -67,6 +67,24 @@ fn find_symbols_ranks_the_named_symbol_first_and_counts_what_the_limit_cut() {
 }
 
 #[test]
+fn read_definitions_names_vendored_code_as_its_scope() {
+    let tree = go_module();
+    let vendored = tree.path().join("vendor/lib");
+    std::fs::create_dir_all(&vendored).expect("the directory");
+    std::fs::write(
+        vendored.join("lib.go"),
+        "package lib\n\nfunc Carried() {}\n",
+    )
+    .expect("the file");
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("read_definitions", &json!({"names": ["Carried"]}));
+
+    assert!(answer.contains(r#"scope="vendored""#), "{answer}");
+}
+
+#[test]
 fn read_definitions_answers_each_body_with_its_doc_comment() {
     let answers = answers(&[
         (
