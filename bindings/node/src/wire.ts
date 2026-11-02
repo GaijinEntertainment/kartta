@@ -445,6 +445,12 @@ export type Walk = {
 	 */
 	file_scope?: FileScope[];
 	/**
+	 * For a walk over callers, how widely a change to the root reaches, from the callers in `reached`: `low`, `medium`,
+	 * `high` or `critical`. A walk its `truncated` or `unexpanded` cut grades what it reached. Absent for a walk over
+	 * callees.
+	 */
+	band?: string;
+	/**
 	 * The root's call of itself, which `reached` does not list, since the walk starts at the root and reaches each
 	 * symbol once; absent when the root calls itself nowhere, or below the confidence floor, which `below_confidence`
 	 * then counts it under.

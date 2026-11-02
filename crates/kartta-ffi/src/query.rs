@@ -6,7 +6,9 @@ use kartta::{
 use crate::built::{Built, Matches};
 use crate::error::Error;
 use crate::wire::files::{FuzzyParams, FuzzyView, GlobParams, GlobView, ListParams, ListView};
-use crate::wire::graph::{DefinitionsView, FileView, OutlineView, ReferencesView, Wired};
+use crate::wire::graph::{
+    CallersView, DefinitionsView, FileView, OutlineView, ReferencesView, Wired,
+};
 use crate::wire::params::{
     CALLEES_DEPTH, CALLERS_DEPTH, CallPathParams, ChangeParams, DeadCodeParams, DefinitionsParams,
     DependentsParams, ImplementationsParams, OutlineParams, ReferencesParams, ResolutionParams,
@@ -77,7 +79,7 @@ fn callers(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         built.graphs(params.lang.as_deref())?,
         params.selector(),
         |_| true,
-        |(name, graph), named| Some((name, Wired(graph.callers(named, limits)?))),
+        |(name, graph), named| Some((name, CallersView::new(graph.callers(named, limits)?))),
     ))
 }
 
