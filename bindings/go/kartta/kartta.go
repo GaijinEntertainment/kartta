@@ -22,7 +22,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/GaijinEntertainment/kartta/bindings/go/wire"
+	"dev.gaijin.team/go/kartta/wire"
 )
 
 // ErrClosed is returned by every method of a Kartta after Close.
