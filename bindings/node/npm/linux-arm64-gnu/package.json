@@ -10,7 +10,8 @@
 		"directory": "bindings/node/npm/linux-arm64-gnu"
 	},
 	"files": [
-		"kartta.linux-arm64-gnu.node"
+		"kartta.linux-arm64-gnu.node",
+		"THIRD-PARTY-NOTICES.txt"
 	],
 	"os": [
 		"linux"
@@ -22,6 +23,9 @@
 		"glibc"
 	],
 	"main": "kartta.linux-arm64-gnu.node",
+	"scripts": {
+		"prepack": "node ../../scripts/stage.ts linux-arm64-gnu"
+	},
 	"engines": {
 		"node": ">=24"
 	}

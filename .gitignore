@@ -27,6 +27,9 @@ coverage.html
 node_modules/
 *.tsbuildinfo
 /bindings/node/dist/
+/bindings/node/LICENSE
+/bindings/node/npm/*/LICENSE
+/bindings/node/npm/*/THIRD-PARTY-NOTICES.txt
 
 # Linkable FFI output — the planes build it locally, it is never committed
 *.a
