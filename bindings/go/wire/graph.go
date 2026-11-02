@@ -80,7 +80,8 @@ type Walk struct {
 	Truncated bool `json:"truncated"`
 	// TurnedAway counts the symbols the cap kept out.
 	TurnedAway int `json:"turned_away"`
-	// Unexpanded counts the symbols at the depth bound whose own calls were not followed.
+	// Unexpanded counts the symbols reached whose own calls were not followed: those at the depth bound, the root at a
+	// depth of 0, and those the symbol cap left.
 	Unexpanded int `json:"unexpanded"`
 	// BelowConfidence counts the calls under the confidence floor.
 	BelowConfidence int `json:"below_confidence"`
@@ -185,7 +186,9 @@ type CallPath struct {
 	Hops       []Reached  `json:"hops"`
 	Truncated  bool       `json:"truncated"`
 	TurnedAway int        `json:"turned_away"`
-	// AtDepthBound counts the symbols at the depth bound whose own calls were not followed.
+	// AtDepthBound counts the callers other than From the search reached at the depth bound, whose own callers it did
+	// not look at: a longer path may pass through them. Unlike Unexpanded, it counts nothing the symbol cap left, which
+	// Truncated reports.
 	AtDepthBound    int        `json:"at_depth_bound"`
 	BelowConfidence int        `json:"below_confidence"`
 	PassedOver      PassedOver `json:"passed_over"`

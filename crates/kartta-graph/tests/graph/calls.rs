@@ -4587,6 +4587,36 @@ fn a_call_path_search_the_cap_stops_says_so() {
 }
 
 #[test]
+fn a_call_path_counts_only_what_the_depth_bound_left_where_a_walk_counts_what_the_cap_left_too() {
+    let graph = graph(&[file(
+        "a.go",
+        vec![
+            function("target", 1),
+            function("a", 10),
+            function("b", 20),
+            function("c", 30),
+            function("elsewhere", 40),
+        ],
+        vec![
+            call(1, "target", 11),
+            call(2, "target", 21),
+            call(3, "target", 31),
+        ],
+    )]);
+    let limits = Limits::new(3).with_max_symbols(3);
+
+    let walk = graph.callers("target", limits).expect("target is defined");
+    let path = graph
+        .call_path("elsewhere", "target", limits)
+        .expect("both are defined");
+
+    assert!(walk.truncated);
+    assert_eq!(walk.unexpanded, 2);
+    assert!(path.truncated);
+    assert_eq!(path.at_depth_bound, 0);
+}
+
+#[test]
 fn a_call_path_counts_the_other_callables_each_name_selects() {
     let graph = graph(&[
         file(
