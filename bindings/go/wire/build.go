@@ -128,7 +128,9 @@ type CancelAnswer struct {
 // Stats is the answer of the build and stats methods.
 type Stats struct {
 	// Entries counts the entries the index holds, directories included.
-	Entries   int             `json:"entries"`
+	Entries int `json:"entries"`
+	// Threads counts the threads the index runs on: the build's Threads, or the ambient pool's size when it named none.
+	Threads   int             `json:"threads"`
 	Languages []LanguageFiles `json:"languages"`
 	Graphs    []GraphStats    `json:"graphs"`
 	// ContentIndex is nil when the build made none.
@@ -166,9 +168,11 @@ type GraphStats struct {
 
 // ContentIndexStats counts what a content index holds.
 type ContentIndexStats struct {
-	Files    int    `json:"files"`
-	Trigrams int    `json:"trigrams"`
-	Bytes    uint64 `json:"bytes"`
+	Files int `json:"files"`
+	// Unindexed counts the text files the index holds nothing of, because their read failed; every grep reads them.
+	Unindexed int    `json:"unindexed,omitempty"`
+	Trigrams  int    `json:"trigrams"`
+	Bytes     uint64 `json:"bytes"`
 }
 
 // BuildErrors are the failures a build collected rather than stopped on: Total of them, the first of them Listed.
