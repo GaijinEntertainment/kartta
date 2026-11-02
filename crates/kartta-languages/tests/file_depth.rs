@@ -158,3 +158,26 @@ fn python_reads_past_a_target() {
         ],
     );
 }
+
+#[test]
+fn cpp_reads_past_a_name_or_a_declarator() {
+    assert_read_past(
+        "cpp",
+        "void after() {}",
+        &[
+            ("class D : public @ {};", ("", "a", "::b")),
+            ("class D : public @ {};", ("", "a", "::b<c>")),
+            ("void @::f() {}", ("", "a", "::b")),
+            ("void f() { A @; x.m(); }", ("(", "x", ")")),
+            ("void f() { A @; x.m(); }", ("& ", "x", "")),
+            ("A<int> @::f() {}", ("", "a", "::b")),
+            ("@ x;", ("", "a", "::b<c>")),
+            (
+                "template <@ class A> class T;",
+                ("template <", "class", "> class"),
+            ),
+            ("struct A { @ };", ("#ifdef A\n", "", "#endif\n")),
+            ("A::A() : @() {}", ("", "a", "::b")),
+        ],
+    );
+}

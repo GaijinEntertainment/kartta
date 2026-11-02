@@ -192,42 +192,51 @@ impl<'s, 't> Replayer<'s, 't> {
     }
 
     fn declare_names(&mut self, declarator: Node<'_>, owner: Option<&'s str>, end: usize) {
-        if let Some((name, pointer)) = data_declarator(declarator, self.source) {
-            let holds = match (owner, pointer) {
-                (Some(owner), None) => Holds::Value(owner),
-                (Some(owner), Some(_)) => Holds::Pointer(owner),
-                (None, _) => Holds::Unknown,
+        let (mut declarator, mut owner) = (declarator, owner);
+        loop {
+            if let Some((name, pointer)) = data_declarator(declarator, self.source) {
+                let holds = match (owner, pointer) {
+                    (Some(owner), None) => Holds::Value(owner),
+                    (Some(owner), Some(_)) => Holds::Pointer(owner),
+                    (None, _) => Holds::Unknown,
+                };
+                return self.declare_name(name, end, holds);
+            }
+            let inner = match declarator.kind() {
+                "structured_binding_declarator" => {
+                    return self.declare_bound_names(declarator, end);
+                }
+                "init_declarator" => declarator.child_by_field_name("declarator"),
+                "reference_declarator"
+                | "variadic_declarator"
+                | "attributed_declarator"
+                | "parenthesized_declarator" => {
+                    owner = None;
+                    declarator.named_child(0)
+                }
+                _ => None,
             };
-            if let Some(name) = self.borrowed(name) {
-                self.locals.declare(name, end, holds);
-            }
-            return;
+            let Some(inner) = inner else {
+                return;
+            };
+            declarator = inner;
         }
-        match declarator.kind() {
-            "structured_binding_declarator" => {
-                let source = self.source;
-                let mut cursor = declarator.walk();
-                let names = declarator
-                    .named_children(&mut cursor)
-                    .filter_map(|name| borrowed(source, name));
-                for name in names {
-                    self.locals.declare(name, end, Holds::Unknown);
-                }
-            }
-            "init_declarator" => {
-                if let Some(inner) = declarator.child_by_field_name("declarator") {
-                    self.declare_names(inner, owner, end);
-                }
-            }
-            "reference_declarator"
-            | "variadic_declarator"
-            | "attributed_declarator"
-            | "parenthesized_declarator" => {
-                if let Some(inner) = declarator.named_child(0) {
-                    self.declare_names(inner, None, end);
-                }
-            }
-            _ => {}
+    }
+
+    fn declare_name(&mut self, name: Node<'_>, end: usize, holds: Holds<'s>) {
+        if let Some(name) = self.borrowed(name) {
+            self.locals.declare(name, end, holds);
+        }
+    }
+
+    fn declare_bound_names(&mut self, declarator: Node<'_>, end: usize) {
+        let source = self.source;
+        let mut cursor = declarator.walk();
+        let names = declarator
+            .named_children(&mut cursor)
+            .filter_map(|name| borrowed(source, name));
+        for name in names {
+            self.locals.declare(name, end, Holds::Unknown);
         }
     }
 
@@ -601,13 +610,11 @@ pub(super) fn body_start(definition: Node<'_>) -> usize {
 /// The bare name of a base an initializer spells with a scope or a template's arguments, `B` for `ns::B<int>`, which a
 /// field's name takes neither of.
 fn scoped_initializer(written: Node<'_>) -> Option<Node<'_>> {
-    match written.kind() {
-        "field_identifier" => Some(written),
-        "qualified_identifier" | "template_method" => {
-            scoped_initializer(written.child_by_field_name("name")?)
-        }
-        _ => None,
+    let mut written = written;
+    while matches!(written.kind(), "qualified_identifier" | "template_method") {
+        written = written.child_by_field_name("name")?;
     }
+    (written.kind() == "field_identifier").then_some(written)
 }
 
 fn borrowed<'s>(source: &'s [u8], node: Node<'_>) -> Option<&'s str> {
@@ -654,20 +661,22 @@ fn is_argued_name(spelled: &str) -> bool {
 /// The nodes a class's spelling starts and ends at, its scopes and its template's arguments included, and the class's
 /// bare name.
 fn owner_type(written: Node<'_>) -> Option<(Node<'_>, Node<'_>, Node<'_>)> {
-    match written.kind() {
-        "type_identifier" => Some((written, written, written)),
-        "qualified_identifier" => {
-            let (_, end, name) = owner_type(written.child_by_field_name("name")?)?;
-            Some((written, end, name))
+    let mut written = written;
+    let (mut start, mut end) = (None, None);
+    loop {
+        match written.kind() {
+            "type_identifier" => {
+                return Some((start.unwrap_or(written), end.unwrap_or(written), written));
+            }
+            "qualified_identifier" => start = start.or(Some(written)),
+            "template_type" => {
+                start = start.or(Some(written));
+                end = end.or(Some(written));
+            }
+            "struct_specifier" | "class_specifier" | "union_specifier" => {}
+            _ => return None,
         }
-        "template_type" => {
-            let (_, _, name) = owner_type(written.child_by_field_name("name")?)?;
-            Some((written, written, name))
-        }
-        "struct_specifier" | "class_specifier" | "union_specifier" => {
-            owner_type(written.child_by_field_name("name")?)
-        }
-        _ => None,
+        written = written.child_by_field_name("name")?;
     }
 }
 
