@@ -686,7 +686,7 @@ impl<'a> Emitter<'a> {
             callee,
             receiver,
             line,
-            invokes_a_macro: false,
+            binds_apart: false,
             calls_a_method: false,
             arguments: 0,
         });
@@ -724,7 +724,7 @@ impl<'a> Emitter<'a> {
             callee: String::from_utf8_lossy(call.callee).into_owned(),
             receiver: None,
             line: call.line,
-            invokes_a_macro: false,
+            binds_apart: false,
             calls_a_method: false,
             arguments: 0,
         });

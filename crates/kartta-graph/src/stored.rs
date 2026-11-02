@@ -215,12 +215,12 @@ impl StoredCall {
     const FROM_ROOT: u32 = 1 << 31;
     const QUALIFIED: u32 = 1 << 30;
     const ON_A_CLASS: u32 = 1 << 29;
-    const INVOKES_A_MACRO: u32 = 1 << 28;
+    const BINDS_APART: u32 = 1 << 28;
     const CALLS_A_METHOD: u32 = 1 << 27;
     const MARKS: u32 = Self::FROM_ROOT
         | Self::QUALIFIED
         | Self::ON_A_CLASS
-        | Self::INVOKES_A_MACRO
+        | Self::BINDS_APART
         | Self::CALLS_A_METHOD;
     pub(crate) const CALLERS: u32 = Self::CALLS_A_METHOD;
 
@@ -272,9 +272,9 @@ impl StoredCall {
         }
     }
 
-    pub(crate) const fn invoking_a_macro(self) -> Self {
+    pub(crate) const fn binding_apart(self) -> Self {
         Self {
-            caller: self.caller | Self::INVOKES_A_MACRO,
+            caller: self.caller | Self::BINDS_APART,
             ..self
         }
     }
@@ -290,8 +290,8 @@ impl StoredCall {
         self.caller & !Self::MARKS
     }
 
-    pub(crate) const fn invokes_a_macro(self) -> bool {
-        self.caller & Self::INVOKES_A_MACRO != 0
+    pub(crate) const fn binds_apart(self) -> bool {
+        self.caller & Self::BINDS_APART != 0
     }
 
     pub(crate) const fn calls_a_method(self) -> bool {
@@ -484,16 +484,16 @@ mod tests {
             .written_from_root()
             .qualified()
             .on_a_class()
-            .invoking_a_macro()
+            .binding_apart()
             .calling_a_method();
 
         assert_eq!((call.caller(), marked.caller()), (last, last));
         assert_eq!((marked.line(), marked.arguments()), (9, u8::MAX));
         assert_eq!(size_of::<StoredCall>(), 16);
         assert!(marked.is_written_from_root() && marked.is_qualified() && marked.is_on_a_class());
-        assert!(marked.invokes_a_macro() && marked.calls_a_method());
+        assert!(marked.binds_apart() && marked.calls_a_method());
         assert!(!call.is_written_from_root() && !call.is_qualified() && !call.is_on_a_class());
-        assert!(!call.invokes_a_macro() && !call.calls_a_method());
+        assert!(!call.binds_apart() && !call.calls_a_method());
     }
 
     #[test]

@@ -106,8 +106,8 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    BareReceivers, Conventions, DocComments, InheritedMembers, Language, MacroInvocations,
-    RawExtraction, ReceiverMembers, Repository, Resolver, SymbolKind, TypeUses, ValueUses,
+    BareReceivers, CallsApart, Conventions, DocComments, InheritedMembers, Language, RawExtraction,
+    ReceiverMembers, Repository, Resolver, SymbolKind, TypeUses, ValueUses,
 };
 
 use crate::resolve::DaslangResolver;
@@ -132,7 +132,7 @@ const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.bare_receivers = BareReceivers::Modules;
     conventions.inherited_members = InheritedMembers::Found;
-    conventions.macro_invocations = MacroInvocations::Apart;
+    conventions.calls_apart = CallsApart::Marked;
     conventions.module_seen_everywhere = Some("builtin");
     conventions.value_uses = ValueUses::Expanded;
     conventions.native_names = &[

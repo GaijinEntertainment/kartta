@@ -294,8 +294,8 @@ pub struct Conventions {
     pub native_names: &'static [&'static str],
     /// What a member use on a value of a type the language cannot name binds.
     pub untyped_members: UntypedMembers,
-    /// How the language writes a macro invocation beside a function call.
-    pub macro_invocations: MacroInvocations,
+    /// Which calls bind apart from the definitions other calls of their name bind.
+    pub calls_apart: CallsApart,
     /// What a call reaches where the tier that binds it holds several definitions of one qualified name equal.
     pub twins: Twins,
 }
@@ -336,7 +336,7 @@ impl Conventions {
         value_uses: ValueUses::Declared,
         native_names: &[],
         untyped_members: UntypedMembers::FileField,
-        macro_invocations: MacroInvocations::AsCalls,
+        calls_apart: CallsApart::None,
         twins: Twins::First,
     };
 }
@@ -526,16 +526,15 @@ pub enum CallsOnValues {
     NoNearestGuess,
 }
 
-/// How a language writes a macro invocation beside a function call.
+/// Which calls of a language bind apart from the definitions other calls of their name bind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum MacroInvocations {
-    /// As a call, which can invoke a macro or anything else of its name, as a dshl one does.
+pub enum CallsApart {
+    /// None: a call can bind a macro or anything else of its name, as a dshl one does.
     #[default]
-    AsCalls,
-    /// Apart from a function call, as Rust writes `name!()` beside `name()`, each marked
-    /// [`CallRef::invokes_a_macro`](crate::CallRef::invokes_a_macro): a macro invocation binds only a macro, and any
-    /// other call no macro.
-    Apart,
+    None,
+    /// Those marked [`CallRef::binds_apart`](crate::CallRef::binds_apart): such a call binds only a macro, as Rust's
+    /// `name!()` beside `name()` does, and any other call no macro.
+    Marked,
 }
 
 /// What a call reaches where the tier that binds it, its caller's file or the type its receiver names, holds several

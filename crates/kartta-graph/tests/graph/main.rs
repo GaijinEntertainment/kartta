@@ -64,7 +64,7 @@ fn call(from: u32, callee: &str, line: u32) -> CallRef {
         callee: callee.to_owned(),
         receiver: None,
         line,
-        invokes_a_macro: false,
+        binds_apart: false,
         calls_a_method: false,
         arguments: 0,
     }

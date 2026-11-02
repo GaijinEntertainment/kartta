@@ -231,7 +231,7 @@ impl Walker<'_> {
                 callee: text(name, self.source),
                 receiver: None,
                 line: line(node),
-                invokes_a_macro: false,
+                binds_apart: false,
                 calls_a_method: false,
                 arguments: count_past_zero(node.child_by_field_name("arguments"), "macro_argument"),
             });

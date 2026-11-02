@@ -211,7 +211,7 @@ const CONVENTIONS: Conventions = {
     conventions.member_calls = kartta_lang::MemberCalls::ModulePaths;
     conventions.receivers = kartta_lang::Receivers::ReturnPaths;
     conventions.unrecorded_data = &[SymbolKind::Field];
-    conventions.macro_invocations = kartta_lang::MacroInvocations::Apart;
+    conventions.calls_apart = kartta_lang::CallsApart::Marked;
     conventions.twins = kartta_lang::Twins::Every;
     conventions.included_runtime_members =
         kartta_lang::IncludedRuntimeMembers::SpelledOwnOrExported;

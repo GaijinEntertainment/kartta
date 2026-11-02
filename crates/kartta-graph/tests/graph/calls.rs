@@ -243,7 +243,7 @@ fn a_value_a_body_declares_keeps_the_parent_directory_and_first_party_steps_from
 #[test]
 fn a_value_a_body_declares_leaves_a_macro_invocation_to_the_macro_of_its_name() {
     let mut invocation = call(0, "render", 2);
-    invocation.invokes_a_macro = true;
+    invocation.binds_apart = true;
     let caller = file("app/main.rs", vec![function("main", 1)], vec![invocation]);
     let mut macro_symbol = function("render", 1);
     macro_symbol.kind = SymbolKind::Macro;

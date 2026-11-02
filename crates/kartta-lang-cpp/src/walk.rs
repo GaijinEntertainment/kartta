@@ -497,7 +497,7 @@ impl<'s, 't> Replayer<'s, 't> {
             calls_a_method: receiver.is_some(),
             receiver,
             line: line(node.start_position().row),
-            invokes_a_macro: false,
+            binds_apart: false,
             arguments: 0,
         });
     }
