@@ -142,7 +142,11 @@ fn an_empty_query_keeps_its_limit_for_a_caller_that_keeps_offering() {
         .map(|position| ranking.offer(position, "x.rs"))
         .collect();
 
-    assert_eq!(answers, [true, false, false, false]);
+    assert_eq!(
+        answers,
+        [true, true, false, false],
+        "the offer past the limit is the first that answers false, so a caller that stops there saw one was turned away"
+    );
     assert_eq!(
         ranking.matched(),
         4,
