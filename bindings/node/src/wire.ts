@@ -565,6 +565,12 @@ export type References = {
 	 * it and its reads as a value, so an empty `sites` does not show that nothing uses the type.
 	 */
 	type_uses_unrecorded?: boolean;
+	/**
+	 * Present, and `true`, when `symbol` is a field, a variable or a constant of a kind whose reads and writes its graph
+	 * records nowhere: `sites` then hold only uses that spell the name as something else, so an empty `sites` does not
+	 * show that nothing uses the symbol.
+	 */
+	data_uses_unrecorded?: boolean;
 };
 
 /** A symbol's sites, counted by kind. */
