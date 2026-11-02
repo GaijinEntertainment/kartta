@@ -135,6 +135,12 @@ jobs:
           version: "0.3.0"
           report-type: annotations
 
+  versions:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: scripts/version.sh --check
+
   # Advisories, licences and sources, against the resolved graph rather than the manifests. The other jobs prove the
   # code we wrote is sound; this one is about the code we did not write, which is most of what ships.
   deny:
@@ -159,7 +165,7 @@ jobs:
   # when every triggered job passed or was skipped — so conditional jobs never need enumerating in rulesets.
   ci-ok:
     if: always()
-    needs: [fmt, clippy, docs, unsupported-watch, test, go, node, markdown, deny, npm-audit]
+    needs: [fmt, clippy, docs, unsupported-watch, test, go, node, markdown, versions, deny, npm-audit]
     runs-on: ubuntu-24.04
     steps:
       - name: verify all jobs succeeded
