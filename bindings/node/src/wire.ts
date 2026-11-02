@@ -435,7 +435,10 @@ export type Walk = {
 	truncated: boolean;
 	/** The symbols the cap kept out. */
 	turned_away: number;
-	/** The symbols at the depth bound whose own calls were not followed. */
+	/**
+	 * The symbols reached whose own calls were not followed: those at the depth bound, the root at a depth of 0, and those
+	 * the symbol cap left.
+	 */
 	unexpanded: number;
 	/** The calls under the confidence floor. */
 	below_confidence: number;
@@ -525,7 +528,10 @@ export type CallPath = {
 	hops: Reached[];
 	truncated: boolean;
 	turned_away: number;
-	/** The symbols at the depth bound whose own calls were not followed. */
+	/**
+	 * The callers other than `from` the search reached at the depth bound, whose own callers it did not look at: a longer
+	 * path may pass through them. Unlike `unexpanded`, it counts nothing the symbol cap left, which `truncated` reports.
+	 */
 	at_depth_bound: number;
 	below_confidence: number;
 	/** The other symbols each end's name selects. */
