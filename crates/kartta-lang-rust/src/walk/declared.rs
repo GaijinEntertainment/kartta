@@ -378,20 +378,28 @@ fn enclosing_function(node: Node<'_>) -> Option<Node<'_>> {
 // it is unwrapped: `?`, `.unwrap()` and `.expect(..)` take what `f` holds where `f` fails, with `.map_err(..)`,
 // `.as_ref()` or `.as_mut()` between them, which alone leave a `Result` or an `Option`
 fn peeled<'t>(value: Node<'t>, unwrapped: bool, source: &[u8]) -> (Node<'t>, bool) {
-    let operand = match value.kind() {
-        "try_expression" => value.named_child(0),
-        "call_expression" => value
-            .child_by_field_name("function")
-            .filter(|function| function.kind() == "field_expression")
-            .and_then(|function| {
-                let method = &source[function.child_by_field_name("field")?.byte_range()];
-                let keeps = matches!(method, b"map_err" | b"as_ref" | b"as_mut");
-                (matches!(method, b"unwrap" | b"expect") || (unwrapped && keeps))
-                    .then(|| function.child_by_field_name("value"))?
-            }),
-        _ => None,
-    };
-    operand.map_or((value, unwrapped), |operand| peeled(operand, true, source))
+    let (mut value, mut unwrapped) = (value, unwrapped);
+    loop {
+        let operand = match value.kind() {
+            "try_expression" => value.named_child(0),
+            "call_expression" => unwrapping_receiver(value, unwrapped, source),
+            _ => None,
+        };
+        let Some(operand) = operand else {
+            return (value, unwrapped);
+        };
+        (value, unwrapped) = (operand, true);
+    }
+}
+
+fn unwrapping_receiver<'t>(call: Node<'t>, unwrapped: bool, source: &[u8]) -> Option<Node<'t>> {
+    let function = call
+        .child_by_field_name("function")
+        .filter(|function| function.kind() == "field_expression")?;
+    let method = &source[function.child_by_field_name("field")?.byte_range()];
+    let keeps = matches!(method, b"map_err" | b"as_ref" | b"as_mut");
+    (matches!(method, b"unwrap" | b"expect") || (unwrapped && keeps))
+        .then(|| function.child_by_field_name("value"))?
 }
 
 // constraint: the path of the type a call constructs: `T::f()`; a function named for a builder constructs that builder,
@@ -499,8 +507,25 @@ fn field_type<'t>(field: Node<'t>, source: &[u8]) -> Option<(Node<'t>, Node<'t>)
 
 // constraint: the node whose text is the path of the type a parameter names, a type or a trait
 fn named_type<'t>(declared: Node<'t>, function: Node<'_>, source: &[u8]) -> Option<Node<'t>> {
+    let mut declared = declared;
+    loop {
+        declared = match declared.kind() {
+            "reference_type" => declared.child_by_field_name("type")?,
+            "generic_type" => {
+                let base = declared.child_by_field_name("type")?;
+                if matches!(&source[base.byte_range()], b"Box" | b"Rc" | b"Arc") {
+                    named_child_nodes(declared.child_by_field_name("type_arguments")?).next()?
+                } else {
+                    base
+                }
+            }
+            _ => return ungeneric_type(declared, function, source),
+        };
+    }
+}
+
+fn ungeneric_type<'t>(declared: Node<'t>, function: Node<'_>, source: &[u8]) -> Option<Node<'t>> {
     match declared.kind() {
-        "reference_type" => named_type(declared.child_by_field_name("type")?, function, source),
         "type_identifier" | "identifier" => {
             (!is_type_parameter(function, declared, source)).then_some(declared)
         }
@@ -509,15 +534,6 @@ fn named_type<'t>(declared: Node<'t>, function: Node<'_>, source: &[u8]) -> Opti
             let through_a_type = &source[path.byte_range()] == b"Self"
                 || (path.kind() == "identifier" && is_type_parameter(function, path, source));
             (!through_a_type).then_some(declared)
-        }
-        "generic_type" => {
-            let base = declared.child_by_field_name("type")?;
-            if matches!(&source[base.byte_range()], b"Box" | b"Rc" | b"Arc") {
-                let pointee =
-                    named_child_nodes(declared.child_by_field_name("type_arguments")?).next()?;
-                return named_type(pointee, function, source);
-            }
-            named_type(base, function, source)
         }
         "abstract_type" | "dynamic_type" => {
             let named = declared.child_by_field_name("trait")?;

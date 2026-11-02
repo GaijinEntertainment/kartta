@@ -248,20 +248,23 @@ fn names_a_value(node: Node<'_>) -> bool {
 }
 
 pub(super) fn path_segments(path: Node<'_>, source: &[u8]) -> Option<Vec<PathSegment>> {
-    match path.kind() {
-        "identifier" => Some(vec![PathSegment::Name(text(path, source))]),
-        "self" => Some(vec![PathSegment::SelfModule]),
-        "super" => Some(vec![PathSegment::SuperModule]),
-        "scoped_identifier" => {
-            let mut segments = path_segments(path.child_by_field_name("path")?, source)?;
-            let name = path.child_by_field_name("name")?;
-            segments.push(match name.kind() {
-                "identifier" => PathSegment::Name(text(name, source)),
-                "super" => PathSegment::SuperModule,
-                _ => return None,
-            });
-            Some(segments)
-        }
-        _ => None,
+    let mut path = path;
+    let mut segments = Vec::new();
+    while path.kind() == "scoped_identifier" {
+        let name = path.child_by_field_name("name")?;
+        segments.push(match name.kind() {
+            "identifier" => PathSegment::Name(text(name, source)),
+            "super" => PathSegment::SuperModule,
+            _ => return None,
+        });
+        path = path.child_by_field_name("path")?;
     }
+    segments.push(match path.kind() {
+        "identifier" => PathSegment::Name(text(path, source)),
+        "self" => PathSegment::SelfModule,
+        "super" => PathSegment::SuperModule,
+        _ => return None,
+    });
+    segments.reverse();
+    Some(segments)
 }

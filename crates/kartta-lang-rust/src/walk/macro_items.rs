@@ -250,7 +250,7 @@ impl<'a> Emitter<'a> {
             rules
                 .into_iter()
                 .map(|(pattern, made)| Arm {
-                    pattern: self.matchers(&inner_tokens(pattern)),
+                    pattern: self.matchers(&inner_tokens(pattern), 0),
                     made,
                 })
                 .collect()
@@ -263,7 +263,14 @@ impl<'a> Emitter<'a> {
             .push(ItemMacro { arms, scope_end });
     }
 
-    fn matchers(&self, tokens: &[Node<'_>]) -> Vec<Matcher<'a>> {
+    // constraint: a pattern nested past `MAX_NESTED_MATCHERS` matches nothing, since matching it and dropping it each
+    // cost a stack frame per level of a depth the file picks, so its arm makes no item (ADR 3.206)
+    fn matchers(&self, tokens: &[Node<'_>], nested: usize) -> Vec<Matcher<'a>> {
+        const MAX_NESTED_MATCHERS: usize = 64;
+
+        if nested == MAX_NESTED_MATCHERS {
+            return vec![Matcher::Token(&[])];
+        }
         let field = |token: Node<'_>, name: &str| {
             token
                 .child_by_field_name(name)
@@ -272,13 +279,14 @@ impl<'a> Emitter<'a> {
         tokens
             .iter()
             .map(|&token| match token.kind() {
-                "token_tree_pattern" => {
-                    Matcher::Tree(open_delimiter(token), self.matchers(&inner_tokens(token)))
-                }
+                "token_tree_pattern" => Matcher::Tree(
+                    open_delimiter(token),
+                    self.matchers(&inner_tokens(token), nested + 1),
+                ),
                 "token_binding_pattern" => {
                     Matcher::Bind(field(token, "name"), Fragment::of(field(token, "type")))
                 }
-                "token_repetition_pattern" => Matcher::Repeat(self.repetition(token)),
+                "token_repetition_pattern" => Matcher::Repeat(self.repetition(token, nested + 1)),
                 _ => Matcher::Token(self.bytes(token)),
             })
             .collect()
@@ -286,7 +294,7 @@ impl<'a> Emitter<'a> {
 
     // constraint: a repetition is `$ ( inner ) separator? operator`, its parts flat among the pattern's children but
     // for the separator, which the grammar keeps as no node, so it is the text between the `)` and the operator
-    fn repetition(&self, pattern: Node<'_>) -> Repetition<'a> {
+    fn repetition(&self, pattern: Node<'_>, nested: usize) -> Repetition<'a> {
         let parts = uncommented(pattern);
         let operator = parts.last().map_or(&[][..], |last| self.bytes(*last));
         let close = parts
@@ -299,7 +307,7 @@ impl<'a> Emitter<'a> {
             .map(<[u8]>::trim_ascii)
             .filter(|separator| !separator.is_empty());
         Repetition {
-            inner: self.matchers(parts.get(2..close).unwrap_or_default()),
+            inner: self.matchers(parts.get(2..close).unwrap_or_default(), nested),
             separator,
             operator,
         }
@@ -308,34 +316,37 @@ impl<'a> Emitter<'a> {
     // constraint: an item's own body holds its members and its code, never an item of the invocation's scope, so the
     // reading skips it and descends only into the trees around the items, a repetition's or a nested invocation's
     fn made(&self, transcriber: Node<'_>, made: &mut Vec<Made<'a>>) {
-        let tokens = uncommented(transcriber);
-        let mut at = 0;
-        while let Some(&token) = tokens.get(at) {
-            at += 1;
+        let mut open = vec![(uncommented(transcriber), 0)];
+        while let Some((tokens, at)) = open.last_mut() {
+            let Some(&token) = tokens.get(*at) else {
+                open.pop();
+                continue;
+            };
+            *at += 1;
             if matches!(token.kind(), "token_tree" | "token_repetition") {
-                self.made(token, made);
+                open.push((uncommented(token), 0));
                 continue;
             }
             let word = self.bytes(token);
             if word == b"impl" {
-                at = self.made_impl(&tokens, at, made);
+                *at = self.made_impl(tokens, *at, made);
                 continue;
             }
             let Some(&(keyword, kind)) = ITEM_KEYWORDS.iter().find(|(keyword, _)| *keyword == word)
             else {
                 continue;
             };
-            let Some(name) = tokens.get(at).filter(|name| name.kind() == "metavariable") else {
+            let Some(name) = tokens.get(*at).filter(|name| name.kind() == "metavariable") else {
                 continue;
             };
             made.push(Made::Item {
                 kind,
                 name: self.bytes(*name),
-                visibility: self.visibility_before(&tokens, at - 1),
+                visibility: self.visibility_before(tokens, *at - 1),
             });
-            at = item_end(
-                &tokens,
-                at,
+            *at = item_end(
+                tokens,
+                *at,
                 matches!(keyword, b"const" | b"static" | b"type"),
             );
         }
@@ -385,11 +396,15 @@ impl<'a> Emitter<'a> {
     }
 
     fn made_members(&self, owner: &'a [u8], tokens: &[Node<'_>], made: &mut Vec<Made<'a>>) {
-        let mut at = 0;
-        while let Some(&token) = tokens.get(at) {
-            at += 1;
+        let mut open = vec![(tokens.to_vec(), 0)];
+        while let Some((tokens, at)) = open.last_mut() {
+            let Some(&token) = tokens.get(*at) else {
+                open.pop();
+                continue;
+            };
+            *at += 1;
             if token.kind() == "token_repetition" {
-                self.made_members(owner, &uncommented(token), made);
+                open.push((uncommented(token), 0));
                 continue;
             }
             let kind = match self.bytes(token) {
@@ -399,7 +414,7 @@ impl<'a> Emitter<'a> {
                 _ => continue,
             };
             let Some(&member) = tokens
-                .get(at)
+                .get(*at)
                 .filter(|member| matches!(member.kind(), "identifier" | "metavariable"))
             else {
                 continue;
@@ -408,9 +423,9 @@ impl<'a> Emitter<'a> {
                 name: owner,
                 kind,
                 member: self.bytes(member),
-                visibility: self.visibility_before(tokens, at - 1),
+                visibility: self.visibility_before(tokens, *at - 1),
             });
-            at = item_end(tokens, at, kind != SymbolKind::Method);
+            *at = item_end(tokens, *at, kind != SymbolKind::Method);
         }
     }
 

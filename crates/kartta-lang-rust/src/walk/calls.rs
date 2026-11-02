@@ -134,6 +134,13 @@ impl Emitter<'_> {
     // calling `new` on `Widget`; a member call takes a named operand, a named field of `self`, the type a chain holds,
     // `self` as the type of the impl or trait around it, and anything else as the empty receiver
     fn call_target(&self, function: Node<'_>) -> Target {
+        let mut function = function;
+        while function.kind() == "generic_function" {
+            let Some(inner) = function.child_by_field_name("function") else {
+                return Target::none();
+            };
+            function = inner;
+        }
         match function.kind() {
             "identifier" => Target::new(text(function, self.source), None),
             "scoped_identifier" => {
@@ -151,9 +158,6 @@ impl Emitter<'_> {
                     calls_a_method: false,
                 }
             }
-            "generic_function" => function
-                .child_by_field_name("function")
-                .map_or_else(Target::none, |inner| self.call_target(inner)),
             "field_expression" => self.member_target(function).of_a_method(),
             _ => Target::none(),
         }
@@ -335,9 +339,10 @@ fn call_form(function: Node<'_>, source: &[u8]) -> Option<CallForm> {
 }
 
 fn receiver_path(function: Node<'_>, source: &[u8]) -> Option<String> {
-    match function.kind() {
-        "scoped_identifier" => path_text(function.child_by_field_name("path")?, source),
-        "generic_function" => receiver_path(function.child_by_field_name("function")?, source),
-        _ => None,
+    let mut function = function;
+    while function.kind() == "generic_function" {
+        function = function.child_by_field_name("function")?;
     }
+    (function.kind() == "scoped_identifier")
+        .then(|| path_text(function.child_by_field_name("path")?, source))?
 }

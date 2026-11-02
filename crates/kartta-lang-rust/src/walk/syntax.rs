@@ -136,17 +136,32 @@ pub(super) fn last_segment(node: Node<'_>, source: &[u8]) -> String {
 
 // constraint: a global path, `::a::B`, starts with an empty segment, and generic arguments are dropped
 pub(super) fn path_text(path: Node<'_>, source: &[u8]) -> Option<String> {
-    match path.kind() {
-        "identifier" | "type_identifier" | "self" | "super" | "crate" => Some(text(path, source)),
-        "scoped_identifier" | "scoped_type_identifier" => {
-            let prefix = match path.child_by_field_name("path") {
-                Some(prefix) => path_text(prefix, source)?,
-                None => String::new(),
-            };
-            let name = path_text(path.child_by_field_name("name")?, source)?;
-            Some(format!("{prefix}::{name}"))
+    let mut path = path;
+    let mut names = Vec::new();
+    let mut spelled = loop {
+        match path.kind() {
+            "scoped_identifier" | "scoped_type_identifier" => {
+                names.push(path.child_by_field_name("name").filter(is_path_word)?);
+                match path.child_by_field_name("path") {
+                    Some(prefix) => path = prefix,
+                    None => break String::new(),
+                }
+            }
+            "generic_type" => path = path.child_by_field_name("type")?,
+            _ if is_path_word(&path) => break text(path, source),
+            _ => return None,
         }
-        "generic_type" => path_text(path.child_by_field_name("type")?, source),
-        _ => None,
+    };
+    for name in names.iter().rev() {
+        spelled.push_str("::");
+        spelled.push_str(&String::from_utf8_lossy(&source[name.byte_range()]));
     }
+    Some(spelled)
+}
+
+fn is_path_word(word: &Node<'_>) -> bool {
+    matches!(
+        word.kind(),
+        "identifier" | "type_identifier" | "self" | "super" | "crate"
+    )
 }
