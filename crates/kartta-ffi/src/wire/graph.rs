@@ -777,6 +777,10 @@ struct StatsDef {
     calls: usize,
     local_calls: usize,
     uses: usize,
+    reads: usize,
+    writes: usize,
+    updates: usize,
+    types: usize,
     includes: usize,
 }
 

@@ -226,6 +226,33 @@ fn a_fuzzy_answer_counts_its_matches_unless_the_query_is_empty() {
 }
 
 #[test]
+fn a_graphs_stats_count_its_uses_by_access() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("main.go"),
+        "package main\n\ntype T struct{}\n\nvar v = 1\n\nfunc f(t T) int {\n\tv = 2\n\tv += 1\n\treturn v\n}\n",
+    )
+    .expect("main.go");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &json!({ "languages": ["go"] }));
+
+    let stats = ok(&kartta, "stats", &Value::Null);
+
+    let graph = &stats["graphs"][0];
+    assert_eq!(
+        (
+            &graph["reads"],
+            &graph["writes"],
+            &graph["updates"],
+            &graph["types"]
+        ),
+        (&json!(1), &json!(1), &json!(1), &json!(1)),
+        "{graph}"
+    );
+    assert_eq!(graph["uses"], 4, "the four counts together: {graph}");
+}
+
+#[test]
 fn empty_text_whitespace_and_null_each_read_as_no_params() {
     let tree = tree();
     let kartta = open(tree.path());
