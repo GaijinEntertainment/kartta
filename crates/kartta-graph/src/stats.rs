@@ -18,14 +18,16 @@ pub struct Stats {
     pub calls: usize,
     /// The calls of a definition local to the caller's body, which bind it without a lookup.
     pub local_calls: usize,
-    /// The uses of a name outside a call inside a definition: the reads, writes and updates together.
+    /// The uses of a name outside a call inside a definition: the reads, writes, updates and uses as a type together.
     pub uses: usize,
-    /// The uses that read the value their name binds, or name it as a type.
+    /// The uses that read the value their name binds.
     pub reads: usize,
     /// The uses that assign the value without reading it.
     pub writes: usize,
     /// The uses that read and assign the value.
     pub updates: usize,
+    /// The uses that name it as a type.
+    pub types: usize,
     /// The files the held files include, once for each file and each file it includes, whether the graph holds the
     /// included file or not.
     pub includes: usize,
@@ -48,9 +50,10 @@ impl Graph {
             stats.uses += file.uses.len();
             for site in &file.uses {
                 match site.access() {
-                    Access::Read | Access::Type => stats.reads += 1,
+                    Access::Read => stats.reads += 1,
                     Access::Write => stats.writes += 1,
                     Access::Update => stats.updates += 1,
+                    Access::Type => stats.types += 1,
                 }
             }
             stats.includes += file.includes.len();

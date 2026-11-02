@@ -34,6 +34,7 @@ fn library() -> Extraction {
         point(Access::Write, 8),
         point(Access::Update, 8),
         point(Access::Write, 9),
+        point(Access::Type, 9),
     ];
     extraction.includes = vec![
         IncludeRef::new("src/lib.h".to_owned()),
@@ -65,10 +66,10 @@ fn the_counts_cover_every_file_definition_site_and_include_the_graph_holds() {
     );
     assert_eq!(stats.calls, 2, "the call at file scope is no site");
     assert_eq!(stats.local_calls, 1);
-    assert_eq!(stats.uses, 4);
+    assert_eq!(stats.uses, 5);
     assert_eq!(
-        (stats.reads, stats.writes, stats.updates),
-        (1, 2, 1),
+        (stats.reads, stats.writes, stats.updates, stats.types),
+        (1, 2, 1, 1),
         "each use counts once, by its access"
     );
     assert_eq!(
