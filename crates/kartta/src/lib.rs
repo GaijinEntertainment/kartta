@@ -82,6 +82,8 @@
 //! and [`unmatched`] what a name that selected no symbol names instead.
 //! The first release with a public surface will be `1.0.0`.
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod engine;
 mod extracting;
 #[cfg(feature = "watch")]

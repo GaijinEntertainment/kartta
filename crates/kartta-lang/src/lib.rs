@@ -63,6 +63,8 @@
 //! assert_eq!(names, ["parse", "render"]);
 //! ```
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod banner;
 mod codec;
 mod doc;
