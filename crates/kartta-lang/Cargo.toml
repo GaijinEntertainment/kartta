@@ -11,6 +11,9 @@ authors.workspace = true
 keywords = ["code-graph", "tree-sitter", "parser", "static-analysis", "symbols"]
 categories = ["development-tools", "parser-implementations"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [lints]
 workspace = true
 

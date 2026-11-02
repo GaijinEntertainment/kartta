@@ -144,6 +144,8 @@
 //! and refreshing all of these as the tree changes. Not yet: the ignore sources outside the tree — [`IgnoreSources`]
 //! names only the levels that are implemented.
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod binary;
 mod build;
 mod cache;
